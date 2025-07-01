@@ -71,3 +71,5 @@ export function createContextManager(
 		throw error;
 	}
 }
+
+export { getFormatter };

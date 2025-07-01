@@ -3,6 +3,7 @@ import { MemAgent } from '../agent.js';
 import { AgentConfig, AgentConfigSchema } from '../config.js';
 import { LLMConfigSchema } from '../../llm/config.js';
 import { ZodError } from 'zod';
+import { LongTermProgrammingMemory } from '../longterm-memory.js';
 
 // Mock all external dependencies
 vi.mock('../../../utils/service-initializer.js', () => ({
@@ -442,6 +443,35 @@ describe('MemAgent', () => {
 			expect(agent.stateManager).toBeDefined();
 			expect(agent.sessionManager).toBeDefined();
 			expect(agent.services).toBeDefined();
+		});
+	});
+
+	describe('MemAgent automatic chat+embedding storage', () => {
+		it('should call saveChatInteractionWithEmbeddings after generating a response', async () => {
+			const config = {/* minimal valid AgentConfig for test */} as any;
+			const agent = new MemAgent(config);
+			// Mock start to set up openaiService and sessionManager
+			(agent as any).isStarted = true;
+			(agent as any).openaiService = {
+				openai: { apiKey: 'test-key' },
+			} as any;
+			(agent as any).sessionManager = {
+				createSession: async (id?: string) => ({
+					id: id || 'default',
+					run: async () => 'mocked response',
+				}),
+				getSession: async (id: string) => null,
+			} as any;
+			// Spy on storage method
+			const spy = vi.spyOn(LongTermProgrammingMemory, 'saveChatInteractionWithEmbeddings').mockResolvedValue(undefined);
+			await agent.run('test user input', undefined, 'test-session');
+			expect(spy).toHaveBeenCalledWith(
+				'test user input',
+				'mocked response',
+				'test-key',
+				expect.objectContaining({ sessionId: 'test-session' })
+			);
+			spy.mockRestore();
 		});
 	});
 });

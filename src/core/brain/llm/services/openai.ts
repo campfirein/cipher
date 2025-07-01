@@ -187,4 +187,21 @@ export class OpenAIService implements ILLMService {
 			};
 		});
 	}
+
+	// --- ADDED: Embedding generation ---
+	/**
+	 * Generate an embedding vector for a given input string using the OpenAI API.
+	 * @param input The text to embed.
+	 * @returns Promise<number[]> The embedding vector.
+	 */
+	static async generateEmbedding(apiKey: string, input: string): Promise<number[]> {
+		const openai = new OpenAI({ apiKey });
+		const response = await openai.embeddings.create({
+			model: 'text-embedding-ada-002', // Or another embedding model if preferred
+			input,
+		});
+		const embedding = response.data[0]?.embedding;
+		if (!embedding) throw new Error('Failed to generate embedding');
+		return embedding;
+	}
 }

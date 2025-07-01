@@ -9,6 +9,7 @@ import { AgentConfig } from './config.js';
 import { logger } from '../../logger/index.js';
 import { LLMConfig } from '../llm/config.js';
 import { IMCPClient, McpServerConfig } from '../../mcp/types.js';
+import { LongTermProgrammingMemory } from './longterm-memory.js';
 
 const requiredServices: (keyof AgentServices)[] = [
 	'mcpManager',
@@ -32,6 +33,8 @@ export class MemAgent {
 	private isStopped: boolean = false;
 
 	private config: AgentConfig;
+	private longTermMemory = new LongTermProgrammingMemory();
+	private openaiService!: import('../llm/services/openai.js').OpenAIService;
 
 	constructor(config: AgentConfig) {
 		this.config = config;
@@ -63,6 +66,10 @@ export class MemAgent {
 				sessionManager: services.sessionManager,
 				services: services,
 			});
+			// Assign OpenAIService if available
+			if (services.llmService && services.llmService.getConfig().provider === 'openai') {
+				this.openaiService = services.llmService as import('../llm/services/openai.js').OpenAIService;
+			}
 			this.isStarted = true;
 			logger.info('MemAgent started successfully');
 		} catch (error) {
@@ -146,6 +153,13 @@ export class MemAgent {
 	): Promise<string | null> {
 		this.ensureStarted();
 		try {
+			// Save user input to long-term programming memory using LLM extraction
+			if (this.openaiService && this.promptManager) {
+				await this.longTermMemory.saveEntryWithLLM(userInput, this.promptManager, this.openaiService);
+			} else {
+				// Fallback to sync save if LLM service is not available
+				this.longTermMemory.saveEntry(userInput);
+			}
 			let session: ConversationSession;
 			if (sessionId) {
 				session =
@@ -164,6 +178,20 @@ export class MemAgent {
 			logger.debug(`MemAgent.run: using session ${session.id}`);
 			const response = await session.run(userInput, imageDataInput, stream);
 			if (response && response.trim() !== '') {
+				// Asynchronously save user input, response, and embeddings to vectordb (fire-and-forget)
+				if (this.openaiService) {
+					const openaiApiKey = this.openaiService["openai"]?.apiKey || process.env.OPENAI_API_KEY;
+					if (openaiApiKey) {
+						LongTermProgrammingMemory.saveChatInteractionWithEmbeddings(
+							userInput,
+							response,
+							openaiApiKey,
+							{ sessionId }
+						).catch(err => {
+							logger.error('Failed to save chat interaction with embeddings:', err);
+						});
+					}
+				}
 				return response;
 			}
 			// Return null if the response is empty or just whitespace.

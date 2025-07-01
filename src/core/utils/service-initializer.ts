@@ -6,12 +6,18 @@ import { logger } from '../logger/index.js';
 import { AgentConfig } from '../brain/memAgent/config.js';
 import { ServerConfigsSchema } from '../mcp/config.js';
 import { ServerConfigs } from '../mcp/types.js';
+import { createLLMService } from '../brain/llm/services/factory.js';
+import { ContextManager } from '../brain/llm/messages/manager.js';
+import { LLMConfig } from '../brain/llm/config.js';
+import type { ILLMService } from '../brain/llm/services/types.js';
+import { getFormatter } from '../brain/llm/messages/factory.js';
 
 export type AgentServices = {
 	mcpManager: MCPManager;
 	promptManager: PromptManager;
 	stateManager: MemAgentStateManager;
 	sessionManager: SessionManager;
+	llmService: ILLMService;
 };
 
 export async function createAgentServices(agentConfig: AgentConfig): Promise<AgentServices> {
@@ -52,11 +58,7 @@ export async function createAgentServices(agentConfig: AgentConfig): Promise<Age
 	}
 
 	const sessionManager = new SessionManager(
-		{
-			stateManager,
-			promptManager,
-			mcpManager,
-		},
+		{ stateManager, promptManager, mcpManager },
 		sessionConfig
 	);
 
@@ -65,11 +67,18 @@ export async function createAgentServices(agentConfig: AgentConfig): Promise<Age
 
 	logger.debug('Session manager initialized with storage support');
 
-	// 8. Return the core services
+	// 8. Initialize LLM service
+	const formatter = getFormatter((config.llm as LLMConfig).provider);
+	const contextManager = new ContextManager(formatter, promptManager);
+	const llmService = createLLMService(config.llm as LLMConfig, mcpManager, contextManager);
+	logger.debug('LLM service initialized');
+
+	// 9. Return the core services
 	return {
 		mcpManager,
 		promptManager,
 		stateManager,
 		sessionManager,
+		llmService
 	};
 }

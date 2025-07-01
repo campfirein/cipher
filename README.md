@@ -275,3 +275,97 @@ If you're enjoying this project, please give us a ⭐ on GitHub!
 ## License
 
 [Apache License 2.0](LICENSE)
+
+## Chat Simulation and Vector Storage
+
+This project includes a CLI tool to simulate a chat between a user and Cursor (powered by OpenAI), and store each user query and AI response as vector embeddings for semantic search.
+
+### Usage
+
+1. Set your OpenAI API key in the environment:
+
+```sh
+export OPENAI_API_KEY=sk-...
+```
+
+2. (Optional) Configure embedding model, storage path, and retry count:
+
+```sh
+export EMBEDDING_MODEL=text-embedding-ada-002
+export CHAT_MEMORY_PATH=memAgent/chat_memory.json
+export EMBEDDING_RETRY=3
+```
+
+3. Run the chat simulation CLI:
+
+```sh
+pnpm tsx src/core/brain/memAgent/simulate-chat.ts
+```
+
+You will be prompted for a user purpose (e.g., "write a binary search tree"). The tool will generate a response using OpenAI, compute embeddings for both the input and response, and store the result in the configured storage file.
+
+### Storage Format
+
+Each chat interaction is stored as a JSON object with the following fields:
+
+- `userPurpose`: The user's input string
+- `cursorResponse`: The AI-generated response
+- `userEmbedding`: Vector embedding for the user input
+- `responseEmbedding`: Vector embedding for the response
+- `timestamp`: ISO timestamp
+
+### Configuration
+
+- `OPENAI_API_KEY`: Your OpenAI API key (required)
+- `EMBEDDING_MODEL`: Embedding model to use (default: `text-embedding-ada-002`)
+- `CHAT_MEMORY_PATH`: File path for storing chat memory (default: `memAgent/chat_memory.json`)
+- `EMBEDDING_RETRY`: Number of retries for embedding generation and file write (default: 3)
+
+## MemAgent Automatic Chat & Embedding Storage
+
+MemAgent now automatically saves every user input, agent response, and their vector embeddings after each interaction.
+
+- **What is stored:**
+  - User input (prompt)
+  - Agent response
+  - Embeddings for both
+  - Timestamp
+  - Session ID (if available)
+- **Where:**
+  - By default, in `memAgent/chat_memory.json` (configurable via `CHAT_MEMORY_PATH` environment variable)
+- **How:**
+  - Storage is asynchronous and does not block the agent's main flow.
+  - Embeddings are generated using OpenAI (model configurable via `EMBEDDING_MODEL`).
+- **Configuration:**
+  - `CHAT_MEMORY_PATH`, `EMBEDDING_MODEL`, and `EMBEDDING_RETRY` can be set as environment variables.
+
+This enables semantic search and long-term memory for all agent interactions.
+
+## MemAgent Demo: End-to-End Chat + Embedding Storage
+
+You can run a demo to verify that MemAgent automatically saves user input, agent response, and their embeddings after each interaction.
+
+### 1. Set Up
+- Ensure dependencies are installed: `npm install` or `pnpm install`
+- Set your OpenAI API key:
+  ```sh
+  export OPENAI_API_KEY=sk-...   # Use your real key
+  ```
+
+### 2. Run the Demo
+- Execute the demo script:
+  ```sh
+  npx tsx src/core/brain/memAgent/demo-agent.ts
+  ```
+- You can change the model in the script (e.g., `gpt-4o-mini`, `gpt-3.5-turbo`, etc.)
+
+### 3. What to Expect
+- The agent's response will be printed in the terminal.
+- The last entry in `memAgent/chat_memory.json` will be printed, showing:
+  - Your prompt
+  - The agent's response
+  - Embeddings for both
+  - Timestamp
+  - Session ID
+
+This demonstrates the full workflow: MemAgent receives input, generates a response, and persists the interaction and embeddings for semantic memory.
