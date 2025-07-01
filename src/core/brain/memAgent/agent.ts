@@ -9,7 +9,9 @@ import { AgentConfig } from './config.js';
 import { logger } from '../../logger/index.js';
 import { LLMConfig } from '../llm/config.js';
 import { IMCPClient, McpServerConfig } from '../../mcp/types.js';
-import { LongTermProgrammingMemory } from './longterm-memory.js';
+import { MemoryService, ChatMemoryEntry } from '../services/memory-service.js';
+import { QdrantClientService } from '../services/qdrant-client.js';
+import { isProgrammingRelatedLLM } from './utils/isProgrammingRelatedLLM.js';
 
 const requiredServices: (keyof AgentServices)[] = [
 	'mcpManager',
@@ -33,7 +35,7 @@ export class MemAgent {
 	private isStopped: boolean = false;
 
 	private config: AgentConfig;
-	private longTermMemory = new LongTermProgrammingMemory();
+	private memoryService!: MemoryService;
 	private openaiService!: import('../llm/services/openai.js').OpenAIService;
 
 	constructor(config: AgentConfig) {
@@ -70,6 +72,21 @@ export class MemAgent {
 			if (services.llmService && services.llmService.getConfig().provider === 'openai') {
 				this.openaiService = services.llmService as import('../llm/services/openai.js').OpenAIService;
 			}
+
+			// Initialize MemoryService with Qdrant or file backend
+			if (process.env.QDRANT_URL) {
+				this.memoryService = new MemoryService({
+					backend: 'qdrant',
+					qdrant: new QdrantClientService({
+						url: process.env.QDRANT_URL!,
+						apiKey: process.env.QDRANT_API_KEY,
+						collection: process.env.QDRANT_COLLECTION || 'chat_memory',
+					}),
+				});
+			} else {
+				this.memoryService = new MemoryService({ backend: 'file' });
+			}
+
 			this.isStarted = true;
 			logger.info('MemAgent started successfully');
 		} catch (error) {
@@ -153,20 +170,12 @@ export class MemAgent {
 	): Promise<string | null> {
 		this.ensureStarted();
 		try {
-			// Save user input to long-term programming memory using LLM extraction
-			if (this.openaiService && this.promptManager) {
-				await this.longTermMemory.saveEntryWithLLM(userInput, this.promptManager, this.openaiService);
-			} else {
-				// Fallback to sync save if LLM service is not available
-				this.longTermMemory.saveEntry(userInput);
-			}
 			let session: ConversationSession;
 			if (sessionId) {
 				session =
 					(await this.sessionManager.getSession(sessionId)) ??
 					(await this.sessionManager.createSession(sessionId));
 			} else {
-				// Use loaded default session for backward compatibility
 				if (!this.defaultSession || this.defaultSession.id !== this.currentDefaultSessionId) {
 					this.defaultSession = await this.sessionManager.createSession(
 						this.currentDefaultSessionId
@@ -177,23 +186,51 @@ export class MemAgent {
 			}
 			logger.debug(`MemAgent.run: using session ${session.id}`);
 			const response = await session.run(userInput, imageDataInput, stream);
-			if (response && response.trim() !== '') {
-				// Asynchronously save user input, response, and embeddings to vectordb (fire-and-forget)
-				if (this.openaiService) {
-					const openaiApiKey = this.openaiService["openai"]?.apiKey || process.env.OPENAI_API_KEY;
-					if (openaiApiKey) {
-						LongTermProgrammingMemory.saveChatInteractionWithEmbeddings(
-							userInput,
-							response,
-							openaiApiKey,
-							{ sessionId }
-						).catch(err => {
-							logger.error('Failed to save chat interaction with embeddings:', err);
-						});
-					}
+			if (response && response.trim() !== '' && this.openaiService) {
+				const openaiApiKey = this.openaiService["openai"]?.apiKey || process.env.OPENAI_API_KEY;
+				if (openaiApiKey) {
+					// Generate embeddings for user input and response
+					Promise.all([
+						import('../llm/services/openai.js').then(m => m.OpenAIService.generateEmbedding(openaiApiKey, userInput)),
+						import('../llm/services/openai.js').then(m => m.OpenAIService.generateEmbedding(openaiApiKey, response)),
+					]).then(async ([userEmbedding, responseEmbedding]) => {
+						const entry: ChatMemoryEntry = {
+							userPurpose: userInput,
+							cursorResponse: response,
+							userEmbedding,
+							responseEmbedding,
+							timestamp: new Date().toISOString(),
+							sessionId,
+						};
+
+						// LLM-based programming relevance check
+						let userRelevant = false;
+						let responseRelevant = false;
+						try {
+							[userRelevant, responseRelevant] = await Promise.all([
+								isProgrammingRelatedLLM(userInput, openaiApiKey),
+								isProgrammingRelatedLLM(response, openaiApiKey)
+							]);
+							// eslint-disable-next-line no-console
+							console.debug('[MemAgent] Programming relevance:', { userRelevant, responseRelevant });
+						} catch (err) {
+							// eslint-disable-next-line no-console
+							console.error('[MemAgent] Error during programming relevance check:', err);
+						}
+						if (userRelevant || responseRelevant) {
+							// eslint-disable-next-line no-console
+							console.info('[MemAgent] Saving programming-related chat to Qdrant.');
+							this.memoryService.saveChatInteraction(entry).catch(err => {
+								logger.error('Failed to save chat interaction to memory service:', err);
+							});
+						} else {
+							// eslint-disable-next-line no-console
+							console.info('[MemAgent] Skipped saving non-programming-related chat to Qdrant.');
+						}
+					});
 				}
-				return response;
 			}
+			return response;
 			// Return null if the response is empty or just whitespace.
 			return null;
 		} catch (error) {
