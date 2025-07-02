@@ -18,6 +18,11 @@ export class MemoryService {
   private filePath: string;
   private qdrant?: QdrantClientService;
 
+  /**
+   * @param options.backend 'file' or 'qdrant'
+   * @param options.filePath Path for file backend
+   * @param options.qdrant QdrantClientService instance (should be initialized with env vars for cloud/local)
+   */
   constructor(options: { backend?: MemoryBackend; filePath?: string; qdrant?: QdrantClientService }) {
     this.backend = options.backend || 'file';
     this.filePath = options.filePath || path.resolve(process.cwd(), 'memAgent', 'chat_memory.json');

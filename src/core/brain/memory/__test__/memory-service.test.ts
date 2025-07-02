@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { MemoryService, ChatMemoryEntry } from '../memory-service.js';
+import { QdrantClientService } from '../qdrant-client.js';
 
 describe('MemoryService', () => {
   let memoryService: MemoryService;
@@ -60,5 +61,14 @@ describe('MemoryService', () => {
   it('should handle search errors', async () => {
     mockQdrant.searchByEmbedding.mockRejectedValue(new Error('search failed'));
     await expect(memoryService.searchByEmbedding([0.1, 0.2, 0.3])).rejects.toThrow('search failed');
+  });
+
+  it('should construct with QdrantClientService.fromEnv (cloud)', () => {
+    process.env.QDRANT_URL = 'https://test-cluster.qdrant.cloud';
+    process.env.QDRANT_API_KEY = 'test-api-key';
+    process.env.QDRANT_COLLECTION = 'test-collection';
+    const qdrant = QdrantClientService.fromEnv();
+    const memoryService = new MemoryService({ backend: 'qdrant', qdrant });
+    expect(memoryService).toBeInstanceOf(MemoryService);
   });
 }); 

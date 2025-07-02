@@ -2,7 +2,7 @@ import 'dotenv/config';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { MemAgent } from '../agent.js';
 import { AgentConfig } from '../config.js';
-import { MemoryService, ChatMemoryEntry } from '../../services/memory-service.js';
+import { MemoryService, ChatMemoryEntry } from '../../memory/memory-service.js';
 import * as relevanceUtils from '../utils/isProgrammingRelatedLLM.js';
 
 describe('MemAgent Integration', () => {

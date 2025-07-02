@@ -9,8 +9,8 @@ import { AgentConfig } from './config.js';
 import { logger } from '../../logger/index.js';
 import { LLMConfig } from '../llm/config.js';
 import { IMCPClient, McpServerConfig } from '../../mcp/types.js';
-import { MemoryService, ChatMemoryEntry } from '../services/memory-service.js';
-import { QdrantClientService } from '../services/qdrant-client.js';
+import { MemoryService, ChatMemoryEntry } from '../memory/memory-service.js';
+import { QdrantClientService } from '../memory/qdrant-client.js';
 import { isProgrammingRelatedLLM } from './utils/isProgrammingRelatedLLM.js';
 
 const requiredServices: (keyof AgentServices)[] = [
@@ -74,14 +74,11 @@ export class MemAgent {
 			}
 
 			// Initialize MemoryService with Qdrant or file backend
+			// QDRANT_URL and QDRANT_API_KEY support Qdrant Cloud. API key is only required for cloud usage.
 			if (process.env.QDRANT_URL) {
 				this.memoryService = new MemoryService({
 					backend: 'qdrant',
-					qdrant: new QdrantClientService({
-						url: process.env.QDRANT_URL!,
-						apiKey: process.env.QDRANT_API_KEY,
-						collection: process.env.QDRANT_COLLECTION || 'chat_memory',
-					}),
+					qdrant: QdrantClientService.fromEnv(),
 				});
 			} else {
 				this.memoryService = new MemoryService({ backend: 'file' });

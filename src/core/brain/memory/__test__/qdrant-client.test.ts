@@ -93,4 +93,28 @@ describe('QdrantClientService', () => {
     mockClient.search.mockRejectedValue(new Error('search error'));
     await expect(qdrantClient.searchByEmbedding([0.1, 0.2, 0.3])).rejects.toThrow('search error');
   });
+
+  it('should create from environment variables (cloud)', () => {
+    process.env.QDRANT_URL = 'https://test-cluster.qdrant.cloud';
+    process.env.QDRANT_API_KEY = 'test-api-key';
+    process.env.QDRANT_COLLECTION = 'test-collection';
+    const client = QdrantClientService.fromEnv();
+    expect(client).toBeInstanceOf(QdrantClientService);
+    // @ts-ignore
+    expect(client.collection).toBe('test-collection');
+    // @ts-ignore
+    expect(client.client).toBeDefined();
+  });
+
+  it('should create from environment variables (local)', () => {
+    process.env.QDRANT_URL = 'http://localhost:6333';
+    delete process.env.QDRANT_API_KEY;
+    process.env.QDRANT_COLLECTION = 'local-collection';
+    const client = QdrantClientService.fromEnv();
+    expect(client).toBeInstanceOf(QdrantClientService);
+    // @ts-ignore
+    expect(client.collection).toBe('local-collection');
+    // @ts-ignore
+    expect(client.client).toBeDefined();
+  });
 }); 

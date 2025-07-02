@@ -159,8 +159,10 @@ REDACT_SECRETS=true               # true/false - redact sensitive info in logs
 
 # Qdrant Vector Database (optional, for vector memory backend)
 QDRANT_URL=http://localhost:6333
-QDRANT_API_KEY=your_qdrant_api_key_here
+QDRANT_API_KEY=your_qdrant_api_key_here  # Only required for Qdrant Cloud
 QDRANT_COLLECTION=cipher_memory
+
+# For Qdrant Cloud, QDRANT_URL must start with https://
 
 ```
 
@@ -264,14 +266,12 @@ refelection
 ## Chat Simulation and Vector Storage
 
 To run chat simulation and check vector storage:
-1. **Environment Configuration**: Copy `.env.example` to `.env` and configure at least one API provider:
-
+1. Run Qdrant vectorDB
+- First make sure qdrant is already in your package
    ```bash
-    npx tsx src/app/index.ts
+    npm install @qdrant/js-client-rest
    ```
-
-2. Check the Qdrant vectorDB
-- First, download the latest Qdrant image from Dockerhub:
+- Second, download the latest Qdrant image from Dockerhub:
    ```bash
     docker pull qdrant/qdrant
    ```
@@ -281,7 +281,14 @@ To run chat simulation and check vector storage:
     -v "$(pwd)/qdrant_storage:/qdrant/storage:z" \
     qdrant/qdrant
    ```
-- Finally, visit: http://localhost:6333
+- Finally, visit: your_QDRANT_URL (http://localhost:6333 by default)
+
+> **Note:** Qdrant Cloud is fully supported. Set `QDRANT_URL` to your cloud endpoint and `QDRANT_API_KEY` to your cloud API key. The API key is not required for local Qdrant.
+2. **Environment Configuration**: Copy `.env.example` to `.env` and configure at least one API provider:
+
+   ```bash
+    npx tsx src/app/index.ts
+   ```
 
 ## LLM Providers
 
