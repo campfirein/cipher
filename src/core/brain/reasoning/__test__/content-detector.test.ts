@@ -25,16 +25,27 @@ describe('ReasoningContentDetector', () => {
 	let mockPromptManager: PromptManager;
 	let mockMcpManager: MCPManager;
 	let mockUnifiedToolManager: UnifiedToolManager;
+	let mockEvalLlmConfig: any;
 
 	beforeEach(() => {
 		mockPromptManager = {} as PromptManager;
 		mockMcpManager = {} as MCPManager;
 		mockUnifiedToolManager = {} as UnifiedToolManager;
 
+		// Mock evalLlmConfig for testing
+		mockEvalLlmConfig = {
+			provider: 'openai',
+			model: 'gpt-4o-mini',
+			apiKey: 'test-api-key',
+			maxIterations: 3,
+		};
+
 		detector = new ReasoningContentDetector(
 			mockPromptManager,
 			mockMcpManager,
-			mockUnifiedToolManager
+			mockUnifiedToolManager,
+			mockEvalLlmConfig,
+			undefined
 		);
 	});
 

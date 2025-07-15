@@ -47,22 +47,20 @@ export class ReasoningContentDetector {
 	private mcpManager: MCPManager;
 	private unifiedToolManager: UnifiedToolManager;
 	private options: Required<ReasoningDetectionOptions>;
-	private evalLlmConfig?: LLMConfig;
+	private evalLlmConfig: LLMConfig;
 
 	constructor(
 		promptManager: PromptManager,
 		mcpManager: MCPManager,
 		unifiedToolManager: UnifiedToolManager,
-		options?: ReasoningDetectionOptions,
-		evalLlmConfig?: LLMConfig
+		evalLlmConfig: LLMConfig,
+		options?: ReasoningDetectionOptions
 	) {
 		this.promptManager = promptManager;
 		this.mcpManager = mcpManager;
 		this.unifiedToolManager = unifiedToolManager;
 		this.options = { ...DEFAULT_OPTIONS, ...options };
-		if (evalLlmConfig) {
-			this.evalLlmConfig = evalLlmConfig;
-		}
+		this.evalLlmConfig = evalLlmConfig;
 	}
 
 	/**
@@ -72,12 +70,10 @@ export class ReasoningContentDetector {
 		if (this.llmService) return;
 
 		try {
-			// Use configured evaluation model or fallback to default non-thinking model
-			const evalConfig = this.evalLlmConfig || {
-				provider: 'anthropic',
-				model: 'claude-3-5-haiku-20241022', // Fast, non-thinking model
-				apiKey: process.env.ANTHROPIC_API_KEY,
-				maxIterations: 3,
+			// Use the provided evaluation LLM configuration
+			const evalConfig = {
+				...this.evalLlmConfig,
+				maxIterations: this.evalLlmConfig.maxIterations ?? 3, // Default for eval tasks
 			};
 
 			const contextManager = createContextManager(evalConfig, this.promptManager);
@@ -88,7 +84,10 @@ export class ReasoningContentDetector {
 				this.unifiedToolManager
 			);
 
-			logger.debug('ReasoningContentDetector: LLM service initialized for analysis');
+			logger.debug('ReasoningContentDetector: LLM service initialized for analysis', {
+				provider: evalConfig.provider,
+				model: evalConfig.model,
+			});
 		} catch (error) {
 			logger.warn('ReasoningContentDetector: Failed to initialize LLM service for analysis', {
 				error: error instanceof Error ? error.message : String(error),
@@ -202,7 +201,37 @@ Respond only with the JSON object, no additional text.`;
 			const response = await this.llmService.directGenerate(analysisPrompt);
 
 			try {
-				const result = JSON.parse(response.trim());
+				// Clean the response to handle common LLM formatting issues
+				let cleanedResponse = response.trim();
+
+				logger.debug('ReasoningContentDetector: Raw LLM response', {
+					rawResponse: response.substring(0, 300),
+					responseLength: response.length,
+				});
+
+				// Remove markdown code block formatting if present
+				if (cleanedResponse.startsWith('```json')) {
+					cleanedResponse = cleanedResponse.replace(/^```json\s*/, '');
+				}
+				if (cleanedResponse.startsWith('```')) {
+					cleanedResponse = cleanedResponse.replace(/^```\s*/, '');
+				}
+				if (cleanedResponse.endsWith('```')) {
+					cleanedResponse = cleanedResponse.replace(/\s*```$/, '');
+				}
+
+				// Extract JSON if there's additional text around it
+				const jsonMatch = cleanedResponse.match(/\{[\s\S]*\}/);
+				if (jsonMatch) {
+					cleanedResponse = jsonMatch[0];
+				}
+
+				logger.debug('ReasoningContentDetector: Cleaned response for JSON parsing', {
+					cleanedResponse: cleanedResponse.substring(0, 300),
+					cleanedLength: cleanedResponse.length,
+				});
+
+				const result = JSON.parse(cleanedResponse);
 				return {
 					containsReasoning: result.containsReasoning || false,
 					confidence: Math.max(0, Math.min(1, result.confidence || 0)),

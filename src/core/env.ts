@@ -1,8 +1,48 @@
 import { config } from 'dotenv';
 import { z } from 'zod';
 
-// Load environment variables from .env file
-config();
+// Load environment variables from .env file - prevent stdout contamination in MCP mode
+const isMcpMode =
+	process.argv.includes('--mode') && process.argv[process.argv.indexOf('--mode') + 1] === 'mcp';
+
+if (isMcpMode) {
+	// In MCP mode, suppress any output during dotenv loading
+	const originalConsole = {
+		log: console.log,
+		error: console.error,
+		warn: console.warn,
+		info: console.info,
+	};
+
+	// Also capture direct stdout/stderr writes
+	const originalStdoutWrite = process.stdout.write;
+	const originalStderrWrite = process.stderr.write;
+
+	// Temporarily silence console methods and direct stream writes
+	console.log = () => {};
+	console.error = () => {};
+	console.warn = () => {};
+	console.info = () => {};
+
+	// Suppress stdout/stderr writes during dotenv loading
+	process.stdout.write = () => true;
+	process.stderr.write = () => true;
+
+	try {
+		config();
+	} finally {
+		// Restore console methods and stream writes
+		console.log = originalConsole.log;
+		console.error = originalConsole.error;
+		console.warn = originalConsole.warn;
+		console.info = originalConsole.info;
+		process.stdout.write = originalStdoutWrite;
+		process.stderr.write = originalStderrWrite;
+	}
+} else {
+	// Normal mode - allow normal dotenv output
+	config();
+}
 
 const envSchema = z.object({
 	NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),

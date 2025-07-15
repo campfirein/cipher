@@ -396,8 +396,8 @@ export class ConversationSession {
 				this.services.promptManager,
 				this.services.mcpManager,
 				this.services.unifiedToolManager,
-				undefined, // Use default options
-				evalLlmConfig
+				evalLlmConfig,
+				undefined // Use default options
 			);
 
 			// Initialize search context manager

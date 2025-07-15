@@ -27,21 +27,39 @@ export async function startHeadlessCli(agent: MemAgent, input: string): Promise<
 			return;
 		}
 		console.log(chalk.gray('🤔 Processing (with metadata)...'));
-		const response = await agent.run(message, undefined, undefined, false, {
+		const result = await agent.run(message, undefined, undefined, false, {
 			memoryMetadata: metadata,
 		});
-		if (response && response.response) {
-			logger.displayAIResponse(response.response);
+		if (result && result.response) {
+			logger.displayAIResponse(result.response);
 		} else {
 			console.log(chalk.gray('No response received.'));
 		}
+
+		// Wait for background operations to complete before exiting
+		if (result && result.backgroundOperations) {
+			try {
+				await result.backgroundOperations;
+			} catch (error) {
+				// Background operations failures are already logged, don't show to user
+			}
+		}
 	} else {
 		console.log(chalk.gray('🤔 Processing...'));
-		const response = await agent.run(input);
-		if (response && response.response) {
-			logger.displayAIResponse(response.response);
+		const result = await agent.run(input);
+		if (result && result.response) {
+			logger.displayAIResponse(result.response);
 		} else {
 			console.log(chalk.gray('No response received.'));
+		}
+
+		// Wait for background operations to complete before exiting
+		if (result && result.backgroundOperations) {
+			try {
+				await result.backgroundOperations;
+			} catch (error) {
+				// Background operations failures are already logged, don't show to user
+			}
 		}
 	}
 }
@@ -105,13 +123,22 @@ export async function startInteractiveCli(agent: MemAgent): Promise<void> {
 					return;
 				}
 				console.log(chalk.gray('🤔 Thinking (with metadata)...'));
-				const response = await agent.run(message, undefined, undefined, false, {
+				const result = await agent.run(message, undefined, undefined, false, {
 					memoryMetadata: metadata,
 				});
-				if (response && response.response) {
-					logger.displayAIResponse(response.response);
+				if (result && result.response) {
+					logger.displayAIResponse(result.response);
 				} else {
 					console.log(chalk.gray('No response received.'));
+				}
+
+				// Wait for background operations to complete before showing next prompt
+				if (result && result.backgroundOperations) {
+					try {
+						await result.backgroundOperations;
+					} catch (error) {
+						// Background operations failures are already logged, don't show to user
+					}
 				}
 			} else {
 				const parsedInput = commandParser.parseInput(trimmedInput);
@@ -135,13 +162,22 @@ export async function startInteractiveCli(agent: MemAgent): Promise<void> {
 				} else {
 					// Handle regular user prompt - pass to agent
 					console.log(chalk.gray('🤔 Thinking...'));
-					const response = await agent.run(trimmedInput);
+					const result = await agent.run(trimmedInput);
 
-					if (response && response.response) {
+					if (result && result.response) {
 						// Display the AI response with nice formatting
-						logger.displayAIResponse(response.response);
+						logger.displayAIResponse(result.response);
 					} else {
 						console.log(chalk.gray('No response received.'));
+					}
+
+					// Wait for background operations to complete before showing next prompt
+					if (result && result.backgroundOperations) {
+						try {
+							await result.backgroundOperations;
+						} catch (error) {
+							// Background operations failures are already logged, don't show to user
+						}
 					}
 				}
 			}

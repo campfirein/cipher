@@ -479,9 +479,17 @@ export function redirectLogsForStdio(): void {
 	// Redirect console output to log file
 	const logStream = fs.createWriteStream(logPath, { flags: 'a' });
 
-	// Override console methods to write to log file instead of stdout/stderr
-	// Note: originalConsole could be used for restoration if needed in the future
+	// Store original console methods for potential restoration
+	const originalConsole = {
+		log: console.log,
+		error: console.error,
+		warn: console.warn,
+		info: console.info,
+		debug: console.debug,
+		trace: console.trace,
+	};
 
+	// Override console methods to write to log file instead of stdout/stderr
 	console.log = (...args: any[]) => {
 		logStream.write(`[LOG] ${new Date().toISOString()} ${args.join(' ')}\n`);
 	};
@@ -498,8 +506,43 @@ export function redirectLogsForStdio(): void {
 		logStream.write(`[INFO] ${new Date().toISOString()} ${args.join(' ')}\n`);
 	};
 
-	// Log the redirection (this will go to the file now)
+	console.debug = (...args: any[]) => {
+		logStream.write(`[DEBUG] ${new Date().toISOString()} ${args.join(' ')}\n`);
+	};
+
+	console.trace = (...args: any[]) => {
+		logStream.write(`[TRACE] ${new Date().toISOString()} ${args.join(' ')}\n`);
+	};
+
+	// Also capture process stdout/stderr writes to prevent any direct writes
+	const originalStdoutWrite = process.stdout.write;
+	const originalStderrWrite = process.stderr.write;
+
+	process.stdout.write = function (chunk: any, encoding?: any, callback?: any) {
+		// Only allow JSON-RPC messages to stdout (they start with '{' and contain '"jsonrpc"')
+		const chunkStr = chunk.toString();
+		if (chunkStr.trim().startsWith('{') && chunkStr.includes('"jsonrpc"')) {
+			return originalStdoutWrite.call(this, chunk, encoding, callback);
+		} else {
+			// Redirect non-JSON-RPC output to log file
+			logStream.write(`[STDOUT] ${new Date().toISOString()} ${chunkStr}`);
+			return true;
+		}
+	};
+
+	process.stderr.write = function (chunk: any, encoding?: any, callback?: any) {
+		// Allow stderr for MCP error reporting, but log it too
+		logStream.write(`[STDERR] ${new Date().toISOString()} ${chunk.toString()}`);
+		return originalStderrWrite.call(this, chunk, encoding, callback);
+	};
+
+	// Store original methods for potential restoration
+	(globalThis as any).__originalConsole = originalConsole;
+	(globalThis as any).__originalStdoutWrite = originalStdoutWrite;
+	(globalThis as any).__originalStderrWrite = originalStderrWrite;
+
+	// Log the redirection activation
 	logStream.write(
-		`[INFO] ${new Date().toISOString()} Log redirection activated for MCP stdio mode\n`
+		`[MCP-PROTECTION] ${new Date().toISOString()} Console and stdout/stderr redirection activated\n`
 	);
 }
