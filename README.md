@@ -215,15 +215,12 @@ cipher --mode api --host 0.0.0.0 --port 8080
 
 ### MCP Server Mode
 
-Runs cipher as a Model Context Protocol server, exposing the full AI agent as an MCP server that other MCP-compatible tools can connect to and interact with:
-
+**Command:**
 ```bash
-# Run as MCP server
 cipher --mode mcp
 ```
 
-**Features:**
-
+**Core Capabilities:**
 - **Full Agent Exposure**: Exposes the complete Cipher agent as an MCP server
 - **ask_cipher Tool**: Primary tool for chatting with the agent via MCP protocol
 - **Agent Resources**: Exposes agent metadata and runtime statistics
@@ -234,39 +231,22 @@ cipher --mode mcp
 - **Memory Integration**: Full access to agent's memory and learning capabilities
 
 **Available MCP Capabilities:**
+- **Tools**: `ask_cipher` - Send messages to interact with the Cipher agent (parameters: message, session_id, stream)
 
-- **Tools**:
-  - `ask_cipher`: Send messages to interact with the Cipher agent
-    - Parameters: `message` (required), `session_id` (optional), `stream` (optional)
-    - Returns: Agent response as formatted text
+**Configuration for MCP Mode:**
 
-- **Resources**:
-  - `cipher://agent/card`: Agent metadata and configuration information
-  - `cipher://agent/stats`: Runtime statistics including session count, MCP connections, uptime, and memory usage
-
-- **Prompts**:
-  - `system_prompt`: Retrieve the current system prompt used by the agent
-
-**Usage Example with MCP Client:**
-
-```bash
-# Start cipher as MCP server
-cipher --mode mcp
-
-# In another terminal, connect with an MCP client
-# The server will be available via stdio transport
+```json
+{
+  "mcpServers": {
+    "cipher": {
+      "command": "npx",
+      "args": ["-y", "cipher", "--mode", "mcp"]
+    }
+  }
+}
 ```
 
-**Integration with MCP-compatible Tools:**
-
-The MCP server mode allows Cipher to integrate with any MCP-compatible tool or client, including:
-
-- VS Code extensions with MCP support
-- Claude Desktop with MCP server configuration
-- Custom MCP clients and tools
-- Other AI agents that support MCP protocol
-
-This mode transforms Cipher into a reusable agent service that can be accessed by multiple tools simultaneously while maintaining persistent memory and learning capabilities.
+This configuration enables integration with MCP-compatible tools, transforming Cipher into a reusable agent service that maintains persistent memory and learning capabilities across multiple client connections.
 
 ### Prerequisites
 
