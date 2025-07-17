@@ -1,3 +1,5 @@
+/* eslint-env vitest */
+/* global describe, it, expect */
 import { AzureService } from '../azure.js';
 import { MCPManager } from '../../../../mcp/manager.js';
 import { ContextManager } from '../../messages/manager.js';

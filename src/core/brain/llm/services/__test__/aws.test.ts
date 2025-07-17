@@ -1,3 +1,5 @@
+/* eslint-env vitest */
+/* global describe, it, expect */
 import { AwsService } from '../aws.js';
 import { MCPManager } from '../../../../mcp/manager.js';
 import { ContextManager } from '../../messages/manager.js';

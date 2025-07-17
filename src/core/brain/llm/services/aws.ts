@@ -8,6 +8,7 @@ import { logger } from '../../../logger/index.js';
 import { BedrockRuntimeClient, InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
 // OpenAI SDK for proxy mode
 import OpenAI from 'openai';
+import { TextDecoder } from 'util';
 
 export class AwsService implements ILLMService {
 	private config: any;
@@ -54,7 +55,7 @@ export class AwsService implements ILLMService {
 		}
 	}
 
-	async generate(userInput: string, imageData?: ImageData, stream?: boolean): Promise<string> {
+	async generate(userInput: string, _imageData?: ImageData, _stream?: boolean): Promise<string> {
 		if (this.mode === 'proxy' && this.openaiClient) {
 			// Use OpenAI-compatible proxy
 			// TODO: Use OpenAI formatter and tool integration as in OpenAIService
