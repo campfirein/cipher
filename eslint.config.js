@@ -93,7 +93,7 @@ export default [
 
 	// Add this override for test files using flat config globals
 	{
-		files: ["**/__test__/**/*.ts", "**/*.test.ts"],
+		files: ['**/__test__/**/*.ts', '**/*.test.ts'],
 		languageOptions: {
 			globals: {
 				describe: true,
