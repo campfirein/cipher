@@ -6,6 +6,7 @@ import { ContextManager } from './manager.js';
 import { logger } from '../../../logger/index.js';
 import { PromptManager } from '../../systemPrompt/manager.js';
 import { IConversationHistoryProvider } from './history/types.js';
+import { GeminiMessageFormatter } from './formatters/gemini.js';
 
 function getFormatter(provider: string): IMessageFormatter {
 	const normalizedProvider = provider.toLowerCase();
@@ -19,9 +20,12 @@ function getFormatter(provider: string): IMessageFormatter {
 		case 'anthropic':
 			formatter = new AnthropicMessageFormatter();
 			break;
+		case 'gemini':
+			formatter = new GeminiMessageFormatter();
+			break;
 		default:
 			throw new Error(
-				`Unsupported provider: ${provider}. Supported providers: openai, anthropic, openrouter, ollama`
+				`Unsupported provider: ${provider}. Supported providers: openai, anthropic, openrouter, ollama, gemini`
 			);
 	}
 	return formatter;

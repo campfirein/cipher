@@ -26,13 +26,20 @@ llm:
   model: gpt-4.1-mini
   apiKey: $OPENAI_API_KEY
   maxIterations: 50
+  
   # provider: anthropic
   # model: claude-3-5-haiku-20241022
   # apiKey: $ANTHROPIC_API_KEY
   # maxIterations: 50
+
   # provider: openrouter
   # model: google/gemini-2.5-pro
   # apiKey: $OPENROUTER_API_KEY
+  # maxIterations: 50
+
+  # provider: gemini
+  # model: gemini-2.5-flash
+  # apiKey: $GEMINI_API_KEY
   # maxIterations: 50
 
 # Evaluation LLM configuration (non-thinking model for evaluation step)
