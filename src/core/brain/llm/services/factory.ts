@@ -145,18 +145,18 @@ function _createLLMService(
 			);
 		}
 		case 'gemini': {
-		const gemini = new GoogleGenerativeAI(extractApiKey(config));
-		 return new GeminiService(
-			gemini,
-			config.model,
-			mcpManager,
-			contextManager,
-			config.maxIterations,
-			unifiedToolManager
-		);
-	}
-	default:
-		throw new Error(`Unsupported LLM provider: ${config.provider}`);
+			const gemini = new GoogleGenerativeAI(extractApiKey(config));
+			return new GeminiService(
+				gemini,
+				config.model,
+				mcpManager,
+				contextManager,
+				config.maxIterations,
+				unifiedToolManager
+			);
+		}
+		default:
+			throw new Error(`Unsupported LLM provider: ${config.provider}`);
 	}
 }
 
