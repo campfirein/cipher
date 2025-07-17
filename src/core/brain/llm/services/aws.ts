@@ -14,7 +14,7 @@ export class AwsService implements ILLMService {
 	private mcpManager: MCPManager;
 	private contextManager: ContextManager;
 	private maxIterations: number;
-	private unifiedToolManager?: UnifiedToolManager;
+	private unifiedToolManager: UnifiedToolManager | undefined = undefined;
 	private bedrockClient?: BedrockRuntimeClient;
 	private openaiClient?: OpenAI;
 	private mode: 'native' | 'proxy';
@@ -41,16 +41,16 @@ export class AwsService implements ILLMService {
 			});
 		} else {
 			this.mode = 'native';
-			this.bedrockClient = new BedrockRuntimeClient({
-				region: config.region,
-				credentials:
-					config.accessKeyId && config.secretAccessKey
-						? {
-								accessKeyId: config.accessKeyId,
-								secretAccessKey: config.secretAccessKey,
-							}
-						: undefined,
-			});
+			if (config.nativeMode) {
+				const clientConfig: any = { region: config.region };
+				if (config.accessKeyId && config.secretAccessKey) {
+					clientConfig.credentials = {
+						accessKeyId: config.accessKeyId,
+						secretAccessKey: config.secretAccessKey,
+					};
+				}
+				this.bedrockClient = new BedrockRuntimeClient(clientConfig);
+			}
 		}
 	}
 

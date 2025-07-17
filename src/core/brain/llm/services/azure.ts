@@ -11,7 +11,7 @@ export class AzureService implements ILLMService {
 	private mcpManager: MCPManager;
 	private contextManager: ContextManager;
 	private maxIterations: number;
-	private unifiedToolManager?: UnifiedToolManager;
+	private unifiedToolManager: UnifiedToolManager | undefined = undefined;
 	private azureClient: OpenAIClient;
 
 	constructor(
