@@ -75,6 +75,7 @@
 		"@web-std/file": "^3.0.3",
 		"eslint": "^9.29.0",
 		"eslint-config-prettier": "^10.1.5",
+		"eslint-plugin-vitest": "^0.5.4",
 		"prettier": "^3.5.3",
 		"recheck": "^4.5.0",
 		"ts-node": "^10.9.2",
@@ -85,6 +86,7 @@
 	},
 	"dependencies": {
 		"@anthropic-ai/sdk": "^0.39.0",
+		"@google/generative-ai": "^0.5.0",
 		"@modelcontextprotocol/sdk": "^1.15.1",
 		"@qdrant/js-client-rest": "^1.14.1",
 		"@zilliz/milvus2-sdk-node": "^2.5.12",
@@ -108,7 +110,6 @@
 		"uuid": "^11.1.0",
 		"winston": "^3.17.0",
 		"yaml": "^2.3.1",
-		"zod": "^3.25.67",
-		"@google/generative-ai": "^0.5.0"
+		"zod": "^3.25.67"
 	}
 }

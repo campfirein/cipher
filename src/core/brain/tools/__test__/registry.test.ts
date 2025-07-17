@@ -12,6 +12,7 @@ vi.mock('../../../logger/index.js', () => ({
 	},
 }));
 
+/* eslint-env vitest */
 describe('InternalToolRegistry', () => {
 	let registry: InternalToolRegistry;
 	let testTool: InternalTool;

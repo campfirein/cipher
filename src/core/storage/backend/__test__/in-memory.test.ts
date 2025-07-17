@@ -5,6 +5,7 @@
  * Verifies both CacheBackend and DatabaseBackend functionality.
  */
 
+/* eslint-env vitest */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { InMemoryBackend } from '../in-memory.js';
 import { StorageError } from '../types.js';

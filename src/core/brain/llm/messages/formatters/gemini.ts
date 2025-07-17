@@ -1,8 +1,7 @@
-import { IMessageFormatter } from './types';
-import { ToolCall, ToolResponse } from '../../../mcp/types';
+import { IMessageFormatter } from './types.js';
 
 export class GeminiMessageFormatter implements IMessageFormatter {
-  formatUserMessage(content: string, toolCalls?: ToolCall[]): any {
+  formatUserMessage(content: string, toolCalls?: any[]): any {
     // Gemini expects a 'parts' array for content, and tool calls as a separate field if present
     const message: any = {
       role: 'user',
@@ -18,7 +17,7 @@ export class GeminiMessageFormatter implements IMessageFormatter {
     return message;
   }
 
-  formatAssistantMessage(content: string, toolResponses?: ToolResponse[]): any {
+  formatAssistantMessage(content: string, toolResponses?: any[]): any {
     // Gemini expects a 'parts' array for content, and tool responses as a separate field if present
     const message: any = {
       role: 'assistant',
@@ -32,5 +31,15 @@ export class GeminiMessageFormatter implements IMessageFormatter {
       }));
     }
     return message;
+  }
+
+  format(message: Readonly<any>, systemPrompt?: string | null): any[] {
+    // TODO: Implement Gemini-specific formatting if needed
+    return [];
+  }
+
+  parseResponse(response: any): any[] {
+    // TODO: Implement Gemini-specific response parsing if needed
+    return [];
   }
 }

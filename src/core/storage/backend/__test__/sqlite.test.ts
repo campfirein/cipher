@@ -5,6 +5,7 @@
  * Verifies DatabaseBackend functionality with persistent storage.
  */
 
+/* eslint-env vitest */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { SqliteBackend } from '../sqlite.js';
 import { StorageError, StorageConnectionError } from '../types.js';

@@ -29,6 +29,7 @@ vi.mock('../../../env.js', () => ({
 	},
 }));
 
+/* eslint-env vitest */
 describe('MemoryHistoryStorageService', () => {
 	let service: MemoryHistoryStorageService;
 

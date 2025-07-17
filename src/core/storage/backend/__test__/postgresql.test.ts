@@ -6,6 +6,7 @@
  * list operations, error handling, and performance scenarios.
  */
 
+/* eslint-env vitest */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { PostgresBackend } from '../postgresql.js';
 import type { PostgresBackendConfig } from '../../config.js';

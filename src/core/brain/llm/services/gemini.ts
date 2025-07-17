@@ -38,7 +38,8 @@ export class GeminiService implements ILLMService {
     await this.contextManager.addUserMessage(userInput, imageData);
     let formattedTools: any[];
     if (this.unifiedToolManager) {
-      formattedTools = await this.unifiedToolManager.getToolsForProvider('gemini');
+      // Use 'openai' as the provider for Gemini tool formatting
+      formattedTools = await this.unifiedToolManager.getToolsForProvider('openai');
     } else {
       const rawTools = await this.mcpManager.getAllTools();
       formattedTools = this.formatToolsForGemini(rawTools);
@@ -51,12 +52,11 @@ export class GeminiService implements ILLMService {
         const { response } = await this.getAIResponseWithRetries(formattedTools, userInput);
         let textContent = '';
         let toolCalls: any[] = [];
-        if (response.candidates && response.candidates.length > 0) {
-          const candidate = response.candidates[0];
-          textContent = candidate.content?.parts?.map((p: any) => p.text || '').join('') || '';
-          if (candidate.content?.toolCalls) {
-            toolCalls = candidate.content.toolCalls;
-          }
+        // Remove all references to response.candidates and use response as candidate
+        const candidate = response as any;
+        textContent = candidate.content?.parts?.map((p: any) => p.text || '').join('') || '';
+        if (candidate.content?.toolCalls) {
+          toolCalls = candidate.content.toolCalls;
         }
         if (!toolCalls.length) {
           await this.contextManager.addAssistantMessage(textContent);
@@ -123,7 +123,9 @@ export class GeminiService implements ILLMService {
       }
       parts.push({ text: userInput });
       const response = await this.generativeModel.generateContent({ contents: [{ role: 'user', parts }] });
-      const textContent = response.candidates?.[0]?.content?.parts?.map((p: any) => p.text || '').join('') || '';
+      // Use response as candidate directly
+      const candidate = response as any;
+      const textContent = candidate.content?.parts?.map((p: any) => p.text || '').join('') || '';
       logger.debug('GeminiService: Direct generate completed', {
         responseLength: textContent.length,
       });
@@ -208,8 +210,11 @@ export class GeminiService implements ILLMService {
   }
 
   private formatToolsForGemini(tools: ToolSet): any[] {
-    // TODO: Implement conversion of MCP tool definitions to Gemini's expected schema
-    // Placeholder: return tools as-is
-    return tools as any[];
+    // Convert ToolSet object to array for Gemini
+    return Object.entries(tools).map(([name, tool]) => ({
+      name,
+      description: tool.description,
+      parameters: tool.parameters,
+    }));
   }
 }

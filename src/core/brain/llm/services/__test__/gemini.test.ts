@@ -1,3 +1,4 @@
+/* eslint-env vitest */
 import { vi } from 'vitest';
 import { GeminiService } from '../gemini.js';
 import { MCPManager } from '../../../../mcp/manager.js';
