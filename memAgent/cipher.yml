@@ -9,44 +9,75 @@ mcpServers:
       - .
 
 # describes the llm configuration
+# Only one 'llm:' block should be active at a time. Uncomment the provider you want to use.
+
+# --- OpenAI Example ---
 # llm:
-#   # OpenRouter configuration - Updated to use model that supports tool calling
+#   provider: openai
+#   model: gpt-4.1-mini
+#   apiKey: $OPENAI_API_KEY
+#   maxIterations: 50
+
+# --- Anthropic Example ---
+# llm:
+#   provider: anthropic
+#   model: claude-3-5-haiku-20241022
+#   apiKey: $ANTHROPIC_API_KEY
+#   maxIterations: 50
+
+# --- OpenRouter Example ---
+# llm:
 #   provider: openrouter
-#   model: o4-mini
+#   model: google/gemini-2.5-pro
 #   apiKey: $OPENROUTER_API_KEY
 #   maxIterations: 50
 
-# # System prompt
-# systemPrompt: "You are a helpful AI assistant with memory capabilities. Please confirm you're working with OpenRouter API."
+# --- Ollama Example (self-hosted, no API key needed) ---
+# llm:
+#   provider: ollama
+#   model: qwen3:32b      # Use the model you downloaded
+#   maxIterations: 50
+#   baseURL: $OLLAMA_BASE_URL
 
-# Active LLM configuration
+# --- AWS Bedrock (Native) Example ---
+# llm:
+#   provider: aws
+#   model: anthropic.claude-3-sonnet-20240229-v1:0  # or your Bedrock model ID
+#   region: $AWS_REGION
+#   accessKeyId: $AWS_ACCESS_KEY_ID      # optional, uses default chain if not set
+#   secretAccessKey: $AWS_SECRET_ACCESS_KEY  # optional, uses default chain if not set
+#   maxIterations: 50
+
+# --- AWS Bedrock (OpenAI-Compatible Proxy) Example ---
+# llm:
+#   provider: aws
+#   model: anthropic.claude-3-sonnet-20240229-v1:0
+#   apiKey: $AWS_PROXY_API_KEY
+#   baseURL: $AWS_PROXY_BASE_URL  # e.g. https://your-bedrock-proxy/v1
+#   maxIterations: 50
+
+# --- Azure OpenAI Service Example ---
+# llm:
+#   provider: azure
+#   model: gpt-4
+#   endpoint: $AZURE_OPENAI_ENDPOINT
+#   apiKey: $AZURE_OPENAI_API_KEY
+#   deploymentName: $AZURE_OPENAI_DEPLOYMENT
+#   resourceName: $AZURE_OPENAI_RESOURCE
+#   maxIterations: 50
+
+# Active LLM configuration (uncomment one block above to activate)
 llm:
-  # OpenAI configuration - Updated to use model that supports tool calling
   provider: openai
   model: gpt-4.1-mini
   apiKey: $OPENAI_API_KEY
   maxIterations: 50
-  # provider: anthropic
-  # model: claude-3-5-haiku-20241022
-  # apiKey: $ANTHROPIC_API_KEY
-  # maxIterations: 50
-  # provider: openrouter
-  # model: google/gemini-2.5-pro
-  # apiKey: $OPENROUTER_API_KEY
-  # maxIterations: 50
 
 # Evaluation LLM configuration (non-thinking model for evaluation step)
 # evalLlm:
 #   provider: anthropic
 #   model: claude-3-7-sonnet-20250219
 #   apiKey: $ANTHROPIC_API_KEY
-
-# Alternative Ollama configuration (commented out)
-# llm:
-#   provider: ollama
-#   model: qwen3:32b      # Use the model you downloaded
-#   maxIterations: 50
-#   baseURL: $OLLAMA_BASE_URL
 
 # System prompt - User customizable
 # This prompt will be combined with built-in tool usage instructions
