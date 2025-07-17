@@ -11,6 +11,8 @@ import { OpenAIService } from './openai.js';
 import { AnthropicService } from './anthropic.js';
 import { OpenRouterService } from './openrouter.js';
 import { OllamaService } from './ollama.js';
+import { AwsService } from './aws.js';
+import { AzureService } from './azure.js';
 
 function extractApiKey(config: LLMConfig): string {
 	const provider = config.provider.toLowerCase();
@@ -124,6 +126,24 @@ function _createLLMService(
 			return new OllamaService(
 				openai,
 				config.model,
+				mcpManager,
+				contextManager,
+				config.maxIterations,
+				unifiedToolManager
+			);
+		}
+		case 'aws': {
+			return new AwsService(
+				config,
+				mcpManager,
+				contextManager,
+				config.maxIterations,
+				unifiedToolManager
+			);
+		}
+		case 'azure': {
+			return new AzureService(
+				config,
 				mcpManager,
 				contextManager,
 				config.maxIterations,

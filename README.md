@@ -172,6 +172,61 @@ llm:
   baseURL: $OLLAMA_BASE_URL
 ```
 
+### AWS Bedrock
+
+```yaml
+llm:
+  provider: aws
+  model: anthropic.claude-3-sonnet-20240229-v1:0 # or your Bedrock model ID
+  region: $AWS_REGION
+  accessKeyId: $AWS_ACCESS_KEY_ID # optional, uses default chain if not set
+  secretAccessKey: $AWS_SECRET_ACCESS_KEY # optional, uses default chain if not set
+```
+
+#### AWS Bedrock via OpenAI-Compatible Proxy
+
+```yaml
+llm:
+  provider: aws
+  model: anthropic.claude-3-sonnet-20240229-v1:0
+  apiKey: $AWS_PROXY_API_KEY
+  baseURL: $AWS_PROXY_BASE_URL # e.g. https://your-bedrock-proxy/v1
+```
+
+**Environment Variables:**
+
+```bash
+# Native Bedrock
+AWS_REGION=us-east-1
+AWS_ACCESS_KEY_ID=your_access_key
+AWS_SECRET_ACCESS_KEY=your_secret_key
+AWS_BEDROCK_MODEL_ID=anthropic.claude-3-sonnet-20240229-v1:0
+
+# Proxy
+AWS_PROXY_BASE_URL=https://your-bedrock-proxy/v1
+AWS_PROXY_API_KEY=your_proxy_key
+AWS_PROXY_MODEL=anthropic.claude-3-sonnet-20240229-v1:0
+```
+
+### Azure OpenAI Service
+
+```yaml
+llm:
+  provider: azure
+  model: gpt-4
+  endpoint: $AZURE_OPENAI_ENDPOINT
+  apiKey: $AZURE_OPENAI_API_KEY
+  deploymentName: $AZURE_OPENAI_DEPLOYMENT
+```
+
+**Environment Variables:**
+
+```bash
+AZURE_OPENAI_ENDPOINT=https://your-resource-name.openai.azure.com
+AZURE_OPENAI_API_KEY=your_azure_api_key
+AZURE_OPENAI_DEPLOYMENT=your_deployment_name
+```
+
 ## CLI Reference
 
 ```bash
