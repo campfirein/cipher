@@ -43,9 +43,7 @@ export class AzureService implements ILLMService {
 			if (!deploymentName) {
 				throw new Error('Azure OpenAI deployment name is required.');
 			}
-			const messages = [
-				{ role: 'user', content: userInput },
-			];
+			const messages = [{ role: 'user', content: userInput }];
 			const response = await this.azureClient.getChatCompletions(deploymentName, messages, {
 				maxTokens: 1024,
 			});
@@ -74,4 +72,4 @@ export class AzureService implements ILLMService {
 			model: this.config.model,
 		};
 	}
-} 
+}

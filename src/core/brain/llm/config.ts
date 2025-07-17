@@ -4,7 +4,9 @@ export const LLMConfigSchema = z
 		provider: z
 			.string()
 			.nonempty()
-			.describe("The LLM provider (e.g., 'openai', 'anthropic', 'openrouter', 'ollama', 'aws', 'azure')"),
+			.describe(
+				"The LLM provider (e.g., 'openai', 'anthropic', 'openrouter', 'ollama', 'aws', 'azure')"
+			),
 		model: z.string().nonempty().describe('The specific model name for the selected provider'),
 		apiKey: z
 			.string()
@@ -31,8 +33,14 @@ export const LLMConfigSchema = z
 		// AWS-specific fields
 		region: z.string().optional().describe('AWS region for Bedrock'),
 		modelId: z.string().optional().describe('AWS Bedrock model ID'),
-		accessKeyId: z.string().optional().describe('AWS Access Key ID (optional, uses default chain if not set)'),
-		secretAccessKey: z.string().optional().describe('AWS Secret Access Key (optional, uses default chain if not set)'),
+		accessKeyId: z
+			.string()
+			.optional()
+			.describe('AWS Access Key ID (optional, uses default chain if not set)'),
+		secretAccessKey: z
+			.string()
+			.optional()
+			.describe('AWS Secret Access Key (optional, uses default chain if not set)'),
 		// Azure-specific fields
 		endpoint: z.string().optional().describe('Azure OpenAI endpoint'),
 		deploymentName: z.string().optional().describe('Azure OpenAI deployment name'),
@@ -59,8 +67,7 @@ export const LLMConfigSchema = z
 				});
 			}
 			// API key is optional for AWS (can use default credential chain)
-		}
-		else if (providerLower === 'azure') {
+		} else if (providerLower === 'azure') {
 			if (!data.endpoint || !data.deploymentName || !data.apiKey || !data.resourceName) {
 				ctx.addIssue({
 					code: z.ZodIssueCode.custom,
@@ -68,8 +75,7 @@ export const LLMConfigSchema = z
 					message: `Azure provider requires 'endpoint', 'deploymentName', 'apiKey', and 'resourceName'.`,
 				});
 			}
-		}
-		else if (providerLower !== 'ollama') {
+		} else if (providerLower !== 'ollama') {
 			// Non-Ollama providers require an API key
 			if (!data.apiKey || data.apiKey.trim().length === 0) {
 				ctx.addIssue({

@@ -17,7 +17,13 @@ describe('AzureService', () => {
 			apiKey: 'test-key',
 			deploymentName: 'test-deployment',
 		};
-		const service = new AzureService(config, mockMCPManager, mockContextManager, 5, mockUnifiedToolManager);
+		const service = new AzureService(
+			config,
+			mockMCPManager,
+			mockContextManager,
+			5,
+			mockUnifiedToolManager
+		);
 		expect(service).toBeDefined();
 	});
 
@@ -27,7 +33,9 @@ describe('AzureService', () => {
 			model: 'test-model',
 			deploymentName: 'test-deployment',
 		};
-		expect(() => new AzureService(config, mockMCPManager, mockContextManager, 5, mockUnifiedToolManager)).toThrow();
+		expect(
+			() => new AzureService(config, mockMCPManager, mockContextManager, 5, mockUnifiedToolManager)
+		).toThrow();
 	});
 
 	it('should throw if deploymentName is missing on generate', async () => {
@@ -37,9 +45,15 @@ describe('AzureService', () => {
 			endpoint: 'https://azure.example.com',
 			apiKey: 'test-key',
 		};
-		const service = new AzureService(config, mockMCPManager, mockContextManager, 5, mockUnifiedToolManager);
+		const service = new AzureService(
+			config,
+			mockMCPManager,
+			mockContextManager,
+			5,
+			mockUnifiedToolManager
+		);
 		await expect(service.generate('test')).rejects.toThrow();
 	});
 
 	// Add more tests with SDK mocks for generate() if needed
-}); 
+});

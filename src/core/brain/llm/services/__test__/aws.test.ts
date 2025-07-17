@@ -16,7 +16,13 @@ describe('AwsService', () => {
 			apiKey: 'test-key',
 			baseURL: 'https://proxy.example.com/v1',
 		};
-		const service = new AwsService(config, mockMCPManager, mockContextManager, 5, mockUnifiedToolManager);
+		const service = new AwsService(
+			config,
+			mockMCPManager,
+			mockContextManager,
+			5,
+			mockUnifiedToolManager
+		);
 		expect(service).toBeDefined();
 		// @ts-expect-error: private property
 		expect(service.mode).toBe('proxy');
@@ -30,7 +36,13 @@ describe('AwsService', () => {
 			accessKeyId: 'AKIA...',
 			secretAccessKey: 'SECRET...',
 		};
-		const service = new AwsService(config, mockMCPManager, mockContextManager, 5, mockUnifiedToolManager);
+		const service = new AwsService(
+			config,
+			mockMCPManager,
+			mockContextManager,
+			5,
+			mockUnifiedToolManager
+		);
 		expect(service).toBeDefined();
 		// @ts-expect-error: private property
 		expect(service.mode).toBe('native');
@@ -38,9 +50,15 @@ describe('AwsService', () => {
 
 	it('should throw if not properly configured', async () => {
 		const config = { provider: 'aws', model: 'test-model' };
-		const service = new AwsService(config, mockMCPManager, mockContextManager, 5, mockUnifiedToolManager);
+		const service = new AwsService(
+			config,
+			mockMCPManager,
+			mockContextManager,
+			5,
+			mockUnifiedToolManager
+		);
 		await expect(service.generate('test')).rejects.toThrow();
 	});
 
 	// Add more tests with SDK mocks for generate() if needed
-}); 
+});

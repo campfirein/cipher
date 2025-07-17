@@ -43,10 +43,13 @@ export class AwsService implements ILLMService {
 			this.mode = 'native';
 			this.bedrockClient = new BedrockRuntimeClient({
 				region: config.region,
-				credentials: config.accessKeyId && config.secretAccessKey ? {
-					accessKeyId: config.accessKeyId,
-					secretAccessKey: config.secretAccessKey,
-				} : undefined,
+				credentials:
+					config.accessKeyId && config.secretAccessKey
+						? {
+								accessKeyId: config.accessKeyId,
+								secretAccessKey: config.secretAccessKey,
+							}
+						: undefined,
 			});
 		}
 	}
@@ -58,9 +61,7 @@ export class AwsService implements ILLMService {
 			try {
 				const response = await this.openaiClient.chat.completions.create({
 					model: this.config.model,
-					messages: [
-						{ role: 'user', content: userInput },
-					],
+					messages: [{ role: 'user', content: userInput }],
 				});
 				return response.choices[0]?.message?.content || '';
 			} catch (error) {
@@ -73,9 +74,7 @@ export class AwsService implements ILLMService {
 			try {
 				const body = JSON.stringify({
 					modelId: this.config.modelId || this.config.model,
-					messages: [
-						{ role: 'user', content: [{ type: 'text', text: userInput }] },
-					],
+					messages: [{ role: 'user', content: [{ type: 'text', text: userInput }] }],
 					// Optionally add system prompt if available
 					...(this.config.systemPrompt ? { system: this.config.systemPrompt } : {}),
 					max_tokens: 1024,
@@ -89,7 +88,9 @@ export class AwsService implements ILLMService {
 				const response = await this.bedrockClient.send(command);
 				const responseBody = JSON.parse(new TextDecoder().decode(response.body));
 				// TODO: Parse response according to Bedrock model output
-				return responseBody.output?.message?.content?.[0]?.text || responseBody.content?.[0]?.text || '';
+				return (
+					responseBody.output?.message?.content?.[0]?.text || responseBody.content?.[0]?.text || ''
+				);
 			} catch (error) {
 				logger.error('AWS Bedrock native mode error:', error);
 				throw error;
@@ -116,4 +117,4 @@ export class AwsService implements ILLMService {
 			model: this.config.model,
 		};
 	}
-} 
+}
