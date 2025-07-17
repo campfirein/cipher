@@ -108,6 +108,8 @@
 		"uuid": "^11.1.0",
 		"winston": "^3.17.0",
 		"yaml": "^2.3.1",
-		"zod": "^3.25.67"
+		"zod": "^3.25.67",
+		"@aws-sdk/client-bedrock-runtime": "^3.570.0",
+		"@azure/openai": "^1.0.0-beta.7"
 	}
 }
