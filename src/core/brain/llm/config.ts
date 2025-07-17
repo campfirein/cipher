@@ -32,7 +32,7 @@ export const LLMConfigSchema = z
 	.strict()
 	.superRefine((data, ctx) => {
 		const providerLower = data.provider?.toLowerCase();
-		const supportedProvidersList = ['openai', 'anthropic', 'openrouter', 'ollama'];
+		const supportedProvidersList = ['openai', 'anthropic', 'openrouter', 'ollama', 'gemini'];
 		if (!supportedProvidersList.includes(providerLower)) {
 			ctx.addIssue({
 				code: z.ZodIssueCode.custom,
@@ -44,7 +44,15 @@ export const LLMConfigSchema = z
 		// Validate API key requirements based on provider
 		if (providerLower !== 'ollama') {
 			// Non-Ollama providers require an API key
-			if (!data.apiKey || data.apiKey.trim().length === 0) {
+			if (providerLower === 'gemini') {
+				if (!data.apiKey && !process.env.GEMINI_API_KEY) {
+					ctx.addIssue({
+						code: z.ZodIssueCode.custom,
+						path: ['apiKey'],
+						message: `API key is required for provider 'gemini'. Please set apiKey or GEMINI_API_KEY environment variable.`,
+					});
+				}
+			} else if (!data.apiKey || data.apiKey.trim().length === 0) {
 				ctx.addIssue({
 					code: z.ZodIssueCode.custom,
 					path: ['apiKey'],

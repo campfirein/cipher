@@ -172,6 +172,19 @@ llm:
   baseURL: $OLLAMA_BASE_URL
 ```
 
+### Gemini (Google)
+
+```yaml
+llm:
+  provider: gemini
+  model: gemini-pro
+  apiKey: $GEMINI_API_KEY # Or set GEMINI_API_KEY in your environment
+```
+
+- Full tool calling and MCP tool integration supported.
+- If `apiKey` is not set, will use `GEMINI_API_KEY` from environment.
+- See Google Gemini documentation for available models and quotas.
+
 ## CLI Reference
 
 ```bash

@@ -11,6 +11,8 @@ import { OpenAIService } from './openai.js';
 import { AnthropicService } from './anthropic.js';
 import { OpenRouterService } from './openrouter.js';
 import { OllamaService } from './ollama.js';
+import { GeminiService } from './gemini.js';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 
 function extractApiKey(config: LLMConfig): string {
 	const provider = config.provider.toLowerCase();
@@ -18,6 +20,18 @@ function extractApiKey(config: LLMConfig): string {
 	// Ollama doesn't require an API key since it's a local service
 	if (provider === 'ollama') {
 		return 'not-required';
+	}
+
+	// Gemini: support GEMINI_API_KEY env var
+	if (provider === 'gemini') {
+		let apiKey = config.apiKey || process.env.GEMINI_API_KEY || '';
+		if (!apiKey) {
+			const errorMsg = `Error: API key for gemini not found. Please set apiKey in config or GEMINI_API_KEY env variable.`;
+			logger.error(errorMsg);
+			throw new Error(errorMsg);
+		}
+		logger.debug('Verified Gemini API key');
+		return apiKey;
 	}
 
 	// Get API key from config (already expanded)
@@ -130,8 +144,19 @@ function _createLLMService(
 				unifiedToolManager
 			);
 		}
-		default:
-			throw new Error(`Unsupported LLM provider: ${config.provider}`);
+		case 'gemini': {
+		const gemini = new GoogleGenerativeAI(extractApiKey(config));
+		 return new GeminiService(
+			gemini,
+			config.model,
+			mcpManager,
+			contextManager,
+			config.maxIterations,
+			unifiedToolManager
+		);
+	}
+	default:
+		throw new Error(`Unsupported LLM provider: ${config.provider}`);
 	}
 }
 
