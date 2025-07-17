@@ -91,6 +91,22 @@ export default [
 		},
 	},
 
+	// Add this override for test files using flat config globals
+	{
+		files: ["**/__test__/**/*.ts", "**/*.test.ts"],
+		languageOptions: {
+			globals: {
+				describe: true,
+				it: true,
+				beforeEach: true,
+				afterEach: true,
+				expect: true,
+				vi: true,
+				test: true,
+			},
+		},
+	},
+
 	// Ignore patterns (keep existing ignores)
 	{
 		ignores: [
