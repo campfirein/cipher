@@ -13,7 +13,6 @@ import { EmbeddingManager } from '../brain/embedding/index.js';
 import { VectorStoreManager, DualCollectionVectorManager } from '../vector_storage/index.js';
 import { createLLMService } from '../brain/llm/services/factory.js';
 import { createContextManager } from '../brain/llm/messages/factory.js';
-import { ContextManagerConfig } from '../brain/llm/messages/manager.js';
 import { ILLMService } from '../brain/llm/index.js';
 import {
 	createVectorStoreFromEnv,
@@ -233,19 +232,9 @@ export async function createAgentServices(agentConfig: AgentConfig): Promise<Age
 	try {
 		logger.debug('Initializing LLM service...');
 		const llmConfig = stateManager.getLLMConfig();
+		const contextManager = createContextManager(llmConfig, promptManager);
 
-		// Create context manager configuration with token management enabled
-		const contextConfig: ContextManagerConfig = {
-			enableTokenManagement: true,
-			maxTokens: 100000, // Default max tokens, can be overridden by provider limits
-			warningThreshold: 0.8,
-			compressionThreshold: 0.9,
-			compressionStrategy: 'hybrid',
-		};
-
-		const contextManager = createContextManager(llmConfig, promptManager, contextConfig);
-
-		llmService = await createLLMService(llmConfig, mcpManager, contextManager);
+		llmService = createLLMService(llmConfig, mcpManager, contextManager);
 
 		logger.info('LLM service initialized successfully', {
 			provider: llmConfig.provider,

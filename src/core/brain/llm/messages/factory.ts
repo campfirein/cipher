@@ -2,7 +2,7 @@ import { LLMConfig, LLMConfigSchema } from '../config.js';
 import { OpenAIMessageFormatter } from './formatters/openai.js';
 import { AnthropicMessageFormatter } from './formatters/anthropic.js';
 import { IMessageFormatter } from './formatters/types.js';
-import { ContextManager, ContextManagerConfig } from './manager.js';
+import { ContextManager } from './manager.js';
 import { logger } from '../../../logger/index.js';
 import { PromptManager } from '../../systemPrompt/manager.js';
 
@@ -32,15 +32,12 @@ function getFormatter(provider: string): IMessageFormatter {
 /**
  * Creates a new ContextManager instance with the appropriate formatter for the specified LLM config
  * @param config - The LLM configuration
- * @param promptManager - The prompt manager instance
- * @param contextConfig - Optional context manager configuration for token management
  * @returns A new ContextManager instance
  * @throws Error if the config is invalid or the provider is unsupported
  */
 export function createContextManager(
 	config: LLMConfig,
-	promptManager: PromptManager,
-	contextConfig?: ContextManagerConfig
+	promptManager: PromptManager
 ): ContextManager {
 	// Validate config using schema
 	try {
@@ -68,7 +65,7 @@ export function createContextManager(
 		});
 
 		// Create and return the ContextManager
-		return new ContextManager(formatter, promptManager, contextConfig);
+		return new ContextManager(formatter, promptManager);
 	} catch (error) {
 		logger.error('Failed to create context manager', {
 			provider,

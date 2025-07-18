@@ -77,7 +77,7 @@ export class ReasoningContentDetector {
 			};
 
 			const contextManager = createContextManager(evalConfig, this.promptManager);
-			this.llmService = await createLLMService(
+			this.llmService = createLLMService(
 				evalConfig,
 				this.mcpManager,
 				contextManager,

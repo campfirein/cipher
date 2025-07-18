@@ -3,85 +3,17 @@ import { logger } from '../../../logger/index.js';
 import { InternalMessage, ImageData } from './types.js';
 import { getImageData } from './utils.js';
 import { PromptManager } from '../../../brain/systemPrompt/manager.js';
-import {
-	ITokenizer,
-	EnhancedInternalMessage,
-	createTokenizerFromProvider,
-} from '../tokenizer/index.js';
-import {
-	ICompressionStrategy,
-	CompressionResult,
-	createDefaultCompressionStrategy,
-	getCompressionLevel,
-} from '../compression/index.js';
-
-export interface ContextManagerConfig {
-	enableTokenManagement?: boolean;
-	maxTokens?: number;
-	warningThreshold?: number;
-	compressionThreshold?: number;
-	compressionStrategy?: 'middle-removal' | 'oldest-removal' | 'hybrid';
-}
 
 export class ContextManager {
 	private promptManager: PromptManager;
 	private formatter: IMessageFormatter;
-	private messages: EnhancedInternalMessage[] = [];
-	private tokenizer?: ITokenizer;
-	private compressionStrategy?: ICompressionStrategy;
-	private config: ContextManagerConfig;
-	private compressionHistory: CompressionResult[] = [];
+	private messages: InternalMessage[] = [];
 
-	constructor(
-		formatter: IMessageFormatter,
-		promptManager: PromptManager,
-		config: ContextManagerConfig = {}
-	) {
+	constructor(formatter: IMessageFormatter, promptManager: PromptManager) {
 		if (!formatter) throw new Error('formatter is required');
 		this.formatter = formatter;
 		this.promptManager = promptManager;
-		this.config = {
-			enableTokenManagement: true,
-			maxTokens: 8192,
-			warningThreshold: 0.8,
-			compressionThreshold: 0.9,
-			compressionStrategy: 'hybrid',
-			...config,
-		};
-		logger.debug('ContextManager initialized with formatter', { formatter, config: this.config });
-	}
-
-	/**
-	 * Initialize token management with provider information
-	 */
-	async initializeTokenManagement(provider: string, model?: string): Promise<void> {
-		if (!this.config.enableTokenManagement) {
-			logger.debug('Token management disabled');
-			return;
-		}
-
-		try {
-			this.tokenizer = createTokenizerFromProvider(provider, model);
-			this.config.maxTokens = this.tokenizer.getMaxTokens();
-
-			this.compressionStrategy = createDefaultCompressionStrategy(this.config.maxTokens!, {
-				strategy: this.config.compressionStrategy ?? 'hybrid',
-				warningThreshold: this.config.warningThreshold as number,
-				...(this.config.compressionThreshold !== undefined && {
-					compressionThreshold: this.config.compressionThreshold,
-				}),
-			});
-
-			logger.debug('Token management initialized', {
-				provider,
-				model,
-				maxTokens: this.config.maxTokens,
-				tokenizerInfo: this.tokenizer.getProviderInfo(),
-			});
-		} catch (error) {
-			logger.warn('Failed to initialize token management', { error });
-			this.config.enableTokenManagement = false;
-		}
+		logger.debug('ContextManager initialized with formatter', { formatter });
 	}
 
 	async getSystemPrompt(): Promise<string> {
@@ -99,8 +31,6 @@ export class ContextManager {
 		if (!message.role) {
 			throw new Error('Role is required for a message');
 		}
-
-		// Validate message content based on role
 		switch (message.role) {
 			case 'user':
 				if (
@@ -139,127 +69,10 @@ export class ContextManager {
 				throw new Error(`Unknown message role: ${(message as any).role}`);
 		}
 
-		// Create enhanced message with token counting
-		const enhancedMessage: EnhancedInternalMessage = {
-			...message,
-			timestamp: Date.now(),
-			priority: 'normal', // Default priority
-		};
-
-		// Count tokens if tokenizer is available
-		if (this.tokenizer && this.config.enableTokenManagement) {
-			try {
-				const tokenResult = await this.tokenizer.countMessageTokens(enhancedMessage);
-				enhancedMessage.tokenCount = tokenResult.count;
-				logger.debug('Message tokens counted', {
-					tokens: tokenResult.count,
-					estimated: tokenResult.estimated,
-				});
-			} catch (error) {
-				logger.warn('Failed to count message tokens', { error });
-			}
-		}
-
 		// Store the message in history
-		this.messages.push(enhancedMessage);
-		logger.debug(`Adding message to context: ${JSON.stringify(enhancedMessage, null, 2)}`);
+		this.messages.push(message);
+		logger.debug(`Adding message to context: ${JSON.stringify(message, null, 2)}`);
 		logger.debug(`Total messages in context: ${this.messages.length}`);
-
-		// Check if compression is needed
-		await this.checkAndCompress();
-	}
-
-	/**
-	 * Check if compression is needed and perform it if necessary
-	 */
-	private async checkAndCompress(): Promise<void> {
-		if (!this.config.enableTokenManagement || !this.tokenizer || !this.compressionStrategy) {
-			return;
-		}
-
-		try {
-			// Calculate current token usage
-			const tokenResult = await this.tokenizer.countMessagesTokens(this.messages);
-			const currentTokens = tokenResult.count;
-			const maxTokens = this.config.maxTokens!;
-
-			// Get compression level
-			const compressionLevel = getCompressionLevel(
-				currentTokens,
-				maxTokens,
-				this.config.warningThreshold!,
-				this.config.compressionThreshold!
-			);
-
-			logger.debug('Token usage check', {
-				currentTokens,
-				maxTokens,
-				ratio: currentTokens / maxTokens,
-				compressionLevel,
-			});
-
-			// Log warning at warning threshold
-			if (compressionLevel === 'warning') {
-				logger.warn('Approaching token limit', {
-					currentTokens,
-					maxTokens,
-					ratio: currentTokens / maxTokens,
-				});
-			}
-
-			// Perform compression if needed
-			if (
-				this.compressionStrategy.shouldCompress(
-					currentTokens,
-					maxTokens,
-					this.compressionStrategy.getConfig()
-				)
-			) {
-				logger.info('Starting proactive compression', {
-					currentTokens,
-					maxTokens,
-					compressionLevel,
-				});
-
-				// Calculate target token count (aim for 70% of max to provide buffer)
-				const targetTokens = Math.floor(maxTokens * 0.7);
-
-				const compressionResult = await this.compressionStrategy.compress(this.messages, {
-					currentTokenCount: currentTokens,
-					maxTokens,
-					targetTokenCount: targetTokens,
-					preserveCritical: true,
-					compressionLevel: compressionLevel as any,
-				});
-
-				// Store compression history for debugging
-				this.compressionHistory.push(compressionResult);
-
-				logger.info('Compression completed', {
-					...compressionResult,
-					newTokenCount: await this.getCurrentTokenCount(),
-				});
-			}
-		} catch (error) {
-			logger.error('Failed to check and compress messages', { error });
-		}
-	}
-
-	/**
-	 * Get current token count
-	 */
-	async getCurrentTokenCount(): Promise<number> {
-		if (!this.tokenizer) {
-			return 0;
-		}
-
-		try {
-			const result = await this.tokenizer.countMessagesTokens(this.messages);
-			return result.count;
-		} catch (error) {
-			logger.warn('Failed to get current token count', { error });
-			return 0;
-		}
 	}
 
 	/**
@@ -442,159 +255,7 @@ export class ContextManager {
 	/**
 	 * Get the raw messages array (for inspection, debugging, or deduplication)
 	 */
-	public getRawMessages(): EnhancedInternalMessage[] {
+	public getRawMessages(): InternalMessage[] {
 		return this.messages;
-	}
-
-	/**
-	 * Get compression history for debugging
-	 */
-	public getCompressionHistory(): CompressionResult[] {
-		return this.compressionHistory;
-	}
-
-	/**
-	 * Get token management statistics
-	 */
-	public async getTokenStats(): Promise<{
-		currentTokens: number;
-		maxTokens: number;
-		utilizationRatio: number;
-		compressionLevel: string;
-		messageCount: number;
-		tokenizerInfo?: any;
-	} | null> {
-		if (!this.config.enableTokenManagement || !this.tokenizer) {
-			return null;
-		}
-
-		const currentTokens = await this.getCurrentTokenCount();
-		const maxTokens = this.config.maxTokens!;
-		const compressionLevel = getCompressionLevel(
-			currentTokens,
-			maxTokens,
-			this.config.warningThreshold!,
-			this.config.compressionThreshold!
-		);
-
-		return {
-			currentTokens,
-			maxTokens,
-			utilizationRatio: currentTokens / maxTokens,
-			compressionLevel,
-			messageCount: this.messages.length,
-			tokenizerInfo: this.tokenizer.getProviderInfo(),
-		};
-	}
-
-	/**
-	 * Force compression manually (for testing or emergency situations)
-	 */
-	public async forceCompression(targetRatio: number = 0.7): Promise<CompressionResult | null> {
-		if (!this.config.enableTokenManagement || !this.compressionStrategy || !this.tokenizer) {
-			return null;
-		}
-
-		const currentTokens = await this.getCurrentTokenCount();
-		const maxTokens = this.config.maxTokens!;
-		const targetTokens = Math.floor(maxTokens * targetRatio);
-
-		logger.info('Forcing compression', { currentTokens, targetTokens });
-
-		const result = await this.compressionStrategy.compress(this.messages, {
-			currentTokenCount: currentTokens,
-			maxTokens,
-			targetTokenCount: targetTokens,
-			preserveCritical: true,
-			compressionLevel: 'hard',
-		});
-
-		this.compressionHistory.push(result);
-		return result;
-	}
-
-	/**
-	 * Add a message with enhanced options
-	 */
-	async addEnhancedMessage(
-		message: InternalMessage,
-		options: {
-			priority?: 'critical' | 'high' | 'normal' | 'low';
-			preserveInCompression?: boolean;
-		} = {}
-	): Promise<void> {
-		// Validate the base message first
-		if (!message.role) {
-			throw new Error('Role is required for a message');
-		}
-
-		// Validate message content based on role (same validation as addMessage)
-		switch (message.role) {
-			case 'user':
-				if (
-					!(Array.isArray(message.content) && message.content.length > 0) &&
-					(typeof message.content !== 'string' || message.content.trim() === '')
-				) {
-					throw new Error(
-						'User message content should be a non-empty string or a non-empty array of parts.'
-					);
-				}
-				break;
-			case 'assistant':
-				if (message.content === null && (!message.toolCalls || message.toolCalls.length === 0)) {
-					throw new Error('Assistant message must have content or toolCalls.');
-				}
-				if (message.toolCalls) {
-					if (
-						!Array.isArray(message.toolCalls) ||
-						message.toolCalls.some(tc => !tc.id || !tc.function?.name || !tc.function?.arguments)
-					) {
-						throw new Error('Invalid toolCalls structure in assistant message.');
-					}
-				}
-				break;
-			case 'tool':
-				if (!message.toolCallId || !message.name || message.content === null) {
-					throw new Error('Tool message missing required fields (toolCallId, name, content).');
-				}
-				break;
-			case 'system':
-				if (typeof message.content !== 'string' || message.content.trim() === '') {
-					throw new Error('System message content must be a non-empty string.');
-				}
-				break;
-			default:
-				throw new Error(`Unknown message role: ${(message as any).role}`);
-		}
-
-		// Create enhanced message with options
-		const enhancedMessage: EnhancedInternalMessage = {
-			...message,
-			...options,
-			timestamp: Date.now(),
-		};
-
-		// Count tokens if tokenizer is available
-		if (this.tokenizer && this.config.enableTokenManagement) {
-			try {
-				const tokenResult = await this.tokenizer.countMessageTokens(enhancedMessage);
-				enhancedMessage.tokenCount = tokenResult.count;
-				logger.debug('Enhanced message tokens counted', {
-					tokens: tokenResult.count,
-					estimated: tokenResult.estimated,
-					priority: options.priority,
-				});
-			} catch (error) {
-				logger.warn('Failed to count enhanced message tokens', { error });
-			}
-		}
-
-		// Store the enhanced message in history
-		this.messages.push(enhancedMessage);
-		logger.debug(`Adding enhanced message to context: ${JSON.stringify(enhancedMessage, null, 2)}`);
-		logger.debug(`Total messages in context: ${this.messages.length}`);
-
-		// Check if compression is needed
-		await this.checkAndCompress();
 	}
 }

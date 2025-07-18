@@ -125,19 +125,23 @@ program
 			}
 		}
 
-		// Check if at least one API key is provided or Ollama is configured (skip in MCP mode)
-		if (opts.mode !== 'mcp') {
-			if (
-				!env.OPENAI_API_KEY &&
-				!env.ANTHROPIC_API_KEY &&
-				!env.OPENROUTER_API_KEY &&
-				!env.OLLAMA_BASE_URL
-			) {
-				const errorMsg =
-					'No API key or Ollama configuration found, please set at least one of OPENAI_API_KEY, ANTHROPIC_API_KEY, OPENROUTER_API_KEY, or OLLAMA_BASE_URL in .env file\nAvailable providers: OpenAI, Anthropic, OpenRouter, Ollama';
+		// Check if at least one API key is provided or Ollama is configured
+		if (
+			!env.OPENAI_API_KEY &&
+			!env.ANTHROPIC_API_KEY &&
+			!env.OPENROUTER_API_KEY &&
+			!env.OLLAMA_BASE_URL
+		) {
+			// Use MCP-safe error reporting
+			const errorMsg =
+				'No API key or Ollama configuration found, please set at least one of OPENAI_API_KEY, ANTHROPIC_API_KEY, OPENROUTER_API_KEY, or OLLAMA_BASE_URL in .env file\nAvailable providers: OpenAI, Anthropic, OpenRouter, Ollama';
+
+			if (opts.mode === 'mcp') {
+				process.stderr.write(`[CIPHER-MCP] ERROR: ${errorMsg}\n`);
+			} else {
 				logger.error(errorMsg);
-				process.exit(1);
 			}
+			process.exit(1);
 		}
 
 		// validate cli options

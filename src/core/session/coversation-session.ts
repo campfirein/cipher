@@ -91,7 +91,7 @@ export class ConversationSession {
 		this.contextManager = createContextManager(llmConfig, this.services.promptManager);
 
 		// Create session-specific LLM service
-		this.llmService = await createLLMService(
+		this.llmService = createLLMService(
 			llmConfig,
 			this.services.mcpManager,
 			this.contextManager,
