@@ -183,6 +183,11 @@ export interface InternalToolContext {
 		 * Knowledge graph manager for graph operations
 		 */
 		knowledgeGraphManager?: KnowledgeGraphManager;
+
+		/**
+		 * Agentic memory system for memory operations
+		 */
+		agenticMemory?: any;
 	};
 
 	/**

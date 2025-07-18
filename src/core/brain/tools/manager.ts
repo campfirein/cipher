@@ -52,6 +52,7 @@ export class InternalToolManager implements IInternalToolManager {
 		vectorStoreManager?: any;
 		llmService?: any;
 		knowledgeGraphManager?: any;
+		agenticMemory?: any;
 	};
 
 	constructor(config: InternalToolManagerConfig = {}) {
@@ -505,6 +506,7 @@ export class InternalToolManager implements IInternalToolManager {
 		vectorStoreManager?: any;
 		llmService?: any;
 		knowledgeGraphManager?: any;
+		agenticMemory?: any;
 	}): void {
 		this.services = services;
 		logger.debug('InternalToolManager: Services configured', {
@@ -512,6 +514,7 @@ export class InternalToolManager implements IInternalToolManager {
 			hasVectorStoreManager: !!services.vectorStoreManager,
 			hasLlmService: !!services.llmService,
 			hasKnowledgeGraphManager: !!services.knowledgeGraphManager,
+			hasAgenticMemory: !!services.agenticMemory,
 		});
 	}
 }

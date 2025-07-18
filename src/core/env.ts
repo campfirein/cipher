@@ -64,6 +64,30 @@ const envSchema = z.object({
 	// Reflection Memory Configuration
 	REFLECTION_VECTOR_STORE_COLLECTION: z.string().default('reflection_memory'),
 	DISABLE_REFLECTION_MEMORY: z.boolean().default(false),
+	// A-MEM Configuration
+	AGENTIC_MEMORY_ENABLED: z.boolean().default(false),
+	AGENTIC_MEMORY_MODE: z.enum(['disabled', 'enabled', 'memagent']).default('disabled'),
+	AGENTIC_MEMORY_COLLECTION: z.string().default('agentic_memories'),
+	AGENTIC_MEMORY_EVOLUTION_COLLECTION: z.string().default('agentic_memory_evolution'),
+	AGENTIC_MEMORY_EVOLUTION_THRESHOLD: z.number().default(100),
+	AGENTIC_MEMORY_MAX_RELATED: z.number().default(5),
+	AGENTIC_MEMORY_SIMILARITY_THRESHOLD: z.number().default(0.7),
+	AGENTIC_MEMORY_AUTO_EVOLUTION: z.boolean().default(true),
+	AGENTIC_MEMORY_MAX_SEARCH_RESULTS: z.number().default(10),
+	AGENTIC_MEMORY_BATCH_SIZE: z.number().default(100),
+	AGENTIC_MEMORY_LLM_TIMEOUT: z.number().default(30000),
+	AGENTIC_MEMORY_VECTOR_TIMEOUT: z.number().default(10000),
+	AGENTIC_MEMORY_MAX_RETRIES: z.number().default(3),
+	AGENTIC_MEMORY_ANALYTICS_ENABLED: z.boolean().default(true),
+	AGENTIC_MEMORY_DEBUG_MODE: z.boolean().default(false),
+	// MemAgent A-MEM Configuration (distinct collections)
+	MEMAGENT_AGENTIC_MEMORY_COLLECTION: z.string().default('memagent_agentic_memories'),
+	MEMAGENT_AGENTIC_MEMORY_EVOLUTION_COLLECTION: z
+		.string()
+		.default('memagent_agentic_memory_evolution'),
+	MEMAGENT_AGENTIC_MEMORY_EVOLUTION_THRESHOLD: z.number().default(50),
+	MEMAGENT_AGENTIC_MEMORY_MAX_RELATED: z.number().default(10),
+	MEMAGENT_AGENTIC_MEMORY_AUTO_EVOLUTION: z.boolean().default(true),
 });
 
 type EnvSchema = z.infer<typeof envSchema>;
@@ -185,6 +209,71 @@ export const env: EnvSchema = new Proxy({} as EnvSchema, {
 			}
 			case 'DISABLE_REFLECTION_MEMORY':
 				return process.env.DISABLE_REFLECTION_MEMORY === 'true';
+			// A-MEM Configuration
+			case 'AGENTIC_MEMORY_ENABLED':
+				return process.env.AGENTIC_MEMORY_ENABLED === 'true';
+			case 'AGENTIC_MEMORY_MODE':
+				return process.env.AGENTIC_MEMORY_MODE || 'disabled';
+			case 'AGENTIC_MEMORY_COLLECTION':
+				return process.env.AGENTIC_MEMORY_COLLECTION || 'agentic_memories';
+			case 'AGENTIC_MEMORY_EVOLUTION_COLLECTION':
+				return process.env.AGENTIC_MEMORY_EVOLUTION_COLLECTION || 'agentic_memory_evolution';
+			case 'AGENTIC_MEMORY_EVOLUTION_THRESHOLD':
+				return process.env.AGENTIC_MEMORY_EVOLUTION_THRESHOLD
+					? parseInt(process.env.AGENTIC_MEMORY_EVOLUTION_THRESHOLD, 10)
+					: 100;
+			case 'AGENTIC_MEMORY_MAX_RELATED':
+				return process.env.AGENTIC_MEMORY_MAX_RELATED
+					? parseInt(process.env.AGENTIC_MEMORY_MAX_RELATED, 10)
+					: 5;
+			case 'AGENTIC_MEMORY_SIMILARITY_THRESHOLD':
+				return process.env.AGENTIC_MEMORY_SIMILARITY_THRESHOLD
+					? parseFloat(process.env.AGENTIC_MEMORY_SIMILARITY_THRESHOLD)
+					: 0.7;
+			case 'AGENTIC_MEMORY_AUTO_EVOLUTION':
+				return process.env.AGENTIC_MEMORY_AUTO_EVOLUTION !== 'false';
+			case 'AGENTIC_MEMORY_MAX_SEARCH_RESULTS':
+				return process.env.AGENTIC_MEMORY_MAX_SEARCH_RESULTS
+					? parseInt(process.env.AGENTIC_MEMORY_MAX_SEARCH_RESULTS, 10)
+					: 10;
+			case 'AGENTIC_MEMORY_BATCH_SIZE':
+				return process.env.AGENTIC_MEMORY_BATCH_SIZE
+					? parseInt(process.env.AGENTIC_MEMORY_BATCH_SIZE, 10)
+					: 100;
+			case 'AGENTIC_MEMORY_LLM_TIMEOUT':
+				return process.env.AGENTIC_MEMORY_LLM_TIMEOUT
+					? parseInt(process.env.AGENTIC_MEMORY_LLM_TIMEOUT, 10)
+					: 30000;
+			case 'AGENTIC_MEMORY_VECTOR_TIMEOUT':
+				return process.env.AGENTIC_MEMORY_VECTOR_TIMEOUT
+					? parseInt(process.env.AGENTIC_MEMORY_VECTOR_TIMEOUT, 10)
+					: 10000;
+			case 'AGENTIC_MEMORY_MAX_RETRIES':
+				return process.env.AGENTIC_MEMORY_MAX_RETRIES
+					? parseInt(process.env.AGENTIC_MEMORY_MAX_RETRIES, 10)
+					: 3;
+			case 'AGENTIC_MEMORY_ANALYTICS_ENABLED':
+				return process.env.AGENTIC_MEMORY_ANALYTICS_ENABLED !== 'false';
+			case 'AGENTIC_MEMORY_DEBUG_MODE':
+				return process.env.AGENTIC_MEMORY_DEBUG_MODE === 'true';
+			// MemAgent A-MEM Configuration
+			case 'MEMAGENT_AGENTIC_MEMORY_COLLECTION':
+				return process.env.MEMAGENT_AGENTIC_MEMORY_COLLECTION || 'memagent_agentic_memories';
+			case 'MEMAGENT_AGENTIC_MEMORY_EVOLUTION_COLLECTION':
+				return (
+					process.env.MEMAGENT_AGENTIC_MEMORY_EVOLUTION_COLLECTION ||
+					'memagent_agentic_memory_evolution'
+				);
+			case 'MEMAGENT_AGENTIC_MEMORY_EVOLUTION_THRESHOLD':
+				return process.env.MEMAGENT_AGENTIC_MEMORY_EVOLUTION_THRESHOLD
+					? parseInt(process.env.MEMAGENT_AGENTIC_MEMORY_EVOLUTION_THRESHOLD, 10)
+					: 50;
+			case 'MEMAGENT_AGENTIC_MEMORY_MAX_RELATED':
+				return process.env.MEMAGENT_AGENTIC_MEMORY_MAX_RELATED
+					? parseInt(process.env.MEMAGENT_AGENTIC_MEMORY_MAX_RELATED, 10)
+					: 10;
+			case 'MEMAGENT_AGENTIC_MEMORY_AUTO_EVOLUTION':
+				return process.env.MEMAGENT_AGENTIC_MEMORY_AUTO_EVOLUTION !== 'false';
 			default:
 				return process.env[prop];
 		}

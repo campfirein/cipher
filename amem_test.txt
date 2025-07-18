@@ -1,0 +1,155 @@
+# A-MEM Comprehensive Testing Script
+# Copy and paste these messages one by one into cipher CLI to test all A-MEM functionality
+# Each section tests a different use case with specific A-MEM features
+
+# ====================================================================
+# SECTION 1: Research & Knowledge Management Use Case
+# ====================================================================
+
+Please add this research memory using A-MEM: "Recent study on neural networks shows 15% improvement in accuracy with transformer architecture modifications" with context "Machine Learning Research", tags ["neural-networks", "transformers", "performance"], and category "Academic".
+
+# Add related research memory
+Add another research memory: "Deep learning models require extensive hyperparameter tuning for optimal performance" with context "Machine Learning Research", tags ["deep-learning", "hyperparameters", "optimization"], and category "Academic".
+
+# Add third research memory to test link generation
+Add this memory: "Attention mechanisms in transformers enable better sequence modeling than RNNs" with context "Machine Learning Research", tags ["attention", "transformers", "sequence-modeling"], and category "Academic".
+
+# Test search with neighbor inclusion
+Search for memories related to "transformers" and include neighbors from the same memory box.
+
+# ====================================================================
+# SECTION 2: Conversational AI with Long-term Memory Use Case  
+# ====================================================================
+
+Add this user preference memory: "User prefers morning meetings, dislikes calls after 4pm, works best with visual presentations" with context "User Preferences", tags ["scheduling", "communication", "work-habits"], and category "Personal".
+
+# Add behavioral pattern memory
+Add this memory: "User frequently asks for code examples when learning new concepts" with context "Learning Patterns", tags ["learning-style", "code-examples", "preferences"], and category "Personal".
+
+# Add interaction history
+Add this memory: "User mentioned working on machine learning project for healthcare applications" with context "Project Context", tags ["machine-learning", "healthcare", "current-project"], and category "Personal".
+
+# Test memory evolution by searching
+Search for memories about "user preferences" to see how A-MEM organizes personal information.
+
+# ====================================================================
+# SECTION 3: Customer Support Knowledge Base Use Case
+# ====================================================================
+
+Add this support memory: "Customer reported SSL certificate error on checkout page, resolved by updating certificate authority" with context "Technical Issues", tags ["ssl", "checkout", "certificate", "resolved"], and category "Support".
+
+# Add related issue
+Add this memory: "Payment processing fails when SSL handshake is incomplete, check certificate configuration" with context "Technical Issues", tags ["payment", "ssl", "handshake", "troubleshooting"], and category "Support".
+
+# Add solution pattern
+Add this memory: "SSL certificate issues usually resolved by: 1) Check expiry 2) Verify CA chain 3) Test handshake" with context "Solution Patterns", tags ["ssl", "troubleshooting", "best-practices"], and category "Support".
+
+# Test problem-solution linking
+Search for "SSL issues" to see how A-MEM links problems with solutions.
+
+# ====================================================================
+# SECTION 4: Creative Writing & Content Generation Use Case
+# ====================================================================
+
+Add this character memory: "Sarah Chen - ambitious architect, afraid of heights, graduated from MIT, dreams of designing sustainable buildings" with context "Character Development", tags ["character", "architect", "personality", "background"], and category "Creative".
+
+# Add plot element
+Add this memory: "The glass tower project forces Sarah to confront her fear of heights when she must inspect the 50th floor" with context "Plot Development", tags ["conflict", "character-growth", "setting"], and category "Creative".
+
+# Add theme memory
+Add this memory: "Story explores themes of overcoming personal limitations to achieve professional dreams" with context "Themes", tags ["personal-growth", "dreams", "obstacles"], and category "Creative".
+
+# Test creative connections
+Search for memories about "Sarah" to see how A-MEM connects character, plot, and themes.
+
+# ====================================================================
+# SECTION 5: Software Development Documentation Use Case
+# ====================================================================
+
+Add this technical memory: "Authentication module uses JWT tokens with 24-hour expiry, stored in httpOnly cookies for security" with context "Security Implementation", tags ["auth", "jwt", "security", "cookies"], and category "Development".
+
+# Add API documentation
+Add this memory: "User registration endpoint: POST /api/auth/register, requires email validation and password strength check" with context "API Documentation", tags ["api", "registration", "validation"], and category "Development".
+
+# Add architecture pattern
+Add this memory: "Microservices architecture with API gateway for authentication, user service, and notification service" with context "System Architecture", tags ["microservices", "api-gateway", "architecture"], and category "Development".
+
+# Test technical knowledge linking
+Search for "authentication" to see how A-MEM organizes technical documentation.
+
+# ====================================================================
+# SECTION 6: Learning & Education Systems Use Case
+# ====================================================================
+
+Add this learning memory: "Student struggles with calculus derivatives but excels at algebra and geometry" with context "Student Progress", tags ["mathematics", "derivatives", "strengths", "weaknesses"], and category "Education".
+
+# Add learning pattern
+Add this memory: "Student learns best with visual aids and step-by-step examples, struggles with abstract concepts" with context "Learning Style", tags ["visual-learning", "examples", "learning-preferences"], and category "Education".
+
+# Add progress tracking
+Add this memory: "After focused practice on chain rule, student showed 40% improvement in derivative problems" with context "Progress Tracking", tags ["improvement", "practice", "derivatives"], and category "Education".
+
+# Test adaptive learning insights
+Search for memories about "student learning" to see how A-MEM tracks educational patterns.
+
+# ====================================================================
+# SECTION 7: Memory Box Organization Testing
+# ====================================================================
+
+Get memory boxes to see how A-MEM has organized all memories into contextual groups following Zettelkasten methodology.
+
+# ====================================================================
+# SECTION 8: Memory Evolution Testing
+# ====================================================================
+
+Add this memory that should trigger evolution: "New breakthrough in transformer architecture achieves 25% better performance than previous neural network study" with context "Machine Learning Research", tags ["transformers", "breakthrough", "performance"], and category "Academic".
+
+# Check if this triggers memory evolution with existing neural network memories
+Search for "neural networks breakthrough" to see if A-MEM evolved the relationships.
+
+# ====================================================================
+# SECTION 9: Cross-Category Memory Linking
+# ====================================================================
+
+Add this memory that spans categories: "Sarah the architect uses machine learning to optimize building energy efficiency for her sustainable tower project" with context "Interdisciplinary Project", tags ["architecture", "machine-learning", "sustainability"], and category "Mixed".
+
+# Test cross-category connections
+Search for "sustainable building" to see how A-MEM links across different knowledge domains.
+
+# ====================================================================
+# SECTION 10: Memory Analytics and System Status
+# ====================================================================
+
+Get memory boxes again to see the final organization and evolution of all memories.
+
+Search for "memory" with broad criteria to see the full scope of what A-MEM has learned and connected.
+
+# ====================================================================
+# EXPECTED A-MEM BEHAVIORS TO VERIFY:
+# ====================================================================
+
+# 1. LINK GENERATION: Related memories should automatically connect
+# 2. MEMORY EVOLUTION: Similar memories should strengthen relationships
+# 3. BOX ORGANIZATION: Memories grouped by context and similarity
+# 4. NEIGHBOR INCLUSION: Searches should include related memories from same box
+# 5. CROSS-DOMAIN LINKING: Memories should connect across categories when relevant
+# 6. CONTEXTUAL RETRIEVAL: Search results should include contextually relevant neighbors
+# 7. RELATIONSHIP BUILDING: System should discover non-obvious connections
+# 8. KNOWLEDGE EVOLUTION: Memory network should grow more sophisticated over time
+
+# ====================================================================
+# TESTING CHECKLIST:
+# ====================================================================
+
+# □ All 6 use cases tested with representative memories
+# □ Memory addition shows proper A-MEM processing (link generation, analysis)
+# □ Search includes automatic neighbor retrieval
+# □ Memory boxes show Zettelkasten-style organization
+# □ Evolution threshold triggered with similar memories
+# □ Cross-category linking demonstrated
+# □ System handles diverse content types and contexts
+# □ Performance remains good with increasing memory count
+# □ Memory relationships make logical sense
+# □ System demonstrates learning and adaptation over conversation
+
+# END OF TEST SCRIPT

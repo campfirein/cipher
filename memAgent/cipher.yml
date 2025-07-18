@@ -23,7 +23,7 @@ mcpServers:
 llm:
   # OpenAI configuration - Updated to use model that supports tool calling
   provider: openai
-  model: gpt-4.1-mini
+  model: gpt-4o-mini
   apiKey: $OPENAI_API_KEY
   maxIterations: 50
   # provider: anthropic

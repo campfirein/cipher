@@ -21,32 +21,25 @@ export async function getAllToolDefinitions(): Promise<InternalToolSet> {
 	try {
 		logger.debug('Loading all tool definitions...');
 
-		// Always load memory tools
-		const memoryTools = await import('./memory/index.js').then(m => m.getMemoryTools());
+		const isAgenticMemoryEnabled =
+			env.AGENTIC_MEMORY_ENABLED || env.AGENTIC_MEMORY_MODE !== 'disabled';
 
-		// Conditionally load knowledge graph tools based on environment setting
-		let knowledgeGraphTools: InternalToolSet = {};
-		if (env.KNOWLEDGE_GRAPH_ENABLED) {
-			logger.debug('Knowledge graph enabled, loading knowledge graph tools');
-			knowledgeGraphTools = await import('./knowledge_graph/index.js').then(m =>
-				m.getKnowledgeGraphTools()
-			);
+		logger.debug(
+			`Memory system mode check: AGENTIC_MEMORY_ENABLED=${env.AGENTIC_MEMORY_ENABLED}, AGENTIC_MEMORY_MODE=${env.AGENTIC_MEMORY_MODE}, isEnabled=${isAgenticMemoryEnabled}`
+		);
+
+		// Load the appropriate tool set based on memory mode
+		let allTools: InternalToolSet = {};
+
+		if (isAgenticMemoryEnabled) {
+			logger.debug('Agentic Memory enabled, loading agentic memory tool set');
+			const { getAgenticMemoryTools } = await import('./agentic-memory-tools.js');
+			allTools = await getAgenticMemoryTools();
 		} else {
-			logger.debug('Knowledge graph disabled, skipping knowledge graph tools');
+			logger.debug('Agentic Memory disabled, loading regular memory tool set');
+			const { getRegularMemoryTools } = await import('./regular-memory-tools.js');
+			allTools = await getRegularMemoryTools();
 		}
-
-		// Combine all tools (reasoning tools are already included in memoryTools now)
-		const allTools: InternalToolSet = {
-			...memoryTools,
-			...knowledgeGraphTools,
-		};
-
-		logger.info('Tool definitions loaded successfully', {
-			totalTools: Object.keys(allTools).length,
-			memoryTools: Object.keys(memoryTools).length,
-			knowledgeGraphTools: Object.keys(knowledgeGraphTools).length,
-			knowledgeGraphEnabled: env.KNOWLEDGE_GRAPH_ENABLED,
-		});
 
 		return allTools;
 	} catch (error) {
@@ -143,6 +136,22 @@ export const TOOL_CATEGORIES = {
 		] as string[],
 		useCase:
 			'Use these tools to build, query, and manage knowledge graphs for understanding relationships between entities',
+	},
+	agentic_memory: {
+		description:
+			'Tools for managing agentic memory with dynamic evolution and relationship building',
+		tools: [
+			'add_memory_note',
+			'search_agentic_memory',
+			'evolve_memory',
+			'get_memory_relationships',
+			'consolidate_memories',
+			'update_memory_note',
+			'delete_memory_note',
+			'memory_analytics',
+		] as string[],
+		useCase:
+			'Use these tools to create, search, and manage agentic memories that automatically evolve and build relationships over time',
 	},
 };
 

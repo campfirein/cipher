@@ -32,6 +32,7 @@ export class SessionManager {
 			promptManager: PromptManager;
 			mcpManager: MCPManager;
 			unifiedToolManager: UnifiedToolManager;
+			agenticMemory?: any; // AgenticMemorySystem
 		},
 		config: SessionManagerConfig = {}
 	) {

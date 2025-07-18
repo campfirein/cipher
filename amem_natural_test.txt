@@ -1,0 +1,133 @@
+# A-MEM Natural Conversation Testing Script
+# Test A-MEM through natural conversations - NO explicit "add memory" commands
+# The system should automatically process and store information from these conversations
+
+# ====================================================================
+# CONVERSATION 1: Research Discussion (Knowledge Management)
+# ====================================================================
+
+Hi! I'm currently working on a research project about neural networks. We've been experimenting with transformer architectures and found some interesting results - our modified attention mechanism improved accuracy by about 15% compared to standard transformers. The key insight was combining self-attention with cross-attention in a novel way.
+
+# EXPECTED A-MEM BEHAVIOR: Should automatically store research context, findings, technical details
+
+# ====================================================================
+# CONVERSATION 2: Personal Preferences (Conversational AI Memory)
+# ====================================================================
+
+I wanted to mention that I really prefer having meetings in the morning - I'm most productive then. I'm not a fan of phone calls after 4pm since that's when I do my focused coding work. Also, when you explain technical concepts to me, I learn much better with concrete code examples rather than abstract descriptions.
+
+# EXPECTED A-MEM BEHAVIOR: Should store user preferences, communication style, learning patterns
+
+# ====================================================================
+# CONVERSATION 3: Technical Problem Solving (Support Knowledge)
+# ====================================================================
+
+I ran into an issue yesterday with our SSL certificate on the checkout page. Customers were getting security warnings. After some debugging, I found the certificate authority chain wasn't complete. Fixed it by updating the intermediate certificates and now everything works perfectly. This seems to be a common pattern - SSL issues are usually certificate chain problems.
+
+# EXPECTED A-MEM BEHAVIOR: Should store problem, solution, patterns for future reference
+
+# ====================================================================
+# CONVERSATION 4: Creative Project (Content Generation)
+# ====================================================================
+
+I'm writing a story about Sarah, an architect who's afraid of heights but dreams of designing the world's tallest sustainable building. The central conflict is that she has to overcome her phobia to inspect her own creation during construction. I think it's a nice metaphor for how we sometimes have to face our fears to achieve our dreams.
+
+# EXPECTED A-MEM BEHAVIOR: Should store character details, plot elements, themes, creative connections
+
+# ====================================================================
+# CONVERSATION 5: Software Architecture (Development Documentation)
+# ====================================================================
+
+In our new authentication system, we're using JWT tokens with 24-hour expiry stored in httpOnly cookies for security. The registration endpoint is POST /api/auth/register and includes email validation plus password strength checking. We've built it as a microservice with an API gateway handling the routing between auth, user management, and notification services.
+
+# EXPECTED A-MEM BEHAVIOR: Should store technical architecture, security patterns, API documentation
+
+# ====================================================================
+# CONVERSATION 6: Learning Progress (Education Systems)
+# ====================================================================
+
+I've been tutoring a student who's really struggling with calculus derivatives but does great with algebra and geometry. They're definitely a visual learner - they need step-by-step examples and diagrams. Abstract mathematical concepts are hard for them. After we focused on the chain rule with lots of practice problems, their test scores improved by about 40%.
+
+# EXPECTED A-MEM BEHAVIOR: Should track learning patterns, student progress, teaching strategies
+
+# ====================================================================
+# FOLLOW-UP CONVERSATIONS TO TEST MEMORY USAGE
+# ====================================================================
+
+# Test Research Memory Usage
+Can you help me with my neural network project? I want to try a different approach.
+
+# EXPECTED: Should remember the transformer research, 15% improvement, attention mechanisms
+
+# Test Personal Preference Memory  
+Let's schedule a meeting to discuss the project.
+
+# EXPECTED: Should remember morning preference, avoid afternoon calls
+
+# Test Technical Knowledge Memory
+I'm having another SSL issue with a different site. Any suggestions?
+
+# EXPECTED: Should remember previous SSL solution, certificate chain patterns
+
+# Test Creative Memory
+I'm stuck on my story about Sarah. How should I develop her character arc?
+
+# EXPECTED: Should remember character details, fear of heights, architectural dreams
+
+# Test Development Memory
+We need to add a password reset feature to our auth system. How should we implement it?
+
+# EXPECTED: Should remember existing auth architecture, JWT tokens, security patterns
+
+# Test Educational Memory
+My student is now struggling with integrals. What approach would work best?
+
+# EXPECTED: Should remember student's visual learning style, previous success patterns
+
+# ====================================================================
+# CROSS-DOMAIN MEMORY TESTING
+# ====================================================================
+
+I'm thinking about using machine learning to help Sarah's architectural designs optimize for energy efficiency. Could neural networks help with sustainable building design?
+
+# EXPECTED: Should connect research expertise + creative project + environmental themes
+
+# ====================================================================
+# MEMORY EVOLUTION TESTING
+# ====================================================================
+
+Actually, we just achieved a breakthrough in our neural network research - the new transformer variant now shows 25% improvement over the baseline! This is much better than our previous 15% result.
+
+# EXPECTED: Should update/evolve previous memory, strengthen research connections
+
+# ====================================================================
+# WHAT TO OBSERVE DURING TESTING:
+# ====================================================================
+
+# 1. AUTOMATIC PROCESSING: System stores information without being asked
+# 2. CONTEXTUAL UNDERSTANDING: System extracts meaningful knowledge from natural speech
+# 3. RELATIONSHIP BUILDING: System connects related information across conversations
+# 4. MEMORY RECALL: System uses stored information to enhance responses
+# 5. PREFERENCE APPLICATION: System adapts to user communication style
+# 6. PATTERN RECOGNITION: System identifies and applies learned patterns
+# 7. CROSS-DOMAIN CONNECTIONS: System links knowledge across different areas
+# 8. MEMORY EVOLUTION: System updates and strengthens memories over time
+# 9. NATURAL INTEGRATION: Memory system works invisibly in conversation
+# 10. PROGRESSIVE LEARNING: System gets smarter about user needs over time
+
+# ====================================================================
+# TESTING VALIDATION QUESTIONS:
+# ====================================================================
+
+# After the conversations, ask these to verify A-MEM is working:
+
+What do you know about my research work?
+What are my communication preferences?
+What technical problems have I solved recently?
+What creative projects am I working on?
+Tell me about my software architecture approach.
+What do you know about my teaching methods?
+
+# These questions should receive informed responses based on automatically stored memories
+
+# END OF NATURAL CONVERSATION TEST

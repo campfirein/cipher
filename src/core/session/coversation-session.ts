@@ -72,6 +72,7 @@ export class ConversationSession {
 			promptManager: PromptManager;
 			mcpManager: MCPManager;
 			unifiedToolManager: UnifiedToolManager;
+			agenticMemory?: any; // AgenticMemorySystem
 		},
 		public readonly id: string,
 		options?: {
@@ -244,8 +245,19 @@ export class ConversationSession {
 		// Initialize reasoning detector and search context manager if not already done
 		await this.initializeReasoningServices();
 
-		// Generate response
-		const response = await this.llmService.generate(input, imageDataInput, stream);
+		// Generate response with A-MEM context enhancement
+		let response: string;
+
+		// Check if A-MEM is enabled for memory-enhanced responses
+		if (env.AGENTIC_MEMORY_ENABLED || env.AGENTIC_MEMORY_MODE !== 'disabled') {
+			logger.debug('ConversationSession: Generating response with A-MEM context enhancement');
+
+			// Enhance context with relevant memories before LLM call
+			await this.enhanceContextWithMemories(input);
+		}
+
+		// Generate response using standard method (preserves tools and conversation context)
+		response = await this.llmService.generate(input, imageDataInput, stream);
 
 		// PROGRAMMATIC ENFORCEMENT: Run memory extraction asynchronously in background AFTER response is returned
 		// This ensures users see the response immediately without waiting for memory operations
@@ -272,6 +284,97 @@ export class ConversationSession {
 	}
 
 	/**
+	 * Search A-MEM for relevant memories based on user input
+	 * This retrieves contextual memories to enhance LLM responses
+	 */
+	private async searchRelevantMemories(userInput: string): Promise<any[]> {
+		try {
+			// Only search if A-MEM is enabled
+			if (!env.AGENTIC_MEMORY_ENABLED && env.AGENTIC_MEMORY_MODE === 'disabled') {
+				return [];
+			}
+
+			const agenticMemorySystem = this.services.agenticMemory;
+			if (!agenticMemorySystem) {
+				logger.debug('ConversationSession: Agentic memory system not available for search');
+				return [];
+			}
+
+			// Search for relevant memories with automatic neighbor inclusion
+			const searchResults = await agenticMemorySystem.searchMemories(userInput, {
+				k: 5, // Retrieve top 5 most relevant memories
+				includeNeighbors: true, // A-MEM automatically includes neighbors
+				similarityThreshold: 0.6, // Minimum similarity threshold
+			});
+
+			logger.debug('ConversationSession: Retrieved relevant memories for context', {
+				userInput: userInput.substring(0, 100),
+				memoriesFound: searchResults.length,
+			});
+
+			return searchResults;
+		} catch (error) {
+			logger.warn('ConversationSession: Failed to search relevant memories', {
+				error: error instanceof Error ? error.message : String(error),
+			});
+			return [];
+		}
+	}
+
+	/**
+	 * Enhance context manager with retrieved A-MEM memories
+	 * This injects relevant memories into the conversation context
+	 */
+	private async enhanceContextWithMemories(userInput: string): Promise<void> {
+		try {
+			// Search for relevant memories
+			const relevantMemories = await this.searchRelevantMemories(userInput);
+
+			if (relevantMemories.length === 0) {
+				logger.debug('ConversationSession: No relevant memories found for context enhancement');
+				return;
+			}
+
+			// Format memories for LLM context
+			const memoryContext = relevantMemories
+				.map((result, index) => {
+					const memory = result.memory;
+					return `Memory ${index + 1} (relevance: ${(result.score * 100).toFixed(1)}%):
+Context: ${memory.context || 'General'}
+Content: ${memory.content}
+Tags: ${memory.tags?.join(', ') || 'None'}
+Category: ${memory.category || 'General'}`;
+				})
+				.join('\n\n');
+
+			// Create memory context message
+			const memoryMessage = `## Relevant Context from Previous Conversations
+
+Based on your previous interactions and learned knowledge, here are relevant memories that may help you provide a more contextual and personalized response:
+
+${memoryContext}
+
+Use this context to provide more informed, personalized, and contextually aware responses. Reference specific details from these memories when relevant to the current conversation.`;
+
+			// Add the memory context as a system message to the conversation
+			await this.contextManager.addMessage({
+				role: 'system',
+				content: memoryMessage,
+			});
+
+			logger.debug('ConversationSession: Enhanced context with A-MEM memories', {
+				memoriesIncluded: relevantMemories.length,
+				memoryContextLength: memoryMessage.length,
+			});
+		} catch (error) {
+			logger.warn('ConversationSession: Failed to enhance context with memories', {
+				error: error instanceof Error ? error.message : String(error),
+			});
+			// Continue without memory enhancement - non-fatal error
+		}
+	}
+
+	/**
 	 * Programmatically enforce memory extraction after each user interaction (runs in background)
 	 * This ensures the extract_and_operate_memory tool is always called, regardless of AI decisions
 	 * NOTE: This method runs asynchronously in the background to avoid delaying the user response
@@ -292,6 +395,16 @@ export class ConversationSession {
 		});
 		try {
 			logger.debug('ConversationSession: Enforcing memory extraction for interaction');
+
+			// Check if A-MEM is enabled and use A-MEM processing instead of old memory tools
+			if (env.AGENTIC_MEMORY_ENABLED || env.AGENTIC_MEMORY_MODE !== 'disabled') {
+				logger.debug('ConversationSession: A-MEM enabled, using agentic memory processing');
+				await this.enforceAgenticMemoryProcessing(userInput, aiResponse);
+				return;
+			}
+
+			// Fallback to legacy memory extraction if A-MEM is not enabled
+			logger.debug('ConversationSession: A-MEM disabled, using legacy memory extraction');
 
 			// Check if the unifiedToolManager is available
 			if (!this.services.unifiedToolManager) {
@@ -372,6 +485,10 @@ export class ConversationSession {
 			// **NEW: Automatic Reflection Memory Processing**
 			// Process reasoning traces in the background, similar to knowledge memory
 			await this.enforceReflectionMemoryProcessing(userInput, aiResponse);
+
+			// **NEW: Automatic A-MEM Processing**
+			// Process conversation through A-MEM when enabled
+			await this.enforceAgenticMemoryProcessing(userInput, aiResponse);
 		} catch (error) {
 			const errorMessage = error instanceof Error ? error.message : String(error);
 			logger.error('ConversationSession: Memory extraction failed', {
@@ -601,6 +718,77 @@ export class ConversationSession {
 				error: error instanceof Error ? error.message : String(error),
 			});
 			// Continue execution even if reflection processing fails
+		}
+	}
+
+	/**
+	 * Programmatically enforce A-MEM (Agentic Memory) processing after each user interaction
+	 * This automatically processes conversations through the A-MEM system when enabled
+	 */
+	private async enforceAgenticMemoryProcessing(
+		userInput: string,
+		aiResponse: string
+	): Promise<void> {
+		try {
+			const isAgenticMemoryEnabled =
+				env.AGENTIC_MEMORY_ENABLED || env.AGENTIC_MEMORY_MODE !== 'disabled';
+
+			if (!isAgenticMemoryEnabled) {
+				logger.debug('ConversationSession: A-MEM not enabled, skipping agentic memory processing');
+				return;
+			}
+
+			logger.debug('ConversationSession: Enforcing A-MEM processing for interaction');
+
+			const agenticMemorySystem = this.services.agenticMemory;
+			if (!agenticMemorySystem) {
+				logger.debug(
+					'ConversationSession: Agentic memory system not available, skipping processing'
+				);
+				return;
+			}
+
+			// Use LLM to decide if a memory should be saved
+			const memoryDecisionPrompt = `You are a memory analyst for an AI assistant. Your task is to determine if a recent conversation contains a new, specific, and self-contained fact, preference, or piece of information stated by the user that is worth remembering for future interactions.\n\nAnalyze the following user-assistant interaction:\nUser: "${userInput}"\nAssistant: "${aiResponse}"\n\nConsider the following criteria for a memorable fact:\n- Is it a direct statement of fact or preference from the user? (e.g., "My project is codenamed 'Apollo'", "I prefer Python for data analysis").\n- Is it a key piece of information that, if remembered, would improve future interactions?\n- Is it a new piece of information not previously discussed?\n\nDo NOT save the following:\n- Conversational pleasantries (e.g., "hello", "thank you").\n- Commands or questions for the current task (e.g., "can you help me with this code?").\n- Vague or general statements.\n\nBased on your analysis, respond with a JSON object in the following format:\n{\n    "shouldSave": boolean,\n    "memoryContent": "The concise, self-contained fact to save as a memory. Should be null if shouldSave is false."\n}\n\nExample 1:\nUser: "Ok, for the new feature, we're calling it 'Project Phoenix'. Can you make a note of that?"\nAssistant: "Absolutely. I've made a note that the new feature is 'Project Phoenix'."\nResponse: { "shouldSave": true, "memoryContent": "The new feature is codenamed 'Project Phoenix'." }\n\nExample 2:\nUser: "Thanks, that looks great!"\nAssistant: "You're welcome! Is there anything else I can help with?"\nResponse: { "shouldSave": false, "memoryContent": null }`;
+
+			const llmResponse = await this.llmService.directGenerate(memoryDecisionPrompt);
+			let decision;
+			try {
+				decision = JSON.parse(llmResponse);
+			} catch (error) {
+				logger.warn('ConversationSession: Failed to parse A-MEM decision from LLM', {
+					llmResponse,
+					error: error instanceof Error ? error.message : String(error),
+				});
+				return; // Could not parse, so do nothing
+			}
+
+			if (decision && decision.shouldSave && decision.memoryContent) {
+				logger.debug('ConversationSession: LLM decided to save a memory to A-MEM', {
+					memoryContent: decision.memoryContent,
+				});
+
+				// Add to A-MEM system with automatic processing
+				const memoryId = await agenticMemorySystem.addMemory(decision.memoryContent, {
+					metadata: {
+						sessionId: this.id,
+						timestamp: new Date().toISOString(),
+						source: 'automatic_conversation_analysis',
+					},
+				});
+
+				logger.debug('ConversationSession: A-MEM processing completed', {
+					memoryId,
+					contentLength: decision.memoryContent.length,
+				});
+			} else {
+				logger.debug('ConversationSession: LLM decided not to save a memory to A-MEM');
+			}
+		} catch (error) {
+			logger.debug('ConversationSession: A-MEM processing failed', {
+				error: error instanceof Error ? error.message : String(error),
+			});
+			// Continue execution even if A-MEM processing fails
 		}
 	}
 

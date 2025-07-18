@@ -32,6 +32,7 @@ export type AgentServices = {
 	vectorStoreManager: VectorStoreManager | DualCollectionVectorManager;
 	llmService?: ILLMService;
 	knowledgeGraphManager?: KnowledgeGraphManager;
+	agenticMemory?: any; // AgenticMemorySystem
 };
 
 export async function createAgentServices(agentConfig: AgentConfig): Promise<AgentServices> {
@@ -156,11 +157,11 @@ export async function createAgentServices(agentConfig: AgentConfig): Promise<Age
 		promptManager.load(config.systemPrompt);
 	}
 
-	// 6. Initialize state manager for runtime state tracking
+	// 7. Initialize state manager for runtime state tracking
 	const stateManager = new MemAgentStateManager(config);
 	logger.debug('Agent state manager initialized');
 
-	// 7. Initialize LLM service
+	// 8. Initialize LLM service
 	let llmService: ILLMService | undefined = undefined;
 	try {
 		logger.debug('Initializing LLM service...');
@@ -179,7 +180,69 @@ export async function createAgentServices(agentConfig: AgentConfig): Promise<Age
 		});
 	}
 
-	// 8. Prepare session manager configuration
+	// 9. Initialize Agentic Memory System if enabled
+	let agenticMemorySystem: any = undefined;
+
+	try {
+		const { env } = await import('../env.js');
+
+		if (env.AGENTIC_MEMORY_ENABLED || env.AGENTIC_MEMORY_MODE !== 'disabled') {
+			logger.debug('Initializing Agentic Memory System...');
+
+			// Dynamic import to avoid circular dependencies
+			const {
+				createAgenticMemorySystemFromEnv,
+				isAgenticMemoryEnabled,
+				getMemoryCollectionName,
+				getMemoryEvolutionCollectionName,
+			} = await import('../agentic_memory/index.js');
+
+			if (isAgenticMemoryEnabled()) {
+				// Get the vector store for A-MEM
+				let amemVectorStoreManager: any;
+				if (vectorStoreManager instanceof DualCollectionVectorManager) {
+					amemVectorStoreManager = vectorStoreManager;
+				} else {
+					amemVectorStoreManager = vectorStoreManager;
+				}
+
+				// Get embedding service
+				const embeddingService = embeddingManager.getEmbedder('default');
+
+				if (amemVectorStoreManager && embeddingService && llmService) {
+					const { system } = await createAgenticMemorySystemFromEnv(
+						amemVectorStoreManager,
+						llmService,
+						embeddingService
+					);
+
+					agenticMemorySystem = system;
+
+					logger.info('Agentic Memory System initialized successfully', {
+						mode: env.AGENTIC_MEMORY_MODE,
+						collectionName: getMemoryCollectionName(),
+						evolutionCollectionName: getMemoryEvolutionCollectionName(),
+						autoEvolution: system.getStatus().connected,
+					});
+				} else {
+					logger.warn('Agentic Memory System dependencies not available', {
+						hasVectorStore: !!amemVectorStoreManager,
+						hasEmbeddingService: !!embeddingService,
+						hasLLMService: !!llmService,
+					});
+				}
+			} else {
+				logger.debug('Agentic Memory System is disabled');
+			}
+		}
+	} catch (error) {
+		console.log(error);
+		logger.warn('Failed to initialize Agentic Memory System', {
+			error: error instanceof Error ? error.message : String(error),
+		});
+	}
+
+	// 10. Prepare session manager configuration
 	const sessionConfig: { maxSessions?: number; sessionTTL?: number } = {};
 	if (config.sessions?.maxSessions !== undefined) {
 		sessionConfig.maxSessions = config.sessions.maxSessions;
@@ -188,7 +251,7 @@ export async function createAgentServices(agentConfig: AgentConfig): Promise<Age
 		sessionConfig.sessionTTL = config.sessions.sessionTTL;
 	}
 
-	// 9. Initialize internal tool manager
+	// 10. Initialize internal tool manager
 	const internalToolManager = new InternalToolManager({
 		enabled: true,
 		timeout: 30000,
@@ -218,9 +281,10 @@ export async function createAgentServices(agentConfig: AgentConfig): Promise<Age
 		vectorStoreManager,
 		llmService,
 		knowledgeGraphManager,
+		agenticMemory: agenticMemorySystem,
 	});
 
-	// 10. Initialize unified tool manager
+	// 11. Initialize unified tool manager
 	const unifiedToolManager = new UnifiedToolManager(mcpManager, internalToolManager, {
 		enableInternalTools: true,
 		enableMcpTools: true,
@@ -229,13 +293,14 @@ export async function createAgentServices(agentConfig: AgentConfig): Promise<Age
 
 	logger.debug('Unified tool manager initialized');
 
-	// 11. Create session manager with unified tool manager
+	// 12. Create session manager with unified tool manager
 	const sessionManager = new SessionManager(
 		{
 			stateManager,
 			promptManager,
 			mcpManager,
 			unifiedToolManager,
+			agenticMemory: agenticMemorySystem,
 		},
 		sessionConfig
 	);
@@ -245,7 +310,7 @@ export async function createAgentServices(agentConfig: AgentConfig): Promise<Age
 
 	logger.debug('Session manager with unified tools initialized');
 
-	// 12. Return the core services
+	// 13. Return the core services
 	const services: AgentServices = {
 		mcpManager,
 		promptManager,
@@ -266,6 +331,11 @@ export async function createAgentServices(agentConfig: AgentConfig): Promise<Age
 	// Only include knowledgeGraphManager when it's defined
 	if (knowledgeGraphManager) {
 		services.knowledgeGraphManager = knowledgeGraphManager;
+	}
+
+	// Only include agenticMemory when it's defined
+	if (agenticMemorySystem) {
+		services.agenticMemory = agenticMemorySystem;
 	}
 
 	return services;

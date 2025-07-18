@@ -28,6 +28,7 @@ export class InternalToolRegistry {
 		this.toolsByCategory.set('memory', new Set());
 		this.toolsByCategory.set('session', new Set());
 		this.toolsByCategory.set('system', new Set());
+		this.toolsByCategory.set('knowledge_graph', new Set());
 	}
 
 	/**
