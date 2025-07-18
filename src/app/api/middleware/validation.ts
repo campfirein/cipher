@@ -147,8 +147,8 @@ export const validateToolExecution = [
 export const validateLlmConfig = [
 	body('provider')
 		.isString()
-		.isIn(['openai', 'anthropic', 'openrouter', 'ollama'])
-		.withMessage('Provider must be one of: openai, anthropic, openrouter, ollama'),
+		.isIn(['openai', 'anthropic', 'openrouter', 'ollama', 'gemini'])
+		.withMessage('Provider must be one of: openai, anthropic, openrouter, ollama, gemini'),
 	body('model')
 		.isString()
 		.isLength({ min: 1, max: 100 })

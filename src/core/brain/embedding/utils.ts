@@ -173,7 +173,7 @@ export function validateEmbeddingEnv(): {
  */
 export function analyzeProviderConfiguration(): {
 	usingMixedProviders: boolean;
-	llmProvider: 'openai' | 'anthropic' | 'openrouter' | 'none' | 'multiple';
+	llmProvider: 'openai' | 'anthropic' | 'openrouter' | 'gemini' | 'none' | 'multiple';
 	embeddingProvider: 'openai' | 'none';
 	warnings: string[];
 	recommendations: string[];
@@ -185,19 +185,21 @@ export function analyzeProviderConfiguration(): {
 	const hasOpenAI = !!env.OPENAI_API_KEY;
 	const hasAnthropic = !!env.ANTHROPIC_API_KEY;
 	const hasOpenRouter = !!env.OPENROUTER_API_KEY;
+	const hasGemini = !!env.GEMINI_API_KEY;
 
-	let llmProvider: 'openai' | 'anthropic' | 'openrouter' | 'none' | 'multiple';
+	let llmProvider: 'openai' | 'anthropic' | 'openrouter' | 'gemini' | 'none' | 'multiple';
 	const configuredProviders = [
 		hasOpenAI && 'openai',
 		hasAnthropic && 'anthropic',
 		hasOpenRouter && 'openrouter',
+		hasGemini && 'gemini',
 	].filter(Boolean);
 
 	if (configuredProviders.length === 0) {
 		llmProvider = 'none';
 		warnings.push('No LLM provider API keys configured');
 	} else if (configuredProviders.length === 1) {
-		llmProvider = configuredProviders[0] as 'openai' | 'anthropic' | 'openrouter';
+		llmProvider = configuredProviders[0] as 'openai' | 'anthropic' | 'openrouter' | 'gemini';
 	} else {
 		llmProvider = 'multiple';
 		recommendations.push(
@@ -207,13 +209,13 @@ export function analyzeProviderConfiguration(): {
 
 	// Embedding provider analysis
 	const embeddingProvider = hasOpenAI ? 'openai' : 'none';
-	const usingMixedProviders = (hasAnthropic || hasOpenRouter) && hasOpenAI;
+	const usingMixedProviders = (hasAnthropic || hasOpenRouter || hasGemini) && hasOpenAI;
 
 	// Generate specific warnings and recommendations
-	if (!hasOpenAI && (hasAnthropic || hasOpenRouter)) {
+	if (!hasOpenAI && (hasAnthropic || hasOpenRouter || hasGemini)) {
 		warnings.push('Embedding functionality will not work without OPENAI_API_KEY');
 		recommendations.push(
-			'Add OPENAI_API_KEY to enable embedding features, even when using Anthropic or OpenRouter for LLM'
+			'Add OPENAI_API_KEY to enable embedding features, even when using Anthropic, OpenRouter, or Gemini for LLM'
 		);
 	}
 
@@ -223,7 +225,7 @@ export function analyzeProviderConfiguration(): {
 		);
 	}
 
-	if (hasOpenAI && !hasAnthropic && !hasOpenRouter) {
+	if (hasOpenAI && !hasAnthropic && !hasOpenRouter && !hasGemini) {
 		recommendations.push(
 			'Using OpenAI for both LLM and embeddings - this is the simplest configuration.'
 		);

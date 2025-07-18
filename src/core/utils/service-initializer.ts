@@ -160,26 +160,7 @@ export async function createAgentServices(agentConfig: AgentConfig): Promise<Age
 	const stateManager = new MemAgentStateManager(config);
 	logger.debug('Agent state manager initialized');
 
-	// 7. Initialize LLM service
-	let llmService: ILLMService | undefined = undefined;
-	try {
-		logger.debug('Initializing LLM service...');
-		const llmConfig = stateManager.getLLMConfig();
-		const contextManager = createContextManager(llmConfig, promptManager);
-
-		llmService = createLLMService(llmConfig, mcpManager, contextManager);
-
-		logger.info('LLM service initialized successfully', {
-			provider: llmConfig.provider,
-			model: llmConfig.model,
-		});
-	} catch (error) {
-		logger.warn('Failed to initialize LLM service', {
-			error: error instanceof Error ? error.message : String(error),
-		});
-	}
-
-	// 8. Prepare session manager configuration
+	// 7. Prepare session manager configuration
 	const sessionConfig: { maxSessions?: number; sessionTTL?: number } = {};
 	if (config.sessions?.maxSessions !== undefined) {
 		sessionConfig.maxSessions = config.sessions.maxSessions;
@@ -212,14 +193,6 @@ export async function createAgentServices(agentConfig: AgentConfig): Promise<Age
 		});
 	}
 
-	// Configure the internal tool manager with services for advanced tools
-	internalToolManager.setServices({
-		embeddingManager,
-		vectorStoreManager,
-		llmService,
-		knowledgeGraphManager,
-	});
-
 	// 10. Initialize unified tool manager
 	const unifiedToolManager = new UnifiedToolManager(mcpManager, internalToolManager, {
 		enableInternalTools: true,
@@ -229,7 +202,34 @@ export async function createAgentServices(agentConfig: AgentConfig): Promise<Age
 
 	logger.debug('Unified tool manager initialized');
 
-	// 11. Create session manager with unified tool manager
+	// 11. Initialize LLM service with unified tool manager
+	let llmService: ILLMService | undefined = undefined;
+	try {
+		logger.debug('Initializing LLM service...');
+		const llmConfig = stateManager.getLLMConfig();
+		const contextManager = createContextManager(llmConfig, promptManager);
+
+		llmService = createLLMService(llmConfig, mcpManager, contextManager, unifiedToolManager);
+
+		logger.info('LLM service initialized successfully', {
+			provider: llmConfig.provider,
+			model: llmConfig.model,
+		});
+	} catch (error) {
+		logger.warn('Failed to initialize LLM service', {
+			error: error instanceof Error ? error.message : String(error),
+		});
+	}
+
+	// 12. Configure the internal tool manager with services for advanced tools
+	internalToolManager.setServices({
+		embeddingManager,
+		vectorStoreManager,
+		llmService,
+		knowledgeGraphManager,
+	});
+
+	// 13. Create session manager with unified tool manager
 	const sessionManager = new SessionManager(
 		{
 			stateManager,
@@ -245,7 +245,7 @@ export async function createAgentServices(agentConfig: AgentConfig): Promise<Age
 
 	logger.debug('Session manager with unified tools initialized');
 
-	// 12. Return the core services
+	// 14. Return the core services
 	const services: AgentServices = {
 		mcpManager,
 		promptManager,

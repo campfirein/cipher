@@ -36,73 +36,48 @@ export class GeminiService implements ILLMService {
 
 	async generate(userInput: string, imageData?: ImageData): Promise<string> {
 		await this.contextManager.addUserMessage(userInput, imageData);
-		let formattedTools: any[];
-		if (this.unifiedToolManager) {
-			// Use 'openai' as the provider for Gemini tool formatting
-			formattedTools = await this.unifiedToolManager.getToolsForProvider('openai');
-		} else {
-			const rawTools = await this.mcpManager.getAllTools();
-			formattedTools = this.formatToolsForGemini(rawTools);
-		}
-		logger.silly(`Formatted tools: ${JSON.stringify(formattedTools, null, 2)}`);
-		let iterationCount = 0;
+		
+		// Gemini doesn't support function calling, so we'll just get a text response
 		try {
-			while (iterationCount < this.maxIterations) {
-				iterationCount++;
-				const { response } = await this.getAIResponseWithRetries(formattedTools, userInput);
-				let textContent = '';
-				let toolCalls: any[] = [];
-				// Remove all references to response.candidates and use response as candidate
-				const candidate = response as any;
-				textContent = candidate.content?.parts?.map((p: any) => p.text || '').join('') || '';
-				if (candidate.content?.toolCalls) {
-					toolCalls = candidate.content.toolCalls;
-				}
-				if (!toolCalls.length) {
-					await this.contextManager.addAssistantMessage(textContent);
-					return textContent;
-				}
-				if (textContent && textContent.trim()) {
-					logger.info(`💬 ${textContent.trim()}`);
-				}
-				await this.contextManager.addAssistantMessage(textContent, toolCalls);
-				for (const toolCall of toolCalls) {
-					logger.debug(`Tool call initiated: ${JSON.stringify(toolCall, null, 2)}`);
-					logger.info(`🔧 Using tool: ${toolCall.functionName}`);
-					const toolName = toolCall.functionName;
-					let args: any = {};
-					try {
-						args = toolCall.args;
-					} catch (e) {
-						logger.error(`Error parsing arguments for ${toolName}:`, e);
-						await this.contextManager.addToolResult(toolCall.id, toolName, {
-							error: `Failed to parse arguments: ${e}`,
-						});
-						continue;
-					}
-					try {
-						let result: any;
-						if (this.unifiedToolManager) {
-							result = await this.unifiedToolManager.executeTool(toolName, args);
-						} else {
-							result = await this.mcpManager.executeTool(toolName, args);
-						}
-						const formattedResult = formatToolResult(toolName, result);
-						logger.info(`📋 Tool Result:\n${formattedResult}`);
-						await this.contextManager.addToolResult(toolCall.id, toolName, result);
-					} catch (error) {
-						const errorMessage = error instanceof Error ? error.message : String(error);
-						logger.error(`Tool execution error for ${toolName}: ${errorMessage}`);
-						await this.contextManager.addToolResult(toolCall.id, toolName, {
-							error: errorMessage,
-						});
+			const { response } = await this.getAIResponseWithRetries([], userInput);
+			
+			// Extract text content from Gemini response
+			const candidate = response as any;
+			let textContent = '';
+			
+			logger.debug('Gemini response structure:', JSON.stringify(candidate, null, 2));
+			
+			// Try different response formats
+			if (candidate.response?.candidates?.[0]?.content?.parts) {
+				// Standard Gemini response format
+				for (const part of candidate.response.candidates[0].content.parts) {
+					if (part.text) {
+						textContent += part.text;
 					}
 				}
+			} else if (candidate.candidates?.[0]?.content?.parts) {
+				// Alternative response format
+				for (const part of candidate.candidates[0].content.parts) {
+					if (part.text) {
+						textContent += part.text;
+					}
+				}
+			} else if (candidate.content?.parts) {
+				// Direct content format
+				for (const part of candidate.content.parts) {
+					if (part.text) {
+						textContent += part.text;
+					}
+				}
+			} else if (candidate.text) {
+				// Fallback for different response format
+				textContent = candidate.text;
 			}
-			logger.warn(`Reached maximum iterations (${this.maxIterations}) for task.`);
-			const finalResponse = 'Task completed but reached maximum tool call iterations.';
-			await this.contextManager.addAssistantMessage(finalResponse);
-			return finalResponse;
+			
+			logger.debug('Extracted text content:', textContent);
+			
+			await this.contextManager.addAssistantMessage(textContent);
+			return textContent;
 		} catch (error) {
 			const errorMessage = error instanceof Error ? error.message : String(error);
 			logger.error(`Error in Gemini service API call: ${errorMessage}`, { error });
@@ -179,9 +154,16 @@ export class GeminiService implements ILLMService {
 						name: msg.name,
 					})),
 				});
+				logger.debug('Full formatted messages:', JSON.stringify(formattedMessages, null, 2));
+				logger.debug('Formatted messages length:', formattedMessages.length);
+				if (formattedMessages.length > 0) {
+					logger.debug('First message structure:', JSON.stringify(formattedMessages[0], null, 2));
+				}
+				
+				// For Gemini, we only send contents - no tools parameter
+				// Gemini doesn't support function calling in the same way as OpenAI
 				const response = await this.generativeModel.generateContent({
 					contents: formattedMessages,
-					tools,
 				});
 				logger.silly('GEMINI GENERATE CONTENT RESPONSE: ', JSON.stringify(response, null, 2));
 				return { response };
@@ -217,11 +199,16 @@ export class GeminiService implements ILLMService {
 	}
 
 	private formatToolsForGemini(tools: ToolSet): any[] {
-		// Convert ToolSet object to array for Gemini
-		return Object.entries(tools).map(([name, tool]) => ({
+		// Convert ToolSet object to array for Gemini API
+		// Gemini expects tools in a different format than OpenAI
+		const functionDeclarations = Object.entries(tools).map(([name, tool]) => ({
 			name,
 			description: tool.description,
-			parameters: tool.parameters,
+			parameters: tool.parameters
 		}));
+		
+		return [{
+			functionDeclarations
+		}];
 	}
 }

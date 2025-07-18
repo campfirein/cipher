@@ -178,9 +178,18 @@ export class ContextManager {
 		try {
 			const prompt = await this.getSystemPrompt();
 			const formattedMessages: any[] = [];
+			
+			// Use the formatter to handle system prompts properly for each provider
 			if (prompt) {
-				formattedMessages.push({ role: 'system', content: prompt });
+				const systemMessage = { role: 'system' as const, content: prompt };
+				const formattedSystem = this.formatter.format(systemMessage, null);
+				if (Array.isArray(formattedSystem)) {
+					formattedMessages.push(...formattedSystem);
+				} else if (formattedSystem && formattedSystem !== null) {
+					formattedMessages.push(formattedSystem);
+				}
 			}
+			
 			for (const msg of this.messages) {
 				const formatted = this.formatter.format(msg, null);
 				if (Array.isArray(formatted)) {

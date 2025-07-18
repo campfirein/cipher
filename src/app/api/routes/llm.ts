@@ -106,6 +106,18 @@ export function createLlmRoutes(agent: MemAgent): Router {
 					description: 'Local Ollama models',
 					note: 'Requires Ollama server running locally',
 				},
+				gemini: {
+					name: 'Google Gemini',
+					models: [
+						'gemini-2.5-flash',
+						'gemini-2.5-pro',
+						'gemini-1.5-pro',
+						'gemini-1.5-flash',
+						'gemini-pro',
+					],
+					requiresApiKey: true,
+					description: 'Google Gemini models',
+				},
 			};
 
 			successResponse(
