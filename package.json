@@ -32,22 +32,22 @@
 	],
 	"scripts": {
 		"clean": "rm -rf dist",
-		"prebuild": "npm run clean",
+		"prebuild": "pnpm run clean",
 		"build": "tsup",
 		"prepare": "husky",
 		"start": "node dist/src/app/index.cjs",
 		"dev": "tsc --watch",
 		"typecheck": "tsc --project tsconfig.typecheck.json",
-		"precommit": "npm run lint && npm run typecheck && npm run format:check && npm run test:ci && npm run build",
+		"precommit": "pnpm run lint && pnpm run typecheck && pnpm run format:check && pnpm run test:ci && pnpm run build",
 		"test": "vitest run",
 		"test:unit": "vitest run --exclude '**/integration/**' --exclude '**/*.integration.test.ts'",
 		"test:integration": "vitest run --include '**/integration/**' --include '**/*.integration.test.ts'",
-		"test:ci": "npm run test:unit",
+		"test:ci": "pnpm run test:unit",
 		"lint": "eslint .",
 		"lint:fix": "eslint . --fix",
 		"format": "prettier --write \"src/**/*.ts\" \"*.{js,json,md,yml,yaml}\"",
 		"format:check": "prettier --check \"src/**/*.ts\" \"*.{js,json,md,yml,yaml}\"",
-		"prepublishOnly": "npm run build"
+		"prepublishOnly": "pnpm run build"
 	},
 	"keywords": [
 		"mcp",
