@@ -12,7 +12,7 @@ import { AnthropicService } from './anthropic.js';
 import { OpenRouterService } from './openrouter.js';
 import { OllamaService } from './ollama.js';
 import { GeminiService } from './gemini.js';
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleGenAI } from '@google/genai';
 
 function extractApiKey(config: LLMConfig): string {
 	const provider = config.provider.toLowerCase();
@@ -145,9 +145,9 @@ function _createLLMService(
 			);
 		}
 		case 'gemini': {
-			const gemini = new GoogleGenerativeAI(extractApiKey(config));
+			const ai = new GoogleGenAI({ apiKey: extractApiKey(config) });
 			return new GeminiService(
-				gemini,
+				ai,
 				config.model,
 				mcpManager,
 				contextManager,

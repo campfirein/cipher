@@ -6,78 +6,129 @@ import { ImageData } from '../messages/types.js';
 import { ILLMService, LLMServiceConfig } from './types.js';
 import { logger } from '../../../logger/index.js';
 import { formatToolResult } from '../utils/tool-result-formatter.js';
-import { GoogleGenerativeAI, GenerativeModel } from '@google/generative-ai';
+import { GoogleGenAI } from '@google/genai';
 
 export class GeminiService implements ILLMService {
-	private gemini: GoogleGenerativeAI;
+	private ai: GoogleGenAI;
 	private model: string;
 	private mcpManager: MCPManager;
 	private unifiedToolManager: UnifiedToolManager | undefined;
 	private contextManager: ContextManager;
 	private maxIterations: number;
-	private generativeModel: GenerativeModel;
 
 	constructor(
-		gemini: GoogleGenerativeAI,
+		ai: GoogleGenAI,
 		model: string,
 		mcpManager: MCPManager,
 		contextManager: ContextManager,
 		maxIterations: number = 5,
 		unifiedToolManager?: UnifiedToolManager
 	) {
-		this.gemini = gemini;
+		this.ai = ai;
 		this.model = model;
 		this.mcpManager = mcpManager;
 		this.unifiedToolManager = unifiedToolManager;
 		this.contextManager = contextManager;
 		this.maxIterations = maxIterations;
-		this.generativeModel = gemini.getGenerativeModel({ model });
 	}
 
 	async generate(userInput: string, imageData?: ImageData): Promise<string> {
 		await this.contextManager.addUserMessage(userInput, imageData);
 		
-		// Gemini doesn't support function calling, so we'll just get a text response
+		let formattedTools: any[];
+		if (this.unifiedToolManager) {
+			// Use 'gemini' as the provider for Gemini tool formatting
+			formattedTools = await this.unifiedToolManager.getToolsForProvider('gemini');
+		} else {
+			const rawTools = await this.mcpManager.getAllTools();
+			formattedTools = this.formatToolsForGemini(rawTools);
+		}
+		
+		logger.silly(`Formatted tools: ${JSON.stringify(formattedTools, null, 2)}`);
+		
+		let iterationCount = 0;
 		try {
-			const { response } = await this.getAIResponseWithRetries([], userInput);
-			
-			// Extract text content from Gemini response
-			const candidate = response as any;
-			let textContent = '';
-			
-			logger.debug('Gemini response structure:', JSON.stringify(candidate, null, 2));
-			
-			// Try different response formats
-			if (candidate.response?.candidates?.[0]?.content?.parts) {
-				// Standard Gemini response format
-				for (const part of candidate.response.candidates[0].content.parts) {
-					if (part.text) {
-						textContent += part.text;
+			while (iterationCount < this.maxIterations) {
+				iterationCount++;
+				
+				// Get AI response with retry logic
+				const { response } = await this.getAIResponseWithRetries(formattedTools, userInput);
+				
+				// Extract text content and function calls from response
+				const textContent = response.text;
+				const functionCalls = response.functionCalls || [];
+				
+				logger.debug('Extracted text content:', textContent);
+				logger.debug('Extracted function calls:', functionCalls);
+				
+				// If there are no function calls, we're done
+				if (functionCalls.length === 0) {
+					await this.contextManager.addAssistantMessage(textContent);
+					return textContent;
+				}
+				
+				// Log thinking steps when assistant provides reasoning before function calls
+				if (textContent && textContent.trim()) {
+					logger.info(`💭 ${textContent.trim()}`);
+				}
+				
+				// Convert function calls to tool calls format for context manager
+				const toolCalls = functionCalls.map((fc: any, index: number) => ({
+					id: `call_${Date.now()}_${index}`,
+					type: 'function' as const,
+					function: {
+						name: fc.name,
+						arguments: JSON.stringify(fc.args)
+					}
+				}));
+				
+				// Add assistant message with tool calls to history
+				await this.contextManager.addAssistantMessage(textContent, toolCalls);
+				
+				// Handle function calls
+				for (let i = 0; i < functionCalls.length; i++) {
+					const functionCall = functionCalls[i];
+					const toolCall = toolCalls[i];
+					
+					logger.debug(`Function call initiated: ${JSON.stringify(functionCall, null, 2)}`);
+					logger.info(`🔧 Using tool: ${functionCall.name}`);
+					
+					const toolName = functionCall.name;
+					const args = functionCall.args || {};
+					
+					// Execute tool
+					try {
+						let result: any;
+						if (this.unifiedToolManager) {
+							result = await this.unifiedToolManager.executeTool(toolName, args);
+						} else {
+							result = await this.mcpManager.executeTool(toolName, args);
+						}
+						
+						// Display formatted tool result
+						const formattedResult = formatToolResult(toolName, result);
+						logger.info(`📋 Tool Result:\n${formattedResult}`);
+						
+						// Add tool result to message manager
+						await this.contextManager.addToolResult(toolCall.id, toolName, result);
+					} catch (error) {
+						// Handle tool execution error
+						const errorMessage = error instanceof Error ? error.message : String(error);
+						logger.error(`Tool execution error for ${toolName}: ${errorMessage}`);
+						
+						// Add error as tool result
+						await this.contextManager.addToolResult(toolCall.id, toolName, {
+							error: errorMessage,
+						});
 					}
 				}
-			} else if (candidate.candidates?.[0]?.content?.parts) {
-				// Alternative response format
-				for (const part of candidate.candidates[0].content.parts) {
-					if (part.text) {
-						textContent += part.text;
-					}
-				}
-			} else if (candidate.content?.parts) {
-				// Direct content format
-				for (const part of candidate.content.parts) {
-					if (part.text) {
-						textContent += part.text;
-					}
-				}
-			} else if (candidate.text) {
-				// Fallback for different response format
-				textContent = candidate.text;
 			}
 			
-			logger.debug('Extracted text content:', textContent);
-			
-			await this.contextManager.addAssistantMessage(textContent);
-			return textContent;
+			// If we reached max iterations, return a message
+			logger.warn(`Reached maximum iterations (${this.maxIterations}) for task.`);
+			const finalResponse = 'Task completed but reached maximum function call iterations.';
+			await this.contextManager.addAssistantMessage(finalResponse);
+			return finalResponse;
 		} catch (error) {
 			const errorMessage = error instanceof Error ? error.message : String(error);
 			logger.error(`Error in Gemini service API call: ${errorMessage}`, { error });
@@ -92,17 +143,14 @@ export class GeminiService implements ILLMService {
 				inputLength: userInput.length,
 				hasSystemPrompt: !!systemPrompt,
 			});
-			const parts: any[] = [];
-			if (systemPrompt) {
-				parts.push({ text: systemPrompt });
-			}
-			parts.push({ text: userInput });
-			const response = await this.generativeModel.generateContent({
-				contents: [{ role: 'user', parts }],
+			
+			const response = await this.ai.models.generateContent({
+				model: this.model,
+				contents: [{ role: 'user', parts: [{ text: userInput }] }],
 			});
-			// Use response as candidate directly
-			const candidate = response as any;
-			const textContent = candidate.content?.parts?.map((p: any) => p.text || '').join('') || '';
+			
+			const textContent = response.text;
+			
 			logger.debug('GeminiService: Direct generate completed', {
 				responseLength: textContent.length,
 			});
@@ -160,11 +208,25 @@ export class GeminiService implements ILLMService {
 					logger.debug('First message structure:', JSON.stringify(formattedMessages[0], null, 2));
 				}
 				
-				// For Gemini, we only send contents - no tools parameter
-				// Gemini doesn't support function calling in the same way as OpenAI
-				const response = await this.generativeModel.generateContent({
+				// For Gemini, we use the new @google/genai API with function calling support
+				const generationConfig: any = {
+					model: this.model,
 					contents: formattedMessages,
-				});
+				};
+				
+				// Add tools if available (only on first attempt)
+				if (attempts === 1 && tools.length > 0) {
+					generationConfig.config = {
+						tools: tools,
+						toolConfig: {
+							functionCallingConfig: {
+								mode: 'ANY', // Force function calling when tools are available
+							}
+						}
+					};
+				}
+				
+				const response = await this.ai.models.generateContent(generationConfig);
 				logger.silly('GEMINI GENERATE CONTENT RESPONSE: ', JSON.stringify(response, null, 2));
 				return { response };
 			} catch (error) {
@@ -199,12 +261,12 @@ export class GeminiService implements ILLMService {
 	}
 
 	private formatToolsForGemini(tools: ToolSet): any[] {
-		// Convert ToolSet object to array for Gemini API
-		// Gemini expects tools in a different format than OpenAI
+		// Convert ToolSet object to array for new @google/genai API
+		// The new API expects functionDeclarations in a specific format
 		const functionDeclarations = Object.entries(tools).map(([name, tool]) => ({
 			name,
 			description: tool.description,
-			parameters: tool.parameters
+			parametersJsonSchema: tool.parameters
 		}));
 		
 		return [{
