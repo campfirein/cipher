@@ -404,7 +404,9 @@ Thanks to all these amazing people for contributing to cipher!
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=campfirein/cipher&type=Date)](https://star-history.com/#campfirein/cipher&Date)
+<a href="https://star-history.com/#campfirein/cipher&Date">
+  <img width="500" alt="Star History Chart" src="https://api.star-history.com/svg?repos=campfirein/cipher&type=Date&v=2">
+</a>
 
 ## License
 

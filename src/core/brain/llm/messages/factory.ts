@@ -6,16 +6,15 @@ import { IMessageFormatter } from './formatters/types.js';
 import { ContextManager } from './manager.js';
 import { logger } from '../../../logger/index.js';
 import { PromptManager } from '../../systemPrompt/manager.js';
+import { IConversationHistoryProvider } from './history/types.js';
 
 function getFormatter(provider: string): IMessageFormatter {
 	const normalizedProvider = provider.toLowerCase();
-
-	// Create new formatter based on provider
 	let formatter: IMessageFormatter;
 	switch (normalizedProvider) {
 		case 'openai':
-		case 'openrouter': // OpenRouter uses OpenAI-compatible API format
-		case 'ollama': // Ollama uses OpenAI-compatible API format
+		case 'openrouter':
+		case 'ollama':
 			formatter = new OpenAIMessageFormatter();
 			break;
 		case 'anthropic':
@@ -29,21 +28,24 @@ function getFormatter(provider: string): IMessageFormatter {
 				`Unsupported provider: ${provider}. Supported providers: openai, anthropic, gemini, openrouter, ollama`
 			);
 	}
-
 	return formatter;
 }
 
 /**
  * Creates a new ContextManager instance with the appropriate formatter for the specified LLM config
  * @param config - The LLM configuration
+ * @param promptManager - The prompt manager
+ * @param historyProvider - Optional conversation history provider
+ * @param sessionId - Optional session ID for history isolation
  * @returns A new ContextManager instance
  * @throws Error if the config is invalid or the provider is unsupported
  */
 export function createContextManager(
 	config: LLMConfig,
-	promptManager: PromptManager
+	promptManager: PromptManager,
+	historyProvider?: IConversationHistoryProvider,
+	sessionId?: string
 ): ContextManager {
-	// Validate config using schema
 	try {
 		LLMConfigSchema.parse(config);
 	} catch (error) {
@@ -55,21 +57,15 @@ export function createContextManager(
 			`Invalid LLM configuration: ${error instanceof Error ? error.message : String(error)}`
 		);
 	}
-
 	const { provider, model } = config;
-
 	try {
-		// Get the appropriate formatter for the provider
 		const formatter = getFormatter(provider);
-		// Log successful creation
 		logger.debug('Created context manager', {
 			provider: provider.toLowerCase(),
 			model: model.toLowerCase(),
 			formatterType: formatter.constructor.name,
 		});
-
-		// Create and return the ContextManager
-		return new ContextManager(formatter, promptManager);
+		return new ContextManager(formatter, promptManager, historyProvider, sessionId);
 	} catch (error) {
 		logger.error('Failed to create context manager', {
 			provider,

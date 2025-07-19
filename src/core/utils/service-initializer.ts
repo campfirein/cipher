@@ -232,7 +232,7 @@ export async function createAgentServices(agentConfig: AgentConfig): Promise<Age
 	try {
 		logger.debug('Initializing LLM service...');
 		const llmConfig = stateManager.getLLMConfig();
-		const contextManager = createContextManager(llmConfig, promptManager);
+		const contextManager = createContextManager(llmConfig, promptManager, undefined, undefined);
 
 		llmService = createLLMService(llmConfig, mcpManager, contextManager);
 
