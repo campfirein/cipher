@@ -236,7 +236,12 @@ export class GeminiService implements ILLMService {
 
 				// Extract text content from response
 				let textContent = '';
-				if (result.candidates && result.candidates[0] && result.candidates[0].content && result.candidates[0].content.parts) {
+				if (
+					result.candidates &&
+					result.candidates[0] &&
+					result.candidates[0].content &&
+					result.candidates[0].content.parts
+				) {
 					for (const part of result.candidates[0].content.parts) {
 						if (part.text) {
 							textContent += part.text;
