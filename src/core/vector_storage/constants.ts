@@ -19,6 +19,7 @@ export const LOG_PREFIXES = {
 	QDRANT: '[VectorStore:Qdrant]',
 	MILVUS: '[VectorStore:Milvus]',
 	MEMORY: '[VectorStore:Memory]',
+	ANN: '[VectorStore:ANN]',
 } as const;
 
 /**
@@ -67,6 +68,7 @@ export const BACKEND_TYPES = {
 	WEAVIATE: 'weaviate',
 	CHROMA: 'chroma',
 	IN_MEMORY: 'in-memory',
+	ENHANCED_IN_MEMORY: 'enhanced-in-memory',
 	MILVUS: 'milvus',
 } as const;
 
@@ -92,6 +94,10 @@ export const DEFAULTS = {
 	QDRANT_PORT: 6333,
 	QDRANT_GRPC_PORT: 6334,
 	QDRANT_DISTANCE: 'Cosine' as const,
+
+	// ANN defaults (limited to faiss-node support)
+	ANN_MIN_DATASET_SIZE: 1000,
+	ANN_ALGORITHM: 'flat' as const,
 } as const;
 
 /**
@@ -119,4 +125,10 @@ export const METRICS_EVENTS = {
 	INDEX_FAILURE: 'vector_storage.index.failure',
 	COLLECTION_CREATED: 'vector_storage.collection.created',
 	COLLECTION_DELETED: 'vector_storage.collection.deleted',
+	ANN_SEARCH_START: 'vector_storage.ann.search.start',
+	ANN_SEARCH_SUCCESS: 'vector_storage.ann.search.success',
+	ANN_SEARCH_FAILURE: 'vector_storage.ann.search.failure',
+	ANN_INDEX_BUILD_START: 'vector_storage.ann.index.build.start',
+	ANN_INDEX_BUILD_SUCCESS: 'vector_storage.ann.index.build.success',
+	ANN_INDEX_BUILD_FAILURE: 'vector_storage.ann.index.build.failure',
 } as const;
