@@ -112,7 +112,7 @@ export async function initializeMcpServer(
 
 	// Inject MCP-specific system prompt (does not affect CLI mode)
 	agent.promptManager.load(
-		`When running as an MCP server, Cipher should focus solely on two tasks: storage and retrieval using its own available tools. For each interaction, perform ONLY ONE operation: either retrieval OR storage. Each operation may use multiple tools as needed (e.g., different search tools for retrieval, various storage tools for storage). Do not attempt to perform other tasks. This behavior is only expected in MCP server mode.`
+		`When running as an MCP server, Cipher should focus solely on EITHER storage OR retrieval using its own tools. For each interaction, perform ONLY ONE operation: either retrieval OR storage. For storage tasks, do NOT use retrieval tools. For retrieval tasks, use search tools as needed. This behavior is only expected in MCP server mode.`
 	);
 
 	// Create MCP server instance
