@@ -1,9 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GeminiService } from '../gemini.js';
 import { GoogleGenAI, FunctionCallingConfigMode } from '@google/genai';
-import { MCPManager } from '../../../../mcp/manager.js';
-import { ContextManager } from '../../messages/manager.js';
-import { UnifiedToolManager } from '../../../tools/unified-tool-manager.js';
 
 // Mock the GoogleGenAI
 vi.mock('@google/genai', () => ({
