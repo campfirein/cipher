@@ -83,6 +83,7 @@ export class VectorStoreManager {
 	// Lazy loading module references (static to share across instances)
 	private static qdrantModule?: any;
 	private static inMemoryModule?: any;
+	private static enhancedInMemoryModule?: any;
 	private static milvusModule?: any;
 
 	// In VectorStoreManager, track if in-memory is used as fallback or primary
@@ -470,6 +471,21 @@ export class VectorStoreManager {
 					});
 					throw error; // Let connection handler deal with fallback
 				}
+			}
+
+			case BACKEND_TYPES.ENHANCED_IN_MEMORY: {
+				// Use enhanced in-memory backend with ANN support
+				if (!VectorStoreManager.enhancedInMemoryModule) {
+					this.logger.debug(`${LOG_PREFIXES.MANAGER} Lazy loading enhanced in-memory module`);
+					const { EnhancedInMemoryBackend } = await import('./backend/enhanced-in-memory.js');
+					VectorStoreManager.enhancedInMemoryModule = EnhancedInMemoryBackend;
+				}
+
+				const EnhancedInMemoryBackend = VectorStoreManager.enhancedInMemoryModule;
+				this.backendMetadata.type = BACKEND_TYPES.ENHANCED_IN_MEMORY;
+				this.backendMetadata.isFallback = false;
+
+				return new EnhancedInMemoryBackend(config);
 			}
 
 			case BACKEND_TYPES.IN_MEMORY:

@@ -12,7 +12,7 @@ import { DualCollectionVectorManager } from './dual-collection-manager.js';
 import type { VectorStoreConfig } from './types.js';
 import { VectorStore } from './backend/vector-store.js';
 import { createLogger } from '../logger/index.js';
-import { LOG_PREFIXES } from './constants.js';
+import { LOG_PREFIXES, DEFAULTS } from './constants.js';
 import { env } from '../env.js';
 
 /**
@@ -123,6 +123,7 @@ export async function createVectorStore(config: VectorStoreConfig): Promise<Vect
  *
  * @param collectionName - Optional collection name (default: 'default')
  * @param dimension - Optional vector dimension (default: 1536)
+ * @param useANN - Whether to use ANN acceleration (default: true)
  * @returns Promise resolving to manager and connected vector store
  *
  * @example
@@ -130,20 +131,29 @@ export async function createVectorStore(config: VectorStoreConfig): Promise<Vect
  * const { manager, store } = await createDefaultVectorStore();
  * // Uses in-memory backend with default settings
  *
- * const { manager, store } = await createDefaultVectorStore('my_collection', 768);
- * // Uses in-memory backend with custom collection and dimension
+ * const { manager, store } = await createDefaultVectorStore('my_collection', 768, true);
+ * // Uses in-memory backend with ANN acceleration
  * ```
  */
 export async function createDefaultVectorStore(
 	collectionName: string = 'default',
-	dimension: number = 1536
+	dimension: number = 1536,
+	useANN: boolean = true
 ): Promise<VectorStoreFactory> {
-	return createVectorStore({
+	const config: VectorStoreConfig = {
 		type: 'in-memory',
 		collectionName,
 		dimension,
 		maxVectors: 10000,
-	});
+	};
+
+	// Add ANN configuration if enabled
+	if (useANN) {
+		config.annAlgorithm = DEFAULTS.ANN_ALGORITHM;
+		config.annMinDatasetSize = DEFAULTS.ANN_MIN_DATASET_SIZE;
+	}
+
+	return createVectorStore(config);
 }
 
 /**
