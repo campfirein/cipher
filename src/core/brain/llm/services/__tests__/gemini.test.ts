@@ -39,9 +39,9 @@ describe('GeminiService', () => {
 			addUserMessage: vi.fn().mockResolvedValue(undefined),
 			addAssistantMessage: vi.fn().mockResolvedValue(undefined),
 			addToolResult: vi.fn().mockResolvedValue(undefined),
-			getAllFormattedMessages: vi.fn().mockResolvedValue([
-				{ role: 'user', parts: [{ text: 'test message' }] },
-			]),
+			getAllFormattedMessages: vi
+				.fn()
+				.mockResolvedValue([{ role: 'user', parts: [{ text: 'test message' }] }]),
 		};
 		mockUnifiedToolManager = {
 			getToolsForProvider: vi.fn().mockResolvedValue([]),
@@ -131,4 +131,4 @@ describe('GeminiService', () => {
 			expect(result).toContain('Error processing request');
 		});
 	});
-}); 
+});

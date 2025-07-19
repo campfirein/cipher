@@ -51,4 +51,4 @@ describe('Message Factory', () => {
 
 		expect(contextManager).toBeDefined();
 	});
-}); 
+});

@@ -17,7 +17,10 @@ describe('DatabaseHistoryProvider', () => {
 	beforeEach(async () => {
 		sessionId = 'test-session';
 		message = { role: 'user', content: 'hello' };
-		storageManager = new StorageManager({ cache: { type: 'in-memory' as const }, database: { type: 'in-memory' as const } });
+		storageManager = new StorageManager({
+			cache: { type: 'in-memory' as const },
+			database: { type: 'in-memory' as const },
+		});
 		await storageManager.connect();
 		provider = new DatabaseHistoryProvider(storageManager);
 		backend = storageManager.getBackends()?.database;

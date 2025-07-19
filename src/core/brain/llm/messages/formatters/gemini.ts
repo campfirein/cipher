@@ -120,12 +120,14 @@ export class GeminiMessageFormatter implements IMessageFormatter {
 					for (const toolCall of message.toolCalls) {
 						messages.push({
 							role: 'model',
-							parts: [{
-								functionCall: {
-									name: toolCall.function.name,
-									args: JSON.parse(toolCall.function.arguments),
+							parts: [
+								{
+									functionCall: {
+										name: toolCall.function.name,
+										args: JSON.parse(toolCall.function.arguments),
+									},
 								},
-							}],
+							],
 						});
 					}
 					return messages;
@@ -220,7 +222,8 @@ export class GeminiMessageFormatter implements IMessageFormatter {
 						// Data URI: split metadata and base64 data
 						const [meta, b64] = raw.split(',', 2);
 						const mediaTypeMatch = meta?.match(/data:(.*);base64/);
-						const mimeType = (mediaTypeMatch && mediaTypeMatch[1]) || part.mimeType || 'application/octet-stream';
+						const mimeType =
+							(mediaTypeMatch && mediaTypeMatch[1]) || part.mimeType || 'application/octet-stream';
 						inlineData = { mimeType, data: { data: b64 } };
 					} else {
 						// Plain base64 string
@@ -232,4 +235,4 @@ export class GeminiMessageFormatter implements IMessageFormatter {
 			})
 			.filter(Boolean);
 	}
-} 
+}

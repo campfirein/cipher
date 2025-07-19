@@ -173,12 +173,14 @@ llm:
   model: qwen2.5:32b # Recommended for best performance
   baseURL: $OLLAMA_BASE_URL
 ```
+
 ```yaml
 llm:
   provider: gemini
   model: gemini-2.5-flash # Recommended for best performance
   apiKey: $GEMINI_API_KEY
 ```
+
 ## CLI Reference
 
 ```bash

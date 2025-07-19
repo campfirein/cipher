@@ -69,4 +69,4 @@ describe('UnifiedToolManager', () => {
 			expect(result).toBeDefined();
 		});
 	});
-}); 
+});

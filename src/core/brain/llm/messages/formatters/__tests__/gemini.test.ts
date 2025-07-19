@@ -232,4 +232,4 @@ describe('GeminiMessageFormatter', () => {
 			]);
 		});
 	});
-}); 
+});

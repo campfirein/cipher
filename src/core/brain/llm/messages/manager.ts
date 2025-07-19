@@ -189,7 +189,8 @@ export class ContextManager {
 
 			// For Gemini, we don't add system messages separately
 			// The system prompt will be handled by the formatter if needed
-			const shouldAddSystemSeparately = this.formatter.constructor.name !== 'GeminiMessageFormatter';
+			const shouldAddSystemSeparately =
+				this.formatter.constructor.name !== 'GeminiMessageFormatter';
 
 			// Add system prompt as first message - for OpenAI and Anthropic, but not Gemini
 			if (prompt && shouldAddSystemSeparately) {
@@ -200,7 +201,13 @@ export class ContextManager {
 			for (const msg of this.messages) {
 				// For Gemini, pass the system prompt to the first user message
 				// For other providers, don't pass system prompt to individual message formatting
-				const systemPromptForMessage = (!shouldAddSystemSeparately && prompt && msg.role === 'user' && this.messages.indexOf(msg) === 0) ? prompt : null;
+				const systemPromptForMessage =
+					!shouldAddSystemSeparately &&
+					prompt &&
+					msg.role === 'user' &&
+					this.messages.indexOf(msg) === 0
+						? prompt
+						: null;
 				const formatted = this.formatter.format(msg, systemPromptForMessage);
 				if (Array.isArray(formatted)) {
 					formattedMessages.push(...formatted);
