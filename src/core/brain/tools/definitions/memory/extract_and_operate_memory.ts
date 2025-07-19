@@ -238,18 +238,38 @@ function isRetrievedResult(content: string): boolean {
 
 	// Heuristics: look for typical result markers or tool result prefixes
 	const retrievedPatterns = [
+		// Direct tool output patterns
 		/^(cipher_memory_search|memory_search|cipher_search_reasoning_patterns|search_reasoning_patterns|search_graph|query_graph|enhanced_search):/i,
+
+		// Tool wrapper patterns (Tool Response:, Tool Call:, etc.)
+		/^(tool response|tool call|tool output|tool result):\s*(cipher_memory_search|memory_search|cipher_search_reasoning_patterns|search_reasoning_patterns|search_graph|query_graph|enhanced_search)/i,
+
+		// Generic tool patterns with search tools
+		/^(tool response|tool call|tool output|tool result):\s*[^:]*\s*(search|query|retrieve|found|matches|nodes|edges)/i,
+
+		// Search result indicators
 		/^(retrieved|result|results|found|matches|nodes|edges|search completed|query executed|suggestions?):/i,
+
+		// Knowledge and reflection patterns
 		/^(knowledge results|reflection results|reasoning patterns|graph nodes|graph edges):/i,
 		/^(reasoning trace|evaluation|step count|quality score|issue count):/i,
 		/^(search results|retrieved knowledge|retrieved reasoning|retrieved entities):/i,
 		/^(graph search|kg search|knowledge graph result|kg result):/i,
-		/^(observation:|action:|thought:|conclusion:|reflection:)/i, // Reflection memory patterns
+
+		// Reflection memory patterns
+		/^(observation:|action:|thought:|conclusion:|reflection:)/i,
+
+		// Metadata patterns
 		/^(id:|timestamp:|similarity:|source:|memorytype:)/i,
+
+		// System status messages
 		/^(message: 'query executed'|message: 'search completed')/i,
 		/^(success: true|success: false)/i,
 		/^(totalresults:|searchtime:|embeddingtime:)/i,
 		/^(nodes:|edges:|related:|totalcount:|executiontime:)/i,
+
+		// Any content that contains tool search patterns (broader catch-all)
+		/tool (response|call|output|result).*((cipher_)?memory_search|(cipher_)?search_reasoning_patterns|(cipher_)?query_graph|(cipher_)?enhanced_search)/i,
 	];
 	for (const pattern of retrievedPatterns) {
 		if (pattern.test(text)) return true;
