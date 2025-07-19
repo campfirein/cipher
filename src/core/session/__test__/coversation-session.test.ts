@@ -200,6 +200,29 @@ describe('ConversationSession', () => {
 
 			await expect(session.init()).rejects.toThrow('LLM service creation failed');
 		});
+
+		it('should work with Gemini provider configuration', async () => {
+			// Mock Gemini configuration
+			mockStateManager.getLLMConfig.mockReturnValue({
+				provider: 'gemini',
+				model: 'gemini-pro',
+				apiKey: 'test-gemini-key',
+				maxIterations: 3,
+			});
+
+			const geminiSession = new ConversationSession(
+				{
+					stateManager: mockStateManager,
+					promptManager: mockPromptManager,
+					mcpManager: mockMcpManager,
+					unifiedToolManager: mockUnifiedToolManager as any,
+				},
+				'gemini-test-session'
+			);
+
+			await geminiSession.init();
+			expect(geminiSession.id).toBe('gemini-test-session');
+		});
 	});
 
 	describe('Session Execution', () => {

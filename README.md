@@ -92,6 +92,7 @@ Configure Cipher using environment variables and YAML config:
 # Required: At least one API key (except OPENAI_API_KEY is always required for embedding)
 OPENAI_API_KEY=your_openai_api_key
 ANTHROPIC_API_KEY=your_anthropic_api_key
+GEMINI_API_KEY=your_gemini_api_key
 OPENROUTER_API_KEY=your_openrouter_api_key
 
 # Ollama (self-hosted, no API key needed)
@@ -107,8 +108,8 @@ NODE_ENV=production
 ```yaml
 # LLM Configuration
 llm:
-  provider: openai # openai, anthropic, openrouter, ollama
-  model: gpt-4-turbo
+  provider: openai # openai, anthropic, gemini, openrouter, ollama
+  model: gpt-4o-mini
   apiKey: $OPENAI_API_KEY
 
 # System Prompt
@@ -132,16 +133,17 @@ mcpServers:
 - **Knowledge Graph**: Structured memory with entity relationships (Neo4j, in-memory)
 - **Real-time Learning**: Memory layers that improve automatically with usage
 
-## LLM Providers
+## Supported LLM Providers
 
 Cipher supports multiple LLM providers:
 
 ### OpenAI
 
 ```yaml
+# LLM Configuration
 llm:
-  provider: openai
-  model: gpt-4-turbo
+  provider: openai # openai, anthropic, gemini, openrouter, ollama
+  model: gpt-4o-mini
   apiKey: $OPENAI_API_KEY
 ```
 
@@ -171,7 +173,12 @@ llm:
   model: qwen2.5:32b # Recommended for best performance
   baseURL: $OLLAMA_BASE_URL
 ```
-
+```yaml
+llm:
+  provider: gemini
+  model: gemini-2.5-flash # Recommended for best performance
+  apiKey: $GEMINI_API_KEY
+```
 ## CLI Reference
 
 ```bash
@@ -214,7 +221,8 @@ To use Cipher as an MCP server in your MCP client configuration:
 			"args": ["--mode", "mcp"],
 			"env": {
 				"OPENAI_API_KEY": "your_openai_api_key",
-				"ANTHROPIC_API_KEY": "your_anthropic_api_key"
+				"ANTHROPIC_API_KEY": "your_anthropic_api_key",
+				"GEMINI_API_KEY": "your_gemini_api_key"
 			}
 		}
 	}
@@ -236,7 +244,8 @@ Add to your Claude Desktop MCP configuration file:
 			"args": ["--mode", "mcp"],
 			"env": {
 				"OPENAI_API_KEY": "sk-your-openai-key",
-				"ANTHROPIC_API_KEY": "sk-ant-your-anthropic-key"
+				"ANTHROPIC_API_KEY": "sk-ant-your-anthropic-key",
+				"GEMINI_API_KEY": "your-gemini-api-key"
 			}
 		}
 	}
@@ -256,6 +265,7 @@ Add to your MCP settings:
 			"args": ["--mode", "mcp", "--agent", "memAgent/cipher.yml"],
 			"env": {
 				"OPENAI_API_KEY": "sk-your-openai-key",
+				"GEMINI_API_KEY": "your-gemini-api-key",
 				"CIPHER_LOG_LEVEL": "info"
 			}
 		}
@@ -275,6 +285,7 @@ Add to your MCP settings:
 			"env": {
 				"OPENAI_API_KEY": "sk-your-openai-key",
 				"ANTHROPIC_API_KEY": "sk-ant-your-anthropic-key",
+				"GEMINI_API_KEY": "your-gemini-api-key",
 				"OPENROUTER_API_KEY": "sk-or-your-openrouter-key",
 				"CIPHER_LOG_LEVEL": "debug",
 				"NODE_ENV": "production"
@@ -292,6 +303,7 @@ The MCP server requires at least one LLM provider API key:
 # Required (at least one)
 OPENAI_API_KEY=your_openai_api_key      # Always required for embedding
 ANTHROPIC_API_KEY=your_anthropic_api_key
+GEMINI_API_KEY=your_gemini_api_key
 OPENROUTER_API_KEY=your_openrouter_api_key
 
 # Optional

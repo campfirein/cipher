@@ -85,6 +85,7 @@
 	},
 	"dependencies": {
 		"@anthropic-ai/sdk": "^0.39.0",
+		"@google/genai": "^1.10.0",
 		"@modelcontextprotocol/sdk": "^1.15.1",
 		"@qdrant/js-client-rest": "^1.14.1",
 		"@zilliz/milvus2-sdk-node": "^2.5.12",

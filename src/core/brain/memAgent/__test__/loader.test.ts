@@ -531,4 +531,40 @@ mcpServers:
 			expect(result.sessions.sessionTTL).toBe(-3.14);
 		});
 	});
+
+	it('should load configuration with OpenAI provider', async () => {
+		const config = {
+			llm: {
+				provider: 'openai',
+				model: 'gpt-4o-mini',
+				apiKey: 'test-api-key',
+				maxIterations: 3,
+			},
+		};
+
+		mockFs.readFile.mockResolvedValue(JSON.stringify(config));
+		mockParseYaml.mockReturnValue(config);
+
+		const result = await loadAgentConfig('/path/to/config.yml');
+		expect(result.llm.provider).toBe('openai');
+		expect(result.llm.model).toBe('gpt-4o-mini');
+	});
+
+	it('should load configuration with Gemini provider', async () => {
+		const config = {
+			llm: {
+				provider: 'gemini',
+				model: 'gemini-pro',
+				apiKey: 'test-gemini-key',
+				maxIterations: 3,
+			},
+		};
+
+		mockFs.readFile.mockResolvedValue(JSON.stringify(config));
+		mockParseYaml.mockReturnValue(config);
+
+		const result = await loadAgentConfig('/path/to/config.yml');
+		expect(result.llm.provider).toBe('gemini');
+		expect(result.llm.model).toBe('gemini-pro');
+	});
 });

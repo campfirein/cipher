@@ -65,8 +65,13 @@ export function createLlmRoutes(agent: MemAgent): Router {
 			const providers = {
 				openai: {
 					name: 'OpenAI',
-					models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-4', 'gpt-3.5-turbo'],
-					requiresApiKey: true,
+					models: [
+						'gpt-4o',
+						'gpt-4o-mini',
+						'gpt-4-turbo',
+						'gpt-4',
+						'gpt-3.5-turbo',
+					],
 					description: 'OpenAI GPT models',
 				},
 				anthropic: {
@@ -76,21 +81,32 @@ export function createLlmRoutes(agent: MemAgent): Router {
 						'claude-3-5-haiku-20241022',
 						'claude-3-opus-20240229',
 						'claude-3-sonnet-20240229',
-						'claude-3-haiku-20240307',
 					],
-					requiresApiKey: true,
 					description: 'Anthropic Claude models',
+				},
+				gemini: {
+					name: 'Google Gemini',
+					models: [
+						'gemini-pro',
+						'gemini-pro-vision',
+						'gemini-2.0-flash-exp',
+						'gemini-2.0-flash-001',
+						'gemini-1.5-pro',
+						'gemini-1.5-flash',
+					],
+					description: 'Google Gemini models',
 				},
 				openrouter: {
 					name: 'OpenRouter',
 					models: [
 						'openai/gpt-4o',
-						'anthropic/claude-3.5-sonnet',
-						'meta-llama/llama-3.1-405b-instruct',
-						'google/gemini-pro-1.5',
+						'openai/gpt-4o-mini',
+						'anthropic/claude-3-5-sonnet-20241022',
+						'google/gemini-2.0-flash-exp',
+						'meta-llama/llama-3.1-8b-instruct',
+						'meta-llama/llama-3.1-70b-instruct',
 					],
-					requiresApiKey: true,
-					description: 'OpenRouter unified API access',
+					description: 'OpenRouter models (200+ models)',
 				},
 				ollama: {
 					name: 'Ollama',

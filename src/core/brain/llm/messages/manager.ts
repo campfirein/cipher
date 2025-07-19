@@ -187,16 +187,21 @@ export class ContextManager {
 			// Format all messages in conversation history
 			const formattedMessages: any[] = [];
 
-			// Add system prompt as first message - for both OpenAI and Anthropic
-			if (prompt) {
+			// For Gemini, we don't add system messages separately
+			// The system prompt will be handled by the formatter if needed
+			const shouldAddSystemSeparately = this.formatter.constructor.name !== 'GeminiMessageFormatter';
+
+			// Add system prompt as first message - for OpenAI and Anthropic, but not Gemini
+			if (prompt && shouldAddSystemSeparately) {
 				formattedMessages.push({ role: 'system', content: prompt });
 			}
 
 			// Format each message in history
 			for (const msg of this.messages) {
-				// Don't pass system prompt to individual message formatting
-				// The system prompt has already been added above
-				const formatted = this.formatter.format(msg, null);
+				// For Gemini, pass the system prompt to the first user message
+				// For other providers, don't pass system prompt to individual message formatting
+				const systemPromptForMessage = (!shouldAddSystemSeparately && prompt && msg.role === 'user' && this.messages.indexOf(msg) === 0) ? prompt : null;
+				const formatted = this.formatter.format(msg, systemPromptForMessage);
 				if (Array.isArray(formatted)) {
 					formattedMessages.push(...formatted);
 				} else if (formatted && formatted !== null) {

@@ -20,8 +20,10 @@ const envSchema = z.object({
 	REDACT_SECRETS: z.boolean().default(true),
 	OPENAI_API_KEY: z.string().optional(),
 	ANTHROPIC_API_KEY: z.string().optional(),
+	GEMINI_API_KEY: z.string().optional(),
 	OPENROUTER_API_KEY: z.string().optional(),
 	OPENAI_BASE_URL: z.string().optional(),
+	GEMINI_BASE_URL: z.string().optional(),
 	OLLAMA_BASE_URL: z.string().optional(),
 	OPENAI_ORG_ID: z.string().optional(),
 	// Embedding Configuration
@@ -82,10 +84,14 @@ export const env: EnvSchema = new Proxy({} as EnvSchema, {
 				return process.env.OPENAI_API_KEY;
 			case 'ANTHROPIC_API_KEY':
 				return process.env.ANTHROPIC_API_KEY;
+			case 'GEMINI_API_KEY':
+				return process.env.GEMINI_API_KEY;
 			case 'OPENROUTER_API_KEY':
 				return process.env.OPENROUTER_API_KEY;
 			case 'OPENAI_BASE_URL':
 				return process.env.OPENAI_BASE_URL;
+			case 'GEMINI_BASE_URL':
+				return process.env.GEMINI_BASE_URL;
 			case 'OLLAMA_BASE_URL':
 				return process.env.OLLAMA_BASE_URL;
 			case 'OPENAI_ORG_ID':
@@ -211,8 +217,10 @@ export const validateEnv = () => {
 		REDACT_SECRETS: process.env.REDACT_SECRETS === 'false' ? false : true,
 		OPENAI_API_KEY: process.env.OPENAI_API_KEY,
 		ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+		GEMINI_API_KEY: process.env.GEMINI_API_KEY,
 		OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
 		OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
+		GEMINI_BASE_URL: process.env.GEMINI_BASE_URL,
 		OLLAMA_BASE_URL: process.env.OLLAMA_BASE_URL,
 		OPENAI_ORG_ID: process.env.OPENAI_ORG_ID,
 		// Embedding Configuration

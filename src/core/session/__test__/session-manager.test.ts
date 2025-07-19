@@ -193,6 +193,16 @@ describe('SessionManager', () => {
 
 			await expect(sessionManager.createSession()).rejects.toThrow('Session creation failed');
 		});
+
+		it('should create session with OpenAI provider', async () => {
+			const session = await sessionManager.createSession('test-session');
+			expect(session).toBeDefined();
+		});
+
+		it('should create session with Gemini provider', async () => {
+			const session = await sessionManager.createSession('test-session-gemini');
+			expect(session).toBeDefined();
+		});
 	});
 
 	describe('Session Retrieval', () => {

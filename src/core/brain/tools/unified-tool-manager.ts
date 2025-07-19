@@ -310,12 +310,13 @@ export class UnifiedToolManager {
 	/**
 	 * Get tools formatted for specific LLM providers
 	 */
-	async getToolsForProvider(provider: 'openai' | 'anthropic' | 'openrouter'): Promise<any[]> {
+	async getToolsForProvider(provider: 'openai' | 'anthropic' | 'openrouter' | 'gemini'): Promise<any[]> {
 		const allTools = await this.getAllTools();
 
 		switch (provider) {
 			case 'openai':
 			case 'openrouter':
+			case 'gemini':
 				return this.formatToolsForOpenAI(allTools);
 			case 'anthropic':
 				return this.formatToolsForAnthropic(allTools);

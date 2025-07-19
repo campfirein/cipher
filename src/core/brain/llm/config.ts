@@ -32,7 +32,7 @@ export const LLMConfigSchema = z
 	.strict()
 	.superRefine((data, ctx) => {
 		const providerLower = data.provider?.toLowerCase();
-		const supportedProvidersList = ['openai', 'anthropic', 'openrouter', 'ollama'];
+		const supportedProvidersList = ['openai', 'anthropic', 'gemini', 'openrouter', 'ollama'];
 		if (!supportedProvidersList.includes(providerLower)) {
 			ctx.addIssue({
 				code: z.ZodIssueCode.custom,
