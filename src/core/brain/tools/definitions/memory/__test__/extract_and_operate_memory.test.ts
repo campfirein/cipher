@@ -264,7 +264,7 @@ describe('extractAndOperateMemoryTool - Retrieved Results Filtering', () => {
 			const interactionWithRetrievedResults = [
 				'User: Do something',
 				'Assistant: I did it',
-				'Message: \'query executed\'\nSuccess: true\nTotalresults: 5\nSearchtime: 250ms\nEmbeddingtime: 50ms',
+				"Message: 'query executed'\nSuccess: true\nTotalresults: 5\nSearchtime: 250ms\nEmbeddingtime: 50ms",
 			];
 
 			const result = await extractAndOperateMemoryTool.handler(
