@@ -201,7 +201,7 @@ export const validateEnv = () => {
 	// Critical validation: OPENAI_API_KEY is always required for embedding functionality
 	if (!process.env.OPENAI_API_KEY) {
 		const errorMsg =
-			'OPENAI_API_KEY is required for embedding functionality, even when using other LLM providers (Anthropic, OpenRouter, etc.)';
+			'OPENAI_API_KEY is required for embedding functionality, even when using other LLM providers (Anthropic, Gemini, OpenRouter, etc.)';
 		if (isMcpMode) {
 			process.stderr.write(`[CIPHER-MCP] ERROR: ${errorMsg}\n`);
 		} else {

@@ -1,4 +1,21 @@
 import { z } from 'zod';
+
+// Gemini-specific configuration schemas
+const GeminiToolConfigSchema = z.object({
+	mode: z.string().optional().default('AUTO'), // Will be converted to FunctionCallingConfigMode in service
+	allowedFunctionNames: z.array(z.string()).optional(),
+	maxFunctionCalls: z.number().int().positive().optional().default(5),
+	confidenceThreshold: z.number().min(0).max(1).optional().default(0.8),
+}).optional();
+
+const GeminiGenerationConfigSchema = z.object({
+	temperature: z.number().min(0).max(2).optional().default(0.7),
+	topK: z.number().int().positive().optional().default(40),
+	topP: z.number().min(0).max(1).optional().default(0.95),
+	maxOutputTokens: z.number().int().positive().optional().default(2048),
+	stopSequences: z.array(z.string()).optional(),
+}).optional();
+
 export const LLMConfigSchema = z
 	.object({
 		provider: z
@@ -28,8 +45,11 @@ export const LLMConfigSchema = z
 			.describe(
 				'Base URL for the LLM provider (e.g., https://api.openai.com/v1, https://openrouter.ai/api/v1). \nSupported for OpenAI, OpenRouter, and Ollama providers.'
 			),
+		// Gemini-specific configuration options
+		toolConfig: GeminiToolConfigSchema,
+		generationConfig: GeminiGenerationConfigSchema,
 	})
-	.strict()
+	.passthrough() // Allow additional properties for provider-specific configurations
 	.superRefine((data, ctx) => {
 		const providerLower = data.provider?.toLowerCase();
 		const supportedProvidersList = ['openai', 'anthropic', 'gemini', 'openrouter', 'ollama'];
@@ -50,6 +70,43 @@ export const LLMConfigSchema = z
 					path: ['apiKey'],
 					message: `API key is required for provider '${data.provider}'. Ollama is the only provider that doesn't require an API key.`,
 				});
+			}
+		}
+
+		// Validate Gemini-specific configurations
+		if (providerLower === 'gemini') {
+			// Validate toolConfig if provided
+			if (data.toolConfig) {
+				try {
+					GeminiToolConfigSchema.parse(data.toolConfig);
+				} catch (error) {
+					if (error instanceof z.ZodError) {
+						for (const issue of error.errors) {
+							ctx.addIssue({
+								code: z.ZodIssueCode.custom,
+								path: ['toolConfig', ...issue.path],
+								message: `Invalid Gemini tool configuration: ${issue.message}`,
+							});
+						}
+					}
+				}
+			}
+
+			// Validate generationConfig if provided
+			if (data.generationConfig) {
+				try {
+					GeminiGenerationConfigSchema.parse(data.generationConfig);
+				} catch (error) {
+					if (error instanceof z.ZodError) {
+						for (const issue of error.errors) {
+							ctx.addIssue({
+								code: z.ZodIssueCode.custom,
+								path: ['generationConfig', ...issue.path],
+								message: `Invalid Gemini generation configuration: ${issue.message}`,
+							});
+						}
+					}
+				}
 			}
 		}
 	});

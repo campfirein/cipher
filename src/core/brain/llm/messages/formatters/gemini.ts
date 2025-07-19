@@ -140,17 +140,45 @@ export class GeminiMessageFormatter implements IMessageFormatter {
 
 			case 'tool':
 				// Tool messages are converted to user messages with function response
-				// Gemini expects function responses to be structured differently
+				// Gemini expects function responses to be structured as functionResponse parts
+				// The response should be a structured object, not a JSON string
+				let responseContent: any;
+				
+				if (typeof message.content === 'string') {
+					// Try to parse as JSON if it looks like JSON, otherwise use as string
+					try {
+						if (message.content.trim().startsWith('{') || message.content.trim().startsWith('[')) {
+							responseContent = JSON.parse(message.content);
+						} else {
+							responseContent = message.content;
+						}
+					} catch {
+						responseContent = message.content;
+					}
+				} else if (message.content && typeof message.content === 'object') {
+					// If it's already an object, use it directly
+					responseContent = message.content;
+				} else {
+					// Fallback for null/undefined
+					responseContent = message.content ?? '';
+				}
+				
+				// Ensure the response is properly structured for Gemini API
+				// If it's a complex object, we might need to simplify it
+				if (responseContent && typeof responseContent === 'object' && !Array.isArray(responseContent)) {
+					// For complex objects, try to extract the most relevant information
+					// This helps avoid the INVALID_ARGUMENT error with very large objects
+					const simplifiedResponse = this.simplifyToolResponse(responseContent);
+					responseContent = simplifiedResponse;
+				}
+				
 				return {
 					role: 'user',
 					parts: [
 						{
 							functionResponse: {
 								name: message.name!,
-								response: {
-									name: message.name!,
-									content: message.content as string,
-								},
+								response: responseContent,
 							},
 						},
 					],
@@ -196,6 +224,60 @@ export class GeminiMessageFormatter implements IMessageFormatter {
 			internal.push(assistantMessage);
 		}
 		return internal;
+	}
+
+	/**
+	 * Simplify complex tool responses to avoid INVALID_ARGUMENT errors
+	 * @param response - The complex tool response object
+	 * @returns Simplified response object
+	 */
+	private simplifyToolResponse(response: any): any {
+		// If the response is too complex, extract the most important parts
+		if (response && typeof response === 'object') {
+			// For memory search results, extract the key information
+			if (response.success !== undefined && response.results) {
+				return {
+					success: response.success,
+					query: response.query,
+					results: response.results.map((result: any) => ({
+						id: result.id,
+						text: result.text,
+						similarity: result.similarity,
+						confidence: result.confidence,
+						tags: result.tags
+					})),
+					metadata: response.metadata ? {
+						totalResults: response.metadata.totalResults,
+						searchTime: response.metadata.searchTime,
+						maxSimilarity: response.metadata.maxSimilarity
+					} : undefined
+				};
+			}
+			
+			// For other complex objects, try to keep essential fields
+			const simplified: any = {};
+			const keys = Object.keys(response);
+			const maxKeys = 10; // Limit to prevent overly complex responses
+			
+			for (let i = 0; i < Math.min(keys.length, maxKeys); i++) {
+				const key = keys[i];
+				const value = response[key];
+				
+				// Skip very large values that might cause issues
+				if (typeof value === 'string' && value.length > 1000) {
+					simplified[key] = value.substring(0, 1000) + '...';
+				} else if (typeof value === 'object' && value !== null) {
+					// Recursively simplify nested objects
+					simplified[key] = this.simplifyToolResponse(value);
+				} else {
+					simplified[key] = value;
+				}
+			}
+			
+			return simplified;
+		}
+		
+		return response;
 	}
 
 	/**

@@ -5,7 +5,7 @@
  * It provides a simplified, clean API surface for consumers of the embedding module.
  *
  * The embedding system architecture:
- * - Multiple provider support (OpenAI, future: Anthropic, Cohere, etc.)
+ * - Multiple provider support (OpenAI, future: Anthropic, Gemini, Cohere, etc.)
  * - Consistent API across different providers
  * - Strong type safety with TypeScript and runtime validation with Zod
  * - Factory pattern for creating embedders

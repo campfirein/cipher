@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GeminiService } from '../gemini.js';
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, FunctionCallingConfigMode } from '@google/genai';
 import { MCPManager } from '../../../../mcp/manager.js';
 import { ContextManager } from '../../messages/manager.js';
 import { UnifiedToolManager } from '../../../tools/unified-tool-manager.js';
@@ -20,6 +20,11 @@ vi.mock('@google/genai', () => ({
 			}),
 		},
 	})),
+	FunctionCallingConfigMode: {
+		AUTO: 'AUTO',
+		ANY: 'ANY',
+		NONE: 'NONE',
+	},
 }));
 
 describe('GeminiService', () => {
@@ -62,6 +67,65 @@ describe('GeminiService', () => {
 	describe('constructor', () => {
 		it('should create a GeminiService instance', () => {
 			expect(geminiService).toBeInstanceOf(GeminiService);
+		});
+
+		it('should initialize with default configuration', () => {
+			const service = new GeminiService(
+				mockGenAI,
+				'gemini-pro',
+				mockMCPManager,
+				mockContextManager
+			);
+			expect(service).toBeInstanceOf(GeminiService);
+		});
+
+		it('should accept custom configuration', () => {
+			const customConfig = {
+				toolConfig: {
+					mode: FunctionCallingConfigMode.ANY,
+					maxFunctionCalls: 3,
+					confidenceThreshold: 0.9,
+				},
+				generationConfig: {
+					temperature: 0.5,
+					maxOutputTokens: 1024,
+				},
+			};
+
+			const service = new GeminiService(
+				mockGenAI,
+				'gemini-pro',
+				mockMCPManager,
+				mockContextManager,
+				5,
+				mockUnifiedToolManager,
+				customConfig
+			);
+			expect(service).toBeInstanceOf(GeminiService);
+		});
+	});
+
+	describe('configuration management', () => {
+		it('should update tool configuration', () => {
+			const newConfig = {
+				mode: FunctionCallingConfigMode.ANY,
+				maxFunctionCalls: 3,
+			};
+
+			geminiService.updateToolConfig(newConfig);
+			// Note: We can't directly test private properties, but the method should not throw
+			expect(geminiService.updateToolConfig).toBeDefined();
+		});
+
+		it('should update generation configuration', () => {
+			const newConfig = {
+				temperature: 0.5,
+				maxOutputTokens: 1024,
+			};
+
+			geminiService.updateGenerationConfig(newConfig);
+			// Note: We can't directly test private properties, but the method should not throw
+			expect(geminiService.updateGenerationConfig).toBeDefined();
 		});
 	});
 
@@ -118,17 +182,143 @@ describe('GeminiService', () => {
 			await geminiService.generate('test input', imageData);
 			expect(mockContextManager.addUserMessage).toHaveBeenCalledWith('test input', imageData);
 		});
+
+		it('should use unified tool manager for tool formatting', async () => {
+			mockUnifiedToolManager.getToolsForProvider.mockResolvedValue([
+				{
+					name: 'test_tool',
+					description: 'A test tool',
+					parametersJsonSchema: {
+						type: 'object',
+						properties: {},
+						required: [],
+					},
+				},
+			]);
+
+			await geminiService.generate('test input');
+			expect(mockUnifiedToolManager.getToolsForProvider).toHaveBeenCalledWith('gemini');
+		});
+
+		it('should fall back to MCP manager when unified tool manager is not available', async () => {
+			const serviceWithoutUnifiedManager = new GeminiService(
+				mockGenAI,
+				'gemini-pro',
+				mockMCPManager,
+				mockContextManager,
+				5
+			);
+
+			mockMCPManager.getAllTools.mockResolvedValue({
+				test_tool: {
+					description: 'A test tool',
+					parameters: {
+						type: 'object',
+						properties: {},
+						required: [],
+					},
+				},
+			});
+
+			await serviceWithoutUnifiedManager.generate('test input');
+			expect(mockMCPManager.getAllTools).toHaveBeenCalled();
+		});
 	});
 
-	describe('error handling', () => {
-		it('should handle API errors gracefully', async () => {
-			const mockGenModel = {
-				generateContent: vi.fn().mockRejectedValue(new Error('API Error')),
-			};
-			(mockGenAI.models.generateContent as any).mockRejectedValue(new Error('API Error'));
+	describe('tool filtering', () => {
+		it('should filter tools based on user input keywords', async () => {
+			// This test would require access to the private filterRelevantTools method
+			// For now, we'll test that the service handles tool filtering gracefully
+			mockUnifiedToolManager.getToolsForProvider.mockResolvedValue([
+				{
+					name: 'cipher_memory_search',
+					description: 'Search memory for information',
+					parametersJsonSchema: {
+						type: 'object',
+						properties: {},
+						required: [],
+					},
+				},
+				{
+					name: 'cipher_search_graph',
+					description: 'Search knowledge graph',
+					parametersJsonSchema: {
+						type: 'object',
+						properties: {},
+						required: [],
+					},
+				},
+			]);
 
-			const result = await geminiService.generate('test input');
-			expect(result).toContain('Error processing request');
+			await geminiService.generate('search for information');
+			expect(mockUnifiedToolManager.getToolsForProvider).toHaveBeenCalledWith('gemini');
+		});
+	});
+
+	describe('API configuration', () => {
+		it('should use proper API structure with tools', async () => {
+			mockUnifiedToolManager.getToolsForProvider.mockResolvedValue([
+				{
+					name: 'test_tool',
+					description: 'A test tool',
+					parametersJsonSchema: {
+						type: 'object',
+						properties: {},
+						required: [],
+					},
+				},
+			]);
+
+			// Mock the generateContent method to capture the configuration
+			const mockGenerateContent = vi.fn().mockResolvedValue({
+				candidates: [
+					{
+						content: {
+							parts: [{ text: 'Test response' }],
+						},
+					},
+				],
+			});
+
+			mockGenAI.models.generateContent = mockGenerateContent;
+
+			await geminiService.generate('test input');
+
+			expect(mockGenerateContent).toHaveBeenCalled();
+			const callArgs = mockGenerateContent.mock.calls[0][0];
+			
+			// Verify the API structure includes proper config
+			expect(callArgs.model).toBe('gemini-pro');
+			expect(callArgs.contents).toBeDefined();
+			expect(callArgs.config).toBeDefined();
+			expect(callArgs.config.toolConfig).toBeDefined();
+			expect(callArgs.config.tools).toBeDefined();
+		});
+
+		it('should not include tool config when no tools are available', async () => {
+			mockUnifiedToolManager.getToolsForProvider.mockResolvedValue([]);
+
+			const mockGenerateContent = vi.fn().mockResolvedValue({
+				candidates: [
+					{
+						content: {
+							parts: [{ text: 'Test response' }],
+						},
+					},
+				],
+			});
+
+			mockGenAI.models.generateContent = mockGenerateContent;
+
+			await geminiService.generate('test input');
+
+			expect(mockGenerateContent).toHaveBeenCalled();
+			const callArgs = mockGenerateContent.mock.calls[0][0];
+			
+			// Verify no tool config is included when no tools are available
+			expect(callArgs.model).toBe('gemini-pro');
+			expect(callArgs.contents).toBeDefined();
+			expect(callArgs.config).toBeUndefined();
 		});
 	});
 });

@@ -1,4 +1,4 @@
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, FunctionCallingConfigMode } from '@google/genai';
 import { ToolSet } from '../../../mcp/types.js';
 import { MCPManager } from '../../../mcp/manager.js';
 import { UnifiedToolManager, CombinedToolSet } from '../../tools/unified-tool-manager.js';
@@ -11,6 +11,27 @@ import { EventManager } from '../../../events/event-manager.js';
 import { SessionEvents } from '../../../events/event-types.js';
 import { v4 as uuidv4 } from 'uuid';
 
+// Enhanced Gemini configuration interfaces
+interface GeminiToolConfig {
+	mode: FunctionCallingConfigMode;
+	allowedFunctionNames?: string[];
+	maxFunctionCalls?: number;
+	confidenceThreshold?: number;
+}
+
+interface GeminiGenerationConfig {
+	temperature?: number;
+	topK?: number;
+	topP?: number;
+	maxOutputTokens?: number;
+	stopSequences?: string[];
+}
+
+interface GeminiConfig {
+	toolConfig?: GeminiToolConfig;
+	generationConfig?: GeminiGenerationConfig;
+}
+
 export class GeminiService implements ILLMService {
 	private genAI: GoogleGenAI;
 	private model: string;
@@ -19,6 +40,8 @@ export class GeminiService implements ILLMService {
 	private contextManager: ContextManager;
 	private maxIterations: number;
 	private eventManager?: EventManager;
+	private toolConfig: GeminiToolConfig;
+	private generationConfig: GeminiGenerationConfig;
 
 	constructor(
 		genAI: GoogleGenAI,
@@ -26,7 +49,8 @@ export class GeminiService implements ILLMService {
 		mcpManager: MCPManager,
 		contextManager: ContextManager,
 		maxIterations: number = 10,
-		unifiedToolManager?: UnifiedToolManager
+		unifiedToolManager?: UnifiedToolManager,
+		config?: GeminiConfig
 	) {
 		this.genAI = genAI;
 		this.model = model;
@@ -34,6 +58,22 @@ export class GeminiService implements ILLMService {
 		this.unifiedToolManager = unifiedToolManager;
 		this.contextManager = contextManager;
 		this.maxIterations = maxIterations;
+		
+		// Initialize enhanced configuration
+		this.toolConfig = {
+			mode: this.convertModeToEnum(config?.toolConfig?.mode || 'AUTO'),
+			maxFunctionCalls: 5,
+			confidenceThreshold: 0.8,
+			...config?.toolConfig,
+		};
+		
+		this.generationConfig = {
+			temperature: 0.7,
+			topK: 40,
+			topP: 0.95,
+			maxOutputTokens: 2048,
+			...config?.generationConfig,
+		};
 	}
 
 	/**
@@ -41,6 +81,22 @@ export class GeminiService implements ILLMService {
 	 */
 	setEventManager(eventManager: EventManager): void {
 		this.eventManager = eventManager;
+	}
+
+	/**
+	 * Update tool configuration
+	 */
+	updateToolConfig(config: Partial<GeminiToolConfig>): void {
+		this.toolConfig = { ...this.toolConfig, ...config };
+		logger.debug('Gemini tool configuration updated', { config: this.toolConfig });
+	}
+
+	/**
+	 * Update generation configuration
+	 */
+	updateGenerationConfig(config: Partial<GeminiGenerationConfig>): void {
+		this.generationConfig = { ...this.generationConfig, ...config };
+		logger.debug('Gemini generation configuration updated', { config: this.generationConfig });
 	}
 
 	async generate(userInput: string, imageData?: ImageData, _stream?: boolean): Promise<string> {
@@ -70,6 +126,9 @@ export class GeminiService implements ILLMService {
 			const rawTools = await this.mcpManager.getAllTools();
 			formattedTools = this.formatToolsForGemini(rawTools);
 		}
+
+		// Apply context-aware tool filtering
+		formattedTools = this.filterRelevantTools(formattedTools, userInput);
 
 		logger.silly(`Formatted tools for Gemini: ${JSON.stringify(formattedTools, null, 2)}`);
 
@@ -173,6 +232,10 @@ export class GeminiService implements ILLMService {
 						});
 					}
 				}
+
+				// After executing all function calls, continue the loop to let the model
+				// decide whether to call more functions or provide a final response
+				// The next iteration will include the function results in the context
 			}
 
 			// If we reached max iterations, return a message
@@ -261,7 +324,7 @@ export class GeminiService implements ILLMService {
 				const errorMessage = apiError.message || apiError.error?.message || 'Unknown error';
 
 				logger.error(
-					`Error in Gemini direct generate (Attempt ${attempts}/${MAX_ATTEMPTS}): ${errorMessage}`,
+					`Error in direct generate (Attempt ${attempts}/${MAX_ATTEMPTS}): ${errorMessage}`,
 					{
 						status: errorStatus,
 						type: errorType,
@@ -326,12 +389,33 @@ export class GeminiService implements ILLMService {
 				// Get all formatted messages from conversation history
 				const formattedMessages = await this.contextManager.getAllFormattedMessages();
 
-				// Call Gemini API
-				const result = await this.genAI.models.generateContent({
+				// Enhanced API call with proper configuration structure
+				const apiConfig: any = {
 					model: this.model,
 					contents: formattedMessages,
-					...(tools.length > 0 && { tools: { functionDeclarations: tools } }),
-				});
+				};
+
+				// Add tool configuration if tools are available
+				if (tools.length > 0) {
+					const functionCallingConfig: any = {
+						mode: this.toolConfig.mode,
+					};
+					
+					// Only add allowedFunctionNames if mode is ANY and we have allowedFunctionNames
+					if (this.toolConfig.mode === FunctionCallingConfigMode.ANY && this.toolConfig.allowedFunctionNames) {
+						functionCallingConfig.allowedFunctionNames = this.toolConfig.allowedFunctionNames;
+					}
+					
+					apiConfig.config = {
+						toolConfig: {
+							functionCallingConfig,
+						},
+						tools: tools,
+					};
+				}
+
+				// Call Gemini API with enhanced configuration
+				const result = await this.genAI.models.generateContent(apiConfig);
 
 				logger.silly('GEMINI GENERATE CONTENT RESPONSE: ', JSON.stringify(result, null, 2));
 
@@ -427,6 +511,47 @@ export class GeminiService implements ILLMService {
 		return Math.round(finalDelay);
 	}
 
+	/**
+	 * Enhanced tool formatting for Gemini with proper JSON Schema structure
+	 */
+	private formatToolsForGeminiV2(tools: ToolSet): any[] {
+		// Convert the ToolSet object to an array of tools in Gemini's format
+		return Object.entries(tools).map(([toolName, tool]) => {
+			const parametersJsonSchema: { type: string; properties: any; required: string[] } = {
+				type: 'object',
+				properties: {},
+				required: [],
+			};
+
+			// Map tool parameters to JSON Schema format
+			if (tool.parameters) {
+				// The actual parameters structure appears to be a JSON Schema object
+				const jsonSchemaParams = tool.parameters as any;
+
+				if (jsonSchemaParams.type === 'object' && jsonSchemaParams.properties) {
+					parametersJsonSchema.properties = jsonSchemaParams.properties;
+					if (Array.isArray(jsonSchemaParams.required)) {
+						parametersJsonSchema.required = jsonSchemaParams.required;
+					}
+				} else {
+					logger.warn(`Unexpected parameters format for tool ${toolName}:`, jsonSchemaParams);
+				}
+			} else {
+				// Handle case where tool might have no parameters
+				logger.debug(`Tool ${toolName} has no defined parameters.`);
+			}
+
+			return {
+				name: toolName,
+				description: tool.description,
+				parametersJsonSchema: parametersJsonSchema,
+			};
+		});
+	}
+
+	/**
+	 * Legacy tool formatting method for backward compatibility
+	 */
 	private formatToolsForGemini(tools: ToolSet): any[] {
 		// Convert the ToolSet object to an array of tools in Gemini's format
 		return Object.entries(tools).map(([toolName, tool]) => {
@@ -460,5 +585,63 @@ export class GeminiService implements ILLMService {
 				parameters: input_schema,
 			};
 		});
+	}
+
+	/**
+	 * Convert string mode to FunctionCallingConfigMode enum
+	 */
+	private convertModeToEnum(mode: string): FunctionCallingConfigMode {
+		switch (mode.toUpperCase()) {
+			case 'AUTO':
+				return FunctionCallingConfigMode.AUTO;
+			case 'ANY':
+				return FunctionCallingConfigMode.ANY;
+			case 'NONE':
+				return FunctionCallingConfigMode.NONE;
+			default:
+				return FunctionCallingConfigMode.AUTO;
+		}
+	}
+
+	/**
+	 * Context-aware tool filtering based on user input
+	 */
+	private filterRelevantTools(tools: any[], userInput: string): any[] {
+		if (tools.length === 0) return tools;
+
+		// Simple keyword-based filtering for now
+		const userInputLower = userInput.toLowerCase();
+		const relevantTools = tools.filter(tool => {
+			const toolName = tool.name?.toLowerCase() || '';
+			const description = tool.description?.toLowerCase() || '';
+
+			// Check if user input contains keywords related to the tool
+			const searchKeywords = ['search', 'find', 'look', 'query'];
+			const memoryKeywords = ['memory', 'remember', 'recall', 'store'];
+			const knowledgeKeywords = ['knowledge', 'graph', 'node', 'edge'];
+
+			if (searchKeywords.some(keyword => userInputLower.includes(keyword))) {
+				return toolName.includes('search') || description.includes('search');
+			}
+
+			if (memoryKeywords.some(keyword => userInputLower.includes(keyword))) {
+				return toolName.includes('memory') || description.includes('memory');
+			}
+
+			if (knowledgeKeywords.some(keyword => userInputLower.includes(keyword))) {
+				return toolName.includes('graph') || toolName.includes('node') || toolName.includes('edge');
+			}
+
+			// If no specific keywords match, include all tools
+			return true;
+		});
+
+		logger.debug(`Filtered ${tools.length} tools to ${relevantTools.length} relevant tools`, {
+			originalCount: tools.length,
+			filteredCount: relevantTools.length,
+			userInput: userInput.substring(0, 100),
+		});
+
+		return relevantTools;
 	}
 }

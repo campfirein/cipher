@@ -6,7 +6,7 @@
  * error handling, retry logic, and lifecycle management.
  *
  * Features:
- * - Multiple provider support (OpenAI, future: Anthropic, Cohere, etc.)
+ * - Multiple provider support (OpenAI, future: Anthropic, Gemini, Cohere, etc.)
  * - Batch operations for efficient processing
  * - Type-safe configuration with runtime validation
  * - Comprehensive error handling and retry logic
