@@ -269,7 +269,7 @@ describe('MemAgent', () => {
 		});
 
 		it('should validate supported providers', () => {
-			const supportedProviders = ['openai', 'anthropic'];
+			const supportedProviders = ['openai', 'anthropic', 'gemini'];
 			const unsupportedProviders = ['google', 'cohere', 'huggingface', 'custom'];
 
 			// Test supported providers

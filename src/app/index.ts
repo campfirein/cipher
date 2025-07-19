@@ -129,12 +129,13 @@ program
 		if (
 			!env.OPENAI_API_KEY &&
 			!env.ANTHROPIC_API_KEY &&
+			!env.GEMINI_API_KEY &&
 			!env.OPENROUTER_API_KEY &&
 			!env.OLLAMA_BASE_URL
 		) {
 			// Use MCP-safe error reporting
 			const errorMsg =
-				'No API key or Ollama configuration found, please set at least one of OPENAI_API_KEY, ANTHROPIC_API_KEY, OPENROUTER_API_KEY, or OLLAMA_BASE_URL in .env file\nAvailable providers: OpenAI, Anthropic, OpenRouter, Ollama';
+				'No API key or Ollama configuration found, please set at least one of OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY, OPENROUTER_API_KEY, or OLLAMA_BASE_URL in .env file\nAvailable providers: OpenAI, Anthropic, Google Gemini, OpenRouter, Ollama';
 
 			if (opts.mode === 'mcp') {
 				process.stderr.write(`[CIPHER-MCP] ERROR: ${errorMsg}\n`);

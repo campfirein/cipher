@@ -310,7 +310,9 @@ export class UnifiedToolManager {
 	/**
 	 * Get tools formatted for specific LLM providers
 	 */
-	async getToolsForProvider(provider: 'openai' | 'anthropic' | 'openrouter'): Promise<any[]> {
+	async getToolsForProvider(
+		provider: 'openai' | 'anthropic' | 'openrouter' | 'gemini'
+	): Promise<any[]> {
 		const allTools = await this.getAllTools();
 
 		switch (provider) {
@@ -319,6 +321,8 @@ export class UnifiedToolManager {
 				return this.formatToolsForOpenAI(allTools);
 			case 'anthropic':
 				return this.formatToolsForAnthropic(allTools);
+			case 'gemini':
+				return this.formatToolsForGemini(allTools);
 			default:
 				throw new Error(`Unsupported provider: ${provider}`);
 		}
@@ -399,6 +403,17 @@ export class UnifiedToolManager {
 			name,
 			description: tool.description,
 			input_schema: tool.parameters,
+		}));
+	}
+
+	/**
+	 * Format tools for Gemini (function calling format with parametersJsonSchema)
+	 */
+	private formatToolsForGemini(tools: CombinedToolSet): any[] {
+		return Object.entries(tools).map(([name, tool]) => ({
+			name,
+			description: tool.description,
+			parametersJsonSchema: tool.parameters,
 		}));
 	}
 }

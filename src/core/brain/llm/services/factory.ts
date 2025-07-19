@@ -11,6 +11,8 @@ import { OpenAIService } from './openai.js';
 import { AnthropicService } from './anthropic.js';
 import { OpenRouterService } from './openrouter.js';
 import { OllamaService } from './ollama.js';
+import { GeminiService } from './gemini.js';
+import { GoogleGenAI } from '@google/genai';
 
 function extractApiKey(config: LLMConfig): string {
 	const provider = config.provider.toLowerCase();
@@ -128,6 +130,33 @@ function _createLLMService(
 				contextManager,
 				config.maxIterations,
 				unifiedToolManager
+			);
+		}
+		case 'gemini': {
+			// Ensure we're using Gemini Developer API, not Vertex AI
+			// Set environment variable to force Gemini API usage
+			process.env.GOOGLE_GENAI_USE_VERTEXAI = 'false';
+			
+			const genai = new GoogleGenAI({ apiKey });
+			
+			// Extract Gemini-specific configuration with proper type conversion
+			const geminiConfig = {
+				toolConfig: config.toolConfig ? {
+					...config.toolConfig,
+					// Convert string mode to enum in the service
+					mode: config.toolConfig.mode as any,
+				} : undefined,
+				generationConfig: config.generationConfig,
+			};
+			
+			return new GeminiService(
+				genai,
+				config.model,
+				mcpManager,
+				contextManager,
+				config.maxIterations,
+				unifiedToolManager,
+				geminiConfig
 			);
 		}
 		default:
