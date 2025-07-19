@@ -75,8 +75,11 @@ describe('GeminiMessageFormatter', () => {
 			expect(result).toEqual([
 				{
 					role: 'model',
+					parts: [{ text: 'I will help you with that.' }],
+				},
+				{
+					role: 'model',
 					parts: [
-						{ text: 'I will help you with that.' },
 						{
 							functionCall: {
 								name: 'test_function',
