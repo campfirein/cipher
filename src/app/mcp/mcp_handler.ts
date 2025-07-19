@@ -180,9 +180,7 @@ async function registerAgentTools(server: Server, agent: MemAgent): Promise<void
 		},
 	];
 
-	logger.info(
-		`[MCP Handler] Registering ONLY ask_cipher as MCP tool.`
-	);
+	logger.info(`[MCP Handler] Registering ONLY ask_cipher as MCP tool.`);
 
 	// Register list tools handler
 	server.setRequestHandler(ListToolsRequestSchema, async () => {
@@ -199,7 +197,9 @@ async function registerAgentTools(server: Server, agent: MemAgent): Promise<void
 		}
 
 		// If any other tool is called, throw error
-		throw new Error(`Tool '${name}' is not available in MCP server mode. Only 'ask_cipher' is exposed.`);
+		throw new Error(
+			`Tool '${name}' is not available in MCP server mode. Only 'ask_cipher' is exposed.`
+		);
 	});
 }
 
