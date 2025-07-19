@@ -108,15 +108,27 @@ export class MemAgentStateManager {
 			result.evalLlm = this.runtimeConfig.evalLlm;
 		}
 
-		return result;
+		return result as Readonly<AgentConfig>;
 	}
 
 	public getLLMConfig(sessionId?: string): Readonly<LLMConfig> {
 		const config = this.getRuntimeConfig(sessionId);
-		return {
+		const llmConfig = {
 			...config.llm,
 			maxIterations: config.llm.maxIterations ?? 10, // Provide default value
 		};
+
+		// Ensure toolConfig has required fields if present
+		if (llmConfig.toolConfig && typeof llmConfig.toolConfig === 'object') {
+			llmConfig.toolConfig = {
+				mode: llmConfig.toolConfig.mode || 'AUTO',
+				maxFunctionCalls: llmConfig.toolConfig.maxFunctionCalls || 5,
+				confidenceThreshold: llmConfig.toolConfig.confidenceThreshold || 0.8,
+				allowedFunctionNames: llmConfig.toolConfig.allowedFunctionNames,
+			};
+		}
+
+		return llmConfig as Readonly<LLMConfig>;
 	}
 
 	/**
@@ -151,7 +163,7 @@ export class MemAgentStateManager {
 						provider: evalConfig.provider,
 						model: evalConfig.model,
 					});
-					return evalConfig;
+					return evalConfig as Readonly<LLMConfig>;
 				}
 			} catch (error) {
 				logger.warn('Invalid evalLlm configuration, falling back to main LLM', {
@@ -183,7 +195,7 @@ export class MemAgentStateManager {
 			sessionId,
 		});
 
-		return fallbackConfig;
+		return fallbackConfig as Readonly<LLMConfig>;
 	}
 
 	/**
