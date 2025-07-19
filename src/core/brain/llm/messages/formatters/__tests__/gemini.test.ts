@@ -108,8 +108,7 @@ describe('GeminiMessageFormatter', () => {
 							functionResponse: {
 								name: 'test_function',
 								response: {
-									name: 'test_function',
-									content: '{"result": "success"}',
+									result: 'success',
 								},
 							},
 						},
