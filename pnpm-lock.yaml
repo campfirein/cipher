@@ -4419,7 +4419,7 @@ snapshots:
     dependencies:
       fn.name: 1.1.0
 
-  openai@4.104.0(zod@3.25.67):
+  openai@4.104.0(ws@8.18.3)(zod@3.25.76):
     dependencies:
       '@types/node': 18.19.112
       '@types/node-fetch': 2.6.12
@@ -4429,7 +4429,8 @@ snapshots:
       formdata-node: 4.4.1
       node-fetch: 2.7.0
     optionalDependencies:
-      zod: 3.25.67
+      ws: 8.18.3
+      zod: 3.25.76
     transitivePeerDependencies:
       - encoding
 
@@ -5236,9 +5237,6 @@ snapshots:
   wrappy@1.0.2: {}
 
   ws@8.18.3: {}
-
-  ws@8.18.3:
-    optional: true
 
   xtend@4.0.2: {}
 
