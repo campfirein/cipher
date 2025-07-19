@@ -1,4 +1,3 @@
-import { logger } from '../../../../logger/index.js';
 import { InternalMessage } from '../types.js';
 import { getImageData } from '../utils.js';
 import { IMessageFormatter } from './types.js';
@@ -138,7 +137,7 @@ export class GeminiMessageFormatter implements IMessageFormatter {
 					};
 				}
 
-			case 'tool':
+			case 'tool': {
 				// Tool messages are converted to user messages with function response
 				// Gemini expects function responses to be structured as functionResponse parts
 				// The response should be a structured object, not a JSON string
@@ -183,6 +182,7 @@ export class GeminiMessageFormatter implements IMessageFormatter {
 						},
 					],
 				};
+			}
 
 			default:
 				throw new Error(`Unsupported message role: ${(message as any).role}`);
