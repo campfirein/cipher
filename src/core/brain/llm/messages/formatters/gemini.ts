@@ -259,8 +259,9 @@ export class GeminiMessageFormatter implements IMessageFormatter {
 			const keys = Object.keys(response);
 			const maxKeys = 10; // Limit to prevent overly complex responses
 			
-			for (let i = 0; i < Math.min(keys.length, maxKeys); i++) {
-				const key = keys[i];
+					for (let i = 0; i < Math.min(keys.length, maxKeys); i++) {
+			const key = keys[i];
+			if (key) {
 				const value = response[key];
 				
 				// Skip very large values that might cause issues
@@ -273,6 +274,7 @@ export class GeminiMessageFormatter implements IMessageFormatter {
 					simplified[key] = value;
 				}
 			}
+		}
 			
 			return simplified;
 		}

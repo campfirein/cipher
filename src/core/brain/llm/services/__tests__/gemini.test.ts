@@ -282,7 +282,7 @@ describe('GeminiService', () => {
 			await geminiService.generate('test input');
 
 			expect(mockGenerateContent).toHaveBeenCalled();
-			const callArgs = mockGenerateContent.mock.calls[0][0];
+			const callArgs = mockGenerateContent.mock.calls[0]?.[0];
 			
 			// Verify the API structure includes proper config
 			expect(callArgs.model).toBe('gemini-pro');

@@ -90,6 +90,16 @@ export class MemAgentStateManager {
 			llm: { ...this.runtimeConfig.llm, ...override.llm },
 		} as AgentConfig;
 
+		// Ensure toolConfig has required fields if present
+		if (result.llm.toolConfig && typeof result.llm.toolConfig === 'object') {
+			result.llm.toolConfig = {
+				mode: result.llm.toolConfig.mode || 'AUTO',
+				maxFunctionCalls: result.llm.toolConfig.maxFunctionCalls || 5,
+				confidenceThreshold: result.llm.toolConfig.confidenceThreshold || 0.8,
+				allowedFunctionNames: result.llm.toolConfig.allowedFunctionNames,
+			};
+		}
+
 		if (override.evalLlm && this.runtimeConfig.evalLlm) {
 			result.evalLlm = { ...this.runtimeConfig.evalLlm, ...override.evalLlm };
 		} else if (override.evalLlm) {
@@ -127,6 +137,16 @@ export class MemAgentStateManager {
 
 				// Check if required fields are present
 				if (evalConfig.provider && evalConfig.model) {
+					// Ensure toolConfig has required fields if present
+					if (evalConfig.toolConfig && typeof evalConfig.toolConfig === 'object') {
+						evalConfig.toolConfig = {
+							mode: evalConfig.toolConfig.mode || 'AUTO',
+							maxFunctionCalls: evalConfig.toolConfig.maxFunctionCalls || 5,
+							confidenceThreshold: evalConfig.toolConfig.confidenceThreshold || 0.8,
+							allowedFunctionNames: evalConfig.toolConfig.allowedFunctionNames,
+						};
+					}
+
 					logger.debug('Using configured evalLlm for evaluation tasks', {
 						provider: evalConfig.provider,
 						model: evalConfig.model,
@@ -146,6 +166,16 @@ export class MemAgentStateManager {
 			...config.llm,
 			maxIterations: 5, // Use lower iterations for eval tasks
 		};
+
+		// Ensure toolConfig has required fields if present
+		if (fallbackConfig.toolConfig && typeof fallbackConfig.toolConfig === 'object') {
+			fallbackConfig.toolConfig = {
+				mode: fallbackConfig.toolConfig.mode || 'AUTO',
+				maxFunctionCalls: fallbackConfig.toolConfig.maxFunctionCalls || 5,
+				confidenceThreshold: fallbackConfig.toolConfig.confidenceThreshold || 0.8,
+				allowedFunctionNames: fallbackConfig.toolConfig.allowedFunctionNames,
+			};
+		}
 
 		logger.debug('Using fallback LLM configuration for evaluation tasks', {
 			provider: fallbackConfig.provider,
