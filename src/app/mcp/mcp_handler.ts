@@ -110,6 +110,11 @@ export async function initializeMcpServer(
 ): Promise<void> {
 	logger.info('[MCP Handler] Initializing MCP server with agent capabilities');
 
+	// Inject MCP-specific system prompt (does not affect CLI mode)
+	agent.promptManager.load(
+		`When running as an MCP server, Cipher should focus solely on two tasks: storage and retrieval using its own available tools. Do not attempt to perform other tasks. This behavior is only expected in MCP server mode.`
+	);
+
 	// Create MCP server instance
 	const server = new Server(
 		{
@@ -145,22 +150,11 @@ export async function initializeMcpServer(
  * Register agent tools as MCP tools (dynamic discovery)
  */
 async function registerAgentTools(server: Server, agent: MemAgent): Promise<void> {
-	logger.debug('[MCP Handler] Registering agent tools (dynamic)');
+	logger.debug('[MCP Handler] Registering ONLY ask_cipher tool for MCP server');
 
-	// Get all agent-accessible tools from unifiedToolManager
-	const unifiedToolManager = agent.unifiedToolManager;
-	const combinedTools = await unifiedToolManager.getAllTools();
-
-	// Build MCP tool list
-	const mcpTools = Object.entries(combinedTools).map(([toolName, tool]) => ({
-		name: toolName,
-		description: (tool as any).description,
-		inputSchema: (tool as any).parameters,
-	}));
-
-	// For backward compatibility, ensure ask_cipher is always present
-	if (!mcpTools.find(t => t.name === 'ask_cipher')) {
-		mcpTools.push({
+	// Only expose ask_cipher tool
+	const mcpTools = [
+		{
 			name: 'ask_cipher',
 			description: 'Chat with the Cipher AI agent. Send a message to interact with the agent.',
 			inputSchema: {
@@ -183,11 +177,11 @@ async function registerAgentTools(server: Server, agent: MemAgent): Promise<void
 				},
 				required: ['message'],
 			},
-		});
-	}
+		},
+	];
 
 	logger.info(
-		`[MCP Handler] Registering ${mcpTools.length} MCP tools: ${mcpTools.map(t => t.name).join(', ')}`
+		`[MCP Handler] Registering ONLY ask_cipher as MCP tool.`
 	);
 
 	// Register list tools handler
@@ -204,22 +198,8 @@ async function registerAgentTools(server: Server, agent: MemAgent): Promise<void
 			return await handleAskCipherTool(agent, args);
 		}
 
-		// Route to unifiedToolManager for all other tools
-		try {
-			const result = await unifiedToolManager.executeTool(name, args);
-			return {
-				content: [
-					{
-						type: 'text',
-						text: typeof result === 'string' ? result : JSON.stringify(result),
-					},
-				],
-			};
-		} catch (error) {
-			const errorMessage = error instanceof Error ? error.message : String(error);
-			logger.error(`[MCP Handler] Error in tool '${name}'`, { error: errorMessage });
-			throw new Error(`Tool execution failed: ${errorMessage}`);
-		}
+		// If any other tool is called, throw error
+		throw new Error(`Tool '${name}' is not available in MCP server mode. Only 'ask_cipher' is exposed.`);
 	});
 }
 
@@ -246,8 +226,12 @@ async function handleAskCipherTool(agent: MemAgent, args: any): Promise<any> {
 			session_id,
 			stream
 		);
-		// In MCP mode, always wait for background operations to complete before returning response
-		await backgroundOperations;
+		// In MCP mode, return response immediately, let background operations run asynchronously
+		if (backgroundOperations) {
+			backgroundOperations.catch(() => {
+				// Errors are already logged, do not throw
+			});
+		}
 
 		return {
 			content: [
