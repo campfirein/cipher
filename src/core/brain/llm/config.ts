@@ -1,20 +1,24 @@
 import { z } from 'zod';
 
 // Gemini-specific configuration schemas
-const GeminiToolConfigSchema = z.object({
-	mode: z.string().optional().default('AUTO'), // Will be converted to FunctionCallingConfigMode in service
-	allowedFunctionNames: z.array(z.string()).optional(),
-	maxFunctionCalls: z.number().int().positive().optional().default(5),
-	confidenceThreshold: z.number().min(0).max(1).optional().default(0.8),
-}).optional();
+const GeminiToolConfigSchema = z
+	.object({
+		mode: z.string().optional().default('AUTO'), // Will be converted to FunctionCallingConfigMode in service
+		allowedFunctionNames: z.array(z.string()).optional(),
+		maxFunctionCalls: z.number().int().positive().optional().default(5),
+		confidenceThreshold: z.number().min(0).max(1).optional().default(0.8),
+	})
+	.optional();
 
-const GeminiGenerationConfigSchema = z.object({
-	temperature: z.number().min(0).max(2).optional().default(0.7),
-	topK: z.number().int().positive().optional().default(40),
-	topP: z.number().min(0).max(1).optional().default(0.95),
-	maxOutputTokens: z.number().int().positive().optional().default(2048),
-	stopSequences: z.array(z.string()).optional(),
-}).optional();
+const GeminiGenerationConfigSchema = z
+	.object({
+		temperature: z.number().min(0).max(2).optional().default(0.7),
+		topK: z.number().int().positive().optional().default(40),
+		topP: z.number().min(0).max(1).optional().default(0.95),
+		maxOutputTokens: z.number().int().positive().optional().default(2048),
+		stopSequences: z.array(z.string()).optional(),
+	})
+	.optional();
 
 export const LLMConfigSchema = z
 	.object({

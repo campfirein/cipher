@@ -136,19 +136,21 @@ function _createLLMService(
 			// Ensure we're using Gemini Developer API, not Vertex AI
 			// Set environment variable to force Gemini API usage
 			process.env.GOOGLE_GENAI_USE_VERTEXAI = 'false';
-			
+
 			const genai = new GoogleGenAI({ apiKey });
-			
+
 			// Extract Gemini-specific configuration with proper type conversion
 			const geminiConfig = {
-				toolConfig: config.toolConfig ? {
-					...config.toolConfig,
-					// Convert string mode to enum in the service
-					mode: config.toolConfig.mode as any,
-				} : undefined,
+				toolConfig: config.toolConfig
+					? {
+							...config.toolConfig,
+							// Convert string mode to enum in the service
+							mode: config.toolConfig.mode as any,
+						}
+					: undefined,
 				generationConfig: config.generationConfig,
-			};
-			
+			} as any;
+
 			return new GeminiService(
 				genai,
 				config.model,

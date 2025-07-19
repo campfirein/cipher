@@ -118,15 +118,15 @@ export function validateEmbeddingEnv(): {
 
 	// Check required variables
 	if (!env.OPENAI_API_KEY) {
-			// Check if other LLM providers are configured
-	const hasOtherProviders = env.ANTHROPIC_API_KEY || env.GEMINI_API_KEY || env.OPENROUTER_API_KEY;
-	if (hasOtherProviders) {
-		issues.push(
-			'OPENAI_API_KEY is required for embedding functionality, even when using Anthropic, Gemini, or OpenRouter for LLM services'
-		);
-	} else {
-		issues.push('OPENAI_API_KEY is required for embedding functionality');
-	}
+		// Check if other LLM providers are configured
+		const hasOtherProviders = env.ANTHROPIC_API_KEY || env.GEMINI_API_KEY || env.OPENROUTER_API_KEY;
+		if (hasOtherProviders) {
+			issues.push(
+				'OPENAI_API_KEY is required for embedding functionality, even when using Anthropic, Gemini, or OpenRouter for LLM services'
+			);
+		} else {
+			issues.push('OPENAI_API_KEY is required for embedding functionality');
+		}
 	}
 
 	// Check API key format

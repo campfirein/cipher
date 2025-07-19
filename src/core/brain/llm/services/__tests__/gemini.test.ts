@@ -138,7 +138,7 @@ describe('GeminiService', () => {
 
 	describe('getAllTools', () => {
 		it('should return tools from unified tool manager when available', async () => {
-			const tools = await geminiService.getAllTools();
+			await geminiService.getAllTools();
 			expect(mockUnifiedToolManager.getAllTools).toHaveBeenCalled();
 		});
 
@@ -283,7 +283,7 @@ describe('GeminiService', () => {
 
 			expect(mockGenerateContent).toHaveBeenCalled();
 			const callArgs = mockGenerateContent.mock.calls[0]?.[0];
-			
+
 			// Verify the API structure includes proper config
 			expect(callArgs.model).toBe('gemini-pro');
 			expect(callArgs.contents).toBeDefined();
@@ -310,8 +310,8 @@ describe('GeminiService', () => {
 			await geminiService.generate('test input');
 
 			expect(mockGenerateContent).toHaveBeenCalled();
-			const callArgs = mockGenerateContent.mock.calls[0][0];
-			
+			const callArgs = mockGenerateContent.mock.calls[0]?.[0];
+
 			// Verify no tool config is included when no tools are available
 			expect(callArgs.model).toBe('gemini-pro');
 			expect(callArgs.contents).toBeDefined();

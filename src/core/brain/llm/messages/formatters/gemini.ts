@@ -142,7 +142,7 @@ export class GeminiMessageFormatter implements IMessageFormatter {
 				// Gemini expects function responses to be structured as functionResponse parts
 				// The response should be a structured object, not a JSON string
 				let responseContent: any;
-				
+
 				if (typeof message.content === 'string') {
 					// Try to parse as JSON if it looks like JSON, otherwise use as string
 					try {
@@ -161,16 +161,20 @@ export class GeminiMessageFormatter implements IMessageFormatter {
 					// Fallback for null/undefined
 					responseContent = message.content ?? '';
 				}
-				
+
 				// Ensure the response is properly structured for Gemini API
 				// If it's a complex object, we might need to simplify it
-				if (responseContent && typeof responseContent === 'object' && !Array.isArray(responseContent)) {
+				if (
+					responseContent &&
+					typeof responseContent === 'object' &&
+					!Array.isArray(responseContent)
+				) {
 					// For complex objects, try to extract the most relevant information
 					// This helps avoid the INVALID_ARGUMENT error with very large objects
 					const simplifiedResponse = this.simplifyToolResponse(responseContent);
 					responseContent = simplifiedResponse;
 				}
-				
+
 				return {
 					role: 'user',
 					parts: [
@@ -244,41 +248,43 @@ export class GeminiMessageFormatter implements IMessageFormatter {
 						text: result.text,
 						similarity: result.similarity,
 						confidence: result.confidence,
-						tags: result.tags
+						tags: result.tags,
 					})),
-					metadata: response.metadata ? {
-						totalResults: response.metadata.totalResults,
-						searchTime: response.metadata.searchTime,
-						maxSimilarity: response.metadata.maxSimilarity
-					} : undefined
+					metadata: response.metadata
+						? {
+								totalResults: response.metadata.totalResults,
+								searchTime: response.metadata.searchTime,
+								maxSimilarity: response.metadata.maxSimilarity,
+							}
+						: undefined,
 				};
 			}
-			
+
 			// For other complex objects, try to keep essential fields
 			const simplified: any = {};
 			const keys = Object.keys(response);
 			const maxKeys = 10; // Limit to prevent overly complex responses
-			
-					for (let i = 0; i < Math.min(keys.length, maxKeys); i++) {
-			const key = keys[i];
-			if (key) {
-				const value = response[key];
-				
-				// Skip very large values that might cause issues
-				if (typeof value === 'string' && value.length > 1000) {
-					simplified[key] = value.substring(0, 1000) + '...';
-				} else if (typeof value === 'object' && value !== null) {
-					// Recursively simplify nested objects
-					simplified[key] = this.simplifyToolResponse(value);
-				} else {
-					simplified[key] = value;
+
+			for (let i = 0; i < Math.min(keys.length, maxKeys); i++) {
+				const key = keys[i];
+				if (key) {
+					const value = response[key];
+
+					// Skip very large values that might cause issues
+					if (typeof value === 'string' && value.length > 1000) {
+						simplified[key] = value.substring(0, 1000) + '...';
+					} else if (typeof value === 'object' && value !== null) {
+						// Recursively simplify nested objects
+						simplified[key] = this.simplifyToolResponse(value);
+					} else {
+						simplified[key] = value;
+					}
 				}
 			}
-		}
-			
+
 			return simplified;
 		}
-		
+
 		return response;
 	}
 

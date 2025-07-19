@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { UnifiedToolManager } from '../unified-tool-manager.js';
-import { MCPManager } from '../../../mcp/manager.js';
-import { InternalToolManager } from '../manager.js';
+// import { MCPManager } from '../../../mcp/manager.js';
+// import { InternalToolManager } from '../manager.js';
 
 // Mock the dependencies
 vi.mock('../../../mcp/manager.js');

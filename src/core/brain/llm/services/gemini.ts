@@ -58,7 +58,7 @@ export class GeminiService implements ILLMService {
 		this.unifiedToolManager = unifiedToolManager;
 		this.contextManager = contextManager;
 		this.maxIterations = maxIterations;
-		
+
 		// Initialize enhanced configuration
 		this.toolConfig = {
 			mode: this.convertModeToEnum(config?.toolConfig?.mode || 'AUTO'),
@@ -66,7 +66,7 @@ export class GeminiService implements ILLMService {
 			confidenceThreshold: 0.8,
 			...config?.toolConfig,
 		};
-		
+
 		this.generationConfig = {
 			temperature: 0.7,
 			topK: 40,
@@ -400,12 +400,15 @@ export class GeminiService implements ILLMService {
 					const functionCallingConfig: any = {
 						mode: this.toolConfig.mode,
 					};
-					
+
 					// Only add allowedFunctionNames if mode is ANY and we have allowedFunctionNames
-					if (this.toolConfig.mode === FunctionCallingConfigMode.ANY && this.toolConfig.allowedFunctionNames) {
+					if (
+						this.toolConfig.mode === FunctionCallingConfigMode.ANY &&
+						this.toolConfig.allowedFunctionNames
+					) {
 						functionCallingConfig.allowedFunctionNames = this.toolConfig.allowedFunctionNames;
 					}
-					
+
 					apiConfig.config = {
 						toolConfig: {
 							functionCallingConfig,
