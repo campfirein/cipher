@@ -15,6 +15,7 @@ describe('Message Factory', () => {
 			provider: 'openai',
 			model: 'gpt-4o-mini',
 			apiKey: 'test-key',
+			maxIterations: 10,
 		};
 
 		const { PromptManager } = await import('../../../systemPrompt/manager.js');
@@ -29,6 +30,7 @@ describe('Message Factory', () => {
 			provider: 'anthropic',
 			model: 'claude-3-5-sonnet-20241022',
 			apiKey: 'test-key',
+			maxIterations: 10,
 		};
 
 		const { PromptManager } = await import('../../../systemPrompt/manager.js');
@@ -43,6 +45,7 @@ describe('Message Factory', () => {
 			provider: 'gemini',
 			model: 'gemini-pro',
 			apiKey: 'test-key',
+			maxIterations: 10,
 		};
 
 		const { PromptManager } = await import('../../../systemPrompt/manager.js');
