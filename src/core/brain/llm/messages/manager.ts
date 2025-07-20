@@ -153,7 +153,9 @@ export class ContextManager {
 		} else if (Array.isArray(result)) {
 			content = result;
 		} else {
-			content = JSON.stringify(result ?? '');
+			// For objects, store them as-is to avoid double JSON stringification
+			// The formatter will handle the conversion to the proper format
+			content = result ?? '';
 		}
 		await this.addMessage({ role: 'tool', content, toolCallId, name });
 	}
@@ -173,10 +175,19 @@ export class ContextManager {
 		try {
 			const prompt = await this.getSystemPrompt();
 			const formattedMessages: any[] = [];
-			if (prompt) {
+
+			// For Gemini, we don't add system messages separately
+			// The system prompt will be handled by the formatter if needed
+			const shouldAddSystemSeparately =
+				this.formatter.constructor.name !== 'GeminiMessageFormatter';
+
+			// Add system prompt as first message - for OpenAI, Anthropic, and OpenRouter, but not Gemini
+			if (prompt && shouldAddSystemSeparately) {
 				formattedMessages.push({ role: 'system', content: prompt });
 			}
 			for (const msg of this.messages) {
+				// Don't pass system prompt to individual message formatting
+				// The system prompt has already been added above
 				const formatted = this.formatter.format(msg, null);
 				if (Array.isArray(formatted)) {
 					formattedMessages.push(...formatted);

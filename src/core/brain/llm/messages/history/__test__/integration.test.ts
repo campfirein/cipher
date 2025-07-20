@@ -3,7 +3,7 @@ import { DatabaseHistoryProvider } from '../database.js';
 import { StorageManager } from '../../../../../storage/manager.js';
 import type { InternalMessage } from '../../types.js';
 
-const mockLogger = { error: () => {}, warn: () => {}, debug: () => {} };
+// const mockLogger = { error: () => {}, warn: () => {}, debug: () => {} };
 
 const storageConfigs = [
 	{

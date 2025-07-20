@@ -90,6 +90,16 @@ export class MemAgentStateManager {
 			llm: { ...this.runtimeConfig.llm, ...override.llm },
 		} as AgentConfig;
 
+		// Ensure toolConfig has required fields if present
+		if (result.llm.toolConfig && typeof result.llm.toolConfig === 'object') {
+			result.llm.toolConfig = {
+				mode: result.llm.toolConfig.mode || 'AUTO',
+				maxFunctionCalls: result.llm.toolConfig.maxFunctionCalls || 5,
+				confidenceThreshold: result.llm.toolConfig.confidenceThreshold || 0.8,
+				allowedFunctionNames: result.llm.toolConfig.allowedFunctionNames,
+			};
+		}
+
 		if (override.evalLlm && this.runtimeConfig.evalLlm) {
 			result.evalLlm = { ...this.runtimeConfig.evalLlm, ...override.evalLlm };
 		} else if (override.evalLlm) {
@@ -98,15 +108,27 @@ export class MemAgentStateManager {
 			result.evalLlm = this.runtimeConfig.evalLlm;
 		}
 
-		return result;
+		return result as Readonly<AgentConfig>;
 	}
 
 	public getLLMConfig(sessionId?: string): Readonly<LLMConfig> {
 		const config = this.getRuntimeConfig(sessionId);
-		return {
+		const llmConfig = {
 			...config.llm,
 			maxIterations: config.llm.maxIterations ?? 10, // Provide default value
 		};
+
+		// Ensure toolConfig has required fields if present
+		if (llmConfig.toolConfig && typeof llmConfig.toolConfig === 'object') {
+			llmConfig.toolConfig = {
+				mode: llmConfig.toolConfig.mode || 'AUTO',
+				maxFunctionCalls: llmConfig.toolConfig.maxFunctionCalls || 5,
+				confidenceThreshold: llmConfig.toolConfig.confidenceThreshold || 0.8,
+				allowedFunctionNames: llmConfig.toolConfig.allowedFunctionNames,
+			};
+		}
+
+		return llmConfig as Readonly<LLMConfig>;
 	}
 
 	/**
@@ -127,11 +149,21 @@ export class MemAgentStateManager {
 
 				// Check if required fields are present
 				if (evalConfig.provider && evalConfig.model) {
+					// Ensure toolConfig has required fields if present
+					if (evalConfig.toolConfig && typeof evalConfig.toolConfig === 'object') {
+						evalConfig.toolConfig = {
+							mode: evalConfig.toolConfig.mode || 'AUTO',
+							maxFunctionCalls: evalConfig.toolConfig.maxFunctionCalls || 5,
+							confidenceThreshold: evalConfig.toolConfig.confidenceThreshold || 0.8,
+							allowedFunctionNames: evalConfig.toolConfig.allowedFunctionNames,
+						};
+					}
+
 					logger.debug('Using configured evalLlm for evaluation tasks', {
 						provider: evalConfig.provider,
 						model: evalConfig.model,
 					});
-					return evalConfig;
+					return evalConfig as Readonly<LLMConfig>;
 				}
 			} catch (error) {
 				logger.warn('Invalid evalLlm configuration, falling back to main LLM', {
@@ -147,13 +179,23 @@ export class MemAgentStateManager {
 			maxIterations: 5, // Use lower iterations for eval tasks
 		};
 
+		// Ensure toolConfig has required fields if present
+		if (fallbackConfig.toolConfig && typeof fallbackConfig.toolConfig === 'object') {
+			fallbackConfig.toolConfig = {
+				mode: fallbackConfig.toolConfig.mode || 'AUTO',
+				maxFunctionCalls: fallbackConfig.toolConfig.maxFunctionCalls || 5,
+				confidenceThreshold: fallbackConfig.toolConfig.confidenceThreshold || 0.8,
+				allowedFunctionNames: fallbackConfig.toolConfig.allowedFunctionNames,
+			};
+		}
+
 		logger.debug('Using fallback LLM configuration for evaluation tasks', {
 			provider: fallbackConfig.provider,
 			model: fallbackConfig.model,
 			sessionId,
 		});
 
-		return fallbackConfig;
+		return fallbackConfig as Readonly<LLMConfig>;
 	}
 
 	/**
