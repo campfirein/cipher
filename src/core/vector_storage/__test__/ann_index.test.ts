@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { ANNIndex, type ANNIndexConfig, type ANNAlgorithm } from '../ann_index.js';
+import { ANNIndex, type ANNIndexConfig } from '../ann_index.js';
 
 describe('ANNIndex', () => {
 	let annIndex: ANNIndex;
@@ -35,7 +35,7 @@ describe('ANNIndex', () => {
 		it('should initialize with brute-force algorithm', async () => {
 			await annIndex.initialize();
 			expect(annIndex.isConnected()).toBe(true);
-			
+
 			const stats = annIndex.getStats();
 			expect(stats.algorithm).toBe('brute-force');
 			expect(stats.usingANN).toBe(false);
@@ -44,10 +44,10 @@ describe('ANNIndex', () => {
 		it('should initialize with flat algorithm when FAISS is available', async () => {
 			config.algorithm = 'flat';
 			annIndex = new ANNIndex(config);
-			
+
 			await annIndex.initialize();
 			expect(annIndex.isConnected()).toBe(true);
-			
+
 			const stats = annIndex.getStats();
 			// Note: This will be brute-force if FAISS is not available
 			expect(['flat', 'brute-force']).toContain(stats.algorithm);
@@ -56,15 +56,15 @@ describe('ANNIndex', () => {
 		it('should fallback to brute-force when FAISS fails', async () => {
 			config.algorithm = 'flat';
 			annIndex = new ANNIndex(config);
-			
+
 			// Mock FAISS import to fail
 			vi.doMock('faiss-node', () => {
 				throw new Error('FAISS not available');
 			});
-			
+
 			await annIndex.initialize();
 			expect(annIndex.isConnected()).toBe(true);
-			
+
 			const stats = annIndex.getStats();
 			expect(stats.algorithm).toBe('brute-force');
 			expect(stats.usingANN).toBe(false);
@@ -85,7 +85,7 @@ describe('ANNIndex', () => {
 			const ids = [1, 2, 3];
 
 			await annIndex.addVectors(vectors, ids);
-			
+
 			const stats = annIndex.getStats();
 			expect(stats.vectorCount).toBe(3);
 		});
@@ -100,7 +100,10 @@ describe('ANNIndex', () => {
 		});
 
 		it('should validate input lengths', async () => {
-			const vectors = [[1, 0, 0, 0], [0, 1, 0, 0]];
+			const vectors = [
+				[1, 0, 0, 0],
+				[0, 1, 0, 0],
+			];
 			const ids = [1]; // Mismatched length
 
 			await expect(annIndex.addVectors(vectors, ids)).rejects.toThrow(
@@ -141,7 +144,7 @@ describe('ANNIndex', () => {
 	describe('Search Operations', () => {
 		beforeEach(async () => {
 			await annIndex.initialize();
-			
+
 			// Add test vectors
 			const vectors = [
 				[1, 0, 0, 0], // Most similar to query
@@ -172,7 +175,7 @@ describe('ANNIndex', () => {
 
 		it('should apply filters correctly', async () => {
 			const query = [1, 0, 0, 0];
-			const filter = (id: number) => id !== 1; // Exclude ID 1
+			const filter = (_id: number) => _id !== 1; // Exclude ID 1
 			const results = await annIndex.search(query, 3, filter);
 
 			expect(results).toHaveLength(3);
@@ -189,7 +192,7 @@ describe('ANNIndex', () => {
 
 		it('should validate query dimension', async () => {
 			const query = [1, 0, 0]; // Wrong dimension
-			
+
 			await expect(annIndex.search(query, 3)).rejects.toThrow(
 				'Query dimension mismatch: expected 4, got 3'
 			);
@@ -258,9 +261,7 @@ describe('ANNIndex', () => {
 			const vectors = [[1, 0, 0, 0]];
 			const ids = [1];
 
-			await expect(annIndex.addVectors(vectors, ids)).rejects.toThrow(
-				'ANNIndex not initialized'
-			);
+			await expect(annIndex.addVectors(vectors, ids)).rejects.toThrow('ANNIndex not initialized');
 		});
 
 		it('should handle search on empty index', async () => {
@@ -308,4 +309,4 @@ describe('ANNIndex', () => {
 			expect(stats.algorithm).toBeDefined();
 		});
 	});
-}); 
+});

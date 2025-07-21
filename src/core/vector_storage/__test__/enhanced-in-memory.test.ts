@@ -8,8 +8,10 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { EnhancedInMemoryBackend, type EnhancedInMemoryConfig } from '../backend/enhanced-in-memory.js';
-import type { VectorStoreResult } from '../backend/types.js';
+import {
+	EnhancedInMemoryBackend,
+	type EnhancedInMemoryConfig,
+} from '../backend/enhanced-in-memory.js';
 
 describe('EnhancedInMemoryBackend', () => {
 	let backend: EnhancedInMemoryBackend;
@@ -69,11 +71,7 @@ describe('EnhancedInMemoryBackend', () => {
 				[0, 0, 1, 0],
 			];
 			const ids = [1, 2, 3];
-			const payloads = [
-				{ title: 'Doc 1' },
-				{ title: 'Doc 2' },
-				{ title: 'Doc 3' },
-			];
+			const payloads = [{ title: 'Doc 1' }, { title: 'Doc 2' }, { title: 'Doc 3' }];
 
 			await backend.insert(vectors, ids, payloads);
 
@@ -120,15 +118,18 @@ describe('EnhancedInMemoryBackend', () => {
 
 			// Insert up to capacity
 			await backend.insert(
-				[[1, 0, 0, 0], [0, 1, 0, 0]],
+				[
+					[1, 0, 0, 0],
+					[0, 1, 0, 0],
+				],
 				[1, 2],
 				[{ title: 'Doc 1' }, { title: 'Doc 2' }]
 			);
 
 			// Try to exceed capacity
-			await expect(
-				backend.insert([[0, 0, 1, 0]], [3], [{ title: 'Doc 3' }])
-			).rejects.toThrow('exceed maximum vector capacity');
+			await expect(backend.insert([[0, 0, 1, 0]], [3], [{ title: 'Doc 3' }])).rejects.toThrow(
+				'exceed maximum vector capacity'
+			);
 		});
 	});
 
@@ -182,11 +183,7 @@ describe('EnhancedInMemoryBackend', () => {
 
 		it('should handle range filters', async () => {
 			// Add vectors with numeric metadata
-			await backend.insert(
-				[[0.5, 0.5, 0, 0]],
-				[6],
-				[{ title: 'Doc 6', score: 85 }]
-			);
+			await backend.insert([[0.5, 0.5, 0, 0]], [6], [{ title: 'Doc 6', score: 85 }]);
 
 			const query = [1, 0, 0, 0];
 			const filters = { score: { gte: 80 } };
@@ -215,9 +212,7 @@ describe('EnhancedInMemoryBackend', () => {
 		it('should validate query dimension', async () => {
 			const query = [1, 0, 0]; // Wrong dimension
 
-			await expect(backend.search(query, 3)).rejects.toThrow(
-				'Vector dimension mismatch'
-			);
+			await expect(backend.search(query, 3)).rejects.toThrow('Vector dimension mismatch');
 		});
 	});
 
@@ -252,7 +247,10 @@ describe('EnhancedInMemoryBackend', () => {
 		it('should fallback to brute-force for small datasets', async () => {
 			// Add only 2 vectors (below ANN threshold)
 			await backend.insert(
-				[[1, 0, 0, 0], [0, 1, 0, 0]],
+				[
+					[1, 0, 0, 0],
+					[0, 1, 0, 0],
+				],
 				[1, 2],
 				[{ title: 'Doc 1' }, { title: 'Doc 2' }]
 			);
@@ -267,7 +265,11 @@ describe('EnhancedInMemoryBackend', () => {
 			// This test verifies that the system falls back to brute-force
 			// when ANN operations fail
 			await backend.insert(
-				[[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0]],
+				[
+					[1, 0, 0, 0],
+					[0, 1, 0, 0],
+					[0, 0, 1, 0],
+				],
 				[1, 2, 3],
 				[{ title: 'Doc 1' }, { title: 'Doc 2' }, { title: 'Doc 3' }]
 			);
@@ -286,7 +288,10 @@ describe('EnhancedInMemoryBackend', () => {
 
 		it('should list vectors correctly', async () => {
 			await backend.insert(
-				[[1, 0, 0, 0], [0, 1, 0, 0]],
+				[
+					[1, 0, 0, 0],
+					[0, 1, 0, 0],
+				],
 				[1, 2],
 				[{ title: 'Doc 1' }, { title: 'Doc 2' }]
 			);
@@ -299,9 +304,15 @@ describe('EnhancedInMemoryBackend', () => {
 
 		it('should apply filters to list operation', async () => {
 			await backend.insert(
-				[[1, 0, 0, 0], [0, 1, 0, 0]],
+				[
+					[1, 0, 0, 0],
+					[0, 1, 0, 0],
+				],
 				[1, 2],
-				[{ title: 'Doc 1', category: 'A' }, { title: 'Doc 2', category: 'B' }]
+				[
+					{ title: 'Doc 1', category: 'A' },
+					{ title: 'Doc 2', category: 'B' },
+				]
 			);
 
 			const [results, count] = await backend.list({ category: 'A' });
@@ -313,7 +324,11 @@ describe('EnhancedInMemoryBackend', () => {
 
 		it('should respect limit in list operation', async () => {
 			await backend.insert(
-				[[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0]],
+				[
+					[1, 0, 0, 0],
+					[0, 1, 0, 0],
+					[0, 0, 1, 0],
+				],
 				[1, 2, 3],
 				[{ title: 'Doc 1' }, { title: 'Doc 2' }, { title: 'Doc 3' }]
 			);
@@ -368,9 +383,7 @@ describe('EnhancedInMemoryBackend', () => {
 			const ids = [1];
 			const payloads = [{ title: 'Doc 1' }];
 
-			await expect(backend.insert(vectors, ids, payloads)).rejects.toThrow(
-				'not connected'
-			);
+			await expect(backend.insert(vectors, ids, payloads)).rejects.toThrow('not connected');
 		});
 
 		it('should handle invalid vector IDs', async () => {
@@ -383,9 +396,9 @@ describe('EnhancedInMemoryBackend', () => {
 		it('should handle update of non-existent vector', async () => {
 			await backend.connect();
 
-			await expect(
-				backend.update(999, [1, 0, 0, 0], { title: 'Updated' })
-			).rejects.toThrow('not found');
+			await expect(backend.update(999, [1, 0, 0, 0], { title: 'Updated' })).rejects.toThrow(
+				'not found'
+			);
 		});
 
 		it('should handle disconnection gracefully', async () => {
@@ -395,4 +408,4 @@ describe('EnhancedInMemoryBackend', () => {
 			expect(backend.isConnected()).toBe(false);
 		});
 	});
-}); 
+});

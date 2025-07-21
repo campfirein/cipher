@@ -9,7 +9,10 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { ANNIndex, type ANNIndexConfig } from '../ann_index.js';
-import { EnhancedInMemoryBackend, type EnhancedInMemoryConfig } from '../backend/enhanced-in-memory.js';
+import {
+	EnhancedInMemoryBackend,
+	type EnhancedInMemoryConfig,
+} from '../backend/enhanced-in-memory.js';
 
 describe('ANN Performance Benchmarks', () => {
 	describe('ANNIndex Benchmarks', () => {
@@ -77,7 +80,7 @@ describe('ANN Performance Benchmarks', () => {
 			// Performance assertions
 			expect(addTime).toBeLessThan(5000); // Should add vectors quickly
 			expect(bruteForceTime).toBeLessThan(1000); // Should search quickly
-			
+
 			// ANN should be faster than brute-force for large datasets
 			if (annIndexHnsw.getStats().usingANN) {
 				expect(annTime).toBeLessThan(bruteForceTime);
@@ -326,11 +329,11 @@ describe('ANN Performance Benchmarks', () => {
 			// Verify memory usage is reasonable
 			for (const usage of memoryUsage) {
 				// Each vector is 1536 * 8 bytes (Float64) + overhead
-				const expectedMemory = usage.size * 1536 * 8 / 1024 / 1024; // MB
+				const expectedMemory = (usage.size * 1536 * 8) / 1024 / 1024; // MB
 				expect(usage.memory).toBeLessThan(expectedMemory * 2); // Allow some overhead
 			}
 
 			console.log('Memory Usage:', memoryUsage);
 		});
 	});
-}); 
+});

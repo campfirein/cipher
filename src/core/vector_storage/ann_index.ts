@@ -15,9 +15,9 @@
  * @module vector_storage/ann_index
  */
 
+import { performance } from 'perf_hooks';
 import { Logger, createLogger } from '../logger/index.js';
-import { LOG_PREFIXES, DEFAULTS } from './constants.js';
-import type { VectorStoreResult } from './backend/types.js';
+import { DEFAULTS } from './constants.js';
 
 /**
  * ANN algorithm types
@@ -151,7 +151,7 @@ export class ANNIndex {
 		try {
 			// Dynamic import to avoid issues if FAISS is not available
 			const faiss = await import('faiss-node');
-			
+
 			// Create index based on algorithm
 			switch (this.config.algorithm) {
 				case 'flat':
@@ -167,7 +167,9 @@ export class ANNIndex {
 				dimension: this.config.dimension,
 			});
 		} catch (error) {
-			throw new Error(`Failed to initialize FAISS: ${error instanceof Error ? error.message : String(error)}`);
+			throw new Error(
+				`Failed to initialize FAISS: ${error instanceof Error ? error.message : String(error)}`
+			);
 		}
 	}
 
@@ -186,7 +188,9 @@ export class ANNIndex {
 		// Validate dimensions
 		for (const vector of vectors) {
 			if (vector.length !== this.config.dimension) {
-				throw new Error(`Vector dimension mismatch: expected ${this.config.dimension}, got ${vector.length}`);
+				throw new Error(
+					`Vector dimension mismatch: expected ${this.config.dimension}, got ${vector.length}`
+				);
 			}
 		}
 
@@ -223,8 +227,10 @@ export class ANNIndex {
 			}
 
 			// Add to FAISS index
+			// Note: FAISS requires an array of IDs, but faiss-node doesn't use them
+			// for add() so we can ignore this for now.
 			this.annIndex.add(floatVectors);
-			
+
 			this.logger.debug('ANNIndex: Added to FAISS index', {
 				count: vectors.length,
 			});
@@ -250,15 +256,16 @@ export class ANNIndex {
 		}
 
 		if (query.length !== this.config.dimension) {
-			throw new Error(`Query dimension mismatch: expected ${this.config.dimension}, got ${query.length}`);
+			throw new Error(
+				`Query dimension mismatch: expected ${this.config.dimension}, got ${query.length}`
+			);
 		}
 
 		const startTime = performance.now();
 
 		// Determine search method
-		const useANN = this.stats.usingANN && 
-			this.annIndex && 
-			this.stats.vectorCount >= this.config.minDatasetSize;
+		const useANN =
+			this.stats.usingANN && this.annIndex && this.stats.vectorCount >= this.config.minDatasetSize;
 
 		let results: ANNSearchResult[];
 
@@ -493,4 +500,4 @@ export class ANNIndex {
 	isConnected(): boolean {
 		return this.connected;
 	}
-} 
+}

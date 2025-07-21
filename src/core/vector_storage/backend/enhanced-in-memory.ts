@@ -15,7 +15,7 @@
  */
 
 import type { VectorStore } from './vector-store.js';
-import type { SearchFilters, VectorStoreResult, InMemoryBackendConfig } from './types.js';
+import type { SearchFilters, VectorStoreResult } from './types.js';
 import { VectorStoreError, VectorDimensionError } from './types.js';
 import { Logger, createLogger } from '../../logger/index.js';
 import { LOG_PREFIXES, DEFAULTS, ERROR_MESSAGES } from '../constants.js';
@@ -121,9 +121,14 @@ export class EnhancedInMemoryBackend implements VectorStore {
 			maxVectors: this.maxVectors,
 			minDatasetSize: this.config.annMinDatasetSize || 1000,
 			persistIndex: this.config.annPersistIndex || false,
-			indexPath: this.config.annIndexPath,
-			flat: this.config.annFlat,
 		};
+
+		if (this.config.annIndexPath) {
+			annConfig.indexPath = this.config.annIndexPath;
+		}
+		if (this.config.annFlat) {
+			annConfig.flat = this.config.annFlat;
+		}
 
 		this.annIndex = new ANNIndex(annConfig);
 		await this.annIndex.initialize();
@@ -204,7 +209,7 @@ export class EnhancedInMemoryBackend implements VectorStore {
 	/**
 	 * Validate vector dimension
 	 */
-	private validateDimension(vector: number[], operation: string): void {
+	private validateDimension(vector: number[], _operation: string): void {
 		if (vector.length !== this.dimension) {
 			throw new VectorDimensionError(
 				`${ERROR_MESSAGES.INVALID_DIMENSION}: expected ${this.dimension}, got ${vector.length}`,

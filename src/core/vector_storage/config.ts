@@ -69,13 +69,21 @@ const InMemoryBackendSchema = BaseVectorStoreSchema.extend({
 	annAlgorithm: z.enum(['flat', 'brute-force']).optional().describe('ANN algorithm'),
 
 	/** Minimum dataset size to use ANN */
-	annMinDatasetSize: z.number().int().positive().optional().describe('Minimum dataset size for ANN'),
+	annMinDatasetSize: z
+		.number()
+		.int()
+		.positive()
+		.optional()
+		.describe('Minimum dataset size for ANN'),
 
 	/** Note: HNSW and IVF are not available in faiss-node */
 	/** Flat index parameters (if any) */
-	annFlat: z.object({
-		/** Currently no specific parameters for FlatIP */
-	}).optional().describe('Flat index parameters'),
+	annFlat: z
+		.object({
+			/** Currently no specific parameters for FlatIP */
+		})
+		.optional()
+		.describe('Flat index parameters'),
 
 	/** Enable ANN index persistence */
 	annPersistIndex: z.boolean().optional().describe('Enable ANN index persistence'),
@@ -114,13 +122,21 @@ const EnhancedInMemoryBackendSchema = BaseVectorStoreSchema.extend({
 	annAlgorithm: z.enum(['flat', 'brute-force']).optional().describe('ANN algorithm'),
 
 	/** Minimum dataset size to use ANN */
-	annMinDatasetSize: z.number().int().positive().optional().describe('Minimum dataset size for ANN'),
+	annMinDatasetSize: z
+		.number()
+		.int()
+		.positive()
+		.optional()
+		.describe('Minimum dataset size for ANN'),
 
 	/** Note: HNSW and IVF are not available in faiss-node */
 	/** Flat index parameters (if any) */
-	annFlat: z.object({
-		/** Currently no specific parameters for FlatIP */
-	}).optional().describe('Flat index parameters'),
+	annFlat: z
+		.object({
+			/** Currently no specific parameters for FlatIP */
+		})
+		.optional()
+		.describe('Flat index parameters'),
 
 	/** Enable ANN index persistence */
 	annPersistIndex: z.boolean().optional().describe('Enable ANN index persistence'),
@@ -248,16 +264,25 @@ export type MilvusBackendConfig = z.infer<typeof MilvusBackendSchema>;
  * Includes custom validation to ensure backends have required connection info.
  */
 const BackendConfigSchema = z
-	.discriminatedUnion('type', [InMemoryBackendSchema, EnhancedInMemoryBackendSchema, QdrantBackendSchema, MilvusBackendSchema], {
-		errorMap: (issue, ctx) => {
-			if (issue.code === z.ZodIssueCode.invalid_union_discriminator) {
-				return {
-					message: `Invalid backend type. Expected 'in-memory', 'enhanced-in-memory', 'qdrant', or 'milvus'.`,
-				};
-			}
-			return { message: ctx.defaultError };
-		},
-	})
+	.discriminatedUnion(
+		'type',
+		[
+			InMemoryBackendSchema,
+			EnhancedInMemoryBackendSchema,
+			QdrantBackendSchema,
+			MilvusBackendSchema,
+		],
+		{
+			errorMap: (issue, ctx) => {
+				if (issue.code === z.ZodIssueCode.invalid_union_discriminator) {
+					return {
+						message: `Invalid backend type. Expected 'in-memory', 'enhanced-in-memory', 'qdrant', or 'milvus'.`,
+					};
+				}
+				return { message: ctx.defaultError };
+			},
+		}
+	)
 	.describe('Backend configuration for vector storage system')
 	.superRefine((data, ctx) => {
 		// Validate Qdrant backend requirements
