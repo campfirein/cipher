@@ -9,14 +9,19 @@ import { createLLMService } from '../brain/llm/services/factory.js';
 import { MemAgentStateManager } from '../brain/memAgent/state-manager.js';
 import { ReasoningContentDetector } from '../brain/reasoning/content-detector.js';
 import { SearchContextManager } from '../brain/reasoning/search-context-manager.js';
+import { createDatabaseHistoryProvider } from '../brain/llm/messages/history/factory.js';
+import { StorageManager } from '../storage/manager.js';
 import type { ZodSchema } from 'zod';
 import { setImmediate } from 'timers';
-
+import { IConversationHistoryProvider } from '../brain/llm/messages/history/types.js';
 export class ConversationSession {
 	private contextManager!: ContextManager;
 	private llmService!: ILLMService;
 	private reasoningDetector?: ReasoningContentDetector;
 	private searchContextManager?: SearchContextManager;
+	private historyProvider: IConversationHistoryProvider | undefined;
+	private historyEnabled: boolean = true;
+	private historyBackend: 'database' | 'memory' = 'database';
 
 	private sessionMemoryMetadata?: Record<string, any>;
 	private mergeMetadata?: (
@@ -50,6 +55,9 @@ export class ConversationSession {
 			) => Record<string, any>;
 			metadataSchema?: ZodSchema<any>;
 			beforeMemoryExtraction?: (meta: Record<string, any>, context: Record<string, any>) => void;
+			// New: history management options
+			historyEnabled?: boolean;
+			historyBackend?: 'database' | 'memory';
 		}
 	) {
 		logger.debug('ConversationSession initialized with services', { services, id });
@@ -64,6 +72,9 @@ export class ConversationSession {
 		if (options?.metadataSchema) this.metadataSchema = options.metadataSchema;
 		if (options?.beforeMemoryExtraction)
 			this.beforeMemoryExtraction = options.beforeMemoryExtraction;
+		// New: read history options
+		if (typeof options?.historyEnabled === 'boolean') this.historyEnabled = options.historyEnabled;
+		if (options?.historyBackend) this.historyBackend = options.historyBackend;
 	}
 
 	/**
@@ -73,31 +84,65 @@ export class ConversationSession {
 		this.sessionMemoryMetadata = { ...this.sessionMemoryMetadata, ...newMeta };
 	}
 
+	/**
+	 * Initialize all services for the session, including history provider.
+	 */
 	public async init(): Promise<void> {
 		await this.initializeServices();
+		// Restore history if enabled and provider exists
+		if (this.historyEnabled && this.historyProvider && this.contextManager) {
+			try {
+				await this.contextManager.restoreHistory?.();
+				logger.debug(`Session ${this.id}: Conversation history restored.`);
+			} catch (err) {
+				logger.warn(`Session ${this.id}: Failed to restore conversation history: ${err}`);
+			}
+		}
 	}
 
 	/**
-	 * Initializes the services for the session
-	 * @returns {Promise<void>}
+	 * Initializes the services for the session, including the history provider.
 	 */
 	private async initializeServices(): Promise<void> {
-		// Get current effective configuration for this session from state manager
 		const llmConfig = this.services.stateManager.getLLMConfig(this.id);
-
-		// Create session-specific message manager
-		// NOTE: llmConfig comes from AgentStateManager which stores validated config,
-		// so router should always be defined (has default in schema)
-		this.contextManager = createContextManager(llmConfig, this.services.promptManager);
-
-		// Create session-specific LLM service
+		let historyProvider: IConversationHistoryProvider | undefined = undefined;
+		if (this.historyEnabled) {
+			try {
+				if (this.historyBackend === 'database') {
+					// Use a default in-memory storage config for now
+					const storageConfig = {
+						cache: { type: 'in-memory' as const },
+						database: { type: 'in-memory' as const },
+					};
+					const storageManager = new StorageManager(storageConfig);
+					await storageManager.connect();
+					historyProvider = createDatabaseHistoryProvider(storageManager);
+					logger.debug(`Session ${this.id}: Database history provider initialized.`);
+				} else {
+					// TODO: Implement or import an in-memory provider if needed
+					logger.debug(`Session ${this.id}: In-memory history provider selected.`);
+				}
+			} catch (err) {
+				logger.warn(
+					`Session ${this.id}: Failed to initialize history provider, falling back to in-memory. Error: ${err}`
+				);
+				historyProvider = undefined;
+			}
+		}
+		this.historyProvider = historyProvider;
+		// Pass provider and sessionId to context manager
+		this.contextManager = createContextManager(
+			llmConfig,
+			this.services.promptManager,
+			historyProvider,
+			this.id
+		);
 		this.llmService = createLLMService(
 			llmConfig,
 			this.services.mcpManager,
 			this.contextManager,
 			this.services.unifiedToolManager
 		);
-
 		logger.debug(`ChatSession ${this.id}: Services initialized`);
 	}
 
@@ -270,7 +315,7 @@ export class ConversationSession {
 			}
 
 			// Extract comprehensive interaction data including tool usage
-			const comprehensiveInteractionData = this.extractComprehensiveInteractionData(
+			const comprehensiveInteractionData = await this.extractComprehensiveInteractionData(
 				userInput,
 				aiResponse
 			);
@@ -478,7 +523,12 @@ export class ConversationSession {
 			try {
 				// Use configured evaluation model or fallback to main LLM
 				const evalConfig = this.services.stateManager.getEvalLLMConfig(this.id);
-				const evalContextManager = createContextManager(evalConfig, this.services.promptManager);
+				const evalContextManager = createContextManager(
+					evalConfig,
+					this.services.promptManager,
+					undefined,
+					undefined
+				);
 				const evalLLMService = createLLMService(
 					evalConfig,
 					this.services.mcpManager,
@@ -576,14 +626,17 @@ export class ConversationSession {
 	 * Extract comprehensive interaction data including tool calls and results
 	 * This captures the complete technical workflow, not just user input and final response
 	 */
-	private extractComprehensiveInteractionData(userInput: string, aiResponse: string): string[] {
+	private async extractComprehensiveInteractionData(
+		userInput: string,
+		aiResponse: string
+	): Promise<string[]> {
 		const interactionData: string[] = [];
 
 		// Start with the user input
 		interactionData.push(`User: ${userInput}`);
 
 		// Get recent messages from context manager to extract tool usage
-		const recentMessages = this.contextManager.getRawMessages();
+		const recentMessages = await this.contextManager.getRawMessages();
 
 		// Find messages from this current interaction (after the user input)
 		// We'll look for the most recent assistant and tool messages
@@ -764,6 +817,20 @@ export class ConversationSession {
 					return `error: ${String(result.error).substring(0, 50)}`;
 				}
 				return 'completed';
+		}
+	}
+
+	/**
+	 * Disconnects the history provider if it exists (for session teardown).
+	 */
+	public async disconnect(): Promise<void> {
+		if (this.historyProvider && typeof (this.historyProvider as any).disconnect === 'function') {
+			try {
+				await (this.historyProvider as any).disconnect();
+				logger.debug(`Session ${this.id}: History provider disconnected.`);
+			} catch (err) {
+				logger.warn(`Session ${this.id}: Failed to disconnect history provider: ${err}`);
+			}
 		}
 	}
 

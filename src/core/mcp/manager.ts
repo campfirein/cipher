@@ -50,7 +50,7 @@ interface ClientRegistryEntry {
 export class MCPManager implements IMCPManager {
 	private clients = new Map<string, ClientRegistryEntry>();
 	private failedConnections: Record<string, string> = {};
-	private logger: Logger;
+	protected logger: Logger;
 	private eventManager?: EventManager;
 
 	// O(1) lookup caches

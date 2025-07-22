@@ -91,6 +91,52 @@ export const HttpServerConfigSchema = z
 // Input type for user-facing API (pre-parsing)
 export type HttpServerConfig = z.input<typeof HttpServerConfigSchema>;
 
+export const AggregatorConfigSchema = z
+	.object({
+		type: z.literal('aggregator'),
+		servers: z
+			.record(
+				z.discriminatedUnion('type', [
+					StdioServerConfigSchema,
+					SseServerConfigSchema,
+					HttpServerConfigSchema,
+				])
+			)
+			.describe('MCP servers to aggregate from (server name -> configuration)'),
+		conflictResolution: z
+			.enum(['prefix', 'first-wins', 'error'])
+			.default('prefix')
+			.describe(
+				'Strategy for handling tool name conflicts: "prefix" adds server name, "first-wins" keeps first, "error" throws'
+			),
+		autoDiscovery: z
+			.boolean()
+			.default(false)
+			.describe('Whether to auto-discover new servers in the network'),
+		port: z
+			.number()
+			.int()
+			.positive()
+			.default(3000)
+			.describe('Port for the aggregator server to listen on'),
+		host: z.string().default('localhost').describe('Host for the aggregator server to bind to'),
+		timeout: z
+			.number()
+			.int()
+			.positive()
+			.default(60000)
+			.describe('Maximum time in milliseconds for server operations (60 seconds default)'),
+		connectionMode: z
+			.enum(['strict', 'lenient'])
+			.default('lenient')
+			.describe(
+				'How to handle connection failures: "strict" fails immediately, "lenient" continues with warnings'
+			),
+	})
+	.strict();
+
+export type AggregatorConfig = z.infer<typeof AggregatorConfigSchema>;
+
 export const McpServerConfigSchema = z
 	.discriminatedUnion(
 		'type',
@@ -109,8 +155,32 @@ export const McpServerConfigSchema = z
 	.describe(
 		'MCP server configuration - choose stdio for local processes, sse for real-time streams, or http for REST APIs'
 	);
+
+export const ExtendedMcpServerConfigSchema = z
+	.discriminatedUnion(
+		'type',
+		[
+			StdioServerConfigSchema,
+			SseServerConfigSchema,
+			HttpServerConfigSchema,
+			AggregatorConfigSchema,
+		],
+		{
+			errorMap: (issue, ctx) => {
+				if (issue.code === z.ZodIssueCode.invalid_union_discriminator) {
+					return {
+						message: `Invalid server type. Expected 'stdio', 'sse', 'http', or 'aggregator'.`,
+					};
+				}
+				return { message: ctx.defaultError };
+			},
+		}
+	)
+	.describe('Extended MCP server configuration including aggregator mode');
+
 export const ServerConfigsSchema = z
 	.record(McpServerConfigSchema)
 	.describe('Named collection of MCP server configurations (server name -> configuration)');
 
 export type McpServerConfig = z.infer<typeof McpServerConfigSchema>;
+export type ExtendedMcpServerConfig = z.infer<typeof ExtendedMcpServerConfigSchema>;

@@ -32,25 +32,14 @@ export GOOGLE_AI_API_KEY=your_google_ai_api_key  # optional
 
 ### 2. Claude Code Configuration
 
-#### Method 1: CLI Command
-```bash
-# Add cipher as user-scoped server
-claude mcp add cipher -s user \
-  -e ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY \
-  -e OPENAI_API_KEY=$OPENAI_API_KEY \
-  -- npx -y cipher --mode mcp --agent ./cipher.yml
-```
-
-#### Method 2: Configuration File
 Create or edit `.mcp.json` in your project root:
 
 ```json
 {
   "mcpServers": {
     "cipher": {
-      "type": "stdio",
-      "command": "npx",
-      "args": ["-y", "cipher", "--mode", "mcp", "--agent", "./cipher.yml"],
+      "command": "cipher",
+      "args": ["--mode", "mcp", "--agent", "./cipher.yml"],
       "env": {
         "ANTHROPIC_API_KEY": "your_anthropic_api_key",
         "OPENAI_API_KEY": "your_openai_api_key"
@@ -67,8 +56,8 @@ Add to your Gemini CLI `settings.json`:
 {
   "mcpServers": {
     "cipher": {
-      "command": "npx",
-      "args": ["-y", "cipher", "--mode", "mcp", "--agent", "./cipher.yml"],
+      "command": "cipher",
+      "args": ["--mode", "mcp", "--agent", "./cipher.yml"],
       "env": {
         "ANTHROPIC_API_KEY": "your_anthropic_api_key",
         "OPENAI_API_KEY": "your_openai_api_key"
@@ -111,22 +100,6 @@ claude> Apply the optimization techniques we discussed yesterday
 ```bash
 claude> Review my authentication changes using the security patterns you've learned
 ```
-
-## Troubleshooting
-
-**Connection Issues:**
-```bash
-# Verify cipher installation
-npx cipher --version
-
-# Check MCP configuration
-claude mcp list
-```
-
-**Common Solutions:**
-- Verify API keys are set correctly
-- Ensure environment variables are exported
-- Check that cipher is accessible via npx
 
 ---
 

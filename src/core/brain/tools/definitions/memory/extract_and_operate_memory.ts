@@ -229,6 +229,35 @@ function isSignificantKnowledge(content: string): boolean {
 }
 
 /**
+ * Determines if a message is a retrieved result from search tools or knowledge graph
+ * Skips extraction for these to avoid polluting knowledge memory with retrieved content
+ */
+function isRetrievedResult(content: string): boolean {
+	if (!content || typeof content !== 'string') return false;
+	const text = content.toLowerCase();
+
+	// Heuristics: look for typical result markers or tool result prefixes
+	const retrievedPatterns = [
+		/^(cipher_memory_search|memory_search|cipher_search_reasoning_patterns|search_reasoning_patterns|search_graph|query_graph|enhanced_search):/i,
+		/^(retrieved|result|results|found|matches|nodes|edges|search completed|query executed|suggestions?):/i,
+		/^(knowledge results|reflection results|reasoning patterns|graph nodes|graph edges):/i,
+		/^(reasoning trace|evaluation|step count|quality score|issue count):/i,
+		/^(search results|retrieved knowledge|retrieved reasoning|retrieved entities):/i,
+		/^(graph search|kg search|knowledge graph result|kg result):/i,
+		/^(observation:|action:|thought:|conclusion:|reflection:)/i, // Reflection memory patterns
+		/^(id:|timestamp:|similarity:|source:|memorytype:)/i,
+		/^(message: 'query executed'|message: 'search completed')/i,
+		/^(success: true|success: false)/i,
+		/^(totalresults:|searchtime:|embeddingtime:)/i,
+		/^(nodes:|edges:|related:|totalcount:|executiontime:)/i,
+	];
+	for (const pattern of retrievedPatterns) {
+		if (pattern.test(text)) return true;
+	}
+	return false;
+}
+
+/**
  * Generate a safe memory ID from index
  * Ensures ID is positive and avoids conflicts
  */
@@ -416,6 +445,13 @@ export const extractAndOperateMemoryTool: InternalTool = {
 
 			// Apply significance filtering to extract only programming knowledge and concepts
 			const significantFacts = validFacts.filter(fact => {
+				if (isRetrievedResult(fact)) {
+					logger.debug('ExtractAndOperateMemory: Skipping retrieved result', {
+						factPreview: fact.substring(0, 100) + (fact.length > 100 ? '...' : ''),
+						reason: 'Fact is a retrieved result from search tool or knowledge graph',
+					});
+					return false;
+				}
 				const isSignificant = isSignificantKnowledge(fact);
 				if (!isSignificant) {
 					logger.debug('ExtractAndOperateMemory: Skipping non-significant fact', {

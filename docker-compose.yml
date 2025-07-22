@@ -32,6 +32,18 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+  postgres:
+    image: postgres:15
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: testuser
+      POSTGRES_PASSWORD: testpass
+      POSTGRES_DB: testdb
+    ports:
+      - '5432:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
 
 volumes:
   cipher-data:
+  pgdata:

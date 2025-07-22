@@ -76,7 +76,12 @@ export class ReasoningContentDetector {
 				maxIterations: this.evalLlmConfig.maxIterations ?? 3, // Default for eval tasks
 			};
 
-			const contextManager = createContextManager(evalConfig, this.promptManager);
+			const contextManager = createContextManager(
+				evalConfig,
+				this.promptManager,
+				undefined,
+				undefined
+			);
 			this.llmService = createLLMService(
 				evalConfig,
 				this.mcpManager,

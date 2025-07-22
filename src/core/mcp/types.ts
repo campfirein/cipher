@@ -15,7 +15,7 @@ import { GetPromptResult, ReadResourceResult } from '@modelcontextprotocol/sdk/t
 /**
  * Available MCP server transport types.
  */
-export type TransportType = 'stdio' | 'sse' | 'http';
+export type TransportType = 'stdio' | 'sse' | 'http' | 'aggregator';
 
 /**
  * Base configuration for any MCP server.
@@ -101,6 +101,38 @@ export interface HttpServerConfig extends BaseServerConfig {
  * Union type representing any valid MCP server configuration.
  */
 export type McpServerConfig = StdioServerConfig | SseServerConfig | HttpServerConfig;
+
+/**
+ * Configuration for aggregator mode.
+ */
+export interface AggregatorConfig extends BaseServerConfig {
+	type: 'aggregator';
+
+	/**
+	 * Servers to aggregate from.
+	 */
+	servers: ServerConfigs;
+
+	/**
+	 * Strategy for handling tool name conflicts.
+	 * - 'prefix': Prefix conflicting tools with server name
+	 * - 'first-wins': First registered tool takes precedence
+	 * - 'error': Throw error on conflicts
+	 * @default 'prefix'
+	 */
+	conflictResolution?: 'prefix' | 'first-wins' | 'error';
+
+	/**
+	 * Whether to auto-discover new servers in the network.
+	 * @default false
+	 */
+	autoDiscovery?: boolean;
+}
+
+/**
+ * Union type representing any valid MCP server configuration including aggregator.
+ */
+export type ExtendedMcpServerConfig = McpServerConfig | AggregatorConfig;
 
 /**
  * Record mapping server names to their configurations.
@@ -320,4 +352,52 @@ export interface IMCPManager {
 	 * Disconnect all clients and clear caches.
 	 */
 	disconnectAll(): Promise<void>;
+}
+
+/**
+ * Tool registry entry for tracking tool metadata.
+ */
+export interface ToolRegistryEntry {
+	tool: Tool;
+	clientName: string;
+	originalName: string;
+	registeredName: string;
+	timestamp: number;
+}
+
+/**
+ * Interface for aggregator-specific functionality.
+ */
+export interface IAggregatorManager extends IMCPManager {
+	/**
+	 * Start the aggregator server.
+	 */
+	startServer(config: AggregatorConfig): Promise<void>;
+
+	/**
+	 * Stop the aggregator server.
+	 */
+	stopServer(): Promise<void>;
+
+	/**
+	 * Get the aggregated tool registry.
+	 */
+	getToolRegistry(): Map<string, ToolRegistryEntry>;
+
+	/**
+	 * Discover available MCP servers in the network.
+	 */
+	discoverServers(): Promise<ServerConfigs>;
+
+	/**
+	 * Get aggregator statistics.
+	 */
+	getStats(): {
+		connectedServers: number;
+		totalTools: number;
+		totalPrompts: number;
+		totalResources: number;
+		conflicts: number;
+		uptime: number;
+	};
 }

@@ -3,6 +3,7 @@ import * as readline from 'readline';
 import chalk from 'chalk';
 import { executeCommand } from './commands.js';
 import { commandParser } from './parser.js';
+import type { AggregatorConfig } from '@core/mcp/types.js';
 
 /**
  * Start headless CLI mode for one-shot command execution
@@ -213,42 +214,120 @@ export async function startMcpMode(agent: MemAgent): Promise<void> {
 	// DO NOT use console.log in MCP mode - it interferes with stdio protocol
 	// Log redirection is already done in index.ts before calling this function
 
-	// Import MCP handler functions
-	const { createMcpTransport, initializeMcpServer, initializeAgentCardResource } = await import(
-		'../mcp/mcp_handler.js'
-	);
-
 	// Initialize CLI without additional logging
 	if (!agent) {
 		throw new Error('Agent is not initialized');
 	}
 
+	// Check MCP_SERVER_MODE environment variable to determine server type
+	// Default to 'default' if not specified (backward compatibility)
+	const mcpServerMode = process.env.MCP_SERVER_MODE || 'default';
+
 	try {
-		// Get agent configuration for agent card
-		const config = agent.getEffectiveConfig();
-		// Filter out undefined properties to comply with exactOptionalPropertyTypes
-		const agentCardInput = config.agentCard
-			? Object.fromEntries(
-					Object.entries(config.agentCard).filter(([, value]) => value !== undefined)
-				)
-			: {};
-		const agentCardData = initializeAgentCardResource(agentCardInput);
-
-		// Create stdio transport (primary transport for MCP mode)
-		logger.info('[MCP Mode] Creating stdio transport for MCP server');
-		const mcpTransport = await createMcpTransport('stdio');
-
-		// Initialize MCP server with agent capabilities
-		logger.info('[MCP Mode] Initializing MCP server with agent capabilities');
-		await initializeMcpServer(agent, agentCardData, mcpTransport);
-
-		// Server is now running - the initializeMcpServer function keeps process alive
-		logger.info('[MCP Mode] Cipher agent is now running as MCP server');
+		switch (mcpServerMode) {
+			case 'aggregator':
+				await startAggregatorMode(agent);
+				break;
+			case 'default':
+			default:
+				await startDefaultMcpMode(agent);
+				break;
+		}
 	} catch (error) {
 		const errorMessage = error instanceof Error ? error.message : String(error);
-		logger.error(`[MCP Mode] Failed to start MCP server: ${errorMessage}`);
+		logger.error(`[MCP Mode] Failed to start MCP server (mode: ${mcpServerMode}): ${errorMessage}`);
 		process.exit(1);
 	}
+}
+
+/**
+ * Start the default MCP server mode with ask_cipher tool
+ */
+async function startDefaultMcpMode(agent: MemAgent): Promise<void> {
+	// Import MCP handler functions
+	const { createMcpTransport, initializeMcpServer, initializeAgentCardResource } = await import(
+		'../mcp/mcp_handler.js'
+	);
+
+	// Get agent configuration for agent card
+	const config = agent.getEffectiveConfig();
+	// Filter out undefined properties to comply with exactOptionalPropertyTypes
+	const agentCardInput = config.agentCard
+		? Object.fromEntries(
+				Object.entries(config.agentCard).filter(([, value]) => value !== undefined)
+			)
+		: {};
+	const agentCardData = initializeAgentCardResource(agentCardInput);
+
+	// Create stdio transport (primary transport for MCP mode)
+	logger.info('[MCP Mode] Creating stdio transport for default MCP server');
+	const mcpTransport = await createMcpTransport('stdio');
+
+	// Initialize MCP server with agent capabilities (default mode)
+	logger.info('[MCP Mode] Initializing default MCP server with agent capabilities');
+	const server = await initializeMcpServer(agent, agentCardData, 'default');
+	await server.connect(mcpTransport.server);
+
+	// Server is now running - keep process alive
+	logger.info('[MCP Mode] Cipher agent is now running as default MCP server');
+	process.stdin.resume();
+}
+
+/**
+ * Start the aggregator MCP server mode
+ */
+async function startAggregatorMode(agent: MemAgent): Promise<void> {
+	// Import MCP handler functions
+	const { createMcpTransport, initializeMcpServer, initializeAgentCardResource } = await import(
+		'../mcp/mcp_handler.js'
+	);
+
+	// Load aggregator configuration from environment or default config
+	const aggregatorConfig = await loadAggregatorConfig();
+
+	// Get agent configuration for agent card
+	const config = agent.getEffectiveConfig();
+	// Filter out undefined properties to comply with exactOptionalPropertyTypes
+	const agentCardInput = config.agentCard
+		? Object.fromEntries(
+				Object.entries(config.agentCard).filter(([, value]) => value !== undefined)
+			)
+		: {};
+	const agentCardData = initializeAgentCardResource(agentCardInput);
+
+	// Create stdio transport (primary transport for MCP mode)
+	logger.info('[MCP Mode] Creating stdio transport for aggregator MCP server');
+	const mcpTransport = await createMcpTransport('stdio');
+
+	// Initialize MCP server with agent capabilities (aggregator mode)
+	logger.info('[MCP Mode] Initializing aggregator MCP server with agent capabilities');
+	const server = await initializeMcpServer(agent, agentCardData, 'aggregator', aggregatorConfig);
+	await server.connect(mcpTransport.server);
+
+	// Server is now running - keep process alive
+	logger.info('[MCP Mode] Cipher is now running as aggregator MCP server');
+	process.stdin.resume();
+}
+
+/**
+ * Load aggregator configuration from environment variables
+ * Aggregator mode now uses agent's unifiedToolManager which automatically includes MCP servers from cipher.yml
+ */
+async function loadAggregatorConfig(): Promise<AggregatorConfig> {
+	const defaultConfig: AggregatorConfig = {
+		type: 'aggregator',
+		servers: {}, // No longer needed - using unifiedToolManager
+		conflictResolution: (process.env.AGGREGATOR_CONFLICT_RESOLUTION as any) || 'prefix',
+		autoDiscovery: false,
+		timeout: parseInt(process.env.AGGREGATOR_TIMEOUT || '60000'),
+		connectionMode: 'lenient',
+	};
+
+	logger.info('[MCP Aggregator] Using simplified configuration with env vars', {
+		conflictResolution: defaultConfig.conflictResolution,
+		timeout: defaultConfig.timeout,
+	});
+	return defaultConfig;
 }
 
 /**
