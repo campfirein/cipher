@@ -9,11 +9,47 @@ import { createLLMService } from '../brain/llm/services/factory.js';
 import { MemAgentStateManager } from '../brain/memAgent/state-manager.js';
 import { ReasoningContentDetector } from '../brain/reasoning/content-detector.js';
 import { SearchContextManager } from '../brain/reasoning/search-context-manager.js';
-import { createDatabaseHistoryProvider } from '../brain/llm/messages/history/factory.js';
+import {
+	createMultiBackendHistoryProvider,
+	createDatabaseHistoryProvider,
+} from '../brain/llm/messages/history/factory.js';
+import { WALHistoryProvider } from '../brain/llm/messages/history/wal.js';
 import { StorageManager } from '../storage/manager.js';
+import { Logger } from '../logger/index.js';
 import type { ZodSchema } from 'zod';
 import { setImmediate } from 'timers';
 import { IConversationHistoryProvider } from '../brain/llm/messages/history/types.js';
+
+function extractReasoningContentBlocks(aiResponse: any): string {
+	// If the response is an object with a content array (Anthropic API best practice)
+	if (aiResponse && Array.isArray(aiResponse.content)) {
+		// Extract all 'thinking' and 'redacted_thinking' blocks
+		const reasoningBlocks = aiResponse.content
+			.filter((block: any) => block.type === 'thinking' || block.type === 'redacted_thinking')
+			.map((block: any) => block.thinking)
+			.filter(Boolean);
+		if (reasoningBlocks.length > 0) {
+			return reasoningBlocks.join('\n\n');
+		}
+		// Fallback: join all text blocks if no thinking blocks found
+		const textBlocks = aiResponse.content
+			.filter((block: any) => block.type === 'text' && block.text)
+			.map((block: any) => block.text);
+		if (textBlocks.length > 0) {
+			return textBlocks.join('\n\n');
+		}
+		return '';
+	}
+	// Fallback: support legacy string input (regex for <thinking> tags)
+	if (typeof aiResponse === 'string') {
+		const matches = Array.from(aiResponse.matchAll(/<thinking>([\s\S]*?)<\/thinking>/gi));
+		if (matches.length > 0) {
+			return matches.map(m => m[1]?.trim() || '').join('\n\n');
+		}
+		return aiResponse;
+	}
+	return '';
+}
 export class ConversationSession {
 	private contextManager!: ContextManager;
 	private llmService!: ILLMService;
@@ -55,24 +91,15 @@ export class ConversationSession {
 			) => Record<string, any>;
 			metadataSchema?: ZodSchema<any>;
 			beforeMemoryExtraction?: (meta: Record<string, any>, context: Record<string, any>) => void;
-			// New: history management options
 			historyEnabled?: boolean;
 			historyBackend?: 'database' | 'memory';
 		}
 	) {
-		logger.debug('ConversationSession initialized with services', { services, id });
-		if (
-			options?.sessionMemoryMetadata &&
-			typeof options.sessionMemoryMetadata === 'object' &&
-			!Array.isArray(options.sessionMemoryMetadata)
-		) {
-			this.sessionMemoryMetadata = options.sessionMemoryMetadata;
-		}
+		if (options?.sessionMemoryMetadata) this.sessionMemoryMetadata = options.sessionMemoryMetadata;
 		if (options?.mergeMetadata) this.mergeMetadata = options.mergeMetadata;
 		if (options?.metadataSchema) this.metadataSchema = options.metadataSchema;
 		if (options?.beforeMemoryExtraction)
 			this.beforeMemoryExtraction = options.beforeMemoryExtraction;
-		// New: read history options
 		if (typeof options?.historyEnabled === 'boolean') this.historyEnabled = options.historyEnabled;
 		if (options?.historyBackend) this.historyBackend = options.historyBackend;
 	}
@@ -104,15 +131,42 @@ export class ConversationSession {
 	 * Initializes the services for the session, including the history provider.
 	 */
 	private async initializeServices(): Promise<void> {
+		console.log(`[Cipher DEBUG] Initializing session with historyBackend='${this.historyBackend}'`);
 		const llmConfig = this.services.stateManager.getLLMConfig(this.id);
 		let historyProvider: IConversationHistoryProvider | undefined = undefined;
+		// Multi-backend config example (can be extended to use env/config)
+		const multiBackendEnabled = !!process.env.CIPHER_MULTI_BACKEND;
+		const flushIntervalMs = process.env.CIPHER_WAL_FLUSH_INTERVAL
+			? parseInt(process.env.CIPHER_WAL_FLUSH_INTERVAL, 10)
+			: 5000;
 		if (this.historyEnabled) {
 			try {
-				if (this.historyBackend === 'database') {
-					// Use a default in-memory storage config for now
-					const storageConfig = {
+				if (multiBackendEnabled) {
+					// Example: primary = Postgres, backup = SQLite, WAL = in-memory
+					const primaryStorage = new StorageManager({
+						database: { type: 'postgres' as const, url: process.env.CIPHER_PG_URL },
 						cache: { type: 'in-memory' as const },
-						database: { type: 'in-memory' as const },
+					});
+					await primaryStorage.connect();
+					const backupStorage = new StorageManager({
+						database: { type: 'sqlite' as const, path: './cipher-backup.db' },
+						cache: { type: 'in-memory' as const },
+					});
+					await backupStorage.connect();
+					const primaryProvider = createDatabaseHistoryProvider(primaryStorage);
+					const backupProvider = createDatabaseHistoryProvider(backupStorage);
+					const wal = new WALHistoryProvider();
+					historyProvider = createMultiBackendHistoryProvider(
+						primaryProvider,
+						backupProvider,
+						wal,
+						flushIntervalMs
+					);
+					logger.debug(`Session ${this.id}: Multi-backend history provider initialized.`);
+				} else if (this.historyBackend === 'database') {
+					const storageConfig = {
+						database: { type: 'sqlite' as const, path: './data' },
+						cache: { type: 'in-memory' as const },
 					};
 					const storageManager = new StorageManager(storageConfig);
 					await storageManager.connect();
@@ -432,7 +486,7 @@ export class ConversationSession {
 	 */
 	private async enforceReflectionMemoryProcessing(
 		userInput: string,
-		_aiResponse: string
+		aiResponse: string
 	): Promise<void> {
 		try {
 			logger.debug('ConversationSession: Enforcing reflection memory processing');
@@ -695,7 +749,7 @@ export class ConversationSession {
 						// Summarize key arguments for memory (avoid storing full large content)
 						const keyArgs = this.summarizeToolArguments(toolName, parsedArgs);
 						args = keyArgs ? ` with ${keyArgs}` : '';
-					} catch {
+					} catch (_e) {
 						// If parsing fails, just note that there were arguments
 						args = ' with arguments';
 					}
@@ -773,7 +827,7 @@ export class ConversationSession {
 			}
 
 			return 'result received';
-		} catch {
+		} catch (_e) {
 			// If parsing fails, provide a basic summary
 			const contentStr = String(content);
 			return contentStr.length > 100 ? `${contentStr.substring(0, 100)}...` : contentStr;

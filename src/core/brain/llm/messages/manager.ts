@@ -99,6 +99,18 @@ export class ContextManager {
 		logger.debug(`Total messages in context: ${this.messages.length}`);
 	}
 
+	async restoreHistory(): Promise<void> {
+		if (this.historyProvider && this.sessionId) {
+			try {
+				this.messages = await this.historyProvider.getHistory(this.sessionId);
+				logger.debug(`Restored ${this.messages.length} messages from persistent history.`);
+			} catch (err) {
+				logger.error(`Failed to restore history from provider: ${err}`);
+				this.fallbackToMemory = true;
+			}
+		}
+	}
+
 	async addUserMessage(textContent: string, imageData?: ImageData): Promise<void> {
 		if (typeof textContent !== 'string' || textContent.trim() === '') {
 			throw new Error('Content must be a non-empty string.');
@@ -197,40 +209,6 @@ export class ContextManager {
 	}
 
 	/**
-	 * Process a stream response from the LLM
-	 * @param response - The stream response from the LLM
-	 */
-	async processLLMStreamResponse(response: any): Promise<void> {
-		if (this.formatter.parseStreamResponse) {
-			const msgs = (await this.formatter.parseStreamResponse(response)) ?? [];
-			for (const msg of msgs) {
-				try {
-					await this.addMessage(msg);
-				} catch (error) {
-					logger.error('Failed to process LLM stream response message', { error });
-				}
-			}
-		} else {
-			await this.processLLMResponse(response);
-		}
-	}
-
-	/**
-	 * Process a response from the LLM
-	 * @param response - The response from the LLM
-	 */
-	async processLLMResponse(response: any): Promise<void> {
-		const msgs = this.formatter.parseResponse(response) ?? [];
-		for (const msg of msgs) {
-			try {
-				await this.addMessage(msg);
-			} catch (error) {
-				logger.error('Failed to process LLM response message', { error });
-			}
-		}
-	}
-
-	/**
 	 * Returns the raw message history for this context.
 	 * If a history provider is available and not in fallback, retrieves from persistent storage.
 	 * Otherwise, returns the in-memory array.
@@ -249,33 +227,6 @@ export class ContextManager {
 			}
 		} else {
 			return this.messages;
-		}
-	}
-
-	/**
-	 * Get the raw messages array synchronously (for backward compatibility)
-	 * @deprecated Use getRawMessages() for persistent storage support
-	 */
-	public getRawMessagesSync(): InternalMessage[] {
-		return this.messages;
-	}
-
-	/**
-	 * Restore conversation history from persistent storage
-	 */
-	public async restoreHistory(): Promise<void> {
-		if (this.historyProvider && this.sessionId && !this.fallbackToMemory) {
-			try {
-				const history = await this.historyProvider.getHistory(this.sessionId);
-				// Replace in-memory messages with persistent history
-				this.messages = history;
-				logger.debug(`ContextManager: Restored ${history.length} messages from persistent storage`);
-			} catch (err) {
-				logger.error(
-					`ContextManager: Failed to restore history, falling back to in-memory: ${err}`
-				);
-				this.fallbackToMemory = true;
-			}
 		}
 	}
 }

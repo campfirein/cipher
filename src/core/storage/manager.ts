@@ -270,10 +270,12 @@ export class StorageManager {
 					isFallback: this.databaseMetadata.isFallback,
 					connectionTime: `${this.databaseMetadata.connectionTime}ms`,
 				});
-			} catch (dbError) {
+			} catch (err) {
+				this.logger.error('Failed to connect to SQLite database', err);
+				console.error('Failed to connect to SQLite database (raw error):', err);
 				// If the configured backend fails, try fallback to in-memory
 				this.logger.warn(`${LOG_PREFIXES.DATABASE} Connection failed, attempting fallback`, {
-					error: dbError instanceof Error ? dbError.message : String(dbError),
+					error: err instanceof Error ? err.message : String(err),
 					originalType: this.config.database.type,
 				});
 
@@ -290,7 +292,7 @@ export class StorageManager {
 						originalType: this.config.database.type,
 					});
 				} else {
-					throw dbError; // Re-throw if already using in-memory
+					throw err; // Re-throw if already using in-memory
 				}
 			}
 

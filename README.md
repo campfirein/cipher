@@ -19,16 +19,16 @@
 
 ## Overview
 
-Cipher is an opensource memory layer specifically designed for coding agents. Compatible with **Cursor, Windsurf, Claude Desktop, Claude Code, Gemini CLI, AWS's Kiro, VS Code, and Roo Code** through MCP, and coding agents, such as **Kimi K2**. (see more on [examples](./examples))
+Cipher is an opensource memory layer specifically designed for coding agents. Compatible with **Cursor, Windsurf, Claude Desktop, Claude Code, Gemini CLI, VS Code, and Roo Code** through MCP, and coding agents, such as **Kimi K2**. (see more on [examples](./examples))
 
 **Key Features:**
 
-- ⁠MCP integration with any IDE you want.
-- ⁠Auto-generate AI coding memories that scale with your codebase.
-- ⁠Switch seamlessly between IDEs without losing memory and context.
-- ⁠Easily share coding memories across your dev team in real time.
-- ⁠Dual Memory Layer that captures System 1 (Programming Concepts & Business Logic & Past Interaction) and System 2 (reasoning steps of the model when generating code).
-- ⁠Install on your IDE with zero configuration needed.
+- Connect with your favorite IDEs through MCP.
+- Auto-generated memories that scale with your codebase.
+- Dual Memory Layer that captures **System 1** (Programming Concepts & Business Logic & Past Interaction) and **System 2** (reasoning steps of the model when generating code).
+- Install on your IDE with zero configuration needed.
+- Switch seamlessly between IDEs without losing memory.
+- Shared memory workspace across the team in real time.
 
 ## Quick Start
 
@@ -100,6 +100,44 @@ OLLAMA_BASE_URL=http://localhost:11434/v1
 # Optional
 CIPHER_LOG_LEVEL=info
 NODE_ENV=production
+```
+
+### Multi-Backend Conversation History Persistence
+
+Cipher supports a multi-backend mode for conversation history, providing high durability and redundancy by writing to both a primary (PostgreSQL) and a backup (SQLite) database, with a write-ahead log (WAL) for zero data loss.
+
+**To enable multi-backend mode:**
+
+Set the following environment variables:
+
+```bash
+# Enable multi-backend mode
+CIPHER_MULTI_BACKEND=1
+
+# PostgreSQL connection string (primary backend)
+CIPHER_PG_URL=postgres://cipheruser:cipherpass@localhost:5432/cipherdb
+
+# (Optional) WAL flush interval in milliseconds (default: 5000)
+CIPHER_WAL_FLUSH_INTERVAL=5000
+```
+
+- The backup SQLite database will be created as `cipher-backup.db` in your working directory by default.
+- Cipher will automatically create all required tables in both databases.
+- If either backend fails to connect, Cipher will fall back to in-memory storage (with a warning in logs).
+
+**Verifying Multi-Backend Persistence:**
+
+- PostgreSQL tables: `cipher_store`, `cipher_lists`, `cipher_list_metadata`
+- SQLite tables: `store`, `lists`, `list_metadata`
+- Messages are stored under keys like `messages:<sessionId>` in the `lists`/`cipher_lists` tables.
+
+**Example:**
+
+```bash
+export CIPHER_MULTI_BACKEND=1
+export CIPHER_PG_URL="postgres://cipheruser:cipherpass@localhost:5432/cipherdb"
+export CIPHER_WAL_FLUSH_INTERVAL=5000
+cipher
 ```
 
 ### Agent Configuration (memAgent/cipher.yml)
@@ -356,16 +394,6 @@ Every interaction with Claude Code can be automatically stored in Cipher's dual 
 <img src="./assets/cipher_retrieve_memory.png" alt="Cipher retrieving previous conversation context" />
 
 When you ask Claude Code to recall previous conversations, Cipher's memory layer instantly retrieves relevant context, allowing you to continue where you left off without losing important details.
-
----
-
-### 🚀 Demo Video: Claude Code + Cipher MCP Server
-
-<a href="https://drive.google.com/file/d/1az9t9jFOHAhRN21VMnuHPybRYwA0q0aF/view?usp=drive_link" target="_blank">
-  <img src="assets/demo_claude_code.png" alt="Watch the demo" width="60%" />
-</a>
-
-> **Click the image above to watch a short demo of Claude Code using Cipher as an MCP server.**
 
 For detailed configuration instructions, see the [CLI Coding Agents guide](./examples/02-cli-coding-agents/README.md).
 
