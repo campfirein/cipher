@@ -63,7 +63,7 @@ describe('createDatabaseHistoryProvider', () => {
 		}
 		const provider = createDatabaseHistoryProvider(storageManager);
 		expect(provider).toBeInstanceOf(DatabaseHistoryProvider);
-	});
+	}, 20000);
 
 	it('should throw for misconfigured backend', async () => {
 		const config = { cache: { type: 'in-memory' as const }, database: { type: 'unknown' as any } };

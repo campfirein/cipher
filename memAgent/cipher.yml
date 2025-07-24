@@ -41,7 +41,28 @@ llm:
 #   model: claude-3-7-sonnet-20250219
 #   apiKey: $ANTHROPIC_API_KEY
 
-# Alternative Ollama configuration (commented out)
+# --- AWS Bedrock LLM Configuration (Active Example) ---
+# llm:
+#   provider: aws
+#   model: us.anthropic.claude-3-5-sonnet-20241022-v2:0  # Or another Bedrock-supported model
+#   maxIterations: 50
+#   aws:
+#     region: $AWS_REGION
+#     accessKeyId: $AWS_ACCESS_KEY_ID
+#     secretAccessKey: $AWS_SECRET_ACCESS_KEY
+#   # sessionToken: $AWS_SESSION_TOKEN   # (uncomment if needed)
+
+# --- Azure OpenAI LLM Configuration (Sample, Commented Out) ---
+# llm:
+#   provider: azure
+#   model: gpt-4o-mini  # Or your Azure deployment/model name
+#   apiKey: $AZURE_OPENAI_API_KEY
+#   maxIterations: 50
+#   azure:
+#     endpoint: $AZURE_OPENAI_ENDPOINT
+#     deploymentName: gpt-4o-mini  # Optional, defaults to model name
+
+# --- Ollama LLM Configuration (Sample, Commented Out) ---
 # llm:
 #   provider: ollama
 #   model: qwen3:32b      # Use the model you downloaded
@@ -57,4 +78,3 @@ systemPrompt: |
   - Code review and optimization
   - Explaining complex technical concepts
   - Reasoning through programming challenges
-

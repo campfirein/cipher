@@ -172,6 +172,45 @@ llm:
   baseURL: $OLLAMA_BASE_URL
 ```
 
+## AWS Bedrock (Amazon Bedrock)
+
+```yaml
+llm:
+  provider: aws
+  model: meta.llama3-1-70b-instruct-v1:0 # Or another Bedrock-supported model
+  maxIterations: 50
+  aws:
+    region: $AWS_REGION
+    accessKeyId: $AWS_ACCESS_KEY_ID
+    secretAccessKey: $AWS_SECRET_ACCESS_KEY
+    # sessionToken: $AWS_SESSION_TOKEN   # (uncomment if needed)
+```
+
+> **Required environment variables:**
+>
+> - `AWS_REGION`
+> - `AWS_ACCESS_KEY_ID`
+> - `AWS_SECRET_ACCESS_KEY`
+> - `AWS_SESSION_TOKEN` (optional, for temporary credentials)
+
+## Azure OpenAI
+
+```yaml
+llm:
+  provider: azure
+  model: gpt-4o-mini # Or your Azure deployment/model name
+  apiKey: $AZURE_OPENAI_API_KEY
+  maxIterations: 50
+  azure:
+    endpoint: $AZURE_OPENAI_ENDPOINT
+    deploymentName: gpt-4o-mini # Optional, defaults to model name
+```
+
+> **Required environment variables:**
+>
+> - `AZURE_OPENAI_API_KEY`
+> - `AZURE_OPENAI_ENDPOINT`
+
 ## CLI Reference
 
 ```bash

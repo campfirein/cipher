@@ -87,6 +87,8 @@
 	},
 	"dependencies": {
 		"@anthropic-ai/sdk": "^0.39.0",
+		"@aws-sdk/client-bedrock-runtime": "^3.696.0",
+		"@azure/openai": "^1.0.0-beta.13",
 		"@modelcontextprotocol/sdk": "^1.15.1",
 		"@qdrant/js-client-rest": "^1.14.1",
 		"@zilliz/milvus2-sdk-node": "^2.5.12",

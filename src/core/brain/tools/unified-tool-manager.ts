@@ -90,13 +90,16 @@ export class UnifiedToolManager {
 	 * Get all available tools from both sources
 	 */
 	async getAllTools(): Promise<CombinedToolSet> {
+		logger.info('UnifiedToolManager: Getting all tools');
 		const combinedTools: CombinedToolSet = {};
 
 		try {
 			// Get MCP tools if enabled
 			if (this.config.enableMcpTools) {
+				logger.info('UnifiedToolManager: Loading MCP tools');
 				try {
 					const mcpTools = await this.mcpManager.getAllTools();
+					logger.info(`UnifiedToolManager: Retrieved ${Object.keys(mcpTools).length} MCP tools`);
 					for (const [toolName, tool] of Object.entries(mcpTools)) {
 						combinedTools[toolName] = {
 							description: tool.description,
@@ -112,8 +115,10 @@ export class UnifiedToolManager {
 
 			// Get internal tools if enabled
 			if (this.config.enableInternalTools) {
+				logger.info('UnifiedToolManager: Loading internal tools');
 				try {
 					const internalTools = this.internalToolManager.getAllTools();
+					logger.info(`UnifiedToolManager: Retrieved ${Object.keys(internalTools).length} internal tools`);
 					for (const [toolName, tool] of Object.entries(internalTools)) {
 						// Skip tools that are not agent-accessible (internal-only tools)
 						if (tool.agentAccessible === false) {
@@ -155,7 +160,10 @@ export class UnifiedToolManager {
 
 			return combinedTools;
 		} catch (error) {
-			logger.error('UnifiedToolManager: Failed to load combined tools', { error });
+			logger.error('UnifiedToolManager: Failed to load combined tools', { 
+				error: error instanceof Error ? error.message : String(error),
+				stack: error instanceof Error ? error.stack : undefined
+			});
 			throw error;
 		}
 	}
@@ -310,15 +318,27 @@ export class UnifiedToolManager {
 	/**
 	 * Get tools formatted for specific LLM providers
 	 */
-	async getToolsForProvider(provider: 'openai' | 'anthropic' | 'openrouter'): Promise<any[]> {
+	async getToolsForProvider(
+		provider: 'openai' | 'anthropic' | 'openrouter' | 'aws' | 'azure'
+	): Promise<any[]> {
+		logger.info(`UnifiedToolManager: Getting tools for provider: ${provider}`);
 		const allTools = await this.getAllTools();
+		logger.info(`UnifiedToolManager: Got ${Object.keys(allTools).length} total tools`);
 
 		switch (provider) {
 			case 'openai':
 			case 'openrouter':
+				logger.info('UnifiedToolManager: Formatting tools for OpenAI');
 				return this.formatToolsForOpenAI(allTools);
 			case 'anthropic':
+				logger.info('UnifiedToolManager: Formatting tools for Anthropic');
 				return this.formatToolsForAnthropic(allTools);
+			case 'aws':
+				logger.info('UnifiedToolManager: Formatting tools for AWS (Anthropic-compatible)');
+				return this.formatToolsForAnthropic(allTools); // AWS Bedrock uses Anthropic-compatible format
+			case 'azure':
+				logger.info('UnifiedToolManager: Formatting tools for Azure (OpenAI-compatible)');
+				return this.formatToolsForOpenAI(allTools); // Azure OpenAI uses OpenAI-compatible format
 			default:
 				throw new Error(`Unsupported provider: ${provider}`);
 		}
