@@ -116,7 +116,7 @@ export async function createAgentServices(agentConfig: AgentConfig): Promise<Age
 
 	// 2. Initialize embedding manager with YAML configuration first, then environment fallback
 	logger.debug('Initializing embedding manager...');
-	const embeddingManager = new EmbeddingManager();
+	const embeddingManager = new EmbeddingManager(agentConfig.inputRefinement);
 
 	try {
 		let embeddingResult: { embedder: any; info: any } | null = null;
@@ -438,6 +438,10 @@ export async function createAgentServices(agentConfig: AgentConfig): Promise<Age
 		timestamp: Date.now(),
 		services: serviceTypes,
 	});
+
+	if (env.NORMALIZATION_ENABLED) {
+		await vectorStoreManager.normalizeData(services.embeddingManager, agentConfig.inputRefinement);
+	}
 
 	return services;
 }

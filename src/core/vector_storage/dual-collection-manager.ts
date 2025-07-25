@@ -11,6 +11,8 @@ import type { VectorStoreConfig } from './types.js';
 import { Logger, createLogger } from '../logger/index.js';
 import { env } from '../env.js';
 import { EventManager } from '../events/event-manager.js';
+import { InputRefinementConfig } from '@core/brain/embedding/config.js';     // Config type for normalization
+import { EmbeddingManager } from '@core/brain/embedding/manager.js';
 
 /**
  * Collection type identifier
@@ -261,4 +263,38 @@ export class DualCollectionVectorManager {
 			overall: knowledgeHealth.overall && reflectionHealth.overall,
 		};
 	}
+// Add at the end of the class (after healthCheck(), around line ~265)
+async normalizeData(
+	embeddingManager: EmbeddingManager,
+	normalizationConfig: InputRefinementConfig,
+	batchSize: number = 100,
+	force: boolean = false
+  ): Promise<{ knowledge: { updated: number; skipped: number; failed: number }; reflection: { updated: number; skipped: number; failed: number } }> {
+	// Delegate to knowledge manager (always present)
+	const knowledgeResult = await this.knowledgeManager.normalizeData(
+	  embeddingManager,
+	  normalizationConfig,
+	  batchSize,
+	  force
+	);
+	
+	// Delegate to reflection manager only if enabled
+	let reflectionResult = { updated: 0, skipped: 0, failed: 0 };
+	if (this.reflectionEnabled && this.reflectionManager) {
+	  reflectionResult = await this.reflectionManager.normalizeData(
+		embeddingManager,
+		normalizationConfig,
+		batchSize,
+		force
+	  );
+	}
+	
+	// Log overall results for the dual setup
+	this.logger.info('Dual collection normalization completed', { 
+	  knowledge: knowledgeResult, 
+	  reflection: reflectionResult 
+	});
+	
+	return { knowledge: knowledgeResult, reflection: reflectionResult };
+  }
 }

@@ -28,6 +28,10 @@ import {
 	RETRY_CONFIG,
 	HTTP_STATUS,
 } from '../constants.js';
+import { 
+	normalizeTextForRetrieval,
+} from '../utils.js';
+import { InputRefinementConfig } from '../config.js';
 
 /**
  * OpenAI Embedder Implementation
@@ -40,10 +44,12 @@ export class OpenAIEmbedder implements Embedder {
 	private readonly config: OpenAIEmbeddingConfig;
 	private readonly model: string;
 	private readonly dimension: number;
+	private readonly refinementConfig?: InputRefinementConfig;
 
-	constructor(config: OpenAIEmbeddingConfig) {
+	constructor(config: OpenAIEmbeddingConfig, refinementConfig?: InputRefinementConfig) {
 		this.config = config;
 		this.model = config.model || 'text-embedding-3-small';
+		this.refinementConfig = refinementConfig;
 
 		// Initialize OpenAI client
 		this.openai = new OpenAI({
@@ -66,15 +72,23 @@ export class OpenAIEmbedder implements Embedder {
 		});
 	}
 
+	// Embedding function, apply input refinement to this part, MY CODE
 	async embed(text: string): Promise<number[]> {
+		console.log(`Embedding text: ${text}!`);
 		logger.silly(`${LOG_PREFIXES.OPENAI} Embedding single text`, {
 			textLength: text.length,
 			model: this.model,
 		});
 
+		// Use refinement config if provided, MY CODE
+		if (this.refinementConfig) {
+			console.log(`Input refinement enabled. Normalizing input...`);
+			text = normalizeTextForRetrieval(text, this.refinementConfig);
+		}
+
 		// Validate input
 		this.validateInput(text);
-
+		
 		const startTime = Date.now();
 
 		try {
@@ -115,6 +129,12 @@ export class OpenAIEmbedder implements Embedder {
 			count: texts.length,
 			model: this.model,
 		});
+
+		// Add refinement config if provided, MY CODE
+		if (this.refinementConfig) {
+			console.log(`Input refinement enabled. Normalizing input...`);
+			texts = texts.map(text => normalizeTextForRetrieval(text, this.refinementConfig));
+		}
 
 		// Validate batch input
 		this.validateBatchInput(texts);

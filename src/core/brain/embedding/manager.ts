@@ -17,6 +17,7 @@ import {
 } from './factory.js';
 import { LOG_PREFIXES } from './constants.js';
 import { type EmbeddingConfig } from './config.js';
+import { InputRefinementConfig } from './config.js';
 
 /**
  * Health check result for an embedder instance
@@ -97,8 +98,10 @@ export class EmbeddingManager {
 		averageProcessingTime: 0,
 	};
 	private healthCheckInterval: NodeJS.Timeout | undefined;
-
-	constructor() {
+	private defaultRefinementConfig: InputRefinementConfig = {};
+	// Add constructor with default refinement config, MY CODE
+	constructor(defaultRefinementConfig: InputRefinementConfig = {}) {
+		this.defaultRefinementConfig = defaultRefinementConfig || {};
 		logger.debug(`${LOG_PREFIXES.MANAGER} Embedding manager initialized`);
 	}
 
@@ -122,7 +125,7 @@ export class EmbeddingManager {
 
 		try {
 			const configWithApiKey = { ...config, apiKey: config.apiKey || '' };
-			const embedder = await createEmbedder(configWithApiKey as any);
+			const embedder = await createEmbedder(configWithApiKey as any, this.defaultRefinementConfig);
 
 			const info: EmbedderInfo = {
 				id: embedderId,
@@ -559,5 +562,14 @@ export class EmbeddingManager {
 	 */
 	private generateId(): string {
 		return `embedder_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+	}
+
+	async embed(text: string, id: string = 'default', config?: InputRefinementConfig): Promise<number[]> {
+		const embedder = this.getEmbedder(id);
+		if (!embedder) {
+			throw new Error(`Embedder with id ${id} not found`);
+		}
+		const usedConfig = config ?? this.defaultRefinementConfig;
+		return embedder.embed(text, usedConfig);
 	}
 }

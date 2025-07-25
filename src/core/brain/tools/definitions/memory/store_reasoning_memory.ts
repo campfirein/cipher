@@ -416,6 +416,8 @@ export const storeReasoningMemoryTool: InternalTool = {
 			});
 
 			// Generate embedding with error handling
+			// Have not handled the input refinement here, MY CODE
+			// ADD LATER!
 			let embedding;
 			try {
 				embedding = await embedder.embed(searchableContent);

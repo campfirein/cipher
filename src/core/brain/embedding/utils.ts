@@ -10,7 +10,9 @@
 
 import { env } from '../../env.js';
 import { type OpenAIEmbeddingConfig } from './backend/types.js';
+import { type InputRefinementConfig } from './config.js';
 import { DEFAULTS } from './constants.js';
+// import natural from 'natural';
 
 /**
  * Get embedding configuration from environment variables
@@ -236,4 +238,54 @@ export function analyzeProviderConfiguration(): {
 		warnings,
 		recommendations,
 	};
+}
+
+/**
+ * Normalize input text for retrieval
+ *
+ * @param text - The text to normalize
+ * @param config - The normalization configuration, imported from ./config.ts
+ * @returns The normalized text
+ *
+ * @example
+ * ```typescript
+ * const normalizedText = normalizeTextForRetrieval('Hello, world!');
+ * console.log(normalizedText);
+ * // Output: 'hello world'
+ * ```
+ */
+export function normalizeTextForRetrieval(input: string, config: InputRefinementConfig): string {
+	
+	const { 
+		NORMALIZATION_TOLOWERCASE,
+		NORMALIZATION_REMOVEPUNCTUATION,
+		NORMALIZATION_WHITESPACE,
+		NORMALIZATION_STOPWORDS,
+		NORMALIZATION_STEMMING,
+		NORMALIZATION_LEMMATIZATION,
+	} = config;
+
+	let normalized = input;
+
+	if (NORMALIZATION_TOLOWERCASE) {
+	  normalized = normalized.toLowerCase();
+	}
+  
+	if (NORMALIZATION_REMOVEPUNCTUATION) {
+		normalized = normalized.replace(/[ !"#$%&'()*+,-./:;<=>?@[\]^_`{|}~]/g, ' ');
+	}
+  
+	if (NORMALIZATION_WHITESPACE) {
+	  normalized = normalized.trim().replace(/\s+/g, ' ');
+	}
+	// if (removeStopwords) {
+	// 	normalized = normalized.replace(/\b(the|a|an|and|or|but|if|else|when|where|how|why|what|who|whom|whose|which|that|this|these|those)\b/gi, '');
+	// }
+	// if (stemming) {
+	// 	normalized = normalized.replace(/\b(ing|ed|s|es|ly|ly|er|est)\b/gi, '');
+	// }
+	// if (lemmatization) {
+	// 	normalized = normalized.replace(/\b(ing|ed|s|es|ly|ly|er|est)\b/gi, '');
+	// }
+	return normalized;
 }

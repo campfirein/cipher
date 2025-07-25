@@ -9,6 +9,7 @@ import { AgentConfig } from './config.js';
 import { logger } from '../../logger/index.js';
 import { LLMConfig } from '../llm/config.js';
 import { IMCPClient, McpServerConfig } from '../../mcp/types.js';
+import { normalizeTextForRetrieval } from '../embedding/utils.js';
 
 const requiredServices: (keyof AgentServices)[] = [
 	'mcpManager',
@@ -145,6 +146,7 @@ export class MemAgent {
 	/**
 	 * Run the MemAgent
 	 */
+	// This part to implement input refinement, MY CODE
 	public async run(
 		userInput: string,
 		imageDataInput?: { image: string; mimeType: string },
@@ -170,6 +172,19 @@ export class MemAgent {
 					(await this.sessionManager.createSession(this.currentActiveSessionId));
 			}
 			logger.debug(`MemAgent.run: using session ${session.id}`);
+
+			// let processedInput = userInput;
+			const refinementConfig = this.config.inputRefinement;
+
+			if (refinementConfig) {
+				logger.info(`Original input: "${userInput}"`);
+				const normalizedInput = normalizeTextForRetrieval(userInput, refinementConfig);
+				if (userInput !== normalizedInput) {
+					logger.info(`Input has been normalized to: "${normalizedInput}"`);
+					userInput = normalizedInput;
+				}
+			}
+
 			const { response, backgroundOperations } = await session.run(
 				userInput,
 				imageDataInput,

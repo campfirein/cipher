@@ -4,12 +4,14 @@ import chalk from 'chalk';
 import { executeCommand } from './commands.js';
 import { commandParser } from './parser.js';
 import type { AggregatorConfig } from '@core/mcp/types.js';
-
+import { InputRefinementConfig } from '@core/brain/embedding/config.js';
+import { normalizeTextForRetrieval } from '@core/brain/embedding/utils.js';
 // Constants for compression display
 const COMPRESSION_CHECK_DELAY = 100;
 
 // State tracking for compression display
 let lastCompressionHistoryLength = 0;
+
 
 /**
  * Start headless CLI mode for one-shot command execution
@@ -70,7 +72,7 @@ export async function startHeadlessCli(agent: MemAgent, input: string): Promise<
 /**
  * Start interactive CLI mode where user can continuously chat with the agent
  */
-export async function startInteractiveCli(agent: MemAgent): Promise<void> {
+export async function startInteractiveCli(agent: MemAgent, refinementCfg: InputRefinementConfig): Promise<void> {
 	// Common initialization
 	await _initCli(agent);
 	await _initializeSessionAndCompression(agent);
@@ -100,7 +102,7 @@ export async function startInteractiveCli(agent: MemAgent): Promise<void> {
 	rl.prompt();
 
 	rl.on('line', async (input: string) => {
-		const trimmedInput = input.trim();
+		let trimmedInput = input.trim();
 
 		// Skip empty inputs
 		if (!trimmedInput) {
@@ -109,7 +111,12 @@ export async function startInteractiveCli(agent: MemAgent): Promise<void> {
 		}
 
 		try {
-			// Parse input to determine if it's a command or regular prompt
+
+			// // Parse input to determine if it's a command or regular prompt
+			if (refinementCfg) {
+				console.log(`Input refinement enabled. Normalizing input...`);
+				trimmedInput = normalizeTextForRetrieval(trimmedInput, refinementCfg);
+			}
 			if (trimmedInput.startsWith('!meta ')) {
 				// Parse metadata command: !meta key=value,key2=value2 message
 				const metaAndMessage = trimmedInput.substring(6).split(' ');

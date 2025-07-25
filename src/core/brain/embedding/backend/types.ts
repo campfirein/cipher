@@ -7,6 +7,8 @@
  * @module embedding/backend/types
  */
 
+import { InputRefinementConfig } from "../config.js";
+
 /**
  * Core interface for embedding providers
  *
@@ -20,7 +22,7 @@ export interface Embedder {
 	 * @param text - The text to embed
 	 * @returns Promise resolving to the embedding vector
 	 */
-	embed(text: string): Promise<number[]>;
+	embed(text: string, refinementCfg?: InputRefinementConfig): Promise<number[]>;
 
 	/**
 	 * Generate embeddings for multiple text inputs in batch

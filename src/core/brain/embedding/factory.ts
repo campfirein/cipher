@@ -15,6 +15,7 @@ import {
 	type OpenAIEmbeddingConfig as ZodOpenAIEmbeddingConfig,
 	type GeminiEmbeddingConfig as ZodGeminiEmbeddingConfig,
 	type OllamaEmbeddingConfig as ZodOllamaEmbeddingConfig,
+	InputRefinementConfig,
 } from './config.js';
 import {
 	type Embedder,
@@ -327,7 +328,7 @@ const EMBEDDING_FACTORIES = new Map<string, EmbeddingFactory>([
  * });
  * ```
  */
-export async function createEmbedder(config: BackendConfig): Promise<Embedder> {
+export async function createEmbedder(config: BackendConfig, refinementConfig?: InputRefinementConfig): Promise<Embedder> {
 	logger.debug(`${LOG_PREFIXES.FACTORY} Creating embedder`, {
 		type: config.type,
 	});

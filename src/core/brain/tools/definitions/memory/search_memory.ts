@@ -2,6 +2,7 @@ import { InternalTool, InternalToolContext } from '../../types.js';
 import { logger } from '../../../../logger/index.js';
 // Import payload migration utilities
 import { KnowledgePayload } from './payloads.js';
+import { normalizeTextForRetrieval } from '@core/brain/embedding/utils.js';
 // import { env } from '../../../../env.js';
 
 /**

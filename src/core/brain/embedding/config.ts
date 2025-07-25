@@ -338,6 +338,47 @@ export const EmbeddingEnvConfigSchema = z.object({
 
 export type EmbeddingEnvConfig = z.infer<typeof EmbeddingEnvConfigSchema>;
 
+
+// Input refinement configuration for text-preprocessing, vectorization and retrieval, MY CODE
+export const InputRefinementConfigSchema = z
+  .object({
+    NORMALIZATION_TOLOWERCASE: z
+        .boolean()
+        .describe('Convert text to lowercase'),
+    NORMALIZATION_WHITESPACE: z
+        .boolean()
+        .describe('Normalize whitespace (trim and collapse multiple spaces)'),
+    NORMALIZATION_REMOVEPUNCTUATION: z
+        .boolean()
+        .describe('Remove punctuation'),
+    NORMALIZATION_STOPWORDS: z
+        .boolean()
+        .describe('Remove common stopwords'),
+    NORMALIZATION_STEMMING: z
+        .boolean()
+        .describe('Apply stemming to words'),
+    NORMALIZATION_LEMMATIZATION: z
+        .boolean()
+        .describe('Apply lemmatization to words'),
+    NORMALIZATION_LANGUAGE: z
+        .string()
+        .describe('Language for language-specific normalization (e.g., en for English)'),
+  })
+  .strict()
+  .describe('Input refinement configuration for text normalization before embedding');
+
+export type InputRefinementConfig = z.infer<typeof InputRefinementConfigSchema>;
+/**
+ * Parse and validate input refinement configuration
+ *
+ * @param config - Raw configuration object
+ * @returns Validated configuration
+ * @throws {z.ZodError} If configuration is invalid
+ */
+export function parseInputRefinementConfig(config: unknown): InputRefinementConfig {
+	return InputRefinementConfigSchema.parse(config);
+}
+
 /**
  * Parse and validate embedding configuration
  *

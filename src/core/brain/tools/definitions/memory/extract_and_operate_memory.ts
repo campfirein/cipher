@@ -8,7 +8,11 @@ import {
 } from './memory_operation.js';
 // Import payload migration utilities
 import { createKnowledgePayload } from './payloads.js';
+import { normalizeTextForRetrieval } from '@core/brain/embedding/utils.js';
 
+// import { 
+// 	normalizeTextForRetrieval,
+// } from '../../../../embedding/utils.js';
 /**
  * Determines if a piece of content is significant enough to be extracted as knowledge
  * Focuses on programming knowledge, concepts, technical details, and implementation information
@@ -630,7 +634,6 @@ export const extractAndOperateMemoryTool: InternalTool = {
 				);
 
 				try {
-					// Embed the fact with error handling
 					let embedding;
 					try {
 						embedding = await embedder.embed(fact);

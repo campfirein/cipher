@@ -830,7 +830,8 @@ export const searchReasoningPatterns: InternalTool = {
 							queryLength: input.query.length,
 							queryPreview: input.query.substring(0, 50),
 						});
-
+						
+						// Add refinement config to the embedder
 						const queryEmbedding = await embedder.embed(input.query);
 
 						logger.debug('ReasoningPatternSearch: Embedding generated successfully', {

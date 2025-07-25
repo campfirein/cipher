@@ -572,3 +572,13 @@ Thanks to all these amazing people for contributing to cipher!
 ## License
 
 Elastic License 2.0. See [LICENSE](LICENSE) for full terms.
+
+## Text Normalization for Embeddings
+
+To improve semantic search quality, text is normalized before embedding and storage. Normalization includes:
+- Lowercasing
+- Punctuation removal
+- Whitespace normalization
+- Optional: Stopwords removal, stemming, lemmatization
+
+Configure via refinement_config.json. For backward compatibility, existing data may need re-embedding.

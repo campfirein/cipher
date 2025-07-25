@@ -71,6 +71,15 @@ const envSchema = z.object({
 	// Reflection Memory Configuration
 	REFLECTION_VECTOR_STORE_COLLECTION: z.string().default('reflection_memory'),
 	DISABLE_REFLECTION_MEMORY: z.boolean().default(false),
+	// Normalization Configuration
+	NORMALIZATION_ENABLED: z.boolean().optional().describe('Enable/Disable normalization').default(true),
+	NORMALIZATION_TOLOWERCASE: z.boolean().optional().describe('Convert text to lowercase').default(true),
+	NORMALIZATION_REMOVEPUNCTUATION: z.boolean().optional().describe('Remove punctuation').default(true),
+	NORMALIZATION_WHITESPACE: z.boolean().optional().describe('Normalize whitespace').default(true),
+	NORMALIZATION_STOPWORDS: z.boolean().optional().describe('Remove stopwords').default(false),
+	NORMALIZATION_STEMMING: z.boolean().optional().describe('Stemming').default(false),
+	NORMALIZATION_LEMMATIZATION: z.boolean().optional().describe('Lemmatization').default(false),
+	NORMALIZATION_LANGUAGE: z.enum(['en']).default('en'),
 });
 
 type EnvSchema = z.infer<typeof envSchema>;

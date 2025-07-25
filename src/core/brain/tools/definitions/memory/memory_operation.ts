@@ -11,6 +11,7 @@ import { InternalTool, InternalToolContext } from '../../types.js';
 import { logger } from '../../../../logger/index.js';
 // Import payload migration utilities
 import { createKnowledgePayload } from './payloads.js';
+import { normalizeTextForRetrieval } from '@core/brain/embedding/utils.js';
 
 /**
  * MEMORY OPERATIONAL TOOL
@@ -496,14 +497,8 @@ export const memoryOperationTool: InternalTool = {
 
 				if (embedder && vectorStore) {
 					try {
-						// Generate embedding for the fact
-						logger.debug('MemoryOperation: Generating embedding for fact', {
-							factIndex: i,
-							factLength: (fact || '').length,
-						});
 
-						const embedding = await embedder.embed(fact || '');
-
+						const embedding = await embedder.embed(fact);
 						// Search for similar memories
 						const searchResults = await vectorStore.search(embedding, options.maxSimilarResults);
 

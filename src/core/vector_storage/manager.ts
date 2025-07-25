@@ -14,6 +14,9 @@ import { LOG_PREFIXES, ERROR_MESSAGES, TIMEOUTS, BACKEND_TYPES } from './constan
 import { EventManager } from '../events/event-manager.js';
 import { ServiceEvents } from '../events/event-types.js';
 import { EventAwareVectorStore } from './event-aware-store.js';
+import { normalizeTextForRetrieval } from '@core/brain/embedding/utils.js';  // Your normalization function
+import { InputRefinementConfig } from '@core/brain/embedding/config.js';     // Config type for normalization
+import { EmbeddingManager } from '@core/brain/embedding/manager.js';
 
 /**
  * Health check result for vector store backend
@@ -507,5 +510,79 @@ export class VectorStoreManager {
 				return new InMemoryBackend(config);
 			}
 		}
+	}
+
+	async normalizeData(
+		embeddingManager: EmbeddingManager,  // Pass this in (get from services)
+		normalizationConfig: InputRefinementConfig,  // Your config (e.g., { toLowercase: true, ... })
+		batchSize: number = 100,  // Process in batches to avoid memory issues
+		force: boolean = false    // If true, re-embed everything regardless of flag
+	): Promise<{ updated: number; skipped: number; failed: number }> {
+		this.logger.info('Starting data normalization migration');
+
+		if (!this.store) {
+			throw new Error('Vector store not connected');
+		}
+
+		let updated = 0;
+		let skipped = 0;
+		let failed = 0;
+		let cursor: string | number | undefined = undefined;  // For pagination
+
+		do {
+			// Fetch a page of entries (uses list() from manager.ts, lines ~300-350)
+			const [pageResults, nextCursor] = await this.store.list({ limit: batchSize, cursor });
+
+			const updates = [];
+			for (const entry of pageResults) {
+				// Check if needs re-embedding
+				const payload = entry.payload || {};
+				if (force || !payload.normalized) {  // Check flag or force
+					try {
+						const originalText = payload.content;  // Assume original text is stored here
+						if (!originalText) {
+							skipped++;
+							continue;  // Skip if no text to normalize
+						}
+
+						// Normalize and re-embed
+						const normalizedText = normalizeTextForRetrieval(originalText, normalizationConfig);
+						const newVector = await embeddingManager.embed(normalizedText);  // Re-embed
+
+						// Prepare update with flag
+						updates.push({
+							id: entry.id,
+							vector: newVector,
+							payload: { ...payload, content: normalizedText, normalized: true },  // Update payload
+						});
+						updated++;
+					} catch (error) {
+						this.logger.error('Failed to normalize entry', { id: entry.id, error });
+						failed++;
+					}
+				} else {
+					skipped++;
+				}
+			}
+
+			// Batch upsert updates (uses upsert() from manager.ts, lines ~200-250)
+			if (updates.length > 0) {
+				const vectors = updates.map(u => u.vector);
+				const ids = updates.map(u => u.id);
+				const payloads = updates.map(u => u.payload);
+				await this.store.insert(vectors, ids, payloads);
+			}
+
+			cursor = nextCursor ? String(nextCursor) : undefined;
+		} while (cursor);  // Continue until no more pages
+
+		this.logger.info('Normalization migration completed', { updated, skipped, failed });
+
+		// Optional: Emit event if eventManager is set (lines ~100-150 in manager.ts)
+		// if (this.eventManager) {
+		// 	this.eventManager.emitServiceEvent('vector_store_migrated', { updated, skipped, failed });
+		// }
+
+		return { updated, skipped, failed };
 	}
 }

@@ -3,7 +3,7 @@ import { env } from '@core/env.js';
 import { Command } from 'commander';
 import pkg from '../../package.json' with { type: 'json' };
 import { existsSync } from 'fs';
-import { DEFAULT_CONFIG_PATH, logger, MemAgent } from '@core/index.js';
+import { AgentConfig, DEFAULT_CONFIG_PATH, logger, MemAgent } from '@core/index.js';
 import { resolveConfigPath } from '@core/utils/path.js';
 import { handleCliOptionsError, validateCliOptions } from './cli/utils/options.js';
 import { loadAgentConfig } from '../core/brain/memAgent/loader.js';
@@ -12,6 +12,7 @@ import { ApiServer } from './api/server.js';
 import path from 'path';
 import os from 'os';
 import { fileURLToPath } from 'url';
+import { InputRefinementConfig, parseInputRefinementConfig } from '@core/brain/embedding/config.js';
 
 // Helper function to resolve .env file path
 function resolveEnvPath(): string {
@@ -156,7 +157,8 @@ program
 		} catch (err) {
 			handleCliOptionsError(err);
 		}
-
+		// declared	refinement config
+		let refinementCfg: InputRefinementConfig = {};
 		// load agent config
 		let agent: MemAgent;
 		try {
@@ -181,7 +183,28 @@ program
 				process.exit(1);
 			}
 
-			const cfg = await loadAgentConfig(configPath);
+			const cfg: AgentConfig = await loadAgentConfig(configPath);
+			// Conditionally load and apply refinement config if flag is present or env var is set
+			if (env.NORMALIZATION_ENABLED) {
+				try {
+					refinementCfg = {
+						NORMALIZATION_TOLOWERCASE: env.NORMALIZATION_TOLOWERCASE,
+						NORMALIZATION_REMOVEPUNCTUATION: env.NORMALIZATION_REMOVEPUNCTUATION,
+						NORMALIZATION_WHITESPACE: env.NORMALIZATION_WHITESPACE,
+						NORMALIZATION_STOPWORDS: env.NORMALIZATION_STOPWORDS,
+						NORMALIZATION_STEMMING: env.NORMALIZATION_STEMMING,
+						NORMALIZATION_LEMMATIZATION: env.NORMALIZATION_LEMMATIZATION,
+						NORMALIZATION_LANGUAGE: env.NORMALIZATION_LANGUAGE
+					};
+					cfg.inputRefinement = refinementCfg;
+
+				} catch (err) {
+					logger.error(
+						`Failed to load refinement config: ${err instanceof Error ? err.message : String(err)}`
+					);
+					process.exit(1);
+				}
+			}
 
 			// Apply --strict flag to all MCP server configs if specified
 			if (opts.strict && cfg.mcpServers) {
@@ -196,7 +219,7 @@ program
 
 			// Start the agent (initialize async services)
 			await agent.start();
-
+			
 			// Handle --new-session flag
 			if (opts.newSession !== undefined) {
 				try {
@@ -332,17 +355,18 @@ program
 				process.on('SIGTERM', handleExit);
 			}
 		}
-
 		// ——— Dispatch based on --mode ———
 		switch (opts.mode) {
 			case 'cli':
-				await startInteractiveCli(agent);
+				await startInteractiveCli(agent, refinementCfg);
 				break;
 			case 'mcp':
 				await startMcpMode(agent);
+				// await startMcpMode(agent, refinementCfg);
 				break;
 			case 'api':
 				await startApiMode(agent, opts);
+				// await startApiMode(agent, opts, refinementCfg);
 				break;
 			default: {
 				const errorMsg = `Unknown mode '${opts.mode}'. Use cli, mcp, or api.`;

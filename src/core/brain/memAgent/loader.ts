@@ -57,3 +57,4 @@ export async function loadAgentConfig(configPath: string): Promise<AgentConfig> 
 		throw new Error(`Failed to load config file at ${error.path || configPath}: ${error.message}`);
 	}
 }
+

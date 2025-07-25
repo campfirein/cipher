@@ -2,6 +2,8 @@ import { ServerConfigsSchema } from '../../mcp/config.js';
 import { LLMConfigSchema } from '../llm/config.js';
 import { EmbeddingConfigSchema } from '../embedding/config.js';
 import { z } from 'zod';
+import { InputRefinementConfigSchema } from '../embedding/config.js';
+
 export const AgentCardSchema = z
 	.object({
 		name: z.string().default('cipher'),
@@ -94,8 +96,10 @@ export const AgentConfigSchema = z
 			})
 			.describe('Session management configuration'),
 		eventPersistence: EventPersistenceConfigSchema.optional(),
+		inputRefinement: InputRefinementConfigSchema.optional(),
 	})
 	.strict()
 	.describe('Main configuration for an agent, including its LLM and server connections');
 // Input type for user-facing API (pre-parsing) - makes fields with defaults optional
 export type AgentConfig = z.input<typeof AgentConfigSchema>;
+
