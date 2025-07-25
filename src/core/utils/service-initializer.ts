@@ -439,8 +439,15 @@ export async function createAgentServices(agentConfig: AgentConfig): Promise<Age
 		services: serviceTypes,
 	});
 
-	if (env.NORMALIZATION_ENABLED) {
-		await vectorStoreManager.normalizeData(services.embeddingManager, agentConfig.inputRefinement);
+	// Only call normalizeData if it exists on vectorStoreManager
+	// MY CODE!!!, this part of code should be closely monitored and tested 
+	// This may not be the best way to do it!!!
+	if (env.NORMALIZATION_ENABLED && env.NORMALIZATION_PAST_DATA &&typeof (vectorStoreManager as any).normalizeData === 'function') {
+		await (vectorStoreManager as any).normalizeData(services.embeddingManager, agentConfig.inputRefinement);
+	}
+	else if (env.NORMALIZATION_ENABLED && !env.NORMALIZATION_PAST_DATA) {
+		logger.info('Normalization of past data is disabled!');
+		logger.info('Potential future retrieval inconsistencies may occur!');
 	}
 
 	return services;

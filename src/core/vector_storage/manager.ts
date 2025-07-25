@@ -511,7 +511,9 @@ export class VectorStoreManager {
 			}
 		}
 	}
-
+	/**
+	 * Normalize data for past data in the collection
+	 */
 	async normalizeData(
 		embeddingManager: EmbeddingManager,  // Pass this in (get from services)
 		normalizationConfig: InputRefinementConfig,  // Your config (e.g., { toLowercase: true, ... })

@@ -80,6 +80,7 @@ const envSchema = z.object({
 	NORMALIZATION_STEMMING: z.boolean().optional().describe('Stemming').default(false),
 	NORMALIZATION_LEMMATIZATION: z.boolean().optional().describe('Lemmatization').default(false),
 	NORMALIZATION_LANGUAGE: z.enum(['en']).default('en'),
+	NORMALIZATION_PAST_DATA: z.boolean().optional().describe('Normalize past data').default(false),
 });
 
 type EnvSchema = z.infer<typeof envSchema>;
