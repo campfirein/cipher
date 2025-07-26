@@ -363,6 +363,9 @@ export const InputRefinementConfigSchema = z
     NORMALIZATION_LANGUAGE: z
         .string()
         .describe('Language for language-specific normalization (e.g., en for English)'),
+    NORMALIZATION_PAST_DATA: z
+        .boolean()
+        .describe('Normalize past data'),
   })
   .strict()
   .describe('Input refinement configuration for text normalization before embedding');

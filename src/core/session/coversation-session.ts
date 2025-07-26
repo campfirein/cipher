@@ -50,6 +50,9 @@ function extractReasoningContentBlocks(aiResponse: any): string {
 	return '';
 }
 import { EnhancedPromptManager } from '../brain/systemPrompt/enhanced-manager.js';
+import { normalizeTextForRetrieval } from '../brain/embedding/utils.js';
+import { InputRefinementConfig } from '../brain/embedding/config.js';
+
 export class ConversationSession {
 	private contextManager!: ContextManager;
 	private llmService!: ILLMService;
@@ -260,6 +263,8 @@ export class ConversationSession {
 			memoryMetadata?: Record<string, any>;
 			contextOverrides?: Record<string, any>;
 			historyTracking?: boolean;
+			refinementConfig?: InputRefinementConfig,
+			
 		}
 	): Promise<{ response: string; backgroundOperations: Promise<void> }> {
 		// --- Input validation ---
@@ -267,7 +272,7 @@ export class ConversationSession {
 			logger.error('ConversationSession.run: input must be a non-empty string');
 			throw new Error('Input must be a non-empty string');
 		}
-
+		
 		// --- Session initialization check ---
 		if (!this.llmService || !this.contextManager) {
 			logger.error('ConversationSession.run: Session not initialized. Call init() before run().');
@@ -288,6 +293,11 @@ export class ConversationSession {
 				);
 				throw new Error('imageDataInput must have image and mimeType as non-empty strings');
 			}
+		}
+
+		// --- refinementConfig validation ---
+		if (options?.refinementConfig) {
+			input = normalizeTextForRetrieval(input, options.refinementConfig);
 		}
 
 		// --- stream validation ---

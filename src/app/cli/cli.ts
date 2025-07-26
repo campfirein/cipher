@@ -102,7 +102,7 @@ export async function startInteractiveCli(agent: MemAgent, refinementCfg: InputR
 	rl.prompt();
 
 	rl.on('line', async (input: string) => {
-		let trimmedInput = input.trim();
+		const trimmedInput = input.trim();
 
 		// Skip empty inputs
 		if (!trimmedInput) {
@@ -112,16 +112,11 @@ export async function startInteractiveCli(agent: MemAgent, refinementCfg: InputR
 
 		try {
 
-			// // Parse input to determine if it's a command or regular prompt
-			if (refinementCfg) {
-				console.log(`Input refinement enabled. Normalizing input...`);
-				trimmedInput = normalizeTextForRetrieval(trimmedInput, refinementCfg);
-			}
 			if (trimmedInput.startsWith('!meta ')) {
 				// Parse metadata command: !meta key=value,key2=value2 message
 				const metaAndMessage = trimmedInput.substring(6).split(' ');
 				const metaStr = metaAndMessage[0];
-				const message = metaAndMessage.slice(1).join(' ');
+				let message = metaAndMessage.slice(1).join(' ');
 				let metadata: Record<string, any> = {};
 				try {
 					// Add null check for metaStr before passing to parseMetaString
@@ -133,6 +128,13 @@ export async function startInteractiveCli(agent: MemAgent, refinementCfg: InputR
 					rl.prompt();
 					return;
 				}
+
+				// // Add input refinement to user's message, without interfering with metadata
+				// if (refinementCfg) {
+				// 	console.log(`Input refinement enabled. Normalizing input...`);
+				// 	message = normalizeTextForRetrieval(message, refinementCfg);
+				// }
+
 				console.log(chalk.gray('🤔 Thinking (with metadata)...'));
 				const result = await agent.run(message, undefined, undefined, false, {
 					memoryMetadata: metadata,
@@ -205,6 +207,14 @@ export async function startInteractiveCli(agent: MemAgent, refinementCfg: InputR
 					// Always redisplay prompt after slash commands
 					rl.prompt();
 				} else {
+					// It is not a command, so it is a regular user's prompt
+					// Add input refinement to user's prompt
+					// let message: string = trimmedInput;
+					// if (refinementCfg) {
+					// 	console.log(`Input refinement enabled. Normalizing input...`);
+					// 	message = normalizeTextForRetrieval(trimmedInput, refinementCfg);
+					// }
+
 					// Handle regular user prompt - pass to agent
 					console.log(chalk.gray('🤔 Thinking...'));
 					const result = await agent.run(trimmedInput);
