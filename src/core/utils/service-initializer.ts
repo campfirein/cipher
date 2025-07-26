@@ -27,6 +27,7 @@ import { ProviderType } from '../brain/systemPrompt/interfaces.js';
 import fs from 'fs';
 import path from 'path';
 import yaml from 'yaml';
+import chalk from 'chalk';
 
 export type AgentServices = {
 	mcpManager: MCPManager;
@@ -446,8 +447,8 @@ export async function createAgentServices(agentConfig: AgentConfig): Promise<Age
 		await (vectorStoreManager as any).normalizeData(services.embeddingManager, agentConfig.inputRefinement);
 	}
 	else if (env.NORMALIZATION_ENABLED && !env.NORMALIZATION_PAST_DATA) {
-		logger.info('Normalization of past data is disabled!');
-		logger.info('Potential future retrieval inconsistencies may occur!');
+		logger.info(chalk.red('Normalization of past data is disabled!'));
+		logger.info(chalk.red('Potential future retrieval inconsistencies may occur!'));
 	}
 
 	return services;

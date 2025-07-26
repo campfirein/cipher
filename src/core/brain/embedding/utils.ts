@@ -266,14 +266,15 @@ export function normalizeTextForRetrieval(input: string, config: InputRefinement
   	if (config.NORMALIZATION_WHITESPACE) {
 		// Handle both actual line breaks and literal \n strings
 		normalized = normalized
+			.replace(/[\n\r]/g, ' ')  // Replace actual line breaks first
 			.replace(/\\n/g, ' ')  // Replace literal \n strings
-			.replace(/[\n\r]/g, ' ')  // Replace actual line breaks
+			.replace(/\\r/g, ' ')  // Replace literal \r strings  
 			.replace(/\s+/g, ' ')  // Normalize all whitespace
 			.trim();
 	}
 	
   	if (config.NORMALIZATION_REMOVEPUNCTUATION) {
-  	  normalized = normalized.replace(/[ !"#$%&'()*+,-./:;<=>?@[\]^_`{|}~]/g, ' ');
+  	  normalized = normalized.replace(/[ !"#$%&'()*+,-./:;<=>?@[\]^_`{|}~]/g, ' ').replace(/\s+/g, ' ').trim();
   	}
 
   	if (config.NORMALIZATION_LANGUAGE === 'ENGLISH') {
