@@ -173,17 +173,17 @@ export class MemAgent {
 			}
 			logger.debug(`MemAgent.run: using session ${session.id}`);
 
-			// // let processedInput = userInput;
-			// const refinementConfig = this.config.inputRefinement;
+			// --- input refinement --- 
+			const refinementConfig = this.config.inputRefinement;
 
-			// if (refinementConfig) {
-			// 	logger.info(`Original input: "${userInput}"`);
-			// 	const normalizedInput = normalizeTextForRetrieval(userInput, refinementConfig);
-			// 	if (userInput !== normalizedInput) {
-			// 		logger.info(`Input has been normalized to: "${normalizedInput}"`);
-			// 		userInput = normalizedInput;
-			// 	}
-			// }
+			if (refinementConfig) {
+				logger.info(`Original input: "${userInput}"`);
+				const normalizedInput = normalizeTextForRetrieval(userInput, refinementConfig);
+				if (userInput !== normalizedInput) {
+					logger.info(`Input has been normalized to: "${normalizedInput}"`);
+					userInput = normalizedInput;
+				}
+			}
 
 			const { response, backgroundOperations } = await session.run(
 				userInput,
@@ -193,7 +193,6 @@ export class MemAgent {
 					...(options?.memoryMetadata !== undefined && { memoryMetadata: options.memoryMetadata }),
 					...(options?.sessionOptions !== undefined && {
 						contextOverrides: options.sessionOptions,
-						refinementConfig: this.config.inputRefinement || {},
 					}),
 				}
 			);

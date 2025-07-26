@@ -361,13 +361,12 @@ export const InputRefinementConfigSchema = z
         .boolean()
         .describe('Apply lemmatization to words'),
     NORMALIZATION_LANGUAGE: z
-        .string()
+        .enum(['ENGLISH', 'OTHER'])
         .describe('Language for language-specific normalization (e.g., en for English)'),
     NORMALIZATION_PAST_DATA: z
         .boolean()
         .describe('Normalize past data'),
   })
-  .strict()
   .describe('Input refinement configuration for text normalization before embedding');
 
 export type InputRefinementConfig = z.infer<typeof InputRefinementConfigSchema>;
@@ -378,8 +377,8 @@ export type InputRefinementConfig = z.infer<typeof InputRefinementConfigSchema>;
  * @returns Validated configuration
  * @throws {z.ZodError} If configuration is invalid
  */
-export function parseInputRefinementConfig(config: unknown): InputRefinementConfig {
-	return InputRefinementConfigSchema.parse(config);
+export function parseInputRefinementConfig(config: unknown) {
+	return InputRefinementConfigSchema.safeParse(config).success;
 }
 
 /**

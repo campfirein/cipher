@@ -263,8 +263,6 @@ export class ConversationSession {
 			memoryMetadata?: Record<string, any>;
 			contextOverrides?: Record<string, any>;
 			historyTracking?: boolean;
-			refinementConfig?: InputRefinementConfig,
-			
 		}
 	): Promise<{ response: string; backgroundOperations: Promise<void> }> {
 		// --- Input validation ---
@@ -294,12 +292,7 @@ export class ConversationSession {
 				throw new Error('imageDataInput must have image and mimeType as non-empty strings');
 			}
 		}
-
-		// --- refinementConfig validation ---
-		if (options?.refinementConfig) {
-			input = normalizeTextForRetrieval(input, options.refinementConfig);
-		}
-
+		
 		// --- stream validation ---
 		if (stream !== undefined && typeof stream !== 'boolean') {
 			logger.warn('ConversationSession.run: stream should be a boolean. Coercing to boolean.');

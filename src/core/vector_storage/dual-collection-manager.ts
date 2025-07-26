@@ -264,14 +264,14 @@ export class DualCollectionVectorManager {
 		};
 	}
 	/**
-	 * Normalize data for past data in both collections
+	 * Normalize data for legacy data in both collections
 	 */
 	async normalizeData(
 		embeddingManager: EmbeddingManager,
 		normalizationConfig: InputRefinementConfig,
 		batchSize: number = 100,
 		force: boolean = false
-	): Promise<{ knowledge: { updated: number; skipped: number; failed: number }; reflection: { updated: number; skipped: number; failed: number } }> {
+	): Promise<{ status: string, knowledgeTransferred: string, reflectionTransferred: string }> {
 		// Delegate to knowledge manager (always present)
 		const knowledgeResult = await this.knowledgeManager.normalizeData(
 		embeddingManager,
@@ -281,7 +281,7 @@ export class DualCollectionVectorManager {
 		);
 		
 		// Delegate to reflection manager only if enabled
-		let reflectionResult = { updated: 0, skipped: 0, failed: 0 };
+		let reflectionResult;
 		if (this.reflectionEnabled && this.reflectionManager) {
 		reflectionResult = await this.reflectionManager.normalizeData(
 			embeddingManager,
@@ -297,6 +297,12 @@ export class DualCollectionVectorManager {
 		reflection: reflectionResult 
 		});
 		
-		return { knowledge: knowledgeResult, reflection: reflectionResult };
+		const overallStatus = knowledgeResult.status === "success" && reflectionResult.status === "success" ? "success" : "failed";
+		
+		return { 
+			status: overallStatus, 
+			knowledgeTransferred: knowledgeResult.status,
+			reflectionTransferred: reflectionResult.status,
+		};
 	}
 }

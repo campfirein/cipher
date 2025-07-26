@@ -12,7 +12,8 @@ import { env } from '../../env.js';
 import { type OpenAIEmbeddingConfig } from './backend/types.js';
 import { type InputRefinementConfig } from './config.js';
 import { DEFAULTS } from './constants.js';
-// import natural from 'natural';
+import natural from 'natural';  // Add at the top if not already
+
 
 /**
  * Get embedding configuration from environment variables
@@ -254,38 +255,47 @@ export function analyzeProviderConfiguration(): {
  * // Output: 'hello world'
  * ```
  */
+
 export function normalizeTextForRetrieval(input: string, config: InputRefinementConfig): string {
+  	let normalized = input;
+
+  	if (config.NORMALIZATION_TOLOWERCASE) {
+  	  normalized = normalized.toLowerCase();
+  	}
+
+  	if (config.NORMALIZATION_WHITESPACE) {
+		// Handle both actual line breaks and literal \n strings
+		normalized = normalized
+			.replace(/\\n/g, ' ')  // Replace literal \n strings
+			.replace(/[\n\r]/g, ' ')  // Replace actual line breaks
+			.replace(/\s+/g, ' ')  // Normalize all whitespace
+			.trim();
+	}
 	
-	const { 
-		NORMALIZATION_TOLOWERCASE,
-		NORMALIZATION_REMOVEPUNCTUATION,
-		NORMALIZATION_WHITESPACE,
-		NORMALIZATION_STOPWORDS,
-		NORMALIZATION_STEMMING,
-		NORMALIZATION_LEMMATIZATION,
-	} = config;
+  	if (config.NORMALIZATION_REMOVEPUNCTUATION) {
+  	  normalized = normalized.replace(/[ !"#$%&'()*+,-./:;<=>?@[\]^_`{|}~]/g, ' ');
+  	}
 
-	let normalized = input;
+  	if (config.NORMALIZATION_LANGUAGE === 'ENGLISH') {
+		const tokenizer = new natural.WordTokenizer();
+		let words = tokenizer.tokenize(normalized);
 
-	if (NORMALIZATION_TOLOWERCASE) {
-	  normalized = normalized.toLowerCase();
+		if (config.NORMALIZATION_STOPWORDS) {
+			const stopwords = natural.stopwords;  // English stopwords
+			words = words.filter(word => !stopwords.includes(word));
+			}
+
+		if (config.NORMALIZATION_STEMMING) {
+			const stemmer = natural.PorterStemmer;
+			words = words.map(word => stemmer.stem(word));
+			}
+		// More on lemmatization later!
+		// if (config.NORMALIZATION_LEMMATIZATION) {
+		// 	// Approximate with stemming (full lemmatization needs WordNet setup)
+		// 	const stemmer = natural.PorterStemmer;
+		// 	words = words.map(word => stemmer.stem(word));
+		// 	}
+		normalized = words.join(' ');
 	}
-  
-	if (NORMALIZATION_REMOVEPUNCTUATION) {
-		normalized = normalized.replace(/[ !"#$%&'()*+,-./:;<=>?@[\]^_`{|}~]/g, ' ');
-	}
-  
-	if (NORMALIZATION_WHITESPACE) {
-	  normalized = normalized.trim().replace(/\s+/g, ' ');
-	}
-	// if (removeStopwords) {
-	// 	normalized = normalized.replace(/\b(the|a|an|and|or|but|if|else|when|where|how|why|what|who|whom|whose|which|that|this|these|those)\b/gi, '');
-	// }
-	// if (stemming) {
-	// 	normalized = normalized.replace(/\b(ing|ed|s|es|ly|ly|er|est)\b/gi, '');
-	// }
-	// if (lemmatization) {
-	// 	normalized = normalized.replace(/\b(ing|ed|s|es|ly|ly|er|est)\b/gi, '');
-	// }
 	return normalized;
 }

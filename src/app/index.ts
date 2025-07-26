@@ -197,7 +197,12 @@ program
 						NORMALIZATION_LANGUAGE: env.NORMALIZATION_LANGUAGE,
 						NORMALIZATION_PAST_DATA: env.NORMALIZATION_PAST_DATA
 					};
-					logger.info('Normalization configuration:', refinementCfg);
+					console.log('refinementCfg', refinementCfg);
+					// Validate refinement config
+					if (!parseInputRefinementConfig(refinementCfg)) {
+						logger.error('Failed to parse refinement config');
+						process.exit(1);
+					}
 					cfg.inputRefinement = refinementCfg;
 
 				} catch (err) {
@@ -360,15 +365,13 @@ program
 		// ——— Dispatch based on --mode ———
 		switch (opts.mode) {
 			case 'cli':
-				await startInteractiveCli(agent, refinementCfg);
+				await startInteractiveCli(agent);
 				break;
 			case 'mcp':
 				await startMcpMode(agent);
-				// await startMcpMode(agent, refinementCfg);
 				break;
 			case 'api':
 				await startApiMode(agent, opts);
-				// await startApiMode(agent, opts, refinementCfg);
 				break;
 			default: {
 				const errorMsg = `Unknown mode '${opts.mode}'. Use cli, mcp, or api.`;

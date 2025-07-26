@@ -4,8 +4,6 @@ import chalk from 'chalk';
 import { executeCommand } from './commands.js';
 import { commandParser } from './parser.js';
 import type { AggregatorConfig } from '@core/mcp/types.js';
-import { InputRefinementConfig } from '@core/brain/embedding/config.js';
-import { normalizeTextForRetrieval } from '@core/brain/embedding/utils.js';
 // Constants for compression display
 const COMPRESSION_CHECK_DELAY = 100;
 
@@ -72,7 +70,7 @@ export async function startHeadlessCli(agent: MemAgent, input: string): Promise<
 /**
  * Start interactive CLI mode where user can continuously chat with the agent
  */
-export async function startInteractiveCli(agent: MemAgent, refinementCfg: InputRefinementConfig): Promise<void> {
+export async function startInteractiveCli(agent: MemAgent): Promise<void> {
 	// Common initialization
 	await _initCli(agent);
 	await _initializeSessionAndCompression(agent);
@@ -128,12 +126,6 @@ export async function startInteractiveCli(agent: MemAgent, refinementCfg: InputR
 					rl.prompt();
 					return;
 				}
-
-				// // Add input refinement to user's message, without interfering with metadata
-				// if (refinementCfg) {
-				// 	console.log(`Input refinement enabled. Normalizing input...`);
-				// 	message = normalizeTextForRetrieval(message, refinementCfg);
-				// }
 
 				console.log(chalk.gray('🤔 Thinking (with metadata)...'));
 				const result = await agent.run(message, undefined, undefined, false, {
@@ -207,14 +199,6 @@ export async function startInteractiveCli(agent: MemAgent, refinementCfg: InputR
 					// Always redisplay prompt after slash commands
 					rl.prompt();
 				} else {
-					// It is not a command, so it is a regular user's prompt
-					// Add input refinement to user's prompt
-					// let message: string = trimmedInput;
-					// if (refinementCfg) {
-					// 	console.log(`Input refinement enabled. Normalizing input...`);
-					// 	message = normalizeTextForRetrieval(trimmedInput, refinementCfg);
-					// }
-
 					// Handle regular user prompt - pass to agent
 					console.log(chalk.gray('🤔 Thinking...'));
 					const result = await agent.run(trimmedInput);

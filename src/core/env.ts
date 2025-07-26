@@ -79,7 +79,7 @@ const envSchema = z.object({
 	NORMALIZATION_STOPWORDS: z.boolean().optional().describe('Remove stopwords').default(false),
 	NORMALIZATION_STEMMING: z.boolean().optional().describe('Stemming').default(false),
 	NORMALIZATION_LEMMATIZATION: z.boolean().optional().describe('Lemmatization').default(false),
-	NORMALIZATION_LANGUAGE: z.enum(['en']).default('en'),
+	NORMALIZATION_LANGUAGE: z.enum(['ENGLISH', 'OTHER']).default('ENGLISH'),
 	NORMALIZATION_PAST_DATA: z.boolean().optional().describe('Normalize past data').default(false),
 });
 
@@ -218,6 +218,24 @@ export const env: EnvSchema = new Proxy({} as EnvSchema, {
 			}
 			case 'DISABLE_REFLECTION_MEMORY':
 				return process.env.DISABLE_REFLECTION_MEMORY === 'true';
+			case 'NORMALIZATION_ENABLED':
+				return process.env.NORMALIZATION_ENABLED === 'TRUE';
+			case 'NORMALIZATION_TOLOWERCASE':
+				return process.env.NORMALIZATION_TOLOWERCASE === 'TRUE';
+			case 'NORMALIZATION_REMOVEPUNCTUATION':
+				return process.env.NORMALIZATION_REMOVEPUNCTUATION === 'TRUE';
+			case 'NORMALIZATION_WHITESPACE':
+				return process.env.NORMALIZATION_WHITESPACE === 'TRUE';
+			case 'NORMALIZATION_STOPWORDS':
+				return process.env.NORMALIZATION_STOPWORDS === 'TRUE';
+			case 'NORMALIZATION_STEMMING':
+				return process.env.NORMALIZATION_STEMMING === 'TRUE';
+			case 'NORMALIZATION_LEMMATIZATION':
+				return process.env.NORMALIZATION_LEMMATIZATION === 'TRUE';
+			case 'NORMALIZATION_PAST_DATA':
+				return process.env.NORMALIZATION_PAST_DATA === 'TRUE';
+			case 'NORMALIZATION_LANGUAGE':
+				return process.env.NORMALIZATION_LANGUAGE;
 			default:
 				return process.env[prop];
 		}
