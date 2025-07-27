@@ -446,11 +446,17 @@ export class VectorStoreManager {
 	 * Normalize data for past data in the collection
 	 */
 	async normalizeData(
-		embeddingManager: EmbeddingManager,  // Pass this in (get from services)
-		normalizationConfig: InputRefinementConfig,  // Your config (e.g., { toLowercase: true, ... })
-		batchSize: number = 100,  // Process in batches to avoid memory issues
-		force: boolean = false    // If true, re-embed everything regardless of flag
-	): Promise<{ status: string, message: string }> {
+		embeddingManager: EmbeddingManager, // Pass this in (get from services)
+		normalizationConfig: InputRefinementConfig, // Your config (e.g., { toLowercase: true, ... })
+		batchSize: number = 100, // Process in batches to avoid memory issues
+		force: boolean = false // If true, re-embed everything regardless of flag
+	): Promise<{
+		status: string;
+		message: string;
+		updated: number;
+		skipped: number;
+		failed: number;
+	}> {
 		this.logger.info('Starting data normalization migration');
 
 		if (!this.store) {
@@ -460,40 +466,48 @@ export class VectorStoreManager {
 		let updated = 0;
 		let skipped = 0;
 		let failed = 0;
-		let cursor: string | number | undefined = undefined;  // For pagination
+		let cursor: string | number | undefined = undefined; // For pagination
 
 		// Wrap loop
 		try {
 			do {
 				// Fetch a page of entries (uses list() from manager.ts, lines ~300-350)
-				const [pageResults, nextCursor] = await this.store.list({ limit: batchSize, cursor });
+				const [pageResults, nextCursor] = await this.store.list({
+					limit: batchSize,
+					cursor,
+				});
 
 				const updates = [];
 				for (const entry of pageResults) {
 					// Check if needs re-embedding
 					const payload = entry.payload || {};
-					if (force || !payload.normalized) {  // Check flag or force
+					if (force || !payload.normalized) {
+						// Check flag or force
 						try {
-							const originalText = payload.content;  // Assume original text is stored here
+							const originalText = payload.content; // Assume original text is stored here
 							if (!originalText) {
 								skipped++;
-								continue;  // Skip if no text to normalize
+								continue; // Skip if no text to normalize
 							}
 
 							// Normalize and re-embed
-							const normalizedText = normalizeTextForRetrieval(originalText, normalizationConfig);
+							const normalizedText = normalizeTextForRetrieval(
+								originalText,
+								normalizationConfig
+							);
 							if (originalText !== normalizedText) {
-								const newVector = await embeddingManager.embed(normalizedText);  // Re-embed
+								const newVector = await embeddingManager.embed(normalizedText); // Re-embed
 
 								// Prepare update with flag
 								updates.push({
 									id: entry.id,
 									vector: newVector,
-									payload: { ...payload, content: normalizedText, normalized: true },  // Update payload
+									payload: { ...payload, content: normalizedText, normalized: true }, // Update payload
 								});
 								updated++;
+							} else {
+								skipped++; // Already normalized, but not flagged
 							}
-
 						} catch (error) {
 							this.logger.error('Failed to normalize entry', { id: entry.id, error });
 							failed++;
@@ -514,23 +528,37 @@ export class VectorStoreManager {
 				}
 
 				cursor = nextCursor ? String(nextCursor) : undefined;
-			} while (cursor);  // Continue until no more pages
+			} while (cursor); // Continue until no more pages
 		} catch (batchError) {
 			failed += batchSize; // Approximate
 			this.logger.error('Batch failed, continuing', { error: batchError });
 		}
 
 		// At end (before return)
-		const status = failed === 0 ? 'success' : (updated > 0 ? 'partial' : 'failure');
+		const status = failed === 0 ? 'success' : updated > 0 ? 'partial' : 'failure';
+		this.logger.info('Normalization migration completed', {
+			updated,
+			skipped,
+			failed,
+		});
 		return {
 			status,
-			message: status === 'success' ? 'Completed successfully' : `Completed with issues (${failed} failed)`,
+			message:
+				status === 'success'
+					? 'Completed successfully'
+					: `Completed with issues (${failed} failed)`,
+			updated,
+			skipped,
+			failed,
 		};
 	} catch (error) {
 		this.logger.error('Failed to normalize data', { error });
 		return {
 			status: "failed",
 			message: "Data normalization migration failed",
+			updated: 0,
+			skipped: 0,
+			failed: 0,
 		};
 	}
 

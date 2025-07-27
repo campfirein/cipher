@@ -355,4 +355,28 @@ describe('Normalization Regression Tests', () => {
 			expect(true).toBe(true);
 		});
 	});
+
+	describe('Advanced Backward Compatibility', () => {
+		test('should handle legacy config formats', () => {
+			const legacyConfig = { toLowercase: true, removePunctuation: true } as any;
+			expect(() => normalizeTextForRetrieval('Test', legacyConfig)).not.toThrow();
+		});
+
+		test('should provide defaults for missing properties', () => {
+			const partialConfig = { NORMALIZATION_TOLOWERCASE: true } as InputRefinementConfig;
+			const result = normalizeTextForRetrieval('TEST', partialConfig);
+			expect(result).toBe('test');
+		});
+
+		test('should handle invalid config values gracefully', () => {
+			const invalidConfig = { NORMALIZATION_TOLOWERCASE: 'yes' } as any;
+			const result = normalizeTextForRetrieval('Test', invalidConfig);
+			expect(result).toBeDefined();
+		});
+
+		test('should maintain output as string', () => {
+			const result = normalizeTextForRetrieval('Test', {} as InputRefinementConfig);
+			expect(typeof result).toBe('string');
+		});
+	});
 }); 

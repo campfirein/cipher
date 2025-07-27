@@ -5,37 +5,36 @@
  * Focuses on the normalization utility's impact on text matching and search relevance.
  */
 
-import { describe, test, expect, beforeEach } from 'vitest';
+import { describe, test, expect } from 'vitest';
 import { normalizeTextForRetrieval } from '../utils.js';
 import { InputRefinementConfig } from '../config.js';
 
+let standardConfig: InputRefinementConfig;
+let minimalConfig: InputRefinementConfig;
+
+standardConfig = {
+    NORMALIZATION_TOLOWERCASE: true,
+    NORMALIZATION_REMOVEPUNCTUATION: true,
+    NORMALIZATION_WHITESPACE: true,
+    NORMALIZATION_STOPWORDS: true,
+    NORMALIZATION_STEMMING: true,
+    NORMALIZATION_LEMMATIZATION: false,
+    NORMALIZATION_LANGUAGE: 'ENGLISH',
+    NORMALIZATION_PAST_DATA: false,
+};
+
+minimalConfig = {
+    NORMALIZATION_TOLOWERCASE: false,
+    NORMALIZATION_REMOVEPUNCTUATION: false,
+    NORMALIZATION_WHITESPACE: false,
+    NORMALIZATION_STOPWORDS: false,
+    NORMALIZATION_STEMMING: false,
+    NORMALIZATION_LEMMATIZATION: false,
+    NORMALIZATION_LANGUAGE: 'OTHER',
+    NORMALIZATION_PAST_DATA: false,
+};
 describe('Retrieval Quality with Normalization', () => {
-	let standardConfig: InputRefinementConfig;
-	let minimalConfig: InputRefinementConfig;
 
-	beforeEach(() => {
-		standardConfig = {
-			NORMALIZATION_TOLOWERCASE: true,
-			NORMALIZATION_REMOVEPUNCTUATION: true,
-			NORMALIZATION_WHITESPACE: true,
-			NORMALIZATION_STOPWORDS: true,
-			NORMALIZATION_STEMMING: true,
-			NORMALIZATION_LEMMATIZATION: false,
-			NORMALIZATION_LANGUAGE: 'ENGLISH',
-			NORMALIZATION_PAST_DATA: false,
-		};
-
-		minimalConfig = {
-			NORMALIZATION_TOLOWERCASE: false,
-			NORMALIZATION_REMOVEPUNCTUATION: false,
-			NORMALIZATION_WHITESPACE: false,
-			NORMALIZATION_STOPWORDS: false,
-			NORMALIZATION_STEMMING: false,
-			NORMALIZATION_LEMMATIZATION: false,
-			NORMALIZATION_LANGUAGE: 'OTHER',
-			NORMALIZATION_PAST_DATA: false,
-		};
-	});
 
 	describe('Text Matching Improvements', () => {
 		test('should improve case-insensitive matching', () => {
@@ -359,5 +358,44 @@ describe('Retrieval Quality with Normalization', () => {
 				similarities[0].exactMatches
 			);
 		});
+	});
+}); 
+
+describe('Retrieval Edge Cases', () => {
+	test('should handle empty query', () => {
+		const documents = ['Test document'];
+		const normalizedDocs = documents.map(doc => normalizeTextForRetrieval(doc, standardConfig));
+		const normalizedQuery = normalizeTextForRetrieval('', standardConfig);
+		expect(normalizedQuery).toBe('');
+	});
+
+	test('should handle query with only stopwords', () => {
+		const documents = ['The quick brown fox'];
+		const normalizedDocs = documents.map(doc => normalizeTextForRetrieval(doc, standardConfig));
+		const normalizedQuery = normalizeTextForRetrieval('the and or but', standardConfig);
+		expect(normalizedQuery).toBe('');
+	});
+
+	test('should handle unicode in queries and documents', () => {
+		const documents = ['Café résumé naïve'];
+		const query = 'cafe resume naive';
+		const normalizedDoc = normalizeTextForRetrieval(documents[0], standardConfig);
+		const normalizedQuery = normalizeTextForRetrieval(query, standardConfig);
+		expect(normalizedDoc).toContain('caf');
+		expect(normalizedQuery).toContain('cafe');
+	});
+
+	test('should handle long queries', () => {
+		const longQuery = 'machine learning ' + 'algorithm '.repeat(100);
+		const normalizedQuery = normalizeTextForRetrieval(longQuery, standardConfig);
+		expect(normalizedQuery.length).toBeGreaterThan(0);
+	});
+
+	test('should improve matching for noisy queries', () => {
+		const document = 'Machine learning algorithms';
+		const noisyQuery = 'machine   learning!!! algorithms??? with';
+		const normalizedDoc = normalizeTextForRetrieval(document, standardConfig);
+		const normalizedQuery = normalizeTextForRetrieval(noisyQuery, standardConfig);
+		expect(normalizedDoc).toEqual(normalizedQuery);
 	});
 }); 

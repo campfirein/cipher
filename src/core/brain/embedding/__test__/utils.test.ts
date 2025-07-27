@@ -314,4 +314,49 @@ describe('normalizeTextForRetrieval', () => {
 			expect(() => normalizeTextForRetrieval(undefined as any, defaultConfig)).toThrow();
 		});
 	});
+
+	describe('Additional Edge Cases', () => {
+		test('should handle mixed unicode and numbers', () => {
+			const config = { ...defaultConfig, NORMALIZATION_LANGUAGE: 'ENGLISH' as const };
+			const result = normalizeTextForRetrieval('Café 123 naïve résumé 456', config);
+			expect(result).toContain('caf'); // Broken by tokenizer
+			expect(result).toContain('123');
+			expect(result).toContain('na');
+			expect(result).toContain('sum');
+			expect(result).toContain('456');
+		});
+
+		test('should handle very short strings', () => {
+			const config = { ...defaultConfig };
+			expect(normalizeTextForRetrieval('a', config)).toBe('');
+			expect(normalizeTextForRetrieval('ab', config)).toBe('ab');
+			expect(normalizeTextForRetrieval('abc', config)).toBe('abc');
+		});
+
+		test('should handle ultra-long strings efficiently', () => {
+			const ultraLong = 'word '.repeat(100000);
+			const start = Date.now();
+			const result = normalizeTextForRetrieval(ultraLong, defaultConfig);
+			const duration = Date.now() - start;
+			expect(result.length).toBeGreaterThan(0);
+			expect(duration).toBeLessThan(10000);
+		});
+
+		test('should handle string with all punctuation', () => {
+			const result = normalizeTextForRetrieval('!@#$%^&*()_+-=[]{}|;:,.<>?', defaultConfig);
+			expect(result).toBe('');
+		});
+
+		test('should handle invalid unicode sequences', () => {
+			const invalidUnicode = 'Hello \uD800 World'; // Unpaired surrogate
+			expect(() => normalizeTextForRetrieval(invalidUnicode, defaultConfig)).not.toThrow();
+		});
+
+		test('should handle repeated words', () => {
+			const result = normalizeTextForRetrieval('test test test testing tested', defaultConfig);
+			const words = result.split(' ');
+			expect(words).toContain('test');
+			expect(words.length).toBeGreaterThan(1);
+		});
+	});
 }); 
