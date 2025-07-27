@@ -339,7 +339,7 @@ export const EmbeddingEnvConfigSchema = z.object({
 export type EmbeddingEnvConfig = z.infer<typeof EmbeddingEnvConfigSchema>;
 
 
-// Input refinement configuration for text-preprocessing, vectorization and retrieval, MY CODE
+// Input refinement configuration for text-preprocessing, vectorization and retrieval
 export const InputRefinementConfigSchema = z
   .object({
     NORMALIZATION_TOLOWERCASE: z

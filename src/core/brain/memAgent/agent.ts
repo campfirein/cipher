@@ -146,7 +146,7 @@ export class MemAgent {
 	/**
 	 * Run the MemAgent
 	 */
-	// This part to implement input refinement, MY CODE
+	// This part to implement input refinement
 	public async run(
 		userInput: string,
 		imageDataInput?: { image: string; mimeType: string },

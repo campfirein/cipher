@@ -72,7 +72,7 @@ export class OpenAIEmbedder implements Embedder {
 		});
 	}
 
-	// Embedding function, apply input refinement to this part, MY CODE
+	// Embedding function, apply input refinement to this part
 	async embed(text: string): Promise<number[]> {
 		console.log(`Embedding text: ${text}!`);
 		logger.silly(`${LOG_PREFIXES.OPENAI} Embedding single text`, {
@@ -80,7 +80,7 @@ export class OpenAIEmbedder implements Embedder {
 			model: this.model,
 		});
 
-		// Use refinement config if provided, MY CODE
+		// Use refinement config if provided
 		if (this.refinementConfig) {
 			console.log(`Input refinement enabled. Normalizing input...`);
 			text = normalizeTextForRetrieval(text, this.refinementConfig);
@@ -130,7 +130,7 @@ export class OpenAIEmbedder implements Embedder {
 			model: this.model,
 		});
 
-		// Add refinement config if provided, MY CODE
+		// Add refinement config if provided
 		if (this.refinementConfig) {
 			console.log(`Input refinement enabled. Normalizing input...`);
 			texts = texts.map(text => normalizeTextForRetrieval(text, this.refinementConfig));

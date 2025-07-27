@@ -416,7 +416,7 @@ export const storeReasoningMemoryTool: InternalTool = {
 			});
 
 			// Generate embedding with error handling
-			// Have not handled the input refinement here, MY CODE
+			// Have not handled the input refinement here
 			// ADD LATER!
 			let embedding;
 			try {

@@ -99,7 +99,7 @@ export class EmbeddingManager {
 	};
 	private healthCheckInterval: NodeJS.Timeout | undefined;
 	private defaultRefinementConfig: InputRefinementConfig = {};
-	// Add constructor with default refinement config, MY CODE
+	// Add constructor with default refinement config
 	constructor(defaultRefinementConfig: InputRefinementConfig = {}) {
 		this.defaultRefinementConfig = defaultRefinementConfig || {};
 		logger.debug(`${LOG_PREFIXES.MANAGER} Embedding manager initialized`);

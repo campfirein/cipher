@@ -441,8 +441,8 @@ export async function createAgentServices(agentConfig: AgentConfig): Promise<Age
 	});
 
 	// Only call normalizeData if it exists on vectorStoreManager
-	// MY CODE!!!, this part of code should be closely monitored and tested 
-	// This may not be the best way to do it!!!
+	// This part of code should be closely monitored and tested 
+
 	if (env.NORMALIZATION_ENABLED && env.NORMALIZATION_PAST_DATA &&typeof (vectorStoreManager as any).normalizeData === 'function') {
 		await (vectorStoreManager as any).normalizeData(services.embeddingManager, agentConfig.inputRefinement);
 	}
