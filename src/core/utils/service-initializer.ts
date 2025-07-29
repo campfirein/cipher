@@ -50,8 +50,16 @@ export async function createAgentServices(agentConfig: AgentConfig): Promise<Age
 	// 1.1. Initialize event manager first (other services will use it)
 	logger.debug('Initializing event manager...');
 
-	// Use eventPersistence config if present
-	const eventPersistenceConfig = config.eventPersistence || {};
+	// Use eventPersistence config if present, with environment variable overrides
+	const eventPersistenceConfig = {
+		...config.eventPersistence,
+		// Support EVENT_PERSISTENCE_ENABLED env variable
+		enabled:
+			process.env.EVENT_PERSISTENCE_ENABLED === 'true' ||
+			(config.eventPersistence?.enabled ?? false),
+		// Support EVENT_PERSISTENCE_PATH env variable
+		filePath: process.env.EVENT_PERSISTENCE_PATH || config.eventPersistence?.filePath,
+	};
 
 	// Support EVENT_FILTERING_ENABLED env variable
 	const enableFiltering = process.env.EVENT_FILTERING_ENABLED === 'true';
@@ -64,7 +72,7 @@ export async function createAgentServices(agentConfig: AgentConfig): Promise<Age
 
 	const eventManager = new EventManager({
 		enableLogging: true,
-		enablePersistence: eventPersistenceConfig.enabled ?? true,
+		enablePersistence: eventPersistenceConfig.enabled,
 		enableFiltering,
 		maxServiceListeners: 300,
 		maxSessionListeners: 150,
@@ -81,6 +89,15 @@ export async function createAgentServices(agentConfig: AgentConfig): Promise<Age
 			description: 'Block event types from EVENT_FILTERED_TYPES',
 			enabled: true,
 			filter: event => !filteredTypes.includes(event.type),
+		});
+	}
+
+	// Log event persistence configuration
+	if (eventPersistenceConfig.enabled) {
+		logger.info('Event persistence enabled', {
+			storageType: eventPersistenceConfig.storageType || 'file',
+			filePath: eventPersistenceConfig.filePath || './data/events',
+			enabled: eventPersistenceConfig.enabled,
 		});
 	}
 

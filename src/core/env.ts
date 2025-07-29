@@ -71,6 +71,7 @@ const envSchema = z.object({
 	// Reflection Memory Configuration
 	REFLECTION_VECTOR_STORE_COLLECTION: z.string().default('reflection_memory'),
 	DISABLE_REFLECTION_MEMORY: z.boolean().default(false),
+
 	// Normalization Configuration
 	NORMALIZATION_ENABLED: z.boolean().optional().describe('Enable/Disable normalization').default(true),
 	NORMALIZATION_TOLOWERCASE: z.boolean().optional().describe('Convert text to lowercase').default(true),
@@ -81,6 +82,11 @@ const envSchema = z.object({
 	NORMALIZATION_LEMMATIZATION: z.boolean().optional().describe('Lemmatization').default(false),
 	NORMALIZATION_LANGUAGE: z.enum(['ENGLISH', 'OTHER']).default('ENGLISH'),
 	NORMALIZATION_PAST_DATA: z.boolean().optional().describe('Normalize past data').default(false),
+
+	// Event Persistence Configuration
+	EVENT_PERSISTENCE_ENABLED: z.boolean().default(false),
+	EVENT_PERSISTENCE_PATH: z.string().optional(),
+
 });
 
 type EnvSchema = z.infer<typeof envSchema>;
@@ -218,6 +224,7 @@ export const env: EnvSchema = new Proxy({} as EnvSchema, {
 			}
 			case 'DISABLE_REFLECTION_MEMORY':
 				return process.env.DISABLE_REFLECTION_MEMORY === 'true';
+
 			case 'NORMALIZATION_ENABLED':
 				return process.env.NORMALIZATION_ENABLED === 'TRUE';
 			case 'NORMALIZATION_TOLOWERCASE':
@@ -236,6 +243,13 @@ export const env: EnvSchema = new Proxy({} as EnvSchema, {
 				return process.env.NORMALIZATION_PAST_DATA === 'TRUE';
 			case 'NORMALIZATION_LANGUAGE':
 				return process.env.NORMALIZATION_LANGUAGE;
+
+			// Event Persistence Configuration
+			case 'EVENT_PERSISTENCE_ENABLED':
+				return process.env.EVENT_PERSISTENCE_ENABLED === 'true';
+			case 'EVENT_PERSISTENCE_PATH':
+				return process.env.EVENT_PERSISTENCE_PATH;
+
 			default:
 				return process.env[prop];
 		}
