@@ -312,17 +312,17 @@ export async function createDualCollectionVectorStoreFromEnv(): Promise<DualColl
  * ```typescript
  * // Basic usage with default persistence
  * const { manager, store } = await createPersistentInMemoryStore('my_collection');
- * 
+ *
  * // Custom persistence path
  * const { manager, store } = await createPersistentInMemoryStore(
- *   'my_collection', 
- *   1536, 
+ *   'my_collection',
+ *   1536,
  *   './my-data/vectors'
  * );
- * 
+ *
  * // Use the store
  * await store.insert([vector], ['doc1'], [{ title: 'Document' }]);
- * 
+ *
  * // Data will be automatically saved and loaded
  * await manager.disconnect();
  * ```

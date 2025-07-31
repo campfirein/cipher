@@ -131,7 +131,9 @@ export class ANNIndex {
 					this.logger.info(`ANN index loaded from ${this.config.indexPath}`);
 					return;
 				} catch {
-					this.logger.info(`No existing index found at ${this.config.indexPath}, creating a new one.`);
+					this.logger.info(
+						`No existing index found at ${this.config.indexPath}, creating a new one.`
+					);
 				}
 			}
 
@@ -199,7 +201,9 @@ export class ANNIndex {
 		// Validate vector dimensions
 		for (let i = 0; i < vectors.length; i++) {
 			if (vectors[i]!.length !== this.config.dimension) {
-				throw new Error(`Vector dimension mismatch: expected ${this.config.dimension}, got ${vectors[i]!.length}`);
+				throw new Error(
+					`Vector dimension mismatch: expected ${this.config.dimension}, got ${vectors[i]!.length}`
+				);
 			}
 		}
 
@@ -259,7 +263,11 @@ export class ANNIndex {
 		}
 	}
 
-	async search(query: number[], k: number, filter?: (id: number) => boolean): Promise<ANNSearchResult[]> {
+	async search(
+		query: number[],
+		k: number,
+		filter?: (id: number) => boolean
+	): Promise<ANNSearchResult[]> {
 		if (!this.isInitialized) {
 			this.logger.warn('Attempted to search in an uninitialized index.');
 			return [];
@@ -267,7 +275,9 @@ export class ANNIndex {
 
 		// Validate query dimension
 		if (query.length !== this.config.dimension) {
-			throw new Error(`Query dimension mismatch: expected ${this.config.dimension}, got ${query.length}`);
+			throw new Error(
+				`Query dimension mismatch: expected ${this.config.dimension}, got ${query.length}`
+			);
 		}
 
 		const startTime = performance.now();
@@ -283,7 +293,9 @@ export class ANNIndex {
 				searchResults = await this.searchANN(query, k, filter);
 				fromANN = true;
 			} catch (error: any) {
-				this.logger.error('ANN search failed, falling back to brute force.', { error: error.message });
+				this.logger.error('ANN search failed, falling back to brute force.', {
+					error: error.message,
+				});
 				// Fallback to brute-force on error
 				searchResults = this.searchBruteForce(query, k, filter);
 			}
@@ -303,7 +315,11 @@ export class ANNIndex {
 		return searchResults;
 	}
 
-	private async searchANN(query: number[], k: number, filter?: (id: number) => boolean): Promise<ANNSearchResult[]> {
+	private async searchANN(
+		query: number[],
+		k: number,
+		filter?: (id: number) => boolean
+	): Promise<ANNSearchResult[]> {
 		if (!this.faissAvailable || !this.annIndex) {
 			return this.searchBruteForce(query, k, filter);
 		}
@@ -327,7 +343,11 @@ export class ANNIndex {
 		return results;
 	}
 
-	private searchBruteForce(query: number[], k: number, filter?: (_id: number) => boolean): ANNSearchResult[] {
+	private searchBruteForce(
+		query: number[],
+		k: number,
+		filter?: (_id: number) => boolean
+	): ANNSearchResult[] {
 		const results: { id: number; score: number }[] = [];
 		for (const [id, vector] of this.vectorMap.entries()) {
 			if (!filter || filter(id)) {
@@ -477,7 +497,9 @@ export class ANNIndex {
 					const indexFile = path.join(storagePath, 'ann_index.faiss');
 					await this.annIndex.readIndex(indexFile);
 				} catch (error: any) {
-					this.logger.warn('Failed to load FAISS index, falling back to brute-force mode:', { error: error.message });
+					this.logger.warn('Failed to load FAISS index, falling back to brute-force mode:', {
+						error: error.message,
+					});
 					this.faissAvailable = false;
 				}
 			} else {

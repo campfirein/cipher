@@ -202,24 +202,16 @@ export type MilvusBackendConfig = z.infer<typeof MilvusBackendSchema>;
  * Includes custom validation to ensure backends have required connection info.
  */
 const BackendConfigSchema = z
-	.discriminatedUnion(
-		'type',
-		[
-			InMemoryBackendSchema,
-			QdrantBackendSchema,
-			MilvusBackendSchema,
-		],
-		{
-			errorMap: (issue, ctx) => {
-				if (issue.code === z.ZodIssueCode.invalid_union_discriminator) {
-					return {
-						message: `Invalid backend type. Expected 'in-memory', 'qdrant', or 'milvus'.`,
-					};
-				}
-				return { message: ctx.defaultError };
-			},
-		}
-	)
+	.discriminatedUnion('type', [InMemoryBackendSchema, QdrantBackendSchema, MilvusBackendSchema], {
+		errorMap: (issue, ctx) => {
+			if (issue.code === z.ZodIssueCode.invalid_union_discriminator) {
+				return {
+					message: `Invalid backend type. Expected 'in-memory', 'qdrant', or 'milvus'.`,
+				};
+			}
+			return { message: ctx.defaultError };
+		},
+	})
 	.describe('Vector storage backend configuration')
 	.superRefine((data, ctx) => {
 		// Validate Qdrant backend requirements

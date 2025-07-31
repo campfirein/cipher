@@ -29,7 +29,7 @@ export class InMemoryBackend implements VectorStore {
 	private readonly collectionName: string;
 	private readonly dimension: number;
 	private readonly logger: Logger;
-	private annIndex: ANNIndex;
+	private annIndex!: ANNIndex;
 	private connected = false;
 	private payloads: Map<number, Record<string, any>> = new Map();
 
@@ -58,7 +58,9 @@ export class InMemoryBackend implements VectorStore {
 				await fs.mkdir(indexPath, { recursive: true });
 				this.logger.debug(`${LOG_PREFIXES.MEMORY} Created persistence directory: ${indexPath}`);
 			} catch (error: any) {
-				this.logger.warn(`${LOG_PREFIXES.MEMORY} Failed to create persistence directory: ${error.message}`);
+				this.logger.warn(
+					`${LOG_PREFIXES.MEMORY} Failed to create persistence directory: ${error.message}`
+				);
 			}
 		}
 
@@ -244,22 +246,26 @@ export class InMemoryBackend implements VectorStore {
 	private async savePayloads(): Promise<void> {
 		const indexPath = this.config.annIndexPath ?? DEFAULTS.PERSISTENCE_PATH;
 		if (!indexPath) {
-			this.logger.debug(`${LOG_PREFIXES.MEMORY} No persistence path configured, skipping payload save`);
+			this.logger.debug(
+				`${LOG_PREFIXES.MEMORY} No persistence path configured, skipping payload save`
+			);
 			return;
 		}
 
 		try {
 			const fs = await import('fs/promises');
 			const path = await import('path');
-			
+
 			// Ensure directory exists
 			await fs.mkdir(indexPath, { recursive: true });
-			
+
 			const metadataFile = path.join(indexPath, 'payloads.json');
 			const metadata = JSON.stringify(Array.from(this.payloads.entries()), null, 2);
 			await fs.writeFile(metadataFile, metadata);
-			
-			this.logger.debug(`${LOG_PREFIXES.MEMORY} Saved ${this.payloads.size} payloads to ${metadataFile}`);
+
+			this.logger.debug(
+				`${LOG_PREFIXES.MEMORY} Saved ${this.payloads.size} payloads to ${metadataFile}`
+			);
 		} catch (error: any) {
 			this.logger.error(`${LOG_PREFIXES.MEMORY} Failed to save payloads: ${error.message}`);
 			// Don't throw error to avoid breaking operations
@@ -269,7 +275,9 @@ export class InMemoryBackend implements VectorStore {
 	private async loadPayloads(): Promise<void> {
 		const indexPath = this.config.annIndexPath ?? DEFAULTS.PERSISTENCE_PATH;
 		if (!indexPath) {
-			this.logger.debug(`${LOG_PREFIXES.MEMORY} No persistence path configured, skipping payload load`);
+			this.logger.debug(
+				`${LOG_PREFIXES.MEMORY} No persistence path configured, skipping payload load`
+			);
 			return;
 		}
 
@@ -277,22 +285,28 @@ export class InMemoryBackend implements VectorStore {
 			const fs = await import('fs/promises');
 			const path = await import('path');
 			const metadataFile = path.join(indexPath, 'payloads.json');
-			
+
 			// Check if file exists
 			try {
 				await fs.access(metadataFile);
 			} catch {
-				this.logger.debug(`${LOG_PREFIXES.MEMORY} No existing payloads file found at ${metadataFile}`);
+				this.logger.debug(
+					`${LOG_PREFIXES.MEMORY} No existing payloads file found at ${metadataFile}`
+				);
 				this.payloads = new Map();
 				return;
 			}
-			
+
 			const metadata = await fs.readFile(metadataFile, 'utf-8');
 			this.payloads = new Map(JSON.parse(metadata));
-			
-			this.logger.info(`${LOG_PREFIXES.MEMORY} Loaded ${this.payloads.size} payloads from ${metadataFile}`);
+
+			this.logger.info(
+				`${LOG_PREFIXES.MEMORY} Loaded ${this.payloads.size} payloads from ${metadataFile}`
+			);
 		} catch (error: any) {
-			this.logger.warn(`${LOG_PREFIXES.MEMORY} Could not load payloads file: ${error.message}. Starting with an empty payload map.`);
+			this.logger.warn(
+				`${LOG_PREFIXES.MEMORY} Could not load payloads file: ${error.message}. Starting with an empty payload map.`
+			);
 			this.payloads = new Map();
 		}
 	}
