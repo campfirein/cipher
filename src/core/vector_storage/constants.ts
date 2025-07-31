@@ -12,14 +12,13 @@
  */
 export const LOG_PREFIXES = {
 	MANAGER: '[VectorStoreManager]',
-	BACKEND: '[VectorStoreBackend]',
-	FACTORY: '[VectorStoreFactory]',
-	SEARCH: '[VectorStore:Search]',
-	INDEX: '[VectorStore:Index]',
 	QDRANT: '[VectorStore:Qdrant]',
 	MILVUS: '[VectorStore:Milvus]',
 	MEMORY: '[VectorStore:Memory]',
 	ANN: '[VectorStore:ANN]',
+	INDEX: '[VectorStore:Index]',
+	SEARCH: '[VectorStore:Search]',
+	BACKEND: '[VectorStore:Backend]',
 } as const;
 
 /**
@@ -64,11 +63,7 @@ export const TIMEOUTS = {
  */
 export const BACKEND_TYPES = {
 	QDRANT: 'qdrant',
-	PINECONE: 'pinecone',
-	WEAVIATE: 'weaviate',
-	CHROMA: 'chroma',
 	IN_MEMORY: 'in-memory',
-	ENHANCED_IN_MEMORY: 'enhanced-in-memory',
 	MILVUS: 'milvus',
 } as const;
 
@@ -98,6 +93,10 @@ export const DEFAULTS = {
 	// ANN defaults (limited to faiss-node support)
 	ANN_MIN_DATASET_SIZE: 1000,
 	ANN_ALGORITHM: 'flat' as const,
+
+	// Persistence defaults
+	PERSISTENCE_ENABLED: true,
+	PERSISTENCE_PATH: './data/vector-storage',
 } as const;
 
 /**

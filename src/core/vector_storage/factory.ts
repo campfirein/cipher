@@ -81,7 +81,7 @@ export interface DualCollectionVectorFactory {
 export async function createVectorStore(config: VectorStoreConfig): Promise<VectorStoreFactory> {
 	const logger = createLogger({ level: env.CIPHER_LOG_LEVEL });
 
-	logger.debug(`${LOG_PREFIXES.FACTORY} Creating vector storage system`, {
+	logger.debug(`${LOG_PREFIXES.MANAGER} Creating vector storage system`, {
 		type: config.type,
 		collection: config.collectionName,
 		dimension: config.dimension,
@@ -94,7 +94,7 @@ export async function createVectorStore(config: VectorStoreConfig): Promise<Vect
 		// Connect to backend
 		const store = await manager.connect();
 
-		logger.info(`${LOG_PREFIXES.FACTORY} Vector storage system created successfully`, {
+		logger.info(`${LOG_PREFIXES.MANAGER} Vector storage system created successfully`, {
 			type: manager.getInfo().backend.type,
 			collection: config.collectionName,
 			connected: manager.isConnected(),
@@ -107,7 +107,7 @@ export async function createVectorStore(config: VectorStoreConfig): Promise<Vect
 			// Ignore disconnect errors during cleanup
 		});
 
-		logger.error(`${LOG_PREFIXES.FACTORY} Failed to create vector storage system`, {
+		logger.error(`${LOG_PREFIXES.MANAGER} Failed to create vector storage system`, {
 			error: error instanceof Error ? error.message : String(error),
 		});
 
@@ -192,7 +192,7 @@ export async function createVectorStoreFromEnv(): Promise<VectorStoreFactory> {
 	// Get configuration from environment variables
 	const config = getVectorStoreConfigFromEnv();
 
-	logger.info(`${LOG_PREFIXES.FACTORY} Creating vector storage from environment`, {
+	logger.info(`${LOG_PREFIXES.MANAGER} Creating vector storage from environment`, {
 		type: config.type,
 		collection: config.collectionName,
 		dimension: config.dimension,
@@ -230,7 +230,7 @@ export async function createDualCollectionVectorStoreFromEnv(): Promise<DualColl
 	const reflectionCollection = (env.REFLECTION_VECTOR_STORE_COLLECTION || '').trim();
 	if (!reflectionCollection) {
 		logger.info(
-			`${LOG_PREFIXES.FACTORY} Reflection collection not set, creating single collection manager only`,
+			`${LOG_PREFIXES.MANAGER} Reflection collection not set, creating single collection manager only`,
 			{
 				type: config.type,
 				knowledgeCollection: config.collectionName,
@@ -249,7 +249,7 @@ export async function createDualCollectionVectorStoreFromEnv(): Promise<DualColl
 		};
 	}
 
-	logger.info(`${LOG_PREFIXES.FACTORY} Creating dual collection vector storage from environment`, {
+	logger.info(`${LOG_PREFIXES.MANAGER} Creating dual collection vector storage from environment`, {
 		type: config.type,
 		knowledgeCollection: config.collectionName,
 		reflectionCollection,
@@ -271,7 +271,7 @@ export async function createDualCollectionVectorStoreFromEnv(): Promise<DualColl
 			throw new Error('Failed to get knowledge store from dual collection manager');
 		}
 
-		logger.info(`${LOG_PREFIXES.FACTORY} Dual collection vector storage created successfully`, {
+		logger.info(`${LOG_PREFIXES.MANAGER} Dual collection vector storage created successfully`, {
 			knowledgeConnected: manager.isConnected('knowledge'),
 			reflectionConnected: manager.isConnected('reflection'),
 			reflectionEnabled: true,
@@ -288,12 +288,60 @@ export async function createDualCollectionVectorStoreFromEnv(): Promise<DualColl
 			// Ignore disconnect errors during cleanup
 		});
 
-		logger.error(`${LOG_PREFIXES.FACTORY} Failed to create dual collection vector storage`, {
+		logger.error(`${LOG_PREFIXES.MANAGER} Failed to create dual collection vector storage`, {
 			error: error instanceof Error ? error.message : String(error),
 		});
 
 		throw error;
 	}
+}
+
+/**
+ * Creates in-memory vector storage with persistence enabled
+ *
+ * This is a convenience function for creating in-memory vector storage
+ * with persistence enabled by default. The data will be saved to the
+ * specified path and automatically loaded on subsequent connections.
+ *
+ * @param collectionName - Name of the collection
+ * @param dimension - Vector dimension (default: 1536)
+ * @param persistencePath - Path to store persistence files (default: './data/vector-storage')
+ * @returns Promise resolving to manager and connected vector store
+ *
+ * @example
+ * ```typescript
+ * // Basic usage with default persistence
+ * const { manager, store } = await createPersistentInMemoryStore('my_collection');
+ * 
+ * // Custom persistence path
+ * const { manager, store } = await createPersistentInMemoryStore(
+ *   'my_collection', 
+ *   1536, 
+ *   './my-data/vectors'
+ * );
+ * 
+ * // Use the store
+ * await store.insert([vector], ['doc1'], [{ title: 'Document' }]);
+ * 
+ * // Data will be automatically saved and loaded
+ * await manager.disconnect();
+ * ```
+ */
+export async function createPersistentInMemoryStore(
+	collectionName: string,
+	dimension: number = DEFAULTS.DIMENSION,
+	persistencePath: string = DEFAULTS.PERSISTENCE_PATH
+): Promise<VectorStoreFactory> {
+	const config: VectorStoreConfig = {
+		type: 'in-memory',
+		collectionName,
+		dimension,
+		maxVectors: 10000,
+		annPersistIndex: true,
+		annIndexPath: persistencePath,
+	};
+
+	return createVectorStore(config);
 }
 
 /**

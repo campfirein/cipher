@@ -82,10 +82,6 @@ export {
 	type ANNSearchResult,
 	type ANNIndexStats,
 } from './ann_index.js';
-export {
-	EnhancedInMemoryBackend,
-	type EnhancedInMemoryConfig,
-} from './backend/enhanced-in-memory.js';
 
 // Export constants for external use
 export { BACKEND_TYPES, DEFAULTS, DISTANCE_METRICS } from './constants.js';

@@ -66,7 +66,7 @@ const InMemoryBackendSchema = BaseVectorStoreSchema.extend({
 	maxVectors: z.number().int().positive().default(10000).describe('Maximum vectors to store'),
 
 	/** ANN algorithm to use for enhanced search */
-	annAlgorithm: z.enum(['flat', 'brute-force']).optional().describe('ANN algorithm'),
+	annAlgorithm: z.enum(['flat', 'brute-force']).optional().describe('ANN algorithm to use'),
 
 	/** Minimum dataset size to use ANN */
 	annMinDatasetSize: z
@@ -74,78 +74,16 @@ const InMemoryBackendSchema = BaseVectorStoreSchema.extend({
 		.int()
 		.positive()
 		.optional()
-		.describe('Minimum dataset size for ANN'),
-
-	/** Note: HNSW and IVF are not available in faiss-node */
-	/** Flat index parameters (if any) */
-	annFlat: z
-		.object({
-			/** Currently no specific parameters for FlatIP */
-		})
-		.optional()
-		.describe('Flat index parameters'),
+		.describe('Minimum dataset size to enable ANN indexing'),
 
 	/** Enable ANN index persistence */
 	annPersistIndex: z.boolean().optional().describe('Enable ANN index persistence'),
 
 	/** ANN index file path */
-	annIndexPath: z.string().optional().describe('ANN index file path'),
+	annIndexPath: z.string().optional().describe('Path to store/load the ANN index'),
 }).strict();
 
 export type InMemoryBackendConfig = z.infer<typeof InMemoryBackendSchema>;
-
-/**
- * Enhanced In-Memory Backend Configuration
- *
- * Enhanced in-memory vector storage with ANN acceleration.
- * Provides high-performance similarity search using FAISS.
- *
- * @example
- * ```typescript
- * const config: EnhancedInMemoryBackendConfig = {
- *   type: 'enhanced-in-memory',
- *   collectionName: 'test_vectors',
- *   dimension: 1536,
- *   maxVectors: 10000,
- *   annAlgorithm: 'hnsw',
- *   annMinDatasetSize: 1000
- * };
- * ```
- */
-const EnhancedInMemoryBackendSchema = BaseVectorStoreSchema.extend({
-	type: z.literal('enhanced-in-memory'),
-
-	/** Maximum number of vectors to store (prevents memory overflow) */
-	maxVectors: z.number().int().positive().default(10000).describe('Maximum vectors to store'),
-
-	/** ANN algorithm to use for enhanced search */
-	annAlgorithm: z.enum(['flat', 'brute-force']).optional().describe('ANN algorithm'),
-
-	/** Minimum dataset size to use ANN */
-	annMinDatasetSize: z
-		.number()
-		.int()
-		.positive()
-		.optional()
-		.describe('Minimum dataset size for ANN'),
-
-	/** Note: HNSW and IVF are not available in faiss-node */
-	/** Flat index parameters (if any) */
-	annFlat: z
-		.object({
-			/** Currently no specific parameters for FlatIP */
-		})
-		.optional()
-		.describe('Flat index parameters'),
-
-	/** Enable ANN index persistence */
-	annPersistIndex: z.boolean().optional().describe('Enable ANN index persistence'),
-
-	/** ANN index file path */
-	annIndexPath: z.string().optional().describe('ANN index file path'),
-}).strict();
-
-export type EnhancedInMemoryBackendConfig = z.infer<typeof EnhancedInMemoryBackendSchema>;
 
 /**
  * Qdrant Backend Configuration
@@ -268,7 +206,6 @@ const BackendConfigSchema = z
 		'type',
 		[
 			InMemoryBackendSchema,
-			EnhancedInMemoryBackendSchema,
 			QdrantBackendSchema,
 			MilvusBackendSchema,
 		],
@@ -276,14 +213,14 @@ const BackendConfigSchema = z
 			errorMap: (issue, ctx) => {
 				if (issue.code === z.ZodIssueCode.invalid_union_discriminator) {
 					return {
-						message: `Invalid backend type. Expected 'in-memory', 'enhanced-in-memory', 'qdrant', or 'milvus'.`,
+						message: `Invalid backend type. Expected 'in-memory', 'qdrant', or 'milvus'.`,
 					};
 				}
 				return { message: ctx.defaultError };
 			},
 		}
 	)
-	.describe('Backend configuration for vector storage system')
+	.describe('Vector storage backend configuration')
 	.superRefine((data, ctx) => {
 		// Validate Qdrant backend requirements
 		if (data.type === 'qdrant') {

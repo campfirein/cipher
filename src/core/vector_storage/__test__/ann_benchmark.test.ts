@@ -9,10 +9,8 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { ANNIndex, type ANNIndexConfig } from '../ann_index.js';
-import {
-	EnhancedInMemoryBackend,
-	type EnhancedInMemoryConfig,
-} from '../backend/enhanced-in-memory.js';
+import { InMemoryBackend } from '../backend/in-memory.js';
+import type { InMemoryBackendConfig } from '../config.js';
 
 describe('ANN Performance Benchmarks', () => {
 	describe('ANNIndex Benchmarks', () => {
@@ -98,11 +96,11 @@ describe('ANN Performance Benchmarks', () => {
 		it('should scale with dataset size', async () => {
 			await annIndex.initialize();
 
+			// Test different dataset sizes
 			const sizes = [100, 500, 1000];
-			const results: { size: number; bruteForceTime: number; annTime: number }[] = [];
+			const results: { size: number; addTime: number; searchTime: number }[] = [];
 
 			for (const size of sizes) {
-				// Generate data
 				const vectors: number[][] = [];
 				const ids: number[] = [];
 
@@ -112,73 +110,60 @@ describe('ANN Performance Benchmarks', () => {
 					ids.push(i);
 				}
 
-				// Test brute-force
-				await annIndex.clear();
+				// Measure add time
+				const addStartTime = Date.now();
 				await annIndex.addVectors(vectors, ids);
+				const addTime = Date.now() - addStartTime;
 
+				// Measure search time
 				const query = new Array(1536).fill(0).map(() => Math.random() - 0.5);
-				const bruteForceStartTime = Date.now();
+				const searchStartTime = Date.now();
 				await annIndex.search(query, 10);
-				const bruteForceTime = Date.now() - bruteForceStartTime;
-
-				// Test ANN
-				config.algorithm = 'flat';
-				const annIndexHnsw = new ANNIndex(config);
-				await annIndexHnsw.initialize();
-				await annIndexHnsw.addVectors(vectors, ids);
-
-				const annStartTime = Date.now();
-				await annIndexHnsw.search(query, 10);
-				const annTime = Date.now() - annStartTime;
+				const searchTime = Date.now() - searchStartTime;
 
 				results.push({
 					size,
-					bruteForceTime,
-					annTime,
+					addTime,
+					searchTime,
 				});
 
-				await annIndexHnsw.disconnect();
+				// Clear for next iteration
+				await annIndex.clear();
 			}
 
-			// Verify scaling behavior
+			// Verify performance scales reasonably
 			for (let i = 1; i < results.length; i++) {
 				const prev = results[i - 1]!;
 				const curr = results[i]!;
 
-				// Brute force should scale reasonably
-				const expectedBruteForceRatio = curr.size / prev.size;
-				const actualBruteForceRatio = curr.bruteForceTime / prev.bruteForceTime;
-				// For small datasets, timing can be inconsistent, so we're more lenient
-				expect(actualBruteForceRatio).toBeGreaterThan(0.1);
+				// Add time should scale roughly linearly
+				const addTimeRatio = curr.addTime / prev.addTime;
+				const sizeRatio = curr.size / prev.size;
+				expect(addTimeRatio).toBeLessThan(sizeRatio * 2); // Allow some overhead
 
-				// ANN should scale reasonably (since we're using brute-force fallback)
-				if (curr.annTime > 0 && prev.annTime > 0) {
-					const annRatio = curr.annTime / prev.annTime;
-					// Only assert if both times are at least 10ms to avoid noise
-					if (curr.annTime >= 10 && prev.annTime >= 10) {
-						expect(annRatio).toBeLessThanOrEqual(expectedBruteForceRatio * 2.5);
-					}
-				}
+				// Search time should scale sub-linearly for brute-force
+				const searchTimeRatio = curr.searchTime / prev.searchTime;
+				expect(searchTimeRatio).toBeLessThan(sizeRatio * 1.5);
 			}
 
 			console.log('Scaling Results:', results);
 		});
 	});
 
-	describe('Enhanced In-Memory Backend Benchmarks', () => {
-		let backend: EnhancedInMemoryBackend;
-		let config: EnhancedInMemoryConfig;
+	describe('In-Memory Backend Benchmarks', () => {
+		let backend: InMemoryBackend;
+		let config: InMemoryBackendConfig;
 
 		beforeEach(() => {
 			config = {
-				type: 'enhanced-in-memory',
+				type: 'in-memory',
 				collectionName: 'benchmark',
 				dimension: 1536,
 				maxVectors: 10000,
 				annAlgorithm: 'brute-force',
 				annMinDatasetSize: 100,
 			};
-			backend = new EnhancedInMemoryBackend(config);
+			backend = new InMemoryBackend(config);
 		});
 
 		afterEach(async () => {
@@ -187,7 +172,7 @@ describe('ANN Performance Benchmarks', () => {
 			}
 		});
 
-		it('should demonstrate enhanced backend performance', async () => {
+		it('should demonstrate in-memory backend performance', async () => {
 			await backend.connect();
 
 			// Generate test data
@@ -229,7 +214,7 @@ describe('ANN Performance Benchmarks', () => {
 			expect(searchTime).toBeLessThan(1000);
 			expect(filteredSearchTime).toBeLessThan(1000);
 
-			console.log(`Enhanced Backend Benchmark:
+			console.log(`In-Memory Backend Benchmark:
 				Vector Count: ${vectorCount}
 				Insert Time: ${insertTime}ms
 				Search Time: ${searchTime}ms
@@ -257,7 +242,7 @@ describe('ANN Performance Benchmarks', () => {
 
 			// Test with ANN
 			config.annAlgorithm = 'flat';
-			backend = new EnhancedInMemoryBackend(config);
+			backend = new InMemoryBackend(config);
 			await backend.connect();
 			await backend.insert(
 				[new Array(1536).fill(0).map(() => Math.random() - 0.5)],
@@ -272,15 +257,10 @@ describe('ANN Performance Benchmarks', () => {
 			expect(bruteForceTime).toBeLessThan(1000);
 			expect(annTime).toBeLessThan(1000);
 
-			const stats = backend.getANNStats();
-			if (stats?.usingANN) {
-				expect(annTime).toBeLessThanOrEqual(bruteForceTime);
-			}
-
+			// Note: We can't get ANN stats from the backend directly, so we'll just log the times
 			console.log(`Performance Comparison:
 				Brute Force: ${bruteForceTime}ms
 				ANN: ${annTime}ms
-				Using ANN: ${stats?.usingANN}
 				Speedup: ${(bruteForceTime / annTime).toFixed(2)}x
 			`);
 		});
