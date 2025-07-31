@@ -7,6 +7,8 @@ import { ILLMService, LLMServiceConfig } from './types.js';
 import OpenAI from 'openai';
 import { logger } from '../../../logger/index.js';
 import { formatToolResult } from '../utils/tool-result-formatter.js';
+import { EventManager } from '../../../events/event-manager.js';
+import { SessionEvents } from '../../../events/event-types.js';
 
 export class OpenAIService implements ILLMService {
 	private openai: OpenAI;
@@ -15,6 +17,7 @@ export class OpenAIService implements ILLMService {
 	private unifiedToolManager: UnifiedToolManager | undefined;
 	private contextManager: ContextManager;
 	private maxIterations: number;
+	private eventManager?: EventManager;
 
 	constructor(
 		openai: OpenAI,
@@ -31,8 +34,29 @@ export class OpenAIService implements ILLMService {
 		this.contextManager = contextManager;
 		this.maxIterations = maxIterations;
 	}
-	async generate(userInput: string, imageData?: ImageData): Promise<string> {
+
+	/**
+	 * Set the event manager for emitting LLM response events
+	 */
+	setEventManager(eventManager: EventManager): void {
+		this.eventManager = eventManager;
+	}
+
+	async generate(userInput: string, imageData?: ImageData, sessionId?: string): Promise<string> {
 		await this.contextManager.addUserMessage(userInput, imageData);
+
+		// Generate message ID for event tracking
+		const messageId = `msg-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+
+		// Emit LLM response started event
+		if (this.eventManager && sessionId) {
+			this.eventManager.emitSessionEvent(sessionId, SessionEvents.LLM_RESPONSE_STARTED, {
+				sessionId,
+				messageId,
+				model: this.model,
+				timestamp: Date.now()
+			});
+		}
 
 		// Use unified tool manager if available, otherwise fall back to MCP manager
 		let formattedTools: any[];
@@ -50,6 +74,15 @@ export class OpenAIService implements ILLMService {
 			while (iterationCount < this.maxIterations) {
 				iterationCount++;
 
+				// Emit thinking event before AI call
+				if (this.eventManager && sessionId) {
+					this.eventManager.emitSessionEvent(sessionId, SessionEvents.LLM_THINKING, {
+						sessionId,
+						messageId,
+						timestamp: Date.now()
+					});
+				}
+
 				// Attempt to get a response, with retry logic
 				const { message } = await this.getAIResponseWithRetries(formattedTools, userInput);
 
@@ -58,6 +91,19 @@ export class OpenAIService implements ILLMService {
 					const responseText = message.content || '';
 					// Add assistant message to history
 					await this.contextManager.addAssistantMessage(responseText);
+
+					// Emit LLM response completed event
+					if (this.eventManager && sessionId) {
+						this.eventManager.emitSessionEvent(sessionId, SessionEvents.LLM_RESPONSE_COMPLETED, {
+							sessionId,
+							messageId,
+							model: this.model,
+							tokenCount: undefined, // OpenAI doesn't provide token count in response
+							duration: Date.now() - parseInt(messageId.split('-')[1]), // Approximate duration
+							timestamp: Date.now()
+						});
+					}
+
 					return responseText;
 				}
 
@@ -118,11 +164,36 @@ export class OpenAIService implements ILLMService {
 			logger.warn(`Reached maximum iterations (${this.maxIterations}) for task.`);
 			const finalResponse = 'Task completed but reached maximum tool call iterations.';
 			await this.contextManager.addAssistantMessage(finalResponse);
+
+			// Emit LLM response completed event for max iterations
+			if (this.eventManager && sessionId) {
+				this.eventManager.emitSessionEvent(sessionId, SessionEvents.LLM_RESPONSE_COMPLETED, {
+					sessionId,
+					messageId,
+					model: this.model,
+					tokenCount: undefined,
+					duration: Date.now() - parseInt(messageId.split('-')[1]),
+					timestamp: Date.now()
+				});
+			}
+
 			return finalResponse;
 		} catch (error) {
 			// Handle API errors
 			const errorMessage = error instanceof Error ? error.message : String(error);
 			logger.error(`Error in OpenAI service API call: ${errorMessage}`, { error });
+
+			// Emit LLM response error event
+			if (this.eventManager && sessionId) {
+				this.eventManager.emitSessionEvent(sessionId, SessionEvents.LLM_RESPONSE_ERROR, {
+					sessionId,
+					messageId,
+					model: this.model,
+					error: errorMessage,
+					timestamp: Date.now()
+				});
+			}
+
 			await this.contextManager.addAssistantMessage(`Error processing request: ${errorMessage}`);
 			return `Error processing request: ${errorMessage}`;
 		}

@@ -1,6 +1,7 @@
 import { ContextManager, ILLMService } from '../brain/llm/index.js';
 import { MCPManager } from '../mcp/manager.js';
 import { UnifiedToolManager } from '../brain/tools/unified-tool-manager.js';
+import { EventManager } from '../events/event-manager.js';
 import { logger } from '../logger/index.js';
 import { env } from '../env.js';
 import { createContextManager } from '../brain/llm/messages/factory.js';
@@ -81,6 +82,7 @@ export class ConversationSession {
 			promptManager: EnhancedPromptManager;
 			mcpManager: MCPManager;
 			unifiedToolManager: UnifiedToolManager;
+			eventManager: EventManager;
 		},
 		public readonly id: string,
 		options?: {
@@ -198,7 +200,8 @@ export class ConversationSession {
 			llmConfig,
 			this.services.mcpManager,
 			this.contextManager,
-			this.services.unifiedToolManager
+			this.services.unifiedToolManager,
+			this.services.eventManager
 		);
 		logger.debug(`ChatSession ${this.id}: Services initialized`);
 	}
@@ -315,7 +318,7 @@ export class ConversationSession {
 		await this.initializeReasoningServices();
 
 		// Generate response
-		const response = await this.llmService.generate(input, imageDataInput, stream);
+		const response = await this.llmService.generate(input, imageDataInput, this.id);
 
 		// PROGRAMMATIC ENFORCEMENT: Run memory extraction asynchronously in background AFTER response is returned
 		// This ensures users see the response immediately without waiting for memory operations
@@ -647,7 +650,8 @@ export class ConversationSession {
 					evalConfig,
 					this.services.mcpManager,
 					evalContextManager,
-					this.services.unifiedToolManager
+					this.services.unifiedToolManager,
+					this.services.eventManager
 				);
 				// Directly call the evaluation tool using the non-thinking model
 				evaluationResult = await this.services.unifiedToolManager.executeTool(

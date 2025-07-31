@@ -326,7 +326,7 @@ cipher                              # Interactive CLI mode
 cipher "Your prompt here"           # One-shot mode
 
 # Server modes
-cipher --mode api                   # REST API server
+cipher --mode api                   # REST API server with WebSocket support
 cipher --mode mcp                   # MCP server (make sure all necessary environment variables are set in the shell environment)
 
 # Configuration
@@ -342,6 +342,66 @@ cipher --new-session [id]           # Start with new session
 /stats                              # Show statistics
 /help                               # Show help
 ```
+
+## WebSocket API
+
+Cipher's API mode includes real-time WebSocket communication for interactive AI agent experiences.
+
+### WebSocket Features
+
+- **Real-time AI Responses** - Get live streaming responses as the AI processes your requests
+- **Tool Execution Events** - Receive notifications when tools are called and completed
+- **Memory Operations** - Live updates when memories are stored, retrieved, or searched
+- **Session Management** - Automatic session creation and management
+- **Error Handling** - Real-time error notifications and recovery
+
+### WebSocket Endpoints
+
+```bash
+# WebSocket connection
+ws://localhost:3000/ws
+
+# Health check
+GET http://localhost:3000/health
+
+# WebSocket statistics
+GET http://localhost:3000/ws/stats
+```
+
+### Client Usage Example
+
+```javascript
+const ws = new WebSocket('ws://localhost:3000/ws');
+
+// Send a message
+ws.send(JSON.stringify({
+    type: 'message',
+    content: 'Hello Cipher!',
+    stream: true
+}));
+
+// Subscribe to events
+ws.send(JSON.stringify({
+    type: 'subscribe',
+    eventTypes: ['thinking', 'response', 'toolCall', 'error']
+}));
+
+// Handle events
+ws.onmessage = (event) => {
+    const data = JSON.parse(event.data);
+    console.log('Event:', data.event, data.data);
+};
+```
+
+### Available Events
+
+- `thinking` - AI is processing your request
+- `response` - Final AI response received
+- `toolCall` - Tool execution started
+- `toolResult` - Tool execution completed
+- `error` - Error occurred
+- `memoryOperation` - Memory stored/retrieved/searched
+- `sessionCreated` - New session created
 
 ## MCP Server Usage
 

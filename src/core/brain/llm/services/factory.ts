@@ -5,6 +5,7 @@ import { LLMConfig } from '../config.js';
 import { ILLMService } from './types.js';
 import { env } from '../../../env.js';
 import { logger } from '../../../logger/index.js';
+import { EventManager } from '../../../events/event-manager.js';
 import { OpenAIService } from './openai.js';
 import { AnthropicService } from './anthropic.js';
 import { OpenRouterService } from './openrouter.js';
@@ -64,7 +65,8 @@ function _createLLMService(
 	config: LLMConfig,
 	mcpManager: MCPManager,
 	contextManager: ContextManager,
-	unifiedToolManager?: UnifiedToolManager
+	unifiedToolManager?: UnifiedToolManager,
+	eventManager?: EventManager
 ): ILLMService {
 	// Extract and validate API key
 	const apiKey = extractApiKey(config);
@@ -77,7 +79,7 @@ function _createLLMService(
 			// eslint-disable-next-line @typescript-eslint/no-var-requires
 			const OpenAIClass = require('openai');
 			const openai = new OpenAIClass({ apiKey, ...(baseURL ? { baseURL } : {}) });
-			return new OpenAIService(
+			const service = new OpenAIService(
 				openai,
 				config.model,
 				mcpManager,
@@ -85,6 +87,11 @@ function _createLLMService(
 				config.maxIterations,
 				unifiedToolManager
 			);
+			// Set event manager if provided
+			if (eventManager) {
+				service.setEventManager(eventManager);
+			}
+			return service;
 		}
 		case 'openrouter': {
 			const baseURL = getOpenAICompatibleBaseURL(config);
@@ -115,7 +122,7 @@ function _createLLMService(
 			// eslint-disable-next-line @typescript-eslint/no-var-requires
 			const AnthropicClass = require('@anthropic-ai/sdk');
 			const anthropic = new AnthropicClass({ apiKey });
-			return new AnthropicService(
+			const service = new AnthropicService(
 				anthropic,
 				config.model,
 				mcpManager,
@@ -123,6 +130,11 @@ function _createLLMService(
 				config.maxIterations,
 				unifiedToolManager
 			);
+			// Set event manager if provided
+			if (eventManager) {
+				service.setEventManager(eventManager);
+			}
+			return service;
 		}
 		case 'ollama': {
 			const baseURL = getOpenAICompatibleBaseURL(config);
@@ -224,9 +236,10 @@ export function createLLMService(
 	config: LLMConfig,
 	mcpManager: MCPManager,
 	contextManager: ContextManager,
-	unifiedToolManager?: UnifiedToolManager
+	unifiedToolManager?: UnifiedToolManager,
+	eventManager?: EventManager
 ): ILLMService {
-	const service = _createLLMService(config, mcpManager, contextManager, unifiedToolManager);
+	const service = _createLLMService(config, mcpManager, contextManager, unifiedToolManager, eventManager);
 	// Configure token-aware compression for the context manager
 	configureCompressionForService(config, contextManager);
 

@@ -43,14 +43,11 @@ export class AnthropicService implements ILLMService {
 		this.eventManager = eventManager;
 	}
 
-	async generate(userInput: string, imageData?: ImageData, _stream?: boolean): Promise<string> {
+	async generate(userInput: string, imageData?: ImageData, sessionId?: string): Promise<string> {
 		await this.contextManager.addUserMessage(userInput, imageData);
 
 		const messageId = uuidv4();
 		const startTime = Date.now();
-
-		// Try to get sessionId from contextManager if available, otherwise undefined
-		const sessionId = (this.contextManager as any)?.sessionId;
 
 		// Emit LLM response started event
 		if (this.eventManager && sessionId) {

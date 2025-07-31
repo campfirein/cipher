@@ -7,7 +7,7 @@ import { ImageData } from '../messages/types.js';
  */
 
 export interface ILLMService {
-	generate(userInput: string, imageData?: ImageData, stream?: boolean): Promise<string>;
+	generate(userInput: string, imageData?: ImageData, sessionId?: string): Promise<string>;
 	directGenerate(userInput: string, systemPrompt?: string): Promise<string>;
 	getAllTools(): Promise<ToolSet>;
 	getConfig(): LLMServiceConfig;

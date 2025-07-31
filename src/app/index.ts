@@ -53,7 +53,7 @@ const program = new Command();
 
 program
 	.name('cipher')
-	.description('Agent that can help to remember your vibe coding agent knowledge and reinforce it')
+	.description('Memory-powered AI agent framework with real-time WebSocket communication and MCP integration')
 	.version(pkg.version, '-v, --version', 'output the current version')
 	.argument(
 		'[prompt...]',
@@ -80,7 +80,13 @@ program
 			'Available modes:\n' +
 			'  - cli: Interactive command-line interface (default)\n' +
 			'  - mcp: Model Context Protocol server mode\n' +
-			'  - api: REST API server mode\n\n' +
+			'  - api: REST API server mode with WebSocket support\n\n' +
+			'WebSocket Features (API mode):\n' +
+			'  • Real-time AI responses and streaming\n' +
+			'  • Live tool execution notifications\n' +
+			'  • Memory operation events\n' +
+			'  • Session management and error handling\n' +
+			'  • Available at ws://localhost:3000/ws\n\n' +
 			'Options:\n' +
 			'  -s, --strict: Require all MCP server connections to succeed (overrides individual server connection modes)\n' +
 			'  --new-session [sessionId]: Start with a new session (optionally specify session ID)\n' +
@@ -291,6 +297,15 @@ program
 				corsOrigins: ['http://localhost:3000', 'http://localhost:3001'], // Default CORS origins
 				rateLimitWindowMs: 15 * 60 * 1000, // 15 minutes
 				rateLimitMaxRequests: 100, // 100 requests per window
+				// Enable WebSocket by default for API mode
+				enableWebSocket: true,
+				webSocketConfig: {
+					path: '/ws',
+					maxConnections: 1000,
+					connectionTimeout: 300000, // 5 minutes
+					heartbeatInterval: 30000, // 30 seconds
+					enableCompression: true
+				},
 				...(mcpTransportType && { mcpTransportType }), // Only include if defined
 				...(mcpPort !== undefined && { mcpPort }), // Only include if defined
 			});

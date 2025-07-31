@@ -591,32 +591,7 @@ export async function createAgentServices(
 		logger.debug('Agent state manager initialized');
 	}
 
-	// 7. Initialize LLM service
-	let llmService: ILLMService | undefined = undefined;
-	try {
-		if (appMode !== 'cli') {
-			logger.debug('Initializing LLM service...');
-		}
-		const llmConfig = stateManager.getLLMConfig();
-		logger.debug('LLM Config retrieved', { llmConfig });
-		const contextManager = createContextManager(llmConfig, promptManager, undefined, undefined);
-
-		llmService = createLLMService(llmConfig, mcpManager, contextManager);
-
-		if (appMode !== 'cli') {
-			logger.info('LLM service initialized successfully', {
-				provider: llmConfig.provider,
-				model: llmConfig.model,
-			});
-		}
-
-		// Inject llmService into promptManager for dynamic providers
-		promptManager.setLLMService(llmService);
-	} catch (error) {
-		logger.warn('Failed to initialize LLM service', {
-			error: error instanceof Error ? error.message : String(error),
-		});
-	}
+	// 7. LLM service will be initialized after unified tool manager
 
 	// 8. Prepare session manager configuration
 	const sessionConfig: { maxSessions?: number; sessionTTL?: number } = {};
@@ -657,19 +632,7 @@ export async function createAgentServices(
 		});
 	}
 
-	// Configure the internal tool manager with services for advanced tools
-	// Only include embeddingManager if embeddings are enabled
-	const services: any = {
-		vectorStoreManager,
-		llmService,
-		knowledgeGraphManager,
-	};
-
-	if (embeddingEnabled) {
-		services.embeddingManager = embeddingManager;
-	}
-
-	internalToolManager.setServices(services);
+	// Services configuration will be done after LLM service initialization
 
 	// 10. Initialize unified tool manager with proper mode handling
 	let unifiedToolManagerConfig: any;
@@ -713,6 +676,47 @@ export async function createAgentServices(
 	if (appMode !== 'cli') {
 		logger.debug('Unified tool manager initialized');
 	}
+
+	// 7. Initialize LLM service (moved here to use unified tool manager)
+	let llmService: ILLMService | undefined = undefined;
+	try {
+		if (appMode !== 'cli') {
+			logger.debug('Initializing LLM service...');
+		}
+		const llmConfig = stateManager.getLLMConfig();
+		logger.debug('LLM Config retrieved', { llmConfig });
+		const contextManager = createContextManager(llmConfig, promptManager, undefined, undefined);
+
+		llmService = createLLMService(llmConfig, mcpManager, contextManager, unifiedToolManager, eventManager);
+
+		if (appMode !== 'cli') {
+			logger.info('LLM service initialized successfully', {
+				provider: llmConfig.provider,
+				model: llmConfig.model,
+			});
+		}
+
+		// Inject llmService into promptManager for dynamic providers
+		promptManager.setLLMService(llmService);
+	} catch (error) {
+		logger.warn('Failed to initialize LLM service', {
+			error: error instanceof Error ? error.message : String(error),
+		});
+	}
+
+	// Configure the internal tool manager with services for advanced tools
+	// Only include embeddingManager if embeddings are enabled
+	const services: any = {
+		vectorStoreManager,
+		llmService,
+		knowledgeGraphManager,
+	};
+
+	if (embeddingEnabled) {
+		services.embeddingManager = embeddingManager;
+	}
+
+	internalToolManager.setServices(services);
 
 	// 11. Create session manager with unified tool manager
 	const sessionManager = new SessionManager(

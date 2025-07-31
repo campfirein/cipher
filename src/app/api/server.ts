@@ -2,6 +2,8 @@ import express, { Application, Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
+import http from 'http';
+import { WebSocketServer, WebSocket } from 'ws';
 import { MemAgent } from '@core/brain/memAgent/index.js';
 import { logger } from '@core/logger/index.js';
 import { errorResponse, ERROR_CODES } from './utils/response.js';
@@ -13,6 +15,12 @@ import {
 import { Server as McpServer } from '@modelcontextprotocol/sdk/server/index.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { initializeMcpServer, initializeAgentCardResource } from '@app/mcp/mcp_handler.js';
+
+// Import WebSocket components
+import { WebSocketConnectionManager } from './websocket/connection-manager.js';
+import { WebSocketMessageRouter } from './websocket/message-router.js';
+import { WebSocketEventSubscriber } from './websocket/event-subscriber.js';
+import { WebSocketMessage, WebSocketConfig } from './websocket/types.js';
 
 // Import route handlers
 import { createMessageRoutes } from './routes/message.js';
@@ -29,6 +37,9 @@ export interface ApiServerConfig {
 	rateLimitMaxRequests?: number;
 	mcpTransportType?: 'stdio' | 'sse' | 'http';
 	mcpPort?: number;
+	// WebSocket configuration
+	enableWebSocket?: boolean;
+	webSocketConfig?: WebSocketConfig;
 }
 
 export class ApiServer {
@@ -37,6 +48,14 @@ export class ApiServer {
 	private config: ApiServerConfig;
 	private mcpServer?: McpServer;
 	private activeMcpSseTransports: Map<string, SSEServerTransport> = new Map();
+	
+	// WebSocket components
+	private httpServer?: http.Server;
+	private wss?: WebSocketServer;
+	private wsConnectionManager?: WebSocketConnectionManager;
+	private wsMessageRouter?: WebSocketMessageRouter;
+	private wsEventSubscriber?: WebSocketEventSubscriber;
+	private heartbeatInterval?: NodeJS.Timeout;
 
 	constructor(agent: MemAgent, config: ApiServerConfig) {
 		this.agent = agent;
@@ -51,7 +70,7 @@ export class ApiServer {
 
 	private async setupMcpServer(
 		transportType: 'stdio' | 'sse' | 'http',
-		port?: number
+		_port?: number
 	): Promise<void> {
 		logger.info(`[API Server] Setting up MCP server with transport type: ${transportType}`);
 		try {
@@ -67,7 +86,7 @@ export class ApiServer {
 			logger.info(`[API Server] MCP server mode: ${mcpServerMode}`);
 
 			// Load aggregator configuration if needed
-			let aggregatorConfig;
+			let aggregatorConfig: any = undefined;
 			if (mcpServerMode === 'aggregator') {
 				aggregatorConfig = await this.loadAggregatorConfig();
 			}
@@ -242,6 +261,171 @@ export class ApiServer {
 		);
 	}
 
+	/**
+	 * Set up WebSocket server and event handling
+	 */
+	private setupWebSocket(): void {
+		if (!this.config.enableWebSocket || !this.httpServer) {
+			logger.debug('[API Server] WebSocket disabled or HTTP server not available');
+			return;
+		}
+
+		const wsConfig = this.config.webSocketConfig || {};
+		
+		// Create WebSocket server
+		this.wss = new WebSocketServer({ 
+			server: this.httpServer,
+			path: wsConfig.path || '/ws',
+			...(wsConfig.maxConnections && { maxClients: wsConfig.maxConnections }),
+			...(wsConfig.enableCompression !== undefined && { perMessageDeflate: wsConfig.enableCompression })
+		});
+
+		// Initialize WebSocket components
+		this.wsConnectionManager = new WebSocketConnectionManager(
+			wsConfig.maxConnections || 1000,
+			wsConfig.connectionTimeout || 300000
+		);
+
+		this.wsMessageRouter = new WebSocketMessageRouter(
+			this.agent,
+			this.wsConnectionManager
+		);
+
+		this.wsEventSubscriber = new WebSocketEventSubscriber(
+			this.wsConnectionManager,
+			this.agent.services.eventManager
+		);
+
+		// Wire up the connection manager to notify the event subscriber
+		this.wsConnectionManager.setEventSubscriber(this.wsEventSubscriber);
+
+		// Set up WebSocket connection handler
+		this.wss.on('connection', (ws: WebSocket, request) => {
+			this.handleWebSocketConnection(ws, request);
+		});
+
+		// Start event subscription
+		this.wsEventSubscriber.subscribe();
+
+		// Set up heartbeat if configured
+		if (wsConfig.heartbeatInterval && wsConfig.heartbeatInterval > 0) {
+			this.heartbeatInterval = setInterval(() => {
+				this.wsConnectionManager?.sendHeartbeat();
+			}, wsConfig.heartbeatInterval);
+		}
+
+		// Set up graceful shutdown handling
+		process.on('SIGTERM', () => {
+			this.shutdownWebSocket();
+		});
+
+		process.on('SIGINT', () => {
+			this.shutdownWebSocket();
+		});
+
+		logger.info('[API Server] WebSocket server initialized', {
+			path: wsConfig.path || '/ws',
+			maxConnections: wsConfig.maxConnections || 1000,
+			compression: wsConfig.enableCompression !== false,
+			heartbeat: wsConfig.heartbeatInterval || 'disabled'
+		});
+	}
+
+	/**
+	 * Handle new WebSocket connection
+	 */
+	private handleWebSocketConnection(ws: WebSocket, request: http.IncomingMessage): void {
+		try {
+			// Extract session ID from query parameters if provided
+			const url = new URL(request.url || '', `http://${request.headers.host}`);
+			const sessionId = url.searchParams.get('sessionId') || undefined;
+
+			// Add connection to manager
+			const connectionId = this.wsConnectionManager!.addConnection(ws, sessionId);
+
+			logger.info('[API Server] New WebSocket connection established', {
+				connectionId,
+				sessionId,
+				origin: request.headers.origin,
+				userAgent: request.headers['user-agent']
+			});
+
+			// Set up message handler
+			ws.on('message', async (data: Buffer) => {
+				try {
+					const message = JSON.parse(data.toString()) as WebSocketMessage;
+					await this.wsMessageRouter!.routeMessage(ws, connectionId, message);
+				} catch (error) {
+					logger.error('[API Server] Error parsing WebSocket message', {
+						connectionId,
+						error: error instanceof Error ? error.message : String(error),
+						rawData: data.toString().substring(0, 200) // Log first 200 chars
+					});
+
+					// Send error response
+					if (ws.readyState === WebSocket.OPEN) {
+						ws.send(JSON.stringify({
+							event: 'error',
+							error: 'Invalid message format',
+							data: {
+								message: 'Failed to parse JSON message',
+								code: 'INVALID_JSON'
+							},
+							timestamp: Date.now()
+						}));
+					}
+				}
+			});
+
+			// Send welcome message
+			if (ws.readyState === WebSocket.OPEN) {
+				ws.send(JSON.stringify({
+					event: 'connected',
+					data: {
+						connectionId,
+						sessionId,
+						serverVersion: process.env.npm_package_version || 'unknown',
+						capabilities: ['streaming', 'tools', 'memory', 'reset']
+					},
+					timestamp: Date.now()
+				}));
+			}
+
+		} catch (error) {
+			logger.error('[API Server] Error handling WebSocket connection', {
+				error: error instanceof Error ? error.message : String(error),
+				origin: request.headers.origin
+			});
+			
+			if (ws.readyState === WebSocket.OPEN) {
+				ws.close(1011, 'Server error during connection setup');
+			}
+		}
+	}
+
+	/**
+	 * Shutdown WebSocket server gracefully
+	 */
+	private shutdownWebSocket(): void {
+		if (this.heartbeatInterval) {
+			clearInterval(this.heartbeatInterval);
+		}
+
+		if (this.wsEventSubscriber) {
+			this.wsEventSubscriber.dispose();
+		}
+
+		if (this.wsConnectionManager) {
+			this.wsConnectionManager.dispose();
+		}
+
+		if (this.wss) {
+			this.wss.close(() => {
+				logger.info('[API Server] WebSocket server closed');
+			});
+		}
+	}
+
 	private setupMiddleware(): void {
 		// Security middleware
 		this.app.use(
@@ -288,12 +472,46 @@ export class ApiServer {
 
 	private setupRoutes(): void {
 		// Health check endpoint
-		this.app.get('/health', (req: Request, res: Response) => {
-			res.json({
+		this.app.get('/health', (_req: Request, res: Response) => {
+			const healthData: any = {
 				status: 'healthy',
 				timestamp: new Date().toISOString(),
 				uptime: process.uptime(),
 				version: process.env.npm_package_version || 'unknown',
+			};
+
+			// Add WebSocket health if enabled
+			if (this.config.enableWebSocket) {
+				healthData.websocket = {
+					enabled: true,
+					active: this.isWebSocketActive(),
+					stats: this.getWebSocketStats()
+				};
+			}
+
+			res.json(healthData);
+		});
+
+		// WebSocket stats endpoint
+		this.app.get('/ws/stats', (_req: Request, res: Response) => {
+			if (!this.config.enableWebSocket) {
+				return res.status(404).json({
+					success: false,
+					error: {
+						code: 'WEBSOCKET_DISABLED',
+						message: 'WebSocket is not enabled'
+					}
+				});
+			}
+
+			const stats = this.getWebSocketStats();
+			return res.json({
+				success: true,
+				data: {
+					enabled: true,
+					active: this.isWebSocketActive(),
+					...stats
+				}
 			});
 		});
 
@@ -374,7 +592,15 @@ export class ApiServer {
 
 		return new Promise((resolve, reject) => {
 			try {
-				const server = this.app.listen(this.config.port, this.config.host || 'localhost', () => {
+				// Create HTTP server from Express app
+				this.httpServer = http.createServer(this.app);
+				
+				// Set up WebSocket server if enabled
+				if (this.config.enableWebSocket) {
+					this.setupWebSocket();
+				}
+
+				this.httpServer.listen(this.config.port, this.config.host || 'localhost', () => {
 					logger.info(
 						`API Server started on ${this.config.host || 'localhost'}:${this.config.port}`,
 						null,
@@ -387,10 +613,18 @@ export class ApiServer {
 							'green'
 						);
 					}
+					if (this.config.enableWebSocket) {
+						const wsPath = this.config.webSocketConfig?.path || '/ws';
+						logger.info(
+							`[API Server] WebSocket server available at ws://${this.config.host || 'localhost'}:${this.config.port}${wsPath}`,
+							null,
+							'green'
+						);
+					}
 					resolve();
 				});
 
-				server.on('error', err => {
+				this.httpServer.on('error', err => {
 					const errorMessage = err.message || err.toString() || 'Unknown error';
 					logger.error('Failed to start API server:', errorMessage);
 					logger.error('Error details:', err);
@@ -400,7 +634,8 @@ export class ApiServer {
 				// Graceful shutdown
 				process.on('SIGTERM', () => {
 					logger.info('SIGTERM received, shutting down API server gracefully');
-					server.close(() => {
+					this.shutdownWebSocket();
+					this.httpServer?.close(() => {
 						logger.info('API server stopped');
 						process.exit(0);
 					});
@@ -408,7 +643,8 @@ export class ApiServer {
 
 				process.on('SIGINT', () => {
 					logger.info('SIGINT received, shutting down API server gracefully');
-					server.close(() => {
+					this.shutdownWebSocket();
+					this.httpServer?.close(() => {
 						logger.info('API server stopped');
 						process.exit(0);
 					});
@@ -421,5 +657,36 @@ export class ApiServer {
 
 	public getApp(): Application {
 		return this.app;
+	}
+
+	/**
+	 * Get WebSocket statistics
+	 */
+	public getWebSocketStats(): any {
+		if (!this.wsConnectionManager || !this.wsEventSubscriber) {
+			return null;
+		}
+
+		return {
+			connections: this.wsConnectionManager.getStats(),
+			events: this.wsEventSubscriber.getStats(),
+			router: this.wsMessageRouter?.getStats()
+		};
+	}
+
+	/**
+	 * Send system message to all WebSocket connections
+	 */
+	public broadcastSystemMessage(message: string, level: 'info' | 'warning' | 'error' = 'info'): void {
+		if (this.wsEventSubscriber) {
+			this.wsEventSubscriber.sendSystemMessage(message, level);
+		}
+	}
+
+	/**
+	 * Check if WebSocket is enabled and active
+	 */
+	public isWebSocketActive(): boolean {
+		return !!(this.config.enableWebSocket && this.wss && this.wsEventSubscriber?.isActive());
 	}
 }
