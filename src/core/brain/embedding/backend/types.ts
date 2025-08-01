@@ -96,9 +96,80 @@ export interface OpenAIEmbeddingConfig extends EmbeddingConfig {
 }
 
 /**
+ * Gemini-specific embedding configuration
+ */
+export interface GeminiEmbeddingConfig extends EmbeddingConfig {
+	type: 'gemini';
+	model?: 'text-embedding-004' | 'gemini-embedding-001' | 'embedding-001';
+	/** Custom dimensions for Gemini models */
+	dimensions?: number;
+}
+
+/**
+ * Ollama-specific embedding configuration
+ */
+export interface OllamaEmbeddingConfig extends EmbeddingConfig {
+	type: 'ollama';
+	model?: 'nomic-embed-text' | 'all-minilm' | 'mxbai-embed-large' | string;
+	/** Custom dimensions if supported by the model */
+	dimensions?: number;
+}
+
+/**
+ * Voyage-specific embedding configuration
+ */
+export interface VoyageEmbeddingConfig extends EmbeddingConfig {
+	type: 'voyage';
+	model?: 'voyage-3-large' | 'voyage-3' | 'voyage-2';
+}
+
+/**
+ * Qwen-specific embedding configuration
+ */
+export interface QwenEmbeddingConfig extends EmbeddingConfig {
+	type: 'qwen';
+	model?: 'text-embedding-v3';
+	/** Custom dimensions for Qwen models */
+	dimensions?: 1024 | 768 | 512;
+}
+
+/**
+ * AWS Bedrock-specific embedding configuration
+ */
+export interface AWSBedrockEmbeddingConfig extends EmbeddingConfig {
+	type: 'aws-bedrock';
+	model?: 'amazon.titan-embed-text-v2:0' | 'cohere.embed-english-v3';
+	region?: string;
+	accessKeyId?: string;
+	secretAccessKey?: string;
+	sessionToken?: string;
+	/** Custom dimensions for Titan V2 */
+	dimensions?: 1024 | 512 | 256;
+}
+
+/**
+ * LM Studio-specific embedding configuration
+ */
+export interface LMStudioEmbeddingConfig extends EmbeddingConfig {
+	type: 'lmstudio';
+	model?: 'nomic-embed-text-v1.5' | 'text-embedding-nomic-embed-text-v1.5' | string;
+	/** Base URL for LM Studio server, defaults to http://localhost:1234/v1 */
+	baseUrl?: string;
+	/** Custom dimensions if supported by the model */
+	dimensions?: number;
+}
+
+/**
  * Union type for all supported backend configurations
  */
-export type BackendConfig = OpenAIEmbeddingConfig;
+export type BackendConfig =
+	| OpenAIEmbeddingConfig
+	| GeminiEmbeddingConfig
+	| OllamaEmbeddingConfig
+	| VoyageEmbeddingConfig
+	| QwenEmbeddingConfig
+	| AWSBedrockEmbeddingConfig
+	| LMStudioEmbeddingConfig;
 
 /**
  * Result from embedding operation with metadata
@@ -142,13 +213,18 @@ export interface BatchEmbeddingResult {
  * Base error class for embedding operations
  */
 export class EmbeddingError extends Error {
-	constructor(
-		message: string,
-		public readonly provider?: string,
-		public override readonly cause?: Error
-	) {
+	public readonly provider?: string;
+	public override readonly cause?: Error;
+
+	constructor(message: string, provider?: string, cause?: Error) {
 		super(message);
 		this.name = 'EmbeddingError';
+		if (provider !== undefined) {
+			this.provider = provider;
+		}
+		if (cause !== undefined) {
+			this.cause = cause;
+		}
 	}
 }
 

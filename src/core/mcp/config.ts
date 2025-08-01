@@ -14,6 +14,12 @@ export const StdioServerConfigSchema = z
 			.describe(
 				'Environment variables to set for the server process (e.g., API keys, configuration)'
 			),
+		enabled: z
+			.boolean()
+			.default(true)
+			.describe(
+				'Whether this server is enabled. Disabled servers will be skipped during initialization'
+			),
 		timeout: z
 			.number()
 			.int()
@@ -44,6 +50,12 @@ export const SseServerConfigSchema = z
 			.describe(
 				'HTTP headers for authentication or configuration (e.g., {"Authorization": "Bearer token"})'
 			),
+		enabled: z
+			.boolean()
+			.default(true)
+			.describe(
+				'Whether this server is enabled. Disabled servers will be skipped during initialization'
+			),
 		timeout: z
 			.number()
 			.int()
@@ -61,18 +73,24 @@ export const SseServerConfigSchema = z
 // Input type for user-facing API (pre-parsing)
 export type SseServerConfig = z.input<typeof SseServerConfigSchema>;
 
-export const HttpServerConfigSchema = z
+export const StreamableHttpServerConfigSchema = z
 	.object({
-		type: z.literal('http'),
+		type: z.literal('streamable-http'),
 		url: z
 			.string()
 			.url()
-			.describe('Base URL of the HTTP MCP server (e.g., "https://api.example.com")'),
+			.describe('Base URL of the streamable HTTP MCP server (e.g., "https://mcp.semgrep.ai/mcp")'),
 		headers: z
 			.record(z.string())
 			.default({})
 			.describe(
 				'HTTP headers sent with every request (e.g., {"Authorization": "Bearer token", "User-Agent": "MyApp"})'
+			),
+		enabled: z
+			.boolean()
+			.default(true)
+			.describe(
+				'Whether this server is enabled. Disabled servers will be skipped during initialization'
 			),
 		timeout: z
 			.number()
@@ -89,7 +107,7 @@ export const HttpServerConfigSchema = z
 	})
 	.strict();
 // Input type for user-facing API (pre-parsing)
-export type HttpServerConfig = z.input<typeof HttpServerConfigSchema>;
+export type StreamableHttpServerConfig = z.input<typeof StreamableHttpServerConfigSchema>;
 
 export const AggregatorConfigSchema = z
 	.object({
@@ -99,7 +117,7 @@ export const AggregatorConfigSchema = z
 				z.discriminatedUnion('type', [
 					StdioServerConfigSchema,
 					SseServerConfigSchema,
-					HttpServerConfigSchema,
+					StreamableHttpServerConfigSchema,
 				])
 			)
 			.describe('MCP servers to aggregate from (server name -> configuration)'),
@@ -140,12 +158,12 @@ export type AggregatorConfig = z.infer<typeof AggregatorConfigSchema>;
 export const McpServerConfigSchema = z
 	.discriminatedUnion(
 		'type',
-		[StdioServerConfigSchema, SseServerConfigSchema, HttpServerConfigSchema],
+		[StdioServerConfigSchema, SseServerConfigSchema, StreamableHttpServerConfigSchema],
 		{
 			errorMap: (issue, ctx) => {
 				if (issue.code === z.ZodIssueCode.invalid_union_discriminator) {
 					return {
-						message: `Invalid server type. Expected 'stdio', 'sse', or 'http'.`,
+						message: `Invalid server type. Expected 'stdio', 'sse', or 'streamable-http'.`,
 					};
 				}
 				return { message: ctx.defaultError };
@@ -153,7 +171,7 @@ export const McpServerConfigSchema = z
 		}
 	)
 	.describe(
-		'MCP server configuration - choose stdio for local processes, sse for real-time streams, or http for REST APIs'
+		'MCP server configuration - choose stdio for local processes, sse for real-time streams, or streamable-http for streaming HTTP servers'
 	);
 
 export const ExtendedMcpServerConfigSchema = z
@@ -162,21 +180,23 @@ export const ExtendedMcpServerConfigSchema = z
 		[
 			StdioServerConfigSchema,
 			SseServerConfigSchema,
-			HttpServerConfigSchema,
+			StreamableHttpServerConfigSchema,
 			AggregatorConfigSchema,
 		],
 		{
 			errorMap: (issue, ctx) => {
 				if (issue.code === z.ZodIssueCode.invalid_union_discriminator) {
 					return {
-						message: `Invalid server type. Expected 'stdio', 'sse', 'http', or 'aggregator'.`,
+						message: `Invalid configuration type. Expected transport types: 'stdio', 'sse', 'streamable-http' or operational mode: 'aggregator'.`,
 					};
 				}
 				return { message: ctx.defaultError };
 			},
 		}
 	)
-	.describe('Extended MCP server configuration including aggregator mode');
+	.describe(
+		'MCP configuration - client transport types (stdio, sse, streamable-http) or server mode (aggregator)'
+	);
 
 export const ServerConfigsSchema = z
 	.record(McpServerConfigSchema)

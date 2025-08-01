@@ -103,6 +103,61 @@ export const searchMemoryTool: InternalTool = {
 				similarity_threshold: args.similarity_threshold || 0.3,
 			});
 
+			// Check if embeddings are disabled for this session
+			if (context?.services?.embeddingManager?.getSessionState()?.isDisabled()) {
+				const reason = context.services.embeddingManager.getSessionState().getDisabledReason();
+				logger.debug(
+					'MemorySearch: Embeddings disabled for this session, returning empty results',
+					{
+						reason,
+					}
+				);
+				return {
+					success: true,
+					query: args.query || '',
+					results: [],
+					metadata: {
+						totalResults: 0,
+						searchTime: Date.now() - startTime,
+						embeddingTime: 0,
+						maxSimilarity: 0,
+						minSimilarity: 0,
+						averageSimilarity: 0,
+						knowledgeResults: 0,
+						reflectionResults: 0,
+						searchMode: 'knowledge',
+						usedFallback: true,
+					},
+					timestamp: new Date().toISOString(),
+				};
+			}
+
+			// Check if embedding manager indicates no available embeddings
+			if (
+				context?.services?.embeddingManager &&
+				!context.services.embeddingManager.hasAvailableEmbeddings()
+			) {
+				logger.debug('MemorySearch: No available embeddings, returning empty results');
+				return {
+					success: true,
+					query: args.query || '',
+					results: [],
+					metadata: {
+						totalResults: 0,
+						searchTime: Date.now() - startTime,
+						embeddingTime: 0,
+						maxSimilarity: 0,
+						minSimilarity: 0,
+						averageSimilarity: 0,
+						knowledgeResults: 0,
+						reflectionResults: 0,
+						searchMode: 'knowledge',
+						usedFallback: true,
+					},
+					timestamp: new Date().toISOString(),
+				};
+			}
+
 			// Validate required parameters
 			if (!args.query || typeof args.query !== 'string' || args.query.trim().length === 0) {
 				throw new Error('Query is required and must be a non-empty string');
@@ -139,7 +194,44 @@ export const searchMemoryTool: InternalTool = {
 				queryPreview: query.substring(0, 50),
 			});
 
-			const queryEmbedding = await embedder?.embed(query);
+			let queryEmbedding;
+			try {
+				queryEmbedding = await embedder?.embed(query);
+			} catch (embedError) {
+				logger.error('MemorySearch: Failed to generate embedding, disabling embeddings globally', {
+					error: embedError instanceof Error ? embedError.message : String(embedError),
+					provider: embedder.getConfig().type,
+				});
+
+				// Immediately disable embeddings globally on first failure
+				if (context?.services?.embeddingManager && embedError instanceof Error) {
+					context.services.embeddingManager.handleRuntimeFailure(
+						embedError,
+						embedder.getConfig().type
+					);
+				}
+
+				// Return empty results since embeddings are now disabled
+				return {
+					success: true,
+					query: args.query || '',
+					results: [],
+					metadata: {
+						totalResults: 0,
+						searchTime: Date.now() - startTime,
+						embeddingTime: 0,
+						maxSimilarity: 0,
+						minSimilarity: 0,
+						averageSimilarity: 0,
+						knowledgeResults: 0,
+						reflectionResults: 0,
+						searchMode: 'knowledge',
+						usedFallback: true,
+					},
+					timestamp: new Date().toISOString(),
+				};
+			}
+
 			const embeddingTime = Date.now() - embeddingStartTime;
 
 			logger.debug('MemorySearch: Embedding generated successfully', {
@@ -308,6 +400,16 @@ export const searchMemoryTool: InternalTool = {
 				query: args.query?.substring(0, 50) || 'undefined',
 				processingTime: `${totalTime}ms`,
 			});
+
+			// Check if this is a runtime failure that should disable embeddings globally
+			if (context?.services?.embeddingManager && error instanceof Error) {
+				const embeddingManager = context.services.embeddingManager;
+				if (embeddingManager && typeof embeddingManager.handleRuntimeFailure === 'function') {
+					const embedder = embeddingManager.getEmbedder('default');
+					const providerType = embedder?.getConfig()?.type || 'unknown';
+					embeddingManager.handleRuntimeFailure(error, providerType);
+				}
+			}
 
 			return {
 				success: false,

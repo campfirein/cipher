@@ -1,5 +1,6 @@
 import { ServerConfigsSchema } from '../../mcp/config.js';
 import { LLMConfigSchema } from '../llm/config.js';
+import { EmbeddingConfigSchema } from '../embedding/config.js';
 import { z } from 'zod';
 export const AgentCardSchema = z
 	.object({
@@ -69,6 +70,12 @@ export const AgentConfigSchema = z
 		evalLlm: LLMConfigSchema.optional().describe(
 			'Evaluation LLM configuration for non-thinking tasks (optional, falls back to main LLM if not provided)'
 		),
+		embedding: z
+			.union([EmbeddingConfigSchema, z.object({ disabled: z.boolean() }), z.boolean(), z.null()])
+			.optional()
+			.describe(
+				'Embedding configuration for the agent (optional, falls back to environment auto-detection if not provided). Set to false, null, or {disabled: true} to disable embeddings.'
+			),
 		sessions: z
 			.object({
 				maxSessions: z

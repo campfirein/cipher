@@ -91,12 +91,12 @@ export function validateMcpServerConfig(
 					suggestedAction: 'Provide a valid command to execute',
 				});
 			}
-		} else if (serverConfig.type === 'sse' || serverConfig.type === 'http') {
+		} else if (serverConfig.type === 'sse' || serverConfig.type === 'streamable-http') {
 			const url = serverConfig.url;
 			if (!url) {
 				errors.push({
 					type: 'schema_validation',
-					message: 'URL is required for http/sse server types',
+					message: 'URL is required for streamable-http/sse server types',
 					field: 'url',
 					suggestedAction: 'Provide a non-empty url string',
 				});

@@ -502,7 +502,40 @@ export const memoryOperationTool: InternalTool = {
 							factLength: (fact || '').length,
 						});
 
-						const embedding = await embedder.embed(fact || '');
+						let embedding;
+						try {
+							embedding = await embedder.embed(fact || '');
+						} catch (embedError) {
+							logger.error(
+								'MemoryOperation: Failed to generate embedding, disabling embeddings globally',
+								{
+									error: embedError instanceof Error ? embedError.message : String(embedError),
+									factIndex: i,
+									provider: embedder.getConfig().type,
+								}
+							);
+
+							// Immediately disable embeddings globally on first failure
+							if (context?.services?.embeddingManager && embedError instanceof Error) {
+								context.services.embeddingManager.handleRuntimeFailure(
+									embedError,
+									embedder.getConfig().type
+								);
+							}
+
+							// Fallback to ADD operation since embeddings are now disabled
+							memoryAction = {
+								id: generateMemoryId(i),
+								text: fact || '',
+								event: 'ADD',
+								tags,
+								confidence: 0.6,
+								reasoning: `Fallback to ADD due to embedding failure - embeddings disabled globally`,
+								...(codePattern && { code_pattern: codePattern }),
+							};
+							fallbackDecisionsUsed++;
+							continue;
+						}
 
 						// Search for similar memories
 						const searchResults = await vectorStore.search(embedding, options.maxSimilarResults);
@@ -1407,7 +1440,29 @@ async function persistMemoryActions(
 	for (const action of actionsToProcess) {
 		try {
 			// Generate embedding for the memory text
-			const embedding = await embedder.embed(action.text || '');
+			let embedding;
+			try {
+				embedding = await embedder.embed(action.text || '');
+			} catch (embedError) {
+				logger.error(
+					'MemoryOperation: Failed to generate embedding for persistence, disabling embeddings globally',
+					{
+						error: embedError instanceof Error ? embedError.message : String(embedError),
+						actionId: action.id,
+						provider: embedder.getConfig().type,
+					}
+				);
+
+				// Immediately disable embeddings globally on first failure
+				// Note: We don't have context here, so we'll just log the error
+				// The global disable will be handled by the calling function
+				logger.error(
+					'MemoryOperation: Cannot disable embeddings globally from persistMemoryActions - error logged'
+				);
+
+				// Skip this action and continue with others
+				continue;
+			}
 
 			// Determine quality source for V2 payload
 			let qualitySource: 'similarity' | 'llm' | 'heuristic' = 'heuristic';

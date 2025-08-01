@@ -1,5 +1,6 @@
 import { InternalTool, InternalToolContext } from '../../types.js';
 import { logger } from '../../../../logger/index.js';
+import { SessionEmbeddingState } from '../../../embedding/manager.js';
 // Import helpers from memory_operation
 import {
 	parseLLMDecision,
@@ -425,6 +426,63 @@ export const extractAndOperateMemoryTool: InternalTool = {
 	},
 	handler: async (args: any, context?: InternalToolContext) => {
 		try {
+			// Check if embeddings are disabled for this session
+			const sessionState = context?.services?.embeddingManager?.getSessionState?.();
+			if (sessionState?.isDisabled()) {
+				const reason = sessionState.getDisabledReason();
+				logger.debug(
+					'ExtractAndOperateMemory: Embeddings disabled for this session, skipping memory operations',
+					{ reason }
+				);
+				return {
+					success: true,
+					mode: 'chat-only',
+					message: `Memory operations disabled: ${reason}`,
+					extractedFacts: 0,
+					memoryActions: 0,
+					skipped: true,
+				};
+			}
+
+			// Check if embedding manager indicates no available embeddings
+			if (
+				context?.services?.embeddingManager &&
+				!context.services.embeddingManager.hasAvailableEmbeddings()
+			) {
+				logger.debug(
+					'ExtractAndOperateMemory: No available embeddings, skipping memory operations'
+				);
+				return {
+					success: true,
+					mode: 'chat-only',
+					message: 'No available embeddings - operating in chat-only mode',
+					extractedFacts: 0,
+					memoryActions: 0,
+					skipped: true,
+				};
+			}
+
+			// Check if any resilient embedders are disabled
+			const embeddingStatus = context?.services?.embeddingManager?.getEmbeddingStatus();
+			if (embeddingStatus) {
+				const disabledEmbedders = Object.values(embeddingStatus).filter(
+					(status: any) => status.status === 'DISABLED'
+				);
+				if (disabledEmbedders.length > 0) {
+					logger.debug(
+						'ExtractAndOperateMemory: Some embedders are disabled, skipping memory operations'
+					);
+					return {
+						success: true,
+						mode: 'chat-only',
+						message: 'Embedders are disabled - operating in chat-only mode',
+						extractedFacts: 0,
+						memoryActions: 0,
+						skipped: true,
+					};
+				}
+			}
+
 			// Step 1: Extract facts from interaction(s)
 			let knowledgeArray: string[];
 			if (!args.interaction) {
@@ -635,24 +693,33 @@ export const extractAndOperateMemoryTool: InternalTool = {
 					try {
 						embedding = await embedder.embed(fact);
 					} catch (embedError) {
-						logger.warn(
-							`ExtractAndOperateMemory: Failed to embed fact ${i + 1}, using default action`,
+						logger.error(
+							`ExtractAndOperateMemory: Failed to embed fact ${i + 1}, disabling embeddings for session`,
 							{
 								error: embedError instanceof Error ? embedError.message : String(embedError),
 								factPreview: fact.substring(0, 50),
+								provider: embedder.getConfig().type,
 							}
 						);
 
-						// Fallback to ADD without embedding
-						memoryActions.push({
-							id: generateSafeMemoryId(i),
-							text: fact,
-							event: 'ADD',
-							tags: extractTechnicalTags(fact),
-							confidence: 0.5,
-							reasoning: 'Fallback ADD due to embedding failure',
-						});
-						continue;
+						// Disable embeddings for this session on failure
+						if (context?.services?.embeddingManager && embedError instanceof Error) {
+							context.services.embeddingManager.handleRuntimeFailure(
+								embedError,
+								embedder.getConfig().type
+							);
+						}
+
+						// Return immediately with chat-only mode since embeddings are now disabled
+						return {
+							success: true,
+							mode: 'chat-only',
+							message: `Embeddings disabled due to failure: ${embedError instanceof Error ? embedError.message : String(embedError)}`,
+							extractedFacts: significantFacts.length,
+							memoryActions: 0,
+							skipped: true,
+							error: embedError instanceof Error ? embedError.message : String(embedError),
+						};
 					}
 
 					// Perform similarity search with error handling
@@ -924,6 +991,15 @@ export const extractAndOperateMemoryTool: InternalTool = {
 								error: persistError instanceof Error ? persistError.message : String(persistError),
 							}
 						);
+
+						// Check if this is a runtime failure that should disable embeddings globally
+						if (context?.services?.embeddingManager && persistError instanceof Error) {
+							context.services.embeddingManager.handleRuntimeFailure(
+								persistError,
+								embedder.getConfig().type
+							);
+						}
+
 						// Continue with other actions even if one fails
 					}
 				}

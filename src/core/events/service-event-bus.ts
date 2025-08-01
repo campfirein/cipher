@@ -30,7 +30,7 @@ export class ServiceEventBus extends TypedEventEmitter<ServiceEventMap> {
 		this.enablePersistence = options.enablePersistence ?? false;
 		this.eventPersistence = options.eventPersistence!;
 
-		logger.info('ServiceEventBus initialized', {
+		logger.debug('ServiceEventBus initialized', {
 			instanceId: this.instanceId,
 			maxListeners: options.maxListeners ?? 200,
 			enablePersistence: this.enablePersistence,

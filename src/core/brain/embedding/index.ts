@@ -54,7 +54,6 @@ export type {
 	BackendConfig,
 	EmbeddingResult,
 	BatchEmbeddingResult,
-	EmbeddingFactory,
 	HealthCheckResult,
 	EmbedderInfo,
 	EmbeddingStats,
@@ -74,17 +73,16 @@ export {
 // Export factory functions
 export {
 	createEmbedder,
-	createOpenAIEmbedder,
 	createEmbedderFromEnv,
-	createDefaultEmbedder,
-	isEmbeddingFactory,
 	getSupportedProviders,
-	getEmbeddingFactory,
-	registerEmbeddingFactory,
+	isProviderSupported,
+	validateEmbeddingConfiguration,
+	EMBEDDING_FACTORIES,
+	type EmbeddingFactory,
 } from './factory.js';
 
 // Export manager
-export { EmbeddingManager } from './manager.js';
+export { EmbeddingManager, SessionEmbeddingState } from './manager.js';
 
 // Export configuration utilities
 export {

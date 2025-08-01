@@ -87,6 +87,7 @@ export class VectorStoreManager {
 
 	// In VectorStoreManager, track if in-memory is used as fallback or primary
 	private usedFallback = false;
+	private factoryFallback = false;
 
 	/**
 	 * Creates a new VectorStoreManager instance
@@ -95,6 +96,15 @@ export class VectorStoreManager {
 	 * @throws {Error} If configuration is invalid
 	 */
 	constructor(config: VectorStoreConfig) {
+		// Check for factory-level fallback marker before validation
+		const configWithFallback = config as any;
+		if (configWithFallback._fallbackFrom) {
+			this.factoryFallback = true;
+			this.usedFallback = true;
+			// Remove the marker before validation
+			delete configWithFallback._fallbackFrom;
+		}
+
 		// Validate configuration using Zod schema
 		const validationResult = VectorStoreSchema.safeParse(config);
 		if (!validationResult.success) {
@@ -115,6 +125,7 @@ export class VectorStoreManager {
 			type: this.config.type,
 			collection: this.config.collectionName,
 			dimension: this.config.dimension,
+			fallback: this.usedFallback,
 		});
 	}
 
@@ -203,7 +214,10 @@ export class VectorStoreManager {
 	 * @throws {VectorStoreConnectionError} If backend fails to connect
 	 */
 	public async connect(): Promise<VectorStore> {
-		this.usedFallback = false; // Always reset at the start of each connection attempt
+		// Reset runtime fallback flag but preserve factory fallback
+		if (!this.factoryFallback) {
+			this.usedFallback = false;
+		}
 		// Check if already connected
 		if (this.connected && this.store) {
 			this.logger.debug(`${LOG_PREFIXES.MANAGER} Already connected`, {
@@ -224,7 +238,10 @@ export class VectorStoreManager {
 			try {
 				this.store = await this.createBackend();
 				await this.store.connect();
-				this.usedFallback = false; // Not a fallback if primary backend succeeded
+				// Only reset fallback flag if this wasn't a factory-level fallback
+				if (!this.factoryFallback) {
+					this.usedFallback = false; // Not a fallback if primary backend succeeded
+				}
 
 				this.logger.debug(`${LOG_PREFIXES.MANAGER} Connected to ${this.config.collectionName}`, {
 					type: this.backendMetadata.type,
@@ -257,8 +274,10 @@ export class VectorStoreManager {
 						originalType: this.config.type,
 					});
 				} else {
-					// In-memory is primary, not a fallback
-					this.usedFallback = false;
+					// In-memory is primary, not a fallback (unless factory fallback)
+					if (!this.factoryFallback) {
+						this.usedFallback = false;
+					}
 					throw backendError; // Re-throw if already using in-memory
 				}
 			}

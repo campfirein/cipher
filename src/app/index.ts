@@ -66,8 +66,12 @@ program
 	.option('--mode <mode>', 'The application mode for cipher memory agent - cli | mcp | api', 'cli')
 	.option('--port <port>', 'Port for API server (only used with --mode api)', '3000')
 	.option('--host <host>', 'Host for API server (only used with --mode api)', 'localhost')
-	.option('--mcp-transport-type <type>', 'MCP transport type (stdio, sse, http)', 'stdio')
-	.option('--mcp-port <port>', 'Port for MCP server (only used with sse, http)', '3000');
+	.option(
+		'--mcp-transport-type <type>',
+		'MCP transport type (stdio, sse, streamable-http)',
+		'stdio'
+	)
+	.option('--mcp-port <port>', 'Port for MCP server (only used with sse, streamable-http)', '3000');
 
 program
 	.description(
@@ -136,7 +140,7 @@ program
 		) {
 			// Use MCP-safe error reporting
 			const errorMsg =
-				'No API key or Ollama configuration found, please set at least one of OPENAI_API_KEY, ANTHROPIC_API_KEY, OPENROUTER_API_KEY, or OLLAMA_BASE_URL in your environment variables \nAvailable providers: OpenAI, Anthropic, OpenRouter, Ollama';
+				'No API key or Ollama configuration found, please set at least one of OPENAI_API_KEY, ANTHROPIC_API_KEY, OPENROUTER_API_KEY, or OLLAMA_BASE_URL in your environment variables \nAvailable providers: OpenAI, Anthropic, OpenRouter, Ollama, Qwen';
 
 			if (opts.mode === 'mcp') {
 				process.stderr.write(`[CIPHER-MCP] ERROR: ${errorMsg}\n`);
@@ -188,7 +192,7 @@ program
 				}
 			}
 
-			agent = new MemAgent(cfg);
+			agent = new MemAgent(cfg, opts.mode);
 
 			// Start the agent (initialize async services)
 			await agent.start();

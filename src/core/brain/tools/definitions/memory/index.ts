@@ -21,6 +21,7 @@ import {
 
 // Import types
 import type { InternalTool } from '../../types.js';
+import { logger } from '../../../../logger/index.js';
 
 // Export individual tools
 export {
@@ -33,8 +34,10 @@ export {
 };
 
 // Array of all memory tools (dynamic based on LLM context)
-export async function getMemoryToolsArray(): Promise<InternalTool[]> {
-	const toolMap = await getAllMemoryToolDefinitions();
+export async function getMemoryToolsArray(
+	options: { embeddingEnabled?: boolean } = {}
+): Promise<InternalTool[]> {
+	const toolMap = await getAllMemoryToolDefinitions(options);
 	return Object.values(toolMap);
 }
 
@@ -45,7 +48,26 @@ export async function getMemoryToolsArray(): Promise<InternalTool[]> {
 /**
  * Get all memory tools as a map
  */
-export async function getMemoryTools(): Promise<Record<string, InternalTool>> {
+export async function getMemoryTools(
+	options: { embeddingEnabled?: boolean } = {}
+): Promise<Record<string, InternalTool>> {
+	const { embeddingEnabled = true } = options;
+
+	// If embeddings are disabled, exclude all embedding-dependent tools
+	if (!embeddingEnabled) {
+		logger.warn('Embeddings disabled - excluding all embedding-dependent memory tools', {
+			excludedTools: [
+				'cipher_extract_and_operate_memory',
+				'cipher_memory_search',
+				'cipher_store_reasoning_memory',
+				'cipher_extract_reasoning_steps',
+				'cipher_evaluate_reasoning',
+				'cipher_search_reasoning_patterns',
+			],
+		});
+		return {};
+	}
+
 	return {
 		cipher_extract_and_operate_memory: extractAndOperateMemoryTool,
 		cipher_memory_search: searchMemoryTool,
@@ -59,8 +81,17 @@ export async function getMemoryTools(): Promise<Record<string, InternalTool>> {
 /**
  * Get memory tool definitions for registration
  */
-export async function getAllMemoryToolDefinitions(): Promise<Record<string, InternalTool>> {
-	// Base tools always available
+export async function getAllMemoryToolDefinitions(
+	options: { embeddingEnabled?: boolean } = {}
+): Promise<Record<string, InternalTool>> {
+	const { embeddingEnabled = true } = options;
+
+	// If embeddings are disabled, return empty tools
+	if (!embeddingEnabled) {
+		return {};
+	}
+
+	// Base tools always available when embeddings are enabled
 	const tools: Record<string, InternalTool> = {
 		extract_and_operate_memory: extractAndOperateMemoryTool,
 		memory_search: searchMemoryTool,

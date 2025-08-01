@@ -21,6 +21,8 @@
 
 Cipher is an opensource memory layer specifically designed for coding agents. Compatible with **Cursor, Windsurf, Claude Desktop, Claude Code, Gemini CLI, AWS's Kiro, VS Code, and Roo Code** through MCP, and coding agents, such as **Kimi K2**. (see more on [examples](./examples))
 
+Built by [Byterover team](https://byterover.dev/)
+
 **Key Features:**
 
 - ⁠MCP integration with any IDE you want.
@@ -84,30 +86,12 @@ cipher --mode mcp
 
 ## Configuration
 
-Configure Cipher using environment variables and YAML config:
-
-### Environment Variables (.env)
-
-```bash
-# Required: At least one API key (except OPENAI_API_KEY is always required for embedding)
-OPENAI_API_KEY=your_openai_api_key
-ANTHROPIC_API_KEY=your_anthropic_api_key
-OPENROUTER_API_KEY=your_openrouter_api_key
-
-# Ollama (self-hosted, no API key needed)
-OLLAMA_BASE_URL=http://localhost:11434/v1
-
-# Optional
-CIPHER_LOG_LEVEL=info
-NODE_ENV=production
-```
-
 ### Agent Configuration (memAgent/cipher.yml)
 
 ```yaml
 # LLM Configuration
 llm:
-  provider: openai # openai, anthropic, openrouter, ollama
+  provider: openai # openai, anthropic, openrouter, ollama, qwen
   model: gpt-4-turbo
   apiKey: $OPENAI_API_KEY
 
@@ -122,15 +106,137 @@ mcpServers:
     args: ['-y', '@modelcontextprotocol/server-filesystem', '.']
 ```
 
-## Capabilities
+## Embedding Configuration
 
-- **Multiple Operation Modes**: CLI interactive, one-shot commands, REST API server, MCP server
-- **Session Management**: Create, switch, and manage multiple conversation sessions
-- **Memory Integration**: Persistent memory that learns from every interaction
-- **MCP Protocol Support**: Full Model Context Protocol integration for tools and resources
-- **Multi-LLM Support**: OpenAI, Anthropic, OpenRouter, and Ollama compatibility
-- **Knowledge Graph**: Structured memory with entity relationships (Neo4j, in-memory)
-- **Real-time Learning**: Memory layers that improve automatically with usage
+Configure embeddings in `memAgent/cipher.yml`. If not specified, uses automatic fallback based on your LLM provider. Below is the table of fallback embedding models:
+
+### Supported Providers
+
+| Provider         | Config              | Fallback Model                 | Fixed Dimensions           |
+| ---------------- | ------------------- | ------------------------------ | -------------------------- |
+| **OpenAI**       | `type: openai`      | `text-embedding-3-small`       | No                         |
+| **Gemini**       | `type: gemini`      | `gemini-embedding-001`         | No                         |
+| **Qwen**         | `type: qwen`        | `text-embedding-v3`            | Yes (1024, 768, 512)       |
+| **Voyage**       | `type: voyage`      | `voyage-3-large`               | Yes (1024, 256, 512, 2048) |
+| **AWS Bedrock**  | `type: aws-bedrock` | `amazon.titan-embed-text-v2:0` | Yes (1024, 512, 256)       |
+| **Azure OpenAI** | `type: openai`      | `text-embedding-3-small`       | No                         |
+| **Ollama**       | `type: ollama`      | `nomic-embed-text`             | No                         |
+
+### Configuration Examples
+
+```yaml
+# OpenAI
+embedding:
+  type: openai
+  model: text-embedding-3-small
+  apiKey: $OPENAI_API_KEY
+
+# Qwen (fixed dimensions - must specify)
+embedding:
+  type: qwen
+  model: text-embedding-v3
+  apiKey: $QWEN_API_KEY
+  dimensions: 1024  # Required: 1024, 768, or 512
+
+# AWS Bedrock (fixed dimensions - must specify)
+embedding:
+  type: aws-bedrock
+  model: amazon.titan-embed-text-v2:0
+  region: $AWS_REGION
+  accessKeyId: $AWS_ACCESS_KEY_ID
+  secretAccessKey: $AWS_SECRET_ACCESS_KEY
+  dimensions: 1024  # Required: 1024, 512, or 256
+
+# Azure OpenAI
+embedding:
+  type: openai
+  model: text-embedding-3-small
+  apiKey: $AZURE_OPENAI_API_KEY
+  baseUrl: $AZURE_OPENAI_ENDPOINT
+
+# Voyage (fixed dimensions - must specify)
+embedding:
+  type: voyage
+  model: voyage-3-large
+  apiKey: $VOYAGE_API_KEY
+  dimensions: 1024  # Required: 1024, 256, 512, or 2048
+
+# LM Studio (local, no API key required)
+embedding:
+  type: lmstudio
+  model: nomic-embed-text-v1.5  # or bge-large, bge-base, bge-small
+  baseUrl: http://localhost:1234/v1  # Optional, defaults to this
+  # dimensions: 768  # Optional, auto-detected based on model
+
+# Disable embeddings (chat-only mode)
+embedding:
+  disabled: true
+```
+
+**Note:** Setting `embedding: disabled: true` disables all memory-related tools (`cipher_memory_search`, `cipher_extract_and_operate_memory`, etc.) and operates in chat-only mode.
+
+### Automatic Fallback
+
+If no embedding config is specified, automatically uses your LLM provider's embedding:
+
+- **Anthropic LLM** → Voyage embedding (needs `VOYAGE_API_KEY`)
+- **AWS LLM** → AWS Bedrock embedding (uses same credentials)
+- **Azure LLM** → Azure OpenAI embedding (uses same endpoint)
+- **Qwen LLM** → Qwen embedding (uses same API key)
+- **LM Studio LLM** → LM Studio embedding (tries same model first, then dedicated embedding model, finally OpenAI)
+- **Ollama LLM** → Ollama embedding (uses same local server)
+- **OpenAI/Gemini/Ollama** → Same provider embedding
+
+**Note:** For providers with fixed dimensions (Qwen, Voyage, AWS), you must specify `dimensions:` in the config to override the default value in `.env`.
+
+## Vector Store Configuration
+
+Cipher supports three vector databases for storing embeddings. Configure in `.env`:
+
+### Supported Vector Stores
+
+**Qdrant** ([Qdrant Cloud](https://qdrant.tech/))
+
+```bash
+# Remote (Qdrant Cloud)
+VECTOR_STORE_TYPE=qdrant
+VECTOR_STORE_URL=your-qdrant-endpoint
+VECTOR_STORE_API_KEY=your-qdrant-api-key
+
+# Local (Docker)
+VECTOR_STORE_TYPE=qdrant
+VECTOR_STORE_HOST=localhost
+VECTOR_STORE_PORT=6333
+VECTOR_STORE_URL=http://localhost:6333
+```
+
+**Milvus** ([Zilliz Cloud](https://zilliz.com/))
+
+```bash
+# Remote (Zilliz Cloud)
+VECTOR_STORE_TYPE=milvus
+VECTOR_STORE_URL=your-milvus-cluster-endpoint
+VECTOR_STORE_USERNAME=your-zilliz-username
+VECTOR_STORE_PASSWORD=your-zilliz-password
+
+# Local (Docker)
+VECTOR_STORE_TYPE=milvus
+VECTOR_STORE_HOST=localhost
+VECTOR_STORE_PORT=19530
+```
+
+### Additional Vector Store Settings
+
+```bash
+# Collection configuration
+VECTOR_STORE_COLLECTION=knowledge_memory
+VECTOR_STORE_DIMENSION=1536
+VECTOR_STORE_DISTANCE=Cosine
+
+# Reflection memory (optional)
+REFLECTION_VECTOR_STORE_COLLECTION=reflection_memory
+DISABLE_REFLECTION_MEMORY=true
+```
 
 ## LLM Providers
 
@@ -172,6 +278,88 @@ llm:
   baseURL: $OLLAMA_BASE_URL
 ```
 
+### LM Studio (Self-Hosted, No API Key - Now with Embedding Support!)
+
+```yaml
+llm:
+  provider: lmstudio
+  model: hermes-2-pro-llama-3-8b # e.g. TheBloke/Mistral-7B-Instruct-v0.2-GGUF
+  # No apiKey required
+  # Optionally override the baseURL if not using the default
+  # baseURL: http://localhost:1234/v1
+
+# OPTIONAL: Configure specific embedding model
+# If not specified, Cipher will automatically try:
+# 1. Same model as LLM (if it supports embeddings)
+# 2. Default embedding model (nomic-embed-text-v1.5)
+# 3. OpenAI fallback (if OPENAI_API_KEY available)
+embedding:
+  provider: lmstudio
+  model: nomic-embed-text-v1.5 # Optional - smart fallback if not specified
+  # baseURL: http://localhost:1234/v1
+```
+
+> **Note:** LM Studio is fully OpenAI-compatible and now supports both LLM and embedding models! By default, Cipher will connect to LM Studio at `http://localhost:1234/v1`. No API key is required.
+>
+> **🆕 Embedding Support**: LM Studio now supports embedding models like `nomic-embed-text-v1.5`, `bge-large`, `bge-base`, and other BERT-based models in GGUF format.
+>
+> **Smart Fallback Logic:**
+>
+> 1. **First try**: Uses the same model loaded for LLM as the embedding model (many models support both)
+> 2. **Second try**: Falls back to `nomic-embed-text-v1.5` if the LLM model doesn't support embeddings
+> 3. **Final fallback**: Uses OpenAI embeddings when available
+
+### Alibaba Cloud Qwen
+
+```yaml
+llm:
+  provider: qwen
+  model: qwen2.5-72b-instruct
+  apiKey: $QWEN_API_KEY
+  qwenOptions:
+    enableThinking: true # Enable Qwen's thinking mode
+    thinkingBudget: 1000 # Thinking budget for complex reasoning
+```
+
+## AWS Bedrock (Amazon Bedrock)
+
+```yaml
+llm:
+  provider: aws
+  model: meta.llama3-1-70b-instruct-v1:0 # Or another Bedrock-supported model
+  maxIterations: 50
+  aws:
+    region: $AWS_REGION
+    accessKeyId: $AWS_ACCESS_KEY_ID
+    secretAccessKey: $AWS_SECRET_ACCESS_KEY
+    # sessionToken: $AWS_SESSION_TOKEN   # (uncomment if needed)
+```
+
+> **Required environment variables:**
+>
+> - `AWS_REGION`
+> - `AWS_ACCESS_KEY_ID`
+> - `AWS_SECRET_ACCESS_KEY`
+> - `AWS_SESSION_TOKEN` (optional, for temporary credentials)
+
+## Azure OpenAI
+
+```yaml
+llm:
+  provider: azure
+  model: gpt-4o-mini # Or your Azure deployment/model name
+  apiKey: $AZURE_OPENAI_API_KEY
+  maxIterations: 50
+  azure:
+    endpoint: $AZURE_OPENAI_ENDPOINT
+    deploymentName: gpt-4o-mini # Optional, defaults to model name
+```
+
+> **Required environment variables:**
+>
+> - `AZURE_OPENAI_API_KEY`
+> - `AZURE_OPENAI_ENDPOINT`
+
 ## CLI Reference
 
 ```bash
@@ -181,7 +369,7 @@ cipher "Your prompt here"           # One-shot mode
 
 # Server modes
 cipher --mode api                   # REST API server
-cipher --mode mcp                   # MCP server
+cipher --mode mcp                   # MCP server (make sure all necessary environment variables are set in the shell environment)
 
 # Configuration
 cipher --agent /path/to/config.yml  # Custom config
@@ -243,22 +431,6 @@ Add to your Claude Desktop MCP configuration file:
 }
 ```
 
-### Environment Variables
-
-The MCP server requires at least one LLM provider API key:
-
-```bash
-# Required (at least one)
-OPENAI_API_KEY=your_openai_api_key      # Always required for embedding
-ANTHROPIC_API_KEY=your_anthropic_api_key
-OPENROUTER_API_KEY=your_openrouter_api_key
-
-# Optional
-OLLAMA_BASE_URL=http://localhost:11434/v1
-CIPHER_LOG_LEVEL=info
-NODE_ENV=production
-```
-
 ### MCP Aggregator Mode
 
 Cipher now supports a new **MCP Aggregator Mode** that exposes all available tools (not just `ask_cipher`) to MCP clients, including all built-in tools for cipher, such as `cipher_search_memory` and MCP server tools specified in `cipher.yml`. This is controlled by the `MCP_SERVER_MODE` environment variable.
@@ -303,6 +475,8 @@ AGGREGATOR_TIMEOUT=60000
 
 - In **aggregator** mode, all tools are exposed. Tool name conflicts are resolved according to `AGGREGATOR_CONFLICT_RESOLUTION`.
 - If you want only the `ask_cipher` tool, set `MCP_SERVER_MODE=default` or omit the variable.
+
+Check out the [MCP Aggregator Hub example](./examples/04-mcp-aggregator-hub/) that further demonstrates the usecase of this MCP server mode.
 
 ---
 
@@ -394,6 +568,10 @@ We welcome contributions! Refer to our [Contributing Guide](./CONTRIBUTING.md) f
 Thanks to all these amazing people for contributing to cipher!
 
 [Contributors](https://github.com/campfirein/cipher/graphs/contributors)
+
+## MseeP.ai Security Assessment Badge
+
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/campfirein-cipher-badge.png)](https://mseep.ai/app/campfirein-cipher)
 
 ## Star History
 

@@ -167,6 +167,7 @@ export class Logger {
 						maskFormat(),
 						consoleFormat
 					),
+					stderrLevels: Object.keys(logLevels), // Redirect all log levels to stderr
 				})
 			);
 		}
@@ -337,6 +338,7 @@ export class Logger {
 						maskFormat(),
 						consoleFormat
 					),
+					stderrLevels: Object.keys(logLevels), // Redirect all log levels to stderr
 				})
 			);
 

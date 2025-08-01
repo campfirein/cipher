@@ -52,6 +52,7 @@ export class MCPManager implements IMCPManager {
 	private failedConnections: Record<string, string> = {};
 	protected logger: Logger;
 	private eventManager?: EventManager;
+	private quietMode = false;
 
 	// O(1) lookup caches
 	private toolCache = new Map<string, CacheEntry<any>>();
@@ -67,6 +68,7 @@ export class MCPManager implements IMCPManager {
 
 	constructor() {
 		this.logger = createLogger({ level: 'info' });
+		// Note: quiet mode can be set after construction, so this initial log may still appear
 		this.logger.info(`${LOG_PREFIXES.MANAGER} MCPManager initialized`);
 	}
 
@@ -75,6 +77,13 @@ export class MCPManager implements IMCPManager {
 	 */
 	setEventManager(eventManager: EventManager): void {
 		this.eventManager = eventManager;
+	}
+
+	/**
+	 * Enable quiet mode to reduce logging verbosity (useful for CLI mode)
+	 */
+	setQuietMode(quiet: boolean): void {
+		this.quietMode = quiet;
 	}
 
 	/**
@@ -158,7 +167,7 @@ export class MCPManager implements IMCPManager {
 
 		this._cleanupCache(this.toolCache);
 
-		this.logger.info(
+		this.logger.debug(
 			`${LOG_PREFIXES.MANAGER} Retrieved ${Object.keys(allTools).length} total tools`,
 			{ toolCount: Object.keys(allTools).length, clientCount: this.clients.size }
 		);
@@ -266,10 +275,12 @@ export class MCPManager implements IMCPManager {
 
 		const promptList = Array.from(allPrompts);
 
-		this.logger.info(`${LOG_PREFIXES.MANAGER} Retrieved ${promptList.length} total prompts`, {
-			promptCount: promptList.length,
-			clientCount: this.clients.size,
-		});
+		if (!this.quietMode) {
+			this.logger.info(`${LOG_PREFIXES.MANAGER} Retrieved ${promptList.length} total prompts`, {
+				promptCount: promptList.length,
+				clientCount: this.clients.size,
+			});
+		}
 
 		return promptList;
 	}
@@ -372,10 +383,12 @@ export class MCPManager implements IMCPManager {
 
 		const resourceList = Array.from(allResources);
 
-		this.logger.info(`${LOG_PREFIXES.MANAGER} Retrieved ${resourceList.length} total resources`, {
-			resourceCount: resourceList.length,
-			clientCount: this.clients.size,
-		});
+		if (!this.quietMode) {
+			this.logger.info(`${LOG_PREFIXES.MANAGER} Retrieved ${resourceList.length} total resources`, {
+				resourceCount: resourceList.length,
+				clientCount: this.clients.size,
+			});
+		}
 
 		return resourceList;
 	}
@@ -435,16 +448,33 @@ export class MCPManager implements IMCPManager {
 	 * Initialize clients from server configurations.
 	 */
 	async initializeFromConfig(serverConfigs: ServerConfigs): Promise<void> {
-		this.logger.info(
-			`${LOG_PREFIXES.MANAGER} Initializing ${Object.keys(serverConfigs).length} servers`,
-			{ serverCount: Object.keys(serverConfigs).length }
+		const enabledServers = Object.entries(serverConfigs).filter(
+			([, config]) => config.enabled !== false
 		);
+		if (!this.quietMode) {
+			this.logger.info(
+				`${LOG_PREFIXES.MANAGER} Initializing ${enabledServers.length} servers (${Object.keys(serverConfigs).length - enabledServers.length} disabled)`,
+				{
+					enabledServerCount: enabledServers.length,
+					totalServerCount: Object.keys(serverConfigs).length,
+					disabledServerCount: Object.keys(serverConfigs).length - enabledServers.length,
+				}
+			);
+		}
 
 		const strictServers: string[] = [];
 		const connectionPromises: Promise<void>[] = [];
 
 		// Process all server configurations
 		for (const [name, config] of Object.entries(serverConfigs)) {
+			// Skip disabled servers
+			if (config.enabled === false) {
+				this.logger.info(`${LOG_PREFIXES.MANAGER} Skipping disabled server: ${name}`, {
+					serverName: name,
+				});
+				continue;
+			}
+
 			if (config.connectionMode === CONNECTION_MODES.STRICT) {
 				strictServers.push(name);
 			}
@@ -472,28 +502,35 @@ export class MCPManager implements IMCPManager {
 		const successCount = results.filter(result => result.status === 'fulfilled').length;
 		const failureCount = results.filter(result => result.status === 'rejected').length;
 
-		this.logger.info(`${LOG_PREFIXES.MANAGER} Initialization complete`, {
-			successCount,
-			failureCount,
-			totalCount: Object.keys(serverConfigs).length,
-			strictServerCount: strictServers.length,
-		});
+		if (!this.quietMode) {
+			this.logger.info(`${LOG_PREFIXES.MANAGER} Initialization complete`, {
+				successCount,
+				failureCount,
+				totalCount: Object.keys(serverConfigs).length,
+				strictServerCount: strictServers.length,
+			});
+		}
 	}
 
 	/**
 	 * Connect to a new MCP server.
 	 */
 	async connectServer(name: string, config: McpServerConfig): Promise<void> {
-		this.logger.info(`${LOG_PREFIXES.MANAGER} Connecting to server: ${name}`, {
-			serverName: name,
-			transportType: config.type,
-			connectionMode: config.connectionMode,
-		});
+		if (!this.quietMode) {
+			this.logger.info(`${LOG_PREFIXES.MANAGER} Connecting to server: ${name}`, {
+				serverName: name,
+				transportType: config.type,
+				connectionMode: config.connectionMode,
+			});
+		}
 
 		try {
 			// Create and register client if not already registered
 			if (!this.clients.has(name)) {
 				const client = new MCPClient();
+				if (this.quietMode) {
+					client.setQuietMode(true);
+				}
 				this.registerClient(name, client);
 			}
 
@@ -520,9 +557,11 @@ export class MCPManager implements IMCPManager {
 				});
 			}
 
-			this.logger.info(`${LOG_PREFIXES.MANAGER} Successfully connected to server: ${name}`, {
-				serverName: name,
-			});
+			if (!this.quietMode) {
+				this.logger.info(`${LOG_PREFIXES.MANAGER} Successfully connected to server: ${name}`, {
+					serverName: name,
+				});
+			}
 
 			// Refresh caches to include new client's capabilities
 			await this._refreshAllCaches();

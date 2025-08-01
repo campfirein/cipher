@@ -1,10 +1,11 @@
 import { LLMConfig, LLMConfigSchema } from '../config.js';
 import { OpenAIMessageFormatter } from './formatters/openai.js';
 import { AnthropicMessageFormatter } from './formatters/anthropic.js';
+import { AzureMessageFormatter } from './formatters/azure.js';
 import { IMessageFormatter } from './formatters/types.js';
 import { ContextManager } from './manager.js';
 import { logger } from '../../../logger/index.js';
-import { PromptManager } from '../../systemPrompt/manager.js';
+import { EnhancedPromptManager } from '../../systemPrompt/enhanced-manager.js';
 import { IConversationHistoryProvider } from './history/types.js';
 
 function getFormatter(provider: string): IMessageFormatter {
@@ -14,14 +15,21 @@ function getFormatter(provider: string): IMessageFormatter {
 		case 'openai':
 		case 'openrouter':
 		case 'ollama':
+		case 'lmstudio':
+		case 'qwen':
+		case 'gemini':
 			formatter = new OpenAIMessageFormatter();
 			break;
+		case 'azure':
+			formatter = new AzureMessageFormatter();
+			break;
 		case 'anthropic':
+		case 'aws':
 			formatter = new AnthropicMessageFormatter();
 			break;
 		default:
 			throw new Error(
-				`Unsupported provider: ${provider}. Supported providers: openai, anthropic, openrouter, ollama`
+				`Unsupported provider: ${provider}. Supported providers: openai, anthropic, openrouter, ollama, lmstudio, qwen, aws, azure, gemini`
 			);
 	}
 	return formatter;
@@ -38,7 +46,7 @@ function getFormatter(provider: string): IMessageFormatter {
  */
 export function createContextManager(
 	config: LLMConfig,
-	promptManager: PromptManager,
+	promptManager: EnhancedPromptManager,
 	historyProvider?: IConversationHistoryProvider,
 	sessionId?: string
 ): ContextManager {
@@ -48,6 +56,7 @@ export function createContextManager(
 		logger.error('Invalid LLM configuration provided to createContextManager', {
 			config,
 			error: error instanceof Error ? error.message : String(error),
+			validationIssues: error instanceof Error && 'issues' in error ? error.issues : undefined,
 		});
 		throw new Error(
 			`Invalid LLM configuration: ${error instanceof Error ? error.message : String(error)}`

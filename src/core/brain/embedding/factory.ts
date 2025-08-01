@@ -4,8 +4,6 @@
  * Factory functions for creating embedding instances with proper validation,
  * error handling, and type safety. Supports multiple providers and
  * configuration methods.
- *
- * @module embedding/factory
  */
 
 import { logger } from '../../logger/index.js';
@@ -13,327 +11,293 @@ import {
 	parseEmbeddingConfigFromEnv,
 	validateEmbeddingConfig,
 	type OpenAIEmbeddingConfig as ZodOpenAIEmbeddingConfig,
+	type GeminiEmbeddingConfig as ZodGeminiEmbeddingConfig,
+	type OllamaEmbeddingConfig as ZodOllamaEmbeddingConfig,
+	type VoyageEmbeddingConfig as ZodVoyageEmbeddingConfig,
+	type QwenEmbeddingConfig as ZodQwenEmbeddingConfig,
+	type AWSBedrockEmbeddingConfig as ZodAWSBedrockEmbeddingConfig,
+	type LMStudioEmbeddingConfig as ZodLMStudioEmbeddingConfig,
 } from './config.js';
 import {
 	type Embedder,
-	type OpenAIEmbeddingConfig as InterfaceOpenAIEmbeddingConfig,
+	type BackendConfig,
 	EmbeddingError,
 	EmbeddingValidationError,
-	OpenAIEmbedder,
-} from './backend/index.js';
-import { PROVIDER_TYPES, ERROR_MESSAGES, LOG_PREFIXES, DEFAULTS } from './constants.js';
+} from './backend/types.js';
 
-// Use Zod-inferred types for validation, but convert to interface types for backend
-export type BackendConfig = ZodOpenAIEmbeddingConfig;
+// Re-export BackendConfig for external use
+export type { BackendConfig } from './backend/types.js';
+import { OpenAIEmbedder } from './backend/openai.js';
+import { GeminiEmbedder } from './backend/gemini.js';
+import { OllamaEmbedder } from './backend/ollama.js';
+import { VoyageEmbedder } from './backend/voyage.js';
+import { QwenEmbedder } from './backend/qwen.js';
+import { AWSBedrockEmbedder } from './backend/aws.js';
+import { LMStudioEmbedder } from './backend/lmstudio.js';
 
 /**
  * Embedding factory interface
- *
- * Defines the contract for embedding factory implementations.
- * Each provider should implement this interface.
  */
 export interface EmbeddingFactory {
-	/**
-	 * Create an embedder instance
-	 *
-	 * @param config - Provider-specific configuration
-	 * @returns Promise resolving to embedder instance
-	 */
 	createEmbedder(config: BackendConfig): Promise<Embedder>;
-
-	/**
-	 * Validate configuration for this provider
-	 *
-	 * @param config - Configuration to validate
-	 * @returns True if configuration is valid
-	 */
 	validateConfig(config: unknown): boolean;
-
-	/**
-	 * Get the provider type this factory supports
-	 *
-	 * @returns Provider type string
-	 */
 	getProviderType(): string;
 }
 
 /**
- * Convert Zod config to interface config for backend compatibility
+ * OpenAI embedding factory
  */
-function convertToInterfaceConfig(config: BackendConfig): InterfaceOpenAIEmbeddingConfig {
-	return {
-		type: PROVIDER_TYPES.OPENAI,
-		apiKey: config.apiKey,
-		model: config.model,
-		baseUrl: config.baseUrl,
-		timeout: config.timeout,
-		maxRetries: config.maxRetries,
-		options: config.options,
-		organization: config.organization,
-		dimensions: config.dimensions,
-	} as InterfaceOpenAIEmbeddingConfig;
-}
-
-/**
- * OpenAI Embedding Factory
- *
- * Factory implementation for creating OpenAI embedding instances.
- */
-class OpenAIEmbeddingFactory implements EmbeddingFactory {
+export class OpenAIEmbeddingFactory implements EmbeddingFactory {
 	async createEmbedder(config: BackendConfig): Promise<Embedder> {
-		logger.debug(`${LOG_PREFIXES.FACTORY} Creating OpenAI embedder`, {
-			model: config.model,
-			baseUrl: config.baseUrl,
-			hasOrganization: !!config.organization,
-		});
-
-		try {
-			// Convert Zod config to interface config for backend compatibility
-			const interfaceConfig = convertToInterfaceConfig(config);
-			const embedder = new OpenAIEmbedder(interfaceConfig);
-
-			// Test the connection
-			const isHealthy = await embedder.isHealthy();
-			if (!isHealthy) {
-				throw new EmbeddingError(ERROR_MESSAGES.CONNECTION_FAILED('OpenAI'), 'openai');
-			}
-
-			logger.info(`${LOG_PREFIXES.FACTORY} Successfully created OpenAI embedder`, {
-				model: config.model,
-				dimension: embedder.getDimension(),
-			});
-
-			return embedder;
-		} catch (error) {
-			logger.error(`${LOG_PREFIXES.FACTORY} Failed to create OpenAI embedder`, {
-				error: error instanceof Error ? error.message : String(error),
-				model: config.model,
-			});
-
-			if (error instanceof EmbeddingError) {
-				throw error;
-			}
-
-			throw new EmbeddingError(
-				`Failed to create OpenAI embedder: ${error instanceof Error ? error.message : String(error)}`,
-				'openai',
-				error instanceof Error ? error : undefined
-			);
+		if (config.type !== 'openai') {
+			throw new EmbeddingValidationError('Invalid config type for OpenAI factory');
 		}
+		return new OpenAIEmbedder(config);
 	}
 
 	validateConfig(config: unknown): boolean {
 		try {
-			const validationResult = validateEmbeddingConfig(config);
-			return validationResult.success && validationResult.data?.type === PROVIDER_TYPES.OPENAI;
+			return typeof config === 'object' && config !== null && (config as any).type === 'openai';
 		} catch {
 			return false;
 		}
 	}
 
 	getProviderType(): string {
-		return PROVIDER_TYPES.OPENAI;
+		return 'openai';
 	}
 }
 
 /**
- * Registry of embedding factories
+ * Gemini embedding factory
  */
-const EMBEDDING_FACTORIES = new Map<string, EmbeddingFactory>([
-	[PROVIDER_TYPES.OPENAI, new OpenAIEmbeddingFactory()],
+export class GeminiEmbeddingFactory implements EmbeddingFactory {
+	async createEmbedder(config: BackendConfig): Promise<Embedder> {
+		if (config.type !== 'gemini') {
+			throw new EmbeddingValidationError('Invalid config type for Gemini factory');
+		}
+		return new GeminiEmbedder(config);
+	}
+
+	validateConfig(config: unknown): boolean {
+		try {
+			return typeof config === 'object' && config !== null && (config as any).type === 'gemini';
+		} catch {
+			return false;
+		}
+	}
+
+	getProviderType(): string {
+		return 'gemini';
+	}
+}
+
+/**
+ * Ollama embedding factory
+ */
+export class OllamaEmbeddingFactory implements EmbeddingFactory {
+	async createEmbedder(config: BackendConfig): Promise<Embedder> {
+		if (config.type !== 'ollama') {
+			throw new EmbeddingValidationError('Invalid config type for Ollama factory');
+		}
+		return new OllamaEmbedder(config);
+	}
+
+	validateConfig(config: unknown): boolean {
+		try {
+			return typeof config === 'object' && config !== null && (config as any).type === 'ollama';
+		} catch {
+			return false;
+		}
+	}
+
+	getProviderType(): string {
+		return 'ollama';
+	}
+}
+
+/**
+ * Voyage embedding factory
+ */
+export class VoyageEmbeddingFactory implements EmbeddingFactory {
+	async createEmbedder(config: BackendConfig): Promise<Embedder> {
+		if (config.type !== 'voyage') {
+			throw new EmbeddingValidationError('Invalid config type for Voyage factory');
+		}
+		return new VoyageEmbedder(config);
+	}
+
+	validateConfig(config: unknown): boolean {
+		try {
+			return typeof config === 'object' && config !== null && (config as any).type === 'voyage';
+		} catch {
+			return false;
+		}
+	}
+
+	getProviderType(): string {
+		return 'voyage';
+	}
+}
+
+/**
+ * Qwen embedding factory
+ */
+export class QwenEmbeddingFactory implements EmbeddingFactory {
+	async createEmbedder(config: BackendConfig): Promise<Embedder> {
+		if (config.type !== 'qwen') {
+			throw new EmbeddingValidationError('Invalid config type for Qwen factory');
+		}
+		return new QwenEmbedder(config);
+	}
+
+	validateConfig(config: unknown): boolean {
+		try {
+			return typeof config === 'object' && config !== null && (config as any).type === 'qwen';
+		} catch {
+			return false;
+		}
+	}
+
+	getProviderType(): string {
+		return 'qwen';
+	}
+}
+
+/**
+ * AWS Bedrock embedding factory
+ */
+export class AWSBedrockEmbeddingFactory implements EmbeddingFactory {
+	async createEmbedder(config: BackendConfig): Promise<Embedder> {
+		if (config.type !== 'aws-bedrock') {
+			throw new EmbeddingValidationError('Invalid config type for AWS Bedrock factory');
+		}
+		return new AWSBedrockEmbedder(config);
+	}
+
+	validateConfig(config: unknown): boolean {
+		try {
+			return (
+				typeof config === 'object' && config !== null && (config as any).type === 'aws-bedrock'
+			);
+		} catch {
+			return false;
+		}
+	}
+
+	getProviderType(): string {
+		return 'aws-bedrock';
+	}
+}
+
+/**
+ * LM Studio embedding factory
+ */
+export class LMStudioEmbeddingFactory implements EmbeddingFactory {
+	async createEmbedder(config: BackendConfig): Promise<Embedder> {
+		if (config.type !== 'lmstudio') {
+			throw new EmbeddingValidationError('Invalid config type for LM Studio factory');
+		}
+		return new LMStudioEmbedder(config);
+	}
+
+	validateConfig(config: unknown): boolean {
+		try {
+			return typeof config === 'object' && config !== null && (config as any).type === 'lmstudio';
+		} catch {
+			return false;
+		}
+	}
+
+	getProviderType(): string {
+		return 'lmstudio';
+	}
+}
+
+/**
+ * Registry of available embedding factories
+ */
+export const EMBEDDING_FACTORIES = new Map<string, EmbeddingFactory>([
+	['openai', new OpenAIEmbeddingFactory()],
+	['gemini', new GeminiEmbeddingFactory()],
+	['ollama', new OllamaEmbeddingFactory()],
+	['voyage', new VoyageEmbeddingFactory()],
+	['qwen', new QwenEmbeddingFactory()],
+	['aws-bedrock', new AWSBedrockEmbeddingFactory()],
+	['lmstudio', new LMStudioEmbeddingFactory()],
 ]);
 
 /**
- * Main factory function for creating embedding instances
- *
- * @param config - Embedding configuration
- * @returns Promise resolving to embedder instance
- * @throws {EmbeddingValidationError} If configuration is invalid
- * @throws {EmbeddingError} If embedder creation fails
- *
- * @example
- * ```typescript
- * const embedder = await createEmbedder({
- *   type: 'openai',
- *   apiKey: process.env.OPENAI_API_KEY,
- *   model: 'text-embedding-3-small'
- * });
- * ```
+ * Create embedder from configuration
  */
 export async function createEmbedder(config: BackendConfig): Promise<Embedder> {
-	logger.debug(`${LOG_PREFIXES.FACTORY} Creating embedder`, {
-		type: config.type,
-	});
-
-	// Validate configuration
-	const validationResult = validateEmbeddingConfig(config);
-	if (!validationResult.success) {
-		const errorMessage =
-			validationResult.errors?.issues
-				.map(issue => `${issue.path.join('.')}: ${issue.message}`)
-				.join(', ') || 'Invalid configuration';
-
-		logger.error(`${LOG_PREFIXES.FACTORY} Configuration validation failed`, {
-			type: config.type,
-			errors: errorMessage,
-		});
-
-		throw new EmbeddingValidationError(`Configuration validation failed: ${errorMessage}`);
-	}
-
-	// Get factory for provider type
 	const factory = EMBEDDING_FACTORIES.get(config.type);
 	if (!factory) {
-		logger.error(`${LOG_PREFIXES.FACTORY} Unsupported provider type`, {
-			type: config.type,
-			supportedTypes: Array.from(EMBEDDING_FACTORIES.keys()),
-		});
-
-		throw new EmbeddingValidationError(ERROR_MESSAGES.PROVIDER_NOT_SUPPORTED(config.type));
+		throw new EmbeddingValidationError(`Unsupported embedding provider: ${config.type}`);
 	}
 
-	// Create embedder instance
-	return await factory.createEmbedder(config);
+	logger.debug('Creating embedder', { provider: config.type, model: config.model });
+	return factory.createEmbedder(config);
 }
 
 /**
- * Create OpenAI embedder with simplified configuration
- *
- * @param config - OpenAI-specific configuration
- * @returns Promise resolving to OpenAI embedder instance
- *
- * @example
- * ```typescript
- * const embedder = await createOpenAIEmbedder({
- *   apiKey: process.env.OPENAI_API_KEY,
- *   model: 'text-embedding-3-small'
- * });
- * ```
+ * Create embedder from environment configuration
  */
-export async function createOpenAIEmbedder(
-	config: Omit<ZodOpenAIEmbeddingConfig, 'type'>
-): Promise<Embedder> {
-	const openaiConfig: ZodOpenAIEmbeddingConfig = {
-		type: PROVIDER_TYPES.OPENAI,
-		apiKey: config.apiKey || '',
-		model: config.model || DEFAULTS.OPENAI_MODEL,
-		baseUrl: config.baseUrl || DEFAULTS.OPENAI_BASE_URL,
-		timeout: config.timeout || DEFAULTS.TIMEOUT,
-		maxRetries: config.maxRetries || DEFAULTS.MAX_RETRIES,
-		...(config.organization && { organization: config.organization }),
-		...(config.dimensions && { dimensions: config.dimensions }),
-		...(config.options && { options: config.options }),
-	};
-	return createEmbedder(openaiConfig);
-}
-
-/**
- * Create embedder from environment variables
- *
- * @param env - Environment variables object (defaults to process.env)
- * @returns Promise resolving to embedder instance or null if config unavailable
- *
- * @example
- * ```typescript
- * // Requires OPENAI_API_KEY environment variable
- * const embedder = await createEmbedderFromEnv();
- * if (embedder) {
- *   const embedding = await embedder.embed('Hello world');
- * }
- * ```
- */
-export async function createEmbedderFromEnv(
-	env: Record<string, string | undefined> = process.env
-): Promise<Embedder | null> {
-	logger.debug(`${LOG_PREFIXES.FACTORY} Creating embedder from environment variables`);
-
-	const config = parseEmbeddingConfigFromEnv(env);
-	if (!config) {
-		logger.warn(`${LOG_PREFIXES.FACTORY} No valid embedding configuration found in environment`);
+export async function createEmbedderFromEnv(): Promise<{ embedder: Embedder; info: any } | null> {
+	const envConfig = parseEmbeddingConfigFromEnv();
+	if (!envConfig) {
+		logger.debug('No embedding configuration found in environment');
 		return null;
 	}
 
-	logger.debug(`${LOG_PREFIXES.FACTORY} Found valid embedding configuration in environment`, {
-		type: config.type,
-		model: config.model,
-	});
+	try {
+		// Convert env config to proper backend config
+		const backendConfig: BackendConfig = {
+			...envConfig,
+			timeout: 30000,
+			maxRetries: 3,
+		} as BackendConfig;
 
-	return createEmbedder(config as ZodOpenAIEmbeddingConfig);
+		const embedder = await createEmbedder(backendConfig);
+		const info = {
+			provider: envConfig.type,
+			model: envConfig.model || 'default',
+			dimension: embedder.getDimension(),
+		};
+
+		return { embedder, info };
+	} catch (error) {
+		logger.warn('Failed to create embedder from environment config', {
+			error: error instanceof Error ? error.message : String(error),
+			type: envConfig.type,
+		});
+		return null;
+	}
 }
 
 /**
- * Create a default embedder with minimal configuration
- *
- * Uses OpenAI provider with default settings.
- * Requires OPENAI_API_KEY environment variable.
- *
- * @returns Promise resolving to default embedder instance
- * @throws {EmbeddingValidationError} If API key is not available
- *
- * @example
- * ```typescript
- * // Requires OPENAI_API_KEY environment variable
- * const embedder = await createDefaultEmbedder();
- * ```
+ * Validate embedding configuration
  */
-export async function createDefaultEmbedder(): Promise<Embedder> {
-	logger.debug(`${LOG_PREFIXES.FACTORY} Creating default embedder`);
-
-	const apiKey = process.env.OPENAI_API_KEY;
-	if (!apiKey) {
-		throw new EmbeddingValidationError(ERROR_MESSAGES.API_KEY_REQUIRED('OpenAI'));
+export function validateEmbeddingConfiguration(config: unknown): boolean {
+	if (!config || typeof config !== 'object') {
+		return false;
 	}
 
-	const openaiConfig: ZodOpenAIEmbeddingConfig = {
-		type: PROVIDER_TYPES.OPENAI,
-		apiKey,
-		model: DEFAULTS.OPENAI_MODEL,
-		baseUrl: DEFAULTS.OPENAI_BASE_URL,
-		timeout: DEFAULTS.TIMEOUT,
-		maxRetries: DEFAULTS.MAX_RETRIES,
-	};
-	return createEmbedder(openaiConfig);
+	const configObj = config as any;
+	const factory = EMBEDDING_FACTORIES.get(configObj.type);
+	return factory ? factory.validateConfig(config) : false;
 }
 
 /**
- * Check if a factory exists for the given provider type
- *
- * @param providerType - Provider type to check
- * @returns True if factory exists
- */
-export function isEmbeddingFactory(providerType: string): boolean {
-	return EMBEDDING_FACTORIES.has(providerType);
-}
-
-/**
- * Get all supported provider types
- *
- * @returns Array of supported provider type strings
+ * Get supported embedding providers
  */
 export function getSupportedProviders(): string[] {
 	return Array.from(EMBEDDING_FACTORIES.keys());
 }
 
 /**
- * Get factory instance for a specific provider type
- *
- * @param providerType - Provider type
- * @returns Factory instance or undefined if not found
+ * Check if provider is supported
  */
-export function getEmbeddingFactory(providerType: string): EmbeddingFactory | undefined {
-	return EMBEDDING_FACTORIES.get(providerType);
-}
-
-/**
- * Register a new embedding factory
- *
- * @param providerType - Provider type
- * @param factory - Factory instance
- */
-export function registerEmbeddingFactory(providerType: string, factory: EmbeddingFactory): void {
-	logger.debug(`${LOG_PREFIXES.FACTORY} Registering embedding factory`, {
-		providerType,
-	});
-
-	EMBEDDING_FACTORIES.set(providerType, factory);
+export function isProviderSupported(provider: string): boolean {
+	return EMBEDDING_FACTORIES.has(provider);
 }

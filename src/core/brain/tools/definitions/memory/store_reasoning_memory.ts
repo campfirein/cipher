@@ -420,13 +420,34 @@ export const storeReasoningMemoryTool: InternalTool = {
 			try {
 				embedding = await embedder.embed(searchableContent);
 			} catch (embedError) {
-				logger.error('StoreReasoningMemory: Failed to generate embedding', {
-					error: embedError instanceof Error ? embedError.message : String(embedError),
-					contentLength: searchableContent.length,
-				});
-				throw new Error(
-					`Embedding generation failed: ${embedError instanceof Error ? embedError.message : String(embedError)}`
+				logger.error(
+					'StoreReasoningMemory: Failed to generate embedding, disabling embeddings globally',
+					{
+						error: embedError instanceof Error ? embedError.message : String(embedError),
+						contentLength: searchableContent.length,
+						provider: embedder.getConfig().type,
+					}
 				);
+
+				// Immediately disable embeddings globally on first failure
+				if (context?.services?.embeddingManager && embedError instanceof Error) {
+					context.services.embeddingManager.handleRuntimeFailure(
+						embedError,
+						embedder.getConfig().type
+					);
+				}
+
+				// Return error response since embeddings are now disabled
+				return {
+					success: false,
+					message: `Embeddings disabled due to failure: ${embedError instanceof Error ? embedError.message : String(embedError)}`,
+					mode: 'chat-only',
+					error: embedError instanceof Error ? embedError.message : String(embedError),
+					metadata: {
+						toolName: 'store_reasoning_memory',
+						embeddingDisabled: true,
+					},
+				};
 			}
 
 			// CRITICAL: Ensure all data types are correct (avoid string numbers like "0.6")

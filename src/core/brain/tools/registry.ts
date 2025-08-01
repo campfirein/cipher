@@ -99,9 +99,7 @@ export class InternalToolRegistry {
 				categorySet.add(toolName);
 			}
 
-			logger.debug(
-				`InternalToolRegistry: Registered tool '${toolName}' in category '${tool.category}'`
-			);
+			// Individual tool registration logging removed to reduce CLI noise
 
 			return {
 				success: true,

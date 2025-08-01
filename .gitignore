@@ -58,3 +58,4 @@ CLAUDE.md
 env.txt
 env.example.txt
 :memory:/
+.kilocode/

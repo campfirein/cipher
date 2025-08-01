@@ -108,6 +108,11 @@ export class EventFilterManager {
 	 * Returns true if event should be processed, false if it should be filtered out
 	 */
 	shouldProcessEvent(event: EventEnvelope): boolean {
+		// Fast path: if no filters are registered, return true immediately
+		if (this.filters.size === 0) {
+			return true;
+		}
+
 		const startTime = Date.now();
 		this.stats.totalEventsProcessed++;
 
@@ -118,6 +123,8 @@ export class EventFilterManager {
 				.sort((a, b) => (b.priority || 0) - (a.priority || 0));
 
 			if (enabledFilters.length === 0) {
+				// No enabled filters, but we still need to update stats
+				this.updateOverallStats(Date.now() - startTime);
 				return true; // No filters means all events pass through
 			}
 
@@ -172,6 +179,13 @@ export class EventFilterManager {
 			this.updateOverallStats(Date.now() - startTime);
 			return true;
 		}
+	}
+
+	/**
+	 * Check if any filters are registered
+	 */
+	hasFilters(): boolean {
+		return this.filters.size > 0;
 	}
 
 	/**

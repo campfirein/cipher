@@ -1,4 +1,3 @@
-import { PromptManager } from '../brain/systemPrompt/manager.js';
 import { ContextManager, ILLMService } from '../brain/llm/index.js';
 import { MCPManager } from '../mcp/manager.js';
 import { UnifiedToolManager } from '../brain/tools/unified-tool-manager.js';
@@ -9,11 +8,48 @@ import { createLLMService } from '../brain/llm/services/factory.js';
 import { MemAgentStateManager } from '../brain/memAgent/state-manager.js';
 import { ReasoningContentDetector } from '../brain/reasoning/content-detector.js';
 import { SearchContextManager } from '../brain/reasoning/search-context-manager.js';
-import { createDatabaseHistoryProvider } from '../brain/llm/messages/history/factory.js';
+import {
+	createMultiBackendHistoryProvider,
+	createDatabaseHistoryProvider,
+} from '../brain/llm/messages/history/factory.js';
+import { WALHistoryProvider } from '../brain/llm/messages/history/wal.js';
 import { StorageManager } from '../storage/manager.js';
+import { Logger } from '../logger/index.js';
 import type { ZodSchema } from 'zod';
 import { setImmediate } from 'timers';
 import { IConversationHistoryProvider } from '../brain/llm/messages/history/types.js';
+
+function extractReasoningContentBlocks(aiResponse: any): string {
+	// If the response is an object with a content array (Anthropic API best practice)
+	if (aiResponse && Array.isArray(aiResponse.content)) {
+		// Extract all 'thinking' and 'redacted_thinking' blocks
+		const reasoningBlocks = aiResponse.content
+			.filter((block: any) => block.type === 'thinking' || block.type === 'redacted_thinking')
+			.map((block: any) => block.thinking)
+			.filter(Boolean);
+		if (reasoningBlocks.length > 0) {
+			return reasoningBlocks.join('\n\n');
+		}
+		// Fallback: join all text blocks if no thinking blocks found
+		const textBlocks = aiResponse.content
+			.filter((block: any) => block.type === 'text' && block.text)
+			.map((block: any) => block.text);
+		if (textBlocks.length > 0) {
+			return textBlocks.join('\n\n');
+		}
+		return '';
+	}
+	// Fallback: support legacy string input (regex for <thinking> tags)
+	if (typeof aiResponse === 'string') {
+		const matches = Array.from(aiResponse.matchAll(/<thinking>([\s\S]*?)<\/thinking>/gi));
+		if (matches.length > 0) {
+			return matches.map(m => m[1]?.trim() || '').join('\n\n');
+		}
+		return aiResponse;
+	}
+	return '';
+}
+import { EnhancedPromptManager } from '../brain/systemPrompt/enhanced-manager.js';
 export class ConversationSession {
 	private contextManager!: ContextManager;
 	private llmService!: ILLMService;
@@ -42,9 +78,10 @@ export class ConversationSession {
 	constructor(
 		private services: {
 			stateManager: MemAgentStateManager;
-			promptManager: PromptManager;
+			promptManager: EnhancedPromptManager;
 			mcpManager: MCPManager;
 			unifiedToolManager: UnifiedToolManager;
+			embeddingManager?: any; // Optional embedding manager for status checking
 		},
 		public readonly id: string,
 		options?: {
@@ -55,24 +92,15 @@ export class ConversationSession {
 			) => Record<string, any>;
 			metadataSchema?: ZodSchema<any>;
 			beforeMemoryExtraction?: (meta: Record<string, any>, context: Record<string, any>) => void;
-			// New: history management options
 			historyEnabled?: boolean;
 			historyBackend?: 'database' | 'memory';
 		}
 	) {
-		logger.debug('ConversationSession initialized with services', { services, id });
-		if (
-			options?.sessionMemoryMetadata &&
-			typeof options.sessionMemoryMetadata === 'object' &&
-			!Array.isArray(options.sessionMemoryMetadata)
-		) {
-			this.sessionMemoryMetadata = options.sessionMemoryMetadata;
-		}
+		if (options?.sessionMemoryMetadata) this.sessionMemoryMetadata = options.sessionMemoryMetadata;
 		if (options?.mergeMetadata) this.mergeMetadata = options.mergeMetadata;
 		if (options?.metadataSchema) this.metadataSchema = options.metadataSchema;
 		if (options?.beforeMemoryExtraction)
 			this.beforeMemoryExtraction = options.beforeMemoryExtraction;
-		// New: read history options
 		if (typeof options?.historyEnabled === 'boolean') this.historyEnabled = options.historyEnabled;
 		if (options?.historyBackend) this.historyBackend = options.historyBackend;
 	}
@@ -106,13 +134,43 @@ export class ConversationSession {
 	private async initializeServices(): Promise<void> {
 		const llmConfig = this.services.stateManager.getLLMConfig(this.id);
 		let historyProvider: IConversationHistoryProvider | undefined = undefined;
+		// Multi-backend config example (can be extended to use env/config)
+		const multiBackendEnabled = !!process.env.CIPHER_MULTI_BACKEND;
+		const flushIntervalMs = process.env.CIPHER_WAL_FLUSH_INTERVAL
+			? parseInt(process.env.CIPHER_WAL_FLUSH_INTERVAL, 10)
+			: 5000;
 		if (this.historyEnabled) {
 			try {
-				if (this.historyBackend === 'database') {
-					// Use a default in-memory storage config for now
-					const storageConfig = {
+				if (multiBackendEnabled) {
+					// Example: primary = Postgres, backup = SQLite, WAL = in-memory
+					const primaryStorage = new StorageManager({
+						database: { type: 'postgres' as const, url: process.env.CIPHER_PG_URL },
 						cache: { type: 'in-memory' as const },
-						database: { type: 'in-memory' as const },
+					});
+					await primaryStorage.connect();
+					const backupStorage = new StorageManager({
+						database: { type: 'sqlite' as const, path: './cipher-backup.db' },
+						cache: { type: 'in-memory' as const },
+					});
+					await backupStorage.connect();
+					const primaryProvider = createDatabaseHistoryProvider(primaryStorage);
+					const backupProvider = createDatabaseHistoryProvider(backupStorage);
+					const wal = new WALHistoryProvider();
+					historyProvider = createMultiBackendHistoryProvider(
+						primaryProvider,
+						backupProvider,
+						wal,
+						flushIntervalMs
+					);
+					logger.debug(`Session ${this.id}: Multi-backend history provider initialized.`);
+				} else if (this.historyBackend === 'database') {
+					const storageConfig = {
+						database: {
+							type: 'sqlite' as const,
+							path: env.STORAGE_DATABASE_PATH,
+							database: env.STORAGE_DATABASE_NAME,
+						},
+						cache: { type: 'in-memory' as const },
 					};
 					const storageManager = new StorageManager(storageConfig);
 					await storageManager.connect();
@@ -264,6 +322,49 @@ export class ConversationSession {
 		// This ensures users see the response immediately without waiting for memory operations
 		const backgroundOperations = new Promise<void>(resolve => {
 			setImmediate(async () => {
+				// Quick check to skip all background operations if embeddings are disabled
+				const embeddingsDisabled = env.DISABLE_EMBEDDINGS || env.EMBEDDING_DISABLED;
+
+				// Also check embedding manager status if available
+				let embeddingManagerDisabled = false;
+				if (this.services.embeddingManager) {
+					// Check global embedding state
+					try {
+						const { EmbeddingSystemState } = require('../embedding/manager.js');
+						if (EmbeddingSystemState.getInstance().isDisabled()) {
+							embeddingManagerDisabled = true;
+						}
+					} catch (error) {
+						// If EmbeddingSystemState is not available, continue with other checks
+					}
+
+					// Check if no embeddings are available
+					if (!this.services.embeddingManager?.hasAvailableEmbeddings()) {
+						embeddingManagerDisabled = true;
+					}
+
+					// Check if any embedders are disabled
+					const embeddingStatus = this.services.embeddingManager?.getEmbeddingStatus();
+					if (embeddingStatus) {
+						const disabledEmbedders = Object.values(embeddingStatus).filter(
+							(status: any) => status.status === 'DISABLED'
+						);
+						if (disabledEmbedders.length > 0) {
+							embeddingManagerDisabled = true;
+						}
+					}
+				}
+
+				if (embeddingsDisabled || embeddingManagerDisabled) {
+					logger.debug('Skipping all background memory operations - embeddings disabled', {
+						sessionId: this.id,
+						envDisabled: embeddingsDisabled,
+						managerDisabled: embeddingManagerDisabled,
+					});
+					resolve();
+					return;
+				}
+
 				logger.debug('Starting background memory operations', { sessionId: this.id });
 				try {
 					await this.enforceMemoryExtraction(input, response, options);
@@ -306,11 +407,67 @@ export class ConversationSession {
 		try {
 			logger.debug('ConversationSession: Enforcing memory extraction for interaction');
 
+			// Check if embeddings are disabled via environment variables or configuration
+			const embeddingsDisabled = env.DISABLE_EMBEDDINGS || env.EMBEDDING_DISABLED;
+
+			// Also check embedding manager status if available
+			let embeddingManagerDisabled = false;
+			if (this.services.embeddingManager) {
+				// Check global embedding state
+				try {
+					const { EmbeddingSystemState } = require('../embedding/manager.js');
+					if (EmbeddingSystemState.getInstance().isDisabled()) {
+						embeddingManagerDisabled = true;
+					}
+				} catch (error) {
+					// If EmbeddingSystemState is not available, continue with other checks
+				}
+
+				// Check if no embeddings are available
+				if (!this.services.embeddingManager?.hasAvailableEmbeddings()) {
+					embeddingManagerDisabled = true;
+				}
+
+				// Check if any embedders are disabled
+				const embeddingStatus = this.services.embeddingManager?.getEmbeddingStatus();
+				if (embeddingStatus) {
+					const disabledEmbedders = Object.values(embeddingStatus).filter(
+						(status: any) => status.status === 'DISABLED'
+					);
+					if (disabledEmbedders.length > 0) {
+						embeddingManagerDisabled = true;
+					}
+				}
+			}
+
+			if (embeddingsDisabled || embeddingManagerDisabled) {
+				logger.debug('ConversationSession: Embeddings disabled, skipping memory extraction', {
+					envDisabled: embeddingsDisabled,
+					managerDisabled: embeddingManagerDisabled,
+				});
+				return;
+			}
+
 			// Check if the unifiedToolManager is available
 			if (!this.services.unifiedToolManager) {
 				logger.debug(
 					'ConversationSession: UnifiedToolManager not available, skipping memory extraction'
 				);
+				return;
+			}
+
+			// Load all tools once to avoid redundant loading
+			const allTools = await this.services.unifiedToolManager.getAllTools();
+
+			// Check if the memory extraction tool is available
+			const memoryToolAvailable = allTools['cipher_extract_and_operate_memory'];
+
+			if (embeddingsDisabled || !memoryToolAvailable) {
+				logger.debug('ConversationSession: Memory extraction skipped', {
+					embeddingsDisabled,
+					memoryToolAvailable: !!memoryToolAvailable,
+					reason: embeddingsDisabled ? 'embeddings disabled' : 'memory tool unavailable',
+				});
 				return;
 			}
 
@@ -351,7 +508,8 @@ export class ConversationSession {
 			}
 
 			// Call the extract_and_operate_memory tool directly (with cipher_ prefix)
-			const memoryResult = await this.services.unifiedToolManager.executeTool(
+			// Use executeToolWithoutLoading to avoid redundant tool loading
+			const memoryResult = await this.services.unifiedToolManager.executeToolWithoutLoading(
 				'cipher_extract_and_operate_memory',
 				{
 					interaction: comprehensiveInteractionData,
@@ -384,7 +542,8 @@ export class ConversationSession {
 
 			// **NEW: Automatic Reflection Memory Processing**
 			// Process reasoning traces in the background, similar to knowledge memory
-			await this.enforceReflectionMemoryProcessing(userInput, aiResponse);
+			// NOTE: Pass the already-loaded tools to avoid redundant loading
+			await this.enforceReflectionMemoryProcessing(userInput, aiResponse, allTools);
 		} catch (error) {
 			const errorMessage = error instanceof Error ? error.message : String(error);
 			logger.error('ConversationSession: Memory extraction failed', {
@@ -429,13 +588,41 @@ export class ConversationSession {
 	 * Programmatically enforce reflection memory processing after each interaction (runs in background)
 	 * This automatically extracts, evaluates, and stores reasoning patterns in the background
 	 * NOTE: This method is called from enforceMemoryExtraction which already runs asynchronously
+	 * @param userInput - The user input string
+	 * @param aiResponse - The AI response string
+	 * @param allTools - Pre-loaded tools to avoid redundant loading
 	 */
 	private async enforceReflectionMemoryProcessing(
 		userInput: string,
-		_aiResponse: string
+		aiResponse: string,
+		allTools: Record<string, any>
 	): Promise<void> {
 		try {
 			logger.debug('ConversationSession: Enforcing reflection memory processing');
+
+			// Check if embeddings are disabled via environment variables or configuration
+			const embeddingsDisabled = env.DISABLE_EMBEDDINGS || env.EMBEDDING_DISABLED;
+
+			// Check if the unifiedToolManager is available
+			if (!this.services.unifiedToolManager) {
+				logger.debug(
+					'ConversationSession: UnifiedToolManager not available, skipping reflection memory processing'
+				);
+				return;
+			}
+
+			// Check if reflection memory tools are available (using pre-loaded tools)
+			const reflectionToolsAvailable =
+				allTools['cipher_extract_reasoning_steps'] && allTools['cipher_store_reasoning_memory'];
+
+			if (embeddingsDisabled || !reflectionToolsAvailable) {
+				logger.debug('ConversationSession: Reflection memory processing skipped', {
+					embeddingsDisabled,
+					reflectionToolsAvailable: !!reflectionToolsAvailable,
+					reason: embeddingsDisabled ? 'embeddings disabled' : 'reflection tools unavailable',
+				});
+				return;
+			}
 
 			// Check if reflection memory is force disabled
 			if (env.DISABLE_REFLECTION_MEMORY) {
@@ -695,7 +882,7 @@ export class ConversationSession {
 						// Summarize key arguments for memory (avoid storing full large content)
 						const keyArgs = this.summarizeToolArguments(toolName, parsedArgs);
 						args = keyArgs ? ` with ${keyArgs}` : '';
-					} catch {
+					} catch (_e) {
 						// If parsing fails, just note that there were arguments
 						args = ' with arguments';
 					}
@@ -773,7 +960,7 @@ export class ConversationSession {
 			}
 
 			return 'result received';
-		} catch {
+		} catch (_e) {
 			// If parsing fails, provide a basic summary
 			const contentStr = String(content);
 			return contentStr.length > 100 ? `${contentStr.substring(0, 100)}...` : contentStr;
@@ -844,5 +1031,22 @@ export class ConversationSession {
 
 	public getUnifiedToolManager(): UnifiedToolManager {
 		return this.services.unifiedToolManager;
+	}
+
+	/**
+	 * Get the storageManager used by the historyProvider (if available)
+	 */
+	public getStorageManager(): StorageManager | undefined {
+		if (
+			this.historyProvider &&
+			typeof (this.historyProvider as any).getStorageManager === 'function'
+		) {
+			return (this.historyProvider as any).getStorageManager();
+		}
+		// Try to access directly if exposed
+		if (this.historyProvider && (this.historyProvider as any).storageManager) {
+			return (this.historyProvider as any).storageManager;
+		}
+		return undefined;
 	}
 }

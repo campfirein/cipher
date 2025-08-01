@@ -104,8 +104,8 @@ export const validateMcpServerConfig = [
 	body('env').optional().isObject().withMessage('Environment must be an object'),
 	body('transport')
 		.optional()
-		.isIn(['stdio', 'sse', 'http'])
-		.withMessage('Transport must be stdio, sse, or http'),
+		.isIn(['stdio', 'sse', 'http', 'streamable-http'])
+		.withMessage('Transport must be stdio, sse, http, or streamable-http'),
 	body('connectionMode')
 		.optional()
 		.isIn(['strict', 'lenient'])
@@ -147,13 +147,48 @@ export const validateToolExecution = [
 export const validateLlmConfig = [
 	body('provider')
 		.isString()
-		.isIn(['openai', 'anthropic', 'openrouter', 'ollama'])
-		.withMessage('Provider must be one of: openai, anthropic, openrouter, ollama'),
+		.isIn(['openai', 'anthropic', 'openrouter', 'ollama', 'lmstudio', 'qwen', 'aws', 'azure'])
+		.withMessage(
+			'Provider must be one of: openai, anthropic, openrouter, ollama, lmstudio, qwen, aws, azure'
+		),
 	body('model')
 		.isString()
 		.isLength({ min: 1, max: 100 })
 		.withMessage('Model must be between 1 and 100 characters'),
 	body('config').optional().isObject().withMessage('Config must be an object'),
+	// AWS-specific validations
+	body('config.aws.region').optional().isString().withMessage('AWS region must be a string'),
+	body('config.aws.accessKeyId')
+		.optional()
+		.isString()
+		.withMessage('AWS access key ID must be a string'),
+	body('config.aws.secretAccessKey')
+		.optional()
+		.isString()
+		.withMessage('AWS secret access key must be a string'),
+	body('config.aws.sessionToken')
+		.optional()
+		.isString()
+		.withMessage('AWS session token must be a string'),
+	// Azure-specific validations
+	body('config.azure.endpoint')
+		.optional()
+		.isURL()
+		.withMessage('Azure endpoint must be a valid URL'),
+	body('config.azure.deploymentName')
+		.optional()
+		.isString()
+		.withMessage('Azure deployment name must be a string'),
+	// Conditional validation - Azure requires endpoint
+	body().custom(value => {
+		if (value.provider === 'azure' && !value.config?.azure?.endpoint) {
+			throw new Error('Azure provider requires config.azure.endpoint to be provided');
+		}
+		if (value.provider === 'aws' && !value.config?.aws) {
+			throw new Error('AWS provider requires config.aws object to be provided');
+		}
+		return true;
+	}),
 	sanitizeTextInput(['provider', 'model']),
 	handleValidationErrors,
 ];

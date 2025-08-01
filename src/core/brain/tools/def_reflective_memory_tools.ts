@@ -831,7 +831,43 @@ export const searchReasoningPatterns: InternalTool = {
 							queryPreview: input.query.substring(0, 50),
 						});
 
-						const queryEmbedding = await embedder.embed(input.query);
+						let queryEmbedding;
+						try {
+							queryEmbedding = await embedder.embed(input.query);
+						} catch (embedError) {
+							logger.error(
+								'ReasoningPatternSearch: Failed to generate embedding, disabling embeddings globally',
+								{
+									error: embedError instanceof Error ? embedError.message : String(embedError),
+									provider: embedder.getConfig().type,
+								}
+							);
+
+							// Immediately disable embeddings globally on first failure
+							if (_context?.services?.embeddingManager && embedError instanceof Error) {
+								_context.services.embeddingManager.handleRuntimeFailure(
+									embedError,
+									embedder.getConfig().type
+								);
+							}
+
+							// Fall back to mock data since embeddings are now disabled
+							fallback = true;
+							patterns = [];
+							usedMock = true;
+							logger.debug('ReasoningPatternSearch: Using mock response - embeddings disabled');
+							return {
+								success: true,
+								patterns: [],
+								metadata: {
+									totalPatterns: 0,
+									usedMock: true,
+									embeddingDisabled: true,
+									error: embedError instanceof Error ? embedError.message : String(embedError),
+								},
+								timestamp: new Date().toISOString(),
+							};
+						}
 
 						logger.debug('ReasoningPatternSearch: Embedding generated successfully', {
 							embeddingDimensions: Array.isArray(queryEmbedding)

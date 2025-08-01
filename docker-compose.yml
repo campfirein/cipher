@@ -8,6 +8,9 @@ services:
     environment:
       - PORT=3000
       - NODE_ENV=production
+      - CIPHER_MULTI_BACKEND=1
+      - CIPHER_PG_URL=postgres://username:password@postgres:5432/cipherdb # Update with your actual credentials
+      - CIPHER_WAL_FLUSH_INTERVAL=5000 # Optional: flush interval in ms
     env_file:
       - .env
     command:

@@ -106,6 +106,18 @@ export function createLlmRoutes(agent: MemAgent): Router {
 					description: 'Local Ollama models',
 					note: 'Requires Ollama server running locally',
 				},
+				lmstudio: {
+					name: 'LM Studio',
+					models: [
+						'mistral-7b-instruct',
+						'llama-3.1-8b-instruct',
+						'codellama-7b-instruct',
+						'deepseek-coder-6.7b-instruct',
+					],
+					requiresApiKey: false,
+					description: 'Local LM Studio models',
+					note: 'Requires LM Studio server running locally',
+				},
 			};
 
 			successResponse(

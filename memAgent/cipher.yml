@@ -1,5 +1,9 @@
-# describes the mcp servers to use
-mcpServers:
+# List of MCP servers to use
+
+# If not specified, please set it like this:
+# mcpServers: {}
+
+mcpServers: 
   filesystem:
     type: stdio
     command: npx
@@ -8,32 +12,134 @@ mcpServers:
       - '@modelcontextprotocol/server-filesystem'
       - .
 
-# describes the llm configuration
-# llm:
-#   # OpenRouter configuration - Updated to use model that supports tool calling
-#   provider: openrouter
-#   model: o4-mini
-#   apiKey: $OPENROUTER_API_KEY
-#   maxIterations: 50
-
-# # System prompt
-# systemPrompt: "You are a helpful AI assistant with memory capabilities. Please confirm you're working with OpenRouter API."
-
-# Active LLM configuration
+# Choose ONLY ONE of the following LLM providers
 llm:
-  # OpenAI configuration - Updated to use model that supports tool calling
   provider: openai
   model: gpt-4.1-mini
   apiKey: $OPENAI_API_KEY
   maxIterations: 50
+
+  # provider: gemini
+  # model: gemini-2.5-flash
+  # apiKey: $GEMINI_API_KEY
+  # maxIterations: 50
+
   # provider: anthropic
   # model: claude-3-5-haiku-20241022
   # apiKey: $ANTHROPIC_API_KEY
   # maxIterations: 50
+
   # provider: openrouter
   # model: google/gemini-2.5-pro
   # apiKey: $OPENROUTER_API_KEY
   # maxIterations: 50
+
+  # provider: qwen
+  # model: qwen3-14b
+  # apiKey: $QWEN_API_KEY
+  # maxIterations: 50
+  # qwenOptions:
+  #   enableThinking: false
+  
+
+
+# --- AWS Bedrock LLM Configuration ---
+  # provider: aws
+  # model: us.anthropic.claude-3-5-sonnet-20241022-v2:0  # Or another Bedrock-supported model
+  # maxIterations: 50
+  # aws:
+  #   region: $AWS_REGION
+  #   accessKeyId: $AWS_ACCESS_KEY_ID
+  #   secretAccessKey: $AWS_SECRET_ACCESS_KEY
+  #   sessionToken: $AWS_SESSION_TOKEN   # Optional, for temporary credentials
+
+# --- Azure OpenAI LLM Configuration ---
+#   provider: azure
+#   model: gpt-4o-mini  # Or your Azure deployment/model name
+#   apiKey: $AZURE_OPENAI_API_KEY
+#   maxIterations: 50
+#   azure:
+#     endpoint: $AZURE_OPENAI_ENDPOINT
+#     deploymentName: gpt-4o-mini  # Optional, defaults to model name
+
+# --- Ollama LLM Configuration (Sample, Commented Out) ---
+#   provider: ollama
+#   model: qwen3:32b      # Use the model you downloaded
+#   maxIterations: 50
+#   baseURL: $OLLAMA_BASE_URL
+
+# --- LM Studio LLM Configuration (Sample, Commented Out) ---
+  # provider: lmstudio
+  # model: hermes-2-pro-llama-3-8b      # Use the model you have loaded
+  # maxIterations: 50
+  # baseURL: $LMSTUDIO_BASE_URL
+
+# Embedding configuration: ONLY ONE of the following
+# OpenAI:
+# embedding:
+#   type: openai
+#   model: text-embedding-3-small
+#   apiKey: $OPENAI_API_KEY
+
+# Gemini:
+# embedding:
+#   type: gemini
+#   model: gemini-embedding-001
+#   apiKey: $GEMINI_API_KEY
+
+# Ollama:
+# embedding:
+#   type: ollama
+#   model: mxbai-embed-large
+#   baseUrl: $OLLAMA_BASE_URL
+
+# LM Studio:
+# embedding:
+#   type: lmstudio
+#   model: nomic-embed-text-v1.5
+#   baseUrl: $LMSTUDIO_BASE_URL
+
+# Voyage (for Anthropic/Claude users):
+# embedding:
+#   type: voyage
+#   model: voyage-3-large     #(1024, 256, 512, 2048)
+#   apiKey: $VOYAGE_API_KEY
+#   dimensions: 1024
+
+# Qwen:
+# embedding:
+#   type: qwen
+#   model: text-embedding-v3
+#   apiKey: $QWEN_API_KEY
+#   dimensions: 1024          # (1024, 768 or 512)
+
+# AWS Bedrock:
+# embedding:
+#   type: aws-bedrock
+#   model: amazon.titan-embed-text-v2:0   # or cohere.embed-english-v3
+#   region: $AWS_REGION
+#   accessKeyId: $AWS_ACCESS_KEY_ID
+#   secretAccessKey: $AWS_SECRET_ACCESS_KEY
+#   sessionToken: $AWS_SESSION_TOKEN       # Optional, for temporary credentials
+#   dimensions: 1024                       # 1024 (default), 512, or 256 for Titan V2
+#   timeout: 30000
+#   maxRetries: 3
+
+# Azure OpenAI:
+# embedding:
+#   type: openai
+#   model: text-embedding-3-small
+#   apiKey: $AZURE_OPENAI_API_KEY
+#   baseUrl: $AZURE_OPENAI_ENDPOINT        # e.g., https://your-resource.openai.azure.com
+#   dimensions: 1536                       # Optional: depends on model
+#   timeout: 30000
+#   maxRetries: 3
+
+# Disable embeddings entirely:
+# embedding:
+#   disabled: true
+
+
 
 # Evaluation LLM configuration (non-thinking model for evaluation step)
 # evalLlm:
@@ -41,20 +147,14 @@ llm:
 #   model: claude-3-7-sonnet-20250219
 #   apiKey: $ANTHROPIC_API_KEY
 
-# Alternative Ollama configuration (commented out)
-# llm:
-#   provider: ollama
-#   model: qwen3:32b      # Use the model you downloaded
-#   maxIterations: 50
-#   baseURL: $OLLAMA_BASE_URL
-
 # System prompt - User customizable
 # This prompt will be combined with built-in tool usage instructions
-systemPrompt: |
-  You are an AI programming assistant focused on coding and reasoning tasks. You excel at:
-  - Writing clean, efficient code
-  - Debugging and problem-solving
-  - Code review and optimization
-  - Explaining complex technical concepts
-  - Reasoning through programming challenges
-
+systemPrompt:
+  enabled: true
+  content: |
+    You are an AI programming assistant focused on coding and reasoning tasks. You excel at:
+    - Writing clean, efficient code
+    - Debugging and problem-solving
+    - Code review and optimization
+    - Explaining complex technical concepts
+    - Reasoning through programming challenges

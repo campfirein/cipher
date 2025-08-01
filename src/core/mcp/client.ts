@@ -9,6 +9,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { GetPromptResult, ReadResourceResult } from '@modelcontextprotocol/sdk/types.js';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -19,7 +20,7 @@ import type {
 	McpServerConfig,
 	StdioServerConfig,
 	SseServerConfig,
-	HttpServerConfig,
+	StreamableHttpServerConfig,
 	ToolSet,
 	ToolExecutionResult,
 } from './types.js';
@@ -46,6 +47,7 @@ export class MCPClient implements IMCPClient {
 	private serverName: string = '';
 	private logger: Logger;
 	private connectionPromise: Promise<Client> | null = null;
+	private quietMode = false;
 
 	// Server process information (for stdio connections)
 	private serverInfo = {
@@ -60,6 +62,13 @@ export class MCPClient implements IMCPClient {
 
 	constructor() {
 		this.logger = createLogger({ level: 'info' });
+	}
+
+	/**
+	 * Enable quiet mode to reduce logging verbosity (useful for CLI mode)
+	 */
+	setQuietMode(quiet: boolean): void {
+		this.quietMode = quiet;
 	}
 
 	/**
@@ -95,10 +104,12 @@ export class MCPClient implements IMCPClient {
 		this.serverConfig = config;
 		this.serverName = serverName;
 
-		this.logger.info(`${LOG_PREFIXES.CONNECT} Connecting to ${serverName} (${config.type})`, {
-			serverName,
-			transportType: config.type,
-		});
+		if (!this.quietMode) {
+			this.logger.info(`${LOG_PREFIXES.CONNECT} Connecting to ${serverName} (${config.type})`, {
+				serverName,
+				transportType: config.type,
+			});
+		}
 
 		try {
 			// Create transport based on configuration type
@@ -126,10 +137,12 @@ export class MCPClient implements IMCPClient {
 
 			this.connected = true;
 
-			this.logger.info(`${LOG_PREFIXES.CONNECT} Successfully connected to ${serverName}`, {
-				serverName,
-				timeout,
-			});
+			if (!this.quietMode) {
+				this.logger.info(`${LOG_PREFIXES.CONNECT} Successfully connected to ${serverName}`, {
+					serverName,
+					timeout,
+				});
+			}
 
 			return this.client;
 		} catch (error) {
@@ -156,8 +169,8 @@ export class MCPClient implements IMCPClient {
 			case TRANSPORT_TYPES.SSE:
 				return this._createSseTransport(config as SseServerConfig);
 
-			case TRANSPORT_TYPES.HTTP:
-				return this._createHttpTransport(config as HttpServerConfig);
+			case TRANSPORT_TYPES.STREAMABLE_HTTP:
+				return this._createStreamableHttpTransport(config as StreamableHttpServerConfig);
 
 			default:
 				throw new Error(`${ERROR_MESSAGES.UNSUPPORTED_SERVER_TYPE}: ${(config as any).type}`);
@@ -207,22 +220,40 @@ export class MCPClient implements IMCPClient {
 			serverName: this.serverName,
 		});
 
-		const transport = new SSEClientTransport(new URL(config.url));
+		// Create SSE transport with optional headers support via requestInit
+		const transportOptions = config.headers
+			? { requestInit: { headers: config.headers } }
+			: undefined;
+		const transport = new SSEClientTransport(new URL(config.url), transportOptions);
 		return transport;
 	}
 
 	/**
-	 * Create HTTP transport.
+	 * Create streamable HTTP transport.
 	 */
-	private async _createHttpTransport(config: HttpServerConfig): Promise<Transport> {
-		this.logger.debug(`${LOG_PREFIXES.CONNECT} Creating HTTP transport`, {
+	private async _createStreamableHttpTransport(
+		config: StreamableHttpServerConfig
+	): Promise<Transport> {
+		this.logger.debug(`${LOG_PREFIXES.CONNECT} Creating streamable HTTP transport`, {
 			url: config.url,
 			serverName: this.serverName,
 		});
 
-		// Note: HTTP transport implementation may vary based on MCP SDK version
-		// This is a placeholder implementation
-		throw new Error('HTTP transport not yet implemented in MCP SDK');
+		// Create streamable HTTP transport with optional headers support via requestInit
+		const transportOptions = config.headers
+			? { requestInit: { headers: config.headers } }
+			: undefined;
+		const transport = new StreamableHTTPClientTransport(new URL(config.url), transportOptions);
+		// Ensure sessionId is always a string to satisfy Transport interface
+		if (transport.sessionId === undefined) {
+			Object.defineProperty(transport, 'sessionId', {
+				value: '',
+				writable: true,
+				enumerable: true,
+				configurable: true,
+			});
+		}
+		return transport as Transport;
 	}
 
 	/**

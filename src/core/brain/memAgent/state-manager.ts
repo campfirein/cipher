@@ -19,7 +19,6 @@ export class MemAgentStateManager {
 	constructor(staticConfig: AgentConfig) {
 		this.baselineConfig = structuredClone(staticConfig);
 		this.runtimeConfig = structuredClone(staticConfig);
-		logger.debug('Initialized MemAgentStateManager with baseline config:', this.baselineConfig);
 	}
 
 	public addMcpServer(

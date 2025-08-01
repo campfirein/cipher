@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { logger } from '@core/index.js';
 
 export function validateCliOptions(opts: any): void {
-	logger.debug('Validating CLI options', opts);
+	// Remove debug logging for CLI validation to reduce noise
 	const cliOptionShape = z.object({
 		verbose: z.boolean().optional().default(true),
 		mode: z
@@ -32,7 +32,7 @@ export function validateCliOptions(opts: any): void {
 		throw result.error;
 	}
 
-	logger.debug('CLI options validated successfully', result.data);
+	// CLI options validated - no logging to reduce noise
 }
 
 export function handleCliOptionsError(error: unknown): never {

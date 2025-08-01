@@ -74,7 +74,7 @@ export class EventManager {
 			}, this.options.sessionCleanupInterval);
 		}
 
-		logger.info('EventManager initialized', {
+		logger.debug('EventManager initialized', {
 			instanceId: this.instanceId,
 			options: this.options,
 		});
@@ -152,8 +152,8 @@ export class EventManager {
 			return;
 		}
 
-		// Apply filtering if enabled
-		if (this.options.enableFiltering) {
+		// Apply filtering if enabled and filters exist
+		if (this.options.enableFiltering && this.filterManager.hasFilters()) {
 			const eventEnvelope: EventEnvelope = {
 				id: uuidv4(),
 				type: event as string,
@@ -205,8 +205,8 @@ export class EventManager {
 			return;
 		}
 
-		// Apply filtering if enabled
-		if (this.options.enableFiltering) {
+		// Apply filtering if enabled and filters exist
+		if (this.options.enableFiltering && this.filterManager.hasFilters()) {
 			const eventEnvelope: EventEnvelope = {
 				id: uuidv4(),
 				type: event as string,

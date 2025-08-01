@@ -12,6 +12,12 @@
  */
 export const PROVIDER_TYPES = {
 	OPENAI: 'openai',
+	GEMINI: 'gemini',
+	OLLAMA: 'ollama',
+	VOYAGE: 'voyage',
+	QWEN: 'qwen',
+	AWS_BEDROCK: 'aws-bedrock',
+	LMSTUDIO: 'lmstudio',
 } as const;
 
 /**
@@ -27,12 +33,102 @@ export const OPENAI_MODELS = {
 } as const;
 
 /**
+ * Gemini embedding models with their specifications
+ */
+export const GEMINI_MODELS = {
+	/** Latest Gemini embedding model (768, 1536, or 3072 dimensions) */
+	TEXT_EMBEDDING_004: 'text-embedding-004',
+	/** Gemini embedding model (768, 1536, or 3072 dimensions) */
+	GEMINI_EMBEDDING_001: 'gemini-embedding-001',
+	/** Previous Gemini embedding model (768 dimensions) */
+	EMBEDDING_001: 'embedding-001',
+} as const;
+
+/**
+ * Popular Ollama embedding models
+ */
+export const OLLAMA_MODELS = {
+	/** Nomic Embed text model */
+	NOMIC_EMBED_TEXT: 'nomic-embed-text',
+	/** All-MiniLM model */
+	ALL_MINILM: 'all-minilm',
+	/** MXBAI Embed Large */
+	MXBAI_EMBED_LARGE: 'mxbai-embed-large',
+} as const;
+
+/**
+ * Voyage AI embedding models with their specifications
+ */
+export const VOYAGE_MODELS = {
+	/** Latest Voyage 3 large model (1024 dimensions) */
+	VOYAGE_3_LARGE: 'voyage-3-large',
+	/** Standard Voyage 3 model (1024 dimensions) */
+	VOYAGE_3: 'voyage-3',
+	/** Previous Voyage 2 model (1024 dimensions) */
+	VOYAGE_2: 'voyage-2',
+} as const;
+
+/**
+ * Qwen (Alibaba Cloud) embedding models with their specifications
+ */
+export const QWEN_MODELS = {
+	/** Qwen multilingual text embedding model (1024/768/512 dimensions) */
+	TEXT_EMBEDDING_V3: 'text-embedding-v3',
+} as const;
+
+/**
+ * AWS Bedrock embedding models with their specifications
+ */
+export const AWS_BEDROCK_MODELS = {
+	/** Amazon Titan Text Embeddings V2 (1024/512/256 dimensions) */
+	TITAN_EMBED_TEXT_V2: 'amazon.titan-embed-text-v2:0',
+	/** Cohere Embed English V3 (1024 dimensions) */
+	COHERE_EMBED_ENGLISH_V3: 'cohere.embed-english-v3',
+} as const;
+
+/**
+ * LM Studio embedding models with their specifications
+ */
+export const LMSTUDIO_MODELS = {
+	/** Nomic Embed Text v1.5 (768 dimensions) */
+	NOMIC_EMBED_TEXT_V1_5: 'nomic-embed-text-v1.5',
+	/** Alternative Nomic model name */
+	TEXT_EMBEDDING_NOMIC_EMBED_TEXT_V1_5: 'text-embedding-nomic-embed-text-v1.5',
+	/** BGE Large (1024 dimensions) */
+	BGE_LARGE: 'bge-large',
+	/** BGE Base (768 dimensions) */
+	BGE_BASE: 'bge-base',
+	/** BGE Small (384 dimensions) */
+	BGE_SMALL: 'bge-small',
+	/** All-MiniLM (384 dimensions) */
+	ALL_MINILM: 'all-minilm',
+} as const;
+
+/**
  * Model dimension specifications
  */
 export const MODEL_DIMENSIONS = {
 	[OPENAI_MODELS.TEXT_EMBEDDING_3_SMALL]: 1536,
 	[OPENAI_MODELS.TEXT_EMBEDDING_3_LARGE]: 3072,
 	[OPENAI_MODELS.TEXT_EMBEDDING_ADA_002]: 1536,
+	[GEMINI_MODELS.TEXT_EMBEDDING_004]: 768, // Default, configurable up to 3072
+	[GEMINI_MODELS.GEMINI_EMBEDDING_001]: 768, // Default, configurable up to 3072
+	[GEMINI_MODELS.EMBEDDING_001]: 768,
+	[OLLAMA_MODELS.NOMIC_EMBED_TEXT]: 768,
+	[OLLAMA_MODELS.ALL_MINILM]: 384,
+	[OLLAMA_MODELS.MXBAI_EMBED_LARGE]: 1024,
+	[VOYAGE_MODELS.VOYAGE_3_LARGE]: 1024,
+	[VOYAGE_MODELS.VOYAGE_3]: 1024,
+	[VOYAGE_MODELS.VOYAGE_2]: 1024,
+	[QWEN_MODELS.TEXT_EMBEDDING_V3]: 1024, // Default, configurable to 768 or 512
+	[AWS_BEDROCK_MODELS.TITAN_EMBED_TEXT_V2]: 1024, // Default, configurable to 512 or 256
+	[AWS_BEDROCK_MODELS.COHERE_EMBED_ENGLISH_V3]: 1024,
+	[LMSTUDIO_MODELS.NOMIC_EMBED_TEXT_V1_5]: 768,
+	[LMSTUDIO_MODELS.TEXT_EMBEDDING_NOMIC_EMBED_TEXT_V1_5]: 768,
+	[LMSTUDIO_MODELS.BGE_LARGE]: 1024,
+	[LMSTUDIO_MODELS.BGE_BASE]: 768,
+	[LMSTUDIO_MODELS.BGE_SMALL]: 384,
+	// Note: ALL_MINILM already defined in OLLAMA_MODELS with same dimensions
 } as const;
 
 /**
@@ -51,6 +147,15 @@ export const DEFAULTS = {
 	/** Default OpenAI model */
 	OPENAI_MODEL: OPENAI_MODELS.TEXT_EMBEDDING_3_SMALL,
 
+	/** Default Gemini model */
+	GEMINI_MODEL: GEMINI_MODELS.GEMINI_EMBEDDING_001,
+
+	/** Default Ollama model */
+	OLLAMA_MODEL: OLLAMA_MODELS.NOMIC_EMBED_TEXT,
+
+	/** Default LM Studio model */
+	LMSTUDIO_MODEL: LMSTUDIO_MODELS.NOMIC_EMBED_TEXT_V1_5,
+
 	/** Default request timeout in milliseconds */
 	TIMEOUT: 30000, // 30 seconds
 
@@ -62,6 +167,15 @@ export const DEFAULTS = {
 
 	/** Default OpenAI API base URL */
 	OPENAI_BASE_URL: 'https://api.openai.com/v1',
+
+	/** Default Gemini API base URL */
+	GEMINI_BASE_URL: 'https://generativelanguage.googleapis.com/v1beta',
+
+	/** Default Ollama API base URL */
+	OLLAMA_BASE_URL: 'http://localhost:11434/api',
+
+	/** Default LM Studio API base URL */
+	LMSTUDIO_BASE_URL: 'http://localhost:1234/v1',
 
 	/** Default embedding dimension */
 	DIMENSION: MODEL_DIMENSIONS[OPENAI_MODELS.TEXT_EMBEDDING_3_SMALL],
@@ -137,22 +251,44 @@ export const ERROR_MESSAGES = {
 export const LOG_PREFIXES = {
 	EMBEDDING: '[EMBEDDING]',
 	OPENAI: '[EMBEDDING:OPENAI]',
+	GEMINI: '[EMBEDDING:GEMINI]',
+	OLLAMA: '[EMBEDDING:OLLAMA]',
+	VOYAGE: '[EMBEDDING:VOYAGE]',
+	QWEN: '[EMBEDDING:QWEN]',
+	AWS_BEDROCK: '[EMBEDDING:AWS-BEDROCK]',
+	LMSTUDIO: '[EMBEDDING:LMSTUDIO]',
 	FACTORY: '[EMBEDDING:FACTORY]',
 	MANAGER: '[EMBEDDING:MANAGER]',
 	HEALTH: '[EMBEDDING:HEALTH]',
 	BATCH: '[EMBEDDING:BATCH]',
+	CIRCUIT_BREAKER: '[EMBEDDING:CIRCUIT-BREAKER]',
+	FALLBACK: '[EMBEDDING:FALLBACK]',
 } as const;
 
 /**
  * Environment variable names
  */
 export const ENV_VARS = {
+	// OpenAI
 	OPENAI_API_KEY: 'OPENAI_API_KEY',
 	OPENAI_ORG_ID: 'OPENAI_ORG_ID',
 	OPENAI_BASE_URL: 'OPENAI_BASE_URL',
+	// Gemini
+	GEMINI_API_KEY: 'GEMINI_API_KEY',
+	GEMINI_BASE_URL: 'GEMINI_BASE_URL',
+	// Ollama
+	OLLAMA_BASE_URL: 'OLLAMA_BASE_URL',
+	// LM Studio
+	LMSTUDIO_BASE_URL: 'LMSTUDIO_BASE_URL',
+	// General embedding config
+	EMBEDDING_PROVIDER: 'EMBEDDING_PROVIDER',
 	EMBEDDING_MODEL: 'EMBEDDING_MODEL',
 	EMBEDDING_TIMEOUT: 'EMBEDDING_TIMEOUT',
 	EMBEDDING_MAX_RETRIES: 'EMBEDDING_MAX_RETRIES',
+	EMBEDDING_DIMENSIONS: 'EMBEDDING_DIMENSIONS',
+	// Optional embedding configuration
+	DISABLE_EMBEDDINGS: 'DISABLE_EMBEDDINGS',
+	EMBEDDING_DISABLED: 'EMBEDDING_DISABLED',
 } as const;
 
 /**

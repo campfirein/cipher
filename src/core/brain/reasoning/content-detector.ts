@@ -9,7 +9,7 @@ import { logger } from '../../logger/index.js';
 import { ILLMService, LLMConfig } from '../llm/index.js';
 import { createContextManager } from '../llm/messages/factory.js';
 import { createLLMService } from '../llm/services/factory.js';
-import { PromptManager } from '../systemPrompt/manager.js';
+import { EnhancedPromptManager } from '../systemPrompt/enhanced-manager.js';
 import { MCPManager } from '../../mcp/manager.js';
 import { UnifiedToolManager } from '../tools/unified-tool-manager.js';
 
@@ -43,14 +43,14 @@ const DEFAULT_OPTIONS: Required<ReasoningDetectionOptions> = {
  */
 export class ReasoningContentDetector {
 	private llmService?: ILLMService;
-	private promptManager: PromptManager;
+	private promptManager: EnhancedPromptManager;
 	private mcpManager: MCPManager;
 	private unifiedToolManager: UnifiedToolManager;
 	private options: Required<ReasoningDetectionOptions>;
 	private evalLlmConfig: LLMConfig;
 
 	constructor(
-		promptManager: PromptManager,
+		promptManager: EnhancedPromptManager,
 		mcpManager: MCPManager,
 		unifiedToolManager: UnifiedToolManager,
 		evalLlmConfig: LLMConfig,

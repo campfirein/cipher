@@ -40,7 +40,7 @@ export const MAX_TIMEOUT_MS = 300000; // 5 minutes
 export const TRANSPORT_TYPES = {
 	STDIO: 'stdio',
 	SSE: 'sse',
-	HTTP: 'http',
+	STREAMABLE_HTTP: 'streamable-http',
 } as const;
 
 // ======================================================

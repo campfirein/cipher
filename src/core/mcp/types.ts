@@ -13,18 +13,33 @@ import { GetPromptResult, ReadResourceResult } from '@modelcontextprotocol/sdk/t
 // ======================================================
 
 /**
- * Available MCP server transport types.
+ * Available MCP client transport types for connecting to MCP servers.
+ * These define the communication protocol used to connect to individual MCP servers.
  */
-export type TransportType = 'stdio' | 'sse' | 'http' | 'aggregator';
+export type TransportType = 'stdio' | 'sse' | 'streamable-http';
+
+/**
+ * Available server configuration types.
+ * Includes both transport types (for direct server connections) and operational modes (like aggregator).
+ */
+export type ServerConfigType = TransportType | 'aggregator';
 
 /**
  * Base configuration for any MCP server.
  */
 export interface BaseServerConfig {
 	/**
-	 * Type of transport to use for this server.
+	 * Configuration type: transport protocol for direct connections or operational mode.
+	 * - Transport types ('stdio', 'sse', 'streamable-http'): Connect directly to MCP servers
+	 * - Operational modes ('aggregator'): Special server modes that aggregate other servers
 	 */
-	type: TransportType;
+	type: ServerConfigType;
+
+	/**
+	 * Whether this server is enabled. Disabled servers will be skipped during initialization.
+	 * @default true
+	 */
+	enabled?: boolean;
 
 	/**
 	 * Connection mode determines how failures to connect are handled.
@@ -81,13 +96,13 @@ export interface SseServerConfig extends BaseServerConfig {
 }
 
 /**
- * Configuration for an HTTP-based MCP server.
+ * Configuration for a streamable HTTP-based MCP server.
  */
-export interface HttpServerConfig extends BaseServerConfig {
-	type: 'http';
+export interface StreamableHttpServerConfig extends BaseServerConfig {
+	type: 'streamable-http';
 
 	/**
-	 * URL of the HTTP server.
+	 * URL of the streamable HTTP server.
 	 */
 	url: string;
 
@@ -100,7 +115,7 @@ export interface HttpServerConfig extends BaseServerConfig {
 /**
  * Union type representing any valid MCP server configuration.
  */
-export type McpServerConfig = StdioServerConfig | SseServerConfig | HttpServerConfig;
+export type McpServerConfig = StdioServerConfig | SseServerConfig | StreamableHttpServerConfig;
 
 /**
  * Configuration for aggregator mode.

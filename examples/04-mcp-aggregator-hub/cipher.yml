@@ -1,0 +1,69 @@
+# MCP Aggregator Hub Configuration
+
+# LLM Configuration - Using Claude 3.5 Sonnet for balanced performance
+llm:
+  provider: openai
+  model: gpt-4.1-mini
+  apiKey: $OPENAI_API_KEY
+  maxIterations: 50
+
+
+# System Prompt - Optimized for MCP aggregator functionality
+systemPrompt: |
+  You are a **Development Assistant** with access to multiple MCP tools for enhanced capabilities.
+  
+  Use available tools proactively to provide comprehensive assistance:
+  - Research and gather current information
+  - Analyze code for security and quality
+  - Plan and structure development tasks
+  - Learn from interactions for better future responses
+  
+  Deliver thorough, secure, and well-researched development assistance.
+
+# MCP Servers Configuration - Comprehensive development toolkit
+mcpServers:
+  # Exa Search - Advanced web research and search
+  exa:
+    type: stdio
+    command: npx
+    args:
+      - -y
+      - "exa-mcp-server"
+    env:
+      EXA_API_KEY: $EXA_API_KEY
+  
+  # Context7 - Up-to-date documentation access (remote server)
+  context7:
+    type: "streamable-http"
+    url: "https://mcp.context7.com/mcp"
+    enabled: true 
+
+  
+  # Context7 - local server (alternative - currently disabled)
+  # context7:
+  #   type: stdio
+  #   command: npx
+  #   args:
+  #     - -y 
+  #     - "@upstash/context7-mcp"
+
+  # TaskMaster - AI-powered task management (for IDEs with API keys)
+  taskmaster:
+    type: stdio
+    command: npx
+    args:
+      - -y
+      - "--package=task-master-ai" # If the mcp server's not working, remove this
+      - "task-master-ai"
+    enabled: false  # Explicitly disabled
+    env:
+      OPENAI_API_KEY: $OPENAI_API_KEY 
+      # Beside OPENAI, you can other providers' keys as well, see more here: https://github.com/eyaltoledano/claude-task-master?tab=readme-ov-file 
+  
+  
+  # Semgrep - Security vulnerability scanning
+  semgrep:
+    type: "streamable-http"
+    url: "https://mcp.semgrep.ai/mcp/" 
+    enabled: true
+

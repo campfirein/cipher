@@ -1,0 +1,81 @@
+# Advanced System Prompt Providers
+
+providers:
+  - name: built-in-memory-search
+    type: static
+    priority: 100
+    enabled: true
+    config:
+      content: |
+        Use the memory search tool to retrieve facts, code, or context from previous interactions. Always search memory before answering if relevant.
+
+  - name: built-in-reasoning-patterns
+    type: static
+    priority: 90
+    enabled: true
+    config:
+      content: |
+        Use the reasoning patterns tool to find and apply problem-solving strategies from past sessions when the input contains reasoning steps.
+
+  - name: built-in-knowledge-graph
+    type: static
+    priority: 80
+    enabled: true
+    config:
+      content: |
+        Use the knowledge graph tools to manage, search, and relate entities and code concepts. Add nodes, search, and extract entities as needed.
+
+  - name: built-in-efficiency-guidelines
+    type: static
+    priority: 70
+    enabled: true
+    config:
+      content: |
+        Follow efficiency guidelines: avoid redundant searches, batch related queries, and use tools strategically.
+
+  - name: built-in-automatic-tools
+    type: static
+    priority: 60
+    enabled: true
+    config:
+      content: |
+        Some tools run automatically in the background (e.g., memory extraction, reasoning evaluation). Manual invocation is not required.
+
+  # Dynamic providers (LLM-driven, not loaded at startup)
+  - name: summary
+    type: dynamic
+    priority: 50
+    enabled: true
+    config:
+      generator: summary
+      history: all  # or N for most recent N messages
+
+  - name: rules
+    type: dynamic
+    priority: 49
+    enabled: true
+    config:
+      generator: rules
+      history: all
+
+  - name: error-detection
+    type: dynamic
+    priority: 48
+    enabled: true
+    config:
+      generator: error-detection
+      history: all
+
+  # Example file-based provider
+  - name: project-guidelines
+    type: file-based
+    priority: 40
+    enabled: true
+    config:
+      filePath: ./memAgent/project-guidelines.md
+      summarize: false
+
+settings:
+  maxGenerationTime: 10000
+  failOnProviderError: false
+  contentSeparator: "\n\n---\n\n" 

@@ -5,6 +5,12 @@ import { executeCommand } from './commands.js';
 import { commandParser } from './parser.js';
 import type { AggregatorConfig } from '@core/mcp/types.js';
 
+// Constants for compression display
+const COMPRESSION_CHECK_DELAY = 100;
+
+// State tracking for compression display
+let lastCompressionHistoryLength = 0;
+
 /**
  * Start headless CLI mode for one-shot command execution
  * @param agent - The MemAgent instance
@@ -31,36 +37,32 @@ export async function startHeadlessCli(agent: MemAgent, input: string): Promise<
 		const result = await agent.run(message, undefined, undefined, false, {
 			memoryMetadata: metadata,
 		});
-		if (result && result.response) {
-			logger.displayAIResponse(result.response);
-		} else {
-			console.log(chalk.gray('No response received.'));
-		}
-
-		// Wait for background operations to complete before exiting
 		if (result && result.backgroundOperations) {
 			try {
 				await result.backgroundOperations;
 			} catch {
-				// Background operations failures are already logged, don't show to user
+				/* no-op: background operation errors are intentionally ignored */
 			}
+		}
+		if (result && result.response) {
+			logger.displayAIResponse(result.response);
+		} else {
+			console.log(chalk.gray('No response received.'));
 		}
 	} else {
 		console.log(chalk.gray('🤔 Processing...'));
 		const result = await agent.run(input);
-		if (result && result.response) {
-			logger.displayAIResponse(result.response);
-		} else {
-			console.log(chalk.gray('No response received.'));
-		}
-
-		// Wait for background operations to complete before exiting
 		if (result && result.backgroundOperations) {
 			try {
 				await result.backgroundOperations;
 			} catch {
-				// Background operations failures are already logged, don't show to user
+				/* no-op: background operation errors are intentionally ignored */
 			}
+		}
+		if (result && result.response) {
+			logger.displayAIResponse(result.response);
+		} else {
+			console.log(chalk.gray('No response received.'));
 		}
 	}
 }
@@ -71,6 +73,7 @@ export async function startHeadlessCli(agent: MemAgent, input: string): Promise<
 export async function startInteractiveCli(agent: MemAgent): Promise<void> {
 	// Common initialization
 	await _initCli(agent);
+	await _initializeSessionAndCompression(agent);
 
 	console.log(chalk.cyan('🚀 Welcome to Cipher Interactive CLI!'));
 	console.log(chalk.gray('Your memory-powered coding assistant is ready.'));
@@ -127,24 +130,51 @@ export async function startInteractiveCli(agent: MemAgent): Promise<void> {
 				const result = await agent.run(message, undefined, undefined, false, {
 					memoryMetadata: metadata,
 				});
+				if (result && result.backgroundOperations) {
+					try {
+						await result.backgroundOperations;
+					} catch {
+						/* no-op: background operation errors are intentionally ignored */
+					}
+				}
 				if (result && result.response) {
 					logger.displayAIResponse(result.response);
 				} else {
 					console.log(chalk.gray('No response received.'));
 				}
 
-				// Let background operations run in the background without blocking the UI
+				// Show compression info after processing
+				await _showCompressionInfo(agent);
+
+				// At info log level, display prompt immediately and let background operations run silently
 				if (result && result.backgroundOperations) {
-					result.backgroundOperations
-						.catch(() => {
-							// Background operations failures are already logged, don't show to user
-						})
-						.finally(() => {
-							// Small delay to ensure any error logs are fully written before redisplaying prompt
-							setTimeout(() => {
-								rl.prompt();
-							}, 100);
+					// Check if we're at info log level or higher (info level = 2, anything higher means less verbose)
+					const currentLogLevel = process.env.CIPHER_LOG_LEVEL || 'info';
+					const isInfoLevelOrHigher = ['error', 'warn', 'info'].includes(currentLogLevel);
+
+					if (isInfoLevelOrHigher) {
+						// At info level, show prompt immediately
+						rl.prompt();
+
+						// Let background operations run silently in the background
+						result.backgroundOperations.catch(() => {
+							// Background operation errors are intentionally ignored at info level
 						});
+					} else {
+						// At debug/verbose levels, wait for background operations to complete
+						result.backgroundOperations
+							.catch(() => {
+								// Background operations failures are already logged, don't show to user
+							})
+							.finally(() => {
+								// Small delay to ensure any error logs are fully written before redisplaying prompt
+								setTimeout(() => {
+									rl.prompt();
+								}, COMPRESSION_CHECK_DELAY);
+							});
+					}
+				} else {
+					rl.prompt();
 				}
 			} else {
 				const parsedInput = commandParser.parseInput(trimmedInput);
@@ -165,11 +195,14 @@ export async function startInteractiveCli(agent: MemAgent): Promise<void> {
 						console.log(chalk.red('❌ Invalid command format'));
 						commandParser.displayHelp();
 					}
+					// Always redisplay prompt after slash commands
+					rl.prompt();
 				} else {
 					// Handle regular user prompt - pass to agent
 					console.log(chalk.gray('🤔 Thinking...'));
 					const result = await agent.run(trimmedInput);
 
+					// Display the AI response immediately
 					if (result && result.response) {
 						// Display the AI response with nice formatting
 						logger.displayAIResponse(result.response);
@@ -177,18 +210,38 @@ export async function startInteractiveCli(agent: MemAgent): Promise<void> {
 						console.log(chalk.gray('No response received.'));
 					}
 
-					// Let background operations run in the background without blocking the UI
+					// Show compression info after processing
+					await _showCompressionInfo(agent);
+
+					// At info log level, display prompt immediately and let background operations run silently
 					if (result && result.backgroundOperations) {
-						result.backgroundOperations
-							.catch(() => {
-								// Background operations failures are already logged, don't show to user
-							})
-							.finally(() => {
-								// Small delay to ensure any error logs are fully written before redisplaying prompt
-								setTimeout(() => {
-									rl.prompt();
-								}, 100);
+						// Check if we're at info log level or higher (info level = 2, anything higher means less verbose)
+						const currentLogLevel = process.env.CIPHER_LOG_LEVEL || 'info';
+						const isInfoLevelOrHigher = ['error', 'warn', 'info'].includes(currentLogLevel);
+
+						if (isInfoLevelOrHigher) {
+							// At info level, show prompt immediately
+							rl.prompt();
+
+							// Let background operations run silently in the background
+							result.backgroundOperations.catch(() => {
+								// Background operation errors are intentionally ignored at info level
 							});
+						} else {
+							// At debug/verbose levels, wait for background operations to complete
+							result.backgroundOperations
+								.catch(() => {
+									// Background operations failures are already logged, don't show to user
+								})
+								.finally(() => {
+									// Small delay to ensure any error logs are fully written before redisplaying prompt
+									setTimeout(() => {
+										rl.prompt();
+									}, COMPRESSION_CHECK_DELAY);
+								});
+						}
+					} else {
+						rl.prompt();
 					}
 				}
 			}
@@ -196,9 +249,8 @@ export async function startInteractiveCli(agent: MemAgent): Promise<void> {
 			logger.error(
 				`Error processing input: ${error instanceof Error ? error.message : String(error)}`
 			);
+			rl.prompt();
 		}
-
-		rl.prompt();
 	});
 
 	rl.on('close', () => {
@@ -342,6 +394,91 @@ async function _initCli(agent: MemAgent): Promise<void> {
 	}
 
 	logger.info('CLI interface ready');
+}
+
+/**
+ * Initialize session and display compression startup info (only for interactive mode)
+ */
+async function _initializeSessionAndCompression(agent: MemAgent): Promise<void> {
+	// Wait a bit for session to be ready
+	await new Promise(resolve => setTimeout(resolve, 50));
+
+	const session = await agent.getSession(agent.getCurrentSessionId());
+
+	if (session && typeof session.init === 'function') {
+		await session.init();
+	}
+
+	// Wait a bit more for compression system to be fully initialized
+	await new Promise(resolve => setTimeout(resolve, 50));
+
+	await _showCompressionStartup(agent);
+	await new Promise(res => process.stderr.write('', res));
+}
+
+/**
+ * Show compression system startup information
+ */
+async function _showCompressionStartup(agent: MemAgent): Promise<void> {
+	try {
+		const session = await agent.getSession(agent.getCurrentSessionId());
+
+		if (!session) {
+			// Session not ready yet, skip compression info silently
+			return;
+		}
+
+		const ctx = session.getContextManager();
+		if (!ctx) {
+			return;
+		}
+
+		const stats = ctx.getTokenStats();
+
+		if (stats.maxTokens > 0) {
+			console.log(chalk.green('🧠 Token-Aware Compression System is ACTIVE'));
+			console.log(
+				chalk.gray(
+					`• Max tokens: ${stats.maxTokens}, Compression strategy: ${ctx['compressionStrategy']?.name || 'unknown'}`
+				)
+			);
+
+			lastCompressionHistoryLength = ctx['compressionHistory']?.length || 0;
+		}
+	} catch {
+		// Intentionally empty - compression info is optional
+	}
+}
+
+/**
+ * Show compression info after each interaction
+ */
+async function _showCompressionInfo(agent: MemAgent): Promise<void> {
+	try {
+		const session = await agent.getSession(agent.getCurrentSessionId());
+
+		if (!session) {
+			return;
+		}
+
+		const ctx = session.getContextManager();
+		const history = ctx['compressionHistory'];
+
+		if (Array.isArray(history) && history.length > lastCompressionHistoryLength) {
+			const event = history[history.length - 1];
+			_displayCompressionEvent(event);
+			lastCompressionHistoryLength = history.length;
+		}
+	} catch {
+		// Intentionally empty - compression info is optional
+	}
+}
+
+/**
+ * Display compression event information
+ */
+function _displayCompressionEvent(event: any): void {
+	console.log(chalk.yellowBright('⚡ Context has been compressed.'));
 }
 
 // Add utility for parsing metadata from CLI

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { DatabaseHistoryProvider } from '../database.js';
 import { StorageManager } from '../../../../../storage/manager.js';
 import type { InternalMessage } from '../../types.js';
+import { InMemoryBackend } from '../../../../../storage/backend/in-memory.js';
 
 function makeMessage(i = 0): InternalMessage {
 	return { role: 'user' as const, content: `msg${i}` };
@@ -17,19 +18,20 @@ describe('DatabaseHistoryProvider', () => {
 	beforeEach(async () => {
 		sessionId = 'test-session';
 		message = { role: 'user', content: 'hello' };
-		storageManager = new StorageManager({
-			cache: { type: 'in-memory' as const },
-			database: { type: 'in-memory' as const },
-		});
-		await storageManager.connect();
+		backend = new InMemoryBackend();
+		await backend.connect();
+		storageManager = {
+			getBackends: () => ({ database: backend }),
+		} as any;
 		provider = new DatabaseHistoryProvider(storageManager);
-		backend = storageManager.getBackends()?.database;
 		await provider.clearHistory(sessionId);
 	});
 
 	afterEach(async () => {
 		await provider.clearHistory(sessionId);
-		await storageManager.disconnect();
+		if (typeof storageManager.disconnect === 'function') {
+			await storageManager.disconnect();
+		}
 		vi.restoreAllMocks();
 	});
 

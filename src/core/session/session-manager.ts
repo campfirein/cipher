@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { PromptManager } from '../brain/systemPrompt/manager.js';
+import { EnhancedPromptManager } from '../brain/systemPrompt/enhanced-manager.js';
 import { MemAgentStateManager } from '../brain/memAgent/state-manager.js';
 import { ConversationSession } from './coversation-session.js';
 import { MCPManager } from '../mcp/manager.js';
@@ -31,10 +31,11 @@ export class SessionManager {
 	constructor(
 		private services: {
 			stateManager: MemAgentStateManager;
-			promptManager: PromptManager;
+			promptManager: EnhancedPromptManager;
 			mcpManager: MCPManager;
 			unifiedToolManager: UnifiedToolManager;
 			eventManager: EventManager;
+			embeddingManager?: any; // Optional embedding manager for status checking
 		},
 		config: SessionManagerConfig = {}
 	) {
@@ -268,5 +269,20 @@ export class SessionManager {
 		this.initialized = false;
 
 		logger.debug('SessionManager shutdown completed');
+	}
+
+	/**
+	 * Get the storageManager for a given session (if available)
+	 */
+	public getStorageManagerForSession(sessionId: string): any {
+		const sessionMetadata = this.sessions.get(sessionId);
+		if (
+			sessionMetadata &&
+			sessionMetadata.session &&
+			typeof sessionMetadata.session.getStorageManager === 'function'
+		) {
+			return sessionMetadata.session.getStorageManager();
+		}
+		return undefined;
 	}
 }

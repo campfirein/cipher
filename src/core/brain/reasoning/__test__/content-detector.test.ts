@@ -4,12 +4,11 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { ReasoningContentDetector } from '../content-detector.js';
-import { PromptManager } from '../../systemPrompt/manager.js';
 import { MCPManager } from '../../../mcp/manager.js';
 import { UnifiedToolManager } from '../../tools/unified-tool-manager.js';
+import { EnhancedPromptManager } from '../../systemPrompt/enhanced-manager.js';
 
 // Mock dependencies
-vi.mock('../../systemPrompt/manager.js');
 vi.mock('../../../mcp/manager.js');
 vi.mock('../../tools/unified-tool-manager.js');
 vi.mock('../../../logger/index.js', () => ({
@@ -22,13 +21,13 @@ vi.mock('../../../logger/index.js', () => ({
 
 describe('ReasoningContentDetector', () => {
 	let detector: ReasoningContentDetector;
-	let mockPromptManager: PromptManager;
 	let mockMcpManager: MCPManager;
 	let mockUnifiedToolManager: UnifiedToolManager;
 	let mockEvalLlmConfig: any;
+	let mockPromptManager: EnhancedPromptManager;
 
 	beforeEach(() => {
-		mockPromptManager = {} as PromptManager;
+		mockPromptManager = {} as EnhancedPromptManager;
 		mockMcpManager = {} as MCPManager;
 		mockUnifiedToolManager = {} as UnifiedToolManager;
 
