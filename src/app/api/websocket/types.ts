@@ -50,7 +50,11 @@ export type WebSocketEventType =
 	| 'thinking'
 	| 'chunk'
 	| 'toolCall'
+	| 'toolExecutionStarted'
+	| 'toolExecutionProgress'
 	| 'toolResult'
+	| 'toolExecutionCompleted'
+	| 'toolExecutionFailed'
 	| 'response'
 	| 'error'
 	| 'conversationReset'
@@ -77,12 +81,39 @@ export interface WebSocketEventData {
 		sessionId: string;
 		callId?: string;
 	};
+	toolExecutionStarted: {
+		toolName: string;
+		sessionId: string;
+		callId?: string;
+		executionId?: string;
+	};
+	toolExecutionProgress: {
+		toolName: string;
+		progress: string;
+		sessionId: string;
+		callId?: string;
+		executionId?: string;
+	};
 	toolResult: {
 		toolName: string;
 		result: any;
 		success: boolean;
 		sessionId: string;
 		callId?: string;
+	};
+	toolExecutionCompleted: {
+		toolName: string;
+		success: boolean;
+		sessionId: string;
+		callId?: string;
+		executionId?: string;
+	};
+	toolExecutionFailed: {
+		toolName: string;
+		error: string;
+		sessionId: string;
+		callId?: string;
+		executionId?: string;
 	};
 	response: {
 		content: string;

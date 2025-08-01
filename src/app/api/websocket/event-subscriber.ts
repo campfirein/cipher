@@ -5,6 +5,7 @@ import { WebSocketResponse, WebSocketEventType, WebSocketEventData } from './typ
 
 export class WebSocketEventSubscriber {
 	private abortController: AbortController | null = null;
+	private subscribedSessions = new Set<string>();
 	private subscriptionStats = {
 		totalEventsReceived: 0,
 		totalEventsBroadcast: 0,
@@ -158,11 +159,15 @@ export class WebSocketEventSubscriber {
 		const activeSessions = this.eventManager.getActiveSessionIds();
 
 		activeSessions.forEach(sessionId => {
-			this.subscribeToSingleSessionEvents(sessionId, signal);
+			if (!this.subscribedSessions.has(sessionId)) {
+				this.subscribeToSingleSessionEvents(sessionId, signal);
+				this.subscribedSessions.add(sessionId);
+			}
 		});
 
 		logger.debug('Session event subscriptions ready for existing sessions', {
 			existingSessionCount: activeSessions.length,
+			subscribedSessionCount: this.subscribedSessions.size,
 		});
 	}
 
@@ -170,9 +175,22 @@ export class WebSocketEventSubscriber {
 	 * Subscribe to a session's events on-demand (called when session is bound to connection)
 	 */
 	public subscribeToSession(sessionId: string): void {
-		if (this.abortController) {
+		if (this.abortController && !this.subscribedSessions.has(sessionId)) {
 			logger.debug('Dynamically subscribing to session events', { sessionId });
 			this.subscribeToSingleSessionEvents(sessionId, this.abortController.signal);
+			this.subscribedSessions.add(sessionId);
+		} else if (this.subscribedSessions.has(sessionId)) {
+			logger.debug('Session already subscribed, skipping', { sessionId });
+		}
+	}
+
+	/**
+	 * Remove session from tracking when it's deleted
+	 */
+	public unsubscribeFromSession(sessionId: string): void {
+		if (this.subscribedSessions.has(sessionId)) {
+			this.subscribedSessions.delete(sessionId);
+			logger.debug('Session removed from subscription tracking', { sessionId });
 		}
 	}
 
@@ -230,7 +248,6 @@ export class WebSocketEventSubscriber {
 				this.handleEvent(
 					'response',
 					{
-						text: data.response || data.content || 'Response completed', // Frontend expects 'text' property
 						content: data.response || data.content || 'Response completed',
 						sessionId: data.sessionId,
 						messageId: data.messageId,
@@ -266,11 +283,30 @@ export class WebSocketEventSubscriber {
 		sessionBus.on(
 			'tool:executionStarted',
 			data => {
+				logger.debug('WebSocket: Received tool:executionStarted event', { 
+					toolName: data.toolName, 
+					sessionId: data.sessionId,
+					executionId: data.executionId
+				});
+				
+				// Send the specific tool execution started event
+				this.handleEvent(
+					'toolExecutionStarted',
+					{
+						toolName: data.toolName,
+						sessionId: data.sessionId,
+						callId: data.executionId,
+						executionId: data.executionId,
+					},
+					signal
+				);
+				
+				// Also send the traditional toolCall event for backward compatibility
 				this.handleEvent(
 					'toolCall',
 					{
 						toolName: data.toolName,
-						args: {},
+						args: {}, // Tool args are not available at execution start
 						sessionId: data.sessionId,
 						callId: data.executionId,
 					},
@@ -283,11 +319,25 @@ export class WebSocketEventSubscriber {
 		sessionBus.on(
 			'tool:executionCompleted',
 			data => {
+				// Send specific completion event
+				this.handleEvent(
+					'toolExecutionCompleted',
+					{
+						toolName: data.toolName,
+						success: data.success,
+						sessionId: data.sessionId,
+						callId: data.executionId,
+						executionId: data.executionId,
+					},
+					signal
+				);
+				
+				// Send traditional toolResult event with actual result data
 				this.handleEvent(
 					'toolResult',
 					{
 						toolName: data.toolName,
-						result: 'Tool execution completed',
+						result: data.result || 'Tool execution completed',
 						success: data.success,
 						sessionId: data.sessionId,
 						callId: data.executionId,
@@ -301,6 +351,20 @@ export class WebSocketEventSubscriber {
 		sessionBus.on(
 			'tool:executionFailed',
 			data => {
+				// Send specific failure event
+				this.handleEvent(
+					'toolExecutionFailed',
+					{
+						toolName: data.toolName,
+						error: data.error,
+						sessionId: data.sessionId,
+						callId: data.executionId,
+						executionId: data.executionId,
+					},
+					signal
+				);
+				
+				// Send traditional toolResult event
 				this.handleEvent(
 					'toolResult',
 					{
@@ -397,6 +461,9 @@ export class WebSocketEventSubscriber {
 		sessionBus.on(
 			'session:deleted',
 			data => {
+				// Clean up session subscription tracking
+				this.unsubscribeFromSession(data.sessionId);
+				
 				this.handleEvent(
 					'sessionEnded',
 					{
@@ -461,11 +528,19 @@ export class WebSocketEventSubscriber {
 			if (response.sessionId) {
 				// Session-specific event - broadcast to session connections
 				this.connectionManager.broadcastToSession(response.sessionId, response);
-				logger.debug('Event broadcast to session', {
-					eventType,
-					sessionId: response.sessionId,
-					hasData: !!data,
-				});
+				if (eventType.includes('tool')) {
+					logger.info('Tool event broadcast to session', {
+						eventType,
+						sessionId: response.sessionId,
+						data: response.data,
+					});
+				} else {
+					logger.debug('Event broadcast to session', {
+						eventType,
+						sessionId: response.sessionId,
+						hasData: !!data,
+					});
+				}
 			} else {
 				// Global event - broadcast to all subscribers
 				this.connectionManager.broadcastToSubscribers(eventType, response);
@@ -492,6 +567,7 @@ export class WebSocketEventSubscriber {
 		if (this.abortController) {
 			this.abortController.abort();
 			this.abortController = null;
+			this.subscribedSessions.clear();
 			logger.info('WebSocket event subscriptions terminated');
 		}
 	}
@@ -505,6 +581,7 @@ export class WebSocketEventSubscriber {
 		totalEventsBroadcast: number;
 		lastEventTime: number;
 		eventTypeStats: Record<string, number>;
+		subscribedSessionCount: number;
 		connectionStats: any;
 	} {
 		return {
@@ -513,6 +590,7 @@ export class WebSocketEventSubscriber {
 			totalEventsBroadcast: this.subscriptionStats.totalEventsBroadcast,
 			lastEventTime: this.subscriptionStats.lastEventTime,
 			eventTypeStats: Object.fromEntries(this.subscriptionStats.eventTypeStats),
+			subscribedSessionCount: this.subscribedSessions.size,
 			connectionStats: this.connectionManager.getStats(),
 		};
 	}
@@ -575,6 +653,9 @@ export class WebSocketEventSubscriber {
 			eventTypeStats: new Map<string, number>(),
 			lastEventTime: 0,
 		};
+
+		// Clear subscribed sessions
+		this.subscribedSessions.clear();
 
 		logger.info('WebSocket event subscriber disposed');
 	}

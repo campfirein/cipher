@@ -80,6 +80,7 @@ export interface SessionEventMap {
 		duration: number;
 		success: boolean;
 		timestamp: number;
+		result?: any;
 	};
 	'tool:executionFailed': {
 		toolName: string;

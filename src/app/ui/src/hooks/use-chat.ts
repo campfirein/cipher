@@ -44,6 +44,7 @@ export function useChat(wsUrl: string, options: UseChatOptions = {}) {
 
 		const payload = msg.data || {};
 
+
 		switch (msg.event) {
 			case 'thinking':
 				handleThinkingEvent();
@@ -60,8 +61,20 @@ export function useChat(wsUrl: string, options: UseChatOptions = {}) {
 			case 'toolCall':
 				handleToolCallEvent(payload);
 				break;
+			case 'toolExecutionStarted':
+				handleToolExecutionStarted(payload);
+				break;
+			case 'toolExecutionProgress':
+				handleToolExecutionProgress(payload);
+				break;
 			case 'toolResult':
 				handleToolResultEvent(payload);
+				break;
+			case 'toolExecutionCompleted':
+				handleToolExecutionCompleted(payload);
+				break;
+			case 'toolExecutionFailed':
+				handleToolExecutionFailed(payload);
 				break;
 					case 'error':
 			handleErrorEvent(payload);
@@ -291,21 +304,123 @@ export function useChat(wsUrl: string, options: UseChatOptions = {}) {
 		const name = payload.toolName;
 		const result = payload.result;
 
+		// Skip if result is the generic completion message
+		if (result === 'Tool execution completed') {
+			return;
+		}
+
 		// Extract image URI from tool result
 		const uri = result ? extractImageFromToolResult(result) : null;
 		lastImageUriRef.current = uri;
 
-		// Merge toolResult into the existing toolCall message
+		// Add a formatted tool result message similar to terminal output  
+		const resultMessage: ChatMessage = {
+			id: generateUniqueId(),
+			role: 'system',
+			content: `📋 Tool Result:\n${typeof result === 'string' ? result : JSON.stringify(result, null, 2)}`,
+			createdAt: Date.now(),
+			toolExecutionId: payload.callId || payload.executionId,
+		};
+
+		// Merge toolResult into the existing toolCall message AND add result message
 		setMessages(ms => {
 			const idx = ms.findIndex(
 				m => m.role === 'tool' && m.toolName === name && m.toolResult === undefined
 			);
 			if (idx !== -1) {
 				const updatedMsg: ChatMessage = { ...ms[idx], toolResult: result };
-				return [...ms.slice(0, idx), updatedMsg, ...ms.slice(idx + 1)];
+				return [...ms.slice(0, idx), updatedMsg, ...ms.slice(idx + 1), resultMessage];
 			}
 			console.warn(`No matching tool call found for result of ${name}`);
-			return ms;
+			return [...ms, resultMessage];
+		});
+	}, []);
+
+	const handleToolExecutionStarted = useCallback((payload: IncomingMessage['data']) => {
+		if (!isMountedRef.current) return;
+
+		const name = payload.toolName;
+		const callId = payload.callId || payload.executionId;
+
+		// Add a system message to show tool execution started
+		const startMessage: ChatMessage = {
+			id: generateUniqueId(),
+			role: 'system',
+			content: `🔧 Using tool: ${name}`,
+			createdAt: Date.now(),
+			toolExecutionId: callId,
+		};
+		setMessages(ms => [...ms, startMessage]);
+	}, []);
+
+	const handleToolExecutionProgress = useCallback((payload: IncomingMessage['data']) => {
+		if (!isMountedRef.current) return;
+
+		const progress = payload.progress || payload.message;
+		const callId = payload.callId || payload.executionId;
+
+		if (progress) {
+			// Update or add progress message
+			setMessages(ms => {
+				const progressMessageId = `progress-${callId}`;
+				const existingIdx = ms.findIndex(m => m.id === progressMessageId);
+				
+				const progressMessage: ChatMessage = {
+					id: progressMessageId,
+					role: 'system',
+					content: `⏳ ${progress}`,
+					createdAt: Date.now(),
+					toolExecutionId: callId,
+				};
+
+				if (existingIdx !== -1) {
+					// Update existing progress message
+					return [...ms.slice(0, existingIdx), progressMessage, ...ms.slice(existingIdx + 1)];
+				} else {
+					// Add new progress message
+					return [...ms, progressMessage];
+				}
+			});
+		}
+	}, []);
+
+	const handleToolExecutionCompleted = useCallback((payload: IncomingMessage['data']) => {
+		if (!isMountedRef.current) return;
+
+		const name = payload.toolName;
+		const success = payload.success !== false;
+		const callId = payload.callId || payload.executionId;
+
+		setMessages(ms => {
+			// Remove any progress messages for this execution
+			const withoutProgress = ms.filter(m => !(m.id?.startsWith(`progress-${callId}`)));
+			
+			// Don't add completion message - we'll show the actual result instead
+			return withoutProgress;
+		});
+	}, []);
+
+	const handleToolExecutionFailed = useCallback((payload: IncomingMessage['data']) => {
+		if (!isMountedRef.current) return;
+
+		const name = payload.toolName;
+		const error = payload.error || 'Unknown error';
+		const callId = payload.callId || payload.executionId;
+
+		setMessages(ms => {
+			// Remove any progress messages for this execution
+			const withoutProgress = ms.filter(m => !(m.id?.startsWith(`progress-${callId}`)));
+			
+			// Add error message
+			const errorMessage: ChatMessage = {
+				id: generateUniqueId(),
+				role: 'system',
+				content: `❌ Tool ${name} failed: ${error}`,
+				createdAt: Date.now(),
+				toolExecutionId: callId,
+			};
+
+			return [...withoutProgress, errorMessage];
 		});
 	}, []);
 

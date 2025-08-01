@@ -88,7 +88,7 @@ function MainChatInterface() {
   const toggleServers = () => setIsServersPanelOpen(prev => !prev);
 
   return (
-    <div className="flex h-full bg-background">
+    <div className="flex h-screen bg-background">
       <main className="flex-1 flex flex-col relative">
         <Header
           currentSessionId={currentSessionId}
@@ -105,12 +105,18 @@ function MainChatInterface() {
             {isWelcomeState ? (
               <WelcomeScreen quickActions={quickActions} />
             ) : (
-              <MessageList messages={messages.map(convertChatMessageToMessage)} />
+              <MessageList 
+                messages={messages.map(convertChatMessageToMessage)} 
+                className="flex-1"
+                maxHeight="h-full"
+              />
             )}
-            <InputArea 
-              onSend={handleSend}
-              disabled={status !== 'open'}
-            />
+            <div className="flex-shrink-0">
+              <InputArea 
+                onSend={handleSend}
+                disabled={status !== 'open'}
+              />
+            </div>
           </div>
           
           <SlidingPanel isOpen={isSessionsPanelOpen} width="w-80">

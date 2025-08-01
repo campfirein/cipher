@@ -151,7 +151,11 @@ export interface IncomingMessage {
 		| 'chunk'
 		| 'response'
 		| 'toolCall'
+		| 'toolExecutionStarted'
+		| 'toolExecutionProgress'
 		| 'toolResult'
+		| 'toolExecutionCompleted'
+		| 'toolExecutionFailed'
 		| 'conversationReset'
 		| 'connected'
 		| 'connectionUpdated'
@@ -167,6 +171,11 @@ export interface IncomingMessage {
 		args?: Record<string, unknown>;
 		result?: ToolResult;
 		message?: string;
+		callId?: string;
+		executionId?: string;
+		progress?: string;
+		success?: boolean;
+		error?: string;
 	};
 }
 
@@ -187,6 +196,7 @@ export interface ChatMessage {
 	tokenCount?: number;
 	model?: string;
 	sessionId?: string;
+	toolExecutionId?: string;
 }
 
 // Hook options

@@ -163,7 +163,8 @@ export function dispatchChatEvent(eventName: string, detail: Record<string, unkn
 export function convertChatMessageToMessage(chatMessage: any): any {
 	const converted = {
 		...chatMessage,
-		content: chatMessage.content === null ? '' : chatMessage.content,
+		// For tool messages, keep content as null to ensure proper rendering
+		content: chatMessage.role === 'tool' ? chatMessage.content : (chatMessage.content === null ? '' : chatMessage.content),
 	};
 
 	// Convert array content to proper format if needed

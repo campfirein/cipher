@@ -159,6 +159,7 @@ export interface Message {
 	tokenCount?: number;
 	model?: string;
 	sessionId?: string;
+	toolExecutionId?: string;
 }
 
 export interface SessionSearchResult {

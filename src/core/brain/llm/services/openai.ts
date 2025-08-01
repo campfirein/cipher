@@ -134,6 +134,17 @@ export class OpenAIService implements ILLMService {
 						continue;
 					}
 
+					// Emit tool execution started event
+					if (this.eventManager && sessionId) {
+						this.eventManager.emitSessionEvent(sessionId, 'tool:executionStarted', {
+							toolName,
+							toolType: this.unifiedToolManager ? 'internal' : 'mcp',
+							sessionId,
+							executionId: toolCall.id,
+							timestamp: Date.now()
+						});
+					}
+
 					// Execute tool
 					try {
 						let result: any;
@@ -147,12 +158,39 @@ export class OpenAIService implements ILLMService {
 						const formattedResult = formatToolResult(toolName, result);
 						logger.info(`📋 Tool Result:\n${formattedResult}`);
 
+						// Emit tool execution completed event
+						if (this.eventManager && sessionId) {
+							this.eventManager.emitSessionEvent(sessionId, 'tool:executionCompleted', {
+								toolName,
+								toolType: this.unifiedToolManager ? 'internal' : 'mcp',
+								sessionId,
+								executionId: toolCall.id,
+								duration: 0, // We don't track duration here, could be enhanced later
+								success: true,
+								timestamp: Date.now(),
+								result
+							});
+						}
+
 						// Add tool result to message manager
 						await this.contextManager.addToolResult(toolCall.id, toolName, result);
 					} catch (error) {
 						// Handle tool execution error
 						const errorMessage = error instanceof Error ? error.message : String(error);
 						logger.error(`Tool execution error for ${toolName}: ${errorMessage}`);
+
+						// Emit tool execution failed event
+						if (this.eventManager && sessionId) {
+							this.eventManager.emitSessionEvent(sessionId, 'tool:executionFailed', {
+								toolName,
+								toolType: this.unifiedToolManager ? 'internal' : 'mcp',
+								sessionId,
+								executionId: toolCall.id,
+								error: errorMessage,
+								duration: 0, // We don't track duration here, could be enhanced later
+								timestamp: Date.now()
+							});
+						}
 
 						// Add error as tool result
 						await this.contextManager.addToolResult(toolCall.id, toolName, {

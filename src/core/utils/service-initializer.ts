@@ -655,12 +655,12 @@ export async function createAgentServices(
 			mode: mcpServerMode,
 		};
 	} else {
-		// API Mode: Similar to CLI for now
+		// API/UI Mode: Use CLI-like tool exposure for consistency  
 		unifiedToolManagerConfig = {
 			enableInternalTools: true,
 			enableMcpTools: true,
 			conflictResolution: 'prefix-internal',
-			mode: 'api',
+			mode: 'cli', // Use CLI mode to get the same 17 tools as CLI
 		};
 	}
 
