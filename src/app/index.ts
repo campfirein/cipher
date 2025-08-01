@@ -1,4 +1,26 @@
 #!/usr/bin/env node
+
+// Fix EventTarget memory leak by setting max listeners early
+import { EventEmitter } from 'events';
+EventEmitter.defaultMaxListeners = 20;
+
+// Increase AbortSignal max listeners to prevent memory leak warnings
+if (typeof globalThis !== 'undefined' && globalThis.EventTarget) {
+	const originalAddEventListener = globalThis.EventTarget.prototype.addEventListener;
+	const listenerCounts = new WeakMap();
+	
+	globalThis.EventTarget.prototype.addEventListener = function(type, listener, options) {
+		if (type === 'abort' && this.constructor.name === 'AbortSignal') {
+			const currentCount = listenerCounts.get(this) || 0;
+			if (currentCount >= 15) {
+				console.warn(`AbortSignal has ${currentCount} listeners, potential memory leak`);
+			}
+			listenerCounts.set(this, currentCount + 1);
+		}
+		return originalAddEventListener.call(this, type, listener, options);
+	};
+}
+
 import { env } from '@core/env.js';
 import { Command } from 'commander';
 import pkg from '../../package.json' with { type: 'json' };

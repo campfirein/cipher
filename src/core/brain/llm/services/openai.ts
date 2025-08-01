@@ -362,6 +362,7 @@ export class OpenAIService implements ILLMService {
 	): Promise<{ message: any; fullContent: string }> {
 		let fullContent = '';
 		let message: any = { content: '', role: 'assistant' };
+		let streamingToolCalls: any[] = [];
 
 		try {
 			const stream = await this.openai.chat.completions.create({
@@ -373,6 +374,7 @@ export class OpenAIService implements ILLMService {
 
 			for await (const chunk of stream) {
 				const delta = chunk.choices[0]?.delta;
+				
 				if (delta?.content) {
 					fullContent += delta.content;
 					
@@ -400,13 +402,48 @@ export class OpenAIService implements ILLMService {
 				if (delta?.role) {
 					message.role = delta.role;
 				}
+
+				// Handle streaming tool calls properly
 				if (delta?.tool_calls) {
-					message.tool_calls = delta.tool_calls;
+					// Initialize streamingToolCalls if not already done
+					if (!streamingToolCalls.length && delta.tool_calls.length > 0) {
+						streamingToolCalls = delta.tool_calls.map((tc: any) => ({
+							id: tc.id || '',
+							type: tc.type || 'function',
+							function: {
+								name: tc.function?.name || '',
+								arguments: tc.function?.arguments || ''
+							}
+						}));
+					} else {
+						// Merge streaming tool call data
+						for (let i = 0; i < delta.tool_calls.length; i++) {
+							const deltaCall = delta.tool_calls[i];
+							if (deltaCall.index !== undefined && streamingToolCalls[deltaCall.index]) {
+								const existingCall = streamingToolCalls[deltaCall.index];
+								if (deltaCall.id) existingCall.id = deltaCall.id;
+								if (deltaCall.type) existingCall.type = deltaCall.type;
+								if (deltaCall.function) {
+									if (deltaCall.function.name) {
+										existingCall.function.name += deltaCall.function.name;
+									}
+									if (deltaCall.function.arguments) {
+										existingCall.function.arguments += deltaCall.function.arguments;
+									}
+								}
+							}
+						}
+					}
 				}
 			}
 
 			// Update message content with full content
 			message.content = fullContent;
+			
+			// Set tool calls if any were streamed
+			if (streamingToolCalls.length > 0) {
+				message.tool_calls = streamingToolCalls;
+			}
 
 			// Emit completion event for streaming
 			if (this.eventManager) {

@@ -7,17 +7,31 @@
 }
 
 @theme {
+    /* Base colors */
     --color-background: #0F0F0F;
+    --color-foreground: #fafafa;
+    
+    /* Primary colors */
     --color-primary: #099250;
     --color-primary-foreground: #fff;
+    
+    /* Status colors */
     --color-destructive: #D92D20;
+    --color-destructive-foreground: #fff;
     --color-warning: #CA8504;
+    --color-warning-foreground: #fff;
+    --color-success: #099250;
+    --color-success-foreground: #fff;
+    
+    /* Surface colors */
     --color-secondary: #1a1a1a;
     --color-secondary-foreground: #fafafa;
     --color-muted: #262626;
     --color-muted-foreground: #a1a1aa;
     --color-accent: #262626;
     --color-accent-foreground: #fafafa;
+    
+    /* UI element colors */
     --color-card: #0a0a0a;
     --color-card-foreground: #fafafa;
     --color-popover: #0a0a0a;
@@ -25,6 +39,19 @@
     --color-border: #262626;
     --color-input: #262626;
     --color-ring: #099250;
+    
+    /* Glass effect variables */
+    --color-glass-bg: rgba(255, 255, 255, 0.05);
+    --color-glass-border: rgba(255, 255, 255, 0.1);
+    
+    /* Spacing and sizing */
+    --radius: 0.5rem;
+    --radius-sm: 0.25rem;
+    --radius-lg: 0.75rem;
+    
+    /* Typography */
+    --font-sans: Inter, ui-sans-serif, system-ui, sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, monospace;
 }
 
 * {
@@ -32,6 +59,44 @@
 }
 
 body {
-    color: var(--color-secondary-foreground);
+    color: var(--color-foreground);
     background: var(--color-background);
+    font-family: var(--font-sans);
+}
+
+/* Glass effect utilities */
+.glass {
+    background: var(--color-glass-bg);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--color-glass-border);
+}
+
+/* Smooth transitions */
+.transition-smooth {
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Custom scrollbar */
+.scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-track {
+    background: var(--color-muted);
+    border-radius: var(--radius-sm);
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb {
+    background: var(--color-border);
+    border-radius: var(--radius-sm);
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background: var(--color-muted-foreground);
+}
+
+/* Focus styles */
+.focus-visible:focus-visible {
+    outline: 2px solid var(--color-ring);
+    outline-offset: 2px;
 }
