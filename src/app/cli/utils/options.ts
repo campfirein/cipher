@@ -6,15 +6,18 @@ export function validateCliOptions(opts: any): void {
 	const cliOptionShape = z.object({
 		verbose: z.boolean().optional().default(true),
 		mode: z
-			.enum(['cli', 'mcp', 'api'], {
-				errorMap: () => ({ message: 'Mode must be either cli, mcp, or api' }),
+			.enum(['cli', 'mcp', 'api', 'ui'], {
+				errorMap: () => ({ message: 'Mode must be either cli, mcp, api, or ui' }),
 			})
 			.optional()
 			.default('cli'),
 		strict: z.boolean().optional().default(false),
 		newSession: z.union([z.boolean(), z.string()]).optional(),
 		port: z.string().optional(),
+		uiPort: z.string().optional(),
 		host: z.string().optional(),
+		mcpTransportType: z.string().optional(),
+		mcpPort: z.string().optional(),
 	});
 
 	const cliOptionSchema = cliOptionShape;
@@ -25,7 +28,10 @@ export function validateCliOptions(opts: any): void {
 		strict: opts.strict,
 		newSession: opts.newSession,
 		port: opts.port,
+		uiPort: opts.uiPort,
 		host: opts.host,
+		mcpTransportType: opts.mcpTransportType,
+		mcpPort: opts.mcpPort,
 	});
 
 	if (!result.success) {

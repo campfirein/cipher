@@ -374,22 +374,26 @@ GET http://localhost:3000/ws/stats
 const ws = new WebSocket('ws://localhost:3000/ws');
 
 // Send a message
-ws.send(JSON.stringify({
-    type: 'message',
-    content: 'Hello Cipher!',
-    stream: true
-}));
+ws.send(
+	JSON.stringify({
+		type: 'message',
+		content: 'Hello Cipher!',
+		stream: true,
+	})
+);
 
 // Subscribe to events
-ws.send(JSON.stringify({
-    type: 'subscribe',
-    eventTypes: ['thinking', 'response', 'toolCall', 'error']
-}));
+ws.send(
+	JSON.stringify({
+		type: 'subscribe',
+		eventTypes: ['thinking', 'response', 'toolCall', 'error'],
+	})
+);
 
 // Handle events
-ws.onmessage = (event) => {
-    const data = JSON.parse(event.data);
-    console.log('Event:', data.event, data.data);
+ws.onmessage = event => {
+	const data = JSON.parse(event.data);
+	console.log('Event:', data.event, data.data);
 };
 ```
 

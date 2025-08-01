@@ -54,7 +54,7 @@ export class OpenAIService implements ILLMService {
 				sessionId,
 				messageId,
 				model: this.model,
-				timestamp: Date.now()
+				timestamp: Date.now(),
 			});
 		}
 
@@ -79,28 +79,30 @@ export class OpenAIService implements ILLMService {
 					this.eventManager.emitSessionEvent(sessionId, SessionEvents.LLM_THINKING, {
 						sessionId,
 						messageId,
-						timestamp: Date.now()
+						timestamp: Date.now(),
 					});
 				}
 
-				// Attempt to get a response, with retry logic
-				const { message } = await this.getAIResponseWithRetries(formattedTools, userInput);
+				// Attempt to get a streaming response, with retry logic
+				const { message, fullContent } = await this.getAIResponseWithRetries(formattedTools, userInput, sessionId, messageId);
 
 				// If there are no tool calls, we're done
 				if (!message.tool_calls || message.tool_calls.length === 0) {
-					const responseText = message.content || '';
+					const responseText = fullContent || message.content || '';
 					// Add assistant message to history
 					await this.contextManager.addAssistantMessage(responseText);
 
-					// Emit LLM response completed event
-					if (this.eventManager && sessionId) {
+					// Emit LLM response completed event (only if we haven't been streaming)
+					if (this.eventManager && sessionId && !fullContent) {
 						this.eventManager.emitSessionEvent(sessionId, SessionEvents.LLM_RESPONSE_COMPLETED, {
 							sessionId,
 							messageId,
 							model: this.model,
+							content: responseText, // Include the actual response content
+							response: responseText, // Also include as 'response' for backward compatibility
 							tokenCount: undefined, // OpenAI doesn't provide token count in response
 							duration: Date.now() - parseInt(messageId.split('-')[1]), // Approximate duration
-							timestamp: Date.now()
+							timestamp: Date.now(),
 						});
 					}
 
@@ -171,9 +173,11 @@ export class OpenAIService implements ILLMService {
 					sessionId,
 					messageId,
 					model: this.model,
+					content: finalResponse, // Include the actual response content
+					response: finalResponse, // Also include as 'response' for backward compatibility
 					tokenCount: undefined,
 					duration: Date.now() - parseInt(messageId.split('-')[1]),
-					timestamp: Date.now()
+					timestamp: Date.now(),
 				});
 			}
 
@@ -190,7 +194,7 @@ export class OpenAIService implements ILLMService {
 					messageId,
 					model: this.model,
 					error: errorMessage,
-					timestamp: Date.now()
+					timestamp: Date.now(),
 				});
 			}
 
@@ -269,8 +273,10 @@ export class OpenAIService implements ILLMService {
 	// Helper methods
 	private async getAIResponseWithRetries(
 		tools: any[],
-		userInput: string
-	): Promise<{ message: any }> {
+		userInput: string,
+		sessionId?: string,
+		messageId?: string
+	): Promise<{ message: any; fullContent?: string }> {
 		let attempts = 0;
 		const MAX_ATTEMPTS = 3;
 
@@ -298,23 +304,31 @@ export class OpenAIService implements ILLMService {
 					})),
 				});
 
-				// Call OpenAI API
-				const response = await this.openai.chat.completions.create({
-					model: this.model,
-					messages: formattedMessages,
-					tools: attempts === 1 ? tools : [], // Only offer tools on first attempt
-					tool_choice: attempts === 1 ? 'auto' : 'none', // Disable tool choice on retry
-				});
+				// Determine if we should use streaming (first attempt with event management)
+				const shouldStream = attempts === 1 && sessionId && messageId && this.eventManager;
 
-				logger.silly('OPENAI CHAT COMPLETION RESPONSE: ', JSON.stringify(response, null, 2));
+				if (shouldStream) {
+					// Use streaming for responses (tools allowed)
+					return await this.getStreamingResponse(formattedMessages, sessionId, messageId, tools);
+				} else {
+					// Use non-streaming for tool calls or retries
+					const response = await this.openai.chat.completions.create({
+						model: this.model,
+						messages: formattedMessages,
+						tools: attempts === 1 ? tools : [], // Only offer tools on first attempt
+						tool_choice: attempts === 1 ? 'auto' : 'none', // Disable tool choice on retry
+					});
 
-				// Get the response message
-				const message = response.choices[0]?.message;
-				if (!message) {
-					throw new Error('Received empty message from OpenAI API');
+					logger.silly('OPENAI CHAT COMPLETION RESPONSE: ', JSON.stringify(response, null, 2));
+
+					// Get the response message
+					const message = response.choices[0]?.message;
+					if (!message) {
+						throw new Error('Received empty message from OpenAI API');
+					}
+
+					return { message };
 				}
-
-				return { message };
 			} catch (error) {
 				const apiError = error as any;
 				logger.error(
@@ -338,6 +352,81 @@ export class OpenAIService implements ILLMService {
 		}
 
 		throw new Error('Failed to get response after maximum retry attempts');
+	}
+
+	private async getStreamingResponse(
+		formattedMessages: any[],
+		sessionId: string,
+		messageId: string,
+		tools?: any[]
+	): Promise<{ message: any; fullContent: string }> {
+		let fullContent = '';
+		let message: any = { content: '', role: 'assistant' };
+
+		try {
+			const stream = await this.openai.chat.completions.create({
+				model: this.model,
+				messages: formattedMessages,
+				...(tools && tools.length > 0 ? { tools, tool_choice: 'auto' } : {}),
+				stream: true,
+			});
+
+			for await (const chunk of stream) {
+				const delta = chunk.choices[0]?.delta;
+				if (delta?.content) {
+					fullContent += delta.content;
+					
+					// Debug log the chunk being emitted
+					logger.debug('Streaming chunk:', { 
+						chunk: delta.content, 
+						fullContentSoFar: fullContent.slice(0, 50) + '...',
+						sessionId 
+					});
+					
+					// Emit chunk event for real-time streaming
+					if (this.eventManager) {
+						this.eventManager.emitSessionEvent(sessionId, SessionEvents.LLM_RESPONSE_CHUNK, {
+							sessionId,
+							messageId,
+							chunk: delta.content,
+							text: delta.content,
+							isComplete: false,
+							timestamp: Date.now(),
+						});
+					}
+				}
+
+				// Update message object with latest data
+				if (delta?.role) {
+					message.role = delta.role;
+				}
+				if (delta?.tool_calls) {
+					message.tool_calls = delta.tool_calls;
+				}
+			}
+
+			// Update message content with full content
+			message.content = fullContent;
+
+			// Emit completion event for streaming
+			if (this.eventManager) {
+				this.eventManager.emitSessionEvent(sessionId, SessionEvents.LLM_RESPONSE_COMPLETED, {
+					sessionId,
+					messageId,
+					model: this.model,
+					content: fullContent,
+					response: fullContent,
+					tokenCount: undefined,
+					duration: Date.now() - parseInt(messageId.split('-')[1]),
+					timestamp: Date.now(),
+				});
+			}
+
+			return { message, fullContent };
+		} catch (error) {
+			logger.error('Error in streaming response:', error);
+			throw error;
+		}
 	}
 
 	private formatToolsForOpenAI(tools: ToolSet): any[] {

@@ -687,7 +687,13 @@ export async function createAgentServices(
 		logger.debug('LLM Config retrieved', { llmConfig });
 		const contextManager = createContextManager(llmConfig, promptManager, undefined, undefined);
 
-		llmService = createLLMService(llmConfig, mcpManager, contextManager, unifiedToolManager, eventManager);
+		llmService = createLLMService(
+			llmConfig,
+			mcpManager,
+			contextManager,
+			unifiedToolManager,
+			eventManager
+		);
 
 		if (appMode !== 'cli') {
 			logger.info('LLM service initialized successfully', {

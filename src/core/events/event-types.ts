@@ -94,12 +94,22 @@ export interface SessionEventMap {
 	// LLM interaction events
 	'llm:thinking': { sessionId: string; messageId: string; timestamp: number };
 	'llm:responseStarted': { sessionId: string; messageId: string; model: string; timestamp: number };
+	'llm:responseChunk': {
+		sessionId: string;
+		messageId: string;
+		chunk: string;
+		text: string;
+		isComplete: boolean;
+		timestamp: number;
+	};
 	'llm:responseCompleted': {
 		sessionId: string;
 		messageId: string;
 		model: string;
+		content?: string;
+		response?: string;
 		tokenCount?: number;
-		duration: number;
+		duration?: number;
 		timestamp: number;
 	};
 	'llm:responseError': {
@@ -209,6 +219,7 @@ export const SessionEvents = {
 	TOOL_EXECUTION_FAILED: 'tool:executionFailed' as const,
 	LLM_THINKING: 'llm:thinking' as const,
 	LLM_RESPONSE_STARTED: 'llm:responseStarted' as const,
+	LLM_RESPONSE_CHUNK: 'llm:responseChunk' as const,
 	LLM_RESPONSE_COMPLETED: 'llm:responseCompleted' as const,
 	LLM_RESPONSE_ERROR: 'llm:responseError' as const,
 	MEMORY_STORED: 'memory:stored' as const,

@@ -76,17 +76,27 @@ export class AnthropicService implements ILLMService {
 				iterationCount++;
 
 				// Attempt to get a response, with retry logic
-				const { response } = await this.getAIResponseWithRetries(formattedTools, userInput);
+				const { response, fullContent } = await this.getAIResponseWithRetries(formattedTools, userInput, sessionId, messageId);
 
 				// Extract text content and tool uses
-				let textContent = '';
+				let textContent = fullContent || '';
 				const toolUses = [];
 
-				for (const content of response.content) {
-					if (content.type === 'text') {
-						textContent += content.text;
-					} else if (content.type === 'tool_use') {
-						toolUses.push(content);
+				// If we didn't get fullContent from streaming, extract from response
+				if (!fullContent) {
+					for (const content of response.content) {
+						if (content.type === 'text') {
+							textContent += content.text;
+						} else if (content.type === 'tool_use') {
+							toolUses.push(content);
+						}
+					}
+				} else {
+					// For streaming responses, we still need to check for tool uses
+					for (const content of response.content) {
+						if (content.type === 'tool_use') {
+							toolUses.push(content);
+						}
 					}
 				}
 
@@ -95,12 +105,14 @@ export class AnthropicService implements ILLMService {
 					// Add assistant message to history
 					await this.contextManager.addAssistantMessage(textContent);
 
-					// Emit LLM response completed event
-					if (this.eventManager && sessionId) {
+					// Emit LLM response completed event (only if we haven't been streaming)
+					if (this.eventManager && sessionId && !fullContent) {
 						this.eventManager.emitSessionEvent(sessionId, SessionEvents.LLM_RESPONSE_COMPLETED, {
 							sessionId,
 							messageId,
 							model: this.model,
+							content: textContent, // Include the actual response content
+							response: textContent, // Also include as 'response' for backward compatibility
 							duration: Date.now() - startTime,
 							timestamp: Date.now(),
 						});
@@ -305,8 +317,10 @@ export class AnthropicService implements ILLMService {
 	// Helper methods
 	private async getAIResponseWithRetries(
 		tools: any[],
-		_userInput: string
-	): Promise<{ response: any }> {
+		_userInput: string,
+		sessionId?: string,
+		messageId?: string
+	): Promise<{ response: any; fullContent?: string }> {
 		let attempts = 0;
 		const MAX_ATTEMPTS = 3;
 
@@ -323,22 +337,30 @@ export class AnthropicService implements ILLMService {
 				const systemMessage = formattedMessages.find(msg => msg.role === 'system');
 				const nonSystemMessages = formattedMessages.filter(msg => msg.role !== 'system');
 
-				// Call Anthropic API
-				const response = await this.anthropic.messages.create({
-					model: this.model,
-					messages: nonSystemMessages,
-					...(systemMessage && { system: systemMessage.content }),
-					tools: attempts === 1 ? tools : [], // Only offer tools on first attempt
-					max_tokens: 4096,
-				});
+				// Determine if we should use streaming (first attempt with event management)
+				const shouldStream = attempts === 1 && sessionId && messageId && this.eventManager;
 
-				logger.silly('ANTHROPIC MESSAGE RESPONSE: ', JSON.stringify(response, null, 2));
+				if (shouldStream) {
+					// Use streaming for responses (tools allowed)
+					return await this.getStreamingResponse(nonSystemMessages, systemMessage, sessionId, messageId, tools);
+				} else {
+					// Use non-streaming for tool calls or retries
+					const response = await this.anthropic.messages.create({
+						model: this.model,
+						messages: nonSystemMessages,
+						...(systemMessage && { system: systemMessage.content }),
+						tools: attempts === 1 ? tools : [], // Only offer tools on first attempt
+						max_tokens: 4096,
+					});
 
-				if (!response || !response.content) {
-					throw new Error('Received empty response from Anthropic API');
+					logger.silly('ANTHROPIC MESSAGE RESPONSE: ', JSON.stringify(response, null, 2));
+
+					if (!response || !response.content) {
+						throw new Error('Received empty response from Anthropic API');
+					}
+
+					return { response };
 				}
-
-				return { response };
 			} catch (error) {
 				const apiError = error as any;
 				const errorStatus = apiError.status || apiError.error?.status;
@@ -386,6 +408,74 @@ export class AnthropicService implements ILLMService {
 		}
 
 		throw new Error('Failed to get response after maximum retry attempts');
+	}
+
+	private async getStreamingResponse(
+		nonSystemMessages: any[],
+		systemMessage: any,
+		sessionId: string,
+		messageId: string,
+		tools?: any[]
+	): Promise<{ response: any; fullContent: string }> {
+		let fullContent = '';
+		let response: any = { content: [{ type: 'text', text: '' }] };
+
+		try {
+			const stream = await this.anthropic.messages.create({
+				model: this.model,
+				messages: nonSystemMessages,
+				...(systemMessage && { system: systemMessage.content }),
+				...(tools && tools.length > 0 ? { tools } : {}),
+				max_tokens: 4096,
+				stream: true,
+			});
+
+			for await (const event of stream) {
+				if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+					const chunk = event.delta.text;
+					fullContent += chunk;
+					
+					// Debug log the chunk being emitted
+					logger.debug('Streaming chunk (Anthropic):', { 
+						chunk, 
+						fullContentSoFar: fullContent.slice(0, 50) + '...',
+						sessionId 
+					});
+					
+					// Emit chunk event for real-time streaming
+					if (this.eventManager) {
+						this.eventManager.emitSessionEvent(sessionId, SessionEvents.LLM_RESPONSE_CHUNK, {
+							sessionId,
+							messageId,
+							chunk,
+							text: chunk,
+							isComplete: false,
+							timestamp: Date.now(),
+						});
+					}
+				}
+			}
+
+			// Update response object with full content
+			response.content = [{ type: 'text', text: fullContent }];
+
+			// Emit completion event for streaming
+			if (this.eventManager) {
+				this.eventManager.emitSessionEvent(sessionId, SessionEvents.LLM_RESPONSE_COMPLETED, {
+					sessionId,
+					messageId,
+					model: this.model,
+					content: fullContent,
+					response: fullContent,
+					timestamp: Date.now(),
+				});
+			}
+
+			return { response, fullContent };
+		} catch (error) {
+			logger.error('Error in streaming response:', error);
+			throw error;
+		}
 	}
 
 	/**

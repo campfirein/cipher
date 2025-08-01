@@ -9,7 +9,7 @@ export class WebSocketEventSubscriber {
 		totalEventsReceived: 0,
 		totalEventsBroadcast: 0,
 		eventTypeStats: new Map<string, number>(),
-		lastEventTime: 0
+		lastEventTime: 0,
 	};
 
 	constructor(
@@ -33,7 +33,7 @@ export class WebSocketEventSubscriber {
 
 		// Subscribe to Service Events
 		this.subscribeToServiceEvents(signal);
-		
+
 		// Subscribe to Session Events (we'll handle session-specific events dynamically)
 		this.subscribeToSessionEvents(signal);
 
@@ -47,60 +47,107 @@ export class WebSocketEventSubscriber {
 		const serviceBus = this.eventManager.getServiceEventBus();
 
 		// MCP Events
-		serviceBus.on('cipher:mcpClientConnected', (data) => {
-			this.handleEvent('mcpServerConnected', {
-				serverName: data.serverName,
-				capabilities: []
-			}, signal);
-		}, { signal });
+		serviceBus.on(
+			'cipher:mcpClientConnected',
+			data => {
+				this.handleEvent(
+					'mcpServerConnected',
+					{
+						serverName: data.serverName,
+						capabilities: [],
+					},
+					signal
+				);
+			},
+			{ signal }
+		);
 
-		serviceBus.on('cipher:mcpClientDisconnected', (data) => {
-			this.handleEvent('mcpServerDisconnected', {
-				serverName: data.serverName,
-				...(data.reason && { reason: data.reason })
-			}, signal);
-		}, { signal });
+		serviceBus.on(
+			'cipher:mcpClientDisconnected',
+			data => {
+				this.handleEvent(
+					'mcpServerDisconnected',
+					{
+						serverName: data.serverName,
+						...(data.reason && { reason: data.reason }),
+					},
+					signal
+				);
+			},
+			{ signal }
+		);
 
 		// Tool Events
-		serviceBus.on('cipher:toolRegistered', (data) => {
-			this.handleEvent('availableToolsUpdated', {
-				tools: [data.toolName]
-			}, signal);
-		}, { signal });
+		serviceBus.on(
+			'cipher:toolRegistered',
+			data => {
+				this.handleEvent(
+					'availableToolsUpdated',
+					{
+						tools: [data.toolName],
+					},
+					signal
+				);
+			},
+			{ signal }
+		);
 
 		// Memory Events
-		serviceBus.on('cipher:memoryOperationCompleted', (data) => {
-			this.handleEvent('memoryOperation', {
-				operation: data.operation as 'store' | 'retrieve' | 'search',
-				success: true,
-				sessionId: data.sessionId || '',
-				details: {
-					operation: data.operation,
-					duration: data.duration
-				}
-			}, signal);
-		}, { signal });
+		serviceBus.on(
+			'cipher:memoryOperationCompleted',
+			data => {
+				this.handleEvent(
+					'memoryOperation',
+					{
+						operation: data.operation as 'store' | 'retrieve' | 'search',
+						success: true,
+						sessionId: data.sessionId || '',
+						details: {
+							operation: data.operation,
+							duration: data.duration,
+						},
+					},
+					signal
+				);
+			},
+			{ signal }
+		);
 
-		serviceBus.on('cipher:memoryOperationFailed', (data) => {
-			this.handleEvent('memoryOperation', {
-				operation: data.operation as 'store' | 'retrieve' | 'search',
-				success: false,
-				sessionId: data.sessionId || '',
-				details: {
-					error: data.error
-				}
-			}, signal);
-		}, { signal });
+		serviceBus.on(
+			'cipher:memoryOperationFailed',
+			data => {
+				this.handleEvent(
+					'memoryOperation',
+					{
+						operation: data.operation as 'store' | 'retrieve' | 'search',
+						success: false,
+						sessionId: data.sessionId || '',
+						details: {
+							error: data.error,
+						},
+					},
+					signal
+				);
+			},
+			{ signal }
+		);
 
 		// System Events
-		serviceBus.on('cipher:error', (data) => {
-			this.handleEvent('error', {
-				message: data.error || 'System error',
-				code: 'SYSTEM_ERROR',
-				...(data.stack && { stack: data.stack })
-			}, signal);
-		}, { signal });
-
+		serviceBus.on(
+			'cipher:error',
+			data => {
+				this.handleEvent(
+					'error',
+					{
+						message: data.error || 'System error',
+						code: 'SYSTEM_ERROR',
+						...(data.stack && { stack: data.stack }),
+					},
+					signal
+				);
+			},
+			{ signal }
+		);
 	}
 
 	/**
@@ -109,13 +156,13 @@ export class WebSocketEventSubscriber {
 	private subscribeToSessionEvents(signal: AbortSignal): void {
 		// Listen for all active sessions and subscribe to their events
 		const activeSessions = this.eventManager.getActiveSessionIds();
-		
+
 		activeSessions.forEach(sessionId => {
 			this.subscribeToSingleSessionEvents(sessionId, signal);
 		});
 
 		logger.debug('Session event subscriptions ready for existing sessions', {
-			existingSessionCount: activeSessions.length
+			existingSessionCount: activeSessions.length,
 		});
 	}
 
@@ -136,137 +183,254 @@ export class WebSocketEventSubscriber {
 		const sessionBus = this.eventManager.getSessionEventBus(sessionId);
 
 		// LLM Events
-		sessionBus.on('llm:thinking', (data) => {
-			this.handleEvent('thinking', {
-				sessionId: data.sessionId
-			}, signal);
-		}, { signal });
+		sessionBus.on(
+			'llm:thinking',
+			data => {
+				this.handleEvent(
+					'thinking',
+					{
+						sessionId: data.sessionId,
+					},
+					signal
+				);
+			},
+			{ signal }
+		);
 
-		sessionBus.on('llm:responseStarted', (data) => {
-			this.handleEvent('thinking', {
-				sessionId: data.sessionId
-			}, signal);
-		}, { signal });
+		sessionBus.on(
+			'llm:responseStarted',
+			data => {
+				// Don't send another thinking event, just log it
+				logger.debug('LLM response started', { sessionId: data.sessionId });
+			},
+			{ signal }
+		);
 
-		sessionBus.on('llm:responseCompleted', (data) => {
-			this.handleEvent('response', {
-				content: 'Response completed',
-				sessionId: data.sessionId,
-				messageId: data.messageId,
-				metadata: {
-					model: data.model,
-					tokenCount: data.tokenCount,
-					duration: data.duration
-				}
-			}, signal);
-		}, { signal });
+		// Add streaming chunk event listener
+		sessionBus.on(
+			'llm:responseChunk',
+			data => {
+				this.handleEvent(
+					'chunk',
+					{
+						text: data.chunk || data.text || '',
+						isComplete: false,
+						sessionId: data.sessionId,
+						messageId: data.messageId,
+					},
+					signal
+				);
+			},
+			{ signal }
+		);
 
-		sessionBus.on('llm:responseError', (data) => {
-			this.handleEvent('error', {
-				message: data.error || 'LLM processing error',
-				code: 'LLM_ERROR',
-				sessionId: data.sessionId
-			}, signal);
-		}, { signal });
+		sessionBus.on(
+			'llm:responseCompleted',
+			data => {
+				this.handleEvent(
+					'response',
+					{
+						text: data.response || data.content || 'Response completed', // Frontend expects 'text' property
+						content: data.response || data.content || 'Response completed',
+						sessionId: data.sessionId,
+						messageId: data.messageId,
+						metadata: {
+							model: data.model,
+							tokenCount: data.tokenCount,
+							duration: data.duration,
+						},
+					},
+					signal
+				);
+			},
+			{ signal }
+		);
+
+		sessionBus.on(
+			'llm:responseError',
+			data => {
+				this.handleEvent(
+					'error',
+					{
+						message: data.error || 'LLM processing error',
+						code: 'LLM_ERROR',
+						sessionId: data.sessionId,
+					},
+					signal
+				);
+			},
+			{ signal }
+		);
 
 		// Tool Events
-		sessionBus.on('tool:executionStarted', (data) => {
-			this.handleEvent('toolCall', {
-				toolName: data.toolName,
-				args: {},
-				sessionId: data.sessionId,
-				callId: data.executionId
-			}, signal);
-		}, { signal });
+		sessionBus.on(
+			'tool:executionStarted',
+			data => {
+				this.handleEvent(
+					'toolCall',
+					{
+						toolName: data.toolName,
+						args: {},
+						sessionId: data.sessionId,
+						callId: data.executionId,
+					},
+					signal
+				);
+			},
+			{ signal }
+		);
 
-		sessionBus.on('tool:executionCompleted', (data) => {
-			this.handleEvent('toolResult', {
-				toolName: data.toolName,
-				result: 'Tool execution completed',
-				success: data.success,
-				sessionId: data.sessionId,
-				callId: data.executionId
-			}, signal);
-		}, { signal });
+		sessionBus.on(
+			'tool:executionCompleted',
+			data => {
+				this.handleEvent(
+					'toolResult',
+					{
+						toolName: data.toolName,
+						result: 'Tool execution completed',
+						success: data.success,
+						sessionId: data.sessionId,
+						callId: data.executionId,
+					},
+					signal
+				);
+			},
+			{ signal }
+		);
 
-		sessionBus.on('tool:executionFailed', (data) => {
-			this.handleEvent('toolResult', {
-				toolName: data.toolName,
-				result: data.error,
-				success: false,
-				sessionId: data.sessionId,
-				callId: data.executionId
-			}, signal);
-		}, { signal });
+		sessionBus.on(
+			'tool:executionFailed',
+			data => {
+				this.handleEvent(
+					'toolResult',
+					{
+						toolName: data.toolName,
+						result: data.error,
+						success: false,
+						sessionId: data.sessionId,
+						callId: data.executionId,
+					},
+					signal
+				);
+			},
+			{ signal }
+		);
 
 		// Memory Events
-		sessionBus.on('memory:stored', (data) => {
-			this.handleEvent('memoryOperation', {
-				operation: 'store',
-				success: true,
-				sessionId: data.sessionId,
-				details: {
-					type: data.type,
-					size: data.size
-				}
-			}, signal);
-		}, { signal });
+		sessionBus.on(
+			'memory:stored',
+			data => {
+				this.handleEvent(
+					'memoryOperation',
+					{
+						operation: 'store',
+						success: true,
+						sessionId: data.sessionId,
+						details: {
+							type: data.type,
+							size: data.size,
+						},
+					},
+					signal
+				);
+			},
+			{ signal }
+		);
 
-		sessionBus.on('memory:retrieved', (data) => {
-			this.handleEvent('memoryOperation', {
-				operation: 'retrieve',
-				success: true,
-				sessionId: data.sessionId,
-				details: {
-					count: data.count,
-					type: data.type
-				}
-			}, signal);
-		}, { signal });
+		sessionBus.on(
+			'memory:retrieved',
+			data => {
+				this.handleEvent(
+					'memoryOperation',
+					{
+						operation: 'retrieve',
+						success: true,
+						sessionId: data.sessionId,
+						details: {
+							count: data.count,
+							type: data.type,
+						},
+					},
+					signal
+				);
+			},
+			{ signal }
+		);
 
-		sessionBus.on('memory:searched', (data) => {
-			this.handleEvent('memoryOperation', {
-				operation: 'search',
-				success: true,
-				sessionId: data.sessionId,
-				details: {
-					query: data.query,
-					resultCount: data.resultCount,
-					duration: data.duration
-				}
-			}, signal);
-		}, { signal });
+		sessionBus.on(
+			'memory:searched',
+			data => {
+				this.handleEvent(
+					'memoryOperation',
+					{
+						operation: 'search',
+						success: true,
+						sessionId: data.sessionId,
+						details: {
+							query: data.query,
+							resultCount: data.resultCount,
+							duration: data.duration,
+						},
+					},
+					signal
+				);
+			},
+			{ signal }
+		);
 
 		// Session Lifecycle Events
-		sessionBus.on('session:created', (data) => {
-			this.handleEvent('sessionCreated', {
-				sessionId: data.sessionId,
-				timestamp: data.timestamp
-			}, signal);
-		}, { signal });
+		sessionBus.on(
+			'session:created',
+			data => {
+				this.handleEvent(
+					'sessionCreated',
+					{
+						sessionId: data.sessionId,
+						timestamp: data.timestamp,
+					},
+					signal
+				);
+			},
+			{ signal }
+		);
 
-		sessionBus.on('session:deleted', (data) => {
-			this.handleEvent('sessionEnded', {
-				sessionId: data.sessionId,
-				timestamp: data.timestamp
-			}, signal);
-		}, { signal });
+		sessionBus.on(
+			'session:deleted',
+			data => {
+				this.handleEvent(
+					'sessionEnded',
+					{
+						sessionId: data.sessionId,
+						timestamp: data.timestamp,
+					},
+					signal
+				);
+			},
+			{ signal }
+		);
 
 		// Conversation Events
-		sessionBus.on('conversation:cleared', (data) => {
-			this.handleEvent('conversationReset', {
-				sessionId: data.sessionId
-			}, signal);
-		}, { signal });
+		sessionBus.on(
+			'conversation:cleared',
+			data => {
+				this.handleEvent(
+					'conversationReset',
+					{
+						sessionId: data.sessionId,
+					},
+					signal
+				);
+			},
+			{ signal }
+		);
 	}
-
 
 	/**
 	 * Handle an event and broadcast to appropriate WebSocket connections
 	 */
 	private handleEvent<T extends WebSocketEventType>(
-		eventType: T, 
-		data: WebSocketEventData[T], 
+		eventType: T,
+		data: WebSocketEventData[T],
 		signal: AbortSignal
 	): void {
 		if (signal.aborted) {
@@ -277,7 +441,7 @@ export class WebSocketEventSubscriber {
 			// Update statistics
 			this.subscriptionStats.totalEventsReceived++;
 			this.subscriptionStats.lastEventTime = Date.now();
-			
+
 			const currentCount = this.subscriptionStats.eventTypeStats.get(eventType) || 0;
 			this.subscriptionStats.eventTypeStats.set(eventType, currentCount + 1);
 
@@ -285,7 +449,7 @@ export class WebSocketEventSubscriber {
 			const response: WebSocketResponse = {
 				event: eventType,
 				data: data as Record<string, any>,
-				timestamp: Date.now()
+				timestamp: Date.now(),
 			};
 
 			// Add sessionId to response if present in data
@@ -300,24 +464,23 @@ export class WebSocketEventSubscriber {
 				logger.debug('Event broadcast to session', {
 					eventType,
 					sessionId: response.sessionId,
-					hasData: !!data
+					hasData: !!data,
 				});
 			} else {
 				// Global event - broadcast to all subscribers
 				this.connectionManager.broadcastToSubscribers(eventType, response);
 				logger.debug('Event broadcast to all subscribers', {
 					eventType,
-					hasData: !!data
+					hasData: !!data,
 				});
 			}
 
 			this.subscriptionStats.totalEventsBroadcast++;
-
 		} catch (error) {
 			logger.error('Error handling WebSocket event', {
 				eventType,
 				error: error instanceof Error ? error.message : String(error),
-				stack: error instanceof Error ? error.stack : undefined
+				stack: error instanceof Error ? error.stack : undefined,
 			});
 		}
 	}
@@ -350,7 +513,7 @@ export class WebSocketEventSubscriber {
 			totalEventsBroadcast: this.subscriptionStats.totalEventsBroadcast,
 			lastEventTime: this.subscriptionStats.lastEventTime,
 			eventTypeStats: Object.fromEntries(this.subscriptionStats.eventTypeStats),
-			connectionStats: this.connectionManager.getStats()
+			connectionStats: this.connectionManager.getStats(),
 		};
 	}
 
@@ -379,16 +542,16 @@ export class WebSocketEventSubscriber {
 			data: {
 				message,
 				level,
-				timestamp: Date.now()
+				timestamp: Date.now(),
 			},
-			timestamp: Date.now()
+			timestamp: Date.now(),
 		};
 
 		this.broadcastMessage(response);
-		
+
 		logger.info('System message broadcast via WebSocket', {
 			message,
-			level
+			level,
 		});
 	}
 
@@ -404,13 +567,13 @@ export class WebSocketEventSubscriber {
 	 */
 	dispose(): void {
 		this.unsubscribe();
-		
+
 		// Reset statistics
 		this.subscriptionStats = {
 			totalEventsReceived: 0,
 			totalEventsBroadcast: 0,
 			eventTypeStats: new Map<string, number>(),
-			lastEventTime: 0
+			lastEventTime: 0,
 		};
 
 		logger.info('WebSocket event subscriber disposed');

@@ -14,7 +14,11 @@ export class WebSocketMessageRouter {
 	/**
 	 * Route incoming WebSocket message to appropriate handler
 	 */
-	async routeMessage(ws: WebSocket, connectionId: string, message: WebSocketMessage): Promise<void> {
+	async routeMessage(
+		ws: WebSocket,
+		connectionId: string,
+		message: WebSocketMessage
+	): Promise<void> {
 		try {
 			// Record incoming message for stats
 			this.connectionManager.recordIncomingMessage();
@@ -30,7 +34,7 @@ export class WebSocketMessageRouter {
 				connectionId,
 				type: message.type,
 				sessionId: message.sessionId,
-				hasContent: !!message.content
+				hasContent: !!message.content,
 			});
 
 			// Route based on message type
@@ -54,10 +58,10 @@ export class WebSocketMessageRouter {
 			logger.error('Error routing WebSocket message', {
 				connectionId,
 				error: error instanceof Error ? error.message : String(error),
-				stack: error instanceof Error ? error.stack : undefined
+				stack: error instanceof Error ? error.stack : undefined,
 			});
 			this.sendError(
-				ws, 
+				ws,
 				error instanceof Error ? error.message : 'Internal server error',
 				connectionId
 			);
@@ -67,7 +71,11 @@ export class WebSocketMessageRouter {
 	/**
 	 * Handle chat message - process through MemAgent
 	 */
-	private async handleChatMessage(ws: WebSocket, connectionId: string, message: WebSocketMessage): Promise<void> {
+	private async handleChatMessage(
+		ws: WebSocket,
+		connectionId: string,
+		message: WebSocketMessage
+	): Promise<void> {
 		if (!message.content) {
 			this.sendError(ws, 'Message content is required', connectionId);
 			return;
@@ -80,7 +88,7 @@ export class WebSocketMessageRouter {
 			try {
 				const session = await this.agent.sessionManager.createSession();
 				sessionId = session.id;
-				
+
 				// Bind connection to new session
 				this.connectionManager.bindToSession(connectionId, sessionId);
 
@@ -88,17 +96,17 @@ export class WebSocketMessageRouter {
 				this.sendResponse(ws, {
 					event: 'sessionCreated',
 					data: { sessionId },
-					sessionId
+					sessionId,
 				});
 
 				logger.info('Auto-created session for WebSocket connection', {
 					connectionId,
-					sessionId
+					sessionId,
 				});
 			} catch (error) {
 				logger.error('Failed to create session for WebSocket connection', {
 					connectionId,
-					error: error instanceof Error ? error.message : String(error)
+					error: error instanceof Error ? error.message : String(error),
 				});
 				this.sendError(ws, 'Failed to create session', connectionId);
 				return;
@@ -119,7 +127,7 @@ export class WebSocketMessageRouter {
 			logger.error('Error validating session', {
 				sessionId,
 				connectionId,
-				error: error instanceof Error ? error.message : String(error)
+				error: error instanceof Error ? error.message : String(error),
 			});
 			this.sendError(ws, 'Session validation failed', connectionId);
 			return;
@@ -133,34 +141,30 @@ export class WebSocketMessageRouter {
 				contentLength: message.content.length,
 				hasImageData: !!message.imageData,
 				hasFileData: !!message.fileData,
-				stream: message.stream ?? true
+				stream: message.stream ?? true,
 			});
 
 			// Run the agent with streaming enabled
 			// Convert imageData to the expected format if provided
-			const imageData = message.imageData ? {
-				image: message.imageData,
-				mimeType: 'image/jpeg' // Default mime type, could be detected from data
-			} : undefined;
+			const imageData = message.imageData
+				? {
+						image: message.imageData,
+						mimeType: 'image/jpeg', // Default mime type, could be detected from data
+					}
+				: undefined;
 
-			await this.agent.run(
-				message.content,
-				imageData,
-				sessionId,
-				message.stream ?? true
-			);
+			await this.agent.run(message.content, imageData, sessionId, message.stream ?? true);
 
 			logger.debug('WebSocket chat message processed successfully', {
 				connectionId,
-				sessionId
+				sessionId,
 			});
-
 		} catch (error) {
 			logger.error('Error processing chat message through MemAgent', {
 				connectionId,
 				sessionId,
 				error: error instanceof Error ? error.message : String(error),
-				stack: error instanceof Error ? error.stack : undefined
+				stack: error instanceof Error ? error.stack : undefined,
 			});
 
 			// Send error to client
@@ -169,10 +173,10 @@ export class WebSocketMessageRouter {
 				data: {
 					message: error instanceof Error ? error.message : 'Processing failed',
 					code: 'PROCESSING_ERROR',
-					sessionId
+					sessionId,
 				},
 				sessionId,
-				error: error instanceof Error ? error.message : 'Processing failed'
+				error: error instanceof Error ? error.message : 'Processing failed',
 			});
 		}
 	}
@@ -180,7 +184,11 @@ export class WebSocketMessageRouter {
 	/**
 	 * Handle conversation reset
 	 */
-	private async handleReset(ws: WebSocket, connectionId: string, message: WebSocketMessage): Promise<void> {
+	private async handleReset(
+		ws: WebSocket,
+		connectionId: string,
+		message: WebSocketMessage
+	): Promise<void> {
 		const sessionId = message.sessionId;
 		if (!sessionId) {
 			this.sendError(ws, 'Session ID is required for reset', connectionId);
@@ -197,24 +205,23 @@ export class WebSocketMessageRouter {
 
 			// Clear conversation history - this will depend on the session implementation
 			// For now, we'll emit the reset event and let the client handle it
-			
+
 			// Notify client of successful reset
 			this.sendResponse(ws, {
 				event: 'conversationReset',
 				data: { sessionId },
-				sessionId
+				sessionId,
 			});
 
 			logger.info('Conversation reset via WebSocket', {
 				connectionId,
-				sessionId
+				sessionId,
 			});
-
 		} catch (error) {
 			logger.error('Error resetting conversation', {
 				connectionId,
 				sessionId,
-				error: error instanceof Error ? error.message : String(error)
+				error: error instanceof Error ? error.message : String(error),
 			});
 			this.sendError(ws, 'Failed to reset conversation', connectionId);
 		}
@@ -223,7 +230,11 @@ export class WebSocketMessageRouter {
 	/**
 	 * Handle event subscription
 	 */
-	private async handleSubscribe(ws: WebSocket, connectionId: string, message: WebSocketMessage): Promise<void> {
+	private async handleSubscribe(
+		ws: WebSocket,
+		connectionId: string,
+		message: WebSocketMessage
+	): Promise<void> {
 		if (!message.eventTypes || message.eventTypes.length === 0) {
 			this.sendError(ws, 'Event types are required for subscription', connectionId);
 			return;
@@ -231,7 +242,7 @@ export class WebSocketMessageRouter {
 
 		try {
 			// Validate event types
-			const validEventTypes = message.eventTypes.filter(eventType => 
+			const validEventTypes = message.eventTypes.filter(eventType =>
 				this.isValidEventType(eventType)
 			) as WebSocketEventType[];
 
@@ -246,21 +257,20 @@ export class WebSocketMessageRouter {
 			// Confirm subscription
 			this.sendResponse(ws, {
 				event: 'subscribed',
-				data: { 
+				data: {
 					eventTypes: validEventTypes,
-					connectionId 
-				}
+					connectionId,
+				},
 			});
 
 			logger.info('WebSocket connection subscribed to events', {
 				connectionId,
-				eventTypes: validEventTypes
+				eventTypes: validEventTypes,
 			});
-
 		} catch (error) {
 			logger.error('Error handling event subscription', {
 				connectionId,
-				error: error instanceof Error ? error.message : String(error)
+				error: error instanceof Error ? error.message : String(error),
 			});
 			this.sendError(ws, 'Failed to subscribe to events', connectionId);
 		}
@@ -269,7 +279,11 @@ export class WebSocketMessageRouter {
 	/**
 	 * Handle event unsubscription
 	 */
-	private async handleUnsubscribe(ws: WebSocket, connectionId: string, message: WebSocketMessage): Promise<void> {
+	private async handleUnsubscribe(
+		ws: WebSocket,
+		connectionId: string,
+		message: WebSocketMessage
+	): Promise<void> {
 		if (!message.eventTypes || message.eventTypes.length === 0) {
 			this.sendError(ws, 'Event types are required for unsubscription', connectionId);
 			return;
@@ -277,7 +291,7 @@ export class WebSocketMessageRouter {
 
 		try {
 			// Validate event types
-			const validEventTypes = message.eventTypes.filter(eventType => 
+			const validEventTypes = message.eventTypes.filter(eventType =>
 				this.isValidEventType(eventType)
 			) as WebSocketEventType[];
 
@@ -287,21 +301,20 @@ export class WebSocketMessageRouter {
 			// Confirm unsubscription
 			this.sendResponse(ws, {
 				event: 'unsubscribed',
-				data: { 
+				data: {
 					eventTypes: validEventTypes,
-					connectionId 
-				}
+					connectionId,
+				},
 			});
 
 			logger.info('WebSocket connection unsubscribed from events', {
 				connectionId,
-				eventTypes: validEventTypes
+				eventTypes: validEventTypes,
 			});
-
 		} catch (error) {
 			logger.error('Error handling event unsubscription', {
 				connectionId,
-				error: error instanceof Error ? error.message : String(error)
+				error: error instanceof Error ? error.message : String(error),
 			});
 			this.sendError(ws, 'Failed to unsubscribe from events', connectionId);
 		}
@@ -319,9 +332,9 @@ export class WebSocketMessageRouter {
 					message,
 					code: 'WEBSOCKET_ERROR',
 					timestamp: Date.now(),
-					...(connectionId && { connectionId })
+					...(connectionId && { connectionId }),
 				},
-				timestamp: Date.now()
+				timestamp: Date.now(),
 			};
 
 			if (ws.readyState === WebSocket.OPEN) {
@@ -330,13 +343,13 @@ export class WebSocketMessageRouter {
 
 			logger.warn('WebSocket error sent to client', {
 				connectionId,
-				message
+				message,
 			});
 		} catch (error) {
 			logger.error('Failed to send error response', {
 				connectionId,
 				originalMessage: message,
-				sendError: error instanceof Error ? error.message : String(error)
+				sendError: error instanceof Error ? error.message : String(error),
 			});
 		}
 	}
@@ -356,7 +369,7 @@ export class WebSocketMessageRouter {
 		} catch (error) {
 			logger.error('Failed to send WebSocket response', {
 				event: response.event,
-				error: error instanceof Error ? error.message : String(error)
+				error: error instanceof Error ? error.message : String(error),
 			});
 		}
 	}
@@ -399,9 +412,20 @@ export class WebSocketMessageRouter {
 	 */
 	private isValidEventType(eventType: string): boolean {
 		const validEventTypes: WebSocketEventType[] = [
-			'thinking', 'chunk', 'toolCall', 'toolResult', 'response', 'error',
-			'conversationReset', 'memoryOperation', 'systemMessage', 'sessionCreated',
-			'sessionEnded', 'mcpServerConnected', 'mcpServerDisconnected', 'availableToolsUpdated'
+			'thinking',
+			'chunk',
+			'toolCall',
+			'toolResult',
+			'response',
+			'error',
+			'conversationReset',
+			'memoryOperation',
+			'systemMessage',
+			'sessionCreated',
+			'sessionEnded',
+			'mcpServerConnected',
+			'mcpServerDisconnected',
+			'availableToolsUpdated',
 		];
 		return validEventTypes.includes(eventType as WebSocketEventType);
 	}
@@ -417,7 +441,7 @@ export class WebSocketMessageRouter {
 		return {
 			messagesProcessed: this.connectionManager.getStats().totalMessagesReceived,
 			errorsHandled: 0, // TODO: Track errors
-			activeSessions: this.connectionManager.getActiveSessions().length
+			activeSessions: this.connectionManager.getActiveSessions().length,
 		};
 	}
 }

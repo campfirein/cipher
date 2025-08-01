@@ -1,11 +1,11 @@
 import { WebSocket } from 'ws';
 import { v4 as uuidv4 } from 'uuid';
 import { logger } from '@core/logger/index.js';
-import { 
-	WebSocketConnection, 
-	WebSocketResponse, 
+import {
+	WebSocketConnection,
+	WebSocketResponse,
 	WebSocketConnectionStats,
-	WebSocketEventType 
+	WebSocketEventType,
 } from './types.js';
 
 export class WebSocketConnectionManager {
@@ -43,7 +43,7 @@ export class WebSocketConnectionManager {
 		if (this.connections.size >= this.maxConnections) {
 			logger.warn('WebSocket connection limit reached', {
 				currentConnections: this.connections.size,
-				maxConnections: this.maxConnections
+				maxConnections: this.maxConnections,
 			});
 			ws.close(1013, 'Server overloaded');
 			throw new Error('Maximum connections exceeded');
@@ -58,7 +58,7 @@ export class WebSocketConnectionManager {
 			sessionId: sessionId || undefined,
 			subscribedEvents: new Set(),
 			connectedAt: now,
-			lastActivity: now
+			lastActivity: now,
 		};
 
 		this.connections.set(connectionId, connection);
@@ -75,7 +75,7 @@ export class WebSocketConnectionManager {
 		logger.info('WebSocket connection added', {
 			connectionId,
 			sessionId,
-			totalConnections: this.connections.size
+			totalConnections: this.connections.size,
 		});
 
 		return connectionId;
@@ -113,7 +113,7 @@ export class WebSocketConnectionManager {
 		logger.info('WebSocket connection removed', {
 			connectionId,
 			sessionId: connection.sessionId,
-			totalConnections: this.connections.size
+			totalConnections: this.connections.size,
 		});
 	}
 
@@ -125,7 +125,7 @@ export class WebSocketConnectionManager {
 		if (!connection) {
 			logger.warn('Attempted to bind non-existent connection to session', {
 				connectionId,
-				sessionId
+				sessionId,
 			});
 			return;
 		}
@@ -150,7 +150,7 @@ export class WebSocketConnectionManager {
 
 		logger.debug('Connection bound to session', {
 			connectionId,
-			sessionId
+			sessionId,
 		});
 	}
 
@@ -176,21 +176,21 @@ export class WebSocketConnectionManager {
 			data: {
 				connectionId,
 				sessionId: connection.sessionId,
-				timestamp: Date.now()
+				timestamp: Date.now(),
 			},
-			timestamp: Date.now()
+			timestamp: Date.now(),
 		};
 
 		try {
 			connection.ws.send(JSON.stringify(updateMessage));
 			logger.debug('Sent connection update', {
 				connectionId,
-				sessionId: connection.sessionId
+				sessionId: connection.sessionId,
 			});
 		} catch (error) {
 			logger.error('Failed to send connection update', {
 				connectionId,
-				error: error instanceof Error ? error.message : String(error)
+				error: error instanceof Error ? error.message : String(error),
 			});
 		}
 	}
@@ -203,7 +203,7 @@ export class WebSocketConnectionManager {
 		if (!connection) {
 			logger.warn('Attempted to subscribe non-existent connection to events', {
 				connectionId,
-				eventTypes
+				eventTypes,
 			});
 			return;
 		}
@@ -215,7 +215,7 @@ export class WebSocketConnectionManager {
 		logger.debug('Connection subscribed to events', {
 			connectionId,
 			eventTypes,
-			totalSubscriptions: connection.subscribedEvents!.size
+			totalSubscriptions: connection.subscribedEvents!.size,
 		});
 	}
 
@@ -235,7 +235,7 @@ export class WebSocketConnectionManager {
 		logger.debug('Connection unsubscribed from events', {
 			connectionId,
 			eventTypes,
-			totalSubscriptions: connection.subscribedEvents!.size
+			totalSubscriptions: connection.subscribedEvents!.size,
 		});
 	}
 
@@ -260,7 +260,7 @@ export class WebSocketConnectionManager {
 			sessionId,
 			totalConnections: connectionIds.size,
 			sentCount,
-			event: message.event
+			event: message.event,
 		});
 	}
 
@@ -278,7 +278,7 @@ export class WebSocketConnectionManager {
 		logger.debug('Message broadcast to all connections', {
 			totalConnections: this.connections.size,
 			sentCount,
-			event: message.event
+			event: message.event,
 		});
 	}
 
@@ -290,8 +290,8 @@ export class WebSocketConnectionManager {
 		for (const connection of this.connections.values()) {
 			// If no subscriptions, send all events (default behavior)
 			// If has subscriptions, only send subscribed events
-			const shouldSend = connection.subscribedEvents!.size === 0 || 
-							  connection.subscribedEvents!.has(eventType);
+			const shouldSend =
+				connection.subscribedEvents!.size === 0 || connection.subscribedEvents!.has(eventType);
 
 			if (shouldSend && this.sendToConnection(connection.id, message)) {
 				sentCount++;
@@ -302,7 +302,7 @@ export class WebSocketConnectionManager {
 			eventType,
 			totalConnections: this.connections.size,
 			sentCount,
-			event: message.event
+			event: message.event,
 		});
 	}
 
@@ -328,7 +328,7 @@ export class WebSocketConnectionManager {
 		} catch (error: any) {
 			logger.warn('Failed to send WebSocket message', {
 				connectionId,
-				error: error instanceof Error ? error.message : String(error)
+				error: error instanceof Error ? error.message : String(error),
 			});
 			// Remove failed connection
 			this.removeConnection(connectionId);
@@ -355,8 +355,7 @@ export class WebSocketConnectionManager {
 			}
 		}
 
-		const averageConnectionDuration = activeConnections > 0 ? 
-			totalDuration / activeConnections : 0;
+		const averageConnectionDuration = activeConnections > 0 ? totalDuration / activeConnections : 0;
 
 		return {
 			totalConnections: this.stats.connectionsCreated,
@@ -365,7 +364,7 @@ export class WebSocketConnectionManager {
 			activeSessions: activeSessions.size,
 			totalMessagesReceived: this.stats.totalMessagesReceived,
 			totalMessagesSent: this.stats.totalMessagesSent,
-			averageConnectionDuration
+			averageConnectionDuration,
 		};
 	}
 
@@ -403,10 +402,10 @@ export class WebSocketConnectionManager {
 			this.removeConnection(connection.id);
 		});
 
-		connection.ws.on('error', (error) => {
+		connection.ws.on('error', error => {
 			logger.error('WebSocket connection error', {
 				connectionId: connection.id,
-				error: error.message
+				error: error.message,
 			});
 			this.removeConnection(connection.id);
 		});
@@ -425,8 +424,9 @@ export class WebSocketConnectionManager {
 
 		for (const [connectionId, connection] of this.connections) {
 			// Check if connection is stale
-			const isStale = now - connection.lastActivity > this.connectionTimeout ||
-							connection.ws.readyState !== WebSocket.OPEN;
+			const isStale =
+				now - connection.lastActivity > this.connectionTimeout ||
+				connection.ws.readyState !== WebSocket.OPEN;
 
 			if (isStale) {
 				staleConnections.push(connectionId);
@@ -436,7 +436,7 @@ export class WebSocketConnectionManager {
 		if (staleConnections.length > 0) {
 			logger.info('Cleaning up stale WebSocket connections', {
 				staleCount: staleConnections.length,
-				totalConnections: this.connections.size
+				totalConnections: this.connections.size,
 			});
 
 			staleConnections.forEach(connectionId => {
@@ -456,7 +456,7 @@ export class WebSocketConnectionManager {
 				} catch (error) {
 					logger.warn('Failed to send heartbeat ping', {
 						connectionId: connection.id,
-						error: error instanceof Error ? error.message : String(error)
+						error: error instanceof Error ? error.message : String(error),
 					});
 					this.removeConnection(connection.id);
 				}

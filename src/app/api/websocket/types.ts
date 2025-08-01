@@ -46,9 +46,9 @@ export interface WebSocketConfig {
 	enableCompression?: boolean;
 }
 
-export type WebSocketEventType = 
+export type WebSocketEventType =
 	| 'thinking'
-	| 'chunk' 
+	| 'chunk'
 	| 'toolCall'
 	| 'toolResult'
 	| 'response'
@@ -65,46 +65,46 @@ export type WebSocketEventType =
 
 export interface WebSocketEventData {
 	thinking: { sessionId: string };
-	chunk: { 
-		text: string; 
-		isComplete: boolean; 
-		sessionId: string; 
+	chunk: {
+		text: string;
+		isComplete: boolean;
+		sessionId: string;
 		messageId?: string;
 	};
-	toolCall: { 
-		toolName: string; 
-		args: Record<string, any>; 
+	toolCall: {
+		toolName: string;
+		args: Record<string, any>;
 		sessionId: string;
 		callId?: string;
 	};
-	toolResult: { 
-		toolName: string; 
-		result: any; 
-		success: boolean; 
+	toolResult: {
+		toolName: string;
+		result: any;
+		success: boolean;
 		sessionId: string;
 		callId?: string;
 	};
-	response: { 
-		content: string; 
-		sessionId: string; 
+	response: {
+		content: string;
+		sessionId: string;
 		messageId?: string;
 		metadata?: Record<string, any>;
 	};
-	error: { 
-		message: string; 
-		code?: string; 
+	error: {
+		message: string;
+		code?: string;
 		sessionId?: string;
-		stack?: string; 
+		stack?: string;
 	};
 	conversationReset: { sessionId: string };
-	memoryOperation: { 
-		operation: 'store' | 'retrieve' | 'search'; 
-		success: boolean; 
+	memoryOperation: {
+		operation: 'store' | 'retrieve' | 'search';
+		success: boolean;
 		sessionId: string;
 		details?: Record<string, any>;
 	};
-	systemMessage: { 
-		message: string; 
+	systemMessage: {
+		message: string;
 		level: 'info' | 'warning' | 'error';
 		sessionId?: string;
 	};

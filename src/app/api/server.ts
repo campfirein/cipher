@@ -6,7 +6,7 @@ import http from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { MemAgent } from '@core/brain/memAgent/index.js';
 import { logger } from '@core/logger/index.js';
-import { errorResponse, ERROR_CODES } from './utils/response.js';
+import { errorResponse, successResponse, ERROR_CODES } from './utils/response.js';
 import {
 	requestIdMiddleware,
 	requestLoggingMiddleware,
@@ -28,6 +28,8 @@ import { createSessionRoutes } from './routes/session.js';
 import { createMcpRoutes } from './routes/mcp.js';
 import { createConfigRoutes } from './routes/config.js';
 import { createLlmRoutes } from './routes/llm.js';
+import { createSearchRoutes } from './routes/search.js';
+import { createWebhookRoutes } from './routes/webhook.js';
 
 export interface ApiServerConfig {
 	port: number;
@@ -48,7 +50,7 @@ export class ApiServer {
 	private config: ApiServerConfig;
 	private mcpServer?: McpServer;
 	private activeMcpSseTransports: Map<string, SSEServerTransport> = new Map();
-	
+
 	// WebSocket components
 	private httpServer?: http.Server;
 	private wss?: WebSocketServer;
@@ -271,13 +273,15 @@ export class ApiServer {
 		}
 
 		const wsConfig = this.config.webSocketConfig || {};
-		
+
 		// Create WebSocket server
-		this.wss = new WebSocketServer({ 
+		this.wss = new WebSocketServer({
 			server: this.httpServer,
 			path: wsConfig.path || '/ws',
 			...(wsConfig.maxConnections && { maxClients: wsConfig.maxConnections }),
-			...(wsConfig.enableCompression !== undefined && { perMessageDeflate: wsConfig.enableCompression })
+			...(wsConfig.enableCompression !== undefined && {
+				perMessageDeflate: wsConfig.enableCompression,
+			}),
 		});
 
 		// Initialize WebSocket components
@@ -286,10 +290,7 @@ export class ApiServer {
 			wsConfig.connectionTimeout || 300000
 		);
 
-		this.wsMessageRouter = new WebSocketMessageRouter(
-			this.agent,
-			this.wsConnectionManager
-		);
+		this.wsMessageRouter = new WebSocketMessageRouter(this.agent, this.wsConnectionManager);
 
 		this.wsEventSubscriber = new WebSocketEventSubscriber(
 			this.wsConnectionManager,
@@ -327,7 +328,7 @@ export class ApiServer {
 			path: wsConfig.path || '/ws',
 			maxConnections: wsConfig.maxConnections || 1000,
 			compression: wsConfig.enableCompression !== false,
-			heartbeat: wsConfig.heartbeatInterval || 'disabled'
+			heartbeat: wsConfig.heartbeatInterval || 'disabled',
 		});
 	}
 
@@ -347,7 +348,7 @@ export class ApiServer {
 				connectionId,
 				sessionId,
 				origin: request.headers.origin,
-				userAgent: request.headers['user-agent']
+				userAgent: request.headers['user-agent'],
 			});
 
 			// Set up message handler
@@ -359,44 +360,47 @@ export class ApiServer {
 					logger.error('[API Server] Error parsing WebSocket message', {
 						connectionId,
 						error: error instanceof Error ? error.message : String(error),
-						rawData: data.toString().substring(0, 200) // Log first 200 chars
+						rawData: data.toString().substring(0, 200), // Log first 200 chars
 					});
 
 					// Send error response
 					if (ws.readyState === WebSocket.OPEN) {
-						ws.send(JSON.stringify({
-							event: 'error',
-							error: 'Invalid message format',
-							data: {
-								message: 'Failed to parse JSON message',
-								code: 'INVALID_JSON'
-							},
-							timestamp: Date.now()
-						}));
+						ws.send(
+							JSON.stringify({
+								event: 'error',
+								error: 'Invalid message format',
+								data: {
+									message: 'Failed to parse JSON message',
+									code: 'INVALID_JSON',
+								},
+								timestamp: Date.now(),
+							})
+						);
 					}
 				}
 			});
 
 			// Send welcome message
 			if (ws.readyState === WebSocket.OPEN) {
-				ws.send(JSON.stringify({
-					event: 'connected',
-					data: {
-						connectionId,
-						sessionId,
-						serverVersion: process.env.npm_package_version || 'unknown',
-						capabilities: ['streaming', 'tools', 'memory', 'reset']
-					},
-					timestamp: Date.now()
-				}));
+				ws.send(
+					JSON.stringify({
+						event: 'connected',
+						data: {
+							connectionId,
+							sessionId,
+							serverVersion: process.env.npm_package_version || 'unknown',
+							capabilities: ['streaming', 'tools', 'memory', 'reset'],
+						},
+						timestamp: Date.now(),
+					})
+				);
 			}
-
 		} catch (error) {
 			logger.error('[API Server] Error handling WebSocket connection', {
 				error: error instanceof Error ? error.message : String(error),
-				origin: request.headers.origin
+				origin: request.headers.origin,
 			});
-			
+
 			if (ws.readyState === WebSocket.OPEN) {
 				ws.close(1011, 'Server error during connection setup');
 			}
@@ -485,7 +489,7 @@ export class ApiServer {
 				healthData.websocket = {
 					enabled: true,
 					active: this.isWebSocketActive(),
-					stats: this.getWebSocketStats()
+					stats: this.getWebSocketStats(),
 				};
 			}
 
@@ -499,8 +503,8 @@ export class ApiServer {
 					success: false,
 					error: {
 						code: 'WEBSOCKET_DISABLED',
-						message: 'WebSocket is not enabled'
-					}
+						message: 'WebSocket is not enabled',
+					},
 				});
 			}
 
@@ -510,8 +514,8 @@ export class ApiServer {
 				data: {
 					enabled: true,
 					active: this.isWebSocketActive(),
-					...stats
-				}
+					...stats,
+				},
 			});
 		});
 
@@ -521,7 +525,125 @@ export class ApiServer {
 		this.app.use('/api/mcp', createMcpRoutes(this.agent));
 		this.app.use('/api/llm', createLlmRoutes(this.agent));
 		this.app.use('/api/config', createConfigRoutes(this.agent));
+		this.app.use('/api/search', createSearchRoutes(this.agent));
+		this.app.use('/api/webhooks', createWebhookRoutes(this.agent));
 
+		// Legacy endpoint for MCP server connection
+		this.app.post('/api/connect-server', (req: Request, res: Response) => {
+			// Forward to MCP routes
+			req.url = '/servers';
+			createMcpRoutes(this.agent)(req, res, () => {});
+		});
+
+		// Chrome DevTools compatibility endpoint (prevents 404 errors in console)
+		this.app.get('/.well-known/appspecific/com.chrome.devtools.json', (req: Request, res: Response) => {
+			res.status(204).end(); // No Content - indicates no DevTools integration available
+		});
+
+		// A2A (Agent-to-Agent) discovery endpoint
+		this.app.get('/.well-known/agent.json', (req: Request, res: Response) => {
+			try {
+				const agentCard = {
+					name: 'Cipher Agent',
+					description: 'Memory-powered AI agent framework with real-time communication',
+					version: process.env.npm_package_version || '1.0.0',
+					capabilities: [
+						'conversation',
+						'memory',
+						'tools',
+						'mcp',
+						'websocket',
+						'streaming'
+					],
+					endpoints: {
+						base: `${req.protocol}://${req.get('host')}`,
+						api: `${req.protocol}://${req.get('host')}/api`,
+						websocket: `ws://${req.get('host')}/ws`,
+						health: `${req.protocol}://${req.get('host')}/health`,
+					},
+					contact: {
+						support: 'https://github.com/byterover/cipher',
+					},
+					protocols: ['http', 'websocket', 'mcp'],
+					timestamp: new Date().toISOString(),
+				};
+
+				res.json(agentCard);
+			} catch (error) {
+				logger.error('Failed to generate agent card', {
+					requestId: req.requestId,
+					error: error instanceof Error ? error.message : String(error),
+				});
+
+				errorResponse(
+					res,
+					ERROR_CODES.INTERNAL_ERROR,
+					'Failed to generate agent discovery data',
+					500,
+					undefined,
+					req.requestId
+				);
+			}
+		});
+
+		// Global reset endpoint
+		this.app.post('/api/reset', async (req: Request, res: Response) => {
+			try {
+				const { sessionId } = req.body;
+
+				logger.info('Processing global reset request', {
+					requestId: req.requestId,
+					sessionId: sessionId || 'all',
+				});
+
+				if (sessionId) {
+					// Reset specific session
+					const success = await this.agent.removeSession(sessionId);
+					if (!success) {
+						return errorResponse(
+							res,
+							ERROR_CODES.SESSION_NOT_FOUND,
+							`Session ${sessionId} not found`,
+							404,
+							undefined,
+							req.requestId
+						);
+					}
+				} else {
+					// Reset all sessions
+					const sessionIds = await this.agent.listSessions();
+					for (const id of sessionIds) {
+						await this.agent.removeSession(id);
+					}
+				}
+
+				successResponse(
+					res,
+					{
+						message: sessionId ? `Session ${sessionId} reset` : 'All sessions reset',
+						timestamp: new Date().toISOString(),
+					},
+					200,
+					req.requestId
+				);
+
+			} catch (error) {
+				const errorMsg = error instanceof Error ? error.message : String(error);
+				logger.error('Global reset failed', {
+					requestId: req.requestId,
+					error: errorMsg,
+				});
+
+				errorResponse(
+					res,
+					ERROR_CODES.INTERNAL_ERROR,
+					`Reset failed: ${errorMsg}`,
+					500,
+					process.env.NODE_ENV === 'development' ? error : undefined,
+					req.requestId
+				);
+			}
+		});
 		// Note: 404 handler moved to setup404Handler() and called after MCP routes setup
 	}
 
@@ -594,7 +716,7 @@ export class ApiServer {
 			try {
 				// Create HTTP server from Express app
 				this.httpServer = http.createServer(this.app);
-				
+
 				// Set up WebSocket server if enabled
 				if (this.config.enableWebSocket) {
 					this.setupWebSocket();
@@ -670,14 +792,17 @@ export class ApiServer {
 		return {
 			connections: this.wsConnectionManager.getStats(),
 			events: this.wsEventSubscriber.getStats(),
-			router: this.wsMessageRouter?.getStats()
+			router: this.wsMessageRouter?.getStats(),
 		};
 	}
 
 	/**
 	 * Send system message to all WebSocket connections
 	 */
-	public broadcastSystemMessage(message: string, level: 'info' | 'warning' | 'error' = 'info'): void {
+	public broadcastSystemMessage(
+		message: string,
+		level: 'info' | 'warning' | 'error' = 'info'
+	): void {
 		if (this.wsEventSubscriber) {
 			this.wsEventSubscriber.sendSystemMessage(message, level);
 		}

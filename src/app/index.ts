@@ -9,6 +9,7 @@ import { handleCliOptionsError, validateCliOptions } from './cli/utils/options.j
 import { loadAgentConfig } from '../core/brain/memAgent/loader.js';
 import { startInteractiveCli, startHeadlessCli, startMcpMode } from './cli/cli.js';
 import { ApiServer } from './api/server.js';
+import { WebServerManager } from './web/web-server.js';
 import path from 'path';
 import os from 'os';
 import { fileURLToPath } from 'url';
@@ -30,7 +31,7 @@ function resolveEnvPath(): string {
 }
 
 // ===== EARLY MCP MODE DETECTION AND LOG REDIRECTION =====
-// Following Saiki's best practices to prevent stdio interference
+// Following Cipher's best practices to prevent stdio interference
 // This must happen BEFORE any logging operations
 const detectAndRedirectMcpLogs = () => {
 	const args = process.argv;
@@ -53,7 +54,9 @@ const program = new Command();
 
 program
 	.name('cipher')
-	.description('Memory-powered AI agent framework with real-time WebSocket communication and MCP integration')
+	.description(
+		'Memory-powered AI agent framework with real-time WebSocket communication and MCP integration'
+	)
 	.version(pkg.version, '-v, --version', 'output the current version')
 	.argument(
 		'[prompt...]',
@@ -63,9 +66,10 @@ program
 	.option('-a, --agent <path>', 'Path to agent config file', DEFAULT_CONFIG_PATH)
 	.option('-s, --strict', 'Require all MCP server connections to succeed')
 	.option('--new-session [sessionId]', 'Start with a new session (optionally specify session ID)')
-	.option('--mode <mode>', 'The application mode for cipher memory agent - cli | mcp | api', 'cli')
-	.option('--port <port>', 'Port for API server (only used with --mode api)', '3000')
-	.option('--host <host>', 'Host for API server (only used with --mode api)', 'localhost')
+	.option('--mode <mode>', 'The application mode for cipher memory agent - cli | mcp | api | ui', 'cli')
+	.option('--port <port>', 'Port for API server (only used with --mode api or ui)', '3001')
+	.option('--ui-port <port>', 'Port for UI server (only used with --mode ui)', '3000')
+	.option('--host <host>', 'Host for API server (only used with --mode api or ui)', 'localhost')
 	.option(
 		'--mcp-transport-type <type>',
 		'MCP transport type (stdio, sse, streamable-http)',
@@ -80,18 +84,20 @@ program
 			'Available modes:\n' +
 			'  - cli: Interactive command-line interface (default)\n' +
 			'  - mcp: Model Context Protocol server mode\n' +
-			'  - api: REST API server mode with WebSocket support\n\n' +
+			'  - api: REST API server mode with WebSocket support\n' +
+			'  - ui: Full-stack web application with UI and API server\n\n' +
 			'WebSocket Features (API mode):\n' +
 			'  • Real-time AI responses and streaming\n' +
 			'  • Live tool execution notifications\n' +
 			'  • Memory operation events\n' +
 			'  • Session management and error handling\n' +
-			'  • Available at ws://localhost:3000/ws\n\n' +
+			'  • Available at ws://localhost:3001/ws\n\n' +
 			'Options:\n' +
 			'  -s, --strict: Require all MCP server connections to succeed (overrides individual server connection modes)\n' +
 			'  --new-session [sessionId]: Start with a new session (optionally specify session ID)\n' +
-			'  --port <port>: Port for API server (default: 3000, only used with --mode api)\n' +
-			'  --host <host>: Host for API server (default: localhost, only used with --mode api)'
+			'  --port <port>: Port for API server (default: 3001, only used with --mode api or ui)\n' +
+			'  --ui-port <port>: Port for UI server (default: 3000, only used with --mode ui)\n' +
+			'  --host <host>: Host for API server (default: localhost, only used with --mode api or ui)'
 	)
 	/**
 	 * Main CLI action handler for the Cipher agent.
@@ -284,7 +290,7 @@ program
 		 * Start the API server mode
 		 */
 		async function startApiMode(agent: MemAgent, options: any): Promise<void> {
-			const port = parseInt(options.port) || 3000;
+			const port = parseInt(options.port) || 3001;
 			const host = options.host || 'localhost';
 			const mcpTransportType = options.mcpTransportType || undefined; // Pass through from CLI options
 			const mcpPort = options.mcpPort ? parseInt(options.mcpPort, 10) : undefined; // Pass through from CLI options
@@ -304,7 +310,7 @@ program
 					maxConnections: 1000,
 					connectionTimeout: 300000, // 5 minutes
 					heartbeatInterval: 30000, // 30 seconds
-					enableCompression: true
+					enableCompression: true,
 				},
 				...(mcpTransportType && { mcpTransportType }), // Only include if defined
 				...(mcpPort !== undefined && { mcpPort }), // Only include if defined
@@ -322,6 +328,80 @@ program
 				}
 				process.exit(1);
 			}
+		}
+
+		/**
+		 * Start the UI mode with both API server and Web UI
+		 */
+		async function startUiMode(agent: MemAgent, options: any): Promise<void> {
+			const apiPort = parseInt(options.port) || 3001;
+			const uiPort = parseInt(options.uiPort) || 3000;
+			const host = options.host || 'localhost';
+			const mcpTransportType = options.mcpTransportType || undefined;
+			const mcpPort = options.mcpPort ? parseInt(options.mcpPort, 10) : undefined;
+
+			logger.info(`Starting UI mode - API server on ${host}:${apiPort}, UI server on ${host}:${uiPort}`, null, 'green');
+
+			// Start API server first
+			const apiServer = new ApiServer(agent, {
+				port: apiPort,
+				host,
+				corsOrigins: [`http://${host}:${uiPort}`, `http://localhost:${uiPort}`], // Allow UI to connect
+				rateLimitWindowMs: 15 * 60 * 1000, // 15 minutes
+				rateLimitMaxRequests: 100, // 100 requests per window
+				// Enable WebSocket by default for UI mode
+				enableWebSocket: true,
+				webSocketConfig: {
+					path: '/ws',
+					maxConnections: 1000,
+					connectionTimeout: 300000, // 5 minutes
+					heartbeatInterval: 30000, // 30 seconds
+					enableCompression: true,
+				},
+				...(mcpTransportType && { mcpTransportType }),
+				...(mcpPort !== undefined && { mcpPort }),
+			});
+
+			try {
+				await apiServer.start();
+				logger.info(`API server is running on ${host}:${apiPort}`, null, 'green');
+			} catch (error) {
+				const errorMsg = error instanceof Error ? error.message : String(error);
+				logger.error(`Failed to start API server: ${errorMsg}`);
+				process.exit(1);
+			}
+
+			// Start Web UI server
+			const webServer = new WebServerManager({
+				port: uiPort,
+				host,
+				apiUrl: `http://${host}:${apiPort}`,
+				wsUrl: `ws://${host}:${apiPort}`,
+			});
+
+			try {
+				await webServer.start();
+				logger.info(`Web UI server is running on http://${host}:${uiPort}`, null, 'green');
+				logger.info(`You can now access the Cipher UI at http://${host}:${uiPort}`, null, 'cyan');
+			} catch (error) {
+				const errorMsg = error instanceof Error ? error.message : String(error);
+				logger.error(`Failed to start Web UI server: ${errorMsg}`);
+				// Stop API server if UI fails
+				logger.info('Stopping API server due to UI startup failure...');
+				process.exit(1);
+			}
+
+			// Handle graceful shutdown
+			const handleShutdown = async () => {
+				logger.info('Shutting down UI mode...', null, 'yellow');
+				webServer.stop();
+				// Give UI server time to shut down
+				await new Promise(resolve => setTimeout(resolve, 1000));
+				process.exit(0);
+			};
+
+			process.on('SIGINT', handleShutdown);
+			process.on('SIGTERM', handleShutdown);
 		}
 
 		// After agent is started and before entering CLI loop, add:
@@ -359,8 +439,11 @@ program
 			case 'api':
 				await startApiMode(agent, opts);
 				break;
+			case 'ui':
+				await startUiMode(agent, opts);
+				break;
 			default: {
-				const errorMsg = `Unknown mode '${opts.mode}'. Use cli, mcp, or api.`;
+				const errorMsg = `Unknown mode '${opts.mode}'. Use cli, mcp, api, or ui.`;
 				if (opts.mode === 'mcp') {
 					process.stderr.write(`[CIPHER-MCP] ERROR: ${errorMsg}\n`);
 				} else {

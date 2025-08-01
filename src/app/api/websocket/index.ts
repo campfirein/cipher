@@ -4,12 +4,12 @@ export { WebSocketEventSubscriber } from './event-subscriber.js';
 export * from './types.js';
 
 // Convenience re-exports
-export type { 
+export type {
 	WebSocketMessage,
 	WebSocketResponse,
 	WebSocketConnection,
 	WebSocketConnectionStats,
 	WebSocketConfig,
 	WebSocketEventType,
-	WebSocketEventData
+	WebSocketEventData,
 } from './types.js';

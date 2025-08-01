@@ -44,7 +44,7 @@ export class QwenService implements ILLMService {
 		this.qwenOptions = qwenOptions;
 	}
 
-	async generate(userInput: string, imageData?: ImageData, stream?: boolean): Promise<string> {
+	async generate(userInput: string, imageData?: ImageData, sessionId?: string): Promise<string> {
 		await this.contextManager.addUserMessage(userInput, imageData);
 
 		let formattedTools: any[] = [];

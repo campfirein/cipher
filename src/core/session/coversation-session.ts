@@ -369,7 +369,7 @@ export class ConversationSession {
 	): Promise<void> {
 		logger.debug('ConversationSession.enforceMemoryExtraction called');
 		logger.debug('enforceMemoryExtraction: unifiedToolManager at entry', {
-			unifiedToolManager: this.services.unifiedToolManager,
+			hasUnifiedToolManager: !!this.services.unifiedToolManager,
 			type: typeof this.services.unifiedToolManager,
 		});
 		try {

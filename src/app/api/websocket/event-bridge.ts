@@ -5,7 +5,7 @@ import { WebSocketResponse, WebSocketEventType } from './types.js';
 
 /**
  * WebSocket Event Bridge - Advanced event routing and transformation
- * 
+ *
  * This class provides additional event transformation and routing capabilities
  * beyond the basic WebSocketEventSubscriber. It's useful for custom event
  * handling, filtering, and transformation logic.
@@ -91,22 +91,25 @@ export class WebSocketEventBridge {
 			const response: WebSocketResponse = {
 				event: eventType,
 				data: transformedData,
-				timestamp: Date.now()
+				timestamp: Date.now(),
 			};
 
 			// Add sessionId if present
-			if (transformedData && typeof transformedData === 'object' && 'sessionId' in transformedData) {
+			if (
+				transformedData &&
+				typeof transformedData === 'object' &&
+				'sessionId' in transformedData
+			) {
 				response.sessionId = transformedData.sessionId;
 			}
 
 			// Route based on routing rule
 			const routingRule = this.routingRules.get(eventType) || 'subscribers';
 			this.routeEvent(routingRule, eventType, response);
-
 		} catch (error) {
 			logger.error('Error processing WebSocket event', {
 				eventType,
-				error: error instanceof Error ? error.message : String(error)
+				error: error instanceof Error ? error.message : String(error),
 			});
 		}
 	}
@@ -147,20 +150,20 @@ export class WebSocketEventBridge {
 	setupCommonFilters(): void {
 		// Filter out noisy debug events in production
 		if (process.env.NODE_ENV === 'production') {
-			this.registerEventFilter('thinking', (data) => {
+			this.registerEventFilter('thinking', data => {
 				// Only show thinking for sessions with active connections
 				return data.sessionId && this.connectionManager.hasActiveConnections(data.sessionId);
 			});
 		}
 
 		// Filter memory operations by success status
-		this.registerEventFilter('memoryOperation', (data) => {
+		this.registerEventFilter('memoryOperation', data => {
 			// Only broadcast successful memory operations unless specifically requested
 			return data.success !== false;
 		});
 
 		// Filter tool results by importance
-		this.registerEventFilter('toolResult', (data) => {
+		this.registerEventFilter('toolResult', data => {
 			// Always show failed tool executions, but successful ones only for subscribed clients
 			return !data.success || data.important;
 		});
@@ -173,27 +176,27 @@ export class WebSocketEventBridge {
 	 */
 	setupCommonTransformers(): void {
 		// Transform error events to include more context
-		this.registerEventTransformer('error', (data) => ({
+		this.registerEventTransformer('error', data => ({
 			...data,
 			timestamp: Date.now(),
 			severity: this.getErrorSeverity(data.code || data.message),
-			suggestions: this.getErrorSuggestions(data.code || data.message)
+			suggestions: this.getErrorSuggestions(data.code || data.message),
 		}));
 
 		// Transform chunk events to include progress information
-		this.registerEventTransformer('chunk', (data) => ({
+		this.registerEventTransformer('chunk', data => ({
 			...data,
 			timestamp: Date.now(),
 			// Add progress estimation if we can determine it
-			...(data.messageId && { progress: this.estimateProgress(data) })
+			...(data.messageId && { progress: this.estimateProgress(data) }),
 		}));
 
 		// Transform tool call events to include execution context
-		this.registerEventTransformer('toolCall', (data) => ({
+		this.registerEventTransformer('toolCall', data => ({
 			...data,
 			timestamp: Date.now(),
 			category: this.getToolCategory(data.toolName),
-			expectedDuration: this.getExpectedToolDuration(data.toolName)
+			expectedDuration: this.getExpectedToolDuration(data.toolName),
 		}));
 
 		logger.info('Common WebSocket event transformers setup completed');
@@ -218,10 +221,13 @@ export class WebSocketEventBridge {
 	 */
 	private getErrorSuggestions(errorCode: string): string[] {
 		const suggestions: Record<string, string[]> = {
-			'WEBSOCKET_ERROR': ['Check your internet connection', 'Try refreshing the page'],
-			'PROCESSING_ERROR': ['Try rephrasing your request', 'Check if all required fields are provided'],
-			'VALIDATION_ERROR': ['Check your input format', 'Ensure all required fields are provided'],
-			'AUTHENTICATION_ERROR': ['Please log in again', 'Check your session is still valid']
+			WEBSOCKET_ERROR: ['Check your internet connection', 'Try refreshing the page'],
+			PROCESSING_ERROR: [
+				'Try rephrasing your request',
+				'Check if all required fields are provided',
+			],
+			VALIDATION_ERROR: ['Check your input format', 'Ensure all required fields are provided'],
+			AUTHENTICATION_ERROR: ['Please log in again', 'Check your session is still valid'],
 		};
 
 		for (const [code, hints] of Object.entries(suggestions)) {
@@ -253,10 +259,10 @@ export class WebSocketEventBridge {
 	 */
 	private getToolCategory(toolName: string): string {
 		const categories: Record<string, string[]> = {
-			'memory': ['store_memory', 'search_memory', 'extract_knowledge'],
-			'knowledge': ['add_node', 'search_graph', 'extract_entities'],
-			'system': ['reset', 'config', 'health'],
-			'processing': ['run', 'execute', 'process']
+			memory: ['store_memory', 'search_memory', 'extract_knowledge'],
+			knowledge: ['add_node', 'search_graph', 'extract_entities'],
+			system: ['reset', 'config', 'health'],
+			processing: ['run', 'execute', 'process'],
 		};
 
 		for (const [category, tools] of Object.entries(categories)) {
@@ -273,13 +279,13 @@ export class WebSocketEventBridge {
 	 */
 	private getExpectedToolDuration(toolName: string): number {
 		const durations: Record<string, number> = {
-			'store_memory': 2000,
-			'search_memory': 1500,
-			'extract_knowledge': 3000,
-			'add_node': 1000,
-			'search_graph': 2000,
-			'reset': 500,
-			'config': 300
+			store_memory: 2000,
+			search_memory: 1500,
+			extract_knowledge: 3000,
+			add_node: 1000,
+			search_graph: 2000,
+			reset: 500,
+			config: 300,
 		};
 
 		const lowerToolName = toolName.toLowerCase();
@@ -305,7 +311,7 @@ export class WebSocketEventBridge {
 			filtersRegistered: this.eventFilters.size,
 			transformersRegistered: this.eventTransformers.size,
 			routingRules: Object.fromEntries(this.routingRules),
-			eventsProcessed: 0 // TODO: Track this
+			eventsProcessed: 0, // TODO: Track this
 		};
 	}
 

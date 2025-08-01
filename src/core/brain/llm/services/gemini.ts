@@ -48,7 +48,7 @@ export class GeminiService implements ILLMService {
 		}
 	}
 
-	async generate(userInput: string, imageData?: ImageData, stream?: boolean): Promise<string> {
+	async generate(userInput: string, imageData?: ImageData, sessionId?: string): Promise<string> {
 		await this.contextManager.addUserMessage(userInput, imageData);
 
 		// Use unified tool manager if available, otherwise fall back to MCP manager

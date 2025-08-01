@@ -75,7 +75,11 @@ export function createSessionRoutes(agent: MemAgent): Router {
 			successResponse(
 				res,
 				{
-					sessionId: session.id,
+					session: {
+						id: session.id,
+						// Only include serializable session properties
+						createdAt: new Date().toISOString(),
+					},
 					created: true,
 					timestamp: new Date().toISOString(),
 				},
@@ -83,7 +87,14 @@ export function createSessionRoutes(agent: MemAgent): Router {
 				req.requestId
 			);
 		} catch (error) {
-			const errorMsg = error instanceof Error ? error.message : String(error);
+			// Safely extract error message to avoid circular reference issues
+			let errorMsg: string;
+			try {
+				errorMsg = error instanceof Error ? error.message : String(error);
+			} catch (stringifyError) {
+				errorMsg = 'Unknown error occurred during session creation';
+			}
+			
 			logger.error('Failed to create session', {
 				requestId: req.requestId,
 				error: errorMsg,
