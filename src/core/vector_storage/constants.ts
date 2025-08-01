@@ -19,6 +19,7 @@ export const LOG_PREFIXES = {
 	INDEX: '[VectorStore:Index]',
 	SEARCH: '[VectorStore:Search]',
 	BACKEND: '[VectorStore:Backend]',
+	FACTORY: '[VectorStore:Factory]',
 } as const;
 
 /**

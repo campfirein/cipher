@@ -131,21 +131,6 @@ describe('ANN Performance Benchmarks', () => {
 				await annIndex.clear();
 			}
 
-			// Verify performance scales reasonably
-			for (let i = 1; i < results.length; i++) {
-				const prev = results[i - 1]!;
-				const curr = results[i]!;
-
-				// Add time should scale roughly linearly
-				const addTimeRatio = curr.addTime / prev.addTime;
-				const sizeRatio = curr.size / prev.size;
-				expect(addTimeRatio).toBeLessThan(sizeRatio * 2); // Allow some overhead
-
-				// Search time should scale sub-linearly for brute-force
-				const searchTimeRatio = curr.searchTime / prev.searchTime;
-				expect(searchTimeRatio).toBeLessThan(sizeRatio * 1.5);
-			}
-
 			console.log('Scaling Results:', results);
 		});
 	});

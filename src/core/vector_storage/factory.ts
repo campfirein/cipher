@@ -12,7 +12,7 @@ import { DualCollectionVectorManager } from './dual-collection-manager.js';
 import type { VectorStoreConfig } from './types.js';
 import { VectorStore } from './backend/vector-store.js';
 import { createLogger } from '../logger/index.js';
-import { LOG_PREFIXES, DEFAULTS } from './constants.js';
+import { LOG_PREFIXES } from './constants.js';
 import { env } from '../env.js';
 
 /**
@@ -81,7 +81,7 @@ export interface DualCollectionVectorFactory {
 export async function createVectorStore(config: VectorStoreConfig): Promise<VectorStoreFactory> {
 	const logger = createLogger({ level: env.CIPHER_LOG_LEVEL });
 
-	logger.debug(`${LOG_PREFIXES.MANAGER} Creating vector storage system`, {
+	logger.debug(`${LOG_PREFIXES.FACTORY} Creating vector storage system`, {
 		type: config.type,
 		collection: config.collectionName,
 		dimension: config.dimension,
@@ -94,7 +94,7 @@ export async function createVectorStore(config: VectorStoreConfig): Promise<Vect
 		// Connect to backend
 		const store = await manager.connect();
 
-		logger.info(`${LOG_PREFIXES.MANAGER} Vector storage system created successfully`, {
+		logger.info(`${LOG_PREFIXES.FACTORY} Vector storage system created successfully`, {
 			type: manager.getInfo().backend.type,
 			collection: config.collectionName,
 			connected: manager.isConnected(),
@@ -107,7 +107,7 @@ export async function createVectorStore(config: VectorStoreConfig): Promise<Vect
 			// Ignore disconnect errors during cleanup
 		});
 
-		logger.error(`${LOG_PREFIXES.MANAGER} Failed to create vector storage system`, {
+		logger.error(`${LOG_PREFIXES.FACTORY} Failed to create vector storage system`, {
 			error: error instanceof Error ? error.message : String(error),
 		});
 
@@ -123,7 +123,6 @@ export async function createVectorStore(config: VectorStoreConfig): Promise<Vect
  *
  * @param collectionName - Optional collection name (default: 'default')
  * @param dimension - Optional vector dimension (default: 1536)
- * @param useANN - Whether to use ANN acceleration (default: true)
  * @returns Promise resolving to manager and connected vector store
  *
  * @example
@@ -131,29 +130,20 @@ export async function createVectorStore(config: VectorStoreConfig): Promise<Vect
  * const { manager, store } = await createDefaultVectorStore();
  * // Uses in-memory backend with default settings
  *
- * const { manager, store } = await createDefaultVectorStore('my_collection', 768, true);
- * // Uses in-memory backend with ANN acceleration
+ * const { manager, store } = await createDefaultVectorStore('my_collection', 768);
+ * // Uses in-memory backend with custom collection and dimension
  * ```
  */
 export async function createDefaultVectorStore(
 	collectionName: string = 'default',
-	dimension: number = 1536,
-	useANN: boolean = true
+	dimension: number = 1536
 ): Promise<VectorStoreFactory> {
-	const config: VectorStoreConfig = {
+	return createVectorStore({
 		type: 'in-memory',
 		collectionName,
 		dimension,
 		maxVectors: 10000,
-	};
-
-	// Add ANN configuration if enabled
-	if (useANN) {
-		config.annAlgorithm = DEFAULTS.ANN_ALGORITHM;
-		config.annMinDatasetSize = DEFAULTS.ANN_MIN_DATASET_SIZE;
-	}
-
-	return createVectorStore(config);
+	});
 }
 
 /**
@@ -174,6 +164,7 @@ export async function createDefaultVectorStore(
  * - VECTOR_STORE_ON_DISK: Store vectors on disk (if using Qdrant)
  * - VECTOR_STORE_MAX_VECTORS: Maximum vectors for in-memory storage
  *
+ * @param agentConfig - Optional agent configuration to override dimension from embedding config
  * @returns Promise resolving to manager and connected vector store
  *
  * @example
@@ -186,13 +177,13 @@ export async function createDefaultVectorStore(
  * const { manager, store } = await createVectorStoreFromEnv();
  * ```
  */
-export async function createVectorStoreFromEnv(): Promise<VectorStoreFactory> {
+export async function createVectorStoreFromEnv(agentConfig?: any): Promise<VectorStoreFactory> {
 	const logger = createLogger({ level: env.CIPHER_LOG_LEVEL });
 
 	// Get configuration from environment variables
-	const config = getVectorStoreConfigFromEnv();
+	const config = getVectorStoreConfigFromEnv(agentConfig);
 
-	logger.info(`${LOG_PREFIXES.MANAGER} Creating vector storage from environment`, {
+	logger.info(`${LOG_PREFIXES.FACTORY} Creating vector storage from environment`, {
 		type: config.type,
 		collection: config.collectionName,
 		dimension: config.dimension,
@@ -208,6 +199,7 @@ export async function createVectorStoreFromEnv(): Promise<VectorStoreFactory> {
  * memory collections. Reflection collection is only created if REFLECTION_VECTOR_STORE_COLLECTION
  * is set and the model supports reasoning.
  *
+ * @param agentConfig - Optional agent configuration to override dimension from embedding config
  * @returns Promise resolving to dual collection manager and stores
  *
  * @example
@@ -220,17 +212,19 @@ export async function createVectorStoreFromEnv(): Promise<VectorStoreFactory> {
  * const { manager, knowledgeStore, reflectionStore } = await createDualCollectionVectorStoreFromEnv();
  * ```
  */
-export async function createDualCollectionVectorStoreFromEnv(): Promise<DualCollectionVectorFactory> {
+export async function createDualCollectionVectorStoreFromEnv(
+	agentConfig?: any
+): Promise<DualCollectionVectorFactory> {
 	const logger = createLogger({ level: env.CIPHER_LOG_LEVEL });
 
 	// Get base configuration from environment variables
-	const config = getVectorStoreConfigFromEnv();
+	const config = getVectorStoreConfigFromEnv(agentConfig);
 
 	// If reflection collection is not set or is empty/whitespace, treat as disabled
 	const reflectionCollection = (env.REFLECTION_VECTOR_STORE_COLLECTION || '').trim();
 	if (!reflectionCollection) {
 		logger.info(
-			`${LOG_PREFIXES.MANAGER} Reflection collection not set, creating single collection manager only`,
+			`${LOG_PREFIXES.FACTORY} Reflection collection not set, creating single collection manager only`,
 			{
 				type: config.type,
 				knowledgeCollection: config.collectionName,
@@ -249,7 +243,7 @@ export async function createDualCollectionVectorStoreFromEnv(): Promise<DualColl
 		};
 	}
 
-	logger.info(`${LOG_PREFIXES.MANAGER} Creating dual collection vector storage from environment`, {
+	logger.info(`${LOG_PREFIXES.FACTORY} Creating dual collection vector storage from environment`, {
 		type: config.type,
 		knowledgeCollection: config.collectionName,
 		reflectionCollection,
@@ -260,10 +254,8 @@ export async function createDualCollectionVectorStoreFromEnv(): Promise<DualColl
 	const manager = new DualCollectionVectorManager(config);
 
 	try {
-		// Connect both collections
 		await manager.connect();
 
-		// Get the stores
 		const knowledgeStore = manager.getStore('knowledge');
 		const reflectionStore = manager.getStore('reflection');
 
@@ -271,15 +263,9 @@ export async function createDualCollectionVectorStoreFromEnv(): Promise<DualColl
 			throw new Error('Failed to get knowledge store from dual collection manager');
 		}
 
-		logger.info(`${LOG_PREFIXES.MANAGER} Dual collection vector storage created successfully`, {
-			knowledgeConnected: manager.isConnected('knowledge'),
-			reflectionConnected: manager.isConnected('reflection'),
-			reflectionEnabled: true,
-		});
-
 		return {
 			manager,
-			knowledgeStore: knowledgeStore!,
+			knowledgeStore,
 			reflectionStore,
 		};
 	} catch (error) {
@@ -288,7 +274,7 @@ export async function createDualCollectionVectorStoreFromEnv(): Promise<DualColl
 			// Ignore disconnect errors during cleanup
 		});
 
-		logger.error(`${LOG_PREFIXES.MANAGER} Failed to create dual collection vector storage`, {
+		logger.error(`${LOG_PREFIXES.FACTORY} Failed to create dual collection vector storage system`, {
 			error: error instanceof Error ? error.message : String(error),
 		});
 
@@ -297,59 +283,12 @@ export async function createDualCollectionVectorStoreFromEnv(): Promise<DualColl
 }
 
 /**
- * Creates in-memory vector storage with persistence enabled
- *
- * This is a convenience function for creating in-memory vector storage
- * with persistence enabled by default. The data will be saved to the
- * specified path and automatically loaded on subsequent connections.
- *
- * @param collectionName - Name of the collection
- * @param dimension - Vector dimension (default: 1536)
- * @param persistencePath - Path to store persistence files (default: './data/vector-storage')
- * @returns Promise resolving to manager and connected vector store
- *
- * @example
- * ```typescript
- * // Basic usage with default persistence
- * const { manager, store } = await createPersistentInMemoryStore('my_collection');
- *
- * // Custom persistence path
- * const { manager, store } = await createPersistentInMemoryStore(
- *   'my_collection',
- *   1536,
- *   './my-data/vectors'
- * );
- *
- * // Use the store
- * await store.insert([vector], ['doc1'], [{ title: 'Document' }]);
- *
- * // Data will be automatically saved and loaded
- * await manager.disconnect();
- * ```
- */
-export async function createPersistentInMemoryStore(
-	collectionName: string,
-	dimension: number = DEFAULTS.DIMENSION,
-	persistencePath: string = DEFAULTS.PERSISTENCE_PATH
-): Promise<VectorStoreFactory> {
-	const config: VectorStoreConfig = {
-		type: 'in-memory',
-		collectionName,
-		dimension,
-		maxVectors: 10000,
-		annPersistIndex: true,
-		annIndexPath: persistencePath,
-	};
-
-	return createVectorStore(config);
-}
-
-/**
  * Get vector storage configuration from environment variables
  *
  * Returns the configuration object that would be used by createVectorStoreFromEnv
  * without actually creating the vector store. Useful for debugging and validation.
  *
+ * @param agentConfig - Optional agent configuration to override dimension from embedding config
  * @returns Vector storage configuration based on environment variables
  *
  * @example
@@ -361,14 +300,33 @@ export async function createPersistentInMemoryStore(
  * const { manager, store } = await createVectorStore(config);
  * ```
  */
-export function getVectorStoreConfigFromEnv(): VectorStoreConfig {
+export function getVectorStoreConfigFromEnv(agentConfig?: any): VectorStoreConfig {
+	const logger = createLogger({ level: env.CIPHER_LOG_LEVEL });
+
 	// Get configuration from centralized env object with fallbacks for invalid values
 	const storeType = env.VECTOR_STORE_TYPE;
 	const collectionName = env.VECTOR_STORE_COLLECTION;
-	const dimension = Number.isNaN(env.VECTOR_STORE_DIMENSION) ? 1536 : env.VECTOR_STORE_DIMENSION;
+	let dimension = Number.isNaN(env.VECTOR_STORE_DIMENSION) ? 1536 : env.VECTOR_STORE_DIMENSION;
 	const maxVectors = Number.isNaN(env.VECTOR_STORE_MAX_VECTORS)
 		? 10000
 		: env.VECTOR_STORE_MAX_VECTORS;
+
+	// Override dimension from agent config if embedding configuration is present
+	if (
+		agentConfig?.embedding &&
+		typeof agentConfig.embedding === 'object' &&
+		agentConfig.embedding.dimensions
+	) {
+		const embeddingDimension = agentConfig.embedding.dimensions;
+		if (typeof embeddingDimension === 'number' && embeddingDimension > 0) {
+			logger.debug('Overriding vector store dimension from agent config', {
+				envDimension: dimension,
+				agentDimension: embeddingDimension,
+				embeddingType: agentConfig.embedding.type,
+			});
+			dimension = embeddingDimension;
+		}
+	}
 
 	if (storeType === 'qdrant') {
 		const host = env.VECTOR_STORE_HOST;
@@ -379,12 +337,15 @@ export function getVectorStoreConfigFromEnv(): VectorStoreConfig {
 		const onDisk = env.VECTOR_STORE_ON_DISK;
 
 		if (!url && !host) {
+			// Return in-memory config with fallback marker
 			return {
 				type: 'in-memory',
 				collectionName,
 				dimension,
 				maxVectors,
-			};
+				// Add a special property to indicate this is a fallback from Qdrant
+				_fallbackFrom: 'qdrant',
+			} as any;
 		}
 
 		return {
@@ -407,12 +368,15 @@ export function getVectorStoreConfigFromEnv(): VectorStoreConfig {
 		const token = env.VECTOR_STORE_API_KEY;
 
 		if (!url && !host) {
+			// Return in-memory config with fallback marker
 			return {
 				type: 'in-memory',
 				collectionName,
 				dimension,
 				maxVectors,
-			};
+				// Add a special property to indicate this is a fallback from Milvus
+				_fallbackFrom: 'milvus',
+			} as any;
 		}
 
 		return {
