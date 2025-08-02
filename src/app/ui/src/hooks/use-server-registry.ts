@@ -8,9 +8,7 @@ import {
 } from '@/types/server-registry';
 import { serverRegistry } from '@/lib/server-registry-service';
 
-export function useServerRegistry(
-	options: UseServerRegistryOptions = {}
-) {
+export function useServerRegistry(options: UseServerRegistryOptions = {}) {
 	const { autoLoad = true, initialFilter } = options;
 
 	// State management
@@ -74,58 +72,52 @@ export function useServerRegistry(
 	}, []);
 
 	// Installation status management with optimistic updates
-	const markAsInstalled = useCallback(
-		async (entryId: string) => {
-			if (!isMountedRef.current) return;
+	const markAsInstalled = useCallback(async (entryId: string) => {
+		if (!isMountedRef.current) return;
 
-			// Optimistic update
-			setEntries(prev =>
-				prev.map(entry => (entry.id === entryId ? { ...entry, isInstalled: true } : entry))
-			);
+		// Optimistic update
+		setEntries(prev =>
+			prev.map(entry => (entry.id === entryId ? { ...entry, isInstalled: true } : entry))
+		);
 
-			try {
-				await serverRegistry.setInstalled(entryId, true);
-			} catch (err: unknown) {
-				// Rollback optimistic update on error
-				if (isMountedRef.current) {
-					setEntries(prev =>
-						prev.map(entry => (entry.id === entryId ? { ...entry, isInstalled: false } : entry))
-					);
-					const errorMessage =
-						err instanceof Error ? err.message : 'Failed to mark server as installed';
-					setError(errorMessage);
-				}
+		try {
+			await serverRegistry.setInstalled(entryId, true);
+		} catch (err: unknown) {
+			// Rollback optimistic update on error
+			if (isMountedRef.current) {
+				setEntries(prev =>
+					prev.map(entry => (entry.id === entryId ? { ...entry, isInstalled: false } : entry))
+				);
+				const errorMessage =
+					err instanceof Error ? err.message : 'Failed to mark server as installed';
+				setError(errorMessage);
 			}
-		},
-		[]
-	);
+		}
+	}, []);
 
 	// Mark as uninstalled
-	const markAsUninstalled = useCallback(
-		async (entryId: string) => {
-			if (!isMountedRef.current) return;
+	const markAsUninstalled = useCallback(async (entryId: string) => {
+		if (!isMountedRef.current) return;
 
-			// Optimistic update
-			setEntries(prev =>
-				prev.map(entry => (entry.id === entryId ? { ...entry, isInstalled: false } : entry))
-			);
+		// Optimistic update
+		setEntries(prev =>
+			prev.map(entry => (entry.id === entryId ? { ...entry, isInstalled: false } : entry))
+		);
 
-			try {
-				await serverRegistry.setInstalled(entryId, false);
-			} catch (err: unknown) {
-				// Rollback optimistic update on error
-				if (isMountedRef.current) {
-					setEntries(prev =>
-						prev.map(entry => (entry.id === entryId ? { ...entry, isInstalled: true } : entry))
-					);
-					const errorMessage =
-						err instanceof Error ? err.message : 'Failed to mark server as uninstalled';
-					setError(errorMessage);
-				}
+		try {
+			await serverRegistry.setInstalled(entryId, false);
+		} catch (err: unknown) {
+			// Rollback optimistic update on error
+			if (isMountedRef.current) {
+				setEntries(prev =>
+					prev.map(entry => (entry.id === entryId ? { ...entry, isInstalled: true } : entry))
+				);
+				const errorMessage =
+					err instanceof Error ? err.message : 'Failed to mark server as uninstalled';
+				setError(errorMessage);
 			}
-		},
-		[]
-	);
+		}
+	}, []);
 
 	// Custom entry addition
 	const addCustomEntry = useCallback(
@@ -150,26 +142,23 @@ export function useServerRegistry(
 	);
 
 	// Remove entry (for custom entries)
-	const removeEntry = useCallback(
-		async (entryId: string) => {
-			if (!isMountedRef.current) return;
+	const removeEntry = useCallback(async (entryId: string) => {
+		if (!isMountedRef.current) return;
 
-			try {
-				await serverRegistry.removeEntry(entryId);
+		try {
+			await serverRegistry.removeEntry(entryId);
 
-				if (isMountedRef.current) {
-					setEntries(prev => prev.filter(entry => entry.id !== entryId));
-				}
-			} catch (err: unknown) {
-				if (isMountedRef.current) {
-					const errorMessage = err instanceof Error ? err.message : 'Failed to remove server entry';
-					setError(errorMessage);
-				}
-				throw err;
+			if (isMountedRef.current) {
+				setEntries(prev => prev.filter(entry => entry.id !== entryId));
 			}
-		},
-		[]
-	);
+		} catch (err: unknown) {
+			if (isMountedRef.current) {
+				const errorMessage = err instanceof Error ? err.message : 'Failed to remove server entry';
+				setError(errorMessage);
+			}
+			throw err;
+		}
+	}, []);
 
 	// Error management
 	const clearError = useCallback(() => {
@@ -199,8 +188,10 @@ export function useServerRegistry(
 			if (!clientFilter) return entries;
 
 			return entries.filter(entry => {
-				if (clientFilter.installed !== undefined && entry.isInstalled !== clientFilter.installed) return false;
-				if (clientFilter.official !== undefined && entry.isOfficial !== clientFilter.official) return false;
+				if (clientFilter.installed !== undefined && entry.isInstalled !== clientFilter.installed)
+					return false;
+				if (clientFilter.official !== undefined && entry.isOfficial !== clientFilter.official)
+					return false;
 				if (clientFilter.category && entry.category !== clientFilter.category) return false;
 				if (clientFilter.search) {
 					const searchLower = clientFilter.search.toLowerCase();
@@ -249,7 +240,7 @@ export function useServerRegistry(
 		};
 
 		window.addEventListener('mcp-server-uninstalled', handleServerUninstalled);
-		
+
 		return () => {
 			window.removeEventListener('mcp-server-uninstalled', handleServerUninstalled);
 		};

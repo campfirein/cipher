@@ -27,15 +27,18 @@ export function createMcpRoutes(agent: MemAgent): Router {
 			for (const [serverId, client] of mcpClients.entries()) {
 				try {
 					const tools = await client.getTools();
-					
-					// Add server context to each tool
-					const serverTools = tools.map((tool: any) => ({
-						...tool,
-						serverId,
-						serverName: serverId, // Could be enhanced with actual server names
-					}));
-					
-					allTools.push(...serverTools);
+
+					// Check if tools exist and is an array
+					if (tools && Array.isArray(tools)) {
+						// Add server context to each tool
+						const serverTools = tools.map((tool: any) => ({
+							...tool,
+							serverId,
+							serverName: serverId, // Could be enhanced with actual server names
+						}));
+
+						allTools.push(...serverTools);
+					}
 				} catch (error) {
 					logger.warn('Failed to get tools from MCP server', {
 						requestId: req.requestId,
@@ -57,7 +60,6 @@ export function createMcpRoutes(agent: MemAgent): Router {
 				200,
 				req.requestId
 			);
-
 		} catch (error) {
 			const errorMsg = error instanceof Error ? error.message : String(error);
 			logger.error('Failed to get all MCP tools', {
@@ -86,7 +88,7 @@ export function createMcpRoutes(agent: MemAgent): Router {
 
 			// Use the new comprehensive method that includes all server data
 			const allServers = agent.getAllMcpServers();
-			
+
 			const connectedCount = allServers.filter(s => s.status === 'connected').length;
 			const failedCount = allServers.filter(s => s.status === 'error').length;
 
@@ -125,7 +127,8 @@ export function createMcpRoutes(agent: MemAgent): Router {
 	 */
 	router.post('/servers', validateMcpServerConfig, async (req: Request, res: Response) => {
 		try {
-			const { name, transport, command, args, url, env, headers, timeout, connectionMode } = req.body;
+			const { name, transport, command, args, url, env, headers, timeout, connectionMode } =
+				req.body;
 
 			logger.info('Connecting MCP server', {
 				requestId: req.requestId,

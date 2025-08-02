@@ -18,7 +18,7 @@ const isStandalone = process.env.BUILD_STANDALONE === 'true';
 const nextConfig: NextConfig = {
 	reactStrictMode: true,
 	// Use standalone output for production builds
-	output: isStandalone ? 'standalone' : undefined,
+	...(isStandalone && { output: 'standalone' as const }),
 	// Disable ESLint during build to avoid config issues
 	eslint: {
 		ignoreDuringBuilds: true,

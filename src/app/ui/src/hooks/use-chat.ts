@@ -43,7 +43,6 @@ export function useChat(wsUrl: string, options: UseChatOptions = {}) {
 
 		const payload = msg.data || {};
 
-
 		switch (msg.event) {
 			case 'thinking':
 				handleThinkingEvent();
@@ -75,20 +74,20 @@ export function useChat(wsUrl: string, options: UseChatOptions = {}) {
 			case 'toolExecutionFailed':
 				handleToolExecutionFailed(payload);
 				break;
-					case 'error':
-			handleErrorEvent(payload);
-			break;
-		case 'connected':
-			// WebSocket connection confirmed by backend
-			console.log('WebSocket connection confirmed by backend');
-			break;
-		case 'connectionUpdated':
-			// Connection update from backend (e.g., session binding)
-			console.log('WebSocket connection updated:', payload);
-			break;
-		default:
-			console.warn('Unknown WebSocket event:', msg.event);
-			break;
+			case 'error':
+				handleErrorEvent(payload);
+				break;
+			case 'connected':
+				// WebSocket connection confirmed by backend
+				console.log('WebSocket connection confirmed by backend');
+				break;
+			case 'connectionUpdated':
+				// Connection update from backend (e.g., session binding)
+				console.log('WebSocket connection updated:', payload);
+				break;
+			default:
+				console.warn('Unknown WebSocket event:', msg.event);
+				break;
 		}
 	}, []);
 
@@ -98,7 +97,9 @@ export function useChat(wsUrl: string, options: UseChatOptions = {}) {
 
 		setMessages(ms => {
 			// Check if there's already a thinking message - if so, don't add another
-			const hasThinking = ms.some(m => m.role === 'system' && m.content === 'Cipher is thinking...');
+			const hasThinking = ms.some(
+				m => m.role === 'system' && m.content === 'Cipher is thinking...'
+			);
 			if (hasThinking) {
 				return ms; // Don't add duplicate thinking message
 			}
@@ -123,19 +124,19 @@ export function useChat(wsUrl: string, options: UseChatOptions = {}) {
 
 		const text = typeof payload.text === 'string' ? payload.text : '';
 		const messageId = payload.messageId || '';
-		
+
 		// Skip empty chunks
 		if (!text) return;
-		
+
 		// Create unique chunk identifier using message ID and actual content
 		const chunkKey = `${messageId}-${text}`;
-		
+
 		// Skip if we've already processed this exact chunk content
 		if (processedChunks.current.has(chunkKey)) {
 			console.warn('Skipping duplicate chunk:', text.slice(0, 50) + '...');
 			return;
 		}
-		
+
 		processedChunks.current.add(chunkKey);
 
 		setMessages(ms => {
@@ -145,14 +146,14 @@ export function useChat(wsUrl: string, options: UseChatOptions = {}) {
 			);
 
 			const last = cleaned[cleaned.length - 1];
-			
+
 			// If we have an existing assistant message, append to it
 			if (last && last.role === 'assistant' && typeof last.content === 'string') {
 				// Track the streaming message to detect context switches
 				if (currentStreamingMessage.current === null) {
 					currentStreamingMessage.current = last.id;
 				}
-				
+
 				// If this is a different message stream, create new message
 				if (messageId && last.id !== messageId) {
 					currentStreamingMessage.current = messageId;
@@ -164,7 +165,7 @@ export function useChat(wsUrl: string, options: UseChatOptions = {}) {
 					};
 					return [...cleaned, newMessage];
 				}
-				
+
 				// Append to existing message
 				const newContent = last.content + text;
 				const updated: ChatMessage = {
@@ -178,7 +179,7 @@ export function useChat(wsUrl: string, options: UseChatOptions = {}) {
 			// Create new assistant message
 			const newMessageId = messageId || generateUniqueId();
 			currentStreamingMessage.current = newMessageId;
-			
+
 			const newMessage: ChatMessage = {
 				id: newMessageId,
 				role: 'assistant',
@@ -258,7 +259,7 @@ export function useChat(wsUrl: string, options: UseChatOptions = {}) {
 
 			// Clear the last image for the next message
 			lastImageUriRef.current = null;
-			
+
 			// Reset streaming state when response is complete
 			currentStreamingMessage.current = null;
 
@@ -312,7 +313,7 @@ export function useChat(wsUrl: string, options: UseChatOptions = {}) {
 		const uri = result ? extractImageFromToolResult(result) : null;
 		lastImageUriRef.current = uri;
 
-		// Add a formatted tool result message similar to terminal output  
+		// Add a formatted tool result message similar to terminal output
 		const resultMessage: ChatMessage = {
 			id: generateUniqueId(),
 			role: 'system',
@@ -363,7 +364,7 @@ export function useChat(wsUrl: string, options: UseChatOptions = {}) {
 			setMessages(ms => {
 				const progressMessageId = `progress-${callId}`;
 				const existingIdx = ms.findIndex(m => m.id === progressMessageId);
-				
+
 				const progressMessage: ChatMessage = {
 					id: progressMessageId,
 					role: 'system',
@@ -392,8 +393,8 @@ export function useChat(wsUrl: string, options: UseChatOptions = {}) {
 
 		setMessages(ms => {
 			// Remove any progress messages for this execution
-			const withoutProgress = ms.filter(m => !(m.id?.startsWith(`progress-${callId}`)));
-			
+			const withoutProgress = ms.filter(m => !m.id?.startsWith(`progress-${callId}`));
+
 			// Don't add completion message - we'll show the actual result instead
 			return withoutProgress;
 		});
@@ -408,8 +409,8 @@ export function useChat(wsUrl: string, options: UseChatOptions = {}) {
 
 		setMessages(ms => {
 			// Remove any progress messages for this execution
-			const withoutProgress = ms.filter(m => !(m.id?.startsWith(`progress-${callId}`)));
-			
+			const withoutProgress = ms.filter(m => !m.id?.startsWith(`progress-${callId}`));
+
 			// Add error message
 			const errorMessage: ChatMessage = {
 				id: generateUniqueId(),
@@ -453,7 +454,10 @@ export function useChat(wsUrl: string, options: UseChatOptions = {}) {
 
 	// WebSocket connection management
 	const connect = useCallback(() => {
-		if (wsRef.current?.readyState === WebSocket.OPEN || wsRef.current?.readyState === WebSocket.CONNECTING) {
+		if (
+			wsRef.current?.readyState === WebSocket.OPEN ||
+			wsRef.current?.readyState === WebSocket.CONNECTING
+		) {
 			return; // Already connected or connecting
 		}
 

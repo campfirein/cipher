@@ -94,7 +94,7 @@ export function createSessionRoutes(agent: MemAgent): Router {
 			} catch (stringifyError) {
 				errorMsg = 'Unknown error occurred during session creation';
 			}
-			
+
 			logger.error('Failed to create session', {
 				requestId: req.requestId,
 				error: errorMsg,

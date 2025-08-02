@@ -47,7 +47,7 @@ export class SessionManager {
 			return;
 		}
 		this.initialized = true;
-		
+
 		// Try to recover existing sessions from conversation history
 		await this.recoverExistingSessions();
 
@@ -320,7 +320,7 @@ export class SessionManager {
 			// Create a temporary session to access the storage manager
 			const tempSession = new ConversationSession(this.services, 'temp-recovery');
 			await tempSession.init();
-			
+
 			const storageManager = tempSession.getStorageManager();
 			if (!storageManager) {
 				logger.debug('No storage manager available for session recovery');
@@ -329,38 +329,37 @@ export class SessionManager {
 
 			// Try to get all unique session IDs from the database
 			const sessionIds = await this.getExistingSessionIds(storageManager);
-			
+
 			// Create session metadata for recovered sessions
 			const now = Date.now();
 			let recoveredCount = 0;
-			
+
 			for (const sessionId of sessionIds) {
 				if (!this.sessions.has(sessionId) && sessionId !== 'temp-recovery') {
 					try {
 						// Create the session
 						const session = new ConversationSession(this.services, sessionId);
 						await session.init();
-						
+
 						// Add to sessions map with estimated metadata
 						this.sessions.set(sessionId, {
 							session,
 							lastActivity: now,
 							createdAt: now, // We don't know the real creation time
 						});
-						
+
 						recoveredCount++;
 					} catch (error) {
 						logger.warn(`Failed to recover session ${sessionId}:`, error);
 					}
 				}
 			}
-			
+
 			if (recoveredCount > 0) {
 				logger.info(`Recovered ${recoveredCount} existing sessions`);
 			}
-			
+
 			// Note: temp session will be cleaned up by GC
-			
 		} catch (error) {
 			logger.warn('Failed to recover existing sessions:', error);
 		}
@@ -375,14 +374,16 @@ export class SessionManager {
 			if (storageManager.database) {
 				// For database backends, query for distinct session IDs
 				const database = storageManager.database;
-				
+
 				if (database.query) {
 					// For SQL databases
-					const result = await database.query('SELECT DISTINCT session_id FROM conversations WHERE session_id IS NOT NULL AND session_id != ""');
+					const result = await database.query(
+						'SELECT DISTINCT session_id FROM conversations WHERE session_id IS NOT NULL AND session_id != ""'
+					);
 					return result.rows ? result.rows.map((row: any) => row.session_id) : [];
 				}
 			}
-			
+
 			// Fallback: return empty array if we can't query the database
 			return [];
 		} catch (error) {

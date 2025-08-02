@@ -136,7 +136,11 @@ export class ApiClient {
 		return this.request<any>(`/api/mcp/servers/${serverId}/tools`);
 	}
 
-	async executeServerTool(serverId: string, toolName: string, params: any): Promise<ApiResponse<any>> {
+	async executeServerTool(
+		serverId: string,
+		toolName: string,
+		params: any
+	): Promise<ApiResponse<any>> {
 		return this.request<any>(`/api/mcp/servers/${serverId}/tools/${toolName}/execute`, {
 			method: 'POST',
 			body: JSON.stringify(params),
@@ -157,7 +161,6 @@ export class ApiClient {
 	async getCurrentSession(): Promise<ApiResponse<SessionInfo>> {
 		return this.request<SessionInfo>('/api/sessions/current');
 	}
-
 
 	// Webhook management
 	async getWebhooks(): Promise<ApiResponse<any>> {
@@ -205,7 +208,12 @@ export class ApiClient {
 		return this.request<any>('/api/llm/status');
 	}
 
-	async switchLLM(provider: string, model: string, config?: any, sessionId?: string): Promise<ApiResponse<any>> {
+	async switchLLM(
+		provider: string,
+		model: string,
+		config?: any,
+		sessionId?: string
+	): Promise<ApiResponse<any>> {
 		return this.request<any>('/api/llm/switch', {
 			method: 'POST',
 			body: JSON.stringify({ provider, model, config, sessionId }),

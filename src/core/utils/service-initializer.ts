@@ -655,7 +655,7 @@ export async function createAgentServices(
 			mode: mcpServerMode,
 		};
 	} else {
-		// API/UI Mode: Use CLI-like tool exposure for consistency  
+		// API/UI Mode: Use CLI-like tool exposure for consistency
 		unifiedToolManagerConfig = {
 			enableInternalTools: true,
 			enableMcpTools: true,

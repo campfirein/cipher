@@ -536,9 +536,12 @@ export class ApiServer {
 		});
 
 		// Chrome DevTools compatibility endpoint (prevents 404 errors in console)
-		this.app.get('/.well-known/appspecific/com.chrome.devtools.json', (req: Request, res: Response) => {
-			res.status(204).end(); // No Content - indicates no DevTools integration available
-		});
+		this.app.get(
+			'/.well-known/appspecific/com.chrome.devtools.json',
+			(req: Request, res: Response) => {
+				res.status(204).end(); // No Content - indicates no DevTools integration available
+			}
+		);
 
 		// A2A (Agent-to-Agent) discovery endpoint
 		this.app.get('/.well-known/agent.json', (req: Request, res: Response) => {
@@ -547,14 +550,7 @@ export class ApiServer {
 					name: 'Cipher Agent',
 					description: 'Memory-powered AI agent framework with real-time communication',
 					version: process.env.npm_package_version || '1.0.0',
-					capabilities: [
-						'conversation',
-						'memory',
-						'tools',
-						'mcp',
-						'websocket',
-						'streaming'
-					],
+					capabilities: ['conversation', 'memory', 'tools', 'mcp', 'websocket', 'streaming'],
 					endpoints: {
 						base: `${req.protocol}://${req.get('host')}`,
 						api: `${req.protocol}://${req.get('host')}/api`,
@@ -626,7 +622,6 @@ export class ApiServer {
 					200,
 					req.requestId
 				);
-
 			} catch (error) {
 				const errorMsg = error instanceof Error ? error.message : String(error);
 				logger.error('Global reset failed', {

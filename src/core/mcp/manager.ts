@@ -635,11 +635,11 @@ export class MCPManager implements IMCPManager {
 				name: name,
 				status: entry.connected ? 'connected' : 'disconnected',
 				config: {
+					...entry.config,
 					type: entry.config.type || 'stdio',
-					...entry.config
 				},
 				lastSeen: entry.lastSeen,
-				failureCount: entry.failureCount
+				failureCount: entry.failureCount,
 			});
 		}
 
@@ -652,9 +652,9 @@ export class MCPManager implements IMCPManager {
 					name: name,
 					status: 'error',
 					config: {
-						type: 'stdio' // Default, since we don't have the original config
+						type: 'stdio', // Default, since we don't have the original config
 					},
-					error: error
+					error: error,
 				});
 			}
 		}

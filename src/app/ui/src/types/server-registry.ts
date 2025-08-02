@@ -66,7 +66,6 @@ export interface HeaderPair {
 	id: string;
 }
 
-
 export interface FileData {
 	base64: string;
 	mimeType: string;
@@ -136,7 +135,6 @@ export interface Message {
 	sessionId?: string;
 	toolExecutionId?: string;
 }
-
 
 export interface McpServer {
 	id: string;

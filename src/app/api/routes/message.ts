@@ -8,9 +8,9 @@ import { logger } from '@core/logger/index.js';
  * Process message asynchronously without blocking the response
  */
 async function processMessageAsync(
-	agent: MemAgent, 
-	message: string, 
-	options: { sessionId?: string; images?: string[]; imageData?: string; fileData?: any }, 
+	agent: MemAgent,
+	message: string,
+	options: { sessionId?: string; images?: string[]; imageData?: string; fileData?: any },
 	requestId?: string
 ): Promise<void> {
 	try {
@@ -18,7 +18,7 @@ async function processMessageAsync(
 		if (options.sessionId) {
 			try {
 				await agent.loadSession(options.sessionId);
-			} catch (error) {
+			} catch (_error) {
 				// Create new session with the provided ID
 				await agent.createSession(options.sessionId);
 			}
@@ -26,12 +26,12 @@ async function processMessageAsync(
 
 		// Convert image data to expected format
 		let imageData: { image: string; mimeType: string } | undefined;
-		if (options.images && options.images.length > 0) {
+		if (options.images && options.images.length > 0 && options.images[0]) {
 			imageData = {
 				image: options.images[0],
 				mimeType: 'image/jpeg',
 			};
-		} else if (options.imageData) {
+		} else if (options.imageData && typeof options.imageData === 'string') {
 			imageData = {
 				image: options.imageData,
 				mimeType: 'image/jpeg',
@@ -46,7 +46,6 @@ async function processMessageAsync(
 			requestId,
 			sessionId: agent.getCurrentSessionId(),
 		});
-
 	} catch (error) {
 		logger.error('Async message processing failed', {
 			requestId,
@@ -90,8 +89,12 @@ export function createMessageRoutes(agent: MemAgent): Router {
 			);
 
 			// Process message asynchronously (no await)
-			processMessageAsync(agent, message, { sessionId, images, imageData, fileData }, req.requestId);
-
+			processMessageAsync(
+				agent,
+				message,
+				{ sessionId, images, imageData, fileData },
+				req.requestId
+			);
 		} catch (error) {
 			const errorMsg = error instanceof Error ? error.message : String(error);
 			logger.error('Async message processing setup failed', {

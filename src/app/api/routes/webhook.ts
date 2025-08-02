@@ -16,7 +16,7 @@ interface WebhookData {
 
 const webhooks = new Map<string, WebhookData>();
 
-export function createWebhookRoutes(agent: MemAgent): Router {
+export function createWebhookRoutes(_agent: MemAgent): Router {
 	const router = Router();
 
 	/**
@@ -81,7 +81,6 @@ export function createWebhookRoutes(agent: MemAgent): Router {
 				201,
 				req.requestId
 			);
-
 		} catch (error) {
 			const errorMsg = error instanceof Error ? error.message : String(error);
 			logger.error('Webhook registration failed', {
@@ -123,7 +122,6 @@ export function createWebhookRoutes(agent: MemAgent): Router {
 				200,
 				req.requestId
 			);
-
 		} catch (error) {
 			const errorMsg = error instanceof Error ? error.message : String(error);
 			logger.error('Failed to list webhooks', {
@@ -150,6 +148,17 @@ export function createWebhookRoutes(agent: MemAgent): Router {
 		try {
 			const { webhookId } = req.params;
 
+			if (!webhookId) {
+				return errorResponse(
+					res,
+					ERROR_CODES.VALIDATION_ERROR,
+					'Webhook ID is required',
+					400,
+					undefined,
+					req.requestId
+				);
+			}
+
 			const webhook = webhooks.get(webhookId);
 			if (!webhook) {
 				return errorResponse(
@@ -175,7 +184,6 @@ export function createWebhookRoutes(agent: MemAgent): Router {
 				200,
 				req.requestId
 			);
-
 		} catch (error) {
 			const errorMsg = error instanceof Error ? error.message : String(error);
 			logger.error('Failed to get webhook details', {
@@ -201,6 +209,17 @@ export function createWebhookRoutes(agent: MemAgent): Router {
 	router.delete('/:webhookId', async (req: Request, res: Response) => {
 		try {
 			const { webhookId } = req.params;
+
+			if (!webhookId) {
+				return errorResponse(
+					res,
+					ERROR_CODES.VALIDATION_ERROR,
+					'Webhook ID is required',
+					400,
+					undefined,
+					req.requestId
+				);
+			}
 
 			const webhook = webhooks.get(webhookId);
 			if (!webhook) {
@@ -230,7 +249,6 @@ export function createWebhookRoutes(agent: MemAgent): Router {
 				200,
 				req.requestId
 			);
-
 		} catch (error) {
 			const errorMsg = error instanceof Error ? error.message : String(error);
 			logger.error('Failed to remove webhook', {
@@ -256,6 +274,17 @@ export function createWebhookRoutes(agent: MemAgent): Router {
 	router.post('/:webhookId/test', async (req: Request, res: Response) => {
 		try {
 			const { webhookId } = req.params;
+
+			if (!webhookId) {
+				return errorResponse(
+					res,
+					ERROR_CODES.VALIDATION_ERROR,
+					'Webhook ID is required',
+					400,
+					undefined,
+					req.requestId
+				);
+			}
 
 			const webhook = webhooks.get(webhookId);
 			if (!webhook) {
@@ -316,7 +345,6 @@ export function createWebhookRoutes(agent: MemAgent): Router {
 					200,
 					req.requestId
 				);
-
 			} catch (fetchError) {
 				logger.error('Webhook test failed', {
 					requestId: req.requestId,
@@ -341,7 +369,6 @@ export function createWebhookRoutes(agent: MemAgent): Router {
 					req.requestId
 				);
 			}
-
 		} catch (error) {
 			const errorMsg = error instanceof Error ? error.message : String(error);
 			logger.error('Failed to test webhook', {

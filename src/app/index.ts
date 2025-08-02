@@ -8,8 +8,8 @@ EventEmitter.defaultMaxListeners = 20;
 if (typeof globalThis !== 'undefined' && globalThis.EventTarget) {
 	const originalAddEventListener = globalThis.EventTarget.prototype.addEventListener;
 	const listenerCounts = new WeakMap();
-	
-	globalThis.EventTarget.prototype.addEventListener = function(type, listener, options) {
+
+	globalThis.EventTarget.prototype.addEventListener = function (type, listener, options) {
 		if (type === 'abort' && this.constructor.name === 'AbortSignal') {
 			const currentCount = listenerCounts.get(this) || 0;
 			if (currentCount >= 15) {
@@ -88,7 +88,11 @@ program
 	.option('-a, --agent <path>', 'Path to agent config file', DEFAULT_CONFIG_PATH)
 	.option('-s, --strict', 'Require all MCP server connections to succeed')
 	.option('--new-session [sessionId]', 'Start with a new session (optionally specify session ID)')
-	.option('--mode <mode>', 'The application mode for cipher memory agent - cli | mcp | api | ui', 'cli')
+	.option(
+		'--mode <mode>',
+		'The application mode for cipher memory agent - cli | mcp | api | ui',
+		'cli'
+	)
 	.option('--port <port>', 'Port for API server (only used with --mode api or ui)', '3001')
 	.option('--ui-port <port>', 'Port for UI server (only used with --mode ui)', '3000')
 	.option('--host <host>', 'Host for API server (only used with --mode api or ui)', 'localhost')
@@ -362,7 +366,11 @@ program
 			const mcpTransportType = options.mcpTransportType || undefined;
 			const mcpPort = options.mcpPort ? parseInt(options.mcpPort, 10) : undefined;
 
-			logger.info(`Starting UI mode - API server on ${host}:${apiPort}, UI server on ${host}:${uiPort}`, null, 'green');
+			logger.info(
+				`Starting UI mode - API server on ${host}:${apiPort}, UI server on ${host}:${uiPort}`,
+				null,
+				'green'
+			);
 
 			// Start API server first
 			const apiServer = new ApiServer(agent, {

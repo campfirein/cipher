@@ -138,7 +138,7 @@ export class WebSocketMessageRouter {
 			logger.info('Processing WebSocket chat message', {
 				connectionId,
 				sessionId,
-				contentLength: message.content.length,
+				contentLength: message.content?.length || 0,
 				hasImageData: !!message.imageData,
 				hasFileData: !!message.fileData,
 				stream: message.stream ?? true,
@@ -396,9 +396,13 @@ export class WebSocketMessageRouter {
 		// Type-specific validation
 		switch (message.type) {
 			case 'message':
-				return (typeof message.content === 'string' && message.content.length > 0) || 
-				       (message.imageData && typeof message.imageData === 'object' && 
-				        message.imageData.base64 && message.imageData.mimeType);
+				return (
+					(typeof message.content === 'string' && message.content.length > 0) ||
+					(message.imageData &&
+						typeof message.imageData === 'object' &&
+						message.imageData.base64 &&
+						message.imageData.mimeType)
+				);
 			case 'reset':
 				return typeof message.sessionId === 'string';
 			case 'subscribe':

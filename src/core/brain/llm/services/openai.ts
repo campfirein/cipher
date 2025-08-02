@@ -84,7 +84,12 @@ export class OpenAIService implements ILLMService {
 				}
 
 				// Attempt to get a streaming response, with retry logic
-				const { message, fullContent } = await this.getAIResponseWithRetries(formattedTools, userInput, sessionId, messageId);
+				const { message, fullContent } = await this.getAIResponseWithRetries(
+					formattedTools,
+					userInput,
+					sessionId,
+					messageId
+				);
 
 				// If there are no tool calls, we're done
 				if (!message.tool_calls || message.tool_calls.length === 0) {
@@ -141,7 +146,7 @@ export class OpenAIService implements ILLMService {
 							toolType: this.unifiedToolManager ? 'internal' : 'mcp',
 							sessionId,
 							executionId: toolCall.id,
-							timestamp: Date.now()
+							timestamp: Date.now(),
 						});
 					}
 
@@ -168,7 +173,7 @@ export class OpenAIService implements ILLMService {
 								duration: 0, // We don't track duration here, could be enhanced later
 								success: true,
 								timestamp: Date.now(),
-								result
+								result,
 							});
 						}
 
@@ -188,7 +193,7 @@ export class OpenAIService implements ILLMService {
 								executionId: toolCall.id,
 								error: errorMessage,
 								duration: 0, // We don't track duration here, could be enhanced later
-								timestamp: Date.now()
+								timestamp: Date.now(),
 							});
 						}
 
@@ -412,17 +417,17 @@ export class OpenAIService implements ILLMService {
 
 			for await (const chunk of stream) {
 				const delta = chunk.choices[0]?.delta;
-				
+
 				if (delta?.content) {
 					fullContent += delta.content;
-					
+
 					// Debug log the chunk being emitted
-					logger.debug('Streaming chunk:', { 
-						chunk: delta.content, 
+					logger.debug('Streaming chunk:', {
+						chunk: delta.content,
 						fullContentSoFar: fullContent.slice(0, 50) + '...',
-						sessionId 
+						sessionId,
 					});
-					
+
 					// Emit chunk event for real-time streaming
 					if (this.eventManager) {
 						this.eventManager.emitSessionEvent(sessionId, SessionEvents.LLM_RESPONSE_CHUNK, {
@@ -450,8 +455,8 @@ export class OpenAIService implements ILLMService {
 							type: tc.type || 'function',
 							function: {
 								name: tc.function?.name || '',
-								arguments: tc.function?.arguments || ''
-							}
+								arguments: tc.function?.arguments || '',
+							},
 						}));
 					} else {
 						// Merge streaming tool call data
@@ -477,7 +482,7 @@ export class OpenAIService implements ILLMService {
 
 			// Update message content with full content
 			message.content = fullContent;
-			
+
 			// Set tool calls if any were streamed
 			if (streamingToolCalls.length > 0) {
 				message.tool_calls = streamingToolCalls;

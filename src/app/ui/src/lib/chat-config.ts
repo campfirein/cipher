@@ -178,7 +178,7 @@ export async function createSession(sessionId?: string): Promise<{ id: string }>
 	}
 
 	const data = await response.json();
-	// Handle the standardized API response format 
+	// Handle the standardized API response format
 	if (data.success && data.data?.session) {
 		return data.data.session;
 	} else if (data.data?.sessionId) {

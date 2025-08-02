@@ -644,7 +644,7 @@ export class UnifiedToolManager {
 		return Object.entries(tools).map(([name, tool]) => {
 			// Sanitize tool name to match OpenAI pattern ^[a-zA-Z0-9_-]+
 			const sanitizedName = this.sanitizeToolNameForOpenAI(name);
-			
+
 			return {
 				type: 'function',
 				function: {
@@ -689,17 +689,17 @@ export class UnifiedToolManager {
 		// Replace invalid characters with underscores
 		// OpenAI pattern: ^[a-zA-Z0-9_-]+
 		const sanitized = toolName.replace(/[^a-zA-Z0-9_-]/g, '_');
-		
+
 		// Ensure the name doesn't start with a number (good practice)
 		if (/^[0-9]/.test(sanitized)) {
 			return `tool_${sanitized}`;
 		}
-		
+
 		// Ensure the name is not empty after sanitization
 		if (!sanitized || sanitized.length === 0) {
 			return 'unknown_tool';
 		}
-		
+
 		return sanitized;
 	}
 }

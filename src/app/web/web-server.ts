@@ -21,10 +21,10 @@ export class WebServerManager {
 		// Resolve UI path relative to this file
 		const currentFileUrl = import.meta.url;
 		const currentFilePath = fileURLToPath(currentFileUrl);
-		
+
 		// Check if we're running from dist (compiled) or src (development)
 		const isCompiledVersion = currentFilePath.includes('/dist/');
-		
+
 		if (isCompiledVersion) {
 			// When running from dist/src/app/index.cjs, UI is at dist/src/app/ui
 			// The bundled code is at dist/src/app/, so UI is in the same directory
@@ -36,7 +36,11 @@ export class WebServerManager {
 	}
 
 	async start(): Promise<void> {
-		logger.info(`Starting Web UI server on ${this.config.host || 'localhost'}:${this.config.port}`, null, 'green');
+		logger.info(
+			`Starting Web UI server on ${this.config.host || 'localhost'}:${this.config.port}`,
+			null,
+			'green'
+		);
 
 		// Check if UI directory exists
 		if (!existsSync(this.uiPath)) {
@@ -52,7 +56,7 @@ export class WebServerManager {
 		// Check if .next/standalone exists (production build)
 		const standalonePath = path.join(this.uiPath, '.next', 'standalone');
 		const standaloneServerPath = path.join(standalonePath, 'server.js');
-		
+
 		if (existsSync(standaloneServerPath)) {
 			// Use production build
 			await this.startProduction();
@@ -134,22 +138,22 @@ export class WebServerManager {
 
 	private installDependencies(): Promise<void> {
 		const packageManager = this.detectPackageManager();
-		
+
 		return new Promise((resolve, reject) => {
 			const installProcess = spawn(packageManager, ['install'], {
 				cwd: this.uiPath,
 				stdio: ['pipe', 'pipe', 'pipe'],
 			});
 
-			installProcess.stdout?.on('data', (data) => {
+			installProcess.stdout?.on('data', data => {
 				logger.debug(`${packageManager} install: ${data}`);
 			});
 
-			installProcess.stderr?.on('data', (data) => {
+			installProcess.stderr?.on('data', data => {
 				logger.debug(`${packageManager} install error: ${data}`);
 			});
 
-			installProcess.on('close', (code) => {
+			installProcess.on('close', code => {
 				if (code === 0) {
 					logger.info('UI dependencies installed successfully', null, 'green');
 					resolve();
@@ -158,7 +162,7 @@ export class WebServerManager {
 				}
 			});
 
-			installProcess.on('error', (error) => {
+			installProcess.on('error', error => {
 				reject(new Error(`Failed to install dependencies: ${error.message}`));
 			});
 		});
@@ -167,21 +171,21 @@ export class WebServerManager {
 	private setupProcessHandlers(): void {
 		if (!this.process) return;
 
-		this.process.stdout?.on('data', (data) => {
+		this.process.stdout?.on('data', data => {
 			const output = data.toString().trim();
 			if (output) {
 				logger.info(`[UI] ${output}`, null, 'cyan');
 			}
 		});
 
-		this.process.stderr?.on('data', (data) => {
+		this.process.stderr?.on('data', data => {
 			const output = data.toString().trim();
 			if (output && !output.includes('warn')) {
 				logger.warn(`[UI] ${output}`, null, 'yellow');
 			}
 		});
 
-		this.process.on('close', (code) => {
+		this.process.on('close', code => {
 			if (code !== 0) {
 				logger.error(`Web UI server exited with code ${code}`);
 			} else {
@@ -189,7 +193,7 @@ export class WebServerManager {
 			}
 		});
 
-		this.process.on('error', (error) => {
+		this.process.on('error', error => {
 			logger.error(`Web UI server error: ${error.message}`);
 		});
 	}

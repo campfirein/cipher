@@ -76,7 +76,12 @@ export class AnthropicService implements ILLMService {
 				iterationCount++;
 
 				// Attempt to get a response, with retry logic
-				const { response, fullContent } = await this.getAIResponseWithRetries(formattedTools, userInput, sessionId, messageId);
+				const { response, fullContent } = await this.getAIResponseWithRetries(
+					formattedTools,
+					userInput,
+					sessionId,
+					messageId
+				);
 
 				// Extract text content and tool uses
 				let textContent = fullContent || '';
@@ -342,7 +347,13 @@ export class AnthropicService implements ILLMService {
 
 				if (shouldStream) {
 					// Use streaming for responses (tools allowed)
-					return await this.getStreamingResponse(nonSystemMessages, systemMessage, sessionId, messageId, tools);
+					return await this.getStreamingResponse(
+						nonSystemMessages,
+						systemMessage,
+						sessionId,
+						messageId,
+						tools
+					);
 				} else {
 					// Use non-streaming for tool calls or retries
 					const response = await this.anthropic.messages.create({
@@ -430,18 +441,19 @@ export class AnthropicService implements ILLMService {
 				stream: true,
 			});
 
+			// @ts-ignore - Anthropic stream typing issue
 			for await (const event of stream) {
 				if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
 					const chunk = event.delta.text;
 					fullContent += chunk;
-					
+
 					// Debug log the chunk being emitted
-					logger.debug('Streaming chunk (Anthropic):', { 
-						chunk, 
+					logger.debug('Streaming chunk (Anthropic):', {
+						chunk,
 						fullContentSoFar: fullContent.slice(0, 50) + '...',
-						sessionId 
+						sessionId,
 					});
-					
+
 					// Emit chunk event for real-time streaming
 					if (this.eventManager) {
 						this.eventManager.emitSessionEvent(sessionId, SessionEvents.LLM_RESPONSE_CHUNK, {

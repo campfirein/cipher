@@ -420,5 +420,4 @@ export class MemAgent {
 	public getCurrentActiveSessionId() {
 		return this.currentActiveSessionId;
 	}
-
 }

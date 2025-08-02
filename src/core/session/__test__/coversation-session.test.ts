@@ -57,6 +57,7 @@ describe('ConversationSession', () => {
 	let mockLLMService: any;
 	let mockCreateContextManager: any;
 	let mockCreateLLMService: any;
+	let mockEventManager: any;
 
 	const mockLLMConfig: LLMConfig = {
 		provider: 'openai',
@@ -85,6 +86,13 @@ describe('ConversationSession', () => {
 		mockMcpManager = {
 			getAllTools: vi.fn().mockResolvedValue({}),
 			getClients: vi.fn().mockReturnValue(new Map()),
+		};
+
+		mockEventManager = {
+			emit: vi.fn(),
+			on: vi.fn(),
+			off: vi.fn(),
+			dispose: vi.fn(),
 		};
 
 		mockContextManager = {
@@ -159,7 +167,8 @@ describe('ConversationSession', () => {
 				stateManager: mockStateManager,
 				promptManager: mockPromptManager,
 				mcpManager: mockMcpManager,
-				unifiedToolManager: mockUnifiedToolManager as any,
+				unifiedToolManager: mockUnifiedToolManager,
+				eventManager: mockEventManager,
 			},
 			sessionId
 		);
@@ -184,7 +193,8 @@ describe('ConversationSession', () => {
 				mockLLMConfig,
 				mockMcpManager,
 				mockContextManager,
-				mockUnifiedToolManager
+				mockUnifiedToolManager,
+				mockEventManager
 			);
 		});
 
@@ -219,8 +229,8 @@ describe('ConversationSession', () => {
 			const result = await session.run(input);
 			expect(result.response).toBe(expectedResponse);
 			expect(result.backgroundOperations).toBeInstanceOf(Promise);
-			// Accept undefined for stream argument
-			expect(mockLLMService.generate).toHaveBeenCalledWith(input, undefined, undefined);
+			// The third parameter should be the session ID
+			expect(mockLLMService.generate).toHaveBeenCalledWith(input, undefined, sessionId);
 		});
 
 		it('should run session with image data input', async () => {
@@ -231,8 +241,8 @@ describe('ConversationSession', () => {
 			const result = await session.run(input, imageData);
 			expect(result.response).toBe(expectedResponse);
 			expect(result.backgroundOperations).toBeInstanceOf(Promise);
-			// Accept undefined for stream argument
-			expect(mockLLMService.generate).toHaveBeenCalledWith(input, imageData, undefined);
+			// The third parameter should be the session ID
+			expect(mockLLMService.generate).toHaveBeenCalledWith(input, imageData, sessionId);
 		});
 
 		it('should run session with streaming enabled', async () => {
@@ -245,7 +255,8 @@ describe('ConversationSession', () => {
 
 			expect(result.response).toBe(expectedResponse);
 			expect(result.backgroundOperations).toBeInstanceOf(Promise);
-			expect(mockLLMService.generate).toHaveBeenCalledWith(input, undefined, true);
+			// The third parameter should be the session ID, not the stream parameter
+			expect(mockLLMService.generate).toHaveBeenCalledWith(input, undefined, sessionId);
 		});
 
 		it('should run session with all parameters', async () => {
@@ -260,7 +271,8 @@ describe('ConversationSession', () => {
 
 			expect(result.response).toBe(expectedResponse);
 			expect(result.backgroundOperations).toBeInstanceOf(Promise);
-			expect(mockLLMService.generate).toHaveBeenCalledWith(input, imageData, true);
+			// The third parameter should be the session ID, not the stream parameter
+			expect(mockLLMService.generate).toHaveBeenCalledWith(input, imageData, sessionId);
 		});
 
 		it('should handle LLM service generation errors', async () => {
@@ -568,7 +580,8 @@ describe('ConversationSession', () => {
 				sessionSpecificConfig,
 				mockMcpManager,
 				mockContextManager,
-				mockUnifiedToolManager
+				mockUnifiedToolManager,
+				mockEventManager
 			);
 		});
 
@@ -593,7 +606,8 @@ describe('ConversationSession', () => {
 				anthropicConfig,
 				mockMcpManager,
 				mockContextManager,
-				mockUnifiedToolManager
+				mockUnifiedToolManager,
+				mockEventManager
 			);
 		});
 	});
@@ -672,8 +686,8 @@ describe('ConversationSession', () => {
 			const result = await session.run(longInput);
 			expect(result.response).toBe(expectedResponse);
 			expect(result.backgroundOperations).toBeInstanceOf(Promise);
-			// Accept undefined for stream argument
-			expect(mockLLMService.generate).toHaveBeenCalledWith(longInput, undefined, undefined);
+			// The third parameter should be the session ID
+			expect(mockLLMService.generate).toHaveBeenCalledWith(longInput, undefined, sessionId);
 		});
 
 		it('should handle special characters and unicode', async () => {
@@ -683,8 +697,8 @@ describe('ConversationSession', () => {
 			const result = await session.run(specialInput);
 			expect(result.response).toBe(expectedResponse);
 			expect(result.backgroundOperations).toBeInstanceOf(Promise);
-			// Accept undefined for stream argument
-			expect(mockLLMService.generate).toHaveBeenCalledWith(specialInput, undefined, undefined);
+			// The third parameter should be the session ID
+			expect(mockLLMService.generate).toHaveBeenCalledWith(specialInput, undefined, sessionId);
 		});
 	});
 });
@@ -697,6 +711,7 @@ describe('ConversationSession Robustness & Validation', () => {
 	let mockContextManager: any;
 	let mockLLMService: any;
 	let mockUnifiedToolManager: any;
+	let mockEventManager: any;
 	const sessionId = 'robustness-test';
 	const mockLLMConfig = {
 		provider: 'openai',
@@ -730,6 +745,12 @@ describe('ConversationSession Robustness & Validation', () => {
 		vi.mocked(createContextManager).mockReturnValue(mockContextManager);
 		vi.mocked(createLLMService).mockReturnValue(mockLLMService);
 		mockUnifiedToolManager = { executeTool: vi.fn().mockResolvedValue({ success: true }) };
+		mockEventManager = {
+			emit: vi.fn(),
+			on: vi.fn(),
+			off: vi.fn(),
+			dispose: vi.fn(),
+		};
 		// Don't call init by default for some tests
 		// session = new ConversationSession(...)
 	});
@@ -741,6 +762,7 @@ describe('ConversationSession Robustness & Validation', () => {
 				promptManager: mockPromptManager,
 				mcpManager: mockMcpManager,
 				unifiedToolManager: mockUnifiedToolManager,
+				eventManager: mockEventManager,
 			},
 			sessionId
 		);
@@ -755,6 +777,7 @@ describe('ConversationSession Robustness & Validation', () => {
 				promptManager: mockPromptManager,
 				mcpManager: mockMcpManager,
 				unifiedToolManager: mockUnifiedToolManager,
+				eventManager: mockEventManager,
 			},
 			sessionId
 		);
@@ -769,6 +792,7 @@ describe('ConversationSession Robustness & Validation', () => {
 				promptManager: mockPromptManager,
 				mcpManager: mockMcpManager,
 				unifiedToolManager: mockUnifiedToolManager,
+				eventManager: mockEventManager,
 			},
 			sessionId
 		);
@@ -785,6 +809,7 @@ describe('ConversationSession Robustness & Validation', () => {
 				promptManager: mockPromptManager,
 				mcpManager: mockMcpManager,
 				unifiedToolManager: mockUnifiedToolManager,
+				eventManager: mockEventManager,
 			},
 			sessionId
 		);
@@ -801,6 +826,7 @@ describe('ConversationSession Robustness & Validation', () => {
 				promptManager: mockPromptManager,
 				mcpManager: mockMcpManager,
 				unifiedToolManager: mockUnifiedToolManager,
+				eventManager: mockEventManager,
 			},
 			sessionId
 		);
@@ -818,6 +844,7 @@ describe('ConversationSession Robustness & Validation', () => {
 				promptManager: mockPromptManager,
 				mcpManager: mockMcpManager,
 				unifiedToolManager: mockUnifiedToolManager,
+				eventManager: mockEventManager,
 			},
 			sessionId
 		);
@@ -835,6 +862,7 @@ describe('ConversationSession Robustness & Validation', () => {
 				promptManager: mockPromptManager,
 				mcpManager: mockMcpManager,
 				unifiedToolManager: mockUnifiedToolManager,
+				eventManager: mockEventManager,
 			},
 			sessionId
 		);
@@ -854,6 +882,7 @@ describe('ConversationSession Advanced Metadata Integration', () => {
 	let mockLLMService: any;
 	let mockCreateContextManager: any;
 	let mockCreateLLMService: any;
+	let mockEventManager: any;
 	const sessionId = 'test-session-advanced';
 	const mockLLMConfig = {
 		provider: 'openai',
@@ -896,6 +925,12 @@ describe('ConversationSession Advanced Metadata Integration', () => {
 					.map((_, i) => ['fn' + i, vi.fn()])
 			),
 		};
+		mockEventManager = {
+			emit: vi.fn(),
+			on: vi.fn(),
+			off: vi.fn(),
+			dispose: vi.fn(),
+		};
 	});
 
 	it.skip('should merge session-level and per-run metadata (per-run takes precedence)', async () => {
@@ -905,6 +940,7 @@ describe('ConversationSession Advanced Metadata Integration', () => {
 				promptManager: mockPromptManager,
 				mcpManager: mockMcpManager,
 				unifiedToolManager: mockUnifiedToolManager,
+				eventManager: mockEventManager,
 			},
 			sessionId,
 			{ sessionMemoryMetadata: { foo: 'bar', sessionId: 'session-x', sessionOnly: 1 } }
@@ -941,6 +977,7 @@ describe('ConversationSession Advanced Metadata Integration', () => {
 				promptManager: mockPromptManager,
 				mcpManager: mockMcpManager,
 				unifiedToolManager: mockUnifiedToolManager,
+				eventManager: mockEventManager,
 			},
 			sessionId,
 			{ sessionMemoryMetadata: { a: 1 }, mergeMetadata: customMerge }
@@ -964,6 +1001,7 @@ describe('ConversationSession Advanced Metadata Integration', () => {
 				promptManager: mockPromptManager,
 				mcpManager: mockMcpManager,
 				unifiedToolManager: mockUnifiedToolManager,
+				eventManager: mockEventManager,
 			},
 			sessionId,
 			{ sessionMemoryMetadata: { foo: 'bar', valid: true }, metadataSchema: schema }
@@ -996,6 +1034,7 @@ describe('ConversationSession Advanced Metadata Integration', () => {
 				promptManager: mockPromptManager,
 				mcpManager: mockMcpManager,
 				unifiedToolManager: mockUnifiedToolManager,
+				eventManager: mockEventManager,
 			},
 			sessionId,
 			{ beforeMemoryExtraction: hook }
@@ -1020,6 +1059,7 @@ describe('ConversationSession Advanced Metadata Integration', () => {
 				promptManager: mockPromptManager,
 				mcpManager: mockMcpManager,
 				unifiedToolManager: mockUnifiedToolManager,
+				eventManager: mockEventManager,
 			},
 			sessionId,
 			{ sessionMemoryMetadata: { foo: 'bar' } }
@@ -1043,6 +1083,7 @@ describe('ConversationSession Advanced Metadata Integration', () => {
 				promptManager: mockPromptManager,
 				mcpManager: mockMcpManager,
 				unifiedToolManager: mockUnifiedToolManager,
+				eventManager: mockEventManager,
 			},
 			sessionId,
 			{ sessionMemoryMetadata: { foo: 'bar' } }
@@ -1065,6 +1106,7 @@ describe('ConversationSession Advanced Metadata Integration', () => {
 				promptManager: mockPromptManager,
 				mcpManager: mockMcpManager,
 				unifiedToolManager: mockUnifiedToolManager,
+				eventManager: mockEventManager,
 			},
 			sessionId
 		);

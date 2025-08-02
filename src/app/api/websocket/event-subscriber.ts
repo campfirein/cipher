@@ -29,11 +29,14 @@ export class WebSocketEventSubscriber {
 
 		this.abortController = new AbortController();
 		const { signal } = this.abortController;
-		
+
 		// Set higher max listeners limit to prevent memory leak warnings
 		// Note: AbortSignal doesn't have setMaxListeners, but we can set it on the AbortController
 		try {
-			if ('setMaxListeners' in this.abortController && typeof this.abortController.setMaxListeners === 'function') {
+			if (
+				'setMaxListeners' in this.abortController &&
+				typeof this.abortController.setMaxListeners === 'function'
+			) {
 				this.abortController.setMaxListeners(100);
 			}
 		} catch (error) {
@@ -293,12 +296,12 @@ export class WebSocketEventSubscriber {
 		sessionBus.on(
 			'tool:executionStarted',
 			data => {
-				logger.debug('WebSocket: Received tool:executionStarted event', { 
-					toolName: data.toolName, 
+				logger.debug('WebSocket: Received tool:executionStarted event', {
+					toolName: data.toolName,
 					sessionId: data.sessionId,
-					executionId: data.executionId
+					executionId: data.executionId,
 				});
-				
+
 				// Send the specific tool execution started event
 				this.handleEvent(
 					'toolExecutionStarted',
@@ -310,7 +313,7 @@ export class WebSocketEventSubscriber {
 					},
 					signal
 				);
-				
+
 				// Also send the traditional toolCall event for backward compatibility
 				this.handleEvent(
 					'toolCall',
@@ -341,7 +344,7 @@ export class WebSocketEventSubscriber {
 					},
 					signal
 				);
-				
+
 				// Send traditional toolResult event with actual result data
 				this.handleEvent(
 					'toolResult',
@@ -373,7 +376,7 @@ export class WebSocketEventSubscriber {
 					},
 					signal
 				);
-				
+
 				// Send traditional toolResult event
 				this.handleEvent(
 					'toolResult',
@@ -473,7 +476,7 @@ export class WebSocketEventSubscriber {
 			data => {
 				// Clean up session subscription tracking
 				this.unsubscribeFromSession(data.sessionId);
-				
+
 				this.handleEvent(
 					'sessionEnded',
 					{

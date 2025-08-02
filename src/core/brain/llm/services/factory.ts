@@ -76,7 +76,7 @@ function _createLLMService(
 			const baseURL = getOpenAICompatibleBaseURL(config);
 			// Use require for OpenAI SDK for compatibility
 			// @ts-ignore
-			// eslint-disable-next-line @typescript-eslint/no-var-requires
+
 			const OpenAIClass = require('openai');
 			const openai = new OpenAIClass({ apiKey, ...(baseURL ? { baseURL } : {}) });
 			const service = new OpenAIService(
@@ -97,7 +97,7 @@ function _createLLMService(
 			const baseURL = getOpenAICompatibleBaseURL(config);
 			// Use require for OpenAI SDK for compatibility
 			// @ts-ignore
-			// eslint-disable-next-line @typescript-eslint/no-var-requires
+
 			const OpenAIClass = require('openai');
 			const openai = new OpenAIClass({
 				apiKey,
@@ -119,7 +119,7 @@ function _createLLMService(
 		case 'anthropic': {
 			// Use require for Anthropic SDK for compatibility
 			// @ts-ignore
-			// eslint-disable-next-line @typescript-eslint/no-var-requires
+
 			const AnthropicClass = require('@anthropic-ai/sdk');
 			const anthropic = new AnthropicClass({ apiKey });
 			const service = new AnthropicService(
@@ -140,7 +140,7 @@ function _createLLMService(
 			const baseURL = getOpenAICompatibleBaseURL(config);
 			// Use require for OpenAI SDK for compatibility
 			// @ts-ignore
-			// eslint-disable-next-line @typescript-eslint/no-var-requires
+
 			const OpenAIClass = require('openai');
 			// Ollama uses OpenAI-compatible API but runs locally
 			const openai = new OpenAIClass({
@@ -183,7 +183,7 @@ function _createLLMService(
 			const baseURL = config.baseURL || 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1';
 			// Use require for OpenAI SDK for compatibility
 			// @ts-ignore
-			// eslint-disable-next-line @typescript-eslint/no-var-requires
+
 			const OpenAIClass = require('openai');
 			const openai = new OpenAIClass({ apiKey, baseURL });
 			const qwenOptions: QwenOptions = {
