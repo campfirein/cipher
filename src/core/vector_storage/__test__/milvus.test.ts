@@ -41,6 +41,12 @@ vi.mock('../../logger/index.js', () => ({
 		warn: vi.fn(),
 		error: vi.fn(),
 	}),
+	logger: {
+		info: vi.fn(),
+		debug: vi.fn(),
+		warn: vi.fn(),
+		error: vi.fn(),
+	},
 }));
 
 describe('MilvusBackend', () => {

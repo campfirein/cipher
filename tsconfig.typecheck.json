@@ -10,6 +10,6 @@
 		"exactOptionalPropertyTypes": true,
 		"skipLibCheck": true
 	},
-	"include": ["src/core/**/*", "src/app/**/*", "**/*.test.ts", "**/*.spec.ts"],
-	"exclude": ["node_modules", "dist", "**/*.d.ts"]
+	"include": ["src/core/**/*", "src/app/**/*"],
+	"exclude": ["node_modules", "dist", "**/*.d.ts", "**/__test__/**", "**/__tests__/**"]
 }

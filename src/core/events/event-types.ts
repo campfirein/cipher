@@ -53,6 +53,13 @@ export interface ServiceEventMap {
 	// LLM service events
 	'cipher:llmProviderRegistered': { provider: string; timestamp: number };
 	'cipher:llmProviderError': { provider: string; error: string; timestamp: number };
+
+	// Lazy loading events
+	'lazy-memory:loading': { componentType: string; timestamp: number };
+	'lazy-memory:loaded': { componentType: string; loadTime: number; timestamp: number };
+	'lazy-memory:error': { componentType: string; error: string; timestamp: number };
+	'lazy-service:loaded': { serviceType: string; timestamp: number };
+	'lazy-service:initialized': { initTime: number; lazyLoadingEnabled: boolean; timestamp: number };
 }
 
 // Session-level events (scoped to individual conversations)

@@ -1,6 +1,6 @@
 import { InternalTool, InternalToolContext } from '../../types.js';
 import { logger } from '../../../../logger/index.js';
-import { SessionEmbeddingState } from '../../../embedding/manager.js';
+// import { SessionEmbeddingState } from '../../../embedding/manager.js';
 // Import helpers from memory_operation
 import {
 	parseLLMDecision,

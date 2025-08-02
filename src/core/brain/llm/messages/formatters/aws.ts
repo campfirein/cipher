@@ -5,8 +5,8 @@ import { InternalMessage } from '../types.js';
 export class BedrockAnthropicMessageFormatter implements IMessageFormatter {
 	format(
 		message: Readonly<InternalMessage>,
-		systemPrompt: string | null = null,
-		tools?: any[]
+		_systemPrompt: string | null = null,
+		_tools?: any[]
 	): any[] {
 		const role = message.role;
 		let contentArr: any[] = [];
@@ -79,9 +79,9 @@ export class BedrockAnthropicMessageFormatter implements IMessageFormatter {
 		}
 		return internal;
 	}
-	formatTools(tools: any): any[] {
-		if (!tools || typeof tools !== 'object') return [];
-		return Object.entries(tools).map(([toolName, tool]: [string, any]) => ({
+	formatTools(_tools: any): any[] {
+		if (!_tools || typeof _tools !== 'object') return [];
+		return Object.entries(_tools).map(([toolName, tool]: [string, any]) => ({
 			name: toolName,
 			description: tool.description,
 			input_schema: tool.parameters,
@@ -91,10 +91,10 @@ export class BedrockAnthropicMessageFormatter implements IMessageFormatter {
 
 // Llama formatter
 export class BedrockLlamaMessageFormatter implements IMessageFormatter {
-	format(message: Readonly<InternalMessage>, systemPrompt: string | null = null): any[] {
+	format(message: Readonly<InternalMessage>, _systemPrompt: string | null = null): any[] {
 		let prompt = '<|begin_of_text|>';
-		if (systemPrompt) {
-			prompt += `<|start_header_id|>system<|end_header_id|> ${systemPrompt} <|eot_id|>`;
+		if (_systemPrompt) {
+			prompt += `<|start_header_id|>system<|end_header_id|> ${_systemPrompt} <|eot_id|>`;
 		}
 		const role = message.role === 'assistant' ? 'assistant' : 'user';
 		const content = Array.isArray(message.content)
@@ -117,7 +117,7 @@ export class BedrockLlamaMessageFormatter implements IMessageFormatter {
 	parseResponse(response: any): InternalMessage[] {
 		return [{ role: 'assistant', content: response.generation }];
 	}
-	formatTools(tools: any): any[] {
+	formatTools(_tools: any): any[] {
 		return [];
 	}
 }
@@ -154,7 +154,7 @@ export class BedrockTitanMessageFormatter implements IMessageFormatter {
 		const textContent = response.results.map((result: any) => result.outputText).join('');
 		return [{ role: 'assistant', content: textContent }];
 	}
-	formatTools(tools: any): any[] {
+	formatTools(_tools: any): any[] {
 		return [];
 	}
 }
@@ -194,7 +194,7 @@ export class BedrockDeepSeekMessageFormatter implements IMessageFormatter {
 		const textContent = response.choices.map((choice: any) => choice.text).join('');
 		return [{ role: 'assistant', content: textContent }];
 	}
-	formatTools(tools: any): any[] {
+	formatTools(_tools: any): any[] {
 		return [];
 	}
 }
@@ -231,7 +231,7 @@ export class BedrockAI21MessageFormatter implements IMessageFormatter {
 		const textContent = response.choices.map((choice: any) => choice.message.content).join('');
 		return [{ role: 'assistant', content: textContent }];
 	}
-	formatTools(tools: any): any[] {
+	formatTools(_tools: any): any[] {
 		return [];
 	}
 }

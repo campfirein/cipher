@@ -6,6 +6,7 @@ import { VectorStoreError, VectorStoreConnectionError, VectorDimensionError } fr
 import { Logger, createLogger } from '../../logger/index.js';
 import { LOG_PREFIXES, ERROR_MESSAGES } from '../constants.js';
 import { env } from '../../env.js';
+import { getMilvusConnectionPool, type MilvusConnectionConfig } from '../connection-pool.js';
 
 /**
  * MilvusBackend Class
@@ -16,12 +17,13 @@ import { env } from '../../env.js';
  * If authentication is needed, extend config and update here.
  */
 export class MilvusBackend implements VectorStore {
-	private client: MilvusClient;
+	private client: MilvusClient | null = null;
 	private readonly config: MilvusBackendConfig;
 	private readonly collectionName: string;
 	private readonly dimension: number;
 	private readonly logger: Logger;
 	private connected = false;
+	private readonly connectionConfig: MilvusConnectionConfig;
 
 	// Milvus collection configuration
 	private readonly MILVUS_COLLECTION_CONFIG = {
@@ -53,36 +55,42 @@ export class MilvusBackend implements VectorStore {
 			level: env.CIPHER_LOG_LEVEL || 'info',
 		});
 
-		// Prefer config values, fallback to env if not provided
-		const address =
-			config.url ||
-			(config.host && config.port ? `http://${config.host}:${config.port}` : undefined) ||
-			env.VECTOR_STORE_URL ||
-			'';
-		const username = config.username || env.VECTOR_STORE_USERNAME || '';
-		const password = config.password || env.VECTOR_STORE_PASSWORD || '';
+		// Prepare connection configuration for pool
+		this.connectionConfig = {
+			url: config.url || undefined,
+			host: config.host || undefined,
+			port: config.port || undefined,
+			username: config.username || env.VECTOR_STORE_USERNAME || undefined,
+			password: config.password || env.VECTOR_STORE_PASSWORD || undefined,
+		} as MilvusConnectionConfig;
 
-		try {
-			this.client = new MilvusClient({
-				address,
-				username,
-				password,
-			});
-		} catch (error) {
-			this.logger.error(`${LOG_PREFIXES.MILVUS} Milvus connection failed inside milvus.ts file`, {
-				error: error,
-			});
-			throw new VectorStoreConnectionError(
-				ERROR_MESSAGES.CONNECTION_FAILED,
-				'milvus',
-				error as Error
-			);
-		}
-		this.logger.debug(`${LOG_PREFIXES.MILVUS} Backend initialized`, {
+		this.logger.debug(`${LOG_PREFIXES.MILVUS} Backend initialized with connection pooling`, {
 			collection: this.collectionName,
 			dimension: this.dimension,
-			host: address,
+			connectionKey: this.generateConnectionKey(),
 		});
+	}
+
+	/**
+	 * Generate a connection key for logging (without sensitive data)
+	 */
+	private generateConnectionKey(): string {
+		const address =
+			this.connectionConfig.url ||
+			(this.connectionConfig.host && this.connectionConfig.port
+				? `${this.connectionConfig.host}:${this.connectionConfig.port}`
+				: env.VECTOR_STORE_URL);
+		return `${address}:${this.connectionConfig.username || 'anonymous'}`;
+	}
+
+	/**
+	 * Ensure the client is available and connected
+	 */
+	private ensureClient(): MilvusClient {
+		if (!this.client) {
+			throw new VectorStoreError(ERROR_MESSAGES.NOT_CONNECTED, 'operation');
+		}
+		return this.client;
 	}
 
 	private validateDimension(vector: number[], _operation: string): void {
@@ -101,10 +109,15 @@ export class MilvusBackend implements VectorStore {
 			return;
 		}
 
-		this.logger.debug(`${LOG_PREFIXES.MILVUS} Connecting to Milvus`);
+		this.logger.debug(`${LOG_PREFIXES.MILVUS} Connecting to Milvus via connection pool`);
 
 		try {
-			const collections = await this.client.showCollections();
+			// Get client from connection pool
+			const connectionPool = getMilvusConnectionPool();
+			this.client = await connectionPool.getClient(this.connectionConfig);
+
+			const client = this.ensureClient();
+			const collections = await client.showCollections();
 			const exists = collections.data.some((c: any) => c.name === this.collectionName);
 
 			if (!exists) {
@@ -116,7 +129,7 @@ export class MilvusBackend implements VectorStore {
 				);
 
 				// Create collection with index parameters for Cloud Milvus compatibility
-				await this.client.createCollection({
+				await client.createCollection({
 					collection_name: this.collectionName,
 					fields: schema,
 					// Include index parameters during collection creation
@@ -140,7 +153,7 @@ export class MilvusBackend implements VectorStore {
 
 				// For existing collections, check if indexes exist and create them if needed
 				try {
-					const indexes = await this.client.describeIndex({
+					const indexes = await client.describeIndex({
 						collection_name: this.collectionName,
 						field_name: 'vector',
 					});
@@ -156,7 +169,8 @@ export class MilvusBackend implements VectorStore {
 			}
 
 			// Load collection
-			await this.client.loadCollection({ collection_name: this.collectionName });
+			const clientForLoad = this.ensureClient();
+			await clientForLoad.loadCollection({ collection_name: this.collectionName });
 			this.connected = true;
 			this.logger.debug(`${LOG_PREFIXES.MILVUS} Successfully connected`);
 		} catch (error) {
@@ -179,7 +193,8 @@ export class MilvusBackend implements VectorStore {
 	private async createMissingIndexes(): Promise<void> {
 		try {
 			// Create vector index with AUTOINDEX and COSINE metric
-			await this.client.createIndex({
+			const clientForIndex = this.ensureClient();
+			await clientForIndex.createIndex({
 				collection_name: this.collectionName,
 				field_name: 'vector',
 				index_name: 'vector_index',
@@ -192,7 +207,8 @@ export class MilvusBackend implements VectorStore {
 
 			// Reload collection after index creation
 			this.logger.debug(`${LOG_PREFIXES.MILVUS} Reloading collection after index creation`);
-			await this.client.loadCollection({ collection_name: this.collectionName });
+			const clientForReload = this.ensureClient();
+			await clientForReload.loadCollection({ collection_name: this.collectionName });
 		} catch (error) {
 			this.logger.error(`${LOG_PREFIXES.MILVUS} Failed to create indexes and reload collection`);
 			throw error;
@@ -208,7 +224,8 @@ export class MilvusBackend implements VectorStore {
 		for (const fieldName of payloadFields) {
 			try {
 				this.logger.debug(`${LOG_PREFIXES.MILVUS} Creating index for field: ${fieldName}`);
-				await this.client.createIndex({
+				const clientForFieldIndex = this.ensureClient();
+				await clientForFieldIndex.createIndex({
 					collection_name: this.collectionName,
 					field_name: `payload.${fieldName}`,
 					index_type: 'AUTOINDEX',
@@ -238,7 +255,8 @@ export class MilvusBackend implements VectorStore {
 			payload: payloads[idx],
 		}));
 		try {
-			await this.client.insert({
+			const clientForInsert = this.ensureClient();
+			await clientForInsert.insert({
 				collection_name: this.collectionName,
 				data,
 			});
@@ -267,7 +285,8 @@ export class MilvusBackend implements VectorStore {
 				output_fields: ['id', 'payload'],
 				...(expr ? { filter: expr } : {}),
 			};
-			const res = await this.client.search(searchParams);
+			const clientForSearch = this.ensureClient();
+			const res = await clientForSearch.search(searchParams);
 			return res.results.map((hit: any) => ({
 				id: hit.id,
 				score: hit.score,
@@ -283,7 +302,8 @@ export class MilvusBackend implements VectorStore {
 		if (!this.connected)
 			return Promise.reject(new VectorStoreError(ERROR_MESSAGES.NOT_CONNECTED, 'get'));
 		try {
-			const res = await this.client.query({
+			const clientForQuery = this.ensureClient();
+			const res = await clientForQuery.query({
 				collection_name: this.collectionName,
 				output_fields: ['id', 'vector', 'payload'],
 				filter: `id == ${vectorId}`,
@@ -308,7 +328,8 @@ export class MilvusBackend implements VectorStore {
 			return Promise.reject(new VectorStoreError(ERROR_MESSAGES.NOT_CONNECTED, 'update'));
 		this.validateDimension(vector, 'update');
 		try {
-			await this.client.upsert({
+			const clientForUpsert = this.ensureClient();
+			await clientForUpsert.upsert({
 				collection_name: this.collectionName,
 				data: [{ id: vectorId, vector, payload }],
 			});
@@ -323,7 +344,8 @@ export class MilvusBackend implements VectorStore {
 		if (!this.connected)
 			return Promise.reject(new VectorStoreError(ERROR_MESSAGES.NOT_CONNECTED, 'delete'));
 		try {
-			await this.client.deleteEntities({
+			const clientForDelete = this.ensureClient();
+			await clientForDelete.deleteEntities({
 				collection_name: this.collectionName,
 				expr: `id == ${vectorId}`,
 			});
@@ -338,7 +360,8 @@ export class MilvusBackend implements VectorStore {
 		if (!this.connected)
 			throw new VectorStoreError(ERROR_MESSAGES.NOT_CONNECTED, 'deleteCollection');
 		try {
-			await this.client.dropCollection({ collection_name: this.collectionName });
+			const clientForDrop = this.ensureClient();
+			await clientForDrop.dropCollection({ collection_name: this.collectionName });
 			this.logger.info(`Deleted collection ${this.collectionName}`);
 		} catch (error) {
 			this.logger.error(`Delete collection failed`, { error: error });
@@ -359,7 +382,8 @@ export class MilvusBackend implements VectorStore {
 				limit,
 				...(expr ? { filter: expr } : {}),
 			};
-			const res = await this.client.query(queryParams);
+			const clientForList = this.ensureClient();
+			const res = await clientForList.query(queryParams);
 			const results = (res.data || [])
 				.map(
 					(doc: any) =>
@@ -379,8 +403,14 @@ export class MilvusBackend implements VectorStore {
 	}
 
 	async disconnect(): Promise<void> {
+		if (this.client) {
+			// Release client back to connection pool
+			const connectionPool = getMilvusConnectionPool();
+			connectionPool.releaseClient(this.connectionConfig);
+			this.client = null;
+		}
 		this.connected = false;
-		this.logger.info(`Milvus disconnected`);
+		this.logger.info(`${LOG_PREFIXES.MILVUS} Disconnected and released connection to pool`);
 	}
 
 	isConnected(): boolean {
@@ -402,7 +432,8 @@ export class MilvusBackend implements VectorStore {
 	async listCollections(): Promise<string[]> {
 		if (!this.connected)
 			return Promise.reject(new VectorStoreError(ERROR_MESSAGES.NOT_CONNECTED, 'listCollections'));
-		const collections = await this.client.showCollections();
+		const clientForListCollections = this.ensureClient();
+		const collections = await clientForListCollections.showCollections();
 		return collections.data.map((c: any) => c.name);
 	}
 }

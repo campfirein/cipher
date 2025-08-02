@@ -73,7 +73,7 @@ export async function safeEmbeddingOperation<T>(
 export async function safeVectorStoreOperation<T>(
 	operation: () => Promise<T>,
 	operationName: string,
-	fallbackMessage?: string
+	_fallbackMessage?: string
 ): Promise<SafeOperationResult<T>> {
 	return safeEmbeddingOperation(operation, `Vector store ${operationName}`, undefined);
 }

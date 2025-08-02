@@ -1,4 +1,5 @@
 import { EnhancedPromptManager } from '../brain/systemPrompt/enhanced-manager.js';
+import { ContextManager } from '../brain/llm/index.js';
 import { MemAgentStateManager } from '../brain/memAgent/state-manager.js';
 import { MCPManager } from '../mcp/manager.js';
 import { SessionManager } from '../session/session-manager.js';
@@ -9,11 +10,12 @@ import { logger } from '../logger/index.js';
 import { AgentConfig } from '../brain/memAgent/config.js';
 import { ServerConfigsSchema } from '../mcp/config.js';
 import { ServerConfigs } from '../mcp/types.js';
-import { EmbeddingManager, SessionEmbeddingState } from '../brain/embedding/index.js';
+import { EmbeddingManager } from '../brain/embedding/index.js';
 import { VectorStoreManager, DualCollectionVectorManager } from '../vector_storage/index.js';
 import { createLLMService } from '../brain/llm/services/factory.js';
 import { createContextManager } from '../brain/llm/messages/factory.js';
 import { ILLMService } from '../brain/llm/index.js';
+import { getServiceCache, createServiceKey } from '../brain/memory/service-cache.js';
 import {
 	createVectorStoreFromEnv,
 	createDualCollectionVectorStoreFromEnv,
@@ -61,8 +63,14 @@ async function createEmbeddingFromLLMProvider(
 			}
 
 			case 'ollama': {
-				const baseUrl =
-					llmConfig.baseUrl || process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
+				let baseUrl = llmConfig.baseUrl || process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
+
+				// For embedding service, remove /v1 suffix if present and use base URL
+				// Ollama embeddings use /api/embeddings endpoint, not /v1/embeddings
+				if (baseUrl.endsWith('/v1')) {
+					baseUrl = baseUrl.replace(/\/v1$/, '');
+				}
+
 				// Ollama doesn't require API key, so proceed with embedding config
 				const embeddingConfig = {
 					type: 'ollama' as const,
@@ -247,6 +255,7 @@ async function createEmbeddingFromLLMProvider(
 }
 
 export type AgentServices = {
+	[key: string]: any;
 	mcpManager: MCPManager;
 	promptManager: EnhancedPromptManager;
 	stateManager: MemAgentStateManager;
@@ -257,6 +266,7 @@ export type AgentServices = {
 	vectorStoreManager: VectorStoreManager | DualCollectionVectorManager;
 	eventManager: EventManager;
 	llmService?: ILLMService;
+	contextManager?: any;
 	knowledgeGraphManager?: KnowledgeGraphManager;
 };
 
@@ -264,6 +274,7 @@ export async function createAgentServices(
 	agentConfig: AgentConfig,
 	appMode?: 'cli' | 'mcp' | 'api'
 ): Promise<AgentServices> {
+	let contextManager: ContextManager | undefined = undefined;
 	// 1. Initialize agent config
 	const config = agentConfig;
 
@@ -651,10 +662,12 @@ export async function createAgentServices(
 		...advancedProviders.filter(p => !staticProvider || p.name !== staticProvider.name),
 	];
 
-	// DEBUG: Print merged provider list
-	console.log('Merged system prompt providers:');
-	for (const p of mergedProviders) {
-		console.log(`  - ${p.name} (${p.type}) enabled: ${p.enabled}`);
+	// DEBUG: Print merged provider list (skip in MCP mode to avoid stdout contamination)
+	if (appMode !== 'mcp') {
+		console.log('Merged system prompt providers:');
+		for (const p of mergedProviders) {
+			console.log(`  - ${p.name} (${p.type}) enabled: ${p.enabled}`);
+		}
 	}
 
 	// Merge settings: advancedSettings takes precedence, fallback to default
@@ -687,7 +700,18 @@ export async function createAgentServices(
 		}
 		const llmConfig = stateManager.getLLMConfig();
 		logger.debug('LLM Config retrieved', { llmConfig });
-		const contextManager = createContextManager(llmConfig, promptManager, undefined, undefined);
+
+		// Use ServiceCache for ContextManager to prevent duplicate creation
+		const serviceCache = getServiceCache();
+		const contextManagerKey = createServiceKey('contextManager', {
+			provider: llmConfig.provider,
+			model: llmConfig.model,
+		});
+
+		contextManager = await serviceCache.getOrCreate(contextManagerKey, async () => {
+			logger.debug('Creating new ContextManager instance');
+			return createContextManager(llmConfig, promptManager, undefined, undefined);
+		});
 
 		llmService = createLLMService(llmConfig, mcpManager, contextManager);
 
@@ -812,6 +836,7 @@ export async function createAgentServices(
 		{
 			stateManager,
 			promptManager,
+			contextManager,
 			mcpManager,
 			unifiedToolManager,
 			eventManager,
@@ -843,6 +868,7 @@ export async function createAgentServices(
 		unifiedToolManager,
 		vectorStoreManager,
 		eventManager,
+		contextManager,
 		llmService: llmService || {
 			generate: async () => '',
 			directGenerate: async () => '',

@@ -4,7 +4,7 @@ import { MCPManager } from '../../../../mcp/manager.js';
 import { ContextManager } from '../../messages/manager.js';
 import { UnifiedToolManager } from '../../../tools/unified-tool-manager.js';
 import { EnhancedPromptManager } from '../../../systemPrompt/enhanced-manager.js';
-import { LLMConfig } from '../../config.js';
+// import { LLMConfig } from '../../config.js';
 
 // Mock OpenAI client
 const mockOpenAI = {

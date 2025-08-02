@@ -7,7 +7,7 @@ import { ILLMService, LLMServiceConfig } from './types.js';
 // Fix OpenAI import for compatibility
 // @ts-ignore
 
-const OpenAI = require('openai');
+// const OpenAI = require('openai');
 import { logger } from '../../../logger/index.js';
 import { formatToolResult } from '../utils/tool-result-formatter.js';
 

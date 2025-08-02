@@ -28,14 +28,14 @@ vi.mock('../../../logger/index.js', () => ({
 }));
 
 // Mock MCP Manager for UnifiedToolManager tests
-const mockMcpManager = {
-	getAllTools: vi.fn().mockResolvedValue({}),
-	executeTool: vi.fn(),
-	isToolAvailable: vi.fn().mockResolvedValue(false),
-	getToolSchema: vi.fn(),
-	getClients: vi.fn().mockReturnValue(new Map()),
-	getFailedConnections: vi.fn().mockReturnValue({}),
-} as any;
+// const mockMcpManager = {
+// 	getAllTools: vi.fn().mockResolvedValue({}),
+// 	executeTool: vi.fn(),
+// 	isToolAvailable: vi.fn().mockResolvedValue(false),
+// 	getToolSchema: vi.fn(),
+// 	getClients: vi.fn().mockReturnValue(new Map()),
+// 	getFailedConnections: vi.fn().mockReturnValue({}),
+// } as any;
 
 // Mock services for InternalToolContext
 const mockEmbedder = {

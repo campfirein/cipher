@@ -12,8 +12,8 @@ import { Logger, createLogger } from '../logger/index.js';
 import { env } from '../env.js';
 import { EventManager } from '../events/event-manager.js';
 import type {
-	EmbeddingConfig,
-	VectorStoreConfig as CustomVectorStoreConfig,
+	// EmbeddingConfig,
+	// VectorStoreConfig as CustomVectorStoreConfig,
 	MemoryTypeConfig,
 } from '../config/memory-config.schema.js';
 

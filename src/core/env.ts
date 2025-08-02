@@ -42,9 +42,16 @@ const envSchema = z.object({
 	STORAGE_CACHE_PORT: z.number().optional(),
 	STORAGE_CACHE_PASSWORD: z.string().optional(),
 	STORAGE_CACHE_DATABASE: z.number().optional(),
-	STORAGE_DATABASE_TYPE: z.enum(['in-memory', 'sqlite']).default('in-memory'),
+	STORAGE_DATABASE_TYPE: z.enum(['in-memory', 'sqlite', 'postgres']).default('in-memory'),
 	STORAGE_DATABASE_PATH: z.string().optional(),
 	STORAGE_DATABASE_NAME: z.string().optional(),
+	// PostgreSQL Configuration
+	CIPHER_PG_URL: z.string().optional(),
+	STORAGE_DATABASE_HOST: z.string().optional(),
+	STORAGE_DATABASE_PORT: z.number().optional(),
+	STORAGE_DATABASE_USER: z.string().optional(),
+	STORAGE_DATABASE_PASSWORD: z.string().optional(),
+	STORAGE_DATABASE_SSL: z.boolean().default(false),
 	// Vector Storage Configuration
 	VECTOR_STORE_TYPE: z.enum(['qdrant', 'milvus', 'in-memory']).default('in-memory'),
 	VECTOR_STORE_HOST: z.string().optional(),
@@ -75,6 +82,16 @@ const envSchema = z.object({
 	// Event Persistence Configuration
 	EVENT_PERSISTENCE_ENABLED: z.boolean().default(false),
 	EVENT_PERSISTENCE_PATH: z.string().optional(),
+	// Lazy Loading Configuration
+	ENABLE_LAZY_LOADING: z.string().optional(),
+	LAZY_LOADING_ENABLED: z.string().optional(),
+	SKIP_HEAVY_SERVICES: z.string().optional(),
+	LAZY_EMBEDDING: z.string().optional(),
+	LAZY_VECTOR_STORE: z.string().optional(),
+	LAZY_MEMORY_OPERATIONS: z.string().optional(),
+	DISABLE_BACKGROUND_PRELOAD: z.string().optional(),
+	LAZY_INIT_TIMEOUT: z.string().optional(),
+	BACKGROUND_PRELOAD_DELAY: z.string().optional(),
 });
 
 type EnvSchema = z.infer<typeof envSchema>;
@@ -149,6 +166,21 @@ export const env: EnvSchema = new Proxy({} as EnvSchema, {
 				return process.env.STORAGE_DATABASE_PATH;
 			case 'STORAGE_DATABASE_NAME':
 				return process.env.STORAGE_DATABASE_NAME;
+			// PostgreSQL Configuration
+			case 'CIPHER_PG_URL':
+				return process.env.CIPHER_PG_URL;
+			case 'STORAGE_DATABASE_HOST':
+				return process.env.STORAGE_DATABASE_HOST;
+			case 'STORAGE_DATABASE_PORT':
+				return process.env.STORAGE_DATABASE_PORT
+					? parseInt(process.env.STORAGE_DATABASE_PORT, 10)
+					: undefined;
+			case 'STORAGE_DATABASE_USER':
+				return process.env.STORAGE_DATABASE_USER;
+			case 'STORAGE_DATABASE_PASSWORD':
+				return process.env.STORAGE_DATABASE_PASSWORD;
+			case 'STORAGE_DATABASE_SSL':
+				return process.env.STORAGE_DATABASE_SSL === 'true';
 			// Vector Storage Configuration
 			case 'VECTOR_STORE_TYPE':
 				return process.env.VECTOR_STORE_TYPE || 'in-memory';
@@ -217,6 +249,25 @@ export const env: EnvSchema = new Proxy({} as EnvSchema, {
 				return process.env.EVENT_PERSISTENCE_ENABLED === 'true';
 			case 'EVENT_PERSISTENCE_PATH':
 				return process.env.EVENT_PERSISTENCE_PATH;
+			// Lazy Loading Configuration
+			case 'ENABLE_LAZY_LOADING':
+				return process.env.ENABLE_LAZY_LOADING;
+			case 'LAZY_LOADING_ENABLED':
+				return process.env.LAZY_LOADING_ENABLED;
+			case 'SKIP_HEAVY_SERVICES':
+				return process.env.SKIP_HEAVY_SERVICES;
+			case 'LAZY_EMBEDDING':
+				return process.env.LAZY_EMBEDDING;
+			case 'LAZY_VECTOR_STORE':
+				return process.env.LAZY_VECTOR_STORE;
+			case 'LAZY_MEMORY_OPERATIONS':
+				return process.env.LAZY_MEMORY_OPERATIONS;
+			case 'DISABLE_BACKGROUND_PRELOAD':
+				return process.env.DISABLE_BACKGROUND_PRELOAD;
+			case 'LAZY_INIT_TIMEOUT':
+				return process.env.LAZY_INIT_TIMEOUT;
+			case 'BACKGROUND_PRELOAD_DELAY':
+				return process.env.BACKGROUND_PRELOAD_DELAY;
 			default:
 				return process.env[prop];
 		}
@@ -298,6 +349,15 @@ export const validateEnv = () => {
 		STORAGE_DATABASE_TYPE: process.env.STORAGE_DATABASE_TYPE || 'in-memory',
 		STORAGE_DATABASE_PATH: process.env.STORAGE_DATABASE_PATH,
 		STORAGE_DATABASE_NAME: process.env.STORAGE_DATABASE_NAME,
+		// PostgreSQL Configuration
+		CIPHER_PG_URL: process.env.CIPHER_PG_URL,
+		STORAGE_DATABASE_HOST: process.env.STORAGE_DATABASE_HOST,
+		STORAGE_DATABASE_PORT: process.env.STORAGE_DATABASE_PORT
+			? parseInt(process.env.STORAGE_DATABASE_PORT, 10)
+			: undefined,
+		STORAGE_DATABASE_USER: process.env.STORAGE_DATABASE_USER,
+		STORAGE_DATABASE_PASSWORD: process.env.STORAGE_DATABASE_PASSWORD,
+		STORAGE_DATABASE_SSL: process.env.STORAGE_DATABASE_SSL === 'true',
 		// Vector Storage Configuration
 		VECTOR_STORE_TYPE: process.env.VECTOR_STORE_TYPE || 'in-memory',
 		VECTOR_STORE_HOST: process.env.VECTOR_STORE_HOST,

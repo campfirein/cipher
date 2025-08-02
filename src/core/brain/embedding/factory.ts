@@ -9,21 +9,16 @@
 import { logger } from '../../logger/index.js';
 import {
 	parseEmbeddingConfigFromEnv,
-	validateEmbeddingConfig,
-	type OpenAIEmbeddingConfig as ZodOpenAIEmbeddingConfig,
-	type GeminiEmbeddingConfig as ZodGeminiEmbeddingConfig,
-	type OllamaEmbeddingConfig as ZodOllamaEmbeddingConfig,
-	type VoyageEmbeddingConfig as ZodVoyageEmbeddingConfig,
-	type QwenEmbeddingConfig as ZodQwenEmbeddingConfig,
-	type AWSBedrockEmbeddingConfig as ZodAWSBedrockEmbeddingConfig,
-	type LMStudioEmbeddingConfig as ZodLMStudioEmbeddingConfig,
+	// validateEmbeddingConfig,
+	// type OpenAIEmbeddingConfig as ZodOpenAIEmbeddingConfig,
+	// type GeminiEmbeddingConfig as ZodGeminiEmbeddingConfig,
+	// type OllamaEmbeddingConfig as ZodOllamaEmbeddingConfig,
+	// type VoyageEmbeddingConfig as ZodVoyageEmbeddingConfig,
+	// type QwenEmbeddingConfig as ZodQwenEmbeddingConfig,
+	// type AWSBedrockEmbeddingConfig as ZodAWSBedrockEmbeddingConfig,
+	// type LMStudioEmbeddingConfig as ZodLMStudioEmbeddingConfig,
 } from './config.js';
-import {
-	type Embedder,
-	type BackendConfig,
-	EmbeddingError,
-	EmbeddingValidationError,
-} from './backend/types.js';
+import { type Embedder, type BackendConfig, EmbeddingValidationError } from './backend/types.js';
 
 // Re-export BackendConfig for external use
 export type { BackendConfig } from './backend/types.js';

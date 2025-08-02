@@ -1,6 +1,11 @@
 import { MCPManager } from '@core/mcp/manager.js';
 import { AgentServices } from '../../utils/service-initializer.js';
 import { createAgentServices } from '../../utils/service-initializer.js';
+import {
+	createEnhancedAgentServices,
+	shouldEnableLazyLoading,
+	LazyAgentServices,
+} from '../memory/enhanced-service-initializer.js';
 import { EnhancedPromptManager } from '../systemPrompt/enhanced-manager.js';
 import { MemAgentStateManager } from './state-manager.js';
 import { SessionManager } from '../../session/session-manager.js';
@@ -31,7 +36,7 @@ export class MemAgent {
 	private defaultSession: ConversationSession | null = null;
 
 	private currentDefaultSessionId: string = 'default';
-	private currentActiveSessionId: string = this.generateUniqueSessionId();
+	private currentActiveSessionId: string = 'default'; // Will be set properly in constructor
 
 	private isStarted: boolean = false;
 	private isStopped: boolean = false;
@@ -42,19 +47,29 @@ export class MemAgent {
 	constructor(config: AgentConfig, appMode?: 'cli' | 'mcp' | 'api') {
 		this.config = config;
 		this.appMode = appMode || null;
+
+		// Set session ID based on mode
+		if (appMode === 'cli') {
+			// For CLI, use default session to enable persistence
+			this.currentActiveSessionId = this.currentDefaultSessionId;
+		} else {
+			// For API/MCP, generate unique session IDs
+			this.currentActiveSessionId = this.generateUniqueSessionId();
+		}
+
 		if (appMode !== 'cli') {
 			logger.debug('MemAgent created');
 		}
 	}
 
 	/**
-	 * Generate a unique session ID for each CLI invocation
-	 * This ensures session isolation - each new CLI start gets a fresh conversation
+	 * Generate a unique session ID for API/MCP modes
+	 * CLI mode uses the default session for persistence
 	 */
 	private generateUniqueSessionId(): string {
 		const timestamp = Date.now();
 		const random = Math.random().toString(36).substring(2, 8);
-		return `cli-${timestamp}-${random}`;
+		return `session-${timestamp}-${random}`;
 	}
 
 	/**
@@ -69,8 +84,24 @@ export class MemAgent {
 			if (this.appMode !== 'cli') {
 				logger.debug('Starting MemAgent...');
 			}
-			// 1. Initialize services
-			const services = await createAgentServices(this.config, this.appMode || undefined);
+
+			// 1. Initialize services with optional lazy loading
+			const useLazyLoading = shouldEnableLazyLoading({
+				appMode: this.appMode || undefined,
+			});
+			let services: AgentServices | LazyAgentServices;
+
+			if (useLazyLoading) {
+				logger.debug('MemAgent: Using enhanced services with lazy loading');
+				services = await createEnhancedAgentServices(this.config, {
+					enableLazyLoading: true,
+					...(this.appMode && { appMode: this.appMode }),
+				});
+			} else {
+				logger.debug('MemAgent: Using standard services');
+				services = await createAgentServices(this.config, this.appMode || undefined);
+			}
+
 			for (const service of requiredServices) {
 				if (!services[service]) {
 					throw new Error(`Required service ${service} is missing during agent start`);
@@ -86,6 +117,19 @@ export class MemAgent {
 				unifiedToolManager: services.unifiedToolManager,
 				services: services,
 			});
+
+			// Load persisted sessions on startup for all modes
+			try {
+				logger.debug('Loading persisted sessions...');
+				const stats = await this.sessionManager.loadAllSessions();
+				if (stats.restoredSessions > 0) {
+					logger.info(`Restored ${stats.restoredSessions} sessions from persistent storage`);
+				}
+			} catch (error) {
+				logger.warn('Failed to load persisted sessions on startup:', error);
+				// Continue startup even if session loading fails
+			}
+
 			this.isStarted = true;
 			if (this.appMode !== 'cli') {
 				logger.debug('MemAgent started successfully');
@@ -112,6 +156,19 @@ export class MemAgent {
 		try {
 			logger.info('Stopping MemAgent...');
 			const shutdownErrors: Error[] = [];
+
+			// Save all sessions before shutdown
+			try {
+				if (this.sessionManager) {
+					logger.info('Saving all sessions before shutdown...');
+					await this.sessionManager.shutdown(); // This will call saveAllSessions internally
+					logger.debug('SessionManager shutdown completed');
+				}
+			} catch (error) {
+				const err = error instanceof Error ? error : new Error(String(error));
+				shutdownErrors.push(new Error(`SessionManager shutdown failed: ${err.message}`));
+			}
+
 			try {
 				if (this.mcpManager) {
 					await this.mcpManager.disconnectAll();
@@ -188,9 +245,6 @@ export class MemAgent {
 					(await this.sessionManager.createSession(this.currentActiveSessionId));
 			}
 			logger.debug(`MemAgent.run: using session ${session.id}`);
-			if (session.id.startsWith('cli-')) {
-				logger.debug('Using isolated CLI session - no previous conversation history');
-			}
 			const { response, backgroundOperations } = await session.run(
 				userInput,
 				imageDataInput,
@@ -213,12 +267,31 @@ export class MemAgent {
 
 	public async createSession(sessionId?: string): Promise<ConversationSession> {
 		this.ensureStarted();
-		return await this.sessionManager.createSession(sessionId);
+		logger.debug(`MemAgent: Creating session with ID: ${sessionId || 'auto-generated'}`);
+		const session = await this.sessionManager.createSession(sessionId);
+		logger.info(`MemAgent: Created session: ${session.id}`);
+		return session;
 	}
 
 	public async getSession(sessionId: string): Promise<ConversationSession | null> {
 		this.ensureStarted();
-		return await this.sessionManager.getSession(sessionId);
+		let session = await this.sessionManager.getSession(sessionId);
+
+		// For CLI mode, automatically create the default session if it doesn't exist
+		if (!session && this.appMode === 'cli' && sessionId === 'default') {
+			logger.debug(
+				'MemAgent: Default session not found, creating new default session for CLI mode'
+			);
+			try {
+				session = await this.sessionManager.createSession('default');
+				logger.info('MemAgent: Created default session for CLI mode');
+			} catch (error) {
+				logger.error('MemAgent: Failed to create default session:', error);
+				return null;
+			}
+		}
+
+		return session;
 	}
 
 	/**
@@ -230,6 +303,25 @@ export class MemAgent {
 	}
 
 	/**
+	 * Load conversation history for a specific session
+	 */
+	public async loadSessionHistory(sessionId: string): Promise<void> {
+		this.ensureStarted();
+		const session = await this.sessionManager.getSession(sessionId);
+
+		if (!session) {
+			throw new Error(`Session not found: ${sessionId}`);
+		}
+
+		try {
+			await session.refreshConversationHistory();
+		} catch (error) {
+			logger.warn(`MemAgent: Failed to load conversation history for session ${sessionId}:`, error);
+			throw error;
+		}
+	}
+
+	/**
 	 * Load (switch to) a specific session
 	 */
 	public async loadSession(sessionId: string): Promise<ConversationSession> {
@@ -238,6 +330,19 @@ export class MemAgent {
 
 		if (!session) {
 			throw new Error(`Session not found: ${sessionId}`);
+		}
+
+		// Initialize services and load conversation history
+		try {
+			logger.debug(`MemAgent: Loading session ${sessionId}...`);
+			await session.init(); // Initialize services first
+
+			// Load conversation history so AI can see previous messages
+			await session.refreshConversationHistory();
+			logger.info(`MemAgent: Successfully loaded session ${sessionId} with conversation history`);
+		} catch (error) {
+			logger.warn(`MemAgent: Failed to initialize session ${sessionId}:`, error);
+			// Continue even if initialization fails
 		}
 
 		this.currentActiveSessionId = sessionId;
@@ -286,14 +391,35 @@ export class MemAgent {
 			return null;
 		}
 
+		// Get actual message count from the session
+		let messageCount = 0;
+		try {
+			const history = await session.getConversationHistory();
+			messageCount = history.length;
+		} catch (error) {
+			logger.warn(`Failed to get message count for session ${sessionId}:`, error);
+		}
+
 		// For now, return basic metadata since SessionManager doesn't expose internal metadata
 		// This could be enhanced later to track more detailed session statistics
 		return {
 			id: sessionId,
 			createdAt: Date.now(), // Placeholder - actual creation time would need to be tracked
 			lastActivity: Date.now(), // Placeholder - actual last activity would need to be tracked
-			messageCount: 0, // Placeholder - message count would need to be tracked
+			messageCount,
 		};
+	}
+
+	/**
+	 * Get conversation history for the current session
+	 */
+	public async getCurrentSessionHistory(): Promise<any[]> {
+		this.ensureStarted();
+		const session = await this.sessionManager.getSession(this.currentActiveSessionId);
+		if (!session) {
+			return [];
+		}
+		return await session.getConversationHistory();
 	}
 
 	/**
@@ -399,5 +525,31 @@ export class MemAgent {
 
 	public getCurrentActiveSessionId() {
 		return this.currentActiveSessionId;
+	}
+
+	/**
+	 * Manually save all sessions to persistent storage
+	 */
+	public async saveAllSessions(): Promise<{ saved: number; failed: number; total: number }> {
+		this.ensureStarted();
+		const stats = await this.sessionManager.saveAllSessions();
+		return {
+			saved: stats.savedSessions,
+			failed: stats.failedSessions,
+			total: stats.totalSessions,
+		};
+	}
+
+	/**
+	 * Manually load all sessions from persistent storage
+	 */
+	public async loadAllSessions(): Promise<{ restored: number; failed: number; total: number }> {
+		this.ensureStarted();
+		const stats = await this.sessionManager.loadAllSessions();
+		return {
+			restored: stats.restoredSessions,
+			failed: stats.failedSessions,
+			total: stats.totalSessions,
+		};
 	}
 }

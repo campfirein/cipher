@@ -316,10 +316,6 @@ export class Logger {
 
 			// Update state
 			this.isSilent = true;
-
-			if (!this.isSilent) {
-				console.log(`Logger redirected to file: ${filePath}`);
-			}
 		} catch (error) {
 			this.error(`Failed to redirect logger to file: ${error}`);
 		}

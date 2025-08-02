@@ -63,10 +63,10 @@ llm:
 #     deploymentName: gpt-4o-mini  # Optional, defaults to model name
 
 # --- Ollama LLM Configuration (Sample, Commented Out) ---
-#   provider: ollama
-#   model: qwen3:32b      # Use the model you downloaded
-#   maxIterations: 50
-#   baseURL: $OLLAMA_BASE_URL
+  # provider: ollama
+  # model: qwen3:8b      # Use the model you downloaded
+  # maxIterations: 50
+  # baseURL: $OLLAMA_BASE_URL
 
 # --- LM Studio LLM Configuration (Sample, Commented Out) ---
   # provider: lmstudio

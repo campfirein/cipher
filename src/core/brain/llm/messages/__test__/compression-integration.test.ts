@@ -16,7 +16,7 @@ vi.mock('../../../../logger/index.js', () => ({
 
 // Mock formatter
 class MockFormatter implements IMessageFormatter {
-	format(message: InternalMessage, systemPrompt?: string): any[] {
+	format(message: InternalMessage, _systemPrompt?: string): any[] {
 		return [
 			{
 				role: message.role,

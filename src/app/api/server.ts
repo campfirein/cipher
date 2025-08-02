@@ -51,7 +51,7 @@ export class ApiServer {
 
 	private async setupMcpServer(
 		transportType: 'stdio' | 'sse' | 'http',
-		port?: number
+		_port?: number
 	): Promise<void> {
 		logger.info(`[API Server] Setting up MCP server with transport type: ${transportType}`);
 		try {

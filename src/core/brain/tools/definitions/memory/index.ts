@@ -12,6 +12,10 @@ import { extractAndOperateMemoryTool } from './extract_and_operate_memory.js';
 import { searchMemoryTool } from './search_memory.js';
 import { storeReasoningMemoryTool } from './store_reasoning_memory.js';
 
+// Import lazy loading optimized tool
+import { lazyExtractAndOperateMemoryTool } from '../../../memory/lazy-extract-and-operate.js';
+import { env } from '../../../../env.js';
+
 // Import reasoning tools from reflective memory module
 import {
 	extractReasoningSteps,
@@ -68,8 +72,15 @@ export async function getMemoryTools(
 		return {};
 	}
 
+	// Use lazy version of extract_and_operate_memory if lazy loading is enabled
+	const useLazyMemoryTool = env.ENABLE_LAZY_LOADING === 'true';
+
+	const extractAndOperateTool = useLazyMemoryTool
+		? lazyExtractAndOperateMemoryTool
+		: extractAndOperateMemoryTool;
+
 	return {
-		cipher_extract_and_operate_memory: extractAndOperateMemoryTool,
+		cipher_extract_and_operate_memory: extractAndOperateTool,
 		cipher_memory_search: searchMemoryTool,
 		cipher_store_reasoning_memory: storeReasoningMemoryTool,
 		cipher_extract_reasoning_steps: extractReasoningSteps,
@@ -91,9 +102,16 @@ export async function getAllMemoryToolDefinitions(
 		return {};
 	}
 
+	// Use lazy version of extract_and_operate_memory if lazy loading is enabled
+	const useLazyMemoryTool = env.ENABLE_LAZY_LOADING === 'true';
+
+	const extractAndOperateTool = useLazyMemoryTool
+		? lazyExtractAndOperateMemoryTool
+		: extractAndOperateMemoryTool;
+
 	// Base tools always available when embeddings are enabled
 	const tools: Record<string, InternalTool> = {
-		extract_and_operate_memory: extractAndOperateMemoryTool,
+		extract_and_operate_memory: extractAndOperateTool,
 		memory_search: searchMemoryTool,
 		store_reasoning_memory: storeReasoningMemoryTool,
 		// All reasoning tools are always available for testing and functionality

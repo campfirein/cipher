@@ -385,6 +385,67 @@ cipher --new-session [id]           # Start with new session
 /help                               # Show help
 ```
 
+## Chat History
+
+Cipher supports persistent chat history using PostgreSQL as the primary storage backend. This allows conversations to be restored across application restarts.
+
+### PostgreSQL Configuration
+
+To use PostgreSQL for chat history persistence, set the following environment variables:
+
+#### Option 1: Using Connection URL (Recommended)
+
+```bash
+export CIPHER_PG_URL="postgresql://username:password@localhost:5432/cipher_db"
+```
+
+#### Option 2: Using Individual Parameters
+
+```bash
+export STORAGE_DATABASE_HOST="localhost"
+export STORAGE_DATABASE_PORT="5432"
+export STORAGE_DATABASE_NAME="cipher_db"
+export STORAGE_DATABASE_USER="username"
+export STORAGE_DATABASE_PASSWORD="password"
+export STORAGE_DATABASE_SSL="false"
+```
+
+### Database Setup
+
+1. Create a PostgreSQL database:
+
+```sql
+CREATE DATABASE cipher_db;
+```
+
+2. The application will automatically create the necessary tables and indexes on first run.
+
+### Fallback Behavior
+
+If PostgreSQL is not available or fails to connect, Cipher will automatically fall back to:
+
+1. SQLite (local file-based storage)
+2. In-memory storage (no persistence)
+
+### Session Storage
+
+Sessions are stored with the following key pattern:
+
+- Session data: `cipher:sessions:{sessionId}`
+- Message history: `messages:{sessionId}`
+
+### Environment Variables
+
+| Variable                    | Description               | Default |
+| --------------------------- | ------------------------- | ------- |
+| `CIPHER_PG_URL`             | PostgreSQL connection URL | None    |
+| `STORAGE_DATABASE_HOST`     | PostgreSQL host           | None    |
+| `STORAGE_DATABASE_PORT`     | PostgreSQL port           | 5432    |
+| `STORAGE_DATABASE_NAME`     | Database name             | None    |
+| `STORAGE_DATABASE_USER`     | Username                  | None    |
+| `STORAGE_DATABASE_PASSWORD` | Password                  | None    |
+| `STORAGE_DATABASE_SSL`      | Enable SSL                | false   |
+
 ## MCP Server Usage
 
 Cipher can run as an MCP (Model Context Protocol) server, allowing integration with MCP-compatible clients like Claude Desktop, Cursor, Windsurf, and other AI coding assistants.
@@ -515,31 +576,20 @@ cipher --mode mcp --mcp-transport-type sse --mcp-port 4000
 
 ---
 
-## Use Case: Claude Code with Cipher MCP
+## Tutorial Video: Claude Code with Cipher MCP
 
-Cipher integrates seamlessly with Claude Code through MCP, providing persistent memory that enhances your coding experience. Here's how it works:
+Watch our comprehensive tutorial on how to integrate Cipher with Claude Code through MCP for enhanced coding assistance with persistent memory:
 
-### Memory Storage
+[![Cipher + Claude Code Tutorial](https://img.youtube.com/vi/AZh9Py6g07Y/maxresdefault.jpg)](https://www.youtube.com/watch?v=AZh9Py6g07Y)
 
-<img src="./assets/cipher_store_memory.png" alt="Cipher storing conversation context" />
+> **Click the image above to watch the tutorial on YouTube.**
 
-Every interaction with Claude Code can be automatically stored in Cipher's dual memory system, capturing both programming concepts and reasoning patterns to improve future assistance.
+This tutorial covers:
 
-### Memory Retrieval
-
-<img src="./assets/cipher_retrieve_memory.png" alt="Cipher retrieving previous conversation context" />
-
-When you ask Claude Code to recall previous conversations, Cipher's memory layer instantly retrieves relevant context, allowing you to continue where you left off without losing important details.
-
----
-
-### 🚀 Demo Video: Claude Code + Cipher MCP Server
-
-<a href="https://drive.google.com/file/d/1az9t9jFOHAhRN21VMnuHPybRYwA0q0aF/view?usp=drive_link" target="_blank">
-  <img src="assets/demo_claude_code.png" alt="Watch the demo" width="60%" />
-</a>
-
-> **Click the image above to watch a short demo of Claude Code using Cipher as an MCP server.**
+- Setting up Cipher as an MCP server
+- Configuring Claude Code to use Cipher
+- Demonstrating memory storage and retrieval
+- Real-world coding scenarios with persistent context
 
 For detailed configuration instructions, see the [CLI Coding Agents guide](./examples/02-cli-coding-agents/README.md).
 

@@ -14,11 +14,14 @@ import {
 } from '../brain/llm/messages/history/factory.js';
 import { WALHistoryProvider } from '../brain/llm/messages/history/wal.js';
 import { StorageManager } from '../storage/manager.js';
-import { Logger } from '../logger/index.js';
 import type { ZodSchema } from 'zod';
 import { setImmediate } from 'timers';
 import { IConversationHistoryProvider } from '../brain/llm/messages/history/types.js';
+import type { SerializedSession } from './persistence-types.js';
+import { SESSION_PERSISTENCE_CONSTANTS, SessionPersistenceError } from './persistence-types.js';
 
+// This function is currently unused but kept for potential future use
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function extractReasoningContentBlocks(aiResponse: any): string {
 	// If the response is an object with a content array (Anthropic API best practice)
 	if (aiResponse && Array.isArray(aiResponse.content)) {
@@ -52,10 +55,11 @@ function extractReasoningContentBlocks(aiResponse: any): string {
 import { EnhancedPromptManager } from '../brain/systemPrompt/enhanced-manager.js';
 export class ConversationSession {
 	private contextManager!: ContextManager;
-	private llmService!: ILLMService;
+	private _llmService?: ILLMService; // Changed to lazy-loaded
 	private reasoningDetector?: ReasoningContentDetector;
 	private searchContextManager?: SearchContextManager;
-	private historyProvider: IConversationHistoryProvider | undefined;
+	private _historyProvider?: IConversationHistoryProvider | undefined; // Changed to lazy-loaded
+	private _storageManager?: StorageManager; // Added for lazy loading
 	private historyEnabled: boolean = true;
 	private historyBackend: 'database' | 'memory' = 'database';
 
@@ -70,6 +74,11 @@ export class ConversationSession {
 		context: Record<string, any>
 	) => void;
 
+	// Lazy initialization flags
+	private _servicesInitialized = false;
+	private _llmServiceInitialized = false;
+	private _storageInitialized = false;
+
 	/**
 	 * @param services - Required dependencies for the session, including unifiedToolManager
 	 * @param id - Session identifier
@@ -79,6 +88,7 @@ export class ConversationSession {
 		private services: {
 			stateManager: MemAgentStateManager;
 			promptManager: EnhancedPromptManager;
+			contextManager: ContextManager;
 			mcpManager: MCPManager;
 			unifiedToolManager: UnifiedToolManager;
 			embeddingManager?: any; // Optional embedding manager for status checking
@@ -96,13 +106,24 @@ export class ConversationSession {
 			historyBackend?: 'database' | 'memory';
 		}
 	) {
-		if (options?.sessionMemoryMetadata) this.sessionMemoryMetadata = options.sessionMemoryMetadata;
-		if (options?.mergeMetadata) this.mergeMetadata = options.mergeMetadata;
-		if (options?.metadataSchema) this.metadataSchema = options.metadataSchema;
-		if (options?.beforeMemoryExtraction)
+		if (options?.sessionMemoryMetadata) {
+			this.sessionMemoryMetadata = options.sessionMemoryMetadata;
+		}
+		if (options?.mergeMetadata) {
+			this.mergeMetadata = options.mergeMetadata;
+		}
+		if (options?.metadataSchema) {
+			this.metadataSchema = options.metadataSchema;
+		}
+		if (options?.beforeMemoryExtraction) {
 			this.beforeMemoryExtraction = options.beforeMemoryExtraction;
-		if (typeof options?.historyEnabled === 'boolean') this.historyEnabled = options.historyEnabled;
-		if (options?.historyBackend) this.historyBackend = options.historyBackend;
+		}
+		if (typeof options?.historyEnabled === 'boolean') {
+			this.historyEnabled = options.historyEnabled;
+		}
+		if (options?.historyBackend) {
+			this.historyBackend = options.historyBackend;
+		}
 	}
 
 	/**
@@ -116,92 +137,182 @@ export class ConversationSession {
 	 * Initialize all services for the session, including history provider.
 	 */
 	public async init(): Promise<void> {
+		logger.debug(`Session ${this.id}: Starting initialization...`);
 		await this.initializeServices();
-		// Restore history if enabled and provider exists
-		if (this.historyEnabled && this.historyProvider && this.contextManager) {
-			try {
-				await this.contextManager.restoreHistory?.();
-				logger.debug(`Session ${this.id}: Conversation history restored.`);
-			} catch (err) {
-				logger.warn(`Session ${this.id}: Failed to restore conversation history: ${err}`);
-			}
-		}
+		// Note: History restoration will happen lazily when history is first accessed
+		// This improves startup performance by not initializing storage until needed
+		logger.debug(`Session ${this.id}: Core initialization complete (lazy loading enabled)`);
 	}
 
 	/**
 	 * Initializes the services for the session, including the history provider.
 	 */
 	private async initializeServices(): Promise<void> {
-		const llmConfig = this.services.stateManager.getLLMConfig(this.id);
-		let historyProvider: IConversationHistoryProvider | undefined = undefined;
-		// Multi-backend config example (can be extended to use env/config)
-		const multiBackendEnabled = !!process.env.CIPHER_MULTI_BACKEND;
-		const flushIntervalMs = process.env.CIPHER_WAL_FLUSH_INTERVAL
-			? parseInt(process.env.CIPHER_WAL_FLUSH_INTERVAL, 10)
-			: 5000;
-		if (this.historyEnabled) {
+		this.contextManager = this.services.contextManager;
+
+		this._servicesInitialized = true;
+		logger.debug(`ChatSession ${this.id}: Core services initialized (lazy loading enabled)`);
+	}
+
+	/**
+	 * Lazy initialization of LLM service
+	 */
+	private async getLLMServiceLazy(): Promise<ILLMService> {
+		if (!this._servicesInitialized || !this.contextManager) {
+			throw new Error(
+				'ConversationSession is not initialized. Call init() before accessing services.'
+			);
+		}
+
+		if (!this._llmServiceInitialized) {
 			try {
-				if (multiBackendEnabled) {
-					// Example: primary = Postgres, backup = SQLite, WAL = in-memory
-					const primaryStorage = new StorageManager({
-						database: { type: 'postgres' as const, url: process.env.CIPHER_PG_URL },
-						cache: { type: 'in-memory' as const },
-					});
-					await primaryStorage.connect();
-					const backupStorage = new StorageManager({
-						database: { type: 'sqlite' as const, path: './cipher-backup.db' },
-						cache: { type: 'in-memory' as const },
-					});
-					await backupStorage.connect();
-					const primaryProvider = createDatabaseHistoryProvider(primaryStorage);
-					const backupProvider = createDatabaseHistoryProvider(backupStorage);
-					const wal = new WALHistoryProvider();
-					historyProvider = createMultiBackendHistoryProvider(
-						primaryProvider,
-						backupProvider,
-						wal,
-						flushIntervalMs
-					);
-					logger.debug(`Session ${this.id}: Multi-backend history provider initialized.`);
-				} else if (this.historyBackend === 'database') {
-					const storageConfig = {
-						database: {
-							type: 'sqlite' as const,
-							path: env.STORAGE_DATABASE_PATH,
-							database: env.STORAGE_DATABASE_NAME,
-						},
-						cache: { type: 'in-memory' as const },
-					};
-					const storageManager = new StorageManager(storageConfig);
-					await storageManager.connect();
-					historyProvider = createDatabaseHistoryProvider(storageManager);
-					logger.debug(`Session ${this.id}: Database history provider initialized.`);
-				} else {
-					// TODO: Implement or import an in-memory provider if needed
-					logger.debug(`Session ${this.id}: In-memory history provider selected.`);
-				}
-			} catch (err) {
-				logger.warn(
-					`Session ${this.id}: Failed to initialize history provider, falling back to in-memory. Error: ${err}`
+				const llmConfig = this.services.stateManager.getLLMConfig(this.id);
+				this._llmService = createLLMService(
+					llmConfig,
+					this.services.mcpManager,
+					this.contextManager,
+					this.services.unifiedToolManager
 				);
-				historyProvider = undefined;
+				this._llmServiceInitialized = true;
+				logger.debug(`Session ${this.id}: LLM service lazy-initialized`);
+			} catch (error) {
+				logger.error(`Session ${this.id}: Failed to lazy-initialize LLM service`, { error });
+				throw error;
 			}
 		}
-		this.historyProvider = historyProvider;
-		// Pass provider and sessionId to context manager
-		this.contextManager = createContextManager(
-			llmConfig,
-			this.services.promptManager,
-			historyProvider,
-			this.id
-		);
-		this.llmService = createLLMService(
-			llmConfig,
-			this.services.mcpManager,
-			this.contextManager,
-			this.services.unifiedToolManager
-		);
-		logger.debug(`ChatSession ${this.id}: Services initialized`);
+		return this._llmService!;
+	}
+
+	/**
+	 * Lazy initialization of storage manager and history provider with PostgreSQL/SQLite support
+	 */
+	private async getStorageManagerLazy(): Promise<StorageManager | undefined> {
+		if (!this._storageInitialized) {
+			try {
+				if (this.historyEnabled) {
+					// Multi-backend config example (can be extended to use env/config)
+					const multiBackendEnabled = !!process.env.CIPHER_MULTI_BACKEND;
+					const flushIntervalMs = process.env.CIPHER_WAL_FLUSH_INTERVAL
+						? parseInt(process.env.CIPHER_WAL_FLUSH_INTERVAL, 10)
+						: 5000;
+
+					if (multiBackendEnabled) {
+						// Example: primary = Postgres, backup = SQLite, WAL = in-memory
+						const primaryStorage = new StorageManager({
+							database: { type: 'postgres' as const, url: process.env.CIPHER_PG_URL },
+							cache: { type: 'in-memory' as const },
+						});
+						await primaryStorage.connect();
+						const backupStorage = new StorageManager({
+							database: { type: 'sqlite' as const, path: './cipher-backup.db' },
+							cache: { type: 'in-memory' as const },
+						});
+						await backupStorage.connect();
+						const primaryProvider = createDatabaseHistoryProvider(primaryStorage);
+						const backupProvider = createDatabaseHistoryProvider(backupStorage);
+						const wal = new WALHistoryProvider();
+						this._historyProvider = createMultiBackendHistoryProvider(
+							primaryProvider,
+							backupProvider,
+							wal,
+							flushIntervalMs
+						);
+						logger.debug(`Session ${this.id}: Multi-backend history provider lazy-initialized.`);
+					} else if (this.historyBackend === 'database') {
+						// Use the same storage configuration as the session manager
+						// This ensures both session data and conversation history use the same backend
+						const postgresUrl = process.env.CIPHER_PG_URL;
+						const postgresHost = process.env.STORAGE_DATABASE_HOST;
+						const postgresDatabase = process.env.STORAGE_DATABASE_NAME;
+
+						let storageConfig: any;
+
+						if (postgresUrl || (postgresHost && postgresDatabase)) {
+							// Use PostgreSQL if configured
+							if (postgresUrl) {
+								storageConfig = {
+									database: { type: 'postgres' as const, url: postgresUrl },
+									cache: { type: 'in-memory' as const },
+								};
+							} else {
+								storageConfig = {
+									database: {
+										type: 'postgres' as const,
+										host: postgresHost,
+										database: postgresDatabase,
+										port: process.env.STORAGE_DATABASE_PORT
+											? parseInt(process.env.STORAGE_DATABASE_PORT, 10)
+											: 5432,
+										user: process.env.STORAGE_DATABASE_USER,
+										password: process.env.STORAGE_DATABASE_PASSWORD,
+										ssl: process.env.STORAGE_DATABASE_SSL === 'true',
+									},
+									cache: { type: 'in-memory' as const },
+								};
+							}
+							logger.debug(
+								`Session ${this.id}: Using PostgreSQL for history provider (lazy-loaded)`
+							);
+						} else {
+							// Fallback to SQLite
+							storageConfig = {
+								database: {
+									type: 'sqlite' as const,
+									path: env.STORAGE_DATABASE_PATH || './data',
+									database: env.STORAGE_DATABASE_NAME || 'cipher-sessions.db',
+								},
+								cache: { type: 'in-memory' as const },
+							};
+							logger.debug(`Session ${this.id}: Using SQLite for history provider (lazy-loaded)`);
+						}
+
+						this._storageManager = new StorageManager(storageConfig);
+						await this._storageManager.connect();
+						this._historyProvider = createDatabaseHistoryProvider(this._storageManager);
+						logger.debug(
+							`Session ${this.id}: Database history provider lazy-initialized with ${storageConfig.database.type} backend.`
+						);
+					} else {
+						// TODO: Implement or import an in-memory provider if needed
+						logger.debug(`Session ${this.id}: In-memory history provider selected (lazy-loaded).`);
+					}
+				}
+				this._storageInitialized = true;
+			} catch (error) {
+				logger.warn(`Session ${this.id}: Failed to lazy-initialize storage manager`, { error });
+				this._storageInitialized = true; // Mark as initialized to prevent retry
+			}
+		}
+		return this._storageManager;
+	}
+
+	/**
+	 * Lazy initialization of history provider
+	 */
+	private async getHistoryProviderLazy(): Promise<IConversationHistoryProvider | undefined> {
+		if (!this._storageInitialized) {
+			await this.getStorageManagerLazy();
+		}
+		return this._historyProvider;
+	}
+
+	/**
+	 * Restore history when history provider is lazy-loaded
+	 */
+	private async restoreHistoryLazy(): Promise<void> {
+		if (this.historyEnabled) {
+			try {
+				const historyProvider = await this.getHistoryProviderLazy();
+				if (historyProvider && this.contextManager) {
+					// Update context manager with the lazy-loaded history provider
+					(this.contextManager as any).historyProvider = historyProvider;
+					await this.contextManager.restoreHistory?.();
+					logger.debug(`Session ${this.id}: Conversation history restored (lazy-loaded)`);
+				}
+			} catch (err) {
+				logger.warn(`Session ${this.id}: Failed to restore conversation history: ${err}`);
+			}
+		}
 	}
 
 	/**
@@ -269,25 +380,24 @@ export class ConversationSession {
 		}
 
 		// --- Session initialization check ---
-		if (!this.llmService || !this.contextManager) {
+		if (!this._servicesInitialized || !this.contextManager) {
 			logger.error('ConversationSession.run: Session not initialized. Call init() before run().');
 			throw new Error('ConversationSession is not initialized. Call init() before run().');
 		}
 
 		// --- imageDataInput validation ---
-		if (imageDataInput !== undefined) {
-			if (
-				typeof imageDataInput !== 'object' ||
+		if (
+			imageDataInput !== undefined &&
+			(typeof imageDataInput !== 'object' ||
 				!imageDataInput.image ||
 				typeof imageDataInput.image !== 'string' ||
 				!imageDataInput.mimeType ||
-				typeof imageDataInput.mimeType !== 'string'
-			) {
-				logger.error(
-					'ConversationSession.run: imageDataInput must have image and mimeType as non-empty strings'
-				);
-				throw new Error('imageDataInput must have image and mimeType as non-empty strings');
-			}
+				typeof imageDataInput.mimeType !== 'string')
+		) {
+			logger.error(
+				'ConversationSession.run: imageDataInput must have image and mimeType as non-empty strings'
+			);
+			throw new Error('imageDataInput must have image and mimeType as non-empty strings');
 		}
 
 		// --- stream validation ---
@@ -315,8 +425,14 @@ export class ConversationSession {
 		// Initialize reasoning detector and search context manager if not already done
 		await this.initializeReasoningServices();
 
+		// Restore history if enabled (lazy-loaded)
+		await this.restoreHistoryLazy();
+
+		// Lazy initialize LLM service when first needed
+		const llmService = await this.getLLMServiceLazy();
+
 		// Generate response
-		const response = await this.llmService.generate(input, imageDataInput, stream);
+		const response = await llmService.generate(input, imageDataInput, stream);
 
 		// PROGRAMMATIC ENFORCEMENT: Run memory extraction asynchronously in background AFTER response is returned
 		// This ensures users see the response immediately without waiting for memory operations
@@ -334,7 +450,7 @@ export class ConversationSession {
 						if (EmbeddingSystemState.getInstance().isDisabled()) {
 							embeddingManagerDisabled = true;
 						}
-					} catch (error) {
+					} catch {
 						// If EmbeddingSystemState is not available, continue with other checks
 					}
 
@@ -419,7 +535,7 @@ export class ConversationSession {
 					if (EmbeddingSystemState.getInstance().isDisabled()) {
 						embeddingManagerDisabled = true;
 					}
-				} catch (error) {
+				} catch {
 					// If EmbeddingSystemState is not available, continue with other checks
 				}
 
@@ -431,10 +547,10 @@ export class ConversationSession {
 				// Check if any embedders are disabled
 				const embeddingStatus = this.services.embeddingManager?.getEmbeddingStatus();
 				if (embeddingStatus) {
-					const disabledEmbedders = Object.values(embeddingStatus).filter(
+					const disabledCount = Object.values(embeddingStatus).filter(
 						(status: any) => status.status === 'DISABLED'
-					);
-					if (disabledEmbedders.length > 0) {
+					).length;
+					if (disabledCount > 0) {
 						embeddingManagerDisabled = true;
 					}
 				}
@@ -594,7 +710,7 @@ export class ConversationSession {
 	 */
 	private async enforceReflectionMemoryProcessing(
 		userInput: string,
-		aiResponse: string,
+		_aiResponse: string,
 		allTools: Record<string, any>
 	): Promise<void> {
 		try {
@@ -823,7 +939,7 @@ export class ConversationSession {
 		interactionData.push(`User: ${userInput}`);
 
 		// Get recent messages from context manager to extract tool usage
-		const recentMessages = await this.contextManager.getRawMessages();
+		const recentMessages = this.contextManager.getRawMessages();
 
 		// Find messages from this current interaction (after the user input)
 		// We'll look for the most recent assistant and tool messages
@@ -882,7 +998,7 @@ export class ConversationSession {
 						// Summarize key arguments for memory (avoid storing full large content)
 						const keyArgs = this.summarizeToolArguments(toolName, parsedArgs);
 						args = keyArgs ? ` with ${keyArgs}` : '';
-					} catch (_e) {
+					} catch {
 						// If parsing fails, just note that there were arguments
 						args = ' with arguments';
 					}
@@ -935,10 +1051,15 @@ export class ConversationSession {
 					: 'memory search';
 			default:
 				// For other tools, try to extract key identifying information
-				if (args.query)
+				if (args.query) {
 					return `query: "${args.query.substring(0, 30)}${args.query.length > 30 ? '...' : ''}"`;
-				if (args.path) return `path: ${args.path}`;
-				if (args.file) return `file: ${args.file}`;
+				}
+				if (args.path) {
+					return `path: ${args.path}`;
+				}
+				if (args.file) {
+					return `file: ${args.file}`;
+				}
 				return 'arguments provided';
 		}
 	}
@@ -960,7 +1081,7 @@ export class ConversationSession {
 			}
 
 			return 'result received';
-		} catch (_e) {
+		} catch {
 			// If parsing fails, provide a basic summary
 			const contentStr = String(content);
 			return contentStr.length > 100 ? `${contentStr.substring(0, 100)}...` : contentStr;
@@ -1011,9 +1132,9 @@ export class ConversationSession {
 	 * Disconnects the history provider if it exists (for session teardown).
 	 */
 	public async disconnect(): Promise<void> {
-		if (this.historyProvider && typeof (this.historyProvider as any).disconnect === 'function') {
+		if (this._historyProvider && typeof (this._historyProvider as any).disconnect === 'function') {
 			try {
-				await (this.historyProvider as any).disconnect();
+				await (this._historyProvider as any).disconnect();
 				logger.debug(`Session ${this.id}: History provider disconnected.`);
 			} catch (err) {
 				logger.warn(`Session ${this.id}: Failed to disconnect history provider: ${err}`);
@@ -1025,8 +1146,11 @@ export class ConversationSession {
 		return this.contextManager;
 	}
 
-	public getLLMService(): ILLMService {
-		return this.llmService;
+	/**
+	 * Get LLM service with lazy initialization
+	 */
+	public async getLLMService(): Promise<ILLMService> {
+		return await this.getLLMServiceLazy();
 	}
 
 	public getUnifiedToolManager(): UnifiedToolManager {
@@ -1034,19 +1158,216 @@ export class ConversationSession {
 	}
 
 	/**
-	 * Get the storageManager used by the historyProvider (if available)
+	 * Get the storageManager with lazy initialization
 	 */
-	public getStorageManager(): StorageManager | undefined {
-		if (
-			this.historyProvider &&
-			typeof (this.historyProvider as any).getStorageManager === 'function'
-		) {
-			return (this.historyProvider as any).getStorageManager();
+	public async getStorageManager(): Promise<StorageManager | undefined> {
+		return await this.getStorageManagerLazy();
+	}
+
+	/**
+	 * Get the history provider with lazy initialization
+	 */
+	public async getHistoryProvider(): Promise<IConversationHistoryProvider | undefined> {
+		return await this.getHistoryProviderLazy();
+	}
+
+	/**
+	 * Force refresh conversation history from the database
+	 */
+	public async refreshConversationHistory(): Promise<void> {
+		if (this._historyProvider && this.historyEnabled && this.contextManager) {
+			try {
+				await this.contextManager.restoreHistory?.();
+			} catch (error) {
+				logger.warn(`Session ${this.id}: Failed to refresh conversation history:`, error);
+			}
 		}
-		// Try to access directly if exposed
-		if (this.historyProvider && (this.historyProvider as any).storageManager) {
-			return (this.historyProvider as any).storageManager;
+	}
+
+	/**
+	 * Get the current conversation history for debugging
+	 */
+	public async getConversationHistory(): Promise<any[]> {
+		if (this._historyProvider && this.historyEnabled) {
+			try {
+				const history = await this._historyProvider.getHistory(this.id);
+				logger.debug(
+					`Session ${this.id}: Current conversation history has ${history.length} messages`
+				);
+				return history;
+			} catch (error) {
+				logger.warn(`Session ${this.id}: Failed to get conversation history:`, error);
+				return [];
+			}
+		} else {
+			logger.debug(`Session ${this.id}: No history provider available`);
+			return [];
 		}
-		return undefined;
+	}
+
+	/**
+	 * Get the current conversation history from context manager
+	 */
+	public getContextHistory(): any[] {
+		if (this.contextManager) {
+			const messages = this.contextManager.getRawMessages();
+			logger.debug(`Session ${this.id}: Context manager has ${messages.length} messages`);
+			return messages;
+		} else {
+			logger.debug(`Session ${this.id}: No context manager available`);
+			return [];
+		}
+	}
+
+	/**
+	 * Serialize the current session state for persistence
+	 * @returns SerializedSession containing all necessary data to restore this session
+	 */
+	public async serialize(): Promise<SerializedSession> {
+		try {
+			// Get conversation history from the history provider
+			let conversationHistory: any[] = [];
+			if (this._historyProvider && this.historyEnabled) {
+				try {
+					conversationHistory = await this._historyProvider.getHistory(this.id);
+				} catch (error) {
+					logger.warn(
+						`Session ${this.id}: Failed to retrieve history for session during serialization:`,
+						error
+					);
+				}
+			}
+			logger.info(`Session ${this.id}: Serialized with ${conversationHistory.length} messages`);
+
+			// Note: We don't serialize functions (mergeMetadata, beforeMemoryExtraction)
+			// as they're unsafe to deserialize and restore. These will need to be
+			// re-configured when the session is restored.
+			const options: any = {};
+			if (this.metadataSchema) {
+				// For Zod schemas, we only store a basic indicator that a schema existed
+				// The actual schema will need to be re-provided during restoration
+				try {
+					options.hadMetadataSchema = true;
+				} catch (error) {
+					logger.warn(`Failed to serialize metadata schema for session ${this.id}:`, error);
+				}
+			}
+
+			const serialized: SerializedSession = {
+				id: this.id,
+				metadata: {
+					createdAt: Date.now(), // We don't track creation time currently, use now as fallback
+					lastActivity: Date.now(),
+					...(this.sessionMemoryMetadata && {
+						sessionMemoryMetadata: { ...this.sessionMemoryMetadata },
+					}),
+					historyEnabled: this.historyEnabled,
+					historyBackend: this.historyBackend,
+				},
+				conversationHistory: conversationHistory,
+				options: Object.keys(options).length > 0 ? options : undefined,
+				version: SESSION_PERSISTENCE_CONSTANTS.CURRENT_VERSION,
+				serializedAt: Date.now(),
+			};
+
+			logger.info(`Session ${this.id}: Serialized with ${conversationHistory.length} messages`);
+			return serialized;
+		} catch (error) {
+			throw new SessionPersistenceError(
+				`Failed to serialize session ${this.id}`,
+				'serialize',
+				this.id,
+				error as Error
+			);
+		}
+	}
+
+	/**
+	 * Deserialize and restore a session from serialized data
+	 * @param data - Serialized session data
+	 * @param services - Service dependencies required for session creation
+	 * @returns A new ConversationSession instance restored from the data
+	 */
+	public static async deserialize(
+		data: SerializedSession,
+		services: {
+			stateManager: MemAgentStateManager;
+			promptManager: EnhancedPromptManager;
+			mcpManager: MCPManager;
+			unifiedToolManager: UnifiedToolManager;
+			embeddingManager?: any;
+		}
+	): Promise<ConversationSession> {
+		try {
+			// Validate version compatibility
+			if (data.version !== SESSION_PERSISTENCE_CONSTANTS.CURRENT_VERSION) {
+				logger.warn(
+					`Session ${data.id} has version ${data.version}, current is ${SESSION_PERSISTENCE_CONSTANTS.CURRENT_VERSION}. Attempting to restore anyway.`
+				);
+			}
+
+			// Reconstruct options
+			const options: any = {
+				sessionMemoryMetadata: data.metadata.sessionMemoryMetadata,
+				historyEnabled: data.metadata.historyEnabled,
+				historyBackend: data.metadata.historyBackend,
+			};
+
+			// Note: Functions (mergeMetadata, beforeMemoryExtraction) are not restored from
+			// serialized data for security reasons. These need to be re-configured by the
+			// application when creating sessions that require these custom behaviors.
+			if (data.options?.hadMetadataSchema) {
+				logger.debug(
+					`Session ${data.id} had a metadata schema, but it will need to be re-provided during configuration.`
+				);
+			}
+
+			// Create new session instance
+			// Ensure contextManager is included in services if available
+			const sessionServices = {
+				...services,
+				...((services as any).contextManager && {
+					contextManager: (services as any).contextManager,
+				}),
+			};
+			const session = new ConversationSession(sessionServices as any, data.id, options);
+
+			// Initialize the session
+			await session.init();
+
+			// Restore conversation history if we have a history provider and serialized history
+			if (session._historyProvider && data.conversationHistory.length > 0) {
+				try {
+					// Clear any existing history first
+					await session._historyProvider.clearHistory(data.id);
+
+					// Restore messages one by one to maintain order and validation
+					for (const message of data.conversationHistory) {
+						await session._historyProvider.saveMessage(data.id, message);
+					}
+
+					// Restore conversation history to context manager so AI can see previous messages
+					await session.refreshConversationHistory();
+					logger.info(
+						`Session ${data.id}: Restored ${data.conversationHistory.length} messages to context manager`
+					);
+				} catch (error) {
+					logger.warn(
+						`Session ${data.id}: Failed to restore conversation history from serialized data:`,
+						error
+					);
+					// Continue without history rather than failing
+				}
+			}
+
+			return session;
+		} catch (error) {
+			throw new SessionPersistenceError(
+				`Failed to deserialize session ${data.id}`,
+				'deserialize',
+				data.id,
+				error as Error
+			);
+		}
 	}
 }

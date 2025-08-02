@@ -4,30 +4,36 @@ import { AnthropicTokenizer } from './providers/anthropic.js';
 import { GoogleTokenizer } from './providers/google.js';
 import { DefaultTokenizer } from './providers/default.js';
 import { logger } from '../../../logger/index.js';
+import { getTokenizerCache } from './cache.js';
 
 /**
  * Create a tokenizer instance based on provider configuration
+ * Uses caching to avoid redundant tokenizer creation
  */
 export function createTokenizer(config: TokenizerConfig): ITokenizer {
 	const validatedConfig = TokenizerConfigSchema.parse(config);
 
-	logger.debug('Creating tokenizer', {
-		provider: validatedConfig.provider,
-		model: validatedConfig.model,
-	});
+	// Use cache to get or create tokenizer
+	const cache = getTokenizerCache();
+	return cache.get(validatedConfig, config => {
+		logger.debug('Creating tokenizer', {
+			provider: config.provider,
+			model: config.model,
+		});
 
-	switch (validatedConfig.provider) {
-		case 'openai':
-			return new OpenAITokenizer(validatedConfig);
-		case 'anthropic':
-			return new AnthropicTokenizer(validatedConfig);
-		case 'google':
-			return new GoogleTokenizer(validatedConfig);
-		case 'default':
-		default:
-			logger.warn('Using default tokenizer, token counting may be less accurate');
-			return new DefaultTokenizer(validatedConfig);
-	}
+		switch (config.provider) {
+			case 'openai':
+				return new OpenAITokenizer(config);
+			case 'anthropic':
+				return new AnthropicTokenizer(config);
+			case 'google':
+				return new GoogleTokenizer(config);
+			case 'default':
+			default:
+				logger.warn('Using default tokenizer, token counting may be less accurate');
+				return new DefaultTokenizer(config);
+		}
+	});
 }
 
 /**

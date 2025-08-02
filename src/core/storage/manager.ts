@@ -272,7 +272,6 @@ export class StorageManager {
 				});
 			} catch (err) {
 				this.logger.error('Failed to connect to SQLite database', err);
-				console.error('Failed to connect to SQLite database (raw error):', err);
 				// If the configured backend fails, try fallback to in-memory
 				this.logger.warn(`${LOG_PREFIXES.DATABASE} Connection failed, attempting fallback`, {
 					error: err instanceof Error ? err.message : String(err),

@@ -12,7 +12,7 @@ import {
 } from '@aws-sdk/client-bedrock-runtime';
 import { TextDecoder } from 'util';
 import type { Embedder, EmbeddingConfig } from './types.js';
-import { EmbeddingError, EmbeddingConnectionError, EmbeddingValidationError } from './types.js';
+import { EmbeddingError, EmbeddingValidationError } from './types.js';
 
 /**
  * AWS Bedrock-specific configuration interface

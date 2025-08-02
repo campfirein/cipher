@@ -29,7 +29,7 @@ describe('createDatabaseHistoryProvider', () => {
 		let hasSqlite = true;
 		try {
 			require('better-sqlite3');
-		} catch (e) {
+		} catch {
 			hasSqlite = false;
 		}
 		if (!hasSqlite) {
@@ -50,7 +50,7 @@ describe('createDatabaseHistoryProvider', () => {
 		let hasPg = true;
 		try {
 			require('pg');
-		} catch (e) {
+		} catch {
 			hasPg = false;
 		}
 		if (!hasPg) {

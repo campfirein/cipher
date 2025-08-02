@@ -4,7 +4,7 @@
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import { DefaultProviderRegistry } from '../registry.js';
-import { ProviderConfig, ProviderType, PromptProvider, ProviderContext } from '../interfaces.js';
+import { ProviderConfig, ProviderType, PromptProvider } from '../interfaces.js';
 
 describe('DefaultProviderRegistry', () => {
 	let registry: DefaultProviderRegistry;
@@ -24,7 +24,7 @@ describe('DefaultProviderRegistry', () => {
 
 	describe('register', () => {
 		it('should register a new provider type', () => {
-			const mockGenerator = async () => ({}) as PromptProvider;
+			const mockGenerator = async (_name: string, _generator: any) => ({}) as PromptProvider;
 
 			registry.register('custom-type', mockGenerator);
 
@@ -33,7 +33,7 @@ describe('DefaultProviderRegistry', () => {
 		});
 
 		it('should throw error for invalid type', () => {
-			const mockGenerator = async () => ({}) as PromptProvider;
+			const mockGenerator = async (_name: string, _generator: any) => ({}) as PromptProvider;
 
 			expect(() => registry.register('', mockGenerator)).toThrow(
 				'Provider type must be a non-empty string'
@@ -74,11 +74,11 @@ describe('DefaultProviderRegistry', () => {
 
 		it('should create dynamic provider', async () => {
 			// First register a test generator
-			const mockDynamicProvider = {
-				registerGenerator: (name: string, generator: any) => {
-					// Mock implementation
-				},
-			};
+			// const mockDynamicProvider = {
+			// 	registerGenerator: (name: string, generator: any) => {
+			// 		// Mock implementation
+			// 	},
+			// };
 
 			const config: ProviderConfig = {
 				name: 'test-dynamic',
@@ -149,7 +149,7 @@ describe('DefaultProviderRegistry', () => {
 		});
 
 		it('should include custom registered types', () => {
-			const mockGenerator = async () => ({}) as PromptProvider;
+			const mockGenerator = async (_name: string, _generator: any) => ({}) as PromptProvider;
 			registry.register('custom', mockGenerator);
 
 			const types = registry.getRegisteredTypes();
@@ -159,7 +159,7 @@ describe('DefaultProviderRegistry', () => {
 
 	describe('unregister', () => {
 		it('should unregister a provider type', () => {
-			const mockGenerator = async () => ({}) as PromptProvider;
+			const mockGenerator = async (_name: string, _generator: any) => ({}) as PromptProvider;
 			registry.register('temp-type', mockGenerator);
 
 			expect(registry.isRegistered('temp-type')).toBe(true);
@@ -178,7 +178,7 @@ describe('DefaultProviderRegistry', () => {
 
 	describe('clear', () => {
 		it('should clear all registered types', () => {
-			const mockGenerator = async () => ({}) as PromptProvider;
+			const mockGenerator = async (_name: string, _generator: any) => ({}) as PromptProvider;
 			registry.register('temp1', mockGenerator);
 			registry.register('temp2', mockGenerator);
 

@@ -12,7 +12,7 @@ import {
 	CompressionResult,
 	CompressionLevel,
 } from '../compression/index.js';
-import { assignMessagePriorities, calculateTotalTokens } from '../compression/utils.js';
+import { assignMessagePriorities } from '../compression/utils.js';
 import { IConversationHistoryProvider } from './history/types.js';
 
 export class ContextManager {
@@ -82,7 +82,6 @@ export class ContextManager {
 		if (this.historyProvider && this.sessionId) {
 			try {
 				this.messages = await this.historyProvider.getHistory(this.sessionId);
-				logger.debug(`Restored ${this.messages.length} messages from persistent history.`);
 			} catch (err) {
 				logger.error(`Failed to restore history from provider: ${err}`);
 				this.fallbackToMemory = true;
@@ -234,7 +233,11 @@ export class ContextManager {
 	): Promise<void> {
 		try {
 			this.tokenizer = this.createTokenizer(model, provider);
-			this.compressionStrategy = this.createCompressionStrategy(provider, model, contextWindow);
+			this.compressionStrategy = await this.createCompressionStrategy(
+				provider,
+				model,
+				contextWindow
+			);
 			this.enableCompression = true;
 
 			await this.updateTokenCount();
@@ -359,7 +362,7 @@ export class ContextManager {
 				await this.historyProvider!.saveMessage(this.sessionId!, message);
 				this.messages.push(message);
 			} catch (err) {
-				logger.error(`History provider failed, falling back to in-memory: ${err}`);
+				logger.error(`ContextManager: History provider failed, falling back to in-memory: ${err}`);
 				this.fallbackToMemory = true;
 				this.messages.push(message);
 			}
@@ -369,7 +372,13 @@ export class ContextManager {
 	}
 
 	private shouldUsePersistentStorage(): boolean {
-		return !!(this.historyProvider && this.sessionId && !this.fallbackToMemory);
+		const hasHistoryProvider = !!this.historyProvider;
+		const hasSessionId = !!this.sessionId;
+		const notInFallback = !this.fallbackToMemory;
+
+		const shouldUse = hasHistoryProvider && hasSessionId && notInFallback;
+
+		return shouldUse;
 	}
 
 	private buildUserMessageContent(
@@ -430,11 +439,11 @@ export class ContextManager {
 		return createTokenizer(tokenizerConfig);
 	}
 
-	private createCompressionStrategy(
+	private async createCompressionStrategy(
 		provider: string,
 		model?: string,
 		contextWindow?: number
-	): ICompressionStrategy {
+	): Promise<ICompressionStrategy> {
 		const compressionConfig = getCompressionConfigForProvider(provider, model, contextWindow);
 		return createCompressionStrategy(compressionConfig);
 	}
@@ -461,7 +470,7 @@ export class ContextManager {
 
 	private async calculateMessageTokens(): Promise<number[]> {
 		return Promise.all(
-			this.messages.map(async (message, index) => {
+			this.messages.map(async (message, _index) => {
 				const textContent = this.extractTextFromMessage(message);
 				const tokenCount = await this.tokenizer!.countTokens(textContent);
 
@@ -575,11 +584,11 @@ export class ContextManager {
 		// Convert back to InternalMessage format
 		this.messages = compressionResult.compressedMessages.map(msg => {
 			const {
-				messageId,
-				timestamp,
-				tokenCount,
-				priority,
-				preserveInCompression,
+				// messageId,
+				// timestamp,
+				// tokenCount,
+				// priority,
+				// preserveInCompression,
 				...internalMessage
 			} = msg;
 			return internalMessage;

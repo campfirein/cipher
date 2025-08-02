@@ -1,13 +1,17 @@
 import { describe, it, expect } from 'vitest';
-import { createCompressionStrategy, getCompressionConfigForProvider } from '../factory.js';
+import {
+	createCompressionStrategy,
+	createCompressionStrategySync,
+	getCompressionConfigForProvider,
+} from '../factory.js';
 import { MiddleRemovalStrategy } from '../strategies/middle-removal.js';
 import { OldestRemovalStrategy } from '../strategies/oldest-removal.js';
 import { HybridStrategy } from '../strategies/hybrid.js';
 import { CompressionConfigSchema } from '../types.js';
 
 describe('Compression Factory', () => {
-	describe('createCompressionStrategy', () => {
-		it('should create MiddleRemovalStrategy', () => {
+	describe('createCompressionStrategy (async with caching)', () => {
+		it('should create MiddleRemovalStrategy', async () => {
 			const config = {
 				strategy: 'middle-removal' as const,
 				maxTokens: 4096,
@@ -18,12 +22,12 @@ describe('Compression Factory', () => {
 				minMessagesToKeep: 4,
 			};
 
-			const strategy = createCompressionStrategy(config);
+			const strategy = await createCompressionStrategy(config);
 			expect(strategy).toBeInstanceOf(MiddleRemovalStrategy);
 			expect(strategy.name).toBe('middle-removal');
 		});
 
-		it('should create OldestRemovalStrategy', () => {
+		it('should create OldestRemovalStrategy', async () => {
 			const config = {
 				strategy: 'oldest-removal' as const,
 				maxTokens: 4096,
@@ -34,12 +38,12 @@ describe('Compression Factory', () => {
 				minMessagesToKeep: 4,
 			};
 
-			const strategy = createCompressionStrategy(config);
+			const strategy = await createCompressionStrategy(config);
 			expect(strategy).toBeInstanceOf(OldestRemovalStrategy);
 			expect(strategy.name).toBe('oldest-removal');
 		});
 
-		it('should create HybridStrategy', () => {
+		it('should create HybridStrategy', async () => {
 			const config = {
 				strategy: 'hybrid' as const,
 				maxTokens: 4096,
@@ -50,18 +54,77 @@ describe('Compression Factory', () => {
 				minMessagesToKeep: 4,
 			};
 
-			const strategy = createCompressionStrategy(config);
+			const strategy = await createCompressionStrategy(config);
 			expect(strategy).toBeInstanceOf(HybridStrategy);
 			expect(strategy.name).toBe('hybrid');
 		});
 
-		it('should validate config schema', () => {
+		it('should validate config schema', async () => {
 			const invalidConfig = {
 				strategy: 'invalid-strategy',
 				maxTokens: -100, // Invalid negative value
 			};
 
-			expect(() => createCompressionStrategy(invalidConfig as any)).toThrow();
+			await expect(createCompressionStrategy(invalidConfig as any)).rejects.toThrow();
+		});
+	});
+
+	describe('createCompressionStrategySync (backward compatibility)', () => {
+		it('should create MiddleRemovalStrategy synchronously', () => {
+			const config = {
+				strategy: 'middle-removal' as const,
+				maxTokens: 4096,
+				warningThreshold: 0.8,
+				compressionThreshold: 0.9,
+				preserveStart: 4,
+				preserveEnd: 5,
+				minMessagesToKeep: 4,
+			};
+
+			const strategy = createCompressionStrategySync(config);
+			expect(strategy).toBeInstanceOf(MiddleRemovalStrategy);
+			expect(strategy.name).toBe('middle-removal');
+		});
+
+		it('should create OldestRemovalStrategy synchronously', () => {
+			const config = {
+				strategy: 'oldest-removal' as const,
+				maxTokens: 4096,
+				warningThreshold: 0.8,
+				compressionThreshold: 0.9,
+				preserveStart: 4,
+				preserveEnd: 5,
+				minMessagesToKeep: 4,
+			};
+
+			const strategy = createCompressionStrategySync(config);
+			expect(strategy).toBeInstanceOf(OldestRemovalStrategy);
+			expect(strategy.name).toBe('oldest-removal');
+		});
+
+		it('should create HybridStrategy synchronously', () => {
+			const config = {
+				strategy: 'hybrid' as const,
+				maxTokens: 4096,
+				warningThreshold: 0.8,
+				compressionThreshold: 0.9,
+				preserveStart: 4,
+				preserveEnd: 5,
+				minMessagesToKeep: 4,
+			};
+
+			const strategy = createCompressionStrategySync(config);
+			expect(strategy).toBeInstanceOf(HybridStrategy);
+			expect(strategy.name).toBe('hybrid');
+		});
+
+		it('should validate config schema synchronously', () => {
+			const invalidConfig = {
+				strategy: 'invalid-strategy',
+				maxTokens: -100, // Invalid negative value
+			};
+
+			expect(() => createCompressionStrategySync(invalidConfig as any)).toThrow();
 		});
 	});
 

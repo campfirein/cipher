@@ -10,7 +10,7 @@ interface WALEntry {
 export class WALHistoryProvider implements IConversationHistoryProvider {
 	private log: WALEntry[] = [];
 
-	async getHistory(sessionId: string, limit?: number): Promise<InternalMessage[]> {
+	async getHistory(sessionId: string, _limit?: number): Promise<InternalMessage[]> {
 		// Return all messages for a session (not used for main reads)
 		return this.log.filter(e => e.sessionId === sessionId).map(e => e.message);
 	}

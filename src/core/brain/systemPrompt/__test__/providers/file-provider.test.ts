@@ -33,7 +33,7 @@ describe('FilePromptProvider', () => {
 		// Clean up temporary files
 		try {
 			await fs.rm(tempDir, { recursive: true, force: true });
-		} catch (error) {
+		} catch {
 			// Ignore cleanup errors
 		}
 	});

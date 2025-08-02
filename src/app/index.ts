@@ -219,7 +219,10 @@ program
 			if (agent.services && agent.services.embeddingManager) {
 				agent.services.embeddingManager.getEmbedder('default');
 			} else {
-				console.log('No embeddingManager found in agent.services');
+				// Only log this in non-MCP modes to avoid stdout contamination
+				if (opts.mode !== 'mcp') {
+					console.log('No embeddingManager found in agent.services');
+				}
 			}
 		} catch (err) {
 			const errorMessage = err instanceof Error ? err.message : String(err);
@@ -309,29 +312,63 @@ program
 			}
 		}
 
-		// After agent is started and before entering CLI loop, add:
-		if (opts.mode === 'cli') {
-			const eventManager = agent.services?.eventManager;
-			if (eventManager) {
-				const handleExit = async () => {
+		// Enhanced shutdown hooks for all modes to ensure session persistence
+		const handleExit = async () => {
+			try {
+				logger.info('Cipher is shutting down...');
+
+				// For CLI mode, emit session event first
+				if (opts.mode === 'cli') {
 					try {
-						// Emit a session-ended event for the current session
-						const sessionId = agent.getCurrentActiveSessionId() || 'default';
-						eventManager.emitSessionEvent(sessionId, 'session:expired', {
-							sessionId,
-							timestamp: Date.now(),
-						});
-						// Give time for event to be persisted
-						await new Promise(res => setTimeout(res, 200));
-					} catch {
-						// Ignore errors during shutdown
+						const eventManager = agent.services?.eventManager;
+						if (eventManager) {
+							const sessionId = agent.getCurrentActiveSessionId() || 'default';
+							eventManager.emitSessionEvent(sessionId, 'session:expired', {
+								sessionId,
+								timestamp: Date.now(),
+							});
+						}
+					} catch (error) {
+						logger.debug('Failed to emit session event during shutdown:', error);
 					}
-					process.exit(0);
-				};
-				process.on('SIGINT', handleExit);
-				process.on('SIGTERM', handleExit);
+				}
+
+				// Stop the agent (this will trigger session persistence)
+				if (agent && agent.getIsStarted() && !agent.getIsStopped()) {
+					logger.info('Stopping agent and saving sessions...');
+					await agent.stop();
+				}
+
+				logger.info('Cipher shutdown completed');
+			} catch (error) {
+				logger.error('Error during shutdown:', error);
+			} finally {
+				// Force exit after a timeout to prevent hanging
+				setTimeout(() => {
+					logger.error('Forced exit due to shutdown timeout');
+					process.exit(1);
+				}, 5000);
+
+				process.exit(0);
 			}
-		}
+		};
+
+		// Register shutdown handlers for all termination signals
+		process.on('SIGINT', handleExit);
+		process.on('SIGTERM', handleExit);
+		process.on('SIGUSR1', handleExit);
+		process.on('SIGUSR2', handleExit);
+
+		// Handle uncaught exceptions and unhandled rejections
+		process.on('uncaughtException', async error => {
+			logger.error('Uncaught Exception:', error);
+			await handleExit();
+		});
+
+		process.on('unhandledRejection', async reason => {
+			logger.error('Unhandled Rejection:', reason);
+			await handleExit();
+		});
 
 		// ——— Dispatch based on --mode ———
 		switch (opts.mode) {

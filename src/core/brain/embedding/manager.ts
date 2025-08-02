@@ -329,7 +329,7 @@ export class EmbeddingManager {
 			return null;
 		}
 
-		const { embedder, info: factoryInfo } = result;
+		const { embedder } = result;
 		const embedderId = id || this.generateId();
 		const config = embedder.getConfig() as BackendConfig;
 
@@ -530,7 +530,7 @@ export class EmbeddingManager {
 	 *
 	 * @param intervalMs - Health check interval in milliseconds (default: 5 minutes)
 	 */
-	startHealthChecks(intervalMs: number = 5 * 60 * 1000): void {
+	startHealthChecks(_intervalMs: number = 5 * 60 * 1000): void {
 		logger.debug(`${LOG_PREFIXES.HEALTH} Health checks can be run manually via checkAllHealth()`);
 	}
 
@@ -597,7 +597,7 @@ export class EmbeddingManager {
 	> {
 		const status: Record<string, any> = {};
 
-		for (const [id, embedder] of this.embedders) {
+		for (const [id] of this.embedders) {
 			const info = this.embedderInfo.get(id);
 			if (info) {
 				const isDisabled = this.sessionState.isDisabled();

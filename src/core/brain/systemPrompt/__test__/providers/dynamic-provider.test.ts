@@ -19,12 +19,12 @@ describe('DynamicPromptProvider', () => {
 		};
 
 		// Register test generators
-		DynamicPromptProvider.registerGenerator('test-generator', async (context, config) => {
+		DynamicPromptProvider.registerGenerator('test-generator', async (context, _config) => {
 			return `Current time: ${context.timestamp.toISOString()}`;
 		});
 
-		DynamicPromptProvider.registerGenerator('config-generator', async (context, config) => {
-			return `Config value: ${config.testValue || 'default'}`;
+		DynamicPromptProvider.registerGenerator('config-generator', async (context, _config) => {
+			return `Config value: ${_config.testValue || 'default'}`;
 		});
 	});
 

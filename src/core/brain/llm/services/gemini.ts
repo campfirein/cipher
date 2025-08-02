@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI, GenerativeModel, ChatSession } from '@google/generative-ai';
+import { GoogleGenerativeAI, GenerativeModel } from '@google/generative-ai';
 import { ILLMService } from './types.js';
 import { ImageData } from '../messages/types.js';
 import { MCPManager } from '../../../mcp/manager.js';
@@ -48,7 +48,7 @@ export class GeminiService implements ILLMService {
 		}
 	}
 
-	async generate(userInput: string, imageData?: ImageData, stream?: boolean): Promise<string> {
+	async generate(userInput: string, imageData?: ImageData, _stream?: boolean): Promise<string> {
 		await this.contextManager.addUserMessage(userInput, imageData);
 
 		// Use unified tool manager if available, otherwise fall back to MCP manager

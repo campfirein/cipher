@@ -2,6 +2,7 @@
 export * from './types.js';
 export * from './factory.js';
 export * from './utils.js';
+export * from './cache.js';
 
 // Provider exports
 export { OpenAITokenizer } from './providers/openai.js';

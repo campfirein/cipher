@@ -3,17 +3,54 @@ import { MiddleRemovalStrategy } from './strategies/middle-removal.js';
 import { OldestRemovalStrategy } from './strategies/oldest-removal.js';
 import { HybridStrategy } from './strategies/hybrid.js';
 import { logger } from '../../../logger/index.js';
+import { getServiceCache, createServiceKey } from '../../memory/service-cache.js';
 import { z } from 'zod';
 
 export type CompressionFactoryConfig = z.infer<typeof CompressionConfigSchema>;
 
 /**
- * Create a compression strategy instance based on configuration
+ * Create a compression strategy instance based on configuration with caching
  */
-export function createCompressionStrategy(config: CompressionFactoryConfig): ICompressionStrategy {
+export async function createCompressionStrategy(
+	config: CompressionFactoryConfig
+): Promise<ICompressionStrategy> {
 	const validatedConfig = CompressionConfigSchema.parse(config);
 
-	logger.debug('Creating compression strategy', {
+	// Use ServiceCache to prevent duplicate compression strategy creation
+	const serviceCache = getServiceCache();
+	const cacheKey = createServiceKey('compressionStrategy', validatedConfig);
+
+	return await serviceCache.getOrCreate(cacheKey, async () => {
+		logger.debug('Creating compression strategy', {
+			strategy: validatedConfig.strategy,
+			maxTokens: validatedConfig.maxTokens,
+		});
+
+		switch (validatedConfig.strategy) {
+			case 'middle-removal':
+				return new MiddleRemovalStrategy(validatedConfig);
+			case 'oldest-removal':
+				return new OldestRemovalStrategy(validatedConfig);
+			case 'hybrid':
+				return new HybridStrategy(validatedConfig);
+			default:
+				logger.warn('Unknown compression strategy, falling back to middle-removal', {
+					strategy: validatedConfig.strategy,
+				});
+				return new MiddleRemovalStrategy(validatedConfig);
+		}
+	});
+}
+
+/**
+ * Synchronous version for backward compatibility (creates without caching)
+ */
+export function createCompressionStrategySync(
+	config: CompressionFactoryConfig
+): ICompressionStrategy {
+	const validatedConfig = CompressionConfigSchema.parse(config);
+
+	logger.debug('Creating compression strategy (sync)', {
 		strategy: validatedConfig.strategy,
 		maxTokens: validatedConfig.maxTokens,
 	});

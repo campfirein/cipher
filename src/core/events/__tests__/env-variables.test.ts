@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeEach, afterEach } from 'vitest';
 import { EventManager } from '../event-manager.js';
-import { EventPersistenceConfig } from '../persistence.js';
+// import { EventPersistenceConfig } from '../persistence.js';
 
 describe('Event Persistence Environment Variables', () => {
 	const originalEnv = { ...process.env };

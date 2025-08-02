@@ -129,8 +129,8 @@ export class GoogleTokenizer implements ITokenizer {
 		let adjustment = 1.1; // Gemini tends to use slightly more tokens
 
 		// Check for non-English content (Gemini handles this well)
-		const nonAsciiCount = Array.from(text).filter(c => c.charCodeAt(0) > 127).length;
-		const nonAsciiRatio = nonAsciiCount / text.length;
+		// const nonAsciiCount = Array.from(text).filter(c => c.charCodeAt(0) > 127).length;
+		// const nonAsciiRatio = nonAsciiCount / text.length;
 
 		// Check for structured content (JSON, XML, etc.)
 		const structuredPatterns = /[{}"':,\]<>]/g;

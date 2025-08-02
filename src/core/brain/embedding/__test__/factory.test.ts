@@ -14,11 +14,11 @@ import {
 	isProviderSupported,
 	EMBEDDING_FACTORIES,
 	OpenAIEmbeddingFactory,
-	GeminiEmbeddingFactory,
-	OllamaEmbeddingFactory,
-	VoyageEmbeddingFactory,
-	QwenEmbeddingFactory,
-	AWSBedrockEmbeddingFactory,
+	// GeminiEmbeddingFactory,
+	// OllamaEmbeddingFactory,
+	// VoyageEmbeddingFactory,
+	// QwenEmbeddingFactory,
+	// AWSBedrockEmbeddingFactory,
 	LMStudioEmbeddingFactory,
 } from '../factory.js';
 import type { BackendConfig } from '../backend/types.js';
