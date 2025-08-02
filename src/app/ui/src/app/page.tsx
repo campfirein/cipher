@@ -38,10 +38,10 @@ function MainChatInterface() {
       icon: "🤔"
     },
     {
-      title: "Create Snake Game",
-      description: "Build a game and open it",
-      action: () => sendMessage("Create a snake game in a new directory with HTML, CSS, and JavaScript, then open it in the browser for me to play."),
-      icon: "🐍"
+      title: "Remember",
+      description: "Save a coding pattern or concept",
+      action: () => sendMessage("Help me store an important programming concept, design pattern, or coding technique that I can reference later. Please ask me what concept I'd like to store and then save it with proper examples and explanations."),
+      icon: "💡"
     },
     {
       title: "Connect new tools",

@@ -93,7 +93,9 @@ export function SessionPanel({
       const response = await fetch('/api/sessions')
       if (!response.ok) throw new Error('Failed to fetch sessions')
       const data = await response.json()
-      setSessions(data.sessions || [])
+      // Handle the API response structure
+      const sessions = data.data?.sessions || data.sessions || []
+      setSessions(sessions)
     } catch (err) {
       console.error('Error fetching sessions:', err)
       setError(err instanceof Error ? err.message : 'Failed to fetch sessions')
@@ -151,10 +153,15 @@ export function SessionPanel({
       }
 
       const data = await response.json()
-      setSessions(prev => [...prev, data.session])
+      // Handle the API response structure
+      const session = data.data?.session || data.session
+      if (!session || !session.id) {
+        throw new Error('Invalid session response format')
+      }
+      setSessions(prev => [...prev, session])
       setNewSessionId('')
       setNewSessionOpen(false)
-      onSessionChange(data.session.id)
+      onSessionChange(session.id)
     } catch (err) {
       console.error('Error creating session:', err)
       setError(err instanceof Error ? err.message : 'Failed to create session')
@@ -165,21 +172,23 @@ export function SessionPanel({
   const handleDeleteSession = async (sessionId: string) => {
     setDeletingSessionId(sessionId)
     try {
+      // If we're deleting the current session, switch away from it first
+      if (currentSessionId === sessionId) {
+        returnToWelcome()
+        // Wait a bit for the backend to process the session switch
+        await new Promise(resolve => setTimeout(resolve, 100))
+      }
+
       const response = await fetch(`/api/sessions/${sessionId}`, {
         method: 'DELETE',
       })
 
       if (!response.ok) {
-        const errorData = await response.json()
+        const errorData = await response.json().catch(() => ({}))
         throw new Error(errorData.error || 'Failed to delete session')
       }
 
       setSessions(prev => prev.filter(s => s.id !== sessionId))
-
-      // If we deleted the current session, trigger a page reload to return to welcome state
-      if (currentSessionId === sessionId) {
-        returnToWelcome()
-      }
     } catch (err) {
       console.error('Error deleting session:', err)
       setError(err instanceof Error ? err.message : 'Failed to delete session')
@@ -194,6 +203,13 @@ export function SessionPanel({
 
     setIsDeletingConversation(true)
     try {
+      // If we're deleting the current session, switch away from it first
+      if (currentSessionId === selectedSessionForAction) {
+        returnToWelcome()
+        // Wait a bit for the backend to process the session switch
+        await new Promise(resolve => setTimeout(resolve, 100))
+      }
+
       const response = await fetch(`/api/sessions/${selectedSessionForAction}`, {
         method: 'DELETE',
         headers: {
@@ -202,16 +218,12 @@ export function SessionPanel({
       })
 
       if (!response.ok) {
-        throw new Error('Failed to delete conversation')
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.error || 'Failed to delete conversation')
       }
 
       // Remove session from local state
       setSessions(prev => prev.filter(s => s.id !== selectedSessionForAction))
-
-      // If we deleted the current session, trigger a page reload to return to welcome state
-      if (currentSessionId === selectedSessionForAction) {
-        returnToWelcome()
-      }
 
       setDeleteConversationDialogOpen(false)
       setSelectedSessionForAction(null)
@@ -322,53 +334,16 @@ export function SessionPanel({
     </div>
   )
 
-  // New session dialog
-  const NewSessionDialog = ({ 
-    isOpen, 
-    onClose, 
-    sessionId, 
-    setSessionId, 
-    onConfirm 
-  }: {
-    isOpen: boolean
-    onClose: () => void
-    sessionId: string
-    setSessionId: (id: string) => void
-    onConfirm: () => void
-  }) => (
-    <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Create New Session</DialogTitle>
-        </DialogHeader>
+  // Handle dialog close
+  const handleDialogClose = React.useCallback(() => {
+    setNewSessionOpen(false)
+    setNewSessionId('')
+  }, [])
 
-        <div className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="sessionId">Session ID</Label>
-            <Input
-              id="sessionId"
-              value={sessionId}
-              onChange={(e) => setSessionId(e.target.value)}
-              placeholder="e.g., user-123, project-alpha"
-              className="font-mono"
-            />
-            <p className="text-xs text-muted-foreground">
-              Leave empty to auto-generate a unique ID
-            </p>
-          </div>
-        </div>
-
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button onClick={onConfirm}>
-            Create Session
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
+  // Handle input change
+  const handleInputChange = React.useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setNewSessionId(e.target.value)
+  }, [])
 
   // Delete confirmation dialog
   const DeleteConfirmationDialog = ({
@@ -488,13 +463,40 @@ export function SessionPanel({
       )}
 
       {/* Dialogs */}
-      <NewSessionDialog
-        isOpen={isNewSessionOpen}
-        onClose={() => setNewSessionOpen(false)}
-        sessionId={newSessionId}
-        setSessionId={setNewSessionId}
-        onConfirm={handleCreateSession}
-      />
+      <Dialog open={isNewSessionOpen} onOpenChange={(open) => !open && handleDialogClose()}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Create New Session</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="new-session-id">Session ID</Label>
+              <Input
+                id="new-session-id"
+                value={newSessionId}
+                onChange={handleInputChange}
+                placeholder="e.g., user-123, project-alpha"
+                className="font-mono"
+                autoComplete="off"
+                autoFocus
+              />
+              <p className="text-xs text-muted-foreground">
+                Leave empty to auto-generate a unique ID
+              </p>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={handleDialogClose}>
+              Cancel
+            </Button>
+            <Button onClick={handleCreateSession}>
+              Create Session
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <DeleteConfirmationDialog
         isOpen={isDeleteConversationDialogOpen}

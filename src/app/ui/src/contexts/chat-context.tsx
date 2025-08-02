@@ -81,8 +81,7 @@ export function ChatProvider({
   // Enhanced send message with auto-session creation
   const sendMessage = useCallback(async (
     content: string,
-    imageData?: { base64: string; mimeType: string },
-    fileData?: { base64: string; mimeType: string; filename?: string }
+    imageData?: { base64: string; mimeType: string }
   ) => {
     let sessionId = currentSessionId;
 
@@ -103,7 +102,7 @@ export function ChatProvider({
     }
 
     if (sessionId) {
-      originalSendMessage(content, imageData, fileData, sessionId, isStreaming);
+      originalSendMessage(content, imageData, sessionId, isStreaming);
     } else {
       console.error('No session available for sending message');
       throw new Error('No session available for sending message');

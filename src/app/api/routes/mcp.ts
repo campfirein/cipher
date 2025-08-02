@@ -84,30 +84,19 @@ export function createMcpRoutes(agent: MemAgent): Router {
 		try {
 			logger.info('Listing MCP servers', { requestId: req.requestId });
 
-			const clients = agent.getMcpClients();
-			const failedConnections = agent.getMcpFailedConnections();
-
-			const connectedServers = Array.from(clients.entries()).map(([name, _client]) => ({
-				name,
-				status: 'connected',
-				// You could add more client metadata here if available
-				connected: true,
-			}));
-
-			const failedServers = Object.entries(failedConnections).map(([name, error]) => ({
-				name,
-				status: 'failed',
-				error,
-				connected: false,
-			}));
+			// Use the new comprehensive method that includes all server data
+			const allServers = agent.getAllMcpServers();
+			
+			const connectedCount = allServers.filter(s => s.status === 'connected').length;
+			const failedCount = allServers.filter(s => s.status === 'error').length;
 
 			successResponse(
 				res,
 				{
-					connected: connectedServers,
-					failed: failedServers,
-					totalConnected: connectedServers.length,
-					totalFailed: failedServers.length,
+					servers: allServers,
+					totalConnected: connectedCount,
+					totalFailed: failedCount,
+					totalServers: allServers.length,
 				},
 				200,
 				req.requestId
@@ -136,12 +125,31 @@ export function createMcpRoutes(agent: MemAgent): Router {
 	 */
 	router.post('/servers', validateMcpServerConfig, async (req: Request, res: Response) => {
 		try {
-			const { name, ...config } = req.body;
+			const { name, transport, command, args, url, env, headers, timeout, connectionMode } = req.body;
 
 			logger.info('Connecting MCP server', {
 				requestId: req.requestId,
 				serverName: name,
+				serverType: transport,
 			});
+
+			// Construct proper MCP server config based on transport type
+			let config: any = {
+				type: transport, // Map transport back to type for MCP config
+				timeout: timeout || 30000,
+				connectionMode: connectionMode || 'lenient',
+				enabled: true,
+			};
+
+			// Add type-specific fields
+			if (transport === 'stdio') {
+				config.command = command;
+				config.args = args || [];
+				config.env = env || {};
+			} else if (transport === 'sse' || transport === 'streamable-http') {
+				config.url = url;
+				config.headers = headers || {};
+			}
 
 			await agent.connectMcpServer(name, config);
 

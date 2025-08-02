@@ -204,7 +204,7 @@ export function AddCustomServerModal({ open, onOpenChange, onSubmit }: AddCustom
         tags: parseCommaSeparated(tagsInput),
         isInstalled: false,
         isOfficial: false,
-        lastUpdated: new Date().toISOString(),
+        lastUpdated: new Date(),
         requirements: {
           ...formData.requirements!,
           dependencies: parseCommaSeparated(dependenciesInput),
@@ -283,7 +283,6 @@ export function AddCustomServerModal({ open, onOpenChange, onSubmit }: AddCustom
                     <SelectItem value="productivity">Productivity</SelectItem>
                     <SelectItem value="development">Development</SelectItem>
                     <SelectItem value="research">Research</SelectItem>
-                    <SelectItem value="creative">Creative</SelectItem>
                     <SelectItem value="data">Data</SelectItem>
                     <SelectItem value="communication">Communication</SelectItem>
                     <SelectItem value="custom">Custom</SelectItem>

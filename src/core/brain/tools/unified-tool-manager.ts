@@ -641,14 +641,19 @@ export class UnifiedToolManager {
 	 * Format tools for OpenAI/OpenRouter (function calling format)
 	 */
 	private formatToolsForOpenAI(tools: CombinedToolSet): any[] {
-		return Object.entries(tools).map(([name, tool]) => ({
-			type: 'function',
-			function: {
-				name,
-				description: tool.description,
-				parameters: tool.parameters,
-			},
-		}));
+		return Object.entries(tools).map(([name, tool]) => {
+			// Sanitize tool name to match OpenAI pattern ^[a-zA-Z0-9_-]+
+			const sanitizedName = this.sanitizeToolNameForOpenAI(name);
+			
+			return {
+				type: 'function',
+				function: {
+					name: sanitizedName,
+					description: tool.description,
+					parameters: tool.parameters,
+				},
+			};
+		});
 	}
 
 	/**
@@ -674,5 +679,27 @@ export class UnifiedToolManager {
 				parameters: tool.parameters,
 			},
 		}));
+	}
+
+	/**
+	 * Sanitize tool name to match OpenAI pattern requirements
+	 * OpenAI requires tool names to match ^[a-zA-Z0-9_-]+
+	 */
+	private sanitizeToolNameForOpenAI(toolName: string): string {
+		// Replace invalid characters with underscores
+		// OpenAI pattern: ^[a-zA-Z0-9_-]+
+		const sanitized = toolName.replace(/[^a-zA-Z0-9_-]/g, '_');
+		
+		// Ensure the name doesn't start with a number (good practice)
+		if (/^[0-9]/.test(sanitized)) {
+			return `tool_${sanitized}`;
+		}
+		
+		// Ensure the name is not empty after sanitization
+		if (!sanitized || sanitized.length === 0) {
+			return 'unknown_tool';
+		}
+		
+		return sanitized;
 	}
 }

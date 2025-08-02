@@ -5,7 +5,10 @@ export interface WebSocketMessage {
 	content?: string;
 	sessionId?: string;
 	stream?: boolean;
-	imageData?: string;
+	imageData?: {
+		base64: string;
+		mimeType: string;
+	};
 	fileData?: any;
 	eventTypes?: string[];
 }

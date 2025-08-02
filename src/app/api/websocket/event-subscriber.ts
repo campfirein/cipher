@@ -29,6 +29,16 @@ export class WebSocketEventSubscriber {
 
 		this.abortController = new AbortController();
 		const { signal } = this.abortController;
+		
+		// Set higher max listeners limit to prevent memory leak warnings
+		// Note: AbortSignal doesn't have setMaxListeners, but we can set it on the AbortController
+		try {
+			if ('setMaxListeners' in this.abortController && typeof this.abortController.setMaxListeners === 'function') {
+				this.abortController.setMaxListeners(100);
+			}
+		} catch (error) {
+			// Ignore if setMaxListeners is not available
+		}
 
 		logger.info('Starting WebSocket event subscription');
 

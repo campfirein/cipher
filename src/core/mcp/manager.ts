@@ -607,6 +607,62 @@ export class MCPManager implements IMCPManager {
 	}
 
 	/**
+	 * Get all servers with their connection status and configuration
+	 */
+	getAllServers(): Array<{
+		id: string;
+		name: string;
+		status: 'connected' | 'error' | 'disconnected';
+		config: any;
+		lastSeen?: number;
+		failureCount?: number;
+		error?: string;
+	}> {
+		const servers: Array<{
+			id: string;
+			name: string;
+			status: 'connected' | 'error' | 'disconnected';
+			config: any;
+			lastSeen?: number;
+			failureCount?: number;
+			error?: string;
+		}> = [];
+
+		// Add connected servers
+		for (const [name, entry] of this.clients.entries()) {
+			servers.push({
+				id: name,
+				name: name,
+				status: entry.connected ? 'connected' : 'disconnected',
+				config: {
+					type: entry.config.type || 'stdio',
+					...entry.config
+				},
+				lastSeen: entry.lastSeen,
+				failureCount: entry.failureCount
+			});
+		}
+
+		// Add failed servers that aren't in the clients registry
+		for (const [name, error] of Object.entries(this.failedConnections)) {
+			// Only add if not already in the clients list
+			if (!this.clients.has(name)) {
+				servers.push({
+					id: name,
+					name: name,
+					status: 'error',
+					config: {
+						type: 'stdio' // Default, since we don't have the original config
+					},
+					error: error
+				});
+			}
+		}
+
+		return servers;
+	}
+
+	/**
 	 * Get errors from failed connections.
 	 */
 	getFailedConnections(): { [key: string]: string } {

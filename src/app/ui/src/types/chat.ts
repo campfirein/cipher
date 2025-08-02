@@ -6,7 +6,6 @@ export interface ChatState {
 	isServerRegistryOpen: boolean;
 	isServersPanelOpen: boolean;
 	isSessionsPanelOpen: boolean;
-	isSearchOpen: boolean;
 	isExportOpen: boolean;
 
 	// Export functionality
@@ -30,7 +29,6 @@ export interface ModalStates {
 	isServerRegistryOpen: boolean;
 	isServersPanelOpen: boolean;
 	isSessionsPanelOpen: boolean;
-	isSearchOpen: boolean;
 	isExportOpen: boolean;
 	showShortcuts: boolean;
 	isDeleteDialogOpen: boolean;

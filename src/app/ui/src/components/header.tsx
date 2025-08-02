@@ -4,6 +4,7 @@ import * as React from "react"
 import { Badge } from "@/components/ui/badge"
 import { HeaderProps } from "@/types/chat"
 import { ActionBar } from "./action-bar"
+import { LlmModelDisplay } from "./llm-model-display"
 
 export function Header({ 
   currentSessionId, 
@@ -25,13 +26,16 @@ export function Header({
             <h1 className="text-base font-semibold tracking-tight">Cipher</h1>
           </div>
 
-          {currentSessionId && !isWelcomeState && (
-            <div className="flex items-center space-x-2">
+          <div className="flex items-center space-x-3">
+            {currentSessionId && !isWelcomeState && (
               <Badge variant="outline" className="text-xs">
                 {currentSessionId}
               </Badge>
-            </div>
-          )}
+            )}
+            
+            {/* LLM Model Display - Always show */}
+            <LlmModelDisplay />
+          </div>
         </div>
 
         <ActionBar 

@@ -17,7 +17,7 @@ export function WelcomeScreen({ quickActions }: WelcomeScreenProps) {
               Hello, Welcome to Cipher!
             </h2>
             <p className="text-muted-foreground text-base text-center">
-              Ask anything or connect new tools to expand what you can do.
+              Create memories, ask anything or connect new tools to expand what you can do.
             </p>
           </div>
         </div>
@@ -26,10 +26,6 @@ export function WelcomeScreen({ quickActions }: WelcomeScreenProps) {
           {quickActions.map((action, index) => (
             <QuickActionCard key={index} action={action} />
           ))}
-        </div>
-
-        <div className="text-xs text-muted-foreground space-y-1 text-center">
-          <p>💡 Try <kbd className="px-1.5 py-0.5 bg-muted rounded text-xs">⌘K</kbd> for new chat, <kbd className="px-1.5 py-0.5 bg-muted rounded text-xs">⌘J</kbd> for tools</p>
         </div>
       </div>
     </div>

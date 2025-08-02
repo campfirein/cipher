@@ -3,7 +3,14 @@
 import * as React from "react"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { AddCustomServerModal } from "@/components/modals"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+// import { AddCustomServerModal } from "@/components/modals" // Temporarily disabled
+import { ServerRegistryBrowser } from "@/components/server-registry-browser"
 import { 
   Server,
   Plus,
@@ -15,7 +22,9 @@ import {
   Loader2,
   AlertCircle,
   RefreshCw,
-  Zap
+  Zap,
+  Package,
+  Settings
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { McpServer, McpTool, ServerRegistryEntryForPanel } from "@/types/server-registry"
@@ -44,6 +53,7 @@ export function ServersPanel({
   const [isToolsExpanded, setIsToolsExpanded] = React.useState(false)
   const [isDeletingServer, setIsDeletingServer] = React.useState<string | null>(null)
   const [isRegistryModalOpen, setIsRegistryModalOpen] = React.useState(false)
+  const [isRegistryBrowserOpen, setIsRegistryBrowserOpen] = React.useState(false)
 
   // Error handling logic
   const handleError = React.useCallback((message: string, area: 'servers' | 'tools' | 'delete') => {
@@ -69,7 +79,7 @@ export function ServersPanel({
       }
 
       const data = await response.json()
-      const fetchedServers = data.servers || []
+      const fetchedServers = data.data?.servers || data.servers || []
       setServers(fetchedServers)
 
       if (fetchedServers.length > 0) {
@@ -98,6 +108,8 @@ export function ServersPanel({
     setTools([])
     setToolsError(null)
 
+    console.log(`🔧 Fetching tools for server: ${serverId}`, { server, status: server?.status })
+
     if (!server || server.status !== 'connected') {
       console.warn(`Server "${server?.name || serverId}" is not connected or not found. Cannot fetch tools.`)
       return
@@ -105,18 +117,27 @@ export function ServersPanel({
 
     setIsLoadingTools(true)
     try {
-      const response = await fetch(`/api/mcp/servers/${serverId}/tools`, signal ? { signal } : {})
+      const encodedServerId = encodeURIComponent(serverId)
+      const url = `/api/mcp/servers/${encodedServerId}/tools`
+      console.log(`🌐 Fetching tools from: ${url} (original serverId: "${serverId}")`)
+      const response = await fetch(url, signal ? { signal } : {})
+      console.log(`📡 Tools API response status:`, response.status, response.statusText)
+      
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ error: `Failed to fetch tools for ${server.name}` }))
         throw new Error(errorData.message || errorData.error || `Tool List (${server.name}): ${response.statusText}`)
       }
 
       const data = await response.json()
+      console.log(`📊 Tools API response for ${serverId}:`, data)
+      const tools = data.data?.tools || data.tools || []
+      console.log(`🔨 Extracted ${tools.length} tools for ${serverId}:`, tools.map((t: McpTool) => t.name))
+      
       if (!signal?.aborted) {
-        setTools(data.tools || [])
+        setTools(tools)
       }
 
-      if (!data.tools || data.tools.length === 0) {
+      if (tools.length === 0) {
         console.log(`No tools found for server "${server.name}".`)
       }
     } catch (err: any) {
@@ -135,8 +156,9 @@ export function ServersPanel({
     setIsRegistryModalOpen(false)
 
     // Prepare the config for the connect API
-    const config = {
-      type: entry.config.type,
+    const payload = {
+      name: entry.name,
+      transport: entry.config.type, // Map 'type' to 'transport' as expected by validation
       command: entry.config.command,
       args: entry.config.args || [],
       url: entry.config.url,
@@ -146,10 +168,11 @@ export function ServersPanel({
     }
 
     try {
+      console.log(`🚀 Installing server: ${entry.name}`)
       const res = await fetch('/api/connect-server', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: entry.name, config }),
+        body: JSON.stringify(payload),
       })
 
       const result = await res.json()
@@ -157,10 +180,20 @@ export function ServersPanel({
         throw new Error(result.error || `Server returned status ${res.status}`)
       }
 
+      console.log(`✅ Server ${entry.name} installed successfully`)
+      
       // Refresh the servers list
       await fetchServers()
+      
+      // Auto-select the newly installed server for immediate tools display
+      setSelectedServerId(entry.name)
+      console.log(`🎯 Auto-selected newly installed server: ${entry.name}`)
+      
     } catch (error: any) {
+      console.error(`❌ Failed to install server ${entry.name}:`, error)
       handleError(error.message || 'Failed to install server', 'servers')
+      // Re-throw error so ServerRegistryBrowser doesn't mark it as installed
+      throw error
     }
   }
 
@@ -177,7 +210,8 @@ export function ServersPanel({
     setServerError(null)
 
     try {
-      const response = await fetch(`/api/mcp/servers/${serverId}`, { method: 'DELETE' })
+      const encodedServerId = encodeURIComponent(serverId)
+      const response = await fetch(`/api/mcp/servers/${encodedServerId}`, { method: 'DELETE' })
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ error: 'Failed to remove server' }))
         throw new Error(errorData.message || errorData.error || `Server Removal: ${response.statusText}`)
@@ -188,6 +222,11 @@ export function ServersPanel({
         setSelectedServerId(null)
         setTools([])
       }
+
+      // Notify other components that a server was uninstalled
+      window.dispatchEvent(new CustomEvent('mcp-server-uninstalled', { 
+        detail: { serverId, serverName: server.name }
+      }))
 
       await fetchServers() // Refresh server list
     } catch (err: any) {
@@ -210,6 +249,7 @@ export function ServersPanel({
   }, [isOpen, fetchServers])
 
   React.useEffect(() => {
+    console.log(`🔄 selectedServerId changed to: ${selectedServerId}`)
     if (!selectedServerId) return
     const controller = new AbortController()
     handleServerSelect(selectedServerId, controller.signal)
@@ -225,8 +265,36 @@ export function ServersPanel({
         return 'bg-green-500'
       case 'error':
         return 'bg-red-500'
+      case 'disconnected':
+        return 'bg-gray-500'
       default:
         return 'bg-yellow-500'
+    }
+  }
+
+  const getServerStatusText = (status: string) => {
+    switch (status) {
+      case 'connected':
+        return 'Connected'
+      case 'error':
+        return 'Error'
+      case 'disconnected':
+        return 'Disconnected'
+      default:
+        return 'Unknown'
+    }
+  }
+
+  const getServerTypeIcon = (type: string) => {
+    switch (type) {
+      case 'stdio':
+        return <Zap className="w-3 h-3" />
+      case 'sse':
+        return <Package className="w-3 h-3" />
+      case 'streamable-http':
+        return <Settings className="w-3 h-3" />
+      default:
+        return <Server className="w-3 h-3" />
     }
   }
 
@@ -238,10 +306,11 @@ export function ServersPanel({
   )
 
   // Tool parameters display
-  const ToolParametersDisplay = ({ tool }: { tool: McpTool }) => (
-    tool.inputSchema?.properties && (
+  const ToolParametersDisplay = ({ tool }: { tool: McpTool }) => {
+    const properties = tool.parameters?.properties || tool.inputSchema?.properties
+    return properties ? (
       <div className="flex flex-wrap gap-1 mt-2">
-        {Object.keys(tool.inputSchema.properties).slice(0, 3).map((param) => (
+        {Object.keys(properties).slice(0, 3).map((param) => (
           <span
             key={param}
             className="inline-flex items-center px-2 py-1 rounded-md bg-muted text-xs font-medium"
@@ -249,14 +318,14 @@ export function ServersPanel({
             {param}
           </span>
         ))}
-        {Object.keys(tool.inputSchema.properties).length > 3 && (
+        {Object.keys(properties).length > 3 && (
           <span className="text-xs text-muted-foreground">
-            +{Object.keys(tool.inputSchema.properties).length - 3} more
+            +{Object.keys(properties).length - 3} more
           </span>
         )}
       </div>
-    )
-  )
+    ) : null
+  }
 
   // Variant-based styling
   const getVariantClasses = (variant: 'overlay' | 'inline', isOpen: boolean) => {
@@ -312,14 +381,27 @@ export function ServersPanel({
         <div className="p-4">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-medium">Connected Servers ({servers.length})</h3>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setIsRegistryModalOpen(true)}
-            >
-              <Plus className="w-4 h-4 mr-1" />
-              Add
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm">
+                  <Plus className="w-4 h-4 mr-1" />
+                  Add
+                  <ChevronDown className="w-3 h-3 ml-1" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => setIsRegistryBrowserOpen(true)}>
+                  <Package className="w-4 h-4 mr-2" />
+                  Browse Registry
+                </DropdownMenuItem>
+                {/* Temporarily hidden - will develop later
+                <DropdownMenuItem onClick={() => setIsRegistryModalOpen(true)}>
+                  <Settings className="w-4 h-4 mr-2" />
+                  Custom Server
+                </DropdownMenuItem>
+                */}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
 
           {isLoadingServers ? (
@@ -345,16 +427,37 @@ export function ServersPanel({
                         ? "bg-accent border-accent-foreground/20"
                         : "bg-card hover:bg-muted/50"
                     )}
-                    onClick={() => setSelectedServerId(server.id)}
+                    onClick={() => {
+                      console.log(`🖱️ Server clicked: ${server.id} (${server.name})`)
+                      setSelectedServerId(server.id)
+                    }}
                   >
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3 min-w-0">
                         <ServerStatusIndicator status={server.status} />
                         <div className="min-w-0 flex-1">
-                          <p className="text-sm font-medium truncate">{server.name}</p>
-                          <p className="text-xs text-muted-foreground capitalize">
-                            {server.status} • {server.config?.type || 'unknown'}
-                          </p>
+                          <div className="flex items-center gap-2 mb-1">
+                            <p className="text-sm font-medium truncate">{server.name}</p>
+                            <div className="flex items-center gap-1">
+                              {getServerTypeIcon(server.config?.type || 'stdio')}
+                              <span className="text-xs text-muted-foreground uppercase font-mono">
+                                {server.config?.type || 'stdio'}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className={cn(
+                              "text-xs px-1.5 py-0.5 rounded text-white font-medium",
+                              getServerStatusColor(server.status)
+                            )}>
+                              {getServerStatusText(server.status)}
+                            </span>
+                            {server.lastSeen && (
+                              <span className="text-xs text-muted-foreground">
+                                Last seen: {new Date(server.lastSeen).toLocaleTimeString()}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
                       <Button
@@ -444,7 +547,22 @@ export function ServersPanel({
         )}
       </div>
 
-      {/* Add Server Modal */}
+      {/* Server Registry Browser */}
+      <ServerRegistryBrowser
+        open={isRegistryBrowserOpen}
+        onOpenChange={setIsRegistryBrowserOpen}
+        onInstall={async (entry, customConfig) => {
+          // Convert ServerRegistryEntry to ServerRegistryEntryForPanel and install
+          const panelEntry: ServerRegistryEntryForPanel = {
+            id: entry.id,
+            name: entry.name,
+            config: customConfig || entry.config
+          }
+          await handleInstallServer(panelEntry)
+        }}
+      />
+
+      {/* Add Server Modal - Temporarily hidden for development
       <AddCustomServerModal
         open={isRegistryModalOpen}
         onOpenChange={setIsRegistryModalOpen}
@@ -458,6 +576,7 @@ export function ServersPanel({
           await handleInstallServer(panelEntry)
         }}
       />
+      */}
     </div>
   )
 }

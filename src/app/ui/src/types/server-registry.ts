@@ -2,7 +2,7 @@ export interface ServerRegistryEntry {
 	id: string;
 	name: string;
 	description: string;
-	category: 'productivity' | 'development' | 'custom';
+	category: 'productivity' | 'development' | 'research' | 'data' | 'communication' | 'custom';
 	icon?: string;
 	version?: string;
 	author?: string;
@@ -19,7 +19,8 @@ export interface ServerRegistryEntry {
 	tags?: string[];
 	isInstalled: boolean;
 	isOfficial: boolean;
-	lastUpdated: string;
+	popularity?: number;
+	lastUpdated: Date;
 	requirements?: {
 		platform: 'win32' | 'darwin' | 'linux' | 'all';
 		node?: string;
@@ -35,23 +36,14 @@ export type ServerPlatform = NonNullable<ServerRegistryEntry['requirements']>['p
 export interface ServerRegistryFilter {
 	category?: string;
 	search?: string;
-	installedOnly?: boolean;
-	officialOnly?: boolean;
+	installed?: boolean;
+	official?: boolean;
 	tags?: string[];
 }
 
 export interface UseServerRegistryOptions {
 	autoLoad?: boolean;
 	initialFilter?: ServerRegistryFilter;
-}
-
-export interface ServerRegistryService {
-	getEntries(filter?: ServerRegistryFilter): Promise<ServerRegistryEntry[]>;
-	setInstalled(entryId: string, installed: boolean): Promise<void>;
-	addCustomEntry(
-		entry: Omit<ServerRegistryEntry, 'id' | 'isOfficial' | 'lastUpdated'>
-	): Promise<ServerRegistryEntry>;
-	removeEntry(entryId: string): Promise<void>;
 }
 
 export interface McpServerConfig {
@@ -74,23 +66,6 @@ export interface HeaderPair {
 	id: string;
 }
 
-export interface SearchResult {
-	sessionId: string;
-	message: {
-		role: 'user' | 'assistant' | 'system' | 'tool';
-		content: string | null;
-	};
-	matchedText: string;
-	context: string;
-	messageIndex: number;
-}
-
-export interface SearchResponse {
-	results: SearchResult[];
-	total: number;
-	hasMore: boolean;
-	query: string;
-}
 
 export interface FileData {
 	base64: string;
@@ -162,25 +137,6 @@ export interface Message {
 	toolExecutionId?: string;
 }
 
-export interface SessionSearchResult {
-	sessionId: string;
-	matchCount: number;
-	firstMatch: SearchResult;
-	metadata: {
-		createdAt: number;
-		lastActivity: number;
-		messageCount: number;
-	};
-}
-
-export interface SessionSearchResponse {
-	results: SessionSearchResult[];
-	total: number;
-	hasMore: boolean;
-	query: string;
-}
-
-export type SearchMode = 'messages' | 'sessions';
 
 export interface McpServer {
 	id: string;
@@ -195,11 +151,19 @@ export interface McpServer {
 		headers?: Record<string, string>;
 		timeout?: number;
 	};
+	lastSeen?: number;
+	failureCount?: number;
+	error?: string;
 }
 
 export interface McpTool {
 	name: string;
 	description?: string;
+	parameters?: {
+		type?: string;
+		properties?: Record<string, any>;
+		required?: string[];
+	};
 	inputSchema?: {
 		properties?: Record<string, any>;
 	};

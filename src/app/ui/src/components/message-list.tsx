@@ -13,7 +13,6 @@ import {
   Loader2,
   AlertTriangle,
   CheckCircle,
-  FileAudio,
   FileText
 } from "lucide-react"
 import Image from "next/image"
@@ -252,26 +251,6 @@ export function MessageList({ messages, className, maxHeight = "h-full" }: Messa
     return renderGenericResult(toolResult)
   }
 
-  // Audio file rendering
-  const renderAudioFile = (fileData: any, key: string) => {
-    const src = `data:${fileData.mimeType};base64,${fileData.base64 || fileData.data}`
-
-    return (
-      <div key={key} className="my-2 flex items-center gap-2 p-3 rounded-lg border border-border bg-muted/50">
-        <FileAudio className="h-5 w-5 text-muted-foreground" />
-        <audio 
-          controls 
-          src={src} 
-          className="flex-1 h-8"
-        />
-        {fileData.filename && (
-          <span className="text-sm text-muted-foreground truncate max-w-[120px]">
-            {fileData.filename}
-          </span>
-        )}
-      </div>
-    )
-  }
 
   // Tool status indicators
   const getToolStatusIcon = (msg: Message, allMessages: Message[]) => {
@@ -550,21 +529,6 @@ export function MessageList({ messages, className, maxHeight = "h-full" }: Messa
                         </div>
                       )}
 
-                      {/* File attachment */}
-                      {msg.fileData && (
-                        <div className="mt-2">
-                          {msg.fileData.mimeType?.startsWith('audio/') ? (
-                            renderAudioFile(msg.fileData, `audio-${msg.id}`)
-                          ) : (
-                            <div className="flex items-center gap-2 p-2 rounded border border-border bg-muted/50">
-                              <FileText className="h-4 w-4 text-muted-foreground" />
-                              <span className="text-sm text-muted-foreground">
-                                {msg.fileData.filename || 'File attachment'}
-                              </span>
-                            </div>
-                          )}
-                        </div>
-                      )}
 
                       {/* Tool details (expanded) */}
                       {isToolRelated && isExpanded && (

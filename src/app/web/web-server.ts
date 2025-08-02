@@ -75,6 +75,8 @@ export class WebServerManager {
 			HOSTNAME: this.config.host || 'localhost',
 			...(this.config.apiUrl && { API_URL: this.config.apiUrl }),
 			...(this.config.wsUrl && { NEXT_PUBLIC_WS_URL: this.config.wsUrl }),
+			// Extract port from API URL for Next.js rewrite rules
+			...(this.config.apiUrl && { API_PORT: new URL(this.config.apiUrl).port || '3001' }),
 		};
 
 		this.process = spawn('node', [serverPath], {
@@ -102,6 +104,8 @@ export class WebServerManager {
 			PORT: this.config.port.toString(),
 			...(this.config.apiUrl && { API_URL: this.config.apiUrl }),
 			...(this.config.wsUrl && { NEXT_PUBLIC_WS_URL: this.config.wsUrl }),
+			// Extract port from API URL for Next.js rewrite rules
+			...(this.config.apiUrl && { API_PORT: new URL(this.config.apiUrl).port || '3001' }),
 		};
 
 		// Start development server with pnpm if available, otherwise npm

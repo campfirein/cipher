@@ -20,7 +20,7 @@ import {
   Keyboard
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { SearchResult, SearchResponse } from "@/types/server-registry"
+import { SearchResult, SearchResponse } from "@/types/search"
 
 interface GlobalSearchModalProps {
   isOpen: boolean
@@ -189,9 +189,11 @@ export function GlobalSearchModal({ isOpen, onClose, onNavigateToSession }: Glob
 
   const showEmptyState = !searchQuery.trim() && !isLoading
   const showNoResults = searchQuery.trim() && results.length === 0 && !isLoading && !error
-
+  
   return (
-    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+    <Dialog open={isOpen} onOpenChange={(open) => {
+      !open && onClose();
+    }}>
       <DialogContent className="max-w-2xl max-h-[80vh] p-0">
         <DialogHeader className="px-6 pt-6 pb-4">
           <DialogTitle className="flex items-center gap-2">

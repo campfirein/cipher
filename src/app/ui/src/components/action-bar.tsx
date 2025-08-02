@@ -3,18 +3,16 @@
 import * as React from "react"
 import { Button } from "@/components/ui/button"
 import { 
-  Search, 
+  // Search,
   MessageSquare, 
-  Settings, 
-  Download,
-  Keyboard,
+  Package,
   X 
 } from "lucide-react"
 import { ActionBarProps } from "@/types/chat"
 import { cn } from "@/lib/utils"
 
 export function ActionBar({ 
-  onToggleSearch, 
+  onToggleSearch,
   onToggleSessions, 
   onToggleServers,
   isSessionsPanelOpen,
@@ -22,8 +20,8 @@ export function ActionBar({
 }: ActionBarProps) {
   return (
     <div className="flex items-center space-x-2">
-      {/* Search button */}
-      <Button
+      {/* Search button - Temporarily disabled */}
+      {/* <Button
         variant="ghost"
         size="sm"
         onClick={onToggleSearch}
@@ -31,7 +29,7 @@ export function ActionBar({
         title="Search (⌘⇧S)"
       >
         <Search className="w-4 h-4" />
-      </Button>
+      </Button> */}
 
       {/* Sessions panel toggle */}
       <Button
@@ -65,48 +63,10 @@ export function ActionBar({
         {isServersPanelOpen ? (
           <X className="w-4 h-4" />
         ) : (
-          <Settings className="w-4 h-4" />
+          <Package className="w-4 h-4" />
         )}
       </Button>
 
-      {/* Export button */}
-      <Button
-        variant="ghost"
-        size="sm"
-        onClick={() => {
-          // This will be handled by keyboard shortcut or passed as prop
-          const event = new KeyboardEvent('keydown', {
-            key: 'e',
-            shiftKey: true,
-            metaKey: navigator.platform.toUpperCase().indexOf('MAC') >= 0,
-            ctrlKey: navigator.platform.toUpperCase().indexOf('MAC') < 0
-          });
-          window.dispatchEvent(event);
-        }}
-        className="h-8 w-8 p-0"
-        title="Export Config (⌘⇧E)"
-      >
-        <Download className="w-4 h-4" />
-      </Button>
-
-      {/* Shortcuts button */}
-      <Button
-        variant="ghost"
-        size="sm"
-        onClick={() => {
-          // This will be handled by keyboard shortcut
-          const event = new KeyboardEvent('keydown', {
-            key: '/',
-            metaKey: navigator.platform.toUpperCase().indexOf('MAC') >= 0,
-            ctrlKey: navigator.platform.toUpperCase().indexOf('MAC') < 0
-          });
-          window.dispatchEvent(event);
-        }}
-        className="h-8 w-8 p-0"
-        title="Shortcuts (⌘/)"
-      >
-        <Keyboard className="w-4 h-4" />
-      </Button>
     </div>
   );
 }

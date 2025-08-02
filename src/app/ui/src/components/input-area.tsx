@@ -3,30 +3,23 @@
 import * as React from "react"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+// import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select" // Temporarily disabled
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { 
   Send, 
-  Paperclip, 
   Image as ImageIcon, 
-  FileText, 
-  Mic, 
-  MicOff, 
   X, 
-  Play, 
-  Pause,
   AlertCircle,
-  Loader2
+  // Loader2 // Temporarily disabled
 } from "lucide-react"
-import { cn } from "@/lib/utils"
-import { FileData, ImageData, Model } from "@/types/server-registry"
+import { ImageData, Model } from "@/types/server-registry"
 
 interface InputAreaProps {
-  onSend: (text: string, imageData?: ImageData, fileData?: FileData) => void
-  currentSessionId?: string
+  onSend: (text: string, imageData?: ImageData) => void
+  // currentSessionId?: string // Temporarily disabled - will be used for LLM switching later
   disabled?: boolean
   placeholder?: string
-  models?: Model[]
+  // models?: Model[] // Temporarily disabled - will be used for LLM switching later
 }
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024 // 50MB
@@ -39,29 +32,23 @@ const defaultModels: Model[] = [
 
 export function InputArea({ 
   onSend, 
-  currentSessionId, 
+  // currentSessionId, // Temporarily disabled
   disabled = false, 
   placeholder = "Type your message...",
-  models = defaultModels
+  // models = defaultModels // Temporarily disabled
 }: InputAreaProps) {
   // State management
   const [text, setText] = React.useState('')
   const [imageData, setImageData] = React.useState<ImageData | null>(null)
-  const [fileData, setFileData] = React.useState<FileData | null>(null)
-  const [isRecording, setIsRecording] = React.useState(false)
-  const [currentModel, setCurrentModel] = React.useState('Loading...')
-  const [isLoadingModel, setIsLoadingModel] = React.useState(false)
-  const [modelSwitchError, setModelSwitchError] = React.useState<string | null>(null)
+  // Temporarily disabled - model selector will be developed later
+  // const [currentModel, setCurrentModel] = React.useState('Loading...')
+  // const [isLoadingModel, setIsLoadingModel] = React.useState(false)
+  // const [modelSwitchError, setModelSwitchError] = React.useState<string | null>(null)
   const [fileUploadError, setFileUploadError] = React.useState<string | null>(null)
-  const [audioPlaying, setAudioPlaying] = React.useState(false)
 
-  // Refs for file inputs and media recording
+  // Refs for file inputs
   const textareaRef = React.useRef<HTMLTextAreaElement>(null)
   const fileInputRef = React.useRef<HTMLInputElement>(null)
-  const pdfInputRef = React.useRef<HTMLInputElement>(null)
-  const audioInputRef = React.useRef<HTMLInputElement>(null)
-  const mediaRecorderRef = React.useRef<MediaRecorder | null>(null)
-  const audioRef = React.useRef<HTMLAudioElement>(null)
 
   // Auto-resizing textarea logic
   const adjustTextareaHeight = React.useCallback(() => {
@@ -78,21 +65,6 @@ export function InputArea({
     adjustTextareaHeight()
   }, [text, adjustTextareaHeight])
 
-  // MIME type to extension mapping
-  const getExtensionFromMime = (mime: string): string => {
-    const mimeToExt: Record<string, string> = {
-      'audio/mp3': 'mp3',
-      'audio/mpeg': 'mp3',
-      'audio/wav': 'wav',
-      'audio/x-wav': 'wav',
-      'audio/wave': 'wav',
-      'audio/webm': 'webm',
-      'audio/ogg': 'ogg',
-      'audio/m4a': 'm4a',
-      'audio/aac': 'aac'
-    }
-    return mimeToExt[mime] || mime.split('/')[1] || 'webm'
-  }
 
   // Error handling with auto-clear
   const showUserError = (message: string) => {
@@ -102,17 +74,17 @@ export function InputArea({
 
   // Clear errors when user starts typing
   React.useEffect(() => {
-    if (text && (modelSwitchError || fileUploadError)) {
-      setModelSwitchError(null)
+    if (text && fileUploadError) {
+      // setModelSwitchError(null) // Temporarily disabled
       setFileUploadError(null)
     }
-  }, [text, modelSwitchError, fileUploadError])
+  }, [text, fileUploadError]) // Removed modelSwitchError from dependencies
 
   // Generic file processing
   const processFile = (
     file: File,
     validationFn: (file: File) => { isValid: boolean; error?: string },
-    callback: (fileData: FileData | ImageData) => void
+    callback: (imageData: ImageData) => void
   ) => {
     // File size validation
     if (file.size > MAX_FILE_SIZE) {
@@ -135,9 +107,8 @@ export function InputArea({
 
         callback({
           base64,
-          mimeType: file.type,
-          ...(file.name && { filename: file.name })
-        } as FileData)
+          mimeType: file.type
+        } as ImageData)
 
         setFileUploadError(null)
       } catch (error) {
@@ -159,22 +130,7 @@ export function InputArea({
     }
   }
 
-  // PDF upload validation
-  const validatePDF = (file: File) => {
-    return {
-      isValid: file.type === 'application/pdf',
-      error: file.type === 'application/pdf' ? undefined : 'Please select a valid PDF file'
-    }
-  }
 
-  // Audio upload validation
-  const validateAudio = (file: File) => {
-    const validTypes = ['audio/mp3', 'audio/mpeg', 'audio/wav', 'audio/x-wav', 'audio/wave', 'audio/webm', 'audio/ogg', 'audio/m4a', 'audio/aac']
-    return {
-      isValid: validTypes.includes(file.type),
-      error: validTypes.includes(file.type) ? undefined : 'Please select a valid audio file'
-    }
-  }
 
   // File upload handlers
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -182,83 +138,16 @@ export function InputArea({
     if (file) {
       processFile(file, validateImage, (data) => {
         setImageData(data as ImageData)
-        setFileData(null) // Clear other attachments
       })
     }
     e.target.value = '' // Reset input
   }
 
-  const handlePDFUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (file) {
-      processFile(file, validatePDF, (data) => {
-        setFileData(data as FileData)
-        setImageData(null) // Clear other attachments
-      })
-    }
-    e.target.value = '' // Reset input
-  }
 
-  const handleAudioUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (file) {
-      processFile(file, validateAudio, (data) => {
-        setFileData(data as FileData)
-        setImageData(null) // Clear other attachments
-      })
-    }
-    e.target.value = '' // Reset input
-  }
 
-  // Audio recording logic
-  const startRecording = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      const mediaRecorder = new MediaRecorder(stream)
-      mediaRecorderRef.current = mediaRecorder
-      const chunks: BlobPart[] = []
 
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) chunks.push(event.data)
-      }
-
-      mediaRecorder.onstop = () => {
-        const blob = new Blob(chunks, { type: mediaRecorder.mimeType })
-        const reader = new FileReader()
-        reader.onloadend = () => {
-          const result = reader.result as string
-          const commaIndex = result.indexOf(',')
-          const base64 = result.substring(commaIndex + 1)
-
-          const mimeType = mediaRecorder.mimeType || 'audio/webm'
-          const extension = getExtensionFromMime(mimeType)
-
-          setFileData({
-            base64,
-            mimeType,
-            filename: `recording.${extension}`,
-          })
-          setImageData(null) // Clear other attachments
-        }
-        reader.readAsDataURL(blob)
-
-        // Clean up stream
-        stream.getTracks().forEach((track) => track.stop())
-      }
-
-      mediaRecorder.start()
-      setIsRecording(true)
-    } catch (error) {
-      showUserError('Failed to start audio recording. Please check microphone permissions.')
-    }
-  }
-
-  const stopRecording = () => {
-    mediaRecorderRef.current?.stop()
-    setIsRecording(false)
-  }
-
-  // Model switching logic
+  // Model switching logic - Temporarily disabled (will be developed later)
+  /*
   const handleModelSwitch = async (model: Model) => {
     setIsLoadingModel(true)
     setModelSwitchError(null)
@@ -291,8 +180,10 @@ export function InputArea({
       setIsLoadingModel(false)
     }
   }
+  */
 
-  // Current model fetching
+  // Current model fetching - Temporarily disabled (will be developed later)
+  /*
   React.useEffect(() => {
     const fetchCurrentModel = async () => {
       try {
@@ -326,19 +217,19 @@ export function InputArea({
 
     fetchCurrentModel()
   }, [currentSessionId, models])
+  */
 
   // Send handler logic
   const handleSend = () => {
     const trimmed = text.trim()
-    // Allow sending if we have text OR any attachment
-    if (!trimmed && !imageData && !fileData) return
+    // Allow sending if we have text OR image
+    if (!trimmed && !imageData) return
 
-    onSend(trimmed, imageData ?? undefined, fileData ?? undefined)
+    onSend(trimmed, imageData ?? undefined)
 
     // Reset state
     setText('')
     setImageData(null)
-    setFileData(null)
 
     // Reset textarea height
     if (textareaRef.current) {
@@ -354,20 +245,9 @@ export function InputArea({
     }
   }
 
-  // Audio playback controls
-  const toggleAudioPlayback = () => {
-    if (audioRef.current) {
-      if (audioPlaying) {
-        audioRef.current.pause()
-      } else {
-        audioRef.current.play()
-      }
-      setAudioPlaying(!audioPlaying)
-    }
-  }
 
-  const canSend = (text.trim() || imageData || fileData) && !disabled
-  const hasAttachments = imageData || fileData
+  const canSend = (text.trim() || imageData) && !disabled
+  const hasAttachments = imageData
 
   return (
     <div className="border rounded-lg bg-background">
@@ -379,34 +259,21 @@ export function InputArea({
         onChange={handleImageUpload}
         className="hidden"
       />
-      <input
-        ref={pdfInputRef}
-        type="file"
-        accept=".pdf"
-        onChange={handlePDFUpload}
-        className="hidden"
-      />
-      <input
-        ref={audioInputRef}
-        type="file"
-        accept="audio/*"
-        onChange={handleAudioUpload}
-        className="hidden"
-      />
 
       {/* Error messages */}
-      {(modelSwitchError || fileUploadError) && (
+      {fileUploadError && (
         <div className="p-3 border-b">
           <Alert variant="destructive">
             <AlertCircle className="h-4 w-4" />
             <AlertDescription>
-              {modelSwitchError || fileUploadError}
+              {fileUploadError}
             </AlertDescription>
           </Alert>
         </div>
       )}
 
-      {/* Model selector */}
+      {/* Model selector - Temporarily removed (will be developed later) */}
+      {/*
       <div className="flex items-center justify-between p-3 border-b">
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium">Model:</span>
@@ -440,6 +307,7 @@ export function InputArea({
           </Select>
         </div>
       </div>
+      */}
 
       {/* Attachment previews */}
       {hasAttachments && (
@@ -466,48 +334,6 @@ export function InputArea({
             </div>
           )}
 
-          {fileData && (
-            <div className="flex items-center gap-3 p-3 bg-muted rounded-lg">
-              <div className="w-12 h-12 bg-primary/10 rounded flex items-center justify-center">
-                {fileData.mimeType.startsWith('audio/') ? (
-                  <Mic className="w-6 h-6 text-primary" />
-                ) : (
-                  <FileText className="w-6 h-6 text-primary" />
-                )}
-              </div>
-              <div className="flex-1">
-                <p className="text-sm font-medium">{fileData.filename || 'File uploaded'}</p>
-                <p className="text-xs text-muted-foreground">{fileData.mimeType}</p>
-              </div>
-              
-              {fileData.mimeType.startsWith('audio/') && (
-                <div className="flex items-center gap-2">
-                  <audio
-                    ref={audioRef}
-                    src={`data:${fileData.mimeType};base64,${fileData.base64}`}
-                    onEnded={() => setAudioPlaying(false)}
-                  />
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={toggleAudioPlayback}
-                    disabled={disabled}
-                  >
-                    {audioPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-                  </Button>
-                </div>
-              )}
-              
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setFileData(null)}
-                disabled={disabled}
-              >
-                <X className="w-4 h-4" />
-              </Button>
-            </div>
-          )}
         </div>
       )}
 
@@ -535,40 +361,11 @@ export function InputArea({
               onClick={() => fileInputRef.current?.click()}
               disabled={disabled}
               className="shrink-0"
+              title="Upload image"
             >
               <ImageIcon className="w-4 h-4" />
             </Button>
             
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => pdfInputRef.current?.click()}
-              disabled={disabled}
-              className="shrink-0"
-            >
-              <FileText className="w-4 h-4" />
-            </Button>
-            
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => audioInputRef.current?.click()}
-              disabled={disabled}
-              className="shrink-0"
-            >
-              <Paperclip className="w-4 h-4" />
-            </Button>
-            
-            {/* Recording button */}
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={isRecording ? stopRecording : startRecording}
-              disabled={disabled}
-              className={cn("shrink-0", isRecording && "text-red-500")}
-            >
-              {isRecording ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
-            </Button>
             
             {/* Send button */}
             <Button

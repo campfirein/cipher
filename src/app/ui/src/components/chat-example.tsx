@@ -39,7 +39,7 @@ export function ChatExample({ wsUrl, sessionId }: ChatExampleProps) {
 
   const handleSendMessage = () => {
     if (inputValue.trim() && isConnected) {
-      sendMessage(inputValue.trim(), undefined, undefined, sessionId);
+      sendMessage(inputValue.trim(), undefined, sessionId);
       setInputValue("");
     }
   };

@@ -76,8 +76,8 @@ export class WebSocketMessageRouter {
 		connectionId: string,
 		message: WebSocketMessage
 	): Promise<void> {
-		if (!message.content) {
-			this.sendError(ws, 'Message content is required', connectionId);
+		if (!message.content && !message.imageData) {
+			this.sendError(ws, 'Message content or image data is required', connectionId);
 			return;
 		}
 
@@ -148,12 +148,12 @@ export class WebSocketMessageRouter {
 			// Convert imageData to the expected format if provided
 			const imageData = message.imageData
 				? {
-						image: message.imageData,
-						mimeType: 'image/jpeg', // Default mime type, could be detected from data
+						image: message.imageData.base64,
+						mimeType: message.imageData.mimeType,
 					}
 				: undefined;
 
-			await this.agent.run(message.content, imageData, sessionId, message.stream ?? true);
+			await this.agent.run(message.content || '', imageData, sessionId, message.stream ?? true);
 
 			logger.debug('WebSocket chat message processed successfully', {
 				connectionId,
@@ -396,7 +396,9 @@ export class WebSocketMessageRouter {
 		// Type-specific validation
 		switch (message.type) {
 			case 'message':
-				return typeof message.content === 'string' && message.content.length > 0;
+				return (typeof message.content === 'string' && message.content.length > 0) || 
+				       (message.imageData && typeof message.imageData === 'object' && 
+				        message.imageData.base64 && message.imageData.mimeType);
 			case 'reset':
 				return typeof message.sessionId === 'string';
 			case 'subscribe':

@@ -280,19 +280,26 @@ export class MemAgent {
 	} | null> {
 		this.ensureStarted();
 
-		// Check if session exists
-		const session = await this.sessionManager.getSession(sessionId);
-		if (!session) {
+		// Get the session metadata from the session manager
+		const sessionMetadata = await this.sessionManager.getSessionMetadata(sessionId);
+		if (!sessionMetadata) {
 			return null;
 		}
 
-		// For now, return basic metadata since SessionManager doesn't expose internal metadata
-		// This could be enhanced later to track more detailed session statistics
+		// Get message count from session history
+		let messageCount = 0;
+		try {
+			const history = await this.getSessionHistory(sessionId);
+			messageCount = history.length;
+		} catch (error) {
+			logger.warn(`Failed to get message count for session ${sessionId}:`, error);
+		}
+
 		return {
 			id: sessionId,
-			createdAt: Date.now(), // Placeholder - actual creation time would need to be tracked
-			lastActivity: Date.now(), // Placeholder - actual last activity would need to be tracked
-			messageCount: 0, // Placeholder - message count would need to be tracked
+			createdAt: sessionMetadata.createdAt,
+			lastActivity: sessionMetadata.lastActivity,
+			messageCount,
 		};
 	}
 
@@ -390,6 +397,19 @@ export class MemAgent {
 		return this.mcpManager.getFailedConnections();
 	}
 
+	public getAllMcpServers(): Array<{
+		id: string;
+		name: string;
+		status: 'connected' | 'error' | 'disconnected';
+		config: any;
+		lastSeen?: number;
+		failureCount?: number;
+		error?: string;
+	}> {
+		this.ensureStarted();
+		return this.mcpManager.getAllServers();
+	}
+
 	public getEffectiveConfig(sessionId?: string): Readonly<AgentConfig> {
 		this.ensureStarted();
 		return sessionId
@@ -400,4 +420,5 @@ export class MemAgent {
 	public getCurrentActiveSessionId() {
 		return this.currentActiveSessionId;
 	}
+
 }

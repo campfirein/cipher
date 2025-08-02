@@ -49,7 +49,6 @@ export function Chat({
     isServerRegistryOpen: false,
     isServersPanelOpen: false,
     isSessionsPanelOpen: false,
-    isSearchOpen: false,
     isExportOpen: false,
     showShortcuts: false,
     isDeleteDialogOpen: false,
@@ -245,10 +244,10 @@ export function Chat({
       icon: "🤔"
     },
     {
-      title: "Create Snake Game",
-      description: "Build a game and open it",
-      action: () => handleSend("Create a snake game in a new directory with HTML, CSS, and JavaScript, then open it in the browser for me to play."),
-      icon: "🐍"
+      title: "Remember",
+      description: "Save a coding pattern or concept",
+      action: () => handleSend("Help me store an important programming concept, design pattern, or coding technique that I can reference later. Please ask me what concept I'd like to store and then save it with proper examples and explanations."),
+      icon: "💡"
     },
     {
       title: "Connect new tools",
@@ -285,12 +284,6 @@ export function Chat({
         e.preventDefault();
         setModalStates(prev => ({ ...prev, isServersPanelOpen: !prev.isServersPanelOpen }));
       }
-      // Ctrl/Cmd + Shift + S to open search
-      if (cmdKey && e.shiftKey && e.key === 's') {
-        e.preventDefault();
-        e.stopPropagation();
-        setModalStates(prev => ({ ...prev, isSearchOpen: true }));
-      }
       // Ctrl/Cmd + L to open playground
       if (cmdKey && !e.shiftKey && e.key === 'l') {
         e.preventDefault();
@@ -326,7 +319,12 @@ export function Chat({
           body: JSON.stringify({}),
         });
         const data = await response.json();
-        await handleSessionChange(data.session.id);
+        // Handle the API response structure
+        const sessionId = data.data?.session?.id || data.session?.id;
+        if (!sessionId) {
+          throw new Error('Invalid session response format');
+        }
+        await handleSessionChange(sessionId);
       } catch (error) {
         console.error('Error creating new session:', error);
         setErrorMessage('Failed to create new session. Please try again.');
@@ -363,7 +361,6 @@ export function Chat({
   };
 
   // Toggle handlers
-  const toggleSearch = () => setModalStates(prev => ({ ...prev, isSearchOpen: !prev.isSearchOpen }));
   const toggleSessions = () => setModalStates(prev => ({ ...prev, isSessionsPanelOpen: !prev.isSessionsPanelOpen }));
   const toggleServers = () => setModalStates(prev => ({ ...prev, isServersPanelOpen: !prev.isServersPanelOpen }));
 
@@ -373,7 +370,7 @@ export function Chat({
         <Header
           currentSessionId={currentSessionId}
           isWelcomeState={isWelcomeState}
-          onToggleSearch={toggleSearch}
+          onToggleSearch={() => {}}
           onToggleSessions={toggleSessions}
           onToggleServers={toggleServers}
           isSessionsPanelOpen={isSessionsPanelOpen}

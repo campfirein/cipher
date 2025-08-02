@@ -30,7 +30,7 @@ import {
   SessionSearchResult, 
   SessionSearchResponse, 
   SearchMode 
-} from "@/types/server-registry"
+} from "@/types/search"
 
 interface SearchPanelProps {
   isOpen?: boolean
@@ -403,18 +403,85 @@ export function SearchPanel({
   )
 
   if (variant === 'modal') {
+    if (!isOpen) return null;
+    
     return (
-      <Dialog open={isOpen} onOpenChange={(open) => !open && onClose?.()}>
-        <DialogContent className="max-w-2xl max-h-[80vh]">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
+      <div 
+        style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.8)',
+          zIndex: 50,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '16px'
+        }}
+        onClick={(e) => {
+          if (e.target === e.currentTarget) {
+            onClose?.();
+          }
+        }}
+      >
+        <div 
+          style={{
+            backgroundColor: 'var(--color-background)',
+            border: '1px solid var(--color-border)',
+            borderRadius: '8px',
+            maxWidth: '672px',
+            width: '100%',
+            maxHeight: '80vh',
+            overflow: 'hidden',
+            display: 'flex',
+            flexDirection: 'column'
+          }}
+        >
+          {/* Header */}
+          <div style={{
+            padding: '24px 24px 0 24px',
+            borderBottom: '1px solid var(--color-border)'
+          }}>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              marginBottom: '16px'
+            }}>
               <Search className="w-5 h-5" />
-              Search Panel
-            </DialogTitle>
-          </DialogHeader>
-          <SearchContent />
-        </DialogContent>
-      </Dialog>
+              <h2 style={{
+                fontSize: '18px',
+                fontWeight: '600',
+                color: 'var(--color-foreground)'
+              }}>Search</h2>
+              <button
+                onClick={onClose}
+                style={{
+                  marginLeft: 'auto',
+                  background: 'none',
+                  border: 'none',
+                  color: 'var(--color-muted-foreground)',
+                  cursor: 'pointer',
+                  padding: '4px'
+                }}
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+          
+          {/* Content */}
+          <div style={{
+            padding: '24px',
+            overflow: 'auto',
+            flex: 1
+          }}>
+            <SearchContent />
+          </div>
+        </div>
+      </div>
     )
   }
 

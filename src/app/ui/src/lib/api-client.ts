@@ -158,25 +158,6 @@ export class ApiClient {
 		return this.request<SessionInfo>('/api/sessions/current');
 	}
 
-	// Search functionality
-	async searchMessages(query: string, options?: {
-		sessionId?: string;
-		role?: string;
-		limit?: number;
-		offset?: number;
-	}): Promise<ApiResponse<any>> {
-		const params = new URLSearchParams({ query });
-		if (options?.sessionId) params.append('sessionId', options.sessionId);
-		if (options?.role) params.append('role', options.role);
-		if (options?.limit) params.append('limit', options.limit.toString());
-		if (options?.offset) params.append('offset', options.offset.toString());
-
-		return this.request<any>(`/api/search/messages?${params}`);
-	}
-
-	async searchSessions(query: string): Promise<ApiResponse<any>> {
-		return this.request<any>(`/api/search/sessions?query=${encodeURIComponent(query)}`);
-	}
 
 	// Webhook management
 	async getWebhooks(): Promise<ApiResponse<any>> {

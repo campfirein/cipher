@@ -10,6 +10,8 @@ import { SessionPanel } from "./session-panel"
 import { ServersPanel } from "./servers-panel"
 import { MessageList } from "./message-list"
 import { InputArea } from "./input-area"
+// import { SearchPanel } from "./search-panel"
+// import { GlobalSearchModal } from "./modals/global-search-modal"
 import { QuickAction } from "@/types/chat"
 import { convertChatMessageToMessage } from "@/lib/chat-utils"
 
@@ -34,6 +36,8 @@ function ChatWithContextInner({ className }: ChatWithContextInnerProps) {
   // State management for UI panels
   const [isSessionsPanelOpen, setIsSessionsPanelOpen] = React.useState(false);
   const [isServersPanelOpen, setIsServersPanelOpen] = React.useState(false);
+  // const [isSearchPanelOpen, setIsSearchPanelOpen] = React.useState(false);
+  // const [isGlobalSearchOpen, setIsGlobalSearchOpen] = React.useState(false);
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
 
   // Quick actions configuration
@@ -45,10 +49,10 @@ function ChatWithContextInner({ className }: ChatWithContextInnerProps) {
       icon: "🤔"
     },
     {
-      title: "Create Snake Game",
-      description: "Build a game and open it",
-      action: () => sendMessage("Create a snake game in a new directory with HTML, CSS, and JavaScript, then open it in the browser for me to play."),
-      icon: "🐍"
+      title: "Remember",
+      description: "Save a coding pattern or concept",
+      action: () => sendMessage("Help me store an important programming concept, design pattern, or coding technique that I can reference later. Please ask me what concept I'd like to store and then save it with proper examples and explanations."),
+      icon: "💡"
     },
     {
       title: "Connect new tools",
@@ -90,14 +94,33 @@ function ChatWithContextInner({ className }: ChatWithContextInnerProps) {
   // Create new session handler
   const createNewSession = React.useCallback(async () => {
     try {
-      // This will trigger auto-session creation on next message
-      returnToWelcome();
+      // Create a new session via API
+      const response = await fetch('/api/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}), // Auto-generate session ID
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to create session');
+      }
+
+      const data = await response.json();
+      // Handle the API response structure
+      const sessionId = data.data?.session?.id || data.session?.id;
+      if (!sessionId) {
+        throw new Error('Invalid session response format');
+      }
+
+      // Switch to the new session
+      await switchSession(sessionId);
     } catch (error) {
       console.error('Error creating new session:', error);
       setErrorMessage('Failed to create new session. Please try again.');
       setTimeout(() => setErrorMessage(null), 5000);
     }
-  }, [returnToWelcome]);
+  }, [switchSession]);
 
   // Keyboard shortcuts
   React.useEffect(() => {
@@ -120,8 +143,18 @@ function ChatWithContextInner({ className }: ChatWithContextInnerProps) {
         e.preventDefault();
         setIsServersPanelOpen(prev => !prev);
       }
+      // Ctrl/Cmd + Shift + S to open global search
+      // if (cmdKey && e.shiftKey && e.key === 'S') {
+      //   e.preventDefault();
+      //   setIsGlobalSearchOpen(true);
+      // }
       // Escape to close panels
       if (e.key === 'Escape') {
+        // if (isGlobalSearchOpen) {
+        //   setIsGlobalSearchOpen(false);
+        // } else if (isSearchPanelOpen) {
+        //   setIsSearchPanelOpen(false);
+        // } else 
         if (isServersPanelOpen) {
           setIsServersPanelOpen(false);
         } else if (isSessionsPanelOpen) {
@@ -134,13 +167,27 @@ function ChatWithContextInner({ className }: ChatWithContextInnerProps) {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isSessionsPanelOpen, isServersPanelOpen, errorMessage, createNewSession]);
+  }, [isSessionsPanelOpen, isServersPanelOpen, /* isSearchPanelOpen, isGlobalSearchOpen, */ errorMessage, createNewSession]);
+
+  // Handle navigation to search results
+  // const handleNavigateToSession = React.useCallback(async (sessionId: string, messageIndex: number) => {
+  //   try {
+  //     // If it's a different session, switch to it
+  //     if (sessionId !== currentSessionId) {
+  //       await switchSession(sessionId);
+  //     }
+  //     // TODO: Implement scrolling to specific message index
+  //     // This would require extending the MessageList component
+  //     console.log(`Navigate to session ${sessionId}, message ${messageIndex}`);
+  //   } catch (error) {
+  //     console.error('Error navigating to search result:', error);
+  //     setErrorMessage('Failed to navigate to search result');
+  //     setTimeout(() => setErrorMessage(null), 5000);
+  //   }
+  // }, [currentSessionId, switchSession]);
 
   // Toggle handlers
-  const toggleSearch = () => {
-    // Implement search functionality
-    console.log('Search toggle - implement as needed');
-  };
+  // const toggleSearch = () => setIsSearchPanelOpen(prev => !prev);
   const toggleSessions = () => setIsSessionsPanelOpen(prev => !prev);
   const toggleServers = () => setIsServersPanelOpen(prev => !prev);
 
@@ -150,7 +197,7 @@ function ChatWithContextInner({ className }: ChatWithContextInnerProps) {
         <Header
           currentSessionId={currentSessionId}
           isWelcomeState={isWelcomeState}
-          onToggleSearch={toggleSearch}
+          onToggleSearch={() => {}}
           onToggleSessions={toggleSessions}
           onToggleServers={toggleServers}
           isSessionsPanelOpen={isSessionsPanelOpen}
@@ -193,6 +240,20 @@ function ChatWithContextInner({ className }: ChatWithContextInnerProps) {
           message={errorMessage}
           onDismiss={() => setErrorMessage(null)}
         />
+
+        {/* Search Components - Temporarily disabled */}
+        {/* <SearchPanel
+          variant="modal"
+          isOpen={isSearchPanelOpen}
+          onClose={() => setIsSearchPanelOpen(false)}
+          onNavigateToSession={handleNavigateToSession}
+        />
+
+        <GlobalSearchModal
+          isOpen={isGlobalSearchOpen}
+          onClose={() => setIsGlobalSearchOpen(false)}
+          onNavigateToSession={handleNavigateToSession}
+        /> */}
       </main>
     </div>
   );

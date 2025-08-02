@@ -47,6 +47,9 @@ export class SessionManager {
 			return;
 		}
 		this.initialized = true;
+		
+		// Try to recover existing sessions from conversation history
+		await this.recoverExistingSessions();
 
 		// Start cleanup interval for expired sessions
 		this.startCleanupInterval();
@@ -193,6 +196,29 @@ export class SessionManager {
 		return this.sessions.size;
 	}
 
+	public async getSessionMetadata(sessionId: string): Promise<{
+		createdAt: number;
+		lastActivity: number;
+	} | null> {
+		await this.ensureInitialized();
+
+		const sessionMetadata = this.sessions.get(sessionId);
+		if (!sessionMetadata) {
+			return null;
+		}
+
+		// Check if session has expired
+		if (this.isSessionExpired(sessionMetadata)) {
+			await this.removeSession(sessionId);
+			return null;
+		}
+
+		return {
+			createdAt: sessionMetadata.createdAt,
+			lastActivity: sessionMetadata.lastActivity,
+		};
+	}
+
 	private isSessionExpired(sessionMetadata: SessionMetadata): boolean {
 		const now = Date.now();
 		return now - sessionMetadata.lastActivity > this.sessionTTL;
@@ -283,5 +309,85 @@ export class SessionManager {
 			return sessionMetadata.session.getStorageManager();
 		}
 		return undefined;
+	}
+
+	/**
+	 * Try to recover existing sessions from conversation history
+	 * This helps restore session list after server restarts
+	 */
+	private async recoverExistingSessions(): Promise<void> {
+		try {
+			// Create a temporary session to access the storage manager
+			const tempSession = new ConversationSession(this.services, 'temp-recovery');
+			await tempSession.init();
+			
+			const storageManager = tempSession.getStorageManager();
+			if (!storageManager) {
+				logger.debug('No storage manager available for session recovery');
+				return;
+			}
+
+			// Try to get all unique session IDs from the database
+			const sessionIds = await this.getExistingSessionIds(storageManager);
+			
+			// Create session metadata for recovered sessions
+			const now = Date.now();
+			let recoveredCount = 0;
+			
+			for (const sessionId of sessionIds) {
+				if (!this.sessions.has(sessionId) && sessionId !== 'temp-recovery') {
+					try {
+						// Create the session
+						const session = new ConversationSession(this.services, sessionId);
+						await session.init();
+						
+						// Add to sessions map with estimated metadata
+						this.sessions.set(sessionId, {
+							session,
+							lastActivity: now,
+							createdAt: now, // We don't know the real creation time
+						});
+						
+						recoveredCount++;
+					} catch (error) {
+						logger.warn(`Failed to recover session ${sessionId}:`, error);
+					}
+				}
+			}
+			
+			if (recoveredCount > 0) {
+				logger.info(`Recovered ${recoveredCount} existing sessions`);
+			}
+			
+			// Note: temp session will be cleaned up by GC
+			
+		} catch (error) {
+			logger.warn('Failed to recover existing sessions:', error);
+		}
+	}
+
+	/**
+	 * Get existing session IDs from storage
+	 */
+	private async getExistingSessionIds(storageManager: any): Promise<string[]> {
+		try {
+			// Try to get session IDs from different storage backends
+			if (storageManager.database) {
+				// For database backends, query for distinct session IDs
+				const database = storageManager.database;
+				
+				if (database.query) {
+					// For SQL databases
+					const result = await database.query('SELECT DISTINCT session_id FROM conversations WHERE session_id IS NOT NULL AND session_id != ""');
+					return result.rows ? result.rows.map((row: any) => row.session_id) : [];
+				}
+			}
+			
+			// Fallback: return empty array if we can't query the database
+			return [];
+		} catch (error) {
+			logger.warn('Failed to query existing session IDs:', error);
+			return [];
+		}
 	}
 }

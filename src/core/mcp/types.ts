@@ -359,6 +359,19 @@ export interface IMCPManager {
 	getFailedConnections(): { [key: string]: string };
 
 	/**
+	 * Get all servers with their connection status and configuration
+	 */
+	getAllServers(): Array<{
+		id: string;
+		name: string;
+		status: 'connected' | 'error' | 'disconnected';
+		config: any;
+		lastSeen?: number;
+		failureCount?: number;
+		error?: string;
+	}>;
+
+	/**
 	 * Disconnect and remove a specific client.
 	 */
 	removeClient(name: string): Promise<void>;

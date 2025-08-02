@@ -5,13 +5,11 @@ import {
 	ServerRegistryEntry,
 	ServerRegistryFilter,
 	UseServerRegistryOptions,
-	ServerRegistryService,
 } from '@/types/server-registry';
-import { serverRegistryService } from '@/lib/server-registry-service';
+import { serverRegistry } from '@/lib/server-registry-service';
 
 export function useServerRegistry(
-	options: UseServerRegistryOptions = {},
-	serverRegistry: ServerRegistryService = serverRegistryService
+	options: UseServerRegistryOptions = {}
 ) {
 	const { autoLoad = true, initialFilter } = options;
 
@@ -65,7 +63,7 @@ export function useServerRegistry(
 				}
 			}
 		},
-		[filter, serverRegistry]
+		[filter]
 	);
 
 	// Filter management
@@ -99,7 +97,7 @@ export function useServerRegistry(
 				}
 			}
 		},
-		[serverRegistry]
+		[]
 	);
 
 	// Mark as uninstalled
@@ -126,7 +124,7 @@ export function useServerRegistry(
 				}
 			}
 		},
-		[serverRegistry]
+		[]
 	);
 
 	// Custom entry addition
@@ -148,7 +146,7 @@ export function useServerRegistry(
 				throw err;
 			}
 		},
-		[serverRegistry]
+		[]
 	);
 
 	// Remove entry (for custom entries)
@@ -170,7 +168,7 @@ export function useServerRegistry(
 				throw err;
 			}
 		},
-		[serverRegistry]
+		[]
 	);
 
 	// Error management
@@ -201,8 +199,8 @@ export function useServerRegistry(
 			if (!clientFilter) return entries;
 
 			return entries.filter(entry => {
-				if (clientFilter.installedOnly && !entry.isInstalled) return false;
-				if (clientFilter.officialOnly && !entry.isOfficial) return false;
+				if (clientFilter.installed !== undefined && entry.isInstalled !== clientFilter.installed) return false;
+				if (clientFilter.official !== undefined && entry.isOfficial !== clientFilter.official) return false;
 				if (clientFilter.category && entry.category !== clientFilter.category) return false;
 				if (clientFilter.search) {
 					const searchLower = clientFilter.search.toLowerCase();
@@ -235,6 +233,27 @@ export function useServerRegistry(
 			loadEntries();
 		}
 	}, [autoLoad, loadEntries]);
+
+	// Listen for server uninstall events from other components
+	useEffect(() => {
+		const handleServerUninstalled = (event: any) => {
+			const { serverId } = event.detail;
+			if (isMountedRef.current) {
+				console.log(`📨 Received server uninstalled event for: ${serverId}`);
+				// Find the server by name (serverId is actually the server name in this context)
+				const entry = entries.find(e => e.name === serverId || e.id === serverId);
+				if (entry) {
+					markAsUninstalled(entry.id);
+				}
+			}
+		};
+
+		window.addEventListener('mcp-server-uninstalled', handleServerUninstalled);
+		
+		return () => {
+			window.removeEventListener('mcp-server-uninstalled', handleServerUninstalled);
+		};
+	}, [entries, markAsUninstalled]);
 
 	// Cleanup effect - prevent memory leaks
 	useEffect(() => {

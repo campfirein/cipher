@@ -7,7 +7,6 @@ import {
 	UseChatOptions,
 	OutgoingMessage,
 	IncomingMessage,
-	FileData,
 	TextPart,
 	ImagePart,
 } from '@/types/chat';
@@ -517,7 +516,6 @@ export function useChat(wsUrl: string, options: UseChatOptions = {}) {
 		(
 			content: string,
 			imageData?: { base64: string; mimeType: string },
-			fileData?: FileData,
 			sessionId?: string,
 			stream = true
 		) => {
@@ -526,7 +524,6 @@ export function useChat(wsUrl: string, options: UseChatOptions = {}) {
 					type: 'message',
 					content,
 					imageData,
-					fileData,
 					sessionId,
 					stream,
 				};
@@ -542,7 +539,6 @@ export function useChat(wsUrl: string, options: UseChatOptions = {}) {
 						createdAt: Date.now(),
 						sessionId,
 						imageData,
-						fileData,
 					};
 
 					setMessages(ms => [...ms, userMessage]);
