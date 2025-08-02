@@ -42,7 +42,11 @@ class ServiceCache {
 		}
 
 		// Create new instance
-		logger.debug(`ServiceCache: Cache miss, creating ${key}`);
+		logger.debug(`ServiceCache: Cache miss, creating ${key}`, {
+			cacheSize: this.cache.size,
+			pendingPromises: this.initPromises.size,
+			existingKeys: Array.from(this.cache.keys()).slice(0, 5), // Show first 5 keys for debugging
+		});
 		const promise = factory();
 		this.initPromises.set(key, promise);
 
@@ -110,11 +114,52 @@ export function createServiceKey(type: string, config?: any): string {
 		return type;
 	}
 
-	// Create a simple hash of the config
-	const configStr = JSON.stringify(config);
+	// Normalize config to ensure consistent cache keys
+	const normalizedConfig = normalizeConfigForCache(config);
+
+	// Create a simple hash of the normalized config
+	const configStr = JSON.stringify(normalizedConfig);
 	const hash = Array.from(configStr).reduce((hash, char) => {
 		return (hash << 5) - hash + char.charCodeAt(0);
 	}, 0);
 
-	return `${type}:${Math.abs(hash)}`;
+	const cacheKey = `${type}:${Math.abs(hash)}`;
+
+	return cacheKey;
+}
+
+/**
+ * Normalize configuration for consistent cache key generation
+ */
+function normalizeConfigForCache(config: any): any {
+	if (!config || typeof config !== 'object') {
+		return config;
+	}
+
+	const normalized: any = {};
+
+	for (const [key, value] of Object.entries(config)) {
+		// Normalize undefined/null values to empty strings
+		if (value === undefined || value === null) {
+			normalized[key] = '';
+		}
+		// Normalize boolean values
+		else if (typeof value === 'boolean') {
+			normalized[key] = value;
+		}
+		// Normalize strings (trim and lowercase for case-insensitive keys)
+		else if (typeof value === 'string') {
+			normalized[key] = value.trim().toLowerCase();
+		}
+		// Keep numbers and other primitives as-is
+		else if (typeof value !== 'object') {
+			normalized[key] = value;
+		}
+		// Recursively normalize nested objects
+		else {
+			normalized[key] = normalizeConfigForCache(value);
+		}
+	}
+
+	return normalized;
 }

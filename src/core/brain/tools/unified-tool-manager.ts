@@ -135,6 +135,11 @@ export class UnifiedToolManager {
 			'cipher_search_reasoning_patterns',
 			'cipher_store_reasoning_memory',
 			'cipher_extract_and_operate_memory',
+			// Workspace memory tools
+			'cipher_workspace_search',
+			'cipher_workspace_store',
+			'workspace_search',
+			'workspace_store',
 		];
 
 		return embeddingToolPatterns.some(pattern =>
@@ -231,22 +236,14 @@ export class UnifiedToolManager {
 
 						// Mode-specific tool filtering
 						if (this.config.mode === 'cli') {
-							// CLI mode: Only expose search tools to LLM, background tools are excluded from agent access
-							const isSearchTool =
-								toolName.includes('search') ||
-								toolName.includes('memory_') ||
-								toolName.includes('knowledge_') ||
-								toolName.includes('vector_') ||
-								toolName === 'extract_and_operate_memory' ||
-								toolName === 'cipher_extract_and_operate_memory';
+							// In CLI mode, only search-related tools are exposed to the agent.
+							// Background tools are executed after the AI response and are not directly callable.
+							const isAgentAccessible =
+								(tool.agentAccessible ?? true) && // Default to true if not specified
+								!toolName.includes('extract_and_operate_memory') &&
+								!toolName.includes('store_reasoning');
 
-							if (!isSearchTool && tool.agentAccessible === false) {
-								// Skip background tools in CLI mode - they will be executed after AI response
-								continue;
-							}
-
-							// Only include search-related tools for agent access in CLI mode
-							if (!isSearchTool && tool.agentAccessible !== true) {
+							if (!isAgentAccessible) {
 								continue;
 							}
 						} else if (this.config.mode === 'aggregator') {
@@ -255,7 +252,9 @@ export class UnifiedToolManager {
 							// Default/API modes: Skip background tools that are not agent-accessible
 							if (tool.agentAccessible === false) {
 								logger.debug(
-									`UnifiedToolManager: Skipping internal-only tool '${toolName}' in ${this.config.mode} mode`
+									`UnifiedToolManager: Skipping internal-only tool '${toolName}' in ${
+										this.config.mode
+									} mode`
 								);
 								continue;
 							}

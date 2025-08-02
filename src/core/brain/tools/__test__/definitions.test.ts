@@ -144,12 +144,20 @@ describe('Tool Definitions', () => {
 
 			// Check knowledge graph tools (conditionally loaded)
 			const { env } = await import('../../../env.js');
+
+			// Calculate expected tool count based on enabled features
+			let expectedMemoryTools = 6; // Base memory tools
+			if (env.USE_WORKSPACE_MEMORY) {
+				expectedMemoryTools += 2; // workspace_search + workspace_store
+			}
+
 			if (env.KNOWLEDGE_GRAPH_ENABLED) {
-				expect(Object.keys(tools)).toHaveLength(17); // 6 memory + 11 knowledge graph tools
+				const expectedTotal = expectedMemoryTools + 11; // memory tools + knowledge graph tools
+				expect(Object.keys(tools)).toHaveLength(expectedTotal);
 				expect(tools['add_node']).toBeDefined();
 				expect(tools['search_graph']).toBeDefined();
 			} else {
-				expect(Object.keys(tools)).toHaveLength(6); // Only 6 memory tools
+				expect(Object.keys(tools)).toHaveLength(expectedMemoryTools);
 				expect(tools['add_node']).toBeUndefined();
 				expect(tools['search_graph']).toBeUndefined();
 			}
@@ -168,13 +176,21 @@ describe('Tool Definitions', () => {
 
 			// Check knowledge graph tools (conditionally registered)
 			const { env } = await import('../../../env.js');
+
+			// Calculate expected tool count based on enabled features
+			let expectedMemoryTools = 6; // Base memory tools
+			if (env.USE_WORKSPACE_MEMORY) {
+				expectedMemoryTools += 2; // workspace_search + workspace_store
+			}
+
 			if (env.KNOWLEDGE_GRAPH_ENABLED) {
-				expect(result.total).toBe(17);
-				expect(result.registered.length).toBe(17);
+				const expectedTotal = expectedMemoryTools + 11; // memory tools + knowledge graph tools
+				expect(result.total).toBe(expectedTotal);
+				expect(result.registered.length).toBe(expectedTotal);
 				expect(result.failed.length).toBe(0);
 			} else {
-				expect(result.total).toBe(6);
-				expect(result.registered.length).toBe(6);
+				expect(result.total).toBe(expectedMemoryTools);
+				expect(result.registered.length).toBe(expectedMemoryTools);
 				expect(result.failed.length).toBe(0);
 			}
 
@@ -220,7 +236,16 @@ describe('Tool Definitions', () => {
 
 			// Check based on environment setting
 			const { env } = await import('../../../env.js');
-			const expectedTotal = env.KNOWLEDGE_GRAPH_ENABLED ? 17 : 6;
+
+			// Calculate expected tool count based on enabled features
+			let expectedMemoryTools = 6; // Base memory tools
+			if (env.USE_WORKSPACE_MEMORY) {
+				expectedMemoryTools += 2; // workspace_search + workspace_store
+			}
+
+			const expectedTotal = env.KNOWLEDGE_GRAPH_ENABLED
+				? expectedMemoryTools + 11
+				: expectedMemoryTools;
 
 			expect(result.total).toBe(expectedTotal);
 			expect(result.registered.length).toBe(0);
@@ -233,6 +258,7 @@ describe('Tool Definitions', () => {
 		it('should have correct category structure', () => {
 			expect(TOOL_CATEGORIES.memory).toBeDefined();
 
+			// Base memory tools are always 6 in the category definition
 			expect(TOOL_CATEGORIES.memory.tools).toHaveLength(6);
 		});
 
@@ -249,6 +275,7 @@ describe('Tool Definitions', () => {
 
 		it('should get tools by category', () => {
 			const memoryTools = getToolsByCategory('memory');
+			// Base memory tools are always 6 in the category definition
 			expect(memoryTools).toHaveLength(6);
 			expect(memoryTools).toContain('cipher_extract_and_operate_memory');
 			expect(memoryTools).toContain('cipher_memory_search');

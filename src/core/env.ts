@@ -1,16 +1,19 @@
 import { config } from 'dotenv';
 import { z } from 'zod';
 
-// Load environment variables from .env file - skip entirely in MCP mode
+// Load environment variables from .env file
+// Note: In MCP mode, the MCP host typically provides required environment variables
+// via the "env" field in MCP configuration, but .env files can still provide additional
+// configuration like workspace memory settings that may not be in MCP config
 const isMcpMode =
 	process.argv.includes('--mode') && process.argv[process.argv.indexOf('--mode') + 1] === 'mcp';
 
 if (isMcpMode) {
-	// In MCP mode, skip .env file loading entirely since all environment variables
-	// are provided via the "env" field in the MCP configuration
-	// No need to load .env files as MCP host provides all required environment variables
+	// In MCP mode, load .env file but with lower priority than MCP-provided env vars
+	// This allows .env to provide additional configuration while letting MCP config take precedence
+	config({ override: false });
 } else {
-	// Normal mode - load environment variables from .env file
+	// Normal mode - load environment variables from .env file with override
 	config();
 }
 
@@ -92,6 +95,24 @@ const envSchema = z.object({
 	DISABLE_BACKGROUND_PRELOAD: z.string().optional(),
 	LAZY_INIT_TIMEOUT: z.string().optional(),
 	BACKGROUND_PRELOAD_DELAY: z.string().optional(),
+	// Workspace Memory Configuration
+	USE_WORKSPACE_MEMORY: z.boolean().default(false),
+	WORKSPACE_SEARCH_THRESHOLD: z.number().default(0.4),
+	DISABLE_DEFAULT_MEMORY: z.boolean().default(false),
+	WORKSPACE_VECTOR_STORE_TYPE: z.enum(['qdrant', 'milvus', 'in-memory']).optional(),
+	WORKSPACE_VECTOR_STORE_HOST: z.string().optional(),
+	WORKSPACE_VECTOR_STORE_PORT: z.number().optional(),
+	WORKSPACE_VECTOR_STORE_URL: z.string().optional(),
+	WORKSPACE_VECTOR_STORE_API_KEY: z.string().optional(),
+	WORKSPACE_VECTOR_STORE_USERNAME: z.string().optional(),
+	WORKSPACE_VECTOR_STORE_PASSWORD: z.string().optional(),
+	WORKSPACE_VECTOR_STORE_COLLECTION: z.string().default('workspace_memory'),
+	WORKSPACE_VECTOR_STORE_DIMENSION: z.number().default(1536),
+	WORKSPACE_VECTOR_STORE_DISTANCE: z
+		.enum(['Cosine', 'Euclidean', 'Dot', 'Manhattan'])
+		.default('Cosine'),
+	WORKSPACE_VECTOR_STORE_ON_DISK: z.boolean().default(false),
+	WORKSPACE_VECTOR_STORE_MAX_VECTORS: z.number().default(10000),
 });
 
 type EnvSchema = z.infer<typeof envSchema>;
@@ -268,6 +289,45 @@ export const env: EnvSchema = new Proxy({} as EnvSchema, {
 				return process.env.LAZY_INIT_TIMEOUT;
 			case 'BACKGROUND_PRELOAD_DELAY':
 				return process.env.BACKGROUND_PRELOAD_DELAY;
+			// Workspace Memory Configuration
+			case 'USE_WORKSPACE_MEMORY':
+				return process.env.USE_WORKSPACE_MEMORY === 'true';
+			case 'WORKSPACE_SEARCH_THRESHOLD':
+				return process.env.WORKSPACE_SEARCH_THRESHOLD
+					? parseFloat(process.env.WORKSPACE_SEARCH_THRESHOLD)
+					: 0.4;
+			case 'DISABLE_DEFAULT_MEMORY':
+				return process.env.DISABLE_DEFAULT_MEMORY === 'true';
+			case 'WORKSPACE_VECTOR_STORE_TYPE':
+				return process.env.WORKSPACE_VECTOR_STORE_TYPE;
+			case 'WORKSPACE_VECTOR_STORE_HOST':
+				return process.env.WORKSPACE_VECTOR_STORE_HOST;
+			case 'WORKSPACE_VECTOR_STORE_PORT':
+				return process.env.WORKSPACE_VECTOR_STORE_PORT
+					? parseInt(process.env.WORKSPACE_VECTOR_STORE_PORT, 10)
+					: undefined;
+			case 'WORKSPACE_VECTOR_STORE_URL':
+				return process.env.WORKSPACE_VECTOR_STORE_URL;
+			case 'WORKSPACE_VECTOR_STORE_API_KEY':
+				return process.env.WORKSPACE_VECTOR_STORE_API_KEY;
+			case 'WORKSPACE_VECTOR_STORE_USERNAME':
+				return process.env.WORKSPACE_VECTOR_STORE_USERNAME;
+			case 'WORKSPACE_VECTOR_STORE_PASSWORD':
+				return process.env.WORKSPACE_VECTOR_STORE_PASSWORD;
+			case 'WORKSPACE_VECTOR_STORE_COLLECTION':
+				return process.env.WORKSPACE_VECTOR_STORE_COLLECTION || 'workspace_memory';
+			case 'WORKSPACE_VECTOR_STORE_DIMENSION':
+				return process.env.WORKSPACE_VECTOR_STORE_DIMENSION
+					? parseInt(process.env.WORKSPACE_VECTOR_STORE_DIMENSION, 10)
+					: 1536;
+			case 'WORKSPACE_VECTOR_STORE_DISTANCE':
+				return process.env.WORKSPACE_VECTOR_STORE_DISTANCE || 'Cosine';
+			case 'WORKSPACE_VECTOR_STORE_ON_DISK':
+				return process.env.WORKSPACE_VECTOR_STORE_ON_DISK === 'true';
+			case 'WORKSPACE_VECTOR_STORE_MAX_VECTORS':
+				return process.env.WORKSPACE_VECTOR_STORE_MAX_VECTORS
+					? parseInt(process.env.WORKSPACE_VECTOR_STORE_MAX_VECTORS, 10)
+					: 10000;
 			default:
 				return process.env[prop];
 		}
@@ -394,6 +454,31 @@ export const validateEnv = () => {
 		REFLECTION_VECTOR_STORE_COLLECTION:
 			process.env.REFLECTION_VECTOR_STORE_COLLECTION || 'reflection_memory',
 		DISABLE_REFLECTION_MEMORY: process.env.DISABLE_REFLECTION_MEMORY === 'true',
+		// Workspace Memory Configuration
+		USE_WORKSPACE_MEMORY: process.env.USE_WORKSPACE_MEMORY === 'true',
+		WORKSPACE_SEARCH_THRESHOLD: process.env.WORKSPACE_SEARCH_THRESHOLD
+			? parseFloat(process.env.WORKSPACE_SEARCH_THRESHOLD)
+			: 0.4,
+		DISABLE_DEFAULT_MEMORY: process.env.DISABLE_DEFAULT_MEMORY === 'true',
+		WORKSPACE_VECTOR_STORE_TYPE: process.env.WORKSPACE_VECTOR_STORE_TYPE,
+		WORKSPACE_VECTOR_STORE_HOST: process.env.WORKSPACE_VECTOR_STORE_HOST,
+		WORKSPACE_VECTOR_STORE_PORT: process.env.WORKSPACE_VECTOR_STORE_PORT
+			? parseInt(process.env.WORKSPACE_VECTOR_STORE_PORT, 10)
+			: undefined,
+		WORKSPACE_VECTOR_STORE_URL: process.env.WORKSPACE_VECTOR_STORE_URL,
+		WORKSPACE_VECTOR_STORE_API_KEY: process.env.WORKSPACE_VECTOR_STORE_API_KEY,
+		WORKSPACE_VECTOR_STORE_USERNAME: process.env.WORKSPACE_VECTOR_STORE_USERNAME,
+		WORKSPACE_VECTOR_STORE_PASSWORD: process.env.WORKSPACE_VECTOR_STORE_PASSWORD,
+		WORKSPACE_VECTOR_STORE_COLLECTION:
+			process.env.WORKSPACE_VECTOR_STORE_COLLECTION || 'workspace_memory',
+		WORKSPACE_VECTOR_STORE_DIMENSION: process.env.WORKSPACE_VECTOR_STORE_DIMENSION
+			? parseInt(process.env.WORKSPACE_VECTOR_STORE_DIMENSION, 10)
+			: 1536,
+		WORKSPACE_VECTOR_STORE_DISTANCE: process.env.WORKSPACE_VECTOR_STORE_DISTANCE || 'Cosine',
+		WORKSPACE_VECTOR_STORE_ON_DISK: process.env.WORKSPACE_VECTOR_STORE_ON_DISK === 'true',
+		WORKSPACE_VECTOR_STORE_MAX_VECTORS: process.env.WORKSPACE_VECTOR_STORE_MAX_VECTORS
+			? parseInt(process.env.WORKSPACE_VECTOR_STORE_MAX_VECTORS, 10)
+			: 10000,
 	};
 
 	const result = envSchema.safeParse(envToValidate);

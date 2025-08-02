@@ -226,7 +226,9 @@ export async function createDualCollectionVectorStoreFromEnv(
 	const cacheKey = createServiceKey('dualCollectionVectorStore', {
 		type: config.type,
 		collection: config.collectionName,
-		reflectionCollection: env.REFLECTION_VECTOR_STORE_COLLECTION,
+		reflectionCollection: env.REFLECTION_VECTOR_STORE_COLLECTION || '',
+		// Include dimension for proper cache key differentiation
+		dimension: config.dimension,
 	});
 
 	return await serviceCache.getOrCreate(cacheKey, async () => {
@@ -417,6 +419,313 @@ export function getVectorStoreConfigFromEnv(agentConfig?: any): VectorStoreConfi
 			maxVectors,
 		};
 	}
+}
+
+/**
+ * Get workspace memory vector storage configuration from environment variables
+ *
+ * Returns the configuration object for workspace memory vector store, using
+ * workspace-specific environment variables with fallbacks to default vector store config.
+ *
+ * @param agentConfig - Optional agent configuration to override dimension from embedding config
+ * @returns Vector storage configuration based on workspace memory environment variables
+ *
+ * @example
+ * ```typescript
+ * const config = getWorkspaceVectorStoreConfigFromEnv();
+ * console.log('Workspace vector store configuration:', config);
+ *
+ * // Then use the config to create workspace store
+ * const { manager, store } = await createVectorStore(config);
+ * ```
+ */
+export function getWorkspaceVectorStoreConfigFromEnv(agentConfig?: any): VectorStoreConfig {
+	const logger = createLogger({ level: env.CIPHER_LOG_LEVEL });
+
+	// Get workspace-specific configuration with fallbacks to default vector store config
+	const storeType = env.WORKSPACE_VECTOR_STORE_TYPE || env.VECTOR_STORE_TYPE;
+	const collectionName = env.WORKSPACE_VECTOR_STORE_COLLECTION || 'workspace_memory';
+	let dimension = Number.isNaN(env.WORKSPACE_VECTOR_STORE_DIMENSION)
+		? Number.isNaN(env.VECTOR_STORE_DIMENSION)
+			? 1536
+			: env.VECTOR_STORE_DIMENSION
+		: env.WORKSPACE_VECTOR_STORE_DIMENSION;
+	const maxVectors = Number.isNaN(env.WORKSPACE_VECTOR_STORE_MAX_VECTORS)
+		? Number.isNaN(env.VECTOR_STORE_MAX_VECTORS)
+			? 10000
+			: env.VECTOR_STORE_MAX_VECTORS
+		: env.WORKSPACE_VECTOR_STORE_MAX_VECTORS;
+
+	// Override dimension from agent config if embedding configuration is present
+	if (
+		agentConfig?.embedding &&
+		typeof agentConfig.embedding === 'object' &&
+		agentConfig.embedding.dimensions
+	) {
+		const embeddingDimension = agentConfig.embedding.dimensions;
+		if (typeof embeddingDimension === 'number' && embeddingDimension > 0) {
+			logger.debug('Overriding workspace vector store dimension from agent config', {
+				envDimension: dimension,
+				agentDimension: embeddingDimension,
+				embeddingType: agentConfig.embedding.type,
+			});
+			dimension = embeddingDimension;
+		}
+	}
+
+	logger.debug('Creating workspace vector store config', {
+		storeType,
+		collectionName,
+		dimension,
+		maxVectors,
+		usingWorkspaceSpecificType: !!env.WORKSPACE_VECTOR_STORE_TYPE,
+		usingWorkspaceSpecificCollection: !!env.WORKSPACE_VECTOR_STORE_COLLECTION,
+	});
+
+	if (storeType === 'qdrant') {
+		const host = env.WORKSPACE_VECTOR_STORE_HOST || env.VECTOR_STORE_HOST;
+		const url = env.WORKSPACE_VECTOR_STORE_URL || env.VECTOR_STORE_URL;
+		const port = Number.isNaN(env.WORKSPACE_VECTOR_STORE_PORT)
+			? Number.isNaN(env.VECTOR_STORE_PORT)
+				? undefined
+				: env.VECTOR_STORE_PORT
+			: env.WORKSPACE_VECTOR_STORE_PORT;
+		const apiKey = env.WORKSPACE_VECTOR_STORE_API_KEY || env.VECTOR_STORE_API_KEY;
+		const distance = env.WORKSPACE_VECTOR_STORE_DISTANCE || env.VECTOR_STORE_DISTANCE;
+		const onDisk = env.WORKSPACE_VECTOR_STORE_ON_DISK;
+
+		if (!url && !host) {
+			// Return in-memory config with fallback marker
+			return {
+				type: 'in-memory',
+				collectionName,
+				dimension,
+				maxVectors,
+				// Add a special property to indicate this is a fallback from Qdrant
+				_fallbackFrom: 'qdrant-workspace',
+			} as any;
+		}
+
+		return {
+			type: 'qdrant',
+			collectionName,
+			dimension,
+			url,
+			host,
+			port,
+			apiKey,
+			distance,
+			onDisk,
+		};
+	} else if ((storeType as string) === 'milvus') {
+		const host = env.WORKSPACE_VECTOR_STORE_HOST || env.VECTOR_STORE_HOST;
+		const url = env.WORKSPACE_VECTOR_STORE_URL || env.VECTOR_STORE_URL;
+		const port = Number.isNaN(env.WORKSPACE_VECTOR_STORE_PORT)
+			? Number.isNaN(env.VECTOR_STORE_PORT)
+				? undefined
+				: env.VECTOR_STORE_PORT
+			: env.WORKSPACE_VECTOR_STORE_PORT;
+		const username = env.WORKSPACE_VECTOR_STORE_USERNAME || env.VECTOR_STORE_USERNAME;
+		const password = env.WORKSPACE_VECTOR_STORE_PASSWORD || env.VECTOR_STORE_PASSWORD;
+		const token = env.WORKSPACE_VECTOR_STORE_API_KEY || env.VECTOR_STORE_API_KEY;
+
+		if (!url && !host) {
+			// Return in-memory config with fallback marker
+			return {
+				type: 'in-memory',
+				collectionName,
+				dimension,
+				maxVectors,
+				// Add a special property to indicate this is a fallback from Milvus
+				_fallbackFrom: 'milvus-workspace',
+			} as any;
+		}
+
+		return {
+			type: 'milvus',
+			collectionName,
+			dimension,
+			url,
+			host,
+			port,
+			username,
+			password,
+			token,
+		};
+	} else {
+		return {
+			type: 'in-memory',
+			collectionName,
+			dimension,
+			maxVectors,
+		};
+	}
+}
+
+/**
+ * Multi Collection Vector Factory interface for workspace memory support
+ */
+export interface MultiCollectionVectorFactory {
+	/** The multi collection manager instance */
+	manager: any; // MultiCollectionVectorManager
+	/** The knowledge vector store ready for use */
+	knowledgeStore: VectorStore;
+	/** The reflection vector store ready for use (null if disabled) */
+	reflectionStore: VectorStore | null;
+	/** The workspace vector store ready for use (null if disabled) */
+	workspaceStore: VectorStore | null;
+}
+
+/**
+ * Creates multi-collection vector storage from environment variables
+ *
+ * Creates a multi-collection manager that handles knowledge, reflection, and workspace
+ * memory collections. This replaces DualCollectionVectorManager when workspace memory is enabled.
+ *
+ * @param agentConfig - Optional agent configuration to override dimension from embedding config
+ * @returns Promise resolving to multi collection manager and stores
+ */
+export async function createMultiCollectionVectorStoreFromEnv(
+	agentConfig?: any
+): Promise<MultiCollectionVectorFactory> {
+	const logger = createLogger({ level: env.CIPHER_LOG_LEVEL });
+
+	// Import MultiCollectionVectorManager dynamically to avoid circular dependencies
+	const { MultiCollectionVectorManager } = await import('./multi-collection-manager.js');
+
+	// Get base configuration from environment variables
+	const config = getVectorStoreConfigFromEnv(agentConfig);
+
+	// Use ServiceCache to prevent duplicate multi collection vector store creation
+	const serviceCache = getServiceCache();
+	const cacheKey = createServiceKey('multiCollectionVectorStore', {
+		type: config.type,
+		collection: config.collectionName,
+		reflectionCollection: env.REFLECTION_VECTOR_STORE_COLLECTION || '',
+		workspaceCollection: env.WORKSPACE_VECTOR_STORE_COLLECTION || 'workspace_memory',
+		workspaceEnabled: !!env.USE_WORKSPACE_MEMORY,
+		// Include dimension for proper cache key differentiation
+		dimension: config.dimension,
+	});
+
+	return await serviceCache.getOrCreate(cacheKey, async () => {
+		logger.debug('Creating new multi collection vector store instance');
+		return await createMultiCollectionVectorStoreInternal(config, logger);
+	});
+}
+
+async function createMultiCollectionVectorStoreInternal(
+	config: VectorStoreConfig,
+	logger: any
+): Promise<MultiCollectionVectorFactory> {
+	// Import MultiCollectionVectorManager dynamically
+	const { MultiCollectionVectorManager } = await import('./multi-collection-manager.js');
+
+	logger.info(`${LOG_PREFIXES.FACTORY} Creating multi collection vector storage from environment`, {
+		type: config.type,
+		knowledgeCollection: config.collectionName,
+		reflectionCollection: env.REFLECTION_VECTOR_STORE_COLLECTION || 'disabled',
+		workspaceCollection: env.USE_WORKSPACE_MEMORY
+			? env.WORKSPACE_VECTOR_STORE_COLLECTION || 'workspace_memory'
+			: 'disabled',
+		workspaceEnabled: !!env.USE_WORKSPACE_MEMORY,
+	});
+
+	// Create multi collection manager
+	const manager = new MultiCollectionVectorManager(config);
+
+	try {
+		const connected = await manager.connect();
+
+		if (!connected) {
+			throw new Error('Failed to connect multi collection vector manager');
+		}
+
+		const knowledgeStore = manager.getStore('knowledge');
+		const reflectionStore = manager.getStore('reflection');
+		const workspaceStore = manager.getStore('workspace');
+
+		if (!knowledgeStore) {
+			throw new Error('Failed to get knowledge store from multi collection manager');
+		}
+
+		logger.info(`${LOG_PREFIXES.FACTORY} Multi collection vector storage created successfully`, {
+			knowledge: !!knowledgeStore,
+			reflection: !!reflectionStore,
+			workspace: !!workspaceStore,
+		});
+
+		return {
+			manager,
+			knowledgeStore,
+			reflectionStore,
+			workspaceStore,
+		};
+	} catch (error) {
+		// If connection fails, ensure cleanup
+		await manager.disconnect().catch(() => {
+			// Ignore disconnect errors during cleanup
+		});
+
+		logger.error(
+			`${LOG_PREFIXES.FACTORY} Failed to create multi collection vector storage system`,
+			{
+				error: error instanceof Error ? error.message : String(error),
+			}
+		);
+
+		throw error;
+	}
+}
+
+/**
+ * Creates workspace memory vector storage from environment variables
+ *
+ * Reads workspace memory vector storage configuration from environment variables and creates
+ * the vector storage system specifically for workspace memory. Falls back to default
+ * vector store configuration if workspace-specific variables are not set.
+ *
+ * Environment variables (with fallbacks to default VECTOR_STORE_* variables):
+ * - WORKSPACE_VECTOR_STORE_TYPE: Backend type (qdrant, milvus, in-memory)
+ * - WORKSPACE_VECTOR_STORE_HOST: Host (fallback to VECTOR_STORE_HOST)
+ * - WORKSPACE_VECTOR_STORE_PORT: Port (fallback to VECTOR_STORE_PORT)
+ * - WORKSPACE_VECTOR_STORE_URL: URL (fallback to VECTOR_STORE_URL)
+ * - WORKSPACE_VECTOR_STORE_API_KEY: API key (fallback to VECTOR_STORE_API_KEY)
+ * - WORKSPACE_VECTOR_STORE_COLLECTION: Collection name (default: workspace_memory)
+ * - WORKSPACE_VECTOR_STORE_DIMENSION: Vector dimension (fallback to VECTOR_STORE_DIMENSION)
+ * - WORKSPACE_VECTOR_STORE_DISTANCE: Distance metric for Qdrant (fallback to VECTOR_STORE_DISTANCE)
+ * - WORKSPACE_VECTOR_STORE_ON_DISK: Store vectors on disk (default: false)
+ * - WORKSPACE_VECTOR_STORE_MAX_VECTORS: Maximum vectors for in-memory storage
+ *
+ * @param agentConfig - Optional agent configuration to override dimension from embedding config
+ * @returns Promise resolving to manager and connected workspace vector store
+ *
+ * @example
+ * ```typescript
+ * // Set workspace-specific environment variables
+ * process.env.WORKSPACE_VECTOR_STORE_TYPE = 'milvus';
+ * process.env.WORKSPACE_VECTOR_STORE_HOST = 'localhost';
+ * process.env.WORKSPACE_VECTOR_STORE_COLLECTION = 'team_workspace';
+ *
+ * const { manager, store } = await createWorkspaceVectorStoreFromEnv();
+ * ```
+ */
+export async function createWorkspaceVectorStoreFromEnv(
+	agentConfig?: any
+): Promise<VectorStoreFactory> {
+	const logger = createLogger({ level: env.CIPHER_LOG_LEVEL });
+
+	// Get workspace-specific configuration from environment variables
+	const config = getWorkspaceVectorStoreConfigFromEnv(agentConfig);
+
+	logger.info(`${LOG_PREFIXES.FACTORY} Creating workspace memory vector storage from environment`, {
+		type: config.type,
+		collection: config.collectionName,
+		dimension: config.dimension,
+		workspaceSpecific: config.collectionName !== env.VECTOR_STORE_COLLECTION,
+	});
+
+	return createVectorStore(config);
 }
 
 /**

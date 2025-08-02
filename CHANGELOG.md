@@ -1,40 +1,17 @@
 # Changelog
 
-## [0.2.0] - 2025-07-30
+## [0.2.1] - 2025-08-02
 
-### Added
-- **Multi-backend conversation support**  
-  Added support for persistent memory across multiple LLM backends using a new architecture. Enables PostgreSQL-based WAL persistence.
+### 🚀 Features
+- Added LM Studio support for LLM and embedding fallback. [#148](https://github.com/campfirein/cipher/pull/148)
+- Added Optimizations, namely Tokenizer Caching, Connection Pooling, Lazy Loading. [#153](https://github.com/campfirein/cipher/pull/153)
+- Added PostgreSQL support for session persistence. [#155](https://github.com/campfirein/cipher/pull/155)
 
-- **Google Gemini support**  
-  Introduced support for Gemini LLMs and embedding models..
 
-- **Alibaba Cloud Qwen support**  
-  Added compatibility for Qwen models.
+### 🐛 Bug Fixes
+- Fixed fallback functionality in session/embedding management. [#151](https://github.com/campfirein/cipher/pull/151)
+- Fixed Ollama 404 Connection Errors with Incorrect URL Endpoints. [#162](https://github.com/campfirein/cipher/pull/162)
+- Fixed Claude Desktop integration Error. [#164](https://github.com/campfirein/cipher/pull/164)
 
-- **Gemini & Ollama embedding providers**  
-  Cipher now supports embedding generation via Google Gemini and Ollama APIs.
-
-- **Embedding fallback mechanism**  
-  Implements automatic fallback logic for embeddings. If the primary provider is unavailable, Cipher selects the next available provider based on environment variables.
-
-- **Prompt Provider Support**  
-  Added extensible system prompt architecture with dynamic, static, and file-based providers. Enables customizable prompt injection through CLI commands (`/prompt-providers`) with support for conversation summaries, project guidelines, and real-time prompt management.
-
-- **Token Management**  
-  Implemented intelligent token counting and context compression with provider-specific tokenization. Features automatic compression when approaching context limits, token usage statistics, and configurable compression strategies for optimal memory management across different LLM providers.
-
-- **Aggregator Mode support**  
-  Implements Aggregator mode for Cipher's MCP server, which exposes all Cipher's tools to agents/clients.
-
----
-
-### Documentation
-
-- **New example: MCP aggregator hub (Use Case 4)**  
-  Introduced a new real-world example in `examples/usecase-4`, showing how Cipher can aggregate multiple MCP streams.
-
-- **Improved README and prompt documentation**  
-  Updated descriptions, prompt templates, and environment variable explanations to reflect the latest architecture and provider support.
-
----
+### 📝 Documentation
+- Added Tutorial Video on REAMDE.md. [#157](https://github.com/campfirein/cipher/pull/157)

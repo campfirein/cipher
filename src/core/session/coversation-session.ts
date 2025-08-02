@@ -104,6 +104,7 @@ export class ConversationSession {
 			beforeMemoryExtraction?: (meta: Record<string, any>, context: Record<string, any>) => void;
 			historyEnabled?: boolean;
 			historyBackend?: 'database' | 'memory';
+			sharedStorageManager?: StorageManager; // Allow sharing storage manager
 		}
 	) {
 		if (options?.sessionMemoryMetadata) {
@@ -124,6 +125,10 @@ export class ConversationSession {
 		if (options?.historyBackend) {
 			this.historyBackend = options.historyBackend;
 		}
+		if (options?.sharedStorageManager) {
+			this._storageManager = options.sharedStorageManager;
+			this._storageInitialized = true;
+		}
 	}
 
 	/**
@@ -137,11 +142,9 @@ export class ConversationSession {
 	 * Initialize all services for the session, including history provider.
 	 */
 	public async init(): Promise<void> {
-		logger.debug(`Session ${this.id}: Starting initialization...`);
 		await this.initializeServices();
 		// Note: History restoration will happen lazily when history is first accessed
 		// This improves startup performance by not initializing storage until needed
-		logger.debug(`Session ${this.id}: Core initialization complete (lazy loading enabled)`);
 	}
 
 	/**
@@ -151,7 +154,6 @@ export class ConversationSession {
 		this.contextManager = this.services.contextManager;
 
 		this._servicesInitialized = true;
-		logger.debug(`ChatSession ${this.id}: Core services initialized (lazy loading enabled)`);
 	}
 
 	/**
@@ -219,59 +221,67 @@ export class ConversationSession {
 						);
 						logger.debug(`Session ${this.id}: Multi-backend history provider lazy-initialized.`);
 					} else if (this.historyBackend === 'database') {
-						// Use the same storage configuration as the session manager
-						// This ensures both session data and conversation history use the same backend
-						const postgresUrl = process.env.CIPHER_PG_URL;
-						const postgresHost = process.env.STORAGE_DATABASE_HOST;
-						const postgresDatabase = process.env.STORAGE_DATABASE_NAME;
+						// Use shared storage manager if available, otherwise create new one
+						if (!this._storageManager) {
+							// Use the same storage configuration as the session manager
+							// This ensures both session data and conversation history use the same backend
+							const postgresUrl = process.env.CIPHER_PG_URL;
+							const postgresHost = process.env.STORAGE_DATABASE_HOST;
+							const postgresDatabase = process.env.STORAGE_DATABASE_NAME;
 
-						let storageConfig: any;
+							let storageConfig: any;
 
-						if (postgresUrl || (postgresHost && postgresDatabase)) {
-							// Use PostgreSQL if configured
-							if (postgresUrl) {
-								storageConfig = {
-									database: { type: 'postgres' as const, url: postgresUrl },
-									cache: { type: 'in-memory' as const },
-								};
+							if (postgresUrl || (postgresHost && postgresDatabase)) {
+								// Use PostgreSQL if configured
+								if (postgresUrl) {
+									storageConfig = {
+										database: { type: 'postgres' as const, url: postgresUrl },
+										cache: { type: 'in-memory' as const },
+									};
+								} else {
+									storageConfig = {
+										database: {
+											type: 'postgres' as const,
+											host: postgresHost,
+											database: postgresDatabase,
+											port: process.env.STORAGE_DATABASE_PORT
+												? parseInt(process.env.STORAGE_DATABASE_PORT, 10)
+												: 5432,
+											user: process.env.STORAGE_DATABASE_USER,
+											password: process.env.STORAGE_DATABASE_PASSWORD,
+											ssl: process.env.STORAGE_DATABASE_SSL === 'true',
+										},
+										cache: { type: 'in-memory' as const },
+									};
+								}
+								logger.debug(
+									`Session ${this.id}: Using PostgreSQL for history provider (lazy-loaded)`
+								);
 							} else {
+								// Fallback to SQLite
 								storageConfig = {
 									database: {
-										type: 'postgres' as const,
-										host: postgresHost,
-										database: postgresDatabase,
-										port: process.env.STORAGE_DATABASE_PORT
-											? parseInt(process.env.STORAGE_DATABASE_PORT, 10)
-											: 5432,
-										user: process.env.STORAGE_DATABASE_USER,
-										password: process.env.STORAGE_DATABASE_PASSWORD,
-										ssl: process.env.STORAGE_DATABASE_SSL === 'true',
+										type: 'sqlite' as const,
+										path: env.STORAGE_DATABASE_PATH || './data',
+										database: env.STORAGE_DATABASE_NAME || 'cipher-sessions.db',
 									},
 									cache: { type: 'in-memory' as const },
 								};
+								logger.debug(`Session ${this.id}: Using SQLite for history provider (lazy-loaded)`);
 							}
+
+							this._storageManager = new StorageManager(storageConfig);
+							await this._storageManager.connect();
 							logger.debug(
-								`Session ${this.id}: Using PostgreSQL for history provider (lazy-loaded)`
+								`Session ${this.id}: Database history provider lazy-initialized with ${storageConfig.database.type} backend.`
 							);
 						} else {
-							// Fallback to SQLite
-							storageConfig = {
-								database: {
-									type: 'sqlite' as const,
-									path: env.STORAGE_DATABASE_PATH || './data',
-									database: env.STORAGE_DATABASE_NAME || 'cipher-sessions.db',
-								},
-								cache: { type: 'in-memory' as const },
-							};
-							logger.debug(`Session ${this.id}: Using SQLite for history provider (lazy-loaded)`);
+							logger.debug(
+								`Session ${this.id}: Using shared storage manager for history provider.`
+							);
 						}
 
-						this._storageManager = new StorageManager(storageConfig);
-						await this._storageManager.connect();
 						this._historyProvider = createDatabaseHistoryProvider(this._storageManager);
-						logger.debug(
-							`Session ${this.id}: Database history provider lazy-initialized with ${storageConfig.database.type} backend.`
-						);
 					} else {
 						// TODO: Implement or import an in-memory provider if needed
 						logger.debug(`Session ${this.id}: In-memory history provider selected (lazy-loaded).`);
@@ -572,20 +582,29 @@ export class ConversationSession {
 				return;
 			}
 
-			// Load all tools once to avoid redundant loading
-			const allTools = await this.services.unifiedToolManager.getAllTools();
+			// Check if workspace memory is enabled
+			const workspaceMemoryEnabled = env.USE_WORKSPACE_MEMORY;
+			const shouldDisableDefaultMemory = workspaceMemoryEnabled && env.DISABLE_DEFAULT_MEMORY;
 
-			// Check if the memory extraction tool is available
-			const memoryToolAvailable = allTools['cipher_extract_and_operate_memory'];
+			// Determine which memory tools to run based on configuration
+			const shouldRunWorkspace = workspaceMemoryEnabled;
+			const shouldRunDefault = !shouldDisableDefaultMemory;
 
-			if (embeddingsDisabled || !memoryToolAvailable) {
-				logger.debug('ConversationSession: Memory extraction skipped', {
+			if (embeddingsDisabled) {
+				logger.debug('ConversationSession: Memory extraction skipped - embeddings disabled', {
 					embeddingsDisabled,
-					memoryToolAvailable: !!memoryToolAvailable,
-					reason: embeddingsDisabled ? 'embeddings disabled' : 'memory tool unavailable',
+					workspaceMemoryEnabled,
+					shouldDisableDefaultMemory,
 				});
 				return;
 			}
+
+			logger.debug('ConversationSession: Memory tools to execute', {
+				workspaceMemoryEnabled,
+				shouldDisableDefaultMemory,
+				shouldRunWorkspace,
+				shouldRunDefault,
+			});
 
 			// Extract comprehensive interaction data including tool usage
 			const comprehensiveInteractionData = await this.extractComprehensiveInteractionData(
@@ -623,11 +642,39 @@ export class ConversationSession {
 				memoryMetadata = this.getSessionMetadata();
 			}
 
-			// Call the extract_and_operate_memory tool directly (with cipher_ prefix)
-			// Use executeToolWithoutLoading to avoid redundant tool loading
-			const memoryResult = await this.services.unifiedToolManager.executeToolWithoutLoading(
-				'cipher_extract_and_operate_memory',
-				{
+			// Execute memory tools based on configuration
+			const memoryResults: any[] = [];
+
+			// Execute workspace memory tool if enabled
+			if (shouldRunWorkspace) {
+				const workspaceArgs = {
+					interaction: comprehensiveInteractionData,
+					context: mergedContext,
+					options: {
+						similarityThreshold: 0.8,
+						confidenceThreshold: 0.6,
+						enableBatchProcessing: true,
+						autoExtractWorkspaceInfo: true,
+					},
+				};
+
+				try {
+					const workspaceResult = await this.services.unifiedToolManager.executeToolWithoutLoading(
+						'cipher_workspace_store',
+						workspaceArgs
+					);
+					memoryResults.push({ tool: 'cipher_workspace_store', result: workspaceResult });
+					logger.debug('ConversationSession: Workspace memory tool executed successfully');
+				} catch (error) {
+					logger.debug('ConversationSession: Workspace memory tool execution failed', {
+						error: error instanceof Error ? error.message : String(error),
+					});
+				}
+			}
+
+			// Execute default memory tool if not disabled
+			if (shouldRunDefault) {
+				const defaultArgs = {
 					interaction: comprehensiveInteractionData,
 					context: mergedContext,
 					memoryMetadata,
@@ -639,26 +686,77 @@ export class ConversationSession {
 						enableDeleteOperations: true,
 						historyTracking: options?.historyTracking ?? true,
 					},
+				};
+
+				try {
+					const defaultResult = await this.services.unifiedToolManager.executeToolWithoutLoading(
+						'cipher_extract_and_operate_memory',
+						defaultArgs
+					);
+					memoryResults.push({ tool: 'cipher_extract_and_operate_memory', result: defaultResult });
+					logger.debug('ConversationSession: Default memory tool executed successfully');
+				} catch (error) {
+					logger.debug('ConversationSession: Default memory tool execution failed', {
+						error: error instanceof Error ? error.message : String(error),
+					});
 				}
-			);
+			}
+
+			// If no tools were executed successfully, return early
+			if (memoryResults.length === 0) {
+				logger.debug('ConversationSession: No memory tools executed successfully');
+				return;
+			}
+
+			// Aggregate results from all executed tools
+			let totalExtractedFacts = 0;
+			let totalMemoryActions = 0;
+			const toolSummary: any = {};
+			const combinedActions: any[] = [];
+
+			for (const { tool, result } of memoryResults) {
+				if (result.success) {
+					totalExtractedFacts += result.extraction?.extracted || 0;
+
+					// Get actions from the appropriate field based on tool type
+					const actions =
+						tool === 'cipher_workspace_store' ? result.workspace || [] : result.memory || [];
+
+					totalMemoryActions += actions.length;
+					combinedActions.push(...actions);
+
+					toolSummary[tool] = {
+						success: true,
+						extractedFacts: result.extraction?.extracted || 0,
+						memoryActions: actions.length,
+					};
+				} else {
+					toolSummary[tool] = { success: false };
+				}
+			}
 
 			logger.debug('ConversationSession: Memory extraction completed', {
-				success: memoryResult.success,
-				extractedFacts: memoryResult.extraction?.extracted || 0,
-				totalMemoryActions: memoryResult.memory?.length || 0,
-				actionBreakdown: memoryResult.memory
-					? {
-							ADD: memoryResult.memory.filter((a: any) => a.event === 'ADD').length,
-							UPDATE: memoryResult.memory.filter((a: any) => a.event === 'UPDATE').length,
-							DELETE: memoryResult.memory.filter((a: any) => a.event === 'DELETE').length,
-							NONE: memoryResult.memory.filter((a: any) => a.event === 'NONE').length,
-						}
-					: {},
+				toolsExecuted: memoryResults.map(r => r.tool),
+				shouldRunWorkspace,
+				shouldRunDefault,
+				totalExtractedFacts,
+				totalMemoryActions,
+				toolSummary,
+				actionBreakdown:
+					combinedActions.length > 0
+						? {
+								ADD: combinedActions.filter((a: any) => a.event === 'ADD').length,
+								UPDATE: combinedActions.filter((a: any) => a.event === 'UPDATE').length,
+								DELETE: combinedActions.filter((a: any) => a.event === 'DELETE').length,
+								NONE: combinedActions.filter((a: any) => a.event === 'NONE').length,
+							}
+						: {},
 			});
 
 			// **NEW: Automatic Reflection Memory Processing**
 			// Process reasoning traces in the background, similar to knowledge memory
-			// NOTE: Pass the already-loaded tools to avoid redundant loading
+			// Load tools for reflection processing (separate from background memory extraction)
+			const allTools = await this.services.unifiedToolManager.getAllTools();
 			await this.enforceReflectionMemoryProcessing(userInput, aiResponse, allTools);
 		} catch (error) {
 			const errorMessage = error instanceof Error ? error.message : String(error);
@@ -1237,7 +1335,6 @@ export class ConversationSession {
 					);
 				}
 			}
-			logger.info(`Session ${this.id}: Serialized with ${conversationHistory.length} messages`);
 
 			// Note: We don't serialize functions (mergeMetadata, beforeMemoryExtraction)
 			// as they're unsafe to deserialize and restore. These will need to be

@@ -84,16 +84,23 @@ export class SessionManager {
 		}
 		this.initialized = true;
 
-		logger.info('SessionManager: Starting initialization...');
+		logger.debug('SessionManager: Starting initialization...');
 
 		// Initialize storage manager for persistence
 		await this.initializePersistenceStorage();
 
 		// Load existing sessions from persistent storage
 		const restorationStats = await this.loadAllSessions();
-		logger.info(
-			`SessionManager: Initialization complete. Loaded ${restorationStats.restoredSessions}/${restorationStats.totalSessions} sessions from storage. Current in-memory sessions: ${this.sessions.size}`
-		);
+
+		if (restorationStats.totalSessions > 0) {
+			logger.info(
+				`SessionManager: Initialization complete. Loaded ${restorationStats.restoredSessions}/${restorationStats.totalSessions} sessions from storage. Current in-memory sessions: ${this.sessions.size}`
+			);
+		} else {
+			logger.debug(
+				`SessionManager: Initialization complete. No sessions found in storage. Current in-memory sessions: ${this.sessions.size}`
+			);
+		}
 
 		// Start cleanup interval for expired sessions
 		this.startCleanupInterval();
@@ -152,13 +159,19 @@ export class SessionManager {
 			await this.evictOldestSession();
 		}
 
-		// Create new conversation session
+		// Create new conversation session with shared storage manager
+		logger.debug(
+			`SessionManager: Creating session ${sessionId} with storage manager: ${this.storageManager ? 'available' : 'undefined'}`
+		);
 		const session = new ConversationSession(
 			{
 				...this.services,
 				contextManager: this.services.contextManager,
 			},
-			sessionId
+			sessionId,
+			{
+				...(this.storageManager && { sharedStorageManager: this.storageManager }),
+			}
 		);
 		await session.init();
 
@@ -523,8 +536,6 @@ export class SessionManager {
 		}
 
 		try {
-			logger.info('SessionManager: Loading sessions from persistent storage...');
-
 			// Get all session keys from storage
 			const backends = this.storageManager.getBackends();
 			if (!backends) {
@@ -534,8 +545,6 @@ export class SessionManager {
 			// Scan for session keys (this might need to be implemented differently depending on backend)
 			const sessionKeys = await this.getAllSessionKeys();
 			stats.totalSessions = sessionKeys.length;
-
-			logger.info(`SessionManager: Found ${sessionKeys.length} sessions in persistent storage`);
 
 			if (sessionKeys.length === 0) {
 				logger.debug('SessionManager.loadAllSessions: No sessions found in storage');
@@ -593,12 +602,21 @@ export class SessionManager {
 
 		stats.restorationTime = Date.now() - startTime;
 
-		logger.info(`SessionManager: Session restoration completed`, {
-			totalSessions: stats.totalSessions,
-			restoredSessions: stats.restoredSessions,
-			failedSessions: stats.failedSessions,
-			restorationTime: stats.restorationTime,
-		});
+		// Only log if there are issues or in debug mode
+		if (stats.failedSessions > 0 || stats.errors.length > 0) {
+			logger.warn(`SessionManager: Session restoration completed with issues`, {
+				totalSessions: stats.totalSessions,
+				restoredSessions: stats.restoredSessions,
+				failedSessions: stats.failedSessions,
+				restorationTime: stats.restorationTime,
+			});
+		} else if (stats.totalSessions > 0) {
+			logger.debug(`SessionManager: Session restoration completed`, {
+				totalSessions: stats.totalSessions,
+				restoredSessions: stats.restoredSessions,
+				restorationTime: stats.restorationTime,
+			});
+		}
 
 		return stats;
 	}

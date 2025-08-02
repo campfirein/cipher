@@ -1,16 +1,16 @@
 # List of MCP servers to use
 
 # If not specified, please set it like this:
-# mcpServers: {}
+mcpServers: {}
 
-mcpServers: 
-  filesystem:
-    type: stdio
-    command: npx
-    args:
-      - -y
-      - '@modelcontextprotocol/server-filesystem'
-      - .
+# mcpServers: 
+#   filesystem:
+#     type: stdio
+#     command: npx
+#     args:
+#       - -y
+#       - '@modelcontextprotocol/server-filesystem'
+#       - .
 
 # Choose ONLY ONE of the following LLM providers
 llm:

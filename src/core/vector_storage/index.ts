@@ -64,10 +64,14 @@ export {
 	createDefaultVectorStore,
 	createVectorStoreFromEnv,
 	createDualCollectionVectorStoreFromEnv,
+	createMultiCollectionVectorStoreFromEnv,
 	getVectorStoreConfigFromEnv,
+	createWorkspaceVectorStoreFromEnv,
+	getWorkspaceVectorStoreConfigFromEnv,
 	isVectorStoreFactory,
 	type VectorStoreFactory,
 	type DualCollectionVectorFactory,
+	type MultiCollectionVectorFactory,
 } from './factory.js';
 
 // Export managers

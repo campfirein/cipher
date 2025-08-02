@@ -118,17 +118,8 @@ export class MemAgent {
 				services: services,
 			});
 
-			// Load persisted sessions on startup for all modes
-			try {
-				logger.debug('Loading persisted sessions...');
-				const stats = await this.sessionManager.loadAllSessions();
-				if (stats.restoredSessions > 0) {
-					logger.info(`Restored ${stats.restoredSessions} sessions from persistent storage`);
-				}
-			} catch (error) {
-				logger.warn('Failed to load persisted sessions on startup:', error);
-				// Continue startup even if session loading fails
-			}
+			// Sessions are already loaded during SessionManager initialization
+			// No need to load them again here
 
 			this.isStarted = true;
 			if (this.appMode !== 'cli') {
