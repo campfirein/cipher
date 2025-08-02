@@ -12,13 +12,14 @@
  */
 export const LOG_PREFIXES = {
 	MANAGER: '[VectorStoreManager]',
-	BACKEND: '[VectorStoreBackend]',
-	FACTORY: '[VectorStoreFactory]',
-	SEARCH: '[VectorStore:Search]',
-	INDEX: '[VectorStore:Index]',
 	QDRANT: '[VectorStore:Qdrant]',
 	MILVUS: '[VectorStore:Milvus]',
 	MEMORY: '[VectorStore:Memory]',
+	ANN: '[VectorStore:ANN]',
+	INDEX: '[VectorStore:Index]',
+	SEARCH: '[VectorStore:Search]',
+	BACKEND: '[VectorStore:Backend]',
+	FACTORY: '[VectorStore:Factory]',
 } as const;
 
 /**
@@ -63,9 +64,6 @@ export const TIMEOUTS = {
  */
 export const BACKEND_TYPES = {
 	QDRANT: 'qdrant',
-	PINECONE: 'pinecone',
-	WEAVIATE: 'weaviate',
-	CHROMA: 'chroma',
 	IN_MEMORY: 'in-memory',
 	MILVUS: 'milvus',
 } as const;
@@ -92,6 +90,14 @@ export const DEFAULTS = {
 	QDRANT_PORT: 6333,
 	QDRANT_GRPC_PORT: 6334,
 	QDRANT_DISTANCE: 'Cosine' as const,
+
+	// ANN defaults (limited to faiss-node support)
+	ANN_MIN_DATASET_SIZE: 1000,
+	ANN_ALGORITHM: 'flat' as const,
+
+	// Persistence defaults
+	PERSISTENCE_ENABLED: true,
+	PERSISTENCE_PATH: './data/vector-storage',
 } as const;
 
 /**
@@ -119,4 +125,10 @@ export const METRICS_EVENTS = {
 	INDEX_FAILURE: 'vector_storage.index.failure',
 	COLLECTION_CREATED: 'vector_storage.collection.created',
 	COLLECTION_DELETED: 'vector_storage.collection.deleted',
+	ANN_SEARCH_START: 'vector_storage.ann.search.start',
+	ANN_SEARCH_SUCCESS: 'vector_storage.ann.search.success',
+	ANN_SEARCH_FAILURE: 'vector_storage.ann.search.failure',
+	ANN_INDEX_BUILD_START: 'vector_storage.ann.index.build.start',
+	ANN_INDEX_BUILD_SUCCESS: 'vector_storage.ann.index.build.success',
+	ANN_INDEX_BUILD_FAILURE: 'vector_storage.ann.index.build.failure',
 } as const;

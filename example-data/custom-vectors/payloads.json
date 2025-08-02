@@ -1,0 +1,16 @@
+[
+  [
+    "custom1",
+    {
+      "title": "Custom Document 1",
+      "path": "custom"
+    }
+  ],
+  [
+    "custom2",
+    {
+      "title": "Custom Document 2",
+      "path": "custom"
+    }
+  ]
+]

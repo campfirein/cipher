@@ -74,5 +74,14 @@ export {
 export { VectorStoreManager, type HealthCheckResult, type VectorStoreInfo } from './manager.js';
 export { DualCollectionVectorManager, type CollectionType } from './dual-collection-manager.js';
 
+// Export ANN components
+export {
+	ANNIndex,
+	type ANNIndexConfig,
+	type ANNAlgorithm,
+	type ANNSearchResult,
+	type ANNIndexStats,
+} from './ann_index.js';
+
 // Export constants for external use
 export { BACKEND_TYPES, DEFAULTS, DISTANCE_METRICS } from './constants.js';

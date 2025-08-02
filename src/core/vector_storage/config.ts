@@ -64,6 +64,23 @@ const InMemoryBackendSchema = BaseVectorStoreSchema.extend({
 
 	/** Maximum number of vectors to store (prevents memory overflow) */
 	maxVectors: z.number().int().positive().default(10000).describe('Maximum vectors to store'),
+
+	/** ANN algorithm to use for enhanced search */
+	annAlgorithm: z.enum(['flat', 'brute-force']).optional().describe('ANN algorithm to use'),
+
+	/** Minimum dataset size to use ANN */
+	annMinDatasetSize: z
+		.number()
+		.int()
+		.positive()
+		.optional()
+		.describe('Minimum dataset size to enable ANN indexing'),
+
+	/** Enable ANN index persistence */
+	annPersistIndex: z.boolean().optional().describe('Enable ANN index persistence'),
+
+	/** ANN index file path */
+	annIndexPath: z.string().optional().describe('Path to store/load the ANN index'),
 }).strict();
 
 export type InMemoryBackendConfig = z.infer<typeof InMemoryBackendSchema>;
@@ -195,7 +212,7 @@ const BackendConfigSchema = z
 			return { message: ctx.defaultError };
 		},
 	})
-	.describe('Backend configuration for vector storage system')
+	.describe('Vector storage backend configuration')
 	.superRefine((data, ctx) => {
 		// Validate Qdrant backend requirements
 		if (data.type === 'qdrant') {
