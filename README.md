@@ -23,10 +23,11 @@ Cipher is an opensource memory layer specifically designed for coding agents. Co
 
 **Key Features:**
 
-- ⁠MCP integration with any IDE you want.
-- ⁠Auto-generate AI coding memories that scale with your codebase.
-- ⁠Switch seamlessly between IDEs without losing memory and context.
-- ⁠Easily share coding memories across your dev team in real time.
+- 🌐 **Web UI Mode** - Modern, interactive chat interface with real-time streaming responses
+- ⁠🔗 **MCP Integration** - Compatible with any IDE (Cursor, Windsurf, Claude Desktop, VS Code, etc.)
+- ⁠🧠 **Auto-generate AI Memories** - Intelligent coding memories that scale with your codebase
+- ⁠🔄 **Seamless IDE Switching** - Maintain memory and context across different development environments
+- ⁠👥 **Team Memory Sharing** - Share coding memories across your dev team in real time
 - ⁠Dual Memory Layer that captures System 1 (Programming Concepts & Business Logic & Past Interaction) and System 2 (reasoning steps of the model when generating code).
 - ⁠Install on your IDE with zero configuration needed.
 
@@ -77,6 +78,9 @@ cipher "Add this to memory as common causes of 'CORS error' in local dev with Vi
 
 # API server mode
 cipher --mode api
+
+# Web UI mode (Full-stack application)
+cipher --mode ui
 
 # MCP server mode
 cipher --mode mcp
@@ -318,6 +322,93 @@ llm:
 > - `AZURE_OPENAI_API_KEY`
 > - `AZURE_OPENAI_ENDPOINT`
 
+## Web UI Mode
+
+Cipher includes a full-stack web application with a modern, interactive chat interface that provides all the power of Cipher through a beautiful web interface.
+
+### Features
+
+- **🎨 Modern Chat Interface** - Clean, responsive design with real-time messaging
+- **🚀 Real-time AI Responses** - WebSocket-powered streaming responses with token-by-token display
+- **🧠 Memory Integration** - Visual memory retrieval and storage with context awareness
+- **📝 Session Management** - Persistent chat sessions with conversation history and switching
+- **🔧 MCP Tool Integration** - Connect and manage Model Context Protocol servers and tools
+- **⚙️ Configuration Panel** - Easy LLM model selection and settings management
+- **🔍 Global Search** - Search across all conversations and memories
+- **📊 Real-time Events** - Live tool execution notifications and progress tracking
+
+### Quick Start
+
+```bash
+# Start UI mode (starts both API server and web interface)
+cipher --mode ui
+
+# Custom ports
+cipher --mode ui --port 3001 --ui-port 3000
+
+# Custom host (for remote access)
+cipher --mode ui --host 0.0.0.0 --port 3001 --ui-port 3000
+```
+
+### Default Configuration
+
+- **API Server**: `http://localhost:3001` - Backend REST API with WebSocket support
+- **Web Interface**: `http://localhost:3000` - Interactive chat interface
+- **WebSocket**: `ws://localhost:3001/ws` - Real-time communication endpoint
+
+### UI Mode Architecture
+
+The UI mode runs two integrated servers:
+
+1. **API Server** (port 3001) - Full REST API with WebSocket support
+   - All CLI functionality available via REST endpoints
+   - Real-time WebSocket events for live updates
+   - Session management and memory operations
+   - MCP server integration and tool execution
+
+2. **Web Interface** (port 3000) - Next.js application
+   - Modern React-based chat interface
+   - Real-time streaming responses
+   - Session switching and management
+   - Configuration panels and tool management
+
+### WebSocket Events
+
+The UI receives real-time events for enhanced user experience:
+
+- `thinking` - AI is processing your request
+- `response` - Streaming AI response tokens
+- `toolExecutionStarted` - Tool execution begins
+- `toolExecutionCompleted` - Tool execution finishes
+- `memoryStored` - Memory saved to vector store
+- `sessionCreated` - New session created
+- `error` - Error notifications
+
+### Configuration Options
+
+```bash
+# UI Mode Options
+cipher --mode ui [options]
+
+Options:
+  --port <port>     API server port (default: 3001)
+  --ui-port <port>  Web interface port (default: 3000)
+  --host <host>     Host for both servers (default: localhost)
+```
+
+### Development Mode
+
+For developers working on the UI:
+
+```bash
+# 1. Start API server
+cipher --mode api --port 3001
+
+# 2. In another terminal, start UI development server
+cd src/app/ui
+pnpm run dev
+```
+
 ## CLI Reference
 
 ```bash
@@ -327,6 +418,7 @@ cipher "Your prompt here"           # One-shot mode
 
 # Server modes
 cipher --mode api                   # REST API server with WebSocket support
+cipher --mode ui                    # Full-stack web application (API + UI)
 cipher --mode mcp                   # MCP server (make sure all necessary environment variables are set in the shell environment)
 
 # Configuration
