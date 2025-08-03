@@ -724,7 +724,7 @@ export const storeReasoningMemoryTool: InternalTool = {
 					payloads: `[Object with ${Object.keys(payload).length} keys]`,
 				},
 			});
-
+			// console.log('Store Reasoning Memory Payload:', payload);
 			// Store in reflection vector database using exact same pattern as successful function
 			try {
 				await reflectionStore.insert([embedding], [vectorId], [payload]);

@@ -4,7 +4,7 @@ import { InternalTool, InternalToolContext } from '../../types.js';
 import { logger } from '../../../../logger/index.js';
 // Import payload migration utilities
 import { KnowledgePayload } from './payloads.js';
-// import { env } from '../../../../env.js';
+import { env } from '../../../../env.js';
 
 /**
  * Memory Search Tool Result Interface
@@ -187,8 +187,7 @@ export const searchMemoryTool: InternalTool = {
             const originalQuery = args.query.trim();
             const topK = Math.max(1, Math.min(50, args.top_k || 5));
             const similarityThreshold = Math.max(0.0, Math.min(1.0, args.similarity_threshold || 0.3));
-            // const enableQueryRefinement = args.enable_query_refinement !== false; // Default to true
-            const enableQueryRefinement = true; // Default to true
+            const enableQueryRefinement = args.enable_query_refinement !== false && env.ENABLE_QUERY_REFINEMENT !== false;
 
             // Get required services from context
             if (!context?.services) {
@@ -217,7 +216,7 @@ export const searchMemoryTool: InternalTool = {
 
 			let finalQuery: string[] = [originalQuery];
             let queryEmbeddings: number[][];
-
+			// Rewrite query if enabled
 			try {
 				if (enableQueryRefinement) {
 					const rewrittenQueries = await rewriteUserQuery(originalQuery, context.services.llmService);
@@ -311,7 +310,7 @@ export const searchMemoryTool: InternalTool = {
             if (!knowledgeStore) {
                 throw new Error('Knowledge vector store not available');
             }
-
+			// Retrieve knowledge for each query embedding
 			for (const queryEmbedding of queryEmbeddings) {
 				// Search knowledge collection
 				const knowledgeResults = await knowledgeStore.search(queryEmbedding, topK * 2);
@@ -423,7 +422,7 @@ export const searchMemoryTool: InternalTool = {
                 totalTime: `${totalTime}ms`,
                 usedFallback,
             });
-
+			// Return result to agent 
             return result;
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
@@ -489,7 +488,7 @@ async function rewriteUserQuery(
 
         QUESTION: "${originalInput}"
 
-		TASK: Create 2-4 concise search queries that capture the core information needs of the question. Only include disambiguation if absolutely necessary.
+		TASK: Create 2-5 concise search queries that capture the core information needs of the question.
 
 		GUIDELINES:
 		- Focus on the main intent of the question.

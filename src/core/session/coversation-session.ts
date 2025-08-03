@@ -824,11 +824,9 @@ export class ConversationSession {
 				);
 				return;
 			}
-
 			// Check if reflection memory tools are available (using pre-loaded tools)
 			const reflectionToolsAvailable =
 				allTools['cipher_extract_reasoning_steps'] && allTools['cipher_store_reasoning_memory'];
-
 			if (embeddingsDisabled || !reflectionToolsAvailable) {
 				logger.debug('ConversationSession: Reflection memory processing skipped', {
 					embeddingsDisabled,

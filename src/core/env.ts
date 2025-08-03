@@ -113,6 +113,8 @@ const envSchema = z.object({
 		.default('Cosine'),
 	WORKSPACE_VECTOR_STORE_ON_DISK: z.boolean().default(false),
 	WORKSPACE_VECTOR_STORE_MAX_VECTORS: z.number().default(10000),
+	// Query Refinement Configuration
+	ENABLE_QUERY_REFINEMENT: z.boolean().default(true),
 });
 
 type EnvSchema = z.infer<typeof envSchema>;
