@@ -1512,5 +1512,102 @@ async function persistMemoryActions(
 		}
 	}
 }
+/**
+ * Step 1: Rewrite user query into sub-queries and disambiguate ambiguous terms
+ * Uses LLM to generate more targeted queries for better retrieval
+ * 
+ * @param originalInput - The original user query to rewrite
+ * @param llmService - The LLM service to use for rewriting
+ * @returns An object containing the rewritten queries
+*/
+async function rewriteUserQuery(
+    originalInput: string,
+    llmService: any,
+): Promise<{queries: string[]}> {
+    // Add debugging to track function calls
+    const callId = Math.random().toString(36).substring(7);
+    console.log(`🔄 [${callId}] rewriteUserQuery called with: "${originalInput}"`);
+    
+    try {
+        const rewritePrompt = `
+        You are a query decomposition and disambiguation expert. Break down this question into search queries for a knowledge base while handling ambiguous terms.
 
-export { parseLLMDecision, MEMORY_OPERATION_PROMPTS, extractTechnicalTags };
+        QUESTION: "${originalInput}"
+
+		TASK: Create 2-4 concise search queries that capture the core information needs of the question. Only include disambiguation if absolutely necessary.
+
+		GUIDELINES:
+		- Focus on the main intent of the question.
+		- Use natural, searchable language (4-15 words per query).
+		- Only create disambiguation queries for clearly ambiguous terms.
+		- Avoid over-decomposing the question into too many subqueries.
+		- Prefer fewer, more precise queries over exhaustive coverage.
+		- Each query should stand alone and be understandable without additional context.
+
+		DISAMBIGUATION (Only if needed):
+		- For truly ambiguous terms (homonyms, abbreviations, etc.), include 1-2 alternate queries with different meanings.
+		- Do not force disambiguation where the meaning is already clear from context.
+
+        OUTPUT FORMAT:
+        Respond with ONLY the queries, one per line, using this exact format:
+        Query 1: [first query]
+        Query 2: [second query]
+        [continue as needed...]
+
+        Do not include any explanations, introductions, or other text. Only the queries.
+
+        EXAMPLES:
+        Question: "What profession does Nicholas Ray and Elia Kazan have in common?"
+        Query 1: Nicholas Ray profession career
+        Query 2: Elia Kazan profession career
+
+        Question: "Most total goals in a premier league season?"
+        Query 1: Most total goals in a premier league season by a team
+        Query 2: Most total goals in a premier league season by a player
+
+        Now decompose and disambiguate: "${originalInput}"
+        `;
+        const rewriteResponse = await llmService.directGenerate(rewritePrompt);
+        
+        // Parse the response to extract individual queries
+        const queries = rewriteResponse
+            .split('\n')
+            .map(line => line.trim())
+            .filter(line => line.length > 0)
+            .map(line => {
+                // Extract query content after "Query X:" prefix
+                const match = line.match(/^Query\s*\d+:\s*(.+)$/i);
+                return match ? match[1].trim() : null;
+            })
+            .filter(query => query !== null && query.length >= 3)
+            .filter((query, index, array) => array.indexOf(query) === index); // Remove duplicates
+        
+        console.log(`🔄 [${callId}] Parsed queries:`, queries);
+        console.log(`🔄 [${callId}] Query count: ${queries.length}`);
+
+        // Ensure we have at least one query (fallback to original)
+        if (queries.length === 0) {
+            console.log(`🔄 [${callId}] No queries parsed, falling back to original input`);
+            return {
+                queries: [originalInput]
+            };
+        }
+
+        console.log(`🔄 [${callId}] Returning ${queries.length} refined queries`);
+        return {
+            queries: queries
+        };
+
+    } catch (error) {
+        console.log(`🔄 [${callId}] Error in rewriteUserQuery:`, error);
+        logger.warn('MemorySearch: Query rewriting failed', {
+            originalInput: originalInput.substring(0, 100),
+            error: error instanceof Error ? error.message : String(error)
+        });
+        return {
+            queries: [originalInput]
+        };
+    }
+}
+
+export { parseLLMDecision, MEMORY_OPERATION_PROMPTS, extractTechnicalTags, rewriteUserQuery};
