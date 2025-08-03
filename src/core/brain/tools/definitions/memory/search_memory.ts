@@ -474,7 +474,7 @@ export const searchMemoryTool: InternalTool = {
  * @param llmService - The LLM service to use for rewriting
  * @returns An object containing the rewritten queries
 */
-async function rewriteUserQuery(
+export async function rewriteUserQuery(
     originalInput: string,
     llmService: any,
 ): Promise<{queries: string[]}> {

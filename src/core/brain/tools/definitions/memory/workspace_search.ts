@@ -2,7 +2,7 @@ import { InternalTool, InternalToolContext } from '../../types.js';
 import { logger } from '../../../../logger/index.js';
 import { WorkspacePayload } from './workspace-payloads.js';
 import { env } from '../../../../env.js';
-
+import { rewriteUserQuery } from './search_memory.js';
 /**
  * Workspace Search Result Interface
  */
@@ -222,7 +222,7 @@ export const workspaceSearchTool: InternalTool = {
 			}
 
 			// Set defaults
-			const query = args.query.trim();
+			const originalQuery = args.query.trim();
 			const topK = Math.max(1, Math.min(50, args.top_k || 10));
 			const similarityThreshold = Math.max(
 				0.0,
@@ -251,13 +251,20 @@ export const workspaceSearchTool: InternalTool = {
 			// Generate embedding for the search query
 			const embeddingStartTime = Date.now();
 			logger.debug('WorkspaceSearch: Generating embedding for query', {
-				queryLength: query.length,
-				queryPreview: query.substring(0, 50),
+				queryLength: originalQuery.length,
+				queryPreview: originalQuery.substring(0, 50),
 			});
-
-			let queryEmbedding;
+			let queries: string[] = [originalQuery];
+			if (env.ENABLE_QUERY_REFINEMENT) {
+				const rewrittenQueries = await rewriteUserQuery(originalQuery, context?.services?.llmService);
+				logger.debug('WorkspaceSearch: Rewritten queries', {
+					rewrittenQueries,
+				});
+				queries = rewrittenQueries.queries;
+			}
+			let queryEmbeddings: number[][];
 			try {
-				queryEmbedding = await embedder?.embed(query);
+				queryEmbeddings = await embedder?.embedBatch(queries);
 			} catch (embedError) {
 				logger.error(
 					'WorkspaceSearch: Failed to generate embedding, disabling embeddings globally',
@@ -299,7 +306,7 @@ export const workspaceSearchTool: InternalTool = {
 
 			logger.debug('WorkspaceSearch: Embedding generated successfully', {
 				embeddingTime: `${embeddingTime}ms`,
-				embeddingDimensions: Array.isArray(queryEmbedding) ? queryEmbedding.length : 'unknown',
+				embeddingDimensions: Array.isArray(queryEmbeddings[0]) ? queryEmbeddings[0].length : 'unknown',
 			});
 
 			// Search workspace memory
@@ -366,7 +373,10 @@ export const workspaceSearchTool: InternalTool = {
 			}
 
 			// Search workspace collection
-			workspaceResults = await workspaceStore.search(queryEmbedding, topK * 2);
+			for (const queryEmbedding of queryEmbeddings) {
+				const results = await workspaceStore.search(queryEmbedding, topK * 2);
+				workspaceResults.push(...results);
+			}
 
 			// Mark results with source
 			const allResults = workspaceResults.map((result: any) => ({
@@ -467,7 +477,7 @@ export const workspaceSearchTool: InternalTool = {
 			// Prepare result
 			const result: WorkspaceSearchResult = {
 				success: true,
-				query: query,
+				query: originalQuery,
 				results: finalResults,
 				metadata: {
 					totalResults,
@@ -485,7 +495,7 @@ export const workspaceSearchTool: InternalTool = {
 			};
 
 			logger.debug('WorkspaceSearch: Workspace search completed successfully', {
-				query: query.substring(0, 50),
+				query: originalQuery.substring(0, 50),
 				resultsFound: totalResults,
 				workspaceResults: totalResults,
 				maxSimilarity: maxSimilarity.toFixed(3),
