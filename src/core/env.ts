@@ -57,7 +57,7 @@ const envSchema = z.object({
 	STORAGE_DATABASE_PASSWORD: z.string().optional(),
 	STORAGE_DATABASE_SSL: z.boolean().default(false),
 	// Vector Storage Configuration
-	VECTOR_STORE_TYPE: z.enum(['qdrant', 'milvus', 'in-memory']).default('in-memory'),
+	VECTOR_STORE_TYPE: z.enum(['qdrant', 'milvus', 'pgvector', 'in-memory']).default('in-memory'),
 	VECTOR_STORE_HOST: z.string().optional(),
 	VECTOR_STORE_PORT: z.number().optional(),
 	VECTOR_STORE_URL: z.string().optional(),
@@ -100,7 +100,7 @@ const envSchema = z.object({
 	USE_WORKSPACE_MEMORY: z.boolean().default(false),
 	WORKSPACE_SEARCH_THRESHOLD: z.number().default(0.4),
 	DISABLE_DEFAULT_MEMORY: z.boolean().default(false),
-	WORKSPACE_VECTOR_STORE_TYPE: z.enum(['qdrant', 'milvus', 'in-memory']).optional(),
+	WORKSPACE_VECTOR_STORE_TYPE: z.enum(['qdrant', 'milvus', 'pgvector', 'in-memory']).optional(),
 	WORKSPACE_VECTOR_STORE_HOST: z.string().optional(),
 	WORKSPACE_VECTOR_STORE_PORT: z.number().optional(),
 	WORKSPACE_VECTOR_STORE_URL: z.string().optional(),

@@ -178,6 +178,50 @@ const MilvusBackendSchema = BaseVectorStoreSchema.extend({
 
 export type MilvusBackendConfig = z.infer<typeof MilvusBackendSchema>;
 
+const PgVectorBackendSchema = BaseVectorStoreSchema.extend({
+	type: z.literal('pgvector'),
+
+	/** PgVector connection URL (http://...) - overrides individual params if provided */
+	url: z.string().url().describe('PgVector connection URL'),
+
+	/** PgVector connection pool size */
+	poolSize: z
+		.number()
+		.int()
+		.positive()
+		.default(5)
+		.optional()
+		.describe('PgVector connection pool size'),
+
+	/** PgVector index type */
+	indexType: z
+		.enum(['ivfflat', 'hnsw'])
+		.default('ivfflat')
+		.optional()
+		.describe('PgVector index type'),
+
+	/** PgVector index metric */
+	indexMetric: z
+		.enum(['vector_l2_ops', 'vector_ip_ops'])
+		.default('vector_l2_ops')
+		.optional()
+		.describe('PgVector index metric'),
+
+	/** Distance metric for similarity search */
+	distance: z
+		.enum([
+			DISTANCE_METRICS.COSINE,
+			DISTANCE_METRICS.EUCLIDEAN,
+			DISTANCE_METRICS.DOT_PRODUCT,
+			DISTANCE_METRICS.MANHATTAN,
+		] as const)
+		.default(DEFAULTS.PGVECTOR_DISTANCE)
+		.optional()
+		.describe('Distance metric'),
+}).strict();
+
+export type PgVectorBackendConfig = z.infer<typeof PgVectorBackendSchema>;
+
 /**
  * ChromaDB Backend Configuration
  *
@@ -247,12 +291,18 @@ export type ChromaBackendConfig = z.infer<typeof ChromaBackendSchema>;
 const BackendConfigSchema = z
 	.discriminatedUnion(
 		'type',
-		[InMemoryBackendSchema, QdrantBackendSchema, MilvusBackendSchema, ChromaBackendSchema],
+		[
+			InMemoryBackendSchema,
+			QdrantBackendSchema,
+			MilvusBackendSchema,
+			ChromaBackendSchema,
+			PgVectorBackendSchema,
+		],
 		{
 			errorMap: (issue, ctx) => {
 				if (issue.code === z.ZodIssueCode.invalid_union_discriminator) {
 					return {
-						message: `Invalid backend type. Expected 'in-memory', 'qdrant', 'milvus', or 'chroma'.`,
+						message: `Invalid backend type. Expected 'in-memory', 'qdrant', 'milvus', 'pgvector' or 'chroma'.`,
 					};
 				}
 				return { message: ctx.defaultError };
