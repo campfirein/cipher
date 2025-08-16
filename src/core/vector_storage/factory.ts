@@ -494,8 +494,8 @@ export function getVectorStoreConfigFromEnv(agentConfig?: any): VectorStoreConfi
 				collectionName,
 				dimension,
 				maxVectors,
-				// Add a special property to indicate this is a fallback from PgVector
-				_fallbackFrom: 'pgvector',
+				// Add a special property to indicate this is a fallback from pinecone
+				_fallbackFrom: 'pinecone',
 			} as any;
 		}
 
@@ -790,8 +790,8 @@ export function getWorkspaceVectorStoreConfigFromEnv(agentConfig?: any): VectorS
 				collectionName,
 				dimension,
 				maxVectors,
-				// Add a special property to indicate this is a fallback from PgVector
-				_fallbackFrom: 'pgvector',
+				// Add a special property to indicate this is a fallback from Pinecone
+				_fallbackFrom: 'pinecone',
 			} as any;
 		}
 
