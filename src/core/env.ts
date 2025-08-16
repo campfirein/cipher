@@ -72,7 +72,13 @@ const envSchema = z.object({
 	VECTOR_STORE_ON_DISK: z.boolean().default(false),
 	VECTOR_STORE_MAX_VECTORS: z.number().default(10000),
 	// Pinecone-specific Configuration
+	PINECONE_PROVIDER: z.string().default('aws'),
+	PINECONE_REGION: z.string().default('us-east-1'),
 	PINECONE_NAMESPACE: z.string().default('default'),
+	// PGVECTOR -specific Configuration
+	PGVECTOR_INDEXTYPE: z.enum(['hnsw', 'ivfflat']).default('hnsw'),
+	PGVECTOR_INDEXMETRIC: z.enum(['vector_l2_ops', 'vector_ip_ops']).default('vector_l2_ops'),
+	PGVECTOR_DATABASE_NAME: z.string().optional().default('pgvector_memory'),
 	// Knowledge Graph Configuration
 	KNOWLEDGE_GRAPH_ENABLED: z.boolean().default(false),
 	KNOWLEDGE_GRAPH_TYPE: z.enum(['neo4j', 'in-memory']).default('in-memory'),
@@ -105,7 +111,7 @@ const envSchema = z.object({
 	WORKSPACE_SEARCH_THRESHOLD: z.number().default(0.4),
 	DISABLE_DEFAULT_MEMORY: z.boolean().default(false),
 	WORKSPACE_VECTOR_STORE_TYPE: z
-		.enum(['qdrant', 'milvus', 'chroma', 'pinecone', 'in-memory'])
+		.enum(['qdrant', 'milvus', 'chroma', 'pinecone', 'pgvector', 'in-memory'])
 		.optional(),
 	WORKSPACE_VECTOR_STORE_HOST: z.string().optional(),
 	WORKSPACE_VECTOR_STORE_PORT: z.number().optional(),

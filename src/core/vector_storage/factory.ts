@@ -92,7 +92,7 @@ export async function createVectorStore(config: VectorStoreConfig): Promise<Vect
 	const manager = new VectorStoreManager(config);
 
 	try {
-		// Connect to backend for other types
+		// Connect to backend
 		const store = await manager.connect();
 
 		logger.info(`${LOG_PREFIXES.FACTORY} Vector storage system created successfully`, {
@@ -251,66 +251,24 @@ async function createDualCollectionVectorStoreInternal(
 				knowledgeCollection: config.collectionName,
 			}
 		);
-
 		const manager = new DualCollectionVectorManager(config);
-
-		try {
-			await manager.connect();
-			const knowledgeStore = manager.getStore('knowledge');
-			if (!knowledgeStore) {
-				throw new Error('Failed to get knowledge store from dual collection manager');
-			}
-			return {
-				manager,
-				knowledgeStore,
-				reflectionStore: null,
-			};
-		} catch (error) {
-			logger.warn(
-				`${LOG_PREFIXES.FACTORY} Primary vector store connection failed, using fallback`,
-				{
-					originalType: config.type,
-					error: error instanceof Error ? error.message : String(error),
-				}
-			);
-
-			// Cleanup failed manager
-			await manager.disconnect().catch(() => {});
-
-			// Create fallback in-memory configuration
-			const fallbackConfig = {
-				type: 'in-memory' as const,
-				collectionName: config.collectionName,
-				dimension: config.dimension,
-				maxVectors: 10000,
-			};
-
-			const fallbackManager = new DualCollectionVectorManager(fallbackConfig);
-			await fallbackManager.connect();
-
-			const knowledgeStore = fallbackManager.getStore('knowledge');
-			if (!knowledgeStore) {
-				throw new Error('Failed to get knowledge store from fallback dual collection manager');
-			}
-
-			logger.info(`${LOG_PREFIXES.FACTORY} Successfully created fallback in-memory store`, {
-				fallbackType: 'in-memory',
-				originalType: config.type,
-			});
-
-			return {
-				manager: fallbackManager,
-				knowledgeStore,
-				reflectionStore: null,
-			};
+		await manager.connect();
+		const knowledgeStore = manager.getStore('knowledge');
+		if (!knowledgeStore) {
+			throw new Error('Failed to get knowledge store from dual collection manager');
 		}
+		return {
+			manager,
+			knowledgeStore,
+			reflectionStore: null,
+		};
 	}
 
 	logger.info(`${LOG_PREFIXES.FACTORY} Creating dual collection vector storage from environment`, {
 		type: config.type,
 		knowledgeCollection: config.collectionName,
 		reflectionCollection,
-		reflectionEnabled: true,
+		refectionEnabled: true,
 	});
 
 	// Create dual collection manager
@@ -326,76 +284,22 @@ async function createDualCollectionVectorStoreInternal(
 			throw new Error('Failed to get knowledge store from dual collection manager');
 		}
 
-		logger.info(`${LOG_PREFIXES.FACTORY} Dual collection vector storage created successfully`, {
-			knowledge: !!knowledgeStore,
-			reflection: !!reflectionStore,
-		});
-
 		return {
 			manager,
 			knowledgeStore,
 			reflectionStore,
 		};
 	} catch (error) {
-		logger.warn(`${LOG_PREFIXES.FACTORY} Dual collection connection failed, attempting fallback`, {
-			originalType: config.type,
-			error: error instanceof Error ? error.message : String(error),
-		});
-
 		// If connection fails, ensure cleanup
 		await manager.disconnect().catch(() => {
 			// Ignore disconnect errors during cleanup
 		});
 
-		// Create fallback in-memory configuration for dual collection
-		const fallbackConfig = {
-			type: 'in-memory' as const,
-			collectionName: config.collectionName,
-			dimension: config.dimension,
-			maxVectors: 10000,
-		};
+		logger.error(`${LOG_PREFIXES.FACTORY} Failed to create dual collection vector storage system`, {
+			error: error instanceof Error ? error.message : String(error),
+		});
 
-		try {
-			const fallbackManager = new DualCollectionVectorManager(fallbackConfig);
-			await fallbackManager.connect();
-
-			const knowledgeStore = fallbackManager.getStore('knowledge');
-			const reflectionStore = fallbackManager.getStore('reflection');
-
-			if (!knowledgeStore) {
-				throw new Error('Failed to get knowledge store from fallback dual collection manager');
-			}
-
-			logger.info(
-				`${LOG_PREFIXES.FACTORY} Successfully created fallback in-memory dual collection`,
-				{
-					knowledge: !!knowledgeStore,
-					reflection: !!reflectionStore,
-					originalType: config.type,
-				}
-			);
-
-			return {
-				manager: fallbackManager,
-				knowledgeStore,
-				reflectionStore,
-			};
-		} catch (fallbackError) {
-			logger.error(
-				`${LOG_PREFIXES.FACTORY} Failed to create fallback dual collection vector storage`,
-				{
-					originalError: error instanceof Error ? error.message : String(error),
-					fallbackError:
-						fallbackError instanceof Error ? fallbackError.message : String(fallbackError),
-				}
-			);
-
-			throw new Error(
-				`Failed to create both primary and fallback dual collection vector storage: ${
-					error instanceof Error ? error.message : String(error)
-				}`
-			);
-		}
+		throw error;
 	}
 }
 
@@ -561,53 +465,102 @@ export function getVectorStoreConfigFromEnv(agentConfig?: any): VectorStoreConfi
 		};
 	} else if ((storeType as string) === 'pinecone') {
 		const apiKey = env.VECTOR_STORE_API_KEY;
-		const namespace = env.PINECONE_NAMESPACE;
-		const envmetric = env.VECTOR_STORE_DISTANCE;
-		// Use the collection name as index name for Pinecone
-		const indexName = collectionName;
+		const collectionName = env.VECTOR_STORE_COLLECTION || 'default';
+		const provider = env.PINECONE_PROVIDER || 'aws';
+		const region = env.PINECONE_REGION || 'us-east-1';
+		const namespace = env.PINECONE_NAMESPACE || 'default';
+		const envmetric = env.VECTOR_STORE_DISTANCE || 'cosine';
+		const dimension = env.VECTOR_STORE_DIMENSION || 1536;
+
 		let metric: 'cosine' | 'euclidean' | 'dotproduct' = 'cosine';
-		if (envmetric) {
-			switch (envmetric.toLowerCase()) {
-				case 'cosine':
-					metric = 'cosine';
-					break;
-				case 'euclidean':
-					metric = 'euclidean';
-					break;
-				case 'dotproduct':
-					metric = 'dotproduct';
-					break;
-				default:
-					metric = 'cosine';
-			}
+		switch (envmetric) {
+			case 'Cosine':
+				metric = 'cosine';
+				break;
+			case 'Euclidean':
+				metric = 'euclidean';
+				break;
+			case 'Dot':
+				metric = 'dotproduct';
+				break;
+			default:
+				metric = 'cosine';
+				break;
 		}
 		if (!apiKey) {
-			logger.warn('Pinecone API key not provided, falling back to in-memory storage', {
-				hasApiKey: !!apiKey,
-			});
+			// Return in-memory config with fallback marker
 			return {
 				type: 'in-memory',
 				collectionName,
 				dimension,
 				maxVectors,
+				// Add a special property to indicate this is a fallback from pinecone
 				_fallbackFrom: 'pinecone',
 			} as any;
 		}
 
-		logger.debug('Creating Pinecone configuration', {
-			indexName,
-			namespace,
-			dimension,
-			metric,
-		});
-
 		return {
 			type: 'pinecone',
-			collectionName: indexName,
-			dimension,
 			apiKey,
+			collectionName,
+			provider,
+			region,
 			namespace,
-			metric: metric as 'cosine' | 'euclidean' | 'dotproduct',
+			metric,
+			dimension,
+		};
+	} else if ((storeType as string) === 'pgvector') {
+		const url = env.VECTOR_STORE_URL;
+		const host = env.VECTOR_STORE_HOST;
+		const port = Number.isNaN(env.VECTOR_STORE_PORT) ? undefined : env.VECTOR_STORE_PORT;
+		const username = env.VECTOR_STORE_USERNAME;
+		const password = env.VECTOR_STORE_PASSWORD;
+		const indexType = env.PGVECTOR_INDEXTYPE || 'hnsw';
+		const indexMetric = env.PGVECTOR_INDEXMETRIC || 'vector_l2_ops';
+		const database = env.PGVECTOR_DATABASE_NAME || 'cipher_memory';
+		const collectionName = env.VECTOR_STORE_COLLECTION || 'pgvector_memory';
+		const dimension = env.VECTOR_STORE_DIMENSION || 1536;
+		const envdistance = env.VECTOR_STORE_DISTANCE || 'cosine';
+
+		let distance: 'cosine' | 'l2' | 'inner_product' = 'cosine';
+		switch (envdistance) {
+			case 'Cosine':
+				distance = 'cosine';
+				break;
+			case 'Euclidean':
+				distance = 'l2';
+				break;
+			case 'Dot':
+				distance = 'inner_product';
+				break;
+			default:
+				distance = 'cosine';
+		}
+		if (!url && !host) {
+			// Return in-memory config with fallback marker
+			return {
+				type: 'in-memory',
+				collectionName,
+				dimension,
+				maxVectors,
+				// Add a special property to indicate this is a fallback from PgVector
+				_fallbackFrom: 'pgvector',
+			} as any;
+		}
+
+		return {
+			type: 'pgvector',
+			url,
+			host,
+			port,
+			username,
+			password,
+			database,
+			indexType,
+			indexMetric,
+			collectionName,
+			dimension,
+			distance,
 		};
 	} else {
 		return {
@@ -807,42 +760,86 @@ export function getWorkspaceVectorStoreConfigFromEnv(agentConfig?: any): VectorS
 			distance,
 		};
 	} else if ((storeType as string) === 'pinecone') {
-		const apiKey = env.WORKSPACE_VECTOR_STORE_API_KEY || env.VECTOR_STORE_API_KEY;
-		const namespace = env.PINECONE_NAMESPACE;
-		const metric = env.WORKSPACE_VECTOR_STORE_DISTANCE || env.VECTOR_STORE_DISTANCE;
-		// Use workspace collection name as index name for Pinecone
-		const indexName = collectionName;
+		const apiKey = env.VECTOR_STORE_API_KEY;
+		const collectionName = env.VECTOR_STORE_COLLECTION || 'default';
+		const provider = env.PINECONE_PROVIDER || 'aws';
+		const region = env.PINECONE_REGION || 'us-east-1';
+		const namespace = env.PINECONE_NAMESPACE || 'default';
+		const envmetric = env.VECTOR_STORE_DISTANCE || 'cosine';
+		const dimension = env.VECTOR_STORE_DIMENSION || 1536;
 
+		let metric: 'cosine' | 'euclidean' | 'dotproduct' = 'cosine';
+		switch (envmetric) {
+			case 'Cosine':
+				metric = 'cosine';
+				break;
+			case 'Euclidean':
+				metric = 'euclidean';
+				break;
+			case 'Dot':
+				metric = 'dotproduct';
+				break;
+			default:
+				metric = 'cosine';
+				break;
+		}
 		if (!apiKey) {
-			logger.warn(
-				'Pinecone API key not provided for workspace store, falling back to in-memory storage',
-				{
-					hasApiKey: !!apiKey,
-				}
-			);
+			// Return in-memory config with fallback marker
 			return {
 				type: 'in-memory',
 				collectionName,
 				dimension,
 				maxVectors,
-				_fallbackFrom: 'pinecone-workspace',
+				// Add a special property to indicate this is a fallback from Pinecone
+				_fallbackFrom: 'pinecone',
 			} as any;
 		}
 
-		logger.debug('Creating workspace Pinecone configuration', {
-			indexName,
-			namespace: namespace ? `${namespace}-workspace` : 'workspace',
-			dimension,
-			metric,
-		});
-
 		return {
 			type: 'pinecone',
-			collectionName: indexName,
-			dimension,
 			apiKey,
-			namespace: namespace ? `${namespace}-workspace` : 'workspace',
-			metric: metric as 'cosine' | 'euclidean' | 'dotproduct',
+			collectionName,
+			provider,
+			region,
+			namespace,
+			metric,
+			dimension,
+		};
+	} else if ((storeType as string) === 'pgvector') {
+		const url = env.VECTOR_STORE_URL;
+		const host = env.VECTOR_STORE_HOST;
+		const port = Number.isNaN(env.VECTOR_STORE_PORT) ? undefined : env.VECTOR_STORE_PORT;
+		const username = env.VECTOR_STORE_USERNAME;
+		const password = env.VECTOR_STORE_PASSWORD;
+		const indexType = env.PGVECTOR_INDEXTYPE || 'hnsw';
+		const indexMetric = env.PGVECTOR_INDEXMETRIC || 'vector_l2_ops';
+		const database = env.PGVECTOR_DATABASE_NAME || 'cipher_memory';
+		const collectionName = env.VECTOR_STORE_COLLECTION || 'pgvector_memory';
+		const dimension = env.VECTOR_STORE_DIMENSION || 1536;
+		if (!url && !host) {
+			// Return in-memory config with fallback marker
+			return {
+				type: 'in-memory',
+				collectionName,
+				dimension,
+				maxVectors,
+				// Add a special property to indicate this is a fallback from PgVector
+				_fallbackFrom: 'pgvector',
+			} as any;
+		}
+
+		return {
+			type: 'pgvector',
+			url,
+			host,
+			port,
+			username,
+			password,
+			database,
+			indexType,
+			indexMetric,
+			collectionName,
+			dimension,
 		};
 	} else {
 		return {
@@ -850,7 +847,7 @@ export function getWorkspaceVectorStoreConfigFromEnv(agentConfig?: any): VectorS
 			collectionName,
 			dimension,
 			maxVectors,
-		};
+		} as any;
 	}
 }
 
@@ -954,72 +951,19 @@ async function createMultiCollectionVectorStoreInternal(
 			workspaceStore,
 		};
 	} catch (error) {
-		logger.warn(`${LOG_PREFIXES.FACTORY} Multi collection connection failed, attempting fallback`, {
-			originalType: config.type,
-			error: error instanceof Error ? error.message : String(error),
-		});
-
 		// If connection fails, ensure cleanup
 		await manager.disconnect().catch(() => {
 			// Ignore disconnect errors during cleanup
 		});
 
-		// Create fallback in-memory configuration for multi collection
-		const fallbackConfig = {
-			type: 'in-memory' as const,
-			collectionName: config.collectionName,
-			dimension: config.dimension,
-			maxVectors: 10000,
-		};
-
-		try {
-			const fallbackManager = new MultiCollectionVectorManager(fallbackConfig);
-			const connected = await fallbackManager.connect();
-
-			if (!connected) {
-				throw new Error('Failed to connect fallback multi collection vector manager');
+		logger.error(
+			`${LOG_PREFIXES.FACTORY} Failed to create multi collection vector storage system`,
+			{
+				error: error instanceof Error ? error.message : String(error),
 			}
+		);
 
-			const knowledgeStore = fallbackManager.getStore('knowledge');
-			const reflectionStore = fallbackManager.getStore('reflection');
-			const workspaceStore = fallbackManager.getStore('workspace');
-
-			if (!knowledgeStore) {
-				throw new Error('Failed to get knowledge store from fallback multi collection manager');
-			}
-
-			logger.info(
-				`${LOG_PREFIXES.FACTORY} Successfully created fallback in-memory multi collection`,
-				{
-					knowledge: !!knowledgeStore,
-					reflection: !!reflectionStore,
-					workspace: !!workspaceStore,
-					originalType: config.type,
-				}
-			);
-
-			return {
-				manager: fallbackManager,
-				knowledgeStore,
-				reflectionStore,
-				workspaceStore,
-			};
-		} catch (fallbackError) {
-			logger.error(
-				`${LOG_PREFIXES.FACTORY} Failed to create fallback multi collection vector storage`,
-				{
-					originalError: error instanceof Error ? error.message : String(error),
-					fallbackError:
-						fallbackError instanceof Error ? fallbackError.message : String(fallbackError),
-				}
-			);
-
-			throw new Error(
-				`Failed to create both primary and fallback multi collection vector storage: ${
-					error instanceof Error ? error.message : String(error)
-				}`
-			);
-		}
+		throw error;
 	}
 }
 

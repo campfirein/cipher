@@ -85,7 +85,7 @@ export class VectorStoreManager {
 	private static inMemoryModule?: any;
 	private static milvusModule?: any;
 	private static chromaModule?: any;
-	private static pineconeModule?: any;
+	private static pgVectorModule?: any;
 
 	// In VectorStoreManager, track if in-memory is used as fallback or primary
 	private usedFallback = false;
@@ -514,27 +514,22 @@ export class VectorStoreManager {
 					throw error; // Let connection handler deal with fallback
 				}
 			}
-			case BACKEND_TYPES.PINECONE: {
-				try {
-					// Lazy load Pinecone module (shared across all instances)
-					if (!VectorStoreManager.pineconeModule) {
-						this.logger.debug(`${LOG_PREFIXES.MANAGER} Lazy loading Pinecone module`);
-						const { PineconeBackend } = await import('./backend/pinecone.js');
-						VectorStoreManager.pineconeModule = PineconeBackend;
-					}
 
-					const PineconeBackend = VectorStoreManager.pineconeModule;
-					this.backendMetadata.type = BACKEND_TYPES.PINECONE;
-					this.backendMetadata.isFallback = false;
-
-					return new PineconeBackend(config);
-				} catch (error) {
-					this.logger.info(`${LOG_PREFIXES.MANAGER} Failed to create Pinecone backend: ${error}`, {
-						error: error instanceof Error ? error.message : String(error),
-					});
-					throw error; // Let connection handler deal with fallback
+			case BACKEND_TYPES.PGVECTOR: {
+				// Lazy load PgVector module
+				if (!VectorStoreManager.pgVectorModule) {
+					this.logger.debug(`${LOG_PREFIXES.MANAGER} Lazy loading PgVector module`);
+					const { PgVectorBackend } = await import('./backend/pgvector.js');
+					VectorStoreManager.pgVectorModule = PgVectorBackend;
 				}
+
+				const PgVectorBackend = VectorStoreManager.pgVectorModule;
+				this.backendMetadata.type = BACKEND_TYPES.PGVECTOR;
+				this.backendMetadata.isFallback = false;
+
+				return new PgVectorBackend(config);
 			}
+
 			case BACKEND_TYPES.IN_MEMORY:
 			default: {
 				// Use in-memory backend

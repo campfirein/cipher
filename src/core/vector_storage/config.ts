@@ -262,6 +262,12 @@ const PineconeBackendSchema = BaseVectorStoreSchema.extend({
 	/** Pinecone namespace for multi-tenancy (optional) */
 	namespace: z.string().optional().describe('Pinecone namespace'),
 
+	/** Pinecone provider (optional) */
+	provider: z.string().optional().describe('Pinecone provider'),
+
+	/** Pinecone region (default: 'us-west1') */
+	region: z.string().default(DEFAULTS.PINECONE_REGION).optional().describe('Pinecone region'),
+
 	/** Distance metric for similarity search */
 	metric: z
 		.enum(['cosine', 'euclidean', 'dotproduct'] as const)
@@ -282,6 +288,88 @@ const PineconeBackendSchema = BaseVectorStoreSchema.extend({
 export type PineconeBackendConfig = z.infer<typeof PineconeBackendSchema>;
 
 /**
+ * PgVector Backend Configuration
+ *
+ * Configuration for PostgreSQL with pgvector extension.
+ * Supports both connection URL and individual parameters.
+ *
+ * @example
+ * ```typescript
+ * // Using connection URL
+ * const config: PgVectorBackendConfig = {
+ *   type: 'pgvector',
+ *   url: 'postgresql://user:pass@localhost:5432/vectordb',
+ *   collectionName: 'embeddings',
+ *   dimension: 1536
+ * };
+ *
+ * // Using individual parameters
+ * const config: PgVectorBackendConfig = {
+ *   type: 'pgvector',
+ *   host: 'localhost',
+ *   port: 5432,
+ *   database: 'vectordb',
+ *   username: 'user',
+ *   password: 'password',
+ *   collectionName: 'embeddings',
+ *   dimension: 1536,
+ *   ssl: true
+ * };
+ * ```
+ */
+
+const PgVectorBackendSchema = BaseVectorStoreSchema.extend({
+	type: z.literal('pgvector'),
+
+	/** PostgreSQL connection URL (postgresql://...) - overrides individual params if provided */
+	url: z.string().url().optional().describe('PostgreSQL connection URL'),
+
+	/** PostgreSQL server hostname */
+	host: z.string().optional().describe('PostgreSQL host'),
+
+	/** PostgreSQL server port (default: 5432) */
+	port: z.number().int().positive().default(5432).optional().describe('PostgreSQL port'),
+
+	/** Database name */
+	database: z.string().optional().describe('Database name'),
+
+	/** Username for authentication */
+	username: z.string().optional().describe('PostgreSQL username'),
+
+	/** Password for authentication */
+	password: z.string().optional().describe('PostgreSQL password'),
+
+	/** Use SSL/TLS for connection (default: false) */
+	ssl: z.boolean().default(false).optional().describe('Use SSL/TLS for connection'),
+
+	/** Distance metric for similarity search */
+	distance: z
+		.enum(['cosine', 'l2', 'inner_product'] as const)
+		.default('cosine')
+		.optional()
+		.describe('Distance metric for pgvector'),
+
+	/** Connection pool size (default: 10) */
+	poolSize: z.number().int().positive().default(10).optional().describe('Connection pool size'),
+
+	/** Index type for vector similarity search */
+	indexType: z
+		.enum(['ivfflat', 'hnsw'] as const)
+		.default('hnsw')
+		.optional()
+		.describe('Vector index type'),
+
+	indexMetric: z
+		.enum(['vector_l2_ops', 'vector_ip_ops', 'vector_cosine_ops'] as const)
+		.default('vector_l2_ops')
+		.optional()
+		.describe('Vector index metric for pgvector'),
+	/** Schema name (default: 'public') */
+	schema: z.string().default('public').optional().describe('PostgreSQL schema name'),
+}).strict();
+
+export type PgVectorBackendConfig = z.infer<typeof PgVectorBackendSchema>;
+/**
  * Backend Configuration Union Schema
  *
  * Discriminated union of all supported backend configurations.
@@ -298,6 +386,7 @@ const BackendConfigSchema = z
 			MilvusBackendSchema,
 			ChromaBackendSchema,
 			PineconeBackendSchema,
+			PgVectorBackendSchema,
 		],
 		{
 			errorMap: (issue, ctx) => {
@@ -352,6 +441,18 @@ const BackendConfigSchema = z
 					code: z.ZodIssueCode.custom,
 					message: "Pinecone backend requires 'apiKey' to be specified",
 					path: ['apiKey'],
+				});
+			}
+		}
+		// Validate PgVector backend requirements
+		if (data.type === 'pgvector') {
+			// PgVector requires either a connection URL or host and database
+			if (!data.url && (!data.host || !data.database)) {
+				ctx.addIssue({
+					code: z.ZodIssueCode.custom,
+					message:
+						"PgVector backend requires either 'url' or both 'host' and 'database' to be specified",
+					path: ['url'],
 				});
 			}
 		}

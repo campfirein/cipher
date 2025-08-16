@@ -39,6 +39,8 @@ export class PineconeBackend implements VectorStore {
 	private readonly indexName: string;
 	private readonly dimension: number;
 	private readonly namespace: string;
+	private readonly provider: string;
+	private readonly region: string;
 	private readonly logger: Logger;
 	private connected = false;
 
@@ -47,6 +49,9 @@ export class PineconeBackend implements VectorStore {
 		this.indexName = config.collectionName;
 		this.dimension = config.dimension;
 		this.namespace = config.namespace || DEFAULTS.PINECONE_NAMESPACE;
+		this.provider = config.provider || DEFAULTS.PINECONE_PROVIDER;
+		this.region = config.region || DEFAULTS.PINECONE_REGION;
+
 		this.logger = createLogger({
 			level: process.env.CIPHER_LOG_LEVEL || 'info',
 		});
@@ -132,6 +137,29 @@ export class PineconeBackend implements VectorStore {
 	}
 
 	/**
+	 * Map provider string to valid Pinecone cloud values
+	 */
+	private getCloudprovider(provider: string): 'aws' | 'gcp' | 'azure' {
+		switch (provider.toLowerCase()) {
+			case 'aws':
+			case 'amazon':
+				return 'aws';
+			case 'gcp':
+			case 'google':
+			case 'gcloud':
+				return 'gcp';
+			case 'azure':
+			case 'microsoft':
+				return 'azure';
+			default:
+				// Default to AWS if provider not recognized
+				this.logger.warn(
+					`${LOG_PREFIXES.PINECONE} Unknown provider '${provider}', defaulting to 'aws'`
+				);
+				return 'aws';
+		}
+	}
+	/**
 	 * Create index in Pinecone
 	 */
 	private async createIndex(): Promise<void> {
@@ -140,14 +168,15 @@ export class PineconeBackend implements VectorStore {
 				dimension: this.dimension,
 				metric: this.config.metric || 'cosine',
 			});
+			const Cloudprovider = this.getCloudprovider(this.provider);
 			const result = await this.client.createIndex({
 				name: this.indexName,
 				dimension: this.dimension,
 				metric: (this.config.metric || 'cosine') as 'cosine' | 'euclidean' | 'dotproduct',
 				spec: {
 					serverless: {
-						cloud: 'aws',
-						region: 'us-east-1',
+						cloud: Cloudprovider,
+						region: this.region,
 					},
 				},
 			});
