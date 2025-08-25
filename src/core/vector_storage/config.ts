@@ -402,6 +402,75 @@ export const RedisBackendSchema = BaseVectorStoreSchema.extend({
 export type RedisBackendConfig = z.infer<typeof RedisBackendSchema>;
 
 /**
+ * Weaviate Backend Configuration
+ *
+ * Configuration for Weaviate vector database backend.
+ *
+ * @example
+ * ```typescript
+ * // Using Weaviate Cloud
+ * const config: WeaviateBackendConfig = {
+ *   type: 'weaviate',
+ *   url: 'https://my-cluster.weaviate.network',
+ *   apiKey: 'your-api-key',
+ *   collectionName: 'Documents',
+ *   dimension: 1536
+ * };
+ *
+ * // Using local instance
+ * const config: WeaviateBackendConfig = {
+ *   type: 'weaviate',
+ *   host: 'localhost',
+ *   port: 8080,
+ *   collectionName: 'Documents',
+ *   dimension: 1536
+ * };
+ * ```
+ */
+const WeaviateBackendSchema = BaseVectorStoreSchema.extend({
+	type: z.literal('weaviate'),
+
+	/** Weaviate connection URL (http://...) - overrides individual params if provided */
+	url: z.string().optional().describe('Weaviate connection URL'),
+
+	/** Weaviate server hostname */
+	host: z.string().optional().describe('Weaviate host'),
+
+	/** Weaviate REST API port (default: 8080) */
+	port: z.number().int().positive().default(8080).optional().describe('Weaviate port'),
+
+	/** Weaviate gRPC port (default: 50051) */
+	grpcPort: z.number().int().positive().default(50051).optional().describe('Weaviate gRPC port'),
+
+	/** Weaviate API key for authentication */
+	apiKey: z.string().optional().describe('Weaviate API key'),
+
+	/** Weaviate username for authentication */
+	username: z.string().optional().describe('Weaviate username'),
+
+	/** Weaviate password for authentication */
+	password: z.string().optional().describe('Weaviate password'),
+
+	/** Additional headers (e.g., for third-party API keys) */
+	headers: z.record(z.string()).optional().describe('Additional headers'),
+
+	/** Use HTTPS/secure connection */
+	secure: z.boolean().default(true).optional().describe('Use secure connection'),
+
+	/** Connection timeout in milliseconds */
+	timeout: z.number().int().positive().default(30000).optional().describe('Connection timeout'),
+
+	/** Distance metric for similarity search */
+	distance: z
+		.enum(['Cosine', 'Euclidean', 'IP'] as const)
+		.default('Cosine')
+		.optional()
+		.describe('Distance metric'),
+}).strict();
+
+export type WeaviateBackendConfig = z.infer<typeof WeaviateBackendSchema>;
+
+/**
  * Backend Configuration Union Schema
  *
  * Discriminated union of all supported backend configurations.
@@ -421,12 +490,13 @@ const BackendConfigSchema = z
 			PgVectorBackendSchema,
 			FaissBackendSchema,
 			RedisBackendSchema,
+			WeaviateBackendSchema,
 		],
 		{
 			errorMap: (issue, ctx) => {
 				if (issue.code === z.ZodIssueCode.invalid_union_discriminator) {
 					return {
-						message: `Invalid backend type. Expected 'in-memory', 'qdrant', 'milvus', 'chroma', 'pinecone', 'pgvector', or 'redis'.`,
+						message: `Invalid backend type. Expected 'in-memory', 'qdrant', 'milvus', 'chroma', 'pinecone', 'pgvector', 'redis', or 'weaviate'.`,
 					};
 				}
 				return { message: ctx.defaultError };
@@ -509,6 +579,18 @@ const BackendConfigSchema = z
 				ctx.addIssue({
 					code: z.ZodIssueCode.custom,
 					message: "Redis backend requires either 'url' or both 'host' and 'port' to be specified",
+					path: ['url'],
+				});
+			}
+		}
+
+		// Validate Weaviate backend requirements
+		if (data.type === 'weaviate') {
+			// Weaviate requires either a connection URL or host
+			if (!data.url && !data.host) {
+				ctx.addIssue({
+					code: z.ZodIssueCode.custom,
+					message: "Weaviate backend requires either 'url' or 'host' to be specified",
 					path: ['url'],
 				});
 			}

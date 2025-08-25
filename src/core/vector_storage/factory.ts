@@ -726,7 +726,68 @@ export function getVectorStoreConfigFromEnv(agentConfig?: any): VectorStoreConfi
 			baseStoragePath,
 			distance,
 		};
-	} else {
+	} else if ((storeType as string) === 'weaviate') {
+		const host = env.VECTOR_STORE_HOST;
+		const url = env.VECTOR_STORE_URL;
+		const port = Number.isNaN(env.VECTOR_STORE_PORT) ? undefined : env.VECTOR_STORE_PORT;
+		const username = env.VECTOR_STORE_USERNAME;
+		const password = env.VECTOR_STORE_PASSWORD;
+		const apiKey = env.VECTOR_STORE_API_KEY;
+		const envdistance = env.VECTOR_STORE_DISTANCE;
+		let distance: 'Euclidean' | 'Cosine' | 'IP' = 'Cosine';
+		if (envdistance) {
+			switch (envdistance.toLowerCase()) {
+				case 'Cosine':
+					distance = 'Cosine';
+					break;
+				case 'L2':
+					distance = 'Euclidean';
+					break;
+				case 'IP':
+					distance = 'IP';
+					break;
+				default:
+					distance = 'Cosine';
+			}
+		}
+		if (!url && !host) {
+			logger.warn('Weaviate URL or host not provided, falling back to in-memory storage', {
+				hasUrl: !!url,
+				hasHost: !!host,
+			});
+			return {
+				type: 'in-memory',
+				collectionName,
+				dimension,
+				maxVectors,
+				_fallbackFrom: 'weaviate',
+			} as any;
+		}
+
+		logger.debug('Creating Weaviate configuration', {
+			url,
+			host,
+			port,
+			username,
+			password,
+			apiKey,
+			dimension,
+			distance,
+		});
+		return {
+			type: 'weaviate',
+			url,
+			host,
+			port,
+			collectionName,
+			dimension,
+			username,
+			password,
+			apiKey,
+			distance,
+		};
+	}
+	 else {
 		return {
 			type: 'in-memory',
 			collectionName,
@@ -1035,7 +1096,69 @@ export function getWorkspaceVectorStoreConfigFromEnv(agentConfig?: any): VectorS
 			dimension,
 			distance,
 		};
-	} else {
+	}else if ((storeType as string) === 'weaviate') {
+		const host = env.WORKSPACE_VECTOR_STORE_HOST;
+		const url = env.WORKSPACE_VECTOR_STORE_URL;
+		const port = Number.isNaN(env.WORKSPACE_VECTOR_STORE_PORT) ? undefined : env.WORKSPACE_VECTOR_STORE_PORT;
+		const username = env.WORKSPACE_VECTOR_STORE_USERNAME;
+		const password = env.WORKSPACE_VECTOR_STORE_PASSWORD;
+		const apiKey = env.WORKSPACE_VECTOR_STORE_API_KEY;
+		const envdistance = env.WORKSPACE_VECTOR_STORE_DISTANCE;
+		let distance: 'Euclidean' | 'Cosine' | 'IP' = 'Cosine';
+		if (envdistance) {
+			switch (envdistance.toLowerCase()) {
+				case 'Cosine':
+					distance = 'Cosine';
+					break;
+				case 'L2':
+					distance = 'Euclidean';
+					break;
+				case 'IP':
+					distance = 'IP';
+					break;
+				default:
+					distance = 'Cosine';
+			}
+		}
+		if (!url && !host) {
+			logger.warn('Weaviate URL or host not provided, falling back to in-memory storage', {
+				hasUrl: !!url,
+				hasHost: !!host,
+			});
+			return {
+				type: 'in-memory',
+				collectionName,
+				dimension,
+				maxVectors,
+				_fallbackFrom: 'weaviate',
+			} as any;
+		}
+
+		logger.debug('Creating Weaviate configuration', {
+			url,
+			host,
+			port,
+			username,
+			password,
+			apiKey,
+			dimension,
+			distance,
+		});
+
+		return {
+			type: 'weaviate',
+			url,
+			host,
+			port,
+			collectionName,
+			dimension,
+			username,
+			password,
+			apiKey,
+			distance,
+		};
+	}
+	 else {
 		return {
 			type: 'in-memory',
 			collectionName,

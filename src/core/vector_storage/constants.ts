@@ -23,6 +23,7 @@ export const LOG_PREFIXES = {
 	PGVECTOR: '[VectorStore:PgVector]',
 	FAISS: '[VectorStore:Faiss]',
 	REDIS: '[VectorStore:Redis]',
+	WEAVIATE: '[VectorStore:Weaviate]',
 	MEMORY: '[VectorStore:Memory]',
 } as const;
 

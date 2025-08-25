@@ -89,6 +89,7 @@ export class VectorStoreManager {
 	private static pineconeModule?: any;
 	private static faissModule?: any;
 	private static redisModule?: any;
+	private static weaviateModule?: any;
 
 	// In VectorStoreManager, track if in-memory is used as fallback or primary
 	private usedFallback = false;
@@ -566,6 +567,28 @@ export class VectorStoreManager {
 
 				return new FaissBackend(config);
 			}
+			case BACKEND_TYPES.WEAVIATE: {
+				try {
+					// Lazy load Weaviate module
+					if (!VectorStoreManager.weaviateModule) {
+						this.logger.debug(`${LOG_PREFIXES.MANAGER} Lazy loading Weaviate module`);
+						const { WeaviateBackend } = await import('./backend/weaviate.js');
+						VectorStoreManager.weaviateModule = WeaviateBackend;
+					}
+
+					const WeaviateBackend = VectorStoreManager.weaviateModule;
+					this.backendMetadata.type = BACKEND_TYPES.WEAVIATE;
+					this.backendMetadata.isFallback = false;
+
+					return new WeaviateBackend(config);
+				} catch (error) {
+					this.logger.info(`${LOG_PREFIXES.MANAGER} Failed to create Weaviate backend: ${error}`, {
+						error: error instanceof Error ? error.message : String(error),
+					});
+					throw error; // Let connection handler deal with fallback
+				}
+			}
+
 			case BACKEND_TYPES.REDIS: {
 				// Lazy load Redis module
 				if (!VectorStoreManager.redisModule) {
