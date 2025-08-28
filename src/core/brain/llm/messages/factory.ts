@@ -18,6 +18,7 @@ function getFormatter(provider: string): IMessageFormatter {
 		case 'lmstudio':
 		case 'qwen':
 		case 'gemini':
+		case 'deepseek':
 			formatter = new OpenAIMessageFormatter();
 			break;
 		case 'azure':
@@ -29,7 +30,7 @@ function getFormatter(provider: string): IMessageFormatter {
 			break;
 		default:
 			throw new Error(
-				`Unsupported provider: ${provider}. Supported providers: openai, anthropic, openrouter, ollama, lmstudio, qwen, aws, azure, gemini`
+				`Unsupported provider: ${provider}. Supported providers: openai, anthropic, openrouter, ollama, lmstudio, qwen, aws, azure, gemini, deepseek`
 			);
 	}
 	return formatter;

@@ -656,7 +656,15 @@ export class UnifiedToolManager {
 	 */
 
 	async getToolsForProvider(
-		provider: 'openai' | 'anthropic' | 'openrouter' | 'aws' | 'azure' | 'qwen' | 'gemini'
+		provider:
+			| 'openai'
+			| 'anthropic'
+			| 'openrouter'
+			| 'aws'
+			| 'azure'
+			| 'qwen'
+			| 'gemini'
+			| 'deepseek'
 	): Promise<any[]> {
 		logger.info(`UnifiedToolManager: Getting tools for provider: ${provider}`);
 		const allTools = await this.getAllTools();
@@ -681,6 +689,9 @@ export class UnifiedToolManager {
 			case 'azure':
 				logger.info('UnifiedToolManager: Formatting tools for Azure (OpenAI-compatible)');
 				return this.formatToolsForOpenAI(allTools); // Azure OpenAI uses OpenAI-compatible format
+			case 'deepseek':
+				logger.info('UnifiedToolManager: Formatting tools for Deepseek');
+				return this.formatToolsForOpenAI(allTools); // Deepseek uses OpenAI-compatible format
 			default:
 				throw new Error(`Unsupported provider: ${provider}`);
 		}

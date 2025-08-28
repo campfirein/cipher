@@ -4,3 +4,4 @@ export * from './ollama.js';
 export * from './lmstudio.js';
 export * from './aws.js';
 export * from './azure.js';
+export * from './deepseek.js';
