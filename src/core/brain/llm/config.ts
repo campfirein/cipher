@@ -39,7 +39,7 @@ export const LLMConfigSchema = z
 			.string()
 			.nonempty()
 			.describe(
-				"The LLM provider (e.g., 'openai', 'anthropic', 'openrouter', 'ollama', 'lmstudio', 'qwen', 'aws', 'azure', 'gemini')"
+				"The LLM provider (e.g., 'openai', 'anthropic', 'openrouter', 'ollama', 'lmstudio', 'qwen', 'aws', 'azure', 'gemini', 'deepseek')"
 			),
 		model: z.string().nonempty().describe('The specific model name for the selected provider'),
 		apiKey: z
@@ -89,6 +89,7 @@ export const LLMConfigSchema = z
 			'aws',
 			'azure',
 			'gemini',
+			'deepseek',
 		];
 		if (!supportedProvidersList.includes(providerLower)) {
 			ctx.addIssue({

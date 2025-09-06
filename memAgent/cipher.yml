@@ -13,10 +13,10 @@ mcpServers: {}
 
 # Choose ONLY ONE of the following LLM providers
 llm:
-  provider: openai
-  model: gpt-4.1-mini
-  apiKey: $OPENAI_API_KEY
-  maxIterations: 50
+  # provider: openai
+  # model: gpt-4.1-mini
+  # apiKey: $OPENAI_API_KEY
+  # maxIterations: 50
 
   # provider: gemini
   # model: gemini-2.5-flash
@@ -39,6 +39,11 @@ llm:
   # maxIterations: 50
   # qwenOptions:
   #   enableThinking: false
+
+  provider: deepseek
+  model: deepseek-chat
+  apiKey: $DEEPSEEK_API_KEY
+  maxIterations: 50
   
 
 

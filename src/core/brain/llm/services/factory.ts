@@ -14,6 +14,7 @@ import { AwsService } from './aws.js';
 import { AzureService } from './azure.js';
 import { GeminiService } from './gemini.js';
 import { LMStudioService } from './lmstudio.js';
+import { DeepseekService } from './deepseek.js';
 
 function extractApiKey(config: LLMConfig): string {
 	const provider = config.provider.toLowerCase();
@@ -81,6 +82,11 @@ function getOpenAICompatibleBaseURL(llmConfig: LLMConfig): string {
 	// Check for environment variable as fallback for OpenAI
 	if (provider === 'openai' && env.OPENAI_BASE_URL) {
 		return env.OPENAI_BASE_URL.replace(/\/$/, '');
+	}
+
+	// TODO: Consider if this is necessary
+	if (provider === 'deepseek') {
+		return 'https://api.deepseek.com';
 	}
 
 	return '';
@@ -260,6 +266,19 @@ function _createLLMService(
 				throw error;
 			}
 		}
+		case 'deepseek': {
+			const baseURL = getOpenAICompatibleBaseURL(config);
+			const OpenAIClass = require('openai');
+			const openai = new OpenAIClass({ apiKey, baseURL });
+			return new DeepseekService(
+				openai,
+				config.model,
+				mcpManager,
+				contextManager,
+				config.maxIterations,
+				unifiedToolManager
+			);
+		}
 		default:
 			throw new Error(`Unsupported LLM provider: ${config.provider}`);
 	}
@@ -362,6 +381,9 @@ function getDefaultContextWindow(provider: string, model?: string): number {
 			'gemini-2.5-flash': 1000000,
 			'gemini-2.5-flash-lite': 1000000,
 			default: 1000000,
+		},
+		deepseek: {
+			default: 128000,
 		},
 		ollama: {
 			default: 8192, // Conservative default for local models
