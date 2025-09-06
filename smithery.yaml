@@ -1,0 +1,38 @@
+# Smithery configuration file: https://smithery.ai/docs/build/project-config
+
+build:
+  dockerfile: Dockerfile
+  dockerBuildPath: .
+runtime: container
+startCommand:
+  type: http
+  configSchema:
+    # JSON Schema defining the configuration options for the MCP.
+    type: object
+    required:
+      - llmApiKey
+      - embeddingApiKey
+    properties:
+      llmModel:
+        type: string
+        default: gpt-4o-mini
+        description: LLM model name
+      llmApiKey:
+        type: string
+        description: API key for the LLM provider
+      llmProvider:
+        type: string
+        default: openai
+        description: LLM provider to use (openai, anthropic, gemini, etc.)
+      embeddingModel:
+        type: string
+        default: text-embedding-3-small
+        description: Embedding model name
+      embeddingApiKey:
+        type: string
+        description: API key for embedding provider
+      embeddingProvider:
+        type: string
+        default: openai
+        description: Embedding provider (openai, gemini, ollama, etc.)
+    description: Configuration for Cipher MCP server - memory-powered AI agent framework
