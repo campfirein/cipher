@@ -1,8 +1,13 @@
 /**
- * Project Registry for Cross-Project Knowledge Transfer
- *
- * Manages project registration, knowledge tracking, and cross-project
- * knowledge transfer coordination.
+ * Project Registry - Central storage for cross-project knowledge data
+ * 
+ * Manages project registration, knowledge transfers, and performance metrics.
+ * Provides the foundation for cross-project knowledge sharing by tracking
+ * projects and their knowledge transfers.
+ * 
+ * Why this exists: Cross-project knowledge needs centralized storage and
+ * tracking. This registry provides the data layer for all cross-project
+ * operations while maintaining performance metrics.
  */
 
 import { EventEmitter } from 'events';
@@ -16,6 +21,12 @@ import type {
 	CrossProjectMetrics,
 } from './types.js';
 
+/**
+ * Manages project data and knowledge transfers
+ * 
+ * Provides centralized storage and tracking for cross-project knowledge
+ * operations with performance monitoring and automatic updates.
+ */
 export class ProjectRegistryManager extends EventEmitter {
 	private registry: ProjectRegistry;
 	private config: CrossProjectConfig;
@@ -23,6 +34,13 @@ export class ProjectRegistryManager extends EventEmitter {
 	private updateTimer?: NodeJS.Timeout;
 	private masterGuideTimer?: NodeJS.Timeout;
 
+	/**
+	 * Creates registry manager with configuration
+	 * 
+	 * @param config - Configuration for registry behavior
+	 * 
+	 * Initializes empty registry and metrics tracking for performance monitoring.
+	 */
 	constructor(config: CrossProjectConfig) {
 		super();
 		this.config = config;
@@ -47,7 +65,11 @@ export class ProjectRegistryManager extends EventEmitter {
 	}
 
 	/**
-	 * Register a new project in the cross-project knowledge system
+	 * Registers a new project for cross-project knowledge sharing
+	 * 
+	 * @param project - Project data to register
+	 * @returns Promise<void> - Resolves when registration complete
+	 * @throws Error if registration fails
 	 */
 	async registerProject(
 		project: Omit<ProjectKnowledge, 'lastUpdated' | 'knowledgeCount'>
@@ -73,6 +95,7 @@ export class ProjectRegistryManager extends EventEmitter {
 
 			this.emit('projectRegistered', projectKnowledge);
 
+			// Track performance metrics
 			const transferTime = Date.now() - startTime;
 			this.updatePerformanceMetrics('averageTransferTime', transferTime);
 		} catch (error) {
@@ -85,7 +108,13 @@ export class ProjectRegistryManager extends EventEmitter {
 	}
 
 	/**
-	 * Update project knowledge count and metadata
+	 * Updates project knowledge count and metadata
+	 * 
+	 * @param projectId - Project to update
+	 * @param knowledgeCount - New knowledge count
+	 * @param metadata - Optional metadata updates
+	 * @returns Promise<void> - Resolves when update complete
+	 * @throws Error if project not found or update fails
 	 */
 	async updateProjectKnowledge(
 		projectId: string,
@@ -107,7 +136,11 @@ export class ProjectRegistryManager extends EventEmitter {
 	}
 
 	/**
-	 * Transfer knowledge between projects
+	 * Transfers knowledge between projects with validation
+	 * 
+	 * @param transfer - Transfer data (without id and timestamp)
+	 * @returns Transfer ID for tracking
+	 * @throws Error if source/target projects don't exist or transfer fails
 	 */
 	async transferKnowledge(
 		transfer: Omit<KnowledgeTransfer, 'id' | 'transferredAt'>
@@ -115,7 +148,7 @@ export class ProjectRegistryManager extends EventEmitter {
 		const startTime = Date.now();
 
 		try {
-			// Validate source and target projects exist
+			// Validate both projects exist
 			if (!this.registry.projects.has(transfer.sourceProjectId)) {
 				throw new Error(`Source project ${transfer.sourceProjectId} not found`);
 			}
@@ -123,6 +156,7 @@ export class ProjectRegistryManager extends EventEmitter {
 				throw new Error(`Target project ${transfer.targetProjectId} not found`);
 			}
 
+			// Create transfer record with unique ID
 			const transferId = `transfer_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 			const knowledgeTransfer: KnowledgeTransfer = {
 				...transfer,
@@ -158,7 +192,11 @@ export class ProjectRegistryManager extends EventEmitter {
 	}
 
 	/**
-	 * Create or update a master guide
+	 * Creates a new master guide
+	 * 
+	 * @param guide - Guide data (without id, timestamp, and version)
+	 * @returns Guide ID for tracking
+	 * @throws Error if creation fails
 	 */
 	async createMasterGuide(
 		guide: Omit<MasterGuide, 'id' | 'lastUpdated' | 'version'>

@@ -1,11 +1,16 @@
 /**
- * Knowledge Synthesizer for Cross-Project Knowledge Transfer
- *
- * Analyzes knowledge from multiple projects and synthesizes insights,
- * patterns, and master guides.
+ * Knowledge Synthesizer - Core intelligence for cross-project knowledge analysis
+ * 
+ * Analyzes knowledge transfers to identify patterns, solutions, and guidelines
+ * that can be shared across projects. Uses frequency analysis and confidence
+ * scoring to determine which knowledge is most valuable and reliable.
+ * 
+ * Why this exists: Teams often solve similar problems independently. This class
+ * identifies common solutions and patterns so knowledge can be shared effectively.
  */
 
 import { logger } from '../index.js';
+import { loadCrossProjectConfig } from './cross-project-config.js';
 import type {
 	ProjectKnowledge,
 	KnowledgeTransfer,
@@ -16,34 +21,68 @@ import type {
 	KnowledgeGuideline,
 } from './types.js';
 
+/**
+ * Configuration for knowledge synthesis algorithms
+ * 
+ * Controls quality thresholds and feature enablement to balance
+ * synthesis quality with performance and resource usage.
+ */
 export interface SynthesisOptions {
+	/** Minimum confidence (0-1) - filters out low-quality knowledge */
 	minConfidence: number;
+	/** Minimum relevance (0-1) - ensures knowledge is applicable */
 	minRelevance: number;
+	/** Max patterns returned - prevents overwhelming output */
 	maxPatterns: number;
+	/** Max solutions returned - limits result set size */
 	maxSolutions: number;
+	/** Enable pattern detection - can be disabled for performance */
 	enablePatternDetection: boolean;
+	/** Enable solution extraction - can be disabled for performance */
 	enableSolutionExtraction: boolean;
+	/** Enable guideline generation - can be disabled for performance */
 	enableGuidelineGeneration: boolean;
 }
 
+/**
+ * Main class for analyzing and synthesizing cross-project knowledge
+ * 
+ * Processes knowledge transfers to find patterns and solutions that
+ * can be shared across projects, reducing duplicate work and improving
+ * team efficiency.
+ */
 export class KnowledgeSynthesizer {
 	private options: SynthesisOptions;
 
+	/**
+	 * Creates synthesizer with configuration from environment variables
+	 * 
+	 * @param options - Optional partial config to override environment settings
+	 * 
+	 * Loads configuration from environment variables with sensible defaults.
+	 * Can be overridden with partial config for testing or custom setups.
+	 */
 	constructor(options: Partial<SynthesisOptions> = {}) {
+		// Load configuration from environment variables
+		const envConfig = loadCrossProjectConfig();
+		
+		// Merge environment config with provided overrides
 		this.options = {
-			minConfidence: 0.7,
-			minRelevance: 0.6,
-			maxPatterns: 10,
-			maxSolutions: 15,
-			enablePatternDetection: true,
-			enableSolutionExtraction: true,
-			enableGuidelineGeneration: true,
+			...envConfig.synthesisOptions,
 			...options,
 		};
 	}
 
 	/**
-	 * Synthesize knowledge from multiple projects
+	 * Main synthesis method - analyzes projects to find shareable knowledge
+	 * 
+	 * @param projects - Projects to analyze for knowledge patterns
+	 * @param transfers - Knowledge transfers between projects
+	 * @param domain - Optional filter to focus on specific domain
+	 * @returns Complete synthesis with patterns, solutions, and confidence score
+	 * 
+	 * Process: Filter by domain → Extract patterns → Extract solutions → 
+	 * Generate guidelines → Calculate confidence → Return results
 	 */
 	async synthesizeKnowledge(
 		projects: ProjectKnowledge[],
@@ -59,9 +98,10 @@ export class KnowledgeSynthesizer {
 				domain: domain || 'all',
 			});
 
-			// Filter by domain if specified
+			// Filter to domain-specific projects for focused analysis
 			const relevantProjects = domain ? projects.filter(p => p.domain === domain) : projects;
 
+			// Include transfers both TO and FROM domain projects
 			const relevantTransfers = domain
 				? transfers.filter(t => {
 						const sourceProject = projects.find(p => p.projectId === t.sourceProjectId);
@@ -70,22 +110,22 @@ export class KnowledgeSynthesizer {
 					})
 				: transfers;
 
-			// Extract patterns if enabled
+			// Extract recurring patterns across projects
 			const patterns = this.options.enablePatternDetection
 				? await this.extractPatterns(relevantProjects, relevantTransfers)
 				: [];
 
-			// Extract solutions if enabled
+			// Find effective problem-solution pairs
 			const solutions = this.options.enableSolutionExtraction
 				? await this.extractSolutions(relevantProjects, relevantTransfers)
 				: [];
 
-			// Generate guidelines if enabled
+			// Generate actionable guidelines from patterns/solutions
 			const guidelines = this.options.enableGuidelineGeneration
 				? await this.generateGuidelines(patterns, solutions, relevantProjects)
 				: [];
 
-			// Synthesize overall knowledge
+			// Create comprehensive markdown report
 			const synthesizedKnowledge = await this.createSynthesizedKnowledge(
 				patterns,
 				solutions,
@@ -93,10 +133,10 @@ export class KnowledgeSynthesizer {
 				relevantProjects
 			);
 
-			// Calculate confidence based on source diversity and quality
+			// Calculate reliability score based on source diversity
 			const confidence = this.calculateConfidence(patterns, solutions, relevantProjects);
 
-			// Generate recommendations
+			// Generate specific recommendations for teams
 			const recommendations = this.generateRecommendations(patterns, solutions, guidelines);
 
 			const result: KnowledgeSynthesisResult = {
@@ -126,13 +166,22 @@ export class KnowledgeSynthesizer {
 	}
 
 	/**
-	 * Extract patterns from project knowledge and transfers
+	 * Finds recurring patterns across projects using frequency analysis
+	 * 
+	 * @param projects - Projects to analyze
+	 * @param transfers - Knowledge transfers to examine
+	 * @returns Patterns sorted by quality (confidence + source diversity)
+	 * 
+	 * Algorithm: Normalize text → Group similar patterns → Track frequency →
+	 * Filter by minimum occurrence (2+ projects) → Sort by composite score
 	 */
 	private async extractPatterns(
 		projects: ProjectKnowledge[],
 		transfers: KnowledgeTransfer[]
 	): Promise<KnowledgePattern[]> {
 		const patterns: KnowledgePattern[] = [];
+		
+		// Track pattern aggregation by normalized text to handle wording variations
 		const patternMap = new Map<
 			string,
 			{
@@ -143,13 +192,14 @@ export class KnowledgeSynthesizer {
 			}
 		>();
 
-		// Analyze transfers for patterns
+		// Process pattern-type transfers that meet confidence threshold
 		for (const transfer of transfers) {
 			if (
 				transfer.knowledgeType === 'pattern' &&
 				transfer.confidence >= this.options.minConfidence
 			) {
 				const key = this.normalizePattern(transfer.content);
+				
 				if (!patternMap.has(key)) {
 					patternMap.set(key, {
 						count: 0,
@@ -167,23 +217,23 @@ export class KnowledgeSynthesizer {
 			}
 		}
 
-		// Convert to KnowledgePattern objects
+		// Convert to pattern objects, requiring 2+ projects for cross-project validity
 		for (const [patternText, data] of patternMap) {
 			if (data.count >= 2) {
-				// Require at least 2 occurrences
 				patterns.push({
 					id: `pattern_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
 					name: this.generatePatternName(patternText),
 					description: this.generatePatternDescription(patternText),
 					pattern: patternText,
-					examples: data.examples.slice(0, 5), // Limit examples
+					examples: data.examples.slice(0, 5), // Limit examples for readability
 					confidence: data.confidence,
 					sourceProjects: Array.from(data.sourceProjects),
 				});
 			}
 		}
 
-		// Sort by confidence and count
+		// Sort by composite score: confidence * log(source diversity)
+		// This prioritizes patterns with both high confidence AND multiple sources
 		return patterns.sort((a, b) => {
 			const scoreA = a.confidence * Math.log(a.sourceProjects.length + 1);
 			const scoreB = b.confidence * Math.log(b.sourceProjects.length + 1);
@@ -192,13 +242,22 @@ export class KnowledgeSynthesizer {
 	}
 
 	/**
-	 * Extract solutions from project knowledge and transfers
+	 * Finds effective solutions to common problems
+	 * 
+	 * @param projects - Projects to analyze
+	 * @param transfers - Knowledge transfers to examine
+	 * @returns Solutions sorted by effectiveness score
+	 * 
+	 * Algorithm: Normalize text → Group similar solutions → Track effectiveness →
+	 * Extract problem statements → Sort by effectiveness
 	 */
 	private async extractSolutions(
 		projects: ProjectKnowledge[],
 		transfers: KnowledgeTransfer[]
 	): Promise<KnowledgeSolution[]> {
 		const solutions: KnowledgeSolution[] = [];
+		
+		// Track solution aggregation by normalized text
 		const solutionMap = new Map<
 			string,
 			{
@@ -209,13 +268,14 @@ export class KnowledgeSynthesizer {
 			}
 		>();
 
-		// Analyze transfers for solutions
+		// Process solution-type transfers that meet confidence threshold
 		for (const transfer of transfers) {
 			if (
 				transfer.knowledgeType === 'solution' &&
 				transfer.confidence >= this.options.minConfidence
 			) {
 				const key = this.normalizeSolution(transfer.content);
+				
 				if (!solutionMap.has(key)) {
 					solutionMap.set(key, {
 						count: 0,
@@ -232,10 +292,9 @@ export class KnowledgeSynthesizer {
 			}
 		}
 
-		// Convert to KnowledgeSolution objects
+		// Convert to solution objects - include single occurrences as they may be valuable
 		for (const [solutionText, data] of solutionMap) {
 			if (data.count >= 1) {
-				// Require at least 1 occurrence
 				solutions.push({
 					id: `solution_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
 					problem: this.extractProblem(solutionText),
@@ -248,7 +307,7 @@ export class KnowledgeSynthesizer {
 			}
 		}
 
-		// Sort by effectiveness
+		// Sort by effectiveness - higher is better
 		return solutions.sort((a, b) => b.effectiveness - a.effectiveness);
 	}
 
@@ -355,29 +414,42 @@ export class KnowledgeSynthesizer {
 	}
 
 	/**
-	 * Calculate overall confidence score
+	 * Calculates overall confidence score for synthesis reliability
+	 * 
+	 * @param patterns - Identified patterns
+	 * @param solutions - Identified solutions
+	 * @param projects - Source projects
+	 * @returns Confidence score (0-1) based on quality and source diversity
+	 * 
+	 * Formula: (avg_pattern_confidence + avg_solution_effectiveness) / 2 + diversity_bonus
+	 * Diversity bonus rewards multi-project knowledge (max 0.2)
 	 */
 	private calculateConfidence(
 		patterns: KnowledgePattern[],
 		solutions: KnowledgeSolution[],
 		projects: ProjectKnowledge[]
 	): number {
+		// No data = no confidence
 		if (patterns.length === 0 && solutions.length === 0) {
 			return 0;
 		}
 
+		// Average pattern confidence
 		const patternConfidence =
 			patterns.length > 0
 				? patterns.reduce((sum, p) => sum + p.confidence, 0) / patterns.length
 				: 0;
 
+		// Average solution effectiveness
 		const solutionConfidence =
 			solutions.length > 0
 				? solutions.reduce((sum, s) => sum + s.effectiveness, 0) / solutions.length
 				: 0;
 
-		const diversityBonus = Math.min(projects.length / 10, 0.2); // Bonus for project diversity
+		// Diversity bonus for multi-project knowledge (max 20%)
+		const diversityBonus = Math.min(projects.length / 10, 0.2);
 
+		// Combine with equal weight, add diversity bonus, cap at 1.0
 		return Math.min((patternConfidence + solutionConfidence) / 2 + diversityBonus, 1.0);
 	}
 
@@ -415,26 +487,53 @@ export class KnowledgeSynthesizer {
 		return recommendations;
 	}
 
-	// Helper methods
+	// Helper methods for text processing
+
+	/**
+	 * Normalizes text for consistent comparison
+	 * @param text - Text to normalize
+	 * @returns Lowercase, trimmed text with normalized spaces
+	 */
 	private normalizePattern(text: string): string {
 		return text.toLowerCase().trim().replace(/\s+/g, ' ');
 	}
 
+	/**
+	 * Normalizes solution text (same as pattern normalization)
+	 * @param text - Text to normalize
+	 * @returns Normalized text
+	 */
 	private normalizeSolution(text: string): string {
 		return text.toLowerCase().trim().replace(/\s+/g, ' ');
 	}
 
+	/**
+	 * Creates human-readable pattern name from text
+	 * @param text - Pattern text
+	 * @returns Title-case name from first 3 words
+	 */
 	private generatePatternName(text: string): string {
 		const words = text.split(' ').slice(0, 3);
 		return words.map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 	}
 
+	/**
+	 * Creates truncated description for display
+	 * @param text - Pattern text
+	 * @returns Description limited to 100 chars
+	 */
 	private generatePatternDescription(text: string): string {
 		return text.length > 100 ? text.substring(0, 100) + '...' : text;
 	}
 
+	/**
+	 * Extracts problem statement from solution text
+	 * @param text - Solution text to analyze
+	 * @returns Problem statement or fallback text
+	 * 
+	 * Looks for problem indicators like "problem", "issue", "error"
+	 */
 	private extractProblem(text: string): string {
-		// Simple extraction - look for problem indicators
 		const problemIndicators = ['problem', 'issue', 'challenge', 'error', 'bug'];
 		const sentences = text.split(/[.!?]+/);
 		const problemSentence = sentences.find(s =>
@@ -443,8 +542,12 @@ export class KnowledgeSynthesizer {
 		return problemSentence || sentences[0] || text.substring(0, 50);
 	}
 
+	/**
+	 * Extracts context information from solution text
+	 * @param text - Solution text
+	 * @returns Context limited to 200 chars for readability
+	 */
 	private extractContext(text: string): string {
-		// Extract context from the text
 		return text.length > 200 ? text.substring(0, 200) + '...' : text;
 	}
 }

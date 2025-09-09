@@ -1,29 +1,51 @@
 /**
- * Memory Integration for Cross-Project Knowledge Transfer
- *
- * Integrates the cross-project knowledge transfer system with existing
- * memory tools to enable automatic knowledge sharing and master guide generation.
+ * Memory Integration - Connects cross-project knowledge with existing memory tools
+ * 
+ * Automatically detects projects, extracts knowledge, and enables sharing
+ * between projects using the existing memory system infrastructure.
+ * 
+ * Why this exists: Manual knowledge sharing is time-consuming and error-prone.
+ * This integration automates the process by detecting projects and extracting
+ * valuable knowledge for cross-project sharing.
  */
 
 import { EventEmitter } from 'events';
 import { logger } from '../index.js';
 import { CrossProjectManager } from './cross-project-manager.js';
+import { loadCrossProjectConfig, validateCrossProjectConfig } from './cross-project-config.js';
 import type {
 	ProjectKnowledge,
-	KnowledgeTransfer,
 	MasterGuide,
 	CrossProjectConfig,
 } from './types.js';
 
+/**
+ * Configuration for memory integration behavior
+ * 
+ * Controls automatic detection, extraction, and generation features
+ * to balance automation with resource usage.
+ */
 export interface MemoryIntegrationConfig extends CrossProjectConfig {
+	/** Enable automatic project detection from memory system */
 	enableAutoProjectDetection: boolean;
+	/** Enable automatic knowledge extraction from memory */
 	enableAutoKnowledgeExtraction: boolean;
+	/** Enable automatic master guide generation */
 	enableAutoMasterGuideGeneration: boolean;
-	projectDetectionInterval: number; // in milliseconds
-	knowledgeExtractionThreshold: number; // minimum confidence for auto-extraction
-	masterGuideGenerationThreshold: number; // minimum projects for auto-generation
+	/** How often to scan for new projects (milliseconds) */
+	projectDetectionInterval: number;
+	/** Minimum confidence for auto-extracting knowledge (0-1) */
+	knowledgeExtractionThreshold: number;
+	/** Minimum projects needed for auto-generating master guides */
+	masterGuideGenerationThreshold: number;
 }
 
+/**
+ * Manages integration between memory system and cross-project knowledge
+ * 
+ * Automatically detects projects, extracts knowledge, and coordinates
+ * cross-project sharing using the existing memory infrastructure.
+ */
 export class MemoryIntegrationManager extends EventEmitter {
 	private crossProjectManager: CrossProjectManager;
 	private config: MemoryIntegrationConfig;
@@ -31,32 +53,41 @@ export class MemoryIntegrationManager extends EventEmitter {
 	private projectDetectionTimer?: NodeJS.Timeout;
 	private registeredProjects = new Set<string>();
 
+	/**
+	 * Creates integration manager with configuration from environment variables
+	 * 
+	 * @param config - Optional partial config to override environment settings
+	 * 
+	 * Loads configuration from environment variables with sensible defaults.
+	 * Can be overridden with partial config for testing or custom setups.
+	 */
 	constructor(config: Partial<MemoryIntegrationConfig> = {}) {
 		super();
 
+		// Load configuration from environment variables
+		const envConfig = loadCrossProjectConfig();
+		
+		// Validate configuration
+		if (!validateCrossProjectConfig(envConfig)) {
+			throw new Error('Invalid cross-project knowledge configuration');
+		}
+
+		// Merge environment config with provided overrides
 		this.config = {
-			enableAutoProjectDetection: true,
-			enableAutoKnowledgeExtraction: true,
-			enableAutoMasterGuideGeneration: true,
-			projectDetectionInterval: 5 * 60 * 1000, // 5 minutes
-			knowledgeExtractionThreshold: 0.8,
-			masterGuideGenerationThreshold: 2,
-			enableAutoTransfer: true,
-			enableMasterGuide: true,
-			similarityThreshold: 0.7,
-			maxTransferPerProject: 100,
-			updateInterval: 60 * 60 * 1000, // 1 hour
-			masterGuideUpdateInterval: 24 * 60 * 60 * 1000, // 24 hours
-			knowledgeRetentionDays: 30,
+			...envConfig.memoryIntegrationConfig,
 			...config,
 		};
 
-		this.crossProjectManager = new CrossProjectManager(this.config);
+		// Initialize cross-project manager with environment-based configuration
+		this.crossProjectManager = new CrossProjectManager(envConfig.crossProjectManagerConfig);
 		this.setupEventHandlers();
 	}
 
 	/**
-	 * Initialize the memory integration system
+	 * Starts the integration system and enables auto-detection
+	 * 
+	 * @returns Promise<void> - Resolves when ready for operations
+	 * @throws Error if initialization fails
 	 */
 	async initialize(): Promise<void> {
 		try {
@@ -70,6 +101,7 @@ export class MemoryIntegrationManager extends EventEmitter {
 
 			await this.crossProjectManager.initialize();
 
+			// Start auto-detection if enabled
 			if (this.config.enableAutoProjectDetection) {
 				this.startProjectDetection();
 			}
@@ -87,23 +119,27 @@ export class MemoryIntegrationManager extends EventEmitter {
 	}
 
 	/**
-	 * Register a project with automatic knowledge extraction
+	 * Registers project and extracts existing knowledge automatically
+	 * 
+	 * @param project - Project to register
+	 * @param existingKnowledge - Optional existing knowledge to extract
+	 * @returns Promise<void> - Resolves when registration complete
+	 * @throws Error if registration or extraction fails
 	 */
 	async registerProjectWithAutoExtraction(
 		project: Omit<ProjectKnowledge, 'lastUpdated' | 'knowledgeCount'>,
 		existingKnowledge?: string[]
 	): Promise<void> {
 		try {
-			// Register the project
 			await this.crossProjectManager.registerProject(project);
 			this.registeredProjects.add(project.projectId);
 
-			// If existing knowledge is provided, extract and transfer it
+			// Extract existing knowledge if provided
 			if (existingKnowledge && existingKnowledge.length > 0) {
 				await this.extractAndTransferKnowledge(project.projectId, existingKnowledge);
 			}
 
-			// Check if we should generate master guides
+			// Generate master guides if enabled
 			if (this.config.enableAutoMasterGuideGeneration) {
 				await this.checkAndGenerateMasterGuides(project.domain);
 			}
@@ -119,7 +155,12 @@ export class MemoryIntegrationManager extends EventEmitter {
 	}
 
 	/**
-	 * Extract knowledge from project and transfer to other projects
+	 * Extracts knowledge from project and transfers to other projects in same domain
+	 * 
+	 * @param projectId - Source project ID
+	 * @param knowledgeItems - Knowledge items to extract and transfer
+	 * @returns Array of transfer IDs created
+	 * @throws Error if project not found or transfer fails
 	 */
 	async extractAndTransferKnowledge(
 		projectId: string,
@@ -133,7 +174,7 @@ export class MemoryIntegrationManager extends EventEmitter {
 				throw new Error(`Project ${projectId} not found`);
 			}
 
-			// Get other projects in the same domain
+			// Find other projects in same domain
 			const otherProjects = this.crossProjectManager
 				.getAllProjects()
 				.filter(p => p.domain === project.domain && p.projectId !== projectId);
@@ -146,13 +187,12 @@ export class MemoryIntegrationManager extends EventEmitter {
 				return transferIds;
 			}
 
-			// Extract and transfer each knowledge item
+			// Process each knowledge item
 			for (const knowledge of knowledgeItems) {
 				if (this.shouldExtractKnowledge(knowledge)) {
-					// Determine knowledge type and confidence
 					const { type, confidence, relevance } = this.analyzeKnowledge(knowledge);
 
-					// Transfer to other projects in the same domain
+					// Transfer to other projects in same domain
 					for (const targetProject of otherProjects) {
 						try {
 							const transferId = await this.crossProjectManager.transferKnowledge(

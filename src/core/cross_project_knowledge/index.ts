@@ -12,6 +12,15 @@ export { KnowledgeSynthesizer } from './knowledge-synthesizer.js';
 export { MasterGuideEngine } from './master-guide-engine.js';
 export { MemoryIntegrationManager } from './memory-integration.js';
 
+// Configuration utilities
+export {
+	loadCrossProjectConfig,
+	validateCrossProjectConfig,
+	getCrossProjectLoggingConfig,
+	getCrossProjectPrivacyConfig,
+	getCrossProjectIntegrationConfig,
+} from './cross-project-config.js';
+
 export type {
 	ProjectKnowledge,
 	KnowledgeTransfer,

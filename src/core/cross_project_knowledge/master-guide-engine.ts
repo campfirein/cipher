@@ -1,13 +1,18 @@
 /**
- * Master Guide Engine for Cross-Project Knowledge Transfer
- *
- * Creates and maintains master guides that aggregate knowledge
- * from multiple projects into comprehensive, actionable guides.
+ * Master Guide Engine - Generates comprehensive guides from cross-project knowledge
+ * 
+ * Creates and maintains master guides that aggregate knowledge from multiple
+ * projects into comprehensive, actionable guides for teams to follow.
+ * 
+ * Why this exists: Teams need consolidated guidance from multiple projects.
+ * This engine synthesizes knowledge into master guides that provide clear,
+ * actionable recommendations based on proven patterns and solutions.
  */
 
 import { EventEmitter } from 'events';
 import { logger } from '../index.js';
 import { KnowledgeSynthesizer } from './knowledge-synthesizer.js';
+import { loadCrossProjectConfig } from './cross-project-config.js';
 import type {
 	ProjectKnowledge,
 	KnowledgeTransfer,
@@ -16,37 +21,72 @@ import type {
 	CrossProjectConfig,
 } from './types.js';
 
+/**
+ * Configuration for master guide generation behavior
+ * 
+ * Controls guide creation, updates, and versioning to balance
+ * guide quality with resource usage and maintenance overhead.
+ */
 export interface MasterGuideConfig {
+	/** Enable automatic guide generation and updates */
 	enableAutoGeneration: boolean;
-	updateInterval: number; // in milliseconds
+	/** How often to update guides (milliseconds) */
+	updateInterval: number;
+	/** Minimum projects needed to create a guide */
 	minProjectsForGuide: number;
-	maxGuideAge: number; // in days
+	/** Maximum age before guide expires (days) */
+	maxGuideAge: number;
+	/** Enable versioning for guide updates */
 	enableVersioning: boolean;
+	/** Enable guides that span multiple domains */
 	enableCrossDomainGuides: boolean;
 }
 
+/**
+ * Generates and maintains master guides from cross-project knowledge
+ * 
+ * Uses knowledge synthesis to create comprehensive guides that teams
+ * can follow, with automatic updates and versioning support.
+ */
 export class MasterGuideEngine extends EventEmitter {
 	private synthesizer: KnowledgeSynthesizer;
 	private config: MasterGuideConfig;
 	private guides: Map<string, MasterGuide> = new Map();
 	private updateTimer?: NodeJS.Timeout;
 
+	/**
+	 * Creates guide engine with configuration from environment variables
+	 * 
+	 * @param config - Optional partial config to override environment settings
+	 * 
+	 * Loads configuration from environment variables with sensible defaults.
+	 * Can be overridden with partial config for testing or custom setups.
+	 */
 	constructor(config: Partial<MasterGuideConfig> = {}) {
 		super();
+		
+		// Load configuration from environment variables
+		const envConfig = loadCrossProjectConfig();
+		
+		// Merge environment config with provided overrides
 		this.config = {
-			enableAutoGeneration: true,
-			updateInterval: 24 * 60 * 60 * 1000, // 24 hours
-			minProjectsForGuide: 2,
-			maxGuideAge: 30, // 30 days
-			enableVersioning: true,
-			enableCrossDomainGuides: false,
+			...envConfig.masterGuideConfig,
 			...config,
 		};
-		this.synthesizer = new KnowledgeSynthesizer();
+		
+		// Initialize synthesizer with environment-based configuration
+		this.synthesizer = new KnowledgeSynthesizer(envConfig.synthesisOptions);
 	}
 
 	/**
-	 * Generate a master guide for a specific domain
+	 * Generates a master guide for a specific domain
+	 * 
+	 * @param domain - Domain to generate guide for
+	 * @param projects - Projects to include in guide
+	 * @param transfers - Knowledge transfers to analyze
+	 * @param title - Optional custom title for guide
+	 * @returns Generated master guide
+	 * @throws Error if insufficient projects or generation fails
 	 */
 	async generateMasterGuide(
 		domain: string,
@@ -63,7 +103,7 @@ export class MasterGuideEngine extends EventEmitter {
 				transferCount: transfers.length,
 			});
 
-			// Filter projects by domain
+			// Filter to domain-specific projects
 			const domainProjects = projects.filter(p => p.domain === domain);
 
 			if (domainProjects.length < this.config.minProjectsForGuide) {
@@ -72,14 +112,14 @@ export class MasterGuideEngine extends EventEmitter {
 				);
 			}
 
-			// Synthesize knowledge for this domain
+			// Synthesize knowledge for domain
 			const synthesis = await this.synthesizer.synthesizeKnowledge(
 				domainProjects,
 				transfers,
 				domain
 			);
 
-			// Create the master guide
+			// Create guide with synthesized content
 			const guideId = `guide_${domain}_${Date.now()}`;
 			const masterGuide: MasterGuide = {
 				id: guideId,

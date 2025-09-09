@@ -1,8 +1,13 @@
 /**
- * Cross-Project Knowledge Transfer Manager
- *
- * Main orchestrator for cross-project knowledge transfer functionality.
- * Integrates with existing memory tools and provides automatic knowledge sharing.
+ * Cross-Project Knowledge Transfer Manager - Main orchestrator
+ * 
+ * Coordinates knowledge sharing between projects by managing project registry,
+ * knowledge synthesis, and master guide generation. Provides unified API
+ * for cross-project operations while maintaining component separation.
+ * 
+ * Why this exists: Teams work on similar problems in isolation. This manager
+ * enables automatic knowledge sharing to reduce duplicate work and improve
+ * team efficiency across multiple projects.
  */
 
 import { EventEmitter } from 'events';
@@ -10,6 +15,7 @@ import { logger } from '../index.js';
 import { ProjectRegistryManager } from './project-registry.js';
 import { KnowledgeSynthesizer } from './knowledge-synthesizer.js';
 import { MasterGuideEngine } from './master-guide-engine.js';
+import { loadCrossProjectConfig, validateCrossProjectConfig } from './cross-project-config.js';
 import type {
 	ProjectKnowledge,
 	KnowledgeTransfer,
@@ -19,14 +25,31 @@ import type {
 	KnowledgeSynthesisResult,
 } from './types.js';
 
+/**
+ * Configuration for cross-project manager behavior
+ * 
+ * Controls feature enablement, performance limits, and system behavior
+ * to balance functionality with resource usage.
+ */
 export interface CrossProjectManagerConfig extends CrossProjectConfig {
+	/** Enable automatic knowledge sharing between projects */
 	enableAutoTransfer: boolean;
+	/** Enable master guide generation and updates */
 	enableMasterGuide: boolean;
+	/** Enable performance monitoring and metrics */
 	enablePerformanceMonitoring: boolean;
+	/** Max concurrent transfers to prevent resource overload */
 	maxConcurrentTransfers: number;
+	/** Batch size for processing transfers efficiently */
 	transferBatchSize: number;
 }
 
+/**
+ * Main class for coordinating cross-project knowledge operations
+ * 
+ * Provides unified API for project management, knowledge transfer,
+ * and master guide generation across multiple projects.
+ */
 export class CrossProjectManager extends EventEmitter {
 	private projectRegistry: ProjectRegistryManager;
 	private synthesizer: KnowledgeSynthesizer;
@@ -34,35 +57,50 @@ export class CrossProjectManager extends EventEmitter {
 	private config: CrossProjectManagerConfig;
 	private isRunning = false;
 
+	/**
+	 * Creates manager with configuration from environment variables
+	 * 
+	 * @param config - Optional partial config to override environment settings
+	 * 
+	 * Loads configuration from environment variables with sensible defaults.
+	 * Can be overridden with partial config for testing or custom setups.
+	 */
 	constructor(config: Partial<CrossProjectManagerConfig> = {}) {
 		super();
 
+		// Load configuration from environment variables
+		const envConfig = loadCrossProjectConfig();
+		
+		// Validate configuration
+		if (!validateCrossProjectConfig(envConfig)) {
+			throw new Error('Invalid cross-project knowledge configuration');
+		}
+
+		// Merge environment config with provided overrides
 		this.config = {
-			enableAutoTransfer: true,
-			enableMasterGuide: true,
-			enablePerformanceMonitoring: true,
-			maxConcurrentTransfers: 5,
-			transferBatchSize: 10,
-			similarityThreshold: 0.7,
-			maxTransferPerProject: 100,
-			updateInterval: 60 * 60 * 1000, // 1 hour
-			masterGuideUpdateInterval: 24 * 60 * 60 * 1000, // 24 hours
-			knowledgeRetentionDays: 30,
+			...envConfig.crossProjectManagerConfig,
 			...config,
 		};
 
+		// Initialize components with environment-based configuration
 		this.projectRegistry = new ProjectRegistryManager(this.config);
-		this.synthesizer = new KnowledgeSynthesizer();
+		this.synthesizer = new KnowledgeSynthesizer(envConfig.synthesisOptions);
 		this.masterGuideEngine = new MasterGuideEngine({
+			...envConfig.masterGuideConfig,
 			enableAutoGeneration: this.config.enableMasterGuide,
-			updateInterval: this.config.masterGuideUpdateInterval,
 		});
 
 		this.setupEventHandlers();
 	}
 
 	/**
-	 * Initialize the cross-project knowledge transfer system
+	 * Starts the system and enables background services
+	 * 
+	 * @returns Promise<void> - Resolves when ready for operations
+	 * @throws Error if initialization fails
+	 * 
+	 * Must be called before using any cross-project functionality.
+	 * Safe to call multiple times (idempotent).
 	 */
 	async initialize(): Promise<void> {
 		try {
@@ -74,7 +112,7 @@ export class CrossProjectManager extends EventEmitter {
 				},
 			});
 
-			// Start auto-updates if enabled
+			// Start background services if enabled
 			if (this.config.enableAutoTransfer) {
 				this.projectRegistry.startAutoUpdates();
 			}
@@ -105,7 +143,16 @@ export class CrossProjectManager extends EventEmitter {
 	}
 
 	/**
-	 * Transfer knowledge between projects
+	 * Transfers knowledge between projects
+	 * 
+	 * @param sourceProjectId - Project providing knowledge
+	 * @param targetProjectId - Project receiving knowledge
+	 * @param knowledge - Knowledge content to transfer
+	 * @param knowledgeType - Type: 'fact', 'pattern', 'solution', or 'guideline'
+	 * @param confidence - Quality score (0-1, default: 0.8)
+	 * @param relevance - Relevance to target project (0-1, default: 0.8)
+	 * @returns Transfer ID for tracking
+	 * @throws Error if projects don't exist or transfer fails
 	 */
 	async transferKnowledge(
 		sourceProjectId: string,
@@ -116,6 +163,7 @@ export class CrossProjectManager extends EventEmitter {
 		relevance: number = 0.8
 	): Promise<string> {
 		try {
+			// Create transfer record - registry handles validation
 			const transferId = await this.projectRegistry.transferKnowledge({
 				sourceProjectId,
 				targetProjectId,
@@ -129,7 +177,7 @@ export class CrossProjectManager extends EventEmitter {
 				},
 			});
 
-			// Trigger automatic master guide updates if enabled
+			// Trigger master guide updates if enabled
 			if (this.config.enableMasterGuide) {
 				this.emit('knowledgeTransferred', { transferId, sourceProjectId, targetProjectId });
 			}
@@ -259,40 +307,76 @@ export class CrossProjectManager extends EventEmitter {
 	}
 
 	/**
-	 * Setup event handlers
+	 * Setup event handlers for component communication
+	 * 
+	 * This method establishes the event-driven communication pattern between
+	 * different system components. It acts as an event bridge, forwarding
+	 * events from internal components to external listeners and implementing
+	 * automatic behaviors based on system events.
+	 * 
+	 * Event Flow Architecture:
+	 * 1. Internal components emit events (projectRegistry, masterGuideEngine)
+	 * 2. Manager forwards events to external listeners
+	 * 3. Manager implements automatic behaviors based on events
+	 * 4. External systems can listen to manager events for integration
+	 * 
+	 * Automatic Behaviors:
+	 * - Master guide auto-updates when knowledge is transferred
+	 * - Cross-domain guide updates for multi-domain transfers
+	 * - Error handling and logging for failed operations
+	 * 
+	 * Event Types:
+	 * - 'projectRegistered': When a new project is registered
+	 * - 'knowledgeTransferred': When knowledge is transferred between projects
+	 * - 'masterGuideGenerated': When a new master guide is created
+	 * - 'masterGuideUpdated': When an existing master guide is updated
+	 * 
+	 * This event-driven approach enables loose coupling between components
+	 * and allows external systems to integrate with the cross-project system
+	 * without tight coupling to internal implementation details.
 	 */
 	private setupEventHandlers(): void {
+		// Forward project registration events to external listeners
 		this.projectRegistry.on('projectRegistered', project => {
 			this.emit('projectRegistered', project);
 		});
 
+		// Forward knowledge transfer events to external listeners
 		this.projectRegistry.on('knowledgeTransferred', transfer => {
 			this.emit('knowledgeTransferred', transfer);
 		});
 
+		// Forward master guide generation events to external listeners
 		this.masterGuideEngine.on('masterGuideGenerated', guide => {
 			this.emit('masterGuideGenerated', guide);
 		});
 
+		// Forward master guide update events to external listeners
 		this.masterGuideEngine.on('masterGuideUpdated', guide => {
 			this.emit('masterGuideUpdated', guide);
 		});
 
-		// Auto-trigger master guide updates when knowledge is transferred
+		// Implement automatic master guide updates when knowledge is transferred
+		// This ensures guides stay current with the latest knowledge
 		this.on('knowledgeTransferred', async data => {
 			if (this.config.enableMasterGuide) {
 				try {
+					// Get source and target project information
 					const sourceProject = this.getProject(data.sourceProjectId);
 					const targetProject = this.getProject(data.targetProjectId);
 
 					if (sourceProject && targetProject) {
-						// Update master guides for both domains
+						// Update master guides for the source project's domain
 						await this.updateMasterGuidesForDomain(sourceProject.domain);
+						
+						// If projects are in different domains, update target domain too
 						if (sourceProject.domain !== targetProject.domain) {
 							await this.updateMasterGuidesForDomain(targetProject.domain);
 						}
 					}
 				} catch (error) {
+					// Log warning but don't fail the transfer
+					// Guide updates are important but not critical for transfers
 					logger.warn('Failed to auto-update master guides after knowledge transfer', {
 						error: error instanceof Error ? error.message : 'Unknown error',
 					});
