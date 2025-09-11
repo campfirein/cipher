@@ -1,10 +1,10 @@
 /**
  * Knowledge Synthesizer - Core intelligence for cross-project knowledge analysis
- * 
+ *
  * Analyzes knowledge transfers to identify patterns, solutions, and guidelines
  * that can be shared across projects. Uses frequency analysis and confidence
  * scoring to determine which knowledge is most valuable and reliable.
- * 
+ *
  * Why this exists: Teams often solve similar problems independently. This class
  * identifies common solutions and patterns so knowledge can be shared effectively.
  */
@@ -23,7 +23,7 @@ import type {
 
 /**
  * Configuration for knowledge synthesis algorithms
- * 
+ *
  * Controls quality thresholds and feature enablement to balance
  * synthesis quality with performance and resource usage.
  */
@@ -46,7 +46,7 @@ export interface SynthesisOptions {
 
 /**
  * Main class for analyzing and synthesizing cross-project knowledge
- * 
+ *
  * Processes knowledge transfers to find patterns and solutions that
  * can be shared across projects, reducing duplicate work and improving
  * team efficiency.
@@ -56,16 +56,16 @@ export class KnowledgeSynthesizer {
 
 	/**
 	 * Creates synthesizer with configuration from environment variables
-	 * 
+	 *
 	 * @param options - Optional partial config to override environment settings
-	 * 
+	 *
 	 * Loads configuration from environment variables with sensible defaults.
 	 * Can be overridden with partial config for testing or custom setups.
 	 */
 	constructor(options: Partial<SynthesisOptions> = {}) {
 		// Load configuration from environment variables
 		const envConfig = loadCrossProjectConfig();
-		
+
 		// Merge environment config with provided overrides
 		this.options = {
 			...envConfig.synthesisOptions,
@@ -75,13 +75,13 @@ export class KnowledgeSynthesizer {
 
 	/**
 	 * Main synthesis method - analyzes projects to find shareable knowledge
-	 * 
+	 *
 	 * @param projects - Projects to analyze for knowledge patterns
 	 * @param transfers - Knowledge transfers between projects
 	 * @param domain - Optional filter to focus on specific domain
 	 * @returns Complete synthesis with patterns, solutions, and confidence score
-	 * 
-	 * Process: Filter by domain → Extract patterns → Extract solutions → 
+	 *
+	 * Process: Filter by domain → Extract patterns → Extract solutions →
 	 * Generate guidelines → Calculate confidence → Return results
 	 */
 	async synthesizeKnowledge(
@@ -167,11 +167,11 @@ export class KnowledgeSynthesizer {
 
 	/**
 	 * Finds recurring patterns across projects using frequency analysis
-	 * 
+	 *
 	 * @param projects - Projects to analyze
 	 * @param transfers - Knowledge transfers to examine
 	 * @returns Patterns sorted by quality (confidence + source diversity)
-	 * 
+	 *
 	 * Algorithm: Normalize text → Group similar patterns → Track frequency →
 	 * Filter by minimum occurrence (2+ projects) → Sort by composite score
 	 */
@@ -180,7 +180,7 @@ export class KnowledgeSynthesizer {
 		transfers: KnowledgeTransfer[]
 	): Promise<KnowledgePattern[]> {
 		const patterns: KnowledgePattern[] = [];
-		
+
 		// Track pattern aggregation by normalized text to handle wording variations
 		const patternMap = new Map<
 			string,
@@ -199,7 +199,7 @@ export class KnowledgeSynthesizer {
 				transfer.confidence >= this.options.minConfidence
 			) {
 				const key = this.normalizePattern(transfer.content);
-				
+
 				if (!patternMap.has(key)) {
 					patternMap.set(key, {
 						count: 0,
@@ -243,11 +243,11 @@ export class KnowledgeSynthesizer {
 
 	/**
 	 * Finds effective solutions to common problems
-	 * 
+	 *
 	 * @param projects - Projects to analyze
 	 * @param transfers - Knowledge transfers to examine
 	 * @returns Solutions sorted by effectiveness score
-	 * 
+	 *
 	 * Algorithm: Normalize text → Group similar solutions → Track effectiveness →
 	 * Extract problem statements → Sort by effectiveness
 	 */
@@ -256,7 +256,7 @@ export class KnowledgeSynthesizer {
 		transfers: KnowledgeTransfer[]
 	): Promise<KnowledgeSolution[]> {
 		const solutions: KnowledgeSolution[] = [];
-		
+
 		// Track solution aggregation by normalized text
 		const solutionMap = new Map<
 			string,
@@ -275,7 +275,7 @@ export class KnowledgeSynthesizer {
 				transfer.confidence >= this.options.minConfidence
 			) {
 				const key = this.normalizeSolution(transfer.content);
-				
+
 				if (!solutionMap.has(key)) {
 					solutionMap.set(key, {
 						count: 0,
@@ -415,12 +415,12 @@ export class KnowledgeSynthesizer {
 
 	/**
 	 * Calculates overall confidence score for synthesis reliability
-	 * 
+	 *
 	 * @param patterns - Identified patterns
 	 * @param solutions - Identified solutions
 	 * @param projects - Source projects
 	 * @returns Confidence score (0-1) based on quality and source diversity
-	 * 
+	 *
 	 * Formula: (avg_pattern_confidence + avg_solution_effectiveness) / 2 + diversity_bonus
 	 * Diversity bonus rewards multi-project knowledge (max 0.2)
 	 */
@@ -465,18 +465,20 @@ export class KnowledgeSynthesizer {
 
 		if (patterns.length > 0) {
 			recommendations.push(
-    `Consider implementing the ${patterns[0]?.name || 'unknown'} pattern across similar projects`
+				`Consider implementing the ${patterns[0]?.name || 'unknown'} pattern across similar projects`
 			);
 		}
 
 		if (solutions.length > 0) {
-   recommendations.push(`Apply the solution for "${solutions[0]?.problem || 'unknown'}" to related projects`);
+			recommendations.push(
+				`Apply the solution for "${solutions[0]?.problem || 'unknown'}" to related projects`
+			);
 		}
 
 		if (guidelines.length > 0) {
 			const bestPractices = guidelines.filter(g => g.category === 'best_practice');
 			if (bestPractices.length > 0) {
-     recommendations.push(`Follow the best practice: ${bestPractices[0]?.title || 'unknown'}`);
+				recommendations.push(`Follow the best practice: ${bestPractices[0]?.title || 'unknown'}`);
 			}
 		}
 
@@ -530,7 +532,7 @@ export class KnowledgeSynthesizer {
 	 * Extracts problem statement from solution text
 	 * @param text - Solution text to analyze
 	 * @returns Problem statement or fallback text
-	 * 
+	 *
 	 * Looks for problem indicators like "problem", "issue", "error"
 	 */
 	private extractProblem(text: string): string {

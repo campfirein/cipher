@@ -1,9 +1,9 @@
 /**
  * Master Guide Engine - Generates comprehensive guides from cross-project knowledge
- * 
+ *
  * Creates and maintains master guides that aggregate knowledge from multiple
  * projects into comprehensive, actionable guides for teams to follow.
- * 
+ *
  * Why this exists: Teams need consolidated guidance from multiple projects.
  * This engine synthesizes knowledge into master guides that provide clear,
  * actionable recommendations based on proven patterns and solutions.
@@ -23,7 +23,7 @@ import type {
 
 /**
  * Configuration for master guide generation behavior
- * 
+ *
  * Controls guide creation, updates, and versioning to balance
  * guide quality with resource usage and maintenance overhead.
  */
@@ -44,7 +44,7 @@ export interface MasterGuideConfig {
 
 /**
  * Generates and maintains master guides from cross-project knowledge
- * 
+ *
  * Uses knowledge synthesis to create comprehensive guides that teams
  * can follow, with automatic updates and versioning support.
  */
@@ -56,31 +56,31 @@ export class MasterGuideEngine extends EventEmitter {
 
 	/**
 	 * Creates guide engine with configuration from environment variables
-	 * 
+	 *
 	 * @param config - Optional partial config to override environment settings
-	 * 
+	 *
 	 * Loads configuration from environment variables with sensible defaults.
 	 * Can be overridden with partial config for testing or custom setups.
 	 */
 	constructor(config: Partial<MasterGuideConfig> = {}) {
 		super();
-		
+
 		// Load configuration from environment variables
 		const envConfig = loadCrossProjectConfig();
-		
+
 		// Merge environment config with provided overrides
 		this.config = {
 			...envConfig.masterGuideConfig,
 			...config,
 		};
-		
+
 		// Initialize synthesizer with environment-based configuration
 		this.synthesizer = new KnowledgeSynthesizer(envConfig.synthesisOptions);
 	}
 
 	/**
 	 * Generates a master guide for a specific domain
-	 * 
+	 *
 	 * @param domain - Domain to generate guide for
 	 * @param projects - Projects to include in guide
 	 * @param transfers - Knowledge transfers to analyze
@@ -303,7 +303,7 @@ export class MasterGuideEngine extends EventEmitter {
 	stopAutoGeneration(): void {
 		if (this.updateTimer) {
 			clearInterval(this.updateTimer);
-   this.updateTimer = undefined as any;
+			this.updateTimer = undefined as any;
 		}
 
 		logger.info('Master guide auto-generation stopped');
@@ -352,9 +352,9 @@ export class MasterGuideEngine extends EventEmitter {
 			return '1.0.0';
 		}
 
-  const major = parseInt(parts[0] || "0", 10);
-  const minor = parseInt(parts[1] || "0", 10);
-  const patch = parseInt(parts[2] || "0", 10);
+		const major = parseInt(parts[0] || '0', 10);
+		const minor = parseInt(parts[1] || '0', 10);
+		const patch = parseInt(parts[2] || '0', 10);
 
 		// Increment patch version
 		return `${major}.${minor}.${patch + 1}`;

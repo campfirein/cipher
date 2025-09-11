@@ -1,9 +1,9 @@
 /**
  * Memory Integration - Connects cross-project knowledge with existing memory tools
- * 
+ *
  * Automatically detects projects, extracts knowledge, and enables sharing
  * between projects using the existing memory system infrastructure.
- * 
+ *
  * Why this exists: Manual knowledge sharing is time-consuming and error-prone.
  * This integration automates the process by detecting projects and extracting
  * valuable knowledge for cross-project sharing.
@@ -13,15 +13,11 @@ import { EventEmitter } from 'events';
 import { logger } from '../index.js';
 import { CrossProjectManager } from './cross-project-manager.js';
 import { loadCrossProjectConfig, validateCrossProjectConfig } from './cross-project-config.js';
-import type {
-	ProjectKnowledge,
-	MasterGuide,
-	CrossProjectConfig,
-} from './types.js';
+import type { ProjectKnowledge, MasterGuide, CrossProjectConfig } from './types.js';
 
 /**
  * Configuration for memory integration behavior
- * 
+ *
  * Controls automatic detection, extraction, and generation features
  * to balance automation with resource usage.
  */
@@ -42,7 +38,7 @@ export interface MemoryIntegrationConfig extends CrossProjectConfig {
 
 /**
  * Manages integration between memory system and cross-project knowledge
- * 
+ *
  * Automatically detects projects, extracts knowledge, and coordinates
  * cross-project sharing using the existing memory infrastructure.
  */
@@ -52,12 +48,13 @@ export class MemoryIntegrationManager extends EventEmitter {
 	private isRunning = false;
 	private projectDetectionTimer?: NodeJS.Timeout;
 	private registeredProjects = new Set<string>();
+	private eventManager?: any;
 
 	/**
 	 * Creates integration manager with configuration from environment variables
-	 * 
+	 *
 	 * @param config - Optional partial config to override environment settings
-	 * 
+	 *
 	 * Loads configuration from environment variables with sensible defaults.
 	 * Can be overridden with partial config for testing or custom setups.
 	 */
@@ -66,7 +63,7 @@ export class MemoryIntegrationManager extends EventEmitter {
 
 		// Load configuration from environment variables
 		const envConfig = loadCrossProjectConfig();
-		
+
 		// Validate configuration
 		if (!validateCrossProjectConfig(envConfig)) {
 			throw new Error('Invalid cross-project knowledge configuration');
@@ -85,7 +82,7 @@ export class MemoryIntegrationManager extends EventEmitter {
 
 	/**
 	 * Starts the integration system and enables auto-detection
-	 * 
+	 *
 	 * @returns Promise<void> - Resolves when ready for operations
 	 * @throws Error if initialization fails
 	 */
@@ -119,8 +116,15 @@ export class MemoryIntegrationManager extends EventEmitter {
 	}
 
 	/**
+	 * Set event manager for emitting service-level events
+	 */
+	setEventManager(eventManager: any): void {
+		this.eventManager = eventManager;
+	}
+
+	/**
 	 * Registers project and extracts existing knowledge automatically
-	 * 
+	 *
 	 * @param project - Project to register
 	 * @param existingKnowledge - Optional existing knowledge to extract
 	 * @returns Promise<void> - Resolves when registration complete
@@ -156,7 +160,7 @@ export class MemoryIntegrationManager extends EventEmitter {
 
 	/**
 	 * Extracts knowledge from project and transfers to other projects in same domain
-	 * 
+	 *
 	 * @param projectId - Source project ID
 	 * @param knowledgeItems - Knowledge items to extract and transfer
 	 * @returns Array of transfer IDs created
@@ -494,7 +498,7 @@ export class MemoryIntegrationManager extends EventEmitter {
 
 			if (this.projectDetectionTimer) {
 				clearInterval(this.projectDetectionTimer);
-    this.projectDetectionTimer = undefined as any;
+				this.projectDetectionTimer = undefined as any;
 			}
 
 			await this.crossProjectManager.shutdown();

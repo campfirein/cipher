@@ -1323,6 +1323,43 @@ export class CommandParser {
 				}
 			},
 		});
+
+		// Cross-project knowledge commands
+		this.registerCommand({
+			name: 'cross-project',
+			description: 'Manage cross-project knowledge transfer system',
+			usage: '/cross-project <subcommand> [options]',
+			category: 'knowledge',
+			subcommands: [
+				{
+					name: 'status',
+					description: 'Show cross-project knowledge system status',
+					handler: this.crossProjectStatusHandler.bind(this),
+				},
+				{
+					name: 'transfer',
+					description: 'Manually transfer knowledge between projects',
+					usage: '/cross-project transfer <source> <target> [knowledge-type]',
+					handler: this.crossProjectTransferHandler.bind(this),
+				},
+				{
+					name: 'projects',
+					description: 'List registered projects',
+					handler: this.crossProjectProjectsHandler.bind(this),
+				},
+				{
+					name: 'config',
+					description: 'Show cross-project knowledge configuration',
+					handler: this.crossProjectConfigHandler.bind(this),
+				},
+				{
+					name: 'help',
+					description: 'Show cross-project knowledge help',
+					handler: this.crossProjectHelpHandler.bind(this),
+				},
+			],
+			handler: this.crossProjectHelpHandler.bind(this),
+		});
 	}
 
 	/**
@@ -1775,44 +1812,6 @@ export class CommandParser {
 		return true;
 	}
 
-		// Cross-project knowledge commands
-		this.registerCommand({
-			name: 'cross-project',
-			description: 'Manage cross-project knowledge transfer system',
-			usage: '/cross-project <subcommand> [options]',
-			category: 'knowledge',
-			subcommands: [
-				{
-					name: 'status',
-					description: 'Show cross-project knowledge system status',
-					handler: this.crossProjectStatusHandler.bind(this),
-				},
-				{
-					name: 'transfer',
-					description: 'Manually transfer knowledge between projects',
-					usage: '/cross-project transfer <source> <target> [knowledge-type]',
-					handler: this.crossProjectTransferHandler.bind(this),
-				},
-				{
-					name: 'projects',
-					description: 'List registered projects',
-					handler: this.crossProjectProjectsHandler.bind(this),
-				},
-				{
-					name: 'config',
-					description: 'Show cross-project knowledge configuration',
-					handler: this.crossProjectConfigHandler.bind(this),
-				},
-				{
-					name: 'help',
-					description: 'Show cross-project knowledge help',
-					handler: this.crossProjectHelpHandler.bind(this),
-				},
-			],
-			handler: this.crossProjectHelpHandler.bind(this),
-		});
-	}
-
 	/**
 	 * Cross-project knowledge status handler
 	 */
@@ -1827,7 +1826,9 @@ export class CommandParser {
 
 			if (!crossProjectManager || !memoryIntegrationManager) {
 				console.log(chalk.red('❌ Cross-project knowledge system is not available'));
-				console.log(chalk.gray('💡 Make sure CIPHER_CROSS_PROJECT_ENABLED=true in your environment'));
+				console.log(
+					chalk.gray('💡 Make sure CIPHER_CROSS_PROJECT_ENABLED=true in your environment')
+				);
 				return true;
 			}
 
@@ -1843,9 +1844,15 @@ export class CommandParser {
 			console.log('');
 
 			console.log(chalk.yellow('⚙️ Configuration:'));
-			console.log(`  ${chalk.gray('Auto Transfer:')} ${process.env.CIPHER_CROSS_PROJECT_AUTO_TRANSFER === 'true' ? 'Enabled' : 'Disabled'}`);
-			console.log(`  ${chalk.gray('Master Guides:')} ${process.env.CIPHER_CROSS_PROJECT_MASTER_GUIDES === 'true' ? 'Enabled' : 'Disabled'}`);
-			console.log(`  ${chalk.gray('Performance Monitoring:')} ${process.env.CIPHER_CROSS_PROJECT_PERFORMANCE_MONITORING === 'true' ? 'Enabled' : 'Disabled'}`);
+			console.log(
+				`  ${chalk.gray('Auto Transfer:')} ${process.env.CIPHER_CROSS_PROJECT_AUTO_TRANSFER === 'true' ? 'Enabled' : 'Disabled'}`
+			);
+			console.log(
+				`  ${chalk.gray('Master Guides:')} ${process.env.CIPHER_CROSS_PROJECT_MASTER_GUIDES === 'true' ? 'Enabled' : 'Disabled'}`
+			);
+			console.log(
+				`  ${chalk.gray('Performance Monitoring:')} ${process.env.CIPHER_CROSS_PROJECT_PERFORMANCE_MONITORING === 'true' ? 'Enabled' : 'Disabled'}`
+			);
 
 			return true;
 		} catch (error) {
@@ -1864,8 +1871,14 @@ export class CommandParser {
 	private async crossProjectTransferHandler(args: string[], agent: MemAgent): Promise<boolean> {
 		try {
 			if (args.length < 2) {
-				console.log(chalk.red('❌ Usage: /cross-project transfer <source-project> <target-project> [knowledge-type]'));
-				console.log(chalk.gray('💡 Knowledge types: fact, pattern, solution, guideline (default: all)'));
+				console.log(
+					chalk.red(
+						'❌ Usage: /cross-project transfer <source-project> <target-project> [knowledge-type]'
+					)
+				);
+				console.log(
+					chalk.gray('💡 Knowledge types: fact, pattern, solution, guideline (default: all)')
+				);
 				return false;
 			}
 
@@ -1881,13 +1894,15 @@ export class CommandParser {
 			const targetProject = args[1];
 			const knowledgeType = args[2] as 'fact' | 'pattern' | 'solution' | 'guideline' | undefined;
 
-			console.log(chalk.cyan(`🔄 Transferring knowledge from ${sourceProject} to ${targetProject}...`));
+			console.log(
+				chalk.cyan(`🔄 Transferring knowledge from ${sourceProject} to ${targetProject}...`)
+			);
 
 			// For now, we'll use a simple knowledge transfer
 			// In a real implementation, this would transfer actual knowledge
 			const transferId = await crossProjectManager.transferKnowledge(
-				sourceProject,
-				targetProject,
+				String(sourceProject),
+				String(targetProject),
 				'Sample knowledge content',
 				knowledgeType || 'fact',
 				0.8,
@@ -1927,14 +1942,20 @@ export class CommandParser {
 
 			if (projects.length === 0) {
 				console.log(chalk.gray('  No projects registered yet'));
-				console.log(chalk.gray('  💡 Projects are automatically registered when knowledge is transferred'));
+				console.log(
+					chalk.gray('  💡 Projects are automatically registered when knowledge is transferred')
+				);
 				return true;
 			}
 
 			for (const project of projects) {
-				console.log(`  ${chalk.cyan(project.id)} - ${project.name}`);
-				console.log(`    ${chalk.gray('Domain:')} ${project.domain}`);
-				console.log(`    ${chalk.gray('Knowledge Count:')} ${project.knowledgeCount}`);
+				console.log(
+					`  ${chalk.cyan((project as any).id || 'unknown')} - ${(project as any).name || 'n/a'}`
+				);
+				console.log(`    ${chalk.gray('Domain:')} ${(project as any).domain || 'n/a'}`);
+				console.log(
+					`    ${chalk.gray('Knowledge Count:')} ${(project as any).knowledgeCount ?? 'n/a'}`
+				);
 				console.log('');
 			}
 
@@ -1958,22 +1979,42 @@ export class CommandParser {
 			console.log('');
 
 			console.log(chalk.yellow('🔧 Core Settings:'));
-			console.log(`  ${chalk.gray('Enabled:')} ${process.env.CIPHER_CROSS_PROJECT_ENABLED === 'true' ? 'Yes' : 'No'}`);
-			console.log(`  ${chalk.gray('Auto Transfer:')} ${process.env.CIPHER_CROSS_PROJECT_AUTO_TRANSFER === 'true' ? 'Yes' : 'No'}`);
-			console.log(`  ${chalk.gray('Master Guides:')} ${process.env.CIPHER_CROSS_PROJECT_MASTER_GUIDES === 'true' ? 'Yes' : 'No'}`);
+			console.log(
+				`  ${chalk.gray('Enabled:')} ${process.env.CIPHER_CROSS_PROJECT_ENABLED === 'true' ? 'Yes' : 'No'}`
+			);
+			console.log(
+				`  ${chalk.gray('Auto Transfer:')} ${process.env.CIPHER_CROSS_PROJECT_AUTO_TRANSFER === 'true' ? 'Yes' : 'No'}`
+			);
+			console.log(
+				`  ${chalk.gray('Master Guides:')} ${process.env.CIPHER_CROSS_PROJECT_MASTER_GUIDES === 'true' ? 'Yes' : 'No'}`
+			);
 			console.log('');
 
 			console.log(chalk.yellow('📊 Performance Settings:'));
-			console.log(`  ${chalk.gray('Similarity Threshold:')} ${process.env.CIPHER_CROSS_PROJECT_SIMILARITY_THRESHOLD || '0.7'}`);
-			console.log(`  ${chalk.gray('Max Concurrent Transfers:')} ${process.env.CIPHER_CROSS_PROJECT_MAX_CONCURRENT_TRANSFERS || '5'}`);
-			console.log(`  ${chalk.gray('Update Interval:')} ${process.env.CIPHER_CROSS_PROJECT_UPDATE_INTERVAL || '3600000'} ms`);
+			console.log(
+				`  ${chalk.gray('Similarity Threshold:')} ${process.env.CIPHER_CROSS_PROJECT_SIMILARITY_THRESHOLD || '0.7'}`
+			);
+			console.log(
+				`  ${chalk.gray('Max Concurrent Transfers:')} ${process.env.CIPHER_CROSS_PROJECT_MAX_CONCURRENT_TRANSFERS || '5'}`
+			);
+			console.log(
+				`  ${chalk.gray('Update Interval:')} ${process.env.CIPHER_CROSS_PROJECT_UPDATE_INTERVAL || '3600000'} ms`
+			);
 			console.log('');
 
 			console.log(chalk.yellow('🔍 Knowledge Synthesis:'));
-			console.log(`  ${chalk.gray('Min Confidence:')} ${process.env.CIPHER_CROSS_PROJECT_MIN_CONFIDENCE || '0.7'}`);
-			console.log(`  ${chalk.gray('Min Relevance:')} ${process.env.CIPHER_CROSS_PROJECT_MIN_RELEVANCE || '0.6'}`);
-			console.log(`  ${chalk.gray('Max Patterns:')} ${process.env.CIPHER_CROSS_PROJECT_MAX_PATTERNS || '10'}`);
-			console.log(`  ${chalk.gray('Max Solutions:')} ${process.env.CIPHER_CROSS_PROJECT_MAX_SOLUTIONS || '15'}`);
+			console.log(
+				`  ${chalk.gray('Min Confidence:')} ${process.env.CIPHER_CROSS_PROJECT_MIN_CONFIDENCE || '0.7'}`
+			);
+			console.log(
+				`  ${chalk.gray('Min Relevance:')} ${process.env.CIPHER_CROSS_PROJECT_MIN_RELEVANCE || '0.6'}`
+			);
+			console.log(
+				`  ${chalk.gray('Max Patterns:')} ${process.env.CIPHER_CROSS_PROJECT_MAX_PATTERNS || '10'}`
+			);
+			console.log(
+				`  ${chalk.gray('Max Solutions:')} ${process.env.CIPHER_CROSS_PROJECT_MAX_SOLUTIONS || '15'}`
+			);
 
 			return true;
 		} catch (error) {
@@ -2003,9 +2044,16 @@ export class CommandParser {
 
 		subcommands.forEach(cmd => console.log(`  ${cmd}`));
 
-		console.log('\n' + chalk.gray('💡 Cross-project knowledge enables sharing of patterns, solutions, and guidelines'));
+		console.log(
+			'\n' +
+				chalk.gray(
+					'💡 Cross-project knowledge enables sharing of patterns, solutions, and guidelines'
+				)
+		);
 		console.log(chalk.gray('💡 Knowledge is automatically transferred between similar projects'));
-		console.log(chalk.gray('💡 Master guides are generated from aggregated knowledge across projects'));
+		console.log(
+			chalk.gray('💡 Master guides are generated from aggregated knowledge across projects')
+		);
 		console.log('');
 
 		return true;

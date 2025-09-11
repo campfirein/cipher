@@ -1,10 +1,10 @@
 /**
  * Cross-Project Knowledge Transfer Manager - Main orchestrator
- * 
+ *
  * Coordinates knowledge sharing between projects by managing project registry,
  * knowledge synthesis, and master guide generation. Provides unified API
  * for cross-project operations while maintaining component separation.
- * 
+ *
  * Why this exists: Teams work on similar problems in isolation. This manager
  * enables automatic knowledge sharing to reduce duplicate work and improve
  * team efficiency across multiple projects.
@@ -28,7 +28,7 @@ import type {
 
 /**
  * Configuration for cross-project manager behavior
- * 
+ *
  * Controls feature enablement, performance limits, and system behavior
  * to balance functionality with resource usage.
  */
@@ -47,7 +47,7 @@ export interface CrossProjectManagerConfig extends CrossProjectConfig {
 
 /**
  * Main class for coordinating cross-project knowledge operations
- * 
+ *
  * Provides unified API for project management, knowledge transfer,
  * and master guide generation across multiple projects.
  */
@@ -61,9 +61,9 @@ export class CrossProjectManager extends EventEmitter {
 
 	/**
 	 * Creates manager with configuration from environment variables
-	 * 
+	 *
 	 * @param config - Optional partial config to override environment settings
-	 * 
+	 *
 	 * Loads configuration from environment variables with sensible defaults.
 	 * Can be overridden with partial config for testing or custom setups.
 	 */
@@ -72,7 +72,7 @@ export class CrossProjectManager extends EventEmitter {
 
 		// Load configuration from environment variables
 		const envConfig = loadCrossProjectConfig();
-		
+
 		// Validate configuration
 		if (!validateCrossProjectConfig(envConfig)) {
 			throw new Error('Invalid cross-project knowledge configuration');
@@ -97,10 +97,10 @@ export class CrossProjectManager extends EventEmitter {
 
 	/**
 	 * Starts the system and enables background services
-	 * 
+	 *
 	 * @returns Promise<void> - Resolves when ready for operations
 	 * @throws Error if initialization fails
-	 * 
+	 *
 	 * Must be called before using any cross-project functionality.
 	 * Safe to call multiple times (idempotent).
 	 */
@@ -146,7 +146,7 @@ export class CrossProjectManager extends EventEmitter {
 
 	/**
 	 * Transfers knowledge between projects
-	 * 
+	 *
 	 * @param sourceProjectId - Project providing knowledge
 	 * @param targetProjectId - Project receiving knowledge
 	 * @param knowledge - Knowledge content to transfer
@@ -340,29 +340,29 @@ export class CrossProjectManager extends EventEmitter {
 
 	/**
 	 * Setup event handlers for component communication
-	 * 
+	 *
 	 * This method establishes the event-driven communication pattern between
 	 * different system components. It acts as an event bridge, forwarding
 	 * events from internal components to external listeners and implementing
 	 * automatic behaviors based on system events.
-	 * 
+	 *
 	 * Event Flow Architecture:
 	 * 1. Internal components emit events (projectRegistry, masterGuideEngine)
 	 * 2. Manager forwards events to external listeners
 	 * 3. Manager implements automatic behaviors based on events
 	 * 4. External systems can listen to manager events for integration
-	 * 
+	 *
 	 * Automatic Behaviors:
 	 * - Master guide auto-updates when knowledge is transferred
 	 * - Cross-domain guide updates for multi-domain transfers
 	 * - Error handling and logging for failed operations
-	 * 
+	 *
 	 * Event Types:
 	 * - 'projectRegistered': When a new project is registered
 	 * - 'knowledgeTransferred': When knowledge is transferred between projects
 	 * - 'masterGuideGenerated': When a new master guide is created
 	 * - 'masterGuideUpdated': When an existing master guide is updated
-	 * 
+	 *
 	 * This event-driven approach enables loose coupling between components
 	 * and allows external systems to integrate with the cross-project system
 	 * without tight coupling to internal implementation details.
@@ -400,7 +400,7 @@ export class CrossProjectManager extends EventEmitter {
 					if (sourceProject && targetProject) {
 						// Update master guides for the source project's domain
 						await this.updateMasterGuidesForDomain(sourceProject.domain);
-						
+
 						// If projects are in different domains, update target domain too
 						if (sourceProject.domain !== targetProject.domain) {
 							await this.updateMasterGuidesForDomain(targetProject.domain);
@@ -419,7 +419,7 @@ export class CrossProjectManager extends EventEmitter {
 
 	/**
 	 * Set event manager for cross-project knowledge events
-	 * 
+	 *
 	 * @param eventManager - Event manager instance
 	 */
 	setEventManager(eventManager: any): void {
@@ -428,7 +428,7 @@ export class CrossProjectManager extends EventEmitter {
 
 	/**
 	 * Emit service event for cross-project knowledge system
-	 * 
+	 *
 	 * @param eventType - Type of event to emit
 	 * @param data - Event data
 	 */
@@ -452,7 +452,7 @@ export class CrossProjectManager extends EventEmitter {
 			for (const guide of existingGuides) {
 				const projects = this.projectRegistry.getProjects();
 				const transfers = Array.from(
-      Array.from(this.projectRegistry['registry'].transfers.values())
+					Array.from(this.projectRegistry['registry'].transfers.values())
 				);
 
 				await this.masterGuideEngine.updateMasterGuide(guide.id, projects, transfers);

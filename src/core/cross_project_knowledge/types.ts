@@ -1,10 +1,10 @@
 /**
  * Cross-Project Knowledge Transfer System Types
- * 
+ *
  * Defines all interfaces and types for the cross-project knowledge system.
  * These types enable knowledge sharing, pattern recognition, and master
  * guide generation across multiple projects.
- * 
+ *
  * Why this exists: Strong typing ensures data consistency and makes the
  * system more maintainable. These types define the contract for all
  * cross-project knowledge operations.
@@ -12,7 +12,7 @@
 
 /**
  * Represents a project in the cross-project knowledge system
- * 
+ *
  * Contains project identification, domain classification, and metadata
  * for knowledge sharing and pattern recognition.
  */
@@ -35,7 +35,7 @@ export interface ProjectKnowledge {
 
 /**
  * Represents a knowledge transfer between projects
- * 
+ *
  * Tracks knowledge sharing events with quality metrics and metadata
  * for analysis and pattern recognition.
  */
@@ -62,7 +62,7 @@ export interface KnowledgeTransfer {
 
 /**
  * Represents a master guide generated from cross-project knowledge
- * 
+ *
  * Comprehensive guide that aggregates knowledge from multiple projects
  * into actionable recommendations and best practices.
  */
@@ -93,7 +93,7 @@ export interface MasterGuide {
 
 /**
  * Represents a recurring pattern identified across projects
- * 
+ *
  * Patterns are common approaches, practices, or architectural decisions
  * that appear consistently across multiple projects in the same domain.
  */
@@ -116,7 +116,7 @@ export interface KnowledgePattern {
 
 /**
  * Represents a solution to a common problem
- * 
+ *
  * Solutions are specific approaches to problems that have proven
  * effective across multiple projects in the same domain.
  */
@@ -139,7 +139,7 @@ export interface KnowledgeSolution {
 
 /**
  * Represents a guideline derived from cross-project knowledge
- * 
+ *
  * Guidelines are actionable recommendations that help teams
  * follow best practices and avoid common pitfalls.
  */
@@ -160,7 +160,7 @@ export interface KnowledgeGuideline {
 
 /**
  * Configuration for cross-project knowledge system behavior
- * 
+ *
  * Controls system features, performance limits, and update intervals
  * to balance functionality with resource usage.
  */
@@ -183,7 +183,7 @@ export interface CrossProjectConfig {
 
 /**
  * Central registry for all cross-project knowledge data
- * 
+ *
  * Provides centralized storage for projects, transfers, and guides
  * with synchronization tracking for data consistency.
  */
@@ -200,7 +200,7 @@ export interface ProjectRegistry {
 
 /**
  * Result of knowledge synthesis process
- * 
+ *
  * Contains the synthesized knowledge content along with patterns,
  * recommendations, and quality metrics from cross-project analysis.
  */
@@ -219,7 +219,7 @@ export interface KnowledgeSynthesisResult {
 
 /**
  * Performance and usage metrics for the cross-project knowledge system
- * 
+ *
  * Tracks system usage, performance, and quality metrics for monitoring
  * and optimization of cross-project knowledge operations.
  */

@@ -585,7 +585,10 @@ export class ApiServer {
 		this.app.use(this.buildApiRoute('/config'), createConfigRoutes(this.agent));
 		this.app.use(this.buildApiRoute('/search'), createSearchRoutes(this.agent));
 		this.app.use(this.buildApiRoute('/webhooks'), createWebhookRoutes(this.agent));
-		this.app.use(this.buildApiRoute('/cross-project'), createCrossProjectRoutes(this.agent.services));
+		this.app.use(
+			this.buildApiRoute('/cross-project'),
+			createCrossProjectRoutes(this.agent.services)
+		);
 
 		// Legacy endpoint for MCP server connection
 		this.app.post(this.buildApiRoute('/connect-server'), (req: Request, res: Response) => {

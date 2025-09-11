@@ -436,7 +436,7 @@ async function runDemo() {
 
 		// Step 7: Display recommendations
 		console.log('💡 Step 7: Recommendations:');
-  allDomainsSynthesis.recommendations.forEach((rec: any, index: number) => {
+		allDomainsSynthesis.recommendations.forEach((rec: any, index: number) => {
 			console.log(`  ${index + 1}. ${rec}`);
 		});
 		console.log('');

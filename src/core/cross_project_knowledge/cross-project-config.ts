@@ -1,27 +1,44 @@
 /**
  * Cross-Project Knowledge Configuration Loader
- * 
+ *
  * Loads and validates environment variables for the cross-project knowledge system.
  * Provides type-safe configuration objects that can be used throughout the system.
- * 
+ *
  * Why this exists: Environment variables need to be loaded, validated, and mapped
  * to configuration objects. This centralizes that logic and provides type safety.
  */
 
 import { env } from '../env.js';
-import type {
-	CrossProjectConfig,
-	CrossProjectManagerConfig,
-	MemoryIntegrationConfig,
-	MasterGuideConfig,
-} from './types.js';
+import type { CrossProjectConfig } from './types.js';
+// Local structural types for module-specific configs
+type CrossProjectManagerConfig = CrossProjectConfig & {
+	enablePerformanceMonitoring: boolean;
+	maxConcurrentTransfers: number;
+	transferBatchSize: number;
+};
+type MemoryIntegrationConfig = CrossProjectConfig & {
+	enableAutoProjectDetection: boolean;
+	enableAutoKnowledgeExtraction: boolean;
+	enableAutoMasterGuideGeneration: boolean;
+	projectDetectionInterval: number;
+	knowledgeExtractionThreshold: number;
+	masterGuideGenerationThreshold: number;
+};
+type MasterGuideConfig = {
+	enableAutoGeneration: boolean;
+	updateInterval: number;
+	minProjectsForGuide: number;
+	maxGuideAge: number;
+	enableVersioning: boolean;
+	enableCrossDomainGuides: boolean;
+};
 import type { SynthesisOptions } from './knowledge-synthesizer.js';
 
 /**
  * Loads cross-project knowledge configuration from environment variables
- * 
+ *
  * @returns Complete configuration object with all settings
- * 
+ *
  * Maps environment variables to configuration objects with proper
  * validation and sensible defaults for all settings.
  */
@@ -101,7 +118,7 @@ export function loadCrossProjectConfig(): {
 
 /**
  * Gets logging configuration for cross-project knowledge system
- * 
+ *
  * @returns Logging configuration object
  */
 export function getCrossProjectLoggingConfig(): {
@@ -120,7 +137,7 @@ export function getCrossProjectLoggingConfig(): {
 
 /**
  * Gets privacy and security configuration for cross-project knowledge system
- * 
+ *
  * @returns Privacy and security configuration object
  */
 export function getCrossProjectPrivacyConfig(): {
@@ -139,7 +156,7 @@ export function getCrossProjectPrivacyConfig(): {
 
 /**
  * Gets integration configuration for cross-project knowledge system
- * 
+ *
  * @returns Integration configuration object
  */
 export function getCrossProjectIntegrationConfig(): {
@@ -156,11 +173,13 @@ export function getCrossProjectIntegrationConfig(): {
 
 /**
  * Validates cross-project knowledge configuration
- * 
+ *
  * @param config - Configuration to validate
  * @returns True if configuration is valid, false otherwise
  */
-export function validateCrossProjectConfig(config: ReturnType<typeof loadCrossProjectConfig>): boolean {
+export function validateCrossProjectConfig(
+	config: ReturnType<typeof loadCrossProjectConfig>
+): boolean {
 	// Check if cross-project knowledge is enabled
 	if (!config.enabled) {
 		return true; // Valid to have it disabled
@@ -188,8 +207,10 @@ export function validateCrossProjectConfig(config: ReturnType<typeof loadCrossPr
 	}
 
 	// Validate extraction threshold
-	if (config.memoryIntegrationConfig.knowledgeExtractionThreshold < 0 || 
-		config.memoryIntegrationConfig.knowledgeExtractionThreshold > 1) {
+	if (
+		config.memoryIntegrationConfig.knowledgeExtractionThreshold < 0 ||
+		config.memoryIntegrationConfig.knowledgeExtractionThreshold > 1
+	) {
 		console.error('CIPHER_CROSS_PROJECT_KNOWLEDGE_EXTRACTION_THRESHOLD must be between 0 and 1');
 		return false;
 	}

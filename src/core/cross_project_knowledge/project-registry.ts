@@ -1,10 +1,10 @@
 /**
  * Project Registry - Central storage for cross-project knowledge data
- * 
+ *
  * Manages project registration, knowledge transfers, and performance metrics.
  * Provides the foundation for cross-project knowledge sharing by tracking
  * projects and their knowledge transfers.
- * 
+ *
  * Why this exists: Cross-project knowledge needs centralized storage and
  * tracking. This registry provides the data layer for all cross-project
  * operations while maintaining performance metrics.
@@ -23,7 +23,7 @@ import type {
 
 /**
  * Manages project data and knowledge transfers
- * 
+ *
  * Provides centralized storage and tracking for cross-project knowledge
  * operations with performance monitoring and automatic updates.
  */
@@ -36,9 +36,9 @@ export class ProjectRegistryManager extends EventEmitter {
 
 	/**
 	 * Creates registry manager with configuration
-	 * 
+	 *
 	 * @param config - Configuration for registry behavior
-	 * 
+	 *
 	 * Initializes empty registry and metrics tracking for performance monitoring.
 	 */
 	constructor(config: CrossProjectConfig) {
@@ -66,7 +66,7 @@ export class ProjectRegistryManager extends EventEmitter {
 
 	/**
 	 * Registers a new project for cross-project knowledge sharing
-	 * 
+	 *
 	 * @param project - Project data to register
 	 * @returns Promise<void> - Resolves when registration complete
 	 * @throws Error if registration fails
@@ -109,7 +109,7 @@ export class ProjectRegistryManager extends EventEmitter {
 
 	/**
 	 * Updates project knowledge count and metadata
-	 * 
+	 *
 	 * @param projectId - Project to update
 	 * @param knowledgeCount - New knowledge count
 	 * @param metadata - Optional metadata updates
@@ -137,7 +137,7 @@ export class ProjectRegistryManager extends EventEmitter {
 
 	/**
 	 * Transfers knowledge between projects with validation
-	 * 
+	 *
 	 * @param transfer - Transfer data (without id and timestamp)
 	 * @returns Transfer ID for tracking
 	 * @throws Error if source/target projects don't exist or transfer fails
@@ -193,7 +193,7 @@ export class ProjectRegistryManager extends EventEmitter {
 
 	/**
 	 * Creates a new master guide
-	 * 
+	 *
 	 * @param guide - Guide data (without id, timestamp, and version)
 	 * @returns Guide ID for tracking
 	 * @throws Error if creation fails
@@ -314,11 +314,11 @@ export class ProjectRegistryManager extends EventEmitter {
 	stopAutoUpdates(): void {
 		if (this.updateTimer) {
 			clearInterval(this.updateTimer);
-   this.updateTimer = undefined as any;
+			this.updateTimer = undefined as any;
 		}
 		if (this.masterGuideTimer) {
 			clearInterval(this.masterGuideTimer);
-   this.masterGuideTimer = undefined as any;
+			this.masterGuideTimer = undefined as any;
 		}
 
 		logger.info('Cross-project knowledge auto-updates stopped');
