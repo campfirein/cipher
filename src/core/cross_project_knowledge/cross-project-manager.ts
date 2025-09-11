@@ -16,6 +16,7 @@ import { ProjectRegistryManager } from './project-registry.js';
 import { KnowledgeSynthesizer } from './knowledge-synthesizer.js';
 import { MasterGuideEngine } from './master-guide-engine.js';
 import { loadCrossProjectConfig, validateCrossProjectConfig } from './cross-project-config.js';
+import { ServiceEvents } from '../events/event-types.js';
 import type {
 	ProjectKnowledge,
 	KnowledgeTransfer,
@@ -56,6 +57,7 @@ export class CrossProjectManager extends EventEmitter {
 	private masterGuideEngine: MasterGuideEngine;
 	private config: CrossProjectManagerConfig;
 	private isRunning = false;
+	private eventManager?: any;
 
 	/**
 	 * Creates manager with configuration from environment variables
@@ -162,6 +164,16 @@ export class CrossProjectManager extends EventEmitter {
 		confidence: number = 0.8,
 		relevance: number = 0.8
 	): Promise<string> {
+		const startTime = Date.now();
+
+		// Emit transfer started event
+		this.emitServiceEvent(ServiceEvents.CROSS_PROJECT_TRANSFER_STARTED, {
+			sourceProject: sourceProjectId,
+			targetProject: targetProjectId,
+			knowledgeTypes: [knowledgeType],
+			timestamp: startTime,
+		});
+
 		try {
 			// Create transfer record - registry handles validation
 			const transferId = await this.projectRegistry.transferKnowledge({
@@ -177,6 +189,16 @@ export class CrossProjectManager extends EventEmitter {
 				},
 			});
 
+			// Emit transfer completed event
+			this.emitServiceEvent(ServiceEvents.CROSS_PROJECT_TRANSFER_COMPLETED, {
+				sourceProject: sourceProjectId,
+				targetProject: targetProjectId,
+				knowledgeTypes: [knowledgeType],
+				transferredCount: 1,
+				duration: Date.now() - startTime,
+				timestamp: Date.now(),
+			});
+
 			// Trigger master guide updates if enabled
 			if (this.config.enableMasterGuide) {
 				this.emit('knowledgeTransferred', { transferId, sourceProjectId, targetProjectId });
@@ -184,6 +206,16 @@ export class CrossProjectManager extends EventEmitter {
 
 			return transferId;
 		} catch (error) {
+			// Emit transfer failed event
+			this.emitServiceEvent(ServiceEvents.CROSS_PROJECT_TRANSFER_FAILED, {
+				sourceProject: sourceProjectId,
+				targetProject: targetProjectId,
+				knowledgeTypes: [knowledgeType],
+				error: error instanceof Error ? error.message : 'Unknown error',
+				duration: Date.now() - startTime,
+				timestamp: Date.now(),
+			});
+
 			logger.error('Failed to transfer knowledge', {
 				sourceProjectId,
 				targetProjectId,
@@ -383,6 +415,31 @@ export class CrossProjectManager extends EventEmitter {
 				}
 			}
 		});
+	}
+
+	/**
+	 * Set event manager for cross-project knowledge events
+	 * 
+	 * @param eventManager - Event manager instance
+	 */
+	setEventManager(eventManager: any): void {
+		this.eventManager = eventManager;
+	}
+
+	/**
+	 * Emit service event for cross-project knowledge system
+	 * 
+	 * @param eventType - Type of event to emit
+	 * @param data - Event data
+	 */
+	private emitServiceEvent(eventType: string, data: any): void {
+		// Emit to internal event emitter
+		this.emit(eventType, data);
+
+		// If event manager is available, emit to service event bus
+		if (this.eventManager) {
+			this.eventManager.emitServiceEvent(eventType, data);
+		}
 	}
 
 	/**

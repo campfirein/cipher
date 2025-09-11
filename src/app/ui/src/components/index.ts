@@ -15,6 +15,8 @@ export { ChatExample } from './chat-example';
 export { ChatContextExample } from './chat-context-example';
 export { Navigation } from './navigation';
 export { ConfigPanel } from './config-panel';
+export { CrossProjectDashboard } from './cross-project-dashboard';
+export { CrossProjectPanel } from './cross-project-panel';
 
 // Re-export contexts
 export * from '../contexts';

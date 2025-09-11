@@ -30,6 +30,7 @@ import { createConfigRoutes } from './routes/config.js';
 import { createLlmRoutes } from './routes/llm.js';
 import { createSearchRoutes } from './routes/search.js';
 import { createWebhookRoutes } from './routes/webhook.js';
+import { createCrossProjectRoutes } from './routes/cross-project.js';
 
 export interface ApiServerConfig {
 	port: number;
@@ -584,6 +585,7 @@ export class ApiServer {
 		this.app.use(this.buildApiRoute('/config'), createConfigRoutes(this.agent));
 		this.app.use(this.buildApiRoute('/search'), createSearchRoutes(this.agent));
 		this.app.use(this.buildApiRoute('/webhooks'), createWebhookRoutes(this.agent));
+		this.app.use(this.buildApiRoute('/cross-project'), createCrossProjectRoutes(this.agent.services));
 
 		// Legacy endpoint for MCP server connection
 		this.app.post(this.buildApiRoute('/connect-server'), (req: Request, res: Response) => {

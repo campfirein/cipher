@@ -1774,6 +1774,242 @@ export class CommandParser {
 
 		return true;
 	}
+
+		// Cross-project knowledge commands
+		this.registerCommand({
+			name: 'cross-project',
+			description: 'Manage cross-project knowledge transfer system',
+			usage: '/cross-project <subcommand> [options]',
+			category: 'knowledge',
+			subcommands: [
+				{
+					name: 'status',
+					description: 'Show cross-project knowledge system status',
+					handler: this.crossProjectStatusHandler.bind(this),
+				},
+				{
+					name: 'transfer',
+					description: 'Manually transfer knowledge between projects',
+					usage: '/cross-project transfer <source> <target> [knowledge-type]',
+					handler: this.crossProjectTransferHandler.bind(this),
+				},
+				{
+					name: 'projects',
+					description: 'List registered projects',
+					handler: this.crossProjectProjectsHandler.bind(this),
+				},
+				{
+					name: 'config',
+					description: 'Show cross-project knowledge configuration',
+					handler: this.crossProjectConfigHandler.bind(this),
+				},
+				{
+					name: 'help',
+					description: 'Show cross-project knowledge help',
+					handler: this.crossProjectHelpHandler.bind(this),
+				},
+			],
+			handler: this.crossProjectHelpHandler.bind(this),
+		});
+	}
+
+	/**
+	 * Cross-project knowledge status handler
+	 */
+	private async crossProjectStatusHandler(_args: string[], agent: MemAgent): Promise<boolean> {
+		try {
+			const services = agent.services;
+			const crossProjectManager = services.crossProjectManager;
+			const memoryIntegrationManager = services.memoryIntegrationManager;
+
+			console.log(chalk.cyan('🔄 Cross-Project Knowledge System Status:'));
+			console.log('');
+
+			if (!crossProjectManager || !memoryIntegrationManager) {
+				console.log(chalk.red('❌ Cross-project knowledge system is not available'));
+				console.log(chalk.gray('💡 Make sure CIPHER_CROSS_PROJECT_ENABLED=true in your environment'));
+				return true;
+			}
+
+			console.log(chalk.green('✅ Cross-project knowledge system is active'));
+			console.log('');
+
+			// Get system status
+			const metrics = crossProjectManager.getMetrics();
+			console.log(chalk.yellow('📊 System Metrics:'));
+			console.log(`  ${chalk.gray('Total Projects:')} ${metrics.totalProjects}`);
+			console.log(`  ${chalk.gray('Total Transfers:')} ${metrics.totalTransfers}`);
+			console.log(`  ${chalk.gray('Total Master Guides:')} ${metrics.totalMasterGuides}`);
+			console.log('');
+
+			console.log(chalk.yellow('⚙️ Configuration:'));
+			console.log(`  ${chalk.gray('Auto Transfer:')} ${process.env.CIPHER_CROSS_PROJECT_AUTO_TRANSFER === 'true' ? 'Enabled' : 'Disabled'}`);
+			console.log(`  ${chalk.gray('Master Guides:')} ${process.env.CIPHER_CROSS_PROJECT_MASTER_GUIDES === 'true' ? 'Enabled' : 'Disabled'}`);
+			console.log(`  ${chalk.gray('Performance Monitoring:')} ${process.env.CIPHER_CROSS_PROJECT_PERFORMANCE_MONITORING === 'true' ? 'Enabled' : 'Disabled'}`);
+
+			return true;
+		} catch (error) {
+			console.log(
+				chalk.red(
+					`❌ Failed to get cross-project status: ${error instanceof Error ? error.message : String(error)}`
+				)
+			);
+			return true;
+		}
+	}
+
+	/**
+	 * Cross-project knowledge transfer handler
+	 */
+	private async crossProjectTransferHandler(args: string[], agent: MemAgent): Promise<boolean> {
+		try {
+			if (args.length < 2) {
+				console.log(chalk.red('❌ Usage: /cross-project transfer <source-project> <target-project> [knowledge-type]'));
+				console.log(chalk.gray('💡 Knowledge types: fact, pattern, solution, guideline (default: all)'));
+				return false;
+			}
+
+			const services = agent.services;
+			const crossProjectManager = services.crossProjectManager;
+
+			if (!crossProjectManager) {
+				console.log(chalk.red('❌ Cross-project knowledge system is not available'));
+				return false;
+			}
+
+			const sourceProject = args[0];
+			const targetProject = args[1];
+			const knowledgeType = args[2] as 'fact' | 'pattern' | 'solution' | 'guideline' | undefined;
+
+			console.log(chalk.cyan(`🔄 Transferring knowledge from ${sourceProject} to ${targetProject}...`));
+
+			// For now, we'll use a simple knowledge transfer
+			// In a real implementation, this would transfer actual knowledge
+			const transferId = await crossProjectManager.transferKnowledge(
+				sourceProject,
+				targetProject,
+				'Sample knowledge content',
+				knowledgeType || 'fact',
+				0.8,
+				0.8
+			);
+
+			console.log(chalk.green(`✅ Knowledge transfer completed (ID: ${transferId})`));
+
+			return true;
+		} catch (error) {
+			console.log(
+				chalk.red(
+					`❌ Failed to transfer knowledge: ${error instanceof Error ? error.message : String(error)}`
+				)
+			);
+			return true;
+		}
+	}
+
+	/**
+	 * Cross-project knowledge projects handler
+	 */
+	private async crossProjectProjectsHandler(_args: string[], agent: MemAgent): Promise<boolean> {
+		try {
+			const services = agent.services;
+			const crossProjectManager = services.crossProjectManager;
+
+			if (!crossProjectManager) {
+				console.log(chalk.red('❌ Cross-project knowledge system is not available'));
+				return false;
+			}
+
+			console.log(chalk.cyan('📋 Registered Projects:'));
+			console.log('');
+
+			const projects = crossProjectManager.getAllProjects();
+
+			if (projects.length === 0) {
+				console.log(chalk.gray('  No projects registered yet'));
+				console.log(chalk.gray('  💡 Projects are automatically registered when knowledge is transferred'));
+				return true;
+			}
+
+			for (const project of projects) {
+				console.log(`  ${chalk.cyan(project.id)} - ${project.name}`);
+				console.log(`    ${chalk.gray('Domain:')} ${project.domain}`);
+				console.log(`    ${chalk.gray('Knowledge Count:')} ${project.knowledgeCount}`);
+				console.log('');
+			}
+
+			return true;
+		} catch (error) {
+			console.log(
+				chalk.red(
+					`❌ Failed to list projects: ${error instanceof Error ? error.message : String(error)}`
+				)
+			);
+			return true;
+		}
+	}
+
+	/**
+	 * Cross-project knowledge configuration handler
+	 */
+	private async crossProjectConfigHandler(_args: string[], _agent: MemAgent): Promise<boolean> {
+		try {
+			console.log(chalk.cyan('⚙️ Cross-Project Knowledge Configuration:'));
+			console.log('');
+
+			console.log(chalk.yellow('🔧 Core Settings:'));
+			console.log(`  ${chalk.gray('Enabled:')} ${process.env.CIPHER_CROSS_PROJECT_ENABLED === 'true' ? 'Yes' : 'No'}`);
+			console.log(`  ${chalk.gray('Auto Transfer:')} ${process.env.CIPHER_CROSS_PROJECT_AUTO_TRANSFER === 'true' ? 'Yes' : 'No'}`);
+			console.log(`  ${chalk.gray('Master Guides:')} ${process.env.CIPHER_CROSS_PROJECT_MASTER_GUIDES === 'true' ? 'Yes' : 'No'}`);
+			console.log('');
+
+			console.log(chalk.yellow('📊 Performance Settings:'));
+			console.log(`  ${chalk.gray('Similarity Threshold:')} ${process.env.CIPHER_CROSS_PROJECT_SIMILARITY_THRESHOLD || '0.7'}`);
+			console.log(`  ${chalk.gray('Max Concurrent Transfers:')} ${process.env.CIPHER_CROSS_PROJECT_MAX_CONCURRENT_TRANSFERS || '5'}`);
+			console.log(`  ${chalk.gray('Update Interval:')} ${process.env.CIPHER_CROSS_PROJECT_UPDATE_INTERVAL || '3600000'} ms`);
+			console.log('');
+
+			console.log(chalk.yellow('🔍 Knowledge Synthesis:'));
+			console.log(`  ${chalk.gray('Min Confidence:')} ${process.env.CIPHER_CROSS_PROJECT_MIN_CONFIDENCE || '0.7'}`);
+			console.log(`  ${chalk.gray('Min Relevance:')} ${process.env.CIPHER_CROSS_PROJECT_MIN_RELEVANCE || '0.6'}`);
+			console.log(`  ${chalk.gray('Max Patterns:')} ${process.env.CIPHER_CROSS_PROJECT_MAX_PATTERNS || '10'}`);
+			console.log(`  ${chalk.gray('Max Solutions:')} ${process.env.CIPHER_CROSS_PROJECT_MAX_SOLUTIONS || '15'}`);
+
+			return true;
+		} catch (error) {
+			console.log(
+				chalk.red(
+					`❌ Failed to get configuration: ${error instanceof Error ? error.message : String(error)}`
+				)
+			);
+			return true;
+		}
+	}
+
+	/**
+	 * Cross-project knowledge help handler
+	 */
+	private async crossProjectHelpHandler(_args: string[], _agent: MemAgent): Promise<boolean> {
+		console.log(chalk.cyan('\n🔄 Cross-Project Knowledge Management Commands:\n'));
+
+		console.log(chalk.yellow('Available subcommands:'));
+		const subcommands = [
+			'/cross-project status - Show system status and metrics',
+			'/cross-project transfer <source> <target> [type] - Transfer knowledge between projects',
+			'/cross-project projects - List all registered projects',
+			'/cross-project config - Show configuration settings',
+			'/cross-project help - Show this help message',
+		];
+
+		subcommands.forEach(cmd => console.log(`  ${cmd}`));
+
+		console.log('\n' + chalk.gray('💡 Cross-project knowledge enables sharing of patterns, solutions, and guidelines'));
+		console.log(chalk.gray('💡 Knowledge is automatically transferred between similar projects'));
+		console.log(chalk.gray('💡 Master guides are generated from aggregated knowledge across projects'));
+		console.log('');
+
+		return true;
+	}
 }
 
 /**

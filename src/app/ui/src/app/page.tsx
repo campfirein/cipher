@@ -7,6 +7,7 @@ import { SlidingPanel } from "@/components/sliding-panel";
 import { ErrorNotification } from "@/components/error-notification";
 import { SessionPanel } from "@/components/session-panel";
 import { ServersPanel } from "@/components/servers-panel";
+import { CrossProjectPanel } from "@/components/cross-project-panel";
 import { MessageList } from "@/components/message-list";
 import { InputArea } from "@/components/input-area";
 import { QuickAction } from "@/types/chat";
@@ -28,6 +29,7 @@ function MainChatInterface() {
   // State management for UI panels
   const [isSessionsPanelOpen, setIsSessionsPanelOpen] = useState(false);
   const [isServersPanelOpen, setIsServersPanelOpen] = useState(false);
+  const [isCrossProjectPanelOpen, setIsCrossProjectPanelOpen] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Show session sidebar by default on page load
@@ -78,6 +80,12 @@ function MainChatInterface() {
         sendQuickActionMessage("Show me how to use one of your available tools. Pick an interesting one and demonstrate it.");
       },
       icon: "⚡"
+    },
+    {
+      title: "Cross-project knowledge",
+      description: "Monitor knowledge sharing across projects",
+      action: () => setIsCrossProjectPanelOpen(true),
+      icon: "🔄"
     }
   ];
 
@@ -111,6 +119,7 @@ function MainChatInterface() {
   };
   const toggleSessions = () => setIsSessionsPanelOpen(prev => !prev);
   const toggleServers = () => setIsServersPanelOpen(prev => !prev);
+  const toggleCrossProject = () => setIsCrossProjectPanelOpen(prev => !prev);
 
   return (
     <div className="flex h-screen bg-background">
@@ -161,6 +170,11 @@ function MainChatInterface() {
               onClose={() => setIsServersPanelOpen(false)}
             />
           </SlidingPanel>
+          
+          <CrossProjectPanel
+            isOpen={isCrossProjectPanelOpen}
+            onClose={() => setIsCrossProjectPanelOpen(false)}
+          />
         </div>
 
         <ErrorNotification 
