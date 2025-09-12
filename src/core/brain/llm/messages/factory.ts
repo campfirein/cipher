@@ -17,6 +17,7 @@ function getFormatter(provider: string): IMessageFormatter {
 		case 'ollama':
 		case 'lmstudio':
 		case 'qwen':
+		case 'groq':
 		case 'gemini':
 		case 'deepseek':
 			formatter = new OpenAIMessageFormatter();

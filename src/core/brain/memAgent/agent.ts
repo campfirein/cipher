@@ -104,7 +104,9 @@ export class MemAgent {
 				logger.debug('MemAgent: Using standard services');
 				services = await createAgentServices(this.config, this.appMode || undefined);
 			}
-
+			// Logging to debug
+			console.log('MemAgent services initialized!');
+			console.log(services.llmService, typeof services.llmService);
 			for (const service of requiredServices) {
 				if (!services[service]) {
 					throw new Error(`Required service ${service} is missing during agent start`);

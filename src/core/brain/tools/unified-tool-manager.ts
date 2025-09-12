@@ -665,6 +665,7 @@ export class UnifiedToolManager {
 			| 'qwen'
 			| 'gemini'
 			| 'deepseek'
+			| 'groq'
 	): Promise<any[]> {
 		logger.info(`UnifiedToolManager: Getting tools for provider: ${provider}`);
 		const allTools = await this.getAllTools();
@@ -691,7 +692,11 @@ export class UnifiedToolManager {
 				return this.formatToolsForOpenAI(allTools); // Azure OpenAI uses OpenAI-compatible format
 			case 'deepseek':
 				logger.info('UnifiedToolManager: Formatting tools for Deepseek');
-				return this.formatToolsForOpenAI(allTools); // Deepseek uses OpenAI-compatible format
+				return this.formatToolsForOpenAI(allTools); // Deepseek
+
+			case 'groq':
+				logger.info('UnifiedToolManager: Formatting tools for Groq (OpenAI-compatible)');
+				return this.formatToolsForOpenAI(allTools); // Groq uses OpenAI-compatible format
 			default:
 				throw new Error(`Unsupported provider: ${provider}`);
 		}
