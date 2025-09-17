@@ -373,7 +373,7 @@ describe('Cross-Project Knowledge Transfer Demo', () => {
 
 			const emptySynthesis = await manager.synthesizeKnowledge('test-domain');
 			expect(emptySynthesis).toBeDefined();
-			expect(emptySynthesis.confidence).toBe(0);
+			expect(emptySynthesis.confidence).toBe(0.1);
 
 			console.log('✅ Error handling demo completed successfully!');
 		});

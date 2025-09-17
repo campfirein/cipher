@@ -462,8 +462,20 @@ describe('Master Guide Proof of Concept', () => {
 
 	describe('Master Guide Versioning and Updates', () => {
 		it('should demonstrate master guide versioning and updates', async () => {
+			// Create a separate manager with auto-updates disabled for this test
+			const versioningManager = new CrossProjectManager({
+				enableAutoTransfer: false,
+				enableMasterGuide: false,
+				similarityThreshold: 0.7,
+				maxTransferPerProject: 100,
+				updateInterval: 1000,
+				masterGuideUpdateInterval: 2000,
+				knowledgeRetentionDays: 30,
+			});
+			await versioningManager.initialize();
+
 			// Register initial projects
-			await manager.registerProject({
+			await versioningManager.registerProject({
 				projectId: 'project-v1',
 				projectName: 'Project Version 1',
 				domain: 'test-domain',
@@ -472,7 +484,7 @@ describe('Master Guide Proof of Concept', () => {
 			});
 
 			// Add initial knowledge
-			await manager.transferKnowledge(
+			await versioningManager.transferKnowledge(
 				'project-v1',
 				'project-v1',
 				'Initial knowledge pattern',
@@ -482,11 +494,11 @@ describe('Master Guide Proof of Concept', () => {
 			);
 
 			// Generate initial master guide
-			const initialGuide = await manager.generateMasterGuide('test-domain', 'Test Master Guide');
+			const initialGuide = await versioningManager.generateMasterGuide('test-domain', 'Test Master Guide');
 			expect(initialGuide.version).toBe('1.0.0');
 
 			// Add new project with additional knowledge
-			await manager.registerProject({
+			await versioningManager.registerProject({
 				projectId: 'project-v2',
 				projectName: 'Project Version 2',
 				domain: 'test-domain',
@@ -495,7 +507,7 @@ describe('Master Guide Proof of Concept', () => {
 			});
 
 			// Add new knowledge transfers
-			await manager.transferKnowledge(
+			await versioningManager.transferKnowledge(
 				'project-v2',
 				'project-v1',
 				'Updated knowledge pattern with improvements',
@@ -504,7 +516,7 @@ describe('Master Guide Proof of Concept', () => {
 				0.9
 			);
 
-			await manager.transferKnowledge(
+			await versioningManager.transferKnowledge(
 				'project-v1',
 				'project-v2',
 				'New solution for common problem',
@@ -514,13 +526,13 @@ describe('Master Guide Proof of Concept', () => {
 			);
 
 			// Update the master guide
-			const updatedGuide = await manager.updateMasterGuide(
+			const updatedGuide = await versioningManager.updateMasterGuide(
 				initialGuide.id,
-				manager.getAllProjects(),
-				manager.getProjectTransfers('project-v1').concat(manager.getProjectTransfers('project-v2'))
+				versioningManager.getAllProjects(),
+				versioningManager.getProjectTransfers('project-v1').concat(versioningManager.getProjectTransfers('project-v2'))
 			);
 
-			// Verify version increment
+			// Verify version increment (versioning enabled, should increment from 1.0.0 to 1.0.1)
 			expect(updatedGuide.version).toBe('1.0.1');
 			expect(updatedGuide.knowledgeSources).toHaveLength(2);
 			expect(updatedGuide.knowledgeSources).toContain('project-v1');
@@ -537,6 +549,9 @@ describe('Master Guide Proof of Concept', () => {
 				`📊 Knowledge Sources: ${initialGuide.knowledgeSources.length} → ${updatedGuide.knowledgeSources.length}`
 			);
 			console.log(`🔍 Patterns: ${initialGuide.patterns.length} → ${updatedGuide.patterns.length}`);
+
+			// Cleanup
+			await versioningManager.shutdown();
 		});
 	});
 });

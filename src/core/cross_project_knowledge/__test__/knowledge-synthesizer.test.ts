@@ -283,7 +283,29 @@ describe('KnowledgeSynthesizer', () => {
 	describe('Error Handling', () => {
 		it('should handle synthesis errors gracefully', async () => {
 			// Create a synthesizer that will throw an error
-			const errorSynthesizer = new KnowledgeSynthesizer();
+			const errorSynthesizer = new KnowledgeSynthesizer({
+				errorOnEmpty: true,
+				minConfidence: 0.9, // Higher threshold to prevent fallback
+				minRelevance: 0.8,
+				maxPatterns: 5,
+				maxSolutions: 10,
+				enablePatternDetection: true, // Explicitly enable pattern detection
+			});
+
+			// Create mock data with low-confidence transfers that won't trigger fallback
+			const lowConfidenceTransfers: KnowledgeTransfer[] = [
+				{
+					id: 'transfer-1',
+					sourceProjectId: 'project-1',
+					targetProjectId: 'project-2',
+					knowledgeType: 'pattern',
+					content: 'Use custom hooks for reusable state logic',
+					confidence: 0.5, // Below minConfidence threshold
+					relevance: 0.6,
+					transferredAt: new Date(),
+					metadata: {},
+				},
+			];
 
 			// Mock the pattern extraction to throw an error
 			const originalExtractPatterns = errorSynthesizer['extractPatterns'];
@@ -292,7 +314,7 @@ describe('KnowledgeSynthesizer', () => {
 			};
 
 			await expect(
-				errorSynthesizer.synthesizeKnowledge(mockProjects, mockTransfers)
+				errorSynthesizer.synthesizeKnowledge(mockProjects, lowConfidenceTransfers)
 			).rejects.toThrow('Pattern extraction failed');
 		});
 	});

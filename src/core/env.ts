@@ -495,7 +495,8 @@ export const env: EnvSchema = new Proxy({} as EnvSchema, {
 					? parseInt(process.env.CIPHER_CROSS_PROJECT_MAX_GUIDE_AGE_DAYS, 10)
 					: 30;
 			case 'CIPHER_CROSS_PROJECT_ENABLE_GUIDE_VERSIONING':
-				return process.env.CIPHER_CROSS_PROJECT_ENABLE_GUIDE_VERSIONING === 'true';
+				return process.env.CIPHER_CROSS_PROJECT_ENABLE_GUIDE_VERSIONING === 'true' || 
+					   process.env.CIPHER_CROSS_PROJECT_ENABLE_GUIDE_VERSIONING === undefined;
 			case 'CIPHER_CROSS_PROJECT_ENABLE_CROSS_DOMAIN_GUIDES':
 				return process.env.CIPHER_CROSS_PROJECT_ENABLE_CROSS_DOMAIN_GUIDES === 'true';
 			case 'CIPHER_CROSS_PROJECT_ENABLE_AUTO_PROJECT_DETECTION':

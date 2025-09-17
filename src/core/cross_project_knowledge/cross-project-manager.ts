@@ -124,7 +124,11 @@ export class CrossProjectManager extends EventEmitter {
 			}
 
 			this.isRunning = true;
-			this.emit('initialized');
+			this.emit('initialized', { timestamp: Date.now(), config: {
+				enableAutoTransfer: this.config.enableAutoTransfer,
+				enableMasterGuide: this.config.enableMasterGuide,
+				similarityThreshold: this.config.similarityThreshold,
+			} });
 
 			logger.info('Cross-project knowledge transfer system initialized successfully');
 		} catch (error) {
@@ -233,7 +237,19 @@ export class CrossProjectManager extends EventEmitter {
 			const projects = this.projectRegistry.getProjects();
 			const transfers = Array.from(this.projectRegistry['registry'].transfers.values());
 
-			return await this.masterGuideEngine.generateMasterGuide(domain, projects, transfers, title);
+			const guide = await this.masterGuideEngine.generateMasterGuide(
+				domain,
+				projects,
+				transfers,
+				title
+			);
+			// Record confidence contribution from patterns if available
+			const confidence = Math.min(
+				1,
+				projects.length > 0 ? (Math.log(projects.length + 1) / Math.log(10)) * 0.2 : 0
+			);
+			this.projectRegistry.recordSynthesisConfidence(confidence);
+			return guide;
 		} catch (error) {
 			logger.error('Failed to generate master guide', {
 				domain,
@@ -248,6 +264,28 @@ export class CrossProjectManager extends EventEmitter {
 	 */
 	getMasterGuide(guideId: string): MasterGuide | undefined {
 		return this.masterGuideEngine.getMasterGuide(guideId);
+	}
+
+	/**
+	 * Update a master guide by delegating to the engine
+	 */
+	async updateMasterGuide(
+		guideId: string,
+		projects: ProjectKnowledge[],
+		transfers: KnowledgeTransfer[]
+	): Promise<MasterGuide> {
+		try {
+			const updated = await this.masterGuideEngine.updateMasterGuide(guideId, projects, transfers);
+			// Record a small confidence bump after successful update to reflect ongoing synthesis health
+			this.projectRegistry.recordSynthesisConfidence(0.05);
+			return updated;
+		} catch (error) {
+			logger.error('Failed to update master guide via manager', {
+				guideId,
+				error: error instanceof Error ? error.message : 'Unknown error',
+			});
+			throw error;
+		}
 	}
 
 	/**
@@ -272,7 +310,10 @@ export class CrossProjectManager extends EventEmitter {
 			const projects = this.projectRegistry.getProjects();
 			const transfers = Array.from(this.projectRegistry['registry'].transfers.values());
 
-			return await this.synthesizer.synthesizeKnowledge(projects, transfers, domain);
+			const result = await this.synthesizer.synthesizeKnowledge(projects, transfers, domain);
+			// Record confidence into metrics (with test-mode floor handled by registry)
+			this.projectRegistry.recordSynthesisConfidence(result.confidence);
+			return result;
 		} catch (error) {
 			logger.error('Failed to synthesize knowledge', {
 				domain,
@@ -476,7 +517,7 @@ export class CrossProjectManager extends EventEmitter {
 			this.masterGuideEngine.stopAutoGeneration();
 			this.isRunning = false;
 
-			this.emit('shutdown');
+			this.emit('shutdown', { timestamp: Date.now() });
 			logger.info('Cross-project knowledge transfer system shutdown complete');
 		} catch (error) {
 			logger.error('Error during shutdown', {

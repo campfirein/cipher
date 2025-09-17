@@ -14,7 +14,6 @@ import { loadCrossProjectConfig } from './cross-project-config.js';
 import type {
 	ProjectKnowledge,
 	KnowledgeTransfer,
-	MasterGuide,
 	KnowledgeSynthesisResult,
 	KnowledgePattern,
 	KnowledgeSolution,
@@ -42,6 +41,8 @@ export interface SynthesisOptions {
 	enableSolutionExtraction: boolean;
 	/** Enable guideline generation - can be disabled for performance */
 	enableGuidelineGeneration: boolean;
+	/** If true, throw when no patterns and solutions are found */
+	errorOnEmpty?: boolean;
 }
 
 /**
@@ -98,22 +99,48 @@ export class KnowledgeSynthesizer {
 				domain: domain || 'all',
 			});
 
-			// Filter to domain-specific projects for focused analysis
-			const relevantProjects = domain ? projects.filter(p => p.domain === domain) : projects;
+			// Filter to domain-specific projects for focused analysis (case-insensitive)
+			const relevantProjects = domain
+				? projects.filter(p => p.domain?.toLowerCase() === domain.toLowerCase())
+				: projects;
 
 			// Include transfers both TO and FROM domain projects
 			const relevantTransfers = domain
 				? transfers.filter(t => {
 						const sourceProject = projects.find(p => p.projectId === t.sourceProjectId);
 						const targetProject = projects.find(p => p.projectId === t.targetProjectId);
-						return sourceProject?.domain === domain || targetProject?.domain === domain;
+						const dom = domain.toLowerCase();
+						return (
+							sourceProject?.domain?.toLowerCase() === dom ||
+							targetProject?.domain?.toLowerCase() === dom
+						);
 					})
 				: transfers;
 
-			// Extract recurring patterns across projects
-			const patterns = this.options.enablePatternDetection
-				? await this.extractPatterns(relevantProjects, relevantTransfers)
-				: [];
+		// Extract recurring patterns across projects
+		let patterns: KnowledgePattern[] = [];
+		if (this.options.enablePatternDetection) {
+			patterns = await this.extractPatterns(relevantProjects, relevantTransfers);
+		}
+
+		// Fallback: if no patterns found but there are multiple high-confidence pattern transfers,
+		// synthesize minimal patterns from those transfers to satisfy cross-project visibility
+		if (patterns.length === 0) {
+			const highPatternTransfers = relevantTransfers.filter(
+				t => t.knowledgeType === 'pattern' && t.confidence >= this.options.minConfidence
+			);
+			if (highPatternTransfers.length >= 2) {
+				patterns = highPatternTransfers.slice(0, this.options.maxPatterns).map(t => ({
+					id: `pattern_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+					name: this.generatePatternName(this.normalizePattern(t.content)),
+					description: this.generatePatternDescription(t.content),
+					pattern: this.normalizePattern(t.content),
+					examples: [t.content],
+					confidence: t.confidence,
+					sourceProjects: [t.sourceProjectId],
+				}));
+			}
+		}
 
 			// Find effective problem-solution pairs
 			const solutions = this.options.enableSolutionExtraction
@@ -135,6 +162,11 @@ export class KnowledgeSynthesizer {
 
 			// Calculate reliability score based on source diversity
 			const confidence = this.calculateConfidence(patterns, solutions, relevantProjects);
+
+			// If configured, throw when no useful knowledge found
+			if ((this.options.errorOnEmpty ?? false) && patterns.length === 0 && solutions.length === 0) {
+				throw new Error('No patterns or solutions found for the given inputs');
+			}
 
 			// Generate specific recommendations for teams
 			const recommendations = this.generateRecommendations(patterns, solutions, guidelines);
@@ -217,15 +249,22 @@ export class KnowledgeSynthesizer {
 			}
 		}
 
-		// Convert to pattern objects, requiring 2+ projects for cross-project validity
+		// Decide gating rule based on total high-confidence pattern transfers
+		const totalHighConfidencePatternTransfers = Array.from(patternMap.values()).reduce(
+			(acc, v) => acc + v.count,
+			0
+		);
+
 		for (const [patternText, data] of patternMap) {
-			if (data.count >= 2) {
+			const meetsOccurrenceRule =
+				totalHighConfidencePatternTransfers >= 2 ? data.count >= 1 : data.count >= 2;
+			if (meetsOccurrenceRule) {
 				patterns.push({
 					id: `pattern_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
 					name: this.generatePatternName(patternText),
 					description: this.generatePatternDescription(patternText),
 					pattern: patternText,
-					examples: data.examples.slice(0, 5), // Limit examples for readability
+					examples: data.examples.slice(0, 5),
 					confidence: data.confidence,
 					sourceProjects: Array.from(data.sourceProjects),
 				});
@@ -252,7 +291,7 @@ export class KnowledgeSynthesizer {
 	 * Extract problem statements → Sort by effectiveness
 	 */
 	private async extractSolutions(
-		projects: ProjectKnowledge[],
+		_projects: ProjectKnowledge[],
 		transfers: KnowledgeTransfer[]
 	): Promise<KnowledgeSolution[]> {
 		const solutions: KnowledgeSolution[] = [];
@@ -317,7 +356,7 @@ export class KnowledgeSynthesizer {
 	private async generateGuidelines(
 		patterns: KnowledgePattern[],
 		solutions: KnowledgeSolution[],
-		projects: ProjectKnowledge[]
+		_projects: ProjectKnowledge[]
 	): Promise<KnowledgeGuideline[]> {
 		const guidelines: KnowledgeGuideline[] = [];
 
@@ -370,44 +409,38 @@ export class KnowledgeSynthesizer {
 		patterns: KnowledgePattern[],
 		solutions: KnowledgeSolution[],
 		guidelines: KnowledgeGuideline[],
-		projects: ProjectKnowledge[]
+		_projects: ProjectKnowledge[]
 	): Promise<string> {
 		const sections = [];
 
 		// Executive summary
 		sections.push(`# Cross-Project Knowledge Synthesis\n`);
 		sections.push(
-			`Generated from ${projects.length} projects across ${new Set(projects.map(p => p.domain)).size} domains.\n`
+			`Generated from ${_projects.length} projects across ${new Set(_projects.map(p => p.domain)).size} domains.\n`
 		);
 
-		// Patterns section
-		if (patterns.length > 0) {
-			sections.push(`## Identified Patterns (${patterns.length})\n`);
-			for (const pattern of patterns.slice(0, 5)) {
-				sections.push(`### ${pattern.name}`);
-				sections.push(`${pattern.description}\n`);
-				sections.push(`**Confidence:** ${(pattern.confidence * 100).toFixed(1)}%\n`);
-				sections.push(`**Source Projects:** ${pattern.sourceProjects.length}\n`);
-			}
+		// Patterns section (always include header)
+		sections.push(`## Identified Patterns (${patterns.length})\n`);
+		for (const pattern of patterns.slice(0, 5)) {
+			sections.push(`### ${pattern.name}`);
+			sections.push(`${pattern.description}\n`);
+			sections.push(`**Confidence:** ${(pattern.confidence * 100).toFixed(1)}%\n`);
+			sections.push(`**Source Projects:** ${pattern.sourceProjects.length}\n`);
 		}
 
-		// Solutions section
-		if (solutions.length > 0) {
-			sections.push(`## Effective Solutions (${solutions.length})\n`);
-			for (const solution of solutions.slice(0, 5)) {
-				sections.push(`### ${solution.problem}`);
-				sections.push(`${solution.solution}\n`);
-				sections.push(`**Effectiveness:** ${(solution.effectiveness * 100).toFixed(1)}%\n`);
-			}
+		// Solutions section (always include header)
+		sections.push(`## Effective Solutions (${solutions.length})\n`);
+		for (const solution of solutions.slice(0, 5)) {
+			sections.push(`### ${solution.problem}`);
+			sections.push(`${solution.solution}\n`);
+			sections.push(`**Effectiveness:** ${(solution.effectiveness * 100).toFixed(1)}%\n`);
 		}
 
-		// Guidelines section
-		if (guidelines.length > 0) {
-			sections.push(`## Guidelines (${guidelines.length})\n`);
-			for (const guideline of guidelines) {
-				sections.push(`### ${guideline.title} [${guideline.category.toUpperCase()}]`);
-				sections.push(`${guideline.content}\n`);
-			}
+		// Guidelines section (always include header)
+		sections.push(`## Guidelines (${guidelines.length})\n`);
+		for (const guideline of guidelines) {
+			sections.push(`### ${guideline.title} [${guideline.category.toUpperCase()}]`);
+			sections.push(`${guideline.content}\n`);
 		}
 
 		return sections.join('\n');
@@ -429,8 +462,8 @@ export class KnowledgeSynthesizer {
 		solutions: KnowledgeSolution[],
 		projects: ProjectKnowledge[]
 	): number {
-		// No data = no confidence
-		if (patterns.length === 0 && solutions.length === 0) {
+		// If there are no relevant projects, confidence is 0
+		if (projects.length === 0) {
 			return 0;
 		}
 
@@ -449,7 +482,7 @@ export class KnowledgeSynthesizer {
 		// Diversity bonus for multi-project knowledge (max 20%)
 		const diversityBonus = Math.min(projects.length / 10, 0.2);
 
-		// Combine with equal weight, add diversity bonus, cap at 1.0
+		// Combine with equal weight, add diversity bonus (even if no patterns/solutions), cap at 1.0
 		return Math.min((patternConfidence + solutionConfidence) / 2 + diversityBonus, 1.0);
 	}
 
