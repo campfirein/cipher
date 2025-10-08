@@ -87,6 +87,7 @@ export async function createKnowledgeGraph(
 	try {
 		// Connect to backend
 		await manager.connect();
+
 		const graph = manager.getGraph();
 
 		if (!graph) {
