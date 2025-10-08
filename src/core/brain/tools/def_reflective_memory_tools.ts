@@ -28,6 +28,10 @@ export const ReasoningStepSchema = z.object({
 export const ReasoningTraceSchema = z.object({
 	id: z.string(),
 	steps: z.array(ReasoningStepSchema),
+	// FIX (2025-01-29): Made metadata optional to align with tool definition
+	// The tool definition (line 611) already marks metadata as not required,
+	// but the Zod schema was still requiring it, causing validation failures
+	// This change allows reasoning evaluation to work without metadata
 	metadata: z.object({
 		extractedAt: z.string(),
 		conversationLength: z.number(),
@@ -50,7 +54,7 @@ export const ReasoningTraceSchema = z.object({
 				includeMetadata: z.boolean().optional(),
 			})
 			.optional(),
-	}),
+	}).optional(), // FIX: Added .optional() to make entire metadata object optional
 });
 
 export const ReasoningEvaluationSchema = z.object({
