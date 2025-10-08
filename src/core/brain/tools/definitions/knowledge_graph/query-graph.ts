@@ -15,7 +15,9 @@ export const queryGraphTool: InternalTool = {
 	name: 'query_graph',
 	category: 'knowledge_graph',
 	internal: true,
-	description: 'Execute custom queries against the knowledge graph.',
+	// FIX: Updated description to mention backend limitations
+	description: 'Execute custom queries against the knowledge graph. ' +
+	             'NOTE: Cypher queries require Neo4j backend. In-memory backend supports node, edge, and path queries only.',
 	version: '1.0.0',
 	parameters: {
 		type: 'object',
@@ -86,6 +88,26 @@ export const queryGraphTool: InternalTool = {
 					timestamp: new Date().toISOString(),
 				};
 			}
+			// FIX (2025-01-29): Added backend validation for Cypher queries
+			// In-memory backend doesn't support Cypher query language
+			// This provides a clear error message and suggests alternatives
+			if (queryType === 'cypher') {
+				// Check if backend supports Cypher (Neo4j) or is in-memory
+				const backendType = kgManager.getBackendType ? kgManager.getBackendType() : 'memory';
+
+				if (backendType === 'memory' || backendType === 'in-memory') {
+					return {
+						success: false,
+						message: 'Cypher queries require Neo4j backend. Current backend: in-memory. ' +
+						        'Use queryType: "node", "edge", or "path" instead, or enable Neo4j in configuration.',
+						alternatives: ['node', 'edge', 'path'],
+						example: 'For node search, use: queryType: "node" with query: "labels: [Person]"',
+						results: null,
+						timestamp: new Date().toISOString(),
+					};
+				}
+			}
+
 			const graphQuery: GraphQuery = {
 				type: queryType,
 				parameters: args.parameters || {},
