@@ -26,6 +26,8 @@ import { createKnowledgeGraphFromEnv } from '../knowledge_graph/factory.js';
 import { EventManager } from '../events/event-manager.js';
 import { EventPersistenceConfig } from '../events/persistence.js';
 import { env } from '../env.js';
+import { CrossProjectManager } from '../cross_project_knowledge/cross-project-manager.js';
+import { MemoryIntegrationManager } from '../cross_project_knowledge/memory-integration.js';
 import { ProviderType } from '../brain/systemPrompt/interfaces.js';
 import fs from 'fs';
 import path from 'path';
@@ -270,6 +272,8 @@ export type AgentServices = {
 	llmService?: ILLMService;
 	contextManager?: any;
 	knowledgeGraphManager?: KnowledgeGraphManager;
+	crossProjectManager?: CrossProjectManager;
+	memoryIntegrationManager?: MemoryIntegrationManager;
 };
 
 export async function createAgentServices(
@@ -654,6 +658,55 @@ export async function createAgentServices(
 		});
 	}
 
+	// 4.1. Initialize cross-project knowledge system (if enabled)
+	let crossProjectManager: CrossProjectManager | undefined = undefined;
+	let memoryIntegrationManager: MemoryIntegrationManager | undefined = undefined;
+
+	if (env.CIPHER_CROSS_PROJECT_ENABLED) {
+		try {
+			if (appMode !== 'cli') {
+				logger.debug('Initializing cross-project knowledge system...');
+			}
+
+			// Initialize cross-project manager
+			crossProjectManager = new CrossProjectManager();
+			await crossProjectManager.initialize();
+
+			// Initialize memory integration manager
+			memoryIntegrationManager = new MemoryIntegrationManager();
+			await memoryIntegrationManager.initialize();
+
+			// Set event manager for cross-project knowledge events
+			crossProjectManager.setEventManager(eventManager);
+			memoryIntegrationManager.setEventManager(eventManager);
+
+			if (appMode !== 'cli') {
+				logger.info('Cross-project knowledge system initialized successfully', {
+					autoTransfer: env.CIPHER_CROSS_PROJECT_AUTO_TRANSFER,
+					masterGuides: env.CIPHER_CROSS_PROJECT_MASTER_GUIDES,
+					performanceMonitoring: env.CIPHER_CROSS_PROJECT_PERFORMANCE_MONITORING,
+				});
+			}
+
+			// Emit cross-project knowledge initialization event
+			eventManager.emitServiceEvent('cipher:serviceStarted', {
+				serviceType: 'CrossProjectKnowledge',
+				timestamp: Date.now(),
+			});
+		} catch (error) {
+			logger.warn('Failed to initialize cross-project knowledge system', {
+				error: error instanceof Error ? error.message : String(error),
+			});
+			// Don't fail the entire service initialization if cross-project knowledge fails
+			crossProjectManager = undefined;
+			memoryIntegrationManager = undefined;
+		}
+	} else {
+		if (appMode !== 'cli') {
+			logger.debug('Cross-project knowledge system disabled via environment variable');
+		}
+	}
+
 	// 5. Initialize prompt manager
 	// --- BEGIN MERGE ADVANCED PROMPT CONFIG ---
 	const promptManager = new EnhancedPromptManager();
@@ -942,6 +995,14 @@ export async function createAgentServices(
 	// Only include knowledgeGraphManager when it's defined
 	if (knowledgeGraphManager) {
 		agentServices.knowledgeGraphManager = knowledgeGraphManager;
+	}
+
+	// Only include cross-project knowledge services when they're defined
+	if (crossProjectManager) {
+		agentServices.crossProjectManager = crossProjectManager;
+	}
+	if (memoryIntegrationManager) {
+		agentServices.memoryIntegrationManager = memoryIntegrationManager;
 	}
 
 	// Emit all services ready event
