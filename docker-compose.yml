@@ -5,7 +5,9 @@ services:
     ports:
       - '3000:3000'
     environment:
-      - CIPHER_API_PREFIX=""
+      - CIPHER_API_PREFIX="" # Keep empty for direct access
+      - PROXY_CONTEXT_PATH=${PROXY_CONTEXT_PATH:-} # Set to /agent if behind nginx with /agent/ context path
+      - NODE_ENV=${NODE_ENV:-production}
     env_file:
       - .env
     command:

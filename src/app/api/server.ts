@@ -120,6 +120,24 @@ export class ApiServer {
 		return `${this.apiPrefix}${route}`;
 	}
 
+	/**
+	 * Helper method to construct full path including proxy context path
+	 * Used for SSE transport endpoint configuration when behind reverse proxy
+	 */
+	private buildFullPath(req: Request, path: string): string {
+		const contextPath = (req as any).contextPath || '';
+		const fullPath = contextPath + this.buildApiRoute(path);
+
+		logger.debug('[API Server] Built full path', {
+			path,
+			contextPath,
+			apiPrefix: this.apiPrefix,
+			fullPath,
+		});
+
+		return fullPath;
+	}
+
 	private async setupMcpServer(
 		transportType: 'stdio' | 'sse' | 'http',
 		_port?: number
@@ -206,37 +224,63 @@ export class ApiServer {
 			logger.info('[API Server] New MCP SSE client attempting connection.');
 			logger.debug('[API Server] SSE Request Headers:', req.headers);
 			logger.debug('[API Server] SSE Request URL:', req.url);
+			logger.debug('[API Server] SSE Request Original URL:', req.originalUrl);
 
-			// Create SSE transport instance. The buildApiRoute('/mcp') is the endpoint where client will POST messages.
-			// The SSEServerTransport will handle setting the SSE headers itself
-			const sseTransport = new SSEServerTransport(this.buildApiRoute('/mcp'), res);
-			logger.debug(
-				`[API Server] SSEServerTransport created with endpoint ${this.buildApiRoute('/mcp')}`
-			);
+			try {
+				// Build the POST endpoint path including context path from proxy
+				const postEndpoint = this.buildFullPath(req, '/mcp');
 
-			// Connect MCP server to this SSE transport (this will call sseTransport.start() and set headers)
-			this.mcpServer?.connect(sseTransport);
-			logger.debug('[API Server] MCP server connected to SSE transport');
+				logger.info(`[API Server] Creating SSE transport with POST endpoint: ${postEndpoint}`);
 
-			// Store the transport keyed by its session ID
-			this.activeMcpSseTransports.set(sseTransport.sessionId, sseTransport);
-			logger.info(
-				`[API Server] MCP SSE client connected with session ID: ${sseTransport.sessionId}`
-			);
-			logger.debug(`[API Server] Active SSE transports count: ${this.activeMcpSseTransports.size}`);
+				// Create SSE transport instance with the full path
+				const sseTransport = new SSEServerTransport(postEndpoint, res);
 
-			// Handle client disconnect
-			req.on('close', () => {
+				// Log the session ID for debugging
+				logger.info(`[API Server] SSE session created with ID: ${sseTransport.sessionId}`);
 				logger.info(
-					`[API Server] MCP SSE client with session ID ${sseTransport.sessionId} disconnected.`
+					`[API Server] Client should POST to: ${postEndpoint}?sessionId=${sseTransport.sessionId}`
 				);
-				logger.debug('[API Server] Cleaning up SSE transport and connection');
-				sseTransport.close(); // Close the transport when client disconnects
-				this.activeMcpSseTransports.delete(sseTransport.sessionId); // Remove from active transports
+
+				// Connect MCP server to this SSE transport (this will call sseTransport.start() and set headers)
+				this.mcpServer?.connect(sseTransport);
+				logger.debug('[API Server] MCP server connected to SSE transport');
+
+				// Store the transport keyed by its session ID
+				this.activeMcpSseTransports.set(sseTransport.sessionId, sseTransport);
+				logger.info(
+					`[API Server] MCP SSE client connected with session ID: ${sseTransport.sessionId}`
+				);
 				logger.debug(
-					`[API Server] Active SSE transports count after cleanup: ${this.activeMcpSseTransports.size}`
+					`[API Server] Active SSE transports count: ${this.activeMcpSseTransports.size}`
 				);
-			});
+
+				// Handle client disconnect
+				req.on('close', () => {
+					logger.info(
+						`[API Server] MCP SSE client with session ID ${sseTransport.sessionId} disconnected.`
+					);
+					logger.debug('[API Server] Cleaning up SSE transport and connection');
+					sseTransport.close(); // Close the transport when client disconnects
+					this.activeMcpSseTransports.delete(sseTransport.sessionId); // Remove from active transports
+					logger.debug(
+						`[API Server] Active SSE transports count after cleanup: ${this.activeMcpSseTransports.size}`
+					);
+				});
+
+				// Handle transport errors
+				sseTransport.onerror = (error: unknown) => {
+					logger.error('[API Server] SSE transport error:', error);
+					this.activeMcpSseTransports.delete(sseTransport.sessionId);
+				};
+			} catch (error) {
+				logger.error('[API Server] Error setting up SSE transport:', error);
+				if (!res.headersSent) {
+					res.status(500).json({
+						error: 'Failed to establish SSE connection',
+						message: error instanceof Error ? error.message : String(error),
+					});
+				}
+			}
 		});
 
 		// Handle POST requests for MCP messages over HTTP (part of Streamable HTTP)
@@ -245,24 +289,32 @@ export class ApiServer {
 			logger.debug('[API Server] POST Request Headers:', req.headers);
 			logger.debug('[API Server] POST Request Body:', req.body);
 			logger.debug('[API Server] POST Request Query:', req.query);
+			logger.debug('[API Server] POST Request Original URL:', req.originalUrl);
 
 			if (!this.mcpServer) {
 				logger.error('[API Server] MCP Server not initialized for POST route.');
 				return errorResponse(res, ERROR_CODES.INTERNAL_ERROR, 'MCP Server not ready', 500);
 			}
 
-			// The SSEServerTransport expects the session ID to be part of the endpoint it provides,
-			// typically as a query parameter in the POST URL (e.g., /mcp?sessionId=...).
-			// We need to retrieve the correct transport instance based on this.
-			const sessionId = req.query.sessionId as string;
+			// Try multiple ways to get session ID (query param, header, body)
+			const sessionId =
+				(req.query.sessionId as string) ||
+				(req.headers['x-session-id'] as string) ||
+				(req.body.sessionId as string);
 
 			if (!sessionId) {
 				logger.error('[API Server] MCP POST request received without session ID.');
 				logger.debug('[API Server] Available query parameters:', Object.keys(req.query));
+				logger.debug('[API Server] Available headers:', Object.keys(req.headers));
+				logger.debug(
+					'[API Server] Active sessions:',
+					Array.from(this.activeMcpSseTransports.keys())
+				);
+
 				return errorResponse(
 					res,
 					ERROR_CODES.BAD_REQUEST,
-					'Missing sessionId in query parameters',
+					'Missing sessionId in query parameters, headers, or body. Session ID is required for security.',
 					400
 				);
 			}
@@ -485,6 +537,30 @@ export class ApiServer {
 	}
 
 	private setupMiddleware(): void {
+		// Enable trust proxy for reverse proxy support
+		this.app.set('trust proxy', true);
+
+		// Parse X-Forwarded-Prefix for context path support
+		this.app.use((req: Request, res: Response, next: NextFunction) => {
+			// Get the prefix from X-Forwarded-Prefix header or environment variable
+			const forwardedPrefix = req.headers['x-forwarded-prefix'] as string;
+			const envPrefix = process.env.PROXY_CONTEXT_PATH;
+			const contextPath = forwardedPrefix || envPrefix || '';
+
+			// Store context path on request for later use
+			(req as any).contextPath = contextPath;
+
+			logger.debug('[API Server] Request context', {
+				originalUrl: req.originalUrl,
+				contextPath,
+				forwardedPrefix,
+				forwardedProto: req.headers['x-forwarded-proto'],
+				forwardedHost: req.headers['x-forwarded-host'],
+			});
+
+			next();
+		});
+
 		// Security middleware
 		this.app.use(
 			helmet({
@@ -493,12 +569,43 @@ export class ApiServer {
 			})
 		);
 
-		// CORS configuration
+		// CORS configuration - enhanced for reverse proxy support
 		this.app.use(
 			cors({
-				origin: this.config.corsOrigins || ['http://localhost:3000'],
+				origin: (origin, callback) => {
+					const allowedOrigins = this.config.corsOrigins || ['http://localhost:3000'];
+
+					// Allow requests with no origin (e.g., mobile apps, curl, Postman)
+					if (!origin) {
+						callback(null, true);
+						return;
+					}
+
+					// Check if origin is in the allowed list
+					if (allowedOrigins.includes(origin)) {
+						callback(null, true);
+						return;
+					}
+
+					// Additional lenient check for development environments only
+					// Allow localhost and 127.0.0.1 with any port in development
+					if (process.env.NODE_ENV !== 'production') {
+						const originUrl = new URL(origin);
+						if (
+							originUrl.hostname === 'localhost' ||
+							originUrl.hostname === '127.0.0.1' ||
+							originUrl.hostname === '::1'
+						) {
+							callback(null, true);
+							return;
+						}
+					}
+
+					// Reject all other origins
+					callback(new Error('Not allowed by CORS'));
+				},
 				methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-				allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-ID'],
+				allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-ID', 'X-Session-ID'],
 				credentials: true,
 			})
 		);

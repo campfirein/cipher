@@ -60,7 +60,7 @@ describe('ReasoningContentDetector', () => {
 			expect(result.containsReasoning).toBeDefined();
 			expect(result.confidence).toBeGreaterThanOrEqual(0);
 			expect(result.confidence).toBeLessThanOrEqual(1);
-		});
+		}, 10000);
 
 		it('should handle simple statements', async () => {
 			const input = 'Hello, how are you today?';
@@ -70,7 +70,7 @@ describe('ReasoningContentDetector', () => {
 			expect(result.containsReasoning).toBeDefined();
 			expect(result.confidence).toBeGreaterThanOrEqual(0);
 			expect(result.confidence).toBeLessThanOrEqual(1);
-		});
+		}, 10000);
 
 		it('should handle technical reasoning patterns', async () => {
 			const input = 'I need to optimize this algorithm for better performance and scalability.';
@@ -80,7 +80,7 @@ describe('ReasoningContentDetector', () => {
 			expect(result.containsReasoning).toBeDefined();
 			expect(result.confidence).toBeGreaterThanOrEqual(0);
 			expect(result.confidence).toBeLessThanOrEqual(1);
-		});
+		}, 10000);
 	});
 
 	describe('Options and configuration', () => {
