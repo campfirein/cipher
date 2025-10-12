@@ -441,8 +441,18 @@ async function extractEntitiesWithRegex(
 			'GCP',
 		];
 
+		// FIX (2025-01-29): Added helper function to escape regex special characters
+		// This fixes the "Invalid regular expression: /\bC++\b/: Nothing to repeat" error
+		// The + characters in C++ are regex quantifiers that need to be escaped
+		const escapeRegex = (str: string): string => {
+			return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+		};
+
 		techKeywords.forEach(tech => {
-			const regex = new RegExp(`\\b${tech}\\b`, 'gi');
+			// FIX: Escape special regex characters in technology names (e.g., C++)
+			// This allows proper matching of technologies like C++, .NET, etc.
+			const escapedTech = escapeRegex(tech);
+			const regex = new RegExp(`\\b${escapedTech}\\b`, 'gi');
 			let match;
 			while ((match = regex.exec(text)) !== null) {
 				entities.push({
