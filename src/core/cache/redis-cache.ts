@@ -1,6 +1,6 @@
-import Redis, { RedisOptions } from 'ioredis';
+import { Redis, type RedisOptions } from 'ioredis';
 import crypto from 'crypto';
-import { logger } from '../logger';
+import { logger } from '../logger/index.js';
 
 export interface CacheConfig {
   enabled: boolean;
