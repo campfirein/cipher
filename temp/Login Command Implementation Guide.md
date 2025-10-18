@@ -922,34 +922,45 @@ export class CallbackServer {
 }
 ```
 
-### Step 5.3: FileTokenStore Implementation (TDD)
+### Step 5.3: KeychainTokenStore Implementation (TDD)
+
+**Note:** This implementation uses OS keychain via `keytar` for secure token storage. This provides better security than file-based storage by leveraging OS-level encryption and access control.
+
+First, install the dependency:
+
+```bash
+npm install keytar
+```
 
 Test:
 
 ```typescript
-// filepath: test/unit/infrastructure/storage/FileTokenStore.test.ts
+// filepath: test/unit/infrastructure/storage/KeychainTokenStore.test.ts
 import {expect} from 'chai'
-import * as fs from 'node:fs/promises'
-import * as os from 'node:os'
-import * as path from 'node:path'
+import sinon from 'sinon'
+import * as keytar from 'keytar'
 import {AuthToken} from '../../../../src/core/domain/entities/AuthToken.js'
-import {FileTokenStore} from '../../../../src/infrastructure/storage/FileTokenStore.js'
+import {KeychainTokenStore} from '../../../../src/infrastructure/storage/KeychainTokenStore.js'
 
-describe('FileTokenStore', () => {
-  let store: FileTokenStore
-  let tempDir: string
+describe('KeychainTokenStore', () => {
+  let store: KeychainTokenStore
+  let getPasswordStub: sinon.SinonStub
+  let setPasswordStub: sinon.SinonStub
+  let deletePasswordStub: sinon.SinonStub
 
-  beforeEach(async () => {
-    tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'br-test-'))
-    store = new FileTokenStore(tempDir)
+  beforeEach(() => {
+    getPasswordStub = sinon.stub(keytar, 'getPassword')
+    setPasswordStub = sinon.stub(keytar, 'setPassword')
+    deletePasswordStub = sinon.stub(keytar, 'deletePassword')
+    store = new KeychainTokenStore()
   })
 
-  afterEach(async () => {
-    await fs.rm(tempDir, {force: true, recursive: true})
+  afterEach(() => {
+    sinon.restore()
   })
 
   describe('save', () => {
-    it('should save token to file', async () => {
+    it('should save token to keychain', async () => {
       const token = new AuthToken(
         'access-token',
         'refresh-token',
@@ -957,95 +968,97 @@ describe('FileTokenStore', () => {
         'Bearer',
       )
 
-      await store.save(token)
-
-      const filePath = path.join(tempDir, 'credentials.json')
-      const fileExists = await fs
-        .access(filePath)
-        .then(() => true)
-        .catch(() => false)
-
-      expect(fileExists).to.be.true
-    })
-
-    it('should encrypt token data', async () => {
-      const token = new AuthToken('secret-token', 'secret-refresh', new Date(), 'Bearer')
+      setPasswordStub.resolves(undefined)
 
       await store.save(token)
 
-      const filePath = path.join(tempDir, 'credentials.json')
-      const content = await fs.readFile(filePath, 'utf-8')
-
-      expect(content).to.not.include('secret-token')
-      expect(content).to.not.include('secret-refresh')
+      expect(setPasswordStub.calledOnce).to.be.true
+      expect(setPasswordStub.firstCall.args[0]).to.equal('byterover-cli')
+      expect(setPasswordStub.firstCall.args[1]).to.equal('auth-token')
+      
+      const savedData = JSON.parse(setPasswordStub.firstCall.args[2])
+      expect(savedData.accessToken).to.equal('access-token')
+      expect(savedData.refreshToken).to.equal('refresh-token')
+      expect(savedData.tokenType).to.equal('Bearer')
     })
 
-    it('should create directory if it does not exist', async () => {
-      const newDir = path.join(tempDir, 'subdir')
-      const newStore = new FileTokenStore(newDir)
-
+    it('should handle save errors gracefully', async () => {
       const token = new AuthToken('access', 'refresh', new Date(), 'Bearer')
-      await newStore.save(token)
+      setPasswordStub.rejects(new Error('Keychain access denied'))
 
-      const dirExists = await fs
-        .access(newDir)
-        .then(() => true)
-        .catch(() => false)
-      expect(dirExists).to.be.true
+      try {
+        await store.save(token)
+        expect.fail('Should have thrown an error')
+      } catch (error) {
+        expect(error).to.be.an('error')
+        expect((error as Error).message).to.include('Keychain access denied')
+      }
     })
   })
 
   describe('load', () => {
-    it('should load saved token', async () => {
-      const originalToken = new AuthToken(
-        'access-token',
-        'refresh-token',
-        new Date('2025-12-31'),
-        'Bearer',
-      )
+    it('should load saved token from keychain', async () => {
+      const tokenData = {
+        accessToken: 'access-token',
+        refreshToken: 'refresh-token',
+        expiresAt: '2025-12-31T23:59:59.000Z',
+        tokenType: 'Bearer',
+      }
 
-      await store.save(originalToken)
+      getPasswordStub.resolves(JSON.stringify(tokenData))
+
       const loadedToken = await store.load()
 
       expect(loadedToken).to.not.be.null
       expect(loadedToken?.accessToken).to.equal('access-token')
       expect(loadedToken?.refreshToken).to.equal('refresh-token')
       expect(loadedToken?.tokenType).to.equal('Bearer')
+      expect(loadedToken?.expiresAt.toISOString()).to.equal('2025-12-31T23:59:59.000Z')
     })
 
-    it('should return null if file does not exist', async () => {
+    it('should return null if token does not exist', async () => {
+      getPasswordStub.resolves(null)
+
       const token = await store.load()
       expect(token).to.be.null
     })
 
-    it('should decrypt token data', async () => {
-      const originalToken = new AuthToken('access', 'refresh', new Date(), 'Bearer')
+    it('should return null if token data is invalid', async () => {
+      getPasswordStub.resolves('invalid-json-data')
 
-      await store.save(originalToken)
-      const loadedToken = await store.load()
+      const token = await store.load()
+      expect(token).to.be.null
+    })
 
-      expect(loadedToken?.accessToken).to.equal('access')
-      expect(loadedToken?.refreshToken).to.equal('refresh')
+    it('should handle keychain read errors gracefully', async () => {
+      getPasswordStub.rejects(new Error('Keychain read error'))
+
+      const token = await store.load()
+      expect(token).to.be.null
     })
   })
 
   describe('clear', () => {
-    it('should delete token file', async () => {
-      const token = new AuthToken('access', 'refresh', new Date(), 'Bearer')
-      await store.save(token)
+    it('should delete token from keychain', async () => {
+      deletePasswordStub.resolves(true)
 
       await store.clear()
 
-      const filePath = path.join(tempDir, 'credentials.json')
-      const fileExists = await fs
-        .access(filePath)
-        .then(() => true)
-        .catch(() => false)
-
-      expect(fileExists).to.be.false
+      expect(deletePasswordStub.calledOnce).to.be.true
+      expect(deletePasswordStub.firstCall.args[0]).to.equal('byterover-cli')
+      expect(deletePasswordStub.firstCall.args[1]).to.equal('auth-token')
     })
 
-    it('should not throw if file does not exist', async () => {
+    it('should not throw if token does not exist', async () => {
+      deletePasswordStub.resolves(false)
+
+      await expect(store.clear()).to.not.be.rejected
+    })
+
+    it('should handle deletion errors gracefully', async () => {
+      deletePasswordStub.rejects(new Error('Keychain delete error'))
+
+      // Should not throw, just log or ignore
       await expect(store.clear()).to.not.be.rejected
     })
   })
@@ -1055,85 +1068,116 @@ describe('FileTokenStore', () => {
 Implementation:
 
 ```typescript
-// filepath: src/infrastructure/storage/FileTokenStore.ts
-import crypto from 'node:crypto'
-import * as fs from 'node:fs/promises'
-import * as path from 'node:path'
+// filepath: src/infrastructure/storage/KeychainTokenStore.ts
+import * as keytar from 'keytar'
 import {AuthToken} from '../../core/domain/entities/AuthToken.js'
 import type {ITokenStore} from '../../core/interfaces/ITokenStore.js'
 
-export class FileTokenStore implements ITokenStore {
-  private readonly filePath: string
-  private readonly encryptionKey: Buffer
+const SERVICE_NAME = 'byterover-cli'
+const ACCOUNT_NAME = 'auth-token'
 
-  constructor(configDir?: string) {
-    const baseDir = configDir || path.join(process.env.HOME || process.env.USERPROFILE || '', '.byterover')
-    this.filePath = path.join(baseDir, 'credentials.json')
-
-    // In production, this should come from a more secure source
-    this.encryptionKey = this.deriveKey()
-  }
-
+export class KeychainTokenStore implements ITokenStore {
   async save(token: AuthToken): Promise<void> {
-    const dir = path.dirname(this.filePath)
-    await fs.mkdir(dir, {mode: 0o700, recursive: true})
-
-    const data = JSON.stringify(token.toJSON())
-    const encrypted = this.encrypt(data)
-
-    await fs.writeFile(this.filePath, JSON.stringify(encrypted), {mode: 0o600})
+    try {
+      const data = JSON.stringify(token.toJSON())
+      await keytar.setPassword(SERVICE_NAME, ACCOUNT_NAME, data)
+    } catch (error) {
+      throw new Error(
+        `Failed to save token to keychain: ${error instanceof Error ? error.message : 'Unknown error'}`
+      )
+    }
   }
 
   async load(): Promise<AuthToken | null> {
     try {
-      const content = await fs.readFile(this.filePath, 'utf-8')
-      const encrypted = JSON.parse(content)
-      const decrypted = this.decrypt(encrypted)
-      const data = JSON.parse(decrypted)
+      const data = await keytar.getPassword(SERVICE_NAME, ACCOUNT_NAME)
+      
+      if (!data) {
+        return null
+      }
 
-      return AuthToken.fromJSON(data)
-    } catch {
+      const parsed = JSON.parse(data)
+      return AuthToken.fromJSON(parsed)
+    } catch (error) {
+      // Return null on any error (missing token, invalid JSON, keychain errors)
       return null
     }
   }
 
   async clear(): Promise<void> {
     try {
-      await fs.unlink(this.filePath)
+      await keytar.deletePassword(SERVICE_NAME, ACCOUNT_NAME)
     } catch {
-      // File doesn't exist, ignore
+      // Ignore errors - token might not exist or keychain might be unavailable
     }
-  }
-
-  private encrypt(text: string): {iv: string; data: string} {
-    const iv = crypto.randomBytes(16)
-    const cipher = crypto.createCipheriv('aes-256-cbc', this.encryptionKey, iv)
-
-    let encrypted = cipher.update(text, 'utf8', 'hex')
-    encrypted += cipher.final('hex')
-
-    return {
-      data: encrypted,
-      iv: iv.toString('hex'),
-    }
-  }
-
-  private decrypt(encrypted: {iv: string; data: string}): string {
-    const iv = Buffer.from(encrypted.iv, 'hex')
-    const decipher = crypto.createDecipheriv('aes-256-cbc', this.encryptionKey, iv)
-
-    let decrypted = decipher.update(encrypted.data, 'hex', 'utf8')
-    decrypted += decipher.final('utf8')
-
-    return decrypted
-  }
-
-  private deriveKey(): Buffer {
-    // In production, use a proper key derivation function with a machine-specific salt
-    const secret = process.env.BR_ENCRYPTION_KEY || 'byterover-cli-default-key-change-in-production'
-    return crypto.scryptSync(secret, 'salt', 32)
   }
 }
+```
+
+#### Security Considerations
+
+**Benefits of using `keytar` over file-based storage:**
+
+1. **OS-level encryption:** Leverages macOS Keychain, Windows Credential Manager, or Linux Secret Service
+2. **Better access control:** Protected by OS security features and user authentication
+3. **No key management:** No need to derive/store encryption keys yourself
+4. **Industry standard:** Used by VS Code, GitHub CLI, and other production tools
+5. **Protection against disk forensics:** Credentials are better protected if machine is compromised
+
+**Limitations:**
+
+- Requires native dependencies (may complicate installation)
+- May not work in headless/CI environments
+- Platform-specific behavior differences
+
+**Alternative: Hybrid Approach:**
+
+For maximum compatibility, you can create a factory that tries keychain first and falls back to encrypted file storage:
+
+```typescript
+// filepath: src/infrastructure/storage/TokenStoreFactory.ts
+import type {ITokenStore} from '../../core/interfaces/ITokenStore.js'
+
+export async function createTokenStore(): Promise<ITokenStore> {
+  // Check if user wants to force a specific store type
+  const storeType = process.env.BR_TOKEN_STORE || 'auto'
+  
+  if (storeType === 'file') {
+    const {FileTokenStore} = await import('./FileTokenStore.js')
+    return new FileTokenStore()
+  }
+  
+  if (storeType === 'keychain') {
+    const {KeychainTokenStore} = await import('./KeychainTokenStore.js')
+    return new KeychainTokenStore()
+  }
+  
+  // Auto: try keychain first, fallback to file
+  try {
+    const {KeychainTokenStore} = await import('./KeychainTokenStore.js')
+    const store = new KeychainTokenStore()
+    
+    // Test if keychain is accessible by attempting to load
+    await store.load()
+    
+    return store
+  } catch (error) {
+    // Keychain not available, use encrypted file storage as fallback
+    console.warn('Keychain not available, using encrypted file storage')
+    const {FileTokenStore} = await import('./FileTokenStore.js')
+    return new FileTokenStore()
+  }
+}
+```
+
+**Usage in Commands:**
+
+```typescript
+// In your login command, replace:
+// const tokenStore = new FileTokenStore()
+
+// With:
+const tokenStore = await createTokenStore()
 ```
 
 ### Step 5.4: SystemBrowserLauncher Implementation (TDD)

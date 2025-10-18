@@ -1,6 +1,5 @@
 import {expect} from 'chai'
 
-import {AuthenticationError} from '../../../../src/core/domain/errors/auth-error'
 import {CallbackServer} from '../../../../src/infra/http/callback-server'
 
 describe('CallbackServer', () => {
