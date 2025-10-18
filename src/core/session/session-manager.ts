@@ -894,7 +894,7 @@ export class SessionManager {
 		const postgresUrl = process.env.CIPHER_PG_URL;
 		const postgresHost = process.env.STORAGE_DATABASE_HOST;
 		const postgresDatabase = process.env.STORAGE_DATABASE_NAME;
-		console.log('logging to check if it is initializing postgres');
+		logger.debug('SessionManager: Checking PostgreSQL initialization');
 		if (postgresUrl || (postgresHost && postgresDatabase)) {
 			try {
 				// Try PostgreSQL first if PostgreSQL environment variables are set
@@ -938,7 +938,7 @@ export class SessionManager {
 				await this.initializeBasicStorage();
 			}
 		} else {
-			console.log('doesnt seem to be initializing postgres');
+			logger.debug('SessionManager: No PostgreSQL configuration, using SQLite');
 			// No PostgreSQL configuration, try SQLite
 			await this.initializeBasicStorage();
 		}

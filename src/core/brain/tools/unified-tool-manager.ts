@@ -163,7 +163,7 @@ export class UnifiedToolManager {
 			logger.debug('UnifiedToolManager: Getting all tools');
 		}
 		const combinedTools: CombinedToolSet = {};
-		console.log('Tools config args', this.config);
+		logger.debug('UnifiedToolManager: Tools config args', this.config);
 		try {
 			// MCP Default mode: Only expose ask_cipher tool
 			if (this.config.mode === 'default') {

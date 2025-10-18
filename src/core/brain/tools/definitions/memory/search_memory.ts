@@ -103,7 +103,7 @@ export const searchMemoryTool: InternalTool = {
 		const startTime = Date.now();
 		const callId = Math.random().toString(36).substring(7);
 
-		console.log(`🔍 [${callId}] search_memory tool called with:`, {
+		logger.debug(`🔍 [${callId}] search_memory tool called with:`, {
 			query: args.query?.substring(0, 100),
 			top_k: args.top_k,
 			similarity_threshold: args.similarity_threshold,
@@ -345,7 +345,7 @@ export const searchMemoryTool: InternalTool = {
 						totalAccumulatedResults: allResults.length,
 					});
 				} catch (searchError) {
-					console.log('MemorySearch: Knowledge store search failed', {
+					logger.error('MemorySearch: Knowledge store search failed', {
 						error: searchError instanceof Error ? searchError.message : String(searchError),
 						query: originalQuery.substring(0, 50),
 					});
@@ -410,10 +410,10 @@ export const searchMemoryTool: InternalTool = {
 				.slice(0, topK) // Take top K results overall
 				.map(result => {
 					const rawPayload = result.payload || {};
-					console.log('search rawPayload', rawPayload);
+					logger.debug('MemorySearch: search rawPayload', rawPayload);
 					// All data is V2 format after collection cleanup - no migration needed
 					const payload = rawPayload as KnowledgePayload;
-					console.log('search payload', payload);
+					logger.debug('MemorySearch: search payload', payload);
 					// Return unified result format with V2 payload data
 					const baseResult = {
 						id: result.id || payload.id || 'unknown',
@@ -425,7 +425,7 @@ export const searchMemoryTool: InternalTool = {
 						source: 'knowledge' as const,
 						memoryType: 'knowledge' as const,
 					};
-					console.log('search baseResult', baseResult);
+					logger.debug('MemorySearch: search baseResult', baseResult);
 					// Add knowledge-specific fields
 					const knowledgePayload = payload as KnowledgePayload;
 					return {
