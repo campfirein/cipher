@@ -14,8 +14,26 @@ export class OAuthService implements IAuthService {
     this.config = config
   }
 
+  public buildAuthorizationUrl(state: string, codeVerifier: string): string {
+    // TODO: review the process of PKCE building
+    const codeChallenge = this.generateCodeChallenge(codeVerifier)
+
+    const params = new URLSearchParams({
+      client_id: this.config.clientId,
+      code_challenge: codeChallenge,
+      code_challenge_method: 'S256',
+      redirect_uri: this.config.redirectUri,
+      response_type: 'code',
+      scope: this.config.scopes.join(' '),
+      state,
+    })
+
+    return `${this.config.authorizationUrl}?${params.toString()}`
+  }
+
   public async exchangeCodeForToken(code: string, codeVerifier: string): Promise<AuthToken> {
     try {
+      // TODO: review the process of fetching things with axios
       const response = await axios.post(this.config.tokenUrl, {
         client_id: this.config.clientId,
         client_secret: this.config.clientSecret,
@@ -38,23 +56,7 @@ export class OAuthService implements IAuthService {
     }
   }
 
-  public getAuthorizationUrl(state: string, codeVerifier: string): string {
-    const codeChallenge = this.generateCodeChallenge(codeVerifier)
-
-    const params = new URLSearchParams({
-      client_id: this.config.clientId,
-      code_challenge: codeChallenge,
-      code_challenge_method: 'S256',
-      redirect_uri: this.config.redirectUri,
-      response_type: 'code',
-      scope: this.config.scopes.join(' '),
-      state,
-    })
-
-    return `${this.config.authorizationUrl}?${params.toString()}`
-  }
-
-  async refreshToken(refreshToken: string): Promise<AuthToken> {
+  public async refreshToken(refreshToken: string): Promise<AuthToken> {
     try {
       const response = await axios.post(this.config.tokenUrl, {
         client_id: this.config.clientId,
@@ -76,8 +78,8 @@ export class OAuthService implements IAuthService {
     }
   }
 
-  private generateCodeChallenge(verifier: string): string {
-    return crypto.createHash('sha256').update(verifier).digest('base64url')
+  private generateCodeChallenge(codeVerifier: string): string {
+    return crypto.createHash('sha256').update(codeVerifier).digest('base64url')
   }
 
   private parseTokenResponse(data: any): AuthToken {

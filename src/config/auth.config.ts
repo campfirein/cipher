@@ -1,5 +1,5 @@
 /**
- * OAuth configuration for the application.
+ * OAuth/OIDC configuration for the application.
  */
 export type OAuthConfig = {
   authorizationUrl: string
