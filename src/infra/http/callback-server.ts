@@ -29,6 +29,7 @@ export class CallbackServer {
 
   public async start(): Promise<number> {
     return new Promise((resolve, reject) => {
+      // Listen on port 0 to get a random available port
       this.server = this.app.listen(0, () => {
         const address = this.server?.address()
         if (address !== null && address !== undefined && typeof address !== 'string') {
