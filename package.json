@@ -13,7 +13,8 @@
     "@oclif/plugin-plugins": "^5",
     "axios": "^1.12.2",
     "express": "^5.1.0",
-    "keytar": "^7.9.0"
+    "keytar": "^7.9.0",
+    "open": "^10.2.0"
   },
   "devDependencies": {
     "@eslint/compat": "^1",
