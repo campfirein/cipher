@@ -7,6 +7,9 @@ import {AuthToken} from '../../core/domain/entities/auth-token.js'
 import {AuthenticationError} from '../../core/domain/errors/auth-error.js'
 import {IAuthService} from '../../core/interfaces/i-auth-service.js'
 
+/**
+ * OAuth service implementation for handling OAuth authentication flows.
+ */
 export class OAuthService implements IAuthService {
   private readonly config: OAuthConfig
 
@@ -78,10 +81,20 @@ export class OAuthService implements IAuthService {
     }
   }
 
+  /**
+   * Generates a code challenge from a code verifier using SHA-256 and base64url encoding.
+   * @param codeVerifier The code verifier.
+   * @returns The code challenge.
+   */
   private generateCodeChallenge(codeVerifier: string): string {
     return crypto.createHash('sha256').update(codeVerifier).digest('base64url')
   }
 
+  /**
+   * Parses the token response from the OAuth server.
+   * @param data The response data from the OAuth server.
+   * @returns The parsed AuthToken.
+   */
   private parseTokenResponse(data: any): AuthToken {
     // TODO: handle any in param
     const expiresAt = new Date(Date.now() + data.expires_in * 1000)

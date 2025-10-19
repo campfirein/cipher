@@ -15,6 +15,7 @@ export type OAuthConfig = {
  * @returns OAuthConfig
  */
 export const getAuthConfig = (): OAuthConfig => {
+  // TODO: clean up secrets after testing
   const authorizationUrl = process.env.BR_AUTH_URL ?? 'https://dev-beta-iam.byterover.dev/api/v1/oidc/authorize'
   const clientId = process.env.BR_CLIENT_ID ?? 'byterover-cli-client'
   const clientSecret = process.env.BR_CLIENT_SECRET
@@ -29,7 +30,7 @@ export const getAuthConfig = (): OAuthConfig => {
     authorizationUrl,
     clientId,
     clientSecret,
-    redirectUri: 'http://localhost:0/callback',
+    redirectUri: '',
     scopes,
     tokenUrl,
   }
