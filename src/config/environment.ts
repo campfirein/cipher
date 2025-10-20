@@ -1,17 +1,19 @@
 /**
  * Environment types supported by the CLI.
  */
-export type Environment = 'development' | 'production'
+type Environment = 'development' | 'production'
 
 /**
- * Current environment - set at build time via BR_BUILD_ENV.
+ * Current environment - set at runtime by the launcher scripts.
+ * - `./bin/dev.js` sets BR_ENV=development
+ * - `./bin/run.js` sets BR_ENV=production
  */
-export const ENVIRONMENT: Environment = (process.env.BR_BUILD_ENV as Environment) ?? 'development'
+export const ENVIRONMENT: Environment = (process.env.BR_ENV as Environment) ?? 'development'
 
 /**
  * Environment-specific configuration.
  */
-export type EnvironmentConfig = {
+type EnvironmentConfig = {
   clientId: string
   issuerUrl: string
   scopes: string[]

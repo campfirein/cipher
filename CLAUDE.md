@@ -11,17 +11,11 @@ ByteRover CLI (`br`) is a command-line interface tool built with [oclif](https:/
 ### Build
 
 ```bash
-# Standard build (uses default development environment)
+# Standard build
 npm run build
-
-# Build for development environment
-npm run build:dev
-
-# Build for production environment
-npm run build:prod
 ```
 
-Compiles TypeScript to JavaScript in the `dist/` directory. The build environment determines which OIDC configuration is bundled into the CLI.
+Compiles TypeScript to JavaScript in the `dist/` directory.
 
 ### Test
 
@@ -96,11 +90,11 @@ Concrete implementations of core interfaces using external dependencies.
 
 ### Configuration (`src/config/`)
 
-Application configuration combining build-time and runtime settings.
+Application configuration with runtime environment selection.
 
-- **`environment.ts`** - Build-time environment configuration
+- **`environment.ts`** - Runtime environment configuration
   - Defines environment-specific settings (development vs production)
-  - Bundled at build time via `BR_BUILD_ENV` environment variable
+  - Environment is set by launcher scripts (`./bin/dev.js` or `./bin/run.js`)
   - Contains issuerUrl, clientId, and scopes for each environment
 
 - **`auth.config.ts`** - OAuth configuration with OIDC discovery
@@ -159,25 +153,31 @@ The CLI implements OAuth 2.0 Authorization Code flow with PKCE:
 - **Timeout**: 5 seconds per request
 - **Fallback**: Hardcoded environment-specific URLs if discovery fails
 
-### Build-Time Configuration
+### Environment Configuration
 
-The CLI uses build-time environment configuration for separate dev/prod deployments:
+The CLI uses runtime environment configuration for separate dev/prod deployments:
 
 ```typescript
-// Development build (npm run build:dev)
+// Development environment (./bin/dev.js)
 {
   issuerUrl: 'https://dev-beta-iam.byterover.dev/api/v1/oidc',
   clientId: 'byterover-cli-client',
   scopes: ['read', 'write', 'debug']
 }
 
-// Production build (npm run build:prod)
+// Production environment (./bin/run.js)
 {
   issuerUrl: 'https://prod-beta-iam.byterover.dev/api/v1/oidc',
   clientId: 'byterover-cli-prod',
   scopes: ['read', 'write']
 }
 ```
+
+**How it works**:
+
+- `./bin/dev.js` sets `BR_ENV=development` before loading the CLI
+- `./bin/run.js` sets `BR_ENV=production` before loading the CLI
+- The environment is selected at runtime based on which launcher script is used
 
 **Distribution**:
 
@@ -186,11 +186,11 @@ The CLI uses build-time environment configuration for separate dev/prod deployme
 
 ## Environment Variables
 
-### Build-Time (set during build)
+### Runtime (set by launcher scripts)
 
-- `BR_BUILD_ENV` - Environment (`development` | `production`)
+- `BR_ENV` - Environment (`development` | `production`) - automatically set by `./bin/dev.js` or `./bin/run.js`
 
-### Runtime (optional)
+### Runtime (optional overrides)
 
 - `BR_CLIENT_SECRET` - OAuth client secret (not needed for public clients with PKCE)
 - `BR_CLIENT_ID` - Override build-time clientId (for testing)

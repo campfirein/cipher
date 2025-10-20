@@ -5,21 +5,21 @@ describe('Environment Configuration', () => {
 
   before(() => {
     // Save original environment
-    originalEnv = process.env.BR_BUILD_ENV
+    originalEnv = process.env.BR_ENV
   })
 
   after(() => {
     // Restore original environment
     if (originalEnv) {
-      process.env.BR_BUILD_ENV = originalEnv
+      process.env.BR_ENV = originalEnv
     } else {
-      delete process.env.BR_BUILD_ENV
+      delete process.env.BR_ENV
     }
   })
 
   describe('ENVIRONMENT', () => {
-    it('should default to development when BR_BUILD_ENV is not set', async () => {
-      delete process.env.BR_BUILD_ENV
+    it('should default to development when BR_ENV is not set', async () => {
+      delete process.env.BR_ENV
 
       // Reimport to get fresh value
       const {ENVIRONMENT} = await import('../../../src/config/environment.js')
@@ -28,41 +28,37 @@ describe('Environment Configuration', () => {
     })
   })
 
-  describe('ENV_CONFIG', () => {
-    it('should have development configuration', async () => {
-      const {ENV_CONFIG} = await import('../../../src/config/environment.js')
-
-      expect(ENV_CONFIG.development).to.deep.include({
-        clientId: 'byterover-cli-client',
-        issuerUrl: 'https://dev-beta-iam.byterover.dev/api/v1/oidc',
-      })
-      expect(ENV_CONFIG.development.scopes).to.include('read')
-      expect(ENV_CONFIG.development.scopes).to.include('write')
-      expect(ENV_CONFIG.development.scopes).to.include('debug')
-    })
-
-    it('should have production configuration', async () => {
-      const {ENV_CONFIG} = await import('../../../src/config/environment.js')
-
-      expect(ENV_CONFIG.production).to.deep.include({
-        clientId: 'byterover-cli-prod',
-        issuerUrl: 'https://prod-beta-iam.byterover.dev/api/v1/oidc',
-      })
-      expect(ENV_CONFIG.production.scopes).to.include('read')
-      expect(ENV_CONFIG.production.scopes).to.include('write')
-      expect(ENV_CONFIG.production.scopes).to.not.include('debug')
-    })
-  })
-
   describe('getCurrentConfig', () => {
-    it('should return development config when ENVIRONMENT is development', async () => {
-      delete process.env.BR_BUILD_ENV
+    it('should return development config when BR_ENV is not set', async () => {
+      delete process.env.BR_ENV
 
-      const {getCurrentConfig} = await import('../../../src/config/environment.js')
+      // Use cache busting to force fresh module evaluation
+      const {getCurrentConfig} = await import(
+        `../../../src/config/environment.js?t=${Date.now()}`
+      )
       const config = getCurrentConfig()
 
       expect(config.clientId).to.equal('byterover-cli-client')
       expect(config.issuerUrl).to.equal('https://dev-beta-iam.byterover.dev/api/v1/oidc')
+      expect(config.scopes).to.include('read')
+      expect(config.scopes).to.include('write')
+      expect(config.scopes).to.include('debug')
+    })
+
+    it('should return production config when BR_ENV is production', async () => {
+      process.env.BR_ENV = 'production'
+
+      // Use cache busting to force fresh module evaluation
+      const {getCurrentConfig} = await import(
+        `../../../src/config/environment.js?t=${Date.now()}`
+      )
+      const config = getCurrentConfig()
+
+      expect(config.clientId).to.equal('byterover-cli-prod')
+      expect(config.issuerUrl).to.equal('https://prod-beta-iam.byterover.dev/api/v1/oidc')
+      expect(config.scopes).to.include('read')
+      expect(config.scopes).to.include('write')
+      expect(config.scopes).to.not.include('debug')
     })
   })
 })

@@ -12,16 +12,16 @@ describe('Auth Configuration', () => {
     // Save original environment
     originalEnv = {
       BR_AUTH_URL: process.env.BR_AUTH_URL,
-      BR_BUILD_ENV: process.env.BR_BUILD_ENV,
       BR_CLIENT_ID: process.env.BR_CLIENT_ID,
       BR_CLIENT_SECRET: process.env.BR_CLIENT_SECRET,
+      BR_ENV: process.env.BR_ENV,
       BR_SCOPES: process.env.BR_SCOPES,
       BR_TOKEN_URL: process.env.BR_TOKEN_URL,
     }
 
     // Clean environment
     delete process.env.BR_AUTH_URL
-    delete process.env.BR_BUILD_ENV
+    delete process.env.BR_ENV
     delete process.env.BR_CLIENT_ID
     delete process.env.BR_CLIENT_SECRET
     delete process.env.BR_SCOPES
@@ -130,7 +130,7 @@ describe('Auth Configuration', () => {
     })
 
     it('should use environment-specific fallback URLs for development', async () => {
-      delete process.env.BR_BUILD_ENV // Defaults to development
+      delete process.env.BR_ENV // Defaults to development
 
       const config = await getAuthConfig(discoveryService)
 
