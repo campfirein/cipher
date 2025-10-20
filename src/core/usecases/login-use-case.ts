@@ -50,7 +50,7 @@ export class LoginUseCase {
       const token = await this.authService.exchangeCodeForToken(code, codeVerifier)
 
       // // Store token
-      // await this.tokenStore.save(token)
+      await this.tokenStore.save(token)
 
       return {
         success: true,

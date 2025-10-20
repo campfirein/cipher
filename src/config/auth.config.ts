@@ -3,6 +3,7 @@ import {ENVIRONMENT, getCurrentConfig} from './environment.js'
 
 /**
  * OAuth/OIDC configuration for the application.
+ * This CLI uses PKCE flow (public client), so clientSecret is optional and typically undefined.
  */
 export type OAuthConfig = {
   authorizationUrl: string
@@ -15,36 +16,30 @@ export type OAuthConfig = {
 
 /**
  * Get OAuth configuration using OIDC discovery.
- * Configuration is built from environment-specific defaults (build-time)
- * and dynamically discovered endpoints (runtime).
+ * Configuration is built from environment-specific defaults with fallback
+ * to hardcoded URLs if discovery fails.
  *
  * @param discoveryService OIDC discovery service for fetching endpoints
  * @returns OAuth configuration
  */
 export const getAuthConfig = async (discoveryService: IOidcDiscoveryService): Promise<OAuthConfig> => {
-  // Get build-time environment config
+  // Get environment config
   const envConfig = getCurrentConfig()
 
-  // Client credentials (from env or build-time config)
-  const clientId = process.env.BR_CLIENT_ID ?? envConfig.clientId
-  const clientSecret = process.env.BR_CLIENT_SECRET
-  const scopes = process.env.BR_SCOPES ? process.env.BR_SCOPES.split(' ') : envConfig.scopes
-
   // Discover OIDC endpoints
-  let authorizationUrl: string
-  let tokenUrl: string
+  let authorizationUrl: string | undefined
+  let tokenUrl: string | undefined
 
   try {
     const metadata = await discoveryService.discover(envConfig.issuerUrl)
 
-    // Use discovered endpoints (allow explicit env var overrides for disaster recovery)
-    authorizationUrl = process.env.BR_AUTH_URL ?? metadata.authorizationEndpoint
-    tokenUrl = process.env.BR_TOKEN_URL ?? metadata.tokenEndpoint
+    // Use discovered endpoints
+    authorizationUrl = metadata.authorizationEndpoint
+    tokenUrl = metadata.tokenEndpoint
   } catch (error) {
-    // Fallback to hardcoded URLs if discovery fails
-    const fallbackUrls = getFallbackUrls()
-    authorizationUrl = process.env.BR_AUTH_URL ?? fallbackUrls.authorizationUrl
-    tokenUrl = process.env.BR_TOKEN_URL ?? fallbackUrls.tokenUrl
+    // Fallback to hardcoded environment-specific URLs
+    authorizationUrl = envConfig.authorizationUrl
+    tokenUrl = envConfig.tokenUrl
 
     // Warn user about fallback
     console.warn(
@@ -55,28 +50,9 @@ export const getAuthConfig = async (discoveryService: IOidcDiscoveryService): Pr
 
   return {
     authorizationUrl,
-    clientId,
-    clientSecret,
+    clientId: envConfig.clientId,
     redirectUri: '',
-    scopes,
+    scopes: envConfig.scopes,
     tokenUrl,
-  }
-}
-
-/**
- * Get fallback URLs for when discovery fails.
- * These are emergency-only URLs that match the current environment.
- */
-const getFallbackUrls = (): {authorizationUrl: string; tokenUrl: string} => {
-  if (ENVIRONMENT === 'production') {
-    return {
-      authorizationUrl: 'https://prod-beta-iam.byterover.dev/api/v1/oidc/authorize',
-      tokenUrl: 'https://prod-beta-iam.byterover.dev/api/v1/oidc/token',
-    }
-  }
-
-  return {
-    authorizationUrl: 'https://dev-beta-iam.byterover.dev/api/v1/oidc/authorize',
-    tokenUrl: 'https://dev-beta-iam.byterover.dev/api/v1/oidc/token',
   }
 }

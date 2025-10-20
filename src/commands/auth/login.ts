@@ -40,7 +40,8 @@ export default class Login extends Command {
       // Execute login
       const result = await useCase.execute(async () => {
         const state = Math.random().toString(36).slice(2)
-        return callbackServer.waitForCallback(state, 5000)
+        // Wait for 5 minutes for the callback
+        return callbackServer.waitForCallback(state, 5 * 60 * 1000)
       })
 
       ux.action.stop()

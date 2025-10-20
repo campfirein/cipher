@@ -190,20 +190,10 @@ The CLI uses runtime environment configuration for separate dev/prod deployments
 
 - `BR_ENV` - Environment (`development` | `production`) - automatically set by `./bin/dev.js` or `./bin/run.js`
 
-### Runtime (optional overrides)
-
-- `BR_CLIENT_SECRET` - OAuth client secret (not needed for public clients with PKCE)
-- `BR_CLIENT_ID` - Override build-time clientId (for testing)
-- `BR_SCOPES` - Override build-time scopes (space-separated)
-- `BR_AUTH_URL` - **Emergency override** for authorization endpoint
-- `BR_TOKEN_URL` - **Emergency override** for token endpoint
-
-### Other
+### Plugin System
 
 - `BR_NPM_LOG_LEVEL` - npm log level for plugin installations
 - `BR_NPM_REGISTRY` - npm registry for plugin installations
-
-**Note**: `BR_AUTH_URL` and `BR_TOKEN_URL` override discovery for disaster recovery scenarios only.
 
 ## Code Style Notes
 
