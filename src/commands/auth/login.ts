@@ -1,8 +1,10 @@
 import {Command, ux} from '@oclif/core'
 
 import {getAuthConfig} from '../../config/auth.config.js'
+import {DiscoveryError} from '../../core/domain/errors/discovery-error.js'
 import {LoginUseCase} from '../../core/usecases/login-use-case.js'
 import {OAuthService} from '../../infra/auth/oauth-service.js'
+import {OidcDiscoveryService} from '../../infra/auth/oidc-discovery-service.js'
 import {SystemBrowserLauncher} from '../../infra/browser/system-browser-launcher.js'
 import {CallbackServer} from '../../infra/http/callback-server.js'
 import {KeychainTokenStore} from '../../infra/storage/keychain-token-store.js'
@@ -12,8 +14,14 @@ export default class Login extends Command {
 
   public async run(): Promise<void> {
     try {
+      // Initialize OIDC discovery service
+      const discoveryService = new OidcDiscoveryService()
+
+      // Get configuration (with discovery)
+      const config = await getAuthConfig(discoveryService)
+      console.log('config', config)
+
       // Setup dependencies
-      const config = getAuthConfig()
       const authService = new OAuthService(config)
       const tokenStore = new KeychainTokenStore()
       const browserLauncher = new SystemBrowserLauncher()
@@ -23,7 +31,6 @@ export default class Login extends Command {
       // Start callback server
       const callbackServer = new CallbackServer()
       const port = await callbackServer.start()
-      console.log(port)
 
       // Update config with actual port
       config.redirectUri = `http://localhost:${port}/auth/callback`
@@ -46,6 +53,13 @@ export default class Login extends Command {
         this.log('Authentication failed.')
       }
     } catch (error) {
+      if (error instanceof DiscoveryError) {
+        this.error(
+          `Failed to configure authentication: ${error.message}\n` +
+            'Please check your network connection and try again.',
+        )
+      }
+
       this.error(error instanceof Error ? error.message : 'Authentication failed')
     }
   }
