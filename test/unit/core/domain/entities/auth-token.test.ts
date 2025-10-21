@@ -47,7 +47,7 @@ describe('AuthToken', () => {
     it('should serialize token to JSON', () => {
       const expiresAt = new Date('2024-12-31T23:59:59.000Z')
       const token = new AuthToken('access-token', 'refresh-token', expiresAt, 'Bearer')
-      const json = token.toJSON()
+      const json = token.toJson()
 
       expect(json).to.deep.equal({
         accessToken: 'access-token',
@@ -67,7 +67,7 @@ describe('AuthToken', () => {
         tokenType: 'Bearer',
       }
 
-      const token = AuthToken.fromJSON(json)
+      const token = AuthToken.fromJson(json)
 
       expect(token.accessToken).to.equal('access-token')
       expect(token.refreshToken).to.equal('refresh-token')

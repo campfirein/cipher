@@ -19,7 +19,7 @@ export class AuthToken {
    * @param json JSON object representing the AuthToken
    * @returns An instance of AuthToken
    */
-  public static fromJSON(json: Record<string, string>): AuthToken {
+  public static fromJson(json: Record<string, string>): AuthToken {
     return new AuthToken(json.accessToken, json.refreshToken, new Date(json.expiresAt), json.tokenType)
   }
 
@@ -43,7 +43,7 @@ export class AuthToken {
    * Convert the AuthToken instance to a JSON object.
    * @returns A JSON object representing the AuthToken
    */
-  public toJSON(): Record<string, string> {
+  public toJson(): Record<string, string> {
     return {
       accessToken: this.accessToken,
       expiresAt: this.expiresAt.toISOString(),
