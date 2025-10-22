@@ -6,7 +6,7 @@ import {LoginUseCase} from '../../core/usecases/login-use-case.js'
 import {OAuthService} from '../../infra/auth/oauth-service.js'
 import {OidcDiscoveryService} from '../../infra/auth/oidc-discovery-service.js'
 import {SystemBrowserLauncher} from '../../infra/browser/system-browser-launcher.js'
-import {CallbackServer} from '../../infra/http/callback-server.js'
+import {CallbackHandler} from '../../infra/http/callback-handler.js'
 import {KeychainTokenStore} from '../../infra/storage/keychain-token-store.js'
 
 export default class Login extends Command {
@@ -19,39 +19,33 @@ export default class Login extends Command {
 
       // Get configuration (with discovery)
       const config = await getAuthConfig(discoveryService)
-      console.log('config', config)
 
       // Setup dependencies
       const authService = new OAuthService(config)
       const tokenStore = new KeychainTokenStore()
       const browserLauncher = new SystemBrowserLauncher()
+      const callbackHandler = new CallbackHandler()
 
-      const useCase = new LoginUseCase(authService, browserLauncher, tokenStore)
-
-      // Start callback server
-      const callbackServer = new CallbackServer()
-      const port = await callbackServer.start()
-
-      // Update config with actual port
-      config.redirectUri = `http://localhost:${port}/auth/callback`
+      const useCase = new LoginUseCase(authService, browserLauncher, tokenStore, callbackHandler)
 
       ux.action.start('Waiting for authentication')
 
       // Execute login
-      const result = await useCase.execute(async () => {
-        const state = Math.random().toString(36).slice(2)
-        // Wait for 5 minutes for the callback
-        return callbackServer.waitForCallback(state, 5 * 60 * 1000)
-      })
+      const result = await useCase.execute()
 
       ux.action.stop()
 
-      await callbackServer.stop()
-
       if (result.success) {
         this.log('Successfully authenticated!')
+
+        // If browser failed to open, display the URL for manual copy
+        if (result.authUrl) {
+          this.log('\nBrowser failed to open automatically.')
+          this.log('Please open this URL in your browser:')
+          this.log(result.authUrl)
+        }
       } else {
-        this.log('Authentication failed.')
+        this.error(result.error || 'Authentication failed')
       }
     } catch (error) {
       if (error instanceof DiscoveryError) {

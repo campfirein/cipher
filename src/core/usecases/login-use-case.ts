@@ -3,6 +3,7 @@ import crypto from 'node:crypto'
 import type {AuthToken} from '../domain/entities/auth-token.js'
 import type {IAuthService} from '../interfaces/i-auth-service.js'
 import type {IBrowserLauncher} from '../interfaces/i-browser-launcher.js'
+import type {ICallbackHandler} from '../interfaces/i-callback-handler.js'
 import type {ITokenStore} from '../interfaces/i-token-store.js'
 
 type LoginResult = {
@@ -12,56 +13,87 @@ type LoginResult = {
   token?: AuthToken
 }
 
-type CallbackFn = () => Promise<{code: string; state: string}>
-
+/**
+ * Use case for handling user login via OAuth 2.0 + PKCE flow.
+ * Manages the complete authentication flow including server lifecycle.
+ */
 export class LoginUseCase {
   private readonly authService: IAuthService
   private readonly browserLauncher: IBrowserLauncher
+  private readonly callbackHandler: ICallbackHandler
   private readonly tokenStore: ITokenStore
 
-  public constructor(authService: IAuthService, browserLauncher: IBrowserLauncher, tokenStore: ITokenStore) {
+  public constructor(
+    authService: IAuthService,
+    browserLauncher: IBrowserLauncher,
+    tokenStore: ITokenStore,
+    callbackHandler: ICallbackHandler,
+  ) {
     this.authService = authService
     this.browserLauncher = browserLauncher
     this.tokenStore = tokenStore
+    this.callbackHandler = callbackHandler
   }
 
-  public async execute(getCallback: CallbackFn): Promise<LoginResult> {
-    // Generate PKCE parameters
-    const codeVerifier = this.generateCodeVerifier()
-    const state = this.generateState()
-
-    // Build authorization URL
-    const authUrl = this.authService.buildAuthorizationUrl(state, codeVerifier)
-
-    // Try to open browser
-    let browserOpened = false
+  public async execute(): Promise<LoginResult> {
     try {
-      await this.browserLauncher.open(authUrl)
-      browserOpened = true
-    } catch {
-      // Browser launch failed, will return URL to user
-    }
+      // Start callback server
+      await this.callbackHandler.start()
 
-    try {
-      // Wait for callback
-      const {code} = await getCallback()
+      // Get port and build redirect URI
+      const port = this.callbackHandler.getPort()
+      if (!port) {
+        throw new Error('Failed to get callback server port')
+      }
 
-      // Exchange code for token
-      const token = await this.authService.exchangeCodeForToken(code, codeVerifier)
+      const redirectUri = `http://localhost:${port}/callback`
 
-      // // Store token
-      await this.tokenStore.save(token)
+      // Generate PKCE parameters
+      const codeVerifier = this.generateCodeVerifier()
+      const state = this.generateState()
 
-      return {
-        success: true,
-        token,
+      // Build authorization URL
+      const authUrl = this.authService.buildAuthorizationUrl(state, codeVerifier, redirectUri)
+
+      // Try to open browser
+      let browserOpened = false
+      try {
+        await this.browserLauncher.open(authUrl)
+        browserOpened = true
+      } catch {
+        // Browser launch failed, will return URL to user
+      }
+
+      try {
+        // Wait for callback with 5 minute timeout
+        const {code} = await this.callbackHandler.waitForCallback(state, 5 * 60 * 1000)
+
+        // Exchange code for token
+        const token = await this.authService.exchangeCodeForToken(code, codeVerifier, redirectUri)
+
+        // Store token
+        await this.tokenStore.save(token)
+
+        return {
+          authUrl: browserOpened ? undefined : authUrl,
+          success: true,
+          token,
+        }
+      } catch (error) {
+        return {
+          authUrl: browserOpened ? undefined : authUrl,
+          error: error instanceof Error ? error.message : 'Unknown error',
+          success: false,
+        }
       }
     } catch (error) {
       return {
-        authUrl: browserOpened ? undefined : authUrl,
         error: error instanceof Error ? error.message : 'Unknown error',
         success: false,
       }
+    } finally {
+      // Always cleanup server
+      await this.callbackHandler.stop()
     }
   }
 

@@ -77,6 +77,7 @@ Domain logic independent of frameworks and external dependencies.
   - `IAuthService` - OAuth authentication operations
   - `ITokenStore` - Token persistence abstraction
   - `IBrowserLauncher` - Browser launching abstraction
+  - `ICallbackHandler` - OAuth callback server operations
   - `IOidcDiscoveryService` - OIDC discovery operations
 
 ### Infrastructure Layer (`src/infra/`)
@@ -87,6 +88,11 @@ Concrete implementations of core interfaces using external dependencies.
   - Handles authorization URL generation with code challenges
   - Token exchange and refresh operations
   - Error mapping from HTTP to domain errors
+
+- **`http/callback-handler.ts`** - OAuth callback handler implementation
+  - Implements `ICallbackHandler` interface
+  - Adapter wrapping `CallbackServer` for OAuth redirect handling
+  - Manages local HTTP server lifecycle for receiving authorization codes
 
 ### Configuration (`src/config/`)
 
@@ -138,11 +144,24 @@ oclif command definitions. Commands are auto-discovered based on file structure.
 The CLI implements OAuth 2.0 Authorization Code flow with PKCE:
 
 1. **OIDC Discovery** - Fetch endpoints from `{issuerUrl}/.well-known/openid-configuration`
-2. **Generate authorization URL** with PKCE code challenge
-3. **Launch browser** to authorization endpoint
-4. **Run local Express server** to receive callback
-5. **Exchange authorization code** for tokens
-6. **Store tokens securely** in system keychain via `KeychainTokenStore`
+2. **Start callback server** - Local HTTP server listens on random port for OAuth redirect
+3. **Build redirect URI** - Construct `http://localhost:{port}/callback` using actual server port
+4. **Generate authorization URL** - Build URL with PKCE code challenge, state parameter, and dynamic redirectUri
+5. **Launch browser** - Open authorization endpoint in user's default browser
+6. **Wait for callback** - Server receives authorization code at `/callback` endpoint
+7. **Exchange authorization code** for tokens - Use same redirectUri (OAuth 2.0 requirement)
+8. **Store tokens securely** - Save to system keychain via `KeychainTokenStore`
+9. **Cleanup** - Stop callback server (happens even on errors)
+
+**Key Implementation Details:**
+
+- `LoginUseCase` owns the complete flow including server lifecycle
+- `redirectUri` is built dynamically after callback server starts: `http://localhost:{port}/callback`
+- Same `redirectUri` passed to both `buildAuthorizationUrl()` and `exchangeCodeForToken()` (OAuth 2.0 compliance)
+- `redirectUri` is optional in `OAuthConfig` since it's determined at runtime for CLI flows
+- Single secure state parameter generated using `crypto.randomBytes()` for CSRF protection
+- If browser fails to open, auth URL is returned to user for manual copy
+- Callback server always cleaned up via `finally` block
 
 ### OIDC Discovery
 

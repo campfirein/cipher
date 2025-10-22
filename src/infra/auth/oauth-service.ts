@@ -17,7 +17,14 @@ export class OAuthService implements IAuthService {
     this.config = config
   }
 
-  public buildAuthorizationUrl(state: string, codeVerifier: string): string {
+  /**
+   * Builds the authorization URL for the OAuth flow.
+   * @param state The state parameter for CSRF protection.
+   * @param codeVerifier The code verifier for PKCE.
+   * @param redirectUri The redirect URI where authorization codes will be received.
+   * @returns The complete authorization URL.
+   */
+  public buildAuthorizationUrl(state: string, codeVerifier: string, redirectUri: string): string {
     // TODO: review the process of PKCE building
     const codeChallenge = this.generateCodeChallenge(codeVerifier)
 
@@ -25,7 +32,7 @@ export class OAuthService implements IAuthService {
       client_id: this.config.clientId,
       code_challenge: codeChallenge,
       code_challenge_method: 'S256',
-      redirect_uri: this.config.redirectUri,
+      redirect_uri: redirectUri,
       response_type: 'code',
       scope: this.config.scopes.join(' '),
       state,
@@ -34,16 +41,22 @@ export class OAuthService implements IAuthService {
     return `${this.config.authorizationUrl}?${params.toString()}`
   }
 
-  public async exchangeCodeForToken(code: string, codeVerifier: string): Promise<AuthToken> {
+  /**
+   * Exchanges an authorization code for an access token.
+   * @param code The authorization code received from the authorization server.
+   * @param codeVerifier The code verifier for PKCE.
+   * @param redirectUri The redirect URI used in the authorization request (must match for OAuth 2.0 compliance).
+   * @returns The access token with refresh token and expiration.
+   */
+  public async exchangeCodeForToken(code: string, codeVerifier: string, redirectUri: string): Promise<AuthToken> {
     try {
-      // TODO: review the process of fetching things with axios
       const response = await axios.post(this.config.tokenUrl, {
         client_id: this.config.clientId,
         client_secret: this.config.clientSecret,
         code,
         code_verifier: codeVerifier,
         grant_type: 'authorization_code',
-        redirect_uri: this.config.redirectUri,
+        redirect_uri: redirectUri,
       })
 
       return this.parseTokenResponse(response.data)
@@ -92,11 +105,15 @@ export class OAuthService implements IAuthService {
 
   /**
    * Parses the token response from the OAuth server.
-   * @param data The response data from the OAuth server.
+   * @param data The response data containing access_token, refresh_token, expires_in, and token_type.
    * @returns The parsed AuthToken.
    */
-  private parseTokenResponse(data: any): AuthToken {
-    // TODO: handle any in param
+  private parseTokenResponse(data: {
+    access_token: string
+    expires_in: number
+    refresh_token: string
+    token_type: string
+  }): AuthToken {
     const expiresAt = new Date(Date.now() + data.expires_in * 1000)
     return new AuthToken(data.access_token, data.refresh_token, expiresAt, data.token_type)
   }
