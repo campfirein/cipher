@@ -420,13 +420,14 @@ export const storeReasoningMemoryTool: InternalTool = {
 				qualityScore: evaluation.qualityScore,
 			});
 
-			// Generate embedding with error handling
+			// Generate embedding with graceful fallback to text-only storage
 			let embedding;
+			let usingEmbedding = true;
 			try {
 				embedding = await embedder.embed(searchableContent);
 			} catch (embedError) {
-				logger.error(
-					'StoreReasoningMemory: Failed to generate embedding, disabling embeddings globally',
+				logger.warn(
+					'StoreReasoningMemory: Failed to generate embedding, falling back to text-only storage',
 					{
 						error: embedError instanceof Error ? embedError.message : String(embedError),
 						contentLength: searchableContent.length,
@@ -434,7 +435,7 @@ export const storeReasoningMemoryTool: InternalTool = {
 					}
 				);
 
-				// Immediately disable embeddings globally on first failure
+				// Disable embeddings globally on first failure
 				if (context?.services?.embeddingManager && embedError instanceof Error) {
 					context.services.embeddingManager.handleRuntimeFailure(
 						embedError,
@@ -442,17 +443,19 @@ export const storeReasoningMemoryTool: InternalTool = {
 					);
 				}
 
-				// Return error response since embeddings are now disabled
-				return {
-					success: false,
-					message: `Embeddings disabled due to failure: ${embedError instanceof Error ? embedError.message : String(embedError)}`,
-					mode: 'chat-only',
-					error: embedError instanceof Error ? embedError.message : String(embedError),
-					metadata: {
-						toolName: 'store_reasoning_memory',
-						embeddingDisabled: true,
-					},
-				};
+				// Fallback: Create a zero-vector for text-only storage
+				// This allows the memory to be stored without embeddings while maintaining schema compatibility
+				const embeddingDimension = parseInt(env.VECTOR_STORE_DIMENSION || '1536', 10);
+				embedding = new Array(embeddingDimension).fill(0);
+				usingEmbedding = false;
+				
+				logger.info(
+					'StoreReasoningMemory: Using zero-vector fallback for text-only storage',
+					{
+						embeddingDimension,
+						willStoreAsTextOnly: true,
+					}
+				);
 			}
 
 			// CRITICAL: Ensure all data types are correct (avoid string numbers like "0.6")
@@ -921,6 +924,8 @@ export const storeReasoningMemoryTool: InternalTool = {
 						qualityScore: evaluation.qualityScore,
 						issueCount: evaluation.issues.length,
 					},
+					usingEmbedding: usingEmbedding,
+					storageMode: usingEmbedding ? 'semantic' : 'text-only',
 				},
 				metadata: {
 					toolName: 'store_reasoning_memory',
@@ -928,6 +933,8 @@ export const storeReasoningMemoryTool: InternalTool = {
 					vectorId,
 					processingTime,
 					hasTaskContext: !!trace.metadata.taskContext,
+					usingEmbedding: usingEmbedding,
+					storageMode: usingEmbedding ? 'semantic' : 'text-only',
 				},
 			};
 		} catch (error) {
