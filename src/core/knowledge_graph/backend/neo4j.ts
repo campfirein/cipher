@@ -135,7 +135,8 @@ export class Neo4jBackend implements KnowledgeGraph {
 			// Create indexes for performance
 			await this.createIndexes();
 		} catch (error) {
-			console.error('Neo4j connect error:', error);
+			// Log detailed error for MCP visibility (console.error not captured)
+			this.logger.error(`${LOG_PREFIXES.NEO4J} Connection error details:`, error);
 			const connectionError = new KnowledgeGraphConnectionError(
 				`${ERROR_MESSAGES.CONNECTION_FAILED}: ${(error as Error).message}`,
 				'neo4j',
@@ -938,43 +939,43 @@ export class Neo4jBackend implements KnowledgeGraph {
 	): string {
 		const constraints: string[] = [];
 
-		for (const [, filter] of Object.entries(filters)) {
+		for (const [key, filter] of Object.entries(filters)) {
 			const paramKey = `${prefix}_${Object.keys(params).length}`;
 
 			if (typeof filter === 'object' && filter !== null && !Array.isArray(filter)) {
 				// Range filters
 				if ('gte' in filter) {
-					constraints.push(`${prefix}.${Object.keys(params).length} >= $${paramKey}_gte`);
+					constraints.push(`${prefix}.${key} >= $${paramKey}_gte`);
 					params[`${paramKey}_gte`] = filter.gte;
 				}
 				if ('gt' in filter) {
-					constraints.push(`${prefix}.${Object.keys(params).length} > $${paramKey}_gt`);
+					constraints.push(`${prefix}.${key} > $${paramKey}_gt`);
 					params[`${paramKey}_gt`] = filter.gt;
 				}
 				if ('lte' in filter) {
-					constraints.push(`${prefix}.${Object.keys(params).length} <= $${paramKey}_lte`);
+					constraints.push(`${prefix}.${key} <= $${paramKey}_lte`);
 					params[`${paramKey}_lte`] = filter.lte;
 				}
 				if ('lt' in filter) {
-					constraints.push(`${prefix}.${Object.keys(params).length} < $${paramKey}_lt`);
+					constraints.push(`${prefix}.${key} < $${paramKey}_lt`);
 					params[`${paramKey}_lt`] = filter.lt;
 				}
 
 				// Array filters
 				if ('any' in filter && Array.isArray(filter.any)) {
-					constraints.push(`${prefix}.${Object.keys(params).length} IN $${paramKey}`);
+					constraints.push(`${prefix}.${key} IN $${paramKey}`);
 					params[paramKey] = filter.any;
 				}
 				if ('all' in filter && Array.isArray(filter.all)) {
 					// For 'all' filter, check if the property (assumed to be array) contains all values
 					constraints.push(
-						`all(x IN $${paramKey} WHERE x IN ${prefix}.${Object.keys(params).length})`
+						`all(x IN $${paramKey} WHERE x IN ${prefix}.${key})`
 					);
 					params[paramKey] = filter.all;
 				}
 			} else {
 				// Direct equality
-				constraints.push(`${prefix}.${Object.keys(params).length} = $${paramKey}`);
+				constraints.push(`${prefix}.${key} = $${paramKey}`);
 				params[paramKey] = filter;
 			}
 		}
