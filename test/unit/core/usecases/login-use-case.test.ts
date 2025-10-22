@@ -1,17 +1,20 @@
 import {expect} from 'chai'
 import sinon, {stub} from 'sinon'
 
-import type {IAuthService} from '../../../../src/core/interfaces/i-auth-service'
-import type {IBrowserLauncher} from '../../../../src/core/interfaces/i-browser-launcher'
-import type {ITokenStore} from '../../../../src/core/interfaces/i-token-store'
+import type {IAuthService} from '../../../../src/core/interfaces/i-auth-service.js'
+import type {IBrowserLauncher} from '../../../../src/core/interfaces/i-browser-launcher.js'
+import type {ICallbackHandler} from '../../../../src/core/interfaces/i-callback-handler.js'
+import type {ITokenStore} from '../../../../src/core/interfaces/i-token-store.js'
 
-import {AuthToken} from '../../../../src/core/domain/entities/auth-token'
-import {LoginUseCase} from '../../../../src/core/usecases/login-use-case'
+import {AuthToken} from '../../../../src/core/domain/entities/auth-token.js'
+import {AuthenticationError} from '../../../../src/core/domain/errors/auth-error.js'
+import {LoginUseCase} from '../../../../src/core/usecases/login-use-case.js'
 
 describe('LoginUseCase', () => {
   let authService: sinon.SinonStubbedInstance<IAuthService>
   let tokenStore: sinon.SinonStubbedInstance<ITokenStore>
   let browserLauncher: sinon.SinonStubbedInstance<IBrowserLauncher>
+  let callbackHandler: sinon.SinonStubbedInstance<ICallbackHandler>
   let useCase: LoginUseCase
 
   beforeEach(() => {
@@ -31,30 +34,176 @@ describe('LoginUseCase', () => {
       open: stub(),
     }
 
-    useCase = new LoginUseCase(authService, browserLauncher, tokenStore)
+    callbackHandler = {
+      getPort: stub(),
+      start: stub(),
+      stop: stub(),
+      waitForCallback: stub(),
+    }
+
+    useCase = new LoginUseCase(authService, browserLauncher, tokenStore, callbackHandler)
   })
 
   describe('execute', () => {
-    it('should complete successful login flow', async () => {
-      const authUrl = 'https://auth.example.com?code=123'
+    it('should complete successful login flow with server lifecycle', async () => {
+      const port = 3000
+      const authUrl = 'https://auth.example.com/authorize?state=abc123'
       const token = new AuthToken('access', 'refresh', new Date(Date.now() + 3600 * 1000), 'Bearer')
 
+      callbackHandler.start.resolves(port)
+      callbackHandler.getPort.returns(port)
       authService.buildAuthorizationUrl.returns(authUrl)
       browserLauncher.open.resolves()
+      callbackHandler.waitForCallback.resolves({code: 'auth-code', state: 'state-123'})
       authService.exchangeCodeForToken.resolves(token)
       tokenStore.save.resolves()
+      callbackHandler.stop.resolves()
 
-      // eslint-disable-next-line unicorn/consistent-function-scoping
-      const mockCallback = async (): Promise<{code: string; state: string}> => ({code: 'auth-code', state: 'state-123'})
+      const result = await useCase.execute()
 
-      const result = await useCase.execute(mockCallback)
+      // Verify complete flow
+      expect(callbackHandler.start.calledOnce).to.be.true
+      expect(authService.buildAuthorizationUrl.calledOnce).to.be.true
+      expect(browserLauncher.open.calledWith(authUrl)).to.be.true
+      expect(callbackHandler.waitForCallback.calledOnce).to.be.true
+      expect(authService.exchangeCodeForToken.calledWith('auth-code')).to.be.true
+      expect(tokenStore.save.calledWith(token)).to.be.true
+      expect(callbackHandler.stop.calledOnce).to.be.true
 
+      // Verify result
       expect(result.success).to.be.true
       expect(result.token).to.equal(token)
-      expect(browserLauncher.open.calledWith(authUrl)).to.be.true
-      expect(tokenStore.save.calledWith(token)).to.be.true
+      expect(result.authUrl).to.be.undefined
     })
 
-    // TODO: Add other 2 test cases.
+    it('should build redirectUri with correct port from callback handler', async () => {
+      const port = 3456
+      const token = new AuthToken('access', 'refresh', new Date(Date.now() + 3600 * 1000), 'Bearer')
+      const expectedRedirectUri = `http://localhost:${port}/callback`
+
+      callbackHandler.start.resolves(port)
+      callbackHandler.getPort.returns(port)
+      authService.buildAuthorizationUrl.returns('https://auth.example.com/authorize')
+      browserLauncher.open.resolves()
+      callbackHandler.waitForCallback.resolves({code: 'auth-code', state: 'state-123'})
+      authService.exchangeCodeForToken.resolves(token)
+      tokenStore.save.resolves()
+      callbackHandler.stop.resolves()
+
+      await useCase.execute()
+
+      // Verify redirectUri was passed to buildAuthorizationUrl
+      expect(authService.buildAuthorizationUrl.calledOnce).to.be.true
+      const buildAuthArgs = authService.buildAuthorizationUrl.firstCall.args
+      expect(buildAuthArgs[2]).to.equal(expectedRedirectUri)
+
+      // Verify same redirectUri was passed to exchangeCodeForToken
+      expect(authService.exchangeCodeForToken.calledOnce).to.be.true
+      const exchangeArgs = authService.exchangeCodeForToken.firstCall.args
+      expect(exchangeArgs[2]).to.equal(expectedRedirectUri)
+    })
+
+    it('should return authUrl when browser fails to open', async () => {
+      const port = 3000
+      const authUrl = 'https://auth.example.com/authorize?state=abc123'
+      const token = new AuthToken('access', 'refresh', new Date(Date.now() + 3600 * 1000), 'Bearer')
+
+      callbackHandler.start.resolves(port)
+      callbackHandler.getPort.returns(port)
+      authService.buildAuthorizationUrl.returns(authUrl)
+      browserLauncher.open.rejects(new Error('Browser not found'))
+      callbackHandler.waitForCallback.resolves({code: 'auth-code', state: 'state-123'})
+      authService.exchangeCodeForToken.resolves(token)
+      tokenStore.save.resolves()
+      callbackHandler.stop.resolves()
+
+      const result = await useCase.execute()
+
+      // Should still succeed but return authUrl for manual copy
+      expect(result.success).to.be.true
+      expect(result.token).to.equal(token)
+      expect(result.authUrl).to.equal(authUrl)
+      expect(callbackHandler.stop.calledOnce).to.be.true
+    })
+
+    it('should handle callback timeout error and cleanup', async () => {
+      const port = 3000
+      const authUrl = 'https://auth.example.com/authorize?state=abc123'
+
+      callbackHandler.start.resolves(port)
+      callbackHandler.getPort.returns(port)
+      authService.buildAuthorizationUrl.returns(authUrl)
+      browserLauncher.open.resolves()
+      callbackHandler.waitForCallback.rejects(new AuthenticationError('Authentication timeout'))
+      callbackHandler.stop.resolves()
+
+      const result = await useCase.execute()
+
+      // Should fail gracefully and cleanup
+      expect(result.success).to.be.false
+      expect(result.error).to.include('Authentication timeout')
+      expect(callbackHandler.stop.calledOnce).to.be.true
+      expect(tokenStore.save.called).to.be.false
+    })
+
+    it('should handle token exchange failure and cleanup', async () => {
+      const port = 3000
+      const authUrl = 'https://auth.example.com/authorize?state=abc123'
+
+      callbackHandler.start.resolves(port)
+      callbackHandler.getPort.returns(port)
+      authService.buildAuthorizationUrl.returns(authUrl)
+      browserLauncher.open.resolves()
+      callbackHandler.waitForCallback.resolves({code: 'auth-code', state: 'state-123'})
+      authService.exchangeCodeForToken.rejects(new AuthenticationError('Invalid authorization code'))
+      callbackHandler.stop.resolves()
+
+      const result = await useCase.execute()
+
+      // Should fail and cleanup
+      expect(result.success).to.be.false
+      expect(result.error).to.include('Invalid authorization code')
+      expect(callbackHandler.stop.calledOnce).to.be.true
+      expect(tokenStore.save.called).to.be.false
+    })
+
+    it('should cleanup server even when callback handler fails to start', async () => {
+      callbackHandler.start.rejects(new Error('Port already in use'))
+      callbackHandler.stop.resolves()
+
+      const result = await useCase.execute()
+
+      // Should fail and still attempt cleanup
+      expect(result.success).to.be.false
+      expect(result.error).to.include('Port already in use')
+      expect(callbackHandler.stop.calledOnce).to.be.true
+    })
+
+    it('should generate secure state for CSRF protection', async () => {
+      const port = 3000
+      const token = new AuthToken('access', 'refresh', new Date(Date.now() + 3600 * 1000), 'Bearer')
+
+      callbackHandler.start.resolves(port)
+      callbackHandler.getPort.returns(port)
+      authService.buildAuthorizationUrl.returns('https://auth.example.com/authorize')
+      browserLauncher.open.resolves()
+      callbackHandler.waitForCallback.resolves({code: 'auth-code', state: 'generated-state'})
+      authService.exchangeCodeForToken.resolves(token)
+      tokenStore.save.resolves()
+      callbackHandler.stop.resolves()
+
+      await useCase.execute()
+
+      // Verify state was passed to buildAuthorizationUrl
+      expect(authService.buildAuthorizationUrl.calledOnce).to.be.true
+      const stateArg = authService.buildAuthorizationUrl.firstCall.args[0]
+
+      // State should be a non-empty string (cryptographically secure)
+      expect(stateArg).to.be.a('string')
+      expect(stateArg.length).to.be.greaterThan(0)
+
+      // Verify state was used to wait for callback
+      expect(callbackHandler.waitForCallback.calledWith(stateArg)).to.be.true
+    })
   })
 })

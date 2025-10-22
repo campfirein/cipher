@@ -9,7 +9,17 @@ export type OAuthConfig = {
   authorizationUrl: string
   clientId: string
   clientSecret?: string
-  redirectUri: string
+  /**
+   * OAuth redirect URI for receiving authorization codes.
+   *
+   * For CLI flows with local callback servers, this is typically built dynamically
+   * after the server starts on a random port (e.g., `http://localhost:3456/callback`).
+   *
+   * For other flows (web apps, etc.), this can be provided as a static value in config.
+   *
+   * Optional - can be omitted if redirectUri is determined at runtime.
+   */
+  redirectUri?: string
   scopes: string[]
   tokenUrl: string
 }
@@ -51,7 +61,6 @@ export const getAuthConfig = async (discoveryService: IOidcDiscoveryService): Pr
   return {
     authorizationUrl,
     clientId: envConfig.clientId,
-    redirectUri: '',
     scopes: envConfig.scopes,
     tokenUrl,
   }

@@ -79,7 +79,9 @@ describe('OidcDiscoveryService', () => {
       await service.discover(issuerUrl)
 
       // Wait for cache to expire
-      await new Promise((resolve) => setTimeout(resolve, shortTtl + 50))
+      await new Promise((resolve) => {
+        setTimeout(resolve, shortTtl + 50)
+      })
 
       // Second call - should fetch again
       const metadata = await service.discover(issuerUrl)

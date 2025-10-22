@@ -180,7 +180,9 @@ export class OidcDiscoveryService implements IOidcDiscoveryService {
    * @param ms Milliseconds to sleep.
    */
   private async sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms))
+    return new Promise((resolve) => {
+      setTimeout(resolve, ms)
+    })
   }
 
   /**

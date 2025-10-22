@@ -99,10 +99,10 @@ describe('Auth Configuration', () => {
   })
 
   describe('redirectUri', () => {
-    it('should initialize redirectUri as empty string', async () => {
+    it('should not set redirectUri (determined at runtime)', async () => {
       const config = await getAuthConfig(discoveryService)
 
-      expect(config.redirectUri).to.equal('')
+      expect(config.redirectUri).to.be.undefined
     })
   })
 })

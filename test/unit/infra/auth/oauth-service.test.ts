@@ -37,8 +37,9 @@ describe('OAuthService', () => {
     it('should build authorization URL with PKCE parameters', () => {
       const state = 'test-state'
       const codeVerifier = 'test-verifier'
+      const redirectUri = 'http://localhost:3000/callback'
 
-      const url = service.buildAuthorizationUrl(state, codeVerifier)
+      const url = service.buildAuthorizationUrl(state, codeVerifier, redirectUri)
 
       expect(url).to.include(`${basePath}${authorizationUri}`)
       expect(url).to.include(`client_id=${clientId}`)
@@ -49,12 +50,24 @@ describe('OAuthService', () => {
       expect(url).to.include('code_challenge_method=S256')
       expect(url).to.include('code_challenge=')
     })
+
+    it('should use parameter redirectUri over config redirectUri', () => {
+      const state = 'test-state'
+      const codeVerifier = 'test-verifier'
+      const parameterRedirectUri = 'http://localhost:4567/callback'
+
+      const url = service.buildAuthorizationUrl(state, codeVerifier, parameterRedirectUri)
+
+      expect(url).to.include('redirect_uri=http%3A%2F%2Flocalhost%3A4567%2Fcallback')
+      expect(url).not.to.include('redirect_uri=http%3A%2F%2Flocalhost%3A3000%2Fcallback')
+    })
   })
 
   describe('exchangeCodeForToken', () => {
     it('should exchange authorization code for access token', async () => {
       const code = 'auth-code-123'
       const codeVerifier = 'test-verifier'
+      const redirectUri = 'http://localhost:3000/callback'
 
       const returnedAccessToken = 'access-token-123'
       const returnedRefreshToken = 'refresh-token-456'
@@ -67,7 +80,7 @@ describe('OAuthService', () => {
           code,
           code_verifier: codeVerifier,
           grant_type: 'authorization_code',
-          redirect_uri: 'http://localhost:3000/callback',
+          redirect_uri: redirectUri,
         })
         .reply(200, {
           access_token: returnedAccessToken,
@@ -76,7 +89,7 @@ describe('OAuthService', () => {
           token_type: returnedTokenType,
         })
 
-      const token = await service.exchangeCodeForToken(code, codeVerifier)
+      const token = await service.exchangeCodeForToken(code, codeVerifier, redirectUri)
 
       expect(token.accessToken).to.equal(returnedAccessToken)
       expect(token.refreshToken).to.equal(returnedRefreshToken)
@@ -84,11 +97,39 @@ describe('OAuthService', () => {
       expect(token.isValid()).to.be.true
     })
 
+    it('should use parameter redirectUri over config redirectUri', async () => {
+      const code = 'auth-code-123'
+      const codeVerifier = 'test-verifier'
+      const parameterRedirectUri = 'http://localhost:4567/callback'
+
+      nock(basePath)
+        .post(tokenUri, {
+          client_id: clientId,
+          client_secret: 'test-client-secret',
+          code,
+          code_verifier: codeVerifier,
+          grant_type: 'authorization_code',
+          redirect_uri: parameterRedirectUri,
+        })
+        .reply(200, {
+          access_token: 'access-token',
+          expires_in: 3600,
+          refresh_token: 'refresh-token',
+          token_type: 'Bearer',
+        })
+
+      const token = await service.exchangeCodeForToken(code, codeVerifier, parameterRedirectUri)
+
+      expect(token).to.not.be.undefined
+    })
+
     it('should throw error on failed token exchange', async () => {
+      const redirectUri = 'http://localhost:3000/callback'
+
       nock('https://auth.example.com').post('/oauth/token').reply(400, {error: 'invalid_grant'})
 
       try {
-        await service.exchangeCodeForToken('invalid-code', 'verifier')
+        await service.exchangeCodeForToken('invalid-code', 'verifier', redirectUri)
         expect.fail('Should have thrown an error')
       } catch (error) {
         expect(error).to.be.an('error')
