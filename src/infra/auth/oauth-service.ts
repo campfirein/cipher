@@ -25,7 +25,6 @@ export class OAuthService implements IAuthService {
    * @returns The complete authorization URL.
    */
   public buildAuthorizationUrl(state: string, codeVerifier: string, redirectUri: string): string {
-    // TODO: review the process of PKCE building
     const codeChallenge = this.generateCodeChallenge(codeVerifier)
 
     const params = new URLSearchParams({
@@ -105,7 +104,11 @@ export class OAuthService implements IAuthService {
 
   /**
    * Parses the token response from the OAuth server.
-   * @param data The response data containing access_token, refresh_token, expires_in, and token_type.
+   * @param data The response data from the OAuth server.
+   * @param data.access_token The access token string.
+   * @param data.refresh_token The refresh token string.
+   * @param data.expires_in The token expiration time in seconds.
+   * @param data.token_type The type of token (e.g., "Bearer").
    * @returns The parsed AuthToken.
    */
   private parseTokenResponse(data: {

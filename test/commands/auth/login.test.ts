@@ -1,6 +1,6 @@
 import {Config} from '@oclif/core'
 import {expect} from 'chai'
-import sinon from 'sinon'
+import sinon, {createSandbox} from 'sinon'
 
 import Login from '../../../src/commands/auth/login.js'
 import {AuthToken} from '../../../src/core/domain/entities/auth-token.js'
@@ -12,7 +12,7 @@ describe('auth:login command', () => {
   let config: Config
 
   beforeEach(async () => {
-    sandbox = sinon.createSandbox()
+    sandbox = createSandbox()
     config = await Config.load()
   })
 

@@ -78,72 +78,24 @@ export class CallbackServer {
     })
   }
 
-  private getErrorPage(error: string): string {
-    return `
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <title>Authentication Failed</title>
-          <style>
-            body { font-family: system-ui; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background: #f5f5f5; }
-            .container { text-align: center; background: white; padding: 3rem; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
-            h1 { color: #ef4444; margin-bottom: 1rem; }
-            p { color: #666; }
-          </style>
-        </head>
-        <body>
-          <div class="container">
-            <h1>✗ Authentication Failed</h1>
-            <p>${error}</p>
-            <p>Please try again or contact support.</p>
-          </div>
-        </body>
-      </html>
-    `
-  }
-
-  private getSuccessPage(): string {
-    return `
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <title>Authentication Successful</title>
-          <style>
-            body { font-family: system-ui; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background: #f5f5f5; }
-            .container { text-align: center; background: white; padding: 3rem; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
-            h1 { color: #22c55e; margin-bottom: 1rem; }
-            p { color: #666; }
-          </style>
-        </head>
-        <body>
-          <div class="container">
-            <h1>✓ Authentication Successful</h1>
-            <p>You can close this window and return to the CLI.</p>
-          </div>
-          <script>setTimeout(() => window.close(), 3000)</script>
-        </body>
-      </html>
-    `
-  }
-
   private setupRoutes(): void {
     this.app.get('/callback', (req, res) => {
       const {code, error, error_description, state} = req.query
       if (error !== undefined) {
         const errorMessage = error_description ?? error
         this.app.locals.onError?.(String(errorMessage))
-        res.send(this.getErrorPage(String(errorMessage)))
+        res.status(400).send(`Authentication failed: ${String(errorMessage)}`)
         return
       }
 
       if (code === undefined || state === undefined) {
         this.app.locals.onError?.('Missing code or state parameter')
-        res.send(this.getErrorPage('Missing required parameters'))
+        res.status(400).send('Authentication failed: Missing required parameters')
         return
       }
 
       this.app.locals.onCallback?.(String(code), String(state))
-      res.send(this.getSuccessPage())
+      res.status(200).send('Authentication successful. You can close this window.')
     })
   }
 }
