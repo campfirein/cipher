@@ -59,6 +59,23 @@ npx oclif generate command
 
 ## Architecture
 
+The codebase follows Clean Architecture principles with pragmatic adaptations for CLI development:
+
+### When to Use Use Cases
+
+Use cases are employed for **complex orchestration** that benefits from framework independence:
+
+- ✅ **`LoginUseCase`**: OAuth flow with server lifecycle management, PKCE, multiple async operations with interdependencies
+- ❌ **`init` command**: Simple linear flow with UI interaction - orchestrated directly in command layer
+
+Commands may orchestrate business logic directly when:
+
+- The flow is primarily UI-driven with user interactions
+- No complex state management across async operations
+- The logic is specific to CLI context and unlikely to be reused in other interfaces
+
+### Architecture Layers
+
 The codebase follows Clean Architecture with three main layers:
 
 ### Core Layer (`src/core/`)
@@ -117,22 +134,81 @@ oclif command definitions. Commands are auto-discovered based on file structure.
 - Use nested directories for command namespaces (e.g., `commands/hello/world.ts` → `br hello world`)
 - Each command extends `Command` from `@oclif/core`
 
+#### Dependency Injection Pattern for Testability
+
+Commands use a **protected factory method pattern** to enable dependency injection without complicating production code:
+
+```typescript
+export default class MyCommand extends Command {
+  protected createServices(): {
+    myService: IMyService
+    anotherService: IAnotherService
+  } {
+    return {
+      myService: new MyServiceImpl(),
+      anotherService: new AnotherServiceImpl(),
+    }
+  }
+
+  public async run(): Promise<void> {
+    const {myService, anotherService} = this.createServices()
+    // Use services...
+  }
+}
+```
+
+**Testing Pattern:**
+
+```typescript
+class TestableMyCommand extends MyCommand {
+  constructor(
+    private mockService: IMyService,
+    private mockAnother: IAnotherService,
+    config: Config,
+  ) {
+    super([], config)
+  }
+
+  protected createServices() {
+    return {
+      myService: this.mockService,
+      anotherService: this.mockAnother,
+    }
+  }
+}
+```
+
+**Benefits:**
+
+- Production code uses real implementations automatically
+- Tests override factory to inject mocks
+- Commands depend on interfaces (Dependency Inversion Principle)
+- No constructor complexity (works with oclif's DI)
+- Type-safe: explicit return types prevent `as` assertions
+
 ## Key Technologies
 
 - **oclif v4** - CLI framework with plugin system
 - **TypeScript** - Strict mode, ES2022 target, Node16 modules
 - **axios** - HTTP client for OAuth operations
 - **express** - Local callback server for OAuth flows
+- **node:readline** - User input prompts for CLI interactions
 - **Mocha + Chai** - Testing framework
 - **ESLint** - Linting with oclif config
 
 ## Testing Patterns
 
-- Use `@oclif/test` for command testing
-- Use `nock` for HTTP request mocking
-- Use `sinon` for stubs/spies/mocks
-- Test files mirror source structure in `test/unit/`
-- Integration tests in `test/commands/`
+- **Command testing**: Use subclass pattern to inject mocks via `createServices()`
+  - Override `protected createServices()` method in test subclass
+  - Override `protected promptUser()` or similar methods for input testing
+  - See `test/commands/init.test.ts` for reference implementation
+- **Use case testing**: Test business logic in isolation with mocked dependencies
+- **HTTP mocking**: Use `nock` for HTTP request mocking
+- **Stubs/Spies/Mocks**: Use `sinon` for behavior verification
+- **Test organization**:
+  - `test/commands/` - Command integration tests
+  - `test/unit/` - Unit tests mirroring `src/` structure
+  - `test/learning/` - Learning/exploration tests
 
 ## TypeScript Configuration
 
