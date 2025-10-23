@@ -3,6 +3,17 @@ import type {Playbook} from '../domain/entities/playbook.js'
 import type {ReflectorOutput} from '../domain/entities/reflector-output.js'
 
 /**
+ * Parameters for building a reflector prompt
+ */
+export interface ReflectorPromptParams {
+  executorOutput: ExecutorOutput
+  feedback: string
+  groundTruth?: string
+  playbook: Playbook
+  task: string
+}
+
+/**
  * Port for building prompts for ACE pipeline
  * This abstraction allows different prompt strategies for different roles of coding agent
  */
@@ -43,19 +54,8 @@ export interface IAcePromptBuilder {
    * Builds the reflector prompt for analyzing execution results.
    * The reflector identifies errors, root causes, and key insights.
    *
-   * @param task The original task that was attempted
-   * @param executorOutput The executor's reasoning and answer
-   * @param playbook The current playbook for reference
-   * @param feedback Environment feedback (e.g., test results, error messages)
-   * @param groundTruth Optional correct answer for comparison
+   * @param params The reflector prompt parameters
    * @returns A prompt string ready for the coding agent
    */
-  // eslint-disable-next-line max-params
-  buildReflectorPrompt: (
-    task: string,
-    executorOutput: ExecutorOutput,
-    playbook: Playbook,
-    feedback: string,
-    groundTruth?: string,
-  ) => string
+  buildReflectorPrompt: (params: ReflectorPromptParams) => string
 }
