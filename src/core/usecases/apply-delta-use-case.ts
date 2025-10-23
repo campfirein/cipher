@@ -32,9 +32,12 @@ export class ApplyDeltaUseCase {
   public async execute(delta: DeltaBatch, directory?: string): Promise<ApplyDeltaResult> {
     try {
       // Load existing playbook or create new one
-      let playbook = await this.playbookStore.load(directory)
+      const playbook = await this.playbookStore.load(directory)
       if (!playbook) {
-        playbook = new Playbook()
+        return {
+          error: 'Playbook not found. Run `br ace init` to initialize.',
+          success: false,
+        }
       }
 
       // Apply delta operations
