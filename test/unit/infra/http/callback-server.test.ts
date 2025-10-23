@@ -82,5 +82,56 @@ describe('CallbackServer', () => {
       const address = server.getAddress()
       expect(address).to.be.undefined
     })
+
+    it('should stop the server quickly even with active connections', async () => {
+      server = new CallbackServer()
+      const port = await server.start()
+
+      // Create an active HTTP connection that keeps alive
+      const fetchPromise = fetch(`http://localhost:${port}/callback?code=test-code&state=test-state`)
+
+      // Wait a bit to ensure connection is established
+      await new Promise((resolve) => {
+        setTimeout(resolve, 50)
+      })
+
+      // Stop should complete quickly even with active connection
+      const startTime = Date.now()
+      await server.stop()
+      const elapsed = Date.now() - startTime
+
+      // Should complete in less than 500ms
+      expect(elapsed).to.be.lessThan(500)
+
+      // Clean up the fetch promise
+      await fetchPromise.catch(() => {
+        // Ignore errors from forcibly closed connection
+      })
+    })
+
+    it('should properly cleanup connections allowing restart', async () => {
+      server = new CallbackServer()
+      const port1 = await server.start()
+
+      // Create active connections
+      const fetch1 = fetch(`http://localhost:${port1}/callback?code=code1&state=state1`)
+      const fetch2 = fetch(`http://localhost:${port1}/callback?code=code2&state=state2`)
+
+      // Wait for connections to establish
+      await new Promise((resolve) => {
+        setTimeout(resolve, 50)
+      })
+
+      // Stop should cleanup all connections
+      await server.stop()
+
+      // Clean up fetch promises
+      await Promise.allSettled([fetch1, fetch2])
+
+      // Should be able to start again without connection leaks
+      const port2 = await server.start()
+      expect(port2).to.be.greaterThan(0)
+      await server.stop()
+    })
   })
 })

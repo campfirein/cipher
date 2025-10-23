@@ -1,4 +1,4 @@
-import {Command, ux} from '@oclif/core'
+import {Command} from '@oclif/core'
 
 import {getAuthConfig} from '../../config/auth.config.js'
 import {DiscoveryError} from '../../core/domain/errors/discovery-error.js'
@@ -18,22 +18,20 @@ export default class Login extends Command {
       const discoveryService = new OidcDiscoveryService()
 
       // Get configuration (with discovery)
-      const config = await getAuthConfig(discoveryService)
+      const oAuthConfig = await getAuthConfig(discoveryService)
 
       // Setup dependencies
-      const authService = new OAuthService(config)
+      const authService = new OAuthService(oAuthConfig)
       const tokenStore = new KeychainTokenStore()
       const browserLauncher = new SystemBrowserLauncher()
       const callbackHandler = new CallbackHandler()
 
       const useCase = new LoginUseCase(authService, browserLauncher, tokenStore, callbackHandler)
 
-      ux.action.start('Waiting for authentication')
+      this.log('Starting authentication process...')
 
       // Execute login
       const result = await useCase.execute()
-
-      ux.action.stop()
 
       if (result.success) {
         this.log('Successfully authenticated!')
