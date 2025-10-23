@@ -218,14 +218,12 @@ describe('OAuthService', () => {
       // Create a new service instance
       const otherService = new OAuthService(config)
 
-      nock(basePath)
-        .post(tokenUri)
-        .reply(200, {
-          access_token: 'access-token',
-          expires_in: 3600,
-          refresh_token: 'refresh-token',
-          token_type: 'Bearer',
-        })
+      nock(basePath).post(tokenUri).reply(200, {
+        access_token: 'access-token',
+        expires_in: 3600,
+        refresh_token: 'refresh-token',
+        token_type: 'Bearer',
+      })
 
       try {
         // Try to use context with different service instance

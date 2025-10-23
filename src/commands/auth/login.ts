@@ -18,10 +18,10 @@ export default class Login extends Command {
       const discoveryService = new OidcDiscoveryService()
 
       // Get configuration (with discovery)
-      const config = await getAuthConfig(discoveryService)
+      const oAuthConfig = await getAuthConfig(discoveryService)
 
       // Setup dependencies
-      const authService = new OAuthService(config)
+      const authService = new OAuthService(oAuthConfig)
       const tokenStore = new KeychainTokenStore()
       const browserLauncher = new SystemBrowserLauncher()
       const callbackHandler = new CallbackHandler()

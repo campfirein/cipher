@@ -66,7 +66,8 @@ export class OAuthService implements IAuthService {
         this.config.tokenUrl,
         {
           client_id: this.config.clientId,
-          client_secret: 'cli-secret-change-in-production',
+          // client_secret is undefined for public clients using PKCE.
+          client_secret: this.config.clientSecret,
           code,
           code_verifier: codeVerifier,
           grant_type: 'authorization_code',
@@ -125,6 +126,7 @@ export class OAuthService implements IAuthService {
     try {
       const response = await axios.post(this.config.tokenUrl, {
         client_id: this.config.clientId,
+        // client_secret is undefined for public clients using PKCE.
         client_secret: this.config.clientSecret,
         grant_type: 'refresh_token',
         refresh_token: refreshToken,
@@ -175,6 +177,7 @@ export class OAuthService implements IAuthService {
    */
   private parseTokenResponse(data: TokenResponse): AuthToken {
     const expiresAt = new Date(Date.now() + data.expires_in * 1000)
+
     return new AuthToken(data.access_token, data.refresh_token, expiresAt, data.token_type)
   }
 }
