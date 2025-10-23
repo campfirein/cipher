@@ -62,8 +62,6 @@ export class LoginUseCase {
         // Wait for callback with 5 minute timeout
         const {code} = await this.callbackHandler.waitForCallback(authContext.state, 5 * 60 * 1000)
 
-        console.log('code', code)
-
         // Exchange code for token
         const token = await this.authService.exchangeCodeForToken(code, authContext, redirectUri)
 

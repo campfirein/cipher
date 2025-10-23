@@ -167,6 +167,7 @@ The CLI implements OAuth 2.0 Authorization Code flow with PKCE:
 - Code_verifier is single-use: automatically deleted after token exchange
 - If browser fails to open, auth URL is returned to user for manual copy
 - Callback server always cleaned up via `finally` block
+- `CallbackServer` tracks active HTTP connections and force-closes them during shutdown to prevent delays from keep-alive connections
 
 ### OIDC Discovery
 
@@ -214,7 +215,7 @@ The CLI uses runtime environment configuration for separate dev/prod deployments
 
 - `BR_ENV` - Environment (`development` | `production`) - automatically set by `./bin/dev.js` or `./bin/run.js`
 
-### Plugin System
+### Plugin Configuration
 
 - `BR_NPM_LOG_LEVEL` - npm log level for plugin installations
 - `BR_NPM_REGISTRY` - npm registry for plugin installations

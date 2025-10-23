@@ -7,6 +7,25 @@ import {AuthToken} from '../../core/domain/entities/auth-token.js'
 import {AuthenticationError} from '../../core/domain/errors/auth-error.js'
 import {AuthorizationContext, IAuthService} from '../../core/interfaces/i-auth-service.js'
 
+type TokenResponse = {
+  /**
+   * Authorization header, bearer token.
+   */
+  access_token: string
+  /**
+   * In seconds.
+   */
+  expires_in: number
+  id_token: string
+  refresh_token: string
+  scope: string
+  /**
+   * x-byterover-session-id header
+   */
+  session_key: string
+  token_type: string
+}
+
 /**
  * OAuth service implementation for handling OAuth authentication flows.
  */
@@ -25,7 +44,11 @@ export class OAuthService implements IAuthService {
    * @param redirectUri The redirect URI used in the authorization request (must match for OAuth 2.0 compliance).
    * @returns The access token with refresh token and expiration.
    */
-  public async exchangeCodeForToken(code: string, context: AuthorizationContext, redirectUri: string): Promise<AuthToken> {
+  public async exchangeCodeForToken(
+    code: string,
+    context: AuthorizationContext,
+    redirectUri: string,
+  ): Promise<AuthToken> {
     // Retrieve the code_verifier using the state from the context
     const codeVerifier = this.verifierStore.get(context.state)
     if (!codeVerifier) {
@@ -39,14 +62,22 @@ export class OAuthService implements IAuthService {
     this.verifierStore.delete(context.state)
 
     try {
-      const response = await axios.post(this.config.tokenUrl, {
-        client_id: this.config.clientId,
-        client_secret: this.config.clientSecret,
-        code,
-        code_verifier: codeVerifier,
-        grant_type: 'authorization_code',
-        redirect_uri: redirectUri,
-      })
+      const response = await axios.post(
+        this.config.tokenUrl,
+        {
+          client_id: this.config.clientId,
+          client_secret: 'cli-secret-change-in-production',
+          code,
+          code_verifier: codeVerifier,
+          grant_type: 'authorization_code',
+          redirect_uri: redirectUri,
+        },
+        {
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+        },
+      )
 
       return this.parseTokenResponse(response.data)
     } catch (error) {
@@ -140,18 +171,9 @@ export class OAuthService implements IAuthService {
   /**
    * Parses the token response from the OAuth server.
    * @param data The response data from the OAuth server.
-   * @param data.access_token The access token string.
-   * @param data.refresh_token The refresh token string.
-   * @param data.expires_in The token expiration time in seconds.
-   * @param data.token_type The type of token (e.g., "Bearer").
    * @returns The parsed AuthToken.
    */
-  private parseTokenResponse(data: {
-    access_token: string
-    expires_in: number
-    refresh_token: string
-    token_type: string
-  }): AuthToken {
+  private parseTokenResponse(data: TokenResponse): AuthToken {
     const expiresAt = new Date(Date.now() + data.expires_in * 1000)
     return new AuthToken(data.access_token, data.refresh_token, expiresAt, data.token_type)
   }

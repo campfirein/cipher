@@ -1,5 +1,6 @@
 /* eslint-disable camelcase */
 import type {Server} from 'node:http'
+import type {Socket} from 'node:net'
 
 import express from 'express'
 
@@ -12,6 +13,7 @@ type CallbackResult = {
 
 export class CallbackServer {
   private app = express()
+  private connections = new Set<Socket>()
   private server: Server | undefined = undefined
 
   public constructor() {
@@ -38,6 +40,14 @@ export class CallbackServer {
           reject(new Error('Failed to start server'))
         }
       })
+
+      // Track connections to allow force-closing during shutdown
+      this.server.on('connection', (conn: Socket) => {
+        this.connections.add(conn)
+        conn.on('close', () => {
+          this.connections.delete(conn)
+        })
+      })
     })
   }
 
@@ -46,6 +56,13 @@ export class CallbackServer {
       if (this.server === undefined) {
         resolve()
       } else {
+        // Force close all active connections to prevent delays
+        for (const conn of this.connections) {
+          conn.destroy()
+        }
+
+        this.connections.clear()
+
         this.server.close(() => {
           this.server = undefined
           resolve()

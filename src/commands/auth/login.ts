@@ -1,4 +1,4 @@
-import {Command, ux} from '@oclif/core'
+import {Command} from '@oclif/core'
 
 import {getAuthConfig} from '../../config/auth.config.js'
 import {DiscoveryError} from '../../core/domain/errors/discovery-error.js'
@@ -28,12 +28,10 @@ export default class Login extends Command {
 
       const useCase = new LoginUseCase(authService, browserLauncher, tokenStore, callbackHandler)
 
-      ux.action.start('Waiting for authentication')
+      this.log('Starting authentication process...')
 
       // Execute login
       const result = await useCase.execute()
-
-      ux.action.stop()
 
       if (result.success) {
         this.log('Successfully authenticated!')
