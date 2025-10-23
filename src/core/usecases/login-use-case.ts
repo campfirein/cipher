@@ -1,5 +1,3 @@
-import crypto from 'node:crypto'
-
 import type {AuthToken} from '../domain/entities/auth-token.js'
 import type {IAuthService} from '../interfaces/i-auth-service.js'
 import type {IBrowserLauncher} from '../interfaces/i-browser-launcher.js'
@@ -48,17 +46,13 @@ export class LoginUseCase {
 
       const redirectUri = `http://localhost:${port}/callback`
 
-      // Generate PKCE parameters
-      const codeVerifier = this.generateCodeVerifier()
-      const state = this.generateState()
-
-      // Build authorization URL
-      const authUrl = this.authService.buildAuthorizationUrl(state, codeVerifier, redirectUri)
+      // Initiate authorization (generates PKCE parameters and state internally)
+      const authContext = this.authService.initiateAuthorization(redirectUri)
 
       // Try to open browser
       let browserOpened = false
       try {
-        await this.browserLauncher.open(authUrl)
+        await this.browserLauncher.open(authContext.authUrl)
         browserOpened = true
       } catch {
         // Browser launch failed, will return URL to user
@@ -66,22 +60,24 @@ export class LoginUseCase {
 
       try {
         // Wait for callback with 5 minute timeout
-        const {code} = await this.callbackHandler.waitForCallback(state, 5 * 60 * 1000)
+        const {code} = await this.callbackHandler.waitForCallback(authContext.state, 5 * 60 * 1000)
+
+        console.log('code', code)
 
         // Exchange code for token
-        const token = await this.authService.exchangeCodeForToken(code, codeVerifier, redirectUri)
+        const token = await this.authService.exchangeCodeForToken(code, authContext, redirectUri)
 
         // Store token
         await this.tokenStore.save(token)
 
         return {
-          authUrl: browserOpened ? undefined : authUrl,
+          authUrl: browserOpened ? undefined : authContext.authUrl,
           success: true,
           token,
         }
       } catch (error) {
         return {
-          authUrl: browserOpened ? undefined : authUrl,
+          authUrl: browserOpened ? undefined : authContext.authUrl,
           error: error instanceof Error ? error.message : 'Unknown error',
           success: false,
         }
@@ -95,13 +91,5 @@ export class LoginUseCase {
       // Always cleanup server
       await this.callbackHandler.stop()
     }
-  }
-
-  private generateCodeVerifier(): string {
-    return crypto.randomBytes(32).toString('base64url')
-  }
-
-  private generateState(): string {
-    return crypto.randomBytes(16).toString('base64url')
   }
 }
