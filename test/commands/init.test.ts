@@ -12,6 +12,7 @@ import type {ITokenStore} from '../../src/core/interfaces/i-token-store.js'
 import Init from '../../src/commands/init.js'
 import {AuthToken} from '../../src/core/domain/entities/auth-token.js'
 import {Space as SpaceImpl} from '../../src/core/domain/entities/space.js'
+import {InitializePlaybookUseCase} from '../../src/core/usecases/initialize-playbook-use-case.js'
 
 /**
  * Testable Init command that accepts mocked services
@@ -82,6 +83,12 @@ describe('Init Command', () => {
       new SpaceImpl('space-1', 'frontend-app', 'team-1', 'acme-corp'),
       new SpaceImpl('space-2', 'backend-api', 'team-1', 'acme-corp'),
     ]
+
+    // Stub ACE initialization to always succeed
+    stub(InitializePlaybookUseCase.prototype, 'execute').resolves({
+      playbookPath: '/test/.br/ace/playbook.json',
+      success: true,
+    })
   })
 
   afterEach(() => {

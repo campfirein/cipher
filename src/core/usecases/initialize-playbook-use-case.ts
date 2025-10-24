@@ -18,8 +18,8 @@ export interface InitializePlaybookResult {
 export class InitializePlaybookUseCase {
   private static readonly ACE_DIR = 'ace'
   private static readonly BR_DIR = '.br'
-  private static readonly SUBDIRS = ['reflections', 'executor-outputs', 'deltas', 'prompts']
-private readonly playbookStore: IPlaybookStore
+  private static readonly SUBDIRS = ['reflections']
+  private readonly playbookStore: IPlaybookStore
 
   public constructor(playbookStore: IPlaybookStore) {
     this.playbookStore = playbookStore

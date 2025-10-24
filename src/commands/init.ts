@@ -8,6 +8,8 @@ import type {ITokenStore} from '../core/interfaces/i-token-store.js'
 
 import {getCurrentConfig} from '../config/environment.js'
 import {BrConfig} from '../core/domain/entities/br-config.js'
+import {InitializePlaybookUseCase} from '../core/usecases/initialize-playbook-use-case.js'
+import {FilePlaybookStore} from '../infra/ace/file-playbook-store.js'
 import {ProjectConfigStore} from '../infra/config/file-config-store.js'
 import {HttpSpaceService} from '../infra/space/http-space-service.js'
 import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
@@ -113,7 +115,20 @@ export default class Init extends Command {
       const config = BrConfig.fromSpace(selectedSpace)
       await projectConfigStore.write(config)
 
-      // 7. Display success
+      // 7. Initialize ACE playbook
+      this.log('\nInitializing ACE context...')
+      const playbookStore = new FilePlaybookStore()
+      const aceUseCase = new InitializePlaybookUseCase(playbookStore)
+      const aceResult = await aceUseCase.execute()
+
+      if (aceResult.success) {
+        this.log(`✓ ACE playbook initialized in ${aceResult.playbookPath}`)
+      } else {
+        // Warn but don't fail if ACE init fails
+        this.warn(`ACE initialization skipped: ${aceResult.error}`)
+      }
+
+      // 8. Display success
       this.log(`\n✓ Project initialized successfully!`)
       this.log(`✓ Connected to space: ${selectedSpace.getDisplayName()}`)
       this.log(`✓ Configuration saved to: .br/config.json`)
