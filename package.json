@@ -63,8 +63,8 @@
     ],
     "topicSeparator": " ",
     "topics": {
-      "hello": {
-        "description": "Say hello to the world and others"
+      "ace": {
+        "description": "Agentic Context Engineering (ACE) workflow for building and maintaining contextual knowledge"
       }
     }
   },
