@@ -1,6 +1,6 @@
 import {Config} from '@oclif/core'
 import {expect} from 'chai'
-import sinon from 'sinon'
+import sinon, {createSandbox, match} from 'sinon'
 
 import Show from '../../../src/commands/ace/show.js'
 import {Playbook} from '../../../src/core/domain/entities/playbook.js'
@@ -11,7 +11,7 @@ describe('ace:show command', () => {
   let config: Config
 
   beforeEach(async () => {
-    sandbox = sinon.createSandbox()
+    sandbox = createSandbox()
     config = await Config.load()
   })
 
@@ -38,9 +38,9 @@ describe('ace:show command', () => {
 
     await command.run()
 
-    expect(logSpy.calledWith(sinon.match(/ACE Playbook/))).to.be.true
-    expect(logSpy.calledWith(sinon.match(/Common Errors/))).to.be.true
-    expect(logSpy.calledWith(sinon.match(/Always validate inputs/))).to.be.true
+    expect(logSpy.calledWith(match(/ACE Playbook/))).to.be.true
+    expect(logSpy.calledWith(match(/Common Errors/))).to.be.true
+    expect(logSpy.calledWith(match(/Always validate inputs/))).to.be.true
   })
 
   it('should display playbook in JSON format when --format json is used', async () => {
@@ -85,7 +85,7 @@ describe('ace:show command', () => {
 
     await command.run()
 
-    expect(logSpy.calledWith(sinon.match(/empty/i))).to.be.true
+    expect(logSpy.calledWith(match(/empty/i))).to.be.true
   })
 
   it('should display error when playbook not found', async () => {

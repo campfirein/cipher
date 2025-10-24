@@ -1,6 +1,6 @@
 import {Config} from '@oclif/core'
 import {expect} from 'chai'
-import sinon from 'sinon'
+import sinon, {createSandbox, match} from 'sinon'
 
 import Init from '../../../src/commands/ace/init.js'
 import {InitializePlaybookUseCase} from '../../../src/core/usecases/initialize-playbook-use-case.js'
@@ -10,7 +10,7 @@ describe('ace:init command', () => {
   let config: Config
 
   beforeEach(async () => {
-    sandbox = sinon.createSandbox()
+    sandbox = createSandbox()
     config = await Config.load()
   })
 
@@ -30,8 +30,8 @@ describe('ace:init command', () => {
 
     await command.run()
 
-    expect(logSpy.calledWith(sinon.match(/ACE playbook initialized/))).to.be.true
-    expect(logSpy.calledWith(sinon.match(/playbook.json/))).to.be.true
+    expect(logSpy.calledWith(match(/ACE playbook initialized/))).to.be.true
+    expect(logSpy.calledWith(match(/playbook.json/))).to.be.true
   })
 
   it('should display error message when initialization fails', async () => {
@@ -79,9 +79,9 @@ describe('ace:init command', () => {
     await command.run()
 
     // Verify directory structure is displayed
-    expect(logSpy.calledWith(sinon.match(/reflections/))).to.be.true
-    expect(logSpy.calledWith(sinon.match(/executor-outputs/))).to.be.true
-    expect(logSpy.calledWith(sinon.match(/deltas/))).to.be.true
-    expect(logSpy.calledWith(sinon.match(/prompts/))).to.be.true
+    expect(logSpy.calledWith(match(/reflections/))).to.be.true
+    expect(logSpy.calledWith(match(/executor-outputs/))).to.be.true
+    expect(logSpy.calledWith(match(/deltas/))).to.be.true
+    expect(logSpy.calledWith(match(/prompts/))).to.be.true
   })
 })
