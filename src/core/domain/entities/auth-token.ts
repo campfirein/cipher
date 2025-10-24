@@ -2,10 +2,15 @@
  * Represents an authentication token with access and refresh tokens, expiration, and type.
  */
 export class AuthToken {
+  /**
+   * Authorization header, bearer token.
+   */
   public readonly accessToken: string
   public readonly expiresAt: Date
   public readonly refreshToken: string
   public readonly tokenType: string
+
+  // TODO: Do we need to store session_key?
 
   public constructor(accessToken: string, refreshToken: string, expiresAt: Date, tokenType: string = 'Bearer') {
     this.accessToken = accessToken
