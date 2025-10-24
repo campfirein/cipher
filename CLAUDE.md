@@ -99,6 +99,8 @@ Domain logic independent of frameworks and external dependencies.
   - `IBrowserLauncher` - Browser launching abstraction
   - `ICallbackHandler` - OAuth callback server operations
   - `IOidcDiscoveryService` - OIDC discovery operations
+  - `IHttpClient` - HTTP client abstraction for authenticated API requests
+  - `ISpaceService` - Space-related operations (fetch user spaces)
 
 ### Infrastructure Layer (`src/infra/`)
 
@@ -116,6 +118,20 @@ Concrete implementations of core interfaces using external dependencies.
   - Implements `ICallbackHandler` interface
   - Adapter wrapping `CallbackServer` for OAuth redirect handling
   - Manages local HTTP server lifecycle for receiving authorization codes
+
+- **`http/authenticated-http-client.ts`** - HTTP client for authenticated API requests
+  - Implements `IHttpClient` interface
+  - Automatically adds `Authorization: Bearer {token}` header
+  - Automatically adds `x-byterover-session-id: {sessionKey}` header
+  - Wraps axios for GET and POST operations
+  - Transforms axios errors to generic Error instances
+  - Used by API services (e.g., `HttpSpaceService`) for making authenticated requests
+
+- **`space/http-space-service.ts`** - Space service implementation
+  - Implements `ISpaceService` interface
+  - Uses `AuthenticatedHttpClient` internally for API requests
+  - Requires both `accessToken` and `sessionKey` parameters
+  - Maps API responses to domain entities (`Space`)
 
 ### Configuration (`src/config/`)
 
@@ -208,7 +224,17 @@ class TestableMyCommand extends MyCommand {
   - See `test/commands/init.test.ts` for reference implementation
 - **Use case testing**: Test business logic in isolation with mocked dependencies
 - **HTTP mocking**: Use `nock` for HTTP request mocking
+  - For testing `AuthenticatedHttpClient`, use `nock` to intercept axios requests
+  - Verify headers with `.matchHeader('authorization', ...)` and `.matchHeader('x-byterover-session-id', ...)`
+  - See `test/unit/infra/http/authenticated-http-client.test.ts` for examples
+- **Service testing with authenticated requests**:
+  - Services using `AuthenticatedHttpClient` (like `HttpSpaceService`) are tested with `nock`
+  - Verify both `Authorization` and `x-byterover-session-id` headers are sent
+  - Pass both `accessToken` and `sessionKey` to service methods
+  - See `test/unit/infra/space/http-space-service.test.ts` for reference
 - **Stubs/Spies/Mocks**: Use `sinon` for behavior verification
+  - When mocking `ISpaceService` in command tests, verify both parameters are passed
+  - Example: `expect(spaceService.getSpaces.calledWith('access-token', 'session-key')).to.be.true`
 - **Test organization**:
   - `test/commands/` - Command integration tests
   - `test/unit/` - Unit tests mirroring `src/` structure
@@ -250,6 +276,40 @@ The CLI implements OAuth 2.0 Authorization Code flow with PKCE:
 - If browser fails to open, auth URL is returned to user for manual copy
 - Callback server always cleaned up via `finally` block
 - `CallbackServer` tracks active HTTP connections and force-closes them during shutdown to prevent delays from keep-alive connections
+
+### Authenticated API Requests
+
+After successful authentication, all API requests to ByteRover services require both authentication headers:
+
+1. **Commands load tokens from keychain** - Use `ITokenStore.load()` to retrieve the stored `AuthToken`
+2. **Extract both credentials** - Commands pass `token.accessToken` and `token.sessionKey` to service methods
+3. **Services create HTTP client** - API services (e.g., `HttpSpaceService`) instantiate `AuthenticatedHttpClient` with both credentials
+4. **Automatic header injection** - `AuthenticatedHttpClient` adds both headers to all requests:
+   - `Authorization: Bearer {accessToken}` - Standard OAuth 2.0 bearer token
+   - `x-byterover-session-id: {sessionKey}` - Session tracking identifier from token response
+
+**Example flow:**
+
+```typescript
+// Command loads token
+const token = await tokenStore.load()
+
+// Command calls service with both credentials
+const spaces = await spaceService.getSpaces(token.accessToken, token.sessionKey)
+
+// Service creates authenticated HTTP client
+const httpClient = new AuthenticatedHttpClient(accessToken, sessionKey)
+
+// Client automatically adds both headers to requests
+const response = await httpClient.get('/api/endpoint')
+```
+
+**Benefits:**
+
+- Centralized authentication header management
+- No risk of forgetting session header in new API calls
+- Clean separation: services focus on business logic, HTTP client handles authentication
+- Easy to test with `nock` header matching
 
 ### OIDC Discovery
 

@@ -70,7 +70,13 @@ describe('Init Command', () => {
       write: stub(),
     }
 
-    validToken = new AuthToken('access-token', new Date(Date.now() + 3600 * 1000), 'refresh-token', '', 'Bearer')
+    validToken = new AuthToken(
+      'access-token',
+      new Date(Date.now() + 3600 * 1000),
+      'refresh-token',
+      'session-key',
+      'Bearer',
+    )
 
     testSpaces = [
       new SpaceImpl('space-1', 'frontend-app', 'team-1', 'acme-corp'),
@@ -110,7 +116,13 @@ describe('Init Command', () => {
     })
 
     it('should throw error when token is expired', async () => {
-      const expiredToken = new AuthToken('access-token', new Date(Date.now() - 1000), 'refresh-token', '', 'Bearer')
+      const expiredToken = new AuthToken(
+        'access-token',
+        new Date(Date.now() - 1000),
+        'refresh-token',
+        'session-key',
+        'Bearer',
+      )
 
       configStore.exists.resolves(false)
       tokenStore.load.resolves(expiredToken)
@@ -246,7 +258,7 @@ describe('Init Command', () => {
 
       await command.run()
 
-      expect(spaceService.getSpaces.calledWith('access-token')).to.be.true
+      expect(spaceService.getSpaces.calledWith('access-token', 'session-key')).to.be.true
       expect(configStore.write.calledOnce).to.be.true
 
       const writtenConfig = configStore.write.getCall(0).args[0]

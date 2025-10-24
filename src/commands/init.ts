@@ -69,7 +69,10 @@ export default class Init extends Command {
       const isInitialized = await projectConfigStore.exists()
       if (isInitialized) {
         this.log('Project is already initialized with ByteRover.')
-        this.log('Configuration file: .br/config.json')
+        const existingProjectConfig = await projectConfigStore.read()
+        this.log(
+          `Your space for this project is: ${existingProjectConfig?.teamName}/${existingProjectConfig?.spaceName}`,
+        )
         return
       }
 
@@ -87,7 +90,7 @@ export default class Init extends Command {
 
       // 3. Fetch spaces with spinner
       ux.action.start('Fetching spaces')
-      const spaces = await spaceService.getSpaces(token.accessToken)
+      const spaces = await spaceService.getSpaces(token.accessToken, token.sessionKey)
       ux.action.stop()
 
       if (spaces.length === 0) {
