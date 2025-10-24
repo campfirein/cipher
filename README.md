@@ -126,6 +126,7 @@ USAGE
 * [`br foo`](#br-foo)
 * [`br help [COMMAND]`](#br-help-command)
 * [`br init`](#br-init)
+* [`br status`](#br-status)
 * [`br plugins`](#br-plugins)
 * [`br plugins add PLUGIN`](#br-plugins-add-plugin)
 * [`br plugins:inspect PLUGIN...`](#br-pluginsinspect-plugin)
@@ -201,6 +202,29 @@ EXAMPLES
 ```
 
 _See code: [src/commands/init.ts](https://github.com/campfirein/byterover-cli/blob/v0.0.0/src/commands/init.ts)_
+
+## `br status`
+
+Show CLI status and project information
+
+```
+USAGE
+  $ br status
+
+DESCRIPTION
+  Show CLI status and project information
+
+  Displays comprehensive information about your ByteRover CLI setup including:
+  - CLI version
+  - Authentication status (with user email if logged in)
+  - Current working directory
+  - Project initialization status (with connected space if initialized)
+
+EXAMPLES
+  $ br status
+```
+
+_See code: [src/commands/status.ts](https://github.com/campfirein/byterover-cli/blob/v0.0.0/src/commands/status.ts)_
 
 ## `br plugins`
 
