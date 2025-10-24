@@ -2,15 +2,15 @@ import {existsSync} from 'node:fs'
 import {mkdir, readFile, writeFile} from 'node:fs/promises'
 import {join} from 'node:path'
 
-import type {IConfigStore} from '../../core/interfaces/i-config-store.js'
+import type {IProjectConfigStore} from '../../core/interfaces/i-project-config-store.js'
 
 import {BrConfig} from '../../core/domain/entities/br-config.js'
 
 /**
- * File-based implementation of IConfigStore.
+ * File-based implementation of IProjectConfigStore.
  * Stores configuration in .br/config.json in the project directory.
  */
-export class FileConfigStore implements IConfigStore {
+export class ProjectConfigStore implements IProjectConfigStore {
   private static readonly BR_DIR = '.br'
   private static readonly CONFIG_FILE = 'config.json'
 
@@ -56,13 +56,13 @@ export class FileConfigStore implements IConfigStore {
    */
   private getBrDirPath(directory?: string): string {
     const baseDir = directory ?? process.cwd()
-    return join(baseDir, FileConfigStore.BR_DIR)
+    return join(baseDir, ProjectConfigStore.BR_DIR)
   }
 
   /**
    * Gets the full path to the config.json file.
    */
   private getConfigPath(directory?: string): string {
-    return join(this.getBrDirPath(directory), FileConfigStore.CONFIG_FILE)
+    return join(this.getBrDirPath(directory), ProjectConfigStore.CONFIG_FILE)
   }
 }

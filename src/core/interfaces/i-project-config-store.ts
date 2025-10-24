@@ -4,7 +4,7 @@ import type {BrConfig} from '../domain/entities/br-config.js'
  * Interface for storing and retrieving ByteRover CLI configuration.
  * Implementations handle persistence of .br/config.json files.
  */
-export interface IConfigStore {
+export interface IProjectConfigStore {
   /**
    * Checks if a configuration file exists in the .br directory.
    * @param directory The project directory to check (defaults to current working directory).

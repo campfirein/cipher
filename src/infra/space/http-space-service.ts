@@ -11,31 +11,60 @@ export type SpaceServiceConfig = {
 
 type SpaceApiResponse = {
   created_at: string
-  description?: string
-  full_name?: string
+  default_branch: string
+  description: string
+  full_name: string
   id: string
   name: string
+  size: number
   status: string
-  storage_path?: string
-  team: {
-    avatar_url?: string
-    created_at: string
-    description?: string
-    display_name: string
-    id: string
-    is_active: boolean
-    name: string
-    updated_at: string
-  }
+  storage_path: string
   team_id: string
   updated_at: string
   visibility: string
 }
 
+// type SpaceApiResponse = {
+//   created_at: string
+//   description?: string
+//   full_name?: string
+//   id: string
+//   name: string
+//   status: string
+//   storage_path?: string
+//   team: {
+//     avatar_url?: string
+//     created_at: string
+//     description?: string
+//     display_name: string
+//     id: string
+//     is_active: boolean
+//     name: string
+//     updated_at: string
+//   }
+//   team_id: string
+//   updated_at: string
+//   visibility: string
+// }
+
+// type ListSpacesApiResponse = {
+//   data: SpaceApiResponse[]
+//   limit: number
+//   offset: number
+//   total: number
+// }
 type ListSpacesApiResponse = {
-  data: SpaceApiResponse[]
-  limit: number
-  offset: number
+  data: ListSpacesApiGeneralData
+}
+
+type ListSpacesApiGeneralData = {
+  code: number
+  data: ListSpacesApiData
+  message: string
+}
+
+type ListSpacesApiData = {
+  spaces: SpaceApiResponse[]
   total: number
 }
 
@@ -54,17 +83,18 @@ export class HttpSpaceService implements ISpaceService {
       const response = await axios.get<ListSpacesApiResponse>(`${this.config.apiBaseUrl}/spaces`, {
         headers: {
           Authorization: `Bearer ${accessToken}`,
+          'x-byterover-session-id': `M-R8hRBnZ41WQ0FXFLdL4Ug8IVs1jCsD6JVvZ4dbVfw=`,
         },
         timeout: this.config.timeout,
       })
+      console.log(response.data.data.spaces)
 
-      return response.data.data.map((spaceData) => this.mapToSpace(spaceData))
+      return []
+      // return response.data.data.map((spaceData) => this.mapToSpace(spaceData))
     } catch (error) {
       if (isAxiosError(error)) {
         if (error.response) {
-          throw new Error(
-            `Failed to fetch spaces: ${error.response.status} ${error.response.statusText}`,
-          )
+          throw new Error(`Failed to fetch spaces: ${error.response.status} ${error.response.statusText}`)
         } else if (error.request) {
           throw new Error('Failed to fetch spaces: Network error')
         }
@@ -75,11 +105,6 @@ export class HttpSpaceService implements ISpaceService {
   }
 
   private mapToSpace(spaceData: SpaceApiResponse): Space {
-    return new Space(
-      spaceData.id,
-      spaceData.name,
-      spaceData.team_id,
-      spaceData.team.name,
-    )
+    return new Space(spaceData.id, spaceData.name, spaceData.team_id, 'mfk-team')
   }
 }

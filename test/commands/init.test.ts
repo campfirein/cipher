@@ -5,7 +5,7 @@ import {expect} from 'chai'
 import sinon, {restore, stub} from 'sinon'
 
 import type {Space} from '../../src/core/domain/entities/space.js'
-import type {IConfigStore} from '../../src/core/interfaces/i-config-store.js'
+import type {IProjectConfigStore} from '../../src/core/interfaces/i-project-config-store.js'
 import type {ISpaceService} from '../../src/core/interfaces/i-space-service.js'
 import type {ITokenStore} from '../../src/core/interfaces/i-token-store.js'
 
@@ -19,7 +19,7 @@ import {Space as SpaceImpl} from '../../src/core/domain/entities/space.js'
 class TestableInit extends Init {
   // eslint-disable-next-line max-params
   constructor(
-    private readonly mockConfigStore: IConfigStore,
+    private readonly mockConfigStore: IProjectConfigStore,
     private readonly mockSpaceService: ISpaceService,
     private readonly mockTokenStore: ITokenStore,
     private readonly mockPromptResponse: string,
@@ -30,7 +30,7 @@ class TestableInit extends Init {
 
   protected createServices() {
     return {
-      configStore: this.mockConfigStore,
+      projectConfigStore: this.mockConfigStore,
       spaceService: this.mockSpaceService,
       tokenStore: this.mockTokenStore,
     }
@@ -43,7 +43,7 @@ class TestableInit extends Init {
 
 describe('Init Command', () => {
   let config: Config
-  let configStore: sinon.SinonStubbedInstance<IConfigStore>
+  let configStore: sinon.SinonStubbedInstance<IProjectConfigStore>
   let spaceService: sinon.SinonStubbedInstance<ISpaceService>
   let testSpaces: Space[]
   let tokenStore: sinon.SinonStubbedInstance<ITokenStore>
@@ -70,11 +70,7 @@ describe('Init Command', () => {
       write: stub(),
     }
 
-    validToken = new AuthToken(
-      'access-token',
-      'refresh-token',
-      new Date(Date.now() + 3600 * 1000), // Expires in 1 hour
-    )
+    validToken = new AuthToken('access-token', new Date(Date.now() + 3600 * 1000), 'refresh-token', '', 'Bearer')
 
     testSpaces = [
       new SpaceImpl('space-1', 'frontend-app', 'team-1', 'acme-corp'),
@@ -114,11 +110,7 @@ describe('Init Command', () => {
     })
 
     it('should throw error when token is expired', async () => {
-      const expiredToken = new AuthToken(
-        'access-token',
-        'refresh-token',
-        new Date(Date.now() - 1000), // Expired 1 second ago
-      )
+      const expiredToken = new AuthToken('access-token', new Date(Date.now() - 1000), 'refresh-token', '', 'Bearer')
 
       configStore.exists.resolves(false)
       tokenStore.load.resolves(expiredToken)

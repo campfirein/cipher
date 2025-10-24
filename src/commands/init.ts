@@ -2,13 +2,13 @@ import {Command, ux} from '@oclif/core'
 import {createInterface} from 'node:readline'
 
 import type {Space} from '../core/domain/entities/space.js'
-import type {IConfigStore} from '../core/interfaces/i-config-store.js'
+import type {IProjectConfigStore} from '../core/interfaces/i-project-config-store.js'
 import type {ISpaceService} from '../core/interfaces/i-space-service.js'
 import type {ITokenStore} from '../core/interfaces/i-token-store.js'
 
 import {getCurrentConfig} from '../config/environment.js'
 import {BrConfig} from '../core/domain/entities/br-config.js'
-import {FileConfigStore} from '../infra/config/file-config-store.js'
+import {ProjectConfigStore} from '../infra/config/file-config-store.js'
 import {HttpSpaceService} from '../infra/space/http-space-service.js'
 import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
 
@@ -17,13 +17,13 @@ export default class Init extends Command {
   public static examples = ['<%= config.bin %> <%= command.id %>']
 
   protected createServices(): {
-    configStore: IConfigStore
+    projectConfigStore: IProjectConfigStore
     spaceService: ISpaceService
     tokenStore: ITokenStore
   } {
     const envConfig = getCurrentConfig()
     return {
-      configStore: new FileConfigStore(),
+      projectConfigStore: new ProjectConfigStore(),
       spaceService: new HttpSpaceService({
         apiBaseUrl: envConfig.apiBaseUrl,
       }),
@@ -63,10 +63,10 @@ export default class Init extends Command {
 
   public async run(): Promise<void> {
     try {
-      const {configStore, spaceService, tokenStore} = this.createServices()
+      const {projectConfigStore, spaceService, tokenStore} = this.createServices()
 
       // 1. Check if already initialized
-      const isInitialized = await configStore.exists()
+      const isInitialized = await projectConfigStore.exists()
       if (isInitialized) {
         this.log('Project is already initialized with ByteRover.')
         this.log('Configuration file: .br/config.json')
@@ -108,7 +108,7 @@ export default class Init extends Command {
 
       // 6. Create and save configuration
       const config = BrConfig.fromSpace(selectedSpace)
-      await configStore.write(config)
+      await projectConfigStore.write(config)
 
       // 7. Display success
       this.log(`\n✓ Project initialized successfully!`)

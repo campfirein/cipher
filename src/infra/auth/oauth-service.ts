@@ -178,6 +178,6 @@ export class OAuthService implements IAuthService {
   private parseTokenResponse(data: TokenResponse): AuthToken {
     const expiresAt = new Date(Date.now() + data.expires_in * 1000)
 
-    return new AuthToken(data.access_token, data.refresh_token, expiresAt, data.token_type)
+    return new AuthToken(data.access_token, expiresAt, data.refresh_token, data.session_key, data.token_type)
   }
 }

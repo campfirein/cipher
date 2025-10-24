@@ -50,7 +50,7 @@ describe('LoginUseCase', () => {
       const authUrl = 'https://auth.example.com/authorize?state=abc123'
       const state = 'state-123'
       const authContext = {authUrl, state}
-      const token = new AuthToken('access', 'refresh', new Date(Date.now() + 3600 * 1000), 'Bearer')
+      const token = new AuthToken('access', new Date(Date.now() + 3600 * 1000), 'refresh', '', 'Bearer')
 
       callbackHandler.start.resolves(port)
       callbackHandler.getPort.returns(port)
@@ -82,7 +82,7 @@ describe('LoginUseCase', () => {
       const port = 3456
       const state = 'state-123'
       const authContext = {authUrl: 'https://auth.example.com/authorize', state}
-      const token = new AuthToken('access', 'refresh', new Date(Date.now() + 3600 * 1000), 'Bearer')
+      const token = new AuthToken('access', new Date(Date.now() + 3600 * 1000), 'refresh', '', 'Bearer')
       const expectedRedirectUri = `http://localhost:${port}/callback`
 
       callbackHandler.start.resolves(port)
@@ -112,7 +112,7 @@ describe('LoginUseCase', () => {
       const authUrl = 'https://auth.example.com/authorize?state=abc123'
       const state = 'state-123'
       const authContext = {authUrl, state}
-      const token = new AuthToken('access', 'refresh', new Date(Date.now() + 3600 * 1000), 'Bearer')
+      const token = new AuthToken('access', new Date(Date.now() + 3600 * 1000), 'refresh', '', 'Bearer')
 
       callbackHandler.start.resolves(port)
       callbackHandler.getPort.returns(port)
@@ -194,7 +194,7 @@ describe('LoginUseCase', () => {
       const authUrl = 'https://auth.example.com/authorize?state=generated-state'
       const state = 'generated-state'
       const authContext = {authUrl, state}
-      const token = new AuthToken('access', 'refresh', new Date(Date.now() + 3600 * 1000), 'Bearer')
+      const token = new AuthToken('access', new Date(Date.now() + 3600 * 1000), 'refresh', '', 'Bearer')
 
       callbackHandler.start.resolves(port)
       callbackHandler.getPort.returns(port)

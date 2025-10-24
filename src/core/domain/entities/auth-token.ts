@@ -8,14 +8,21 @@ export class AuthToken {
   public readonly accessToken: string
   public readonly expiresAt: Date
   public readonly refreshToken: string
+  public readonly sessionKey: string
   public readonly tokenType: string
 
-  // TODO: Do we need to store session_key?
-
-  public constructor(accessToken: string, refreshToken: string, expiresAt: Date, tokenType: string = 'Bearer') {
+  // eslint-disable-next-line max-params
+  public constructor(
+    accessToken: string,
+    expiresAt: Date,
+    refreshToken: string,
+    sessionKey: string,
+    tokenType: string = 'Bearer',
+  ) {
     this.accessToken = accessToken
     this.expiresAt = expiresAt
     this.refreshToken = refreshToken
+    this.sessionKey = sessionKey
     this.tokenType = tokenType
   }
 
@@ -25,7 +32,7 @@ export class AuthToken {
    * @returns An instance of AuthToken
    */
   public static fromJson(json: Record<string, string>): AuthToken {
-    return new AuthToken(json.accessToken, json.refreshToken, new Date(json.expiresAt), json.tokenType)
+    return new AuthToken(json.accessToken, new Date(json.expiresAt), json.refreshToken, json.sessionKey, json.tokenType)
   }
 
   /**
@@ -53,6 +60,7 @@ export class AuthToken {
       accessToken: this.accessToken,
       expiresAt: this.expiresAt.toISOString(),
       refreshToken: this.refreshToken,
+      sessionKey: this.sessionKey,
       tokenType: this.tokenType,
     }
   }

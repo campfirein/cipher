@@ -21,7 +21,8 @@ describe('auth:login command', () => {
   })
 
   it('should display success message on successful login', async () => {
-    const mockToken = new AuthToken('access-token', 'refresh-token', new Date(Date.now() + 3600 * 1000), 'Bearer')
+    // const mockToken = new AuthToken('access-token', 'refresh-token', new Date(Date.now() + 3600 * 1000), 'Bearer')
+    const mockToken = new AuthToken('access-token', new Date(Date.now() + 3600 * 1000), 'refresh-token', '', 'Bearer')
 
     // Stub server and use case
     sandbox.stub(CallbackHandler.prototype, 'start').resolves(3000)
@@ -62,7 +63,7 @@ describe('auth:login command', () => {
   })
 
   it('should display authUrl when browser fails to open', async () => {
-    const mockToken = new AuthToken('access-token', 'refresh-token', new Date(Date.now() + 3600 * 1000), 'Bearer')
+    const mockToken = new AuthToken('access-token', new Date(Date.now() + 3600 * 1000), 'refresh-token', '', 'Bearer')
     const authUrl = 'https://auth.example.com/authorize?state=abc123'
 
     // Stub server and use case
