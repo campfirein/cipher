@@ -8,6 +8,7 @@
   },
   "bugs": "https://github.com/campfirein/byterover-cli/issues",
   "dependencies": {
+    "@inquirer/prompts": "^7.9.0",
     "@oclif/core": "^4",
     "@oclif/plugin-help": "^6",
     "@oclif/plugin-plugins": "^5",
