@@ -101,6 +101,7 @@ Domain logic independent of frameworks and external dependencies.
   - `IOidcDiscoveryService` - OIDC discovery operations
   - `IHttpClient` - HTTP client abstraction for authenticated API requests
   - `ISpaceService` - Space-related operations (fetch user spaces)
+  - `IUserService` - User-related operations (fetch current user information)
 
 ### Infrastructure Layer (`src/infra/`)
 
@@ -132,6 +133,14 @@ Concrete implementations of core interfaces using external dependencies.
   - Uses `AuthenticatedHttpClient` internally for API requests
   - Requires both `accessToken` and `sessionKey` parameters
   - Maps API responses to domain entities (`Space`)
+
+- **`user/http-user-service.ts`** - User service implementation
+  - Implements `IUserService` interface
+  - Uses `AuthenticatedHttpClient` internally for API requests
+  - Calls `GET {apiBaseUrl}/user/me` endpoint to fetch current user information
+  - Requires both `accessToken` and `sessionKey` parameters
+  - Maps API responses to domain entities (`User`)
+  - Configuration: `{ apiBaseUrl: string, timeout?: number }`
 
 ### Configuration (`src/config/`)
 
@@ -228,13 +237,14 @@ class TestableMyCommand extends MyCommand {
   - Verify headers with `.matchHeader('authorization', ...)` and `.matchHeader('x-byterover-session-id', ...)`
   - See `test/unit/infra/http/authenticated-http-client.test.ts` for examples
 - **Service testing with authenticated requests**:
-  - Services using `AuthenticatedHttpClient` (like `HttpSpaceService`) are tested with `nock`
+  - Services using `AuthenticatedHttpClient` (like `HttpSpaceService`, `HttpUserService`) are tested with `nock`
   - Verify both `Authorization` and `x-byterover-session-id` headers are sent
   - Pass both `accessToken` and `sessionKey` to service methods
-  - See `test/unit/infra/space/http-space-service.test.ts` for reference
+  - See `test/unit/infra/space/http-space-service.test.ts` and `test/unit/infra/user/http-user-service.test.ts` for reference
 - **Stubs/Spies/Mocks**: Use `sinon` for behavior verification
-  - When mocking `ISpaceService` in command tests, verify both parameters are passed
+  - When mocking `ISpaceService` or `IUserService` in command tests, verify both parameters are passed
   - Example: `expect(spaceService.getSpaces.calledWith('access-token', 'session-key')).to.be.true`
+  - Example: `expect(userService.getCurrentUser.calledWith('access-token', 'session-key')).to.be.true`
 - **Test organization**:
   - `test/commands/` - Command integration tests
   - `test/unit/` - Unit tests mirroring `src/` structure
