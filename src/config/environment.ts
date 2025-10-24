@@ -14,6 +14,7 @@ export const ENVIRONMENT: Environment = (process.env.BR_ENV as Environment) ?? '
  * Environment-specific configuration.
  */
 type EnvironmentConfig = {
+  apiBaseUrl: string
   authorizationUrl: string
   clientId: string
   issuerUrl: string
@@ -27,6 +28,7 @@ type EnvironmentConfig = {
  */
 export const ENV_CONFIG: Record<Environment, EnvironmentConfig> = {
   development: {
+    apiBaseUrl: 'https://dev-beta-iam.byterover.dev/api/v1',
     authorizationUrl: 'https://dev-beta-iam.byterover.dev/api/v1/oidc/authorize',
     clientId: 'byterover-cli-client',
     issuerUrl: 'https://dev-beta-iam.byterover.dev/api/v1/oidc',
@@ -34,6 +36,7 @@ export const ENV_CONFIG: Record<Environment, EnvironmentConfig> = {
     tokenUrl: 'https://dev-beta-iam.byterover.dev/api/v1/oidc/token',
   },
   production: {
+    apiBaseUrl: 'https://prod-beta-iam.byterover.dev/api/v1',
     authorizationUrl: 'https://prod-beta-iam.byterover.dev/api/v1/oidc/authorize',
     clientId: 'byterover-cli-prod',
     issuerUrl: 'https://prod-beta-iam.byterover.dev/api/v1/oidc',

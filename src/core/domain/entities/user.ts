@@ -17,7 +17,7 @@ export class User {
    * @param json JSON object representing the User
    * @returns An instance of User
    */
-  public static fromJSON(json: Record<string, string>): User {
+  public static fromJson(json: Record<string, string>): User {
     return new User(json.email, json.id, json.name)
   }
 
@@ -25,7 +25,7 @@ export class User {
    * Convert the User instance to a JSON object.
    * @returns A JSON object representing the User
    */
-  public toJSON(): Record<string, string> {
+  public toJson(): Record<string, string> {
     return {
       email: this.email,
       id: this.id,

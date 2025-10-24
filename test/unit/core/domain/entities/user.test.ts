@@ -16,7 +16,7 @@ describe('User', () => {
   describe('toJSON', () => {
     it('should serialize user to JSON', () => {
       const user = new User('test@example.com', '123', 'Test User')
-      const json = user.toJSON()
+      const json = user.toJson()
 
       expect(json).to.deep.equal({
         email: 'test@example.com',
@@ -34,7 +34,7 @@ describe('User', () => {
         name: 'Test User',
       }
 
-      const user = User.fromJSON(json)
+      const user = User.fromJson(json)
 
       expect(user.id).to.equal('123')
       expect(user.email).to.equal('test@example.com')

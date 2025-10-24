@@ -27,7 +27,7 @@ export class KeychainTokenStore implements ITokenStore {
       }
 
       const deserialized = JSON.parse(data)
-      return AuthToken.fromJSON(deserialized)
+      return AuthToken.fromJson(deserialized)
     } catch {
       // Return undefined on any error (missing token, invalid JSON, keychain errors)
       return undefined

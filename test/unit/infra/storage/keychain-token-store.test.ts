@@ -24,7 +24,7 @@ describe('KeychainTokenStore', () => {
 
   describe('save', () => {
     it('should save token to keychain', async () => {
-      const token = new AuthToken('access-token', 'refresh-token', new Date(Date.now() + 3600 * 1000), 'Bearer')
+      const token = new AuthToken('access-token', new Date(Date.now() + 3600 * 1000), 'refresh-token', 'session-store-001', 'Bearer')
 
       // Simulate successful saving
       setPasswordStub.resolves()
@@ -39,11 +39,12 @@ describe('KeychainTokenStore', () => {
       const savedData = JSON.parse(setPasswordStub.firstCall.args[2])
       expect(savedData.accessToken).to.equal('access-token')
       expect(savedData.refreshToken).to.equal('refresh-token')
+      expect(savedData.sessionKey).to.equal('session-store-001')
       expect(savedData.tokenType).to.equal('Bearer')
     })
 
     it('should handle save errors gracefully', async () => {
-      const token = new AuthToken('access', 'refresh', new Date())
+      const token = new AuthToken('access', new Date(), 'refresh', 'session-store-002', 'Bearer')
       const errMsg = 'Keychain access denied'
       setPasswordStub.rejects(new Error(errMsg))
 
@@ -61,12 +62,14 @@ describe('KeychainTokenStore', () => {
       const accessToken = 'access-token'
       const refreshToken = 'refresh-token'
       const expiresAt = '2025-12-31T23:59:59.000Z'
+      const sessionKey = 'session-stored-token'
       const tokenType = 'Bearer'
 
       const tokenData = {
         accessToken,
         expiresAt,
         refreshToken,
+        sessionKey,
         tokenType,
       }
 
@@ -78,6 +81,7 @@ describe('KeychainTokenStore', () => {
       expect(loadedToken?.accessToken).to.equal(accessToken)
       expect(loadedToken?.refreshToken).to.equal(refreshToken)
       expect(loadedToken?.expiresAt.toISOString()).to.equal(expiresAt)
+      expect(loadedToken?.sessionKey).to.equal(sessionKey)
       expect(loadedToken?.tokenType).to.equal(tokenType)
     })
 
