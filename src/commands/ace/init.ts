@@ -4,8 +4,8 @@ import {InitializePlaybookUseCase} from '../../core/usecases/initialize-playbook
 import {FilePlaybookStore} from '../../infra/ace/file-playbook-store.js'
 
 export default class Init extends Command {
-  public static description = 'Initialize ACE playbook in .br/ace/'
-public static examples = [
+  public static description = 'Initialize local ACE context in .br/ace/ (managed by ByteRover CLI)'
+  public static examples = [
     '<%= config.bin %> <%= command.id %>',
   ]
 
@@ -15,13 +15,14 @@ public static examples = [
       const playbookStore = new FilePlaybookStore()
       const useCase = new InitializePlaybookUseCase(playbookStore)
 
-      this.log('Initializing ACE playbook...')
+      this.log('Setting up local ACE context (.br/ace/) managed by ByteRover CLI...')
 
       // Execute initialization
       const result = await useCase.execute()
 
       if (result.success) {
         this.log(`✓ ACE playbook initialized in ${result.playbookPath}`)
+        this.log('This creates a local project context that ByteRover CLI uses to manage ACE workflows.')
         this.log('\nDirectory structure created:')
         this.log('  .br/ace/')
         this.log('    ├── playbook.json')
