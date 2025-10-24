@@ -113,6 +113,7 @@ describe('OAuthService', () => {
           access_token: returnedAccessToken,
           expires_in: 3600,
           refresh_token: returnedRefreshToken,
+          session_key: 'session-oauth-123',
           token_type: returnedTokenType,
         })
 
@@ -145,6 +146,7 @@ describe('OAuthService', () => {
           access_token: 'token1',
           expires_in: 3600,
           refresh_token: 'refresh1',
+          session_key: 'session-oauth-context1',
           token_type: 'Bearer',
         })
 
@@ -161,6 +163,7 @@ describe('OAuthService', () => {
           access_token: 'token2',
           expires_in: 3600,
           refresh_token: 'refresh2',
+          session_key: 'session-oauth-context2',
           token_type: 'Bearer',
         })
 
@@ -187,6 +190,7 @@ describe('OAuthService', () => {
           access_token: 'access-token',
           expires_in: 3600,
           refresh_token: 'refresh-token',
+          session_key: 'session-oauth-param-redirect',
           token_type: 'Bearer',
         })
 
@@ -222,6 +226,7 @@ describe('OAuthService', () => {
         access_token: 'access-token',
         expires_in: 3600,
         refresh_token: 'refresh-token',
+        session_key: 'session-oauth-other-instance',
         token_type: 'Bearer',
       })
 
@@ -251,6 +256,7 @@ describe('OAuthService', () => {
           access_token: 'new-access-token',
           expires_in: 3600,
           refresh_token: 'new-refresh-token',
+          session_key: 'session-oauth-refreshed',
           token_type: 'Bearer',
         })
 
