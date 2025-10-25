@@ -71,7 +71,9 @@ You're ready to use ByteRover commands in your project!
 
 ## Agentic Context Engineering (ACE)
 
-**ACE** is a systematic workflow for coding agents (like Claude Code, Cursor, Aider, etc.) to capture their work, learn from feedback, and build cumulative knowledge in a living playbook.
+**ACE** is a systematic workflow for coding agents (like Claude Code, Cursor, etc.) to capture their work, learn from feedback, and build cumulative knowledge in a living playbook.
+
+This implementation is based on the research paper: [**Agentic Context Engineering: Evolving Contexts for Self-Improving Language Models**](https://arxiv.org/abs/2510.04618) by Dang et al., which introduces a framework for language models to iteratively improve their performance through structured context evolution.
 
 ### Why Use ACE?
 
