@@ -25,6 +25,41 @@ Command-line interface for ByteRover, enabling seamless project management, auth
 * [License](#license)
 <!-- tocstop -->
 
+## Development Testing
+
+Make sure you're on the `develop` branch.
+
+Build:
+
+```bash
+npm run build
+```
+
+In `./bin/run.js`, change `process.env.BR_ENV` to `'development'`.
+
+Run:
+
+```bash
+npm link
+```
+
+This will:
+
+- Create a **folder symlink** `<npm_global_prefix>/lib/node_modules/<package_name>`
+  which points to the **package's directory**.
+- Create a symlink for **the package's bin**
+  in
+  `<npm_global_prefix>/bin/<package_bin_command_or_package_name>`
+  which points to
+  `<npm_global_prefix>/lib/node_modules/<package_name>/<path_to_executable>`.
+- Register the package as being globally installed.
+
+Once testing is done, the package can be "unlink" by:
+
+```bash
+npm uninstall -g package-name
+```
+
 ## Installation
 
 ### Requirements
