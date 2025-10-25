@@ -36,7 +36,13 @@ export async function loadExecutorOutput(filePath: string): Promise<ExecutorOutp
   const content = await readFile(filePath, 'utf8')
   const json = JSON.parse(content) as ExecutorOutputJson
 
-  return new ExecutorOutput(json.reasoning, json.finalAnswer, json.bulletIds, json.toolUsage)
+  return new ExecutorOutput({
+    bulletIds: json.bulletIds,
+    finalAnswer: json.finalAnswer,
+    hint: json.hint || '',
+    reasoning: json.reasoning,
+    toolUsage: json.toolUsage,
+  })
 }
 
 /**

@@ -10,7 +10,7 @@ export default class ExecutorStart extends Command {
       required: true,
     }),
   }
-  public static description = 'Start an executor task and generate a prompt for the agent'
+  public static description = 'Start given coding task with the possibility to get context from the current playbook using the -p flag'
   public static examples = [
     '<%= config.bin %> <%= command.id %> "Add user authentication"',
     '<%= config.bin %> <%= command.id %> "Fix validation bug" --with-playbook',
@@ -56,7 +56,12 @@ After completing the task, you MUST provide your output in the following JSON fo
   "reasoning": "Your detailed reasoning and approach for completing the task",
   "finalAnswer": "The final solution/answer to the task",
   "bulletIds": ["bullet-id-1", "bullet-id-2"],
-  "toolUsage": ["tool1", "tool2", "command3"]
+  "toolUsage": [
+    "Read:src/auth/login.ts",
+    "Grep:pattern:\\"validateToken\\"",
+    "Edit:src/auth/login.ts",
+    "Bash:npm test"
+  ]
 }
 \`\`\`
 
@@ -64,7 +69,18 @@ After completing the task, you MUST provide your output in the following JSON fo
 - \`reasoning\`: Explain your thought process, decisions, and approach (required)
 - \`finalAnswer\`: The complete solution or answer to the task (required)
 - \`bulletIds\`: Array of playbook bullet IDs you referenced (empty array if none)
-- \`toolUsage\`: Array of tools/commands/technologies used (e.g., ["git", "npm", "TypeScript"])
+- \`toolUsage\`: Array of tool calls with key arguments as a coding agent (required)
+  - **Format**: \`"ToolName:argument-description"\`
+  - Include the tool name and the primary argument/parameter used
+  - **Examples by tool type**:
+    - File operations: \`"Read:src/auth.ts"\`, \`"Write:src/new.ts"\`, \`"Edit:src/config.ts"\`
+    - File search: \`"Grep:pattern:\\"error\\""\`, \`"Glob:pattern:\\"**/*.test.ts\\""\`
+    - Execution: \`"Bash:npm test"\`, \`"Bash:git status"\`
+    - Web: \`"WebSearch:query:\\"OAuth best practices\\""\`
+    - Tasks: \`"Task:description:\\"find all imports\\""\`
+  - Keep arguments concise but descriptive
+  - Use escaped quotes for multi-word arguments: \`"Bash:git commit -m \\"message\\""\`
+  - Empty array if you didn't use any tools
 
 **IMPORTANT**: Your response must be valid JSON matching this structure exactly.
 
@@ -73,19 +89,25 @@ After completing the task, you MUST provide your output in the following JSON fo
 Once you have finished the task and generated the output JSON, you MUST save it by running:
 
 \`\`\`bash
-br ace executor save '<reasoning>' '<finalAnswer>' --bullet-ids 'id1,id2' --tool-usage 'tool1,tool2'
+br ace executor save '<hint>' '<reasoning>' '<finalAnswer>' --bullet-ids 'id1,id2' --tool-usage 'tool1,tool2'
 \`\`\`
 
 Replace the placeholders with your actual output values:
+- \`<hint>\`: A short, descriptive hint for the filename (e.g., "user-auth", "bug-fix", "search-feature")
+  - Use lowercase letters, numbers, and hyphens only
+  - Keep it concise (2-4 words max)
+  - This helps organize and search executor outputs later
 - \`<reasoning>\`: Your reasoning text (use quotes if it contains spaces)
 - \`<finalAnswer>\`: Your final answer text (use quotes if it contains spaces)
 - \`--bullet-ids\`: Comma-separated list of bullet IDs you referenced
-- \`--tool-usage\`: Comma-separated list of tools/technologies used
+- \`--tool-usage\`: Comma-separated list of tool calls with arguments (format: "ToolName:argument")
 
 Example:
 \`\`\`bash
-br ace executor save 'Used TypeScript strict mode and followed existing patterns' 'Successfully implemented user authentication with JWT tokens' --bullet-ids 'bullet-123,bullet-456' --tool-usage 'TypeScript,JWT,bcrypt'
+br ace executor save 'user-authentication' 'Used TypeScript strict mode and followed existing patterns' 'Successfully implemented user authentication with JWT tokens' --bullet-ids 'bullet-123,bullet-456' --tool-usage 'Read:src/auth.ts,Grep:pattern:"validateToken",Edit:src/auth.ts,Bash:npm test'
 \`\`\`
+
+The output will be saved as: \`executor-user-authentication-2025-01-24T10-30-00.json\`
 `
   }
 

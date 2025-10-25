@@ -1,8 +1,17 @@
 export interface ExecutorOutputJson {
   bulletIds: string[]
   finalAnswer: string
+  hint: string
   reasoning: string
   toolUsage: string[]
+}
+
+export interface ExecutorOutputOptions {
+  bulletIds?: string[]
+  finalAnswer: string
+  hint: string
+  reasoning: string
+  toolUsage?: string[]
 }
 
 /**
@@ -12,28 +21,31 @@ export interface ExecutorOutputJson {
 export class ExecutorOutput {
   public readonly bulletIds: string[]
   public readonly finalAnswer: string
+  public readonly hint: string
   public readonly reasoning: string
   public readonly toolUsage: string[]
 
-  public constructor(reasoning: string, finalAnswer: string, bulletIds: string[], toolUsage: string[]) {
-    if (reasoning.trim().length === 0) {
+  public constructor(options: ExecutorOutputOptions) {
+    if (options.reasoning.trim().length === 0) {
       throw new Error('Executor reasoning cannot be empty')
     }
 
-    if (finalAnswer.trim().length === 0) {
+    if (options.finalAnswer.trim().length === 0) {
       throw new Error('Executor final answer cannot be empty')
     }
 
-    this.reasoning = reasoning
-    this.finalAnswer = finalAnswer
-    this.bulletIds = [...bulletIds]
-    this.toolUsage = [...toolUsage]
+    this.hint = options.hint
+    this.reasoning = options.reasoning
+    this.finalAnswer = options.finalAnswer
+    this.bulletIds = [...(options.bulletIds ?? [])]
+    this.toolUsage = [...(options.toolUsage ?? [])]
   }
   
   public toJson(): ExecutorOutputJson {
     return {
       bulletIds: this.bulletIds,
       finalAnswer: this.finalAnswer,
+      hint: this.hint,
       reasoning: this.reasoning,
       toolUsage: this.toolUsage,
     }

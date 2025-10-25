@@ -21,16 +21,16 @@ describe('ace:executor:save', () => {
     sandbox.restore()
   })
 
-  it('should save executor output with reasoning and final answer', async () => {
+  it('should save executor output with hint, reasoning and final answer', async () => {
     const command = new ExecutorSave(
-      ['Used clean architecture principles', 'Successfully implemented authentication feature'],
+      ['user-auth', 'Used clean architecture principles', 'Successfully implemented authentication feature'],
       config,
     )
     const logSpy = sandbox.spy(command, 'log')
 
     // Stub SaveExecutorOutputUseCase
     const saveStub = sandbox.stub(SaveExecutorOutputUseCase.prototype, 'execute').resolves({
-      filePath: '.br/ace/executor-outputs/executor-2025-01-01T00-00-00.json',
+      filePath: '.br/ace/executor-outputs/executor-user-auth-2025-01-01T00-00-00.json',
       success: true,
     })
 
@@ -39,6 +39,7 @@ describe('ace:executor:save', () => {
     // Verify use case was called with correct data
     expect(saveStub.calledOnce).to.be.true
     const executorOutput = saveStub.firstCall.args[0]
+    expect(executorOutput.hint).to.equal('user-auth')
     expect(executorOutput.reasoning).to.equal('Used clean architecture principles')
     expect(executorOutput.finalAnswer).to.equal('Successfully implemented authentication feature')
     expect(executorOutput.bulletIds).to.deep.equal([])
@@ -52,6 +53,7 @@ describe('ace:executor:save', () => {
   it('should save with bullet IDs when provided', async () => {
     const command = new ExecutorSave(
       [
+        'validation-fix',
         'Analyzed the codebase',
         'Fixed validation bug',
         '--bullet-ids',
@@ -61,145 +63,155 @@ describe('ace:executor:save', () => {
     )
 
     const saveStub = sandbox.stub(SaveExecutorOutputUseCase.prototype, 'execute').resolves({
-      filePath: '.br/ace/executor-outputs/executor-test.json',
+      filePath: '.br/ace/executor-outputs/executor-validation-fix-test.json',
       success: true,
     })
 
     await command.run()
 
     const executorOutput = saveStub.firstCall.args[0]
+    expect(executorOutput.hint).to.equal('validation-fix')
     expect(executorOutput.bulletIds).to.deep.equal(['bullet-123', 'bullet-456', 'bullet-789'])
   })
 
   it('should save with tool usage when provided', async () => {
     const command = new ExecutorSave(
       [
+        'search-feature',
         'Followed best practices',
         'Implemented search functionality',
         '--tool-usage',
-        'TypeScript,Jest,ESLint',
+        'Read:src/search.ts,Grep:pattern:"search",Edit:src/search.ts',
       ],
       config,
     )
 
     const saveStub = sandbox.stub(SaveExecutorOutputUseCase.prototype, 'execute').resolves({
-      filePath: '.br/ace/executor-outputs/executor-test.json',
+      filePath: '.br/ace/executor-outputs/executor-search-feature-test.json',
       success: true,
     })
 
     await command.run()
 
     const executorOutput = saveStub.firstCall.args[0]
-    expect(executorOutput.toolUsage).to.deep.equal(['TypeScript', 'Jest', 'ESLint'])
+    expect(executorOutput.hint).to.equal('search-feature')
+    expect(executorOutput.toolUsage).to.deep.equal(['Read:src/search.ts', 'Grep:pattern:"search"', 'Edit:src/search.ts'])
   })
 
   it('should save with both bullet IDs and tool usage', async () => {
     const command = new ExecutorSave(
       [
+        'refactor-user-service',
         'Applied clean code principles',
         'Refactored user service',
         '--bullet-ids',
         'bullet-001,bullet-002',
         '--tool-usage',
-        'TypeScript,Mocha,Sinon',
+        'Read:src/user-service.ts,Edit:src/user-service.ts,Bash:npm test',
       ],
       config,
     )
 
     const saveStub = sandbox.stub(SaveExecutorOutputUseCase.prototype, 'execute').resolves({
-      filePath: '.br/ace/executor-outputs/executor-test.json',
+      filePath: '.br/ace/executor-outputs/executor-refactor-user-service-test.json',
       success: true,
     })
 
     await command.run()
 
     const executorOutput = saveStub.firstCall.args[0]
+    expect(executorOutput.hint).to.equal('refactor-user-service')
     expect(executorOutput.bulletIds).to.deep.equal(['bullet-001', 'bullet-002'])
-    expect(executorOutput.toolUsage).to.deep.equal(['TypeScript', 'Mocha', 'Sinon'])
+    expect(executorOutput.toolUsage).to.deep.equal(['Read:src/user-service.ts', 'Edit:src/user-service.ts', 'Bash:npm test'])
   })
 
   it('should use short flags -b and -t', async () => {
     const command = new ExecutorSave(
-      ['Reasoning text', 'Final answer text', '-b', 'bullet-111', '-t', 'Git,npm'],
+      ['test-hint', 'Reasoning text', 'Final answer text', '-b', 'bullet-111', '-t', 'Read:src/file.ts,Bash:npm test'],
       config,
     )
 
     const saveStub = sandbox.stub(SaveExecutorOutputUseCase.prototype, 'execute').resolves({
-      filePath: '.br/ace/executor-outputs/executor-test.json',
+      filePath: '.br/ace/executor-outputs/executor-test-hint-test.json',
       success: true,
     })
 
     await command.run()
 
     const executorOutput = saveStub.firstCall.args[0]
+    expect(executorOutput.hint).to.equal('test-hint')
     expect(executorOutput.bulletIds).to.deep.equal(['bullet-111'])
-    expect(executorOutput.toolUsage).to.deep.equal(['Git', 'npm'])
+    expect(executorOutput.toolUsage).to.deep.equal(['Read:src/file.ts', 'Bash:npm test'])
   })
 
   it('should handle empty bullet IDs list', async () => {
-    const command = new ExecutorSave(['Reasoning', 'Answer', '--bullet-ids', ''], config)
+    const command = new ExecutorSave(['hint', 'Reasoning', 'Answer', '--bullet-ids', ''], config)
 
     const saveStub = sandbox.stub(SaveExecutorOutputUseCase.prototype, 'execute').resolves({
-      filePath: '.br/ace/executor-outputs/executor-test.json',
+      filePath: '.br/ace/executor-outputs/executor-hint-test.json',
       success: true,
     })
 
     await command.run()
 
     const executorOutput = saveStub.firstCall.args[0]
+    expect(executorOutput.hint).to.equal('hint')
     expect(executorOutput.bulletIds).to.deep.equal([])
   })
 
   it('should handle empty tool usage list', async () => {
-    const command = new ExecutorSave(['Reasoning', 'Answer', '--tool-usage', ''], config)
+    const command = new ExecutorSave(['hint', 'Reasoning', 'Answer', '--tool-usage', ''], config)
 
     const saveStub = sandbox.stub(SaveExecutorOutputUseCase.prototype, 'execute').resolves({
-      filePath: '.br/ace/executor-outputs/executor-test.json',
+      filePath: '.br/ace/executor-outputs/executor-hint-test.json',
       success: true,
     })
 
     await command.run()
 
     const executorOutput = saveStub.firstCall.args[0]
+    expect(executorOutput.hint).to.equal('hint')
     expect(executorOutput.toolUsage).to.deep.equal([])
   })
 
   it('should trim whitespace from bullet IDs', async () => {
     const command = new ExecutorSave(
-      ['Reasoning', 'Answer', '--bullet-ids', ' bullet-1 , bullet-2 , bullet-3 '],
+      ['hint', 'Reasoning', 'Answer', '--bullet-ids', ' bullet-1 , bullet-2 , bullet-3 '],
       config,
     )
 
     const saveStub = sandbox.stub(SaveExecutorOutputUseCase.prototype, 'execute').resolves({
-      filePath: '.br/ace/executor-outputs/executor-test.json',
+      filePath: '.br/ace/executor-outputs/executor-hint-test.json',
       success: true,
     })
 
     await command.run()
 
     const executorOutput = saveStub.firstCall.args[0]
+    expect(executorOutput.hint).to.equal('hint')
     expect(executorOutput.bulletIds).to.deep.equal(['bullet-1', 'bullet-2', 'bullet-3'])
   })
 
   it('should trim whitespace from tool usage', async () => {
     const command = new ExecutorSave(
-      ['Reasoning', 'Answer', '--tool-usage', ' TypeScript , Jest , ESLint '],
+      ['hint', 'Reasoning', 'Answer', '--tool-usage', ' Read:src/file.ts , Grep:pattern:"test" , Edit:src/file.ts '],
       config,
     )
 
     const saveStub = sandbox.stub(SaveExecutorOutputUseCase.prototype, 'execute').resolves({
-      filePath: '.br/ace/executor-outputs/executor-test.json',
+      filePath: '.br/ace/executor-outputs/executor-hint-test.json',
       success: true,
     })
 
     await command.run()
 
     const executorOutput = saveStub.firstCall.args[0]
-    expect(executorOutput.toolUsage).to.deep.equal(['TypeScript', 'Jest', 'ESLint'])
+    expect(executorOutput.hint).to.equal('hint')
+    expect(executorOutput.toolUsage).to.deep.equal(['Read:src/file.ts', 'Grep:pattern:"test"', 'Edit:src/file.ts'])
   })
 
   it('should error when save use case fails', async () => {
-    const command = new ExecutorSave(['Reasoning', 'Answer'], config)
+    const command = new ExecutorSave(['hint', 'Reasoning', 'Answer'], config)
 
     // Stub SaveExecutorOutputUseCase to fail
     sandbox.stub(SaveExecutorOutputUseCase.prototype, 'execute').resolves({
@@ -217,7 +229,7 @@ describe('ace:executor:save', () => {
   })
 
   it('should error when reasoning is empty', async () => {
-    const command = new ExecutorSave(['', 'Valid answer'], config)
+    const command = new ExecutorSave(['hint', '', 'Valid answer'], config)
 
     try {
       await command.run()
@@ -229,7 +241,7 @@ describe('ace:executor:save', () => {
   })
 
   it('should error when final answer is empty', async () => {
-    const command = new ExecutorSave(['Valid reasoning', ''], config)
+    const command = new ExecutorSave(['hint', 'Valid reasoning', ''], config)
 
     try {
       await command.run()
@@ -242,11 +254,11 @@ describe('ace:executor:save', () => {
 
   it('should display summary with truncated reasoning when too long', async () => {
     const longReasoning = 'A'.repeat(100)
-    const command = new ExecutorSave([longReasoning, 'Answer'], config)
+    const command = new ExecutorSave(['hint', longReasoning, 'Answer'], config)
     const logSpy = sandbox.spy(command, 'log')
 
     sandbox.stub(SaveExecutorOutputUseCase.prototype, 'execute').resolves({
-      filePath: '.br/ace/executor-outputs/executor-test.json',
+      filePath: '.br/ace/executor-outputs/executor-hint-test.json',
       success: true,
     })
 
@@ -262,11 +274,11 @@ describe('ace:executor:save', () => {
 
   it('should display summary with truncated final answer when too long', async () => {
     const longAnswer = 'B'.repeat(100)
-    const command = new ExecutorSave(['Reasoning', longAnswer], config)
+    const command = new ExecutorSave(['hint', 'Reasoning', longAnswer], config)
     const logSpy = sandbox.spy(command, 'log')
 
     sandbox.stub(SaveExecutorOutputUseCase.prototype, 'execute').resolves({
-      filePath: '.br/ace/executor-outputs/executor-test.json',
+      filePath: '.br/ace/executor-outputs/executor-hint-test.json',
       success: true,
     })
 
@@ -282,13 +294,13 @@ describe('ace:executor:save', () => {
 
   it('should display referenced bullets in summary', async () => {
     const command = new ExecutorSave(
-      ['Reasoning', 'Answer', '--bullet-ids', 'bullet-123,bullet-456'],
+      ['hint', 'Reasoning', 'Answer', '--bullet-ids', 'bullet-123,bullet-456'],
       config,
     )
     const logSpy = sandbox.spy(command, 'log')
 
     sandbox.stub(SaveExecutorOutputUseCase.prototype, 'execute').resolves({
-      filePath: '.br/ace/executor-outputs/executor-test.json',
+      filePath: '.br/ace/executor-outputs/executor-hint-test.json',
       success: true,
     })
 
@@ -298,16 +310,16 @@ describe('ace:executor:save', () => {
   })
 
   it('should display tools used in summary', async () => {
-    const command = new ExecutorSave(['Reasoning', 'Answer', '--tool-usage', 'Git,npm,TypeScript'], config)
+    const command = new ExecutorSave(['hint', 'Reasoning', 'Answer', '--tool-usage', 'Read:src/main.ts,Grep:pattern:"import",WebSearch:query:"best practices"'], config)
     const logSpy = sandbox.spy(command, 'log')
 
     sandbox.stub(SaveExecutorOutputUseCase.prototype, 'execute').resolves({
-      filePath: '.br/ace/executor-outputs/executor-test.json',
+      filePath: '.br/ace/executor-outputs/executor-hint-test.json',
       success: true,
     })
 
     await command.run()
 
-    expect(logSpy.calledWith(sinon.match(/Tools Used: Git, npm, TypeScript/))).to.be.true
+    expect(logSpy.calledWith(sinon.match(/Tools Used: Read:src\/main\.ts, Grep:pattern:"import", WebSearch:query:"best practices"/))).to.be.true
   })
 })

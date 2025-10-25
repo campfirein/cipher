@@ -6,6 +6,10 @@ import {SaveExecutorOutputUseCase} from '../../../core/usecases/save-executor-ou
 export default class ExecutorSave extends Command {
   /* eslint-disable perfectionist/sort-objects */
   public static args = {
+    hint: Args.string({
+      description: 'Short hint for naming the output file (e.g., "user-auth", "bug-fix")',
+      required: true,
+    }),
     reasoning: Args.string({
       description: 'Reasoning and approach for completing the task',
       required: true,
@@ -16,11 +20,11 @@ export default class ExecutorSave extends Command {
     }),
   }
   /* eslint-enable perfectionist/sort-objects */
-  public static description = 'Save executor output after completing a task'
+  public static description = 'Save output from the executor (the coding agent) phase'
   public static examples = [
-    '<%= config.bin %> <%= command.id %> "Used TypeScript strict mode" "Successfully implemented authentication"',
-    '<%= config.bin %> <%= command.id %> "Analyzed the codebase" "Fixed the validation bug" --bullet-ids "bullet-123,bullet-456"',
-    '<%= config.bin %> <%= command.id %> "Followed clean architecture" "Added search feature" --bullet-ids "bullet-789" --tool-usage "TypeScript,Jest,ESLint"',
+    '<%= config.bin %> <%= command.id %> "user-auth" "Used TypeScript strict mode" "Successfully implemented authentication" --tool-usage "Read:src/auth.ts,Edit:src/auth.ts,Bash:npm test"',
+    String.raw`<%= config.bin %> <%= command.id %> "validation-fix" "Analyzed the codebase" "Fixed the validation bug" --bullet-ids "bullet-123,bullet-456" --tool-usage "Grep:pattern:\"validate\",Read:src/validator.ts"`,
+    '<%= config.bin %> <%= command.id %> "search-feature" "Followed clean architecture" "Added search feature" --bullet-ids "bullet-789" --tool-usage "Read:src/search.ts,Write:src/search-index.ts,Bash:npm run build"',
   ]
   public static flags = {
     'bullet-ids': Flags.string({
@@ -31,7 +35,7 @@ export default class ExecutorSave extends Command {
     'tool-usage': Flags.string({
       char: 't',
       default: '',
-      description: 'Comma-separated list of tools/technologies used',
+      description: 'Comma-separated list of tool calls with arguments (format: "ToolName:argument", e.g., "Read:src/file.ts,Bash:npm test")',
     }),
   }
 
@@ -51,7 +55,13 @@ export default class ExecutorSave extends Command {
         .filter((tool) => tool.length > 0)
 
       // Create ExecutorOutput entity (will validate inputs)
-      const executorOutput = new ExecutorOutput(args.reasoning, args.finalAnswer, bulletIds, toolUsage)
+      const executorOutput = new ExecutorOutput({
+        bulletIds,
+        finalAnswer: args.finalAnswer,
+        hint: args.hint,
+        reasoning: args.reasoning,
+        toolUsage,
+      })
 
       // Save using use case
       const saveUseCase = new SaveExecutorOutputUseCase()
@@ -66,6 +76,7 @@ export default class ExecutorSave extends Command {
       this.log(`  Saved to: ${result.filePath}`)
       this.log('')
       this.log('Summary:')
+      this.log(`  Hint: ${args.hint}`)
       this.log(`  Reasoning: ${args.reasoning.slice(0, 80)}${args.reasoning.length > 80 ? '...' : ''}`)
       this.log(
         `  Final Answer: ${args.finalAnswer.slice(0, 80)}${args.finalAnswer.length > 80 ? '...' : ''}`,

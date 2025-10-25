@@ -11,7 +11,7 @@ export interface SaveExecutorOutputResult {
 
 /**
  * Use case for saving executor output to disk.
- * Stores output in .br/ace/executor-outputs/{timestamp}.json
+ * Stores output in .br/ace/executor-outputs/executor-{hint}-{timestamp}.json
  */
 export class SaveExecutorOutputUseCase {
   private static readonly ACE_DIR = 'ace'
@@ -34,9 +34,12 @@ export class SaveExecutorOutputUseCase {
       // Ensure directory exists
       await mkdir(outputDir, {recursive: true})
 
-      // Generate filename with timestamp
+      // Generate filename with hint and timestamp
       const timestamp = new Date().toISOString().replaceAll(':', '-')
-      const filename = `executor-${timestamp}.json`
+      const sanitizedHint = this.sanitizeHint(executorOutput.hint)
+      const filename = sanitizedHint
+        ? `executor-${sanitizedHint}-${timestamp}.json`
+        : `executor-${timestamp}.json`
       const filePath = join(outputDir, filename)
 
       // Serialize and save
@@ -53,5 +56,19 @@ export class SaveExecutorOutputUseCase {
         success: false,
       }
     }
+  }
+
+  /**
+   * Sanitize hint for use in filename.
+   * Converts to lowercase, replaces spaces/underscores with hyphens,
+   * removes all non-alphanumeric characters except hyphens.
+   */
+  private sanitizeHint(hint: string): string {
+    return hint
+      .toLowerCase()
+      .replaceAll(/[\s_]+/g, '-')
+      .replaceAll(/[^\da-z-]/g, '')
+      .replaceAll(/-+/g, '-')
+      .replaceAll(/^-|-$/g, '')
   }
 }

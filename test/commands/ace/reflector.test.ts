@@ -33,12 +33,13 @@ describe('ace:reflector', () => {
       const logSpy = sandbox.spy(command, 'log')
 
       // Mock executor output
-      const executorOutput = new ExecutorOutput(
-        'Used TypeScript strict mode',
-        'Successfully implemented authentication',
-        ['bullet-123'],
-        ['TypeScript', 'JWT'],
-      )
+      const executorOutput = new ExecutorOutput({
+        bulletIds: ['bullet-123'],
+        finalAnswer: 'Successfully implemented authentication',
+        hint: 'user-auth',
+        reasoning: 'Used TypeScript strict mode',
+        toolUsage: ['TypeScript', 'JWT'],
+      })
 
       // Mock playbook
       const playbook = new Playbook()
@@ -124,7 +125,13 @@ describe('ace:reflector', () => {
       const logSpy = sandbox.spy(command, 'log')
 
       // Mock executor output and playbook
-      const executorOutput = new ExecutorOutput('Reasoning', 'Answer', [], [])
+      const executorOutput = new ExecutorOutput({
+        bulletIds: [],
+        finalAnswer: 'Answer',
+        hint: '',
+        reasoning: 'Reasoning',
+        toolUsage: [],
+      })
       const playbook = new Playbook()
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -178,7 +185,13 @@ describe('ace:reflector', () => {
     it('should error when playbook not found', async () => {
       const command = new Reflector(['Feedback'], config)
 
-      const executorOutput = new ExecutorOutput('Reasoning', 'Answer', [], [])
+      const executorOutput = new ExecutorOutput({
+        bulletIds: [],
+        finalAnswer: 'Answer',
+        hint: '',
+        reasoning: 'Reasoning',
+        toolUsage: [],
+      })
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       sandbox.stub(command, 'findLatestExecutorFile' as any).resolves('/path/to/executor.json')
@@ -202,7 +215,13 @@ describe('ace:reflector', () => {
     it('should error when reflection prompt generation fails', async () => {
       const command = new Reflector(['Feedback'], config)
 
-      const executorOutput = new ExecutorOutput('Reasoning', 'Answer', [], [])
+      const executorOutput = new ExecutorOutput({
+        bulletIds: [],
+        finalAnswer: 'Answer',
+        hint: '',
+        reasoning: 'Reasoning',
+        toolUsage: [],
+      })
       const playbook = new Playbook()
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -233,7 +252,13 @@ describe('ace:reflector', () => {
     it('should error when reflection JSON parsing fails', async () => {
       const command = new Reflector(['Feedback'], config)
 
-      const executorOutput = new ExecutorOutput('Reasoning', 'Answer', [], [])
+      const executorOutput = new ExecutorOutput({
+        bulletIds: [],
+        finalAnswer: 'Answer',
+        hint: '',
+        reasoning: 'Reasoning',
+        toolUsage: [],
+      })
       const playbook = new Playbook()
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -273,7 +298,13 @@ describe('ace:reflector', () => {
     it('should error when applying tags to playbook fails', async () => {
       const command = new Reflector(['Feedback'], config)
 
-      const executorOutput = new ExecutorOutput('Reasoning', 'Answer', [], [])
+      const executorOutput = new ExecutorOutput({
+        bulletIds: [],
+        finalAnswer: 'Answer',
+        hint: '',
+        reasoning: 'Reasoning',
+        toolUsage: [],
+      })
       const playbook = new Playbook()
       const reflection = new ReflectorOutput({
         bulletTags: [],
@@ -326,7 +357,13 @@ describe('ace:reflector', () => {
     it('should error when stdin contains invalid JSON', async () => {
       const command = new Reflector(['Feedback'], config)
 
-      const executorOutput = new ExecutorOutput('Reasoning', 'Answer', [], [])
+      const executorOutput = new ExecutorOutput({
+        bulletIds: [],
+        finalAnswer: 'Answer',
+        hint: '',
+        reasoning: 'Reasoning',
+        toolUsage: [],
+      })
       const playbook = new Playbook()
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -378,7 +415,13 @@ describe('ace:reflector', () => {
       const logSpy = sandbox.spy(command, 'log')
 
       // Mock all dependencies to succeed
-      const executorOutput = new ExecutorOutput('Reasoning', 'Answer', [], [])
+      const executorOutput = new ExecutorOutput({
+        bulletIds: [],
+        finalAnswer: 'Answer',
+        hint: '',
+        reasoning: 'Reasoning',
+        toolUsage: [],
+      })
       const playbook = new Playbook()
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
