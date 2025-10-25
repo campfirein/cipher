@@ -8,6 +8,7 @@
   },
   "bugs": "https://github.com/campfirein/byterover-cli/issues",
   "dependencies": {
+    "@inquirer/prompts": "^7.9.0",
     "@oclif/core": "^4",
     "@oclif/plugin-help": "^6",
     "@oclif/plugin-plugins": "^5",
@@ -62,8 +63,11 @@
     ],
     "topicSeparator": " ",
     "topics": {
-      "hello": {
-        "description": "Say hello to the world and others"
+      "ace": {
+        "description": "Agentic Context Engineering (ACE) workflow for building and maintaining contextual knowledge"
+      },
+      "ace:executor": {
+        "description": "Execute the given task with the option to get context from the current playbook"
       }
     }
   },

@@ -13,6 +13,7 @@ Command-line interface for ByteRover, enabling seamless project management, auth
 <!-- toc -->
 * [Installation](#installation)
 * [Quick Start](#quick-start)
+* [Agentic Context Engineering (ACE)](#agentic-context-engineering-ace)
 * [Authentication](#authentication)
 * [Usage](#usage)
 * [Commands](#commands)
@@ -102,6 +103,85 @@ Select a workspace from your available spaces and configure your project.
 ### 3. Start using ByteRover
 
 You're ready to use ByteRover commands in your project!
+
+## Agentic Context Engineering (ACE)
+
+**ACE** is a systematic workflow for coding agents (like Claude Code, Cursor, etc.) to capture their work, learn from feedback, and build cumulative knowledge in a living playbook.
+
+This implementation is based on the research paper: [**Agentic Context Engineering: Evolving Contexts for Self-Improving Language Models**](https://arxiv.org/abs/2510.04618) by Dang et al., which introduces a framework for language models to iteratively improve their performance through structured context evolution.
+
+### Why Use ACE?
+
+- **Build Knowledge**: Each task completed by an agent teaches the system
+- **Learn from Experience**: Capture both successes and failures as insights
+- **Context Persistence**: Maintain project-specific best practices that improve over time
+- **Traceability**: Track what worked, what didn't, and why
+
+### The ACE Workflow
+
+ACE follows a 3-phase cycle:
+
+1. **Executor** - Agent performs coding task and saves output with detailed context
+2. **Reflector** - Agent analyzes results and provides honest feedback
+3. **Curator** - Agent transforms insights into playbook updates (automatically applied)
+
+### Quick ACE Example
+
+```bash
+# 1. Start a task
+br ace executor start "Add user authentication" --with-playbook
+
+# 2. After coding, save your work
+br ace executor save "auth-feature" \
+  "Implemented JWT authentication" \
+  "Successfully added secure auth" \
+  --tool-usage "Read:src/auth.ts,Edit:src/auth.ts,Bash:npm test"
+
+# 3. Provide feedback
+br ace reflector "All tests passed, auth works correctly"
+
+# 4. Update playbook with insights
+br ace curator
+```
+
+### For Coding Agents
+
+**📘 Complete ACE Guide**: See [docs/ACE_AGENT_GUIDE.md](docs/ACE_AGENT_GUIDE.md) for comprehensive instructions on using ACE in your development workflow.
+
+**Copy these instructions to your agent** (Claude Code, Cursor, Aider, etc.) to enable systematic learning and knowledge building. The guide includes:
+
+- Complete workflow with all commands and flags
+- JSON formats for reflections and delta operations
+- Best practices for hint-based file naming
+- Examples for common development scenarios
+
+### ACE Commands
+
+```bash
+br ace executor start <task> [--with-playbook]     # Start task with optional playbook context
+br ace executor save <hint> <reasoning> <answer>   # Save work with --bullet-ids and --tool-usage
+br ace reflector <feedback>                        # Analyze results (paste reflection JSON)
+br ace curator [--reflection file.json]            # Update playbook (paste delta JSON)
+br ace show [--format json]                        # View current playbook
+br ace stats                                       # View playbook statistics
+br ace apply-delta [file.json]                     # Manually apply delta operations
+br ace clear [--yes]                               # Reset playbook
+```
+
+### File Organization
+
+ACE stores all outputs in `.br/ace/` with hint-based naming for traceability:
+
+```
+.br/ace/
+├── playbook.json                                    # Living knowledge base
+├── executor-outputs/
+│   └── executor-{hint}-{timestamp}.json            # Your coding work
+├── reflections/
+│   └── reflection-{hint}-{timestamp}.json          # Analysis and feedback
+└── deltas/
+    └── delta-{hint}-{timestamp}.json               # Playbook updates
+```
 
 ## Authentication
 
