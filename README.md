@@ -28,6 +28,12 @@ Command-line interface for ByteRover, enabling seamless project management, auth
 
 Make sure you're on the `develop` branch.
 
+Build:
+
+```bash
+npm run build
+```
+
 In `./bin/run.js`, change `process.env.BR_ENV` to `'development'`.
 
 Run:
