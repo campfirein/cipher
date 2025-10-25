@@ -65,6 +65,9 @@
     "topics": {
       "ace": {
         "description": "Agentic Context Engineering (ACE) workflow for building and maintaining contextual knowledge"
+      },
+      "ace:executor": {
+        "description": "Execute the given task with the option to get context from the current playbook"
       }
     }
   },
