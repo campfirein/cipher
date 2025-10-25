@@ -1,4 +1,6 @@
 import {expect} from 'chai'
+import {rm} from 'node:fs/promises'
+import {join} from 'node:path'
 import sinon, {restore, stub} from 'sinon'
 
 import type {IPlaybookStore} from '../../../../src/core/interfaces/i-playbook-store.js'
@@ -20,8 +22,12 @@ describe('InitializePlaybookUseCase', () => {
     useCase = new InitializePlaybookUseCase(playbookStore)
   })
 
-  afterEach(() => {
+  afterEach(async () => {
     restore()
+    // Clean up test artifacts in project root
+    await rm(join(process.cwd(), '.br'), {force: true, recursive: true})
+    // Clean up test artifacts in custom test directory
+    await rm('/tmp/test-br-cli', {force: true, recursive: true})
   })
 
   describe('execute', () => {
