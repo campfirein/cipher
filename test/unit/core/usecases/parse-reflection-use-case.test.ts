@@ -1,4 +1,6 @@
 import {expect} from 'chai'
+import {rm} from 'node:fs/promises'
+import {join} from 'node:path'
 
 import type {ReflectorOutputJson} from '../../../../src/core/domain/entities/reflector-output.js'
 
@@ -9,6 +11,13 @@ describe('ParseReflectionUseCase', () => {
 
   beforeEach(() => {
     useCase = new ParseReflectionUseCase()
+  })
+
+  afterEach(async () => {
+    // Clean up test artifacts in project root
+    await rm(join(process.cwd(), '.br'), {force: true, recursive: true})
+    // Clean up test artifacts in custom test directory
+    await rm('/tmp/test-ace', {force: true, recursive: true})
   })
 
   describe('execute', () => {
