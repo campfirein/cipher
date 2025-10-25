@@ -29,7 +29,7 @@ export class ApplyReflectionTagsUseCase {
       const playbook = await this.playbookStore.load(directory)
       if (!playbook) {
         return {
-          error: 'Playbook not found. Run `br ace init` to initialize.',
+          error: 'Playbook not found. Run `br init` to initialize.',
           success: false,
         }
       }

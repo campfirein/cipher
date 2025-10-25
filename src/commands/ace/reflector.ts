@@ -53,7 +53,7 @@ export default class Reflector extends Command {
       const loadResult = await loadUseCase.execute()
 
       if (!loadResult.success) {
-        this.error(loadResult.error || 'Failed to load playbook. Run `br ace init` to initialize.')
+        this.error(loadResult.error || 'Failed to load playbook. Run `br init` to initialize.')
       }
 
       const playbook = loadResult.playbook!
@@ -116,6 +116,10 @@ export default class Reflector extends Command {
       // Step 6: Parse and save reflection
       this.log('💾 Parsing reflection JSON...')
       const reflectionJson = JSON.parse(stdinData) as ReflectorOutputJson
+
+      // Add hint from executor output to reflection
+      reflectionJson.hint = executorOutput.hint
+
       const parseUseCase = new ParseReflectionUseCase()
       const parseResult = await parseUseCase.execute(reflectionJson)
 

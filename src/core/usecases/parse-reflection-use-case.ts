@@ -3,6 +3,7 @@ import {join} from 'node:path'
 
 import type {ReflectorOutputJson} from '../domain/entities/reflector-output.js'
 
+import {sanitizeHint} from '../../utils/ace-file-helpers.js'
 import {ReflectorOutput} from '../domain/entities/reflector-output.js'
 
 export interface ParseReflectionResult {
@@ -41,9 +42,12 @@ export class ParseReflectionUseCase {
       // Ensure directory exists
       await mkdir(reflectionsDir, {recursive: true})
 
-      // Generate filename with timestamp
+      // Generate filename with hint and timestamp
       const timestamp = new Date().toISOString().replaceAll(':', '-')
-      const filename = `reflection-${timestamp}.json`
+      const sanitizedHint = sanitizeHint(reflection.hint)
+      const filename = sanitizedHint
+        ? `reflection-${sanitizedHint}-${timestamp}.json`
+        : `reflection-${timestamp}.json`
       const filePath = join(reflectionsDir, filename)
 
       // Serialize and save

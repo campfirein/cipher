@@ -43,7 +43,7 @@ export default class Curator extends Command {
       const loadResult = await loadUseCase.execute()
 
       if (!loadResult.success) {
-        this.error(loadResult.error || 'Failed to load playbook. Run `br ace init` to initialize.')
+        this.error(loadResult.error || 'Failed to load playbook. Run `br init` to initialize.')
       }
 
       const playbook = loadResult.playbook!

@@ -57,3 +57,19 @@ export async function loadReflectionOutput(filePath: string): Promise<ReflectorO
 
   return ReflectorOutput.fromJson(json)
 }
+
+/**
+ * Sanitize hint for use in filename.
+ * Converts to lowercase, replaces spaces/underscores with hyphens,
+ * removes all non-alphanumeric characters except hyphens.
+ * @param hint - The hint string to sanitize
+ * @returns Sanitized hint suitable for filename
+ */
+export function sanitizeHint(hint: string): string {
+  return hint
+    .toLowerCase()
+    .replaceAll(/[\s_]+/g, '-')
+    .replaceAll(/[^\da-z-]/g, '')
+    .replaceAll(/-+/g, '-')
+    .replaceAll(/^-|-$/g, '')
+}

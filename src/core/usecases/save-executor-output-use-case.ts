@@ -3,6 +3,8 @@ import {join} from 'node:path'
 
 import type {ExecutorOutput} from '../domain/entities/executor-output.js'
 
+import {sanitizeHint} from '../../utils/ace-file-helpers.js'
+
 export interface SaveExecutorOutputResult {
   error?: string
   filePath?: string
@@ -36,7 +38,7 @@ export class SaveExecutorOutputUseCase {
 
       // Generate filename with hint and timestamp
       const timestamp = new Date().toISOString().replaceAll(':', '-')
-      const sanitizedHint = this.sanitizeHint(executorOutput.hint)
+      const sanitizedHint = sanitizeHint(executorOutput.hint)
       const filename = sanitizedHint
         ? `executor-${sanitizedHint}-${timestamp}.json`
         : `executor-${timestamp}.json`
@@ -56,19 +58,5 @@ export class SaveExecutorOutputUseCase {
         success: false,
       }
     }
-  }
-
-  /**
-   * Sanitize hint for use in filename.
-   * Converts to lowercase, replaces spaces/underscores with hyphens,
-   * removes all non-alphanumeric characters except hyphens.
-   */
-  private sanitizeHint(hint: string): string {
-    return hint
-      .toLowerCase()
-      .replaceAll(/[\s_]+/g, '-')
-      .replaceAll(/[^\da-z-]/g, '')
-      .replaceAll(/-+/g, '-')
-      .replaceAll(/^-|-$/g, '')
   }
 }
