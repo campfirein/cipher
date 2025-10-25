@@ -1,4 +1,4 @@
-import {Command} from '@oclif/core'
+import {Command, Flags} from '@oclif/core'
 import {join} from 'node:path'
 
 import type {DeltaBatchJson} from '../../core/domain/entities/delta-batch.js'
@@ -15,8 +15,16 @@ export default class Curator extends Command {
   public static description = 'Transform reflection insights into playbook updates (delta operations)'
   public static examples = [
     '<%= config.bin %> <%= command.id %>',
+    '<%= config.bin %> <%= command.id %> --reflection reflection-test-hint-2025-10-25T04-59-00.902Z.json',
     'cat curator-output.json | <%= config.bin %> <%= command.id %>',
   ]
+  public static flags = {
+    reflection: Flags.string({
+      char: 'r',
+      description: 'Specific reflection file name to use (instead of latest)',
+      required: false,
+    }),
+  }
 
   // Protected methods for testability
   protected async findLatestReflectionFile(directory: string): Promise<string> {
@@ -28,13 +36,26 @@ export default class Curator extends Command {
   }
 
   public async run(): Promise<void> {
+    const {flags} = await this.parse(Curator)
+
     try {
-      // Step 1: Load latest reflection
-      this.log('📋 Loading latest reflection...')
+      // Step 1: Load reflection (either specified or latest)
+      this.log('📋 Loading reflection...')
       const reflectionsDir = join(process.cwd(), '.br', 'ace', 'reflections')
-      const latestReflectionFile = await this.findLatestReflectionFile(reflectionsDir)
-      const reflection = await this.loadReflectionOutputFile(latestReflectionFile)
-      this.log(`  ✓ Loaded: ${latestReflectionFile}`)
+
+      let reflectionFile: string
+      if (flags.reflection) {
+        // Use specified reflection file
+        reflectionFile = join(reflectionsDir, flags.reflection)
+        this.log(`  Using specified reflection: ${flags.reflection}`)
+      } else {
+        // Find latest reflection
+        reflectionFile = await this.findLatestReflectionFile(reflectionsDir)
+        this.log(`  Using latest reflection`)
+      }
+
+      const reflection = await this.loadReflectionOutputFile(reflectionFile)
+      this.log(`  ✓ Loaded: ${reflectionFile}`)
 
       // Step 2: Load playbook
       this.log('📚 Loading playbook...')
@@ -97,11 +118,11 @@ export default class Curator extends Command {
         return
       }
 
-      // Step 6: Parse and save curator output
+      // Step 6: Parse and save curator output (with hint from reflection)
       this.log('💾 Parsing curator output...')
       const curatorJson = JSON.parse(stdinData) as DeltaBatchJson
       const parseUseCase = new ParseCuratorOutputUseCase()
-      const parseResult = await parseUseCase.execute(curatorJson)
+      const parseResult = await parseUseCase.execute(curatorJson, reflection.hint)
 
       if (!parseResult.success) {
         this.error(parseResult.error || 'Failed to parse curator output')

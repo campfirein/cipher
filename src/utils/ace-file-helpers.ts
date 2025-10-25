@@ -1,6 +1,7 @@
 import {readdir, readFile} from 'node:fs/promises'
 import {join} from 'node:path'
 
+import {DeltaBatch, type DeltaBatchJson} from '../core/domain/entities/delta-batch.js'
 import {ExecutorOutput, type ExecutorOutputJson} from '../core/domain/entities/executor-output.js'
 import {ReflectorOutput, type ReflectorOutputJson} from '../core/domain/entities/reflector-output.js'
 
@@ -56,6 +57,19 @@ export async function loadReflectionOutput(filePath: string): Promise<ReflectorO
   const json = JSON.parse(content) as ReflectorOutputJson
 
   return ReflectorOutput.fromJson(json)
+}
+
+/**
+ * Loads and parses a delta batch file.
+ * @param filePath - Absolute path to delta batch JSON file
+ * @returns DeltaBatch entity
+ * @throws Error if file doesn't exist or JSON is invalid
+ */
+export async function loadDeltaBatch(filePath: string): Promise<DeltaBatch> {
+  const content = await readFile(filePath, 'utf8')
+  const json = JSON.parse(content) as DeltaBatchJson
+
+  return DeltaBatch.fromJson(json)
 }
 
 /**

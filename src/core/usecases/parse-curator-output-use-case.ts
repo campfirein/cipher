@@ -3,6 +3,7 @@ import {join} from 'node:path'
 
 import type {DeltaBatchJson} from '../domain/entities/delta-batch.js'
 
+import {sanitizeHint} from '../../utils/ace-file-helpers.js'
 import {CuratorOutput} from '../domain/entities/curator-output.js'
 import {DeltaBatch} from '../domain/entities/delta-batch.js'
 
@@ -22,7 +23,11 @@ export class ParseCuratorOutputUseCase {
   private static readonly BR_DIR = '.br'
   private static readonly DELTAS_DIR = 'deltas'
 
-  public async execute(curatorJson: DeltaBatchJson, directory?: string): Promise<ParseCuratorOutputResult> {
+  public async execute(
+    curatorJson: DeltaBatchJson,
+    hint?: string,
+    directory?: string,
+  ): Promise<ParseCuratorOutputResult> {
     try {
       // Parse and validate delta batch
       const deltaBatch = DeltaBatch.fromJson(curatorJson)
@@ -40,9 +45,10 @@ export class ParseCuratorOutputUseCase {
       // Ensure directory exists
       await mkdir(deltasDir, {recursive: true})
 
-      // Generate filename with timestamp
+      // Generate filename with hint and timestamp
       const timestamp = new Date().toISOString().replaceAll(':', '-')
-      const filename = `delta-${timestamp}.json`
+      const sanitizedHint = hint ? sanitizeHint(hint) : ''
+      const filename = sanitizedHint ? `delta-${sanitizedHint}-${timestamp}.json` : `delta-${timestamp}.json`
       const filePath = join(deltasDir, filename)
 
       // Serialize and save (save the delta batch directly)

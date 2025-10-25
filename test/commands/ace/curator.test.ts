@@ -95,7 +95,7 @@ describe('ace:curator', () => {
       await command.run()
 
       // Verify workflow steps
-      expect(logSpy.calledWith('📋 Loading latest reflection...')).to.be.true
+      expect(logSpy.calledWith('📋 Loading reflection...')).to.be.true
       expect(logSpy.calledWith('📚 Loading playbook...')).to.be.true
       expect(logSpy.calledWith('🎨 Generating curation prompt...')).to.be.true
       expect(logSpy.calledWith('💾 Parsing curator output...')).to.be.true
