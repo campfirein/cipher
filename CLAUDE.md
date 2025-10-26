@@ -88,6 +88,15 @@ Domain logic independent of frameworks and external dependencies.
     - `sessionKey` is used for the `x-byterover-session-id` header in API requests
     - Includes `toJson()`/`fromJson()` for serialization to/from keychain storage
   - `User` - User entity with serialization methods
+  - `Memory` - Represents a memory from ByteRover Memora service
+    - Fields: `id`, `title`, `content`, `score`, `nodeKeys`, `parentIds`, `childrenIds`
+    - Hierarchical knowledge fragments with parent/child relationships
+    - Includes `toJson()`/`fromJson()` for serialization
+    - Uses object parameter pattern for constructor
+  - `RetrieveResult` - Result of memory retrieval operation
+    - Fields: `memories`, `relatedMemories` (both are Memory arrays)
+    - Contains both directly matching and related memories
+    - Includes `toJson()`/`fromJson()` for serialization
 
 - **`domain/errors/`** - Domain-specific error types
   - `AuthenticationError`, `TokenExpiredError`, `InvalidTokenError`
@@ -102,6 +111,10 @@ Domain logic independent of frameworks and external dependencies.
   - `IHttpClient` - HTTP client abstraction for authenticated API requests
   - `ISpaceService` - Space-related operations (fetch user spaces)
   - `IUserService` - User-related operations (fetch current user information)
+  - `IMemoryService` - Memory retrieval operations from ByteRover Memora service
+    - `retrieve(params: RetrieveParams)` - Fetch memories based on search query
+    - Uses object parameter pattern with query, spaceId, accessToken, sessionKey, and optional nodeKeys
+    - Returns RetrieveResult with memories and related memories
 
 ### Infrastructure Layer (`src/infra/`)
 
@@ -142,6 +155,16 @@ Concrete implementations of core interfaces using external dependencies.
   - Maps API responses to domain entities (`User`)
   - Configuration: `{ apiBaseUrl: string, timeout?: number }`
 
+- **`memory/http-memory-service.ts`** - Memory service implementation
+  - Implements `IMemoryService` interface
+  - Uses `AuthenticatedHttpClient` internally for API requests
+  - Calls `GET {apiBaseUrl}/retrieve` endpoint to fetch memories from ByteRover Memora
+  - Requires `query`, `spaceId`, `accessToken`, and `sessionKey` parameters
+  - Optional `nodeKeys` array to filter results to specific file paths
+  - Maps API responses to domain entities (`Memory`, `RetrieveResult`)
+  - Query parameter mapping: `spaceId` → `project_id`, `nodeKeys[]` → `node_keys` (comma-separated)
+  - Configuration: `{ apiBaseUrl: string, timeout?: number }` (default 30s timeout)
+
 ### Configuration (`src/config/`)
 
 Application configuration with runtime environment selection.
@@ -149,7 +172,9 @@ Application configuration with runtime environment selection.
 - **`environment.ts`** - Runtime environment configuration
   - Defines environment-specific settings (development vs production)
   - Environment is set by launcher scripts (`./bin/dev.js` or `./bin/run.js`)
-  - Contains issuerUrl, clientId, and scopes for each environment
+  - Contains issuerUrl, clientId, scopes, apiBaseUrl, and memoraApiBaseUrl for each environment
+  - Development: memoraApiBaseUrl = `https://dev-beta-memora-retrieve.byterover.dev/api/v3`
+  - Production: memoraApiBaseUrl = `https://prod-beta-memora-retrieve.byterover.dev/api/v3`
 
 - **`auth.config.ts`** - OAuth configuration with OIDC discovery
   - Uses `IOidcDiscoveryService` to dynamically fetch endpoints
@@ -214,6 +239,36 @@ class TestableMyCommand extends MyCommand {
 - Commands depend on interfaces (Dependency Inversion Principle)
 - No constructor complexity (works with oclif's DI)
 - Type-safe: explicit return types prevent `as` assertions
+
+#### Available Commands
+
+**`br mem retrieve`** - Retrieve memories from ByteRover Memora service
+
+- **Flags**:
+  - `--query`, `-q` (required): Search query string
+  - `--node-keys`, `-n` (optional): Comma-separated file paths to filter results
+- **Dependencies**: `IMemoryService`, `IProjectConfigStore`, `ITokenStore`
+- **Flow**:
+  1. Checks if project is initialized (via `IProjectConfigStore`)
+  2. Loads project config to retrieve `spaceId` from `BrConfig`
+  3. Validates authentication token
+  4. Parses optional `nodeKeys` from comma-separated string
+  5. Calls `IMemoryService.retrieve()` with query, spaceId, tokens, and optional nodeKeys
+  6. Displays formatted results with memories and related memories
+- **Examples**:
+
+  ```bash
+  # Broad search across entire space
+  br mem retrieve --query "authentication best practices"
+
+  # Scoped search to specific files
+  br mem retrieve -q "error handling" -n "src/auth/login.ts,src/auth/oauth.ts"
+  ```
+
+- **Notes**:
+  - `nodeKeys` optional: without it, searches across entire space (broad search)
+  - `nodeKeys` provided: filters results to specific file paths/nodes (scoped search)
+  - `spaceId` automatically retrieved from `.br/config.json` (no manual flag needed)
 
 ## Key Technologies
 
