@@ -1,0 +1,260 @@
+import type {Config} from '@oclif/core'
+
+import {Config as OclifConfig} from '@oclif/core'
+import {expect} from 'chai'
+import sinon, {match, restore, stub} from 'sinon'
+
+import type {IMemoryService} from '../../../src/core/interfaces/i-memory-service.js'
+import type {IPlaybookStore} from '../../../src/core/interfaces/i-playbook-store.js'
+import type {IProjectConfigStore} from '../../../src/core/interfaces/i-project-config-store.js'
+import type {ITokenStore} from '../../../src/core/interfaces/i-token-store.js'
+
+import MemPush from '../../../src/commands/mem/push.js'
+import {AuthToken} from '../../../src/core/domain/entities/auth-token.js'
+import {BrConfig} from '../../../src/core/domain/entities/br-config.js'
+import {PresignedUrl} from '../../../src/core/domain/entities/presigned-url.js'
+
+class TestableMemPush extends MemPush {
+  // eslint-disable-next-line max-params
+  public constructor(
+    private readonly mockMemoryService: IMemoryService,
+    private readonly mockPlaybookStore: IPlaybookStore,
+    private readonly mockConfigStore: IProjectConfigStore,
+    private readonly mockTokenStore: ITokenStore,
+    config: Config,
+  ) {
+    super([], config)
+  }
+
+  protected createServices() {
+    return {
+      memoryService: this.mockMemoryService,
+      playbookStore: this.mockPlaybookStore,
+      projectConfigStore: this.mockConfigStore,
+      tokenStore: this.mockTokenStore,
+    }
+  }
+}
+
+describe('MemPush Command', () => {
+  let config: Config
+  let configStore: sinon.SinonStubbedInstance<IProjectConfigStore>
+  let memoryService: sinon.SinonStubbedInstance<IMemoryService>
+  let playbookStore: sinon.SinonStubbedInstance<IPlaybookStore>
+  let projectConfig: BrConfig
+  let tokenStore: sinon.SinonStubbedInstance<ITokenStore>
+  let validToken: AuthToken
+
+  before(async () => {
+    config = await OclifConfig.load(import.meta.url)
+  })
+
+  beforeEach(() => {
+    memoryService = {getPresignedUrls: stub()}
+    playbookStore = {delete: stub(), exists: stub(), load: stub(), save: stub()}
+    configStore = {exists: stub(), read: stub(), write: stub()}
+    tokenStore = {clear: stub(), load: stub(), save: stub()}
+
+    validToken = new AuthToken(
+      'access-token',
+      new Date(Date.now() + 3600 * 1000),
+      'refresh-token',
+      'session-key',
+      'Bearer',
+    )
+
+    projectConfig = new BrConfig(new Date().toISOString(), 'space-123', 'my-space', 'team-456', 'my-team')
+  })
+
+  afterEach(() => {
+    restore()
+  })
+
+  describe('validation', () => {
+    it('should error when not authenticated', async () => {
+      tokenStore.load.resolves()
+
+      const command = new TestableMemPush(memoryService, playbookStore, configStore, tokenStore, config)
+
+      try {
+        await command.run()
+        expect.fail('Should have thrown error')
+      } catch (error) {
+        expect((error as Error).message).to.include('Not authenticated')
+      }
+    })
+
+    it('should error when token is expired', async () => {
+      const expiredToken = new AuthToken(
+        'access-token',
+        new Date(Date.now() - 1000),
+        'refresh-token',
+        'session-key',
+        'Bearer',
+      )
+
+      tokenStore.load.resolves(expiredToken)
+
+      const command = new TestableMemPush(memoryService, playbookStore, configStore, tokenStore, config)
+
+      try {
+        await command.run()
+        expect.fail('Should have thrown error')
+      } catch (error) {
+        expect((error as Error).message).to.include('expired')
+      }
+    })
+
+    it('should error when project not initialized', async () => {
+      tokenStore.load.resolves(validToken)
+      configStore.read.resolves()
+
+      const command = new TestableMemPush(memoryService, playbookStore, configStore, tokenStore, config)
+
+      try {
+        await command.run()
+        expect.fail('Should have thrown error')
+      } catch (error) {
+        expect((error as Error).message).to.include('Project not initialized')
+      }
+    })
+
+    it('should error when playbook not found', async () => {
+      tokenStore.load.resolves(validToken)
+      configStore.read.resolves(projectConfig)
+      playbookStore.exists.resolves(false)
+
+      const command = new TestableMemPush(memoryService, playbookStore, configStore, tokenStore, config)
+
+      try {
+        await command.run()
+        expect.fail('Should have thrown error')
+      } catch (error) {
+        expect((error as Error).message).to.include('Playbook not found')
+      }
+    })
+  })
+
+  describe('successful execution', () => {
+    it('should successfully get presigned URLs with default branch', async () => {
+      tokenStore.load.resolves(validToken)
+      configStore.read.resolves(projectConfig)
+      playbookStore.exists.resolves(true)
+      memoryService.getPresignedUrls.resolves([
+        new PresignedUrl('playbook.json', 'https://storage.googleapis.com/signed-url'),
+      ])
+
+      const command = new TestableMemPush(memoryService, playbookStore, configStore, tokenStore, config)
+
+      await command.run()
+
+      expect(memoryService.getPresignedUrls.calledOnce).to.be.true
+      expect(
+        memoryService.getPresignedUrls.calledWith({
+          accessToken: 'access-token',
+          branch: 'main',
+          fileNames: ['playbook.json'],
+          sessionKey: 'session-key',
+          spaceId: 'space-123',
+          teamId: 'team-456',
+        }),
+      ).to.be.true
+    })
+
+    it('should use custom branch when provided via flag', async () => {
+      tokenStore.load.resolves(validToken)
+      configStore.read.resolves(projectConfig)
+      playbookStore.exists.resolves(true)
+      memoryService.getPresignedUrls.resolves([
+        new PresignedUrl('playbook.json', 'https://storage.googleapis.com/signed-url'),
+      ])
+
+      const command = new TestableMemPush(memoryService, playbookStore, configStore, tokenStore, config)
+      command.argv = ['--branch', 'develop']
+
+      await command.run()
+
+      expect(
+        memoryService.getPresignedUrls.calledWith({
+          accessToken: 'access-token',
+          branch: 'develop',
+          fileNames: ['playbook.json'],
+          sessionKey: 'session-key',
+          spaceId: 'space-123',
+          teamId: 'team-456',
+        }),
+      ).to.be.true
+    })
+
+    it('should use short flag -b for branch', async () => {
+      tokenStore.load.resolves(validToken)
+      configStore.read.resolves(projectConfig)
+      playbookStore.exists.resolves(true)
+      memoryService.getPresignedUrls.resolves([
+        new PresignedUrl('playbook.json', 'https://storage.googleapis.com/signed-url'),
+      ])
+
+      const command = new TestableMemPush(memoryService, playbookStore, configStore, tokenStore, config)
+      command.argv = ['-b', 'feature']
+
+      await command.run()
+
+      expect(
+        memoryService.getPresignedUrls.calledWith(
+          match({
+            branch: 'feature',
+          }),
+        ),
+      ).to.be.true
+    })
+
+    it('should handle multiple presigned URLs in response', async () => {
+      tokenStore.load.resolves(validToken)
+      configStore.read.resolves(projectConfig)
+      playbookStore.exists.resolves(true)
+      memoryService.getPresignedUrls.resolves([
+        new PresignedUrl('playbook.json', 'https://storage.googleapis.com/signed-url-1'),
+        new PresignedUrl('metadata.json', 'https://storage.googleapis.com/signed-url-2'),
+      ])
+
+      const command = new TestableMemPush(memoryService, playbookStore, configStore, tokenStore, config)
+
+      await command.run()
+
+      expect(memoryService.getPresignedUrls.calledOnce).to.be.true
+    })
+  })
+
+  describe('error handling', () => {
+    it('should propagate errors from memory service', async () => {
+      tokenStore.load.resolves(validToken)
+      configStore.read.resolves(projectConfig)
+      playbookStore.exists.resolves(true)
+      memoryService.getPresignedUrls.rejects(new Error('Network timeout'))
+
+      const command = new TestableMemPush(memoryService, playbookStore, configStore, tokenStore, config)
+
+      try {
+        await command.run()
+        expect.fail('Should have thrown error')
+      } catch (error) {
+        expect((error as Error).message).to.include('Network timeout')
+      }
+    })
+
+    it('should propagate errors from playbook store', async () => {
+      tokenStore.load.resolves(validToken)
+      configStore.read.resolves(projectConfig)
+      playbookStore.exists.rejects(new Error('File system error'))
+
+      const command = new TestableMemPush(memoryService, playbookStore, configStore, tokenStore, config)
+
+      try {
+        await command.run()
+        expect.fail('Should have thrown error')
+      } catch (error) {
+        expect((error as Error).message).to.include('File system error')
+      }
+    })
+  })
+})
