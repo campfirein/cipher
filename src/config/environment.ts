@@ -18,6 +18,7 @@ type EnvironmentConfig = {
   authorizationUrl: string
   clientId: string
   issuerUrl: string
+  memoraApiBaseUrl: string
   scopes: string[]
   tokenUrl: string
 }
@@ -32,6 +33,7 @@ export const ENV_CONFIG: Record<Environment, EnvironmentConfig> = {
     authorizationUrl: 'https://dev-beta-iam.byterover.dev/api/v1/oidc/authorize',
     clientId: 'byterover-cli-client',
     issuerUrl: 'https://dev-beta-iam.byterover.dev/api/v1/oidc',
+    memoraApiBaseUrl: 'https://dev-beta-memora-retrieve.byterover.dev/api/v3',
     scopes: ['read', 'write', 'debug'],
     tokenUrl: 'https://dev-beta-iam.byterover.dev/api/v1/oidc/token',
   },
@@ -40,6 +42,7 @@ export const ENV_CONFIG: Record<Environment, EnvironmentConfig> = {
     authorizationUrl: 'https://prod-beta-iam.byterover.dev/api/v1/oidc/authorize',
     clientId: 'byterover-cli-prod',
     issuerUrl: 'https://prod-beta-iam.byterover.dev/api/v1/oidc',
+    memoraApiBaseUrl: 'https://prod-beta-memora-retrieve.byterover.dev/api/v3',
     scopes: ['read', 'write'],
     tokenUrl: 'https://prod-beta-iam.byterover.dev/api/v1/oidc/token',
   },
