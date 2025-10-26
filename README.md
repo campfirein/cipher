@@ -282,7 +282,7 @@ USAGE
 
 Add or update a bullet in the playbook (bypasses ACE workflow for direct agent usage)
 
-```
+```txt
 USAGE
   $ br add -c <value> -s <value> [-b <value>]
 
@@ -298,7 +298,7 @@ DESCRIPTION
   the full ACE workflow (executor → reflector → curator → apply-delta). Use this for
   quick knowledge capture during development.
 
-  Before using this command, run 'br ace show' to view existing sections and bullet IDs.
+  Before using this command, run 'br show' to view existing sections and bullet IDs.
 
 EXAMPLES
   $ br add --section "Common Errors" --content "Always validate API responses"

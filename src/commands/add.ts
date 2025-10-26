@@ -30,6 +30,15 @@ export default class Add extends Command {
       required: true,
     }),
   }
+  // Suggested standard ACE section names to maintain consistency
+  private static readonly SUGGESTED_SECTIONS = [
+    'Common Errors',
+    'Best Practices',
+    'Strategies',
+    'Lessons Learned',
+    'Architecture',
+    'Testing',
+  ]
 
   protected createServices(): {
     playbookStore: IPlaybookStore
@@ -43,6 +52,15 @@ export default class Add extends Command {
     const {flags} = await this.parse(Add)
 
     try {
+      // Warn if section is not a standard ACE section
+      if (!Add.SUGGESTED_SECTIONS.includes(flags.section)) {
+        this.warn(
+          `Section "${flags.section}" is not a standard ACE section.\n` +
+            `  Suggested sections: ${Add.SUGGESTED_SECTIONS.join(', ')}\n` +
+            `  You can still proceed, but consider using a standard section for consistency.`,
+        )
+      }
+
       const {playbookStore} = this.createServices()
       const useCase = new AddBulletUseCase(playbookStore)
 
@@ -54,7 +72,12 @@ export default class Add extends Command {
       })
 
       if (!result.success) {
-        this.error(result.error || 'Failed to add/update bullet')
+        this.error(result.error || 'Operation failed')
+      }
+
+      // Type narrowing: ensure bullet exists before using it
+      if (result.bullet === undefined) {
+        this.error('Bullet data is missing from result')
       }
 
       // Display success message
@@ -62,15 +85,15 @@ export default class Add extends Command {
       const operationVerb = operation === 'ADD' ? 'Added' : 'Updated'
 
       this.log(`✓ ${operationVerb} bullet successfully!`)
-      this.log(`  ID: ${bullet!.id}`)
-      this.log(`  Section: ${bullet!.section}`)
-      this.log(`  Content: ${bullet!.content}`)
+      this.log(`  ID: ${bullet.id}`)
+      this.log(`  Section: ${bullet.section}`)
+      this.log(`  Content: ${bullet.content}`)
 
-      if (bullet!.metadata.tags.length > 0) {
-        this.log(`  Tags: ${bullet!.metadata.tags.join(', ')}`)
+      if (bullet.metadata.tags.length > 0) {
+        this.log(`  Tags: ${bullet.metadata.tags.join(', ')}`)
       }
     } catch (error) {
-      this.error(error instanceof Error ? error.message : 'Failed to add/update bullet')
+      this.error(error instanceof Error ? error.message : 'Unexpected error occurred')
     }
   }
 }
