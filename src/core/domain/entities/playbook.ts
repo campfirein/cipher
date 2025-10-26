@@ -76,7 +76,7 @@ export class Playbook {
 
     // Create metadata with defaults if not provided
     const bulletMetadata: BulletMetadata = metadata ?? {
-      codebasePath: process.cwd(),
+      relatedFiles: [],
       tags: [],
       timestamp: now,
     }

@@ -1,6 +1,7 @@
 import {confirm} from '@inquirer/prompts'
 import {Args, Command, Flags} from '@oclif/core'
 
+import {Playbook} from '../../core/domain/entities/playbook.js'
 import {FilePlaybookStore} from '../../infra/ace/file-playbook-store.js'
 
 export default class Clear extends Command {
@@ -54,8 +55,9 @@ export default class Clear extends Command {
         }
       }
 
-      // Delete the playbook
-      await playbookStore.delete(args.directory)
+      // Reset the playbook to empty structure
+      const emptyPlaybook = new Playbook()
+      await playbookStore.save(emptyPlaybook, args.directory)
 
       this.log('✓ Playbook cleared successfully.')
     } catch (error) {

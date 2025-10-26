@@ -60,7 +60,7 @@ describe('AddBulletUseCase', () => {
 
     it('should add bullet with custom metadata', async () => {
       const customMetadata = {
-        codebasePath: '/custom/path',
+        relatedFiles: [],
         tags: ['tag1', 'tag2'],
         timestamp: new Date().toISOString(),
       }
@@ -73,7 +73,7 @@ describe('AddBulletUseCase', () => {
 
       expect(result.success).to.be.true
       expect(result.bullet!.metadata.tags).to.deep.equal(['tag1', 'tag2'])
-      expect(result.bullet!.metadata.codebasePath).to.equal('/custom/path')
+      expect(result.bullet!.metadata.relatedFiles).to.deep.equal([])
     })
   })
 
@@ -82,7 +82,7 @@ describe('AddBulletUseCase', () => {
       // Create playbook with existing bullet
       const playbook = new Playbook()
       const existingBullet = playbook.addBullet('Test Section', 'Original content', undefined, {
-        codebasePath: '/test',
+        relatedFiles: [],
         tags: ['test'],
         timestamp: new Date().toISOString(),
       })
@@ -116,7 +116,7 @@ describe('AddBulletUseCase', () => {
     it('should update bullet metadata', async () => {
       const playbook = new Playbook()
       const existingBullet = playbook.addBullet('Test Section', 'Original content', undefined, {
-        codebasePath: '/test',
+        relatedFiles: [],
         tags: ['original'],
         timestamp: new Date().toISOString(),
       })
@@ -124,7 +124,7 @@ describe('AddBulletUseCase', () => {
       mockPlaybookStore.load = async () => playbook
 
       const newMetadata = {
-        codebasePath: '/new/path',
+        relatedFiles: [],
         tags: ['updated-tag'],
         timestamp: new Date().toISOString(),
       }
@@ -138,7 +138,7 @@ describe('AddBulletUseCase', () => {
 
       expect(result.success).to.be.true
       expect(result.bullet!.metadata.tags).to.deep.equal(['updated-tag'])
-      expect(result.bullet!.metadata.codebasePath).to.equal('/new/path')
+      expect(result.bullet!.metadata.relatedFiles).to.deep.equal([])
     })
   })
 
@@ -204,7 +204,7 @@ describe('AddBulletUseCase', () => {
     it('should save the playbook after updating a bullet', async () => {
       const playbook = new Playbook()
       const existingBullet = playbook.addBullet('Test Section', 'Original content', undefined, {
-        codebasePath: '/test',
+        relatedFiles: [],
         tags: ['test'],
         timestamp: new Date().toISOString(),
       })

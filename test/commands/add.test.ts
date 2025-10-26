@@ -108,7 +108,7 @@ describe('Add Command', () => {
     it('should update an existing bullet when bullet-id is provided', async () => {
       const playbook = new Playbook()
       const existingBullet = playbook.addBullet('Original Section', 'Original content', undefined, {
-        codebasePath: '/test',
+        relatedFiles: [],
         tags: ['test'],
         timestamp: new Date().toISOString(),
       })
@@ -141,7 +141,7 @@ describe('Add Command', () => {
     it('should accept short flag for bullet-id', async () => {
       const playbook = new Playbook()
       const existingBullet = playbook.addBullet('Test Section', 'Original content', undefined, {
-        codebasePath: '/test',
+        relatedFiles: [],
         tags: ['test'],
         timestamp: new Date().toISOString(),
       })
@@ -276,7 +276,7 @@ describe('Add Command', () => {
     it('should display "Updated" for update operations', async () => {
       const playbook = new Playbook()
       const existingBullet = playbook.addBullet('Test Section', 'Original', undefined, {
-        codebasePath: '/test',
+        relatedFiles: [],
         tags: ['test'],
         timestamp: new Date().toISOString(),
       })

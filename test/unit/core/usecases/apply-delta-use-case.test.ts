@@ -40,7 +40,7 @@ describe('ApplyDeltaUseCase', () => {
       const addOp = new DeltaOperation('ADD', 'Common Errors', {
         content: 'Always validate user inputs',
         metadata: {
-          codebasePath: '/src',
+          relatedFiles: [],
           tags: ['validation'],
           timestamp: new Date().toISOString(),
         },
@@ -59,7 +59,7 @@ describe('ApplyDeltaUseCase', () => {
     it('should apply UPDATE operation to existing bullet', async () => {
       const playbook = new Playbook()
       playbook.addBullet('Common Errors', 'Old content', 'error-00001', {
-        codebasePath: '/src',
+        relatedFiles: [],
         tags: ['old'],
         timestamp: new Date().toISOString(),
       })
@@ -86,7 +86,7 @@ describe('ApplyDeltaUseCase', () => {
     it('should apply REMOVE operation', async () => {
       const playbook = new Playbook()
       playbook.addBullet('Common Errors', 'To be removed', 'error-00001', {
-        codebasePath: '/src',
+        relatedFiles: [],
         tags: ['old'],
         timestamp: new Date().toISOString(),
       })
@@ -115,7 +115,7 @@ describe('ApplyDeltaUseCase', () => {
         new DeltaOperation('ADD', 'Common Errors', {
           content: 'Error 1',
           metadata: {
-            codebasePath: '/src',
+            relatedFiles: [],
             tags: ['error'],
             timestamp: new Date().toISOString(),
           },
@@ -123,7 +123,7 @@ describe('ApplyDeltaUseCase', () => {
         new DeltaOperation('ADD', 'Best Practices', {
           content: 'Practice 1',
           metadata: {
-            codebasePath: '/src',
+            relatedFiles: [],
             tags: ['best-practice'],
             timestamp: new Date().toISOString(),
           },
@@ -145,7 +145,7 @@ describe('ApplyDeltaUseCase', () => {
       const addOp = new DeltaOperation('ADD', 'Common Errors', {
         content: 'First bullet',
         metadata: {
-          codebasePath: '/src',
+          relatedFiles: [],
           tags: ['first'],
           timestamp: new Date().toISOString(),
         },
@@ -167,7 +167,7 @@ describe('ApplyDeltaUseCase', () => {
       const addOp = new DeltaOperation('ADD', 'Common Errors', {
         content: 'Test',
         metadata: {
-          codebasePath: '/src',
+          relatedFiles: [],
           tags: ['test'],
           timestamp: new Date().toISOString(),
         },
@@ -189,7 +189,7 @@ describe('ApplyDeltaUseCase', () => {
       const addOp = new DeltaOperation('ADD', 'Common Errors', {
         content: 'Test',
         metadata: {
-          codebasePath: '/src',
+          relatedFiles: [],
           tags: ['test'],
           timestamp: new Date().toISOString(),
         },

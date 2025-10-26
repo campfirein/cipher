@@ -26,12 +26,12 @@ describe('ApplyReflectionTagsUseCase', () => {
     it('should apply tags from reflection to bullets', async () => {
       const playbook = new Playbook()
       playbook.addBullet('Common Errors', 'Validation error', 'error-00001', {
-        codebasePath: '/src',
+        relatedFiles: [],
         tags: ['validation'],
         timestamp: new Date().toISOString(),
       })
       playbook.addBullet('Best Practices', 'Use DI pattern', 'practices-00001', {
-        codebasePath: '/src',
+        relatedFiles: [],
         tags: ['architecture'],
         timestamp: new Date().toISOString(),
       })
@@ -65,7 +65,7 @@ describe('ApplyReflectionTagsUseCase', () => {
     it('should skip non-existent bullets', async () => {
       const playbook = new Playbook()
       playbook.addBullet('Common Errors', 'Validation error', 'error-00001', {
-        codebasePath: '/src',
+        relatedFiles: [],
         tags: ['validation'],
         timestamp: new Date().toISOString(),
       })
@@ -137,7 +137,7 @@ describe('ApplyReflectionTagsUseCase', () => {
     it('should not duplicate existing tags', async () => {
       const playbook = new Playbook()
       playbook.addBullet('Common Errors', 'Error', 'error-00001', {
-        codebasePath: '/src',
+        relatedFiles: [],
         tags: ['helpful'], // Already has 'helpful' tag
         timestamp: new Date().toISOString(),
       })
