@@ -158,15 +158,39 @@ br ace curator
 ### ACE Commands
 
 ```bash
+# Main ACE workflow
 br ace executor start <task> [--with-playbook]     # Start task with optional playbook context
 br ace executor save <hint> <reasoning> <answer>   # Save work with --bullet-ids and --tool-usage
 br ace reflector <feedback>                        # Analyze results (paste reflection JSON)
 br ace curator [--reflection file.json]            # Update playbook (paste delta JSON)
+
+# Direct playbook manipulation (bypasses ACE workflow)
+br add -s "Section" -c "Content"                   # Add new bullet (auto-generates ID)
+br add -s "Section" -c "Updated" -b "bullet-id"    # Update existing bullet
+
+# Utility commands
 br ace show [--format json]                        # View current playbook
 br ace stats                                       # View playbook statistics
 br ace apply-delta [file.json]                     # Manually apply delta operations
 br ace clear [--yes]                               # Reset playbook
 ```
+
+#### Quick Add Command
+
+For agents that need to quickly add context without the full ACE workflow:
+
+```bash
+# 1. First, check the current playbook
+br ace show
+
+# 2. Add a new bullet to an existing or new section
+br add -s "Common Errors" -c "Always validate API responses before processing"
+
+# 3. Update an existing bullet (use ID from br ace show)
+br add -s "Common Errors" -c "Updated content" -b "common-00001"
+```
+
+The `add` command automatically tags bullets with `['manual']` and is ideal for quick knowledge capture during development.
 
 ### File Organization
 
@@ -237,6 +261,7 @@ USAGE
 
 ## Commands
 <!-- commands -->
+* [`br add`](#br-add)
 * [`br auth login`](#br-auth-login)
 * [`br foo`](#br-foo)
 * [`br help [COMMAND]`](#br-help-command)
@@ -252,6 +277,38 @@ USAGE
 * [`br plugins uninstall [PLUGIN]`](#br-plugins-uninstall-plugin)
 * [`br plugins unlink [PLUGIN]`](#br-plugins-unlink-plugin)
 * [`br plugins update`](#br-plugins-update)
+
+## `br add`
+
+Add or update a bullet in the playbook (bypasses ACE workflow for direct agent usage)
+
+```txt
+USAGE
+  $ br add -c <value> -s <value> [-b <value>]
+
+FLAGS
+  -b, --bullet-id=<value>  Bullet ID to update (if not provided, a new bullet will be created)
+  -c, --content=<value>    (required) Content of the bullet
+  -s, --section=<value>    (required) Section name for the bullet
+
+DESCRIPTION
+  Add or update a bullet in the playbook (bypasses ACE workflow for direct agent usage)
+
+  This command allows agents to directly manipulate the playbook without going through
+  the full ACE workflow (executor → reflector → curator → apply-delta). Use this for
+  quick knowledge capture during development.
+
+  Before using this command, run 'br show' to view existing sections and bullet IDs.
+
+EXAMPLES
+  $ br add --section "Common Errors" --content "Always validate API responses"
+
+  $ br add --section "Common Errors" --bullet-id "common-00001" --content "Updated: Validate and sanitize API responses"
+
+  $ br add -s "Best Practices" -c "Use dependency injection for better testability"
+```
+
+_See code: [src/commands/add.ts](https://github.com/campfirein/byterover-cli/blob/v0.0.0/src/commands/add.ts)_
 
 ## `br auth login`
 
