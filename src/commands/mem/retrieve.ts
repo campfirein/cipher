@@ -1,5 +1,7 @@
 import {Command, Flags} from '@oclif/core'
 
+import type {AuthToken} from '../../core/domain/entities/auth-token.js'
+import type {BrConfig} from '../../core/domain/entities/br-config.js'
 import type {IMemoryRetrievalService} from '../../core/interfaces/i-memory-retrieval-service.js'
 import type {IProjectConfigStore} from '../../core/interfaces/i-project-config-store.js'
 import type {ITokenStore} from '../../core/interfaces/i-token-store.js'
@@ -28,6 +30,20 @@ export default class Retrieve extends Command {
     }),
   }
 
+  protected async checkProjectInt(projectConfigStore: IProjectConfigStore): Promise<BrConfig> {
+    const isInitialized = await projectConfigStore.exists()
+    if (!isInitialized) {
+      this.error('Project is not initialized. Please run "br init" first.')
+    }
+
+    const config = await projectConfigStore.read()
+    if (!config) {
+      this.error('Failed to read project configuration.')
+    }
+
+    return config
+  }
+
   protected createServices(): {
     memoryService: IMemoryRetrievalService
     projectConfigStore: IProjectConfigStore
@@ -48,32 +64,13 @@ export default class Retrieve extends Command {
     const {memoryService, projectConfigStore, tokenStore} = this.createServices()
 
     try {
-      // 1. Load and validate authentication token
-      const token = await tokenStore.load()
-      if (!token) {
-        this.error('Not authenticated. Please run "br auth login" first.')
-      }
+      const token = await this.validateAuth(tokenStore)
+      const config = await this.checkProjectInt(projectConfigStore)
 
-      if (!token.isValid()) {
-        this.error('Authentication token expired. Please run "br auth login" again.')
-      }
-
-      // 2. Check if project is initialized
-      const isInitialized = await projectConfigStore.exists()
-      if (!isInitialized) {
-        this.error('Project is not initialized. Please run "br init" first.')
-      }
-
-      // 3. Load project config to get spaceId
-      const config = await projectConfigStore.read()
-      if (!config) {
-        this.error('Failed to read project configuration.')
-      }
-
-      // 4. Parse node-keys if provided
+      // Parse node-keys if provided
       const nodeKeys = flags['node-keys'] ? flags['node-keys'].split(',').map((key) => key.trim()) : undefined
 
-      // 5. Call memory service
+      // Call memory service
       const result = await memoryService.retrieve({
         accessToken: token.accessToken,
         nodeKeys,
@@ -82,7 +79,7 @@ export default class Retrieve extends Command {
         spaceId: config.spaceId,
       })
 
-      // 6. Display results
+      // Display results
       this.displayResults(result.memories.length, result.relatedMemories.length)
 
       if (result.memories.length === 0 && result.relatedMemories.length === 0) {
@@ -108,6 +105,19 @@ export default class Retrieve extends Command {
     } catch (error) {
       this.error(error instanceof Error ? error.message : 'Failed to retrieve memories')
     }
+  }
+
+  protected async validateAuth(tokenStore: ITokenStore): Promise<AuthToken> {
+    const token = await tokenStore.load()
+    if (token === undefined) {
+      this.error('Not authenticated. Please run "br auth login" first.')
+    }
+
+    if (!token.isValid()) {
+      this.error('Authentication token expired. Please run "br auth login" again.')
+    }
+
+    return token
   }
 
   // eslint-disable-next-line max-params
