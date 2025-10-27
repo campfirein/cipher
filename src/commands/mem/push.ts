@@ -18,8 +18,12 @@ import {KeychainTokenStore} from '../../infra/storage/keychain-token-store.js'
 import {clearDirectory} from '../../utils/ace-file-helpers.js'
 
 export default class MemPush extends Command {
-  public static description = 'Push playbook to ByteRover memory storage'
-  public static examples = ['<%= config.bin %> <%= command.id %>']
+  public static description = 'Push playbook to ByteRover memory storage and clean up local ACE files'
+  public static examples = [
+    '<%= config.bin %> <%= command.id %>',
+    '<%= config.bin %> <%= command.id %> --branch develop',
+    '<%= config.bin %> <%= command.id %> -b feature-auth',
+  ]
   public static flags = {
     branch: Flags.string({
       // Can pass either --branch or -b
