@@ -13,6 +13,7 @@ describe('InitializePlaybookUseCase', () => {
 
   beforeEach(() => {
     playbookStore = {
+      clear: stub(),
       delete: stub(),
       exists: stub(),
       load: stub(),

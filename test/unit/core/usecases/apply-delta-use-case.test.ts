@@ -14,6 +14,7 @@ describe('ApplyDeltaUseCase', () => {
 
   beforeEach(() => {
     playbookStore = {
+      clear: stub(),
       delete: stub(),
       exists: stub(),
       load: stub(),
@@ -25,6 +26,7 @@ describe('ApplyDeltaUseCase', () => {
 
   afterEach(() => {
     // Reset all stub call counts
+    playbookStore.clear.reset()
     playbookStore.delete.reset()
     playbookStore.exists.reset()
     playbookStore.load.reset()

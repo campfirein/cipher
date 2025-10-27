@@ -1,4 +1,6 @@
 /* eslint-disable camelcase */
+import axios from 'axios'
+
 import type {GetPresignedUrlsParams, IMemoryService} from '../../core/interfaces/i-memory-service.js'
 
 import {PresignedUrl} from '../../core/domain/entities/presigned-url.js'
@@ -56,6 +58,19 @@ export class HttpMemoryService implements IMemoryService {
       return response.data.presigned_urls.map((presignedUrlData) => this.mapToPresignedUrls(presignedUrlData))
     } catch (error) {
       throw new Error(`Failed to get presigned URLs: ${(error as Error).message}`)
+    }
+  }
+
+  public async uploadFile(uploadUrl: string, content: string): Promise<void> {
+    try {
+      await axios.put(uploadUrl, content, {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        timeout: this.config.timeout,
+      })
+    } catch (error) {
+      throw new Error(`Failed to upload file: ${(error as Error).message}`)
     }
   }
 

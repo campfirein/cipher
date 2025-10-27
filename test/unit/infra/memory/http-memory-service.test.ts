@@ -166,4 +166,105 @@ describe('HttpMemoryService', () => {
       }
     })
   })
+
+  describe('uploadFile()', () => {
+    const uploadUrl = 'https://storage.googleapis.com/bucket/path?signature=abc123'
+    const fileContent = '{"bullets": {}, "sections": {}, "nextId": 1}'
+
+    it('should upload file content to presigned URL', async () => {
+      nock('https://storage.googleapis.com')
+        .put('/bucket/path?signature=abc123', fileContent)
+        .reply(200)
+
+      const service = new HttpMemoryService(config)
+      await service.uploadFile(uploadUrl, fileContent)
+
+      expect(nock.isDone()).to.be.true
+    })
+
+    it('should set Content-Type header to application/json', async () => {
+      nock('https://storage.googleapis.com')
+        .put('/bucket/path?signature=abc123')
+        .matchHeader('content-type', 'application/json')
+        .reply(200)
+
+      const service = new HttpMemoryService(config)
+      await service.uploadFile(uploadUrl, fileContent)
+
+      expect(nock.isDone()).to.be.true
+    })
+
+    it('should handle network errors', async () => {
+      nock('https://storage.googleapis.com')
+        .put('/bucket/path?signature=abc123')
+        .replyWithError('Network error')
+
+      const service = new HttpMemoryService(config)
+
+      try {
+        await service.uploadFile(uploadUrl, fileContent)
+        expect.fail('Should have thrown error')
+      } catch (error) {
+        expect(error).to.be.an('error')
+        expect((error as Error).message).to.include('Failed to upload file')
+      }
+    })
+
+    it('should handle timeout errors', async () => {
+      nock('https://storage.googleapis.com')
+        .put('/bucket/path?signature=abc123')
+        .delay(6000) // Delay longer than 5s timeout
+        .reply(200)
+
+      const service = new HttpMemoryService(config)
+
+      try {
+        await service.uploadFile(uploadUrl, fileContent)
+        expect.fail('Should have thrown error')
+      } catch (error) {
+        expect(error).to.be.an('error')
+        expect((error as Error).message).to.include('Failed to upload file')
+      }
+    })
+
+    it('should handle HTTP 403 (expired/invalid signature)', async () => {
+      nock('https://storage.googleapis.com')
+        .put('/bucket/path?signature=abc123')
+        .reply(403, {error: 'SignatureDoesNotMatch'})
+
+      const service = new HttpMemoryService(config)
+
+      try {
+        await service.uploadFile(uploadUrl, fileContent)
+        expect.fail('Should have thrown error')
+      } catch (error) {
+        expect(error).to.be.an('error')
+        expect((error as Error).message).to.include('Failed to upload file')
+      }
+    })
+
+    it('should upload valid JSON content', async () => {
+      const jsonContent = JSON.stringify({
+        bullets: {
+          'test-00001': {
+            content: 'Test bullet',
+            id: 'test-00001',
+            metadata: {tags: [], timestamp: '2025-01-01'},
+            section: 'Test',
+          },
+        },
+        nextId: 2,
+        sections: {Test: ['test-00001']},
+      })
+
+      nock('https://storage.googleapis.com')
+        .put('/bucket/path?signature=abc123', jsonContent)
+        .reply(200)
+
+      const service = new HttpMemoryService(config)
+      await service.uploadFile(uploadUrl, jsonContent)
+
+      expect(nock.isDone()).to.be.true
+    })
+  })
 })

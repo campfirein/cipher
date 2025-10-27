@@ -6,6 +6,13 @@ import type {Playbook} from '../domain/entities/playbook.js'
  */
 export interface IPlaybookStore {
   /**
+   * Clears the playbook content by replacing it with an empty playbook.
+   * Does nothing if the playbook doesn't exist.
+   * @param directory The project directory (defaults to current working directory)
+   */
+  clear: (directory?: string) => Promise<void>
+
+  /**
    * Deletes a playbook from storage.
    * Does nothing if the playbook doesn't exist.
    * @param directory The project directory (defaults to current working directory)

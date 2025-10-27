@@ -12,6 +12,7 @@ import type {ITokenStore} from '../../../src/core/interfaces/i-token-store.js'
 import MemPush from '../../../src/commands/mem/push.js'
 import {AuthToken} from '../../../src/core/domain/entities/auth-token.js'
 import {BrConfig} from '../../../src/core/domain/entities/br-config.js'
+import {Playbook} from '../../../src/core/domain/entities/playbook.js'
 import {PresignedUrl} from '../../../src/core/domain/entities/presigned-url.js'
 
 class TestableMemPush extends MemPush {
@@ -50,8 +51,8 @@ describe('MemPush Command', () => {
   })
 
   beforeEach(() => {
-    memoryService = {getPresignedUrls: stub()}
-    playbookStore = {delete: stub(), exists: stub(), load: stub(), save: stub()}
+    memoryService = {getPresignedUrls: stub(), uploadFile: stub()}
+    playbookStore = {clear: stub(), delete: stub(), exists: stub(), load: stub(), save: stub()}
     configStore = {exists: stub(), read: stub(), write: stub()}
     tokenStore = {clear: stub(), load: stub(), save: stub()}
 
@@ -137,12 +138,21 @@ describe('MemPush Command', () => {
 
   describe('successful execution', () => {
     it('should successfully get presigned URLs with default branch', async () => {
+      const mockPlaybook = new Playbook()
+      mockPlaybook.addBullet('Test', 'Sample bullet', undefined, {
+        codebasePath: process.cwd(),
+        tags: ['test'],
+        timestamp: new Date().toISOString(),
+      })
+
       tokenStore.load.resolves(validToken)
       configStore.read.resolves(projectConfig)
       playbookStore.exists.resolves(true)
+      playbookStore.load.resolves(mockPlaybook)
       memoryService.getPresignedUrls.resolves([
         new PresignedUrl('playbook.json', 'https://storage.googleapis.com/signed-url'),
       ])
+      memoryService.uploadFile.resolves()
 
       const command = new TestableMemPush(memoryService, playbookStore, configStore, tokenStore, config)
 
@@ -162,12 +172,21 @@ describe('MemPush Command', () => {
     })
 
     it('should use custom branch when provided via flag', async () => {
+      const mockPlaybook = new Playbook()
+      mockPlaybook.addBullet('Test', 'Sample bullet', undefined, {
+        codebasePath: process.cwd(),
+        tags: ['test'],
+        timestamp: new Date().toISOString(),
+      })
+
       tokenStore.load.resolves(validToken)
       configStore.read.resolves(projectConfig)
       playbookStore.exists.resolves(true)
+      playbookStore.load.resolves(mockPlaybook)
       memoryService.getPresignedUrls.resolves([
         new PresignedUrl('playbook.json', 'https://storage.googleapis.com/signed-url'),
       ])
+      memoryService.uploadFile.resolves()
 
       const command = new TestableMemPush(memoryService, playbookStore, configStore, tokenStore, config)
       command.argv = ['--branch', 'develop']
@@ -187,12 +206,21 @@ describe('MemPush Command', () => {
     })
 
     it('should use short flag -b for branch', async () => {
+      const mockPlaybook = new Playbook()
+      mockPlaybook.addBullet('Test', 'Sample bullet', undefined, {
+        codebasePath: process.cwd(),
+        tags: ['test'],
+        timestamp: new Date().toISOString(),
+      })
+
       tokenStore.load.resolves(validToken)
       configStore.read.resolves(projectConfig)
       playbookStore.exists.resolves(true)
+      playbookStore.load.resolves(mockPlaybook)
       memoryService.getPresignedUrls.resolves([
         new PresignedUrl('playbook.json', 'https://storage.googleapis.com/signed-url'),
       ])
+      memoryService.uploadFile.resolves()
 
       const command = new TestableMemPush(memoryService, playbookStore, configStore, tokenStore, config)
       command.argv = ['-b', 'feature']
@@ -209,13 +237,22 @@ describe('MemPush Command', () => {
     })
 
     it('should handle multiple presigned URLs in response', async () => {
+      const mockPlaybook = new Playbook()
+      mockPlaybook.addBullet('Test', 'Sample bullet', undefined, {
+        codebasePath: process.cwd(),
+        tags: ['test'],
+        timestamp: new Date().toISOString(),
+      })
+
       tokenStore.load.resolves(validToken)
       configStore.read.resolves(projectConfig)
       playbookStore.exists.resolves(true)
+      playbookStore.load.resolves(mockPlaybook)
       memoryService.getPresignedUrls.resolves([
         new PresignedUrl('playbook.json', 'https://storage.googleapis.com/signed-url-1'),
         new PresignedUrl('metadata.json', 'https://storage.googleapis.com/signed-url-2'),
       ])
+      memoryService.uploadFile.resolves()
 
       const command = new TestableMemPush(memoryService, playbookStore, configStore, tokenStore, config)
 
@@ -254,6 +291,249 @@ describe('MemPush Command', () => {
         expect.fail('Should have thrown error')
       } catch (error) {
         expect((error as Error).message).to.include('File system error')
+      }
+    })
+  })
+
+  describe('file upload', () => {
+    it('should upload playbook after getting presigned URLs', async () => {
+      const mockPlaybook = new Playbook()
+      mockPlaybook.addBullet('Test', 'Sample bullet', undefined, {
+        codebasePath: process.cwd(),
+        tags: ['test'],
+        timestamp: new Date().toISOString(),
+      })
+
+      tokenStore.load.resolves(validToken)
+      configStore.read.resolves(projectConfig)
+      playbookStore.exists.resolves(true)
+      playbookStore.load.resolves(mockPlaybook)
+      memoryService.getPresignedUrls.resolves([
+        new PresignedUrl('playbook.json', 'https://storage.googleapis.com/signed-url'),
+      ])
+      memoryService.uploadFile.resolves()
+
+      const command = new TestableMemPush(memoryService, playbookStore, configStore, tokenStore, config)
+
+      await command.run()
+
+      expect(memoryService.uploadFile.calledOnce).to.be.true
+      expect(playbookStore.load.calledOnce).to.be.true
+    })
+
+    it('should load playbook before uploading', async () => {
+      const mockPlaybook = new Playbook()
+      mockPlaybook.addBullet('Test', 'Sample bullet', undefined, {
+        codebasePath: process.cwd(),
+        tags: ['test'],
+        timestamp: new Date().toISOString(),
+      })
+
+      tokenStore.load.resolves(validToken)
+      configStore.read.resolves(projectConfig)
+      playbookStore.exists.resolves(true)
+      playbookStore.load.resolves(mockPlaybook)
+      memoryService.getPresignedUrls.resolves([
+        new PresignedUrl('playbook.json', 'https://storage.googleapis.com/signed-url'),
+      ])
+      memoryService.uploadFile.resolves()
+
+      const command = new TestableMemPush(memoryService, playbookStore, configStore, tokenStore, config)
+
+      await command.run()
+
+      // Verify load was called before upload
+      expect(playbookStore.load.calledBefore(memoryService.uploadFile)).to.be.true
+    })
+
+    it('should call uploadFile with correct parameters', async () => {
+      const mockPlaybook = new Playbook()
+      mockPlaybook.addBullet('Test', 'Sample bullet', undefined, {
+        codebasePath: process.cwd(),
+        tags: ['test'],
+        timestamp: new Date().toISOString(),
+      })
+
+      const uploadUrl = 'https://storage.googleapis.com/bucket/file.json?sig=abc'
+      tokenStore.load.resolves(validToken)
+      configStore.read.resolves(projectConfig)
+      playbookStore.exists.resolves(true)
+      playbookStore.load.resolves(mockPlaybook)
+      memoryService.getPresignedUrls.resolves([new PresignedUrl('playbook.json', uploadUrl)])
+      memoryService.uploadFile.resolves()
+
+      const command = new TestableMemPush(memoryService, playbookStore, configStore, tokenStore, config)
+
+      await command.run()
+
+      expect(memoryService.uploadFile.calledOnce).to.be.true
+      const uploadCall = memoryService.uploadFile.getCall(0)
+      expect(uploadCall.args[0]).to.equal(uploadUrl)
+      expect(uploadCall.args[1]).to.be.a('string') // Playbook JSON content
+      expect(uploadCall.args[1]).to.include('"bullets"')
+    })
+
+    it('should upload multiple files sequentially', async () => {
+      const mockPlaybook = new Playbook()
+      mockPlaybook.addBullet('Test', 'Sample bullet', undefined, {
+        codebasePath: process.cwd(),
+        tags: ['test'],
+        timestamp: new Date().toISOString(),
+      })
+
+      tokenStore.load.resolves(validToken)
+      configStore.read.resolves(projectConfig)
+      playbookStore.exists.resolves(true)
+      playbookStore.load.resolves(mockPlaybook)
+      memoryService.getPresignedUrls.resolves([
+        new PresignedUrl('playbook.json', 'https://storage.googleapis.com/url1'),
+        new PresignedUrl('metadata.json', 'https://storage.googleapis.com/url2'),
+      ])
+      memoryService.uploadFile.resolves()
+
+      const command = new TestableMemPush(memoryService, playbookStore, configStore, tokenStore, config)
+
+      await command.run()
+
+      expect(memoryService.uploadFile.callCount).to.equal(2)
+      expect(memoryService.uploadFile.getCall(0).args[0]).to.include('url1')
+      expect(memoryService.uploadFile.getCall(1).args[0]).to.include('url2')
+    })
+
+    it('should handle upload errors gracefully', async () => {
+      const mockPlaybook = new Playbook()
+      mockPlaybook.addBullet('Test', 'Sample bullet', undefined, {
+        codebasePath: process.cwd(),
+        tags: ['test'],
+        timestamp: new Date().toISOString(),
+      })
+
+      tokenStore.load.resolves(validToken)
+      configStore.read.resolves(projectConfig)
+      playbookStore.exists.resolves(true)
+      playbookStore.load.resolves(mockPlaybook)
+      memoryService.getPresignedUrls.resolves([
+        new PresignedUrl('playbook.json', 'https://storage.googleapis.com/signed-url'),
+      ])
+      memoryService.uploadFile.rejects(new Error('Upload failed: Network error'))
+
+      const command = new TestableMemPush(memoryService, playbookStore, configStore, tokenStore, config)
+
+      try {
+        await command.run()
+        expect.fail('Should have thrown error')
+      } catch (error) {
+        expect((error as Error).message).to.include('Upload failed')
+      }
+    })
+
+    it('should error if playbook load fails', async () => {
+      tokenStore.load.resolves(validToken)
+      configStore.read.resolves(projectConfig)
+      playbookStore.exists.resolves(true)
+      playbookStore.load.resolves()
+      memoryService.getPresignedUrls.resolves([
+        new PresignedUrl('playbook.json', 'https://storage.googleapis.com/signed-url'),
+      ])
+
+      const command = new TestableMemPush(memoryService, playbookStore, configStore, tokenStore, config)
+
+      try {
+        await command.run()
+        expect.fail('Should have thrown error')
+      } catch (error) {
+        expect((error as Error).message).to.include('Failed to load playbook')
+      }
+
+      // Upload should not be called
+      expect(memoryService.uploadFile.called).to.be.false
+    })
+  })
+
+  describe('cleanup after upload', () => {
+    it('should clear playbook after successful upload', async () => {
+      const mockPlaybook = new Playbook()
+      mockPlaybook.addBullet('Test', 'Sample bullet', undefined, {
+        codebasePath: process.cwd(),
+        tags: ['test'],
+        timestamp: new Date().toISOString(),
+      })
+
+      tokenStore.load.resolves(validToken)
+      configStore.read.resolves(projectConfig)
+      playbookStore.exists.resolves(true)
+      playbookStore.load.resolves(mockPlaybook)
+      memoryService.getPresignedUrls.resolves([
+        new PresignedUrl('playbook.json', 'https://storage.googleapis.com/signed-url'),
+      ])
+      memoryService.uploadFile.resolves()
+      playbookStore.clear.resolves()
+
+      const command = new TestableMemPush(memoryService, playbookStore, configStore, tokenStore, config)
+
+      await command.run()
+
+      // Verify playbook was cleared after upload
+      expect(playbookStore.clear.calledOnce).to.be.true
+      expect(playbookStore.clear.calledAfter(memoryService.uploadFile)).to.be.true
+    })
+
+    it('should not cleanup if upload fails', async () => {
+      const mockPlaybook = new Playbook()
+      mockPlaybook.addBullet('Test', 'Sample bullet', undefined, {
+        codebasePath: process.cwd(),
+        tags: ['test'],
+        timestamp: new Date().toISOString(),
+      })
+
+      tokenStore.load.resolves(validToken)
+      configStore.read.resolves(projectConfig)
+      playbookStore.exists.resolves(true)
+      playbookStore.load.resolves(mockPlaybook)
+      memoryService.getPresignedUrls.resolves([
+        new PresignedUrl('playbook.json', 'https://storage.googleapis.com/signed-url'),
+      ])
+      memoryService.uploadFile.rejects(new Error('Upload failed'))
+      playbookStore.clear.resolves()
+
+      const command = new TestableMemPush(memoryService, playbookStore, configStore, tokenStore, config)
+
+      try {
+        await command.run()
+        expect.fail('Should have thrown error')
+      } catch {
+        // Expected error
+      }
+
+      // Cleanup should NOT have been called
+      expect(playbookStore.clear.called).to.be.false
+    })
+
+    it('should handle cleanup errors gracefully', async () => {
+      const mockPlaybook = new Playbook()
+      mockPlaybook.addBullet('Test', 'Sample bullet', undefined, {
+        codebasePath: process.cwd(),
+        tags: ['test'],
+        timestamp: new Date().toISOString(),
+      })
+
+      tokenStore.load.resolves(validToken)
+      configStore.read.resolves(projectConfig)
+      playbookStore.exists.resolves(true)
+      playbookStore.load.resolves(mockPlaybook)
+      memoryService.getPresignedUrls.resolves([
+        new PresignedUrl('playbook.json', 'https://storage.googleapis.com/signed-url'),
+      ])
+      memoryService.uploadFile.resolves()
+      playbookStore.clear.rejects(new Error('Clear failed'))
+
+      const command = new TestableMemPush(memoryService, playbookStore, configStore, tokenStore, config)
+
+      try {
+        await command.run()
+        expect.fail('Should have thrown error')
+      } catch (error) {
+        expect((error as Error).message).to.include('Clear failed')
       }
     })
   })
