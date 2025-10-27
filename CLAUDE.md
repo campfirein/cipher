@@ -65,7 +65,7 @@ The codebase follows Clean Architecture principles with pragmatic adaptations fo
 
 Use cases are employed for **complex orchestration** that benefits from framework independence:
 
-- ✅ **`LoginUseCase`**: OAuth flow with server lifecycle management, PKCE, multiple async operations with interdependencies
+- ✅ **`login` command**: OAuth flow with server lifecycle management, PKCE, multiple async operations with interdependencies - orchestrated directly in command layer
 - ❌ **`init` command**: Simple linear flow with UI interaction - orchestrated directly in command layer
 
 Commands may orchestrate business logic directly when:
@@ -347,7 +347,7 @@ The CLI implements OAuth 2.0 Authorization Code flow with PKCE:
 
 **Key Implementation Details:**
 
-- `LoginUseCase` owns the complete flow including server lifecycle
+- `Login` command owns the complete flow including server lifecycle
 - `OAuthService` encapsulates PKCE implementation details (code_verifier generation, storage, and retrieval)
 - `AuthorizationContext` provides abstraction: contains authUrl and state, hides code_verifier
 - `redirectUri` is built dynamically after callback server starts: `http://localhost:{port}/callback`

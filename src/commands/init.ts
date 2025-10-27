@@ -83,11 +83,11 @@ export default class Init extends Command {
       // 2. Load and validate authentication token
       const token = await tokenStore.load()
       if (token === undefined) {
-        this.error('Not authenticated. Please run "br auth login" first.')
+        this.error('Not authenticated. Please run "br login" first.')
       }
 
       if (!token.isValid()) {
-        this.error('Authentication token expired. Please run "br auth login" again.')
+        this.error('Authentication token expired. Please run "br login" again.')
       }
 
       // 3. Fetch spaces with spinner
