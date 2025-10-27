@@ -16,6 +16,17 @@ export class FilePlaybookStore implements IPlaybookStore {
   private static readonly BR_DIR = '.br'
   private static readonly PLAYBOOK_FILE = 'playbook.json'
 
+  public async clear(directory?: string): Promise<void> {
+    const exists = await this.exists(directory)
+
+    if (!exists) {
+      return
+    }
+
+    const emptyPlaybook = new Playbook()
+    await this.save(emptyPlaybook, directory)
+  }
+
   public async delete(directory?: string): Promise<void> {
     const playbookPath = this.getPlaybookPath(directory)
 
