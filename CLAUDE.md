@@ -97,6 +97,10 @@ Domain logic independent of frameworks and external dependencies.
     - Fields: `memories`, `relatedMemories` (both are Memory arrays)
     - Contains both directly matching and related memories
     - Includes `toJson()`/`fromJson()` for serialization
+  - `PresignedUrl` - Represents a presigned URL for file upload to blob storage
+    - Fields: `fileName`, `uploadUrl`
+    - Used for temporary GCS upload URLs with embedded AWS4-HMAC-SHA256 signatures
+    - Immutable value object with validation
 
 - **`domain/errors/`** - Domain-specific error types
   - `AuthenticationError`, `TokenExpiredError`, `InvalidTokenError`
@@ -111,10 +115,21 @@ Domain logic independent of frameworks and external dependencies.
   - `IHttpClient` - HTTP client abstraction for authenticated API requests
   - `ISpaceService` - Space-related operations (fetch user spaces)
   - `IUserService` - User-related operations (fetch current user information)
-  - `IMemoryService` - Memory retrieval operations from ByteRover Memora service
+  - `IMemoryService` - Memory retrieval and storage (push playbook to blob storage) operations from ByteRover Memora service
     - `retrieve(params: RetrieveParams)` - Fetch memories based on search query
-    - Uses object parameter pattern with query, spaceId, accessToken, sessionKey, and optional nodeKeys
-    - Returns RetrieveResult with memories and related memories
+      - Uses object parameter pattern with query, spaceId, accessToken, sessionKey, and optional nodeKeys
+      - Returns RetrieveResult with memories and related memories
+    - `getPresignedUrls(params: GetPresignedUrlsParams)` - Request presigned URLs for file upload
+      - Parameters: `accessToken`, `sessionKey`, `teamId`, `spaceId`, `branch`, `fileNames`
+      - Returns: `Promise<PresignedUrl[]>`
+    - `uploadFile(uploadUrl: string, content: string)` - Upload file to presigned URL
+      - Uses plain HTTP PUT with Content-Type: application/json
+  - `IPlaybookStore` - Playbook persistence abstraction
+    - `clear()` - Clears playbook content by replacing with empty playbook
+    - `delete()` - Removes playbook file entirely
+    - `exists()` - Checks if playbook exists
+    - `load()` - Loads playbook from storage
+    - `save()` - Saves playbook to storage
 
 ### Infrastructure Layer (`src/infra/`)
 
@@ -164,6 +179,37 @@ Concrete implementations of core interfaces using external dependencies.
   - Maps API responses to domain entities (`Memory`, `RetrieveResult`)
   - Query parameter mapping: `spaceId` → `project_id`, `nodeKeys[]` → `node_keys` (comma-separated)
   - Configuration: `{ apiBaseUrl: string, timeout?: number }` (default 30s timeout)
+  - Handles playbook upload to ByteRover's blob storage via cogit API
+  - **`getPresignedUrls()`** - Requests presigned URLs from cogit API for file uploads
+    - Uses `AuthenticatedHttpClient` with both `accessToken` and `sessionKey`
+    - POST to `{cogitApiBaseUrl}/organizations/{teamId}/projects/{spaceId}/memory-processing/presigned-urls`
+    - Request body: `{ branch: string, file_names: string[] }`
+    - Returns array of `PresignedUrl` entities with GCS upload URLs
+    - Parameter object pattern: `GetPresignedUrlsParams` with 6 fields
+  - **`uploadFile()`** - Uploads file content to GCS using presigned URL
+    - Uses plain axios (no auth headers needed for presigned URLs)
+    - HTTP PUT with Content-Type: application/json
+    - Directly uploads to Google Cloud Storage
+  - Configuration: `{ apiBaseUrl: string, timeout?: number }`
+  - Error handling: Transforms axios errors to generic Error instances
+
+### Utility Functions (`src/utils/`)
+
+Helper functions for common operations across the codebase.
+
+- **`ace-file-helpers.ts`** - ACE file system utilities
+  - `clearDirectory(dirPath: string)` - Removes all files from directory
+    - Preserves the directory itself and subdirectories
+    - Returns count of files removed for user feedback
+    - Handles non-existent directories gracefully (returns 0)
+    - Only removes files, not subdirectories
+    - Used by `br mem push` for cleanup operations
+    - Error handling: Returns 0 for ENOENT, throws for other errors
+  - `findMostRecentFile(directory: string)` - Finds latest file by modification time
+  - `loadExecutorOutput(filePath: string)` - Loads and parses executor output file
+  - `loadReflectorOutput(filePath: string)` - Loads and parses reflector output file
+  - `loadDeltaBatch(filePath: string)` - Loads and parses delta batch file
+  - `sanitizeHint(hint: string)` - Sanitizes hint strings for filenames
 
 ### Configuration (`src/config/`)
 
@@ -172,9 +218,12 @@ Application configuration with runtime environment selection.
 - **`environment.ts`** - Runtime environment configuration
   - Defines environment-specific settings (development vs production)
   - Environment is set by launcher scripts (`./bin/dev.js` or `./bin/run.js`)
-  - Contains issuerUrl, clientId, scopes, apiBaseUrl, and memoraApiBaseUrl for each environment
+  - Contains issuerUrl, clientId, scopes, apiBaseUrl, cogitApiBaseUrl and memoraApiBaseUrl for each environment
   - Development: memoraApiBaseUrl = `https://dev-beta-memora-retrieve.byterover.dev/api/v3`
   - Production: memoraApiBaseUrl = `https://prod-beta-memora-retrieve.byterover.dev/api/v3`
+  - **cogitApiBaseUrl** - Base URL for cogit API (memory storage service)
+    - Development: `https://dev-beta-cogit.byterover.dev/api/v1`
+    - Production: `https://prod-beta-cogit.byterover.dev/api/v1`
 
 - **`auth.config.ts`** - OAuth configuration with OIDC discovery
   - Uses `IOidcDiscoveryService` to dynamically fetch endpoints
@@ -304,6 +353,16 @@ class TestableMyCommand extends MyCommand {
   - `test/commands/` - Command integration tests
   - `test/unit/` - Unit tests mirroring `src/` structure
   - `test/learning/` - Learning/exploration tests
+- **ES Module stubbing limitations**:
+  - Cannot stub ES module exports directly with `sinon.stub(module, 'function')`
+  - For utility functions like `clearDirectory()`, write comprehensive unit tests separately
+  - In integration tests, focus on behavior verification through interface calls
+  - Example: Test `playbookStore.clear()` was called, rather than stubbing `clearDirectory()`
+- **Utility function testing**:
+  - Test utility functions in isolation with real file system operations
+  - Use temporary directories (`node:os tmpdir()`) for file system tests
+  - Clean up test artifacts in `afterEach()` hooks
+  - See `test/unit/utils/ace-file-helpers.test.ts` for reference
 
 ## TypeScript Configuration
 
@@ -375,6 +434,75 @@ const response = await httpClient.get('/api/endpoint')
 - No risk of forgetting session header in new API calls
 - Clean separation: services focus on business logic, HTTP client handles authentication
 - Easy to test with `nock` header matching
+
+### Memory Push Workflow (`br mem push`)
+
+The CLI provides a memory push command that uploads playbooks to ByteRover's blob storage and performs local cleanup:
+
+**Command**: `br mem push [--branch <name>]`
+
+**Workflow Steps**:
+
+1. **Validation**
+   - Check authentication (requires valid access token)
+   - Verify project initialization (requires `.br/config.json`)
+   - Confirm playbook exists (`.br/ace/playbook.json`)
+
+2. **Request Presigned URLs**
+   - POST to cogit API: `{cogitApiBaseUrl}/organizations/{teamId}/projects/{spaceId}/memory-processing/presigned-urls`
+   - Request body: `{ branch: string, file_names: string[] }`
+   - Requires both `Authorization: Bearer {accessToken}` and `x-byterover-session-id: {sessionKey}` headers
+   - Response: Array of presigned URLs for GCS upload
+
+3. **Upload Playbook**
+   - Load playbook content using `playbookStore.load()`
+   - Serialize playbook to JSON with `playbook.dumps()`
+   - Upload to each presigned URL using HTTP PUT
+   - Content-Type: application/json
+
+4. **Local Cleanup** (only after successful upload)
+   - **Clear playbook**: `playbookStore.clear()` - Replaces content with empty playbook
+   - **Clean executor outputs**: Remove all files from `.br/ace/executor-outputs/`
+   - **Clean reflections**: Remove all files from `.br/ace/reflections/`
+   - **Clean deltas**: Remove all files from `.br/ace/deltas/`
+   - Each cleanup operation shows file count removed
+
+5. **User Feedback**
+   - Display progress for each step with spinners
+   - Show file counts for each cleanup operation
+   - Final success message with branch and file count
+
+**Key Implementation Details**:
+
+- Uses `IMemoryService` for API operations
+- Uses `IPlaybookStore.clear()` for playbook reset
+- Uses `clearDirectory()` utility for file cleanup
+- Cleanup only happens after successful upload (fail-fast pattern)
+- Cleanup errors propagate to user (e.g., if `clear()` fails)
+- Directory cleanup operations handle missing directories gracefully
+
+**Example Output**:
+
+```text
+Uploading files...
+  ✓ Uploaded: playbook.json
+
+Cleaning up local files...
+  ✓ Playbook cleared
+  ✓ Executor outputs cleaned (3 files removed)
+  ✓ Reflections cleaned (2 files removed)
+  ✓ Deltas cleaned (5 files removed)
+
+✓ Successfully pushed playbook to ByteRover memory storage!
+  Branch: main
+  Files uploaded: 1
+```
+
+**Branch Parameter**:
+
+- Default: `main` (ByteRover's internal branching, not Git branches)
+- Can be overridden with `--branch` or `-b` flag
+- Used for organizing playbook versions in blob storage
 
 ### OIDC Discovery
 

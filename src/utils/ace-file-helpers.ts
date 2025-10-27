@@ -1,4 +1,4 @@
-import {readdir, readFile} from 'node:fs/promises'
+import {readdir, readFile, unlink} from 'node:fs/promises'
 import {join} from 'node:path'
 
 import {DeltaBatch, type DeltaBatchJson} from '../core/domain/entities/delta-batch.js'
@@ -70,6 +70,37 @@ export async function loadDeltaBatch(filePath: string): Promise<DeltaBatch> {
   const json = JSON.parse(content) as DeltaBatchJson
 
   return DeltaBatch.fromJson(json)
+}
+
+/**
+ * Removes all files from a directory while preserving the directory itself.
+ * Returns the number of files removed.
+ * Silently succeeds if directory doesn't exist.
+ * @param dirPath - Absolute path to directory to clear
+ * @returns Number of files removed
+ */
+export async function clearDirectory(dirPath: string): Promise<number> {
+  try {
+    const entries = await readdir(dirPath, {withFileTypes: true})
+
+    // Filter to only get files (not subdirectories)
+    const files = entries.filter((entry) => entry.isFile())
+
+    // Remove each file
+    await Promise.all(
+      files.map((file) => unlink(join(dirPath, file.name))),
+    )
+
+    return files.length
+  } catch (error) {
+    // If directory doesn't exist (ENOENT), return 0
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return 0
+    }
+
+    // Re-throw other errors
+    throw error
+  }
 }
 
 /**

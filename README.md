@@ -168,6 +168,9 @@ br ace curator [--reflection file.json]            # Update playbook (paste delt
 br add -s "Section" -c "Content"                   # Add new bullet (auto-generates ID)
 br add -s "Section" -c "Updated" -b "bullet-id"    # Update existing bullet
 
+# Memory operations
+br mem push [--branch name]                        # Push playbook to blob storage and cleanup local files
+
 # Utility commands
 br ace show [--format json]                        # View current playbook
 br ace stats                                       # View playbook statistics
@@ -192,6 +195,65 @@ br add -s "Common Errors" -c "Updated content" -b "common-00001"
 
 The `add` command automatically tags bullets with `['manual']` and is ideal for quick knowledge capture during development.
 
+### Memory Push
+
+The `br mem push` command uploads your playbook to ByteRover's memory storage (blob storage) and automatically cleans up local ACE files. This is useful when you want to:
+
+- **Share playbook knowledge** with other team members or agents
+- **Archive completed work** to cloud storage
+- **Reset local state** after pushing insights to the system
+- **Free up local storage** by removing processed ACE outputs
+
+#### Usage
+
+```bash
+# Push to default branch (main)
+br mem push
+
+# Push to a specific branch
+br mem push --branch develop
+br mem push -b feature-auth
+```
+
+#### What Gets Pushed
+
+- `.br/ace/playbook.json` - Your accumulated knowledge base
+
+#### What Gets Cleaned Up (After Successful Push)
+
+After successfully uploading to blob storage, the command automatically:
+
+1. **Clears playbook content** - Resets to empty playbook (file remains, content cleared)
+2. **Removes executor outputs** - Deletes all files in `.br/ace/executor-outputs/`
+3. **Removes reflections** - Deletes all files in `.br/ace/reflections/`
+4. **Removes deltas** - Deletes all files in `.br/ace/deltas/`
+
+**Note**: Cleanup only happens after successful upload. If the upload fails, your local files remain unchanged.
+
+#### Example Output
+
+```text
+Requesting upload URLs... done
+Loading playbook... done
+
+Uploading files...
+  Uploading playbook.json... ✓
+
+Cleaning up local files...
+  Clearing playbook... ✓
+  Cleaning executor outputs... ✓ (3 files removed)
+  Cleaning reflections... ✓ (2 files removed)
+  Cleaning deltas... ✓ (5 files removed)
+
+✓ Successfully pushed playbook to ByteRover memory storage!
+  Branch: main
+  Files uploaded: 1
+```
+
+#### Branches
+
+The `--branch` parameter refers to **ByteRover's internal branching system**, not Git branches. This allows you to organize different versions of your playbook in blob storage (e.g., `main`, `develop`, `experimental`).
+
 ### File Organization
 
 ACE stores all outputs in `.br/ace/` with hint-based naming for traceability:
@@ -206,6 +268,8 @@ ACE stores all outputs in `.br/ace/` with hint-based naming for traceability:
 └── deltas/
     └── delta-{hint}-{timestamp}.json               # Playbook updates
 ```
+
+**Note**: When you run `br mem push`, all files in `executor-outputs/`, `reflections/`, and `deltas/` are removed after successful upload. The `playbook.json` is cleared (reset to empty). This keeps your local workspace clean while preserving your knowledge in ByteRover's blob storage.
 
 ## Authentication
 

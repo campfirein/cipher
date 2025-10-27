@@ -1,7 +1,10 @@
 /* eslint-disable camelcase */
-import type {IMemoryService, RetrieveParams} from '../../core/interfaces/i-memory-service.js'
+import axios from 'axios'
+
+import type {GetPresignedUrlsParams, IMemoryService, RetrieveParams} from '../../core/interfaces/i-memory-service.js'
 
 import {Memory} from '../../core/domain/entities/memory.js'
+import {PresignedUrl} from '../../core/domain/entities/presigned-url.js'
 import {RetrieveResult} from '../../core/domain/entities/retrieve-result.js'
 import {AuthenticatedHttpClient} from '../http/authenticated-http-client.js'
 
@@ -25,6 +28,27 @@ type RetrieveApiResponse = {
   related_memories: MemoryApiResponse[]
 }
 
+type GetPresignedUrlsRequestBody = {
+  branch: string
+  file_names: string[]
+}
+
+type GetPresignedUrlsApiResponse = {
+  data: GetPresignedUrlsApiData
+  message: string
+  success: boolean
+}
+
+type GetPresignedUrlsApiData = {
+  presigned_urls: PresignedUrlsApiResponse[]
+  request_id: string
+}
+
+type PresignedUrlsApiResponse = {
+  file_name: string
+  presigned_url: string
+}
+
 export class HttpMemoryService implements IMemoryService {
   private readonly config: MemoryServiceConfig
 
@@ -32,6 +56,25 @@ export class HttpMemoryService implements IMemoryService {
     this.config = {
       ...config,
       timeout: config.timeout ?? 30_000, // Default 30 seconds timeout (memory retrieval may be slower)
+    }
+  }
+
+  public async getPresignedUrls(params: GetPresignedUrlsParams): Promise<PresignedUrl[]> {
+    try {
+      const httpClient = new AuthenticatedHttpClient(params.accessToken, params.sessionKey)
+      const url = `${this.config.apiBaseUrl}/organizations/${params.teamId}/projects/${params.spaceId}/memory-processing/presigned-urls`
+
+      const requestBody: GetPresignedUrlsRequestBody = {
+        branch: params.branch,
+        file_names: params.fileNames,
+      }
+
+      const response = await httpClient.post<GetPresignedUrlsApiResponse>(url, requestBody, {
+        timeout: this.config.timeout,
+      })
+      return response.data.presigned_urls.map((presignedUrlData) => this.mapToPresignedUrls(presignedUrlData))
+    } catch (error) {
+      throw new Error(`Failed to get presigned URLs: ${(error as Error).message}`)
     }
   }
 
@@ -49,6 +92,19 @@ export class HttpMemoryService implements IMemoryService {
       return this.mapToRetrieveResult(response)
     } catch (error) {
       throw new Error(`Failed to retrieve memories: ${(error as Error).message}`)
+    }
+  }
+
+  public async uploadFile(uploadUrl: string, content: string): Promise<void> {
+    try {
+      await axios.put(uploadUrl, content, {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        timeout: this.config.timeout,
+      })
+    } catch (error) {
+      throw new Error(`Failed to upload file: ${(error as Error).message}`)
     }
   }
 
@@ -76,6 +132,10 @@ export class HttpMemoryService implements IMemoryService {
       score: apiMemory.score,
       title: apiMemory.title,
     })
+  }
+
+  private mapToPresignedUrls(presignedUrlData: PresignedUrlsApiResponse): PresignedUrl {
+    return new PresignedUrl(presignedUrlData.file_name, presignedUrlData.presigned_url)
   }
 
   private mapToRetrieveResult(response: RetrieveApiResponse): RetrieveResult {
