@@ -4,6 +4,7 @@ import {join} from 'node:path'
 import type {AuthToken} from '../../core/domain/entities/auth-token.js'
 import type {BrConfig} from '../../core/domain/entities/br-config.js'
 import type {PresignedUrl} from '../../core/domain/entities/presigned-url.js'
+import type {PresignedUrlsResponse} from '../../core/domain/entities/presigned-urls-response.js'
 import type {IMemoryService} from '../../core/interfaces/i-memory-service.js'
 import type {IPlaybookStore} from '../../core/interfaces/i-playbook-store.js'
 import type {IProjectConfigStore} from '../../core/interfaces/i-project-config-store.js'
@@ -72,6 +73,23 @@ export default class MemPush extends Command {
     ux.action.stop(`✓ (${deltaCount} files removed)`)
   }
 
+  protected async confirmUpload(
+    memoryService: IMemoryService,
+    token: AuthToken,
+    projectConfig: BrConfig,
+    requestId: string,
+  ): Promise<void> {
+    ux.action.start('Confirming upload')
+    await memoryService.confirmUpload({
+      accessToken: token.accessToken,
+      requestId,
+      sessionKey: token.sessionKey,
+      spaceId: projectConfig.spaceId,
+      teamId: projectConfig.teamId,
+    })
+    ux.action.stop('✓')
+  }
+
   protected createServices(): {
     memoryService: IMemoryService
     playbookStore: IPlaybookStore
@@ -93,10 +111,10 @@ export default class MemPush extends Command {
     memoryService: IMemoryService,
     token: AuthToken,
     projectConfig: BrConfig,
-  ): Promise<PresignedUrl[]> {
+  ): Promise<PresignedUrlsResponse> {
     const {flags} = await this.parse(MemPush)
     ux.action.start('Requesting upload URLs')
-    const presignedUrls = await memoryService.getPresignedUrls({
+    const response = await memoryService.getPresignedUrls({
       accessToken: token.accessToken,
       branch: flags.branch,
       fileNames: ['playbook.json'],
@@ -105,7 +123,7 @@ export default class MemPush extends Command {
       teamId: projectConfig.teamId,
     })
     ux.action.stop()
-    return presignedUrls
+    return response
   }
 
   protected async loadPlaybookContent(playbookStore: IPlaybookStore): Promise<string> {
@@ -129,15 +147,16 @@ export default class MemPush extends Command {
       const token = await this.validateAuth(tokenStore)
       const projectConfig = await this.checkProjectInit(projectConfigStore)
       await this.verifyPlaybookExists(playbookStore)
-      const presignedUrls = await this.getPresignedUrls(memoryService, token, projectConfig)
+      const response = await this.getPresignedUrls(memoryService, token, projectConfig)
       const playbookContent = await this.loadPlaybookContent(playbookStore)
-      await this.uploadFiles(memoryService, presignedUrls, playbookContent)
+      await this.uploadFiles(memoryService, response.presignedUrls, playbookContent)
+      await this.confirmUpload(memoryService, token, projectConfig, response.requestId)
       await this.cleanUpLocalFiles(playbookStore)
 
       // Success message
       this.log('\n✓ Successfully pushed playbook to ByteRover memory storage!')
       this.log(`  Branch: ${flags.branch}`)
-      this.log(`  Files uploaded: ${presignedUrls.length}`)
+      this.log(`  Files uploaded: ${response.presignedUrls.length}`)
     } catch (error) {
       this.error(error instanceof Error ? error.message : 'Push failed')
     }
@@ -145,7 +164,7 @@ export default class MemPush extends Command {
 
   protected async uploadFiles(
     memoryService: IMemoryService,
-    presignedUrls: PresignedUrl[],
+    presignedUrls: ReadonlyArray<PresignedUrl>,
     playbookContent: string,
   ): Promise<void> {
     this.log('\nUploading files...')

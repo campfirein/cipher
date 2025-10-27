@@ -92,6 +92,11 @@ Domain logic independent of frameworks and external dependencies.
     - Fields: `fileName`, `uploadUrl`
     - Used for temporary GCS upload URLs with embedded AWS4-HMAC-SHA256 signatures
     - Immutable value object with validation
+  - `PresignedUrlsResponse` - Response from presigned URLs request
+    - Fields: `presignedUrls` (readonly array), `requestId`
+    - Encapsulates both the URLs for upload and the request ID for confirmation
+    - Immutable value object with frozen array
+    - Validates non-empty arrays and request ID
 
 - **`domain/errors/`** - Domain-specific error types
   - `AuthenticationError`, `TokenExpiredError`, `InvalidTokenError`
@@ -107,9 +112,14 @@ Domain logic independent of frameworks and external dependencies.
   - `ISpaceService` - Space-related operations (fetch user spaces)
   - `IUserService` - User-related operations (fetch current user information)
   - `IMemoryService` - Memory storage operations (push playbook to blob storage)
+    - `confirmUpload(params: ConfirmUploadParams)` - Confirm upload completion to server
+      - Parameters: `accessToken`, `sessionKey`, `teamId`, `spaceId`, `requestId`
+      - POST to `/memory-processing/confirm-upload` endpoint
+      - Must be called after successful file upload before cleanup
+      - Returns: `Promise<void>`
     - `getPresignedUrls(params: GetPresignedUrlsParams)` - Request presigned URLs for file upload
       - Parameters: `accessToken`, `sessionKey`, `teamId`, `spaceId`, `branch`, `fileNames`
-      - Returns: `Promise<PresignedUrl[]>`
+      - Returns: `Promise<PresignedUrlsResponse>` with presigned URLs and request ID
     - `uploadFile(uploadUrl: string, content: string)` - Upload file to presigned URL
       - Uses plain HTTP PUT with Content-Type: application/json
   - `IPlaybookStore` - Playbook persistence abstraction
@@ -401,7 +411,7 @@ The CLI provides a memory push command that uploads playbooks to ByteRover's blo
    - POST to cogit API: `{cogitApiBaseUrl}/organizations/{teamId}/projects/{spaceId}/memory-processing/presigned-urls`
    - Request body: `{ branch: string, file_names: string[] }`
    - Requires both `Authorization: Bearer {accessToken}` and `x-byterover-session-id: {sessionKey}` headers
-   - Response: Array of presigned URLs for GCS upload
+   - Response: `PresignedUrlsResponse` with presigned URLs array and request ID
 
 3. **Upload Playbook**
    - Load playbook content using `playbookStore.load()`
@@ -409,38 +419,52 @@ The CLI provides a memory push command that uploads playbooks to ByteRover's blo
    - Upload to each presigned URL using HTTP PUT
    - Content-Type: application/json
 
-4. **Local Cleanup** (only after successful upload)
+4. **Confirm Upload** (only after successful file upload)
+   - POST to cogit API: `{cogitApiBaseUrl}/organizations/{teamId}/projects/{spaceId}/memory-processing/confirm-upload`
+   - Request body: `{ request_id: string }` (from step 2 response)
+   - Requires both `Authorization: Bearer {accessToken}` and `x-byterover-session-id: {sessionKey}` headers
+   - Notifies server that all files have been uploaded successfully
+   - Triggers server-side processing of uploaded playbook
+
+5. **Local Cleanup** (only after successful confirmation)
    - **Clear playbook**: `playbookStore.clear()` - Replaces content with empty playbook
    - **Clean executor outputs**: Remove all files from `.br/ace/executor-outputs/`
    - **Clean reflections**: Remove all files from `.br/ace/reflections/`
    - **Clean deltas**: Remove all files from `.br/ace/deltas/`
    - Each cleanup operation shows file count removed
 
-5. **User Feedback**
+6. **User Feedback**
    - Display progress for each step with spinners
    - Show file counts for each cleanup operation
    - Final success message with branch and file count
 
 **Key Implementation Details**:
 
-- Uses `IMemoryService` for API operations
+- Uses `IMemoryService` for API operations (getPresignedUrls, uploadFile, confirmUpload)
 - Uses `IPlaybookStore.clear()` for playbook reset
 - Uses `clearDirectory()` utility for file cleanup
-- Cleanup only happens after successful upload (fail-fast pattern)
+- Cleanup only happens after successful upload AND confirmation (fail-fast pattern)
+- If upload fails, local files remain unchanged for retry
+- If confirmation fails, local files remain unchanged (server not notified)
 - Cleanup errors propagate to user (e.g., if `clear()` fails)
 - Directory cleanup operations handle missing directories gracefully
+- Request ID from presigned URLs response is used for confirmation
 
 **Example Output**:
 
 ```text
+Requesting upload URLs... done
+Loading playbook... done
+
 Uploading files...
-  ✓ Uploaded: playbook.json
+  Uploading files... ✓
+Confirming upload... ✓
 
 Cleaning up local files...
-  ✓ Playbook cleared
-  ✓ Executor outputs cleaned (3 files removed)
-  ✓ Reflections cleaned (2 files removed)
-  ✓ Deltas cleaned (5 files removed)
+  Clearing playbook... ✓
+  Cleaning executor outputs... ✓ (3 files removed)
+  Cleaning reflections... ✓ (2 files removed)
+  Cleaning deltas... ✓ (5 files removed)
 
 ✓ Successfully pushed playbook to ByteRover memory storage!
   Branch: main
