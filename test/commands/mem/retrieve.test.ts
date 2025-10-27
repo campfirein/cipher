@@ -4,7 +4,7 @@ import {Config as OclifConfig} from '@oclif/core'
 import {expect} from 'chai'
 import sinon, {restore, stub} from 'sinon'
 
-import type {IMemoryService} from '../../../src/core/interfaces/i-memory-service.js'
+import type {IMemoryRetrievalService} from '../../../src/core/interfaces/i-memory-retrieval-service.js'
 import type {IProjectConfigStore} from '../../../src/core/interfaces/i-project-config-store.js'
 import type {ITokenStore} from '../../../src/core/interfaces/i-token-store.js'
 
@@ -20,7 +20,7 @@ import {RetrieveResult} from '../../../src/core/domain/entities/retrieve-result.
 class TestableRetrieve extends Retrieve {
   // eslint-disable-next-line max-params
   constructor(
-    private readonly mockMemoryService: IMemoryService,
+    private readonly mockMemoryService: IMemoryRetrievalService,
     private readonly mockProjectConfigStore: IProjectConfigStore,
     private readonly mockTokenStore: ITokenStore,
     argv: string[],
@@ -40,7 +40,7 @@ class TestableRetrieve extends Retrieve {
 
 describe('mem:retrieve command', () => {
   let config: Config
-  let memoryService: sinon.SinonStubbedInstance<IMemoryService>
+  let memoryService: sinon.SinonStubbedInstance<IMemoryRetrievalService>
   let projectConfigStore: sinon.SinonStubbedInstance<IProjectConfigStore>
   let tokenStore: sinon.SinonStubbedInstance<ITokenStore>
 
@@ -81,10 +81,7 @@ describe('mem:retrieve command', () => {
 
   beforeEach(() => {
     memoryService = {
-      confirmUpload: stub(),
-      getPresignedUrls: stub(),
       retrieve: stub(),
-      uploadFile: stub(),
     }
     projectConfigStore = {
       exists: stub(),

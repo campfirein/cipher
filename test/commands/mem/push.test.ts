@@ -4,7 +4,7 @@ import {Config as OclifConfig} from '@oclif/core'
 import {expect} from 'chai'
 import sinon, {match, restore, stub} from 'sinon'
 
-import type {IMemoryService} from '../../../src/core/interfaces/i-memory-service.js'
+import type {IMemoryStorageService} from '../../../src/core/interfaces/i-memory-storage-service.js'
 import type {IPlaybookStore} from '../../../src/core/interfaces/i-playbook-store.js'
 import type {IProjectConfigStore} from '../../../src/core/interfaces/i-project-config-store.js'
 import type {ITokenStore} from '../../../src/core/interfaces/i-token-store.js'
@@ -19,7 +19,7 @@ import {PresignedUrlsResponse} from '../../../src/core/domain/entities/presigned
 class TestableMemPush extends MemPush {
   // eslint-disable-next-line max-params
   public constructor(
-    private readonly mockMemoryService: IMemoryService,
+    private readonly mockMemoryService: IMemoryStorageService,
     private readonly mockPlaybookStore: IPlaybookStore,
     private readonly mockConfigStore: IProjectConfigStore,
     private readonly mockTokenStore: ITokenStore,
@@ -41,7 +41,7 @@ class TestableMemPush extends MemPush {
 describe('MemPush Command', () => {
   let config: Config
   let configStore: sinon.SinonStubbedInstance<IProjectConfigStore>
-  let memoryService: sinon.SinonStubbedInstance<IMemoryService>
+  let memoryService: sinon.SinonStubbedInstance<IMemoryStorageService>
   let playbookStore: sinon.SinonStubbedInstance<IPlaybookStore>
   let projectConfig: BrConfig
   let tokenStore: sinon.SinonStubbedInstance<ITokenStore>
@@ -52,7 +52,7 @@ describe('MemPush Command', () => {
   })
 
   beforeEach(() => {
-    memoryService = {confirmUpload: stub(), getPresignedUrls: stub(), retrieve: stub(), uploadFile: stub()}
+    memoryService = {confirmUpload: stub(), getPresignedUrls: stub(), uploadFile: stub()}
     playbookStore = {clear: stub(), delete: stub(), exists: stub(), load: stub(), save: stub()}
     configStore = {exists: stub(), read: stub(), write: stub()}
     tokenStore = {clear: stub(), load: stub(), save: stub()}

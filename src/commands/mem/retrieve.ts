@@ -1,12 +1,12 @@
 import {Command, Flags} from '@oclif/core'
 
-import type {IMemoryService} from '../../core/interfaces/i-memory-service.js'
+import type {IMemoryRetrievalService} from '../../core/interfaces/i-memory-retrieval-service.js'
 import type {IProjectConfigStore} from '../../core/interfaces/i-project-config-store.js'
 import type {ITokenStore} from '../../core/interfaces/i-token-store.js'
 
 import {getCurrentConfig} from '../../config/environment.js'
 import {ProjectConfigStore} from '../../infra/config/file-config-store.js'
-import {HttpMemoryService} from '../../infra/memory/http-memory-service.js'
+import {HttpMemoryRetrievalService} from '../../infra/memory/http-memory-retrieval-service.js'
 import {KeychainTokenStore} from '../../infra/storage/keychain-token-store.js'
 
 export default class Retrieve extends Command {
@@ -29,13 +29,13 @@ export default class Retrieve extends Command {
   }
 
   protected createServices(): {
-    memoryService: IMemoryService
+    memoryService: IMemoryRetrievalService
     projectConfigStore: IProjectConfigStore
     tokenStore: ITokenStore
   } {
     const envConfig = getCurrentConfig()
     return {
-      memoryService: new HttpMemoryService({
+      memoryService: new HttpMemoryRetrievalService({
         apiBaseUrl: envConfig.memoraApiBaseUrl,
       }),
       projectConfigStore: new ProjectConfigStore(),

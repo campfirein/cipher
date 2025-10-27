@@ -120,20 +120,21 @@ Domain logic independent of frameworks and external dependencies.
   - `IHttpClient` - HTTP client abstraction for authenticated API requests
   - `ISpaceService` - Space-related operations (fetch user spaces)
   - `IUserService` - User-related operations (fetch current user information)
-  - `IMemoryService` - Memory retrieval and storage (push playbook to blob storage) operations from ByteRover Memora service
+  - `IMemoryRetrievalService` - Memory retrieval operations from ByteRover Memora service
     - `retrieve(params: RetrieveParams)` - Fetch memories based on search query
       - Uses object parameter pattern with query, spaceId, accessToken, sessionKey, and optional nodeKeys
       - Returns RetrieveResult with memories and related memories
-    - `confirmUpload(params: ConfirmUploadParams)` - Confirm upload completion to server
-      - Parameters: `accessToken`, `sessionKey`, `teamId`, `spaceId`, `requestId`
-      - POST to `/memory-processing/confirm-upload` endpoint
-      - Must be called after successful file upload before cleanup
-      - Returns: `Promise<void>`
+  - `IMemoryStorageService` - Memory storage operations to ByteRover CoGit service (playbook upload to blob storage)
     - `getPresignedUrls(params: GetPresignedUrlsParams)` - Request presigned URLs for file upload
       - Parameters: `accessToken`, `sessionKey`, `teamId`, `spaceId`, `branch`, `fileNames`
       - Returns: `Promise<PresignedUrlsResponse>` with presigned URLs and request ID
     - `uploadFile(uploadUrl: string, content: string)` - Upload file to presigned URL
       - Uses plain HTTP PUT with Content-Type: application/json
+    - `confirmUpload(params: ConfirmUploadParams)` - Confirm upload completion to server
+      - Parameters: `accessToken`, `sessionKey`, `teamId`, `spaceId`, `requestId`
+      - POST to `/memory-processing/confirm-upload` endpoint
+      - Must be called after successful file upload before cleanup
+      - Returns: `Promise<void>`
   - `IPlaybookStore` - Playbook persistence abstraction
     - `clear()` - Clears playbook content by replacing with empty playbook
     - `delete()` - Removes playbook file entirely
@@ -180,27 +181,36 @@ Concrete implementations of core interfaces using external dependencies.
   - Maps API responses to domain entities (`User`)
   - Configuration: `{ apiBaseUrl: string, timeout?: number }`
 
-- **`memory/http-memory-service.ts`** - Memory service implementation
-  - Implements `IMemoryService` interface
+- **`memory/http-memory-retrieval-service.ts`** - Memory retrieval service implementation
+  - Implements `IMemoryRetrievalService` interface
   - Uses `AuthenticatedHttpClient` internally for API requests
   - Calls `GET {apiBaseUrl}/retrieve` endpoint to fetch memories from ByteRover Memora
   - Requires `query`, `spaceId`, `accessToken`, and `sessionKey` parameters
   - Optional `nodeKeys` array to filter results to specific file paths
   - Maps API responses to domain entities (`Memory`, `RetrieveResult`)
   - Query parameter mapping: `spaceId` → `project_id`, `nodeKeys[]` → `node_keys` (comma-separated)
-  - Configuration: `{ apiBaseUrl: string, timeout?: number }` (default 30s timeout)
-  - Handles playbook upload to ByteRover's blob storage via cogit API
-  - **`getPresignedUrls()`** - Requests presigned URLs from cogit API for file uploads
+  - Configuration: `{ apiBaseUrl: string, timeout?: number }` (default 30s timeout for memory retrieval)
+  - Error handling: Transforms axios errors to generic Error instances
+
+- **`memory/http-memory-storage-service.ts`** - Memory storage service implementation
+  - Implements `IMemoryStorageService` interface
+  - Handles playbook upload to ByteRover's blob storage via CoGit API
+  - **`getPresignedUrls()`** - Requests presigned URLs from CoGit API for file uploads
     - Uses `AuthenticatedHttpClient` with both `accessToken` and `sessionKey`
-    - POST to `{cogitApiBaseUrl}/organizations/{teamId}/projects/{spaceId}/memory-processing/presigned-urls`
+    - POST to `{apiBaseUrl}/organizations/{teamId}/projects/{spaceId}/memory-processing/presigned-urls`
     - Request body: `{ branch: string, file_names: string[] }`
-    - Returns array of `PresignedUrl` entities with GCS upload URLs
+    - Returns `PresignedUrlsResponse` with array of `PresignedUrl` entities and request ID
     - Parameter object pattern: `GetPresignedUrlsParams` with 6 fields
   - **`uploadFile()`** - Uploads file content to GCS using presigned URL
     - Uses plain axios (no auth headers needed for presigned URLs)
     - HTTP PUT with Content-Type: application/json
     - Directly uploads to Google Cloud Storage
-  - Configuration: `{ apiBaseUrl: string, timeout?: number }`
+  - **`confirmUpload()`** - Confirms upload completion to CoGit server
+    - Uses `AuthenticatedHttpClient` with both `accessToken` and `sessionKey`
+    - POST to `{apiBaseUrl}/organizations/{teamId}/projects/{spaceId}/memory-processing/confirm-upload`
+    - Request body: `{ request_id: string }`
+    - Must be called after successful file upload before cleanup
+  - Configuration: `{ apiBaseUrl: string, timeout?: number }` (default 30s timeout)
   - Error handling: Transforms axios errors to generic Error instances
 
 ### Utility Functions (`src/utils/`)
@@ -306,13 +316,13 @@ class TestableMyCommand extends MyCommand {
 - **Flags**:
   - `--query`, `-q` (required): Search query string
   - `--node-keys`, `-n` (optional): Comma-separated file paths to filter results
-- **Dependencies**: `IMemoryService`, `IProjectConfigStore`, `ITokenStore`
+- **Dependencies**: `IMemoryRetrievalService`, `IProjectConfigStore`, `ITokenStore`
 - **Flow**:
   1. Checks if project is initialized (via `IProjectConfigStore`)
   2. Loads project config to retrieve `spaceId` from `BrConfig`
   3. Validates authentication token
   4. Parses optional `nodeKeys` from comma-separated string
-  5. Calls `IMemoryService.retrieve()` with query, spaceId, tokens, and optional nodeKeys
+  5. Calls `IMemoryRetrievalService.retrieve()` with query, spaceId, tokens, and optional nodeKeys
   6. Displays formatted results with memories and related memories
 - **Examples**:
 
@@ -351,10 +361,10 @@ class TestableMyCommand extends MyCommand {
   - Verify headers with `.matchHeader('authorization', ...)` and `.matchHeader('x-byterover-session-id', ...)`
   - See `test/unit/infra/http/authenticated-http-client.test.ts` for examples
 - **Service testing with authenticated requests**:
-  - Services using `AuthenticatedHttpClient` (like `HttpSpaceService`, `HttpUserService`) are tested with `nock`
+  - Services using `AuthenticatedHttpClient` (like `HttpSpaceService`, `HttpUserService`, `HttpMemoryRetrievalService`, `HttpMemoryStorageService`) are tested with `nock`
   - Verify both `Authorization` and `x-byterover-session-id` headers are sent
   - Pass both `accessToken` and `sessionKey` to service methods
-  - See `test/unit/infra/space/http-space-service.test.ts` and `test/unit/infra/user/http-user-service.test.ts` for reference
+  - See `test/unit/infra/space/http-space-service.test.ts`, `test/unit/infra/user/http-user-service.test.ts`, `test/unit/infra/memory/http-memory-retrieval-service.test.ts`, and `test/unit/infra/memory/http-memory-storage-service.test.ts` for reference
 - **Stubs/Spies/Mocks**: Use `sinon` for behavior verification
   - When mocking `ISpaceService` or `IUserService` in command tests, verify both parameters are passed
   - Example: `expect(spaceService.getSpaces.calledWith('access-token', 'session-key')).to.be.true`

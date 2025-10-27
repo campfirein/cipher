@@ -1,13 +1,4 @@
 import type {PresignedUrlsResponse} from '../domain/entities/presigned-urls-response.js'
-import type {RetrieveResult} from '../domain/entities/retrieve-result.js'
-
-export type RetrieveParams = {
-  accessToken: string
-  nodeKeys?: string[]
-  query: string
-  sessionKey: string
-  spaceId: string
-}
 
 /**
  * Parameters for requesting presigned URLs.
@@ -33,9 +24,10 @@ export type ConfirmUploadParams = {
 }
 
 /**
- * Interface for memory operations.
+ * Interface for memory storage operations to ByteRover CoGit service.
+ * This service is responsible for uploading playbooks to blob storage.
  */
-export interface IMemoryService {
+export interface IMemoryStorageService {
   /**
    * Confirms that file upload is complete.
    * Notifies the server that all files have been successfully uploaded to blob storage.
@@ -54,33 +46,6 @@ export interface IMemoryService {
    * @throws Error if the request fails
    */
   getPresignedUrls: (params: GetPresignedUrlsParams) => Promise<PresignedUrlsResponse>
-
-  /**
-   * Retrieves memories from the ByteRover Memora service based on a search query.
-   *
-   * @param params The retrieve operation parameters
-   * @returns A promise that resolves to the RetrieveResult containing memories and related memories
-   *
-   * @example
-   * // Broad search across entire space
-   * const result = await memoryService.retrieve({
-   *   query: "authentication best practices",
-   *   spaceId: "a0000000-b001-0000-0000-000000000000",
-   *   accessToken: token.accessToken,
-   *   sessionKey: token.sessionKey,
-   * });
-   *
-   * @example
-   * // Scoped search to specific files
-   * const result = await memoryService.retrieve({
-   *   query: "error handling",
-   *   spaceId: "a0000000-b001-0000-0000-000000000000",
-   *   accessToken: token.accessToken,
-   *   sessionKey: token.sessionKey,
-   *   nodeKeys: ["src/auth/login.ts", "src/auth/oauth.ts"],
-   * });
-   */
-  retrieve: (params: RetrieveParams) => Promise<RetrieveResult>
 
   /**
    * Uploads file content to a presigned URL.
