@@ -179,11 +179,11 @@ export default class MemPush extends Command {
     const token = await tokenStore.load()
 
     if (token === undefined) {
-      this.error('Not authenticated. Run "br auth login" first.')
+      this.error('Not authenticated. Run "br login" first.')
     }
 
     if (!token.isValid()) {
-      this.error('Authentication token expired. Run "br auth login" again.')
+      this.error('Authentication token expired. Run "br login" again.')
     }
 
     return token

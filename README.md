@@ -86,7 +86,7 @@ Get started with ByteRover CLI in three simple steps:
 ### 1. Authenticate
 
 ```bash
-br auth login
+br login
 ```
 
 This opens your browser to complete OAuth authentication. Your credentials are securely stored in the system keychain.
@@ -277,7 +277,7 @@ ByteRover CLI uses **OAuth 2.0 with PKCE** (Proof Key for Code Exchange) for sec
 
 ### How it works
 
-1. Run `br auth login` to initiate authentication
+1. Run `br login` to initiate authentication
 2. A local callback server starts on a random port
 3. Your default browser opens to the ByteRover authorization page
 4. After successful authentication, tokens are securely stored in your system keychain
@@ -326,7 +326,7 @@ USAGE
 ## Commands
 <!-- commands -->
 * [`br add`](#br-add)
-* [`br auth login`](#br-auth-login)
+* [`br login`](#br-login)
 * [`br foo`](#br-foo)
 * [`br help [COMMAND]`](#br-help-command)
 * [`br init`](#br-init)
@@ -374,13 +374,13 @@ EXAMPLES
 
 _See code: [src/commands/add.ts](https://github.com/campfirein/byterover-cli/blob/v0.0.0/src/commands/add.ts)_
 
-## `br auth login`
+## `br login`
 
 Authenticate with ByteRover
 
 ```
 USAGE
-  $ br auth login
+  $ br login
 
 DESCRIPTION
   Authenticate with ByteRover
