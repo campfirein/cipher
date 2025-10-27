@@ -1,4 +1,4 @@
-import type {PresignedUrl} from '../domain/entities/presigned-url.js'
+import type {PresignedUrlsResponse} from '../domain/entities/presigned-urls-response.js'
 import type {RetrieveResult} from '../domain/entities/retrieve-result.js'
 
 export type RetrieveParams = {
@@ -22,18 +22,38 @@ export type GetPresignedUrlsParams = {
 }
 
 /**
+ * Parameters for confirming upload completion.
+ */
+export type ConfirmUploadParams = {
+  accessToken: string
+  requestId: string
+  sessionKey: string
+  spaceId: string
+  teamId: string
+}
+
+/**
  * Interface for memory operations.
- * Implementations can be HTTP-based (for production) or mock (for testing/development).
  */
 export interface IMemoryService {
+  /**
+   * Confirms that file upload is complete.
+   * Notifies the server that all files have been successfully uploaded to blob storage.
+   *
+   * @param params Confirmation parameters including request ID from presigned URLs response
+   * @returns Promise that resolves when confirmation succeeds
+   * @throws Error if confirmation fails
+   */
+  confirmUpload: (params: ConfirmUploadParams) => Promise<void>
+
   /**
    * Generates presigned URLs for uploading files to memory storage.
    *
    * @param params Request parameters including authentication, identifiers, and file list
-   * @returns Array of presigned URL objects containing file names and upload URLs
+   * @returns Response object containing presigned URLs and request ID for confirmation
    * @throws Error if the request fails
    */
-  getPresignedUrls: (params: GetPresignedUrlsParams) => Promise<PresignedUrl[]>
+  getPresignedUrls: (params: GetPresignedUrlsParams) => Promise<PresignedUrlsResponse>
 
   /**
    * Retrieves memories from the ByteRover Memora service based on a search query.

@@ -1,10 +1,16 @@
 /* eslint-disable camelcase */
 import axios from 'axios'
 
-import type {GetPresignedUrlsParams, IMemoryService, RetrieveParams} from '../../core/interfaces/i-memory-service.js'
+import type {
+  ConfirmUploadParams,
+  GetPresignedUrlsParams,
+  IMemoryService,
+  RetrieveParams,
+} from '../../core/interfaces/i-memory-service.js'
 
 import {Memory} from '../../core/domain/entities/memory.js'
 import {PresignedUrl} from '../../core/domain/entities/presigned-url.js'
+import {PresignedUrlsResponse} from '../../core/domain/entities/presigned-urls-response.js'
 import {RetrieveResult} from '../../core/domain/entities/retrieve-result.js'
 import {AuthenticatedHttpClient} from '../http/authenticated-http-client.js'
 
@@ -49,6 +55,20 @@ type PresignedUrlsApiResponse = {
   presigned_url: string
 }
 
+type ConfirmUploadRequestBody = {
+  request_id: string
+}
+
+type ConfirmUploadApiResponse = {
+  data: {
+    message: string
+    request_id: string
+    status: string
+  }
+  message: string
+  success: boolean
+}
+
 export class HttpMemoryService implements IMemoryService {
   private readonly config: MemoryServiceConfig
 
@@ -59,7 +79,24 @@ export class HttpMemoryService implements IMemoryService {
     }
   }
 
-  public async getPresignedUrls(params: GetPresignedUrlsParams): Promise<PresignedUrl[]> {
+  public async confirmUpload(params: ConfirmUploadParams): Promise<void> {
+    try {
+      const httpClient = new AuthenticatedHttpClient(params.accessToken, params.sessionKey)
+      const url = `${this.config.apiBaseUrl}/organizations/${params.teamId}/projects/${params.spaceId}/memory-processing/confirm-upload`
+
+      const requestBody: ConfirmUploadRequestBody = {
+        request_id: params.requestId,
+      }
+
+      await httpClient.post<ConfirmUploadApiResponse>(url, requestBody, {
+        timeout: this.config.timeout,
+      })
+    } catch (error) {
+      throw new Error(`Failed to confirm upload: ${(error as Error).message}`)
+    }
+  }
+
+  public async getPresignedUrls(params: GetPresignedUrlsParams): Promise<PresignedUrlsResponse> {
     try {
       const httpClient = new AuthenticatedHttpClient(params.accessToken, params.sessionKey)
       const url = `${this.config.apiBaseUrl}/organizations/${params.teamId}/projects/${params.spaceId}/memory-processing/presigned-urls`
@@ -72,7 +109,11 @@ export class HttpMemoryService implements IMemoryService {
       const response = await httpClient.post<GetPresignedUrlsApiResponse>(url, requestBody, {
         timeout: this.config.timeout,
       })
-      return response.data.presigned_urls.map((presignedUrlData) => this.mapToPresignedUrls(presignedUrlData))
+
+      const presignedUrls = response.data.presigned_urls.map((presignedUrlData) =>
+        this.mapToPresignedUrls(presignedUrlData),
+      )
+      return new PresignedUrlsResponse(presignedUrls, response.data.request_id)
     } catch (error) {
       throw new Error(`Failed to get presigned URLs: ${(error as Error).message}`)
     }

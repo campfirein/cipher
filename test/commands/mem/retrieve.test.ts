@@ -81,6 +81,7 @@ describe('mem:retrieve command', () => {
 
   beforeEach(() => {
     memoryService = {
+      confirmUpload: stub(),
       getPresignedUrls: stub(),
       retrieve: stub(),
       uploadFile: stub(),

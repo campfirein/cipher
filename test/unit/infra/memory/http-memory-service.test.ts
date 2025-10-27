@@ -337,7 +337,7 @@ describe('HttpMemoryService', () => {
   })
 
   describe('getPresignedUrls()', () => {
-    it('should return presigned URLs for valid request', async () => {
+    it('should return presigned URLs response for valid request', async () => {
       const mockResponse = {
         data: {
           presigned_urls: [
@@ -368,9 +368,10 @@ describe('HttpMemoryService', () => {
         teamId: 'team-123',
       })
 
-      expect(result).to.have.lengthOf(1)
-      expect(result[0].fileName).to.equal('playbook.json')
-      expect(result[0].uploadUrl).to.include('storage.googleapis.com')
+      expect(result.presignedUrls).to.have.lengthOf(1)
+      expect(result.presignedUrls[0].fileName).to.equal('playbook.json')
+      expect(result.presignedUrls[0].uploadUrl).to.include('storage.googleapis.com')
+      expect(result.requestId).to.equal('req-123')
     })
 
     it('should handle multiple files', async () => {
@@ -406,9 +407,10 @@ describe('HttpMemoryService', () => {
         teamId: 'team-123',
       })
 
-      expect(result).to.have.lengthOf(2)
-      expect(result[0].fileName).to.equal('file1.md')
-      expect(result[1].fileName).to.equal('file2.md')
+      expect(result.presignedUrls).to.have.lengthOf(2)
+      expect(result.presignedUrls[0].fileName).to.equal('file1.md')
+      expect(result.presignedUrls[1].fileName).to.equal('file2.md')
+      expect(result.requestId).to.equal('req-456')
     })
 
     it('should send correct request body', async () => {
@@ -420,7 +422,10 @@ describe('HttpMemoryService', () => {
         .reply(200, (_uri, requestBody) => {
           capturedBody = requestBody
           return {
-            data: {presigned_urls: [], request_id: 'req-789'},
+            data: {
+              presigned_urls: [{file_name: 'file1.md', presigned_url: 'https://storage.googleapis.com/url1'}],
+              request_id: 'req-789',
+            },
             message: 'Success',
             success: true,
           }
@@ -581,6 +586,175 @@ describe('HttpMemoryService', () => {
       await service.uploadFile(uploadUrl, jsonContent)
 
       expect(nock.isDone()).to.be.true
+    })
+  })
+
+  describe('confirmUpload()', () => {
+    it('should confirm upload successfully', async () => {
+      const mockResponse = {
+        data: {
+          message: 'Upload confirmed successfully and notification sent',
+          request_id: 'req-123',
+          status: 'uploaded',
+        },
+        message: 'Upload confirmed successfully',
+        success: true,
+      }
+
+      nock('https://dev-beta-cogit.byterover.dev')
+        .post('/api/v1/organizations/team-123/projects/space-456/memory-processing/confirm-upload')
+        .matchHeader('authorization', 'Bearer access-token')
+        .matchHeader('x-byterover-session-id', 'session-key')
+        .reply(200, mockResponse)
+
+      const service = new HttpMemoryService(config)
+      await service.confirmUpload({
+        accessToken: 'access-token',
+        requestId: 'req-123',
+        sessionKey: 'session-key',
+        spaceId: 'space-456',
+        teamId: 'team-123',
+      })
+
+      expect(nock.isDone()).to.be.true
+    })
+
+    it('should send correct request body', async () => {
+      let capturedBody: unknown
+
+      nock('https://dev-beta-cogit.byterover.dev')
+        .post('/api/v1/organizations/team-123/projects/space-456/memory-processing/confirm-upload')
+        .reply(200, (_uri, requestBody) => {
+          capturedBody = requestBody
+          return {
+            data: {message: 'Upload confirmed', request_id: 'req-456', status: 'uploaded'},
+            message: 'Success',
+            success: true,
+          }
+        })
+
+      const service = new HttpMemoryService(config)
+      await service.confirmUpload({
+        accessToken: 'access-token',
+        requestId: 'req-456',
+        sessionKey: 'session-key',
+        spaceId: 'space-456',
+        teamId: 'team-123',
+      })
+
+      expect(capturedBody).to.deep.equal({
+        request_id: 'req-456',
+      })
+    })
+
+    it('should send correct headers', async () => {
+      nock('https://dev-beta-cogit.byterover.dev')
+        .post('/api/v1/organizations/team-123/projects/space-456/memory-processing/confirm-upload')
+        .matchHeader('authorization', 'Bearer test-token-789')
+        .matchHeader('x-byterover-session-id', 'test-session-789')
+        .reply(200, {
+          data: {message: 'Upload confirmed', request_id: 'req-789', status: 'uploaded'},
+          message: 'Success',
+          success: true,
+        })
+
+      const service = new HttpMemoryService(config)
+      await service.confirmUpload({
+        accessToken: 'test-token-789',
+        requestId: 'req-789',
+        sessionKey: 'test-session-789',
+        spaceId: 'space-456',
+        teamId: 'team-123',
+      })
+
+      expect(nock.isDone()).to.be.true
+    })
+
+    it('should use correct URL path', async () => {
+      nock('https://dev-beta-cogit.byterover.dev')
+        .post('/api/v1/organizations/org-999/projects/proj-888/memory-processing/confirm-upload')
+        .reply(200, {
+          data: {message: 'Upload confirmed', request_id: 'req-001', status: 'uploaded'},
+          message: 'Success',
+          success: true,
+        })
+
+      const service = new HttpMemoryService(config)
+      await service.confirmUpload({
+        accessToken: 'access-token',
+        requestId: 'req-001',
+        sessionKey: 'session-key',
+        spaceId: 'proj-888',
+        teamId: 'org-999',
+      })
+
+      expect(nock.isDone()).to.be.true
+    })
+
+    it('should handle network errors', async () => {
+      nock('https://dev-beta-cogit.byterover.dev')
+        .post('/api/v1/organizations/team-123/projects/space-456/memory-processing/confirm-upload')
+        .replyWithError('Network timeout')
+
+      const service = new HttpMemoryService(config)
+
+      try {
+        await service.confirmUpload({
+          accessToken: 'access-token',
+          requestId: 'req-123',
+          sessionKey: 'session-key',
+          spaceId: 'space-456',
+          teamId: 'team-123',
+        })
+        expect.fail('Should have thrown error')
+      } catch (error) {
+        expect(error).to.be.an('error')
+        expect((error as Error).message).to.include('Failed to confirm upload')
+      }
+    })
+
+    it('should handle HTTP 404 errors', async () => {
+      nock('https://dev-beta-cogit.byterover.dev')
+        .post('/api/v1/organizations/team-123/projects/space-456/memory-processing/confirm-upload')
+        .reply(404, {message: 'Request not found', success: false})
+
+      const service = new HttpMemoryService(config)
+
+      try {
+        await service.confirmUpload({
+          accessToken: 'access-token',
+          requestId: 'req-unknown',
+          sessionKey: 'session-key',
+          spaceId: 'space-456',
+          teamId: 'team-123',
+        })
+        expect.fail('Should have thrown error')
+      } catch (error) {
+        expect(error).to.be.an('error')
+        expect((error as Error).message).to.include('Failed to confirm upload')
+      }
+    })
+
+    it('should handle HTTP 500 errors', async () => {
+      nock('https://dev-beta-cogit.byterover.dev')
+        .post('/api/v1/organizations/team-123/projects/space-456/memory-processing/confirm-upload')
+        .reply(500, {message: 'Internal server error', success: false})
+
+      const service = new HttpMemoryService(config)
+
+      try {
+        await service.confirmUpload({
+          accessToken: 'access-token',
+          requestId: 'req-123',
+          sessionKey: 'session-key',
+          spaceId: 'space-456',
+          teamId: 'team-123',
+        })
+        expect.fail('Should have thrown error')
+      } catch (error) {
+        expect(error).to.be.an('error')
+        expect((error as Error).message).to.include('Failed to confirm upload')
+      }
     })
   })
 })
