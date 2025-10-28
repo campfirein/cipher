@@ -49,18 +49,71 @@ export class HttpSpaceService implements ISpaceService {
     }
   }
 
-  public async getSpaces(accessToken: string, sessionKey: string): Promise<Space[]> {
+  public async getSpaces(
+    accessToken: string,
+    sessionKey: string,
+    option?: {fetchAll?: boolean; limit?: number; offset?: number},
+  ): Promise<{spaces: Space[]; total: number}> {
     try {
       const httpClient = new AuthenticatedHttpClient(accessToken, sessionKey)
-      const response = await httpClient.get<ListSpacesApiResponse>(
-        `${this.config.apiBaseUrl}/spaces`,
-        {timeout: this.config.timeout},
-      )
 
-      return response.data.spaces.map((spaceData) => this.mapToSpace(spaceData))
+      // Scenario 1: Fetch all automatically via auto-pagination
+      if (option?.fetchAll === true) {
+        return await this.fetchAllSpaces(httpClient)
+      }
+
+      // Scenario 2 & 3: Single request (with or without pagination params)
+      const params = new URLSearchParams()
+      if (option?.limit !== undefined) {
+        params.append('limit', option.limit.toString())
+      }
+
+      if (option?.offset !== undefined) {
+        params.append('offset', option.offset.toString())
+      }
+
+      const url = `${this.config.apiBaseUrl}/spaces${params.toString() ? `?${params.toString()}` : ''}`
+      const response = await httpClient.get<ListSpacesApiResponse>(url, {
+        timeout: this.config.timeout,
+      })
+
+      return {
+        spaces: response.data.spaces.map((spaceData) => this.mapToSpace(spaceData)),
+        total: response.data.total,
+      }
     } catch (error) {
       throw new Error(`Failed to fetch spaces: ${(error as Error).message}`)
     }
+  }
+
+  private async fetchAllSpaces(httpClient: AuthenticatedHttpClient): Promise<{spaces: Space[]; total: number}> {
+    const pageSize = 100 // Larger pages for fewer requests
+    let offset = 0
+    let allSpaces: Space[] = []
+    let total = 0
+    while (true) {
+      const params = new URLSearchParams({
+        limit: pageSize.toString(),
+        offset: offset.toString(),
+      })
+
+      // eslint-disable-next-line no-await-in-loop
+      const response = await httpClient.get<ListSpacesApiResponse>(
+        `${this.config.apiBaseUrl}/spaces?${params.toString()}`,
+        {timeout: this.config.timeout},
+      )
+      const pageSpaces = response.data.spaces.map((spaceData) => this.mapToSpace(spaceData))
+      allSpaces = [...allSpaces, ...pageSpaces]
+      total = response.data.total
+      // Stop if we've fetched everything or got empty page
+      if (allSpaces.length >= total || pageSpaces.length === 0) {
+        break
+      }
+
+      offset += pageSize
+    }
+
+    return {spaces: allSpaces, total}
   }
 
   private mapToSpace(spaceData: SpaceApiResponse): Space {

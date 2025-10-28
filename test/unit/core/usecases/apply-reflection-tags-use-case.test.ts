@@ -13,6 +13,7 @@ describe('ApplyReflectionTagsUseCase', () => {
 
   beforeEach(() => {
     playbookStore = {
+      clear: stub(),
       delete: stub(),
       exists: stub(),
       load: stub(),

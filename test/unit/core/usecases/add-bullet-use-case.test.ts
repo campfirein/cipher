@@ -12,6 +12,9 @@ describe('AddBulletUseCase', () => {
   beforeEach(() => {
     // Create mock playbook store
     mockPlaybookStore = {
+      clear() {
+        return Promise.resolve()
+      },
       delete() {
         return Promise.resolve()
       },

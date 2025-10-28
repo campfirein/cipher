@@ -5,14 +5,14 @@ import {Config as OclifConfig} from '@oclif/core'
 import {expect} from 'chai'
 import {restore, spy, stub} from 'sinon'
 
-import type {IAuthService} from '../../../src/core/interfaces/i-auth-service.js'
-import type {IBrowserLauncher} from '../../../src/core/interfaces/i-browser-launcher.js'
-import type {ICallbackHandler} from '../../../src/core/interfaces/i-callback-handler.js'
-import type {IOidcDiscoveryService} from '../../../src/core/interfaces/i-oidc-discovery-service.js'
-import type {ITokenStore} from '../../../src/core/interfaces/i-token-store.js'
+import type {IAuthService} from '../../src/core/interfaces/i-auth-service.js'
+import type {IBrowserLauncher} from '../../src/core/interfaces/i-browser-launcher.js'
+import type {ICallbackHandler} from '../../src/core/interfaces/i-callback-handler.js'
+import type {IOidcDiscoveryService} from '../../src/core/interfaces/i-oidc-discovery-service.js'
+import type {ITokenStore} from '../../src/core/interfaces/i-token-store.js'
 
-import Login from '../../../src/commands/auth/login.js'
-import {AuthToken} from '../../../src/core/domain/entities/auth-token.js'
+import Login from '../../src/commands/login.js'
+import {AuthToken} from '../../src/core/domain/entities/auth-token.js'
 
 /**
  * Testable Login command that accepts mocked services
@@ -44,7 +44,7 @@ class TestableLogin extends Login {
   }
 }
 
-describe('auth:login command', () => {
+describe('login command', () => {
   let authService: SinonStubbedInstance<IAuthService>
   let browserLauncher: SinonStubbedInstance<IBrowserLauncher>
   let callbackHandler: SinonStubbedInstance<ICallbackHandler>
