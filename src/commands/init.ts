@@ -1,9 +1,11 @@
+import {select} from '@inquirer/prompts'
 import {Command, ux} from '@oclif/core'
-import {createInterface} from 'node:readline'
 
 import type {Space} from '../core/domain/entities/space.js'
+import type {Team} from '../core/domain/entities/team.js'
 import type {IProjectConfigStore} from '../core/interfaces/i-project-config-store.js'
 import type {ISpaceService} from '../core/interfaces/i-space-service.js'
+import type {ITeamService} from '../core/interfaces/i-team-service.js'
 import type {ITokenStore} from '../core/interfaces/i-token-store.js'
 
 import {getCurrentConfig} from '../config/environment.js'
@@ -13,6 +15,7 @@ import {FilePlaybookStore} from '../infra/ace/file-playbook-store.js'
 import {ProjectConfigStore} from '../infra/config/file-config-store.js'
 import {HttpSpaceService} from '../infra/space/http-space-service.js'
 import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
+import {HttpTeamService} from '../infra/team/http-team-service.js'
 
 export default class Init extends Command {
   public static description = 'Initialize a project with ByteRover'
@@ -21,6 +24,7 @@ export default class Init extends Command {
   protected createServices(): {
     projectConfigStore: IProjectConfigStore
     spaceService: ISpaceService
+    teamService: ITeamService
     tokenStore: ITokenStore
   } {
     const envConfig = getCurrentConfig()
@@ -29,43 +33,50 @@ export default class Init extends Command {
       spaceService: new HttpSpaceService({
         apiBaseUrl: envConfig.apiBaseUrl,
       }),
+      teamService: new HttpTeamService({
+        apiBaseUrl: envConfig.apiBaseUrl,
+      }),
       tokenStore: new KeychainTokenStore(),
     }
   }
 
   protected async promptForSpaceSelection(spaces: Space[]): Promise<Space> {
-    const selection = await this.promptUser('Select a space by number')
+    const selectedSpaceId = await select({
+      choices: spaces.map((space) => ({
+        name: space.getDisplayName(),
+        value: space.id,
+      })),
+      message: 'Select a space',
+    })
 
-    if (!selection || selection.trim() === '') {
-      this.error('Selection is required')
+    const selectedSpace = spaces.find((space) => space.id === selectedSpaceId)
+    if (!selectedSpace) {
+      this.error('Space selection failed')
     }
 
-    const selectedIndex = Number.parseInt(selection, 10) - 1
-
-    if (Number.isNaN(selectedIndex) || selectedIndex < 0 || selectedIndex >= spaces.length) {
-      this.error(`Invalid selection: ${selection}`)
-    }
-
-    return spaces[selectedIndex]
+    return selectedSpace
   }
 
-  protected async promptUser(question: string): Promise<string> {
-    const rl = createInterface({
-      input: process.stdin,
-      output: process.stdout,
+  protected async promptForTeamSelection(teams: Team[]): Promise<Team> {
+    const selectedTeamId = await select({
+      choices: teams.map((team) => ({
+        name: team.name,
+        value: team.id,
+      })),
+      message: 'Select a team',
     })
 
-    return new Promise((resolve) => {
-      rl.question(`${question}: `, (answer) => {
-        rl.close()
-        resolve(answer)
-      })
-    })
+    const selectedTeam = teams.find((team) => team.id === selectedTeamId)
+    if (!selectedTeam) {
+      this.error('Team selection failed')
+    }
+
+    return selectedTeam
   }
 
   public async run(): Promise<void> {
     try {
-      const {projectConfigStore, spaceService, tokenStore} = this.createServices()
+      const {projectConfigStore, spaceService, teamService, tokenStore} = this.createServices()
 
       // 1. Check if already initialized
       const isInitialized = await projectConfigStore.exists()
@@ -90,34 +101,45 @@ export default class Init extends Command {
         this.error('Authentication token expired. Please run "br login" again.')
       }
 
-      // 3. Fetch all spaces with spinner
-      ux.action.start('Fetching all spaces')
-      const result = await spaceService.getSpaces(token.accessToken, token.sessionKey, {fetchAll: true})
+      // 3. Fetch all teams with spinner
+      ux.action.start('Fetching all teams')
+      const teamResult = await teamService.getTeams(token.accessToken, token.sessionKey, {fetchAll: true})
       ux.action.stop()
 
-      const {spaces} = result
+      const {teams} = teamResult
+
+      if (teams.length === 0) {
+        this.error('No teams found. Please create a team in the ByteRover dashboard first.')
+      }
+
+      // 4. Prompt for team selection
+      this.log()
+      const selectedTeam = await this.promptForTeamSelection(teams)
+
+      // 5. Fetch all spaces for the selected team with spinner
+      ux.action.start('Fetching all spaces')
+      const spaceResult = await spaceService.getSpaces(token.accessToken, token.sessionKey, selectedTeam.id, {
+        fetchAll: true,
+      })
+      ux.action.stop()
+
+      const {spaces} = spaceResult
 
       if (spaces.length === 0) {
-        this.error('No spaces found. Please create a space in the ByteRover dashboard first.')
+        this.error(
+          `No spaces found in team "${selectedTeam.getDisplayName()}". Please create a space in the ByteRover dashboard first.`,
+        )
       }
 
-      // 4. Display spaces
-      this.log(`\nFound ${spaces.length} space(s):\n`)
-      for (const [index, space] of spaces.entries()) {
-        const displayName = space.getDisplayName()
-        this.log(`  ${index + 1}. ${displayName}`)
-      }
-
+      // 6. Prompt for space selection
       this.log()
-
-      // 5. Prompt for selection
       const selectedSpace = await this.promptForSpaceSelection(spaces)
 
-      // 6. Create and save configuration
+      // 7. Create and save configuration
       const config = BrConfig.fromSpace(selectedSpace)
       await projectConfigStore.write(config)
 
-      // 7. Initialize ACE playbook
+      // 8. Initialize ACE playbook
       this.log('\nInitializing ACE context...')
       const playbookStore = new FilePlaybookStore()
       const aceUseCase = new InitializePlaybookUseCase(playbookStore)
@@ -130,7 +152,7 @@ export default class Init extends Command {
         this.warn(`ACE initialization skipped: ${aceResult.error}`)
       }
 
-      // 8. Display success
+      // 9. Display success
       this.log(`\n✓ Project initialized successfully!`)
       this.log(`✓ Connected to space: ${selectedSpace.getDisplayName()}`)
       this.log(`✓ Configuration saved to: .br/config.json`)
