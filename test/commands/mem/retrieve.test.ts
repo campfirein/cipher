@@ -5,6 +5,7 @@ import {expect} from 'chai'
 import sinon, {restore, stub} from 'sinon'
 
 import type {IMemoryRetrievalService} from '../../../src/core/interfaces/i-memory-retrieval-service.js'
+import type {IPlaybookStore} from '../../../src/core/interfaces/i-playbook-store.js'
 import type {IProjectConfigStore} from '../../../src/core/interfaces/i-project-config-store.js'
 import type {ITokenStore} from '../../../src/core/interfaces/i-token-store.js'
 
@@ -21,6 +22,7 @@ class TestableRetrieve extends Retrieve {
   // eslint-disable-next-line max-params
   constructor(
     private readonly mockMemoryService: IMemoryRetrievalService,
+    private readonly mockPlaybookStore: IPlaybookStore,
     private readonly mockProjectConfigStore: IProjectConfigStore,
     private readonly mockTokenStore: ITokenStore,
     argv: string[],
@@ -32,6 +34,7 @@ class TestableRetrieve extends Retrieve {
   protected createServices() {
     return {
       memoryService: this.mockMemoryService,
+      playbookStore: this.mockPlaybookStore,
       projectConfigStore: this.mockProjectConfigStore,
       tokenStore: this.mockTokenStore,
     }
@@ -41,6 +44,7 @@ class TestableRetrieve extends Retrieve {
 describe('mem:retrieve command', () => {
   let config: Config
   let memoryService: sinon.SinonStubbedInstance<IMemoryRetrievalService>
+  let playbookStore: sinon.SinonStubbedInstance<IPlaybookStore>
   let projectConfigStore: sinon.SinonStubbedInstance<IProjectConfigStore>
   let tokenStore: sinon.SinonStubbedInstance<ITokenStore>
 
@@ -61,12 +65,17 @@ describe('mem:retrieve command', () => {
   )
 
   const sampleMemory = new Memory({
+    bulletId: 'lessons-00001',
     childrenIds: [],
     content: 'Sample memory content',
     id: '019a1e9f-a5ec-7046-956d-27cdff4b6b67',
+    metadataType: 'experience',
     nodeKeys: ['path1'],
     parentIds: [],
     score: 0.85,
+    section: 'Lessons Learned',
+    tags: ['typescript', 'testing'],
+    timestamp: '2025-10-26T15:59:01.191Z',
     title: 'Sample Memory',
   })
 
@@ -82,6 +91,13 @@ describe('mem:retrieve command', () => {
   beforeEach(() => {
     memoryService = {
       retrieve: stub(),
+    }
+    playbookStore = {
+      clear: stub(),
+      delete: stub(),
+      exists: stub(),
+      load: stub(),
+      save: stub(),
     }
     projectConfigStore = {
       exists: stub(),
@@ -108,6 +124,7 @@ describe('mem:retrieve command', () => {
 
       const command = new TestableRetrieve(
         memoryService,
+        playbookStore,
         projectConfigStore,
         tokenStore,
         ['--query', 'test query', '--node-keys', 'path1,path2'],
@@ -134,6 +151,7 @@ describe('mem:retrieve command', () => {
 
       const command = new TestableRetrieve(
         memoryService,
+        playbookStore,
         projectConfigStore,
         tokenStore,
         ['--query', 'test query'],
@@ -156,6 +174,7 @@ describe('mem:retrieve command', () => {
 
       const command = new TestableRetrieve(
         memoryService,
+        playbookStore,
         projectConfigStore,
         tokenStore,
         ['-q', 'test query', '-n', 'path1'],
@@ -175,6 +194,7 @@ describe('mem:retrieve command', () => {
 
       const command = new TestableRetrieve(
         memoryService,
+        playbookStore,
         projectConfigStore,
         tokenStore,
         ['--query', 'test query', '--node-keys', 'path1,path2,path3'],
@@ -195,6 +215,7 @@ describe('mem:retrieve command', () => {
 
       const command = new TestableRetrieve(
         memoryService,
+        playbookStore,
         projectConfigStore,
         tokenStore,
         ['--query', 'test query', '--node-keys', ' path1 , path2 , path3 '],
@@ -209,12 +230,17 @@ describe('mem:retrieve command', () => {
 
     it('should display memories and related memories', async () => {
       const relatedMemory = new Memory({
+        bulletId: 'common-00001',
         childrenIds: [],
         content: 'Related content',
         id: '019a1e9f-a5ec-7046-956d-27cdff4b6b68',
+        metadataType: 'knowledge',
         nodeKeys: [],
         parentIds: [],
         score: 0.5,
+        section: 'Common Errors',
+        tags: ['related'],
+        timestamp: '2025-10-26T16:00:00.000Z',
         title: 'Related Memory',
       })
 
@@ -232,6 +258,7 @@ describe('mem:retrieve command', () => {
 
       const command = new TestableRetrieve(
         memoryService,
+        playbookStore,
         projectConfigStore,
         tokenStore,
         ['--query', 'test query'],
@@ -265,6 +292,7 @@ describe('mem:retrieve command', () => {
 
       const command = new TestableRetrieve(
         memoryService,
+        playbookStore,
         projectConfigStore,
         tokenStore,
         ['--query', 'test query'],
@@ -278,11 +306,70 @@ describe('mem:retrieve command', () => {
 
       logStub.restore()
     })
+
+    it('should save retrieved memories to playbook', async () => {
+      projectConfigStore.exists.resolves(true)
+      projectConfigStore.read.resolves(validConfig)
+      tokenStore.load.resolves(validToken)
+      memoryService.retrieve.resolves(sampleResult)
+
+      const command = new TestableRetrieve(
+        memoryService,
+        playbookStore,
+        projectConfigStore,
+        tokenStore,
+        ['--query', 'test query'],
+        config,
+      )
+
+      await command.run()
+
+      // Verify playbook operations
+      expect(playbookStore.clear.calledOnce).to.be.true
+      expect(playbookStore.save.calledOnce).to.be.true
+
+      // Verify save was called after clear
+      expect(playbookStore.clear.calledBefore(playbookStore.save)).to.be.true
+    })
+
+    it('should warn but continue if playbook save fails', async () => {
+      projectConfigStore.exists.resolves(true)
+      projectConfigStore.read.resolves(validConfig)
+      tokenStore.load.resolves(validToken)
+      memoryService.retrieve.resolves(sampleResult)
+      playbookStore.save.rejects(new Error('Save failed'))
+
+      const logStub = stub(Retrieve.prototype, 'log')
+      const warnStub = stub(Retrieve.prototype, 'warn')
+
+      const command = new TestableRetrieve(
+        memoryService,
+        playbookStore,
+        projectConfigStore,
+        tokenStore,
+        ['--query', 'test query'],
+        config,
+      )
+
+      await command.run()
+
+      // Verify warning was issued
+      expect(warnStub.calledOnce).to.be.true
+      const warnMessage = warnStub.firstCall.args[0] as string
+      expect(warnMessage).to.include('Failed to save memories to playbook')
+
+      // Verify memories were still displayed
+      const logMessages = logStub.getCalls().map((call) => call.args[0] as string)
+      expect(logMessages.some((msg) => msg.includes('Sample Memory'))).to.be.true
+
+      logStub.restore()
+      warnStub.restore()
+    })
   })
 
   describe('flag validation', () => {
     it('should require query flag', async () => {
-      const command = new TestableRetrieve(memoryService, projectConfigStore, tokenStore, [], config)
+      const command = new TestableRetrieve(memoryService, playbookStore, projectConfigStore, tokenStore, [], config)
 
       try {
         await command.run()
@@ -301,6 +388,7 @@ describe('mem:retrieve command', () => {
 
       const command = new TestableRetrieve(
         memoryService,
+        playbookStore,
         projectConfigStore,
         tokenStore,
         ['--query', 'test query'],
@@ -323,6 +411,7 @@ describe('mem:retrieve command', () => {
 
       const command = new TestableRetrieve(
         memoryService,
+        playbookStore,
         projectConfigStore,
         tokenStore,
         ['--query', 'test query'],
@@ -347,6 +436,7 @@ describe('mem:retrieve command', () => {
 
       const command = new TestableRetrieve(
         memoryService,
+        playbookStore,
         projectConfigStore,
         tokenStore,
         ['--query', 'test query'],
@@ -377,6 +467,7 @@ describe('mem:retrieve command', () => {
 
       const command = new TestableRetrieve(
         memoryService,
+        playbookStore,
         projectConfigStore,
         tokenStore,
         ['--query', 'test query'],
@@ -402,6 +493,7 @@ describe('mem:retrieve command', () => {
 
       const command = new TestableRetrieve(
         memoryService,
+        playbookStore,
         projectConfigStore,
         tokenStore,
         ['--query', 'test query'],

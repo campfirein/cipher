@@ -11,12 +11,17 @@ export type MemoryRetrievalServiceConfig = {
 }
 
 type MemoryApiResponse = {
+  bullet_id: string
   children_ids: string[]
   content: string
   id: string
+  metadata_type: string
   node_keys: string[]
   parent_ids: string[]
   score: number
+  section: string
+  tags: string[]
+  timestamp: string
   title: string
 }
 
@@ -72,12 +77,17 @@ export class HttpMemoryRetrievalService implements IMemoryRetrievalService {
 
   private mapToMemory(apiMemory: MemoryApiResponse): Memory {
     return new Memory({
+      bulletId: apiMemory.bullet_id,
       childrenIds: apiMemory.children_ids,
       content: apiMemory.content,
       id: apiMemory.id,
+      metadataType: apiMemory.metadata_type,
       nodeKeys: apiMemory.node_keys,
       parentIds: apiMemory.parent_ids,
       score: apiMemory.score,
+      section: apiMemory.section,
+      tags: apiMemory.tags,
+      timestamp: apiMemory.timestamp,
       title: apiMemory.title,
     })
   }

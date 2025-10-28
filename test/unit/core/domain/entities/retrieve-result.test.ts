@@ -5,32 +5,47 @@ import {RetrieveResult} from '../../../../../src/core/domain/entities/retrieve-r
 
 describe('RetrieveResult Entity', () => {
   const sampleMemory1 = new Memory({
+    bulletId: 'lessons-00001',
     childrenIds: [],
     content: 'First memory content',
     id: '019a1e9f-a5ec-7046-956d-27cdff4b6b67',
+    metadataType: 'experience',
     nodeKeys: ['path1'],
     parentIds: [],
     score: 0.85,
+    section: 'Lessons Learned',
+    tags: ['typescript'],
+    timestamp: '2025-10-26T10:00:00.000Z',
     title: 'First Memory',
   })
 
   const sampleMemory2 = new Memory({
+    bulletId: 'lessons-00002',
     childrenIds: [],
     content: 'Second memory content',
     id: '019a1e9f-a5ec-7046-956d-27cdff4b6b68',
+    metadataType: 'experience',
     nodeKeys: ['path2'],
     parentIds: [],
     score: 0.75,
+    section: 'Lessons Learned',
+    tags: ['javascript'],
+    timestamp: '2025-10-26T11:00:00.000Z',
     title: 'Second Memory',
   })
 
   const sampleMemory3 = new Memory({
+    bulletId: 'common-00001',
     childrenIds: [],
     content: 'Related memory content',
     id: '019a1e9f-a5ec-7046-956d-27cdff4b6b69',
+    metadataType: 'knowledge',
     nodeKeys: ['path3'],
     parentIds: [],
     score: 0.5,
+    section: 'Common Errors',
+    tags: ['error'],
+    timestamp: '2025-10-26T12:00:00.000Z',
     title: 'Related Memory',
   })
 

@@ -26,23 +26,33 @@ describe('HttpMemoryRetrievalService', () => {
       const mockResponse = {
         memories: [
           {
+            bullet_id: 'lessons-00001',
             children_ids: [],
             content: 'First memory content',
             id: '019a1e9f-a5ec-7046-956d-27cdff4b6b67',
+            metadata_type: 'experience',
             node_keys: ['path1', 'path2'],
             parent_ids: ['parent1'],
             score: 0.85,
+            section: 'Lessons Learned',
+            tags: ['typescript', 'testing'],
+            timestamp: '2025-10-26T15:59:01.191Z',
             title: 'First Memory',
           },
         ],
         related_memories: [
           {
+            bullet_id: 'common-00001',
             children_ids: ['child1'],
             content: 'Related memory content',
             id: '019a1e9f-a5ec-7046-956d-27cdff4b6b68',
+            metadata_type: 'knowledge',
             node_keys: ['path3'],
             parent_ids: [],
             score: 0.5,
+            section: 'Common Errors',
+            tags: ['error'],
+            timestamp: '2025-10-26T16:00:00.000Z',
             title: 'Related Memory',
           },
         ],
@@ -72,29 +82,44 @@ describe('HttpMemoryRetrievalService', () => {
 
       // Verify first memory
       expect(result.memories[0].id).to.equal(mockResponse.memories[0].id)
+      expect(result.memories[0].bulletId).to.equal(mockResponse.memories[0].bullet_id)
       expect(result.memories[0].title).to.equal(mockResponse.memories[0].title)
       expect(result.memories[0].content).to.equal(mockResponse.memories[0].content)
       expect(result.memories[0].score).to.equal(mockResponse.memories[0].score)
+      expect(result.memories[0].section).to.equal(mockResponse.memories[0].section)
+      expect(result.memories[0].metadataType).to.equal(mockResponse.memories[0].metadata_type)
+      expect(result.memories[0].timestamp).to.equal(mockResponse.memories[0].timestamp)
       expect(result.memories[0].nodeKeys).to.deep.equal(mockResponse.memories[0].node_keys)
       expect(result.memories[0].parentIds).to.deep.equal(mockResponse.memories[0].parent_ids)
       expect(result.memories[0].childrenIds).to.deep.equal(mockResponse.memories[0].children_ids)
+      expect(result.memories[0].tags).to.deep.equal(mockResponse.memories[0].tags)
 
       // Verify related memory
       expect(result.relatedMemories[0].id).to.equal(mockResponse.related_memories[0].id)
+      expect(result.relatedMemories[0].bulletId).to.equal(mockResponse.related_memories[0].bullet_id)
       expect(result.relatedMemories[0].title).to.equal(mockResponse.related_memories[0].title)
+      expect(result.relatedMemories[0].section).to.equal(mockResponse.related_memories[0].section)
+      expect(result.relatedMemories[0].metadataType).to.equal(mockResponse.related_memories[0].metadata_type)
+      expect(result.relatedMemories[0].timestamp).to.equal(mockResponse.related_memories[0].timestamp)
       expect(result.relatedMemories[0].childrenIds).to.deep.equal(mockResponse.related_memories[0].children_ids)
+      expect(result.relatedMemories[0].tags).to.deep.equal(mockResponse.related_memories[0].tags)
     })
 
     it('should retrieve memories successfully without node-keys (broad search)', async () => {
       const mockResponse = {
         memories: [
           {
+            bullet_id: 'lessons-00002',
             children_ids: [],
             content: 'Memory content',
             id: '019a1e9f-a5ec-7046-956d-27cdff4b6b67',
+            metadata_type: 'experience',
             node_keys: [],
             parent_ids: [],
             score: 0.75,
+            section: 'Lessons Learned',
+            tags: ['javascript'],
+            timestamp: '2025-10-26T17:00:00.000Z',
             title: 'Memory Title',
           },
         ],

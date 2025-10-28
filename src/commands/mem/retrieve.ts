@@ -3,12 +3,15 @@ import {Command, Flags} from '@oclif/core'
 import type {AuthToken} from '../../core/domain/entities/auth-token.js'
 import type {BrConfig} from '../../core/domain/entities/br-config.js'
 import type {IMemoryRetrievalService} from '../../core/interfaces/i-memory-retrieval-service.js'
+import type {IPlaybookStore} from '../../core/interfaces/i-playbook-store.js'
 import type {IProjectConfigStore} from '../../core/interfaces/i-project-config-store.js'
 import type {ITokenStore} from '../../core/interfaces/i-token-store.js'
 
 import {getCurrentConfig} from '../../config/environment.js'
+import {FilePlaybookStore} from '../../infra/ace/file-playbook-store.js'
 import {ProjectConfigStore} from '../../infra/config/file-config-store.js'
 import {HttpMemoryRetrievalService} from '../../infra/memory/http-memory-retrieval-service.js'
+import {transformRetrieveResultToPlaybook} from '../../infra/memory/memory-to-playbook-mapper.js'
 import {KeychainTokenStore} from '../../infra/storage/keychain-token-store.js'
 
 export default class Retrieve extends Command {
@@ -46,6 +49,7 @@ export default class Retrieve extends Command {
 
   protected createServices(): {
     memoryService: IMemoryRetrievalService
+    playbookStore: IPlaybookStore
     projectConfigStore: IProjectConfigStore
     tokenStore: ITokenStore
   } {
@@ -54,6 +58,7 @@ export default class Retrieve extends Command {
       memoryService: new HttpMemoryRetrievalService({
         apiBaseUrl: envConfig.memoraApiBaseUrl,
       }),
+      playbookStore: new FilePlaybookStore(),
       projectConfigStore: new ProjectConfigStore(),
       tokenStore: new KeychainTokenStore(),
     }
@@ -61,7 +66,7 @@ export default class Retrieve extends Command {
 
   public async run(): Promise<void> {
     const {flags} = await this.parse(Retrieve)
-    const {memoryService, projectConfigStore, tokenStore} = this.createServices()
+    const {memoryService, playbookStore, projectConfigStore, tokenStore} = this.createServices()
 
     try {
       const token = await this.validateAuth(tokenStore)
@@ -85,6 +90,16 @@ export default class Retrieve extends Command {
       if (result.memories.length === 0 && result.relatedMemories.length === 0) {
         this.log('\nNo memories found for your query.')
         return
+      }
+
+      // Clear existing playbook and save retrieved memories
+      try {
+        await playbookStore.clear()
+        const playbook = transformRetrieveResultToPlaybook(result)
+        await playbookStore.save(playbook)
+        this.log('\n✓ Saved memories to playbook')
+      } catch (playbookError) {
+        this.warn(`Failed to save memories to playbook: ${playbookError instanceof Error ? playbookError.message : 'Unknown error'}`)
       }
 
       // Display memories
