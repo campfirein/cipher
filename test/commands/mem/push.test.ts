@@ -141,7 +141,7 @@ describe('MemPush Command', () => {
     it('should successfully get presigned URLs with default branch', async () => {
       const mockPlaybook = new Playbook()
       mockPlaybook.addBullet('Test', 'Sample bullet', undefined, {
-        codebasePath: process.cwd(),
+        relatedFiles: [],
         tags: ['test'],
         timestamp: new Date().toISOString(),
       })
@@ -179,7 +179,7 @@ describe('MemPush Command', () => {
     it('should use custom branch when provided via flag', async () => {
       const mockPlaybook = new Playbook()
       mockPlaybook.addBullet('Test', 'Sample bullet', undefined, {
-        codebasePath: process.cwd(),
+        relatedFiles: [],
         tags: ['test'],
         timestamp: new Date().toISOString(),
       })
@@ -217,7 +217,7 @@ describe('MemPush Command', () => {
     it('should use short flag -b for branch', async () => {
       const mockPlaybook = new Playbook()
       mockPlaybook.addBullet('Test', 'Sample bullet', undefined, {
-        codebasePath: process.cwd(),
+        relatedFiles: [],
         tags: ['test'],
         timestamp: new Date().toISOString(),
       })
@@ -252,7 +252,7 @@ describe('MemPush Command', () => {
     it('should handle multiple presigned URLs in response', async () => {
       const mockPlaybook = new Playbook()
       mockPlaybook.addBullet('Test', 'Sample bullet', undefined, {
-        codebasePath: process.cwd(),
+        relatedFiles: [],
         tags: ['test'],
         timestamp: new Date().toISOString(),
       })
@@ -318,7 +318,7 @@ describe('MemPush Command', () => {
     it('should upload playbook after getting presigned URLs', async () => {
       const mockPlaybook = new Playbook()
       mockPlaybook.addBullet('Test', 'Sample bullet', undefined, {
-        codebasePath: process.cwd(),
+        relatedFiles: [],
         tags: ['test'],
         timestamp: new Date().toISOString(),
       })
@@ -347,7 +347,7 @@ describe('MemPush Command', () => {
     it('should load playbook before uploading', async () => {
       const mockPlaybook = new Playbook()
       mockPlaybook.addBullet('Test', 'Sample bullet', undefined, {
-        codebasePath: process.cwd(),
+        relatedFiles: [],
         tags: ['test'],
         timestamp: new Date().toISOString(),
       })
@@ -376,7 +376,7 @@ describe('MemPush Command', () => {
     it('should call uploadFile with correct parameters', async () => {
       const mockPlaybook = new Playbook()
       mockPlaybook.addBullet('Test', 'Sample bullet', undefined, {
-        codebasePath: process.cwd(),
+        relatedFiles: [],
         tags: ['test'],
         timestamp: new Date().toISOString(),
       })
@@ -406,7 +406,7 @@ describe('MemPush Command', () => {
     it('should upload multiple files sequentially', async () => {
       const mockPlaybook = new Playbook()
       mockPlaybook.addBullet('Test', 'Sample bullet', undefined, {
-        codebasePath: process.cwd(),
+        relatedFiles: [],
         tags: ['test'],
         timestamp: new Date().toISOString(),
       })
@@ -439,7 +439,7 @@ describe('MemPush Command', () => {
     it('should handle upload errors gracefully', async () => {
       const mockPlaybook = new Playbook()
       mockPlaybook.addBullet('Test', 'Sample bullet', undefined, {
-        codebasePath: process.cwd(),
+        relatedFiles: [],
         tags: ['test'],
         timestamp: new Date().toISOString(),
       })
@@ -496,7 +496,7 @@ describe('MemPush Command', () => {
     it('should clear playbook after successful upload', async () => {
       const mockPlaybook = new Playbook()
       mockPlaybook.addBullet('Test', 'Sample bullet', undefined, {
-        codebasePath: process.cwd(),
+        relatedFiles: [],
         tags: ['test'],
         timestamp: new Date().toISOString(),
       })
@@ -527,7 +527,7 @@ describe('MemPush Command', () => {
     it('should not cleanup if upload fails', async () => {
       const mockPlaybook = new Playbook()
       mockPlaybook.addBullet('Test', 'Sample bullet', undefined, {
-        codebasePath: process.cwd(),
+        relatedFiles: [],
         tags: ['test'],
         timestamp: new Date().toISOString(),
       })
@@ -561,7 +561,7 @@ describe('MemPush Command', () => {
     it('should handle cleanup errors gracefully', async () => {
       const mockPlaybook = new Playbook()
       mockPlaybook.addBullet('Test', 'Sample bullet', undefined, {
-        codebasePath: process.cwd(),
+        relatedFiles: [],
         tags: ['test'],
         timestamp: new Date().toISOString(),
       })
@@ -595,7 +595,7 @@ describe('MemPush Command', () => {
     it('should call confirmUpload after successful file upload', async () => {
       const mockPlaybook = new Playbook()
       mockPlaybook.addBullet('Test', 'Sample bullet', undefined, {
-        codebasePath: process.cwd(),
+        relatedFiles: [],
         tags: ['test'],
         timestamp: new Date().toISOString(),
       })
@@ -624,7 +624,7 @@ describe('MemPush Command', () => {
     it('should pass correct requestId to confirmUpload', async () => {
       const mockPlaybook = new Playbook()
       mockPlaybook.addBullet('Test', 'Sample bullet', undefined, {
-        codebasePath: process.cwd(),
+        relatedFiles: [],
         tags: ['test'],
         timestamp: new Date().toISOString(),
       })
@@ -661,7 +661,7 @@ describe('MemPush Command', () => {
     it('should not cleanup if confirmation fails', async () => {
       const mockPlaybook = new Playbook()
       mockPlaybook.addBullet('Test', 'Sample bullet', undefined, {
-        codebasePath: process.cwd(),
+        relatedFiles: [],
         tags: ['test'],
         timestamp: new Date().toISOString(),
       })

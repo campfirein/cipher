@@ -23,12 +23,12 @@ describe('ace:stats command', () => {
     // Create playbook with sample data
     const playbook = new Playbook()
     playbook.addBullet('Common Errors', 'Validation error', 'error-00001', {
-      codebasePath: '/src',
+      relatedFiles: [],
       tags: ['validation', 'helpful'],
       timestamp: new Date().toISOString(),
     })
     playbook.addBullet('Best Practices', 'Use DI pattern', 'practices-00001', {
-      codebasePath: '/src',
+      relatedFiles: [],
       tags: ['architecture', 'helpful'],
       timestamp: new Date().toISOString(),
     })
@@ -58,7 +58,7 @@ describe('ace:stats command', () => {
     // Create playbook with sample data
     const playbook = new Playbook()
     playbook.addBullet('Common Errors', 'Error', 'error-00001', {
-      codebasePath: '/src',
+      relatedFiles: [],
       tags: ['validation'],
       timestamp: new Date().toISOString(),
     })

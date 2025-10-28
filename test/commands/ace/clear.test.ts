@@ -21,7 +21,7 @@ describe('ace:clear command', () => {
   it('should clear playbook when user confirms', async () => {
     // Stub playbook store methods
     const existsStub = sandbox.stub(FilePlaybookStore.prototype, 'exists').resolves(true)
-    const deleteStub = sandbox.stub(FilePlaybookStore.prototype, 'delete').resolves()
+    const saveStub = sandbox.stub(FilePlaybookStore.prototype, 'save').resolves()
 
     const command = new Clear([], config)
     const logSpy = sandbox.spy(command, 'log')
@@ -31,16 +31,16 @@ describe('ace:clear command', () => {
 
     await command.run()
 
-    // Verify playbook was deleted
+    // Verify playbook was reset (saved as empty)
     expect(existsStub.called).to.be.true
-    expect(deleteStub.called).to.be.true
+    expect(saveStub.called).to.be.true
     expect(logSpy.calledWith('✓ Playbook cleared successfully.')).to.be.true
   })
 
   it('should not clear playbook when user cancels', async () => {
     // Stub playbook store methods
     sandbox.stub(FilePlaybookStore.prototype, 'exists').resolves(true)
-    const deleteStub = sandbox.stub(FilePlaybookStore.prototype, 'delete').resolves()
+    const saveStub = sandbox.stub(FilePlaybookStore.prototype, 'save').resolves()
 
     const command = new Clear([], config)
     const logSpy = sandbox.spy(command, 'log')
@@ -50,15 +50,15 @@ describe('ace:clear command', () => {
 
     await command.run()
 
-    // Verify playbook was NOT deleted
-    expect(deleteStub.called).to.be.false
+    // Verify playbook was NOT reset
+    expect(saveStub.called).to.be.false
     expect(logSpy.calledWith('Cancelled. Playbook was not cleared.')).to.be.true
   })
 
   it('should skip confirmation and clear when --yes flag is used', async () => {
     // Stub playbook store methods
     sandbox.stub(FilePlaybookStore.prototype, 'exists').resolves(true)
-    const deleteStub = sandbox.stub(FilePlaybookStore.prototype, 'delete').resolves()
+    const saveStub = sandbox.stub(FilePlaybookStore.prototype, 'save').resolves()
 
     const command = new Clear(['--yes'], config)
     const logSpy = sandbox.spy(command, 'log')
@@ -70,38 +70,41 @@ describe('ace:clear command', () => {
 
     // Verify confirmation was NOT prompted
     expect(confirmStub.called).to.be.false
-    // Verify playbook was deleted
-    expect(deleteStub.called).to.be.true
+    // Verify playbook was reset
+    expect(saveStub.called).to.be.true
     expect(logSpy.calledWith('✓ Playbook cleared successfully.')).to.be.true
   })
 
   it('should display message when no playbook exists', async () => {
     // Stub playbook store to indicate no playbook exists
     sandbox.stub(FilePlaybookStore.prototype, 'exists').resolves(false)
-    const deleteStub = sandbox.stub(FilePlaybookStore.prototype, 'delete').resolves()
+    const saveStub = sandbox.stub(FilePlaybookStore.prototype, 'save').resolves()
 
     const command = new Clear([], config)
     const logSpy = sandbox.spy(command, 'log')
 
     await command.run()
 
-    // Verify deletion was not attempted
-    expect(deleteStub.called).to.be.false
+    // Verify save was not attempted
+    expect(saveStub.called).to.be.false
     expect(logSpy.calledWith('No playbook found. Nothing to clear.')).to.be.true
   })
 
   it('should accept custom directory parameter', async () => {
     const existsStub = sandbox.stub(FilePlaybookStore.prototype, 'exists').resolves(true)
-    const deleteStub = sandbox.stub(FilePlaybookStore.prototype, 'delete').resolves()
+    const saveStub = sandbox.stub(FilePlaybookStore.prototype, 'save').resolves()
 
     const command = new Clear(['/custom/path'], config)
     sandbox.stub(command as unknown as {confirmClear: () => Promise<boolean>}, 'confirmClear').resolves(true)
 
     await command.run()
 
-    // Verify custom directory was passed to both exists and delete
+    // Verify custom directory was passed to both exists and save
     expect(existsStub.calledWith('/custom/path')).to.be.true
-    expect(deleteStub.calledWith('/custom/path')).to.be.true
+    expect(saveStub.called).to.be.true
+    // Verify save was called with empty playbook and custom directory
+    const saveCall = saveStub.getCall(0)
+    expect(saveCall.args[1]).to.equal('/custom/path')
   })
 
   it('should handle errors gracefully', async () => {
@@ -121,7 +124,7 @@ describe('ace:clear command', () => {
 
   it('should use short flag -y for yes', async () => {
     sandbox.stub(FilePlaybookStore.prototype, 'exists').resolves(true)
-    const deleteStub = sandbox.stub(FilePlaybookStore.prototype, 'delete').resolves()
+    const saveStub = sandbox.stub(FilePlaybookStore.prototype, 'save').resolves()
 
     const command = new Clear(['-y'], config)
     const confirmStub = sandbox.stub(command as unknown as {confirmClear: () => Promise<boolean>}, 'confirmClear').resolves(true)
@@ -130,6 +133,6 @@ describe('ace:clear command', () => {
 
     // Verify confirmation was NOT prompted with short flag
     expect(confirmStub.called).to.be.false
-    expect(deleteStub.called).to.be.true
+    expect(saveStub.called).to.be.true
   })
 })

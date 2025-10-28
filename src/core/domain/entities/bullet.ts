@@ -2,7 +2,7 @@
  * Represents metadata associated with a bullet point
  */
 export interface BulletMetadata {
-  codebasePath: string
+  relatedFiles: string[]
   tags: string[]
   timestamp: string
 }
@@ -11,7 +11,7 @@ export interface BulletJson {
   content: string
   id: string
   metadata: {
-    codebasePath: string
+    relatedFiles: string[]
     tags: string[]
     timestamp: string
   }
@@ -50,8 +50,8 @@ export class Bullet {
       throw new Error('Bullet metadata timestamp cannot be empty')
     }
 
-    if (!metadata.codebasePath || metadata.codebasePath.trim().length === 0) {
-      throw new Error('Bullet metadata codebase path cannot be empty')
+    if (!metadata.relatedFiles || !Array.isArray(metadata.relatedFiles)) {
+      throw new Error('Bullet metadata relatedFiles must be an array')
     }
 
     if (!metadata.tags || metadata.tags.length === 0) {
@@ -73,7 +73,7 @@ export class Bullet {
       json.section,
       json.content,
       {
-        codebasePath: json.metadata.codebasePath,
+        relatedFiles: json.metadata.relatedFiles,
         tags: json.metadata.tags,
         timestamp: json.metadata.timestamp,
       },
@@ -86,10 +86,12 @@ export class Bullet {
   public toDisplayString(): string {
     const tags = this.metadata.tags.join(', ')
     const tagDisplay = `[Tags: ${tags}]`
-    const pathDisplay = `[Path: ${this.metadata.codebasePath}]`
+    const filesDisplay = this.metadata.relatedFiles.length > 0
+      ? `[Files: ${this.metadata.relatedFiles.join(', ')}]`
+      : '[Files: none]'
     const timestampDisplay = `[Updated: ${this.metadata.timestamp}]`
 
-    const metadataDisplay = [tagDisplay, pathDisplay, timestampDisplay].join(' ')
+    const metadataDisplay = [tagDisplay, filesDisplay, timestampDisplay].join(' ')
 
     return `- [${this.id}] ${this.content}\n  ${this.section}\n  ${metadataDisplay}`
   }
@@ -102,7 +104,7 @@ export class Bullet {
       content: this.content,
       id: this.id,
       metadata: {
-        codebasePath: this.metadata.codebasePath,
+        relatedFiles: this.metadata.relatedFiles,
         tags: this.metadata.tags,
         timestamp: this.metadata.timestamp,
       },
