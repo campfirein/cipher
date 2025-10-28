@@ -2,13 +2,19 @@
 import {expect} from 'chai'
 import nock from 'nock'
 
-import {HttpMemoryService} from '../../../../src/infra/memory/http-memory-service.js'
+import {HttpMemoryStorageService} from '../../../../src/infra/memory/http-memory-storage-service.js'
 
-describe('HttpMemoryService', () => {
+describe('HttpMemoryStorageService', () => {
   const config = {
     apiBaseUrl: 'https://dev-beta-cogit.byterover.dev/api/v1',
     timeout: 5000,
   }
+
+  let service: HttpMemoryStorageService
+
+  beforeEach(() => {
+    service = new HttpMemoryStorageService(config)
+  })
 
   afterEach(() => {
     nock.cleanAll()
@@ -36,7 +42,6 @@ describe('HttpMemoryService', () => {
         .matchHeader('x-byterover-session-id', 'session-key')
         .reply(200, mockResponse)
 
-      const service = new HttpMemoryService(config)
       const result = await service.getPresignedUrls({
         accessToken: 'access-token',
         branch: 'main',
@@ -75,7 +80,6 @@ describe('HttpMemoryService', () => {
         .post('/api/v1/organizations/team-123/projects/space-456/memory-processing/presigned-urls')
         .reply(200, mockResponse)
 
-      const service = new HttpMemoryService(config)
       const result = await service.getPresignedUrls({
         accessToken: 'access-token',
         branch: 'main',
@@ -109,7 +113,6 @@ describe('HttpMemoryService', () => {
           }
         })
 
-      const service = new HttpMemoryService(config)
       await service.getPresignedUrls({
         accessToken: 'access-token',
         branch: 'develop',
@@ -129,8 +132,6 @@ describe('HttpMemoryService', () => {
       nock('https://dev-beta-cogit.byterover.dev')
         .post('/api/v1/organizations/team-123/projects/space-456/memory-processing/presigned-urls')
         .replyWithError('Network timeout')
-
-      const service = new HttpMemoryService(config)
 
       try {
         await service.getPresignedUrls({
@@ -152,8 +153,6 @@ describe('HttpMemoryService', () => {
       nock('https://dev-beta-cogit.byterover.dev')
         .post('/api/v1/organizations/team-123/projects/space-456/memory-processing/presigned-urls')
         .reply(404, {message: 'Space not found', success: false})
-
-      const service = new HttpMemoryService(config)
 
       try {
         await service.getPresignedUrls({
@@ -177,11 +176,8 @@ describe('HttpMemoryService', () => {
     const fileContent = '{"bullets": {}, "sections": {}, "nextId": 1}'
 
     it('should upload file content to presigned URL', async () => {
-      nock('https://storage.googleapis.com')
-        .put('/bucket/path?signature=abc123', fileContent)
-        .reply(200)
+      nock('https://storage.googleapis.com').put('/bucket/path?signature=abc123', fileContent).reply(200)
 
-      const service = new HttpMemoryService(config)
       await service.uploadFile(uploadUrl, fileContent)
 
       expect(nock.isDone()).to.be.true
@@ -193,18 +189,13 @@ describe('HttpMemoryService', () => {
         .matchHeader('content-type', 'application/json')
         .reply(200)
 
-      const service = new HttpMemoryService(config)
       await service.uploadFile(uploadUrl, fileContent)
 
       expect(nock.isDone()).to.be.true
     })
 
     it('should handle network errors', async () => {
-      nock('https://storage.googleapis.com')
-        .put('/bucket/path?signature=abc123')
-        .replyWithError('Network error')
-
-      const service = new HttpMemoryService(config)
+      nock('https://storage.googleapis.com').put('/bucket/path?signature=abc123').replyWithError('Network error')
 
       try {
         await service.uploadFile(uploadUrl, fileContent)
@@ -221,8 +212,6 @@ describe('HttpMemoryService', () => {
         .delay(6000) // Delay longer than 5s timeout
         .reply(200)
 
-      const service = new HttpMemoryService(config)
-
       try {
         await service.uploadFile(uploadUrl, fileContent)
         expect.fail('Should have thrown error')
@@ -236,8 +225,6 @@ describe('HttpMemoryService', () => {
       nock('https://storage.googleapis.com')
         .put('/bucket/path?signature=abc123')
         .reply(403, {error: 'SignatureDoesNotMatch'})
-
-      const service = new HttpMemoryService(config)
 
       try {
         await service.uploadFile(uploadUrl, fileContent)
@@ -262,11 +249,8 @@ describe('HttpMemoryService', () => {
         sections: {Test: ['test-00001']},
       })
 
-      nock('https://storage.googleapis.com')
-        .put('/bucket/path?signature=abc123', jsonContent)
-        .reply(200)
+      nock('https://storage.googleapis.com').put('/bucket/path?signature=abc123', jsonContent).reply(200)
 
-      const service = new HttpMemoryService(config)
       await service.uploadFile(uploadUrl, jsonContent)
 
       expect(nock.isDone()).to.be.true
@@ -291,7 +275,6 @@ describe('HttpMemoryService', () => {
         .matchHeader('x-byterover-session-id', 'session-key')
         .reply(200, mockResponse)
 
-      const service = new HttpMemoryService(config)
       await service.confirmUpload({
         accessToken: 'access-token',
         requestId: 'req-123',
@@ -317,7 +300,6 @@ describe('HttpMemoryService', () => {
           }
         })
 
-      const service = new HttpMemoryService(config)
       await service.confirmUpload({
         accessToken: 'access-token',
         requestId: 'req-456',
@@ -342,7 +324,6 @@ describe('HttpMemoryService', () => {
           success: true,
         })
 
-      const service = new HttpMemoryService(config)
       await service.confirmUpload({
         accessToken: 'test-token-789',
         requestId: 'req-789',
@@ -363,7 +344,6 @@ describe('HttpMemoryService', () => {
           success: true,
         })
 
-      const service = new HttpMemoryService(config)
       await service.confirmUpload({
         accessToken: 'access-token',
         requestId: 'req-001',
@@ -379,8 +359,6 @@ describe('HttpMemoryService', () => {
       nock('https://dev-beta-cogit.byterover.dev')
         .post('/api/v1/organizations/team-123/projects/space-456/memory-processing/confirm-upload')
         .replyWithError('Network timeout')
-
-      const service = new HttpMemoryService(config)
 
       try {
         await service.confirmUpload({
@@ -402,8 +380,6 @@ describe('HttpMemoryService', () => {
         .post('/api/v1/organizations/team-123/projects/space-456/memory-processing/confirm-upload')
         .reply(404, {message: 'Request not found', success: false})
 
-      const service = new HttpMemoryService(config)
-
       try {
         await service.confirmUpload({
           accessToken: 'access-token',
@@ -423,8 +399,6 @@ describe('HttpMemoryService', () => {
       nock('https://dev-beta-cogit.byterover.dev')
         .post('/api/v1/organizations/team-123/projects/space-456/memory-processing/confirm-upload')
         .reply(500, {message: 'Internal server error', success: false})
-
-      const service = new HttpMemoryService(config)
 
       try {
         await service.confirmUpload({
