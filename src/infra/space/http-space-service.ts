@@ -1,3 +1,4 @@
+/* eslint-disable camelcase */
 import type {ISpaceService} from '../../core/interfaces/i-space-service.js'
 
 import {Space} from '../../core/domain/entities/space.js'
@@ -52,6 +53,7 @@ export class HttpSpaceService implements ISpaceService {
   public async getSpaces(
     accessToken: string,
     sessionKey: string,
+    teamId: string,
     option?: {fetchAll?: boolean; limit?: number; offset?: number},
   ): Promise<{spaces: Space[]; total: number}> {
     try {
@@ -59,11 +61,13 @@ export class HttpSpaceService implements ISpaceService {
 
       // Scenario 1: Fetch all automatically via auto-pagination
       if (option?.fetchAll === true) {
-        return await this.fetchAllSpaces(httpClient)
+        return await this.fetchAllSpaces(httpClient, teamId)
       }
 
       // Scenario 2 & 3: Single request (with or without pagination params)
       const params = new URLSearchParams()
+      params.append('team_id', teamId)
+
       if (option?.limit !== undefined) {
         params.append('limit', option.limit.toString())
       }
@@ -72,7 +76,7 @@ export class HttpSpaceService implements ISpaceService {
         params.append('offset', option.offset.toString())
       }
 
-      const url = `${this.config.apiBaseUrl}/spaces${params.toString() ? `?${params.toString()}` : ''}`
+      const url = `${this.config.apiBaseUrl}/spaces?${params.toString()}`
       const response = await httpClient.get<ListSpacesApiResponse>(url, {
         timeout: this.config.timeout,
       })
@@ -86,7 +90,7 @@ export class HttpSpaceService implements ISpaceService {
     }
   }
 
-  private async fetchAllSpaces(httpClient: AuthenticatedHttpClient): Promise<{spaces: Space[]; total: number}> {
+  private async fetchAllSpaces(httpClient: AuthenticatedHttpClient, teamId: string): Promise<{spaces: Space[]; total: number}> {
     const pageSize = 100 // Larger pages for fewer requests
     let offset = 0
     let allSpaces: Space[] = []
@@ -95,6 +99,7 @@ export class HttpSpaceService implements ISpaceService {
       const params = new URLSearchParams({
         limit: pageSize.toString(),
         offset: offset.toString(),
+        team_id: teamId,
       })
 
       // eslint-disable-next-line no-await-in-loop

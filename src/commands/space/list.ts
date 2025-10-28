@@ -1,10 +1,12 @@
 import {Command, Flags, ux} from '@oclif/core'
 
+import type {IProjectConfigStore} from '../../core/interfaces/i-project-config-store.js'
 import type {ISpaceService} from '../../core/interfaces/i-space-service.js'
 import type {ITokenStore} from '../../core/interfaces/i-token-store.js'
 
 import {getCurrentConfig} from '../../config/environment.js'
 import {AuthToken} from '../../core/domain/entities/auth-token.js'
+import {ProjectConfigStore} from '../../infra/config/file-config-store.js'
 import {HttpSpaceService} from '../../infra/space/http-space-service.js'
 import {KeychainTokenStore} from '../../infra/storage/keychain-token-store.js'
 
@@ -12,7 +14,7 @@ const DEFAULT_LIMIT = 50
 const DEFAULT_OFFSET = 0
 
 export default class SpaceList extends Command {
-  public static description = 'List all spaces accessible to the authenticated user'
+  public static description = 'List all spaces for the current team (requires project initialization)'
   public static examples = [
     '<%= config.bin %> <%= command.id %>',
     '<%= config.bin %> <%= command.id %> --all',
@@ -44,11 +46,13 @@ export default class SpaceList extends Command {
   }
 
   protected createServices(): {
+    projectConfigStore: IProjectConfigStore
     spaceService: ISpaceService
     tokenStore: ITokenStore
   } {
     const envConfig = getCurrentConfig()
     return {
+      projectConfigStore: new ProjectConfigStore(),
       spaceService: new HttpSpaceService({apiBaseUrl: envConfig.apiBaseUrl}),
       tokenStore: new KeychainTokenStore(),
     }
@@ -57,19 +61,28 @@ export default class SpaceList extends Command {
   public async run(): Promise<void> {
     try {
       const {flags} = await this.parse(SpaceList)
-      const {spaceService, tokenStore} = this.createServices()
+      const {projectConfigStore, spaceService, tokenStore} = this.createServices()
+
+      // Check project initialization
+      const projectConfig = await projectConfigStore.read()
+      if (projectConfig === undefined) {
+        this.error('Project not initialized. Run "br init" first.')
+      }
+
       const token = await this.validateAuth(tokenStore)
-      // Fetch spaces based on flags
-      ux.action.start('Fetching spaces')
+
+      // Fetch spaces for the team from project config
+      ux.action.start(`Fetching spaces for ${projectConfig.teamName}`)
       const result = await spaceService.getSpaces(
         token.accessToken,
         token.sessionKey,
+        projectConfig.teamId,
         flags.all ? {fetchAll: true} : {limit: flags.limit, offset: flags.offset},
       )
       ux.action.stop()
       // Handle empty results
       if (result.spaces.length === 0) {
-        this.log('No spaces found.')
+        this.log(`No spaces found in team "${projectConfig.teamName}".`)
         return
       }
 
@@ -77,7 +90,12 @@ export default class SpaceList extends Command {
       if (flags.json) {
         this.log(
           JSON.stringify(
-            {showing: result.spaces.length, spaces: result.spaces.map((s) => s.toJson()), total: result.total},
+            {
+              showing: result.spaces.length,
+              spaces: result.spaces.map((s) => s.toJson()),
+              team: {id: projectConfig.teamId, name: projectConfig.teamName},
+              total: result.total,
+            },
             null,
             2,
           ),
@@ -86,7 +104,8 @@ export default class SpaceList extends Command {
       }
 
       // Human-readable format
-      this.log(`\nFound ${result.spaces.length} space(s):\n`)
+      this.log(`\nSpaces in team "${projectConfig.teamName}":\n`)
+      this.log(`Found ${result.spaces.length} space(s):\n`)
       for (const [index, space] of result.spaces.entries()) {
         this.log(`  ${index + 1}. ${space.getDisplayName()}`)
       }
