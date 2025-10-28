@@ -75,16 +75,16 @@ export default class Complete extends Command {
       const toolUsage = this.parseToolUsage(flags['tool-usage'])
 
       // Phase 1: Executor
-      const saveResult = await this.executePhase1(args, bulletIds, toolUsage)
+      const saveResult = await this.saveExecutorOutput(args, bulletIds, toolUsage)
 
       // Phase 2: Reflector
-      const {reflection, reflectionFilePath, tagsApplied} = await this.executePhase2(
+      const {reflection, reflectionFilePath, tagsApplied} = await this.generateReflectionAndApplyTags(
         saveResult.executorOutput,
         flags.feedback,
       )
 
       // Phase 3: Curator
-      const {curatorOutput, deltaFilePath} = await this.executePhase3(reflection, saveResult.executorOutput, flags)
+      const {curatorOutput, deltaFilePath} = await this.generateCurationAndApplyDelta(reflection, saveResult.executorOutput, flags)
 
       // Display final summary
       this.displayFinalSummary({
@@ -100,6 +100,18 @@ export default class Complete extends Command {
     }
   }
 
+  /**
+   * Displays a formatted summary of the completed ACE workflow.
+   * Shows file paths, delta operations breakdown, and success confirmation.
+   *
+   * @param summary - Summary data containing all workflow outputs
+   * @param summary.curatorOutput - The curator output containing delta operations
+   * @param summary.deltaFilePath - Path to the saved delta file
+   * @param summary.executorPath - Path to the saved executor output file
+   * @param summary.hint - The hint used for naming output files
+   * @param summary.reflectionFilePath - Path to the saved reflection file
+   * @param summary.tagsApplied - Number of tags applied to the playbook
+   */
   private displayFinalSummary(summary: {
     curatorOutput: CuratorOutput
     deltaFilePath: string
@@ -146,114 +158,43 @@ export default class Complete extends Command {
     this.log('🎉 Playbook has been updated with new knowledge!')
   }
 
+  /**
+   * Extracts file paths from tool usage strings and formats them with project name prefix.
+   * Converts tool usage entries like "Read:src/file.ts" to "projectName/src/file.ts".
+   *
+   * @param toolUsage - Array of tool usage strings (e.g., ["Read:src/file.ts", "Edit:src/other.ts"])
+   * @returns Array of formatted file paths with project name prefix
+   */
+  private extractFilePaths(toolUsage: string[]): string[] {
+    const cwd = process.cwd()
+    const projectName = basename(cwd)
 
-  private async executePhase1(
-    args: {finalAnswer: string; hint: string; reasoning: string},
-    bulletIds: string[],
-    toolUsage: string[],
-  ): Promise<{executorOutput: ExecutorOutput; filePath: string}> {
-    this.log('🚀 Starting ACE workflow...')
-    this.log('')
-    this.log('📝 Phase 1: Saving executor output...')
+    return toolUsage
+      .map((usage) => {
+        const parts = usage.split(':')
+        if (parts.length <= 1) return null
 
-    const executorOutput = new ExecutorOutput({
-      bulletIds,
-      finalAnswer: args.finalAnswer,
-      hint: args.hint,
-      reasoning: args.reasoning,
-      toolUsage,
-    })
+        const filePath = parts[1].trim()
+        // Remove leading ./ if present
+        const cleanPath = filePath.replace(/^\.\//, '')
+        // Combine project name with file path
+        const fullPath = `${projectName}/${cleanPath}`
 
-    const saveUseCase = new SaveExecutorOutputUseCase()
-    const saveResult = await saveUseCase.execute(executorOutput)
-
-    if (!saveResult.success) {
-      this.error(saveResult.error || 'Failed to save executor output')
-    }
-
-    this.log(`  ✓ Executor output saved: ${saveResult.filePath}`)
-    this.log('')
-
-    return {executorOutput, filePath: saveResult.filePath!}
+        return fullPath
+      })
+      .filter(Boolean) as string[]
   }
 
-  private async executePhase2(
-    executorOutput: ExecutorOutput,
-    feedback: string,
-  ): Promise<{reflection: ReflectorOutput; reflectionFilePath: string; tagsApplied: number}> {
-    this.log('🤔 Phase 2: Generating reflection...')
-
-    // Load playbook
-    const playbookStore = new FilePlaybookStore()
-    const loadUseCase = new LoadPlaybookUseCase(playbookStore)
-    const loadResult = await loadUseCase.execute()
-
-    if (!loadResult.success) {
-      this.error(loadResult.error || 'Failed to load playbook. Run `br init` to initialize.')
-    }
-
-    const playbook = loadResult.playbook!
-
-    // Generate reflection prompt
-    const promptBuilder = new AcePromptTemplates()
-    const generateReflectionUseCase = new GenerateReflectionUseCase(promptBuilder)
-    const task = executorOutput.reasoning.split('\n')[0] || 'Task from executor'
-
-    const reflectionPromptResult = await generateReflectionUseCase.execute({
-      executorOutput,
-      feedback,
-      playbook,
-      task,
-    })
-
-    if (!reflectionPromptResult.success) {
-      this.error(reflectionPromptResult.error || 'Failed to generate reflection prompt')
-    }
-
-    // Auto-generate reflection based on feedback
-    this.log('  ℹ️  Auto-generating reflection based on feedback...')
-    const reflectionJson: ReflectorOutputJson = {
-      bulletTags: [],
-      correctApproach: executorOutput.reasoning,
-      errorIdentification: feedback.toLowerCase().includes('fail') || feedback.toLowerCase().includes('error')
-        ? `Issues identified: ${feedback}`
-        : 'No critical errors identified',
-      hint: executorOutput.hint,
-      keyInsight: executorOutput.finalAnswer,
-      reasoning: `Analysis: ${feedback}. Approach: ${executorOutput.reasoning}`,
-      rootCauseAnalysis: feedback.toLowerCase().includes('fail') || feedback.toLowerCase().includes('error')
-        ? `Root cause requires investigation: ${feedback}`
-        : 'Successful execution without errors',
-    }
-
-    const parseReflectionUseCase = new ParseReflectionUseCase()
-    const parseReflectionResult = await parseReflectionUseCase.execute(reflectionJson)
-
-    if (!parseReflectionResult.success) {
-      this.error(parseReflectionResult.error || 'Failed to parse reflection')
-    }
-
-    const reflection = parseReflectionResult.reflection!
-    const reflectionFilePath = parseReflectionResult.filePath!
-
-    // Apply tags to playbook
-    const applyTagsUseCase = new ApplyReflectionTagsUseCase(playbookStore)
-    const applyTagsResult = await applyTagsUseCase.execute(reflection)
-
-    if (!applyTagsResult.success) {
-      this.error(applyTagsResult.error || 'Failed to apply tags to playbook')
-    }
-
-    const tagsApplied = applyTagsResult.tagsApplied || 0
-
-    this.log(`  ✓ Reflection saved: ${reflectionFilePath}`)
-    this.log(`  ✓ Tags applied to playbook: ${tagsApplied}`)
-    this.log('')
-
-    return {reflection, reflectionFilePath, tagsApplied}
-  }
-
-  private async executePhase3(
+  /**
+   * Phase 3: Generates curation and applies delta operations to the playbook.
+   * Creates delta operations (ADD or UPDATE) based on reflection insights and applies them to the playbook.
+   *
+   * @param reflection - The reflection output from Phase 2
+   * @param executorOutput - The executor output from Phase 1
+   * @param flags - Command flags containing optional update-bullet ID
+   * @returns Object containing curator output and delta file path
+   */
+  private async generateCurationAndApplyDelta(
     reflection: ReflectorOutput,
     executorOutput: ExecutorOutput,
     flags: {'update-bullet'?: string},
@@ -345,26 +286,97 @@ export default class Complete extends Command {
     return {curatorOutput, deltaFilePath}
   }
 
-  private extractFilePaths(toolUsage: string[]): string[] {
-    const cwd = process.cwd()
-    const projectName = basename(cwd)
+  /**
+   * Phase 2: Generates reflection based on executor output and applies tags to the playbook.
+   * Auto-generates reflection analysis from feedback and applies bullet tags to relevant playbook sections.
+   *
+   * @param executorOutput - The executor output from Phase 1
+   * @param feedback - Environment feedback about task execution (e.g., "Tests passed", "Build failed")
+   * @returns Object containing reflection output, file path, and number of tags applied
+   */
+  private async generateReflectionAndApplyTags(
+    executorOutput: ExecutorOutput,
+    feedback: string,
+  ): Promise<{reflection: ReflectorOutput; reflectionFilePath: string; tagsApplied: number}> {
+    this.log('🤔 Phase 2: Generating reflection...')
 
-    return toolUsage
-      .map((usage) => {
-        const parts = usage.split(':')
-        if (parts.length <= 1) return null
+    // Load playbook
+    const playbookStore = new FilePlaybookStore()
+    const loadUseCase = new LoadPlaybookUseCase(playbookStore)
+    const loadResult = await loadUseCase.execute()
 
-        const filePath = parts[1].trim()
-        // Remove leading ./ if present
-        const cleanPath = filePath.replace(/^\.\//, '')
-        // Combine project name with file path
-        const fullPath = `${projectName}/${cleanPath}`
+    if (!loadResult.success) {
+      this.error(loadResult.error || 'Failed to load playbook. Run `br init` to initialize.')
+    }
 
-        return fullPath
-      })
-      .filter(Boolean) as string[]
+    const playbook = loadResult.playbook!
+
+    // Generate reflection prompt
+    const promptBuilder = new AcePromptTemplates()
+    const generateReflectionUseCase = new GenerateReflectionUseCase(promptBuilder)
+    const task = executorOutput.reasoning.split('\n')[0] || 'Task from executor'
+
+    const reflectionPromptResult = await generateReflectionUseCase.execute({
+      executorOutput,
+      feedback,
+      playbook,
+      task,
+    })
+
+    if (!reflectionPromptResult.success) {
+      this.error(reflectionPromptResult.error || 'Failed to generate reflection prompt')
+    }
+
+    // Auto-generate reflection based on feedback
+    this.log('  ℹ️  Auto-generating reflection based on feedback...')
+    const reflectionJson: ReflectorOutputJson = {
+      bulletTags: [],
+      correctApproach: executorOutput.reasoning,
+      errorIdentification: feedback.toLowerCase().includes('fail') || feedback.toLowerCase().includes('error')
+        ? `Issues identified: ${feedback}`
+        : 'No critical errors identified',
+      hint: executorOutput.hint,
+      keyInsight: executorOutput.finalAnswer,
+      reasoning: `Analysis: ${feedback}. Approach: ${executorOutput.reasoning}`,
+      rootCauseAnalysis: feedback.toLowerCase().includes('fail') || feedback.toLowerCase().includes('error')
+        ? `Root cause requires investigation: ${feedback}`
+        : 'Successful execution without errors',
+    }
+
+    const parseReflectionUseCase = new ParseReflectionUseCase()
+    const parseReflectionResult = await parseReflectionUseCase.execute(reflectionJson)
+
+    if (!parseReflectionResult.success) {
+      this.error(parseReflectionResult.error || 'Failed to parse reflection')
+    }
+
+    const reflection = parseReflectionResult.reflection!
+    const reflectionFilePath = parseReflectionResult.filePath!
+
+    // Apply tags to playbook
+    const applyTagsUseCase = new ApplyReflectionTagsUseCase(playbookStore)
+    const applyTagsResult = await applyTagsUseCase.execute(reflection)
+
+    if (!applyTagsResult.success) {
+      this.error(applyTagsResult.error || 'Failed to apply tags to playbook')
+    }
+
+    const tagsApplied = applyTagsResult.tagsApplied || 0
+
+    this.log(`  ✓ Reflection saved: ${reflectionFilePath}`)
+    this.log(`  ✓ Tags applied to playbook: ${tagsApplied}`)
+    this.log('')
+
+    return {reflection, reflectionFilePath, tagsApplied}
   }
 
+  /**
+   * Parses comma-separated bullet IDs string into an array of trimmed IDs.
+   * Empty strings and whitespace-only entries are filtered out.
+   *
+   * @param bulletIdsStr - Comma-separated string of bullet IDs (e.g., "bullet-1, bullet-2")
+   * @returns Array of trimmed bullet ID strings (empty array if input is empty string)
+   */
   private parseBulletIds(bulletIdsStr: string): string[] {
     return bulletIdsStr
       .split(',')
@@ -372,10 +384,59 @@ export default class Complete extends Command {
       .filter((id) => id.length > 0)
   }
 
+  /**
+   * Parses comma-separated tool usage string into an array of trimmed entries.
+   * Empty strings and whitespace-only entries are filtered out.
+   *
+   * @param toolUsageStr - Comma-separated string of tool usage (e.g., "Read:file.ts, Edit:other.ts")
+   * @returns Array of trimmed tool usage strings
+   */
   private parseToolUsage(toolUsageStr: string): string[] {
     return toolUsageStr
       .split(',')
       .map((tool) => tool.trim())
       .filter((tool) => tool.length > 0)
+  }
+
+  /**
+   * Phase 1: Saves executor output to a file.
+   * Creates an ExecutorOutput entity from command arguments and persists it using SaveExecutorOutputUseCase.
+   *
+   * @param args - Command arguments
+   * @param args.hint - Short hint for naming output files
+   * @param args.reasoning - Detailed reasoning and approach for completing the task
+   * @param args.finalAnswer - The final answer/solution to the task
+   * @param bulletIds - Array of playbook bullet IDs referenced during task execution
+   * @param toolUsage - Array of tool usage strings (e.g., ["Read:src/file.ts", "Bash:npm test"])
+   * @returns Object containing the executor output entity and file path where it was saved
+   */
+  private async saveExecutorOutput(
+    args: {finalAnswer: string; hint: string; reasoning: string},
+    bulletIds: string[],
+    toolUsage: string[],
+  ): Promise<{executorOutput: ExecutorOutput; filePath: string}> {
+    this.log('🚀 Starting ACE workflow...')
+    this.log('')
+    this.log('📝 Phase 1: Saving executor output...')
+
+    const executorOutput = new ExecutorOutput({
+      bulletIds,
+      finalAnswer: args.finalAnswer,
+      hint: args.hint,
+      reasoning: args.reasoning,
+      toolUsage,
+    })
+
+    const saveUseCase = new SaveExecutorOutputUseCase()
+    const saveResult = await saveUseCase.execute(executorOutput)
+
+    if (!saveResult.success) {
+      this.error(saveResult.error || 'Failed to save executor output')
+    }
+
+    this.log(`  ✓ Executor output saved: ${saveResult.filePath}`)
+    this.log('')
+
+    return {executorOutput, filePath: saveResult.filePath!}
   }
 }
