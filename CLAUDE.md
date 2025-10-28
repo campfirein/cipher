@@ -477,6 +477,159 @@ Cleaning up local files...
 - Can be overridden with `--branch` or `-b` flag
 - Used for organizing playbook versions in blob storage
 
+### Space List Command (`br space list`)
+
+The CLI provides a space list command that displays all spaces accessible to the authenticated user with pagination support:
+
+**Command**: `br space list [--all] [--limit <n>] [--offset <n>] [--json]`
+
+**Purpose**:
+
+- List spaces accessible to the authenticated user
+- Support pagination for users with many spaces
+- Provide both human-readable and JSON output formats
+
+**Flags**:
+
+- `--all`, `-a`: Fetch all spaces (may be slow for large teams)
+- `--limit <n>`, `-l <n>`: Maximum number of spaces to fetch (default: 50)
+- `--offset <n>`, `-o <n>`: Number of spaces to skip (default: 0)
+- `--json`, `-j`: Output in JSON format
+
+**Usage Examples**:
+
+```bash
+# List first 50 spaces (default)
+br space list
+
+# List all spaces
+br space list --all
+
+# Custom pagination
+br space list --limit 10
+br space list --limit 10 --offset 20
+
+# JSON output
+br space list --json
+```
+
+**Output Formats**:
+
+*Human-readable (default)*:
+
+```text
+Fetching spaces... done
+
+Found 127 space(s):
+
+  1. acme-corp/frontend-app
+  2. acme-corp/backend-api
+  ...
+  50. team-x/project-y
+
+Showing 50 of 127 total spaces.
+Use --all to fetch all spaces, or use --limit and --offset for pagination.
+```
+
+*JSON format*:
+
+```json
+{
+  "showing": 50,
+  "spaces": [
+    {
+      "id": "space-1",
+      "name": "frontend-app",
+      "teamId": "team-1",
+      "teamName": "acme-corp"
+    }
+    ...
+  ],
+  "total": 127
+}
+```
+
+**Behavior**:
+
+1. **Authentication**: Requires valid authentication token (checks via `validateAuth()`)
+2. **Default Pagination**: Fetches first 50 spaces by default
+3. **Pagination Warning**: Displays message when more spaces exist
+4. **fetchAll Mode**: With `--all` flag, automatically paginates to fetch all spaces
+5. **Empty State**: Shows "No spaces found." if user has no spaces
+
+**Implementation Details**:
+
+- Uses `ISpaceService.getSpaces()` with optional pagination parameters
+- Passes `{fetchAll: true}` when `--all` flag is used
+- Passes `{limit, offset}` for manual pagination control
+- Displays spaces using `space.getDisplayName()` format (`teamName/spaceName`)
+- Reusable `validateAuth()` helper method for authentication checks
+
+**Context-Aware Pagination**:
+
+Different commands use different pagination strategies:
+
+- `br space list`: Default 50 items, optional `--all` for browsing
+- `br init`: Always uses `{fetchAll: true}` to ensure complete space list for selection
+
+### ISpaceService Interface with Pagination
+
+The `ISpaceService` interface has been enhanced to support pagination:
+
+**Updated Interface**:
+
+```typescript
+interface ISpaceService {
+  getSpaces(
+    accessToken: string,
+    sessionKey: string,
+    option?: {
+      fetchAll?: boolean  // Auto-paginate to fetch all spaces
+      limit?: number      // Maximum spaces per request
+      offset?: number     // Number of spaces to skip
+    }
+  ): Promise<{
+    spaces: Space[]
+    total: number  // Total count across all pages
+  }>
+}
+```
+
+**Pagination Options**:
+
+1. **No options** (default): Single API call, backend default page size
+2. **`{limit, offset}`**: Manual pagination control for single page
+3. **`{fetchAll: true}`**: Auto-pagination internally until all fetched
+
+**Implementation** (`HttpSpaceService`):
+
+- **Manual Pagination**: Builds query string with URLSearchParams
+  - Example: `GET /spaces?limit=50&offset=100`
+- **Auto-Pagination**: Internal loop with 100-item pages for efficiency
+  - Automatically stops when `allSpaces.length >= total`
+  - Prevents over-fetching with empty page detection
+- **Return Type**: Always returns `{spaces: Space[], total: number}`
+- **API Response**: Expects `{data: {spaces: [], total: number}}`
+
+**Breaking Change**:
+
+Return type changed from `Space[]` to `{spaces: Space[], total: number}`. Existing code must be updated:
+
+```typescript
+// Before
+const spaces = await spaceService.getSpaces(accessToken, sessionKey)
+
+// After
+const result = await spaceService.getSpaces(accessToken, sessionKey)
+const spaces = result.spaces
+const total = result.total
+```
+
+**Updated Commands**:
+
+- `init.ts`: Uses `{fetchAll: true}` to always show all spaces for selection
+- `space/list.ts`: Uses pagination options based on flags
+
 ### OIDC Discovery
 
 - **Discovery Service**: `OidcDiscoveryService` implements `IOidcDiscoveryService`
