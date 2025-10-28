@@ -1,59 +1,119 @@
 # ACE Workflow Guide for Coding Agents
 
-**ACE (Agentic Context Engineering)** - Capture work, learn from feedback, build cumulative knowledge in a living playbook.
+**ACE (Agentic Context Engineering)** - Capture work, learn from feedback, build cumulative knowledge.
 
 ## Quick Start
 
 ```bash
-br ace executor start "Add authentication" [--with-playbook]  # 1. Get task prompt with optional context
-br ace executor save "auth" "Implemented OAuth2" "Auth works" --tool-usage "Read:auth.ts,Edit:auth.ts"
-br ace reflector "Tests passed, works correctly"  # Paste reflection JSON via stdin
-br ace curator  # Paste delta JSON via stdin, auto-applies to playbook
+# One command - fully automatic!
+br ace complete "auth" \
+  "Implemented OAuth2 flow following existing patterns" \
+  "Successfully added authentication with JWT tokens" \
+  --tool-usage "Read:src/auth.ts,Edit:src/auth.ts,Bash:npm test" \
+  --feedback "All tests passed"
 ```
 
-## The 3-Phase Cycle
+Automatically: saves output → generates reflection → updates playbook. Done!
 
-**1. Executor** - Do work and save
-
-```bash
-br ace executor start <task> [--with-playbook]
-br ace executor save <hint> <reasoning> <finalAnswer> [--bullet-ids "id1,id2"] [--tool-usage "Tool:arg"]
-```
-
-**2. Reflector** - Analyze (paste JSON via stdin): `br ace reflector <feedback>`
-
-**3. Curator** - Update playbook (paste delta JSON via stdin): `br ace curator [--reflection file.json]`
-
-## Direct Playbook Manipulation (Bypasses ACE Workflow)
-
-For agents: Quick add/update without executor → reflector → curator cycle
+## Command Reference
 
 ```bash
-br ace show                              # 1. FIRST: Check existing playbook
-br add -s "Section" -c "Content"         # 2. Add new bullet (auto-generates ID)
-br add -s "Section" -c "Updated" -b "id" # 3. Update existing bullet by ID
-```
+# Main workflow - ADD mode (default)
+br ace complete <hint> <reasoning> <finalAnswer> \
+  --tool-usage "Tool:arg,Tool:arg" \
+  --feedback "outcome" \
+  [--bullet-ids "id1,id2"]
 
-Agent workflow:
+# Main workflow - UPDATE mode
+br ace complete <hint> <reasoning> <finalAnswer> \
+  --tool-usage "Tool:arg,Tool:arg" \
+  --feedback "outcome" \
+  --update-bullet "bullet-id"
 
-1. Run `br ace show` to view current sections and bullet IDs
-2. Choose appropriate section or create new one
-3. Use `br add` to add/update bullets directly
+# Quick playbook manipulation
+br ace show                              # View playbook
+br add -s "Section" -c "Content"         # Add bullet
+br add -s "Section" -c "Updated" -b "id" # Update bullet
 
-## Utility Commands
-
-```bash
-br ace show [--format json]              # View playbook
+# Utilities
 br ace stats [--format json]             # Statistics
-br ace apply-delta [delta-file.json]     # Manually apply delta
 br ace clear [--yes]                     # Reset playbook
 ```
 
-## File Naming: `executor-{hint}-{timestamp}.json` → `reflection-{hint}-{timestamp}.json` → `delta-{hint}-{timestamp}.json`
+## ADD vs UPDATE Mode
+
+**ADD Mode (default)**: Creates a new bullet in the playbook
+
+- Omit `--update-bullet` flag
+- Adds new knowledge to "Lessons Learned" section
+- Use for capturing new insights
+
+**UPDATE Mode**: Updates an existing bullet with new knowledge
+
+- Provide `--update-bullet "bullet-id"` flag
+- Requires bullet ID to exist in playbook (validated before update)
+- Updates content and metadata (files, tags, timestamp)
+- Use when refining or expanding existing knowledge
+
+## What Happens
+
+1. **Executor**: Saves your work to `.br/ace/executor-outputs/`
+2. **Reflector**: Auto-generates reflection from feedback → `.br/ace/reflections/`
+3. **Curator**: Auto-generates delta, adds/updates key insight in "Lessons Learned" → `.br/ace/deltas/`
+
+All non-interactive. No stdin required.
+
+## Examples
+
+### ADD Mode (Creating New Knowledge)
+
+```bash
+br ace complete "user-auth" \
+  "Implemented OAuth2 with JWT. Followed patterns in src/auth.ts. Added error handling." \
+  "Added user authentication with JWT validation. All edge cases handled, tests pass." \
+  --tool-usage "Read:src/auth.ts,Edit:src/auth.ts,Bash:npm test" \
+  --feedback "All 15 tests passed. Works in dev and prod."
+
+# Output:
+# ✅ ACE WORKFLOW COMPLETED SUCCESSFULLY!
+# Summary: 1 ADD operation, playbook updated
+```
+
+### UPDATE Mode (Refining Existing Knowledge)
+
+```bash
+# First, find the bullet ID you want to update
+br ace show
+
+# Then update it with new knowledge
+br ace complete "auth-improvement" \
+  "Added rate limiting to OAuth2 flow. Prevents brute force attacks." \
+  "Improved authentication security with rate limiting and better error messages." \
+  --tool-usage "Edit:src/auth.ts,Edit:src/middleware/rate-limit.ts" \
+  --feedback "Tests passed. Verified rate limiting works." \
+  --update-bullet "bullet-5"
+
+# Output:
+# ✅ ACE WORKFLOW COMPLETED SUCCESSFULLY!
+# Summary: 1 UPDATE operation, playbook updated
+```
 
 ## Best Practices
 
-1. Use descriptive hints: `"auth-fix"` not `"fix"`
-2. Capture tool usage: `"ToolName:argument"` (e.g., `"Read:src/auth.ts,Bash:npm test"`)
-3. Reference bullets with `--bullet-ids` when applying playbook knowledge
-4. Provide honest feedback (successes and failures)
+**Arguments matter - they generate your knowledge base!**
+
+- **`<hint>`**: Short ID (e.g., `"auth-fix"`) - used for file naming
+- **`<reasoning>`**: WHY you chose this approach (2-3 sentences)
+- **`<finalAnswer>`**: What you accomplished - **becomes playbook content!**
+- **`--tool-usage`**: Format: `"Tool:arg,Tool:arg"` (e.g., `"Read:file.ts,Edit:file.ts"`) - **Files automatically tracked in bullet metadata!**
+- **`--feedback`**: Test results, successes, failures - analyzed for errors
+- **`--bullet-ids`**: Optional. Reference bullets you used (e.g., `"bullet-123"`)
+
+**Auto-generation mapping:**
+
+- `finalAnswer` → Key insight in playbook
+- `feedback` → Error identification (looks for "fail", "error" keywords)
+- `reasoning` + `feedback` → Reflection analysis
+- `toolUsage` → Extracted file paths stored in bullet's `relatedFiles` array
+
+**Good inputs = Good knowledge capture!**

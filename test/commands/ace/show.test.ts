@@ -22,7 +22,7 @@ describe('ace:show command', () => {
   it('should display playbook in markdown format by default', async () => {
     const playbook = new Playbook()
     playbook.addBullet('Common Errors', 'Always validate inputs', undefined, {
-      codebasePath: '/src',
+      relatedFiles: [],
       tags: ['validation'],
       timestamp: new Date().toISOString(),
     })
@@ -46,7 +46,7 @@ describe('ace:show command', () => {
   it('should display playbook in JSON format when --format json is used', async () => {
     const playbook = new Playbook()
     playbook.addBullet('Best Practices', 'Use dependency injection', undefined, {
-      codebasePath: '/src',
+      relatedFiles: [],
       tags: ['architecture'],
       timestamp: new Date().toISOString(),
     })

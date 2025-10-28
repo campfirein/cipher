@@ -26,7 +26,7 @@ describe('LoadPlaybookUseCase', () => {
     it('should load playbook and generate prompt', async () => {
       const playbook = new Playbook()
       playbook.addBullet('Common Errors', 'Always validate inputs', undefined, {
-        codebasePath: '/src',
+        relatedFiles: [],
         tags: ['validation'],
         timestamp: new Date().toISOString(),
       })

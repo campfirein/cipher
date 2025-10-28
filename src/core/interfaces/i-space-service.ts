@@ -6,10 +6,29 @@ import type {Space} from '../domain/entities/space.js'
  */
 export interface ISpaceService {
   /**
-   * Fetches all spaces accessible to the authenticated user.
+   * Fetches spaces accessible to the authenticated user within a specific team.
    * @param accessToken The OAuth access token for authentication
    * @param sessionKey The session key for tracking the user session
-   * @returns A promise that resolves to an array of Space entities
+   * @param teamId The team ID to filter spaces by
+   * @param option Optional pagination options
+   * @param option.limit Maximum number of spaces to fetch in a single request
+   * @param option.offset Number of spaces to skip (for pagination)
+   * @param option.fetchAll If true, automatically paginate to fetch all spaces
+   * @returns A promise that resolves to an object containing:
+   *  - spaces: Array of Space entities
+   *  - total: Total number of spaces available (across all pages)
    */
-  getSpaces: (accessToken: string, sessionKey: string) => Promise<Space[]>
+  getSpaces: (
+    accessToken: string,
+    sessionKey: string,
+    teamId: string,
+    option?: {
+      fetchAll?: boolean
+      limit?: number
+      offset?: number
+    },
+  ) => Promise<{
+    spaces: Space[]
+    total: number
+  }>
 }

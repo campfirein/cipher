@@ -65,7 +65,7 @@ The codebase follows Clean Architecture principles with pragmatic adaptations fo
 
 Use cases are employed for **complex orchestration** that benefits from framework independence:
 
-- ✅ **`LoginUseCase`**: OAuth flow with server lifecycle management, PKCE, multiple async operations with interdependencies
+- ✅ **`login` command**: OAuth flow with server lifecycle management, PKCE, multiple async operations with interdependencies - orchestrated directly in command layer
 - ❌ **`init` command**: Simple linear flow with UI interaction - orchestrated directly in command layer
 
 Commands may orchestrate business logic directly when:
@@ -97,6 +97,16 @@ Domain logic independent of frameworks and external dependencies.
     - Fields: `memories`, `relatedMemories` (both are Memory arrays)
     - Contains both directly matching and related memories
     - Includes `toJson()`/`fromJson()` for serialization
+  - `Team` - Team entity representing organizational units in ByteRover
+    - Fields: `id`, `name`, `displayName`, `description`, `avatarUrl`, `isActive`, `createdAt`, `updatedAt`
+    - Constructor uses object parameter pattern (>3 parameters)
+    - `fromJson()` handles snake_case API responses, returns camelCase Team instance
+    - `toJson()` serializes to camelCase format for JSON output
+    - `getDisplayName()` returns the display name for UI presentation
+    - Immutable entity with readonly properties and validation
+  - `Space` - Space entity representing projects within teams
+    - Now includes `teamId` and `teamName` for team association
+    - `getDisplayName()` returns `{teamName}/{spaceName}` format
   - `PresignedUrl` - Represents a presigned URL for file upload to blob storage
     - Fields: `fileName`, `uploadUrl`
     - Used for temporary GCS upload URLs with embedded AWS4-HMAC-SHA256 signatures
@@ -118,7 +128,18 @@ Domain logic independent of frameworks and external dependencies.
   - `ICallbackHandler` - OAuth callback server operations
   - `IOidcDiscoveryService` - OIDC discovery operations
   - `IHttpClient` - HTTP client abstraction for authenticated API requests
-  - `ISpaceService` - Space-related operations (fetch user spaces)
+  - `ITeamService` - Team-related operations (fetch user teams)
+    - `getTeams(accessToken, sessionKey, option?)` - Fetch teams with pagination
+      - Optional parameters: `fetchAll`, `isActive`, `limit`, `offset`
+      - Returns: `Promise<{teams: Team[], total: number}>`
+      - Supports auto-pagination with `fetchAll: true` option
+      - Filter active/inactive teams with `isActive` parameter
+  - `ISpaceService` - Space-related operations (fetch spaces within a team)
+    - `getSpaces(accessToken, sessionKey, teamId, option?)` - Fetch spaces for a team
+      - **Required**: `teamId` parameter to specify which team's spaces to fetch
+      - Optional parameters: `fetchAll`, `limit`, `offset`
+      - Returns: `Promise<{spaces: Space[], total: number}>`
+      - Supports auto-pagination with `fetchAll: true` option
   - `IUserService` - User-related operations (fetch current user information)
   - `IMemoryRetrievalService` - Memory retrieval operations from ByteRover Memora service
     - `retrieve(params: RetrieveParams)` - Fetch memories based on search query
@@ -167,11 +188,28 @@ Concrete implementations of core interfaces using external dependencies.
   - Transforms axios errors to generic Error instances
   - Used by API services (e.g., `HttpSpaceService`) for making authenticated requests
 
+- **`team/http-team-service.ts`** - Team service implementation
+  - Implements `ITeamService` interface
+  - Uses `AuthenticatedHttpClient` internally for API requests
+  - Calls `GET {apiBaseUrl}/teams` endpoint to fetch teams
+  - Requires both `accessToken` and `sessionKey` parameters
+  - Supports pagination with `limit` and `offset` query parameters
+  - Supports `is_active` filter to fetch only active/inactive teams
+  - Auto-pagination with `fetchAll: true` option (100-item pages)
+  - Maps API responses to domain entities (`Team`)
+  - Configuration: `{ apiBaseUrl: string }`
+
 - **`space/http-space-service.ts`** - Space service implementation
   - Implements `ISpaceService` interface
   - Uses `AuthenticatedHttpClient` internally for API requests
+  - Calls `GET {apiBaseUrl}/spaces?team_id={teamId}` endpoint to fetch spaces
+  - **Requires** `teamId` parameter to specify which team's spaces to fetch
   - Requires both `accessToken` and `sessionKey` parameters
+  - Supports pagination with `limit` and `offset` query parameters
+  - Auto-pagination with `fetchAll: true` option (100-item pages)
   - Maps API responses to domain entities (`Space`)
+  - Uses `/* eslint-disable camelcase */` for `team_id` query parameter
+  - Configuration: `{ apiBaseUrl: string }`
 
 - **`user/http-user-service.ts`** - User service implementation
   - Implements `IUserService` interface
@@ -345,29 +383,34 @@ class TestableMyCommand extends MyCommand {
 - **TypeScript** - Strict mode, ES2022 target, Node16 modules
 - **axios** - HTTP client for OAuth operations
 - **express** - Local callback server for OAuth flows
-- **node:readline** - User input prompts for CLI interactions
+- **@inquirer/prompts** - Interactive CLI prompts for user selections (used in `br init`)
 - **Mocha + Chai** - Testing framework
+- **Sinon** - Test stubs, spies, and mocks
+- **Nock** - HTTP request mocking for tests
 - **ESLint** - Linting with oclif config
 
 ## Testing Patterns
 
 - **Command testing**: Use subclass pattern to inject mocks via `createServices()`
   - Override `protected createServices()` method in test subclass
-  - Override `protected promptUser()` or similar methods for input testing
-  - See `test/commands/init.test.ts` for reference implementation
+  - Override `protected promptForTeamSelection()` and `protected promptForSpaceSelection()` methods for testing interactive prompts
+  - Mock selection methods return predetermined Team/Space entities instead of showing real prompts
+  - See `test/commands/init.test.ts` for reference implementation with team/space selection
 - **Use case testing**: Test business logic in isolation with mocked dependencies
 - **HTTP mocking**: Use `nock` for HTTP request mocking
   - For testing `AuthenticatedHttpClient`, use `nock` to intercept axios requests
   - Verify headers with `.matchHeader('authorization', ...)` and `.matchHeader('x-byterover-session-id', ...)`
   - See `test/unit/infra/http/authenticated-http-client.test.ts` for examples
 - **Service testing with authenticated requests**:
-  - Services using `AuthenticatedHttpClient` (like `HttpSpaceService`, `HttpUserService`, `HttpMemoryRetrievalService`, `HttpMemoryStorageService`) are tested with `nock`
+  - Services using `AuthenticatedHttpClient` (like `HttpSpaceService`, `HttpUserService`, `HttpMemoryRetrievalService`, `HttpMemoryStorageService`, `HttpTeamService`) are tested with `nock`
   - Verify both `Authorization` and `x-byterover-session-id` headers are sent
   - Pass both `accessToken` and `sessionKey` to service methods
+  - For `HttpSpaceService`, also verify `team_id` query parameter in nock matcher
   - See `test/unit/infra/space/http-space-service.test.ts`, `test/unit/infra/user/http-user-service.test.ts`, `test/unit/infra/memory/http-memory-retrieval-service.test.ts`, and `test/unit/infra/memory/http-memory-storage-service.test.ts` for reference
 - **Stubs/Spies/Mocks**: Use `sinon` for behavior verification
-  - When mocking `ISpaceService` or `IUserService` in command tests, verify both parameters are passed
-  - Example: `expect(spaceService.getSpaces.calledWith('access-token', 'session-key')).to.be.true`
+  - When mocking `ITeamService`, `ISpaceService` or `IUserService` in command tests, verify all parameters are passed
+  - Example: `expect(teamService.getTeams.calledWith('access-token', 'session-key', {fetchAll: true})).to.be.true`
+  - Example: `expect(spaceService.getSpaces.calledWith('access-token', 'session-key', 'team-1', {fetchAll: true})).to.be.true`
   - Example: `expect(userService.getCurrentUser.calledWith('access-token', 'session-key')).to.be.true`
 - **Test organization**:
   - `test/commands/` - Command integration tests
@@ -408,7 +451,7 @@ The CLI implements OAuth 2.0 Authorization Code flow with PKCE:
 
 **Key Implementation Details:**
 
-- `LoginUseCase` owns the complete flow including server lifecycle
+- `Login` command owns the complete flow including server lifecycle
 - `OAuthService` encapsulates PKCE implementation details (code_verifier generation, storage, and retrieval)
 - `AuthorizationContext` provides abstraction: contains authUrl and state, hides code_verifier
 - `redirectUri` is built dynamically after callback server starts: `http://localhost:{port}/callback`
@@ -537,6 +580,269 @@ Cleaning up local files...
 - Default: `main` (ByteRover's internal branching, not Git branches)
 - Can be overridden with `--branch` or `-b` flag
 - Used for organizing playbook versions in blob storage
+
+### Init Command (`br init`)
+
+The CLI provides an init command that initializes a project with ByteRover using a two-step team and space selection flow:
+
+**Command**: `br init`
+
+**Purpose**:
+
+- Initialize a ByteRover project in the current directory
+- Connect project to a specific team and space
+- Create local configuration file (`.br/config.json`)
+- Initialize ACE playbook structure
+
+**Workflow**:
+
+1. **Check initialization status**: Exit early if project is already initialized
+2. **Validate authentication**: Verify user is authenticated with valid token
+3. **Fetch all teams**: Auto-fetch all teams using `{fetchAll: true}` option
+4. **Team selection**: Interactive prompt using `@inquirer/prompts` select()
+   - Display teams with `team.getDisplayName()` format
+   - User selects one team from the list
+5. **Fetch spaces for selected team**: Auto-fetch all spaces for the selected team using `{fetchAll: true}` option
+6. **Space selection**: Interactive prompt using `@inquirer/prompts` select()
+   - Display spaces with `space.getDisplayName()` format (`teamName/spaceName`)
+   - User selects one space from the list
+7. **Save configuration**: Create `BrConfig` from selected space and save to `.br/config.json`
+8. **Initialize ACE playbook**: Create empty ACE playbook structure
+9. **Display success**: Show confirmation with space and configuration path
+
+**Error Handling**:
+
+- `No teams found`: Prompts user to create a team in ByteRover dashboard
+- `No spaces found in team`: Prompts user to create a space for the selected team
+- Authentication errors: Prompts user to run `br login` first
+- Token expiration: Prompts user to re-authenticate
+
+**User Experience**:
+
+- Uses `@inquirer/prompts` for better interactive selection (arrow keys, search, etc.)
+- Displays progress spinners for API calls ("Fetching all teams...", "Fetching all spaces...")
+- Shows team/space in `displayName` format for readability
+- Clear error messages with actionable guidance
+
+**Implementation Details**:
+
+- Uses `ITeamService.getTeams()` with `{fetchAll: true}` to ensure complete team list
+- Uses `ISpaceService.getSpaces(accessToken, sessionKey, teamId, {fetchAll: true})` to fetch spaces for selected team
+- `promptForTeamSelection()` method handles team selection with `@inquirer/prompts`
+- `promptForSpaceSelection()` method handles space selection with `@inquirer/prompts`
+- Always fetches all items (no pagination limits) to show complete lists for selection
+- Team selection happens before space selection (two-step flow)
+
+**Example Output**:
+
+```text
+Initializing ByteRover project...
+
+Fetching all teams... done
+
+? Select a team (Use arrow keys)
+❯ Acme Corp
+  Personal Team
+  Engineering
+
+Fetching all spaces... done
+
+? Select a space (Use arrow keys)
+❯ acme-corp/frontend-app
+  acme-corp/backend-api
+  acme-corp/mobile-app
+
+Initializing ACE context...
+✓ ACE playbook initialized in .br/ace/playbook.json
+
+✓ Project initialized successfully!
+✓ Connected to space: acme-corp/frontend-app
+✓ Configuration saved to: .br/config.json
+```
+
+### Space List Command (`br space list`)
+
+The CLI provides a space list command that displays spaces for the current team (from project config) with pagination support:
+
+**Command**: `br space list [--all] [--limit <n>] [--offset <n>] [--json]`
+
+**Purpose**:
+
+- List spaces for the current team (requires project initialization)
+- Support pagination for teams with many spaces
+- Provide both human-readable and JSON output formats
+
+**Requirements**:
+
+- Project must be initialized with `br init` (uses team ID from `.br/config.json`)
+- User must be authenticated with valid token
+
+**Flags**:
+
+- `--all`, `-a`: Fetch all spaces (may be slow for large teams)
+- `--limit <n>`, `-l <n>`: Maximum number of spaces to fetch (default: 50)
+- `--offset <n>`, `-o <n>`: Number of spaces to skip (default: 0)
+- `--json`, `-j`: Output in JSON format
+
+**Usage Examples**:
+
+```bash
+# List first 50 spaces for current team (default)
+br space list
+
+# List all spaces for current team
+br space list --all
+
+# Custom pagination
+br space list --limit 10
+br space list --limit 10 --offset 20
+
+# JSON output
+br space list --json
+
+# Using short flags
+br space list -a
+br space list -l 10 -o 20
+```
+
+**Output Formats**:
+
+*Human-readable (default)*:
+
+```text
+Fetching spaces for Acme Corp... done
+
+Spaces in team "Acme Corp":
+
+Found 127 space(s):
+
+  1. acme-corp/frontend-app
+  2. acme-corp/backend-api
+  ...
+  50. acme-corp/project-50
+
+Showing 50 of 127 spaces.
+Use --all to fetch all spaces, or use --limit and --offset for pagination.
+```
+
+*JSON format*:
+
+```json
+{
+  "showing": 50,
+  "spaces": [
+    {
+      "id": "space-1",
+      "name": "frontend-app",
+      "teamId": "team-1",
+      "teamName": "acme-corp"
+    }
+    ...
+  ],
+  "team": {
+    "id": "team-1",
+    "name": "acme-corp"
+  },
+  "total": 127
+}
+```
+
+**Behavior**:
+
+1. **Project Initialization Check**: Verifies `.br/config.json` exists, errors with "Project not initialized. Run 'br init' first." if not found
+2. **Team ID from Config**: Automatically reads `teamId` from project config (no manual input required)
+3. **Authentication**: Requires valid authentication token (checks via `validateAuth()`)
+4. **Default Pagination**: Fetches first 50 spaces by default
+5. **Pagination Warning**: Displays message when more spaces exist
+6. **fetchAll Mode**: With `--all` flag, automatically paginates to fetch all spaces
+7. **Empty State**: Shows "No spaces found in team \"{teamName}\"." if team has no spaces
+8. **Team Context**: Displays team name in all messages for clarity
+
+**Implementation Details**:
+
+- Uses `IProjectConfigStore.read()` to load project configuration
+- Extracts `teamId` and `teamName` from `BrConfig` entity
+- Uses `ISpaceService.getSpaces(accessToken, sessionKey, teamId, options)` with team ID from config
+- Passes `{fetchAll: true}` when `--all` flag is used
+- Passes `{limit, offset}` for manual pagination control
+- Displays spaces using `space.getDisplayName()` format (`teamName/spaceName`)
+- Shows team context in spinner: "Fetching spaces for {teamName}..."
+- Includes team info in JSON output for clarity
+- Follows same initialization pattern as `br mem push` command
+
+**Context-Aware Pagination**:
+
+Different commands use different pagination strategies:
+
+- `br space list`: Default 50 items, optional `--all` for browsing (requires init)
+- `br init`: Always uses `{fetchAll: true}` to ensure complete space list for selection
+
+### ISpaceService Interface with Pagination
+
+The `ISpaceService` interface has been enhanced to support team-scoped queries and pagination:
+
+**Updated Interface**:
+
+```typescript
+interface ISpaceService {
+  getSpaces(
+    accessToken: string,
+    sessionKey: string,
+    teamId: string,  // REQUIRED: Team ID to fetch spaces for
+    option?: {
+      fetchAll?: boolean  // Auto-paginate to fetch all spaces
+      limit?: number      // Maximum spaces per request
+      offset?: number     // Number of spaces to skip
+    }
+  ): Promise<{
+    spaces: Space[]
+    total: number  // Total count across all pages
+  }>
+}
+```
+
+**Pagination Options**:
+
+1. **No options** (default): Single API call, backend default page size
+2. **`{limit, offset}`**: Manual pagination control for single page
+3. **`{fetchAll: true}`**: Auto-pagination internally until all fetched
+
+**Implementation** (`HttpSpaceService`):
+
+- **Manual Pagination**: Builds query string with URLSearchParams
+  - Example: `GET /spaces?limit=50&offset=100`
+- **Auto-Pagination**: Internal loop with 100-item pages for efficiency
+  - Automatically stops when `allSpaces.length >= total`
+  - Prevents over-fetching with empty page detection
+- **Return Type**: Always returns `{spaces: Space[], total: number}`
+- **API Response**: Expects `{data: {spaces: [], total: number}}`
+
+**Breaking Changes**:
+
+1. **Required `teamId` parameter**: `getSpaces()` now requires a `teamId` parameter to specify which team's spaces to fetch
+2. **Return type changed**: Return type changed from `Space[]` to `{spaces: Space[], total: number}`
+
+Existing code must be updated:
+
+```typescript
+// Before
+const spaces = await spaceService.getSpaces(accessToken, sessionKey)
+
+// After
+const result = await spaceService.getSpaces(
+  accessToken,
+  sessionKey,
+  teamId,  // NEW REQUIRED PARAMETER
+  {fetchAll: true}
+)
+const spaces = result.spaces
+const total = result.total
+```
+
+**Updated Commands**:
+
+- `init.ts`: First fetches all teams, user selects team, then fetches spaces for selected team with `{fetchAll: true}`
+- `space/list.ts`: Requires `--team-id` flag, uses pagination options based on flags
 
 ### OIDC Discovery
 

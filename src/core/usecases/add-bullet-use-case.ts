@@ -93,7 +93,7 @@ export class AddBulletUseCase {
         // ADD operation
         // Ensure metadata has at least one tag (required by Bullet entity)
         const metadata = input.metadata ?? {
-          codebasePath: process.cwd(),
+          relatedFiles: [],
           tags: ['manual'],
           timestamp: new Date().toISOString(),
         }

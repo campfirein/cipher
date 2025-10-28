@@ -5,13 +5,16 @@ import {expect} from 'chai'
 import sinon, {restore, stub} from 'sinon'
 
 import type {Space} from '../../src/core/domain/entities/space.js'
+import type {Team} from '../../src/core/domain/entities/team.js'
 import type {IProjectConfigStore} from '../../src/core/interfaces/i-project-config-store.js'
 import type {ISpaceService} from '../../src/core/interfaces/i-space-service.js'
+import type {ITeamService} from '../../src/core/interfaces/i-team-service.js'
 import type {ITokenStore} from '../../src/core/interfaces/i-token-store.js'
 
 import Init from '../../src/commands/init.js'
 import {AuthToken} from '../../src/core/domain/entities/auth-token.js'
 import {Space as SpaceImpl} from '../../src/core/domain/entities/space.js'
+import {Team as TeamImpl} from '../../src/core/domain/entities/team.js'
 import {InitializePlaybookUseCase} from '../../src/core/usecases/initialize-playbook-use-case.js'
 
 /**
@@ -22,8 +25,10 @@ class TestableInit extends Init {
   constructor(
     private readonly mockConfigStore: IProjectConfigStore,
     private readonly mockSpaceService: ISpaceService,
+    private readonly mockTeamService: ITeamService,
     private readonly mockTokenStore: ITokenStore,
-    private readonly mockPromptResponse: string,
+    private readonly mockSelectedTeam: Team,
+    private readonly mockSelectedSpace: Space,
     config: Config,
   ) {
     super([], config)
@@ -33,12 +38,17 @@ class TestableInit extends Init {
     return {
       projectConfigStore: this.mockConfigStore,
       spaceService: this.mockSpaceService,
+      teamService: this.mockTeamService,
       tokenStore: this.mockTokenStore,
     }
   }
 
-  protected async promptUser(_question: string): Promise<string> {
-    return this.mockPromptResponse
+  protected async promptForSpaceSelection(_spaces: Space[]): Promise<Space> {
+    return this.mockSelectedSpace
+  }
+
+  protected async promptForTeamSelection(_teams: Team[]): Promise<Team> {
+    return this.mockSelectedTeam
   }
 }
 
@@ -46,7 +56,9 @@ describe('Init Command', () => {
   let config: Config
   let configStore: sinon.SinonStubbedInstance<IProjectConfigStore>
   let spaceService: sinon.SinonStubbedInstance<ISpaceService>
+  let teamService: sinon.SinonStubbedInstance<ITeamService>
   let testSpaces: Space[]
+  let testTeams: Team[]
   let tokenStore: sinon.SinonStubbedInstance<ITokenStore>
   let validToken: AuthToken
 
@@ -63,6 +75,10 @@ describe('Init Command', () => {
 
     spaceService = {
       getSpaces: stub(),
+    }
+
+    teamService = {
+      getTeams: stub(),
     }
 
     configStore = {
@@ -84,6 +100,19 @@ describe('Init Command', () => {
       new SpaceImpl('space-2', 'backend-api', 'team-1', 'acme-corp'),
     ]
 
+    testTeams = [
+      new TeamImpl({
+        avatarUrl: 'https://example.com/avatar1.png',
+        createdAt: new Date('2024-01-01T00:00:00Z'),
+        description: 'Acme Corporation',
+        displayName: 'Acme Corp',
+        id: 'team-1',
+        isActive: true,
+        name: 'acme-corp',
+        updatedAt: new Date('2024-01-02T00:00:00Z'),
+      }),
+    ]
+
     // Stub ACE initialization to always succeed
     stub(InitializePlaybookUseCase.prototype, 'execute').resolves({
       playbookPath: '/test/.br/ace/playbook.json',
@@ -99,7 +128,7 @@ describe('Init Command', () => {
     it('should exit early if project is already initialized', async () => {
       configStore.exists.resolves(true)
 
-      const command = new TestableInit(configStore, spaceService, tokenStore, '1', config)
+      const command = new TestableInit(configStore, spaceService, teamService, tokenStore, testTeams[0], testSpaces[0], config)
 
       await command.run()
 
@@ -111,7 +140,7 @@ describe('Init Command', () => {
       configStore.exists.resolves(false)
       tokenStore.load.resolves()
 
-      const command = new TestableInit(configStore, spaceService, tokenStore, '1', config)
+      const command = new TestableInit(configStore, spaceService, teamService, tokenStore, testTeams[0], testSpaces[0], config)
 
       try {
         await command.run()
@@ -134,7 +163,7 @@ describe('Init Command', () => {
       configStore.exists.resolves(false)
       tokenStore.load.resolves(expiredToken)
 
-      const command = new TestableInit(configStore, spaceService, tokenStore, '1', config)
+      const command = new TestableInit(configStore, spaceService, teamService, tokenStore, testTeams[0], testSpaces[0], config)
 
       try {
         await command.run()
@@ -145,12 +174,45 @@ describe('Init Command', () => {
       }
     })
 
-    it('should throw error when no spaces are available', async () => {
+    it('should throw error when no teams are available', async () => {
       configStore.exists.resolves(false)
       tokenStore.load.resolves(validToken)
-      spaceService.getSpaces.resolves([])
+      teamService.getTeams.resolves({teams: [], total: 0})
 
-      const command = new TestableInit(configStore, spaceService, tokenStore, '1', config)
+      const command = new TestableInit(
+        configStore,
+        spaceService,
+        teamService,
+        tokenStore,
+        testTeams[0],
+        testSpaces[0],
+        config,
+      )
+
+      try {
+        await command.run()
+        expect.fail('Should have thrown error')
+      } catch (error) {
+        expect(error).to.be.an('error')
+        expect((error as Error).message).to.include('No teams found')
+      }
+    })
+
+    it('should throw error when no spaces are available in selected team', async () => {
+      configStore.exists.resolves(false)
+      tokenStore.load.resolves(validToken)
+      teamService.getTeams.resolves({teams: testTeams, total: testTeams.length})
+      spaceService.getSpaces.resolves({spaces: [], total: 0})
+
+      const command = new TestableInit(
+        configStore,
+        spaceService,
+        teamService,
+        tokenStore,
+        testTeams[0],
+        testSpaces[0],
+        config,
+      )
 
       try {
         await command.run()
@@ -161,111 +223,27 @@ describe('Init Command', () => {
       }
     })
 
-    it('should throw error when selection is empty', async () => {
-      configStore.exists.resolves(false)
-      tokenStore.load.resolves(validToken)
-      spaceService.getSpaces.resolves(testSpaces)
-
-      const command = new TestableInit(
-        configStore,
-        spaceService,
-        tokenStore,
-        '', // Empty input
-        config,
-      )
-
-      try {
-        await command.run()
-        expect.fail('Should have thrown error')
-      } catch (error) {
-        expect(error).to.be.an('error')
-        expect((error as Error).message).to.include('required')
-      }
-    })
-
-    it('should throw error when selection is not a number', async () => {
-      configStore.exists.resolves(false)
-      tokenStore.load.resolves(validToken)
-      spaceService.getSpaces.resolves(testSpaces)
-
-      const command = new TestableInit(
-        configStore,
-        spaceService,
-        tokenStore,
-        'invalid', // Non-numeric input
-        config,
-      )
-
-      try {
-        await command.run()
-        expect.fail('Should have thrown error')
-      } catch (error) {
-        expect(error).to.be.an('error')
-        expect((error as Error).message).to.include('Invalid selection')
-      }
-    })
-
-    it('should throw error when selection is negative', async () => {
-      configStore.exists.resolves(false)
-      tokenStore.load.resolves(validToken)
-      spaceService.getSpaces.resolves(testSpaces)
-
-      const command = new TestableInit(
-        configStore,
-        spaceService,
-        tokenStore,
-        '0', // Maps to -1 after conversion
-        config,
-      )
-
-      try {
-        await command.run()
-        expect.fail('Should have thrown error')
-      } catch (error) {
-        expect(error).to.be.an('error')
-        expect((error as Error).message).to.include('Invalid selection')
-      }
-    })
-
-    it('should throw error when selection exceeds available spaces', async () => {
-      configStore.exists.resolves(false)
-      tokenStore.load.resolves(validToken)
-      spaceService.getSpaces.resolves(testSpaces) // 2 spaces
-
-      const command = new TestableInit(
-        configStore,
-        spaceService,
-        tokenStore,
-        '99', // Way out of bounds
-        config,
-      )
-
-      try {
-        await command.run()
-        expect.fail('Should have thrown error')
-      } catch (error) {
-        expect(error).to.be.an('error')
-        expect((error as Error).message).to.include('Invalid selection')
-      }
-    })
-
     it('should successfully initialize with first space', async () => {
       configStore.exists.resolves(false)
       tokenStore.load.resolves(validToken)
-      spaceService.getSpaces.resolves(testSpaces)
+      teamService.getTeams.resolves({teams: testTeams, total: testTeams.length})
+      spaceService.getSpaces.resolves({spaces: testSpaces, total: testSpaces.length})
       configStore.write.resolves()
 
       const command = new TestableInit(
         configStore,
         spaceService,
+        teamService,
         tokenStore,
-        '1', // Select first space
+        testTeams[0],
+        testSpaces[0],
         config,
       )
 
       await command.run()
 
-      expect(spaceService.getSpaces.calledWith('access-token', 'session-key')).to.be.true
+      expect(teamService.getTeams.calledWith('access-token', 'session-key', {fetchAll: true})).to.be.true
+      expect(spaceService.getSpaces.calledWith('access-token', 'session-key', 'team-1', {fetchAll: true})).to.be.true
       expect(configStore.write.calledOnce).to.be.true
 
       const writtenConfig = configStore.write.getCall(0).args[0]
@@ -278,14 +256,17 @@ describe('Init Command', () => {
     it('should successfully initialize with second space', async () => {
       configStore.exists.resolves(false)
       tokenStore.load.resolves(validToken)
-      spaceService.getSpaces.resolves(testSpaces)
+      teamService.getTeams.resolves({teams: testTeams, total: testTeams.length})
+      spaceService.getSpaces.resolves({spaces: testSpaces, total: testSpaces.length})
       configStore.write.resolves()
 
       const command = new TestableInit(
         configStore,
         spaceService,
+        teamService,
         tokenStore,
-        '2', // Select second space
+        testTeams[0],
+        testSpaces[1],
         config,
       )
 
@@ -296,12 +277,29 @@ describe('Init Command', () => {
       expect(writtenConfig.spaceName).to.equal('backend-api')
     })
 
+    it('should propagate errors from team service', async () => {
+      configStore.exists.resolves(false)
+      tokenStore.load.resolves(validToken)
+      teamService.getTeams.rejects(new Error('Network timeout'))
+
+      const command = new TestableInit(configStore, spaceService, teamService, tokenStore, testTeams[0], testSpaces[0], config)
+
+      try {
+        await command.run()
+        expect.fail('Should have thrown error')
+      } catch (error) {
+        expect(error).to.be.an('error')
+        expect((error as Error).message).to.include('Network timeout')
+      }
+    })
+
     it('should propagate errors from space service', async () => {
       configStore.exists.resolves(false)
       tokenStore.load.resolves(validToken)
+      teamService.getTeams.resolves({teams: testTeams, total: testTeams.length})
       spaceService.getSpaces.rejects(new Error('Network timeout'))
 
-      const command = new TestableInit(configStore, spaceService, tokenStore, '1', config)
+      const command = new TestableInit(configStore, spaceService, teamService, tokenStore, testTeams[0], testSpaces[0], config)
 
       try {
         await command.run()
@@ -315,10 +313,11 @@ describe('Init Command', () => {
     it('should propagate errors from config store', async () => {
       configStore.exists.resolves(false)
       tokenStore.load.resolves(validToken)
-      spaceService.getSpaces.resolves(testSpaces)
+      teamService.getTeams.resolves({teams: testTeams, total: testTeams.length})
+      spaceService.getSpaces.resolves({spaces: testSpaces, total: testSpaces.length})
       configStore.write.rejects(new Error('Permission denied'))
 
-      const command = new TestableInit(configStore, spaceService, tokenStore, '1', config)
+      const command = new TestableInit(configStore, spaceService, teamService, tokenStore, testTeams[0], testSpaces[0], config)
 
       try {
         await command.run()

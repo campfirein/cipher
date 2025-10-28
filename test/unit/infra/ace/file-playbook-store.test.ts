@@ -30,7 +30,7 @@ describe('FilePlaybookStore', () => {
       // Create a playbook with content
       const playbook = new Playbook()
       playbook.addBullet('Test Section', 'Test bullet content', undefined, {
-        codebasePath: process.cwd(),
+        relatedFiles: [],
         tags: ['test'],
         timestamp: new Date().toISOString(),
       })
@@ -109,7 +109,7 @@ describe('FilePlaybookStore', () => {
     it('should save playbook successfully', async () => {
       const playbook = new Playbook()
       playbook.addBullet('Test', 'Content', undefined, {
-        codebasePath: process.cwd(),
+        relatedFiles: [],
         tags: ['test'],
         timestamp: new Date().toISOString(),
       })
