@@ -90,10 +90,12 @@ export default class Init extends Command {
         this.error('Authentication token expired. Please run "br login" again.')
       }
 
-      // 3. Fetch spaces with spinner
-      ux.action.start('Fetching spaces')
-      const spaces = await spaceService.getSpaces(token.accessToken, token.sessionKey)
+      // 3. Fetch all spaces with spinner
+      ux.action.start('Fetching all spaces')
+      const result = await spaceService.getSpaces(token.accessToken, token.sessionKey, {fetchAll: true})
       ux.action.stop()
+
+      const {spaces} = result
 
       if (spaces.length === 0) {
         this.error('No spaces found. Please create a space in the ByteRover dashboard first.')

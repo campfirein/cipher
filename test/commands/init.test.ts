@@ -148,7 +148,7 @@ describe('Init Command', () => {
     it('should throw error when no spaces are available', async () => {
       configStore.exists.resolves(false)
       tokenStore.load.resolves(validToken)
-      spaceService.getSpaces.resolves([])
+      spaceService.getSpaces.resolves({spaces: [], total: 0})
 
       const command = new TestableInit(configStore, spaceService, tokenStore, '1', config)
 
@@ -164,7 +164,7 @@ describe('Init Command', () => {
     it('should throw error when selection is empty', async () => {
       configStore.exists.resolves(false)
       tokenStore.load.resolves(validToken)
-      spaceService.getSpaces.resolves(testSpaces)
+      spaceService.getSpaces.resolves({spaces: testSpaces, total: testSpaces.length})
 
       const command = new TestableInit(
         configStore,
@@ -186,7 +186,7 @@ describe('Init Command', () => {
     it('should throw error when selection is not a number', async () => {
       configStore.exists.resolves(false)
       tokenStore.load.resolves(validToken)
-      spaceService.getSpaces.resolves(testSpaces)
+      spaceService.getSpaces.resolves({spaces: testSpaces, total: testSpaces.length})
 
       const command = new TestableInit(
         configStore,
@@ -208,7 +208,7 @@ describe('Init Command', () => {
     it('should throw error when selection is negative', async () => {
       configStore.exists.resolves(false)
       tokenStore.load.resolves(validToken)
-      spaceService.getSpaces.resolves(testSpaces)
+      spaceService.getSpaces.resolves({spaces: testSpaces, total: testSpaces.length})
 
       const command = new TestableInit(
         configStore,
@@ -230,7 +230,7 @@ describe('Init Command', () => {
     it('should throw error when selection exceeds available spaces', async () => {
       configStore.exists.resolves(false)
       tokenStore.load.resolves(validToken)
-      spaceService.getSpaces.resolves(testSpaces) // 2 spaces
+      spaceService.getSpaces.resolves({spaces: testSpaces, total: testSpaces.length}) // 2 spaces
 
       const command = new TestableInit(
         configStore,
@@ -252,7 +252,7 @@ describe('Init Command', () => {
     it('should successfully initialize with first space', async () => {
       configStore.exists.resolves(false)
       tokenStore.load.resolves(validToken)
-      spaceService.getSpaces.resolves(testSpaces)
+      spaceService.getSpaces.resolves({spaces: testSpaces, total: testSpaces.length})
       configStore.write.resolves()
 
       const command = new TestableInit(
@@ -265,7 +265,7 @@ describe('Init Command', () => {
 
       await command.run()
 
-      expect(spaceService.getSpaces.calledWith('access-token', 'session-key')).to.be.true
+      expect(spaceService.getSpaces.calledWith('access-token', 'session-key', {fetchAll: true})).to.be.true
       expect(configStore.write.calledOnce).to.be.true
 
       const writtenConfig = configStore.write.getCall(0).args[0]
@@ -278,7 +278,7 @@ describe('Init Command', () => {
     it('should successfully initialize with second space', async () => {
       configStore.exists.resolves(false)
       tokenStore.load.resolves(validToken)
-      spaceService.getSpaces.resolves(testSpaces)
+      spaceService.getSpaces.resolves({spaces: testSpaces, total: testSpaces.length})
       configStore.write.resolves()
 
       const command = new TestableInit(
@@ -315,7 +315,7 @@ describe('Init Command', () => {
     it('should propagate errors from config store', async () => {
       configStore.exists.resolves(false)
       tokenStore.load.resolves(validToken)
-      spaceService.getSpaces.resolves(testSpaces)
+      spaceService.getSpaces.resolves({spaces: testSpaces, total: testSpaces.length})
       configStore.write.rejects(new Error('Permission denied'))
 
       const command = new TestableInit(configStore, spaceService, tokenStore, '1', config)
