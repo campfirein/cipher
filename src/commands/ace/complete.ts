@@ -3,20 +3,21 @@ import {basename} from 'node:path'
 
 import type {DeltaBatchJson} from '../../core/domain/entities/delta-batch.js'
 import type {ReflectorOutputJson} from '../../core/domain/entities/reflector-output.js'
+import type {IAcePromptBuilder} from '../../core/interfaces/i-ace-prompt-builder.js'
+import type {IDeltaStore} from '../../core/interfaces/i-delta-store.js'
+import type {IExecutorOutputStore} from '../../core/interfaces/i-executor-output-store.js'
+import type {IPlaybookService} from '../../core/interfaces/i-playbook-service.js'
+import type {IReflectionStore} from '../../core/interfaces/i-reflection-store.js'
 
 import {CuratorOutput} from '../../core/domain/entities/curator-output.js'
+import {DeltaBatch} from '../../core/domain/entities/delta-batch.js'
 import {ExecutorOutput} from '../../core/domain/entities/executor-output.js'
 import {ReflectorOutput} from '../../core/domain/entities/reflector-output.js'
-import {ApplyDeltaUseCase} from '../../core/usecases/apply-delta-use-case.js'
-import {ApplyReflectionTagsUseCase} from '../../core/usecases/apply-reflection-tags-use-case.js'
-import {GenerateCurationUseCase} from '../../core/usecases/generate-curation-use-case.js'
-import {GenerateReflectionUseCase} from '../../core/usecases/generate-reflection-use-case.js'
-import {LoadPlaybookUseCase} from '../../core/usecases/load-playbook-use-case.js'
-import {ParseCuratorOutputUseCase} from '../../core/usecases/parse-curator-output-use-case.js'
-import {ParseReflectionUseCase} from '../../core/usecases/parse-reflection-use-case.js'
-import {SaveExecutorOutputUseCase} from '../../core/usecases/save-executor-output-use-case.js'
 import {AcePromptTemplates} from '../../infra/ace/ace-prompt-templates.js'
-import {FilePlaybookStore} from '../../infra/ace/file-playbook-store.js'
+import {FileDeltaStore} from '../../infra/ace/file-delta-store.js'
+import {FileExecutorOutputStore} from '../../infra/ace/file-executor-output-store.js'
+import {FileReflectionStore} from '../../infra/ace/file-reflection-store.js'
+import {FilePlaybookService} from '../../infra/playbook/file-playbook-service.js'
 
 export default class Complete extends Command {
   /* eslint-disable perfectionist/sort-objects */
@@ -65,26 +66,49 @@ export default class Complete extends Command {
     }),
   }
 
+  protected createServices(): {
+    deltaStore: IDeltaStore
+    executorOutputStore: IExecutorOutputStore
+    playbookService: IPlaybookService
+    promptBuilder: IAcePromptBuilder
+    reflectionStore: IReflectionStore
+  } {
+    return {
+      deltaStore: new FileDeltaStore(),
+      executorOutputStore: new FileExecutorOutputStore(),
+      playbookService: new FilePlaybookService(),
+      promptBuilder: new AcePromptTemplates(),
+      reflectionStore: new FileReflectionStore(),
+    }
+  }
 
   public async run(): Promise<void> {
     const {args, flags} = await this.parse(Complete)
 
     try {
+      const services = this.createServices()
+
       // Parse comma-separated lists
       const bulletIds = this.parseBulletIds(flags['bullet-ids'])
       const toolUsage = this.parseToolUsage(flags['tool-usage'])
 
       // Phase 1: Executor
-      const saveResult = await this.saveExecutorOutput(args, bulletIds, toolUsage)
+      const saveResult = await this.saveExecutorOutput(services.executorOutputStore, args, bulletIds, toolUsage)
 
       // Phase 2: Reflector
       const {reflection, reflectionFilePath, tagsApplied} = await this.generateReflectionAndApplyTags(
+        services,
         saveResult.executorOutput,
         flags.feedback,
       )
 
       // Phase 3: Curator
-      const {curatorOutput, deltaFilePath} = await this.generateCurationAndApplyDelta(reflection, saveResult.executorOutput, flags)
+      const {curatorOutput, deltaFilePath} = await this.generateCurationAndApplyDelta(
+        services,
+        reflection,
+        saveResult.executorOutput,
+        flags,
+      )
 
       // Display final summary
       this.displayFinalSummary({
@@ -189,40 +213,40 @@ export default class Complete extends Command {
    * Phase 3: Generates curation and applies delta operations to the playbook.
    * Creates delta operations (ADD or UPDATE) based on reflection insights and applies them to the playbook.
    *
+   * @param services - The service instances
+   * @param services.deltaStore - Delta store for persisting deltas
+   * @param services.playbookService - Playbook service for applying deltas
+   * @param services.promptBuilder - Prompt builder for curation prompts
    * @param reflection - The reflection output from Phase 2
    * @param executorOutput - The executor output from Phase 1
    * @param flags - Command flags containing optional update-bullet ID
    * @returns Object containing curator output and delta file path
    */
   private async generateCurationAndApplyDelta(
+    services: {
+      deltaStore: IDeltaStore
+      playbookService: IPlaybookService
+      promptBuilder: IAcePromptBuilder
+    },
     reflection: ReflectorOutput,
     executorOutput: ExecutorOutput,
     flags: {'update-bullet'?: string},
   ): Promise<{curatorOutput: CuratorOutput; deltaFilePath: string}> {
     this.log('🎨 Phase 3: Generating curation prompt...')
 
-    // Reload playbook
-    const playbookStore = new FilePlaybookStore()
-    const loadUseCase = new LoadPlaybookUseCase(playbookStore)
-    const reloadResult = await loadUseCase.execute()
-
-    if (!reloadResult.success) {
-      this.error(reloadResult.error || 'Failed to reload playbook')
+    // Note: We load playbook temporarily just for validation
+    // The actual delta application will be done by playbookService
+    const {FilePlaybookStore} = await import('../../infra/ace/file-playbook-store.js')
+    const tempStore = new FilePlaybookStore()
+    const updatedPlaybook = await tempStore.load()
+    if (!updatedPlaybook) {
+      this.error('Failed to reload playbook')
     }
 
-    const updatedPlaybook = reloadResult.playbook!
-
-    // Generate curation prompt
-    const promptBuilder = new AcePromptTemplates()
-    const generateCurationUseCase = new GenerateCurationUseCase(promptBuilder)
-    const curationPromptResult = await generateCurationUseCase.execute({
-      playbook: updatedPlaybook,
-      reflection,
-    })
-
-    if (!curationPromptResult.success) {
-      this.error(curationPromptResult.error || 'Failed to generate curation prompt')
-    }
+    // Generate curation prompt (directly call promptBuilder instead of use case)
+    // Note: The prompt is generated but not currently used in this auto-generation flow
+    // In a full implementation, this would be sent to an LLM for processing
+    // services.promptBuilder.buildCuratorPrompt(reflection, updatedPlaybook, questionContext)
 
     // Determine operation type based on --update-bullet flag
     const updateBulletId = flags['update-bullet']
@@ -261,26 +285,17 @@ export default class Complete extends Command {
         ? `Updating bullet ${updateBulletId} with new insight: ${reflection.keyInsight}`
         : `Adding key insight from task: ${reflection.keyInsight}`,
     }
-    const parseCuratorUseCase = new ParseCuratorOutputUseCase()
-    const parseCuratorResult = await parseCuratorUseCase.execute(curatorJson, reflection.hint)
 
-    if (!parseCuratorResult.success) {
-      this.error(parseCuratorResult.error || 'Failed to parse curator output')
-    }
+    // Parse and save delta batch using service
+    const deltaBatch = DeltaBatch.fromJson(curatorJson)
+    const curatorOutput = new CuratorOutput(deltaBatch)
+    const deltaFilePath = await services.deltaStore.save(deltaBatch, reflection.hint)
 
-    const curatorOutput = parseCuratorResult.curatorOutput!
-    const deltaFilePath = parseCuratorResult.filePath!
-
-    // Apply delta operations
-    const applyDeltaUseCase = new ApplyDeltaUseCase(playbookStore)
-    const applyDeltaResult = await applyDeltaUseCase.execute(curatorOutput.delta)
-
-    if (!applyDeltaResult.success) {
-      this.error(applyDeltaResult.error || 'Failed to apply delta operations')
-    }
+    // Apply delta operations using playbook service
+    const {operationsApplied} = await services.playbookService.applyDelta({delta: curatorOutput.delta})
 
     this.log(`  ✓ Delta saved: ${deltaFilePath}`)
-    this.log(`  ✓ Delta operations applied to playbook`)
+    this.log(`  ✓ Delta operations applied to playbook (${operationsApplied} operations)`)
     this.log('')
 
     return {curatorOutput, deltaFilePath}
@@ -290,42 +305,32 @@ export default class Complete extends Command {
    * Phase 2: Generates reflection based on executor output and applies tags to the playbook.
    * Auto-generates reflection analysis from feedback and applies bullet tags to relevant playbook sections.
    *
+   * @param services - The service instances
+   * @param services.playbookService - Playbook service for applying reflection tags
+   * @param services.promptBuilder - Prompt builder for reflection prompts
+   * @param services.reflectionStore - Reflection store for persisting reflections
    * @param executorOutput - The executor output from Phase 1
    * @param feedback - Environment feedback about task execution (e.g., "Tests passed", "Build failed")
    * @returns Object containing reflection output, file path, and number of tags applied
    */
   private async generateReflectionAndApplyTags(
+    services: {
+      playbookService: IPlaybookService
+      promptBuilder: IAcePromptBuilder
+      reflectionStore: IReflectionStore
+    },
     executorOutput: ExecutorOutput,
     feedback: string,
   ): Promise<{reflection: ReflectorOutput; reflectionFilePath: string; tagsApplied: number}> {
     this.log('🤔 Phase 2: Generating reflection...')
 
-    // Load playbook
-    const playbookStore = new FilePlaybookStore()
-    const loadUseCase = new LoadPlaybookUseCase(playbookStore)
-    const loadResult = await loadUseCase.execute()
+    // Note: We don't need to load playbook here anymore as applyReflectionTags handles it internally
 
-    if (!loadResult.success) {
-      this.error(loadResult.error || 'Failed to load playbook. Run `br init` to initialize.')
-    }
-
-    const playbook = loadResult.playbook!
-
-    // Generate reflection prompt
-    const promptBuilder = new AcePromptTemplates()
-    const generateReflectionUseCase = new GenerateReflectionUseCase(promptBuilder)
-    const task = executorOutput.reasoning.split('\n')[0] || 'Task from executor'
-
-    const reflectionPromptResult = await generateReflectionUseCase.execute({
-      executorOutput,
-      feedback,
-      playbook,
-      task,
-    })
-
-    if (!reflectionPromptResult.success) {
-      this.error(reflectionPromptResult.error || 'Failed to generate reflection prompt')
-    }
+    // Generate reflection prompt (directly call promptBuilder instead of use case)
+    // Note: The prompt is generated but not currently used in this auto-generation flow
+    // In a full implementation, this would be sent to an LLM for processing
+    // const task = executorOutput.reasoning.split('\n')[0] || 'Task from executor'
+    // services.promptBuilder.buildReflectorPrompt(executorOutput, task, feedback, playbook, groundTruth)
 
     // Auto-generate reflection based on feedback
     this.log('  ℹ️  Auto-generating reflection based on feedback...')
@@ -343,25 +348,12 @@ export default class Complete extends Command {
         : 'Successful execution without errors',
     }
 
-    const parseReflectionUseCase = new ParseReflectionUseCase()
-    const parseReflectionResult = await parseReflectionUseCase.execute(reflectionJson)
+    // Parse and save reflection using service
+    const reflection = ReflectorOutput.fromJson(reflectionJson)
+    const reflectionFilePath = await services.reflectionStore.save(reflection)
 
-    if (!parseReflectionResult.success) {
-      this.error(parseReflectionResult.error || 'Failed to parse reflection')
-    }
-
-    const reflection = parseReflectionResult.reflection!
-    const reflectionFilePath = parseReflectionResult.filePath!
-
-    // Apply tags to playbook
-    const applyTagsUseCase = new ApplyReflectionTagsUseCase(playbookStore)
-    const applyTagsResult = await applyTagsUseCase.execute(reflection)
-
-    if (!applyTagsResult.success) {
-      this.error(applyTagsResult.error || 'Failed to apply tags to playbook')
-    }
-
-    const tagsApplied = applyTagsResult.tagsApplied || 0
+    // Apply tags to playbook using playbook service
+    const {tagsApplied} = await services.playbookService.applyReflectionTags({reflection})
 
     this.log(`  ✓ Reflection saved: ${reflectionFilePath}`)
     this.log(`  ✓ Tags applied to playbook: ${tagsApplied}`)
@@ -400,8 +392,9 @@ export default class Complete extends Command {
 
   /**
    * Phase 1: Saves executor output to a file.
-   * Creates an ExecutorOutput entity from command arguments and persists it using SaveExecutorOutputUseCase.
+   * Creates an ExecutorOutput entity from command arguments and persists it using the executor output store service.
    *
+   * @param executorOutputStore - The executor output store service
    * @param args - Command arguments
    * @param args.hint - Short hint for naming output files
    * @param args.reasoning - Detailed reasoning and approach for completing the task
@@ -411,6 +404,7 @@ export default class Complete extends Command {
    * @returns Object containing the executor output entity and file path where it was saved
    */
   private async saveExecutorOutput(
+    executorOutputStore: IExecutorOutputStore,
     args: {finalAnswer: string; hint: string; reasoning: string},
     bulletIds: string[],
     toolUsage: string[],
@@ -427,16 +421,12 @@ export default class Complete extends Command {
       toolUsage,
     })
 
-    const saveUseCase = new SaveExecutorOutputUseCase()
-    const saveResult = await saveUseCase.execute(executorOutput)
+    // Save executor output using service
+    const filePath = await executorOutputStore.save(executorOutput)
 
-    if (!saveResult.success) {
-      this.error(saveResult.error || 'Failed to save executor output')
-    }
-
-    this.log(`  ✓ Executor output saved: ${saveResult.filePath}`)
+    this.log(`  ✓ Executor output saved: ${filePath}`)
     this.log('')
 
-    return {executorOutput, filePath: saveResult.filePath!}
+    return {executorOutput, filePath}
   }
 }

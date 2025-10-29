@@ -30,30 +30,32 @@ br ace complete <hint> <reasoning> <finalAnswer> \
   --feedback "outcome" \
   --update-bullet "bullet-id"
 
-# Quick playbook manipulation
-br ace show                              # View playbook
+# Direct playbook manipulation (bypasses ACE workflow)
 br add -s "Section" -c "Content"         # Add bullet
 br add -s "Section" -c "Updated" -b "id" # Update bullet
 
-# Utilities
+# View and manage playbook
+br ace show [--format json]              # View playbook
 br ace stats [--format json]             # Statistics
 br ace clear [--yes]                     # Reset playbook
 ```
 
-## ADD vs UPDATE Mode
+## Two Ways to Update Playbook
 
-**ADD Mode (default)**: Creates a new bullet in the playbook
+### `br ace complete` - Full ACE Workflow (Recommended)
 
-- Omit `--update-bullet` flag
-- Adds new knowledge to "Lessons Learned" section
-- Use for capturing new insights
+- **ADD Mode** (default): Creates new bullet in "Lessons Learned"
+- **UPDATE Mode** (`--update-bullet "id"`): Updates existing bullet
+- Auto-generates reflection and delta from your work
+- Tracks tool usage, files, and feedback
+- Best for capturing complete context
 
-**UPDATE Mode**: Updates an existing bullet with new knowledge
+### `br add` - Direct Manipulation (Quick Updates)
 
-- Provide `--update-bullet "bullet-id"` flag
-- Requires bullet ID to exist in playbook (validated before update)
-- Updates content and metadata (files, tags, timestamp)
-- Use when refining or expanding existing knowledge
+- Add or update bullets directly (use `-b` flag to update)
+- Bypasses ACE workflow (no reflection/delta generation)
+- Custom section names supported
+- Best for quick manual edits
 
 ## What Happens
 
@@ -96,6 +98,18 @@ br ace complete "auth-improvement" \
 # Output:
 # ✅ ACE WORKFLOW COMPLETED SUCCESSFULLY!
 # Summary: 1 UPDATE operation, playbook updated
+```
+
+### Direct Playbook Manipulation (Quick Updates)
+
+```bash
+# Add bullet directly (bypasses ACE workflow)
+br add -s "Common Errors" -c "Auth fails when token expires"
+
+# Update bullet directly (bypasses ACE workflow)
+br add -s "Common Errors" -c "Updated: Auth fails when token expires" -b "common-00001"
+
+# Use for quick knowledge capture without full ACE workflow
 ```
 
 ## Best Practices

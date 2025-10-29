@@ -3,6 +3,7 @@ import {Command, ux} from '@oclif/core'
 
 import type {Space} from '../core/domain/entities/space.js'
 import type {Team} from '../core/domain/entities/team.js'
+import type {IPlaybookService} from '../core/interfaces/i-playbook-service.js'
 import type {IProjectConfigStore} from '../core/interfaces/i-project-config-store.js'
 import type {ISpaceService} from '../core/interfaces/i-space-service.js'
 import type {ITeamService} from '../core/interfaces/i-team-service.js'
@@ -10,9 +11,8 @@ import type {ITokenStore} from '../core/interfaces/i-token-store.js'
 
 import {getCurrentConfig} from '../config/environment.js'
 import {BrConfig} from '../core/domain/entities/br-config.js'
-import {InitializePlaybookUseCase} from '../core/usecases/initialize-playbook-use-case.js'
-import {FilePlaybookStore} from '../infra/ace/file-playbook-store.js'
 import {ProjectConfigStore} from '../infra/config/file-config-store.js'
+import {FilePlaybookService} from '../infra/playbook/file-playbook-service.js'
 import {HttpSpaceService} from '../infra/space/http-space-service.js'
 import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
 import {HttpTeamService} from '../infra/team/http-team-service.js'
@@ -22,6 +22,7 @@ export default class Init extends Command {
   public static examples = ['<%= config.bin %> <%= command.id %>']
 
   protected createServices(): {
+    playbookService: IPlaybookService
     projectConfigStore: IProjectConfigStore
     spaceService: ISpaceService
     teamService: ITeamService
@@ -29,6 +30,7 @@ export default class Init extends Command {
   } {
     const envConfig = getCurrentConfig()
     return {
+      playbookService: new FilePlaybookService(),
       projectConfigStore: new ProjectConfigStore(),
       spaceService: new HttpSpaceService({
         apiBaseUrl: envConfig.apiBaseUrl,
@@ -76,7 +78,7 @@ export default class Init extends Command {
 
   public async run(): Promise<void> {
     try {
-      const {projectConfigStore, spaceService, teamService, tokenStore} = this.createServices()
+      const {playbookService, projectConfigStore, spaceService, teamService, tokenStore} = this.createServices()
 
       // 1. Check if already initialized
       const isInitialized = await projectConfigStore.exists()
@@ -141,15 +143,12 @@ export default class Init extends Command {
 
       // 8. Initialize ACE playbook
       this.log('\nInitializing ACE context...')
-      const playbookStore = new FilePlaybookStore()
-      const aceUseCase = new InitializePlaybookUseCase(playbookStore)
-      const aceResult = await aceUseCase.execute()
-
-      if (aceResult.success) {
-        this.log(`✓ ACE playbook initialized in ${aceResult.playbookPath}`)
-      } else {
+      try {
+        const playbookPath = await playbookService.initialize()
+        this.log(`✓ ACE playbook initialized in ${playbookPath}`)
+      } catch (error) {
         // Warn but don't fail if ACE init fails
-        this.warn(`ACE initialization skipped: ${aceResult.error}`)
+        this.warn(`ACE initialization skipped: ${error instanceof Error ? error.message : 'Unknown error'}`)
       }
 
       // 9. Display success

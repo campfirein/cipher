@@ -1,6 +1,7 @@
 import {Args, Command, Flags} from '@oclif/core'
 
-import {LoadPlaybookUseCase} from '../../core/usecases/load-playbook-use-case.js'
+import type {IPlaybookStore} from '../../core/interfaces/i-playbook-store.js'
+
 import {FilePlaybookStore} from '../../infra/ace/file-playbook-store.js'
 
 export default class Stats extends Command {
@@ -22,23 +23,29 @@ export default class Stats extends Command {
     }),
   }
 
+  protected createServices(): {
+    playbookStore: IPlaybookStore
+  } {
+    return {
+      playbookStore: new FilePlaybookStore(),
+    }
+  }
+
   public async run(): Promise<void> {
     const {args, flags} = await this.parse(Stats)
 
     try {
-      // Setup dependencies
-      const playbookStore = new FilePlaybookStore()
-      const useCase = new LoadPlaybookUseCase(playbookStore)
+      const {playbookStore} = this.createServices()
 
-      // Execute load
-      const result = await useCase.execute(args.directory)
+      // Load playbook directly using service
+      const playbook = await playbookStore.load(args.directory)
 
-      if (!result.success) {
-        this.error(result.error || 'Failed to load playbook')
+      if (!playbook) {
+        this.error('Playbook not found. Run `br init` to initialize.')
       }
 
       // Get statistics
-      const stats = result.playbook!.stats()
+      const stats = playbook.stats()
 
       // Display based on format
       if (flags.format === 'json') {

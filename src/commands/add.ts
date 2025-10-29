@@ -1,9 +1,8 @@
 import {Command, Flags} from '@oclif/core'
 
-import type {IPlaybookStore} from '../core/interfaces/i-playbook-store.js'
+import type {IPlaybookService} from '../core/interfaces/i-playbook-service.js'
 
-import {AddBulletUseCase} from '../core/usecases/add-bullet-use-case.js'
-import {FilePlaybookStore} from '../infra/ace/file-playbook-store.js'
+import {FilePlaybookService} from '../infra/playbook/file-playbook-service.js'
 
 export default class Add extends Command {
   public static description =
@@ -41,10 +40,10 @@ export default class Add extends Command {
   ]
 
   protected createServices(): {
-    playbookStore: IPlaybookStore
+    playbookService: IPlaybookService
   } {
     return {
-      playbookStore: new FilePlaybookStore(),
+      playbookService: new FilePlaybookService(),
     }
   }
 
@@ -61,28 +60,17 @@ export default class Add extends Command {
         )
       }
 
-      const {playbookStore} = this.createServices()
-      const useCase = new AddBulletUseCase(playbookStore)
+      const {playbookService} = this.createServices()
 
-      // Execute the use case
-      const result = await useCase.execute({
+      // Call service method (throws on error)
+      const bullet = await playbookService.addOrUpdateBullet({
         bulletId: flags['bullet-id'],
         content: flags.content,
         section: flags.section,
       })
 
-      if (!result.success) {
-        this.error(result.error || 'Operation failed')
-      }
-
-      // Type narrowing: ensure bullet exists before using it
-      if (result.bullet === undefined) {
-        this.error('Bullet data is missing from result')
-      }
-
       // Display success message
-      const {bullet, operation} = result
-      const operationVerb = operation === 'ADD' ? 'Added' : 'Updated'
+      const operationVerb = flags['bullet-id'] ? 'Updated' : 'Added'
 
       this.log(`✓ ${operationVerb} bullet successfully!`)
       this.log(`  ID: ${bullet.id}`)
