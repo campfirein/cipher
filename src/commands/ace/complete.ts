@@ -86,25 +86,25 @@ export default class Complete extends Command {
     const {args, flags} = await this.parse(Complete)
 
     try {
-      const services = this.createServices()
+      const {deltaStore, executorOutputStore, playbookService, promptBuilder, reflectionStore} = this.createServices()
 
       // Parse comma-separated lists
       const bulletIds = this.parseBulletIds(flags['bullet-ids'])
       const toolUsage = this.parseToolUsage(flags['tool-usage'])
 
       // Phase 1: Executor
-      const saveResult = await this.saveExecutorOutput(services.executorOutputStore, args, bulletIds, toolUsage)
+      const saveResult = await this.saveExecutorOutput(executorOutputStore, args, bulletIds, toolUsage)
 
       // Phase 2: Reflector
       const {reflection, reflectionFilePath, tagsApplied} = await this.generateReflectionAndApplyTags(
-        services,
+        {playbookService, promptBuilder, reflectionStore},
         saveResult.executorOutput,
         flags.feedback,
       )
 
       // Phase 3: Curator
       const {curatorOutput, deltaFilePath} = await this.generateCurationAndApplyDelta(
-        services,
+        {deltaStore, playbookService, promptBuilder},
         reflection,
         saveResult.executorOutput,
         flags,
