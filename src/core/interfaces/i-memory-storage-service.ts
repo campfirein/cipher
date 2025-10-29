@@ -24,10 +24,10 @@ export type ConfirmUploadParams = {
 }
 
 /**
- * Port for memory service operations.
- * Handles communication with ByteRover's memory storage (cogit) service.
+ * Interface for memory storage operations to ByteRover CoGit service.
+ * This service is responsible for uploading playbooks to blob storage.
  */
-export interface IMemoryService {
+export interface IMemoryStorageService {
   /**
    * Confirms that file upload is complete.
    * Notifies the server that all files have been successfully uploaded to blob storage.

@@ -1,13 +1,17 @@
 /* eslint-disable camelcase */
 import axios from 'axios'
 
-import type {ConfirmUploadParams, GetPresignedUrlsParams, IMemoryService} from '../../core/interfaces/i-memory-service.js'
+import type {
+  ConfirmUploadParams,
+  GetPresignedUrlsParams,
+  IMemoryStorageService,
+} from '../../core/interfaces/i-memory-storage-service.js'
 
 import {PresignedUrl} from '../../core/domain/entities/presigned-url.js'
 import {PresignedUrlsResponse} from '../../core/domain/entities/presigned-urls-response.js'
 import {AuthenticatedHttpClient} from '../http/authenticated-http-client.js'
 
-export type MemoryServiceConfig = {
+export type MemoryStorageServiceConfig = {
   apiBaseUrl: string
   timeout?: number
 }
@@ -47,13 +51,17 @@ type ConfirmUploadApiResponse = {
   success: boolean
 }
 
-export class HttpMemoryService implements IMemoryService {
-  private readonly config: MemoryServiceConfig
+/**
+ * HTTP implementation of IMemoryStorageService for ByteRover CoGit service.
+ * Handles uploading playbooks to blob storage.
+ */
+export class HttpMemoryStorageService implements IMemoryStorageService {
+  private readonly config: MemoryStorageServiceConfig
 
-  public constructor(config: MemoryServiceConfig) {
+  public constructor(config: MemoryStorageServiceConfig) {
     this.config = {
       ...config,
-      timeout: config.timeout ?? 30_000, // Default 30 seconds for upload operations
+      timeout: config.timeout ?? 30_000, // Default 30 seconds timeout
     }
   }
 
@@ -88,7 +96,9 @@ export class HttpMemoryService implements IMemoryService {
         timeout: this.config.timeout,
       })
 
-      const presignedUrls = response.data.presigned_urls.map((presignedUrlData) => this.mapToPresignedUrls(presignedUrlData))
+      const presignedUrls = response.data.presigned_urls.map((presignedUrlData) =>
+        this.mapToPresignedUrls(presignedUrlData),
+      )
       return new PresignedUrlsResponse(presignedUrls, response.data.request_id)
     } catch (error) {
       throw new Error(`Failed to get presigned URLs: ${(error as Error).message}`)

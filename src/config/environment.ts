@@ -19,6 +19,7 @@ type EnvironmentConfig = {
   clientId: string
   cogitApiBaseUrl: string
   issuerUrl: string
+  memoraApiBaseUrl: string
   scopes: string[]
   tokenUrl: string
 }
@@ -34,6 +35,7 @@ export const ENV_CONFIG: Record<Environment, EnvironmentConfig> = {
     clientId: 'byterover-cli-client',
     cogitApiBaseUrl: 'https://dev-beta-cogit.byterover.dev/api/v1',
     issuerUrl: 'https://dev-beta-iam.byterover.dev/api/v1/oidc',
+    memoraApiBaseUrl: 'https://dev-beta-memora-retrieve.byterover.dev/api/v3',
     scopes: ['read', 'write', 'debug'],
     tokenUrl: 'https://dev-beta-iam.byterover.dev/api/v1/oidc/token',
   },
@@ -43,6 +45,7 @@ export const ENV_CONFIG: Record<Environment, EnvironmentConfig> = {
     clientId: 'byterover-cli-prod',
     cogitApiBaseUrl: 'https://prod-beta-cogit.byterover.dev/api/v1',
     issuerUrl: 'https://prod-beta-iam.byterover.dev/api/v1/oidc',
+    memoraApiBaseUrl: 'https://prod-beta-memora-retrieve.byterover.dev/api/v3',
     scopes: ['read', 'write'],
     tokenUrl: 'https://prod-beta-iam.byterover.dev/api/v1/oidc/token',
   },

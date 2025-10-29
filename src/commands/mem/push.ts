@@ -5,7 +5,7 @@ import type {AuthToken} from '../../core/domain/entities/auth-token.js'
 import type {BrConfig} from '../../core/domain/entities/br-config.js'
 import type {PresignedUrl} from '../../core/domain/entities/presigned-url.js'
 import type {PresignedUrlsResponse} from '../../core/domain/entities/presigned-urls-response.js'
-import type {IMemoryService} from '../../core/interfaces/i-memory-service.js'
+import type {IMemoryStorageService} from '../../core/interfaces/i-memory-storage-service.js'
 import type {IPlaybookStore} from '../../core/interfaces/i-playbook-store.js'
 import type {IProjectConfigStore} from '../../core/interfaces/i-project-config-store.js'
 import type {ITokenStore} from '../../core/interfaces/i-token-store.js'
@@ -14,7 +14,7 @@ import {getCurrentConfig} from '../../config/environment.js'
 import {ACE_DIR, BR_DIR, DEFAULT_BRANCH, DELTAS_DIR, EXECUTOR_OUTPUTS_DIR, REFLECTIONS_DIR} from '../../constants.js'
 import {FilePlaybookStore} from '../../infra/ace/file-playbook-store.js'
 import {ProjectConfigStore} from '../../infra/config/file-config-store.js'
-import {HttpMemoryService} from '../../infra/memory/http-memory-service.js'
+import {HttpMemoryStorageService} from '../../infra/memory/http-memory-storage-service.js'
 import {KeychainTokenStore} from '../../infra/storage/keychain-token-store.js'
 import {clearDirectory} from '../../utils/ace-file-helpers.js'
 
@@ -74,7 +74,7 @@ export default class MemPush extends Command {
   }
 
   protected async confirmUpload(
-    memoryService: IMemoryService,
+    memoryService: IMemoryStorageService,
     token: AuthToken,
     projectConfig: BrConfig,
     requestId: string,
@@ -91,14 +91,14 @@ export default class MemPush extends Command {
   }
 
   protected createServices(): {
-    memoryService: IMemoryService
+    memoryService: IMemoryStorageService
     playbookStore: IPlaybookStore
     projectConfigStore: IProjectConfigStore
     tokenStore: ITokenStore
   } {
     const envConfig = getCurrentConfig()
     return {
-      memoryService: new HttpMemoryService({
+      memoryService: new HttpMemoryStorageService({
         apiBaseUrl: envConfig.cogitApiBaseUrl,
       }),
       playbookStore: new FilePlaybookStore(),
@@ -108,7 +108,7 @@ export default class MemPush extends Command {
   }
 
   protected async getPresignedUrls(
-    memoryService: IMemoryService,
+    memoryService: IMemoryStorageService,
     token: AuthToken,
     projectConfig: BrConfig,
   ): Promise<PresignedUrlsResponse> {
@@ -163,7 +163,7 @@ export default class MemPush extends Command {
   }
 
   protected async uploadFiles(
-    memoryService: IMemoryService,
+    memoryService: IMemoryStorageService,
     presignedUrls: ReadonlyArray<PresignedUrl>,
     playbookContent: string,
   ): Promise<void> {
