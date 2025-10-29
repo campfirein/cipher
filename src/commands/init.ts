@@ -155,7 +155,12 @@ public static examples = [
         this.warn(`ACE initialization skipped: ${error instanceof Error ? error.message : 'Unknown error'}`)
       }
 
-      // 9. Display success
+      // 9. Generate rules
+      this.log(`\nGenerate rule instructions for coding agents to work with ByteRover correctly`)
+      this.log()
+      await this.config.runCommand('gen-rules')
+
+      // 10. Display success
       this.log(`\n✓ Project initialized successfully!`)
       this.log(`✓ Connected to space: ${selectedSpace.getDisplayName()}`)
       this.log(`✓ Configuration saved to: .br/config.json`)

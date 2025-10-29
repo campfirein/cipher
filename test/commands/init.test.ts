@@ -58,6 +58,7 @@ describe('Init Command', () => {
   let config: Config
   let configStore: sinon.SinonStubbedInstance<IProjectConfigStore>
   let playbookService: sinon.SinonStubbedInstance<IPlaybookService>
+  let runCommandStub: sinon.SinonStub
   let spaceService: sinon.SinonStubbedInstance<ISpaceService>
   let teamService: sinon.SinonStubbedInstance<ITeamService>
   let testSpaces: Space[]
@@ -97,6 +98,9 @@ describe('Init Command', () => {
       initialize: stub<[directory?: string], Promise<string>>().resolves('/test/.br/ace/playbook.json'),
     }
 
+    // Mock config.runCommand to prevent actual gen-rules execution
+    runCommandStub = stub(config, 'runCommand').resolves()
+
     validToken = new AuthToken(
       'access-token',
       new Date(Date.now() + 3600 * 1000),
@@ -132,7 +136,16 @@ describe('Init Command', () => {
     it('should exit early if project is already initialized', async () => {
       configStore.exists.resolves(true)
 
-      const command = new TestableInit(configStore, playbookService, spaceService, teamService, tokenStore, testTeams[0], testSpaces[0], config)
+      const command = new TestableInit(
+        configStore,
+        playbookService,
+        spaceService,
+        teamService,
+        tokenStore,
+        testTeams[0],
+        testSpaces[0],
+        config,
+      )
 
       await command.run()
 
@@ -144,7 +157,16 @@ describe('Init Command', () => {
       configStore.exists.resolves(false)
       tokenStore.load.resolves()
 
-      const command = new TestableInit(configStore, playbookService, spaceService, teamService, tokenStore, testTeams[0], testSpaces[0], config)
+      const command = new TestableInit(
+        configStore,
+        playbookService,
+        spaceService,
+        teamService,
+        tokenStore,
+        testTeams[0],
+        testSpaces[0],
+        config,
+      )
 
       try {
         await command.run()
@@ -167,7 +189,16 @@ describe('Init Command', () => {
       configStore.exists.resolves(false)
       tokenStore.load.resolves(expiredToken)
 
-      const command = new TestableInit(configStore, playbookService, spaceService, teamService, tokenStore, testTeams[0], testSpaces[0], config)
+      const command = new TestableInit(
+        configStore,
+        playbookService,
+        spaceService,
+        teamService,
+        tokenStore,
+        testTeams[0],
+        testSpaces[0],
+        config,
+      )
 
       try {
         await command.run()
@@ -290,7 +321,16 @@ describe('Init Command', () => {
       tokenStore.load.resolves(validToken)
       teamService.getTeams.rejects(new Error('Network timeout'))
 
-      const command = new TestableInit(configStore, playbookService, spaceService, teamService, tokenStore, testTeams[0], testSpaces[0], config)
+      const command = new TestableInit(
+        configStore,
+        playbookService,
+        spaceService,
+        teamService,
+        tokenStore,
+        testTeams[0],
+        testSpaces[0],
+        config,
+      )
 
       try {
         await command.run()
@@ -307,7 +347,16 @@ describe('Init Command', () => {
       teamService.getTeams.resolves({teams: testTeams, total: testTeams.length})
       spaceService.getSpaces.rejects(new Error('Network timeout'))
 
-      const command = new TestableInit(configStore, playbookService, spaceService, teamService, tokenStore, testTeams[0], testSpaces[0], config)
+      const command = new TestableInit(
+        configStore,
+        playbookService,
+        spaceService,
+        teamService,
+        tokenStore,
+        testTeams[0],
+        testSpaces[0],
+        config,
+      )
 
       try {
         await command.run()
@@ -325,7 +374,16 @@ describe('Init Command', () => {
       spaceService.getSpaces.resolves({spaces: testSpaces, total: testSpaces.length})
       configStore.write.rejects(new Error('Permission denied'))
 
-      const command = new TestableInit(configStore, playbookService, spaceService, teamService, tokenStore, testTeams[0], testSpaces[0], config)
+      const command = new TestableInit(
+        configStore,
+        playbookService,
+        spaceService,
+        teamService,
+        tokenStore,
+        testTeams[0],
+        testSpaces[0],
+        config,
+      )
 
       try {
         await command.run()
@@ -333,6 +391,132 @@ describe('Init Command', () => {
       } catch (error) {
         expect(error).to.be.an('error')
         expect((error as Error).message).to.include('Permission denied')
+      }
+    })
+
+    it('should call gen-rules command after successful initialization', async () => {
+      configStore.exists.resolves(false)
+      tokenStore.load.resolves(validToken)
+      teamService.getTeams.resolves({teams: testTeams, total: testTeams.length})
+      spaceService.getSpaces.resolves({spaces: testSpaces, total: testSpaces.length})
+      configStore.write.resolves()
+
+      const command = new TestableInit(
+        configStore,
+        playbookService,
+        spaceService,
+        teamService,
+        tokenStore,
+        testTeams[0],
+        testSpaces[0],
+        config,
+      )
+
+      await command.run()
+
+      expect(runCommandStub.calledOnce).to.be.true
+      expect(runCommandStub.calledWith('gen-rules')).to.be.true
+    })
+
+    it('should call gen-rules after config write but before success message', async () => {
+      configStore.exists.resolves(false)
+      tokenStore.load.resolves(validToken)
+      teamService.getTeams.resolves({teams: testTeams, total: testTeams.length})
+      spaceService.getSpaces.resolves({spaces: testSpaces, total: testSpaces.length})
+      configStore.write.resolves()
+
+      const command = new TestableInit(
+        configStore,
+        playbookService,
+        spaceService,
+        teamService,
+        tokenStore,
+        testTeams[0],
+        testSpaces[0],
+        config,
+      )
+
+      await command.run()
+
+      // Verify order: config write happens before gen-rules
+      expect(configStore.write.calledBefore(runCommandStub)).to.be.true
+    })
+
+    it('should call gen-rules after ACE playbook initialization', async () => {
+      configStore.exists.resolves(false)
+      tokenStore.load.resolves(validToken)
+      teamService.getTeams.resolves({teams: testTeams, total: testTeams.length})
+      spaceService.getSpaces.resolves({spaces: testSpaces, total: testSpaces.length})
+      configStore.write.resolves()
+
+      const command = new TestableInit(
+        configStore,
+        playbookService,
+        spaceService,
+        teamService,
+        tokenStore,
+        testTeams[0],
+        testSpaces[0],
+        config,
+      )
+
+      await command.run()
+
+      // Verify order: playbook initialization happens before gen-rules
+      expect(playbookService.initialize.calledBefore(runCommandStub)).to.be.true
+    })
+
+    it('should continue with gen-rules even if ACE initialization fails', async () => {
+      configStore.exists.resolves(false)
+      tokenStore.load.resolves(validToken)
+      teamService.getTeams.resolves({teams: testTeams, total: testTeams.length})
+      spaceService.getSpaces.resolves({spaces: testSpaces, total: testSpaces.length})
+      configStore.write.resolves()
+      playbookService.initialize.rejects(new Error('Playbook already exists'))
+
+      const command = new TestableInit(
+        configStore,
+        playbookService,
+        spaceService,
+        teamService,
+        tokenStore,
+        testTeams[0],
+        testSpaces[0],
+        config,
+      )
+
+      await command.run()
+
+      // Should still call gen-rules even though ACE init failed
+      expect(runCommandStub.calledOnce).to.be.true
+      expect(runCommandStub.calledWith('gen-rules')).to.be.true
+    })
+
+    it('should propagate errors from gen-rules command', async () => {
+      configStore.exists.resolves(false)
+      tokenStore.load.resolves(validToken)
+      teamService.getTeams.resolves({teams: testTeams, total: testTeams.length})
+      spaceService.getSpaces.resolves({spaces: testSpaces, total: testSpaces.length})
+      configStore.write.resolves()
+      runCommandStub.rejects(new Error('gen-rules failed'))
+
+      const command = new TestableInit(
+        configStore,
+        playbookService,
+        spaceService,
+        teamService,
+        tokenStore,
+        testTeams[0],
+        testSpaces[0],
+        config,
+      )
+
+      try {
+        await command.run()
+        expect.fail('Should have thrown error')
+      } catch (error) {
+        expect(error).to.be.an('error')
+        expect((error as Error).message).to.include('gen-rules failed')
       }
     })
   })
