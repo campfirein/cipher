@@ -212,7 +212,7 @@ describe('Memory to Playbook Mapper', () => {
       expect(playbook.getBulletsInSection('Common Errors')).to.have.lengthOf(1)
     })
 
-    it('should set nextId to 1 (reset value)', () => {
+    it('should set nextId to total memories/bullets + 1', () => {
       const memory = new Memory({
         bulletId: 'lessons-00001',
         childrenIds: [],
@@ -237,7 +237,7 @@ describe('Memory to Playbook Mapper', () => {
 
       // Verify nextId by checking the JSON output
       const playbookJson = playbook.toJson()
-      expect(playbookJson.nextId).to.equal(1)
+      expect(playbookJson.nextId).to.equal(retrieveResult.memories.length + retrieveResult.relatedMemories.length + 1)
     })
 
     it('should handle empty retrieve result', () => {
