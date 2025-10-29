@@ -16,7 +16,7 @@ import {FilePlaybookStore} from '../../infra/ace/file-playbook-store.js'
 import {ProjectConfigStore} from '../../infra/config/file-config-store.js'
 import {HttpMemoryStorageService} from '../../infra/memory/http-memory-storage-service.js'
 import {KeychainTokenStore} from '../../infra/storage/keychain-token-store.js'
-import {clearDirectory} from '../../utils/ace-file-helpers.js'
+import {clearDirectory} from '../../utils/file-helpers.js'
 
 export default class MemPush extends Command {
   public static description = 'Push playbook to ByteRover memory storage and clean up local ACE files'

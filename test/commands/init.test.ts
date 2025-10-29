@@ -6,6 +6,7 @@ import sinon, {restore, stub} from 'sinon'
 
 import type {Space} from '../../src/core/domain/entities/space.js'
 import type {Team} from '../../src/core/domain/entities/team.js'
+import type {IPlaybookService} from '../../src/core/interfaces/i-playbook-service.js'
 import type {IProjectConfigStore} from '../../src/core/interfaces/i-project-config-store.js'
 import type {ISpaceService} from '../../src/core/interfaces/i-space-service.js'
 import type {ITeamService} from '../../src/core/interfaces/i-team-service.js'
@@ -15,7 +16,6 @@ import Init from '../../src/commands/init.js'
 import {AuthToken} from '../../src/core/domain/entities/auth-token.js'
 import {Space as SpaceImpl} from '../../src/core/domain/entities/space.js'
 import {Team as TeamImpl} from '../../src/core/domain/entities/team.js'
-import {InitializePlaybookUseCase} from '../../src/core/usecases/initialize-playbook-use-case.js'
 
 /**
  * Testable Init command that accepts mocked services
@@ -24,6 +24,7 @@ class TestableInit extends Init {
   // eslint-disable-next-line max-params
   constructor(
     private readonly mockConfigStore: IProjectConfigStore,
+    private readonly mockPlaybookService: IPlaybookService,
     private readonly mockSpaceService: ISpaceService,
     private readonly mockTeamService: ITeamService,
     private readonly mockTokenStore: ITokenStore,
@@ -36,6 +37,7 @@ class TestableInit extends Init {
 
   protected createServices() {
     return {
+      playbookService: this.mockPlaybookService,
       projectConfigStore: this.mockConfigStore,
       spaceService: this.mockSpaceService,
       teamService: this.mockTeamService,
@@ -55,6 +57,7 @@ class TestableInit extends Init {
 describe('Init Command', () => {
   let config: Config
   let configStore: sinon.SinonStubbedInstance<IProjectConfigStore>
+  let playbookService: sinon.SinonStubbedInstance<IPlaybookService>
   let spaceService: sinon.SinonStubbedInstance<ISpaceService>
   let teamService: sinon.SinonStubbedInstance<ITeamService>
   let testSpaces: Space[]
@@ -87,6 +90,13 @@ describe('Init Command', () => {
       write: stub(),
     }
 
+    playbookService = {
+      addOrUpdateBullet: stub(),
+      applyDelta: stub(),
+      applyReflectionTags: stub(),
+      initialize: stub<[directory?: string], Promise<string>>().resolves('/test/.br/ace/playbook.json'),
+    }
+
     validToken = new AuthToken(
       'access-token',
       new Date(Date.now() + 3600 * 1000),
@@ -112,12 +122,6 @@ describe('Init Command', () => {
         updatedAt: new Date('2024-01-02T00:00:00Z'),
       }),
     ]
-
-    // Stub ACE initialization to always succeed
-    stub(InitializePlaybookUseCase.prototype, 'execute').resolves({
-      playbookPath: '/test/.br/ace/playbook.json',
-      success: true,
-    })
   })
 
   afterEach(() => {
@@ -128,7 +132,7 @@ describe('Init Command', () => {
     it('should exit early if project is already initialized', async () => {
       configStore.exists.resolves(true)
 
-      const command = new TestableInit(configStore, spaceService, teamService, tokenStore, testTeams[0], testSpaces[0], config)
+      const command = new TestableInit(configStore, playbookService, spaceService, teamService, tokenStore, testTeams[0], testSpaces[0], config)
 
       await command.run()
 
@@ -140,7 +144,7 @@ describe('Init Command', () => {
       configStore.exists.resolves(false)
       tokenStore.load.resolves()
 
-      const command = new TestableInit(configStore, spaceService, teamService, tokenStore, testTeams[0], testSpaces[0], config)
+      const command = new TestableInit(configStore, playbookService, spaceService, teamService, tokenStore, testTeams[0], testSpaces[0], config)
 
       try {
         await command.run()
@@ -163,7 +167,7 @@ describe('Init Command', () => {
       configStore.exists.resolves(false)
       tokenStore.load.resolves(expiredToken)
 
-      const command = new TestableInit(configStore, spaceService, teamService, tokenStore, testTeams[0], testSpaces[0], config)
+      const command = new TestableInit(configStore, playbookService, spaceService, teamService, tokenStore, testTeams[0], testSpaces[0], config)
 
       try {
         await command.run()
@@ -181,6 +185,7 @@ describe('Init Command', () => {
 
       const command = new TestableInit(
         configStore,
+        playbookService,
         spaceService,
         teamService,
         tokenStore,
@@ -206,6 +211,7 @@ describe('Init Command', () => {
 
       const command = new TestableInit(
         configStore,
+        playbookService,
         spaceService,
         teamService,
         tokenStore,
@@ -232,6 +238,7 @@ describe('Init Command', () => {
 
       const command = new TestableInit(
         configStore,
+        playbookService,
         spaceService,
         teamService,
         tokenStore,
@@ -262,6 +269,7 @@ describe('Init Command', () => {
 
       const command = new TestableInit(
         configStore,
+        playbookService,
         spaceService,
         teamService,
         tokenStore,
@@ -282,7 +290,7 @@ describe('Init Command', () => {
       tokenStore.load.resolves(validToken)
       teamService.getTeams.rejects(new Error('Network timeout'))
 
-      const command = new TestableInit(configStore, spaceService, teamService, tokenStore, testTeams[0], testSpaces[0], config)
+      const command = new TestableInit(configStore, playbookService, spaceService, teamService, tokenStore, testTeams[0], testSpaces[0], config)
 
       try {
         await command.run()
@@ -299,7 +307,7 @@ describe('Init Command', () => {
       teamService.getTeams.resolves({teams: testTeams, total: testTeams.length})
       spaceService.getSpaces.rejects(new Error('Network timeout'))
 
-      const command = new TestableInit(configStore, spaceService, teamService, tokenStore, testTeams[0], testSpaces[0], config)
+      const command = new TestableInit(configStore, playbookService, spaceService, teamService, tokenStore, testTeams[0], testSpaces[0], config)
 
       try {
         await command.run()
@@ -317,7 +325,7 @@ describe('Init Command', () => {
       spaceService.getSpaces.resolves({spaces: testSpaces, total: testSpaces.length})
       configStore.write.rejects(new Error('Permission denied'))
 
-      const command = new TestableInit(configStore, spaceService, teamService, tokenStore, testTeams[0], testSpaces[0], config)
+      const command = new TestableInit(configStore, playbookService, spaceService, teamService, tokenStore, testTeams[0], testSpaces[0], config)
 
       try {
         await command.run()

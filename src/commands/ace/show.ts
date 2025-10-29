@@ -1,6 +1,7 @@
 import {Args, Command, Flags} from '@oclif/core'
 
-import {LoadPlaybookUseCase} from '../../core/usecases/load-playbook-use-case.js'
+import type {IPlaybookStore} from '../../core/interfaces/i-playbook-store.js'
+
 import {FilePlaybookStore} from '../../infra/ace/file-playbook-store.js'
 
 export default class Show extends Command {
@@ -22,27 +23,33 @@ public static flags = {
     }),
   }
 
+  protected createServices(): {
+    playbookStore: IPlaybookStore
+  } {
+    return {
+      playbookStore: new FilePlaybookStore(),
+    }
+  }
+
   public async run(): Promise<void> {
     const {args, flags} = await this.parse(Show)
 
     try {
-      // Setup dependencies
-      const playbookStore = new FilePlaybookStore()
-      const useCase = new LoadPlaybookUseCase(playbookStore)
+      const {playbookStore} = this.createServices()
 
-      // Execute load
-      const result = await useCase.execute(args.directory)
+      // Load playbook directly using service
+      const playbook = await playbookStore.load(args.directory)
 
-      if (!result.success) {
-        this.error(result.error || 'Failed to load playbook')
+      if (!playbook) {
+        this.error('Playbook not found. Run `br init` to initialize.')
       }
 
       // Display based on format
       if (flags.format === 'json') {
-        this.log(JSON.stringify(result.playbook!.toJson(), null, 2))
+        this.log(JSON.stringify(playbook.toJson(), null, 2))
       } else {
         // Markdown format
-        const prompt = result.playbookPrompt!
+        const prompt = playbook.asPrompt()
 
         if (prompt === '(Empty playbook)') {
           this.log('Playbook is empty. Use ACE commands to add knowledge.')
