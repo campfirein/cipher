@@ -10,8 +10,12 @@ import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
 import {HttpUserService} from '../infra/user/http-user-service.js'
 
 export default class Status extends Command {
-  public static description = 'Show CLI status and project information'
-  public static examples = ['<%= config.bin %> <%= command.id %>']
+  public static description = 'Show CLI status and project information (displays authentication status, current user, project configuration)'
+public static examples = [
+    '<%= config.bin %> <%= command.id %>',
+    '# Check status after login:\n<%= config.bin %> login\n<%= config.bin %> <%= command.id %>',
+    '# Verify project initialization:\n<%= config.bin %> init\n<%= config.bin %> <%= command.id %>',
+  ]
 
   protected createServices(): {
     projectConfigStore: IProjectConfigStore

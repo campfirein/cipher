@@ -15,7 +15,13 @@ import {CallbackHandler} from '../infra/http/callback-handler.js'
 import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
 
 export default class Login extends Command {
-  public static description = 'Authenticate with ByteRover'
+  public static description =
+    'Authenticate with ByteRover using OAuth 2.0 + PKCE (opens browser for secure login, stores tokens in keychain)'
+  public static examples = [
+    '<%= config.bin %> <%= command.id %>',
+    '# After authentication expires, re-login:\n<%= config.bin %> <%= command.id %>',
+    '# Check authentication status after login:\n<%= config.bin %> <%= command.id %>\n<%= config.bin %> status',
+  ]
 
   protected async createAuthService(discoveryService: IOidcDiscoveryService): Promise<IAuthService> {
     const config = await getAuthConfig(discoveryService)
