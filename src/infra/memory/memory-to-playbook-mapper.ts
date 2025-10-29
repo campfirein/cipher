@@ -25,12 +25,7 @@ export const transformMemoryToBullet = (memory: Memory): Bullet => {
     timestamp: memory.timestamp,
   }
 
-  return new Bullet(
-    memory.bulletId,
-    memory.section,
-    memory.content,
-    metadata,
-  )
+  return new Bullet(memory.bulletId, memory.section, memory.content, metadata)
 }
 
 /**
@@ -49,17 +44,12 @@ export const transformRetrieveResultToPlaybook = (result: RetrieveResult): Playb
   const bulletsMap = new Map<string, Bullet>()
   const sectionsMap = new Map<string, string[]>()
 
-  // Combine all memories (both direct matches and related)
   const allMemories = [...result.memories, ...result.relatedMemories]
 
   for (const memory of allMemories) {
-    // Transform memory to bullet
     const bullet = transformMemoryToBullet(memory)
-
-    // Add to bullets map
     bulletsMap.set(bullet.id, bullet)
 
-    // Add to sections map
     if (!sectionsMap.has(bullet.section)) {
       sectionsMap.set(bullet.section, [])
     }
@@ -67,6 +57,5 @@ export const transformRetrieveResultToPlaybook = (result: RetrieveResult): Playb
     sectionsMap.get(bullet.section)!.push(bullet.id)
   }
 
-  // Create playbook with nextId = 1 (reset value, since Memora manages bullet IDs)
-  return new Playbook(bulletsMap, sectionsMap, 1)
+  return new Playbook(bulletsMap, sectionsMap, bulletsMap.size + 1)
 }
