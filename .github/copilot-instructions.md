@@ -87,8 +87,15 @@ class TestableCommand extends MyCommand {
   protected async promptForSelection(items) {
     return this.mockSelection
   }
+  
+  // Suppress output for clean test runs
+  public log() {
+    // Do nothing
+  }
 }
 ```
+
+**Test output suppression**: Override `log()` and stub `ux.action.start/stop` to prevent noisy output.
 
 ### HTTP Testing with Nock
 
@@ -133,6 +140,15 @@ class TestableCommand extends MyCommand {
 4. Initialize ACE directory structure and empty playbook
 
 **Always use `fetchAll: true`** for complete lists in interactive selection contexts.
+
+### `br space switch` - Change Team/Space
+
+1. Requires project init (shows current team/space from config)
+2. Fetch all teams → user selects
+3. Fetch spaces for selected team → user selects
+4. Update `.br/config.json`
+
+**No playbook initialization** (unlike `br init`).
 
 ### `br mem retrieve` - Memory Retrieval
 

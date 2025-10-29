@@ -134,6 +134,15 @@ protected createServices(): {myService: IMyService} {
 - Uses `@inquirer/prompts` for selection
 - Always uses `{fetchAll: true}` for complete lists
 
+`br space switch`:
+
+1. Requires project init (shows current team/space from config)
+2. Fetch all teams → user selects
+3. Fetch spaces for selected team → user selects
+4. Update `.br/config.json`
+
+- No playbook initialization (unlike `br init`)
+
 `br mem retrieve --query <q> [--node-keys <paths>]`:
 
 1. Requires project init (gets `spaceId` from config)
@@ -177,7 +186,8 @@ protected createServices(): {myService: IMyService} {
 
 - Subclass pattern: Override `createServices()` to inject mocks
 - Override `promptForTeamSelection()` / `promptForSpaceSelection()` for interactive prompt testing
-- See: `test/commands/init.test.ts`
+- Suppress output: Override `log()` and stub `ux.action.start/stop` to prevent noisy test output
+- See: `test/commands/space/switch.test.ts`, `test/commands/init.test.ts`
 
 **HTTP mocking**:
 
