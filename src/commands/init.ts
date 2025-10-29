@@ -18,8 +18,12 @@ import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
 import {HttpTeamService} from '../infra/team/http-team-service.js'
 
 export default class Init extends Command {
-  public static description = 'Initialize a project with ByteRover'
-  public static examples = ['<%= config.bin %> <%= command.id %>']
+  public static description = 'Initialize a project with ByteRover (creates .br/config.json with team/space selection and initializes ACE playbook)'
+public static examples = [
+    '<%= config.bin %> <%= command.id %>',
+    '# Re-initialize if config exists (will show current config and exit):\n<%= config.bin %> <%= command.id %>',
+    '# Full workflow: login then initialize:\n<%= config.bin %> login\n<%= config.bin %> <%= command.id %>',
+  ]
 
   protected createServices(): {
     playbookService: IPlaybookService

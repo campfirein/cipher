@@ -7,12 +7,12 @@ import {FilePlaybookService} from '../infra/playbook/file-playbook-service.js'
 export default class Add extends Command {
   public static description =
     'Add or update a bullet in the playbook (bypasses ACE workflow for direct agent usage)'
-  public static examples = [
+public static examples = [
     '<%= config.bin %> <%= command.id %> --section "Common Errors" --content "Authentication fails when token expires"',
     '<%= config.bin %> <%= command.id %> --section "Common Errors" --bullet-id "common-00001" --content "Updated: Auth fails when token expires"',
     '<%= config.bin %> <%= command.id %> -s "Best Practices" -c "Always validate user input before processing"',
   ]
-  public static flags = {
+public static flags = {
     'bullet-id': Flags.string({
       char: 'b',
       description: 'Bullet ID to update (if not provided, a new bullet will be created)',

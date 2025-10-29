@@ -15,14 +15,14 @@ const DEFAULT_OFFSET = 0
 
 export default class SpaceList extends Command {
   public static description = 'List all spaces for the current team (requires project initialization)'
-  public static examples = [
+public static examples = [
     '<%= config.bin %> <%= command.id %>',
     '<%= config.bin %> <%= command.id %> --all',
     '<%= config.bin %> <%= command.id %> --limit 10',
     '<%= config.bin %> <%= command.id %> --limit 10 --offset 20',
     '<%= config.bin %> <%= command.id %> --json',
   ]
-  public static flags = {
+public static flags = {
     all: Flags.boolean({
       char: 'a',
       default: false,

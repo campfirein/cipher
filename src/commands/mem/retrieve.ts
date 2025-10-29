@@ -15,10 +15,11 @@ import {transformRetrieveResultToPlaybook} from '../../infra/memory/memory-to-pl
 import {KeychainTokenStore} from '../../infra/storage/keychain-token-store.js'
 
 export default class Retrieve extends Command {
-  public static description = 'Retrieve memories from ByteRover Memora service'
+  public static description = 'Retrieve memories from ByteRover Memora service and save to local ACE playbook'
   public static examples = [
     '<%= config.bin %> <%= command.id %> --query "authentication best practices"',
     '<%= config.bin %> <%= command.id %> -q "error handling" -n "src/auth/login.ts,src/auth/oauth.ts"',
+    '<%= config.bin %> <%= command.id %> -q "database connection issues" # Clears existing playbook and replaces with retrieved memories',
   ]
   public static flags = {
     'node-keys': Flags.string({
