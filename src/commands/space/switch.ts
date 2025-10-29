@@ -1,0 +1,145 @@
+import {select} from '@inquirer/prompts'
+import {Command, ux} from '@oclif/core'
+
+import type {Space} from '../../core/domain/entities/space.js'
+import type {Team} from '../../core/domain/entities/team.js'
+import type {IProjectConfigStore} from '../../core/interfaces/i-project-config-store.js'
+import type {ISpaceService} from '../../core/interfaces/i-space-service.js'
+import type {ITeamService} from '../../core/interfaces/i-team-service.js'
+import type {ITokenStore} from '../../core/interfaces/i-token-store.js'
+
+import {getCurrentConfig} from '../../config/environment.js'
+import {BrConfig} from '../../core/domain/entities/br-config.js'
+import {ProjectConfigStore} from '../../infra/config/file-config-store.js'
+import {HttpSpaceService} from '../../infra/space/http-space-service.js'
+import {KeychainTokenStore} from '../../infra/storage/keychain-token-store.js'
+import {HttpTeamService} from '../../infra/team/http-team-service.js'
+
+export default class SpaceSwitch extends Command {
+  public static description = 'Switch to a different team or space (updates .br/config.json)'
+  public static examples = [
+    '<%= config.bin %> <%= command.id %>',
+    '# Shows current configuration, then prompts for new team/space selection',
+  ]
+
+  protected createServices(): {
+    projectConfigStore: IProjectConfigStore
+    spaceService: ISpaceService
+    teamService: ITeamService
+    tokenStore: ITokenStore
+  } {
+    const envConfig = getCurrentConfig()
+    return {
+      projectConfigStore: new ProjectConfigStore(),
+      spaceService: new HttpSpaceService({
+        apiBaseUrl: envConfig.apiBaseUrl,
+      }),
+      teamService: new HttpTeamService({
+        apiBaseUrl: envConfig.apiBaseUrl,
+      }),
+      tokenStore: new KeychainTokenStore(),
+    }
+  }
+
+  protected async promptForSpaceSelection(spaces: Space[]): Promise<Space> {
+    const selectedSpaceId = await select({
+      choices: spaces.map((space) => ({
+        name: space.getDisplayName(),
+        value: space.id,
+      })),
+      message: 'Select a space',
+    })
+
+    const selectedSpace = spaces.find((space) => space.id === selectedSpaceId)
+    if (!selectedSpace) {
+      this.error('Space selection failed')
+    }
+
+    return selectedSpace
+  }
+
+  protected async promptForTeamSelection(teams: Team[]): Promise<Team> {
+    const selectedTeamId = await select({
+      choices: teams.map((team) => ({
+        name: team.name,
+        value: team.id,
+      })),
+      message: 'Select a team',
+    })
+
+    const selectedTeam = teams.find((team) => team.id === selectedTeamId)
+    if (!selectedTeam) {
+      this.error('Team selection failed')
+    }
+
+    return selectedTeam
+  }
+
+  public async run(): Promise<void> {
+    try {
+      const {projectConfigStore, spaceService, teamService, tokenStore} = this.createServices()
+
+      // Check project initialization (MUST exist for switch)
+      const currentConfig = await projectConfigStore.read()
+      if (currentConfig === undefined) {
+        this.error('Project not initialized. Run "br init" first.')
+      }
+
+      // Show current configuration
+      this.log('Current configuration:')
+      this.log(`  Team: ${currentConfig.teamName}`)
+      this.log(`  Space: ${currentConfig.spaceName}`)
+      this.log()
+
+      // Validate authentication
+      const token = await tokenStore.load()
+      if (token === undefined) {
+        this.error('Not authenticated. Please run "br login" first.')
+      }
+
+      if (!token.isValid()) {
+        this.error('Authentication token expired. Please run "br login" again.')
+      }
+
+      // Fetch all teams
+      ux.action.start('Fetching all teams')
+      const teamResult = await teamService.getTeams(token.accessToken, token.sessionKey, {fetchAll: true})
+      ux.action.stop()
+
+      if (teamResult.teams.length === 0) {
+        this.error('No teams found. Please create a team in the ByteRover dashboard first.')
+      }
+
+      // Prompt for team selection
+      this.log()
+      const selectedTeam = await this.promptForTeamSelection(teamResult.teams)
+
+      // Fetch spaces for selected team
+      ux.action.start('Fetching all spaces')
+      const spaceResult = await spaceService.getSpaces(token.accessToken, token.sessionKey, selectedTeam.id, {
+        fetchAll: true,
+      })
+      ux.action.stop()
+
+      if (spaceResult.spaces.length === 0) {
+        this.error(
+          `No spaces found in team "${selectedTeam.getDisplayName()}". Please create a space in the ByteRover dashboard first.`,
+        )
+      }
+
+      // Prompt for space selection
+      this.log()
+      const selectedSpace = await this.promptForSpaceSelection(spaceResult.spaces)
+
+      // Update configuration
+      const newConfig = BrConfig.fromSpace(selectedSpace)
+      await projectConfigStore.write(newConfig)
+
+      // Display success
+      this.log(`\n✓ Successfully switched to space: ${selectedSpace.getDisplayName()}`)
+      this.log(`✓ Configuration updated in: .br/config.json`)
+    } catch (error) {
+      this.error(error instanceof Error ? error.message : 'Switch failed')
+    }
+  }
+}
