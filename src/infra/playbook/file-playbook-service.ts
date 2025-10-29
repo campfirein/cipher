@@ -25,9 +25,9 @@ export class FilePlaybookService implements IPlaybookService {
   private readonly config: PlaybookServiceConfig
   private readonly playbookStore: IPlaybookStore
 
-  public constructor(config: PlaybookServiceConfig = {}) {
+  public constructor(config: PlaybookServiceConfig = {}, playbookStore: IPlaybookStore = new FilePlaybookStore()) {
     this.config = config
-    this.playbookStore = new FilePlaybookStore()
+    this.playbookStore = playbookStore
   }
 
   public async addOrUpdateBullet(params: {

@@ -4,9 +4,9 @@ import {mkdir, rm, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
-import {clearDirectory} from '../../../src/utils/ace-file-helpers.js'
+import {clearDirectory} from '../../../src/utils/file-helpers.js'
 
-describe('ace-file-helpers', () => {
+describe('file-helpers', () => {
   describe('clearDirectory()', () => {
     let testDir: string
 

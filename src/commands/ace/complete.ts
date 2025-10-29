@@ -16,6 +16,7 @@ import {ReflectorOutput} from '../../core/domain/entities/reflector-output.js'
 import {AcePromptTemplates} from '../../infra/ace/ace-prompt-templates.js'
 import {FileDeltaStore} from '../../infra/ace/file-delta-store.js'
 import {FileExecutorOutputStore} from '../../infra/ace/file-executor-output-store.js'
+import {FilePlaybookStore} from '../../infra/ace/file-playbook-store.js'
 import {FileReflectionStore} from '../../infra/ace/file-reflection-store.js'
 import {FilePlaybookService} from '../../infra/playbook/file-playbook-service.js'
 
@@ -236,7 +237,6 @@ export default class Complete extends Command {
 
     // Note: We load playbook temporarily just for validation
     // The actual delta application will be done by playbookService
-    const {FilePlaybookStore} = await import('../../infra/ace/file-playbook-store.js')
     const tempStore = new FilePlaybookStore()
     const updatedPlaybook = await tempStore.load()
     if (!updatedPlaybook) {
