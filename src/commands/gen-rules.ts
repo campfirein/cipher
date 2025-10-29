@@ -48,7 +48,7 @@ export default class GenRules extends Command {
       },
     })
 
-    return answer as Agent
+    return answer
   }
 
   /**
@@ -65,8 +65,6 @@ export default class GenRules extends Command {
   }
 
   public async run(): Promise<void> {
-    await this.parse(GenRules)
-
     const {ruleWriterService} = this.createServices()
 
     // Interactive selection with search

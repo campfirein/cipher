@@ -23,12 +23,6 @@ export class RuleWriterService implements IRuleWriterService {
     this.templateService = templateService
   }
 
-  /**
-   * Writes a rule file for the specified agent.
-   * @param agent The agent for which to write the rule.
-   * @returns A promise that resolves when the rule has been written.
-   * @throws Error if the agent is not supported or if writing fails.
-   */
   public async writeRule(agent: Agent, force: boolean): Promise<void> {
     const config = AGENT_RULE_CONFIGS[agent]
     if (!config) {
