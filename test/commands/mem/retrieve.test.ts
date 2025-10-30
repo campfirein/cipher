@@ -330,6 +330,12 @@ describe('mem:retrieve command', () => {
 
       // Verify save was called after clear
       expect(playbookStore.clear.calledBefore(playbookStore.save)).to.be.true
+
+      // Verify the saved playbook contains bullet with memoryId
+      const savedPlaybook = playbookStore.save.getCall(0).args[0]
+      const bullet = savedPlaybook.getBullet('lessons-00001')
+      expect(bullet).to.exist
+      expect(bullet?.memoryId).to.equal('019a1e9f-a5ec-7046-956d-27cdff4b6b67')
     })
 
     it('should warn but continue if playbook save fails', async () => {

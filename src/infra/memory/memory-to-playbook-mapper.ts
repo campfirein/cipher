@@ -14,6 +14,7 @@ import {Playbook} from '../../core/domain/entities/playbook.js'
  * - memory.tags -> bullet.metadata.tags
  * - memory.nodeKeys -> bullet.metadata.relatedFiles
  * - memory.timestamp -> bullet.metadata.timestamp
+ * - memory.id -> bullet.memoryId
  *
  * @param memory The Memory entity to transform
  * @returns A Bullet entity
@@ -25,7 +26,7 @@ export const transformMemoryToBullet = (memory: Memory): Bullet => {
     timestamp: memory.timestamp,
   }
 
-  return new Bullet(memory.bulletId, memory.section, memory.content, metadata)
+  return new Bullet(memory.bulletId, memory.section, memory.content, metadata, memory.id)
 }
 
 /**
