@@ -2,6 +2,41 @@ import {type Agent} from '../../core/domain/entities/agent.js'
 import {type IRuleTemplateService} from '../../core/interfaces/i-rule-template-service.js'
 import {type ITemplateLoader} from '../../core/interfaces/i-template-loader.js'
 
+const guideHeaders: {agent: Agent; value: string}[] = [
+  {
+    agent: 'Augment Code',
+    value: `---
+type: "always_apply"
+---`,
+  },
+  {
+    agent: 'Cursor',
+    value: `---
+description: ByteRover CLI Rules
+alwaysApply: true
+---`,
+  },
+  {
+    agent: 'Kiro',
+    value: `---
+inclusion: always
+---`,
+  },
+  {
+    agent: 'Qoder',
+    value: `---
+trigger: always_on
+alwaysApply: true
+---`,
+  },
+  {
+    agent: 'Windsurf',
+    value: `---
+trigger: always_on
+---`,
+  },
+]
+
 /**
  * Service for generating rule templates for different agents.
  * Loads templates from external files and assembles them with agent-specific context.
@@ -33,10 +68,14 @@ export class RuleTemplateService implements IRuleTemplateService {
         /* eslint-enable camelcase */
       }
 
-      // Substitute variables and return final content
-      const finalContent = this.templateLoader.substituteVariables(baseTemplate, context)
+      // Substitute variables and get content
+      const content = this.templateLoader.substituteVariables(baseTemplate, context)
 
-      return finalContent
+      // Add agent-specific header if available (from develop branch)
+      const header = guideHeaders.find((h) => h.agent === agent)?.value || ''
+
+      // Return header + content (with proper spacing)
+      return header ? `${header}\n${content}` : content
     } catch (error) {
       throw new Error(
         `Failed to generate rule content for agent '${agent}': ${error instanceof Error ? error.message : String(error)}`,
