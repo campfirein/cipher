@@ -1,6 +1,41 @@
 import {type Agent} from '../../core/domain/entities/agent.js'
 import {BR_RULE_TAG, IRuleTemplateService} from '../../core/interfaces/i-rule-template-service.js'
 
+const guideHeaders: {agent: Agent; value: string}[] = [
+  {
+    agent: 'Augment Code',
+    value: `---
+type: "always_apply"
+---`,
+  },
+  {
+    agent: 'Cursor',
+    value: `---
+description: ByteRover CLI Rules
+alwaysApply: true
+---`,
+  },
+  {
+    agent: 'Kiro',
+    value: `---
+inclusion: always
+---`,
+  },
+  {
+    agent: 'Qoder',
+    value: `---
+trigger: always_on
+alwaysApply: true
+---`,
+  },
+  {
+    agent: 'Windsurf',
+    value: `---
+trigger: always_on
+---`,
+  },
+]
+
 /**
  * Service for generating rule templates for different agents.
  * Contains the ACE workflow guide embedded directly.
@@ -12,12 +47,11 @@ export class RuleTemplateService implements IRuleTemplateService {
    * @returns The rule content as a string.
    */
   public generateRuleContent(agent: Agent): string {
-    const guide = this.getAceGuideContent()
+    const content = this.getAceGuideContent()
+    const header = guideHeaders.find((header) => header.agent === agent)?.value || ''
 
-    return `
-
----
-${guide}
+    return `${header}
+${content}
 
 ---
 ${BR_RULE_TAG} ${agent}
