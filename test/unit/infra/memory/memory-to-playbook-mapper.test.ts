@@ -33,6 +33,7 @@ describe('Memory to Playbook Mapper', () => {
       expect(bullet.metadata.tags).to.deep.equal(['typescript', 'authentication', 'best-practices'])
       expect(bullet.metadata.relatedFiles).to.deep.equal(['src/auth/login.ts', 'src/auth/oauth.ts'])
       expect(bullet.metadata.timestamp).to.equal('2025-10-26T15:59:01.191Z')
+      expect(bullet.memoryId).to.equal('019a2a2e-a278-7201-b15d-b54f5d1471e8')
     })
 
     it('should create defensive copies of arrays', () => {
@@ -109,6 +110,10 @@ describe('Memory to Playbook Mapper', () => {
       expect(playbook.getBullet('lessons-00001')).to.exist
       expect(playbook.getBullet('lessons-00002')).to.exist
       expect(playbook.getSections()).to.deep.equal(['Lessons Learned'])
+
+      // Verify memoryId is preserved
+      expect(playbook.getBullet('lessons-00001')?.memoryId).to.equal('id-1')
+      expect(playbook.getBullet('lessons-00002')?.memoryId).to.equal('id-2')
     })
 
     it('should combine memories and relatedMemories', () => {
@@ -152,6 +157,10 @@ describe('Memory to Playbook Mapper', () => {
       expect(playbook.getBullets()).to.have.lengthOf(2)
       expect(playbook.getBullet('lessons-00001')).to.exist
       expect(playbook.getBullet('common-00001')).to.exist
+
+      // Verify memoryId is preserved for both direct and related memories
+      expect(playbook.getBullet('lessons-00001')?.memoryId).to.equal('id-1')
+      expect(playbook.getBullet('common-00001')?.memoryId).to.equal('id-2')
     })
 
     it('should group bullets by section correctly', () => {
