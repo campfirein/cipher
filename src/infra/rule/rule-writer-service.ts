@@ -47,7 +47,7 @@ export class RuleWriterService implements IRuleWriterService {
     }
 
     // Generate rule content
-    const ruleContent = this.templateService.generateRuleContent(agent)
+    const ruleContent = await this.templateService.generateRuleContent(agent)
 
     // Write the rule file
     await this.fileService.write(ruleContent, filePath, writeMode)
