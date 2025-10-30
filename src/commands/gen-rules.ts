@@ -7,6 +7,7 @@ import {type IRuleWriterService} from '../core/interfaces/i-rule-writer-service.
 import {FsFileService} from '../infra/file/fs-file-service.js'
 import {RuleTemplateService} from '../infra/rule/rule-template-service.js'
 import {RuleWriterService} from '../infra/rule/rule-writer-service.js'
+import {FsTemplateLoader} from '../infra/template/fs-template-loader.js'
 
 /**
  * Array of all agents with name and value properties.
@@ -24,8 +25,12 @@ export default class GenRules extends Command {
   protected createServices(): {
     ruleWriterService: IRuleWriterService
   } {
+    const fileService = new FsFileService()
+    const templateLoader = new FsTemplateLoader(fileService)
+    const templateService = new RuleTemplateService(templateLoader)
+
     return {
-      ruleWriterService: new RuleWriterService(new FsFileService(), new RuleTemplateService()),
+      ruleWriterService: new RuleWriterService(fileService, templateService),
     }
   }
 

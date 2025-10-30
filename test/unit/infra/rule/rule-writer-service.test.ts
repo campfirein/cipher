@@ -49,7 +49,7 @@ describe('RuleWriterService', () => {
           // eslint-disable-next-line max-nested-callbacks
           it('should write rule when file does not exist', async () => {
             fileService.exists.resolves(false)
-            templateService.generateRuleContent.returns(`Mock rule content for ${agent}`)
+            templateService.generateRuleContent.resolves(`Mock rule content for ${agent}`)
 
             await service.writeRule(agent, false)
 
@@ -78,7 +78,7 @@ describe('RuleWriterService', () => {
           // eslint-disable-next-line max-nested-callbacks
           it('should overwrite file when file exists and force=true', async () => {
             fileService.exists.resolves(true)
-            templateService.generateRuleContent.returns(`Mock rule content for ${agent}`)
+            templateService.generateRuleContent.resolves(`Mock rule content for ${agent}`)
 
             await service.writeRule(agent, true)
 
@@ -112,7 +112,7 @@ describe('RuleWriterService', () => {
           // eslint-disable-next-line max-nested-callbacks
           it('should append rule when file does not exist', async () => {
             fileService.exists.resolves(false)
-            templateService.generateRuleContent.returns(`Mock rule content for ${agent}`)
+            templateService.generateRuleContent.resolves(`Mock rule content for ${agent}`)
 
             await service.writeRule(agent, false)
 
@@ -129,7 +129,7 @@ describe('RuleWriterService', () => {
           it('should append when file exists but does not contain BR_RULE_TAG', async () => {
             fileService.exists.resolves(true)
             fileService.read.resolves('Existing content without tag')
-            templateService.generateRuleContent.returns(`Mock rule content for ${agent}`)
+            templateService.generateRuleContent.resolves(`Mock rule content for ${agent}`)
 
             await service.writeRule(agent, false)
 
@@ -161,7 +161,7 @@ describe('RuleWriterService', () => {
           it('should append when file exists with BR_RULE_TAG and force=true', async () => {
             fileService.exists.resolves(true)
             fileService.read.resolves(`Existing content\n${BR_RULE_TAG}\nMore content`)
-            templateService.generateRuleContent.returns(`Mock rule content for ${agent}`)
+            templateService.generateRuleContent.resolves(`Mock rule content for ${agent}`)
 
             await service.writeRule(agent, true)
 
@@ -182,7 +182,7 @@ describe('RuleWriterService', () => {
     describe('file path configuration', () => {
       it('should use correct file path for Claude Code', async () => {
         fileService.exists.resolves(false)
-        templateService.generateRuleContent.returns('Mock content')
+        templateService.generateRuleContent.resolves('Mock content')
 
         await service.writeRule('Claude Code', false)
 
@@ -192,7 +192,7 @@ describe('RuleWriterService', () => {
 
       it('should use correct file path for Cursor', async () => {
         fileService.exists.resolves(false)
-        templateService.generateRuleContent.returns('Mock content')
+        templateService.generateRuleContent.resolves('Mock content')
 
         await service.writeRule('Cursor', false)
 
@@ -202,7 +202,7 @@ describe('RuleWriterService', () => {
 
       it('should use correct file path for Windsurf', async () => {
         fileService.exists.resolves(false)
-        templateService.generateRuleContent.returns('Mock content')
+        templateService.generateRuleContent.resolves('Mock content')
 
         await service.writeRule('Windsurf', false)
 
@@ -212,7 +212,7 @@ describe('RuleWriterService', () => {
 
       it('should use correct file path for Cline', async () => {
         fileService.exists.resolves(false)
-        templateService.generateRuleContent.returns('Mock content')
+        templateService.generateRuleContent.resolves('Mock content')
 
         await service.writeRule('Cline', false)
 
@@ -222,7 +222,7 @@ describe('RuleWriterService', () => {
 
       it('should use correct file path for Github Copilot', async () => {
         fileService.exists.resolves(false)
-        templateService.generateRuleContent.returns('Mock content')
+        templateService.generateRuleContent.resolves('Mock content')
 
         await service.writeRule('Github Copilot', false)
 
@@ -232,7 +232,7 @@ describe('RuleWriterService', () => {
 
       it('should use correct file path for Amp', async () => {
         fileService.exists.resolves(false)
-        templateService.generateRuleContent.returns('Mock content')
+        templateService.generateRuleContent.resolves('Mock content')
 
         await service.writeRule('Amp', false)
 
@@ -242,7 +242,7 @@ describe('RuleWriterService', () => {
 
       it('should use correct file path for Zed', async () => {
         fileService.exists.resolves(false)
-        templateService.generateRuleContent.returns('Mock content')
+        templateService.generateRuleContent.resolves('Mock content')
 
         await service.writeRule('Zed', false)
 
@@ -252,7 +252,7 @@ describe('RuleWriterService', () => {
 
       it('should use correct file path for Augment Code', async () => {
         fileService.exists.resolves(false)
-        templateService.generateRuleContent.returns('Mock content')
+        templateService.generateRuleContent.resolves('Mock content')
 
         await service.writeRule('Augment Code', false)
 
@@ -303,7 +303,7 @@ describe('RuleWriterService', () => {
 
       it('should propagate file service write errors', async () => {
         fileService.exists.resolves(false)
-        templateService.generateRuleContent.returns('Mock content')
+        templateService.generateRuleContent.resolves('Mock content')
         fileService.write.rejects(new Error('Write permission denied'))
 
         try {
@@ -319,7 +319,7 @@ describe('RuleWriterService', () => {
     describe('template service integration', () => {
       it('should call template service with correct agent', async () => {
         fileService.exists.resolves(false)
-        templateService.generateRuleContent.returns('Generated content')
+        templateService.generateRuleContent.resolves('Generated content')
 
         await service.writeRule('Cursor', false)
 
@@ -330,7 +330,7 @@ describe('RuleWriterService', () => {
       it('should use template content in write operation', async () => {
         const expectedContent = 'Expected template content\nWith multiple lines'
         fileService.exists.resolves(false)
-        templateService.generateRuleContent.returns(expectedContent)
+        templateService.generateRuleContent.resolves(expectedContent)
 
         await service.writeRule('Windsurf', false)
 
@@ -343,7 +343,7 @@ describe('RuleWriterService', () => {
     describe('force flag behavior', () => {
       it('should skip existence check logic when force=true for overwrite mode', async () => {
         fileService.exists.resolves(true)
-        templateService.generateRuleContent.returns('Content')
+        templateService.generateRuleContent.resolves('Content')
 
         await service.writeRule('Cursor', true)
 
@@ -354,7 +354,7 @@ describe('RuleWriterService', () => {
       it('should not read file when force=true for append mode', async () => {
         fileService.exists.resolves(true)
         fileService.read.resolves(`Content with ${BR_RULE_TAG}`)
-        templateService.generateRuleContent.returns('Content')
+        templateService.generateRuleContent.resolves('Content')
 
         await service.writeRule('Claude Code', true)
 
@@ -404,7 +404,7 @@ describe('RuleWriterService', () => {
       it('should not detect partial BR_RULE_TAG match', async () => {
         fileService.exists.resolves(true)
         fileService.read.resolves('Generated by something else')
-        templateService.generateRuleContent.returns('Content')
+        templateService.generateRuleContent.resolves('Content')
 
         // Should not throw since BR_RULE_TAG is not fully present
         await service.writeRule('Trae.ai', false)
@@ -417,7 +417,7 @@ describe('RuleWriterService', () => {
       it('should have configuration for all agents', async () => {
         for (const agent of AGENT_VALUES) {
           fileService.exists.resolves(false)
-          templateService.generateRuleContent.returns('Content')
+          templateService.generateRuleContent.resolves('Content')
 
           // Should not throw for any supported agent
           // eslint-disable-next-line no-await-in-loop
