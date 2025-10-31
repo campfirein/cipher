@@ -64,9 +64,6 @@
     ],
     "topicSeparator": " ",
     "topics": {
-      "ace": {
-        "description": "Agentic Context Engineering (ACE) workflow for building and maintaining contextual knowledge"
-      },
       "mem": {
         "description": "Manage ByteRover memory storage (retrieve memories from Memora, push playbooks to storage)"
       },
