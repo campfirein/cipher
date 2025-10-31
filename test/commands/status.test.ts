@@ -4,6 +4,7 @@ import {Config as OclifConfig} from '@oclif/core'
 import {expect} from 'chai'
 import sinon, {restore, stub} from 'sinon'
 
+import type {IPlaybookStore} from '../../src/core/interfaces/i-playbook-store.js'
 import type {IProjectConfigStore} from '../../src/core/interfaces/i-project-config-store.js'
 import type {ITokenStore} from '../../src/core/interfaces/i-token-store.js'
 import type {ITrackingService} from '../../src/core/interfaces/i-tracking-service.js'
@@ -11,12 +12,15 @@ import type {ITrackingService} from '../../src/core/interfaces/i-tracking-servic
 import Status from '../../src/commands/status.js'
 import {AuthToken} from '../../src/core/domain/entities/auth-token.js'
 import {BrConfig} from '../../src/core/domain/entities/br-config.js'
+import {Playbook} from '../../src/core/domain/entities/playbook.js'
 
 /**
  * Testable Status command that accepts mocked services
  */
 class TestableStatus extends Status {
-  constructor(
+  // eslint-disable-next-line max-params
+  public constructor(
+    private readonly mockPlaybookStore: IPlaybookStore,
     private readonly mockConfigStore: IProjectConfigStore,
     private readonly mockTokenStore: ITokenStore,
     private readonly mockTrackingService: ITrackingService,
@@ -27,6 +31,7 @@ class TestableStatus extends Status {
 
   protected createServices() {
     return {
+      playbookStore: this.mockPlaybookStore,
       projectConfigStore: this.mockConfigStore,
       tokenStore: this.mockTokenStore,
       trackingService: this.mockTrackingService,
@@ -52,6 +57,7 @@ class TestableStatus extends Status {
 
 describe('Status Command', () => {
   let config: Config
+  let playbookStore: sinon.SinonStubbedInstance<IPlaybookStore>
   let configStore: sinon.SinonStubbedInstance<IProjectConfigStore>
   let tokenStore: sinon.SinonStubbedInstance<ITokenStore>
   let trackingService: sinon.SinonStubbedInstance<ITrackingService>
@@ -63,6 +69,14 @@ describe('Status Command', () => {
   })
 
   beforeEach(() => {
+    playbookStore = {
+      clear: stub(),
+      delete: stub(),
+      exists: stub(),
+      load: stub(),
+      save: stub(),
+    }
+
     tokenStore = {
       clear: stub(),
       load: stub(),
@@ -98,10 +112,11 @@ describe('Status Command', () => {
 
   describe('run()', () => {
     it('should display status when not logged in', async () => {
+      playbookStore.load.resolves(new Playbook())
       tokenStore.load.resolves()
       configStore.exists.resolves(false)
 
-      const command = new TestableStatus(configStore, tokenStore, trackingService, config)
+      const command = new TestableStatus(playbookStore, configStore, tokenStore, trackingService, config)
 
       await command.run()
 
@@ -119,10 +134,11 @@ describe('Status Command', () => {
         userId: 'user-expired',
       })
 
+      playbookStore.load.resolves(new Playbook())
       tokenStore.load.resolves(expiredToken)
       configStore.exists.resolves(false)
 
-      const command = new TestableStatus(configStore, tokenStore, trackingService, config)
+      const command = new TestableStatus(playbookStore, configStore, tokenStore, trackingService, config)
 
       await command.run()
 
@@ -130,10 +146,11 @@ describe('Status Command', () => {
     })
 
     it('should display user email from token when logged in with valid token', async () => {
+      playbookStore.load.resolves(new Playbook())
       tokenStore.load.resolves(validToken)
       configStore.exists.resolves(false)
 
-      const command = new TestableStatus(configStore, tokenStore, trackingService, config)
+      const command = new TestableStatus(playbookStore, configStore, tokenStore, trackingService, config)
 
       await command.run()
 
@@ -142,10 +159,11 @@ describe('Status Command', () => {
     })
 
     it('should display not initialized when project is not initialized', async () => {
+      playbookStore.load.resolves(new Playbook())
       tokenStore.load.resolves(validToken)
       configStore.exists.resolves(false)
 
-      const command = new TestableStatus(configStore, tokenStore, trackingService, config)
+      const command = new TestableStatus(playbookStore, configStore, tokenStore, trackingService, config)
 
       await command.run()
 
@@ -154,11 +172,12 @@ describe('Status Command', () => {
     })
 
     it('should display connected space when project is initialized', async () => {
+      playbookStore.load.resolves(new Playbook())
       tokenStore.load.resolves(validToken)
       configStore.exists.resolves(true)
       configStore.read.resolves(testConfig)
 
-      const command = new TestableStatus(configStore, tokenStore, trackingService, config)
+      const command = new TestableStatus(playbookStore, configStore, tokenStore, trackingService, config)
 
       await command.run()
 
@@ -167,10 +186,11 @@ describe('Status Command', () => {
     })
 
     it('should handle token store errors gracefully', async () => {
+      playbookStore.load.resolves(new Playbook())
       tokenStore.load.rejects(new Error('Keychain access denied'))
       configStore.exists.resolves(false)
 
-      const command = new TestableStatus(configStore, tokenStore, trackingService, config)
+      const command = new TestableStatus(playbookStore, configStore, tokenStore, trackingService, config)
 
       // Should not throw
       await command.run()
@@ -179,10 +199,11 @@ describe('Status Command', () => {
     })
 
     it('should handle config store errors gracefully', async () => {
+      playbookStore.load.resolves(new Playbook())
       tokenStore.load.resolves(validToken)
       configStore.exists.rejects(new Error('File system error'))
 
-      const command = new TestableStatus(configStore, tokenStore, trackingService, config)
+      const command = new TestableStatus(playbookStore, configStore, tokenStore, trackingService, config)
 
       // Should not throw
       await command.run()
@@ -191,11 +212,12 @@ describe('Status Command', () => {
     })
 
     it('should show all sections even if config section fails', async () => {
+      playbookStore.load.resolves(new Playbook())
       tokenStore.load.resolves(validToken)
       configStore.exists.resolves(true)
       configStore.read.rejects(new Error('File read error'))
 
-      const command = new TestableStatus(configStore, tokenStore, trackingService, config)
+      const command = new TestableStatus(playbookStore, configStore, tokenStore, trackingService, config)
 
       // Should not throw and should show auth section
       await command.run()
@@ -205,11 +227,12 @@ describe('Status Command', () => {
     })
 
     it('should handle invalid config file gracefully', async () => {
+      playbookStore.load.resolves(new Playbook())
       tokenStore.load.resolves(validToken)
       configStore.exists.resolves(true)
       configStore.read.resolves()
 
-      const command = new TestableStatus(configStore, tokenStore, trackingService, config)
+      const command = new TestableStatus(playbookStore, configStore, tokenStore, trackingService, config)
 
       // Should not throw
       await command.run()
@@ -219,11 +242,12 @@ describe('Status Command', () => {
     })
 
     it('should handle all success states correctly', async () => {
+      playbookStore.load.resolves(new Playbook())
       tokenStore.load.resolves(validToken)
       configStore.exists.resolves(true)
       configStore.read.resolves(testConfig)
 
-      const command = new TestableStatus(configStore, tokenStore, trackingService, config)
+      const command = new TestableStatus(playbookStore, configStore, tokenStore, trackingService, config)
 
       await command.run()
 
@@ -234,10 +258,11 @@ describe('Status Command', () => {
     })
 
     it('should not throw when logged in but project not initialized', async () => {
+      playbookStore.load.resolves(new Playbook())
       tokenStore.load.resolves(validToken)
       configStore.exists.resolves(false)
 
-      const command = new TestableStatus(configStore, tokenStore, trackingService, config)
+      const command = new TestableStatus(playbookStore, configStore, tokenStore, trackingService, config)
 
       await command.run()
 
@@ -246,11 +271,12 @@ describe('Status Command', () => {
     })
 
     it('should not throw when not logged in but project initialized', async () => {
+      playbookStore.load.resolves(new Playbook())
       tokenStore.load.resolves()
       configStore.exists.resolves(true)
       configStore.read.resolves(testConfig)
 
-      const command = new TestableStatus(configStore, tokenStore, trackingService, config)
+      const command = new TestableStatus(playbookStore, configStore, tokenStore, trackingService, config)
 
       await command.run()
 

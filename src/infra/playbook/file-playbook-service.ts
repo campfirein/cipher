@@ -177,7 +177,7 @@ export class FilePlaybookService implements IPlaybookService {
     // Check if playbook already exists
     const exists = await this.playbookStore.exists(directory ?? this.config.baseDirectory)
     if (exists) {
-      throw new Error('Playbook already exists. Use `br ace clear` to remove it first.')
+      throw new Error('Playbook already exists. Use `br clear` to remove it first.')
     }
 
     // Create empty playbook

@@ -1,20 +1,20 @@
 import {Args, Command, Flags} from '@oclif/core'
 
-import type {IPlaybookStore} from '../../core/interfaces/i-playbook-store.js'
+import type {IPlaybookStore} from '../core/interfaces/i-playbook-store.js'
 
-import {FilePlaybookStore} from '../../infra/ace/file-playbook-store.js'
+import {FilePlaybookStore} from '../infra/ace/file-playbook-store.js'
 
 export default class Show extends Command {
   public static args = {
     directory: Args.string({description: 'Project directory (defaults to current directory)', required: false}),
   }
-public static description = 'Display local ACE context (ACE playbook) managed by ByteRover CLI'
-public static examples = [
+  public static description = 'Display local ACE context (ACE playbook) managed by ByteRover CLI'
+  public static examples = [
     '<%= config.bin %> <%= command.id %>',
     '<%= config.bin %> <%= command.id %> /path/to/project',
     '<%= config.bin %> <%= command.id %> --format json',
   ]
-public static flags = {
+  public static flags = {
     format: Flags.string({
       char: 'f',
       default: 'markdown',

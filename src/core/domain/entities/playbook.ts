@@ -18,7 +18,7 @@ export interface PlaybookStats {
 /**
  * The central knowledge repository that stores and manages bullets.
  * Playbooks are organized into sections and support delta operations.
- * Playbooks are used as an temporary notes then will be pushed to byterover for usage 
+ * Playbooks are used as an temporary notes then will be pushed to byterover for usage
  */
 export class Playbook {
   private readonly bullets: Map<string, Bullet>
@@ -333,7 +333,10 @@ export class Playbook {
 
   private _generateId(section: string): string {
     // Convert section to prefix: "Common Errors" -> "common"
-    const prefix = section.toLowerCase().split(' ')[0].replaceAll(/[^a-z0-9]/g, '')
+    const prefix = section
+      .toLowerCase()
+      .split(' ')[0]
+      .replaceAll(/[^a-z0-9]/g, '')
     const id = `${prefix}-${String(this.nextId).padStart(5, '0')}`
     this.nextId++
     return id

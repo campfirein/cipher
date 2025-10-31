@@ -1,8 +1,8 @@
 import {confirm} from '@inquirer/prompts'
 import {Args, Command, Flags} from '@oclif/core'
 
-import {Playbook} from '../../core/domain/entities/playbook.js'
-import {FilePlaybookStore} from '../../infra/ace/file-playbook-store.js'
+import {Playbook} from '../core/domain/entities/playbook.js'
+import {FilePlaybookStore} from '../infra/ace/file-playbook-store.js'
 
 export default class Clear extends Command {
   public static args = {
