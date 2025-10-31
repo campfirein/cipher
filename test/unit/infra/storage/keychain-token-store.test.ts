@@ -54,7 +54,15 @@ describe('KeychainTokenStore', () => {
     })
 
     it('should handle save errors gracefully', async () => {
-      const token = new AuthToken({accessToken: 'access', expiresAt: new Date(), refreshToken: 'refresh', sessionKey: 'session-store-002', tokenType: 'Bearer', userId: 'user-id-002', userEmail: 'user@example.com'})
+      const token = new AuthToken({
+        accessToken: 'access',
+        expiresAt: new Date(),
+        refreshToken: 'refresh',
+        sessionKey: 'session-store-002',
+        tokenType: 'Bearer',
+        userEmail: 'user@example.com',
+        userId: 'user-id-002',
+      })
       const errMsg = 'Keychain access denied'
       setPasswordStub.rejects(new Error(errMsg))
 

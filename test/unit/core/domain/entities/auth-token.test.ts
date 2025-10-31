@@ -25,19 +25,44 @@ describe('AuthToken', () => {
   describe('isExpired', () => {
     it('should return false for non-expired token', () => {
       const expiresAt = new Date(Date.now() + 3600 * 1000) // 1 hour from now
-      const token = new AuthToken({accessToken: 'access-token', expiresAt, refreshToken: 'refresh-token', sessionKey: 'session-abc123', tokenType: 'Bearer', userId: 'user-id-123', userEmail: 'user@example.com'})
+
+      const token = new AuthToken({
+        accessToken: 'access-token',
+        expiresAt,
+        refreshToken: 'refresh-token',
+        sessionKey: 'session-abc123',
+        tokenType: 'Bearer',
+        userEmail: 'user@example.com',
+        userId: 'user-id-123',
+      })
       expect(token.isExpired()).to.be.false
     })
 
     it('should return true for expired token', () => {
       const expiresAt = new Date(Date.now() - 1000) // 1 second ago
-      const token = new AuthToken({accessToken: 'access-token', expiresAt, refreshToken: 'refresh-token', sessionKey: 'session-abc124', tokenType: 'Bearer', userId: 'user-id-124', userEmail: 'user@example.com'})
+      const token = new AuthToken({
+        accessToken: 'access-token',
+        expiresAt,
+        refreshToken: 'refresh-token',
+        sessionKey: 'session-abc124',
+        tokenType: 'Bearer',
+        userEmail: 'user@example.com',
+        userId: 'user-id-124',
+      })
       expect(token.isExpired()).to.be.true
     })
 
     it('should return true for token expiring now', () => {
       const expiresAt = new Date()
-      const token = new AuthToken({accessToken: 'access-token', expiresAt, refreshToken: 'refresh-token', sessionKey: 'session-abc125', tokenType: 'Bearer', userId: 'user-id-125', userEmail: 'user@example.com'})
+      const token = new AuthToken({
+        accessToken: 'access-token',
+        expiresAt,
+        refreshToken: 'refresh-token',
+        sessionKey: 'session-abc125',
+        tokenType: 'Bearer',
+        userEmail: 'user@example.com',
+        userId: 'user-id-125',
+      })
       expect(token.isExpired()).to.be.true
     })
   })
@@ -45,19 +70,43 @@ describe('AuthToken', () => {
   describe('isValid', () => {
     it('should return true for valid non-expired token', () => {
       const expiresAt = new Date(Date.now() + 3600 * 1000)
-      const token = new AuthToken({accessToken: 'access-token', expiresAt, refreshToken: 'refresh-token', sessionKey: 'session-abc126', tokenType: 'Bearer', userId: 'user-id-126', userEmail: 'user@example.com'})
+      const token = new AuthToken({
+        accessToken: 'access-token',
+        expiresAt,
+        refreshToken: 'refresh-token',
+        sessionKey: 'session-abc126',
+        tokenType: 'Bearer',
+        userEmail: 'user@example.com',
+        userId: 'user-id-126',
+      })
       expect(token.isValid()).to.be.true
     })
 
     it('should return false for expired token', () => {
       const expiresAt = new Date(Date.now() - 1000)
-      const token = new AuthToken({accessToken: 'access-token', expiresAt, refreshToken: 'refresh-token', sessionKey: 'session-abc127', tokenType: 'Bearer', userId: 'user-id-127', userEmail: 'user@example.com'})
+      const token = new AuthToken({
+        accessToken: 'access-token',
+        expiresAt,
+        refreshToken: 'refresh-token',
+        sessionKey: 'session-abc127',
+        tokenType: 'Bearer',
+        userEmail: 'user@example.com',
+        userId: 'user-id-127',
+      })
       expect(token.isValid()).to.be.false
     })
 
     it('should return false for token without access token', () => {
       const expiresAt = new Date(Date.now() + 3600 * 1000)
-      const token = new AuthToken({accessToken: '', expiresAt, refreshToken: 'refresh-token', sessionKey: 'session-abc128', tokenType: 'Bearer', userId: 'user-id-128', userEmail: 'user@example.com'})
+      const token = new AuthToken({
+        accessToken: '',
+        expiresAt,
+        refreshToken: 'refresh-token',
+        sessionKey: 'session-abc128',
+        tokenType: 'Bearer',
+        userEmail: 'user@example.com',
+        userId: 'user-id-128',
+      })
       expect(token.isValid()).to.be.false
     })
   })
@@ -65,7 +114,15 @@ describe('AuthToken', () => {
   describe('toJSON', () => {
     it('should serialize token to JSON including userId and userEmail', () => {
       const expiresAt = new Date('2024-12-31T23:59:59.000Z')
-      const token = new AuthToken({accessToken: 'access-token', expiresAt, refreshToken: 'refresh-token', sessionKey: 'session-abc129', tokenType: 'Bearer', userId: 'user-id-129', userEmail: 'user@example.com'})
+      const token = new AuthToken({
+        accessToken: 'access-token',
+        expiresAt,
+        refreshToken: 'refresh-token',
+        sessionKey: 'session-abc129',
+        tokenType: 'Bearer',
+        userEmail: 'user@example.com',
+        userId: 'user-id-129',
+      })
       const json = token.toJson()
 
       expect(json).to.deep.equal({
