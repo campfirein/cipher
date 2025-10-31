@@ -1,4 +1,5 @@
 import {Args, Command, Flags} from '@oclif/core'
+import chalk from 'chalk'
 
 import type {IPlaybookStore} from '../core/interfaces/i-playbook-store.js'
 import type {IProjectConfigStore} from '../core/interfaces/i-project-config-store.js'
@@ -15,7 +16,7 @@ export default class Status extends Command {
     directory: Args.string({description: 'Project directory (defaults to current directory)', required: false}),
   }
   public static description =
-    'Show CLI status and project information (displays authentication status, current user, project configuration). Display ACE playbook statistics (shows sections, bullets, and tags for local context managed by ByteRover CLI)'
+    'Show CLI status and project information. Display local ACE context (ACE playbook) managed by ByteRover CLI'
   public static examples = [
     '<%= config.bin %> <%= command.id %>',
     '# Check status after login:\n<%= config.bin %> login\n<%= config.bin %> <%= command.id %>',
@@ -99,24 +100,39 @@ export default class Status extends Command {
         this.error('Playbook not found. Run `br init` to initialize.')
       }
 
-      const stats = playbook.stats()
-
+      // Display based on format
       if (flags.format === 'json') {
-        this.log(JSON.stringify(stats, null, 2))
-      } else {
-        // Table format
-        this.log('# ACE Playbook Statistics\n')
-        this.log(`Sections:  ${stats.sections}`)
-        this.log(`Bullets:   ${stats.bullets}`)
-        this.log(`Tags:      ${stats.tags.length}`)
+        return this.log(JSON.stringify(playbook.toJson(), null, 2))
+      }
 
-        if (stats.tags.length > 0) {
-          this.log('\n## Tags')
-          for (const tag of stats.tags) {
-            this.log(`  - ${tag}`)
-          }
+      // Display file URLs like git status
+      const bullets = playbook.getBullets()
+      const sections = playbook.getSections()
+
+      if (bullets.length === 0) {
+        this.log('Playbook is empty. Use "br add" commands to add knowledge.')
+        return
+      }
+
+      this.log(`\nMemory not pushed to cloud:`)
+
+      for (const section of sections) {
+        // Space between sections
+        this.log(' ')
+        // Section title
+        this.log(`# ${section}`)
+        const sectionBullets = playbook.getBulletsInSection(section)
+
+        for (const bullet of sectionBullets) {
+          const relativePath = `.br/ace/bullets/${bullet.id}.md`
+
+          // Display like git status: red path
+          this.log(`  ${chalk.red(relativePath)}`)
         }
       }
+
+      // Guide user to push memory to cloud
+      this.log(`Use "br push" to push memory to cloud.`)
     } catch (error) {
       this.error(error instanceof Error ? error.message : 'Failed to load playbook statistics')
     }

@@ -1,3 +1,4 @@
+import type {IBulletContentStore} from '../../interfaces/i-bullet-content-store.js'
 import type {DeltaBatch} from './delta-batch.js'
 import type {DeltaOperation} from './delta-operation.js'
 
@@ -39,14 +40,35 @@ export class Playbook {
 
   /**
    * Creates a Playbook instance from a JSON object
+   * @param json The playbook JSON data
+   * @param contentStore Optional content store for loading bullet content from files
+   * @param directory Optional directory for loading content files
    */
-  public static fromJson(json: PlaybookJson): Playbook {
+  public static async fromJson(
+    json: PlaybookJson,
+    contentStore: IBulletContentStore,
+    directory?: string,
+  ): Promise<Playbook> {
     const bullets = new Map<string, Bullet>()
     const sections = new Map<string, string[]>()
 
     // Deserialize bullets
-    for (const [id, bulletData] of Object.entries(json.bullets ?? {})) {
-      bullets.set(id, Bullet.fromJson(bulletData))
+    const bulletEntries = Object.entries(json.bullets ?? {})
+
+    // Load all content in parallel if needed
+    const contentPromises = bulletEntries.map(async ([id, bulletData]) => {
+      if (bulletData.content) {
+        return bulletData.content
+      }
+
+      return contentStore.load(id, directory)
+    })
+
+    const contents = await Promise.all(contentPromises)
+
+    // Create bullets with loaded content
+    for (const [index, [id, bulletData]] of bulletEntries.entries()) {
+      bullets.set(id, Bullet.fromJson(bulletData, contents[index]))
     }
 
     // Deserialize sections
@@ -59,10 +81,13 @@ export class Playbook {
 
   /**
    * Deserializes from JSON string
+   * @param data The JSON string
+   * @param contentStore Optional content store for loading bullet content from files
+   * @param directory Optional directory for loading content files
    */
-  public static loads(data: string): Playbook {
+  public static async loads(data: string, contentStore: IBulletContentStore, directory?: string): Promise<Playbook> {
     const json = JSON.parse(data) as PlaybookJson
-    return Playbook.fromJson(json)
+    return Playbook.fromJson(json, contentStore, directory)
   }
 
   // ===== CRUD Operations =====
@@ -156,9 +181,10 @@ export class Playbook {
 
   /**
    * Serializes to JSON string (pretty-printed)
+   * @param includeContent If false, content field is omitted from bullets (for file-based storage)
    */
-  public dumps(): string {
-    return JSON.stringify(this.toJson(), null, 2)
+  public dumps(includeContent: boolean = true): string {
+    return JSON.stringify(this.toJson(includeContent), null, 2)
   }
 
   /**
@@ -257,10 +283,10 @@ export class Playbook {
     }
   }
 
-  public toJson(): PlaybookJson {
+  public toJson(includeContent: boolean = true): PlaybookJson {
     const bulletsObj: Record<string, BulletJson> = {}
     for (const [id, bullet] of this.bullets) {
-      bulletsObj[id] = bullet.toJson()
+      bulletsObj[id] = bullet.toJson(includeContent)
     }
 
     const sectionsObj: Record<string, string[]> = {}

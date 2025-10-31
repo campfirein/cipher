@@ -2,19 +2,26 @@ import {existsSync} from 'node:fs'
 import {mkdir, readFile, unlink, writeFile} from 'node:fs/promises'
 import {join} from 'node:path'
 
+import type {IBulletContentStore} from '../../core/interfaces/i-bullet-content-store.js'
 import type {IPlaybookStore} from '../../core/interfaces/i-playbook-store.js'
 
 import {Playbook} from '../../core/domain/entities/playbook.js'
 import {PlaybookNotFoundError} from '../../core/domain/errors/ace-error.js'
+import {FileBulletContentStore} from './file-bullet-content-store.js'
 
 /**
  * File-based implementation of IPlaybookStore.
- * Stores playbook in .br/ace/playbook.json in the project directory.
+ * Stores playbook metadata in .br/ace/playbook.json and bullet content in .br/ace/bullets/{id}.md files.
  */
 export class FilePlaybookStore implements IPlaybookStore {
   private static readonly ACE_DIR = 'ace'
   private static readonly BR_DIR = '.br'
   private static readonly PLAYBOOK_FILE = 'playbook.json'
+  private readonly contentStore: IBulletContentStore
+
+  public constructor(contentStore?: IBulletContentStore) {
+    this.contentStore = contentStore ?? new FileBulletContentStore()
+  }
 
   public async clear(directory?: string): Promise<void> {
     const exists = await this.exists(directory)
@@ -23,6 +30,15 @@ export class FilePlaybookStore implements IPlaybookStore {
       return
     }
 
+    // Load existing playbook to get bullet IDs
+    const playbook = await this.load(directory)
+    if (playbook) {
+      // Delete all bullet content files
+      const bullets = playbook.getBullets()
+      await Promise.all(bullets.map((bullet) => this.contentStore.delete(bullet.id, directory)))
+    }
+
+    // Save empty playbook
     const emptyPlaybook = new Playbook()
     await this.save(emptyPlaybook, directory)
   }
@@ -35,6 +51,15 @@ export class FilePlaybookStore implements IPlaybookStore {
     }
 
     try {
+      // Load playbook to get bullet IDs
+      const playbook = await this.load(directory)
+      if (playbook) {
+        // Delete all bullet content files
+        const bullets = playbook.getBullets()
+        await Promise.all(bullets.map((bullet) => this.contentStore.delete(bullet.id, directory)))
+      }
+
+      // Delete playbook.json
       await unlink(playbookPath)
     } catch (error) {
       throw new Error(`Failed to delete playbook at ${playbookPath}: ${(error as Error).message}`)
@@ -55,11 +80,9 @@ export class FilePlaybookStore implements IPlaybookStore {
 
     try {
       const content = await readFile(playbookPath, 'utf8')
-      return Playbook.loads(content)
+      return await Playbook.loads(content, this.contentStore, directory)
     } catch (error) {
-      throw new PlaybookNotFoundError(
-        `Failed to load playbook from ${playbookPath}: ${(error as Error).message}`,
-      )
+      throw new PlaybookNotFoundError(`Failed to load playbook from ${playbookPath}: ${(error as Error).message}`)
     }
   }
 
@@ -71,8 +94,12 @@ export class FilePlaybookStore implements IPlaybookStore {
       // Create .br/ace directory if it doesn't exist
       await mkdir(aceDirPath, {recursive: true})
 
-      // Write playbook.json
-      const content = playbook.dumps()
+      // Save all bullet content to separate files
+      const bullets = playbook.getBullets()
+      await Promise.all(bullets.map((bullet) => this.contentStore.save(bullet.id, bullet.content, directory)))
+
+      // Write playbook.json (without content)
+      const content = playbook.dumps(false)
       await writeFile(playbookPath, content, 'utf8')
     } catch (error) {
       throw new Error(`Failed to save playbook to ${playbookPath}: ${(error as Error).message}`)
