@@ -32,10 +32,8 @@ Complete guide to the ACE (Agentic Context Engineering) workflow:
 - Examples with real use cases
 
 ### `sections/command-reference.md`
-Comprehensive documentation of all 13 BR CLI commands:
-- Root commands (login, init, status, add, gen-rules)
-- ACE commands (complete, show, stats, clear)
-- Memory commands (retrieve, push)
+Comprehensive documentation of all BR CLI commands:
+- Root commands (login, init, status, add, gen-rules, ace, push, retrieve, show, clear)
 - Space commands (list, switch)
 
 Each command includes:

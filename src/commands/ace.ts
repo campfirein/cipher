@@ -1,26 +1,26 @@
 import {Args, Command, Flags} from '@oclif/core'
 import {basename} from 'node:path'
 
-import type {DeltaBatchJson} from '../../core/domain/entities/delta-batch.js'
-import type {ReflectorOutputJson} from '../../core/domain/entities/reflector-output.js'
-import type {IAcePromptBuilder} from '../../core/interfaces/i-ace-prompt-builder.js'
-import type {IDeltaStore} from '../../core/interfaces/i-delta-store.js'
-import type {IExecutorOutputStore} from '../../core/interfaces/i-executor-output-store.js'
-import type {IPlaybookService} from '../../core/interfaces/i-playbook-service.js'
-import type {IReflectionStore} from '../../core/interfaces/i-reflection-store.js'
+import type {DeltaBatchJson} from '../core/domain/entities/delta-batch.js'
+import type {ReflectorOutputJson} from '../core/domain/entities/reflector-output.js'
+import type {IAcePromptBuilder} from '../core/interfaces/i-ace-prompt-builder.js'
+import type {IDeltaStore} from '../core/interfaces/i-delta-store.js'
+import type {IExecutorOutputStore} from '../core/interfaces/i-executor-output-store.js'
+import type {IPlaybookService} from '../core/interfaces/i-playbook-service.js'
+import type {IReflectionStore} from '../core/interfaces/i-reflection-store.js'
 
-import {CuratorOutput} from '../../core/domain/entities/curator-output.js'
-import {DeltaBatch} from '../../core/domain/entities/delta-batch.js'
-import {ExecutorOutput} from '../../core/domain/entities/executor-output.js'
-import {ReflectorOutput} from '../../core/domain/entities/reflector-output.js'
-import {AcePromptTemplates} from '../../infra/ace/ace-prompt-templates.js'
-import {FileDeltaStore} from '../../infra/ace/file-delta-store.js'
-import {FileExecutorOutputStore} from '../../infra/ace/file-executor-output-store.js'
-import {FilePlaybookStore} from '../../infra/ace/file-playbook-store.js'
-import {FileReflectionStore} from '../../infra/ace/file-reflection-store.js'
-import {FilePlaybookService} from '../../infra/playbook/file-playbook-service.js'
+import {CuratorOutput} from '../core/domain/entities/curator-output.js'
+import {DeltaBatch} from '../core/domain/entities/delta-batch.js'
+import {ExecutorOutput} from '../core/domain/entities/executor-output.js'
+import {ReflectorOutput} from '../core/domain/entities/reflector-output.js'
+import {AcePromptTemplates} from '../infra/ace/ace-prompt-templates.js'
+import {FileDeltaStore} from '../infra/ace/file-delta-store.js'
+import {FileExecutorOutputStore} from '../infra/ace/file-executor-output-store.js'
+import {FilePlaybookStore} from '../infra/ace/file-playbook-store.js'
+import {FileReflectionStore} from '../infra/ace/file-reflection-store.js'
+import {FilePlaybookService} from '../infra/playbook/file-playbook-service.js'
 
-export default class Complete extends Command {
+export default class Ace extends Command {
   /* eslint-disable perfectionist/sort-objects */
   public static args = {
     hint: Args.string({
@@ -84,7 +84,7 @@ export default class Complete extends Command {
   }
 
   public async run(): Promise<void> {
-    const {args, flags} = await this.parse(Complete)
+    const {args, flags} = await this.parse(Ace)
 
     try {
       const {deltaStore, executorOutputStore, playbookService, promptBuilder, reflectionStore} = this.createServices()
@@ -186,6 +186,7 @@ export default class Complete extends Command {
   /**
    * Extracts file paths from tool usage strings and formats them with project name prefix.
    * Converts tool usage entries like "Read:src/file.ts" to "projectName/src/file.ts".
+   * Filters out non-file-like arguments (e.g., "Bash:npm test" is excluded).
    *
    * @param toolUsage - Array of tool usage strings (e.g., ["Read:src/file.ts", "Edit:src/other.ts"])
    * @returns Array of formatted file paths with project name prefix
@@ -200,6 +201,12 @@ export default class Complete extends Command {
         if (parts.length <= 1) return null
 
         const filePath = parts[1].trim()
+
+        // Filter out non-file-like paths (must contain / or . to be considered a file path)
+        if (!filePath.includes('/') && !filePath.includes('.')) {
+          return null
+        }
+
         // Remove leading ./ if present
         const cleanPath = filePath.replace(/^\.\//, '')
         // Combine project name with file path
@@ -281,9 +288,10 @@ export default class Complete extends Command {
           type: operationType,
         },
       ],
-      reasoning: operationType === 'UPDATE'
-        ? `Updating bullet ${updateBulletId} with new insight: ${reflection.keyInsight}`
-        : `Adding key insight from task: ${reflection.keyInsight}`,
+      reasoning:
+        operationType === 'UPDATE'
+          ? `Updating bullet ${updateBulletId} with new insight: ${reflection.keyInsight}`
+          : `Adding key insight from task: ${reflection.keyInsight}`,
     }
 
     // Parse and save delta batch using service
@@ -337,15 +345,17 @@ export default class Complete extends Command {
     const reflectionJson: ReflectorOutputJson = {
       bulletTags: [],
       correctApproach: executorOutput.reasoning,
-      errorIdentification: feedback.toLowerCase().includes('fail') || feedback.toLowerCase().includes('error')
-        ? `Issues identified: ${feedback}`
-        : 'No critical errors identified',
+      errorIdentification:
+        feedback.toLowerCase().includes('fail') || feedback.toLowerCase().includes('error')
+          ? `Issues identified: ${feedback}`
+          : 'No critical errors identified',
       hint: executorOutput.hint,
       keyInsight: executorOutput.finalAnswer,
       reasoning: `Analysis: ${feedback}. Approach: ${executorOutput.reasoning}`,
-      rootCauseAnalysis: feedback.toLowerCase().includes('fail') || feedback.toLowerCase().includes('error')
-        ? `Root cause requires investigation: ${feedback}`
-        : 'Successful execution without errors',
+      rootCauseAnalysis:
+        feedback.toLowerCase().includes('fail') || feedback.toLowerCase().includes('error')
+          ? `Root cause requires investigation: ${feedback}`
+          : 'Successful execution without errors',
     }
 
     // Parse and save reflection using service

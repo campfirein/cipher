@@ -1,20 +1,20 @@
 import {Command, Flags} from '@oclif/core'
 
-import type {AuthToken} from '../../core/domain/entities/auth-token.js'
-import type {BrConfig} from '../../core/domain/entities/br-config.js'
-import type {IMemoryRetrievalService} from '../../core/interfaces/i-memory-retrieval-service.js'
-import type {IPlaybookStore} from '../../core/interfaces/i-playbook-store.js'
-import type {IProjectConfigStore} from '../../core/interfaces/i-project-config-store.js'
-import type {ITokenStore} from '../../core/interfaces/i-token-store.js'
+import type {AuthToken} from '../core/domain/entities/auth-token.js'
+import type {BrConfig} from '../core/domain/entities/br-config.js'
+import type {IMemoryRetrievalService} from '../core/interfaces/i-memory-retrieval-service.js'
+import type {IPlaybookStore} from '../core/interfaces/i-playbook-store.js'
+import type {IProjectConfigStore} from '../core/interfaces/i-project-config-store.js'
+import type {ITokenStore} from '../core/interfaces/i-token-store.js'
 
-import {getCurrentConfig} from '../../config/environment.js'
-import {ITrackingService} from '../../core/interfaces/i-tracking-service.js'
-import {FilePlaybookStore} from '../../infra/ace/file-playbook-store.js'
-import {ProjectConfigStore} from '../../infra/config/file-config-store.js'
-import {HttpMemoryRetrievalService} from '../../infra/memory/http-memory-retrieval-service.js'
-import {transformRetrieveResultToPlaybook} from '../../infra/memory/memory-to-playbook-mapper.js'
-import {KeychainTokenStore} from '../../infra/storage/keychain-token-store.js'
-import {MixpanelTrackingService} from '../../infra/tracking/mixpanel-tracking-service.js'
+import {getCurrentConfig} from '../config/environment.js'
+import {ITrackingService} from '../core/interfaces/i-tracking-service.js'
+import {FilePlaybookStore} from '../infra/ace/file-playbook-store.js'
+import {ProjectConfigStore} from '../infra/config/file-config-store.js'
+import {HttpMemoryRetrievalService} from '../infra/memory/http-memory-retrieval-service.js'
+import {transformRetrieveResultToPlaybook} from '../infra/memory/memory-to-playbook-mapper.js'
+import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
+import {MixpanelTrackingService} from '../infra/tracking/mixpanel-tracking-service.js'
 
 export default class Retrieve extends Command {
   public static description = 'Retrieve memories from ByteRover Memora service and save to local ACE playbook'
@@ -111,7 +111,9 @@ export default class Retrieve extends Command {
         this.log('\n✓ Saved memories to playbook')
       } catch (playbookError) {
         this.warn(
-          `Failed to save memories to playbook: ${playbookError instanceof Error ? playbookError.message : 'Unknown error'}`,
+          `Failed to save memories to playbook: ${
+            playbookError instanceof Error ? playbookError.message : 'Unknown error'
+          }`,
         )
       }
 
