@@ -81,6 +81,8 @@ br mem push
 
 ---
 
+### `br show`
+
 ## Best Practices
 
 ### Efficient Workflow
