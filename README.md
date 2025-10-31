@@ -172,10 +172,10 @@ br add -s "Section" -c "Updated" -b "bullet-id"    # Update existing bullet
 br mem push [--branch name]                        # Push playbook to blob storage and cleanup local files
 
 # Utility commands
-br ace show [--format json]                        # View current playbook
+br show [--format json]                            # View current playbook
 br ace stats                                       # View playbook statistics
 br ace apply-delta [file.json]                     # Manually apply delta operations
-br ace clear [--yes]                               # Reset playbook
+br clear [--yes]                                   # Reset playbook
 ```
 
 #### Quick Add Command
@@ -184,12 +184,12 @@ For agents that need to quickly add context without the full ACE workflow:
 
 ```bash
 # 1. First, check the current playbook
-br ace show
+br show
 
 # 2. Add a new bullet to an existing or new section
 br add -s "Common Errors" -c "Always validate API responses before processing"
 
-# 3. Update an existing bullet (use ID from br ace show)
+# 3. Update an existing bullet (use ID from br show)
 br add -s "Common Errors" -c "Updated content" -b "common-00001"
 ```
 

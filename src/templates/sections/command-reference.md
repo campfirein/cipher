@@ -14,7 +14,7 @@
 
 **Description:** Push playbook to ByteRover memory storage and clean up local ACE files
 
-### `br ace show`
+### `br show`
 
 **Description:** Display local context managed by ByteRover CLI
 
