@@ -3,16 +3,17 @@ import {Command, Flags} from '@oclif/core'
 import type {IPlaybookService} from '../core/interfaces/i-playbook-service.js'
 
 import {FilePlaybookService} from '../infra/playbook/file-playbook-service.js'
+import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
+import {MixpanelTrackingService} from '../infra/tracking/mixpanel-tracking-service.js'
 
 export default class Add extends Command {
-  public static description =
-    'Add or update a bullet in the playbook (bypasses ACE workflow for direct agent usage)'
-public static examples = [
+  public static description = 'Add or update a bullet in the playbook (bypasses ACE workflow for direct agent usage)'
+  public static examples = [
     '<%= config.bin %> <%= command.id %> --section "Common Errors" --content "Authentication fails when token expires"',
     '<%= config.bin %> <%= command.id %> --section "Common Errors" --bullet-id "common-00001" --content "Updated: Auth fails when token expires"',
     '<%= config.bin %> <%= command.id %> -s "Best Practices" -c "Always validate user input before processing"',
   ]
-public static flags = {
+  public static flags = {
     'bullet-id': Flags.string({
       char: 'b',
       description: 'Bullet ID to update (if not provided, a new bullet will be created)',
@@ -41,9 +42,11 @@ public static flags = {
 
   protected createServices(): {
     playbookService: IPlaybookService
+    trackingService: MixpanelTrackingService
   } {
     return {
       playbookService: new FilePlaybookService(),
+      trackingService: new MixpanelTrackingService(new KeychainTokenStore()),
     }
   }
 
@@ -60,7 +63,10 @@ public static flags = {
         )
       }
 
-      const {playbookService} = this.createServices()
+      const {playbookService, trackingService} = this.createServices()
+
+      // Track add bullet
+      await trackingService.track('ace:add_bullet')
 
       // Call service method (throws on error)
       const bullet = await playbookService.addOrUpdateBullet({

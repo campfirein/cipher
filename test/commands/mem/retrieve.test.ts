@@ -8,6 +8,7 @@ import type {IMemoryRetrievalService} from '../../../src/core/interfaces/i-memor
 import type {IPlaybookStore} from '../../../src/core/interfaces/i-playbook-store.js'
 import type {IProjectConfigStore} from '../../../src/core/interfaces/i-project-config-store.js'
 import type {ITokenStore} from '../../../src/core/interfaces/i-token-store.js'
+import type {ITrackingService} from '../../../src/core/interfaces/i-tracking-service.js'
 
 import Retrieve from '../../../src/commands/mem/retrieve.js'
 import {AuthToken} from '../../../src/core/domain/entities/auth-token.js'
@@ -25,6 +26,7 @@ class TestableRetrieve extends Retrieve {
     private readonly mockPlaybookStore: IPlaybookStore,
     private readonly mockProjectConfigStore: IProjectConfigStore,
     private readonly mockTokenStore: ITokenStore,
+    private readonly mockTrackingService: ITrackingService,
     argv: string[],
     config: Config,
   ) {
@@ -37,6 +39,7 @@ class TestableRetrieve extends Retrieve {
       playbookStore: this.mockPlaybookStore,
       projectConfigStore: this.mockProjectConfigStore,
       tokenStore: this.mockTokenStore,
+      trackingService: this.mockTrackingService,
     }
   }
 }
@@ -47,6 +50,7 @@ describe('mem:retrieve command', () => {
   let playbookStore: sinon.SinonStubbedInstance<IPlaybookStore>
   let projectConfigStore: sinon.SinonStubbedInstance<IProjectConfigStore>
   let tokenStore: sinon.SinonStubbedInstance<ITokenStore>
+  let trackingService: sinon.SinonStubbedInstance<ITrackingService>
 
   const validToken = new AuthToken({
     accessToken: 'test-access-token',
@@ -111,6 +115,9 @@ describe('mem:retrieve command', () => {
       load: stub(),
       save: stub(),
     }
+    trackingService = {
+      track: stub<Parameters<ITrackingService['track']>, ReturnType<ITrackingService['track']>>().resolves(),
+    }
   })
 
   afterEach(() => {
@@ -129,6 +136,7 @@ describe('mem:retrieve command', () => {
         playbookStore,
         projectConfigStore,
         tokenStore,
+        trackingService,
         ['--query', 'test query', '--node-keys', 'path1,path2'],
         config,
       )
@@ -156,6 +164,7 @@ describe('mem:retrieve command', () => {
         playbookStore,
         projectConfigStore,
         tokenStore,
+        trackingService,
         ['--query', 'test query'],
         config,
       )
@@ -179,6 +188,7 @@ describe('mem:retrieve command', () => {
         playbookStore,
         projectConfigStore,
         tokenStore,
+        trackingService,
         ['-q', 'test query', '-n', 'path1'],
         config,
       )
@@ -199,6 +209,7 @@ describe('mem:retrieve command', () => {
         playbookStore,
         projectConfigStore,
         tokenStore,
+        trackingService,
         ['--query', 'test query', '--node-keys', 'path1,path2,path3'],
         config,
       )
@@ -220,6 +231,7 @@ describe('mem:retrieve command', () => {
         playbookStore,
         projectConfigStore,
         tokenStore,
+        trackingService,
         ['--query', 'test query', '--node-keys', ' path1 , path2 , path3 '],
         config,
       )
@@ -263,6 +275,7 @@ describe('mem:retrieve command', () => {
         playbookStore,
         projectConfigStore,
         tokenStore,
+        trackingService,
         ['--query', 'test query'],
         config,
       )
@@ -297,6 +310,7 @@ describe('mem:retrieve command', () => {
         playbookStore,
         projectConfigStore,
         tokenStore,
+        trackingService,
         ['--query', 'test query'],
         config,
       )
@@ -320,6 +334,7 @@ describe('mem:retrieve command', () => {
         playbookStore,
         projectConfigStore,
         tokenStore,
+        trackingService,
         ['--query', 'test query'],
         config,
       )
@@ -355,6 +370,7 @@ describe('mem:retrieve command', () => {
         playbookStore,
         projectConfigStore,
         tokenStore,
+        trackingService,
         ['--query', 'test query'],
         config,
       )
@@ -377,7 +393,15 @@ describe('mem:retrieve command', () => {
 
   describe('flag validation', () => {
     it('should require query flag', async () => {
-      const command = new TestableRetrieve(memoryService, playbookStore, projectConfigStore, tokenStore, [], config)
+      const command = new TestableRetrieve(
+        memoryService,
+        playbookStore,
+        projectConfigStore,
+        tokenStore,
+        trackingService,
+        [],
+        config,
+      )
 
       try {
         await command.run()
@@ -399,6 +423,7 @@ describe('mem:retrieve command', () => {
         playbookStore,
         projectConfigStore,
         tokenStore,
+        trackingService,
         ['--query', 'test query'],
         config,
       )
@@ -422,6 +447,7 @@ describe('mem:retrieve command', () => {
         playbookStore,
         projectConfigStore,
         tokenStore,
+        trackingService,
         ['--query', 'test query'],
         config,
       )
@@ -447,6 +473,7 @@ describe('mem:retrieve command', () => {
         playbookStore,
         projectConfigStore,
         tokenStore,
+        trackingService,
         ['--query', 'test query'],
         config,
       )
@@ -480,6 +507,7 @@ describe('mem:retrieve command', () => {
         playbookStore,
         projectConfigStore,
         tokenStore,
+        trackingService,
         ['--query', 'test query'],
         config,
       )
@@ -506,6 +534,7 @@ describe('mem:retrieve command', () => {
         playbookStore,
         projectConfigStore,
         tokenStore,
+        trackingService,
         ['--query', 'test query'],
         config,
       )

@@ -6,6 +6,7 @@ import sinon, {restore, stub} from 'sinon'
 
 import type {IProjectConfigStore} from '../../src/core/interfaces/i-project-config-store.js'
 import type {ITokenStore} from '../../src/core/interfaces/i-token-store.js'
+import type {ITrackingService} from '../../src/core/interfaces/i-tracking-service.js'
 
 import Status from '../../src/commands/status.js'
 import {AuthToken} from '../../src/core/domain/entities/auth-token.js'
@@ -18,6 +19,7 @@ class TestableStatus extends Status {
   constructor(
     private readonly mockConfigStore: IProjectConfigStore,
     private readonly mockTokenStore: ITokenStore,
+    private readonly mockTrackingService: ITrackingService,
     config: Config,
   ) {
     super([], config)
@@ -27,6 +29,7 @@ class TestableStatus extends Status {
     return {
       projectConfigStore: this.mockConfigStore,
       tokenStore: this.mockTokenStore,
+      trackingService: this.mockTrackingService,
     }
   }
 
@@ -51,6 +54,7 @@ describe('Status Command', () => {
   let config: Config
   let configStore: sinon.SinonStubbedInstance<IProjectConfigStore>
   let tokenStore: sinon.SinonStubbedInstance<ITokenStore>
+  let trackingService: sinon.SinonStubbedInstance<ITrackingService>
   let validToken: AuthToken
   let testConfig: BrConfig
 
@@ -63,6 +67,10 @@ describe('Status Command', () => {
       clear: stub(),
       load: stub(),
       save: stub(),
+    }
+
+    trackingService = {
+      track: stub<Parameters<ITrackingService['track']>, ReturnType<ITrackingService['track']>>().resolves(),
     }
 
     configStore = {
@@ -93,7 +101,7 @@ describe('Status Command', () => {
       tokenStore.load.resolves()
       configStore.exists.resolves(false)
 
-      const command = new TestableStatus(configStore, tokenStore, config)
+      const command = new TestableStatus(configStore, tokenStore, trackingService, config)
 
       await command.run()
 
@@ -114,7 +122,7 @@ describe('Status Command', () => {
       tokenStore.load.resolves(expiredToken)
       configStore.exists.resolves(false)
 
-      const command = new TestableStatus(configStore, tokenStore, config)
+      const command = new TestableStatus(configStore, tokenStore, trackingService, config)
 
       await command.run()
 
@@ -125,7 +133,7 @@ describe('Status Command', () => {
       tokenStore.load.resolves(validToken)
       configStore.exists.resolves(false)
 
-      const command = new TestableStatus(configStore, tokenStore, config)
+      const command = new TestableStatus(configStore, tokenStore, trackingService, config)
 
       await command.run()
 
@@ -137,7 +145,7 @@ describe('Status Command', () => {
       tokenStore.load.resolves(validToken)
       configStore.exists.resolves(false)
 
-      const command = new TestableStatus(configStore, tokenStore, config)
+      const command = new TestableStatus(configStore, tokenStore, trackingService, config)
 
       await command.run()
 
@@ -150,7 +158,7 @@ describe('Status Command', () => {
       configStore.exists.resolves(true)
       configStore.read.resolves(testConfig)
 
-      const command = new TestableStatus(configStore, tokenStore, config)
+      const command = new TestableStatus(configStore, tokenStore, trackingService, config)
 
       await command.run()
 
@@ -162,7 +170,7 @@ describe('Status Command', () => {
       tokenStore.load.rejects(new Error('Keychain access denied'))
       configStore.exists.resolves(false)
 
-      const command = new TestableStatus(configStore, tokenStore, config)
+      const command = new TestableStatus(configStore, tokenStore, trackingService, config)
 
       // Should not throw
       await command.run()
@@ -174,7 +182,7 @@ describe('Status Command', () => {
       tokenStore.load.resolves(validToken)
       configStore.exists.rejects(new Error('File system error'))
 
-      const command = new TestableStatus(configStore, tokenStore, config)
+      const command = new TestableStatus(configStore, tokenStore, trackingService, config)
 
       // Should not throw
       await command.run()
@@ -187,7 +195,7 @@ describe('Status Command', () => {
       configStore.exists.resolves(true)
       configStore.read.rejects(new Error('File read error'))
 
-      const command = new TestableStatus(configStore, tokenStore, config)
+      const command = new TestableStatus(configStore, tokenStore, trackingService, config)
 
       // Should not throw and should show auth section
       await command.run()
@@ -201,7 +209,7 @@ describe('Status Command', () => {
       configStore.exists.resolves(true)
       configStore.read.resolves()
 
-      const command = new TestableStatus(configStore, tokenStore, config)
+      const command = new TestableStatus(configStore, tokenStore, trackingService, config)
 
       // Should not throw
       await command.run()
@@ -215,7 +223,7 @@ describe('Status Command', () => {
       configStore.exists.resolves(true)
       configStore.read.resolves(testConfig)
 
-      const command = new TestableStatus(configStore, tokenStore, config)
+      const command = new TestableStatus(configStore, tokenStore, trackingService, config)
 
       await command.run()
 
@@ -229,7 +237,7 @@ describe('Status Command', () => {
       tokenStore.load.resolves(validToken)
       configStore.exists.resolves(false)
 
-      const command = new TestableStatus(configStore, tokenStore, config)
+      const command = new TestableStatus(configStore, tokenStore, trackingService, config)
 
       await command.run()
 
@@ -242,7 +250,7 @@ describe('Status Command', () => {
       configStore.exists.resolves(true)
       configStore.read.resolves(testConfig)
 
-      const command = new TestableStatus(configStore, tokenStore, config)
+      const command = new TestableStatus(configStore, tokenStore, trackingService, config)
 
       await command.run()
 

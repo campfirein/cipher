@@ -10,6 +10,7 @@ import type {IBrowserLauncher} from '../../src/core/interfaces/i-browser-launche
 import type {ICallbackHandler} from '../../src/core/interfaces/i-callback-handler.js'
 import type {IOidcDiscoveryService} from '../../src/core/interfaces/i-oidc-discovery-service.js'
 import type {ITokenStore} from '../../src/core/interfaces/i-token-store.js'
+import type {ITrackingService} from '../../src/core/interfaces/i-tracking-service.js'
 import type {IUserService} from '../../src/core/interfaces/i-user-service.js'
 
 import Login from '../../src/commands/login.js'
@@ -27,6 +28,7 @@ class TestableLogin extends Login {
     private readonly mockBrowserLauncher: IBrowserLauncher,
     private readonly mockTokenStore: ITokenStore,
     private readonly mockCallbackHandler: ICallbackHandler,
+    private readonly mockTrackingService: ITrackingService,
     private readonly mockDiscoveryService: IOidcDiscoveryService,
     private readonly mockUserService: IUserService,
     config: Config,
@@ -44,6 +46,7 @@ class TestableLogin extends Login {
       callbackHandler: this.mockCallbackHandler,
       discoveryService: this.mockDiscoveryService,
       tokenStore: this.mockTokenStore,
+      trackingService: this.mockTrackingService,
       userService: this.mockUserService,
     }
   }
@@ -72,6 +75,7 @@ describe('login command', () => {
   let config: Config
   let discoveryService: SinonStubbedInstance<IOidcDiscoveryService>
   let tokenStore: SinonStubbedInstance<ITokenStore>
+  let trackingService: SinonStubbedInstance<ITrackingService>
   let userService: SinonStubbedInstance<IUserService>
 
   before(async () => {
@@ -104,6 +108,10 @@ describe('login command', () => {
 
     discoveryService = {
       discover: stub(),
+    }
+
+    trackingService = {
+      track: stub<Parameters<ITrackingService['track']>, ReturnType<ITrackingService['track']>>().resolves(),
     }
 
     userService = {
@@ -146,6 +154,7 @@ describe('login command', () => {
         browserLauncher,
         tokenStore,
         callbackHandler,
+        trackingService,
         discoveryService,
         userService,
         config,
@@ -204,6 +213,7 @@ describe('login command', () => {
         browserLauncher,
         tokenStore,
         callbackHandler,
+        trackingService,
         discoveryService,
         userService,
         config,
@@ -253,6 +263,7 @@ describe('login command', () => {
         browserLauncher,
         tokenStore,
         callbackHandler,
+        trackingService,
         discoveryService,
         userService,
         config,
@@ -291,6 +302,7 @@ describe('login command', () => {
         browserLauncher,
         tokenStore,
         callbackHandler,
+        trackingService,
         discoveryService,
         userService,
         config,
@@ -331,6 +343,7 @@ describe('login command', () => {
         browserLauncher,
         tokenStore,
         callbackHandler,
+        trackingService,
         discoveryService,
         userService,
         config,
@@ -361,6 +374,7 @@ describe('login command', () => {
         browserLauncher,
         tokenStore,
         callbackHandler,
+        trackingService,
         discoveryService,
         userService,
         config,
@@ -411,6 +425,7 @@ describe('login command', () => {
         browserLauncher,
         tokenStore,
         callbackHandler,
+        trackingService,
         discoveryService,
         userService,
         config,
@@ -459,6 +474,7 @@ describe('login command', () => {
         browserLauncher,
         tokenStore,
         callbackHandler,
+        trackingService,
         discoveryService,
         userService,
         config,

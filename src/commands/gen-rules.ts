@@ -4,10 +4,13 @@ import {Command} from '@oclif/core'
 import {type Agent, AGENT_VALUES} from '../core/domain/entities/agent.js'
 import {RuleExistsError} from '../core/domain/errors/rule-error.js'
 import {type IRuleWriterService} from '../core/interfaces/i-rule-writer-service.js'
+import {ITrackingService} from '../core/interfaces/i-tracking-service.js'
 import {FsFileService} from '../infra/file/fs-file-service.js'
 import {RuleTemplateService} from '../infra/rule/rule-template-service.js'
 import {RuleWriterService} from '../infra/rule/rule-writer-service.js'
+import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
 import {FsTemplateLoader} from '../infra/template/fs-template-loader.js'
+import {MixpanelTrackingService} from '../infra/tracking/mixpanel-tracking-service.js'
 
 /**
  * Array of all agents with name and value properties.
@@ -24,6 +27,7 @@ export default class GenRules extends Command {
 
   protected createServices(): {
     ruleWriterService: IRuleWriterService
+    trackingService: ITrackingService
   } {
     const fileService = new FsFileService()
     const templateLoader = new FsTemplateLoader(fileService)
@@ -31,6 +35,7 @@ export default class GenRules extends Command {
 
     return {
       ruleWriterService: new RuleWriterService(fileService, templateService),
+      trackingService: new MixpanelTrackingService(new KeychainTokenStore()),
     }
   }
 
@@ -70,7 +75,10 @@ export default class GenRules extends Command {
   }
 
   public async run(): Promise<void> {
-    const {ruleWriterService} = this.createServices()
+    const {ruleWriterService, trackingService} = this.createServices()
+
+    // Track rule generation
+    await trackingService.track('rule:generate')
 
     // Interactive selection with search
     const answer = await this.promptForAgentSelection()

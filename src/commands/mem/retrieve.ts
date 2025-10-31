@@ -8,11 +8,13 @@ import type {IProjectConfigStore} from '../../core/interfaces/i-project-config-s
 import type {ITokenStore} from '../../core/interfaces/i-token-store.js'
 
 import {getCurrentConfig} from '../../config/environment.js'
+import {ITrackingService} from '../../core/interfaces/i-tracking-service.js'
 import {FilePlaybookStore} from '../../infra/ace/file-playbook-store.js'
 import {ProjectConfigStore} from '../../infra/config/file-config-store.js'
 import {HttpMemoryRetrievalService} from '../../infra/memory/http-memory-retrieval-service.js'
 import {transformRetrieveResultToPlaybook} from '../../infra/memory/memory-to-playbook-mapper.js'
 import {KeychainTokenStore} from '../../infra/storage/keychain-token-store.js'
+import {MixpanelTrackingService} from '../../infra/tracking/mixpanel-tracking-service.js'
 
 export default class Retrieve extends Command {
   public static description = 'Retrieve memories from ByteRover Memora service and save to local ACE playbook'
@@ -53,25 +55,33 @@ export default class Retrieve extends Command {
     playbookStore: IPlaybookStore
     projectConfigStore: IProjectConfigStore
     tokenStore: ITokenStore
+    trackingService: ITrackingService
   } {
     const envConfig = getCurrentConfig()
+    const tokenStore = new KeychainTokenStore()
+    const trackingService = new MixpanelTrackingService(tokenStore)
+
     return {
       memoryService: new HttpMemoryRetrievalService({
         apiBaseUrl: envConfig.memoraApiBaseUrl,
       }),
       playbookStore: new FilePlaybookStore(),
       projectConfigStore: new ProjectConfigStore(),
-      tokenStore: new KeychainTokenStore(),
+      tokenStore,
+      trackingService,
     }
   }
 
   public async run(): Promise<void> {
     const {flags} = await this.parse(Retrieve)
-    const {memoryService, playbookStore, projectConfigStore, tokenStore} = this.createServices()
+    const {memoryService, playbookStore, projectConfigStore, tokenStore, trackingService} = this.createServices()
 
     try {
       const token = await this.validateAuth(tokenStore)
       const config = await this.checkProjectInt(projectConfigStore)
+
+      // Initialize tracking service
+      await trackingService.track('mem:retrieve')
 
       // Parse node-keys if provided
       const nodeKeys = flags['node-keys'] ? flags['node-keys'].split(',').map((key) => key.trim()) : undefined
@@ -100,7 +110,9 @@ export default class Retrieve extends Command {
         await playbookStore.save(playbook)
         this.log('\n✓ Saved memories to playbook')
       } catch (playbookError) {
-        this.warn(`Failed to save memories to playbook: ${playbookError instanceof Error ? playbookError.message : 'Unknown error'}`)
+        this.warn(
+          `Failed to save memories to playbook: ${playbookError instanceof Error ? playbookError.message : 'Unknown error'}`,
+        )
       }
 
       // Display memories
