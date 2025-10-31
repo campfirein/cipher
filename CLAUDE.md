@@ -180,7 +180,7 @@ Test subclasses override to inject mocks.
 - ES modules: `"type": "module"`, **all imports need `.js` extension**
 - Interface names: `I` prefix
 - Snake_case APIs: `/* eslint-disable camelcase */`
-- Entity serialization: `toJSON()` / `fromJSON()` (capital J)
+- Entity serialization: `toJson()` / `fromJson()` (capital J)
 
 ## OAuth Flow
 
