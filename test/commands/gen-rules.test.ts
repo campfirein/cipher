@@ -6,6 +6,7 @@ import sinon, {restore, stub} from 'sinon'
 
 import type {Agent} from '../../src/core/domain/entities/agent.js'
 import type {IRuleWriterService} from '../../src/core/interfaces/i-rule-writer-service.js'
+import type {ITrackingService} from '../../src/core/interfaces/i-tracking-service.js'
 
 import GenRules from '../../src/commands/gen-rules.js'
 import {RuleExistsError} from '../../src/core/domain/errors/rule-error.js'
@@ -14,8 +15,10 @@ import {RuleExistsError} from '../../src/core/domain/errors/rule-error.js'
  * Testable GenRules command that accepts mocked services
  */
 class TestableGenRules extends GenRules {
+  // eslint-disable-next-line max-params
   constructor(
     private readonly mockRuleWriterService: IRuleWriterService,
+    private readonly mockTrackingService: ITrackingService,
     private readonly mockSelectedAgent: Agent,
     private readonly mockOverwriteConfirmation: boolean,
     config: Config,
@@ -26,6 +29,7 @@ class TestableGenRules extends GenRules {
   protected createServices() {
     return {
       ruleWriterService: this.mockRuleWriterService,
+      trackingService: this.mockTrackingService,
     }
   }
 
@@ -43,6 +47,7 @@ class TestableGenRules extends GenRules {
 describe('GenRules Command', () => {
   let config: Config
   let ruleWriterService: sinon.SinonStubbedInstance<IRuleWriterService>
+  let trackingService: sinon.SinonStubbedInstance<ITrackingService>
 
   before(async () => {
     config = await OclifConfig.load(import.meta.url)
@@ -51,6 +56,9 @@ describe('GenRules Command', () => {
   beforeEach(() => {
     ruleWriterService = {
       writeRule: stub(),
+    }
+    trackingService = {
+      track: stub<Parameters<ITrackingService['track']>, ReturnType<ITrackingService['track']>>().resolves(),
     }
   })
 
@@ -62,7 +70,7 @@ describe('GenRules Command', () => {
     it('should successfully generate rule file for Claude Code', async () => {
       ruleWriterService.writeRule.resolves()
 
-      const command = new TestableGenRules(ruleWriterService, 'Claude Code', false, config)
+      const command = new TestableGenRules(ruleWriterService, trackingService, 'Claude Code', false, config)
 
       await command.run()
 
@@ -73,7 +81,7 @@ describe('GenRules Command', () => {
     it('should successfully generate rule file for Cursor', async () => {
       ruleWriterService.writeRule.resolves()
 
-      const command = new TestableGenRules(ruleWriterService, 'Cursor', false, config)
+      const command = new TestableGenRules(ruleWriterService, trackingService, 'Cursor', false, config)
 
       await command.run()
 
@@ -84,7 +92,7 @@ describe('GenRules Command', () => {
     it('should successfully generate rule file for Windsurf', async () => {
       ruleWriterService.writeRule.resolves()
 
-      const command = new TestableGenRules(ruleWriterService, 'Windsurf', false, config)
+      const command = new TestableGenRules(ruleWriterService, trackingService, 'Windsurf', false, config)
 
       await command.run()
 
@@ -95,7 +103,7 @@ describe('GenRules Command', () => {
     it('should successfully generate rule file for Cline', async () => {
       ruleWriterService.writeRule.resolves()
 
-      const command = new TestableGenRules(ruleWriterService, 'Cline', false, config)
+      const command = new TestableGenRules(ruleWriterService, trackingService, 'Cline', false, config)
 
       await command.run()
 
@@ -109,6 +117,7 @@ describe('GenRules Command', () => {
 
       const command = new TestableGenRules(
         ruleWriterService,
+        trackingService,
         'Claude Code',
         true, // User confirms overwrite
         config,
@@ -126,6 +135,7 @@ describe('GenRules Command', () => {
 
       const command = new TestableGenRules(
         ruleWriterService,
+        trackingService,
         'Cursor',
         false, // User declines overwrite
         config,
@@ -142,7 +152,7 @@ describe('GenRules Command', () => {
       ruleWriterService.writeRule.onFirstCall().rejects(ruleExistsError)
       ruleWriterService.writeRule.onSecondCall().resolves()
 
-      const command = new TestableGenRules(ruleWriterService, 'Windsurf', true, config)
+      const command = new TestableGenRules(ruleWriterService, trackingService, 'Windsurf', true, config)
 
       await command.run()
 
@@ -155,7 +165,7 @@ describe('GenRules Command', () => {
       const genericError = new Error('File system error')
       ruleWriterService.writeRule.rejects(genericError)
 
-      const command = new TestableGenRules(ruleWriterService, 'Claude Code', false, config)
+      const command = new TestableGenRules(ruleWriterService, trackingService, 'Claude Code', false, config)
 
       try {
         await command.run()
@@ -169,7 +179,7 @@ describe('GenRules Command', () => {
     it('should throw error when rule writer service throws unknown error', async () => {
       ruleWriterService.writeRule.rejects(new Error('Unknown error'))
 
-      const command = new TestableGenRules(ruleWriterService, 'Cursor', false, config)
+      const command = new TestableGenRules(ruleWriterService, trackingService, 'Cursor', false, config)
 
       try {
         await command.run()
@@ -184,7 +194,7 @@ describe('GenRules Command', () => {
       ruleWriterService.writeRule.onFirstCall().rejects(new RuleExistsError())
       ruleWriterService.writeRule.onSecondCall().rejects(new Error('Write failed'))
 
-      const command = new TestableGenRules(ruleWriterService, 'Cline', true, config)
+      const command = new TestableGenRules(ruleWriterService, trackingService, 'Cline', true, config)
 
       try {
         await command.run()
@@ -220,7 +230,7 @@ describe('GenRules Command', () => {
       for (const agent of agents) {
         ruleWriterService.writeRule.resolves()
 
-        const command = new TestableGenRules(ruleWriterService, agent, false, config)
+        const command = new TestableGenRules(ruleWriterService, trackingService, agent, false, config)
 
         // eslint-disable-next-line no-await-in-loop
         await command.run()

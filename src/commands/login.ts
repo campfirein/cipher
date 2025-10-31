@@ -11,11 +11,13 @@ import {getAuthConfig} from '../config/auth.config.js'
 import {getCurrentConfig} from '../config/environment.js'
 import {AuthToken} from '../core/domain/entities/auth-token.js'
 import {DiscoveryError} from '../core/domain/errors/discovery-error.js'
+import {ITrackingService} from '../core/interfaces/i-tracking-service.js'
 import {OAuthService} from '../infra/auth/oauth-service.js'
 import {OidcDiscoveryService} from '../infra/auth/oidc-discovery-service.js'
 import {SystemBrowserLauncher} from '../infra/browser/system-browser-launcher.js'
 import {CallbackHandler} from '../infra/http/callback-handler.js'
 import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
+import {MixpanelTrackingService} from '../infra/tracking/mixpanel-tracking-service.js'
 import {HttpUserService} from '../infra/user/http-user-service.js'
 
 export default class Login extends Command {
@@ -37,20 +39,25 @@ export default class Login extends Command {
     callbackHandler: ICallbackHandler
     discoveryService: IOidcDiscoveryService
     tokenStore: ITokenStore
+    trackingService: ITrackingService
     userService: IUserService
   } {
     const config = getCurrentConfig()
+    const tokenStore = new KeychainTokenStore()
+    const trackingService = new MixpanelTrackingService(tokenStore)
+
     return {
       browserLauncher: new SystemBrowserLauncher(),
       callbackHandler: new CallbackHandler(),
       discoveryService: new OidcDiscoveryService(),
-      tokenStore: new KeychainTokenStore(),
+      tokenStore,
+      trackingService,
       userService: new HttpUserService({apiBaseUrl: config.apiBaseUrl}),
     }
   }
 
   public async run(): Promise<void> {
-    const {browserLauncher, callbackHandler, discoveryService, tokenStore, userService} = this.createServices()
+    const {browserLauncher, callbackHandler, discoveryService, tokenStore, trackingService, userService} = this.createServices()
 
     try {
       this.log('Starting authentication process...')
@@ -81,6 +88,13 @@ export default class Login extends Command {
         // Browser launch failed, will return URL to user
       }
 
+      // If browser failed to open, display the URL for manual copy
+      if (!browserOpened) {
+        this.log('\nBrowser failed to open automatically.')
+        this.log('Please open this URL in your browser:')
+        this.log(authContext.authUrl)
+      }
+
       try {
         // Wait for callback with 5 minute timeout
         const {code} = await callbackHandler.waitForCallback(authContext.state, 5 * 60 * 1000)
@@ -98,14 +112,10 @@ export default class Login extends Command {
 
         await tokenStore.save(authToken)
 
-        this.log('Successfully authenticated!')
+        // Track successful authentication
+        await trackingService.track('auth:signed_in')
 
-        // If browser failed to open, display the URL for manual copy
-        if (!browserOpened) {
-          this.log('\nBrowser failed to open automatically.')
-          this.log('Please open this URL in your browser:')
-          this.log(authContext.authUrl)
-        }
+        this.log('Successfully authenticated!')
       } catch (error) {
         this.error(error instanceof Error ? error.message : 'Authentication failed')
       }

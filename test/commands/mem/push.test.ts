@@ -8,6 +8,7 @@ import type {IMemoryStorageService} from '../../../src/core/interfaces/i-memory-
 import type {IPlaybookStore} from '../../../src/core/interfaces/i-playbook-store.js'
 import type {IProjectConfigStore} from '../../../src/core/interfaces/i-project-config-store.js'
 import type {ITokenStore} from '../../../src/core/interfaces/i-token-store.js'
+import type {ITrackingService} from '../../../src/core/interfaces/i-tracking-service.js'
 
 import MemPush from '../../../src/commands/mem/push.js'
 import {AuthToken} from '../../../src/core/domain/entities/auth-token.js'
@@ -23,6 +24,7 @@ class TestableMemPush extends MemPush {
     private readonly mockPlaybookStore: IPlaybookStore,
     private readonly mockConfigStore: IProjectConfigStore,
     private readonly mockTokenStore: ITokenStore,
+    private readonly mockTrackingService: ITrackingService,
     config: Config,
   ) {
     super([], config)
@@ -34,6 +36,7 @@ class TestableMemPush extends MemPush {
       playbookStore: this.mockPlaybookStore,
       projectConfigStore: this.mockConfigStore,
       tokenStore: this.mockTokenStore,
+      trackingService: this.mockTrackingService,
     }
   }
 }
@@ -45,6 +48,7 @@ describe('MemPush Command', () => {
   let playbookStore: sinon.SinonStubbedInstance<IPlaybookStore>
   let projectConfig: BrConfig
   let tokenStore: sinon.SinonStubbedInstance<ITokenStore>
+  let trackingService: sinon.SinonStubbedInstance<ITrackingService>
   let validToken: AuthToken
 
   before(async () => {
@@ -56,6 +60,9 @@ describe('MemPush Command', () => {
     playbookStore = {clear: stub(), delete: stub(), exists: stub(), load: stub(), save: stub()}
     configStore = {exists: stub(), read: stub(), write: stub()}
     tokenStore = {clear: stub(), load: stub(), save: stub()}
+    trackingService = {
+      track: stub<Parameters<ITrackingService['track']>, ReturnType<ITrackingService['track']>>().resolves(),
+    }
 
     validToken = new AuthToken({
       accessToken: 'access-token',
@@ -78,7 +85,14 @@ describe('MemPush Command', () => {
     it('should error when not authenticated', async () => {
       tokenStore.load.resolves()
 
-      const command = new TestableMemPush(memoryService, playbookStore, configStore, tokenStore, config)
+      const command = new TestableMemPush(
+        memoryService,
+        playbookStore,
+        configStore,
+        tokenStore,
+        trackingService,
+        config,
+      )
 
       try {
         await command.run()
@@ -101,7 +115,14 @@ describe('MemPush Command', () => {
 
       tokenStore.load.resolves(expiredToken)
 
-      const command = new TestableMemPush(memoryService, playbookStore, configStore, tokenStore, config)
+      const command = new TestableMemPush(
+        memoryService,
+        playbookStore,
+        configStore,
+        tokenStore,
+        trackingService,
+        config,
+      )
 
       try {
         await command.run()
@@ -115,7 +136,14 @@ describe('MemPush Command', () => {
       tokenStore.load.resolves(validToken)
       configStore.read.resolves()
 
-      const command = new TestableMemPush(memoryService, playbookStore, configStore, tokenStore, config)
+      const command = new TestableMemPush(
+        memoryService,
+        playbookStore,
+        configStore,
+        tokenStore,
+        trackingService,
+        config,
+      )
 
       try {
         await command.run()
@@ -130,7 +158,14 @@ describe('MemPush Command', () => {
       configStore.read.resolves(projectConfig)
       playbookStore.exists.resolves(false)
 
-      const command = new TestableMemPush(memoryService, playbookStore, configStore, tokenStore, config)
+      const command = new TestableMemPush(
+        memoryService,
+        playbookStore,
+        configStore,
+        tokenStore,
+        trackingService,
+        config,
+      )
 
       try {
         await command.run()
@@ -163,7 +198,14 @@ describe('MemPush Command', () => {
       memoryService.uploadFile.resolves()
       memoryService.confirmUpload.resolves()
 
-      const command = new TestableMemPush(memoryService, playbookStore, configStore, tokenStore, config)
+      const command = new TestableMemPush(
+        memoryService,
+        playbookStore,
+        configStore,
+        tokenStore,
+        trackingService,
+        config,
+      )
 
       await command.run()
 
@@ -201,7 +243,14 @@ describe('MemPush Command', () => {
       memoryService.uploadFile.resolves()
       memoryService.confirmUpload.resolves()
 
-      const command = new TestableMemPush(memoryService, playbookStore, configStore, tokenStore, config)
+      const command = new TestableMemPush(
+        memoryService,
+        playbookStore,
+        configStore,
+        tokenStore,
+        trackingService,
+        config,
+      )
       command.argv = ['--branch', 'develop']
 
       await command.run()
@@ -239,7 +288,14 @@ describe('MemPush Command', () => {
       memoryService.uploadFile.resolves()
       memoryService.confirmUpload.resolves()
 
-      const command = new TestableMemPush(memoryService, playbookStore, configStore, tokenStore, config)
+      const command = new TestableMemPush(
+        memoryService,
+        playbookStore,
+        configStore,
+        tokenStore,
+        trackingService,
+        config,
+      )
       command.argv = ['-b', 'feature']
 
       await command.run()
@@ -277,7 +333,14 @@ describe('MemPush Command', () => {
       memoryService.uploadFile.resolves()
       memoryService.confirmUpload.resolves()
 
-      const command = new TestableMemPush(memoryService, playbookStore, configStore, tokenStore, config)
+      const command = new TestableMemPush(
+        memoryService,
+        playbookStore,
+        configStore,
+        tokenStore,
+        trackingService,
+        config,
+      )
 
       await command.run()
 
@@ -292,7 +355,14 @@ describe('MemPush Command', () => {
       playbookStore.exists.resolves(true)
       memoryService.getPresignedUrls.rejects(new Error('Network timeout'))
 
-      const command = new TestableMemPush(memoryService, playbookStore, configStore, tokenStore, config)
+      const command = new TestableMemPush(
+        memoryService,
+        playbookStore,
+        configStore,
+        tokenStore,
+        trackingService,
+        config,
+      )
 
       try {
         await command.run()
@@ -307,7 +377,14 @@ describe('MemPush Command', () => {
       configStore.read.resolves(projectConfig)
       playbookStore.exists.rejects(new Error('File system error'))
 
-      const command = new TestableMemPush(memoryService, playbookStore, configStore, tokenStore, config)
+      const command = new TestableMemPush(
+        memoryService,
+        playbookStore,
+        configStore,
+        tokenStore,
+        trackingService,
+        config,
+      )
 
       try {
         await command.run()
@@ -340,7 +417,14 @@ describe('MemPush Command', () => {
       memoryService.uploadFile.resolves()
       memoryService.confirmUpload.resolves()
 
-      const command = new TestableMemPush(memoryService, playbookStore, configStore, tokenStore, config)
+      const command = new TestableMemPush(
+        memoryService,
+        playbookStore,
+        configStore,
+        tokenStore,
+        trackingService,
+        config,
+      )
 
       await command.run()
 
@@ -369,7 +453,14 @@ describe('MemPush Command', () => {
       memoryService.uploadFile.resolves()
       memoryService.confirmUpload.resolves()
 
-      const command = new TestableMemPush(memoryService, playbookStore, configStore, tokenStore, config)
+      const command = new TestableMemPush(
+        memoryService,
+        playbookStore,
+        configStore,
+        tokenStore,
+        trackingService,
+        config,
+      )
 
       await command.run()
 
@@ -396,7 +487,14 @@ describe('MemPush Command', () => {
       memoryService.uploadFile.resolves()
       memoryService.confirmUpload.resolves()
 
-      const command = new TestableMemPush(memoryService, playbookStore, configStore, tokenStore, config)
+      const command = new TestableMemPush(
+        memoryService,
+        playbookStore,
+        configStore,
+        tokenStore,
+        trackingService,
+        config,
+      )
 
       await command.run()
 
@@ -431,7 +529,14 @@ describe('MemPush Command', () => {
       memoryService.uploadFile.resolves()
       memoryService.confirmUpload.resolves()
 
-      const command = new TestableMemPush(memoryService, playbookStore, configStore, tokenStore, config)
+      const command = new TestableMemPush(
+        memoryService,
+        playbookStore,
+        configStore,
+        tokenStore,
+        trackingService,
+        config,
+      )
 
       await command.run()
 
@@ -460,7 +565,14 @@ describe('MemPush Command', () => {
       )
       memoryService.uploadFile.rejects(new Error('Upload failed: Network error'))
 
-      const command = new TestableMemPush(memoryService, playbookStore, configStore, tokenStore, config)
+      const command = new TestableMemPush(
+        memoryService,
+        playbookStore,
+        configStore,
+        tokenStore,
+        trackingService,
+        config,
+      )
 
       try {
         await command.run()
@@ -482,7 +594,14 @@ describe('MemPush Command', () => {
         ),
       )
 
-      const command = new TestableMemPush(memoryService, playbookStore, configStore, tokenStore, config)
+      const command = new TestableMemPush(
+        memoryService,
+        playbookStore,
+        configStore,
+        tokenStore,
+        trackingService,
+        config,
+      )
 
       try {
         await command.run()
@@ -519,7 +638,14 @@ describe('MemPush Command', () => {
       memoryService.confirmUpload.resolves()
       playbookStore.clear.resolves()
 
-      const command = new TestableMemPush(memoryService, playbookStore, configStore, tokenStore, config)
+      const command = new TestableMemPush(
+        memoryService,
+        playbookStore,
+        configStore,
+        tokenStore,
+        trackingService,
+        config,
+      )
 
       await command.run()
 
@@ -549,7 +675,14 @@ describe('MemPush Command', () => {
       memoryService.uploadFile.rejects(new Error('Upload failed'))
       playbookStore.clear.resolves()
 
-      const command = new TestableMemPush(memoryService, playbookStore, configStore, tokenStore, config)
+      const command = new TestableMemPush(
+        memoryService,
+        playbookStore,
+        configStore,
+        tokenStore,
+        trackingService,
+        config,
+      )
 
       try {
         await command.run()
@@ -584,7 +717,14 @@ describe('MemPush Command', () => {
       memoryService.confirmUpload.resolves()
       playbookStore.clear.rejects(new Error('Clear failed'))
 
-      const command = new TestableMemPush(memoryService, playbookStore, configStore, tokenStore, config)
+      const command = new TestableMemPush(
+        memoryService,
+        playbookStore,
+        configStore,
+        tokenStore,
+        trackingService,
+        config,
+      )
 
       try {
         await command.run()
@@ -617,7 +757,14 @@ describe('MemPush Command', () => {
       memoryService.uploadFile.resolves()
       memoryService.confirmUpload.resolves()
 
-      const command = new TestableMemPush(memoryService, playbookStore, configStore, tokenStore, config)
+      const command = new TestableMemPush(
+        memoryService,
+        playbookStore,
+        configStore,
+        tokenStore,
+        trackingService,
+        config,
+      )
 
       await command.run()
 
@@ -647,7 +794,14 @@ describe('MemPush Command', () => {
       memoryService.uploadFile.resolves()
       memoryService.confirmUpload.resolves()
 
-      const command = new TestableMemPush(memoryService, playbookStore, configStore, tokenStore, config)
+      const command = new TestableMemPush(
+        memoryService,
+        playbookStore,
+        configStore,
+        tokenStore,
+        trackingService,
+        config,
+      )
 
       await command.run()
 
@@ -684,7 +838,14 @@ describe('MemPush Command', () => {
       memoryService.confirmUpload.rejects(new Error('Confirmation failed'))
       playbookStore.clear.resolves()
 
-      const command = new TestableMemPush(memoryService, playbookStore, configStore, tokenStore, config)
+      const command = new TestableMemPush(
+        memoryService,
+        playbookStore,
+        configStore,
+        tokenStore,
+        trackingService,
+        config,
+      )
 
       try {
         await command.run()

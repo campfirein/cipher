@@ -11,15 +11,18 @@ import type {ITokenStore} from '../core/interfaces/i-token-store.js'
 
 import {getCurrentConfig} from '../config/environment.js'
 import {BrConfig} from '../core/domain/entities/br-config.js'
+import {ITrackingService} from '../core/interfaces/i-tracking-service.js'
 import {ProjectConfigStore} from '../infra/config/file-config-store.js'
 import {FilePlaybookService} from '../infra/playbook/file-playbook-service.js'
 import {HttpSpaceService} from '../infra/space/http-space-service.js'
 import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
 import {HttpTeamService} from '../infra/team/http-team-service.js'
+import {MixpanelTrackingService} from '../infra/tracking/mixpanel-tracking-service.js'
 
 export default class Init extends Command {
-  public static description = 'Initialize a project with ByteRover (creates .br/config.json with team/space selection and initializes ACE playbook)'
-public static examples = [
+  public static description =
+    'Initialize a project with ByteRover (creates .br/config.json with team/space selection and initializes ACE playbook)'
+  public static examples = [
     '<%= config.bin %> <%= command.id %>',
     '# Re-initialize if config exists (will show current config and exit):\n<%= config.bin %> <%= command.id %>',
     '# Full workflow: login then initialize:\n<%= config.bin %> login\n<%= config.bin %> <%= command.id %>',
@@ -31,8 +34,12 @@ public static examples = [
     spaceService: ISpaceService
     teamService: ITeamService
     tokenStore: ITokenStore
+    trackingService: ITrackingService
   } {
     const envConfig = getCurrentConfig()
+    const tokenStore = new KeychainTokenStore()
+    const trackingService = new MixpanelTrackingService(tokenStore)
+
     return {
       playbookService: new FilePlaybookService(),
       projectConfigStore: new ProjectConfigStore(),
@@ -42,7 +49,8 @@ public static examples = [
       teamService: new HttpTeamService({
         apiBaseUrl: envConfig.apiBaseUrl,
       }),
-      tokenStore: new KeychainTokenStore(),
+      tokenStore,
+      trackingService,
     }
   }
 
@@ -82,7 +90,8 @@ public static examples = [
 
   public async run(): Promise<void> {
     try {
-      const {playbookService, projectConfigStore, spaceService, teamService, tokenStore} = this.createServices()
+      const {playbookService, projectConfigStore, spaceService, teamService, tokenStore, trackingService} =
+        this.createServices()
 
       // 1. Check if already initialized
       const isInitialized = await projectConfigStore.exists()
@@ -159,6 +168,9 @@ public static examples = [
       this.log(`\nGenerate rule instructions for coding agents to work with ByteRover correctly`)
       this.log()
       await this.config.runCommand('gen-rules')
+
+      // Track space initialization
+      await trackingService.track('space:init')
 
       // 10. Display success
       this.log(`\n✓ Project initialized successfully!`)

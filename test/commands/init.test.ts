@@ -11,6 +11,7 @@ import type {IProjectConfigStore} from '../../src/core/interfaces/i-project-conf
 import type {ISpaceService} from '../../src/core/interfaces/i-space-service.js'
 import type {ITeamService} from '../../src/core/interfaces/i-team-service.js'
 import type {ITokenStore} from '../../src/core/interfaces/i-token-store.js'
+import type {ITrackingService} from '../../src/core/interfaces/i-tracking-service.js'
 
 import Init from '../../src/commands/init.js'
 import {AuthToken} from '../../src/core/domain/entities/auth-token.js'
@@ -28,6 +29,7 @@ class TestableInit extends Init {
     private readonly mockSpaceService: ISpaceService,
     private readonly mockTeamService: ITeamService,
     private readonly mockTokenStore: ITokenStore,
+    private readonly mockTrackingService: ITrackingService,
     private readonly mockSelectedTeam: Team,
     private readonly mockSelectedSpace: Space,
     config: Config,
@@ -42,6 +44,7 @@ class TestableInit extends Init {
       spaceService: this.mockSpaceService,
       teamService: this.mockTeamService,
       tokenStore: this.mockTokenStore,
+      trackingService: this.mockTrackingService,
     }
   }
 
@@ -80,6 +83,7 @@ describe('Init Command', () => {
   let testSpaces: Space[]
   let testTeams: Team[]
   let tokenStore: sinon.SinonStubbedInstance<ITokenStore>
+  let trackingService: sinon.SinonStubbedInstance<ITrackingService>
   let uxActionStartStub: sinon.SinonStub
   let uxActionStopStub: sinon.SinonStub
   let validToken: AuthToken
@@ -117,6 +121,10 @@ describe('Init Command', () => {
       applyDelta: stub(),
       applyReflectionTags: stub(),
       initialize: stub<[directory?: string], Promise<string>>().resolves('/test/.br/ace/playbook.json'),
+    }
+
+    trackingService = {
+      track: stub<Parameters<ITrackingService['track']>, ReturnType<ITrackingService['track']>>().resolves(),
     }
 
     // Mock config.runCommand to prevent actual gen-rules execution
@@ -168,6 +176,7 @@ describe('Init Command', () => {
         spaceService,
         teamService,
         tokenStore,
+        trackingService,
         testTeams[0],
         testSpaces[0],
         config,
@@ -189,6 +198,7 @@ describe('Init Command', () => {
         spaceService,
         teamService,
         tokenStore,
+        trackingService,
         testTeams[0],
         testSpaces[0],
         config,
@@ -223,6 +233,7 @@ describe('Init Command', () => {
         spaceService,
         teamService,
         tokenStore,
+        trackingService,
         testTeams[0],
         testSpaces[0],
         config,
@@ -248,6 +259,7 @@ describe('Init Command', () => {
         spaceService,
         teamService,
         tokenStore,
+        trackingService,
         testTeams[0],
         testSpaces[0],
         config,
@@ -274,6 +286,7 @@ describe('Init Command', () => {
         spaceService,
         teamService,
         tokenStore,
+        trackingService,
         testTeams[0],
         testSpaces[0],
         config,
@@ -301,6 +314,7 @@ describe('Init Command', () => {
         spaceService,
         teamService,
         tokenStore,
+        trackingService,
         testTeams[0],
         testSpaces[0],
         config,
@@ -332,6 +346,7 @@ describe('Init Command', () => {
         spaceService,
         teamService,
         tokenStore,
+        trackingService,
         testTeams[0],
         testSpaces[1],
         config,
@@ -355,6 +370,7 @@ describe('Init Command', () => {
         spaceService,
         teamService,
         tokenStore,
+        trackingService,
         testTeams[0],
         testSpaces[0],
         config,
@@ -381,6 +397,7 @@ describe('Init Command', () => {
         spaceService,
         teamService,
         tokenStore,
+        trackingService,
         testTeams[0],
         testSpaces[0],
         config,
@@ -408,6 +425,7 @@ describe('Init Command', () => {
         spaceService,
         teamService,
         tokenStore,
+        trackingService,
         testTeams[0],
         testSpaces[0],
         config,
@@ -435,6 +453,7 @@ describe('Init Command', () => {
         spaceService,
         teamService,
         tokenStore,
+        trackingService,
         testTeams[0],
         testSpaces[0],
         config,
@@ -459,6 +478,7 @@ describe('Init Command', () => {
         spaceService,
         teamService,
         tokenStore,
+        trackingService,
         testTeams[0],
         testSpaces[0],
         config,
@@ -483,6 +503,7 @@ describe('Init Command', () => {
         spaceService,
         teamService,
         tokenStore,
+        trackingService,
         testTeams[0],
         testSpaces[0],
         config,
@@ -508,6 +529,7 @@ describe('Init Command', () => {
         spaceService,
         teamService,
         tokenStore,
+        trackingService,
         testTeams[0],
         testSpaces[0],
         config,
@@ -534,6 +556,7 @@ describe('Init Command', () => {
         spaceService,
         teamService,
         tokenStore,
+        trackingService,
         testTeams[0],
         testSpaces[0],
         config,

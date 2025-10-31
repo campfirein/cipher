@@ -12,10 +12,12 @@ import type {ITokenStore} from '../../core/interfaces/i-token-store.js'
 
 import {getCurrentConfig} from '../../config/environment.js'
 import {ACE_DIR, BR_DIR, DEFAULT_BRANCH, DELTAS_DIR, EXECUTOR_OUTPUTS_DIR, REFLECTIONS_DIR} from '../../constants.js'
+import {ITrackingService} from '../../core/interfaces/i-tracking-service.js'
 import {FilePlaybookStore} from '../../infra/ace/file-playbook-store.js'
 import {ProjectConfigStore} from '../../infra/config/file-config-store.js'
 import {HttpMemoryStorageService} from '../../infra/memory/http-memory-storage-service.js'
 import {KeychainTokenStore} from '../../infra/storage/keychain-token-store.js'
+import {MixpanelTrackingService} from '../../infra/tracking/mixpanel-tracking-service.js'
 import {clearDirectory} from '../../utils/file-helpers.js'
 
 export default class MemPush extends Command {
@@ -95,15 +97,20 @@ export default class MemPush extends Command {
     playbookStore: IPlaybookStore
     projectConfigStore: IProjectConfigStore
     tokenStore: ITokenStore
+    trackingService: ITrackingService
   } {
     const envConfig = getCurrentConfig()
+    const tokenStore = new KeychainTokenStore()
+    const trackingService = new MixpanelTrackingService(tokenStore)
+
     return {
       memoryService: new HttpMemoryStorageService({
         apiBaseUrl: envConfig.cogitApiBaseUrl,
       }),
       playbookStore: new FilePlaybookStore(),
       projectConfigStore: new ProjectConfigStore(),
-      tokenStore: new KeychainTokenStore(),
+      tokenStore,
+      trackingService,
     }
   }
 
@@ -142,7 +149,9 @@ export default class MemPush extends Command {
     const {flags} = await this.parse(MemPush)
 
     try {
-      const {memoryService, playbookStore, projectConfigStore, tokenStore} = this.createServices()
+      const {memoryService, playbookStore, projectConfigStore, tokenStore, trackingService} = this.createServices()
+
+      await trackingService.track('mem:push')
 
       const token = await this.validateAuth(tokenStore)
       const projectConfig = await this.checkProjectInit(projectConfigStore)

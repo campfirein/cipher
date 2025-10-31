@@ -20,6 +20,7 @@ type EnvironmentConfig = {
   cogitApiBaseUrl: string
   issuerUrl: string
   memoraApiBaseUrl: string
+  mixpanelToken: string
   scopes: string[]
   tokenUrl: string
 }
@@ -36,6 +37,7 @@ export const ENV_CONFIG: Record<Environment, EnvironmentConfig> = {
     cogitApiBaseUrl: 'https://dev-beta-cogit.byterover.dev/api/v1',
     issuerUrl: 'https://dev-beta-iam.byterover.dev/api/v1/oidc',
     memoraApiBaseUrl: 'https://dev-beta-memora-retrieve.byterover.dev/api/v3',
+    mixpanelToken: '258e1a2b3d44cc634ef28964771b1da0',
     scopes: ['read', 'write', 'debug'],
     tokenUrl: 'https://dev-beta-iam.byterover.dev/api/v1/oidc/token',
   },
@@ -46,6 +48,7 @@ export const ENV_CONFIG: Record<Environment, EnvironmentConfig> = {
     cogitApiBaseUrl: 'https://prod-beta-cogit.byterover.dev/api/v1',
     issuerUrl: 'https://prod-beta-iam.byterover.dev/api/v1/oidc',
     memoraApiBaseUrl: 'https://prod-beta-memora-retrieve.byterover.dev/api/v3',
+    mixpanelToken: 'fac9051df8242c885a9e0eaf60f78b10',
     scopes: ['read', 'write'],
     tokenUrl: 'https://prod-beta-iam.byterover.dev/api/v1/oidc/token',
   },

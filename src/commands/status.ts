@@ -3,8 +3,10 @@ import {Command} from '@oclif/core'
 import type {IProjectConfigStore} from '../core/interfaces/i-project-config-store.js'
 import type {ITokenStore} from '../core/interfaces/i-token-store.js'
 
+import {ITrackingService} from '../core/interfaces/i-tracking-service.js'
 import {ProjectConfigStore} from '../infra/config/file-config-store.js'
 import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
+import {MixpanelTrackingService} from '../infra/tracking/mixpanel-tracking-service.js'
 
 export default class Status extends Command {
   public static description =
@@ -18,10 +20,15 @@ export default class Status extends Command {
   protected createServices(): {
     projectConfigStore: IProjectConfigStore
     tokenStore: ITokenStore
+    trackingService: ITrackingService
   } {
+    const tokenStore = new KeychainTokenStore()
+    const trackingService = new MixpanelTrackingService(tokenStore)
+
     return {
       projectConfigStore: new ProjectConfigStore(),
-      tokenStore: new KeychainTokenStore(),
+      tokenStore,
+      trackingService,
     }
   }
 
