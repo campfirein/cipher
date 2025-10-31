@@ -1,38 +1,55 @@
+export type AuthTokenParams = {
+  accessToken: string
+  expiresAt: Date
+  refreshToken: string
+  sessionKey: string
+  tokenType?: string
+  userEmail: string
+  userId: string
+}
+
 /**
  * Represents an authentication token with access and refresh tokens, expiration, and type.
  */
 export class AuthToken {
-  /**
-   * Authorization header, bearer token.
-   */
   public readonly accessToken: string
   public readonly expiresAt: Date
   public readonly refreshToken: string
   public readonly sessionKey: string
   public readonly tokenType: string
+  public readonly userEmail: string
+  public readonly userId: string
 
-  // eslint-disable-next-line max-params
-  public constructor(
-    accessToken: string,
-    expiresAt: Date,
-    refreshToken: string,
-    sessionKey: string,
-    tokenType: string = 'Bearer',
-  ) {
-    this.accessToken = accessToken
-    this.expiresAt = expiresAt
-    this.refreshToken = refreshToken
-    this.sessionKey = sessionKey
-    this.tokenType = tokenType
+  public constructor(params: AuthTokenParams) {
+    this.accessToken = params.accessToken
+    this.expiresAt = params.expiresAt
+    this.refreshToken = params.refreshToken
+    this.sessionKey = params.sessionKey
+    this.tokenType = params.tokenType ?? 'Bearer'
+    this.userId = params.userId
+    this.userEmail = params.userEmail
   }
 
   /**
    * Create an AuthToken instance from a JSON object.
    * @param json JSON object representing the AuthToken
-   * @returns An instance of AuthToken
+   * @returns An instance of AuthToken, or undefined if required fields are missing
    */
-  public static fromJson(json: Record<string, string>): AuthToken {
-    return new AuthToken(json.accessToken, new Date(json.expiresAt), json.refreshToken, json.sessionKey, json.tokenType)
+  public static fromJson(json: Record<string, string>): AuthToken | undefined {
+    // Validate that new required fields exist (for backward compatibility with old tokens)
+    if (!json.userId || !json.userEmail) {
+      return undefined
+    }
+
+    return new AuthToken({
+      accessToken: json.accessToken,
+      expiresAt: new Date(json.expiresAt),
+      refreshToken: json.refreshToken,
+      sessionKey: json.sessionKey,
+      tokenType: json.tokenType,
+      userEmail: json.userEmail,
+      userId: json.userId,
+    })
   }
 
   /**
@@ -62,6 +79,8 @@ export class AuthToken {
       refreshToken: this.refreshToken,
       sessionKey: this.sessionKey,
       tokenType: this.tokenType,
+      userEmail: this.userEmail,
+      userId: this.userId,
     }
   }
 }

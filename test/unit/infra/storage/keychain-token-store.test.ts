@@ -23,8 +23,16 @@ describe('KeychainTokenStore', () => {
   })
 
   describe('save', () => {
-    it('should save token to keychain', async () => {
-      const token = new AuthToken('access-token', new Date(Date.now() + 3600 * 1000), 'refresh-token', 'session-store-001', 'Bearer')
+    it('should save token to keychain with userId and userEmail', async () => {
+      const token = new AuthToken({
+        accessToken: 'access-token',
+        expiresAt: new Date(Date.now() + 3600 * 1000),
+        refreshToken: 'refresh-token',
+        sessionKey: 'session-store-001',
+        tokenType: 'Bearer',
+        userEmail: 'user@example.com',
+        userId: 'user-id-001',
+      })
 
       // Simulate successful saving
       setPasswordStub.resolves()
@@ -41,10 +49,20 @@ describe('KeychainTokenStore', () => {
       expect(savedData.refreshToken).to.equal('refresh-token')
       expect(savedData.sessionKey).to.equal('session-store-001')
       expect(savedData.tokenType).to.equal('Bearer')
+      expect(savedData.userId).to.equal('user-id-001')
+      expect(savedData.userEmail).to.equal('user@example.com')
     })
 
     it('should handle save errors gracefully', async () => {
-      const token = new AuthToken('access', new Date(), 'refresh', 'session-store-002', 'Bearer')
+      const token = new AuthToken({
+        accessToken: 'access',
+        expiresAt: new Date(),
+        refreshToken: 'refresh',
+        sessionKey: 'session-store-002',
+        tokenType: 'Bearer',
+        userEmail: 'user@example.com',
+        userId: 'user-id-002',
+      })
       const errMsg = 'Keychain access denied'
       setPasswordStub.rejects(new Error(errMsg))
 
@@ -58,12 +76,14 @@ describe('KeychainTokenStore', () => {
   })
 
   describe('load', () => {
-    it('should load token from keychain', async () => {
+    it('should load token from keychain with userId and userEmail', async () => {
       const accessToken = 'access-token'
       const refreshToken = 'refresh-token'
       const expiresAt = '2025-12-31T23:59:59.000Z'
       const sessionKey = 'session-stored-token'
       const tokenType = 'Bearer'
+      const userId = 'user-id-load-test'
+      const userEmail = 'user@example.com'
 
       const tokenData = {
         accessToken,
@@ -71,6 +91,8 @@ describe('KeychainTokenStore', () => {
         refreshToken,
         sessionKey,
         tokenType,
+        userEmail,
+        userId,
       }
 
       getPasswordStub.resolves(JSON.stringify(tokenData))
@@ -83,6 +105,25 @@ describe('KeychainTokenStore', () => {
       expect(loadedToken?.expiresAt.toISOString()).to.equal(expiresAt)
       expect(loadedToken?.sessionKey).to.equal(sessionKey)
       expect(loadedToken?.tokenType).to.equal(tokenType)
+      expect(loadedToken?.userId).to.equal(userId)
+      expect(loadedToken?.userEmail).to.equal(userEmail)
+    })
+
+    it('should return undefined for old token format (missing userId and userEmail)', async () => {
+      const oldTokenData = {
+        accessToken: 'access-token',
+        expiresAt: '2025-12-31T23:59:59.000Z',
+        refreshToken: 'refresh-token',
+        sessionKey: 'session-old-token',
+        tokenType: 'Bearer',
+      }
+
+      getPasswordStub.resolves(JSON.stringify(oldTokenData))
+
+      const loadedToken = await store.load()
+
+      // Old tokens without userId/userEmail should return undefined (forces re-login)
+      expect(loadedToken).to.be.undefined
     })
 
     it('should return undefined if token does not exist', async () => {

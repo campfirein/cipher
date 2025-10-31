@@ -1,6 +1,6 @@
 import type {Config} from '@oclif/core'
 
-import {Config as OclifConfig} from '@oclif/core'
+import {Config as OclifConfig, ux} from '@oclif/core'
 import {expect} from 'chai'
 import sinon, {restore, stub} from 'sinon'
 
@@ -45,12 +45,28 @@ class TestableInit extends Init {
     }
   }
 
+  // Suppress all output to prevent noisy test runs
+  public error(input: Error | string): never {
+    // Throw error to maintain behavior but suppress output
+    const errorMessage = typeof input === 'string' ? input : input.message
+    throw new Error(errorMessage)
+  }
+
+  public log(): void {
+    // Do nothing - suppress output
+  }
+
   protected async promptForSpaceSelection(_spaces: Space[]): Promise<Space> {
     return this.mockSelectedSpace
   }
 
   protected async promptForTeamSelection(_teams: Team[]): Promise<Team> {
     return this.mockSelectedTeam
+  }
+
+  public warn(input: Error | string): Error | string {
+    // Do nothing - suppress output, but return input to match base signature
+    return input
   }
 }
 
@@ -64,13 +80,18 @@ describe('Init Command', () => {
   let testSpaces: Space[]
   let testTeams: Team[]
   let tokenStore: sinon.SinonStubbedInstance<ITokenStore>
+  let uxActionStartStub: sinon.SinonStub
+  let uxActionStopStub: sinon.SinonStub
   let validToken: AuthToken
 
   before(async () => {
     config = await OclifConfig.load(import.meta.url)
   })
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    uxActionStartStub = stub(ux.action, 'start')
+    uxActionStopStub = stub(ux.action, 'stop')
+
     tokenStore = {
       clear: stub(),
       load: stub(),
@@ -101,13 +122,15 @@ describe('Init Command', () => {
     // Mock config.runCommand to prevent actual gen-rules execution
     runCommandStub = stub(config, 'runCommand').resolves()
 
-    validToken = new AuthToken(
-      'access-token',
-      new Date(Date.now() + 3600 * 1000),
-      'refresh-token',
-      'session-key',
-      'Bearer',
-    )
+    validToken = new AuthToken({
+      accessToken: 'access-token',
+      expiresAt: new Date(Date.now() + 3600 * 1000),
+      refreshToken: 'refresh-token',
+      sessionKey: 'session-key',
+      tokenType: 'Bearer',
+      userEmail: 'user@example.com',
+      userId: 'user-id-init',
+    })
 
     testSpaces = [
       new SpaceImpl('space-1', 'frontend-app', 'team-1', 'acme-corp'),
@@ -129,6 +152,9 @@ describe('Init Command', () => {
   })
 
   afterEach(() => {
+    // Call these to negate eslint's no-unused-expressions rule
+    uxActionStartStub.restore()
+    uxActionStopStub.restore()
     restore()
   })
 
@@ -178,13 +204,15 @@ describe('Init Command', () => {
     })
 
     it('should throw error when token is expired', async () => {
-      const expiredToken = new AuthToken(
-        'access-token',
-        new Date(Date.now() - 1000),
-        'refresh-token',
-        'session-key',
-        'Bearer',
-      )
+      const expiredToken = new AuthToken({
+        accessToken: 'access-token',
+        expiresAt: new Date(Date.now() - 1000),
+        refreshToken: 'refresh-token',
+        sessionKey: 'session-key',
+        tokenType: 'Bearer',
+        userEmail: 'user@example.com',
+        userId: 'user-expired',
+      })
 
       configStore.exists.resolves(false)
       tokenStore.load.resolves(expiredToken)

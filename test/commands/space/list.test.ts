@@ -67,13 +67,15 @@ describe('SpaceList Command', () => {
       getSpaces: stub(),
     }
 
-    validToken = new AuthToken(
-      'access-token',
-      new Date(Date.now() + 3600 * 1000),
-      'refresh-token',
-      'session-key',
-      'Bearer',
-    )
+    validToken = new AuthToken({
+      accessToken: 'access-token',
+      expiresAt: new Date(Date.now() + 3600 * 1000),
+      refreshToken: 'refresh-token',
+      sessionKey: 'session-key',
+      tokenType: 'Bearer',
+      userEmail: 'user@example.com',
+      userId: 'user-list',
+    })
 
     testBrConfig = new BrConfig(new Date().toISOString(), 'space-1', 'frontend-app', 'team-1', 'acme-corp')
 
@@ -119,13 +121,15 @@ describe('SpaceList Command', () => {
     })
 
     it('should throw error when token is expired', async () => {
-      const expiredToken = new AuthToken(
-        'access-token',
-        new Date(Date.now() - 1000), // Expired
-        'refresh-token',
-        'session-key',
-        'Bearer',
-      )
+      const expiredToken = new AuthToken({
+        accessToken: 'access-token',
+        expiresAt: new Date(Date.now() - 1000), // Expired
+        refreshToken: 'refresh-token',
+        sessionKey: 'session-key',
+        tokenType: 'Bearer',
+        userEmail: 'user@example.com',
+        userId: 'user-expired',
+      })
       projectConfigStore.read.resolves(testBrConfig)
       tokenStore.load.resolves(expiredToken)
 

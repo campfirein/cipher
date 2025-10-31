@@ -117,12 +117,12 @@ describe('OAuthService', () => {
           token_type: returnedTokenType,
         })
 
-      const token = await service.exchangeCodeForToken(code, context, redirectUri)
+      const tokenData = await service.exchangeCodeForToken(code, context, redirectUri)
 
-      expect(token.accessToken).to.equal(returnedAccessToken)
-      expect(token.refreshToken).to.equal(returnedRefreshToken)
-      expect(token.tokenType).to.equal(returnedTokenType)
-      expect(token.isValid()).to.be.true
+      expect(tokenData.accessToken).to.equal(returnedAccessToken)
+      expect(tokenData.refreshToken).to.equal(returnedRefreshToken)
+      expect(tokenData.tokenType).to.equal(returnedTokenType)
+      expect(tokenData.sessionKey).to.equal('session-oauth-123')
     })
 
     it('should use correct code_verifier for the given context', async () => {
@@ -194,9 +194,10 @@ describe('OAuthService', () => {
           token_type: 'Bearer',
         })
 
-      const token = await service.exchangeCodeForToken(code, context, parameterRedirectUri)
+      const tokenData = await service.exchangeCodeForToken(code, context, parameterRedirectUri)
 
-      expect(token).to.not.be.undefined
+      expect(tokenData).to.not.be.undefined
+      expect(tokenData.accessToken).to.equal('access-token')
     })
 
     it('should throw error on failed token exchange', async () => {
@@ -260,10 +261,11 @@ describe('OAuthService', () => {
           token_type: 'Bearer',
         })
 
-      const token = await service.refreshToken(refreshToken)
+      const tokenData = await service.refreshToken(refreshToken)
 
-      expect(token.accessToken).to.equal('new-access-token')
-      expect(token.refreshToken).to.equal('new-refresh-token')
+      expect(tokenData.accessToken).to.equal('new-access-token')
+      expect(tokenData.refreshToken).to.equal('new-refresh-token')
+      expect(tokenData.sessionKey).to.equal('session-oauth-refreshed')
     })
   })
 })
