@@ -64,9 +64,6 @@
     ],
     "topicSeparator": " ",
     "topics": {
-      "mem": {
-        "description": "Manage ByteRover memory storage (retrieve memories from Memora, push playbooks to storage)"
-      },
       "space": {
         "description": "Manage ByteRover spaces"
       }

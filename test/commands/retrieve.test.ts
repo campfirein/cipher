@@ -4,22 +4,25 @@ import {Config as OclifConfig} from '@oclif/core'
 import {expect} from 'chai'
 import sinon, {restore, stub} from 'sinon'
 
-import type {IMemoryRetrievalService} from '../../../src/core/interfaces/i-memory-retrieval-service.js'
-import type {IPlaybookStore} from '../../../src/core/interfaces/i-playbook-store.js'
-import type {IProjectConfigStore} from '../../../src/core/interfaces/i-project-config-store.js'
-import type {ITokenStore} from '../../../src/core/interfaces/i-token-store.js'
-import type {ITrackingService} from '../../../src/core/interfaces/i-tracking-service.js'
+import type {IMemoryRetrievalService} from '../../src/core/interfaces/i-memory-retrieval-service.js'
+import type {IPlaybookStore} from '../../src/core/interfaces/i-playbook-store.js'
+import type {IProjectConfigStore} from '../../src/core/interfaces/i-project-config-store.js'
+import type {ITokenStore} from '../../src/core/interfaces/i-token-store.js'
+import type {ITrackingService} from '../../src/core/interfaces/i-tracking-service.js'
 
-import Retrieve from '../../../src/commands/mem/retrieve.js'
-import {AuthToken} from '../../../src/core/domain/entities/auth-token.js'
-import {BrConfig} from '../../../src/core/domain/entities/br-config.js'
-import {Memory} from '../../../src/core/domain/entities/memory.js'
-import {RetrieveResult} from '../../../src/core/domain/entities/retrieve-result.js'
+import Retrieve from '../../src/commands/retrieve.js'
+import {AuthToken} from '../../src/core/domain/entities/auth-token.js'
+import {BrConfig} from '../../src/core/domain/entities/br-config.js'
+import {Memory} from '../../src/core/domain/entities/memory.js'
+import {RetrieveResult} from '../../src/core/domain/entities/retrieve-result.js'
 
 /**
  * Testable Retrieve command that accepts mocked services
  */
 class TestableRetrieve extends Retrieve {
+  public logMessages: string[] = []
+  public warnMessages: string[] = []
+
   // eslint-disable-next-line max-params
   constructor(
     private readonly mockMemoryService: IMemoryRetrievalService,
@@ -42,9 +45,30 @@ class TestableRetrieve extends Retrieve {
       trackingService: this.mockTrackingService,
     }
   }
+
+  // Suppress all output to prevent noisy test runs but capture for test assertions
+  public error(input: Error | string): never {
+    // Throw error to maintain behavior but suppress output
+    const errorMessage = typeof input === 'string' ? input : input.message
+    throw new Error(errorMessage)
+  }
+
+  public log(message?: string): void {
+    // Capture message but suppress output
+    if (message !== undefined) {
+      this.logMessages.push(message)
+    }
+  }
+
+  public warn(input: Error | string): Error | string {
+    // Capture warning but suppress output, return input to match base signature
+    const warnMessage = typeof input === 'string' ? input : input.message
+    this.warnMessages.push(warnMessage)
+    return input
+  }
 }
 
-describe('mem:retrieve command', () => {
+describe('retrieve command', () => {
   let config: Config
   let memoryService: sinon.SinonStubbedInstance<IMemoryRetrievalService>
   let playbookStore: sinon.SinonStubbedInstance<IPlaybookStore>
@@ -268,8 +292,6 @@ describe('mem:retrieve command', () => {
       tokenStore.load.resolves(validToken)
       memoryService.retrieve.resolves(resultWithRelated)
 
-      const logStub = stub(Retrieve.prototype, 'log')
-
       const command = new TestableRetrieve(
         memoryService,
         playbookStore,
@@ -283,13 +305,10 @@ describe('mem:retrieve command', () => {
       await command.run()
 
       // Verify output contains both memories and related memories sections
-      const logMessages = logStub.getCalls().map((call) => call.args[0] as string)
-      expect(logMessages.some((msg) => msg.includes('Memories'))).to.be.true
-      expect(logMessages.some((msg) => msg.includes('Related Memories'))).to.be.true
-      expect(logMessages.some((msg) => msg.includes('Sample Memory'))).to.be.true
-      expect(logMessages.some((msg) => msg.includes('Related Memory'))).to.be.true
-
-      logStub.restore()
+      expect(command.logMessages.some((msg) => msg.includes('Memories'))).to.be.true
+      expect(command.logMessages.some((msg) => msg.includes('Related Memories'))).to.be.true
+      expect(command.logMessages.some((msg) => msg.includes('Sample Memory'))).to.be.true
+      expect(command.logMessages.some((msg) => msg.includes('Related Memory'))).to.be.true
     })
 
     it('should handle empty results gracefully', async () => {
@@ -303,8 +322,6 @@ describe('mem:retrieve command', () => {
       tokenStore.load.resolves(validToken)
       memoryService.retrieve.resolves(emptyResult)
 
-      const logStub = stub(Retrieve.prototype, 'log')
-
       const command = new TestableRetrieve(
         memoryService,
         playbookStore,
@@ -317,10 +334,7 @@ describe('mem:retrieve command', () => {
 
       await command.run()
 
-      const logMessages = logStub.getCalls().map((call) => call.args[0] as string)
-      expect(logMessages.some((msg) => msg.includes('No memories found'))).to.be.true
-
-      logStub.restore()
+      expect(command.logMessages.some((msg) => msg.includes('No memories found'))).to.be.true
     })
 
     it('should save retrieved memories to playbook', async () => {
@@ -362,9 +376,6 @@ describe('mem:retrieve command', () => {
       memoryService.retrieve.resolves(sampleResult)
       playbookStore.save.rejects(new Error('Save failed'))
 
-      const logStub = stub(Retrieve.prototype, 'log')
-      const warnStub = stub(Retrieve.prototype, 'warn')
-
       const command = new TestableRetrieve(
         memoryService,
         playbookStore,
@@ -378,16 +389,11 @@ describe('mem:retrieve command', () => {
       await command.run()
 
       // Verify warning was issued
-      expect(warnStub.calledOnce).to.be.true
-      const warnMessage = warnStub.firstCall.args[0] as string
-      expect(warnMessage).to.include('Failed to save memories to playbook')
+      expect(command.warnMessages.length).to.equal(1)
+      expect(command.warnMessages[0]).to.include('Failed to save memories to playbook')
 
       // Verify memories were still displayed
-      const logMessages = logStub.getCalls().map((call) => call.args[0] as string)
-      expect(logMessages.some((msg) => msg.includes('Sample Memory'))).to.be.true
-
-      logStub.restore()
-      warnStub.restore()
+      expect(command.logMessages.some((msg) => msg.includes('Sample Memory'))).to.be.true
     })
   })
 
