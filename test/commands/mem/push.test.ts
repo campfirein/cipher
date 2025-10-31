@@ -57,13 +57,15 @@ describe('MemPush Command', () => {
     configStore = {exists: stub(), read: stub(), write: stub()}
     tokenStore = {clear: stub(), load: stub(), save: stub()}
 
-    validToken = new AuthToken(
-      'access-token',
-      new Date(Date.now() + 3600 * 1000),
-      'refresh-token',
-      'session-key',
-      'Bearer',
-    )
+    validToken = new AuthToken({
+      accessToken: 'access-token',
+      expiresAt: new Date(Date.now() + 3600 * 1000),
+      refreshToken: 'refresh-token',
+      sessionKey: 'session-key',
+      tokenType: 'Bearer',
+      userEmail: 'user@example.com',
+      userId: 'user-push',
+    })
 
     projectConfig = new BrConfig(new Date().toISOString(), 'space-123', 'my-space', 'team-456', 'my-team')
   })
@@ -87,13 +89,15 @@ describe('MemPush Command', () => {
     })
 
     it('should error when token is expired', async () => {
-      const expiredToken = new AuthToken(
-        'access-token',
-        new Date(Date.now() - 1000),
-        'refresh-token',
-        'session-key',
-        'Bearer',
-      )
+      const expiredToken = new AuthToken({
+        accessToken: 'access-token',
+        expiresAt: new Date(Date.now() - 1000),
+        refreshToken: 'refresh-token',
+        sessionKey: 'session-key',
+        tokenType: 'Bearer',
+        userEmail: 'user@example.com',
+        userId: 'user-expired',
+      })
 
       tokenStore.load.resolves(expiredToken)
 

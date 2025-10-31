@@ -3,7 +3,7 @@ import axios, {isAxiosError} from 'axios'
 import crypto from 'node:crypto'
 
 import {OAuthConfig} from '../../config/auth.config.js'
-import {AuthToken} from '../../core/domain/entities/auth-token.js'
+import {OAuthTokenData} from '../../core/domain/entities/oauth-token-data.js'
 import {AuthenticationError} from '../../core/domain/errors/auth-error.js'
 import {AuthorizationContext, IAuthService} from '../../core/interfaces/i-auth-service.js'
 
@@ -38,17 +38,17 @@ export class OAuthService implements IAuthService {
   }
 
   /**
-   * Exchanges an authorization code for an access token.
+   * Exchanges an authorization code for OAuth token data.
    * @param code The authorization code received from the authorization server.
    * @param context The authorization context from initiateAuthorization (contains state for verifier lookup).
    * @param redirectUri The redirect URI used in the authorization request (must match for OAuth 2.0 compliance).
-   * @returns The access token with refresh token and expiration.
+   * @returns The OAuth token data with refresh token and expiration (without user information).
    */
   public async exchangeCodeForToken(
     code: string,
     context: AuthorizationContext,
     redirectUri: string,
-  ): Promise<AuthToken> {
+  ): Promise<OAuthTokenData> {
     // Retrieve the code_verifier using the state from the context
     const codeVerifier = this.verifierStore.get(context.state)
     if (!codeVerifier) {
@@ -122,7 +122,7 @@ export class OAuthService implements IAuthService {
     return {authUrl, state}
   }
 
-  public async refreshToken(refreshToken: string): Promise<AuthToken> {
+  public async refreshToken(refreshToken: string): Promise<OAuthTokenData> {
     try {
       const response = await axios.post(this.config.tokenUrl, {
         client_id: this.config.clientId,
@@ -173,11 +173,11 @@ export class OAuthService implements IAuthService {
   /**
    * Parses the token response from the OAuth server.
    * @param data The response data from the OAuth server.
-   * @returns The parsed AuthToken.
+   * @returns The parsed OAuthTokenData (without user information).
    */
-  private parseTokenResponse(data: TokenResponse): AuthToken {
+  private parseTokenResponse(data: TokenResponse): OAuthTokenData {
     const expiresAt = new Date(Date.now() + data.expires_in * 1000)
 
-    return new AuthToken(data.access_token, expiresAt, data.refresh_token, data.session_key, data.token_type)
+    return new OAuthTokenData(data.access_token, expiresAt, data.refresh_token, data.session_key, data.token_type)
   }
 }

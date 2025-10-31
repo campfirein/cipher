@@ -112,13 +112,15 @@ describe('space:switch', () => {
       write: stub(),
     }
 
-    validToken = new AuthToken(
-      'access-token',
-      new Date(Date.now() + 3600 * 1000), // Expires in 1 hour
-      'refresh-token',
-      'session-key',
-      'Bearer',
-    )
+    validToken = new AuthToken({
+      accessToken: 'access-token',
+      expiresAt: new Date(Date.now() + 3600 * 1000), // Expires in 1 hour
+      refreshToken: 'refresh-token',
+      sessionKey: 'session-key',
+      tokenType: 'Bearer',
+      userEmail: 'user@example.com',
+      userId: 'user-switch',
+    })
 
     testSpaces = [
       new Space('space-1', 'frontend-app', 'team-1', 'acme-corp'),
@@ -203,13 +205,15 @@ describe('space:switch', () => {
   })
 
   it('should error if token expired', async () => {
-    const expiredToken = new AuthToken(
-      'access-token',
-      new Date(Date.now() - 3600 * 1000), // Expired 1 hour ago
-      'refresh-token',
-      'session-key',
-      'Bearer',
-    )
+    const expiredToken = new AuthToken({
+      accessToken: 'access-token',
+      expiresAt: new Date(Date.now() - 3600 * 1000), // Expired 1 hour ago
+      refreshToken: 'refresh-token',
+      sessionKey: 'session-key',
+      tokenType: 'Bearer',
+      userEmail: 'user@example.com',
+      userId: 'user-expired',
+    })
 
     configStore.read.resolves(currentConfig)
     tokenStore.load.resolves(expiredToken)

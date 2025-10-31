@@ -5,14 +5,18 @@ import type {IBrowserLauncher} from '../core/interfaces/i-browser-launcher.js'
 import type {ICallbackHandler} from '../core/interfaces/i-callback-handler.js'
 import type {IOidcDiscoveryService} from '../core/interfaces/i-oidc-discovery-service.js'
 import type {ITokenStore} from '../core/interfaces/i-token-store.js'
+import type {IUserService} from '../core/interfaces/i-user-service.js'
 
 import {getAuthConfig} from '../config/auth.config.js'
+import {getCurrentConfig} from '../config/environment.js'
+import {AuthToken} from '../core/domain/entities/auth-token.js'
 import {DiscoveryError} from '../core/domain/errors/discovery-error.js'
 import {OAuthService} from '../infra/auth/oauth-service.js'
 import {OidcDiscoveryService} from '../infra/auth/oidc-discovery-service.js'
 import {SystemBrowserLauncher} from '../infra/browser/system-browser-launcher.js'
 import {CallbackHandler} from '../infra/http/callback-handler.js'
 import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
+import {HttpUserService} from '../infra/user/http-user-service.js'
 
 export default class Login extends Command {
   public static description =
@@ -33,17 +37,20 @@ export default class Login extends Command {
     callbackHandler: ICallbackHandler
     discoveryService: IOidcDiscoveryService
     tokenStore: ITokenStore
+    userService: IUserService
   } {
+    const config = getCurrentConfig()
     return {
       browserLauncher: new SystemBrowserLauncher(),
       callbackHandler: new CallbackHandler(),
       discoveryService: new OidcDiscoveryService(),
       tokenStore: new KeychainTokenStore(),
+      userService: new HttpUserService({apiBaseUrl: config.apiBaseUrl}),
     }
   }
 
   public async run(): Promise<void> {
-    const {browserLauncher, callbackHandler, discoveryService, tokenStore} = this.createServices()
+    const {browserLauncher, callbackHandler, discoveryService, tokenStore, userService} = this.createServices()
 
     try {
       this.log('Starting authentication process...')
@@ -77,12 +84,19 @@ export default class Login extends Command {
       try {
         // Wait for callback with 5 minute timeout
         const {code} = await callbackHandler.waitForCallback(authContext.state, 5 * 60 * 1000)
+        const authTokenData = await authService.exchangeCodeForToken(code, authContext, redirectUri)
+        const user = await userService.getCurrentUser(authTokenData.accessToken, authTokenData.sessionKey)
+        const authToken = new AuthToken({
+          accessToken: authTokenData.accessToken,
+          expiresAt: authTokenData.expiresAt,
+          refreshToken: authTokenData.refreshToken,
+          sessionKey: authTokenData.sessionKey,
+          tokenType: authTokenData.tokenType,
+          userEmail: user.email,
+          userId: user.id,
+        })
 
-        // Exchange code for token
-        const token = await authService.exchangeCodeForToken(code, authContext, redirectUri)
-
-        // Store token
-        await tokenStore.save(token)
+        await tokenStore.save(authToken)
 
         this.log('Successfully authenticated!')
 

@@ -1,4 +1,4 @@
-import {AuthToken} from '../domain/entities/auth-token.js'
+import {OAuthTokenData} from '../domain/entities/oauth-token-data.js'
 
 /**
  * Authorization context containing the URL and state for OAuth flow.
@@ -14,13 +14,13 @@ export type AuthorizationContext = {
  */
 export interface IAuthService {
   /**
-   * Exchanges an authorization code for an access token.
+   * Exchanges an authorization code for OAuth token data.
    * @param code The authorization code to exchange.
    * @param context The authorization context from initiateAuthorization (contains state for verifier lookup).
    * @param redirectUri The redirect URI used in the authorization request (must match for OAuth 2.0 compliance).
-   * @returns The access token.
+   * @returns The OAuth token data (without user information).
    */
-  exchangeCodeForToken: (code: string, context: AuthorizationContext, redirectUri: string) => Promise<AuthToken>
+  exchangeCodeForToken: (code: string, context: AuthorizationContext, redirectUri: string) => Promise<OAuthTokenData>
 
   /**
    * Initiates the authorization flow by generating PKCE parameters and building the authorization URL.
@@ -33,7 +33,7 @@ export interface IAuthService {
   /**
    * Refreshes an access token using a refresh token.
    * @param refreshToken The refresh token to use.
-   * @returns The new access token.
+   * @returns The new OAuth token data (without user information).
    */
-  refreshToken: (refreshToken: string) => Promise<AuthToken>
+  refreshToken: (refreshToken: string) => Promise<OAuthTokenData>
 }
