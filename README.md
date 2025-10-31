@@ -128,20 +128,20 @@ ACE follows a 3-phase cycle:
 ### Quick ACE Example
 
 ```bash
-# 1. Start a task
-br ace executor start "Add user authentication" --with-playbook
+# Complete ACE workflow in a single command
+br ace "auth-feature" \
+  "Implemented JWT authentication with secure token handling" \
+  "Successfully added OAuth2 authentication" \
+  --tool-usage "Read:src/auth.ts,Edit:src/auth.ts,Bash:npm test" \
+  --feedback "All tests passed, auth works correctly"
 
-# 2. After coding, save your work
-br ace executor save "auth-feature" \
-  "Implemented JWT authentication" \
-  "Successfully added secure auth" \
-  --tool-usage "Read:src/auth.ts,Edit:src/auth.ts,Bash:npm test"
-
-# 3. Provide feedback
-br ace reflector "All tests passed, auth works correctly"
-
-# 4. Update playbook with insights
-br ace curator
+# Update an existing playbook bullet
+br ace "auth-update" \
+  "Improved error handling in auth flow" \
+  "Better error messages for failed login" \
+  --tool-usage "Edit:src/auth.ts" \
+  --feedback "Tests passed" \
+  --update-bullet "bullet-5"
 ```
 
 ### For Coding Agents
@@ -158,23 +158,24 @@ br ace curator
 ### ACE Commands
 
 ```bash
-# Main ACE workflow
-br ace executor start <task> [--with-playbook]     # Start task with optional playbook context
-br ace executor save <hint> <reasoning> <answer>   # Save work with --bullet-ids and --tool-usage
-br ace reflector <feedback>                        # Analyze results (paste reflection JSON)
-br ace curator [--reflection file.json]            # Update playbook (paste delta JSON)
+# Complete ACE workflow (executor + reflector + curator in one command)
+br ace <hint> <reasoning> <answer> \
+  --tool-usage <tools> \
+  --feedback <feedback> \
+  [--bullet-ids <ids>] \
+  [--update-bullet <id>]                           # Complete workflow: save, reflect, and update playbook
 
 # Direct playbook manipulation (bypasses ACE workflow)
 br add -s "Section" -c "Content"                   # Add new bullet (auto-generates ID)
 br add -s "Section" -c "Updated" -b "bullet-id"    # Update existing bullet
 
 # Memory operations
-br mem push [--branch name]                        # Push playbook to blob storage and cleanup local files
+br push [--branch name]                            # Push playbook to blob storage and cleanup local files
+br retrieve --query <text> [--node-keys <paths>]   # Retrieve memories from ByteRover and load into playbook
 
 # Utility commands
 br show [--format json]                            # View current playbook
-br ace stats                                       # View playbook statistics
-br ace apply-delta [file.json]                     # Manually apply delta operations
+br status                                          # View CLI status and playbook statistics
 br clear [--yes]                                   # Reset playbook
 ```
 
@@ -197,7 +198,7 @@ The `add` command automatically tags bullets with `['manual']` and is ideal for 
 
 ### Memory Push
 
-The `br mem push` command uploads your playbook to ByteRover's memory storage (blob storage) and automatically cleans up local ACE files. This is useful when you want to:
+The `br push` command uploads your playbook to ByteRover's memory storage (blob storage) and automatically cleans up local ACE files. This is useful when you want to:
 
 - **Share playbook knowledge** with other team members or agents
 - **Archive completed work** to cloud storage
@@ -208,11 +209,11 @@ The `br mem push` command uploads your playbook to ByteRover's memory storage (b
 
 ```bash
 # Push to default branch (main)
-br mem push
+br push
 
 # Push to a specific branch
-br mem push --branch develop
-br mem push -b feature-auth
+br push --branch develop
+br push -b feature-auth
 ```
 
 #### What Gets Pushed
@@ -269,7 +270,66 @@ ACE stores all outputs in `.br/ace/` with hint-based naming for traceability:
     └── delta-{hint}-{timestamp}.json               # Playbook updates
 ```
 
-**Note**: When you run `br mem push`, all files in `executor-outputs/`, `reflections/`, and `deltas/` are removed after successful upload. The `playbook.json` is cleared (reset to empty). This keeps your local workspace clean while preserving your knowledge in ByteRover's blob storage.
+**Note**: When you run `br push`, all files in `executor-outputs/`, `reflections/`, and `deltas/` are removed after successful upload. The `playbook.json` is cleared (reset to empty). This keeps your local workspace clean while preserving your knowledge in ByteRover's blob storage.
+
+### Memory Retrieve
+
+The `br retrieve` command fetches memories from ByteRover's Memora service and loads them into your local ACE playbook. This is useful when you want to:
+
+- **Access team knowledge** - Retrieve insights and best practices shared by your team
+- **Find relevant context** - Search for specific topics or code patterns
+- **Filter by files** - Narrow results to specific file paths using `--node-keys`
+- **Start with knowledge** - Begin work with relevant memories already in your playbook
+
+#### Retrieve Usage
+
+```bash
+# Retrieve memories by query
+br retrieve --query "authentication best practices"
+
+# Retrieve with file path filtering
+br retrieve -q "error handling" -n "src/auth/login.ts,src/auth/oauth.ts"
+
+# Short form
+br retrieve -q "database connection issues"
+```
+
+#### How Retrieve Works
+
+1. **Searches** ByteRover's memory storage for matches to your query
+2. **Filters** results by node keys (file paths) if specified
+3. **Clears** your existing local playbook
+4. **Loads** retrieved memories and related memories into playbook
+5. **Displays** results with relevance scores and content previews
+
+**Important**: This command **replaces** your local playbook with retrieved memories. If you have local changes you want to keep, run `br push` before retrieving.
+
+#### Retrieve Output Example
+
+```text
+Found 5 memories and 3 related memories
+
+✓ Saved memories to playbook
+
+=== Memories ===
+
+1. OAuth2 Authentication Flow
+   Score: 0.92
+   Content: Always validate redirect URIs against a whitelist. Use PKCE flow for public clients...
+   Paths: src/auth/oauth.ts, src/auth/config.ts
+
+2. Error Handling Best Practices
+   Score: 0.87
+   Content: Wrap authentication errors with custom error classes for better debugging...
+   Paths: src/auth/errors.ts
+
+=== Related Memories ===
+
+1. Token Storage Security
+   Score: 0.75
+   Content: Store tokens in system keychain, never in localStorage or plain files...
+   Paths: src/storage/keychain.ts
+```
 
 ## Authentication
 
