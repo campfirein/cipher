@@ -8,7 +8,8 @@ type Environment = 'development' | 'production'
  * - `./bin/dev.js` sets BR_ENV=development
  * - `./bin/run.js` sets BR_ENV=production
  */
-export const ENVIRONMENT: Environment = (process.env.BR_ENV as Environment) ?? 'development'
+// export const ENVIRONMENT: Environment = (process.env.BR_ENV as Environment) ?? 'development'
+export const ENVIRONMENT: Environment = 'development'
 
 /**
  * Environment-specific configuration.
