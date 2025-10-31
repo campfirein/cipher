@@ -54,7 +54,8 @@ npm run pack:dev / pack:prod                     # Tarballs
 
 **Pattern**: All entities have `toJSON()`/`fromJSON()`, immutable readonly properties
 
-- `AuthToken` - Has `sessionKey` for `x-byterover-session-id` header
+- `AuthToken` - Required fields: `accessToken`, `refreshToken`, `sessionKey`, `userId`, `userEmail`. Constructor uses object param (`AuthTokenParams`). `fromJson()` returns `undefined` for old tokens (forces re-login)
+- `OAuthTokenData` - OAuth response entity (tokens + session, no user info). Used before user fetch in login flow
 - `User`, `Team`, `Space` - Have `getDisplayName()` methods
 - `Memory` - Key fields: `bulletId`, `section`, `tags`, `metadataType`, `timestamp`, `nodeKeys`, `score`, `parentIds`, `childrenIds`
 - `RetrieveResult` - Contains `memories` and `relatedMemories` arrays
@@ -102,6 +103,16 @@ Test subclasses override to inject mocks.
 
 **Key Command Behaviors**:
 
+`br login`:
+
+- OAuth flow: 1. Exchange code → 2. Fetch user → 3. Create complete AuthToken
+- `fromJson()` backward-incompatibility forces re-login for old tokens
+
+`br status`:
+
+- Reads `userEmail` from `AuthToken` (no API call)
+- Displays: CLI version, auth status, current directory, project config
+
 `br init`:
 
 - Uses `{fetchAll: true}` for complete team/space lists
@@ -135,7 +146,12 @@ Test subclasses override to inject mocks.
 
 - Subclass overrides `createServices()` to inject mocks
 - Override `promptForTeamSelection()` / `promptForSpaceSelection()` for prompts
-- Suppress output: Override `log()`, stub `ux.action.start/stop`
+- **Output suppression** (prevent noisy test runs):
+  - Override `log()`: no-op
+  - Override `warn(input: Error | string): Error | string`: return input (match signature), no output
+  - Override `error(input: Error | string): never`: throw Error but suppress console output
+  - Stub `ux.action.start/stop` in beforeEach/afterEach for commands with spinners
+  - See: [login.test.ts:51-65](test/commands/login.test.ts#L51-L65), [init.test.ts:82-94](test/commands/init.test.ts#L82-L94)
 
 **HTTP mocking** (nock):
 
@@ -169,6 +185,7 @@ Test subclasses override to inject mocks.
 ## OAuth Flow
 
 - `redirectUri` built after server starts: `http://localhost:{port}/callback`
+- Login creates `OAuthTokenData` → fetches `User` → creates complete `AuthToken` with `userId`/`userEmail`
 - `session_key` from token response → stored in `AuthToken.sessionKey`
 - Callback server force-closes connections
 - State param for CSRF protection

@@ -48,13 +48,15 @@ describe('mem:retrieve command', () => {
   let projectConfigStore: sinon.SinonStubbedInstance<IProjectConfigStore>
   let tokenStore: sinon.SinonStubbedInstance<ITokenStore>
 
-  const validToken = new AuthToken(
-    'test-access-token',
-    new Date(Date.now() + 3600 * 1000),
-    'test-refresh-token',
-    'test-session-key',
-    'Bearer',
-  )
+  const validToken = new AuthToken({
+    accessToken: 'test-access-token',
+    expiresAt: new Date(Date.now() + 3600 * 1000),
+    refreshToken: 'test-refresh-token',
+    sessionKey: 'test-session-key',
+    tokenType: 'Bearer',
+    userEmail: 'user@example.com',
+    userId: 'user-retrieve',
+  })
 
   const validConfig = new BrConfig(
     new Date().toISOString(),
@@ -459,13 +461,15 @@ describe('mem:retrieve command', () => {
     })
 
     it('should error when token is expired', async () => {
-      const expiredToken = new AuthToken(
-        'expired-token',
-        new Date(Date.now() - 3600 * 1000),
-        'refresh-token',
-        'session-key',
-        'Bearer',
-      )
+      const expiredToken = new AuthToken({
+        accessToken: 'expired-token',
+        expiresAt: new Date(Date.now() - 3600 * 1000),
+        refreshToken: 'refresh-token',
+        sessionKey: 'session-key',
+        tokenType: 'Bearer',
+        userEmail: 'user@example.com',
+        userId: 'user-expired',
+      })
 
       projectConfigStore.exists.resolves(true)
       projectConfigStore.read.resolves(validConfig)

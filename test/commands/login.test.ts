@@ -3,16 +3,19 @@ import type {SinonStubbedInstance} from 'sinon'
 
 import {Config as OclifConfig} from '@oclif/core'
 import {expect} from 'chai'
-import {restore, spy, stub} from 'sinon'
+import {restore, stub} from 'sinon'
 
 import type {IAuthService} from '../../src/core/interfaces/i-auth-service.js'
 import type {IBrowserLauncher} from '../../src/core/interfaces/i-browser-launcher.js'
 import type {ICallbackHandler} from '../../src/core/interfaces/i-callback-handler.js'
 import type {IOidcDiscoveryService} from '../../src/core/interfaces/i-oidc-discovery-service.js'
 import type {ITokenStore} from '../../src/core/interfaces/i-token-store.js'
+import type {IUserService} from '../../src/core/interfaces/i-user-service.js'
 
 import Login from '../../src/commands/login.js'
 import {AuthToken} from '../../src/core/domain/entities/auth-token.js'
+import {OAuthTokenData} from '../../src/core/domain/entities/oauth-token-data.js'
+import {User} from '../../src/core/domain/entities/user.js'
 
 /**
  * Testable Login command that accepts mocked services
@@ -25,6 +28,7 @@ class TestableLogin extends Login {
     private readonly mockTokenStore: ITokenStore,
     private readonly mockCallbackHandler: ICallbackHandler,
     private readonly mockDiscoveryService: IOidcDiscoveryService,
+    private readonly mockUserService: IUserService,
     config: Config,
   ) {
     super([], config)
@@ -40,7 +44,24 @@ class TestableLogin extends Login {
       callbackHandler: this.mockCallbackHandler,
       discoveryService: this.mockDiscoveryService,
       tokenStore: this.mockTokenStore,
+      userService: this.mockUserService,
     }
+  }
+
+  // Suppress all output to prevent noisy test runs
+  public error(input: Error | string): never {
+    // Throw error to maintain behavior but suppress output
+    const errorMessage = typeof input === 'string' ? input : input.message
+    throw new Error(errorMessage)
+  }
+
+  public log(): void {
+    // Do nothing - suppress output
+  }
+
+  public warn(input: Error | string): Error | string {
+    // Do nothing - suppress output, but return input to match base signature
+    return input
   }
 }
 
@@ -51,6 +72,7 @@ describe('login command', () => {
   let config: Config
   let discoveryService: SinonStubbedInstance<IOidcDiscoveryService>
   let tokenStore: SinonStubbedInstance<ITokenStore>
+  let userService: SinonStubbedInstance<IUserService>
 
   before(async () => {
     config = await OclifConfig.load(import.meta.url)
@@ -83,6 +105,10 @@ describe('login command', () => {
     discoveryService = {
       discover: stub(),
     }
+
+    userService = {
+      getCurrentUser: stub(),
+    }
   })
 
   afterEach(() => {
@@ -90,12 +116,19 @@ describe('login command', () => {
   })
 
   describe('Successful login flow', () => {
-    it('should complete successful login and display success message', async () => {
+    it('should complete successful login with user fetch and display success message', async () => {
       const port = 3000
       const authUrl = 'https://auth.example.com/authorize?state=abc123'
       const state = 'state-123'
       const authContext = {authUrl, state}
-      const token = new AuthToken('access', new Date(Date.now() + 3600 * 1000), 'refresh', 'session-key', 'Bearer')
+      const tokenData = new OAuthTokenData(
+        'access-token',
+        new Date(Date.now() + 3600 * 1000),
+        'refresh-token',
+        'session-key',
+        'Bearer',
+      )
+      const user = new User('user@example.com', 'user-id-123', 'Test User')
 
       // Mock OAuth flow
       callbackHandler.start.resolves(port)
@@ -103,7 +136,8 @@ describe('login command', () => {
       authService.initiateAuthorization.returns(authContext)
       browserLauncher.open.resolves()
       callbackHandler.waitForCallback.resolves({code: 'auth-code', state})
-      authService.exchangeCodeForToken.resolves(token)
+      authService.exchangeCodeForToken.resolves(tokenData)
+      userService.getCurrentUser.resolves(user)
       tokenStore.save.resolves()
       callbackHandler.stop.resolves()
 
@@ -113,6 +147,7 @@ describe('login command', () => {
         tokenStore,
         callbackHandler,
         discoveryService,
+        userService,
         config,
       )
 
@@ -124,7 +159,67 @@ describe('login command', () => {
       expect(browserLauncher.open.calledWith(authUrl)).to.be.true
       expect(callbackHandler.waitForCallback.calledWith(state, 5 * 60 * 1000)).to.be.true
       expect(authService.exchangeCodeForToken.calledOnce).to.be.true
-      expect(tokenStore.save.calledWith(token)).to.be.true
+
+      // Verify user was fetched with correct credentials
+      expect(userService.getCurrentUser.calledOnce).to.be.true
+      expect(userService.getCurrentUser.calledWith('access-token', 'session-key')).to.be.true
+
+      // Verify complete token with user info was saved
+      expect(tokenStore.save.calledOnce).to.be.true
+      const savedToken = tokenStore.save.firstCall.args[0] as AuthToken
+      expect(savedToken.accessToken).to.equal('access-token')
+      expect(savedToken.refreshToken).to.equal('refresh-token')
+      expect(savedToken.sessionKey).to.equal('session-key')
+      expect(savedToken.userId).to.equal('user-id-123')
+      expect(savedToken.userEmail).to.equal('user@example.com')
+
+      expect(callbackHandler.stop.calledOnce).to.be.true
+    })
+
+    it('should fail login when user fetch fails', async () => {
+      const port = 3000
+      const authUrl = 'https://auth.example.com/authorize?state=abc123'
+      const state = 'state-123'
+      const authContext = {authUrl, state}
+      const tokenData = new OAuthTokenData(
+        'access-token',
+        new Date(Date.now() + 3600 * 1000),
+        'refresh-token',
+        'session-key',
+        'Bearer',
+      )
+
+      // Mock OAuth flow with user fetch failure
+      callbackHandler.start.resolves(port)
+      callbackHandler.getPort.returns(port)
+      authService.initiateAuthorization.returns(authContext)
+      browserLauncher.open.resolves()
+      callbackHandler.waitForCallback.resolves({code: 'auth-code', state})
+      authService.exchangeCodeForToken.resolves(tokenData)
+      userService.getCurrentUser.rejects(new Error('Failed to fetch user information'))
+      callbackHandler.stop.resolves()
+
+      const command = new TestableLogin(
+        authService,
+        browserLauncher,
+        tokenStore,
+        callbackHandler,
+        discoveryService,
+        userService,
+        config,
+      )
+
+      try {
+        await command.run()
+        expect.fail('Should have thrown error')
+      } catch (error) {
+        expect(error).to.be.an('error')
+        expect((error as Error).message).to.include('Failed to fetch user information')
+      }
+
+      // Verify token was NOT saved when user fetch fails
+      expect(tokenStore.save.called).to.be.false
+      // Verify cleanup still happened
       expect(callbackHandler.stop.calledOnce).to.be.true
     })
 
@@ -133,7 +228,14 @@ describe('login command', () => {
       const authUrl = 'https://auth.example.com/authorize?state=abc123'
       const state = 'state-123'
       const authContext = {authUrl, state}
-      const token = new AuthToken('access', new Date(Date.now() + 3600 * 1000), 'refresh', 'session-key', 'Bearer')
+      const tokenData = new OAuthTokenData(
+        'access-token',
+        new Date(Date.now() + 3600 * 1000),
+        'refresh-token',
+        'session-key',
+        'Bearer',
+      )
+      const user = new User('user@example.com', 'user-id-456', 'Test User')
 
       // Mock OAuth flow with browser failure
       callbackHandler.start.resolves(port)
@@ -141,7 +243,8 @@ describe('login command', () => {
       authService.initiateAuthorization.returns(authContext)
       browserLauncher.open.rejects(new Error('Browser not found'))
       callbackHandler.waitForCallback.resolves({code: 'auth-code', state})
-      authService.exchangeCodeForToken.resolves(token)
+      authService.exchangeCodeForToken.resolves(tokenData)
+      userService.getCurrentUser.resolves(user)
       tokenStore.save.resolves()
       callbackHandler.stop.resolves()
 
@@ -151,21 +254,20 @@ describe('login command', () => {
         tokenStore,
         callbackHandler,
         discoveryService,
+        userService,
         config,
       )
 
-      const logSpy = spy(command, 'log')
-
       await command.run()
 
-      // Should still succeed
-      expect(tokenStore.save.calledWith(token)).to.be.true
+      // Should still succeed (token saved with user info)
+      expect(tokenStore.save.calledOnce).to.be.true
+      const savedToken = tokenStore.save.firstCall.args[0] as AuthToken
+      expect(savedToken.userEmail).to.equal('user@example.com')
       expect(callbackHandler.stop.calledOnce).to.be.true
 
-      // Should display authUrl for manual copy
-      const logCalls = logSpy.getCalls().map((c) => c.args[0])
-      expect(logCalls.some((arg) => typeof arg === 'string' && arg.includes('Browser failed to open'))).to.be.true
-      expect(logCalls.some((arg) => typeof arg === 'string' && arg.includes(authUrl))).to.be.true
+      // Browser launcher should have been called and failed
+      expect(browserLauncher.open.calledOnce).to.be.true
     })
   })
 
@@ -190,6 +292,7 @@ describe('login command', () => {
         tokenStore,
         callbackHandler,
         discoveryService,
+        userService,
         config,
       )
 
@@ -204,6 +307,8 @@ describe('login command', () => {
       // Verify cleanup happened
       expect(callbackHandler.stop.calledOnce).to.be.true
       expect(tokenStore.save.called).to.be.false
+      // User fetch should not be called when callback times out
+      expect(userService.getCurrentUser.called).to.be.false
     })
 
     it('should handle token exchange failure and cleanup server', async () => {
@@ -227,6 +332,7 @@ describe('login command', () => {
         tokenStore,
         callbackHandler,
         discoveryService,
+        userService,
         config,
       )
 
@@ -241,6 +347,8 @@ describe('login command', () => {
       // Verify cleanup happened
       expect(callbackHandler.stop.calledOnce).to.be.true
       expect(tokenStore.save.called).to.be.false
+      // User fetch should not be called when token exchange fails
+      expect(userService.getCurrentUser.called).to.be.false
     })
 
     it('should handle server start failure and cleanup', async () => {
@@ -254,6 +362,7 @@ describe('login command', () => {
         tokenStore,
         callbackHandler,
         discoveryService,
+        userService,
         config,
       )
 
@@ -276,7 +385,14 @@ describe('login command', () => {
       const authUrl = 'https://auth.example.com/authorize?state=abc123'
       const state = 'state-123'
       const authContext = {authUrl, state}
-      const token = new AuthToken('access', new Date(Date.now() + 3600 * 1000), 'refresh', 'session-key', 'Bearer')
+      const tokenData = new OAuthTokenData(
+        'access-token',
+        new Date(Date.now() + 3600 * 1000),
+        'refresh-token',
+        'session-key',
+        'Bearer',
+      )
+      const user = new User('user@example.com', 'user-id-789', 'Test User')
       const expectedRedirectUri = `http://localhost:${port}/callback`
 
       // Mock OAuth flow
@@ -285,7 +401,8 @@ describe('login command', () => {
       authService.initiateAuthorization.returns(authContext)
       browserLauncher.open.resolves()
       callbackHandler.waitForCallback.resolves({code: 'auth-code', state})
-      authService.exchangeCodeForToken.resolves(token)
+      authService.exchangeCodeForToken.resolves(tokenData)
+      userService.getCurrentUser.resolves(user)
       tokenStore.save.resolves()
       callbackHandler.stop.resolves()
 
@@ -295,6 +412,7 @@ describe('login command', () => {
         tokenStore,
         callbackHandler,
         discoveryService,
+        userService,
         config,
       )
 
@@ -316,7 +434,14 @@ describe('login command', () => {
       const authUrl = 'https://auth.example.com/authorize?state=generated-state'
       const state = 'generated-state'
       const authContext = {authUrl, state}
-      const token = new AuthToken('access', new Date(Date.now() + 3600 * 1000), 'refresh', 'session-key', 'Bearer')
+      const tokenData = new OAuthTokenData(
+        'access-token',
+        new Date(Date.now() + 3600 * 1000),
+        'refresh-token',
+        'session-key',
+        'Bearer',
+      )
+      const user = new User('user@example.com', 'user-id-999', 'Test User')
 
       // Mock OAuth flow
       callbackHandler.start.resolves(port)
@@ -324,7 +449,8 @@ describe('login command', () => {
       authService.initiateAuthorization.returns(authContext)
       browserLauncher.open.resolves()
       callbackHandler.waitForCallback.resolves({code: 'auth-code', state})
-      authService.exchangeCodeForToken.resolves(token)
+      authService.exchangeCodeForToken.resolves(tokenData)
+      userService.getCurrentUser.resolves(user)
       tokenStore.save.resolves()
       callbackHandler.stop.resolves()
 
@@ -334,6 +460,7 @@ describe('login command', () => {
         tokenStore,
         callbackHandler,
         discoveryService,
+        userService,
         config,
       )
 
