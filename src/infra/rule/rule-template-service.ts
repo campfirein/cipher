@@ -1,5 +1,5 @@
 import {type Agent} from '../../core/domain/entities/agent.js'
-import {type IRuleTemplateService} from '../../core/interfaces/i-rule-template-service.js'
+import {BR_RULE_TAG, type IRuleTemplateService} from '../../core/interfaces/i-rule-template-service.js'
 import {type ITemplateLoader} from '../../core/interfaces/i-template-loader.js'
 
 const guideHeaders: {agent: Agent; value: string}[] = [
@@ -74,8 +74,11 @@ export class RuleTemplateService implements IRuleTemplateService {
       // Add agent-specific header if available (from develop branch)
       const header = guideHeaders.find((h) => h.agent === agent)?.value || ''
 
-      // Return header + content (with proper spacing)
-      return header ? `${header}\n${content}` : content
+    return `${header}
+${content}
+---
+${BR_RULE_TAG} ${agent}
+`
     } catch (error) {
       throw new Error(
         `Failed to generate rule content for agent '${agent}': ${error instanceof Error ? error.message : String(error)}`,
