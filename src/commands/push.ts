@@ -1,26 +1,26 @@
 import {Command, Flags, ux} from '@oclif/core'
 import {join} from 'node:path'
 
-import type {AuthToken} from '../../core/domain/entities/auth-token.js'
-import type {BrConfig} from '../../core/domain/entities/br-config.js'
-import type {PresignedUrl} from '../../core/domain/entities/presigned-url.js'
-import type {PresignedUrlsResponse} from '../../core/domain/entities/presigned-urls-response.js'
-import type {IMemoryStorageService} from '../../core/interfaces/i-memory-storage-service.js'
-import type {IPlaybookStore} from '../../core/interfaces/i-playbook-store.js'
-import type {IProjectConfigStore} from '../../core/interfaces/i-project-config-store.js'
-import type {ITokenStore} from '../../core/interfaces/i-token-store.js'
+import type {AuthToken} from '../core/domain/entities/auth-token.js'
+import type {BrConfig} from '../core/domain/entities/br-config.js'
+import type {PresignedUrl} from '../core/domain/entities/presigned-url.js'
+import type {PresignedUrlsResponse} from '../core/domain/entities/presigned-urls-response.js'
+import type {IMemoryStorageService} from '../core/interfaces/i-memory-storage-service.js'
+import type {IPlaybookStore} from '../core/interfaces/i-playbook-store.js'
+import type {IProjectConfigStore} from '../core/interfaces/i-project-config-store.js'
+import type {ITokenStore} from '../core/interfaces/i-token-store.js'
 
-import {getCurrentConfig} from '../../config/environment.js'
-import {ACE_DIR, BR_DIR, DEFAULT_BRANCH, DELTAS_DIR, EXECUTOR_OUTPUTS_DIR, REFLECTIONS_DIR} from '../../constants.js'
-import {ITrackingService} from '../../core/interfaces/i-tracking-service.js'
-import {FilePlaybookStore} from '../../infra/ace/file-playbook-store.js'
-import {ProjectConfigStore} from '../../infra/config/file-config-store.js'
-import {HttpMemoryStorageService} from '../../infra/memory/http-memory-storage-service.js'
-import {KeychainTokenStore} from '../../infra/storage/keychain-token-store.js'
-import {MixpanelTrackingService} from '../../infra/tracking/mixpanel-tracking-service.js'
-import {clearDirectory} from '../../utils/file-helpers.js'
+import {getCurrentConfig} from '../config/environment.js'
+import {ACE_DIR, BR_DIR, DEFAULT_BRANCH, DELTAS_DIR, EXECUTOR_OUTPUTS_DIR, REFLECTIONS_DIR} from '../constants.js'
+import {ITrackingService} from '../core/interfaces/i-tracking-service.js'
+import {FilePlaybookStore} from '../infra/ace/file-playbook-store.js'
+import {ProjectConfigStore} from '../infra/config/file-config-store.js'
+import {HttpMemoryStorageService} from '../infra/memory/http-memory-storage-service.js'
+import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
+import {MixpanelTrackingService} from '../infra/tracking/mixpanel-tracking-service.js'
+import {clearDirectory} from '../utils/file-helpers.js'
 
-export default class MemPush extends Command {
+export default class Push extends Command {
   public static description = 'Push playbook to ByteRover memory storage and clean up local ACE files'
   public static examples = [
     '<%= config.bin %> <%= command.id %>',
@@ -119,7 +119,7 @@ export default class MemPush extends Command {
     token: AuthToken,
     projectConfig: BrConfig,
   ): Promise<PresignedUrlsResponse> {
-    const {flags} = await this.parse(MemPush)
+    const {flags} = await this.parse(Push)
     ux.action.start('Requesting upload URLs')
     const response = await memoryService.getPresignedUrls({
       accessToken: token.accessToken,
@@ -146,7 +146,7 @@ export default class MemPush extends Command {
   }
 
   public async run(): Promise<void> {
-    const {flags} = await this.parse(MemPush)
+    const {flags} = await this.parse(Push)
 
     try {
       const {memoryService, playbookStore, projectConfigStore, tokenStore, trackingService} = this.createServices()
