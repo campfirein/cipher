@@ -34,10 +34,7 @@ const SUGGESTED_SECTIONS = [
   'Lessons Learned',
   'Architecture',
   'Testing',
-] as const
-
-// Validation Functions
-const validateSection = (section: string): boolean => section.trim().length > 0
+]
 
 const validateContent = (content: string): boolean => content.trim().length > 0
 
@@ -72,15 +69,6 @@ export default class Add extends Command {
       required: false,
     }),
   }
-  // Suggested standard ACE section names to maintain consistency
-  private static readonly SUGGESTED_SECTIONS = [
-    'Common Errors',
-    'Best Practices',
-    'Strategies',
-    'Lessons Learned',
-    'Architecture',
-    'Testing',
-  ]
 
   protected createServices(): {
     playbookService: IPlaybookService
@@ -228,19 +216,15 @@ export default class Add extends Command {
       }
 
       // Warn if section is not a standard ACE section
-      if (!Add.SUGGESTED_SECTIONS.includes(flags.section)) {
+      if (!SUGGESTED_SECTIONS.includes(flags.section)) {
         this.warn(
           `Section "${flags.section}" is not a standard ACE section.\n` +
-            `  Suggested sections: ${Add.SUGGESTED_SECTIONS.join(', ')}\n` +
+            `  Suggested sections: ${SUGGESTED_SECTIONS.join(', ')}\n` +
             `  You can still proceed, but consider using a standard section for consistency.`,
         )
       }
 
-      await trackingService.track('ace:add_bullet', {
-        interactive: false,
-        section: flags.section,
-        update: Boolean(flags['bullet-id']),
-      })
+      await trackingService.track('ace:add_bullet')
 
       const bullet = await playbookService.addOrUpdateBullet({
         bulletId: flags['bullet-id'],
@@ -267,17 +251,14 @@ export default class Add extends Command {
         playbook = new Playbook()
       }
 
-      // Step 1: Action selection
       const action = await this.promptForAction()
 
-      // Step 2: Get section
       const sectionOptions: SectionPromptOptions = {
         existingSections: playbook.getSections(),
         suggestedSections: SUGGESTED_SECTIONS,
       }
       const section = await this.promptForSection(sectionOptions)
 
-      // Step 3: Handle update vs add
       let bulletId: string | undefined
       let existingContent: string | undefined
 
@@ -292,7 +273,6 @@ export default class Add extends Command {
         }
       }
 
-      // Step 4: Get content
       const contentContext: ContentPromptContext = {
         action: bulletId ? 'update' : 'add',
         existingContent,
@@ -300,14 +280,12 @@ export default class Add extends Command {
       }
       const content = await this.promptForContent(contentContext)
 
-      // Step 5: Execute operation
       const bullet = await playbookService.addOrUpdateBullet({
         bulletId,
         content,
         section,
       })
 
-      // Step 6: Track & report
       await trackingService.track('ace:add_bullet', {
         interactive: true,
         section,
