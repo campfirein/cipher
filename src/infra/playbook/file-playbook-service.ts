@@ -21,7 +21,8 @@ export type PlaybookServiceConfig = {
  * bullet management, delta application, and reflection tag processing.
  */
 export class FilePlaybookService implements IPlaybookService {
-  private static readonly SUBDIRS = [REFLECTIONS_DIR, EXECUTOR_OUTPUTS_DIR, DELTAS_DIR]
+  private static readonly BULLETS_DIR = 'bullets'
+  private static readonly SUBDIRS = [REFLECTIONS_DIR, EXECUTOR_OUTPUTS_DIR, DELTAS_DIR, FilePlaybookService.BULLETS_DIR]
   private readonly config: PlaybookServiceConfig
   private readonly playbookStore: IPlaybookStore
 
@@ -170,9 +171,7 @@ export class FilePlaybookService implements IPlaybookService {
     await mkdir(aceDir, {recursive: true})
 
     // Create subdirectories
-    await Promise.all(
-      FilePlaybookService.SUBDIRS.map((subdir) => mkdir(join(aceDir, subdir), {recursive: true})),
-    )
+    await Promise.all(FilePlaybookService.SUBDIRS.map((subdir) => mkdir(join(aceDir, subdir), {recursive: true})))
 
     // Check if playbook already exists
     const exists = await this.playbookStore.exists(directory ?? this.config.baseDirectory)

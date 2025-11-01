@@ -8,14 +8,17 @@ import {DeltaBatch} from '../../../../src/core/domain/entities/delta-batch.js'
 import {DeltaOperation} from '../../../../src/core/domain/entities/delta-operation.js'
 import {Playbook} from '../../../../src/core/domain/entities/playbook.js'
 import {ReflectorOutput} from '../../../../src/core/domain/entities/reflector-output.js'
+import {FileBulletContentStore} from '../../../../src/infra/ace/file-bullet-content-store.js'
 import {FilePlaybookService} from '../../../../src/infra/playbook/file-playbook-service.js'
 
 describe('FilePlaybookService', () => {
   let service: FilePlaybookService
   let testDir: string
+  let contentStore: FileBulletContentStore
 
   beforeEach(() => {
     service = new FilePlaybookService()
+    contentStore = new FileBulletContentStore()
     // Use temp directory for testing
     testDir = join(tmpdir(), `byterover-test-${Date.now()}`)
   })
@@ -108,7 +111,13 @@ describe('FilePlaybookService', () => {
         expect(saved.sections['Test Section']).to.exist
         expect(saved.sections['Test Section']).to.have.lengthOf(1)
         const bulletId = saved.sections['Test Section'][0]
-        expect(saved.bullets[bulletId].content).to.equal('Test bullet')
+
+        // Content should be in separate file now, not in JSON
+        expect(saved.bullets[bulletId].content).to.be.undefined
+
+        // Verify content file exists and content is correct (without header)
+        const bulletContent = await contentStore.load(bulletId, testDir)
+        expect(bulletContent).to.equal('Test bullet')
       })
 
       it('should add default "manual" tag if no metadata provided', async () => {
@@ -206,7 +215,13 @@ describe('FilePlaybookService', () => {
 
         expect(saved.sections['Test Section']).to.have.lengthOf(1)
         const bulletId = saved.sections['Test Section'][0]
-        expect(saved.bullets[bulletId].content).to.equal('Updated content')
+
+        // Content should be in separate file now, not in JSON
+        expect(saved.bullets[bulletId].content).to.be.undefined
+
+        // Verify content file has updated content (without header)
+        const bulletContent = await contentStore.load(bulletId, testDir)
+        expect(bulletContent).to.equal('Updated content')
       })
 
       it('should update bullet metadata', async () => {
@@ -299,7 +314,13 @@ describe('FilePlaybookService', () => {
       expect(saved.sections['Test Section']).to.exist
       expect(saved.sections['Test Section']).to.have.lengthOf(1)
       const bulletId = saved.sections['Test Section'][0]
-      expect(saved.bullets[bulletId].content).to.equal('New bullet')
+
+      // Content should be in separate file now, not in JSON
+      expect(saved.bullets[bulletId].content).to.be.undefined
+
+      // Verify content file exists and content is correct (without header)
+      const bulletContent = await contentStore.load(bulletId, testDir)
+      expect(bulletContent).to.equal('New bullet')
     })
 
     it('should apply UPDATE operation', async () => {
@@ -327,7 +348,13 @@ describe('FilePlaybookService', () => {
       const saved = JSON.parse(content)
 
       const bulletId = saved.sections['Test Section'][0]
-      expect(saved.bullets[bulletId].content).to.equal('Updated via delta')
+
+      // Content should be in separate file now, not in JSON
+      expect(saved.bullets[bulletId].content).to.be.undefined
+
+      // Verify content file has updated content (without header)
+      const bulletContent = await contentStore.load(bulletId, testDir)
+      expect(bulletContent).to.equal('Updated via delta')
     })
 
     it('should apply REMOVE operation', async () => {

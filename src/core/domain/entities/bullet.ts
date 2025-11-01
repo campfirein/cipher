@@ -8,7 +8,7 @@ export interface BulletMetadata {
 }
 
 export interface BulletJson {
-  content: string
+  content?: string
   id: string
   memoryId?: string
   metadata: {
@@ -31,13 +31,7 @@ export class Bullet {
   public readonly section: string
 
   // eslint-disable-next-line max-params
-  public constructor(
-    id: string,
-    section: string,
-    content: string,
-    metadata: BulletMetadata,
-    memoryId?: string,
-  ) {
+  public constructor(id: string, section: string, content: string, metadata: BulletMetadata, memoryId?: string) {
     if (id.trim().length === 0) {
       throw new Error('Bullet ID cannot be empty')
     }
@@ -70,13 +64,21 @@ export class Bullet {
   }
 
   /**
-   * Creates a Bullet instance from a JSON object
+   * Creates a Bullet instance from a JSON object.
+   * The content parameter must be provided separately when content is stored in files.
+   * @param json The JSON object containing bullet metadata
+   * @param content Optional content string (required if json.content is undefined)
    */
-  public static fromJson(json: BulletJson): Bullet {
+  public static fromJson(json: BulletJson, content?: string): Bullet {
+    const bulletContent = json.content ?? content
+    if (!bulletContent) {
+      throw new Error(`Bullet content is required for bullet ${json.id}`)
+    }
+
     return new Bullet(
       json.id,
       json.section,
-      json.content,
+      bulletContent,
       {
         relatedFiles: json.metadata.relatedFiles,
         tags: json.metadata.tags,
@@ -92,9 +94,8 @@ export class Bullet {
   public toDisplayString(): string {
     const tags = this.metadata.tags.join(', ')
     const tagDisplay = `[Tags: ${tags}]`
-    const filesDisplay = this.metadata.relatedFiles.length > 0
-      ? `[Files: ${this.metadata.relatedFiles.join(', ')}]`
-      : '[Files: none]'
+    const filesDisplay =
+      this.metadata.relatedFiles.length > 0 ? `[Files: ${this.metadata.relatedFiles.join(', ')}]` : '[Files: none]'
     const timestampDisplay = `[Updated: ${this.metadata.timestamp}]`
 
     const metadataDisplay = [tagDisplay, filesDisplay, timestampDisplay].join(' ')
@@ -104,10 +105,10 @@ export class Bullet {
 
   /**
    * Converts the bullet to a JSON object
+   * @param includeContent If false, content field is omitted (for file-based storage)
    */
-  public toJson(): BulletJson {
-    return {
-      content: this.content,
+  public toJson(includeContent: boolean = true): BulletJson {
+    const json: BulletJson = {
       id: this.id,
       memoryId: this.memoryId,
       metadata: {
@@ -117,15 +118,27 @@ export class Bullet {
       },
       section: this.section,
     }
+
+    if (includeContent) {
+      json.content = this.content
+    }
+
+    return json
   }
 
   /**
    * Creates a new bullet with updated content
    */
   public withUpdatedContent(content: string): Bullet {
-    return new Bullet(this.id, this.section, content, {
-      ...this.metadata,
-      timestamp: new Date().toISOString(),
-    }, this.memoryId)
+    return new Bullet(
+      this.id,
+      this.section,
+      content,
+      {
+        ...this.metadata,
+        timestamp: new Date().toISOString(),
+      },
+      this.memoryId,
+    )
   }
 }
