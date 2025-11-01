@@ -122,14 +122,14 @@ Test subclasses override to inject mocks.
 
 - **No playbook initialization** (unlike `init`)
 
-`br mem retrieve --query <q> [--node-keys <paths>]`:
+`br retrieve --query <q> [--node-keys <paths>]`:
 
 - Clears existing playbook first
 - Combines `memories` + `relatedMemories` into playbook
 - Uses Memora `tags` directly (not "auto-generated")
 - Fail-safe: warns on save error but still displays results
 
-`br mem push [--branch <name>]`:
+`br push [--branch <name>]`:
 
 - Default branch: `main` (ByteRover internal, not git)
 - **Upload flow**: 1. Get presigned URLs → 2. PUT to GCS → 3. **Confirm** upload

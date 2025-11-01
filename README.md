@@ -129,14 +129,14 @@ ACE follows a 3-phase cycle:
 
 ```bash
 # Complete ACE workflow in a single command
-br ace "auth-feature" \
+br complete "auth-feature" \
   "Implemented JWT authentication with secure token handling" \
   "Successfully added OAuth2 authentication" \
   --tool-usage "Read:src/auth.ts,Edit:src/auth.ts,Bash:npm test" \
   --feedback "All tests passed, auth works correctly"
 
 # Update an existing playbook bullet
-br ace "auth-update" \
+br complete "auth-update" \
   "Improved error handling in auth flow" \
   "Better error messages for failed login" \
   --tool-usage "Edit:src/auth.ts" \
@@ -159,7 +159,7 @@ br ace "auth-update" \
 
 ```bash
 # Complete ACE workflow (executor + reflector + curator in one command)
-br ace <hint> <reasoning> <answer> \
+br complete <hint> <reasoning> <answer> \
   --tool-usage <tools> \
   --feedback <feedback> \
   [--bullet-ids <ids>] \

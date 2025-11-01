@@ -20,7 +20,7 @@ import {FilePlaybookStore} from '../infra/ace/file-playbook-store.js'
 import {FileReflectionStore} from '../infra/ace/file-reflection-store.js'
 import {FilePlaybookService} from '../infra/playbook/file-playbook-service.js'
 
-export default class Ace extends Command {
+export default class Complete extends Command {
   /* eslint-disable perfectionist/sort-objects */
   public static args = {
     hint: Args.string({
@@ -84,7 +84,7 @@ export default class Ace extends Command {
   }
 
   public async run(): Promise<void> {
-    const {args, flags} = await this.parse(Ace)
+    const {args, flags} = await this.parse(Complete)
 
     try {
       const {deltaStore, executorOutputStore, playbookService, promptBuilder, reflectionStore} = this.createServices()

@@ -82,7 +82,7 @@ br push --branch develop
 
 ---
 
-### `br ace`
+### `br complete`
 
 **Description:** Complete ACE workflow: save executor output, generate reflection, and update playbook in one command
 
@@ -102,9 +102,9 @@ br push --branch develop
 **Examples:**
 
 ```bash
-br ace "user-auth" "Implemented OAuth2 flow" "Auth works" --tool-usage "Read:src/auth.ts,Edit:src/auth.ts,Bash:npm test" --feedback "All tests passed"
-br ace "validation-fix" "Analyzed validator" "Fixed bug" --tool-usage "Grep:pattern:\"validate\",Read:src/validator.ts" --bullet-ids "bullet-123" --feedback "Tests passed"
-br ace "auth-update" "Improved error handling" "Better errors" --tool-usage "Edit:src/auth.ts" --feedback "Tests passed" --update-bullet "bullet-5"
+br complete "user-auth" "Implemented OAuth2 flow" "Auth works" --tool-usage "Read:src/auth.ts,Edit:src/auth.ts,Bash:npm test" --feedback "All tests passed"
+br complete "validation-fix" "Analyzed validator" "Fixed bug" --tool-usage "Grep:pattern:\"validate\",Read:src/validator.ts" --bullet-ids "bullet-123" --feedback "Tests passed"
+br complete "auth-update" "Improved error handling" "Better errors" --tool-usage "Edit:src/auth.ts" --feedback "Tests passed" --update-bullet "bullet-5"
 ```
 
 **Behavior:**
@@ -128,7 +128,7 @@ br ace "auth-update" "Improved error handling" "Better errors" --tool-usage "Edi
 
 1. **Retrieve wisely:** Use `br retrieve` with specific queries and `--node-keys` to filter
 2. **Read only what's needed:** Check playbook with `br status` to see statistics before reading full content
-3. **Update precisely:** Use `br add` to add/update specific bullets or `br ace` for complete workflow
+3. **Update precisely:** Use `br add` to add/update specific bullets or `br complete` for complete workflow
 4. **Push when appropriate:** Prompt user to run `br push` after completing significant work
 
 ### Memory Management

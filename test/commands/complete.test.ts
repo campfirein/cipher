@@ -14,7 +14,7 @@ import type {IExecutorOutputStore} from '../../src/core/interfaces/i-executor-ou
 import type {IPlaybookService} from '../../src/core/interfaces/i-playbook-service.js'
 import type {IReflectionStore} from '../../src/core/interfaces/i-reflection-store.js'
 
-import Ace from '../../src/commands/ace.js'
+import Complete from '../../src/commands/complete.js'
 import {Bullet} from '../../src/core/domain/entities/bullet.js'
 import {Playbook as PlaybookImpl} from '../../src/core/domain/entities/playbook.js'
 import {FilePlaybookStore} from '../../src/infra/ace/file-playbook-store.js'
@@ -22,7 +22,7 @@ import {FilePlaybookStore} from '../../src/infra/ace/file-playbook-store.js'
 /**
  * Testable Complete command that accepts mocked services
  */
-class TestableAce extends Ace {
+class TestableAce extends Complete {
   // eslint-disable-next-line max-params
   public constructor(
     private readonly mockDeltaStore: IDeltaStore,
