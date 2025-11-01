@@ -46,6 +46,7 @@ describe('CallbackHandler', () => {
       const callbackPromise = handler.waitForCallback(internalState, 5000)
 
       // Simulate OAuth callback
+      // eslint-disable-next-line n/no-unsupported-features/node-builtins
       await fetch(`http://localhost:${port}/callback?code=${internalCode}&state=${internalState}`)
 
       const result = await callbackPromise
@@ -61,6 +62,7 @@ describe('CallbackHandler', () => {
       const receivedState = 'malicious-state'
 
       const callbackPromise = handler.waitForCallback(expectedState, 5000).catch((error: Error) => error)
+      // eslint-disable-next-line n/no-unsupported-features/node-builtins
       await fetch(`http://localhost:${port}/callback?code=auth-code&state=${receivedState}`)
 
       const error = await callbackPromise

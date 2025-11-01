@@ -11,6 +11,7 @@ Command-line interface for ByteRover, enabling seamless project management, auth
 ## Table of Contents
 
 <!-- toc -->
+* [Development Testing](#development-testing)
 * [Installation](#installation)
 * [Quick Start](#quick-start)
 * [Agentic Context Engineering (ACE)](#agentic-context-engineering-ace)
@@ -20,8 +21,6 @@ Command-line interface for ByteRover, enabling seamless project management, auth
 * [Configuration](#configuration)
 * [Development](#development)
 * [Architecture](#architecture)
-* [Contributing](#contributing)
-* [License](#license)
 <!-- tocstop -->
 
 ## Development Testing
@@ -145,14 +144,9 @@ br complete "auth-update" \
 
 ### For Coding Agents
 
-**📘 Complete ACE Guide**: See [docs/ACE_AGENT_GUIDE.md](docs/ACE_AGENT_GUIDE.md) for comprehensive instructions on using ACE in your development workflow.
+**📘 Complete ACE Guide**: See [rules](./src/templates/README.md) for comprehensive instructions on using ACE in your development workflow.
 
-**Copy these instructions to your agent** (Claude Code, Cursor, Aider, etc.) to enable systematic learning and knowledge building. The guide includes:
-
-- Complete workflow with all commands and flags
-- JSON formats for reflections and delta operations
-- Best practices for hint-based file naming
-- Examples for common development scenarios
+`br gen-rules` (integrated into `br init`) helps users quickly set up their coding agents with the ACE workflow.
 
 ### ACE Commands
 
@@ -173,7 +167,6 @@ br push [--branch name]                            # Push playbook to blob stora
 br retrieve --query <text> [--node-keys <paths>]   # Retrieve memories from ByteRover and load into playbook
 
 # Utility commands
-br show [--format json]                            # View current playbook
 br status                                          # View CLI status and playbook statistics
 br clear [--yes]                                   # Reset playbook
 ```
@@ -273,7 +266,7 @@ ACE stores all outputs in `.br/ace/` with hint-based naming for traceability:
 
 ### Memory Retrieve
 
-The `br retrieve` command fetches memories from ByteRover's Memora service and loads them into your local ACE playbook. This is useful when you want to:
+The `br retrieve` command fetches memories from ByteRover's Memora service and loads them to `stdout` as parts of the coding agents' current context. This is useful when you want to:
 
 - **Access team knowledge** - Retrieve insights and best practices shared by your team
 - **Find relevant context** - Search for specific topics or code patterns
@@ -298,37 +291,7 @@ br retrieve -q "database connection issues"
 1. **Searches** ByteRover's memory storage for matches to your query
 2. **Filters** results by node keys (file paths) if specified
 3. **Clears** your existing local playbook
-4. **Loads** retrieved memories and related memories into playbook
-5. **Displays** results with relevance scores and content previews
-
-**Important**: This command **replaces** your local playbook with retrieved memories. If you have local changes you want to keep, run `br push` before retrieving.
-
-#### Retrieve Output Example
-
-```text
-Found 5 memories and 3 related memories
-
-✓ Saved memories to playbook
-
-=== Memories ===
-
-1. OAuth2 Authentication Flow
-   Score: 0.92
-   Content: Always validate redirect URIs against a whitelist. Use PKCE flow for public clients...
-   Paths: src/auth/oauth.ts, src/auth/config.ts
-
-2. Error Handling Best Practices
-   Score: 0.87
-   Content: Wrap authentication errors with custom error classes for better debugging...
-   Paths: src/auth/errors.ts
-
-=== Related Memories ===
-
-1. Token Storage Security
-   Score: 0.75
-   Content: Store tokens in system keychain, never in localStorage or plain files...
-   Paths: src/storage/keychain.ts
-```
+4. **Loads** retrieved memories and related memories into `stdout`.
 
 ## Authentication
 
@@ -368,7 +331,7 @@ After authentication, the CLI stores:
 All tokens are stored in your system keychain via the `keytar` library.
 
 ## Usage
-<!-- usage -->
+
 ```sh-session
 $ npm install -g byterover-cli
 $ br COMMAND
@@ -380,15 +343,20 @@ USAGE
   $ br COMMAND
 ...
 ```
-<!-- usagestop -->
 
 ## Commands
-<!-- commands -->
+
 * [`br add`](#br-add)
-* [`br login`](#br-login)
-* [`br foo`](#br-foo)
+* [`br clear`](#br-clear)
+* [`br complete`](#br-complete)
+* [`br gen-rules`](#br-gen-rules)
 * [`br help [COMMAND]`](#br-help-command)
 * [`br init`](#br-init)
+* [`br login`](#br-login)
+* [`br push`](#br-push)
+* [`br retrieve`](#br-retrieve)
+* [`br space list`](#br-space-list)
+* [`br space switch`](#br-space-switch)
 * [`br status`](#br-status)
 
 ## `br add`
@@ -421,13 +389,89 @@ EXAMPLES
   $ br add -s "Best Practices" -c "Use dependency injection for better testability"
 ```
 
-_See code: [src/commands/add.ts](https://github.com/campfirein/byterover-cli/blob/v0.0.0/src/commands/add.ts)_
+## `br clear`
+
+Clear local ACE context (playbook) managed by ByteRover CLI
+
+```txt
+USAGE
+  $ br clear [DIRECTORY] [-y]
+
+ARGUMENTS
+  DIRECTORY  Project directory (defaults to current directory)
+
+FLAGS
+  -y, --yes  Skip confirmation prompt
+
+DESCRIPTION
+  Clear local ACE context (playbook) managed by ByteRover CLI
+
+EXAMPLES
+  $ br clear
+
+  $ br clear --yes
+
+  $ br clear /path/to/project
+```
+
+## `br complete`
+
+Complete ACE workflow: save executor output, generate reflection, and update playbook in one command
+
+```txt
+USAGE
+  $ br complete HINT REASONING FINALANSWER -t <value> -f <value> [-b <value>] [-u <value>]
+
+ARGUMENTS
+  HINT         Short hint for naming output files (e.g., "user-auth", "bug-fix")
+  REASONING    Detailed reasoning and approach for completing the task
+  FINALANSWER  The final answer/solution to the task
+
+FLAGS
+  -b, --bullet-ids=<value>    Comma-separated list of playbook bullet IDs referenced
+  -f, --feedback=<value>      (required) Environment feedback about task execution (e.g., "Tests passed", "Build failed")
+  -t, --tool-usage=<value>    (required) Comma-separated list of tool calls with arguments (format: "ToolName:argument", e.g., "Read:src/file.ts,Bash:npm test")
+  -u, --update-bullet=<value> Bullet ID to update with new knowledge (if not provided, adds new bullet)
+
+DESCRIPTION
+  Complete ACE workflow: save executor output, generate reflection, and update playbook in one command
+
+  This command executes the full ACE (Agentic Context Engineering) workflow in a single step:
+  1. Executor phase: Saves your task output with detailed context
+  2. Reflector phase: Analyzes results and generates reflection
+  3. Curator phase: Updates the playbook with new knowledge
+
+EXAMPLES
+  $ br complete "user-auth" "Implemented OAuth2 flow" "Auth works" --tool-usage "Read:src/auth.ts,Edit:src/auth.ts,Bash:npm test" --feedback "All tests passed"
+
+  $ br complete "validation-fix" "Analyzed validator" "Fixed bug" --tool-usage "Grep:pattern:\"validate\",Read:src/validator.ts" --bullet-ids "bullet-123" --feedback "Tests passed"
+
+  $ br complete "auth-update" "Improved error handling" "Better errors" --tool-usage "Edit:src/auth.ts" --feedback "Tests passed" --update-bullet "bullet-5"
+```
+
+## `br gen-rules`
+
+Generate rule instructions for coding agents to work with ByteRover correctly
+
+```txt
+USAGE
+  $ br gen-rules
+
+DESCRIPTION
+  Generate rule instructions for coding agents to work with ByteRover correctly
+
+  This command generates agent-specific rule files that provide instructions for coding agents
+  (like Claude Code, Cursor, Aider, etc.) to work correctly with ByteRover CLI and the ACE workflow.
+
+EXAMPLES
+  $ br gen-rules
+```
 
 ## `br login`
 
 Authenticate with ByteRover
 
-```
+```txt
 USAGE
   $ br login
 
@@ -435,27 +479,11 @@ DESCRIPTION
   Authenticate with ByteRover
 ```
 
-_See code: [src/commands/auth/login.ts](https://github.com/campfirein/byterover-cli/blob/v0.0.0/src/commands/auth/login.ts)_
-
-## `br foo`
-
-This command is used for interactive testing.
-
-```
-USAGE
-  $ br foo
-
-DESCRIPTION
-  This command is used for interactive testing.
-```
-
-_See code: [src/commands/foo.ts](https://github.com/campfirein/byterover-cli/blob/v0.0.0/src/commands/foo.ts)_
-
 ## `br help [COMMAND]`
 
 Display help for br.
 
-```
+```txt
 USAGE
   $ br help [COMMAND...] [-n]
 
@@ -469,13 +497,11 @@ DESCRIPTION
   Display help for br.
 ```
 
-_See code: [@oclif/plugin-help](https://github.com/oclif/plugin-help/blob/v6.2.33/src/commands/help.ts)_
-
 ## `br init`
 
 Initialize a project with ByteRover
 
-```
+```txt
 USAGE
   $ br init
 
@@ -486,13 +512,67 @@ EXAMPLES
   $ br init
 ```
 
-_See code: [src/commands/init.ts](https://github.com/campfirein/byterover-cli/blob/v0.0.0/src/commands/init.ts)_
+## `br push`
+
+Push playbook to ByteRover memory storage and clean up local ACE files
+
+```txt
+USAGE
+  $ br push [-b <value>]
+
+FLAGS
+  -b, --branch=<value>  [default: main] ByteRover branch name (not Git branch)
+
+DESCRIPTION
+  Push playbook to ByteRover memory storage and clean up local ACE files
+
+  This command uploads your playbook to ByteRover's memory storage and automatically cleans up
+  local ACE files after successful upload. The cleanup includes:
+  - Clearing playbook content
+  - Removing executor outputs
+  - Removing reflections
+  - Removing deltas
+
+EXAMPLES
+  $ br push
+
+  $ br push --branch develop
+
+  $ br push -b feature-auth
+```
+
+## `br retrieve`
+
+Retrieve memories from ByteRover Memora service and output as JSON
+
+```txt
+USAGE
+  $ br retrieve -q <value> [-n <value>] [--compact]
+
+FLAGS
+  -n, --node-keys=<value>  Comma-separated list of node keys (file paths) to filter results
+  -q, --query=<value>      (required) Search query string
+  --compact                Output compact JSON (single line)
+
+DESCRIPTION
+  Retrieve memories from ByteRover Memora service and output as JSON
+
+  This command fetches memories from ByteRover's memory storage based on your query.
+  You can optionally filter results by specific file paths using the --node-keys flag.
+
+EXAMPLES
+  $ br retrieve --query "authentication best practices"
+
+  $ br retrieve -q "error handling" -n "src/auth/login.ts,src/auth/oauth.ts"
+
+  $ br retrieve -q "database connection issues" --compact
+```
 
 ## `br status`
 
 Show CLI status and project information
 
-```
+```txt
 USAGE
   $ br status
 
@@ -509,8 +589,56 @@ EXAMPLES
   $ br status
 ```
 
-_See code: [src/commands/status.ts](https://github.com/campfirein/byterover-cli/blob/v0.0.0/src/commands/status.ts)_
-<!-- commandsstop -->
+## `br space list`
+
+List all spaces for the current team (requires project initialization)
+
+```txt
+USAGE
+  $ br space list [-a] [-j] [-l <value>] [-o <value>]
+
+FLAGS
+  -a, --all             Fetch all spaces (may be slow for large teams)
+  -j, --json            Output in JSON format
+  -l, --limit=<value>   [default: 50] Maximum number of spaces to fetch
+  -o, --offset=<value>  [default: 0] Number of spaces to skip
+
+DESCRIPTION
+  List all spaces for the current team (requires project initialization)
+
+  This command lists all available spaces in the current team. By default, it shows 50 spaces.
+  Use --all to fetch all spaces or use --limit and --offset for manual pagination.
+
+EXAMPLES
+  $ br space list
+
+  $ br space list --all
+
+  $ br space list --limit 10
+
+  $ br space list --limit 10 --offset 20
+
+  $ br space list --json
+```
+
+## `br space switch`
+
+Switch to a different team or space (updates .br/config.json)
+
+```txt
+USAGE
+  $ br space switch
+
+DESCRIPTION
+  Switch to a different team or space (updates .br/config.json)
+
+  This command allows you to switch your project to a different team or space.
+  It shows your current configuration, then prompts you to select a new team and space.
+  The configuration is updated in .br/config.json.
+
+EXAMPLES
+  $ br space switch
+```
 
 ## Configuration
 
@@ -548,6 +676,7 @@ When you run `br init`, a configuration file is created at `.byterover/config.js
 
 * **Space ID**: The ByteRover workspace/space associated with this project
 * **Project settings**: Project-specific configuration
+* **User's information**: User's ID and user's email.
 
 ## Development
 
@@ -648,34 +777,5 @@ ByteRover CLI follows **Clean Architecture** principles with a clear separation 
 ### Detailed Documentation
 
 For comprehensive architecture documentation, design patterns, and development guidelines, see [CLAUDE.md](CLAUDE.md).
-
-## Contributing
-
-We welcome contributions! Here's how to get started:
-
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feat/my-feature`
-3. Make your changes and add tests
-4. Ensure tests pass: `npm test`
-5. Ensure linting passes: `npm run lint`
-6. Commit your changes following conventional commit format
-7. Push to your fork and submit a pull request
-
-### Code Style
-
-* Use explicit access modifiers (`public`, `private`, `readonly`)
-* Prefer `const` for all variables
-* Interface names prefixed with `I` (e.g., `IAuthService`)
-* All imports require `.js` extension (TypeScript + Node16 module resolution)
-
-### Testing Requirements
-
-* All new features must include tests
-* Maintain or improve test coverage
-* Tests should follow existing patterns (see `test/` directory)
-
-## License
-
-MIT License - see [LICENSE](LICENSE) file for details.
 
 Copyright (c) ByteRover
