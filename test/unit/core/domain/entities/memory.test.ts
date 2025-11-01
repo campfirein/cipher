@@ -60,6 +60,59 @@ describe('Memory Entity', () => {
       expect(memory.tags).to.deep.equal(['manual'])
     })
 
+    it('should create a Memory with undefined score, parentIds, and childrenIds', () => {
+      const relatedMemoryData = {
+        bulletId: 'related-00001',
+        content: 'Related memory content',
+        id: '019a1e9f-a5ec-7046-956d-27cdff4b6b68',
+        metadataType: 'knowledge',
+        nodeKeys: ['path1'],
+        section: 'Common Errors',
+        tags: ['error'],
+        timestamp: '2025-10-26T16:00:00.000Z',
+        title: 'Related Memory',
+      }
+
+      const memory = new Memory(relatedMemoryData)
+
+      expect(memory.id).to.equal(relatedMemoryData.id)
+      expect(memory.bulletId).to.equal(relatedMemoryData.bulletId)
+      expect(memory.title).to.equal(relatedMemoryData.title)
+      expect(memory.content).to.equal(relatedMemoryData.content)
+      expect(memory.section).to.equal(relatedMemoryData.section)
+      expect(memory.nodeKeys).to.deep.equal(relatedMemoryData.nodeKeys)
+      expect(memory.tags).to.deep.equal(relatedMemoryData.tags)
+      // Optional fields should be undefined
+      expect(memory.score).to.be.undefined
+      expect(memory.parentIds).to.be.undefined
+      expect(memory.childrenIds).to.be.undefined
+    })
+
+    it('should distinguish primary memories (with score) from related memories (without score)', () => {
+      const primaryMemory = new Memory(validMemoryData)
+      const relatedMemory = new Memory({
+        bulletId: 'related-00001',
+        content: 'Related content',
+        id: '019a1e9f-a5ec-7046-956d-27cdff4b6b69',
+        metadataType: 'knowledge',
+        nodeKeys: [],
+        section: 'Common Errors',
+        tags: [],
+        timestamp: '2025-10-26T16:00:00.000Z',
+        title: 'Related',
+      })
+
+      // Primary memory has score
+      expect(primaryMemory.score).to.equal(0.85)
+      expect(primaryMemory.parentIds).to.deep.equal(['parent-id-1'])
+      expect(primaryMemory.childrenIds).to.deep.equal(['child-id-1'])
+
+      // Related memory doesn't have score
+      expect(relatedMemory.score).to.be.undefined
+      expect(relatedMemory.parentIds).to.be.undefined
+      expect(relatedMemory.childrenIds).to.be.undefined
+    })
+
     it('should throw error when id is empty', () => {
       expect(
         () =>

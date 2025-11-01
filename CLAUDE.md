@@ -57,8 +57,8 @@ npm run pack:dev / pack:prod                     # Tarballs
 - `AuthToken` - Required fields: `accessToken`, `refreshToken`, `sessionKey`, `userId`, `userEmail`. Constructor uses object param (`AuthTokenParams`). `fromJson()` returns `undefined` for old tokens (forces re-login)
 - `OAuthTokenData` - OAuth response entity (tokens + session, no user info). Used before user fetch in login flow
 - `User`, `Team`, `Space` - Have `getDisplayName()` methods
-- `Memory` - Key fields: `bulletId`, `section`, `tags`, `metadataType`, `timestamp`, `nodeKeys`, `score`, `parentIds`, `childrenIds`
-- `RetrieveResult` - Contains `memories` and `relatedMemories` arrays
+- `Memory` - Required: `bulletId`, `section`, `tags`, `metadataType`, `timestamp`, `nodeKeys`. Optional: `score`, `parentIds`, `childrenIds` (present in primary memories, absent in related memories)
+- `RetrieveResult` - Contains `memories` (with scores) and `relatedMemories` (without scores) arrays
 
 ### Infrastructure (`src/infra/`)
 
@@ -157,7 +157,7 @@ Test subclasses override to inject mocks.
 
 - Verify both headers: `.matchHeader('authorization', ...)` + `.matchHeader('x-byterover-session-id', ...)`
 - `HttpSpaceService`: verify `team_id` query param
-- `HttpMemoryRetrievalService`: mocks must include all Memory fields (`bullet_id`, `section`, `tags`, `metadata_type`, `timestamp`, `node_keys`, etc.)
+- `HttpMemoryRetrievalService`: `memories` mocks include all fields; `related_memories` mocks omit `score`, `parent_ids`, `children_ids`
 
 **Service mocking**:
 
