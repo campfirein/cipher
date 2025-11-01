@@ -2,28 +2,31 @@ import {Command, Flags} from '@oclif/core'
 
 import type {AuthToken} from '../core/domain/entities/auth-token.js'
 import type {BrConfig} from '../core/domain/entities/br-config.js'
+import type {RetrieveResult} from '../core/domain/entities/retrieve-result.js'
 import type {IMemoryRetrievalService} from '../core/interfaces/i-memory-retrieval-service.js'
-import type {IPlaybookStore} from '../core/interfaces/i-playbook-store.js'
 import type {IProjectConfigStore} from '../core/interfaces/i-project-config-store.js'
 import type {ITokenStore} from '../core/interfaces/i-token-store.js'
 
 import {getCurrentConfig} from '../config/environment.js'
 import {ITrackingService} from '../core/interfaces/i-tracking-service.js'
-import {FilePlaybookStore} from '../infra/ace/file-playbook-store.js'
 import {ProjectConfigStore} from '../infra/config/file-config-store.js'
 import {HttpMemoryRetrievalService} from '../infra/memory/http-memory-retrieval-service.js'
-import {transformRetrieveResultToPlaybook} from '../infra/memory/memory-to-playbook-mapper.js'
 import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
 import {MixpanelTrackingService} from '../infra/tracking/mixpanel-tracking-service.js'
 
 export default class Retrieve extends Command {
-  public static description = 'Retrieve memories from ByteRover Memora service and save to local ACE playbook'
+  public static description = 'Retrieve memories from ByteRover Memora service and output as JSON'
   public static examples = [
     '<%= config.bin %> <%= command.id %> --query "authentication best practices"',
     '<%= config.bin %> <%= command.id %> -q "error handling" -n "src/auth/login.ts,src/auth/oauth.ts"',
-    '<%= config.bin %> <%= command.id %> -q "database connection issues" # Clears existing playbook and replaces with retrieved memories',
+    '<%= config.bin %> <%= command.id %> -q "database connection issues" --compact',
   ]
   public static flags = {
+    compact: Flags.boolean({
+      default: false,
+      description: 'Output compact JSON (single line)',
+      required: false,
+    }),
     'node-keys': Flags.string({
       char: 'n',
       description: 'Comma-separated list of node keys (file paths) to filter results',
@@ -52,7 +55,6 @@ export default class Retrieve extends Command {
 
   protected createServices(): {
     memoryService: IMemoryRetrievalService
-    playbookStore: IPlaybookStore
     projectConfigStore: IProjectConfigStore
     tokenStore: ITokenStore
     trackingService: ITrackingService
@@ -65,7 +67,6 @@ export default class Retrieve extends Command {
       memoryService: new HttpMemoryRetrievalService({
         apiBaseUrl: envConfig.memoraApiBaseUrl,
       }),
-      playbookStore: new FilePlaybookStore(),
       projectConfigStore: new ProjectConfigStore(),
       tokenStore,
       trackingService,
@@ -74,11 +75,11 @@ export default class Retrieve extends Command {
 
   public async run(): Promise<void> {
     const {flags} = await this.parse(Retrieve)
-    const {memoryService, playbookStore, projectConfigStore, tokenStore, trackingService} = this.createServices()
+    const {memoryService, projectConfigStore, tokenStore, trackingService} = this.createServices()
 
     try {
       const token = await this.validateAuth(tokenStore)
-      const config = await this.checkProjectInt(projectConfigStore)
+      const projectConfig = await this.checkProjectInt(projectConfigStore)
 
       // Initialize tracking service
       await trackingService.track('mem:retrieve')
@@ -92,46 +93,13 @@ export default class Retrieve extends Command {
         nodeKeys,
         query: flags.query,
         sessionKey: token.sessionKey,
-        spaceId: config.spaceId,
+        spaceId: projectConfig.spaceId,
       })
 
-      // Display results
-      this.displayResults(result.memories.length, result.relatedMemories.length)
-
-      if (result.memories.length === 0 && result.relatedMemories.length === 0) {
-        this.log('\nNo memories found for your query.')
-        return
-      }
-
-      // Clear existing playbook and save retrieved memories
-      try {
-        await playbookStore.clear()
-        const playbook = transformRetrieveResultToPlaybook(result)
-        await playbookStore.save(playbook)
-        this.log('\n✓ Saved memories to playbook')
-      } catch (playbookError) {
-        this.warn(
-          `Failed to save memories to playbook: ${
-            playbookError instanceof Error ? playbookError.message : 'Unknown error'
-          }`,
-        )
-      }
-
-      // Display memories
-      if (result.memories.length > 0) {
-        this.log('\n=== Memories ===\n')
-        for (const [index, memory] of result.memories.entries()) {
-          this.displayMemory(index + 1, memory.title, memory.content, memory.score, memory.nodeKeys)
-        }
-      }
-
-      // Display related memories
-      if (result.relatedMemories.length > 0) {
-        this.log('\n=== Related Memories ===\n')
-        for (const [index, memory] of result.relatedMemories.entries()) {
-          this.displayMemory(index + 1, memory.title, memory.content, memory.score, memory.nodeKeys)
-        }
-      }
+      // Build and output JSON
+      const output = this.buildJsonOutput(result, flags.query, projectConfig.spaceName, nodeKeys)
+      const jsonString = flags.compact ? JSON.stringify(output) : JSON.stringify(output, null, 2)
+      this.log(jsonString)
     } catch (error) {
       this.error(error instanceof Error ? error.message : 'Failed to retrieve memories')
     }
@@ -150,34 +118,18 @@ export default class Retrieve extends Command {
     return token
   }
 
-  // eslint-disable-next-line max-params
-  private displayMemory(
-    index: number,
-    title: string,
-    content: string,
-    score: number | undefined,
-    nodeKeys: readonly string[],
-  ): void {
-    this.log(`${index}. ${title}`)
-
-    // Only display score if it's available (primary memories have score, related memories don't)
-    if (score !== undefined) {
-      this.log(`   Score: ${score.toFixed(2)}`)
+  private buildJsonOutput(
+    result: RetrieveResult,
+    query: string,
+    spaceName: string,
+    nodeKeys?: string[],
+  ): Record<string, unknown> {
+    return {
+      query,
+      spaceName,
+      ...(nodeKeys && nodeKeys.length > 0 && {nodeKeys}),
+      memories: result.memories.map((m) => m.toJson()),
+      relatedMemories: result.relatedMemories.map((m) => m.toJson()),
     }
-
-    // Display content preview (first 200 characters)
-    const contentPreview = content.length > 200 ? `${content.slice(0, 200)}...` : content
-    this.log(`   Content: ${contentPreview}`)
-
-    // Display node keys if any
-    if (nodeKeys.length > 0) {
-      this.log(`   Paths: ${nodeKeys.join(', ')}`)
-    }
-
-    this.log('') // Empty line for spacing
-  }
-
-  private displayResults(memoriesCount: number, relatedMemoriesCount: number): void {
-    this.log(`\nFound ${memoriesCount} memories and ${relatedMemoriesCount} related memories`)
   }
 }
