@@ -11,7 +11,6 @@
     "@inquirer/prompts": "^7.9.0",
     "@oclif/core": "^4",
     "@oclif/plugin-help": "^6",
-    "@oclif/plugin-plugins": "^5",
     "axios": "^1.12.2",
     "chalk": "^5.6.2",
     "express": "^5.1.0",
@@ -41,7 +40,7 @@
     "typescript": "^5"
   },
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=18.0.0"
   },
   "files": [
     "./bin",
@@ -60,8 +59,7 @@
     "dirname": "br",
     "commands": "./dist/commands",
     "plugins": [
-      "@oclif/plugin-help",
-      "@oclif/plugin-plugins"
+      "@oclif/plugin-help"
     ],
     "topicSeparator": " ",
     "topics": {

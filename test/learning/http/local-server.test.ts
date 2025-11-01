@@ -40,6 +40,7 @@ describe('Local HTTP Server - Learning Tests', () => {
         const {port} = address
 
         // Simulate callback
+        // eslint-disable-next-line n/no-unsupported-features/node-builtins
         fetch(`http://localhost:${port}/callback?code=test-code&state=test-state`)
           .then(() => {
             expect(callbackReceived).to.be.true
@@ -65,7 +66,7 @@ describe('Local HTTP Server - Learning Tests', () => {
       const address = server.address()
       if (address !== null && typeof address !== 'string') {
         const {port} = address
-
+        // eslint-disable-next-line n/no-unsupported-features/node-builtins
         fetch(`http://localhost:${port}/callback?code=auth-code-123&state=state-456`)
           .then(() => {
             expect(receivedCode).to.equal('auth-code-123')
