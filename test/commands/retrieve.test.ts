@@ -269,13 +269,10 @@ describe('retrieve command', () => {
     it('should display memories and related memories', async () => {
       const relatedMemory = new Memory({
         bulletId: 'common-00001',
-        childrenIds: [],
         content: 'Related content',
         id: '019a1e9f-a5ec-7046-956d-27cdff4b6b68',
         metadataType: 'knowledge',
         nodeKeys: [],
-        parentIds: [],
-        score: 0.5,
         section: 'Common Errors',
         tags: ['related'],
         timestamp: '2025-10-26T16:00:00.000Z',

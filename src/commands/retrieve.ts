@@ -155,11 +155,15 @@ export default class Retrieve extends Command {
     index: number,
     title: string,
     content: string,
-    score: number,
+    score: number | undefined,
     nodeKeys: readonly string[],
   ): void {
     this.log(`${index}. ${title}`)
-    this.log(`   Score: ${score.toFixed(2)}`)
+
+    // Only display score if it's available (primary memories have score, related memories don't)
+    if (score !== undefined) {
+      this.log(`   Score: ${score.toFixed(2)}`)
+    }
 
     // Display content preview (first 200 characters)
     const contentPreview = content.length > 200 ? `${content.slice(0, 200)}...` : content

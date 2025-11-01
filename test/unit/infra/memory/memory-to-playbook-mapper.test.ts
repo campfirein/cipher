@@ -134,13 +134,10 @@ describe('Memory to Playbook Mapper', () => {
 
       const relatedMemory = new Memory({
         bulletId: 'common-00001',
-        childrenIds: [],
         content: 'Related match',
         id: 'id-2',
         metadataType: 'knowledge',
         nodeKeys: [],
-        parentIds: [],
-        score: 0.7,
         section: 'Common Errors',
         tags: ['related'],
         timestamp: '2025-10-26T11:00:00.000Z',
@@ -264,13 +261,10 @@ describe('Memory to Playbook Mapper', () => {
     it('should handle retrieve result with only related memories', () => {
       const relatedMemory = new Memory({
         bulletId: 'common-00001',
-        childrenIds: [],
         content: 'Related content',
         id: 'id-1',
         metadataType: 'knowledge',
         nodeKeys: [],
-        parentIds: [],
-        score: 0.7,
         section: 'Common Errors',
         tags: ['error'],
         timestamp: '2025-10-26T10:00:00.000Z',
