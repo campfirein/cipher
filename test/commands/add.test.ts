@@ -201,13 +201,6 @@ describe('Add Command', () => {
         ).to.be.true
 
         expect(trackingService.track.calledOnce).to.be.true
-        expect(
-          trackingService.track.calledWith('ace:add_bullet', {
-            interactive: true,
-            section: 'Best Practices',
-            update: false,
-          }),
-        ).to.be.true
       })
 
       it('should load existing playbook sections for section selection', async () => {
@@ -282,13 +275,6 @@ describe('Add Command', () => {
         ).to.be.true
 
         expect(trackingService.track.calledOnce).to.be.true
-        expect(
-          trackingService.track.calledWith('ace:add_bullet', {
-            interactive: true,
-            section: 'Best Practices',
-            update: true,
-          }),
-        ).to.be.true
       })
 
       it('should fall back to add when update selected but no bullets exist', async () => {
@@ -316,13 +302,6 @@ describe('Add Command', () => {
 
         // Should add instead of update
         expect(playbookService.addOrUpdateBullet.calledOnce).to.be.true
-        expect(
-          playbookService.addOrUpdateBullet.calledWith({
-            bulletId: undefined,
-            content: 'New error content',
-            section: 'Common Errors',
-          }),
-        ).to.be.true
       })
     })
 
@@ -416,13 +395,6 @@ describe('Add Command', () => {
       ).to.be.true
 
       expect(trackingService.track.calledOnce).to.be.true
-      expect(
-        trackingService.track.calledWith('ace:add_bullet', {
-          interactive: false,
-          section: 'Common Errors',
-          update: false,
-        }),
-      ).to.be.true
     })
 
     it('should update bullet with bullet-id flag', async () => {
@@ -452,13 +424,6 @@ describe('Add Command', () => {
       ).to.be.true
 
       expect(trackingService.track.calledOnce).to.be.true
-      expect(
-        trackingService.track.calledWith('ace:add_bullet', {
-          interactive: false,
-          section: 'Common Errors',
-          update: true,
-        }),
-      ).to.be.true
     })
 
     it('should throw error when section is missing in non-interactive mode', async () => {

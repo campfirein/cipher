@@ -286,11 +286,7 @@ export default class Add extends Command {
         section,
       })
 
-      await trackingService.track('ace:add_bullet', {
-        interactive: true,
-        section,
-        update: Boolean(bulletId),
-      })
+      await trackingService.track('ace:add_bullet')
 
       this.displaySuccess(bullet, bulletId ? 'update' : 'add')
     } catch (error) {
