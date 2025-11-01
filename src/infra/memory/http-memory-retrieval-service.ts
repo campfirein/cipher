@@ -12,13 +12,13 @@ export type MemoryRetrievalServiceConfig = {
 
 type MemoryApiResponse = {
   bullet_id: string
-  children_ids: string[]
+  children_ids?: string[]
   content: string
   id: string
   metadata_type: string
   node_keys: string[]
-  parent_ids: string[]
-  score: number
+  parent_ids?: string[]
+  score?: number
   section: string
   tags: string[]
   timestamp: string

@@ -5,7 +5,6 @@ import {expect} from 'chai'
 import sinon, {restore, stub} from 'sinon'
 
 import type {IMemoryRetrievalService} from '../../src/core/interfaces/i-memory-retrieval-service.js'
-import type {IPlaybookStore} from '../../src/core/interfaces/i-playbook-store.js'
 import type {IProjectConfigStore} from '../../src/core/interfaces/i-project-config-store.js'
 import type {ITokenStore} from '../../src/core/interfaces/i-token-store.js'
 import type {ITrackingService} from '../../src/core/interfaces/i-tracking-service.js'
@@ -24,9 +23,8 @@ class TestableRetrieve extends Retrieve {
   public warnMessages: string[] = []
 
   // eslint-disable-next-line max-params
-  constructor(
+  public constructor(
     private readonly mockMemoryService: IMemoryRetrievalService,
-    private readonly mockPlaybookStore: IPlaybookStore,
     private readonly mockProjectConfigStore: IProjectConfigStore,
     private readonly mockTokenStore: ITokenStore,
     private readonly mockTrackingService: ITrackingService,
@@ -39,7 +37,6 @@ class TestableRetrieve extends Retrieve {
   protected createServices() {
     return {
       memoryService: this.mockMemoryService,
-      playbookStore: this.mockPlaybookStore,
       projectConfigStore: this.mockProjectConfigStore,
       tokenStore: this.mockTokenStore,
       trackingService: this.mockTrackingService,
@@ -51,6 +48,11 @@ class TestableRetrieve extends Retrieve {
     // Throw error to maintain behavior but suppress output
     const errorMessage = typeof input === 'string' ? input : input.message
     throw new Error(errorMessage)
+  }
+
+  // Helper to get all log output as a single string
+  public getLogOutput(): string {
+    return this.logMessages.join('\n')
   }
 
   public log(message?: string): void {
@@ -71,7 +73,6 @@ class TestableRetrieve extends Retrieve {
 describe('retrieve command', () => {
   let config: Config
   let memoryService: sinon.SinonStubbedInstance<IMemoryRetrievalService>
-  let playbookStore: sinon.SinonStubbedInstance<IPlaybookStore>
   let projectConfigStore: sinon.SinonStubbedInstance<IProjectConfigStore>
   let tokenStore: sinon.SinonStubbedInstance<ITokenStore>
   let trackingService: sinon.SinonStubbedInstance<ITrackingService>
@@ -122,13 +123,6 @@ describe('retrieve command', () => {
     memoryService = {
       retrieve: stub(),
     }
-    playbookStore = {
-      clear: stub(),
-      delete: stub(),
-      exists: stub(),
-      load: stub(),
-      save: stub(),
-    }
     projectConfigStore = {
       exists: stub(),
       read: stub(),
@@ -157,7 +151,6 @@ describe('retrieve command', () => {
 
       const command = new TestableRetrieve(
         memoryService,
-        playbookStore,
         projectConfigStore,
         tokenStore,
         trackingService,
@@ -185,7 +178,6 @@ describe('retrieve command', () => {
 
       const command = new TestableRetrieve(
         memoryService,
-        playbookStore,
         projectConfigStore,
         tokenStore,
         trackingService,
@@ -209,7 +201,6 @@ describe('retrieve command', () => {
 
       const command = new TestableRetrieve(
         memoryService,
-        playbookStore,
         projectConfigStore,
         tokenStore,
         trackingService,
@@ -230,7 +221,6 @@ describe('retrieve command', () => {
 
       const command = new TestableRetrieve(
         memoryService,
-        playbookStore,
         projectConfigStore,
         tokenStore,
         trackingService,
@@ -252,7 +242,6 @@ describe('retrieve command', () => {
 
       const command = new TestableRetrieve(
         memoryService,
-        playbookStore,
         projectConfigStore,
         tokenStore,
         trackingService,
@@ -266,16 +255,13 @@ describe('retrieve command', () => {
       expect(callArgs.nodeKeys).to.deep.equal(['path1', 'path2', 'path3'])
     })
 
-    it('should display memories and related memories', async () => {
+    it('should output valid pretty-printed JSON to stdout by default', async () => {
       const relatedMemory = new Memory({
         bulletId: 'common-00001',
-        childrenIds: [],
         content: 'Related content',
         id: '019a1e9f-a5ec-7046-956d-27cdff4b6b68',
         metadataType: 'knowledge',
         nodeKeys: [],
-        parentIds: [],
-        score: 0.5,
         section: 'Common Errors',
         tags: ['related'],
         timestamp: '2025-10-26T16:00:00.000Z',
@@ -294,7 +280,103 @@ describe('retrieve command', () => {
 
       const command = new TestableRetrieve(
         memoryService,
-        playbookStore,
+        projectConfigStore,
+        tokenStore,
+        trackingService,
+        ['--query', 'test query', '--node-keys', 'path1,path2'],
+        config,
+      )
+
+      await command.run()
+
+      // Verify JSON output
+      const output = command.getLogOutput()
+      const json = JSON.parse(output)
+
+      // Verify structure
+      expect(json).to.have.all.keys(['query', 'spaceName', 'nodeKeys', 'memories', 'relatedMemories'])
+      expect(json.query).to.equal('test query')
+      expect(json.spaceName).to.equal(validConfig.spaceName)
+      expect(json.nodeKeys).to.deep.equal(['path1', 'path2'])
+      expect(json.memories).to.have.lengthOf(1)
+      expect(json.relatedMemories).to.have.lengthOf(1)
+
+      // Verify primary memory has all fields
+      const memory = json.memories[0]
+      expect(memory).to.have.all.keys([
+        'id',
+        'bulletId',
+        'title',
+        'content',
+        'section',
+        'metadataType',
+        'timestamp',
+        'tags',
+        'nodeKeys',
+        'score',
+        'parentIds',
+        'childrenIds',
+      ])
+      expect(memory.id).to.equal('019a1e9f-a5ec-7046-956d-27cdff4b6b67')
+      expect(memory.bulletId).to.equal('lessons-00001')
+      expect(memory.title).to.equal('Sample Memory')
+      expect(memory.score).to.equal(0.85)
+
+      // Verify related memory (without score, parentIds, childrenIds)
+      const relatedMem = json.relatedMemories[0]
+      expect(relatedMem).to.have.all.keys([
+        'id',
+        'bulletId',
+        'title',
+        'content',
+        'section',
+        'metadataType',
+        'timestamp',
+        'tags',
+        'nodeKeys',
+      ])
+      expect(relatedMem.id).to.equal('019a1e9f-a5ec-7046-956d-27cdff4b6b68')
+
+      // Verify pretty-printed (contains newlines)
+      expect(output).to.include('\n')
+    })
+
+    it('should output compact JSON with --compact flag', async () => {
+      projectConfigStore.exists.resolves(true)
+      projectConfigStore.read.resolves(validConfig)
+      tokenStore.load.resolves(validToken)
+      memoryService.retrieve.resolves(sampleResult)
+
+      const command = new TestableRetrieve(
+        memoryService,
+        projectConfigStore,
+        tokenStore,
+        trackingService,
+        ['--query', 'test query', '--compact'],
+        config,
+      )
+
+      await command.run()
+
+      const output = command.getLogOutput()
+      const json = JSON.parse(output)
+
+      // Verify it's valid JSON
+      expect(json.query).to.equal('test query')
+      expect(json.memories).to.have.lengthOf(1)
+
+      // Verify compact (single line, no pretty formatting)
+      expect(output).to.not.match(/\n\s+/)
+    })
+
+    it('should omit nodeKeys from JSON when not provided', async () => {
+      projectConfigStore.exists.resolves(true)
+      projectConfigStore.read.resolves(validConfig)
+      tokenStore.load.resolves(validToken)
+      memoryService.retrieve.resolves(sampleResult)
+
+      const command = new TestableRetrieve(
+        memoryService,
         projectConfigStore,
         tokenStore,
         trackingService,
@@ -304,14 +386,14 @@ describe('retrieve command', () => {
 
       await command.run()
 
-      // Verify output contains both memories and related memories sections
-      expect(command.logMessages.some((msg) => msg.includes('Memories'))).to.be.true
-      expect(command.logMessages.some((msg) => msg.includes('Related Memories'))).to.be.true
-      expect(command.logMessages.some((msg) => msg.includes('Sample Memory'))).to.be.true
-      expect(command.logMessages.some((msg) => msg.includes('Related Memory'))).to.be.true
+      const output = command.getLogOutput()
+      const json = JSON.parse(output)
+
+      expect(json).to.not.have.property('nodeKeys')
+      expect(json).to.have.all.keys(['query', 'spaceName', 'memories', 'relatedMemories'])
     })
 
-    it('should handle empty results gracefully', async () => {
+    it('should return empty arrays for empty results', async () => {
       const emptyResult = new RetrieveResult({
         memories: [],
         relatedMemories: [],
@@ -324,7 +406,6 @@ describe('retrieve command', () => {
 
       const command = new TestableRetrieve(
         memoryService,
-        playbookStore,
         projectConfigStore,
         tokenStore,
         trackingService,
@@ -334,80 +415,17 @@ describe('retrieve command', () => {
 
       await command.run()
 
-      expect(command.logMessages.some((msg) => msg.includes('No memories found'))).to.be.true
-    })
+      const output = command.getLogOutput()
+      const json = JSON.parse(output)
 
-    it('should save retrieved memories to playbook', async () => {
-      projectConfigStore.exists.resolves(true)
-      projectConfigStore.read.resolves(validConfig)
-      tokenStore.load.resolves(validToken)
-      memoryService.retrieve.resolves(sampleResult)
-
-      const command = new TestableRetrieve(
-        memoryService,
-        playbookStore,
-        projectConfigStore,
-        tokenStore,
-        trackingService,
-        ['--query', 'test query'],
-        config,
-      )
-
-      await command.run()
-
-      // Verify playbook operations
-      expect(playbookStore.clear.calledOnce).to.be.true
-      expect(playbookStore.save.calledOnce).to.be.true
-
-      // Verify save was called after clear
-      expect(playbookStore.clear.calledBefore(playbookStore.save)).to.be.true
-
-      // Verify the saved playbook contains bullet with memoryId
-      const savedPlaybook = playbookStore.save.getCall(0).args[0]
-      const bullet = savedPlaybook.getBullet('lessons-00001')
-      expect(bullet).to.exist
-      expect(bullet?.memoryId).to.equal('019a1e9f-a5ec-7046-956d-27cdff4b6b67')
-    })
-
-    it('should warn but continue if playbook save fails', async () => {
-      projectConfigStore.exists.resolves(true)
-      projectConfigStore.read.resolves(validConfig)
-      tokenStore.load.resolves(validToken)
-      memoryService.retrieve.resolves(sampleResult)
-      playbookStore.save.rejects(new Error('Save failed'))
-
-      const command = new TestableRetrieve(
-        memoryService,
-        playbookStore,
-        projectConfigStore,
-        tokenStore,
-        trackingService,
-        ['--query', 'test query'],
-        config,
-      )
-
-      await command.run()
-
-      // Verify warning was issued
-      expect(command.warnMessages.length).to.equal(1)
-      expect(command.warnMessages[0]).to.include('Failed to save memories to playbook')
-
-      // Verify memories were still displayed
-      expect(command.logMessages.some((msg) => msg.includes('Sample Memory'))).to.be.true
+      expect(json.memories).to.be.an('array').that.is.empty
+      expect(json.relatedMemories).to.be.an('array').that.is.empty
     })
   })
 
   describe('flag validation', () => {
     it('should require query flag', async () => {
-      const command = new TestableRetrieve(
-        memoryService,
-        playbookStore,
-        projectConfigStore,
-        tokenStore,
-        trackingService,
-        [],
-        config,
-      )
+      const command = new TestableRetrieve(memoryService, projectConfigStore, tokenStore, trackingService, [], config)
 
       try {
         await command.run()
@@ -426,7 +444,6 @@ describe('retrieve command', () => {
 
       const command = new TestableRetrieve(
         memoryService,
-        playbookStore,
         projectConfigStore,
         tokenStore,
         trackingService,
@@ -450,7 +467,6 @@ describe('retrieve command', () => {
 
       const command = new TestableRetrieve(
         memoryService,
-        playbookStore,
         projectConfigStore,
         tokenStore,
         trackingService,
@@ -476,7 +492,6 @@ describe('retrieve command', () => {
 
       const command = new TestableRetrieve(
         memoryService,
-        playbookStore,
         projectConfigStore,
         tokenStore,
         trackingService,
@@ -510,7 +525,6 @@ describe('retrieve command', () => {
 
       const command = new TestableRetrieve(
         memoryService,
-        playbookStore,
         projectConfigStore,
         tokenStore,
         trackingService,
@@ -537,7 +551,6 @@ describe('retrieve command', () => {
 
       const command = new TestableRetrieve(
         memoryService,
-        playbookStore,
         projectConfigStore,
         tokenStore,
         trackingService,

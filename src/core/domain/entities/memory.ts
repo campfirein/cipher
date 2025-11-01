@@ -1,15 +1,19 @@
 /**
  * Parameters for creating a Memory instance.
+ *
+ * Note: score, parentIds, and childrenIds are optional.
+ * These fields are present in primary memories (from the `memories` array)
+ * but absent in related memories (from the `related_memories` array).
  */
 export type MemoryParams = {
   bulletId: string
-  childrenIds: string[]
+  childrenIds?: string[]
   content: string
   id: string
   metadataType: string
   nodeKeys: string[]
-  parentIds: string[]
-  score: number
+  parentIds?: string[]
+  score?: number
   section: string
   tags: string[]
   timestamp: string
@@ -19,16 +23,20 @@ export type MemoryParams = {
 /**
  * Represents a memory retrieved from the ByteRover Memora service.
  * Memories are hierarchical knowledge fragments that can have parent and child relationships.
+ *
+ * Note: score, parentIds, and childrenIds are optional fields.
+ * - Primary memories (from API `memories` array) have these fields
+ * - Related memories (from API `related_memories` array) don't have these fields
  */
 export class Memory {
   public readonly bulletId: string
-  public readonly childrenIds: readonly string[]
+  public readonly childrenIds?: readonly string[]
   public readonly content: string
   public readonly id: string
   public readonly metadataType: string
   public readonly nodeKeys: readonly string[]
-  public readonly parentIds: readonly string[]
-  public readonly score: number
+  public readonly parentIds?: readonly string[]
+  public readonly score?: number
   public readonly section: string
   public readonly tags: readonly string[]
   public readonly timestamp: string
@@ -63,7 +71,8 @@ export class Memory {
       throw new Error('Memory metadataType cannot be empty')
     }
 
-    if (params.score < 0 || params.score > 1) {
+    // Only validate score if it's provided (primary memories have score, related memories don't)
+    if (params.score !== undefined && (params.score < 0 || params.score > 1)) {
       throw new Error('Memory score must be between 0.0 and 1.0')
     }
 
@@ -77,8 +86,8 @@ export class Memory {
     this.timestamp = params.timestamp
     // Defensive copy to prevent external mutation
     this.nodeKeys = [...params.nodeKeys]
-    this.parentIds = [...params.parentIds]
-    this.childrenIds = [...params.childrenIds]
+    this.parentIds = params.parentIds ? [...params.parentIds] : undefined
+    this.childrenIds = params.childrenIds ? [...params.childrenIds] : undefined
     this.tags = [...params.tags]
   }
 
@@ -98,13 +107,13 @@ export class Memory {
   public toJson(): MemoryParams {
     return {
       bulletId: this.bulletId,
-      childrenIds: [...this.childrenIds],
+      ...(this.childrenIds !== undefined && {childrenIds: [...this.childrenIds]}),
       content: this.content,
       id: this.id,
       metadataType: this.metadataType,
       nodeKeys: [...this.nodeKeys],
-      parentIds: [...this.parentIds],
-      score: this.score,
+      ...(this.parentIds !== undefined && {parentIds: [...this.parentIds]}),
+      ...(this.score !== undefined && {score: this.score}),
       section: this.section,
       tags: [...this.tags],
       timestamp: this.timestamp,
