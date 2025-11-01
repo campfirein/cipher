@@ -135,7 +135,8 @@ export class Neo4jBackend implements KnowledgeGraph {
 			// Create indexes for performance
 			await this.createIndexes();
 		} catch (error) {
-			console.error('Neo4j connect error:', error);
+			// Log detailed error for MCP visibility (console.error not captured)
+			this.logger.error(`${LOG_PREFIXES.NEO4J} Connection error details:`, error);
 			const connectionError = new KnowledgeGraphConnectionError(
 				`${ERROR_MESSAGES.CONNECTION_FAILED}: ${(error as Error).message}`,
 				'neo4j',
