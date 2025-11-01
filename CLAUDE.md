@@ -19,20 +19,17 @@ npm run pack:dev / pack:prod                     # Tarballs
 
 ## Architecture
 
-**Clean Architecture with pragmatic CLI adaptations**:
-
-- Use cases for complex orchestration with framework independence
-- Commands orchestrate directly for UI-driven, linear flows
+- Commands: UI-driven linear flows
 
 ### Core Interfaces (`src/core/interfaces/`)
 
-**Auth & Core Services**:
+**Auth** (all require `accessToken` + `sessionKey`):
 
-- `IAuthService` - OAuth + PKCE, returns `AuthorizationContext`
+- `IAuthService` - OAuth + PKCE → `AuthorizationContext`
 - `ITokenStore` - Keychain persistence
-- `IHttpClient` - Auto-injects `Authorization: Bearer` + `x-byterover-session-id` headers
+- `IHttpClient` - Auto-injects `Authorization: Bearer` + `x-byterover-session-id`
 
-**API Services** (all require `accessToken` + `sessionKey`):
+**API Services**:
 
 - `ITeamService.getTeams(accessToken, sessionKey, {fetchAll?, isActive?, limit?, offset?})` → `{teams, total}`
 - `ISpaceService.getSpaces(accessToken, sessionKey, teamId, {fetchAll?, limit?, offset?})` → `{spaces, total}`
@@ -48,50 +45,41 @@ npm run pack:dev / pack:prod                     # Tarballs
 - `IPlaybookStore` - `clear()`, `delete()`, `exists()`, `load()`, `save()`
 - `IProjectConfigStore` - `.br/config.json` persistence
 
-**Pagination**: All list methods support `{fetchAll: true}` (auto-paginates with 100-item pages) or `{limit, offset}` manual
+**Pagination**: `{fetchAll: true}` auto-paginates (100/page) or `{limit, offset}` manual
 
 ### Domain Entities (`src/core/domain/entities/`)
 
-**Pattern**: All entities have `toJSON()`/`fromJSON()`, immutable readonly properties
+All have `toJSON()`/`fromJSON()`, immutable readonly properties
 
-- `AuthToken` - Required fields: `accessToken`, `refreshToken`, `sessionKey`, `userId`, `userEmail`. Constructor uses object param (`AuthTokenParams`). `fromJson()` returns `undefined` for old tokens (forces re-login)
-- `OAuthTokenData` - OAuth response entity (tokens + session, no user info). Used before user fetch in login flow
-- `User`, `Team`, `Space` - Have `getDisplayName()` methods
-- `Memory` - Required: `bulletId`, `section`, `tags`, `metadataType`, `timestamp`, `nodeKeys`. Optional: `score`, `parentIds`, `childrenIds` (present in primary memories, absent in related memories)
-- `RetrieveResult` - Contains `memories` (with scores) and `relatedMemories` (without scores) arrays
+- `AuthToken` - `accessToken`, `refreshToken`, `sessionKey`, `userId`, `userEmail`. `fromJson()` returns `undefined` for old tokens (forces re-login)
+- `OAuthTokenData` - OAuth response, no user info. Used before user fetch in login
+- `User`, `Team`, `Space` - `getDisplayName()` methods
+- `Memory` - Required: `bulletId`, `section`, `tags`, `metadataType`, `timestamp`, `nodeKeys`. Optional: `score`, `parentIds`, `childrenIds` (present in primary, absent in related)
+- `RetrieveResult` - `memories` (with scores), `relatedMemories` (without scores)
 
 ### Infrastructure (`src/infra/`)
 
-**Key behaviors**:
-
-- `OAuthService` - Manages `code_verifier` internally, hides PKCE details
+- `OAuthService` - Manages `code_verifier` internally
 - `CallbackServer` - Force-closes keep-alive connections
 - `AuthenticatedHttpClient` - Auto-injects both auth headers
-- `HttpMemoryRetrievalService` - Maps API snake_case to domain entities
+- `HttpMemoryRetrievalService` - Maps snake_case to domain entities
+- **Memory Mapper** (`infra/memory/memory-to-playbook-mapper.ts`):
+  - `transformMemoryToBullet(memory)`: `Memory` → `Bullet`
+  - `transformRetrieveResultToPlaybook(result)`: Combines memories + relatedMemories, sets `nextId = bulletsMap.size + 1`
+  - Mapping: `bulletId` → `id`, `tags` → `metadata.tags`, `nodeKeys` → `metadata.relatedFiles`, `timestamp` → `metadata.timestamp`
 
-**Memory-to-Playbook Mapper** (`infra/memory/memory-to-playbook-mapper.ts`):
+### Utilities
 
-- `transformMemoryToBullet(memory)` - Pure function: `Memory` → `Bullet`
-- `transformRetrieveResultToPlaybook(result)` - Combines `memories` + `relatedMemories`, sets `nextId = bulletsMap.size + 1`
-- Mapping: `bulletId` → `id`, `tags` → `metadata.tags`, `nodeKeys` → `metadata.relatedFiles`, `timestamp` → `metadata.timestamp`
+- `clearDirectory(dirPath)` (`src/utils/ace-file-helpers.ts`) - **Files only**, preserves dirs, handles ENOENT
 
-### Utilities (`src/utils/ace-file-helpers.ts`)
+### Config
 
-- `clearDirectory(dirPath)` - **Removes files only** (preserves dirs), handles ENOENT gracefully
+- `environment.ts` - Dev: `https://dev-beta-*.byterover.dev/api/*`, Prod: `https://prod-beta-*.byterover.dev/api/*`. Exports: `issuerUrl`, `clientId`, `scopes`, `apiBaseUrl`, `cogitApiBaseUrl`, `memoraApiBaseUrl`
+- `auth.config.ts` - OIDC discovery (1h cache, 3 retries, 5s timeout, hardcoded fallback)
 
-### Config (`src/config/`)
+### Commands
 
-**`environment.ts`** - Runtime config (set by launchers):
-
-- Dev: `https://dev-beta-*.byterover.dev/api/*`
-- Prod: `https://prod-beta-*.byterover.dev/api/*`
-- Exports: `issuerUrl`, `clientId`, `scopes`, `apiBaseUrl`, `cogitApiBaseUrl`, `memoraApiBaseUrl`
-
-**`auth.config.ts`** - OIDC discovery (1h cache, 3 retries, 5s timeout, hardcoded fallback)
-
-### Commands (`src/commands/`)
-
-**DI Pattern** (for testability):
+**DI Pattern**:
 
 ```typescript
 protected createServices(): {myService: IMyService} {
@@ -99,103 +87,64 @@ protected createServices(): {myService: IMyService} {
 }
 ```
 
-Test subclasses override to inject mocks.
+**Behaviors**:
 
-**Key Command Behaviors**:
+- `br login` - OAuth: code → user → AuthToken. `fromJson()` forces re-login for old tokens
+- `br status` - Reads `userEmail` from AuthToken (no API). Shows: version, auth, directory, config
+- `br init` - `{fetchAll: true}` for teams/spaces, initializes ACE playbook
+- `br space switch` - **No playbook init**
+- `br retrieve --query <q> [--node-keys <paths>]` - Clears playbook, combines memories+relatedMemories, uses Memora tags. Warns on save error
+- `br push [--branch <name>]` - Default: `main` (ByteRover, not git). Flow: presigned URLs → PUT → **confirm**. Cleanup (after confirm): clear playbook, remove executor-outputs/, reflections/, deltas/
+- `br space list` - Default 50, needs `--all` or manual pagination
 
-`br login`:
+**OAuth Flow**:
 
-- OAuth flow: 1. Exchange code → 2. Fetch user → 3. Create complete AuthToken
-- `fromJson()` backward-incompatibility forces re-login for old tokens
+- `redirectUri`: `http://localhost:{port}/callback` (built after server starts)
+- Login: `OAuthTokenData` → fetch User → `AuthToken` with `userId`/`userEmail`
+- `session_key` → `AuthToken.sessionKey`
+- Authenticated requests: AuthToken → `accessToken` + `sessionKey` → service → `AuthenticatedHttpClient` injects headers
 
-`br status`:
+## Testing
 
-- Reads `userEmail` from `AuthToken` (no API call)
-- Displays: CLI version, auth status, current directory, project config
+**Commands**:
 
-`br init`:
+- Override `createServices()` for mocks
+- Override `promptForTeamSelection()` / `promptForSpaceSelection()`
+- **Suppress output**: `log()` no-op, `warn()` return input, `error()` throw without console, stub `ux.action.start/stop`. See [login.test.ts:51-65](test/commands/login.test.ts#L51-L65), [init.test.ts:82-94](test/commands/init.test.ts#L82-L94)
 
-- Uses `{fetchAll: true}` for complete team/space lists
-- Initializes ACE playbook
+**HTTP (nock)**:
 
-`br space switch`:
-
-- **No playbook initialization** (unlike `init`)
-
-`br retrieve --query <q> [--node-keys <paths>]`:
-
-- Clears existing playbook first
-- Combines `memories` + `relatedMemories` into playbook
-- Uses Memora `tags` directly (not "auto-generated")
-- Fail-safe: warns on save error but still displays results
-
-`br push [--branch <name>]`:
-
-- Default branch: `main` (ByteRover internal, not git)
-- **Upload flow**: 1. Get presigned URLs → 2. PUT to GCS → 3. **Confirm** upload
-- **Cleanup** (only after successful confirmation): Clear playbook, remove executor-outputs/, reflections/, deltas/
-- Fail-fast: cleanup only after upload + confirmation succeed
-
-`br space list`:
-
-- Default 50 items, requires `--all` or manual pagination
-
-## Testing Patterns
-
-**Command testing**:
-
-- Subclass overrides `createServices()` to inject mocks
-- Override `promptForTeamSelection()` / `promptForSpaceSelection()` for prompts
-- **Output suppression** (prevent noisy test runs):
-  - Override `log()`: no-op
-  - Override `warn(input: Error | string): Error | string`: return input (match signature), no output
-  - Override `error(input: Error | string): never`: throw Error but suppress console output
-  - Stub `ux.action.start/stop` in beforeEach/afterEach for commands with spinners
-  - See: [login.test.ts:51-65](test/commands/login.test.ts#L51-L65), [init.test.ts:82-94](test/commands/init.test.ts#L82-L94)
-
-**HTTP mocking** (nock):
-
-- Verify both headers: `.matchHeader('authorization', ...)` + `.matchHeader('x-byterover-session-id', ...)`
+- Verify headers: `.matchHeader('authorization', ...)` + `.matchHeader('x-byterover-session-id', ...)`
 - `HttpSpaceService`: verify `team_id` query param
-- `HttpMemoryRetrievalService`: `memories` mocks include all fields; `related_memories` mocks omit `score`, `parent_ids`, `children_ids`
+- `HttpMemoryRetrievalService`: `memories` have all fields, `related_memories` omit `score`, `parent_ids`, `children_ids`
 
-**Service mocking**:
+**Services**:
 
 - Verify all params: `expect(service.method.calledWith('token', 'session', 'id', {fetchAll: true})).to.be.true`
-- `PlaybookStore`: stub with `.resolves()`, verify call order with `calledBefore()`
+- `PlaybookStore`: stub with `.resolves()`, verify order with `calledBefore()`
 
-**Mapper testing**:
+**Mappers**:
 
 - Test pure functions directly
-- Verify defensive array copying (returned !== input)
+- Verify defensive copying (returned !== input)
 
-**ES Module gotcha**:
+**ES Modules**:
 
-- Cannot stub ES module exports with sinon
-- Test utilities with real filesystem (use `tmpdir()`)
-- Integration tests: verify interface calls, not implementation
+- Cannot stub ES exports with sinon
+- Test utils with real filesystem (`tmpdir()`)
+- Integration: verify interface calls, not implementation
 
-## Code Conventions
+## Conventions
 
-- ES modules: `"type": "module"`, **all imports need `.js` extension**
+- ES modules: `"type": "module"`, **imports need `.js` extension**
 - Interface names: `I` prefix
 - Snake_case APIs: `/* eslint-disable camelcase */`
 - Entity serialization: `toJson()` / `fromJson()` (capital J)
 
-## OAuth Flow
+## Environment
 
-- `redirectUri` built after server starts: `http://localhost:{port}/callback`
-- Login creates `OAuthTokenData` → fetches `User` → creates complete `AuthToken` with `userId`/`userEmail`
-- `session_key` from token response → stored in `AuthToken.sessionKey`
-- Callback server force-closes connections
-- State param for CSRF protection
-
-**Authenticated requests**: Commands load `AuthToken` → extract `accessToken` + `sessionKey` → pass to service → `AuthenticatedHttpClient` auto-injects headers
-
-## Environment Variables
-
-- `BR_ENV` - `development` | `production` (set by launchers)
-- `BR_NPM_LOG_LEVEL`, `BR_NPM_REGISTRY` (plugin config)
+- `BR_ENV` - `development` | `production`
+- `BR_NPM_LOG_LEVEL`, `BR_NPM_REGISTRY`
 
 ## Stack
 
