@@ -5,6 +5,7 @@ import {join} from 'node:path'
 import type {IBulletContentStore} from '../../core/interfaces/i-bullet-content-store.js'
 import type {IPlaybookStore} from '../../core/interfaces/i-playbook-store.js'
 
+import {ACE_DIR, BR_DIR} from '../../constants.js'
 import {Playbook} from '../../core/domain/entities/playbook.js'
 import {PlaybookNotFoundError} from '../../core/domain/errors/ace-error.js'
 import {FileBulletContentStore} from './file-bullet-content-store.js'
@@ -14,8 +15,6 @@ import {FileBulletContentStore} from './file-bullet-content-store.js'
  * Stores playbook metadata in .br/ace/playbook.json and bullet content in .br/ace/bullets/{id}.md files.
  */
 export class FilePlaybookStore implements IPlaybookStore {
-  private static readonly ACE_DIR = 'ace'
-  private static readonly BR_DIR = '.br'
   private static readonly PLAYBOOK_FILE = 'playbook.json'
   private readonly contentStore: IBulletContentStore
 
@@ -110,7 +109,7 @@ export class FilePlaybookStore implements IPlaybookStore {
    * Gets the full path to the .br/ace directory
    */
   private getAceDirPath(directory?: string): string {
-    return join(this.getBrDirPath(directory), FilePlaybookStore.ACE_DIR)
+    return join(this.getBrDirPath(directory), ACE_DIR)
   }
 
   /**
@@ -118,7 +117,7 @@ export class FilePlaybookStore implements IPlaybookStore {
    */
   private getBrDirPath(directory?: string): string {
     const baseDir = directory ?? process.cwd()
-    return join(baseDir, FilePlaybookStore.BR_DIR)
+    return join(baseDir, BR_DIR)
   }
 
   /**

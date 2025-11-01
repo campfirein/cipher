@@ -4,6 +4,7 @@ export const ACE_DIR = 'ace'
 export const EXECUTOR_OUTPUTS_DIR = 'executor-outputs'
 export const REFLECTIONS_DIR = 'reflections'
 export const DELTAS_DIR = 'deltas'
+export const BULLETS_DIR = 'bullets'
 
 /**
  * Default ByteRover branch name for memory storage.

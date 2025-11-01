@@ -5,6 +5,7 @@ import type {IPlaybookStore} from '../core/interfaces/i-playbook-store.js'
 import type {IProjectConfigStore} from '../core/interfaces/i-project-config-store.js'
 import type {ITokenStore} from '../core/interfaces/i-token-store.js'
 
+import {ACE_DIR, BR_DIR, BULLETS_DIR} from '../constants.js'
 import {ITrackingService} from '../core/interfaces/i-tracking-service.js'
 import {FilePlaybookStore} from '../infra/ace/file-playbook-store.js'
 import {ProjectConfigStore} from '../infra/config/file-config-store.js'
@@ -124,7 +125,7 @@ export default class Status extends Command {
         const sectionBullets = playbook.getBulletsInSection(section)
 
         for (const bullet of sectionBullets) {
-          const relativePath = `.br/ace/bullets/${bullet.id}.md`
+          const relativePath = `${BR_DIR}/${ACE_DIR}/${BULLETS_DIR}/${bullet.id}.md`
 
           // Display like git status: red path
           this.log(`  ${chalk.red(relativePath)}`)

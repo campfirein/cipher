@@ -4,15 +4,13 @@ import {join} from 'node:path'
 
 import type {IBulletContentStore} from '../../core/interfaces/i-bullet-content-store.js'
 
+import {ACE_DIR, BR_DIR, BULLETS_DIR} from '../../constants.js'
+
 /**
  * File-based implementation of IBulletContentStore.
  * Stores bullet content in .br/ace/bullets/{bullet-id}.md files.
  */
 export class FileBulletContentStore implements IBulletContentStore {
-  private static readonly ACE_DIR = 'ace'
-  private static readonly BR_DIR = '.br'
-  private static readonly BULLETS_DIR = 'bullets'
-
   public async delete(bulletId: string, directory?: string): Promise<void> {
     const contentPath = this.getContentPath(bulletId, directory)
 
@@ -83,7 +81,7 @@ Renaming this file will break the link to the playbook metadata.
    * Gets the full path to the .br/ace directory
    */
   private getAceDirPath(directory?: string): string {
-    return join(this.getBrDirPath(directory), FileBulletContentStore.ACE_DIR)
+    return join(this.getBrDirPath(directory), ACE_DIR)
   }
 
   /**
@@ -91,14 +89,14 @@ Renaming this file will break the link to the playbook metadata.
    */
   private getBrDirPath(directory?: string): string {
     const baseDir = directory ?? process.cwd()
-    return join(baseDir, FileBulletContentStore.BR_DIR)
+    return join(baseDir, BR_DIR)
   }
 
   /**
    * Gets the full path to the .br/ace/bullets directory
    */
   private getBulletsDirPath(directory?: string): string {
-    return join(this.getAceDirPath(directory), FileBulletContentStore.BULLETS_DIR)
+    return join(this.getAceDirPath(directory), BULLETS_DIR)
   }
 
   /**
