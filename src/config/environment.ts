@@ -42,15 +42,15 @@ export const ENV_CONFIG: Record<Environment, EnvironmentConfig> = {
     tokenUrl: 'https://dev-beta-iam.byterover.dev/api/v1/oidc/token',
   },
   production: {
-    apiBaseUrl: 'https://prod-beta-iam.byterover.dev/api/v1',
-    authorizationUrl: 'https://prod-beta-iam.byterover.dev/api/v1/oidc/authorize',
-    clientId: 'byterover-cli-prod',
-    cogitApiBaseUrl: 'https://prod-beta-cogit.byterover.dev/api/v1',
-    issuerUrl: 'https://prod-beta-iam.byterover.dev/api/v1/oidc',
-    memoraApiBaseUrl: 'https://prod-beta-memora-retrieve.byterover.dev/api/v3',
-    mixpanelToken: 'fac9051df8242c885a9e0eaf60f78b10',
+    apiBaseUrl: 'https://beta-iam.byterover.dev/api/v1',
+    authorizationUrl: 'https://beta-iam.byterover.dev/api/v1/oidc/authorize',
+    clientId: 'byterover-cli',
+    cogitApiBaseUrl: 'https://beta-cogit.byterover.dev/api/v1',
+    issuerUrl: 'https://beta-iam.byterover.dev/api/v1/oidc',
+    memoraApiBaseUrl: 'https://beta-memora-retrieve.byterover.dev/api/v3',
+    mixpanelToken: '4d1198b346d2d6ac75f2e77905cc65ac',
     scopes: ['read', 'write'],
-    tokenUrl: 'https://prod-beta-iam.byterover.dev/api/v1/oidc/token',
+    tokenUrl: 'https://beta-iam.byterover.dev/api/v1/oidc/token',
   },
 }
 
