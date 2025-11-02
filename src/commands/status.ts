@@ -132,8 +132,7 @@ export default class Status extends Command {
         }
       }
 
-      // Guide user to push memory to cloud
-      this.log(`Use "br push" to push memory to cloud.`)
+      this.log(`\nUse "br push" to push playbook to ByteRover memory storage.`)
     } catch (error) {
       this.error(error instanceof Error ? error.message : 'Failed to load playbook statistics')
     }

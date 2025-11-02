@@ -13,32 +13,25 @@ import {Bullet} from '../../src/core/domain/entities/bullet.js'
 import {Playbook} from '../../src/core/domain/entities/playbook.js'
 
 // Type definitions from add.ts
-type UserAction = 'add' | 'update'
-
-interface SectionPromptOptions {
+type SectionPromptOptions = {
   readonly existingSections: readonly string[]
   readonly suggestedSections: readonly string[]
-}
-
-interface ContentPromptContext {
-  readonly action: UserAction
-  readonly existingContent?: string
-  readonly section: string
 }
 
 /**
  * Testable Add command that accepts mocked services and prompt responses
  */
 class TestableAdd extends Add {
+  private logMessages: string[] = []
+
   // eslint-disable-next-line max-params
   public constructor(
-    private readonly mockAction: UserAction,
-    private readonly mockBulletId: string | undefined,
     private readonly mockContent: string,
     private readonly mockPlaybookService: IPlaybookService,
     private readonly mockPlaybookStore: IPlaybookStore,
     private readonly mockSection: string,
     private readonly mockTrackingService: ITrackingService,
+    private readonly mockConfirmation: boolean,
     config: Config,
   ) {
     super(['--interactive'], config)
@@ -59,21 +52,23 @@ class TestableAdd extends Add {
     throw new Error(errorMessage)
   }
 
-  public log(): void {
-    // Do nothing - suppress output
+  public getLogMessages(): string[] {
+    return this.logMessages
+  }
+
+  public log(message?: string): void {
+    // Capture log messages for verification
+    if (message) {
+      this.logMessages.push(message)
+    }
   }
 
   // Override prompts
-  protected async promptForAction(): Promise<UserAction> {
-    return this.mockAction
+  protected async promptForConfirmation(_bulletId: string, _section: string, _content: string): Promise<boolean> {
+    return this.mockConfirmation
   }
 
-  protected async promptForBullet(_bullets: Bullet[]): Promise<string> {
-    if (!this.mockBulletId) throw new Error('No bullet ID provided')
-    return this.mockBulletId
-  }
-
-  protected async promptForContent(_context: ContentPromptContext): Promise<string> {
+  protected async promptForContent(_section: string): Promise<string> {
     return this.mockContent
   }
 
@@ -116,6 +111,7 @@ describe('Add Command', () => {
     addBullet: sinon.SinonStub
     getBullet: sinon.SinonStub
     getBullets: sinon.SinonStub
+    getNextId: sinon.SinonStub
     getSections: sinon.SinonStub
     updateBullet: sinon.SinonStub
   }
@@ -137,6 +133,7 @@ describe('Add Command', () => {
       addBullet: stub(),
       getBullet: stub(),
       getBullets: stub(),
+      getNextId: stub().returns('1'),
       getSections: stub().returns(['Existing Section']),
       updateBullet: stub(),
     }
@@ -179,13 +176,12 @@ describe('Add Command', () => {
         playbookService.addOrUpdateBullet.resolves(mockBullet)
 
         const cmd = new TestableAdd(
-          'add', // action
-          undefined, // no bulletId
           'Always validate input', // content
           playbookService,
           playbookStore,
           'Best Practices', // section
           trackingService,
+          true, // confirmation
           config,
         )
 
@@ -212,13 +208,12 @@ describe('Add Command', () => {
         playbookService.addOrUpdateBullet.resolves(mockBullet)
 
         const cmd = new TestableAdd(
-          'add',
-          undefined,
           'Test content',
           playbookService,
           playbookStore,
           'Existing Section',
           trackingService,
+          true, // confirmation
           config,
         )
 
@@ -226,82 +221,6 @@ describe('Add Command', () => {
 
         expect(playbookStore.load.calledOnce).to.be.true
         expect(mockPlaybook.getSections.calledOnce).to.be.true
-      })
-    })
-
-    describe('Update Existing Bullet', () => {
-      it('should update existing bullet in interactive mode', async () => {
-        const existingBullet = createMockBullet({
-          content: 'Old content',
-          id: 'test-00001',
-          metadata: {
-            relatedFiles: [],
-            tags: ['manual'],
-            timestamp: new Date('2024-01-01').toISOString(),
-          },
-          section: 'Best Practices',
-        })
-
-        const updatedBullet = createMockBullet({
-          content: 'New content',
-          id: 'test-00001',
-          section: 'Best Practices',
-        })
-
-        mockPlaybook.getBullets.returns([existingBullet])
-        mockPlaybook.getBullet.withArgs('test-00001').returns(existingBullet)
-        playbookService.addOrUpdateBullet.resolves(updatedBullet)
-
-        const cmd = new TestableAdd(
-          'update', // action
-          'test-00001', // bulletId
-          'New content', // content
-          playbookService,
-          playbookStore,
-          'Best Practices', // section
-          trackingService,
-          config,
-        )
-
-        await cmd.run()
-
-        expect(playbookService.addOrUpdateBullet.calledOnce).to.be.true
-        expect(
-          playbookService.addOrUpdateBullet.calledWith({
-            bulletId: 'test-00001',
-            content: 'New content',
-            section: 'Best Practices',
-          }),
-        ).to.be.true
-
-        expect(trackingService.track.calledOnce).to.be.true
-      })
-
-      it('should fall back to add when update selected but no bullets exist', async () => {
-        const mockBullet = createMockBullet({
-          content: 'New error content',
-          id: 'common-00001',
-          section: 'Common Errors',
-        })
-
-        mockPlaybook.getBullets.returns([])
-        playbookService.addOrUpdateBullet.resolves(mockBullet)
-
-        const cmd = new TestableAdd(
-          'update', // user wants to update
-          undefined, // but no bullets available
-          'New error content',
-          playbookService,
-          playbookStore,
-          'Common Errors',
-          trackingService,
-          config,
-        )
-
-        await cmd.run()
-
-        // Should add instead of update
-        expect(playbookService.addOrUpdateBullet.calledOnce).to.be.true
       })
     })
 
@@ -316,13 +235,12 @@ describe('Add Command', () => {
         playbookService.addOrUpdateBullet.resolves(mockBullet)
 
         const cmd = new TestableAdd(
-          'add',
-          undefined,
           'First bullet',
           playbookService,
           playbookStore,
           'Testing',
           trackingService,
+          true, // confirmation
           config,
         )
 
@@ -330,6 +248,97 @@ describe('Add Command', () => {
 
         expect(playbookStore.load.calledOnce).to.be.true
         expect(playbookService.addOrUpdateBullet.calledOnce).to.be.true
+      })
+    })
+
+    describe('Confirmation Flow', () => {
+      it('should add bullet when user confirms', async () => {
+        const mockBullet = createMockBullet({
+          content: 'Always validate input',
+          id: 'best-00001',
+          section: 'Best Practices',
+        })
+
+        mockPlaybook.getNextId = stub().returns('1')
+        playbookService.addOrUpdateBullet.resolves(mockBullet)
+
+        const cmd = new TestableAdd(
+          'Always validate input',
+          playbookService,
+          playbookStore,
+          'Best Practices',
+          trackingService,
+          true, // user confirms
+          config,
+        )
+
+        await cmd.run()
+
+        expect(playbookService.addOrUpdateBullet.calledOnce).to.be.true
+        expect(trackingService.track.calledOnce).to.be.true
+      })
+
+      it('should not add bullet when user declines confirmation', async () => {
+        mockPlaybook.getNextId = stub().returns('1')
+
+        const cmd = new TestableAdd(
+          'Some content',
+          playbookService,
+          playbookStore,
+          'Best Practices',
+          trackingService,
+          false, // user declines
+          config,
+        )
+
+        await cmd.run()
+
+        expect(playbookService.addOrUpdateBullet.called).to.be.false
+        expect(trackingService.track.called).to.be.false
+
+        const messages = cmd.getLogMessages()
+        // eslint-disable-next-line max-nested-callbacks
+        expect(messages.some((m) => m.includes('cancel'))).to.be.true
+      })
+
+      it('should display bullet ID in confirmation', async () => {
+        mockPlaybook.getNextId = stub().returns('5')
+
+        const mockBullet = createMockBullet({
+          content: 'Test content',
+          id: 'testing-00005',
+          section: 'Testing',
+        })
+        playbookService.addOrUpdateBullet.resolves(mockBullet)
+
+        const cmd = new TestableAdd(
+          'Test content',
+          playbookService,
+          playbookStore,
+          'Testing',
+          trackingService,
+          true,
+          config,
+        )
+
+        // We can't easily test the confirmation message itself since it's in the prompt,
+        // but we verify getNextId is called in the implementation
+        await cmd.run()
+
+        expect(mockPlaybook.getNextId.calledOnce).to.be.true
+      })
+
+      it('should display welcome message with cancellation instructions', async () => {
+        const mockBullet = createMockBullet()
+        playbookService.addOrUpdateBullet.resolves(mockBullet)
+
+        const cmd = new TestableAdd('Test', playbookService, playbookStore, 'Testing', trackingService, true, config)
+
+        await cmd.run()
+
+        const messages = cmd.getLogMessages()
+        // eslint-disable-next-line max-nested-callbacks
+        expect(messages.some((m) => m.includes('Ctrl+C'))).to.be.true
       })
     })
   })
@@ -464,13 +473,12 @@ describe('Add Command', () => {
       playbookService.addOrUpdateBullet.rejects(new Error('Service error'))
 
       const cmd = new TestableAdd(
-        'add',
-        undefined,
         'Test content',
         playbookService,
         playbookStore,
         'Testing',
         trackingService,
+        true, // confirmation
         config,
       )
 
