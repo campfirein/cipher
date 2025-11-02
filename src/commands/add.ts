@@ -1,4 +1,4 @@
-import {input, search, select} from '@inquirer/prompts'
+import {confirm, input, search} from '@inquirer/prompts'
 import {Command, Flags} from '@oclif/core'
 
 import type {Bullet} from '../core/domain/entities/bullet.js'
@@ -13,17 +13,9 @@ import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
 import {MixpanelTrackingService} from '../infra/tracking/mixpanel-tracking-service.js'
 
 // Type Definitions
-type UserAction = 'add' | 'update'
-
 interface SectionPromptOptions {
   readonly existingSections: readonly string[]
   readonly suggestedSections: readonly string[]
-}
-
-interface ContentPromptContext {
-  readonly action: UserAction
-  readonly existingContent?: string
-  readonly section: string
 }
 
 // Constants
@@ -83,65 +75,33 @@ export default class Add extends Command {
   }
 
   /**
-   * Prompt user to choose between adding a new bullet or updating an existing one
+   * Prompt user to confirm adding the bullet
    */
-  protected async promptForAction(): Promise<UserAction> {
-    const action = await select<UserAction>({
-      choices: [
-        {name: 'Add a new bullet', value: 'add'},
-        {name: 'Update an existing bullet', value: 'update'},
-      ],
-      message: 'What would you like to do?',
-    })
-    return action
-  }
+  protected async promptForConfirmation(bulletId: string, section: string, content: string): Promise<boolean> {
+    this.log('\nReview your bullet:')
+    this.log(`  ID: ${bulletId}`)
+    this.log(`  Section: ${section}`)
 
-  /**
-   * Prompt user to select a bullet to update
-   */
-  protected async promptForBullet(bullets: Bullet[]): Promise<string> {
-    const displayBullets = bullets.map((bullet) => ({
-      contentPreview: bullet.content.length > 60 ? `${bullet.content.slice(0, 60)}...` : bullet.content,
-      id: bullet.id,
-      section: bullet.section,
-      tags: bullet.metadata.tags,
-      timestamp: new Date(bullet.metadata.timestamp).toLocaleDateString(),
-    }))
+    const contentDisplay = content.length > 200 ? `${content.slice(0, 200)}...` : content
+    this.log(`  Content: ${contentDisplay}`)
 
-    const bulletId = await search({
-      message: 'Select a bullet to update:',
-      async source(input) {
-        const filtered = input
-          ? displayBullets.filter(
-              (b) =>
-                b.section.toLowerCase().includes(input.toLowerCase()) ||
-                b.contentPreview.toLowerCase().includes(input.toLowerCase()) ||
-                b.id.toLowerCase().includes(input.toLowerCase()),
-            )
-          : displayBullets
+    this.log('\nTip: Use `br status` to view and update bullets later')
 
-        return filtered.map((b) => ({
-          description: `Tags: ${b.tags.join(', ')} | Date: ${b.timestamp}`,
-          name: `[${b.id}] ${b.section}: ${b.contentPreview}`,
-          value: b.id,
-        }))
-      },
+    const confirmed = await confirm({
+      default: true,
+      message: 'Add this bullet?',
     })
 
-    return bulletId
+    return confirmed
   }
 
   /**
    * Prompt user to enter bullet content
    */
-  protected async promptForContent(context: ContentPromptContext): Promise<string> {
-    const message =
-      context.action === 'update'
-        ? `Enter new content for bullet in "${context.section}":`
-        : `Enter content for new bullet in "${context.section}":`
+  protected async promptForContent(section: string): Promise<string> {
+    const message = `Enter content for new bullet in "${section}":`
 
     const content = await input({
-      default: context.existingContent,
       message,
       validate(value) {
         if (!validateContent(value)) {
@@ -189,11 +149,10 @@ export default class Add extends Command {
   }
 
   /**
-   * Display success message after adding or updating a bullet
+   * Display success message after adding a bullet
    */
-  private displaySuccess(bullet: Bullet, action: UserAction): void {
-    const actionText = action === 'update' ? 'Updated' : 'Added'
-    this.log(`\n✓ ${actionText} bullet successfully!`)
+  private displaySuccess(bullet: Bullet): void {
+    this.log(`\n✓ Added bullet successfully!`)
     this.log(`  ID: ${bullet.id}`)
     this.log(`  Section: ${bullet.section}`)
     this.log(`  Content: ${bullet.content}`)
@@ -232,7 +191,7 @@ export default class Add extends Command {
         section: flags.section,
       })
 
-      this.displaySuccess(bullet, flags['bullet-id'] ? 'update' : 'add')
+      this.displaySuccess(bullet)
     } catch (error) {
       this.error(error instanceof Error ? error.message : 'Unexpected error occurred')
     }
@@ -245,13 +204,14 @@ export default class Add extends Command {
     const {playbookService, playbookStore, trackingService} = this.createServices()
 
     try {
+      // Display welcome message
+      this.log('Press Ctrl+C at any time to cancel the process\n')
+
       // Load existing playbook or create new one
       let playbook = await playbookStore.load()
       if (!playbook) {
         playbook = new Playbook()
       }
-
-      const action = await this.promptForAction()
 
       const sectionOptions: SectionPromptOptions = {
         existingSections: playbook.getSections(),
@@ -259,36 +219,28 @@ export default class Add extends Command {
       }
       const section = await this.promptForSection(sectionOptions)
 
-      let bulletId: string | undefined
-      let existingContent: string | undefined
+      const content = await this.promptForContent(section)
 
-      if (action === 'update') {
-        const bullets = playbook.getBullets()
-        if (bullets.length === 0) {
-          this.warn('No bullets available to update. Creating new bullet instead.')
-        } else {
-          bulletId = await this.promptForBullet(bullets)
-          const bullet = playbook.getBullet(bulletId)
-          existingContent = bullet?.content
-        }
-      }
+      // Get next bullet ID for confirmation
+      const nextId = playbook.getNextId()
 
-      const contentContext: ContentPromptContext = {
-        action: bulletId ? 'update' : 'add',
-        existingContent,
-        section,
+      // Prompt for confirmation
+      const confirmed = await this.promptForConfirmation(nextId, section, content)
+
+      if (!confirmed) {
+        this.log('\nBullet not added. Operation cancelled.')
+        return
       }
-      const content = await this.promptForContent(contentContext)
 
       const bullet = await playbookService.addOrUpdateBullet({
-        bulletId,
+        bulletId: undefined,
         content,
         section,
       })
 
       await trackingService.track('ace:add_bullet')
 
-      this.displaySuccess(bullet, bulletId ? 'update' : 'add')
+      this.displaySuccess(bullet)
     } catch (error) {
       this.error(error instanceof Error ? error.message : 'Unexpected error occurred')
     }

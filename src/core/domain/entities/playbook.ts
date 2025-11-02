@@ -210,6 +210,14 @@ export class Playbook {
   }
 
   /**
+   * Returns the next bullet ID that will be generated
+   */
+  public getNextId(): string {
+    // Use "temp" as prefix since we don't know the section yet
+    return String(this.nextId).padStart(5, '0')
+  }
+
+  /**
    * Returns all section names
    */
   public getSections(): string[] {
