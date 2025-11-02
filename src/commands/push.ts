@@ -1,3 +1,4 @@
+import {confirm} from '@inquirer/prompts'
 import {Command, Flags, ux} from '@oclif/core'
 import {join} from 'node:path'
 
@@ -34,6 +35,11 @@ export default class Push extends Command {
       default: DEFAULT_BRANCH,
       description: 'ByteRover branch name (not Git branch)',
     }),
+    yes: Flags.boolean({
+      char: 'y',
+      default: false,
+      description: 'Skip confirmation prompt',
+    }),
   }
 
   protected async checkProjectInit(projectConfigStore: IProjectConfigStore): Promise<BrConfig> {
@@ -48,8 +54,8 @@ export default class Push extends Command {
   protected async cleanUpLocalFiles(playbookStore: IPlaybookStore): Promise<void> {
     this.log('\nCleaning up local files...')
 
-    // Clear playbook content
-    ux.action.start('  Clearing playbook')
+    // Clear playbook content and bullet files
+    ux.action.start('  Clearing playbook and bullet files')
     await playbookStore.clear()
     ux.action.stop('✓')
 
@@ -73,6 +79,24 @@ export default class Push extends Command {
     ux.action.start('  Cleaning deltas')
     const deltaCount = await clearDirectory(deltasDir)
     ux.action.stop(`✓ (${deltaCount} files removed)`)
+  }
+
+  protected async confirmPush(projectConfig: BrConfig, branch: string, fileCount: number): Promise<boolean> {
+    this.log('\nYou are about to push to ByteRover memory storage:')
+    this.log(`  Space: ${projectConfig.spaceName}`)
+    this.log(`  Branch: ${branch}`)
+    this.log(`  Files to upload: ${fileCount}`)
+    this.log('\nAfter successful push, these local files will be cleaned up:')
+    this.log('  - Playbook content')
+    this.log('  - Bullet files (.br/ace/bullets/)')
+    this.log('  - Executor outputs (.br/ace/executor-outputs/)')
+    this.log('  - Reflections (.br/ace/reflections/)')
+    this.log('  - Deltas (.br/ace/deltas/)')
+
+    return confirm({
+      default: false,
+      message: 'Push to ByteRover and clean up local files?',
+    })
   }
 
   protected async confirmUpload(
@@ -156,6 +180,16 @@ export default class Push extends Command {
       const token = await this.validateAuth(tokenStore)
       const projectConfig = await this.checkProjectInit(projectConfigStore)
       await this.verifyPlaybookExists(playbookStore)
+
+      // Prompt for confirmation unless --yes flag is provided
+      if (!flags.yes) {
+        const confirmed = await this.confirmPush(projectConfig, flags.branch, 1)
+        if (!confirmed) {
+          this.log('Push cancelled. No files were uploaded or cleaned.')
+          return
+        }
+      }
+
       const response = await this.getPresignedUrls(memoryService, token, projectConfig)
       const playbookContent = await this.loadPlaybookContent(playbookStore)
       await this.uploadFiles(memoryService, response.presignedUrls, playbookContent)

@@ -30,6 +30,12 @@ class TestablePush extends Push {
     super([], config)
   }
 
+  // Default implementation returns true to avoid blocking tests
+  // Individual tests can override this by stubbing
+  protected async confirmPush(): Promise<boolean> {
+    return true
+  }
+
   protected createServices() {
     return {
       memoryService: this.mockMemoryService,
@@ -45,7 +51,7 @@ class TestablePush extends Push {
     throw input instanceof Error ? input : new Error(input)
   }
 
-  public log(): void {
+  public log(..._args: unknown[]): void {
     // no-op
   }
 
@@ -619,6 +625,170 @@ describe('Push Command', () => {
       } catch (error) {
         expect((error as Error).message).to.include('Clear failed')
       }
+    })
+
+    it('should log that bullet files are cleared', async () => {
+      const mockPlaybook = new Playbook()
+      mockPlaybook.addBullet('Test', 'Sample bullet', undefined, {
+        relatedFiles: [],
+        tags: ['test'],
+        timestamp: new Date().toISOString(),
+      })
+
+      tokenStore.load.resolves(validToken)
+      configStore.read.resolves(projectConfig)
+      playbookStore.exists.resolves(true)
+      playbookStore.load.resolves(mockPlaybook)
+      memoryService.getPresignedUrls.resolves(
+        new PresignedUrlsResponse(
+          [new PresignedUrl('playbook.json', 'https://storage.googleapis.com/signed-url')],
+          'req-cleanup-4',
+        ),
+      )
+      memoryService.uploadFile.resolves()
+      memoryService.confirmUpload.resolves()
+      playbookStore.clear.resolves()
+
+      const command = new TestablePush(memoryService, playbookStore, configStore, tokenStore, trackingService, config)
+
+      await command.run()
+
+      // Verify that bullet cleanup is explicitly mentioned in the action start message
+      expect(uxActionStartStub.calledWith(match(/bullet/i))).to.be.true
+    })
+  })
+
+  describe('confirmation prompt behavior', () => {
+    it('should prompt for confirmation when --yes flag not provided and proceed when user confirms', async () => {
+      const mockPlaybook = new Playbook()
+      mockPlaybook.addBullet('Test', 'Sample bullet', undefined, {
+        relatedFiles: [],
+        tags: ['test'],
+        timestamp: new Date().toISOString(),
+      })
+
+      tokenStore.load.resolves(validToken)
+      configStore.read.resolves(projectConfig)
+      playbookStore.exists.resolves(true)
+      playbookStore.load.resolves(mockPlaybook)
+      memoryService.getPresignedUrls.resolves(
+        new PresignedUrlsResponse(
+          [new PresignedUrl('playbook.json', 'https://storage.googleapis.com/signed-url')],
+          'req-confirm-prompt-1',
+        ),
+      )
+      memoryService.uploadFile.resolves()
+      memoryService.confirmUpload.resolves()
+
+      const command = new TestablePush(memoryService, playbookStore, configStore, tokenStore, trackingService, config)
+      const confirmStub = stub(
+        command as unknown as {confirmPush: () => Promise<boolean>},
+        'confirmPush',
+      ).resolves(true)
+
+      await command.run()
+
+      // Verify confirmation was prompted
+      expect(confirmStub.calledOnce).to.be.true
+      // Verify push proceeded
+      expect(memoryService.uploadFile.calledOnce).to.be.true
+      expect(memoryService.confirmUpload.calledOnce).to.be.true
+    })
+
+    it('should cancel push when user declines confirmation', async () => {
+      tokenStore.load.resolves(validToken)
+      configStore.read.resolves(projectConfig)
+      playbookStore.exists.resolves(true)
+
+      const command = new TestablePush(memoryService, playbookStore, configStore, tokenStore, trackingService, config)
+      const logStub = stub(command, 'log')
+      stub(command as unknown as {confirmPush: () => Promise<boolean>}, 'confirmPush').resolves(false)
+
+      await command.run()
+
+      // Verify cancellation message shown
+      expect(logStub.calledWith('Push cancelled. No files were uploaded or cleaned.')).to.be.true
+      // Verify no API calls made
+      expect(memoryService.getPresignedUrls.called).to.be.false
+      expect(memoryService.uploadFile.called).to.be.false
+      expect(memoryService.confirmUpload.called).to.be.false
+      expect(playbookStore.clear.called).to.be.false
+    })
+
+    it('should skip confirmation when --yes flag is provided', async () => {
+      const mockPlaybook = new Playbook()
+      mockPlaybook.addBullet('Test', 'Sample bullet', undefined, {
+        relatedFiles: [],
+        tags: ['test'],
+        timestamp: new Date().toISOString(),
+      })
+
+      tokenStore.load.resolves(validToken)
+      configStore.read.resolves(projectConfig)
+      playbookStore.exists.resolves(true)
+      playbookStore.load.resolves(mockPlaybook)
+      memoryService.getPresignedUrls.resolves(
+        new PresignedUrlsResponse(
+          [new PresignedUrl('playbook.json', 'https://storage.googleapis.com/signed-url')],
+          'req-confirm-prompt-2',
+        ),
+      )
+      memoryService.uploadFile.resolves()
+      memoryService.confirmUpload.resolves()
+
+      const command = new TestablePush(memoryService, playbookStore, configStore, tokenStore, trackingService, config)
+      command.argv = ['--yes']
+
+      const confirmStub = stub(
+        command as unknown as {confirmPush: () => Promise<boolean>},
+        'confirmPush',
+      ).resolves(true)
+
+      await command.run()
+
+      // Verify confirmation was NOT prompted
+      expect(confirmStub.called).to.be.false
+      // Verify push proceeded
+      expect(memoryService.uploadFile.calledOnce).to.be.true
+      expect(memoryService.confirmUpload.calledOnce).to.be.true
+    })
+
+    it('should skip confirmation when -y flag is provided', async () => {
+      const mockPlaybook = new Playbook()
+      mockPlaybook.addBullet('Test', 'Sample bullet', undefined, {
+        relatedFiles: [],
+        tags: ['test'],
+        timestamp: new Date().toISOString(),
+      })
+
+      tokenStore.load.resolves(validToken)
+      configStore.read.resolves(projectConfig)
+      playbookStore.exists.resolves(true)
+      playbookStore.load.resolves(mockPlaybook)
+      memoryService.getPresignedUrls.resolves(
+        new PresignedUrlsResponse(
+          [new PresignedUrl('playbook.json', 'https://storage.googleapis.com/signed-url')],
+          'req-confirm-prompt-3',
+        ),
+      )
+      memoryService.uploadFile.resolves()
+      memoryService.confirmUpload.resolves()
+
+      const command = new TestablePush(memoryService, playbookStore, configStore, tokenStore, trackingService, config)
+      command.argv = ['-y']
+
+      const confirmStub = stub(
+        command as unknown as {confirmPush: () => Promise<boolean>},
+        'confirmPush',
+      ).resolves(true)
+
+      await command.run()
+
+      // Verify confirmation was NOT prompted
+      expect(confirmStub.called).to.be.false
+      // Verify push proceeded
+      expect(memoryService.uploadFile.calledOnce).to.be.true
+      expect(memoryService.confirmUpload.calledOnce).to.be.true
     })
   })
 
