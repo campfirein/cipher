@@ -51,7 +51,7 @@
   "keywords": [
     "oclif"
   ],
-  "license": "MIT",
+  "license": "UNLICENSED",
   "main": "dist/index.js",
   "type": "module",
   "oclif": {
