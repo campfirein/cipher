@@ -33,9 +33,7 @@ describe('Environment Configuration', () => {
       delete process.env.BR_ENV
 
       // Use cache busting to force fresh module evaluation
-      const {getCurrentConfig} = await import(
-        `../../../src/config/environment.js?t=${Date.now()}`
-      )
+      const {getCurrentConfig} = await import(`../../../src/config/environment.js?t=${Date.now()}`)
       const config = getCurrentConfig()
 
       expect(config.clientId).to.equal('byterover-cli-client')
@@ -49,13 +47,11 @@ describe('Environment Configuration', () => {
       process.env.BR_ENV = 'production'
 
       // Use cache busting to force fresh module evaluation
-      const {getCurrentConfig} = await import(
-        `../../../src/config/environment.js?t=${Date.now()}`
-      )
+      const {getCurrentConfig} = await import(`../../../src/config/environment.js?t=${Date.now()}`)
       const config = getCurrentConfig()
 
-      expect(config.clientId).to.equal('byterover-cli-prod')
-      expect(config.issuerUrl).to.equal('https://prod-beta-iam.byterover.dev/api/v1/oidc')
+      expect(config.clientId).to.equal('byterover-cli')
+      expect(config.issuerUrl).to.equal('https://beta-iam.byterover.dev/api/v1/oidc')
       expect(config.scopes).to.include('read')
       expect(config.scopes).to.include('write')
       expect(config.scopes).to.not.include('debug')
