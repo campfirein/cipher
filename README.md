@@ -45,6 +45,8 @@ br --version
 
 ## Quick Start
 
+Visit [**ByteRover's Beta Docs**](https://docs.byterover.dev/beta) for more information.
+
 Get started with ByteRover CLI in three simple steps:
 
 ### 1. Authenticate

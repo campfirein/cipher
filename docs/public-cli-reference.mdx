@@ -1,0 +1,523 @@
+---
+title: CLI reference
+description: Complete reference for ByteRover CLI commands, flags, and usage
+---
+
+ByteRover CLI (`br`) is a command-line tool for managing your AI development workflow with ByteRover. Use it to authenticate, retrieve memories from your knowledge base, manage projects and spaces, and maintain your ACE playbook.
+
+For help with any command, run `br --help` or `br <command> --help`.
+
+## Getting Started
+
+Before using ByteRover CLI, you need to authenticate and initialize your project:
+
+```bash
+# First, authenticate with ByteRover
+br login
+
+# Then, initialize your project (select team and space)
+br init
+```
+
+Authentication uses OAuth 2.0 with PKCE flow. Your credentials are securely stored in your system's keychain. The `br init` command creates a `.br/` directory in your project with configuration and ACE playbook structure.
+
+## CLI Commands
+
+| Command                                        | Description                                  | Example                                           |
+| ---------------------------------------------- | -------------------------------------------- | ------------------------------------------------- |
+| `br login`                                     | Authenticate with ByteRover using OAuth 2.0  | `br login`                                        |
+| `br status [DIRECTORY]`                        | Show CLI status and project information      | `br status`                                       |
+| `br init`                                      | Initialize a project with ByteRover          | `br init`                                         |
+| `br space list`                                | List all spaces for the current team         | `br space list --all`                             |
+| `br space switch`                              | Switch to a different team or space          | `br space switch`                                 |
+| `br retrieve -q <query>`                       | Retrieve memories from ByteRover             | `br retrieve -q "auth flow"`                      |
+| `br push`                                      | Push playbook to ByteRover memory storage    | `br push`                                         |
+| `br add`                                       | Add or update a bullet in the playbook       | `br add --interactive`                            |
+| `br clear [DIRECTORY]`                         | Clear local ACE playbook                     | `br clear`                                        |
+| `br complete <hint> <reasoning> <finalAnswer>` | Complete ACE workflow in one command         | `br complete "fix" "..." "..." -t "..." -f "..."` |
+| `br gen-rules`                                 | Generate rule instructions for coding agents | `br gen-rules`                                    |
+
+## Command Details
+
+### `br login`
+
+Authenticate with ByteRover using OAuth 2.0 with PKCE flow. Opens your browser for secure authentication and stores tokens in your system's keychain.
+
+**Arguments**
+
+None
+
+**Flags**
+
+None
+
+**Examples**
+
+```bash
+# Authenticate with ByteRover
+br login
+
+# Re-authenticate after token expires
+br login
+```
+
+**Notes**
+
+- First command you should run when setting up ByteRover
+- Opens your default browser for authentication
+- Tokens are stored securely in system keychain (macOS Keychain, Windows Credential Manager, Linux libsecret)
+- If authentication expires, simply run `br login` again
+
+---
+
+### `br status`
+
+Show CLI status and project information. Displays local ACE context (playbook) managed by ByteRover CLI.
+
+**Arguments**
+
+| Argument    | Type   | Required | Description                                       |
+| ----------- | ------ | -------- | ------------------------------------------------- |
+| `DIRECTORY` | string | No       | Project directory (defaults to current directory) |
+
+**Flags**
+
+| Flag                    | Description                      | Default |
+| ----------------------- | -------------------------------- | ------- |
+| `-f, --format <option>` | Output format: `table` or `json` | `table` |
+
+**Examples**
+
+```bash
+# Show status for current directory
+br status
+
+# Show status for a specific directory
+br status /path/to/project
+
+# Output status as JSON
+br status --format json
+```
+
+**Output**
+
+The status command displays:
+
+- CLI version
+- Authentication status (logged in user or "Not logged in")
+- Current directory
+- Project initialization status (team and space info if initialized)
+- Playbook contents (sections and bullets) or empty state
+
+---
+
+### `br init`
+
+Initialize a project with ByteRover. Creates `.br/config.json` with team and space selection, and initializes the ACE playbook structure.
+
+**Arguments**
+
+None
+
+**Flags**
+
+None
+
+**Examples**
+
+```bash
+# Initialize project (interactive team/space selection)
+br init
+
+# Complete first-time setup
+br login
+br init
+```
+
+**Notes**
+
+- Requires `br login` first
+- Interactive prompts guide you through team and space selection
+- Creates `.br/` directory with configuration and playbook structure
+- Automatically runs `br gen-rules` after initialization
+- If project is already initialized, displays current configuration and exits
+
+---
+
+### `br space list`
+
+List all spaces for the current team. Requires project initialization to determine which team to query.
+
+**Arguments**
+
+None
+
+**Flags**
+
+| Flag                   | Description                                    | Default |
+| ---------------------- | ---------------------------------------------- | ------- |
+| `-a, --all`            | Fetch all spaces (may be slow for large teams) | `false` |
+| `-j, --json`           | Output in JSON format                          | `false` |
+| `-l, --limit <value>`  | Maximum number of spaces to fetch              | `50`    |
+| `-o, --offset <value>` | Number of spaces to skip                       | `0`     |
+
+**Examples**
+
+```bash
+# List first 50 spaces (default)
+br space list
+
+# List all spaces
+br space list --all
+
+# Manual pagination: get 10 spaces at a time
+br space list --limit 10
+br space list --limit 10 --offset 10
+
+# Output as JSON
+br space list --json
+```
+
+**Notes**
+
+- Requires `br init` first (reads team ID from config)
+- Default limit is 50 spaces
+- Use `--all` to fetch all spaces (internally paginates at 100 items per page)
+- Use `--limit` and `--offset` for manual pagination control
+
+---
+
+### `br space switch`
+
+Switch to a different team or space. Updates `.br/config.json` with new selection.
+
+**Arguments**
+
+None
+
+**Flags**
+
+None
+
+**Examples**
+
+```bash
+# Switch team or space (interactive)
+br space switch
+```
+
+**Notes**
+
+- Requires `br init` first (project must be initialized)
+- Displays current team and space configuration
+- Interactive prompts guide you through new team and space selection
+- Updates configuration but does NOT initialize playbook
+
+---
+
+### `br retrieve`
+
+Retrieve memories from ByteRover Memora service and output as JSON. Searches your team's knowledge base and returns relevant memories with related context.
+
+**Arguments**
+
+None
+
+**Flags**
+
+| Flag                      | Description                                          | Required |
+| ------------------------- | ---------------------------------------------------- | -------- |
+| `-q, --query <value>`     | Search query string                                  | Yes      |
+| `-n, --node-keys <value>` | Comma-separated list of file paths to filter results | No       |
+| `--compact`               | Output compact JSON (single line)                    | No       |
+
+**Examples**
+
+```bash
+# Retrieve memories about authentication
+br retrieve --query "authentication best practices"
+
+# Short form
+br retrieve -q "error handling patterns"
+
+# Filter by specific files
+br retrieve -q "database connection" -n "src/db/connection.ts,src/db/pool.ts"
+
+# Compact JSON output (single line)
+br retrieve -q "API endpoints" --compact
+```
+
+**Notes**
+
+- Requires `br login` and `br init` first
+- Returns JSON with `memories` (primary results with scores) and `relatedMemories` (additional context)
+- Each memory includes: content, section, tags, metadata type, timestamp, related files
+- Use `--node-keys` to scope search to specific files in your codebase
+
+---
+
+### `br push`
+
+Push playbook to ByteRover memory storage and clean up local ACE files. Uploads your accumulated knowledge to the cloud.
+
+**Arguments**
+
+None
+
+**Flags**
+
+| Flag                   | Description                            | Default |
+| ---------------------- | -------------------------------------- | ------- |
+| `-b, --branch <value>` | ByteRover branch name (not Git branch) | `main`  |
+| `-y, --yes`            | Skip confirmation prompt               | `false` |
+
+**Examples**
+
+```bash
+# Push to default branch (with confirmation)
+br push
+
+# Push to a specific branch
+br push --branch develop
+br push -b feature-auth
+
+# Skip confirmation prompt
+br push --yes
+br push -y
+```
+
+**Notes**
+
+- Requires `br login` and `br init` first
+- Playbook must exist with content to push
+- Branch concept is ByteRover-internal, NOT related to Git branches
+- Shows confirmation dialog unless `--yes` flag is used
+- After successful push, automatically cleans up:
+  - Playbook content (resets to empty)
+  - Bullet files (`.br/ace/bullets/`)
+  - Executor outputs (`.br/ace/executor-outputs/`)
+  - Reflections (`.br/ace/reflections/`)
+  - Deltas (`.br/ace/deltas/`)
+
+---
+
+### `br add`
+
+Add or update a bullet in the playbook. Provides direct access to modify playbook content, bypassing the full ACE workflow.
+
+**Arguments**
+
+None
+
+**Flags**
+
+| Flag                      | Description                                       | Required |
+| ------------------------- | ------------------------------------------------- | -------- |
+| `-i, --interactive`       | Run in interactive mode                           | No       |
+| `-s, --section <value>`   | Section name for the bullet                       | No\*     |
+| `-c, --content <value>`   | Content of the bullet                             | No\*     |
+| `-b, --bullet-id <value>` | Bullet ID to update (creates new if not provided) | No       |
+
+\*Required in non-interactive mode
+
+**Examples**
+
+```bash
+# Interactive mode (recommended)
+br add --interactive
+br add -i
+
+# Add new bullet directly
+br add --section "Common Errors" --content "Auth fails when token expires"
+
+# Update existing bullet
+br add --section "Common Errors" --bullet-id "common-00001" --content "Updated: Auth fails when token expires"
+
+# Short form
+br add -s "Best Practices" -c "Always validate user input before processing"
+```
+
+**Notes**
+
+- Playbook must exist (run `br init` first)
+- Interactive mode: prompts for section (with search), content, and confirmation
+- Non-interactive mode: requires both `--section` and `--content` flags
+- Suggested sections: Common Errors, Best Practices, Strategies, Lessons Learned, Architecture, Testing
+- If `--bullet-id` is not provided, creates a new bullet with auto-generated ID
+
+---
+
+### `br clear`
+
+Clear local ACE context (playbook) managed by ByteRover CLI. Resets playbook to empty structure.
+
+**Arguments**
+
+| Argument    | Type   | Required | Description                                       |
+| ----------- | ------ | -------- | ------------------------------------------------- |
+| `DIRECTORY` | string | No       | Project directory (defaults to current directory) |
+
+**Flags**
+
+| Flag        | Description              | Default |
+| ----------- | ------------------------ | ------- |
+| `-y, --yes` | Skip confirmation prompt | `false` |
+
+**Examples**
+
+```bash
+# Clear playbook (with confirmation)
+br clear
+
+# Clear without confirmation
+br clear --yes
+br clear -y
+
+# Clear playbook in specific directory
+br clear /path/to/project
+```
+
+**Notes**
+
+- Playbook must exist
+- Shows confirmation prompt unless `--yes` flag is used
+- This action cannot be undone
+- Resets playbook to empty structure with no bullets
+- Does not affect `.br/config.json` or project initialization
+
+---
+
+### `br complete`
+
+Complete ACE workflow: save executor output, generate reflection, and update playbook in one command. This is the primary command for coding agents to complete the ACE workflow efficiently.
+
+**Arguments**
+
+| Argument      | Type   | Required | Description                                                       |
+| ------------- | ------ | -------- | ----------------------------------------------------------------- |
+| `HINT`        | string | Yes      | Short hint for naming output files (e.g., "user-auth", "bug-fix") |
+| `REASONING`   | string | Yes      | Detailed reasoning and approach for completing the task           |
+| `FINALANSWER` | string | Yes      | The final answer/solution to the task                             |
+
+**Flags**
+
+| Flag                          | Description                                                                     | Required |
+| ----------------------------- | ------------------------------------------------------------------------------- | -------- |
+| `-t, --tool-usage <value>`    | Comma-separated list of tool calls with arguments (format: "ToolName:argument") | Yes      |
+| `-f, --feedback <value>`      | Environment feedback about task execution                                       | Yes      |
+| `-b, --bullet-ids <value>`    | Comma-separated list of playbook bullet IDs referenced                          | No       |
+| `-u, --update-bullet <value>` | Bullet ID to update with new knowledge (creates new if not provided)            | No       |
+
+**Examples**
+
+```bash
+# Complete workflow after implementing OAuth
+br complete "user-auth" "Implemented OAuth2 flow with PKCE" "Authentication works correctly" \
+  --tool-usage "Read:src/auth.ts,Edit:src/auth.ts,Bash:npm test" \
+  --feedback "All tests passed"
+
+# Complete with referenced bullets
+br complete "validation-fix" "Analyzed validator and fixed edge case" "Bug fixed" \
+  --tool-usage "Grep:pattern:\"validate\",Read:src/validator.ts,Edit:src/validator.ts" \
+  --bullet-ids "bullet-123,bullet-456" \
+  --feedback "Tests passed, no regressions"
+
+# Update existing bullet
+br complete "auth-update" "Improved error handling in auth flow" "Better error messages" \
+  --tool-usage "Edit:src/auth.ts,Bash:npm test" \
+  --feedback "Tests passed" \
+  --update-bullet "bullet-5"
+
+# Short form flags
+br complete "fix" "Fixed bug" "Works now" -t "Edit:file.ts" -f "Tests pass"
+```
+
+**Tool Usage Format**
+
+The `--tool-usage` flag accepts comma-separated tool calls:
+
+- `ToolName:argument` - e.g., `Read:src/file.ts`
+- `ToolName:pattern:"search"` - e.g., `Grep:pattern:"validate"`
+- Multiple tools: `Read:file1.ts,Edit:file1.ts,Bash:npm test`
+
+**Output**
+
+The command executes in three phases:
+
+1. **Phase 1**: Saves executor output to `.br/ace/executor-outputs/`
+2. **Phase 2**: Generates reflection with tags and saves to `.br/ace/reflections/`
+3. **Phase 3**: Generates delta and applies to playbook
+
+Displays summary of operations and file paths.
+
+**Notes**
+
+- Playbook must exist (run `br init` first)
+- This is the primary command for coding agents to complete the ACE workflow
+- Combines three separate operations (executor output, reflection, delta) into one
+- If `--update-bullet` is not provided, adds new bullet to playbook
+- Use `--bullet-ids` to reference bullets that informed your approach
+
+---
+
+### `br gen-rules`
+
+Generate rule instructions for coding agents to work with ByteRover correctly. Creates agent-specific rule files with instructions for using ByteRover CLI in their workflow.
+
+**Arguments**
+
+None
+
+**Flags**
+
+None
+
+**Examples**
+
+```bash
+# Generate rules (interactive agent selection)
+br gen-rules
+```
+
+**Notes**
+
+- Interactive search prompt for agent selection
+- Prompts for overwrite confirmation if rule file already exists
+- Automatically called by `br init` command
+- Generated rules help coding agents understand ByteRover workflow
+- Rules include commands, workflows, and best practices for the selected agent
+
+---
+
+## Global Options
+
+ByteRover CLI provides these global options that work with any command:
+
+| Flag        | Description           | Example                       |
+| ----------- | --------------------- | ----------------------------- |
+| `--help`    | Show help for command | `br --help`, `br init --help` |
+| `--version` | Show CLI version      | `br --version`                |
+
+## File Structure
+
+ByteRover CLI creates the following directory structure in your project:
+
+```
+.br/
+├── config.json              # Project configuration (team/space)
+└── ace/
+    ├── playbook.json        # Living knowledge base
+    ├── bullets/             # Individual bullet files
+    ├── executor-outputs/    # Task execution records
+    ├── reflections/         # Task reflections
+    └── deltas/              # Playbook update operations
+```
+
+**Key Files**
+
+- **config.json**: Stores your team ID, space ID, and project metadata
+- **playbook.json**: Your living knowledge base containing accumulated learnings organized by sections
+- **bullets/**: Individual bullet files referenced by the playbook
+- **executor-outputs/**: Records of task executions (created by `br complete`)
+- **reflections/**: Generated reflections on completed tasks
+- **deltas/**: Operations that modify the playbook structure
