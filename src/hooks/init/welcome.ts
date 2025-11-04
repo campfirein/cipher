@@ -25,14 +25,14 @@ const hook: Hook<'init'> = async function (options): Promise<void> {
       'ByteRover CLI quick start:',
       '',
       '  1. Authenticate with ByteRover:',
-      '     br login',
+      '     brv login',
       '  2. Link your workspace:',
-      '     br init',
+      '     brv init',
       '',
-      'After setup, run `br status` to confirm connection and explore commands like `br retrieve` or `br complete`.',
+      'After setup, run `brv status` to confirm connection and explore commands like `brv retrieve` or `brv complete`.',
     ].join('\n')
 
-    const docsLink = `For more information, run 'br help' or visit ${DOCS_URL}`
+    const docsLink = `For more information, run 'brv --help', 'brv [command] --help' or visit ${DOCS_URL}`
 
     this.log(`\n${logo}\n\n${onboardingText}\n\n${docsLink}\n\n`)
   }

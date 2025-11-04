@@ -29,8 +29,8 @@ describe('Environment Configuration', () => {
   })
 
   describe('getCurrentConfig', () => {
-    it('should return development config when BR_ENV is not set', async () => {
-      delete process.env.BR_ENV
+    it('should return development config when BRV_ENV is not set', async () => {
+      delete process.env.BRV_ENV
 
       // Use cache busting to force fresh module evaluation
       const {getCurrentConfig} = await import(`../../../src/config/environment.js?t=${Date.now()}`)
@@ -43,8 +43,8 @@ describe('Environment Configuration', () => {
       expect(config.scopes).to.include('debug')
     })
 
-    it('should return production config when BR_ENV is production', async () => {
-      process.env.BR_ENV = 'production'
+    it('should return production config when BRV_ENV is production', async () => {
+      process.env.BRV_ENV = 'production'
 
       // Use cache busting to force fresh module evaluation
       const {getCurrentConfig} = await import(`../../../src/config/environment.js?t=${Date.now()}`)

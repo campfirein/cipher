@@ -1,4 +1,4 @@
 @echo off
 
-set BR_ENV=production
+set BRV_ENV=production
 node "%~dp0\run" %*

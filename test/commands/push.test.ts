@@ -12,7 +12,7 @@ import type {ITrackingService} from '../../src/core/interfaces/i-tracking-servic
 
 import Push from '../../src/commands/push.js'
 import {AuthToken} from '../../src/core/domain/entities/auth-token.js'
-import {BrConfig} from '../../src/core/domain/entities/br-config.js'
+import {BrvConfig} from '../../src/core/domain/entities/brv-config.js'
 import {Playbook} from '../../src/core/domain/entities/playbook.js'
 import {PresignedUrl} from '../../src/core/domain/entities/presigned-url.js'
 import {PresignedUrlsResponse} from '../../src/core/domain/entities/presigned-urls-response.js'
@@ -65,7 +65,7 @@ describe('Push Command', () => {
   let configStore: sinon.SinonStubbedInstance<IProjectConfigStore>
   let memoryService: sinon.SinonStubbedInstance<IMemoryStorageService>
   let playbookStore: sinon.SinonStubbedInstance<IPlaybookStore>
-  let projectConfig: BrConfig
+  let projectConfig: BrvConfig
   let tokenStore: sinon.SinonStubbedInstance<ITokenStore>
   let trackingService: sinon.SinonStubbedInstance<ITrackingService>
   let uxActionStartStub: sinon.SinonStub
@@ -98,7 +98,7 @@ describe('Push Command', () => {
       userId: 'user-push',
     })
 
-    projectConfig = new BrConfig(new Date().toISOString(), 'space-123', 'my-space', 'team-456', 'my-team')
+    projectConfig = new BrvConfig(new Date().toISOString(), 'space-123', 'my-space', 'team-456', 'my-team')
   })
 
   afterEach(() => {
