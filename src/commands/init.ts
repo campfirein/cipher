@@ -124,7 +124,9 @@ export default class Init extends Command {
       const {teams} = teamResult
 
       if (teams.length === 0) {
-        this.error('No teams found. Please create a team in the ByteRover dashboard first.')
+        this.log('No teams found.')
+        this.log(`Please visit ${getCurrentConfig().webAppUrl} to create your first team.`)
+        return
       }
 
       // 4. Prompt for team selection
@@ -141,9 +143,13 @@ export default class Init extends Command {
       const {spaces} = spaceResult
 
       if (spaces.length === 0) {
-        this.error(
-          `No spaces found in team "${selectedTeam.getDisplayName()}". Please create a space in the ByteRover dashboard first.`,
+        this.log(`No spaces found in team "${selectedTeam.getDisplayName()}"`)
+        this.log(
+          `Please visit ${
+            getCurrentConfig().webAppUrl
+          } to create your first space for ${selectedTeam.getDisplayName()}.`,
         )
+        return
       }
 
       // 6. Prompt for space selection
