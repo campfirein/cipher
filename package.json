@@ -58,6 +58,9 @@
     "bin": "br",
     "dirname": "br",
     "commands": "./dist/commands",
+    "hooks": {
+      "init": "./dist/hooks/init/welcome"
+    },
     "plugins": [
       "@oclif/plugin-help"
     ],
