@@ -7,9 +7,9 @@ import {DOCS_URL} from '../../constants.js'
 const hook: Hook<'init'> = async function (options): Promise<void> {
   // Detect root help commands only (not command-specific help)
   const isRootHelp =
-    (options.id === undefined && options.argv.length === 0) || // bare `br`
-    (options.id === '--help' && options.argv.length === 0) || // `br --help`
-    (options.id === 'help' && options.argv.length === 0) // `br help`
+    (options.id === undefined && options.argv.length === 0) || // bare `brv`
+    (options.id === '--help' && options.argv.length === 0) || // `brv --help`
+    (options.id === 'help' && options.argv.length === 0) // `brv help`
 
   if (isRootHelp) {
     const logo = [

@@ -21,8 +21,6 @@ import {HttpTeamService} from '../infra/team/http-team-service.js'
 import {MixpanelTrackingService} from '../infra/tracking/mixpanel-tracking-service.js'
 
 export default class Init extends Command {
-  // public static description =
-  //   'Initialize a project with ByteRover (creates .br/config.json with team/space selection and initializes ACE playbook)'
   public static description = `Initialize a project with ByteRover (creates ${BRV_DIR}/${PROJECT_CONFIG_FILE} with team/space selection and initializes ACE playbook)`
   public static examples = [
     '<%= config.bin %> <%= command.id %>',

@@ -85,7 +85,7 @@ export default class Add extends Command {
     const contentDisplay = content.length > 200 ? `${content.slice(0, 200)}...` : content
     this.log(`  Content: ${contentDisplay}`)
 
-    this.log('\nTip: Use `br status` to view and update bullets later')
+    this.log('\nTip: Use `brv status` to view and update bullets later')
 
     const confirmed = await confirm({
       default: true,

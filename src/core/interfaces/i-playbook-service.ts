@@ -37,10 +37,7 @@ export interface IPlaybookService {
    * @returns Result containing operations applied count and updated playbook
    * @throws Error if delta application fails
    */
-  applyDelta(params: {
-    delta: DeltaBatch
-    directory?: string
-  }): Promise<{
+  applyDelta(params: {delta: DeltaBatch; directory?: string}): Promise<{
     operationsApplied: number
     playbook: Playbook
   }>
@@ -54,17 +51,14 @@ export interface IPlaybookService {
    * @returns Result containing tags applied count and updated playbook
    * @throws Error if playbook not found or tag application fails
    */
-  applyReflectionTags(params: {
-    directory?: string
-    reflection: ReflectorOutput
-  }): Promise<{
+  applyReflectionTags(params: {directory?: string; reflection: ReflectorOutput}): Promise<{
     playbook: Playbook
     tagsApplied: number
   }>
 
   /**
    * Initializes the ACE playbook directory structure and creates an empty playbook.
-   * Creates .br/ace/ directory with subdirectories: reflections/, executor-outputs/, deltas/
+   * Creates .brv/ace/ directory with subdirectories: reflections/, executor-outputs/, deltas/
    * @param directory - Optional base directory (defaults to current working directory)
    * @returns The absolute path to the created playbook file
    * @throws Error if playbook already exists or initialization fails
