@@ -32,7 +32,7 @@ describe('FileDeltaStore', () => {
       const filePath = await store.save(deltaBatch, 'test-hint', testDir)
 
       // Verify file path structure
-      expect(filePath).to.include('.br/ace/deltas')
+      expect(filePath).to.include('.brv/ace/deltas')
       expect(filePath).to.include('delta-test-hint-')
       expect(filePath).to.include('.json')
 
@@ -51,7 +51,7 @@ describe('FileDeltaStore', () => {
       const filePath = await store.save(deltaBatch, undefined, testDir)
 
       // Verify filename pattern without hint
-      expect(filePath).to.include('.br/ace/deltas/delta-')
+      expect(filePath).to.include('.brv/ace/deltas/delta-')
       expect(filePath).to.not.include('delta--')
       expect(filePath).to.include('.json')
 

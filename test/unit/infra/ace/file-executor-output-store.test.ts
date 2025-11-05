@@ -28,7 +28,7 @@ describe('FileExecutorOutputStore', () => {
       const filePath = await store.save(executorOutput, testDir)
 
       // Verify file path structure
-      expect(filePath).to.include('.br/ace/executor-outputs')
+      expect(filePath).to.include('.brv/ace/executor-outputs')
       expect(filePath).to.include('executor-user-auth-')
       expect(filePath).to.include('.json')
 
@@ -54,7 +54,7 @@ describe('FileExecutorOutputStore', () => {
       const filePath = await store.save(executorOutput, testDir)
 
       // Verify filename pattern without hint
-      expect(filePath).to.include('.br/ace/executor-outputs/executor-')
+      expect(filePath).to.include('.brv/ace/executor-outputs/executor-')
       expect(filePath).to.not.include('executor--')
       expect(filePath).to.include('.json')
     })

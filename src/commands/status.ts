@@ -5,7 +5,7 @@ import type {IPlaybookStore} from '../core/interfaces/i-playbook-store.js'
 import type {IProjectConfigStore} from '../core/interfaces/i-project-config-store.js'
 import type {ITokenStore} from '../core/interfaces/i-token-store.js'
 
-import {ACE_DIR, BR_DIR, BULLETS_DIR} from '../constants.js'
+import {ACE_DIR, BRV_DIR, BULLETS_DIR} from '../constants.js'
 import {ITrackingService} from '../core/interfaces/i-tracking-service.js'
 import {FilePlaybookStore} from '../infra/ace/file-playbook-store.js'
 import {ProjectConfigStore} from '../infra/config/file-config-store.js'
@@ -98,7 +98,7 @@ export default class Status extends Command {
       const playbook = await playbookStore.load(args.directory)
 
       if (!playbook) {
-        this.error('Playbook not found. Run `br init` to initialize.')
+        this.error('Playbook not found. Run `brv init` to initialize.')
       }
 
       // Display based on format
@@ -111,7 +111,7 @@ export default class Status extends Command {
       const sections = playbook.getSections()
 
       if (bullets.length === 0) {
-        this.log('Playbook is empty. Use "br add" commands to add knowledge.')
+        this.log('Playbook is empty. Use "brv add" commands to add knowledge.')
         return
       }
 
@@ -125,14 +125,14 @@ export default class Status extends Command {
         const sectionBullets = playbook.getBulletsInSection(section)
 
         for (const bullet of sectionBullets) {
-          const relativePath = `${BR_DIR}/${ACE_DIR}/${BULLETS_DIR}/${bullet.id}.md`
+          const relativePath = `${BRV_DIR}/${ACE_DIR}/${BULLETS_DIR}/${bullet.id}.md`
 
           // Display like git status: red path
           this.log(`  ${chalk.red(relativePath)}`)
         }
       }
 
-      this.log(`\nUse "br push" to push playbook to ByteRover memory storage.`)
+      this.log(`\nUse "brv push" to push playbook to ByteRover memory storage.`)
     } catch (error) {
       this.error(error instanceof Error ? error.message : 'Failed to load playbook statistics')
     }

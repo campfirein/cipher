@@ -37,7 +37,7 @@ describe('FilePlaybookService', () => {
       const playbookPath = await service.initialize(testDir)
 
       // Verify path structure
-      expect(playbookPath).to.include('.br/ace/playbook.json')
+      expect(playbookPath).to.include('.brv/ace/playbook.json')
 
       // Verify playbook file exists and is valid
       const content = await readFile(playbookPath, 'utf8')
@@ -51,7 +51,7 @@ describe('FilePlaybookService', () => {
       await service.initialize(testDir)
 
       // Verify subdirectories exist
-      const aceDir = join(testDir, '.br', 'ace')
+      const aceDir = join(testDir, '.brv', 'ace')
       const reflectionsDir = join(aceDir, 'reflections')
       const executorOutputsDir = join(aceDir, 'executor-outputs')
       const deltasDir = join(aceDir, 'deltas')
@@ -80,7 +80,7 @@ describe('FilePlaybookService', () => {
       const playbookPath = await serviceWithConfig.initialize()
 
       expect(playbookPath).to.include(testDir)
-      expect(playbookPath).to.include('.br/ace/playbook.json')
+      expect(playbookPath).to.include('.brv/ace/playbook.json')
     })
   })
 
@@ -104,7 +104,7 @@ describe('FilePlaybookService', () => {
         expect(bullet.metadata.tags).to.include('manual')
 
         // Verify playbook was saved
-        const playbookPath = join(testDir, '.br', 'ace', 'playbook.json')
+        const playbookPath = join(testDir, '.brv', 'ace', 'playbook.json')
         const content = await readFile(playbookPath, 'utf8')
         const saved = JSON.parse(content)
 
@@ -209,7 +209,7 @@ describe('FilePlaybookService', () => {
         expect(updatedBullet.content).to.equal('Updated content')
 
         // Verify playbook was saved
-        const playbookPath = join(testDir, '.br', 'ace', 'playbook.json')
+        const playbookPath = join(testDir, '.brv', 'ace', 'playbook.json')
         const content = await readFile(playbookPath, 'utf8')
         const saved = JSON.parse(content)
 
@@ -266,7 +266,7 @@ describe('FilePlaybookService', () => {
 
     it('should create playbook if it does not exist', async () => {
       // Remove existing playbook
-      const playbookPath = join(testDir, '.br', 'ace', 'playbook.json')
+      const playbookPath = join(testDir, '.brv', 'ace', 'playbook.json')
       await rm(playbookPath, {force: true})
 
       // Should create new playbook
@@ -307,7 +307,7 @@ describe('FilePlaybookService', () => {
       expect(result.playbook).to.be.instanceOf(Playbook)
 
       // Verify playbook was saved
-      const playbookPath = join(testDir, '.br', 'ace', 'playbook.json')
+      const playbookPath = join(testDir, '.brv', 'ace', 'playbook.json')
       const content = await readFile(playbookPath, 'utf8')
       const saved = JSON.parse(content)
 
@@ -343,7 +343,7 @@ describe('FilePlaybookService', () => {
       expect(result.operationsApplied).to.equal(1)
 
       // Verify update was applied
-      const playbookPath = join(testDir, '.br', 'ace', 'playbook.json')
+      const playbookPath = join(testDir, '.brv', 'ace', 'playbook.json')
       const content = await readFile(playbookPath, 'utf8')
       const saved = JSON.parse(content)
 
@@ -376,7 +376,7 @@ describe('FilePlaybookService', () => {
       expect(result.operationsApplied).to.equal(1)
 
       // Verify removal was applied
-      const playbookPath = join(testDir, '.br', 'ace', 'playbook.json')
+      const playbookPath = join(testDir, '.brv', 'ace', 'playbook.json')
       const content = await readFile(playbookPath, 'utf8')
       const saved = JSON.parse(content)
 
@@ -414,7 +414,7 @@ describe('FilePlaybookService', () => {
       expect(result.operationsApplied).to.equal(2)
 
       // Verify both sections exist
-      const playbookPath = join(testDir, '.br', 'ace', 'playbook.json')
+      const playbookPath = join(testDir, '.brv', 'ace', 'playbook.json')
       const content = await readFile(playbookPath, 'utf8')
       const saved = JSON.parse(content)
 
@@ -424,7 +424,7 @@ describe('FilePlaybookService', () => {
 
     it('should create playbook if it does not exist', async () => {
       // Remove existing playbook
-      const playbookPath = join(testDir, '.br', 'ace', 'playbook.json')
+      const playbookPath = join(testDir, '.brv', 'ace', 'playbook.json')
       await rm(playbookPath, {force: true})
 
       const operation = new DeltaOperation('ADD', 'Test Section', {
@@ -478,7 +478,7 @@ describe('FilePlaybookService', () => {
       expect(result.playbook).to.be.instanceOf(Playbook)
 
       // Verify tags were added
-      const playbookPath = join(testDir, '.br', 'ace', 'playbook.json')
+      const playbookPath = join(testDir, '.brv', 'ace', 'playbook.json')
       const content = await readFile(playbookPath, 'utf8')
       const saved = JSON.parse(content)
 
@@ -519,7 +519,7 @@ describe('FilePlaybookService', () => {
       expect(result.tagsApplied).to.equal(2)
 
       // Verify tags were added
-      const playbookPath = join(testDir, '.br', 'ace', 'playbook.json')
+      const playbookPath = join(testDir, '.brv', 'ace', 'playbook.json')
       const content = await readFile(playbookPath, 'utf8')
       const saved = JSON.parse(content)
 
@@ -577,7 +577,7 @@ describe('FilePlaybookService', () => {
       expect(result.tagsApplied).to.be.gte(0)
 
       // Verify tag is not duplicated (most important assertion)
-      const playbookPath = join(testDir, '.br', 'ace', 'playbook.json')
+      const playbookPath = join(testDir, '.brv', 'ace', 'playbook.json')
       const content = await readFile(playbookPath, 'utf8')
       const saved = JSON.parse(content)
 
@@ -589,7 +589,7 @@ describe('FilePlaybookService', () => {
 
     it('should throw error if playbook not found', async () => {
       // Remove playbook
-      const playbookPath = join(testDir, '.br', 'ace', 'playbook.json')
+      const playbookPath = join(testDir, '.brv', 'ace', 'playbook.json')
       await rm(playbookPath, {force: true})
 
       const reflection = new ReflectorOutput({

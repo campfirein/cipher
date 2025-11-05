@@ -1,7 +1,7 @@
 import {mkdir, readFile} from 'node:fs/promises'
 import {join} from 'node:path'
 
-import {ACE_DIR, BR_DIR} from '../../constants.js'
+import {ACE_DIR, BRV_DIR} from '../../constants.js'
 import {DeltaBatch, type DeltaBatchJson} from '../../core/domain/entities/delta-batch.js'
 import {ExecutorOutput, type ExecutorOutputJson} from '../../core/domain/entities/executor-output.js'
 import {ReflectorOutput, type ReflectorOutputJson} from '../../core/domain/entities/reflector-output.js'
@@ -43,7 +43,7 @@ export function generateTimestampedFilename(type: string, hint?: string): string
  */
 export async function ensureAceDirectory(baseDir: string | undefined, subdir: string): Promise<string> {
   const resolvedBaseDir = baseDir ?? process.cwd()
-  const aceSubdir = join(resolvedBaseDir, BR_DIR, ACE_DIR, subdir)
+  const aceSubdir = join(resolvedBaseDir, BRV_DIR, ACE_DIR, subdir)
 
   await mkdir(aceSubdir, {recursive: true})
 

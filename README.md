@@ -6,6 +6,14 @@ Command-line interface for ByteRover, enabling seamless team/space management, a
 [![Downloads/week](https://img.shields.io/npm/dw/byterover-cli.svg)](https://npmjs.org/package/byterover-cli)
 [![Node](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen.svg)](https://nodejs.org)
 
+## Important
+
+Starting with version **0.2.0**, the ByteRover CLI command has been renamed from `br` to `brv` to avoid conflicts with [broot](https://github.com/Canop/broot), another popular CLI tool that also uses the `br` command.
+
+This is a **breaking change** that requires action from existing users.
+
+Please check the migration guide [here](https://docs.byterover.dev/beta/migration-br-brv).
+
 ## Table of Contents
 
 * [Installation](#installation)
@@ -40,17 +48,19 @@ npm install -g byterover-cli
 ### Verify installation
 
 ```bash
-br --version
+brv --version
 ```
 
 ## Quick Start
+
+Visit [**ByteRover's Beta Docs**](https://docs.byterover.dev/beta) for more information.
 
 Get started with ByteRover CLI in three simple steps:
 
 ### 1. Authenticate
 
 ```bash
-br login
+brv login
 ```
 
 This opens your browser to complete OAuth authentication. Your credentials are securely stored in the system keychain.
@@ -58,8 +68,8 @@ This opens your browser to complete OAuth authentication. Your credentials are s
 ### 2. Initialize a project
 
 ```bash
-cd your-project-directory
-br init
+cd to/your/project
+brv init
 ```
 
 Select a space from your available spaces and configure your project.
@@ -100,14 +110,14 @@ If you're using a coding agent like Claude Code:
 
 ```bash
 # Complete ACE workflow in a single command
-br complete "auth-feature" \
+brv complete "auth-feature" \
   "Implemented JWT authentication with secure token handling" \
   "Successfully added OAuth2 authentication" \
   --tool-usage "Read:src/auth.ts,Edit:src/auth.ts,Bash:npm test" \
   --feedback "All tests passed, auth works correctly"
 ```
 
-For comprehensive ACE instructions for coding agents, check the corresponding coding agents' instruction files after `br init` or `br gen-rules`.
+For comprehensive ACE instructions for coding agents, check the corresponding coding agents' instruction files after `brv init` or `brv gen-rules`.
 
 ## Essential Commands
 
@@ -115,46 +125,46 @@ For comprehensive ACE instructions for coding agents, check the corresponding co
 
 ```bash
 # Log in to ByteRover
-br login
+brv login
 
 # Check your authentication and project status
-br status
+brv status
 ```
 
 ### Project Setup
 
 ```bash
 # Initialize project with ByteRover
-br init
+brv init
 
 # List available spaces
-br space list
+brv space list
 
 # Switch to a different space or team
-br space switch
+brv space switch
 ```
 
 ### Memory Operations
 
 ```bash
 # Retrieve memories from ByteRover (outputs to stdout for agent context)
-br retrieve --query "authentication best practices"
-br retrieve -q "error handling" -n "src/auth/login.ts,src/auth/oauth.ts"
+brv retrieve --query "authentication best practices"
+brv retrieve -q "error handling" -n "src/auth/login.ts,src/auth/oauth.ts"
 
 # Push your playbook to ByteRover's memory storage
-br push
+brv push
 ```
 
 ### For Coding Agents
 
 ```bash
 # Complete ACE workflow (recommended for agents)
-br complete <hint> <reasoning> <answer> \
+brv complete <hint> <reasoning> <answer> \
   --tool-usage <tools> \
   --feedback <feedback>
 
 # Generate agent rules (sets up ACE workflow for your coding agent)
-br gen-rules
+brv gen-rules
 ```
 
 ## Authentication
@@ -163,7 +173,7 @@ ByteRover CLI uses **OAuth 2.0 with PKCE** (Proof Key for Code Exchange) for sec
 
 ### How it works
 
-1. Run `br login` to start authentication
+1. Run `brv login` to start authentication
 2. Your browser opens to the ByteRover authorization page
 3. After successful login, tokens are securely stored in your system keychain
 4. All subsequent commands automatically use your stored credentials
@@ -179,7 +189,7 @@ ByteRover CLI uses **OAuth 2.0 with PKCE** (Proof Key for Code Exchange) for sec
 
 ### Project Configuration
 
-When you run `br init`, a configuration file is created at `.br/config.json` in your project directory containing:
+When you run `brv init`, a configuration file is created at `.brv/config.json` in your project directory containing:
 
 - **Space ID**: The ByteRover workspace/space associated with this project
 - **User information**: Your user ID and email
@@ -187,17 +197,17 @@ When you run `br init`, a configuration file is created at `.br/config.json` in 
 
 ### ACE File Structure
 
-ACE stores all outputs in `.br/ace/`:
+ACE stores all outputs in `.brv/ace/`:
 
 ```
-.br/ace/
+.brv/ace/
 ├── playbook.json                # Your living knowledge base
 ├── executor-outputs/            # Coding task outputs
 ├── reflections/                 # Task analysis and feedback
 └── deltas/                      # Playbook updates
 ```
 
-**Note**: When you run `br push`, the playbook is uploaded to ByteRover's memory storage, and local ACE files are automatically cleaned up to keep your workspace organized.
+**Note**: When you run `brv push`, the playbook is uploaded to ByteRover's memory storage, and local ACE files are automatically cleaned up to keep your workspace organized.
 
 ## Getting Help
 
@@ -205,20 +215,20 @@ ACE stores all outputs in `.br/ace/`:
 
 ```bash
 # Get general help
-br help
+brv --help
 
 # Get help for a specific command
-br help login
-br help init
-br help push
+brv login --help
+brv init --help
+brv push --help
 ```
 
 ### Support
 
 If you encounter issues or have questions:
 
-1. Check the command help: `br help [command]`
-2. Review your status: `br status`
+1. Check the command help: `brv [command] --help`
+2. Review your status: `brv status`
 3. Contact ByteRover support
 
 ---

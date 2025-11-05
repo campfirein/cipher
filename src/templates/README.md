@@ -1,6 +1,6 @@
 # ByteRover CLI Template System
 
-This directory contains template files used to generate agent instructions via the `br gen-rules` command.
+This directory contains template files used to generate agent instructions via the `brv gen-rules` command.
 
 ## Directory Structure
 
@@ -44,7 +44,7 @@ Each command includes:
 
 ## How It Works
 
-1. User runs `br gen-rules`
+1. User runs `brv gen-rules`
 2. User selects an agent (e.g., "Claude Code")
 3. `RuleTemplateService` loads templates via `FsTemplateLoader`
 4. Templates are assembled:
@@ -62,10 +62,10 @@ The template system supports simple variable substitution using `{{variable_name
 ## Updating Templates
 
 ### To Update Command Documentation:
-Edit `sections/command-reference.md` - changes will be reflected next time `br gen-rules` runs.
+Edit `sections/command-reference.md` - changes will be reflected next time `brv gen-rules` runs.
 
 ### To Update ACE Workflow Guide:
-Edit `sections/workflow.md` - changes will be reflected next time `br gen-rules` runs.
+Edit `sections/workflow.md` - changes will be reflected next time `brv gen-rules` runs.
 
 ### To Change Output Structure:
 Edit `base.md` - modify how sections are combined.
@@ -75,7 +75,7 @@ Edit `base.md` - modify how sections are combined.
 1. **Keep templates in sync with code**: When adding/modifying commands, update `command-reference.md`
 2. **Use clear examples**: Show realistic use cases in examples
 3. **Maintain markdown formatting**: Ensure proper headers, code blocks, and lists
-4. **Test after changes**: Run `br gen-rules` and verify output in `.clinerules/byterover-rules.md`
+4. **Test after changes**: Run `brv gen-rules` and verify output in `.clinerules/byterover-rules.md`
 
 ## Future Enhancements
 

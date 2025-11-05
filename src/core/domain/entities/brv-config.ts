@@ -1,10 +1,10 @@
 import {Space} from './space.js'
 
 /**
- * Represents the configuration stored in .br/config.json
+ * Represents the configuration stored in .brv/config.json
  * This config links a project directory to a ByteRover space.
  */
-export class BrConfig {
+export class BrvConfig {
   public readonly createdAt: string
   public readonly spaceId: string
   public readonly spaceName: string
@@ -43,15 +43,15 @@ export class BrConfig {
   /**
    * Deserializes config from JSON format
    */
-  public static fromJson(json: Record<string, string>): BrConfig {
-    return new BrConfig(json.createdAt, json.spaceId, json.spaceName, json.teamId, json.teamName)
+  public static fromJson(json: Record<string, string>): BrvConfig {
+    return new BrvConfig(json.createdAt, json.spaceId, json.spaceName, json.teamId, json.teamName)
   }
 
   /**
-   * Creates a BrConfig from a Space entity
+   * Creates a BrvConfig from a Space entity
    */
-  public static fromSpace(space: Space): BrConfig {
-    return new BrConfig(new Date().toISOString(), space.id, space.name, space.teamId, space.teamName)
+  public static fromSpace(space: Space): BrvConfig {
+    return new BrvConfig(new Date().toISOString(), space.id, space.name, space.teamId, space.teamName)
   }
 
   /**

@@ -1,6 +1,6 @@
 # Workflow Instruction
 
-You are a coding agent focused on one codebase. Use the br CLI to manage working context.
+You are a coding agent focused on one codebase. Use the brv CLI to manage working context.
 Core Rules:
 
 - Start from memory. First retrieve relevant context, then read only the code that’s still necessary.
@@ -8,15 +8,14 @@ Core Rules:
 
 ## user-centric
 
-Before running any `br` command, ask the user to choose:
+Before running any `brv` command, ask the user to choose:
 
 1. **Accept** - Review the command, then run if approved
 2. **Auto-run** - Execute immediately (remember this preference for the session)
 3. **No** - Cancel the command and continue without alternative
 4. **Custom** - Skip the command and provide different instruction
 
-Once the user chooses "Auto-run", apply that preference to all subsequent `br` commands in this conversation without asking again.
-
+Once the user chooses "Auto-run", apply that preference to all subsequent `brv` commands in this conversation without asking again.
 
 ## Daily Flow
 

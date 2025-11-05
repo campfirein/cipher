@@ -1,7 +1,7 @@
 import {Command, Flags} from '@oclif/core'
 
 import type {AuthToken} from '../core/domain/entities/auth-token.js'
-import type {BrConfig} from '../core/domain/entities/br-config.js'
+import type {BrvConfig} from '../core/domain/entities/brv-config.js'
 import type {RetrieveResult} from '../core/domain/entities/retrieve-result.js'
 import type {IMemoryRetrievalService} from '../core/interfaces/i-memory-retrieval-service.js'
 import type {IProjectConfigStore} from '../core/interfaces/i-project-config-store.js'
@@ -39,10 +39,10 @@ export default class Retrieve extends Command {
     }),
   }
 
-  protected async checkProjectInt(projectConfigStore: IProjectConfigStore): Promise<BrConfig> {
+  protected async checkProjectInt(projectConfigStore: IProjectConfigStore): Promise<BrvConfig> {
     const isInitialized = await projectConfigStore.exists()
     if (!isInitialized) {
-      this.error('Project is not initialized. Please run "br init" first.')
+      this.error('Project is not initialized. Please run "brv init" first.')
     }
 
     const config = await projectConfigStore.read()
@@ -108,11 +108,11 @@ export default class Retrieve extends Command {
   protected async validateAuth(tokenStore: ITokenStore): Promise<AuthToken> {
     const token = await tokenStore.load()
     if (token === undefined) {
-      this.error('Not authenticated. Please run "br auth login" first.')
+      this.error('Not authenticated. Please run "brv login" first.')
     }
 
     if (!token.isValid()) {
-      this.error('Authentication token expired. Please run "br auth login" again.')
+      this.error('Authentication token expired. Please run "brv login" again.')
     }
 
     return token

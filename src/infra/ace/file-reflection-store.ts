@@ -9,7 +9,7 @@ import {ensureAceDirectory, generateTimestampedFilename} from './ace-file-utils.
 
 /**
  * File-based implementation of IReflectionStore.
- * Stores reflections as JSON files in .br/ace/reflections/ directory.
+ * Stores reflections as JSON files in .brv/ace/reflections/ directory.
  */
 export class FileReflectionStore implements IReflectionStore {
   public async loadRecent(directory?: string, count: number = 3): Promise<ReflectorOutput[]> {

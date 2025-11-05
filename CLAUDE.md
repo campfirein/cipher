@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-ByteRover CLI (`br`) - oclif TypeScript CLI with Clean Architecture
+ByteRover CLI (`brv`) - oclif TypeScript CLI with Clean Architecture
 
 ## Dev Commands
 
@@ -43,7 +43,7 @@ npm run pack:dev / pack:prod                     # Tarballs
 **Storage**:
 
 - `IPlaybookStore` - `clear()`, `delete()`, `exists()`, `load()`, `save()`
-- `IProjectConfigStore` - `.br/config.json` persistence
+- `IProjectConfigStore` - `.brv/config.json` persistence
 
 **Pagination**: `{fetchAll: true}` auto-paginates (100/page) or `{limit, offset}` manual
 
@@ -89,13 +89,13 @@ protected createServices(): {myService: IMyService} {
 
 **Behaviors**:
 
-- `br login` - OAuth: code → user → AuthToken. `fromJson()` forces re-login for old tokens
-- `br status` - Reads `userEmail` from AuthToken (no API). Shows: version, auth, directory, config
-- `br init` - `{fetchAll: true}` for teams/spaces, initializes ACE playbook
-- `br space switch` - **No playbook init**
-- `br retrieve --query <q> [--node-keys <paths>]` - Clears playbook, combines memories+relatedMemories, uses Memora tags. Warns on save error
-- `br push [--branch <name>]` - Default: `main` (ByteRover, not git). Flow: presigned URLs → PUT → **confirm**. Cleanup (after confirm): clear playbook, remove executor-outputs/, reflections/, deltas/
-- `br space list` - Default 50, needs `--all` or manual pagination
+- `brv login` - OAuth: code → user → AuthToken. `fromJson()` forces re-login for old tokens
+- `brv status` - Reads `userEmail` from AuthToken (no API). Shows: version, auth, directory, config
+- `brv init` - `{fetchAll: true}` for teams/spaces, initializes ACE playbook
+- `brv space switch` - **No playbook init**
+- `brv retrieve --query <q> [--node-keys <paths>]` - Clears playbook, combines memories+relatedMemories, uses Memora tags. Warns on save error
+- `brv push [--branch <name>]` - Default: `main` (ByteRover, not git). Flow: presigned URLs → PUT → **confirm**. Cleanup (after confirm): clear playbook, remove executor-outputs/, reflections/, deltas/
+- `brv space list` - Default 50, needs `--all` or manual pagination
 
 **OAuth Flow**:
 

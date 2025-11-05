@@ -120,7 +120,7 @@ describe('Init Command', () => {
       addOrUpdateBullet: stub(),
       applyDelta: stub(),
       applyReflectionTags: stub(),
-      initialize: stub<[directory?: string], Promise<string>>().resolves('/test/.br/ace/playbook.json'),
+      initialize: stub<[directory?: string], Promise<string>>().resolves('/test/.brv/ace/playbook.json'),
     }
 
     trackingService = {
@@ -248,7 +248,7 @@ describe('Init Command', () => {
       }
     })
 
-    it('should throw error when no teams are available', async () => {
+    it('should exit gracefully when no teams are available', async () => {
       configStore.exists.resolves(false)
       tokenStore.load.resolves(validToken)
       teamService.getTeams.resolves({teams: [], total: 0})
@@ -265,16 +265,14 @@ describe('Init Command', () => {
         config,
       )
 
-      try {
-        await command.run()
-        expect.fail('Should have thrown error')
-      } catch (error) {
-        expect(error).to.be.an('error')
-        expect((error as Error).message).to.include('No teams found')
-      }
+      await command.run()
+
+      // Verify that initialization did not occur
+      expect(configStore.write.called).to.be.false
+      expect(playbookService.initialize.called).to.be.false
     })
 
-    it('should throw error when no spaces are available in selected team', async () => {
+    it('should exit gracefully when no spaces are available in selected team', async () => {
       configStore.exists.resolves(false)
       tokenStore.load.resolves(validToken)
       teamService.getTeams.resolves({teams: testTeams, total: testTeams.length})
@@ -292,13 +290,11 @@ describe('Init Command', () => {
         config,
       )
 
-      try {
-        await command.run()
-        expect.fail('Should have thrown error')
-      } catch (error) {
-        expect(error).to.be.an('error')
-        expect((error as Error).message).to.include('No spaces found')
-      }
+      await command.run()
+
+      // Verify that initialization did not occur
+      expect(configStore.write.called).to.be.false
+      expect(playbookService.initialize.called).to.be.false
     })
 
     it('should successfully initialize with first space', async () => {

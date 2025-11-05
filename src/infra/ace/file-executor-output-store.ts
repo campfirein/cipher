@@ -9,7 +9,7 @@ import {ensureAceDirectory, generateTimestampedFilename} from './ace-file-utils.
 
 /**
  * File-based implementation of IExecutorOutputStore.
- * Stores executor outputs as JSON files in .br/ace/executor-outputs/ directory.
+ * Stores executor outputs as JSON files in .brv/ace/executor-outputs/ directory.
  */
 export class FileExecutorOutputStore implements IExecutorOutputStore {
   public async save(output: ExecutorOutput, directory?: string): Promise<string> {

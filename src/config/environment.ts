@@ -5,10 +5,10 @@ type Environment = 'development' | 'production'
 
 /**
  * Current environment - set at runtime by the launcher scripts.
- * - `./bin/dev.js` sets BR_ENV=development
- * - `./bin/run.js` sets BR_ENV=production
+ * - `./bin/dev.js` sets BRV_ENV=development
+ * - `./bin/run.js` sets BRV_ENV=production
  */
-export const ENVIRONMENT: Environment = (process.env.BR_ENV as Environment) ?? 'development'
+export const ENVIRONMENT: Environment = (process.env.BRV_ENV as Environment) ?? 'development'
 
 /**
  * Environment-specific configuration.
@@ -23,6 +23,7 @@ type EnvironmentConfig = {
   mixpanelToken: string
   scopes: string[]
   tokenUrl: string
+  webAppUrl: string
 }
 
 /**
@@ -40,6 +41,7 @@ export const ENV_CONFIG: Record<Environment, EnvironmentConfig> = {
     mixpanelToken: '258e1a2b3d44cc634ef28964771b1da0',
     scopes: ['read', 'write', 'debug'],
     tokenUrl: 'https://dev-beta-iam.byterover.dev/api/v1/oidc/token',
+    webAppUrl: 'https://dev-beta-app.byterover.dev/',
   },
   production: {
     apiBaseUrl: 'https://beta-iam.byterover.dev/api/v1',
@@ -51,6 +53,7 @@ export const ENV_CONFIG: Record<Environment, EnvironmentConfig> = {
     mixpanelToken: '4d1198b346d2d6ac75f2e77905cc65ac',
     scopes: ['read', 'write'],
     tokenUrl: 'https://beta-iam.byterover.dev/api/v1/oidc/token',
+    webAppUrl: 'https://beta-app.byterover.dev',
   },
 }
 

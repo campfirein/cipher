@@ -10,7 +10,8 @@ import type {ITeamService} from '../core/interfaces/i-team-service.js'
 import type {ITokenStore} from '../core/interfaces/i-token-store.js'
 
 import {getCurrentConfig} from '../config/environment.js'
-import {BrConfig} from '../core/domain/entities/br-config.js'
+import {BRV_DIR, PROJECT_CONFIG_FILE} from '../constants.js'
+import {BrvConfig} from '../core/domain/entities/brv-config.js'
 import {ITrackingService} from '../core/interfaces/i-tracking-service.js'
 import {ProjectConfigStore} from '../infra/config/file-config-store.js'
 import {FilePlaybookService} from '../infra/playbook/file-playbook-service.js'
@@ -20,8 +21,7 @@ import {HttpTeamService} from '../infra/team/http-team-service.js'
 import {MixpanelTrackingService} from '../infra/tracking/mixpanel-tracking-service.js'
 
 export default class Init extends Command {
-  public static description =
-    'Initialize a project with ByteRover (creates .br/config.json with team/space selection and initializes ACE playbook)'
+  public static description = `Initialize a project with ByteRover (creates ${BRV_DIR}/${PROJECT_CONFIG_FILE} with team/space selection and initializes ACE playbook)`
   public static examples = [
     '<%= config.bin %> <%= command.id %>',
     '# Re-initialize if config exists (will show current config and exit):\n<%= config.bin %> <%= command.id %>',
@@ -109,11 +109,11 @@ export default class Init extends Command {
       // 2. Load and validate authentication token
       const token = await tokenStore.load()
       if (token === undefined) {
-        this.error('Not authenticated. Please run "br login" first.')
+        this.error('Not authenticated. Please run "brv login" first.')
       }
 
       if (!token.isValid()) {
-        this.error('Authentication token expired. Please run "br login" again.')
+        this.error('Authentication token expired. Please run "brv login" again.')
       }
 
       // 3. Fetch all teams with spinner
@@ -124,7 +124,9 @@ export default class Init extends Command {
       const {teams} = teamResult
 
       if (teams.length === 0) {
-        this.error('No teams found. Please create a team in the ByteRover dashboard first.')
+        this.log('No teams found.')
+        this.log(`Please visit ${getCurrentConfig().webAppUrl} to create your first team.`)
+        return
       }
 
       // 4. Prompt for team selection
@@ -141,9 +143,13 @@ export default class Init extends Command {
       const {spaces} = spaceResult
 
       if (spaces.length === 0) {
-        this.error(
-          `No spaces found in team "${selectedTeam.getDisplayName()}". Please create a space in the ByteRover dashboard first.`,
+        this.log(`No spaces found in team "${selectedTeam.getDisplayName()}"`)
+        this.log(
+          `Please visit ${
+            getCurrentConfig().webAppUrl
+          } to create your first space for ${selectedTeam.getDisplayName()}.`,
         )
+        return
       }
 
       // 6. Prompt for space selection
@@ -151,7 +157,7 @@ export default class Init extends Command {
       const selectedSpace = await this.promptForSpaceSelection(spaces)
 
       // 7. Create and save configuration
-      const config = BrConfig.fromSpace(selectedSpace)
+      const config = BrvConfig.fromSpace(selectedSpace)
       await projectConfigStore.write(config)
 
       // 8. Initialize ACE playbook
@@ -175,7 +181,7 @@ export default class Init extends Command {
       // 10. Display success
       this.log(`\n✓ Project initialized successfully!`)
       this.log(`✓ Connected to space: ${selectedSpace.getDisplayName()}`)
-      this.log(`✓ Configuration saved to: .br/config.json`)
+      this.log(`✓ Configuration saved to: ${BRV_DIR}/${PROJECT_CONFIG_FILE}`)
     } catch (error) {
       this.error(error instanceof Error ? error.message : 'Initialization failed')
     }

@@ -11,7 +11,7 @@ import type {ITrackingService} from '../../src/core/interfaces/i-tracking-servic
 
 import Status from '../../src/commands/status.js'
 import {AuthToken} from '../../src/core/domain/entities/auth-token.js'
-import {BrConfig} from '../../src/core/domain/entities/br-config.js'
+import {BrvConfig} from '../../src/core/domain/entities/brv-config.js'
 import {Playbook} from '../../src/core/domain/entities/playbook.js'
 
 /**
@@ -62,7 +62,7 @@ describe('Status Command', () => {
   let tokenStore: sinon.SinonStubbedInstance<ITokenStore>
   let trackingService: sinon.SinonStubbedInstance<ITrackingService>
   let validToken: AuthToken
-  let testConfig: BrConfig
+  let testConfig: BrvConfig
 
   before(async () => {
     config = await OclifConfig.load(import.meta.url)
@@ -103,7 +103,7 @@ describe('Status Command', () => {
       userId: 'user-123',
     })
 
-    testConfig = new BrConfig(new Date().toISOString(), 'space-1', 'backend-api', 'team-1', 'acme-corp')
+    testConfig = new BrvConfig(new Date().toISOString(), 'space-1', 'backend-api', 'team-1', 'acme-corp')
   })
 
   afterEach(() => {

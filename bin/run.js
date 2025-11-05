@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-process.env.BR_ENV = 'production'
+process.env.BRV_ENV = 'production'
 
 import {execute} from '@oclif/core'
 
