@@ -23,8 +23,8 @@ Authentication uses OAuth 2.0 with PKCE flow. Your credentials are securely stor
 
 ## CLI Commands
 
-| Command                                        | Description                                  | Example                                           |
-| ---------------------------------------------- | -------------------------------------------- | ------------------------------------------------- |
+| Command                                         | Description                                  | Example                                            |
+| ----------------------------------------------- | -------------------------------------------- | -------------------------------------------------- |
 | `brv login`                                     | Authenticate with ByteRover using OAuth 2.0  | `brv login`                                        |
 | `brv status [DIRECTORY]`                        | Show CLI status and project information      | `brv status`                                       |
 | `brv init`                                      | Initialize a project with ByteRover          | `brv init`                                         |
@@ -493,10 +493,10 @@ brv gen-rules
 
 ByteRover CLI provides these global options that work with any command:
 
-| Flag        | Description           | Example                       |
-| ----------- | --------------------- | ----------------------------- |
+| Flag        | Description           | Example                         |
+| ----------- | --------------------- | ------------------------------- |
 | `--help`    | Show help for command | `brv --help`, `brv init --help` |
-| `--version` | Show CLI version      | `brv --version`                |
+| `--version` | Show CLI version      | `brv --version`                 |
 
 ## File Structure
 
@@ -507,7 +507,7 @@ ByteRover CLI creates the following directory structure in your project:
 ├── config.json              # Project configuration (team/space)
 └── ace/
     ├── playbook.json        # Living knowledge base
-    ├── bullets/             # Individual bullet files
+    ├── bullets/             # Individual bullet content
     ├── executor-outputs/    # Task execution records
     ├── reflections/         # Task reflections
     └── deltas/              # Playbook update operations
@@ -517,7 +517,7 @@ ByteRover CLI creates the following directory structure in your project:
 
 - **config.json**: Stores your team ID, space ID, and project metadata
 - **playbook.json**: Your living knowledge base containing accumulated learnings organized by sections
-- **bullets/**: Individual bullet files referenced by the playbook
+- **bullets/**: Individual bullet content referenced by the playbook
 - **executor-outputs/**: Records of task executions (created by `brv complete`)
 - **reflections/**: Generated reflections on completed tasks
 - **deltas/**: Operations that modify the playbook structure
