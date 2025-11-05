@@ -1,6 +1,6 @@
 #!/usr/bin/env -S node --loader ts-node/esm --disable-warning=ExperimentalWarning
 
-process.env.BR_ENV = 'development'
+process.env.BRV_ENV = 'development'
 
 import {execute} from '@oclif/core'
 

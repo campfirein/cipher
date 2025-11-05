@@ -120,7 +120,7 @@ describe('Init Command', () => {
       addOrUpdateBullet: stub(),
       applyDelta: stub(),
       applyReflectionTags: stub(),
-      initialize: stub<[directory?: string], Promise<string>>().resolves('/test/.br/ace/playbook.json'),
+      initialize: stub<[directory?: string], Promise<string>>().resolves('/test/.brv/ace/playbook.json'),
     }
 
     trackingService = {

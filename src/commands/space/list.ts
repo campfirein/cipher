@@ -15,14 +15,14 @@ const DEFAULT_OFFSET = 0
 
 export default class SpaceList extends Command {
   public static description = 'List all spaces for the current team (requires project initialization)'
-public static examples = [
+  public static examples = [
     '<%= config.bin %> <%= command.id %>',
     '<%= config.bin %> <%= command.id %> --all',
     '<%= config.bin %> <%= command.id %> --limit 10',
     '<%= config.bin %> <%= command.id %> --limit 10 --offset 20',
     '<%= config.bin %> <%= command.id %> --json',
   ]
-public static flags = {
+  public static flags = {
     all: Flags.boolean({
       char: 'a',
       default: false,
@@ -66,20 +66,25 @@ public static flags = {
       // Check project initialization
       const projectConfig = await projectConfigStore.read()
       if (projectConfig === undefined) {
-        this.error('Project not initialized. Run "br init" first.')
+        this.error('Project not initialized. Run "brv init" first.')
       }
 
       const token = await this.validateAuth(tokenStore)
 
       // Fetch spaces for the team from project config
       ux.action.start(`Fetching spaces for ${projectConfig.teamName}`)
-      const result = await spaceService.getSpaces(
-        token.accessToken,
-        token.sessionKey,
-        projectConfig.teamId,
-        flags.all ? {fetchAll: true} : {limit: flags.limit, offset: flags.offset},
-      )
-      ux.action.stop()
+      let result
+      try {
+        result = await spaceService.getSpaces(
+          token.accessToken,
+          token.sessionKey,
+          projectConfig.teamId,
+          flags.all ? {fetchAll: true} : {limit: flags.limit, offset: flags.offset},
+        )
+      } finally {
+        ux.action.stop()
+      }
+
       // Handle empty results
       if (result.spaces.length === 0) {
         this.log(`No spaces found in team "${projectConfig.teamName}".`)
@@ -126,11 +131,11 @@ public static flags = {
   protected async validateAuth(tokenStore: ITokenStore): Promise<AuthToken> {
     const token = await tokenStore.load()
     if (token === undefined) {
-      this.error('Not authenticated. Please run "br login" first.')
+      this.error('Not authenticated. Please run "brv login" first.')
     }
 
     if (!token.isValid()) {
-      this.error('Authentication token expired. Please run "br login" again.')
+      this.error('Authentication token expired. Please run "brv login" again.')
     }
 
     return token

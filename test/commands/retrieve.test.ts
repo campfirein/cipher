@@ -11,7 +11,7 @@ import type {ITrackingService} from '../../src/core/interfaces/i-tracking-servic
 
 import Retrieve from '../../src/commands/retrieve.js'
 import {AuthToken} from '../../src/core/domain/entities/auth-token.js'
-import {BrConfig} from '../../src/core/domain/entities/br-config.js'
+import {BrvConfig} from '../../src/core/domain/entities/brv-config.js'
 import {Memory} from '../../src/core/domain/entities/memory.js'
 import {RetrieveResult} from '../../src/core/domain/entities/retrieve-result.js'
 
@@ -87,7 +87,7 @@ describe('retrieve command', () => {
     userId: 'user-retrieve',
   })
 
-  const validConfig = new BrConfig(
+  const validConfig = new BrvConfig(
     new Date().toISOString(),
     'a0000000-b001-0000-0000-000000000000',
     'test-space',

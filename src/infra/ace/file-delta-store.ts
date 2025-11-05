@@ -9,7 +9,7 @@ import {ensureAceDirectory, generateTimestampedFilename} from './ace-file-utils.
 
 /**
  * File-based implementation of IDeltaStore.
- * Stores delta batches as JSON files in .br/ace/deltas/ directory.
+ * Stores delta batches as JSON files in .brv/ace/deltas/ directory.
  */
 export class FileDeltaStore implements IDeltaStore {
   public async save(deltaBatch: DeltaBatch, hint?: string, directory?: string): Promise<string> {

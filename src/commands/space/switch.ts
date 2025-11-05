@@ -9,14 +9,15 @@ import type {ITeamService} from '../../core/interfaces/i-team-service.js'
 import type {ITokenStore} from '../../core/interfaces/i-token-store.js'
 
 import {getCurrentConfig} from '../../config/environment.js'
-import {BrConfig} from '../../core/domain/entities/br-config.js'
+import {BRV_DIR, PROJECT_CONFIG_FILE} from '../../constants.js'
+import {BrvConfig} from '../../core/domain/entities/brv-config.js'
 import {ProjectConfigStore} from '../../infra/config/file-config-store.js'
 import {HttpSpaceService} from '../../infra/space/http-space-service.js'
 import {KeychainTokenStore} from '../../infra/storage/keychain-token-store.js'
 import {HttpTeamService} from '../../infra/team/http-team-service.js'
 
 export default class SpaceSwitch extends Command {
-  public static description = 'Switch to a different team or space (updates .br/config.json)'
+  public static description = `Switch to a different team or space (updates ${BRV_DIR}/${PROJECT_CONFIG_FILE})`
   public static examples = [
     '<%= config.bin %> <%= command.id %>',
     '# Shows current configuration, then prompts for new team/space selection',
@@ -82,7 +83,7 @@ export default class SpaceSwitch extends Command {
       // Check project initialization (MUST exist for switch)
       const currentConfig = await projectConfigStore.read()
       if (currentConfig === undefined) {
-        this.error('Project not initialized. Run "br init" first.')
+        this.error('Project not initialized. Run "brv init" first.')
       }
 
       // Show current configuration
@@ -94,11 +95,11 @@ export default class SpaceSwitch extends Command {
       // Validate authentication
       const token = await tokenStore.load()
       if (token === undefined) {
-        this.error('Not authenticated. Please run "br login" first.')
+        this.error('Not authenticated. Please run "brv login" first.')
       }
 
       if (!token.isValid()) {
-        this.error('Authentication token expired. Please run "br login" again.')
+        this.error('Authentication token expired. Please run "brv login" again.')
       }
 
       // Fetch all teams
@@ -132,12 +133,12 @@ export default class SpaceSwitch extends Command {
       const selectedSpace = await this.promptForSpaceSelection(spaceResult.spaces)
 
       // Update configuration
-      const newConfig = BrConfig.fromSpace(selectedSpace)
+      const newConfig = BrvConfig.fromSpace(selectedSpace)
       await projectConfigStore.write(newConfig)
 
       // Display success
       this.log(`\n✓ Successfully switched to space: ${selectedSpace.getDisplayName()}`)
-      this.log(`✓ Configuration updated in: .br/config.json`)
+      this.log(`✓ Configuration updated in: ${BRV_DIR}/${PROJECT_CONFIG_FILE}`)
     } catch (error) {
       this.error(error instanceof Error ? error.message : 'Switch failed')
     }

@@ -70,7 +70,7 @@ describe('FilePlaybookStore', () => {
       const playbook = new Playbook()
       await store.save(playbook, testDir)
 
-      const aceDir = join(testDir, '.br', 'ace')
+      const aceDir = join(testDir, '.brv', 'ace')
       const playbookPath = join(aceDir, 'playbook.json')
 
       // Verify directory and file exist

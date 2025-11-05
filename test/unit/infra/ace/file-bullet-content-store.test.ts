@@ -12,7 +12,7 @@ describe('FileBulletContentStore', () => {
 
   beforeEach(async () => {
     // Create a temporary test directory
-    testDir = join(tmpdir(), `br-test-${Date.now()}`)
+    testDir = join(tmpdir(), `brv-test-${Date.now()}`)
     await mkdir(testDir, {recursive: true})
     store = new FileBulletContentStore()
   })
@@ -41,7 +41,7 @@ describe('FileBulletContentStore', () => {
 
       await store.save(bulletId, content, testDir)
 
-      const bulletsDir = join(testDir, '.br', 'ace', 'bullets')
+      const bulletsDir = join(testDir, '.brv', 'ace', 'bullets')
       expect(existsSync(bulletsDir)).to.be.true
     })
 
@@ -167,7 +167,7 @@ if (!token.isValid()) {
 
       const filePath = await store.save(bulletId, content, testDir)
 
-      expect(filePath).to.equal(join(testDir, '.br', 'ace', 'bullets', `${bulletId}.md`))
+      expect(filePath).to.equal(join(testDir, '.brv', 'ace', 'bullets', `${bulletId}.md`))
     })
 
     it('should use current working directory when directory is not specified', async () => {
@@ -177,7 +177,7 @@ if (!token.isValid()) {
       // Save in test directory to avoid polluting actual cwd
       await store.save(bulletId, content, testDir)
 
-      const expectedPath = join(testDir, '.br', 'ace', 'bullets', `${bulletId}.md`)
+      const expectedPath = join(testDir, '.brv', 'ace', 'bullets', `${bulletId}.md`)
       expect(existsSync(expectedPath)).to.be.true
     })
   })

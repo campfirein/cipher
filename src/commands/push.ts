@@ -3,7 +3,7 @@ import {Command, Flags, ux} from '@oclif/core'
 import {join} from 'node:path'
 
 import type {AuthToken} from '../core/domain/entities/auth-token.js'
-import type {BrConfig} from '../core/domain/entities/br-config.js'
+import type {BrvConfig} from '../core/domain/entities/brv-config.js'
 import type {PresignedUrl} from '../core/domain/entities/presigned-url.js'
 import type {PresignedUrlsResponse} from '../core/domain/entities/presigned-urls-response.js'
 import type {IMemoryStorageService} from '../core/interfaces/i-memory-storage-service.js'
@@ -12,7 +12,16 @@ import type {IProjectConfigStore} from '../core/interfaces/i-project-config-stor
 import type {ITokenStore} from '../core/interfaces/i-token-store.js'
 
 import {getCurrentConfig} from '../config/environment.js'
-import {ACE_DIR, BR_DIR, DEFAULT_BRANCH, DELTAS_DIR, EXECUTOR_OUTPUTS_DIR, REFLECTIONS_DIR} from '../constants.js'
+import {
+  ACE_DIR,
+  BRV_DIR,
+  BULLETS_DIR,
+  DEFAULT_BRANCH,
+  DELTAS_DIR,
+  EXECUTOR_OUTPUTS_DIR,
+  PLAYBOOK_FILE,
+  REFLECTIONS_DIR,
+} from '../constants.js'
 import {ITrackingService} from '../core/interfaces/i-tracking-service.js'
 import {FilePlaybookStore} from '../infra/ace/file-playbook-store.js'
 import {ProjectConfigStore} from '../infra/config/file-config-store.js'
@@ -42,10 +51,10 @@ export default class Push extends Command {
     }),
   }
 
-  protected async checkProjectInit(projectConfigStore: IProjectConfigStore): Promise<BrConfig> {
+  protected async checkProjectInit(projectConfigStore: IProjectConfigStore): Promise<BrvConfig> {
     const projectConfig = await projectConfigStore.read()
     if (projectConfig === undefined) {
-      this.error('Project not initialized. Run "br init" first.')
+      this.error('Project not initialized. Run "brv init" first.')
     }
 
     return projectConfig
@@ -61,7 +70,7 @@ export default class Push extends Command {
 
     // Clean executor outputs
     const baseDir = process.cwd()
-    const aceDir = join(baseDir, BR_DIR, ACE_DIR)
+    const aceDir = join(baseDir, BRV_DIR, ACE_DIR)
     const executorOutputsDir = join(aceDir, EXECUTOR_OUTPUTS_DIR)
     const reflectionsDir = join(aceDir, REFLECTIONS_DIR)
     const deltasDir = join(aceDir, DELTAS_DIR)
@@ -81,17 +90,17 @@ export default class Push extends Command {
     ux.action.stop(`✓ (${deltaCount} files removed)`)
   }
 
-  protected async confirmPush(projectConfig: BrConfig, branch: string, fileCount: number): Promise<boolean> {
+  protected async confirmPush(projectConfig: BrvConfig, branch: string, fileCount: number): Promise<boolean> {
     this.log('\nYou are about to push to ByteRover memory storage:')
     this.log(`  Space: ${projectConfig.spaceName}`)
     this.log(`  Branch: ${branch}`)
     this.log(`  Files to upload: ${fileCount}`)
     this.log('\nAfter successful push, these local files will be cleaned up:')
     this.log('  - Playbook content')
-    this.log('  - Bullet files (.br/ace/bullets/)')
-    this.log('  - Executor outputs (.br/ace/executor-outputs/)')
-    this.log('  - Reflections (.br/ace/reflections/)')
-    this.log('  - Deltas (.br/ace/deltas/)')
+    this.log(`  - Bullet files (${BRV_DIR}/${ACE_DIR}/${BULLETS_DIR}/)`)
+    this.log(`  - Executor outputs (${BRV_DIR}/${ACE_DIR}/${EXECUTOR_OUTPUTS_DIR}/)`)
+    this.log(`  - Reflections (${BRV_DIR}/${ACE_DIR}/${REFLECTIONS_DIR}/)`)
+    this.log(`  - Deltas (${BRV_DIR}/${ACE_DIR}/${DELTAS_DIR}/)`)
 
     return confirm({
       default: false,
@@ -102,7 +111,7 @@ export default class Push extends Command {
   protected async confirmUpload(
     memoryService: IMemoryStorageService,
     token: AuthToken,
-    projectConfig: BrConfig,
+    projectConfig: BrvConfig,
     requestId: string,
   ): Promise<void> {
     ux.action.start('Confirming upload')
@@ -141,14 +150,14 @@ export default class Push extends Command {
   protected async getPresignedUrls(
     memoryService: IMemoryStorageService,
     token: AuthToken,
-    projectConfig: BrConfig,
+    projectConfig: BrvConfig,
   ): Promise<PresignedUrlsResponse> {
     const {flags} = await this.parse(Push)
     ux.action.start('Requesting upload URLs')
     const response = await memoryService.getPresignedUrls({
       accessToken: token.accessToken,
       branch: flags.branch,
-      fileNames: ['playbook.json'],
+      fileNames: [`${PLAYBOOK_FILE}`],
       sessionKey: token.sessionKey,
       spaceId: projectConfig.spaceId,
       teamId: projectConfig.teamId,
@@ -222,11 +231,11 @@ export default class Push extends Command {
     const token = await tokenStore.load()
 
     if (token === undefined) {
-      this.error('Not authenticated. Run "br login" first.')
+      this.error('Not authenticated. Run "brv login" first.')
     }
 
     if (!token.isValid()) {
-      this.error('Authentication token expired. Run "br login" again.')
+      this.error('Authentication token expired. Run "brv login" again.')
     }
 
     return token
@@ -235,7 +244,7 @@ export default class Push extends Command {
   protected async verifyPlaybookExists(playbookStore: IPlaybookStore): Promise<void> {
     const playbookExists = await playbookStore.exists()
     if (!playbookExists) {
-      this.error('Playbook not found. Run "br init" to create one.')
+      this.error('Playbook not found. Run "brv init" to create one.')
     }
   }
 }

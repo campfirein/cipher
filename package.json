@@ -4,7 +4,7 @@
   "version": "0.1.1",
   "author": "ByteRover",
   "bin": {
-    "br": "./bin/run.js"
+    "brv": "./bin/run.js"
   },
   "bugs": "https://github.com/campfirein/byterover-cli/issues",
   "dependencies": {
@@ -55,8 +55,8 @@
   "main": "dist/index.js",
   "type": "module",
   "oclif": {
-    "bin": "br",
-    "dirname": "br",
+    "bin": "brv",
+    "dirname": "brv",
     "commands": "./dist/commands",
     "hooks": {
       "init": "./dist/hooks/init/welcome"

@@ -11,7 +11,7 @@ import type {ITokenStore} from '../../../src/core/interfaces/i-token-store.js'
 
 import SpaceList from '../../../src/commands/space/list.js'
 import {AuthToken} from '../../../src/core/domain/entities/auth-token.js'
-import {BrConfig} from '../../../src/core/domain/entities/br-config.js'
+import {BrvConfig} from '../../../src/core/domain/entities/brv-config.js'
 import {Space as SpaceImpl} from '../../../src/core/domain/entities/space.js'
 
 /**
@@ -41,7 +41,7 @@ describe('SpaceList Command', () => {
   let config: Config
   let projectConfigStore: sinon.SinonStubbedInstance<IProjectConfigStore>
   let spaceService: sinon.SinonStubbedInstance<ISpaceService>
-  let testBrConfig: BrConfig
+  let testBrConfig: BrvConfig
   let testSpaces: Space[]
   let tokenStore: sinon.SinonStubbedInstance<ITokenStore>
   let validToken: AuthToken
@@ -77,7 +77,7 @@ describe('SpaceList Command', () => {
       userId: 'user-list',
     })
 
-    testBrConfig = new BrConfig(new Date().toISOString(), 'space-1', 'frontend-app', 'team-1', 'acme-corp')
+    testBrConfig = new BrvConfig(new Date().toISOString(), 'space-1', 'frontend-app', 'team-1', 'acme-corp')
 
     testSpaces = [
       new SpaceImpl('space-1', 'frontend-app', 'team-1', 'acme-corp'),
@@ -100,7 +100,7 @@ describe('SpaceList Command', () => {
         expect.fail('Should have thrown error')
       } catch (error) {
         expect((error as Error).message).to.include('Project not initialized')
-        expect((error as Error).message).to.include('br init')
+        expect((error as Error).message).to.include('brv init')
       }
     })
   })

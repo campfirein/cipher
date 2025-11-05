@@ -1,5 +1,6 @@
 import {expect} from 'chai'
-import {mkdir, readFile, writeFile} from 'node:fs/promises'
+import {existsSync} from 'node:fs'
+import {mkdir, readFile, rm, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
@@ -12,7 +13,14 @@ describe('FileReflectionStore', () => {
 
   beforeEach(() => {
     store = new FileReflectionStore()
-    testDir = join(tmpdir(), `byterover-test-${Date.now()}`)
+    testDir = join(tmpdir(), `byterover-test-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`)
+  })
+
+  afterEach(async () => {
+    // Clean up test directory
+    if (existsSync(testDir)) {
+      await rm(testDir, {force: true, recursive: true})
+    }
   })
 
   describe('save', () => {
@@ -30,7 +38,7 @@ describe('FileReflectionStore', () => {
       const filePath = await store.save(reflection, testDir)
 
       // Verify file path structure
-      expect(filePath).to.include('.br/ace/reflections')
+      expect(filePath).to.include('.brv/ace/reflections')
       expect(filePath).to.include('reflection-test-approach-')
       expect(filePath).to.include('.json')
 
@@ -56,7 +64,7 @@ describe('FileReflectionStore', () => {
 
       const filePath = await store.save(reflection, testDir)
 
-      expect(filePath).to.include('.br/ace/reflections/reflection-')
+      expect(filePath).to.include('.brv/ace/reflections/reflection-')
       expect(filePath).to.not.include('reflection--')
     })
 
@@ -80,7 +88,7 @@ describe('FileReflectionStore', () => {
   describe('loadRecent', () => {
     it('should load most recent reflections', async () => {
       // Create test reflections directory
-      const reflectionsDir = join(testDir, '.br', 'ace', 'reflections')
+      const reflectionsDir = join(testDir, '.brv', 'ace', 'reflections')
       await mkdir(reflectionsDir, {recursive: true})
 
       // Create test reflection files with timestamps
@@ -117,7 +125,7 @@ describe('FileReflectionStore', () => {
     })
 
     it('should limit number of reflections returned', async () => {
-      const reflectionsDir = join(testDir, '.br', 'ace', 'reflections')
+      const reflectionsDir = join(testDir, '.brv', 'ace', 'reflections')
       await mkdir(reflectionsDir, {recursive: true})
 
       // Create 5 test reflections
@@ -155,7 +163,7 @@ describe('FileReflectionStore', () => {
     })
 
     it('should return empty array if directory is empty', async () => {
-      const reflectionsDir = join(testDir, '.br', 'ace', 'reflections')
+      const reflectionsDir = join(testDir, '.brv', 'ace', 'reflections')
       await mkdir(reflectionsDir, {recursive: true})
 
       const reflections = await store.loadRecent(testDir, 3)
@@ -164,7 +172,7 @@ describe('FileReflectionStore', () => {
     })
 
     it('should default to loading 3 reflections', async () => {
-      const reflectionsDir = join(testDir, '.br', 'ace', 'reflections')
+      const reflectionsDir = join(testDir, '.brv', 'ace', 'reflections')
       await mkdir(reflectionsDir, {recursive: true})
 
       // Create 5 test reflections

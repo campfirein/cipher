@@ -7,7 +7,7 @@ import type {ReflectorOutput} from '../../core/domain/entities/reflector-output.
 import type {IPlaybookService} from '../../core/interfaces/i-playbook-service.js'
 import type {IPlaybookStore} from '../../core/interfaces/i-playbook-store.js'
 
-import {ACE_DIR, BR_DIR, DELTAS_DIR, EXECUTOR_OUTPUTS_DIR, REFLECTIONS_DIR} from '../../constants.js'
+import {ACE_DIR, BRV_DIR, BULLETS_DIR, DELTAS_DIR, EXECUTOR_OUTPUTS_DIR, REFLECTIONS_DIR} from '../../constants.js'
 import {Playbook} from '../../core/domain/entities/playbook.js'
 import {FilePlaybookStore} from '../ace/file-playbook-store.js'
 
@@ -21,8 +21,7 @@ export type PlaybookServiceConfig = {
  * bullet management, delta application, and reflection tag processing.
  */
 export class FilePlaybookService implements IPlaybookService {
-  private static readonly BULLETS_DIR = 'bullets'
-  private static readonly SUBDIRS = [REFLECTIONS_DIR, EXECUTOR_OUTPUTS_DIR, DELTAS_DIR, FilePlaybookService.BULLETS_DIR]
+  private static readonly SUBDIRS = [REFLECTIONS_DIR, EXECUTOR_OUTPUTS_DIR, DELTAS_DIR, BULLETS_DIR]
   private readonly config: PlaybookServiceConfig
   private readonly playbookStore: IPlaybookStore
 
@@ -131,7 +130,7 @@ export class FilePlaybookService implements IPlaybookService {
     // Load playbook
     const playbook = await this.playbookStore.load(directory)
     if (!playbook) {
-      throw new Error('Playbook not found. Run `br init` to initialize.')
+      throw new Error('Playbook not found. Run `brv init` to initialize.')
     }
 
     // Apply tags from reflection
@@ -164,10 +163,10 @@ export class FilePlaybookService implements IPlaybookService {
 
   public async initialize(directory?: string): Promise<string> {
     const baseDir = directory ?? this.config.baseDirectory ?? process.cwd()
-    const brDir = join(baseDir, BR_DIR)
-    const aceDir = join(brDir, ACE_DIR)
+    const brvDir = join(baseDir, BRV_DIR)
+    const aceDir = join(brvDir, ACE_DIR)
 
-    // Create .br/ace/ directory
+    // Create .brv/ace/ directory
     await mkdir(aceDir, {recursive: true})
 
     // Create subdirectories
@@ -176,7 +175,7 @@ export class FilePlaybookService implements IPlaybookService {
     // Check if playbook already exists
     const exists = await this.playbookStore.exists(directory ?? this.config.baseDirectory)
     if (exists) {
-      throw new Error('Playbook already exists. Use `br clear` to remove it first.')
+      throw new Error('Playbook already exists. Use `brv clear` to remove it first.')
     }
 
     // Create empty playbook

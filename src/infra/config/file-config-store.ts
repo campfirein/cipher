@@ -4,22 +4,20 @@ import {join} from 'node:path'
 
 import type {IProjectConfigStore} from '../../core/interfaces/i-project-config-store.js'
 
-import {BrConfig} from '../../core/domain/entities/br-config.js'
+import {BRV_DIR, PROJECT_CONFIG_FILE} from '../../constants.js'
+import {BrvConfig} from '../../core/domain/entities/brv-config.js'
 
 /**
  * File-based implementation of IProjectConfigStore.
- * Stores configuration in .br/config.json in the project directory.
+ * Stores configuration in .brv/config.json in the project directory.
  */
 export class ProjectConfigStore implements IProjectConfigStore {
-  private static readonly BR_DIR = '.br'
-  private static readonly CONFIG_FILE = 'config.json'
-
   public async exists(directory?: string): Promise<boolean> {
     const configPath = this.getConfigPath(directory)
     return existsSync(configPath)
   }
 
-  public async read(directory?: string): Promise<BrConfig | undefined> {
+  public async read(directory?: string): Promise<BrvConfig | undefined> {
     const configPath = this.getConfigPath(directory)
 
     if (!existsSync(configPath)) {
@@ -29,18 +27,18 @@ export class ProjectConfigStore implements IProjectConfigStore {
     try {
       const content = await readFile(configPath, 'utf8')
       const json: Record<string, string> = JSON.parse(content)
-      return BrConfig.fromJson(json)
+      return BrvConfig.fromJson(json)
     } catch (error) {
       throw new Error(`Failed to read config from ${configPath}: ${(error as Error).message}`)
     }
   }
 
-  public async write(config: BrConfig, directory?: string): Promise<void> {
-    const brDirPath = this.getBrDirPath(directory)
+  public async write(config: BrvConfig, directory?: string): Promise<void> {
+    const brDirPath = this.getBrvDirPath(directory)
     const configPath = this.getConfigPath(directory)
 
     try {
-      // Create .br directory if it doesn't exist
+      // Create .brv directory if it doesn't exist
       await mkdir(brDirPath, {recursive: true})
 
       // Write config.json
@@ -52,17 +50,17 @@ export class ProjectConfigStore implements IProjectConfigStore {
   }
 
   /**
-   * Gets the full path to the .br directory.
+   * Gets the full path to the .brv directory.
    */
-  private getBrDirPath(directory?: string): string {
+  private getBrvDirPath(directory?: string): string {
     const baseDir = directory ?? process.cwd()
-    return join(baseDir, ProjectConfigStore.BR_DIR)
+    return join(baseDir, BRV_DIR)
   }
 
   /**
    * Gets the full path to the config.json file.
    */
   private getConfigPath(directory?: string): string {
-    return join(this.getBrDirPath(directory), ProjectConfigStore.CONFIG_FILE)
+    return join(this.getBrvDirPath(directory), PROJECT_CONFIG_FILE)
   }
 }

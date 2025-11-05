@@ -10,7 +10,7 @@ import type {ITokenStore} from '../../../src/core/interfaces/i-token-store.js'
 
 import SpaceSwitch from '../../../src/commands/space/switch.js'
 import {AuthToken} from '../../../src/core/domain/entities/auth-token.js'
-import {BrConfig} from '../../../src/core/domain/entities/br-config.js'
+import {BrvConfig} from '../../../src/core/domain/entities/brv-config.js'
 import {Space} from '../../../src/core/domain/entities/space.js'
 import {Team} from '../../../src/core/domain/entities/team.js'
 
@@ -77,7 +77,7 @@ describe('space:switch', () => {
   let testSpaces: Space[]
   let testTeams: Team[]
   let validToken: AuthToken
-  let currentConfig: BrConfig
+  let currentConfig: BrvConfig
 
   // Stub ux.action to suppress spinner output
   let uxActionStartStub: SinonStub
@@ -150,7 +150,7 @@ describe('space:switch', () => {
       }),
     ]
 
-    currentConfig = new BrConfig('2024-01-01T00:00:00.000Z', 'space-1', 'frontend-app', 'team-1', 'acme-corp')
+    currentConfig = new BrvConfig('2024-01-01T00:00:00.000Z', 'space-1', 'frontend-app', 'team-1', 'acme-corp')
   })
 
   afterEach(() => {
@@ -307,7 +307,7 @@ describe('space:switch', () => {
 
     // Verify config was written with new space
     expect(configStore.write.calledOnce).to.be.true
-    const writtenConfig = configStore.write.firstCall.args[0] as BrConfig
+    const writtenConfig = configStore.write.firstCall.args[0] as BrvConfig
     expect(writtenConfig.spaceId).to.equal('space-2')
     expect(writtenConfig.spaceName).to.equal('backend-api')
     expect(writtenConfig.teamId).to.equal('team-1')
@@ -394,7 +394,7 @@ describe('space:switch', () => {
 
     // Verify config was updated with new team and space
     expect(configStore.write.calledOnce).to.be.true
-    const writtenConfig = configStore.write.firstCall.args[0] as BrConfig
+    const writtenConfig = configStore.write.firstCall.args[0] as BrvConfig
     expect(writtenConfig.spaceId).to.equal('space-3')
     expect(writtenConfig.spaceName).to.equal('mobile-app')
     expect(writtenConfig.teamId).to.equal('team-2')

@@ -39,7 +39,7 @@ describe('welcome init hook', () => {
   })
 
   describe('should show banner for root help', () => {
-    it('shows banner for bare command (br)', async () => {
+    it('shows banner for bare command (brv)', async () => {
       // Dynamic import to ensure fresh module
       const {default: hook} = await import('../../../src/hooks/init/welcome.js')
 
@@ -54,7 +54,7 @@ describe('welcome init hook', () => {
       expect(logStub.called).to.be.true
     })
 
-    it('shows banner for --help flag (br --help)', async () => {
+    it('shows banner for --help flag (brv --help)', async () => {
       const {default: hook} = await import('../../../src/hooks/init/welcome.js')
 
       const context = createContext()
@@ -68,7 +68,7 @@ describe('welcome init hook', () => {
       expect(logStub.called).to.be.true
     })
 
-    it('shows banner for help command (br help)', async () => {
+    it('shows banner for help command (brv help)', async () => {
       const {default: hook} = await import('../../../src/hooks/init/welcome.js')
 
       const context = createContext()
@@ -84,7 +84,7 @@ describe('welcome init hook', () => {
   })
 
   describe('should NOT show banner for non-root-help commands', () => {
-    it('does not show banner for regular command (br login)', async () => {
+    it('does not show banner for regular command (brv login)', async () => {
       const {default: hook} = await import('../../../src/hooks/init/welcome.js')
 
       const context = createContext()
@@ -98,7 +98,7 @@ describe('welcome init hook', () => {
       expect(logStub.called).to.be.false
     })
 
-    it('does not show banner for another regular command (br status)', async () => {
+    it('does not show banner for another regular command (brv status)', async () => {
       const {default: hook} = await import('../../../src/hooks/init/welcome.js')
 
       const context = createContext()
@@ -112,7 +112,7 @@ describe('welcome init hook', () => {
       expect(logStub.called).to.be.false
     })
 
-    it('does not show banner for command-specific help (br help login)', async () => {
+    it('does not show banner for command-specific help (brv help login)', async () => {
       const {default: hook} = await import('../../../src/hooks/init/welcome.js')
 
       const context = createContext()
@@ -126,7 +126,7 @@ describe('welcome init hook', () => {
       expect(logStub.called).to.be.false
     })
 
-    it('does not show banner for command with --help flag (br login --help)', async () => {
+    it('does not show banner for command with --help flag (brv login --help)', async () => {
       const {default: hook} = await import('../../../src/hooks/init/welcome.js')
 
       const context = createContext()
