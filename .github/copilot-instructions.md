@@ -1,118 +1,45 @@
-# ByteRover CLI - Copilot Instructions
+# ByteRover CLI
 
-**oclif v4 TypeScript CLI** (`br`) with Clean Architecture + ACE (Agentic Context Engineering)
+oclif v4 TypeScript CLI. Clean Architecture: Commands → Services (infra) → Core (entities/interfaces).
 
-## Architecture
+## Critical Constraints
 
-**Layers**: Commands → Services (infra) → Core (entities/interfaces)
+- **Imports**: MUST use `.js` extensions (Node16 module resolution)
+- **Auth**: All API calls auto-inject `accessToken` + `sessionKey` via `AuthenticatedHttpClient`
+- **Entities**: Immutable, implement `toJson()`/`fromJson()` (capital J)
+- **Pagination**: Use `{fetchAll: true}` for UI selections (auto-paginates at 100/page)
 
-**Entities** (`src/core/domain/entities/`):
-- `AuthToken`: `accessToken`, `sessionKey`, `userId`, `userEmail`
-- `Memory`: `bulletId`, `section`, `tags`, `metadataType`, `timestamp`, `nodeKeys`
-- `Playbook`: Bullets with sections, delta operations
-- All: `toJson()`/`fromJson()`, immutable readonly
+## Commands
 
-**HTTP Auth**: `AuthenticatedHttpClient` auto-injects:
-```typescript
-Authorization: Bearer {accessToken}
-x-byterover-session-id: {sessionKey}
-```
-All API services require BOTH `accessToken` + `sessionKey`.
-
-**Pagination**:
-- `{fetchAll: true}` - Auto-paginate (UI selections)
-- `{limit, offset}` - Manual
-
-## TypeScript Rules
-
-**MUST use `.js` in imports** (Node16 resolution):
-```typescript
-import {MyClass} from './my-file.js'  // ✅
-import {MyClass} from './my-file'     // ❌
-```
-
-## Command Workflows
-
-### `br login`
-OIDC → callback server → browser → token exchange → keychain
-
-### `br init`
-Fetch teams (`fetchAll`) → select → fetch spaces → select → save `.br/config.json` → init ACE
-
-### `br space switch`
-Load config → select team/space → update `.br/config.json` (no ACE init)
-
-### `br retrieve`
-Validate → fetch memories (optional `--node-keys`) → **clear playbook** → transform via mapper → save
-
-### `br push`
-Validate → request presigned URLs → upload to GCS (PUT, `application/json`, **NO auth headers**) → confirm (POST) → cleanup (clear playbook, remove `executor-outputs/`, `reflections/`, `deltas/`)
-
-### `br ace` (3-Phase)
-1. **Executor** → `executor-outputs/` (hint, reasoning, answer, tool usage, bullet IDs)
-2. **Reflector** → `reflections/` (feedback analysis) → apply tags to playbook
-3. **Curator** → `deltas/` + apply
-   - ADD: new bullet in "Lessons Learned"
-   - UPDATE: `--update-bullet <id>` validates ID exists
+| Command | Critical Behavior |
+|---------|-------------------|
+| `brv login` | `fromJson()` returns `undefined` for old tokens (forces re-login) |
+| `brv init` | `fetchAll: true` for teams/spaces. Creates `.brv/config.json` + ACE structure |
+| `brv space switch` | Updates config. **Does NOT** init ACE structure |
+| `brv retrieve` | **Clears playbook first**. Combines memories+relatedMemories. Uses `transformRetrieveResultToPlaybook()` |
+| `brv push` | GCS upload: PUT with `application/json`, **NO auth headers**. Must call confirm POST. Cleanup: playbook + ACE dirs |
+| `brv complete` | 3-phase: Executor→`executor-outputs/`→Reflector→`reflections/`+tags→Curator→`deltas/`+apply. Use `--update-bullet <id>` to UPDATE vs ADD |
+| `brv add` | Direct playbook edit. Bypasses ACE workflow |
 
 ## Testing
 
-**Build/Run**:
-```bash
-npm run build                                    # Compile
-npm test                                         # All tests
-npx mocha --forbid-only "test/path/file.test.ts" # Single
-./bin/dev.js [cmd]                              # Dev
-./bin/run.js [cmd]                              # Prod
-```
-
-**Command Test Pattern**:
+**Command Mocking**:
 ```typescript
-class TestableCommand extends MyCommand {
-  constructor(mockService, config) {
-    super([], config)
-    this.mockService = mockService
-  }
-  protected createServices() {
-    return { myService: this.mockService }
-  }
-  protected async promptForSelection(items) {
-    return this.mockSelection  // Override
-  }
-  public log() {} // Suppress
+class TestableCmd extends MyCmd {
+  constructor(mockSvc, config) { super([], config); this.mockSvc = mockSvc }
+  protected createServices() { return {mySvc: this.mockSvc} }
+  protected async promptForSelection() { return this.mockSelection }
+  public log() {} // suppress
+  public error(e) { throw new Error(e.message || e) } // no console
+  public warn(e) { return e } // no console
 }
 ```
+**HTTP**: Nock must verify `authorization` + `x-byterover-session-id`  
+**Services**: Stub `PlaybookStore` with `.resolves()`. Verify defensive array copies
 
-**Nock HTTP**:
-- Verify BOTH: `.matchHeader('authorization', ...)` AND `.matchHeader('x-byterover-session-id', ...)`
-- `HttpSpaceService`: verify `team_id` query param
-- Mock responses: include all required entity fields
+## Quick Ref
 
-**Service Tests**:
-- Test transformations with domain entities
-- Verify defensive array copying (returned !== input)
-- Stub `PlaybookStore`: `.resolves()`, verify `calledBefore()`
-
-## Patterns
-
-**Prompts**:
-```typescript
-import {select} from '@inquirer/prompts'
-const choice = await select({
-  message: 'Select',
-  choices: items.map(i => ({name: i.name, value: i.id}))
-})
-```
-
-**Env URLs**:
-- Dev: `https://dev-beta-*.byterover.dev/api/*`
-- Prod: `https://prod-beta-*.byterover.dev/api/*`
-
-## Critical Rules
-
-1. **Auth**: BOTH `accessToken` AND `sessionKey` required
-2. **Imports**: Use `.js` extensions (Node16)
-3. **Pagination**: `fetchAll: true` for UI
-4. **Upload**: Confirm before cleanup, fail-fast
-5. **Test mocking**: Override `createServices()` AND prompts
-6. **Transformations**: Use `transformRetrieveResultToPlaybook()`
+- **Env**: `BR_ENV=development|production`. URLs: `{dev|prod}-beta-*.byterover.dev/api/*`
+- **OIDC**: 1h cache, 3 retries, 5s timeout, hardcoded fallback
+- **Mapper**: `transformRetrieveResultToPlaybook()` in `infra/memory/memory-to-playbook-mapper.ts`
+- **Utils**: `clearDirectory()` - files only, preserves dirs, handles ENOENT
