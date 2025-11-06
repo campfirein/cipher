@@ -19,7 +19,7 @@ Once the user chooses "Auto-run", apply that preference to all subsequent `brv` 
 
 ## Daily Flow
 
-1.Retrieve context
+1. Always attempt to retrieve relevant context from ByteRover first by running `brv retrieve`.
 
 2.Do the work with minimal code reads
 
