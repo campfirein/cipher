@@ -70,7 +70,7 @@ describe('OidcDiscoveryService', () => {
     })
 
     it('should expire cache after TTL', async () => {
-      const shortTtl = 100 // 100ms
+      const shortTtl = 10 // 10ms
       service = new OidcDiscoveryService(shortTtl)
 
       nock(issuerUrl).get(wellKnownPath).times(2).reply(200, validDiscoveryResponse)
@@ -80,7 +80,7 @@ describe('OidcDiscoveryService', () => {
 
       // Wait for cache to expire
       await new Promise((resolve) => {
-        setTimeout(resolve, shortTtl + 50)
+        setTimeout(resolve, shortTtl + 5)
       })
 
       // Second call - should fetch again
@@ -108,9 +108,9 @@ describe('OidcDiscoveryService', () => {
 
   describe('timeout handling', () => {
     it('should timeout if request takes too long', async () => {
-      service = new OidcDiscoveryService(3_600_000, 100, 1, 100) // 100ms timeout
+      service = new OidcDiscoveryService(3_600_000, 25, 1, 5) // 25ms timeout
 
-      nock(issuerUrl).get(wellKnownPath).delay(200).reply(200, validDiscoveryResponse)
+      nock(issuerUrl).get(wellKnownPath).delay(100).reply(200, validDiscoveryResponse)
 
       try {
         await service.discover(issuerUrl)

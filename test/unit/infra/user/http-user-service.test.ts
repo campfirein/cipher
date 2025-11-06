@@ -111,7 +111,7 @@ describe('HttpUserService', () => {
     it('should throw error on request timeout', async () => {
       nock(apiBaseUrl).get('/user/me').delayConnection(15_000).reply(200, {})
 
-      const timeoutService = new HttpUserService({apiBaseUrl, timeout: 100})
+      const timeoutService = new HttpUserService({apiBaseUrl, timeout: 25})
 
       try {
         await timeoutService.getCurrentUser(accessToken, sessionKey)

@@ -95,7 +95,7 @@ describe('CallbackServer', () => {
 
       // Wait a bit to ensure connection is established
       await new Promise((resolve) => {
-        setTimeout(resolve, 50)
+        setTimeout(resolve, 25)
       })
 
       // Stop should complete quickly even with active connection
@@ -124,7 +124,7 @@ describe('CallbackServer', () => {
 
       // Wait for connections to establish
       await new Promise((resolve) => {
-        setTimeout(resolve, 50)
+        setTimeout(resolve, 25)
       })
 
       // Stop should cleanup all connections

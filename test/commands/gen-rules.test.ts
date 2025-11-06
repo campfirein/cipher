@@ -33,6 +33,16 @@ class TestableGenRules extends GenRules {
     }
   }
 
+  // Suppress all output to prevent noisy test runs
+  public error(input: Error | string): never {
+    const errorMessage = typeof input === 'string' ? input : input.message
+    throw new Error(errorMessage)
+  }
+
+  public log(): void {
+    // Do nothing - suppress output
+  }
+
   // Override the interactive search prompt
   protected async promptForAgentSelection(): Promise<Agent> {
     return this.mockSelectedAgent
@@ -41,6 +51,11 @@ class TestableGenRules extends GenRules {
   // Override the interactive confirmation prompt
   protected async promptForOverwriteConfirmation(_agent: Agent): Promise<boolean> {
     return this.mockOverwriteConfirmation
+  }
+
+  public warn(input: Error | string): Error | string {
+    // Do nothing - suppress output, but return input to match base signature
+    return input
   }
 }
 

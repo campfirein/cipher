@@ -50,10 +50,10 @@ describe('AuthenticatedHttpClient', () => {
     })
 
     it('should respect timeout configuration', async () => {
-      nock(baseUrl).get('/test').delay(200).reply(200, {message: 'success'})
+      nock(baseUrl).get('/test').delay(100).reply(200, {message: 'success'})
 
       try {
-        await client.get(`${baseUrl}/test`, {timeout: 100})
+        await client.get(`${baseUrl}/test`, {timeout: 25})
         expect.fail('Should have thrown timeout error')
       } catch (error) {
         expect(error).to.be.instanceOf(Error)

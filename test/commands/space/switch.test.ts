@@ -43,6 +43,11 @@ class TestableSpaceSwitch extends SpaceSwitch {
   }
 
   // Suppress all output to prevent noisy test runs
+  public error(input: Error | string): never {
+    const errorMessage = typeof input === 'string' ? input : input.message
+    throw new Error(errorMessage)
+  }
+
   public log(): void {
     // Do nothing - suppress output
   }
@@ -53,6 +58,11 @@ class TestableSpaceSwitch extends SpaceSwitch {
 
   protected async promptForTeamSelection(_teams: Team[]): Promise<Team> {
     return this.mockSelectedTeam
+  }
+
+  public warn(input: Error | string): Error | string {
+    // Do nothing - suppress output, but return input to match base signature
+    return input
   }
 }
 

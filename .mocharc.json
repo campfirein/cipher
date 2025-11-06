@@ -8,6 +8,7 @@
   "recursive": true,
   "reporter": "spec",
   "timeout": 60000,
+  "exit": true,
   "node-option": [
     "loader=ts-node/esm",
     "experimental-specifier-resolution=node"
