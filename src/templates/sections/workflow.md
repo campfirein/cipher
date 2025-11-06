@@ -31,7 +31,7 @@ Once the user chooses "Auto-run", apply that preference to all subsequent `brv` 
 
 - Do not auto-push.
 - When the playbook has meaningful updates, prompt the user to run the command
-- If the user has explicitly allowed auto-push, proceed non-interactively.
+- If the user has explicitly allowed auto-push, proceed non-interactively by running `brv push -y`.
 
 ## Playbook Guideline
 

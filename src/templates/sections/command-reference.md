@@ -72,6 +72,7 @@ brv retrieve -q "database connection issues"
 **Flags:**
 
 - `-b, --branch <string>`: ByteRover branch name (default: "main", NOT git branch)
+- `-y, --yes`: Skip confirmation prompt
 
 **Examples:**
 
@@ -120,7 +121,24 @@ brv complete "auth-update" "Improved error handling" "Better errors" --tool-usag
 
 ---
 
-### `brv show`
+### `brv status`
+
+**Description**: Show CLI status and project information. Display local ACE context (ACE playbook) managed by ByteRover CLI.
+
+**Arguments:**
+
+- `DIRECTORY`:Project directory (defaults to current directory).
+
+**Flags:**
+
+- `-f, --format=<option>`: [default: table] Output format. <options: table|json>
+
+**Examples:**
+
+```bash
+brv status
+brv status --format json
+```
 
 ## Best Practices
 
