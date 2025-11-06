@@ -156,7 +156,9 @@ None
 
 **Flags**
 
-None
+| Flag              | Description                                             | Default |
+| ----------------- | ------------------------------------------------------- | ------- |
+| `-f, --force`     | Force re-initialization without confirmation prompt     | `false` |
 
 **Examples**
 
@@ -167,7 +169,26 @@ brv init
 # Complete first-time setup
 brv login
 brv init
+
+# Force re-initialization without confirmation (for scripts/automation)
+brv init --force
 ```
+
+**Re-initialization**
+
+If the project is already initialized, `brv init` will prompt you to confirm re-initialization. This allows you to switch to a different team/space or reset your project.
+
+**Re-initializing will:**
+- Remove the entire `.brv/` directory and all its contents
+- Allow you to select a new team/space
+- Create a fresh configuration and ACE playbook
+- Regenerate rule instructions
+
+**To re-initialize:**
+1. Run `brv init` in an initialized project
+2. Review the warning about what will be deleted
+3. Confirm to proceed or cancel to keep current configuration
+4. Use `--force` flag to skip confirmation (useful for automation)
 
 **Notes**
 
@@ -175,7 +196,8 @@ brv init
 - Interactive prompts guide you through team and space selection
 - Creates `.brv/` directory with configuration and playbook structure
 - Automatically runs `brv gen-rules` after initialization
-- If project is already initialized, displays current configuration and exits
+- **Warning:** Re-initialization deletes all local playbook data, reflections, and executor outputs
+- To switch spaces without clearing data, use `brv space switch` instead
 
 ---
 
