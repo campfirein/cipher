@@ -19,19 +19,19 @@ Once the user chooses "Auto-run", apply that preference to all subsequent `brv` 
 
 ## Daily Flow
 
-1.Retrieve context
+1. Always attempt to retrieve relevant context from ByteRover first by running `brv retrieve`.
 
-2.Do the work with minimal code reads
+2. Do the work with minimal code reads
 
-3.Record new or refined knowledge in the playbook
+3. Record new or refined knowledge in the playbook
 
-- Add only specific, actionable, contextual items; avoid secrets. Redact when in doubt.
+    - Add only specific, actionable, contextual items; avoid secrets. Redact when in doubt.
 
-4.Sync policy (manual by default)
+4. Sync policy (manual by default)
 
-- Do not auto-push.
-- When the playbook has meaningful updates, prompt the user to run the command
-- If the user has explicitly allowed auto-push, proceed non-interactively by running `brv push -y`.
+    - Do not auto-push.
+    - When the playbook has meaningful updates, prompt the user to run the command
+    - If the user has explicitly allowed auto-push, proceed non-interactively by running `brv push -y`.
 
 ## Playbook Guideline
 
