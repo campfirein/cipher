@@ -1,5 +1,5 @@
 import {expect} from 'chai'
-import {restore, stub} from 'sinon'
+import sinon, {restore, stub} from 'sinon'
 
 import {getAuthConfig} from '../../../src/config/auth.config.js'
 import {IOidcDiscoveryService} from '../../../src/core/interfaces/i-oidc-discovery-service.js'
@@ -7,6 +7,7 @@ import {IOidcDiscoveryService} from '../../../src/core/interfaces/i-oidc-discove
 describe('Auth Configuration', () => {
   let discoveryService: IOidcDiscoveryService
   let originalEnv: string | undefined
+  let consoleWarnStub: sinon.SinonStub
 
   beforeEach(() => {
     // Save original environment
@@ -14,6 +15,9 @@ describe('Auth Configuration', () => {
 
     // Clean environment
     delete process.env.BR_ENV
+
+    // Stub console.warn to suppress output
+    consoleWarnStub = stub(console, 'warn')
 
     // Create mock discovery service
     discoveryService = {
@@ -27,6 +31,9 @@ describe('Auth Configuration', () => {
   })
 
   afterEach(() => {
+    // Restore console.warn stub
+    consoleWarnStub.restore()
+
     // Restore original environment
     if (originalEnv === undefined) {
       delete process.env.BR_ENV
