@@ -26,6 +26,7 @@ Authentication uses OAuth 2.0 with PKCE flow. Your credentials are securely stor
 | Command                                         | Description                                  | Example                                            |
 | ----------------------------------------------- | -------------------------------------------- | -------------------------------------------------- |
 | `brv login`                                     | Authenticate with ByteRover using OAuth 2.0  | `brv login`                                        |
+| `brv logout`                                    | Log out and clear authentication             | `brv logout --yes`                                 |
 | `brv status [DIRECTORY]`                        | Show CLI status and project information      | `brv status`                                       |
 | `brv init`                                      | Initialize a project with ByteRover          | `brv init`                                         |
 | `brv space list`                                | List all spaces for the current team         | `brv space list --all`                             |
@@ -67,6 +68,40 @@ brv login
 - Opens your default browser for authentication
 - Tokens are stored securely in system keychain (macOS Keychain, Windows Credential Manager, Linux libsecret)
 - If authentication expires, simply run `brv login` again
+
+---
+
+### `brv logout`
+
+Log out of ByteRover CLI and clear authentication. Removes credentials from system keychain while preserving all local project files.
+
+**Arguments**
+
+None
+
+**Flags**
+
+| Flag        | Description              | Default |
+| ----------- | ------------------------ | ------- |
+| `-y, --yes` | Skip confirmation prompt | `false` |
+
+**Examples**
+
+```bash
+# Log out (with confirmation)
+brv logout
+
+# Log out without confirmation
+brv logout --yes
+brv logout -y
+```
+
+**Notes**
+
+- Clears authentication token from system keychain
+- Does NOT affect local project files (`.brv/` directory is preserved)
+- Shows confirmation prompt with current user email unless `--yes` flag is used
+- You can run `brv login` again to re-authenticate
 
 ---
 
