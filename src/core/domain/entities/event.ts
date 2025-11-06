@@ -3,6 +3,7 @@
  */
 export const EVENT_VALUES = [
   'auth:signed_in',
+  'auth:signed_out',
   'space:init',
   'space:changed',
   'rule:generate',
