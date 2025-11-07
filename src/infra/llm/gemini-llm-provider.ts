@@ -1,15 +1,12 @@
-import type {
-  Content,
-  FunctionCall,
-  GenerateContentConfig,
-  GenerateContentResponse,
-  Part,
-} from '@google/genai'
+import type {GenerateContentConfig} from '@google/genai'
 
 import {GoogleGenAI} from '@google/genai'
 
 import type {ILlmProvider, LlmGenerateParams} from '../../core/interfaces/i-llm-provider.js'
 import type {BaseLlmConfig, Tool, ToolExecutor} from '../../core/interfaces/llm-types.js'
+import type {InternalMessage, ToolCall} from '../../core/interfaces/message-types.js'
+
+import {GeminiMessageFormatter} from './formatters/gemini-formatter.js'
 
 /**
  * Gemini-specific configuration.
@@ -23,10 +20,16 @@ export type GeminiConfig = BaseLlmConfig
 export class GeminiLlmProvider implements ILlmProvider {
   private readonly client: GoogleGenAI
   private readonly config: Required<Omit<GeminiConfig, 'timeout'>> & {timeout?: number}
+  private readonly formatter: GeminiMessageFormatter
   private readonly toolExecutor?: ToolExecutor
   private readonly tools: Tool[]
 
-  public constructor(config: GeminiConfig, tools?: Tool[], toolExecutor?: ToolExecutor) {
+  public constructor(
+    config: GeminiConfig,
+    tools?: Tool[],
+    toolExecutor?: ToolExecutor,
+    formatter?: GeminiMessageFormatter,
+  ) {
     this.config = {
       apiKey: config.apiKey,
       maxIterations: config.maxIterations ?? 50,
@@ -39,6 +42,7 @@ export class GeminiLlmProvider implements ILlmProvider {
     this.client = new GoogleGenAI({apiKey: this.config.apiKey})
     this.tools = tools ?? []
     this.toolExecutor = toolExecutor
+    this.formatter = formatter ?? new GeminiMessageFormatter()
   }
 
   /**
@@ -48,9 +52,10 @@ export class GeminiLlmProvider implements ILlmProvider {
    * @returns The generated text response
    */
   public async generate(params: LlmGenerateParams): Promise<string> {
-    const contents: Content[] = [
+    // Initialize history with user message
+    const history: InternalMessage[] = [
       {
-        parts: [{text: params.prompt}],
+        content: params.prompt,
         role: 'user',
       },
     ]
@@ -64,6 +69,10 @@ export class GeminiLlmProvider implements ILlmProvider {
 
     while (iteration < this.config.maxIterations) {
       try {
+        // Convert internal messages to Gemini format
+        const contents = this.formatter.format(history)
+
+        // Call Gemini API
         // eslint-disable-next-line no-await-in-loop
         const response = await this.client.models.generateContent({
           config,
@@ -71,24 +80,41 @@ export class GeminiLlmProvider implements ILlmProvider {
           model,
         })
 
-        const {candidateContent, functionCalls, textParts} = this.processResponse(response)
+        // Parse response back to internal format
+        const messages = this.formatter.parseResponse(response)
+        if (messages.length === 0) {
+          throw new Error('No messages returned from formatter')
+        }
 
-        contents.push(candidateContent)
+        const lastMessage = messages.at(-1)!
+        history.push(...messages)
 
-        if (functionCalls.length === 0) {
-          return textParts.join('')
+        // Check if there are tool calls
+        if (!lastMessage.toolCalls || lastMessage.toolCalls.length === 0) {
+          // Return text content, handling different content types
+          if (typeof lastMessage.content === 'string') {
+            return lastMessage.content
+          }
+
+          if (Array.isArray(lastMessage.content)) {
+            // Extract text from message parts
+            return lastMessage.content
+              .filter((part) => part.type === 'text')
+              .map((part) => (part.type === 'text' ? part.text : ''))
+              .join('')
+          }
+
+          return ''
         }
 
         if (!this.toolExecutor) {
           throw new Error('Function calls requested but no tool executor provided')
         }
 
+        // Execute tool calls and add results to history
         // eslint-disable-next-line no-await-in-loop
-        const functionResponseParts = await this.executeFunctionCalls(functionCalls)
-        contents.push({
-          parts: functionResponseParts,
-          role: 'user',
-        })
+        const toolResults = await this.executeToolCalls(lastMessage.toolCalls)
+        history.push(...toolResults)
 
         iteration++
       } catch (error) {
@@ -125,40 +151,38 @@ export class GeminiLlmProvider implements ILlmProvider {
   }
 
   /**
-   * Execute function calls and return response parts.
+   * Execute tool calls and return internal messages with results.
+   * @param toolCalls - Array of tool calls to execute
+   * @returns Array of internal messages containing tool results
    */
-  private async executeFunctionCalls(functionCalls: FunctionCall[]): Promise<Part[]> {
-    const functionResponseParts: Part[] = []
+  private async executeToolCalls(toolCalls: ToolCall[]): Promise<InternalMessage[]> {
+    const results: InternalMessage[] = []
 
-    for (const functionCall of functionCalls) {
+    for (const tc of toolCalls) {
       try {
         // eslint-disable-next-line no-await-in-loop
-        const toolResult = await this.toolExecutor!(
-          functionCall.name ?? '',
-          functionCall.args as Record<string, unknown>,
+        const result = await this.toolExecutor!(
+          tc.function.name,
+          JSON.parse(tc.function.arguments),
         )
 
-        functionResponseParts.push({
-          functionResponse: {
-            name: functionCall.name ?? '',
-            response: {
-              result: toolResult,
-            },
-          },
+        results.push({
+          content: result,
+          name: tc.function.name,
+          role: 'tool',
+          toolCallId: tc.id,
         })
       } catch (error) {
-        functionResponseParts.push({
-          functionResponse: {
-            name: functionCall.name ?? '',
-            response: {
-              error: `Error executing function ${functionCall.name ?? ''}: ${(error as Error).message}`,
-            },
-          },
+        results.push({
+          content: `Error: ${(error as Error).message}`,
+          name: tc.function.name,
+          role: 'tool',
+          toolCallId: tc.id,
         })
       }
     }
 
-    return functionResponseParts
+    return results
   }
 
   /**
@@ -174,63 +198,5 @@ export class GeminiLlmProvider implements ILlmProvider {
       name: tool.name,
       parameters: tool.parameters,
     }))
-  }
-
-  /**
-   * Extract text from Gemini response.
-   * @param response - Gemini generate content response
-   * @returns Extracted text
-   */
-  private getResponseText(response: GenerateContentResponse): string {
-    const candidate = response.candidates?.[0]
-    if (!candidate?.content?.parts) {
-      return ''
-    }
-
-    const textParts: string[] = []
-    for (const part of candidate.content.parts) {
-      if ('text' in part && part.text) {
-        textParts.push(part.text)
-      }
-    }
-
-    return textParts.join('')
-  }
-
-  /**
-   * Process and validate Gemini response, extracting text and function calls.
-   */
-  private processResponse(response: GenerateContentResponse | null): {
-    candidateContent: Content
-    functionCalls: FunctionCall[]
-    textParts: string[]
-  } {
-    if (!response) {
-      throw new Error('No response returned from Gemini')
-    }
-
-    const candidate = response.candidates?.[0]
-    if (!candidate?.content?.parts) {
-      throw new Error('No candidate or content returned from Gemini')
-    }
-
-    const textParts: string[] = []
-    const functionCalls: FunctionCall[] = []
-
-    for (const part of candidate.content.parts) {
-      if ('text' in part && part.text) {
-        textParts.push(part.text)
-      }
-
-      if ('functionCall' in part && part.functionCall) {
-        functionCalls.push(part.functionCall)
-      }
-    }
-
-    return {
-      candidateContent: candidate.content,
-      functionCalls,
-      textParts,
-    }
   }
 }
