@@ -1,5 +1,7 @@
-import {select} from '@inquirer/prompts'
-import {Command, ux} from '@oclif/core'
+import {confirm, select} from '@inquirer/prompts'
+import {Command, Flags, ux} from '@oclif/core'
+import {rm} from 'node:fs/promises'
+import {join} from 'node:path'
 
 import type {Space} from '../core/domain/entities/space.js'
 import type {Team} from '../core/domain/entities/team.js'
@@ -27,6 +29,42 @@ export default class Init extends Command {
     '# Re-initialize if config exists (will show current config and exit):\n<%= config.bin %> <%= command.id %>',
     '# Full workflow: login then initialize:\n<%= config.bin %> login\n<%= config.bin %> <%= command.id %>',
   ]
+  public static flags = {
+    force: Flags.boolean({
+      char: 'f',
+      default: false,
+      description: 'Force re-initialization without confirmation prompt',
+    }),
+  }
+
+  protected async cleanupBeforeReInitialization(): Promise<void> {
+    const brvDir = join(process.cwd(), BRV_DIR)
+    this.log('\n Cleaning up existing ByteRover directory...')
+    ux.action.start(`  Removing ${BRV_DIR}/`)
+    try {
+      await rm(brvDir, {force: true, recursive: true})
+      ux.action.stop('✓')
+    } catch (error) {
+      ux.action.stop('✗')
+      this.error(`Failed to remove ${BRV_DIR}/: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  protected async confirmReInitialization(config: BrvConfig): Promise<boolean> {
+    this.log('\n Project is already initialized')
+    this.log(`  Team: ${config.teamName}`)
+    this.log(`  Space: ${config.spaceName}`)
+    this.log(`  Config: ${join(process.cwd(), BRV_DIR, PROJECT_CONFIG_FILE)}`)
+    this.log('\n Re-initializing will:')
+    this.log(`  - Remove the entire ${BRV_DIR}/ directory and all its contents`)
+    this.log('  - Allow you to select a new team/space')
+    this.log('  - Create a fresh configuration and ACE playbook')
+    this.log('  - Regenerate rule instructions\n')
+    return confirm({
+      default: false,
+      message: 'Continue with re-initialization?',
+    })
+  }
 
   protected createServices(): {
     playbookService: IPlaybookService
@@ -89,24 +127,38 @@ export default class Init extends Command {
   }
 
   public async run(): Promise<void> {
+    const {flags} = await this.parse(Init)
+
     try {
       const {playbookService, projectConfigStore, spaceService, teamService, tokenStore, trackingService} =
         this.createServices()
 
-      // 1. Check if already initialized
-      const isInitialized = await projectConfigStore.exists()
-      if (isInitialized) {
-        this.log('Project is already initialized with ByteRover.')
-        const existingProjectConfig = await projectConfigStore.read()
-        this.log(
-          `Your space for this project is: ${existingProjectConfig?.teamName}/${existingProjectConfig?.spaceName}`,
-        )
-        return
+      const alreadyInitialized = await projectConfigStore.exists()
+      if (alreadyInitialized) {
+        const currentConfig = await projectConfigStore.read()
+        if (currentConfig === undefined) {
+          this.error('Configuration file exists but cannot be read. Please check .brv/config.json')
+        }
+
+        if (!flags.force) {
+          const confirmed = await this.confirmReInitialization(currentConfig)
+          if (!confirmed) {
+            this.log('\nCancelled. Project configuration unchanged.')
+            return
+          }
+        }
+
+        try {
+          await this.cleanupBeforeReInitialization()
+        } catch (error) {
+          this.error(`Failed to clean up existing data: ${error instanceof Error ? error.message : 'Unknown error'}`)
+        }
+
+        this.log('\n') // Spacing before continuing with init flow
       }
 
       this.log('Initializing ByteRover project...\n')
 
-      // 2. Load and validate authentication token
       const token = await tokenStore.load()
       if (token === undefined) {
         this.error('Not authenticated. Please run "brv login" first.')
@@ -116,7 +168,6 @@ export default class Init extends Command {
         this.error('Authentication token expired. Please run "brv login" again.')
       }
 
-      // 3. Fetch all teams with spinner
       ux.action.start('Fetching all teams')
       const teamResult = await teamService.getTeams(token.accessToken, token.sessionKey, {fetchAll: true})
       ux.action.stop()
@@ -129,11 +180,9 @@ export default class Init extends Command {
         return
       }
 
-      // 4. Prompt for team selection
       this.log()
       const selectedTeam = await this.promptForTeamSelection(teams)
 
-      // 5. Fetch all spaces for the selected team with spinner
       ux.action.start('Fetching all spaces')
       const spaceResult = await spaceService.getSpaces(token.accessToken, token.sessionKey, selectedTeam.id, {
         fetchAll: true,
@@ -152,15 +201,12 @@ export default class Init extends Command {
         return
       }
 
-      // 6. Prompt for space selection
       this.log()
       const selectedSpace = await this.promptForSpaceSelection(spaces)
 
-      // 7. Create and save configuration
       const config = BrvConfig.fromSpace(selectedSpace)
       await projectConfigStore.write(config)
 
-      // 8. Initialize ACE playbook
       this.log('\nInitializing ACE context...')
       try {
         const playbookPath = await playbookService.initialize()
@@ -170,15 +216,12 @@ export default class Init extends Command {
         this.warn(`ACE initialization skipped: ${error instanceof Error ? error.message : 'Unknown error'}`)
       }
 
-      // 9. Generate rules
       this.log(`\nGenerate rule instructions for coding agents to work with ByteRover correctly`)
       this.log()
       await this.config.runCommand('gen-rules')
 
-      // Track space initialization
       await trackingService.track('space:init')
 
-      // 10. Display success
       this.log(`\n✓ Project initialized successfully!`)
       this.log(`✓ Connected to space: ${selectedSpace.getDisplayName()}`)
       this.log(`✓ Configuration saved to: ${BRV_DIR}/${PROJECT_CONFIG_FILE}`)

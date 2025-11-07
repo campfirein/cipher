@@ -1,9 +1,10 @@
 import {type Agent} from '../../core/domain/entities/agent.js'
 import {RuleExistsError} from '../../core/domain/errors/rule-error.js'
 import {type IFileService} from '../../core/interfaces/i-file-service.js'
-import {BR_RULE_TAG, IRuleTemplateService} from '../../core/interfaces/i-rule-template-service.js'
+import {IRuleTemplateService} from '../../core/interfaces/i-rule-template-service.js'
 import {type IRuleWriterService} from '../../core/interfaces/i-rule-writer-service.js'
 import {AGENT_RULE_CONFIGS} from './agent-rule-config.js'
+import {BR_RULE_TAG} from './constants.js'
 
 /**
  * Service for writing agent-specific rule files.
@@ -30,26 +31,19 @@ export class RuleWriterService implements IRuleWriterService {
     }
 
     const {filePath, writeMode} = config
-
     const fileExists = await this.fileService.exists(filePath)
-
-    // Throw an error if the file exists and force is not set
     if (writeMode === 'overwrite' && fileExists && !force) {
       throw new RuleExistsError()
     }
 
     if (writeMode === 'append' && fileExists && !force) {
       const content = await this.fileService.read(filePath)
-      // Throw an error if the rule already exists
       if (content.includes(BR_RULE_TAG)) {
         throw new RuleExistsError()
       }
     }
 
-    // Generate rule content
     const ruleContent = await this.templateService.generateRuleContent(agent)
-
-    // Write the rule file
     await this.fileService.write(ruleContent, filePath, writeMode)
   }
 }

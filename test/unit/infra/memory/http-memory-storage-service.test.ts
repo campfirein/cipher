@@ -7,7 +7,7 @@ import {HttpMemoryStorageService} from '../../../../src/infra/memory/http-memory
 describe('HttpMemoryStorageService', () => {
   const config = {
     apiBaseUrl: 'https://dev-beta-cogit.byterover.dev/api/v1',
-    timeout: 5000,
+    timeout: 25,
   }
 
   let service: HttpMemoryStorageService
@@ -209,7 +209,7 @@ describe('HttpMemoryStorageService', () => {
     it('should handle timeout errors', async () => {
       nock('https://storage.googleapis.com')
         .put('/bucket/path?signature=abc123')
-        .delay(6000) // Delay longer than 5s timeout
+        .delay(200) // Delay longer than 100ms timeout
         .reply(200)
 
       try {

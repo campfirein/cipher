@@ -15,6 +15,7 @@ import type {ITrackingService} from '../../src/core/interfaces/i-tracking-servic
 
 import Init from '../../src/commands/init.js'
 import {AuthToken} from '../../src/core/domain/entities/auth-token.js'
+import {BrvConfig} from '../../src/core/domain/entities/brv-config.js'
 import {Space as SpaceImpl} from '../../src/core/domain/entities/space.js'
 import {Team as TeamImpl} from '../../src/core/domain/entities/team.js'
 
@@ -22,6 +23,9 @@ import {Team as TeamImpl} from '../../src/core/domain/entities/team.js'
  * Testable Init command that accepts mocked services
  */
 class TestableInit extends Init {
+  public mockCleanupError: Error | undefined = undefined
+  public mockConfirmResult = false
+
   // eslint-disable-next-line max-params
   constructor(
     private readonly mockConfigStore: IProjectConfigStore,
@@ -35,6 +39,18 @@ class TestableInit extends Init {
     config: Config,
   ) {
     super([], config)
+  }
+
+  protected async cleanupBeforeReInitialization(): Promise<void> {
+    if (this.mockCleanupError) {
+      throw this.mockCleanupError
+    }
+
+    // Otherwise, do nothing in tests (don't actually delete files)
+  }
+
+  protected async confirmReInitialization(_config: import('../../src/core/domain/entities/brv-config.js').BrvConfig): Promise<boolean> {
+    return this.mockConfirmResult
   }
 
   protected createServices() {
@@ -169,6 +185,7 @@ describe('Init Command', () => {
   describe('execute()', () => {
     it('should exit early if project is already initialized', async () => {
       configStore.exists.resolves(true)
+      configStore.read.resolves(BrvConfig.fromSpace(testSpaces[0]))
 
       const command = new TestableInit(
         configStore,
@@ -185,6 +202,7 @@ describe('Init Command', () => {
       await command.run()
 
       expect(configStore.exists.calledOnce).to.be.true
+      expect(configStore.read.calledOnce).to.be.true
       expect(tokenStore.load.called).to.be.false // Should not proceed
     })
 
@@ -565,6 +583,158 @@ describe('Init Command', () => {
         expect(error).to.be.an('error')
         expect((error as Error).message).to.include('gen-rules failed')
       }
+    })
+  })
+
+  describe('re-initialization', () => {
+    it('should re-initialize when user confirms', async () => {
+      configStore.exists.resolves(true)
+      configStore.read.resolves(BrvConfig.fromSpace(testSpaces[0]))
+      configStore.write.resolves()
+      tokenStore.load.resolves(validToken)
+      teamService.getTeams.resolves({teams: testTeams, total: testTeams.length})
+      spaceService.getSpaces.resolves({spaces: testSpaces, total: testSpaces.length})
+
+      const command = new TestableInit(
+        configStore,
+        playbookService,
+        spaceService,
+        teamService,
+        tokenStore,
+        trackingService,
+        testTeams[0],
+        testSpaces[1], // Select different space
+        config,
+      )
+
+      command.mockConfirmResult = true // User confirms
+
+      await command.run()
+
+      expect(configStore.exists.calledOnce).to.be.true
+      expect(configStore.read.calledOnce).to.be.true
+      expect(tokenStore.load.calledOnce).to.be.true
+      expect(teamService.getTeams.calledOnce).to.be.true
+      expect(spaceService.getSpaces.calledOnce).to.be.true
+      expect(configStore.write.calledOnce).to.be.true
+    })
+
+    it('should not proceed when user cancels re-initialization', async () => {
+      configStore.exists.resolves(true)
+      configStore.read.resolves(BrvConfig.fromSpace(testSpaces[0]))
+      tokenStore.load.resolves(validToken)
+
+      const command = new TestableInit(
+        configStore,
+        playbookService,
+        spaceService,
+        teamService,
+        tokenStore,
+        trackingService,
+        testTeams[0],
+        testSpaces[0],
+        config,
+      )
+
+      command.mockConfirmResult = false // User cancels
+
+      await command.run()
+
+      expect(configStore.exists.calledOnce).to.be.true
+      expect(configStore.read.calledOnce).to.be.true
+      expect(tokenStore.load.called).to.be.false // Should not proceed
+      expect(teamService.getTeams.called).to.be.false
+      expect(spaceService.getSpaces.called).to.be.false
+    })
+
+    it('should skip confirmation with --force flag', async () => {
+      configStore.exists.resolves(true)
+      configStore.read.resolves(BrvConfig.fromSpace(testSpaces[0]))
+      configStore.write.resolves()
+      tokenStore.load.resolves(validToken)
+      teamService.getTeams.resolves({teams: testTeams, total: testTeams.length})
+      spaceService.getSpaces.resolves({spaces: testSpaces, total: testSpaces.length})
+
+      const command = new TestableInit(
+        configStore,
+        playbookService,
+        spaceService,
+        teamService,
+        tokenStore,
+        trackingService,
+        testTeams[0],
+        testSpaces[1],
+        config,
+      )
+
+      command.mockConfirmResult = false // Shouldn't matter with --force
+      // Override argv to include --force flag
+      ;(command as never as {argv: string[]}).argv = ['--force']
+
+      await command.run()
+
+      expect(configStore.exists.calledOnce).to.be.true
+      expect(tokenStore.load.calledOnce).to.be.true
+      expect(teamService.getTeams.calledOnce).to.be.true
+      expect(configStore.write.calledOnce).to.be.true
+    })
+
+    it('should handle cleanup failure during re-initialization', async () => {
+      configStore.exists.resolves(true)
+      configStore.read.resolves(BrvConfig.fromSpace(testSpaces[0]))
+
+      const command = new TestableInit(
+        configStore,
+        playbookService,
+        spaceService,
+        teamService,
+        tokenStore,
+        trackingService,
+        testTeams[0],
+        testSpaces[0],
+        config,
+      )
+
+      command.mockConfirmResult = true
+      command.mockCleanupError = new Error('Permission denied')
+
+      try {
+        await command.run()
+        expect.fail('Should have thrown error')
+      } catch (error) {
+        expect(error).to.be.an('error')
+        expect((error as Error).message).to.include('Failed to clean up existing data')
+        expect((error as Error).message).to.include('Permission denied')
+      }
+    })
+
+    it('should handle corrupted config file', async () => {
+      configStore.exists.resolves(true)
+      configStore.read.resolves() // Corrupted/unreadable - returns undefined
+
+      const command = new TestableInit(
+        configStore,
+        playbookService,
+        spaceService,
+        teamService,
+        tokenStore,
+        trackingService,
+        testTeams[0],
+        testSpaces[0],
+        config,
+      )
+
+      try {
+        await command.run()
+        expect.fail('Should have thrown error')
+      } catch (error) {
+        expect(error).to.be.an('error')
+        expect((error as Error).message).to.include('Configuration file exists but cannot be read')
+      }
+
+      expect(configStore.exists.calledOnce).to.be.true
+      expect(configStore.read.calledOnce).to.be.true
+      expect(tokenStore.load.called).to.be.false // Should not proceed
     })
   })
 })
