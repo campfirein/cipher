@@ -8,6 +8,7 @@
   },
   "bugs": "https://github.com/campfirein/byterover-cli/issues",
   "dependencies": {
+    "@google/genai": "^1.29.0",
     "@inquirer/prompts": "^7.9.0",
     "@oclif/core": "^4",
     "@oclif/plugin-help": "^6",
