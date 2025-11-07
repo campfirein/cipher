@@ -47,10 +47,8 @@
     "./dist",
     "./oclif.manifest.json"
   ],
-  "homepage": "https://github.com/campfirein/byterover-cli",
-  "keywords": [
-    "oclif"
-  ],
+  "homepage": "https://www.byterover.dev/",
+  "keywords": [],
   "license": "UNLICENSED",
   "main": "dist/index.js",
   "type": "module",
