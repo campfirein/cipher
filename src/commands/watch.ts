@@ -46,7 +46,7 @@ export default class Watch extends Command {
     }
   }
 
-  private async waitForShutdownSignal(): Promise<void> {
+  protected async waitForShutdownSignal(): Promise<void> {
     return new Promise((resolve) => {
       const handleSignal = (): void => {
         this.log('\nShutting down watcher...')
