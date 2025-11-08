@@ -18,12 +18,17 @@ export type FileEvent = {
   type: 'add' | 'addDir' | 'change' | 'unlink' | 'unlinkDir'
 }
 
+/**
+ * Interface for a file watcher service that monitors file system changes.
+ */
 export interface IFileWatcherService {
   /**
-   * Registers a handler to be called when file system events occur.
+   * Sets the handler to be called when file system events occur.
+   * Only one handler can be registered at a time.
    * @param handler The callback function to invoke with file events.
+   * @returns
    */
-  onFileEvent: (handler: (event: FileEvent) => void) => void
+  setFileEventHandler: (handler: (event: FileEvent) => void) => void
 
   /**
    * Starts watching the specified paths for file system changes.

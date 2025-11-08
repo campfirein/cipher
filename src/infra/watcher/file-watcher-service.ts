@@ -3,16 +3,16 @@ import {type FSWatcher, watch} from 'chokidar'
 import type {FileEvent, IFileWatcherService} from '../../core/interfaces/i-file-watcher-service.js'
 
 export class FileWatcherService implements IFileWatcherService {
-  private eventHandlers: ((event: FileEvent) => void)[]
+  private eventHandler: ((event: FileEvent) => void) | undefined
   private watcher: FSWatcher | undefined
 
   public constructor() {
-    this.eventHandlers = []
+    this.eventHandler = undefined
     this.watcher = undefined
   }
 
-  public onFileEvent(handler: (event: FileEvent) => void): void {
-    this.eventHandlers.push(handler)
+  public setFileEventHandler(handler: (event: FileEvent) => void): void {
+    this.eventHandler = handler
   }
 
   public async start(paths: string[]): Promise<void> {
@@ -29,23 +29,23 @@ export class FileWatcherService implements IFileWatcherService {
 
     // Register event LISTENERS for all file system events
     this.watcher.on('add', (path) => {
-      this.invokeHandlers('add', path)
+      this.invokeHandler('add', path)
     })
 
     this.watcher.on('addDir', (path) => {
-      this.invokeHandlers('addDir', path)
+      this.invokeHandler('addDir', path)
     })
 
     this.watcher.on('change', (path) => {
-      this.invokeHandlers('change', path)
+      this.invokeHandler('change', path)
     })
 
     this.watcher.on('unlink', (path) => {
-      this.invokeHandlers('unlink', path)
+      this.invokeHandler('unlink', path)
     })
 
     this.watcher.on('unlinkDir', (path) => {
-      this.invokeHandlers('unlinkDir', path)
+      this.invokeHandler('unlinkDir', path)
     })
 
     // Wait for watcher to be ready.
@@ -77,12 +77,14 @@ export class FileWatcherService implements IFileWatcherService {
       await this.watcher.close()
       this.watcher = undefined
     }
+
+    this.eventHandler = undefined
   }
 
-  private invokeHandlers(type: FileEvent['type'], path: string): void {
-    const event: FileEvent = {path, type}
-    for (const handler of this.eventHandlers) {
-      handler(event)
+  private invokeHandler(type: FileEvent['type'], path: string): void {
+    if (this.eventHandler !== undefined) {
+      const event: FileEvent = {path, type}
+      this.eventHandler(event)
     }
   }
 }
