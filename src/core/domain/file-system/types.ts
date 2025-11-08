@@ -1,4 +1,19 @@
 /**
+ * Buffer encoding type from Node.js
+ */
+export type BufferEncoding =
+  | 'ascii'
+  | 'base64'
+  | 'base64url'
+  | 'binary'
+  | 'hex'
+  | 'latin1'
+  | 'ucs2'
+  | 'ucs-2'
+  | 'utf8'
+  | 'utf16le'
+
+/**
  * Configuration for the file system service.
  * Defines security policies and operational limits.
  */
@@ -6,11 +21,11 @@ export interface FileSystemConfig {
   /** Whitelist of allowed base paths (relative to working directory) */
   allowedPaths: string[]
 
-  /** Blacklist of forbidden paths (e.g., .git, node_modules/.bin) */
-  blockedPaths: string[]
-
   /** Blacklist of forbidden file extensions (e.g., .exe, .dll) */
   blockedExtensions: string[]
+
+  /** Blacklist of forbidden paths (e.g., .git, node_modules/.bin) */
+  blockedPaths: string[]
 
   /** Maximum file size in bytes for read operations */
   maxFileSize: number
@@ -23,14 +38,14 @@ export interface FileSystemConfig {
  * Options for reading files.
  */
 export interface ReadFileOptions {
+  /** Character encoding */
+  encoding?: BufferEncoding
+
   /** Maximum number of lines to read */
   limit?: number
 
   /** Starting line number (1-based, like text editors) */
   offset?: number
-
-  /** Character encoding */
-  encoding?: BufferEncoding
 }
 
 /**
@@ -59,31 +74,31 @@ export interface GlobOptions {
   /** Working directory for glob pattern */
   cwd?: string
 
-  /** Maximum number of results to return */
-  maxResults?: number
-
   /** Include file metadata (size, modified date) */
   includeMetadata?: boolean
+
+  /** Maximum number of results to return */
+  maxResults?: number
 }
 
 /**
  * Options for content search.
  */
 export interface SearchOptions {
-  /** Glob pattern to filter files (default: all files) */
-  globPattern?: string
-
-  /** Working directory for search */
-  cwd?: string
-
-  /** Maximum number of matches to return */
-  maxResults?: number
+  /** Case-insensitive search */
+  caseInsensitive?: boolean
 
   /** Number of context lines before/after match */
   contextLines?: number
 
-  /** Case-insensitive search */
-  caseInsensitive?: boolean
+  /** Working directory for search */
+  cwd?: string
+
+  /** Glob pattern to filter files (default: all files) */
+  globPattern?: string
+
+  /** Maximum number of matches to return */
+  maxResults?: number
 }
 
 /**
@@ -93,39 +108,39 @@ export interface FileContent {
   /** File content as string */
   content: string
 
-  /** Total number of lines in the returned content */
-  lines: number
-
   /** Character encoding used */
   encoding: string
 
-  /** Whether content was truncated due to size/line limits */
-  truncated: boolean
+  /** Total number of lines in the returned content */
+  lines: number
 
   /** File size in bytes */
   size: number
+
+  /** Whether content was truncated due to size/line limits */
+  truncated: boolean
 }
 
 /**
  * Result of a file write operation.
  */
 export interface WriteResult {
-  /** Whether the write was successful */
-  success: boolean
+  /** Number of bytes written */
+  bytesWritten: number
 
   /** Absolute path to the written file */
   path: string
 
-  /** Number of bytes written */
-  bytesWritten: number
+  /** Whether the write was successful */
+  success: boolean
 }
 
 /**
  * Result of a file edit operation.
  */
 export interface EditResult {
-  /** Whether the edit was successful */
-  success: boolean
+  /** Number of bytes written */
+  bytesWritten: number
 
   /** Absolute path to the edited file */
   path: string
@@ -133,25 +148,25 @@ export interface EditResult {
   /** Number of replacements made */
   replacements: number
 
-  /** Number of bytes written */
-  bytesWritten: number
+  /** Whether the edit was successful */
+  success: boolean
 }
 
 /**
  * Metadata about a file.
  */
 export interface FileMetadata {
+  /** Whether this is a directory */
+  isDirectory: boolean
+
+  /** Last modified date */
+  modified: Date
+
   /** Absolute path to the file */
   path: string
 
   /** File size in bytes */
   size: number
-
-  /** Last modified date */
-  modified: Date
-
-  /** Whether this is a directory */
-  isDirectory: boolean
 }
 
 /**
@@ -161,40 +176,43 @@ export interface GlobResult {
   /** Array of matching files with metadata */
   files: FileMetadata[]
 
-  /** Whether results were truncated due to maxResults limit */
-  truncated: boolean
-
   /** Total number of files found (before truncation) */
   totalFound: number
+
+  /** Whether results were truncated due to maxResults limit */
+  truncated: boolean
 }
 
 /**
  * A single search match with context.
  */
 export interface SearchMatch {
+  /** Context lines before and after the match */
+  context?: {
+    /** Lines after the match */
+    after: string[]
+
+    /** Lines before the match */
+    before: string[]
+  }
+
   /** File path where match was found */
   file: string
-
-  /** Line number (1-based) */
-  lineNumber: number
 
   /** Matching line content */
   line: string
 
-  /** Context lines before and after the match */
-  context?: {
-    /** Lines before the match */
-    before: string[]
-
-    /** Lines after the match */
-    after: string[]
-  }
+  /** Line number (1-based) */
+  lineNumber: number
 }
 
 /**
  * Result of a content search operation.
  */
 export interface SearchResult {
+  /** Number of files searched */
+  filesSearched: number
+
   /** Array of matches */
   matches: SearchMatch[]
 
@@ -203,20 +221,17 @@ export interface SearchResult {
 
   /** Whether results were truncated due to maxResults limit */
   truncated: boolean
-
-  /** Number of files searched */
-  filesSearched: number
 }
 
 /**
  * Edit operation definition.
  */
 export interface EditOperation {
-  /** String to search for */
-  oldString: string
-
   /** String to replace with */
   newString: string
+
+  /** String to search for */
+  oldString: string
 
   /** Replace all occurrences (default: false, requires unique match) */
   replaceAll?: boolean
@@ -226,12 +241,12 @@ export interface EditOperation {
  * Result of path validation.
  */
 export interface ValidationResult {
-  /** Whether the path is valid */
-  valid: boolean
+  /** Error message (if invalid) */
+  error?: string
 
   /** Normalized absolute path (if valid) */
   normalizedPath?: string
 
-  /** Error message (if invalid) */
-  error?: string
+  /** Whether the path is valid */
+  valid: boolean
 }

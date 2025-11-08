@@ -1,7 +1,25 @@
+import {glob} from 'glob'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 
-import {glob} from 'glob'
+import type {
+  BufferEncoding,
+  EditFileOptions,
+  EditOperation,
+  EditResult,
+  FileContent,
+  FileMetadata,
+  FileSystemConfig,
+  GlobOptions,
+  GlobResult,
+  ReadFileOptions,
+  SearchMatch,
+  SearchOptions,
+  SearchResult,
+  WriteFileOptions,
+  WriteResult,
+} from '../../core/domain/file-system/types.js'
+import type {IFileSystem} from '../../core/interfaces/i-file-system.js'
 
 import {
   DirectoryNotFoundError,
@@ -22,23 +40,6 @@ import {
   StringNotUniqueError,
   WriteOperationError,
 } from '../../core/domain/errors/file-system-error.js'
-import type {
-  EditFileOptions,
-  EditOperation,
-  EditResult,
-  FileContent,
-  FileMetadata,
-  FileSystemConfig,
-  GlobOptions,
-  GlobResult,
-  ReadFileOptions,
-  SearchMatch,
-  SearchOptions,
-  SearchResult,
-  WriteFileOptions,
-  WriteResult,
-} from '../../core/domain/file-system/types.js'
-import type {IFileSystem} from '../../core/interfaces/i-file-system.js'
 import {PathValidator} from './path-validator.js'
 
 /**
@@ -48,8 +49,8 @@ import {PathValidator} from './path-validator.js'
  */
 export class FileSystemService implements IFileSystem {
   private readonly config: Required<FileSystemConfig>
-  private readonly pathValidator: PathValidator
   private initialized: boolean = false
+  private readonly pathValidator: PathValidator
 
   /**
    * Creates a new file system service
@@ -69,164 +70,6 @@ export class FileSystemService implements IFileSystem {
   }
 
   /**
-   * Initialize the file system service.
-   */
-  public async initialize(): Promise<void> {
-    if (this.initialized) {
-      return
-    }
-
-    // Verify working directory exists
-    try {
-      const stats = await fs.stat(this.config.workingDirectory)
-      if (!stats.isDirectory()) {
-        throw new DirectoryNotFoundError(this.config.workingDirectory)
-      }
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-        throw new DirectoryNotFoundError(this.config.workingDirectory)
-      }
-      throw error
-    }
-
-    this.initialized = true
-  }
-
-  /**
-   * Read the contents of a file.
-   */
-  public async readFile(filePath: string, options: ReadFileOptions = {}): Promise<FileContent> {
-    this.ensureInitialized()
-
-    // Validate path
-    const validation = this.pathValidator.validate(filePath, 'read')
-    if (!validation.valid || !validation.normalizedPath) {
-      this.throwValidationError(filePath, validation.error!)
-    }
-
-    const normalizedPath = validation.normalizedPath
-
-    try {
-      // Check if file exists
-      let stats
-      try {
-        stats = await fs.stat(normalizedPath)
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-          throw new FileNotFoundError(normalizedPath)
-        }
-        throw error
-      }
-
-      // Check file size
-      if (stats.size > this.config.maxFileSize) {
-        throw new FileTooLargeError(normalizedPath, stats.size, this.config.maxFileSize)
-      }
-
-      // Read file
-      const encoding = (options.encoding ?? 'utf8') as BufferEncoding
-      const content = await fs.readFile(normalizedPath, encoding)
-
-      // Handle pagination
-      const lines = content.split('\n')
-
-      let selectedLines: string[]
-      let truncated = false
-
-      // Apply offset (1-based, like text editors)
-      const offset1 = options.offset
-      const limit = options.limit
-
-      if (offset1 !== undefined || limit !== undefined) {
-        const start = offset1 && offset1 > 0 ? Math.max(0, offset1 - 1) : 0
-        const end = limit !== undefined ? start + limit : lines.length
-
-        selectedLines = lines.slice(start, end)
-        truncated = end < lines.length
-      } else {
-        selectedLines = lines
-      }
-
-      const selectedContent = selectedLines.join('\n')
-
-      return {
-        content: selectedContent,
-        encoding,
-        lines: selectedLines.length,
-        size: stats.size,
-        truncated,
-      }
-    } catch (error) {
-      // Re-throw known errors
-      if (
-        error instanceof FileNotFoundError ||
-        error instanceof FileTooLargeError ||
-        error instanceof PathNotAllowedError ||
-        error instanceof PathTraversalError ||
-        error instanceof PathBlockedError
-      ) {
-        throw error
-      }
-
-      // Wrap other errors
-      throw new ReadOperationError(normalizedPath, (error as Error).message)
-    }
-  }
-
-  /**
-   * Write content to a file.
-   */
-  public async writeFile(
-    filePath: string,
-    content: string,
-    options: WriteFileOptions = {},
-  ): Promise<WriteResult> {
-    this.ensureInitialized()
-
-    // Validate path
-    const validation = this.pathValidator.validate(filePath, 'write')
-    if (!validation.valid || !validation.normalizedPath) {
-      this.throwValidationError(filePath, validation.error!)
-    }
-
-    const normalizedPath = validation.normalizedPath
-
-    try {
-      // Create parent directories if requested
-      if (options.createDirs) {
-        const dirname = path.dirname(normalizedPath)
-        await fs.mkdir(dirname, {recursive: true})
-      }
-
-      // Write file
-      const encoding = (options.encoding ?? 'utf8') as BufferEncoding
-      await fs.writeFile(normalizedPath, content, encoding)
-
-      // Get file size
-      const stats = await fs.stat(normalizedPath)
-
-      return {
-        bytesWritten: stats.size,
-        path: normalizedPath,
-        success: true,
-      }
-    } catch (error) {
-      // Re-throw known errors
-      if (
-        error instanceof InvalidExtensionError ||
-        error instanceof PathNotAllowedError ||
-        error instanceof PathTraversalError ||
-        error instanceof PathBlockedError
-      ) {
-        throw error
-      }
-
-      // Wrap other errors
-      throw new WriteOperationError(normalizedPath, (error as Error).message)
-    }
-  }
-
-  /**
    * Edit a file by replacing strings.
    */
   public async editFile(
@@ -242,7 +85,7 @@ export class FileSystemService implements IFileSystem {
       this.throwValidationError(filePath, validation.error!)
     }
 
-    const normalizedPath = validation.normalizedPath
+    const {normalizedPath} = validation
 
     try {
       // Read current content
@@ -251,8 +94,8 @@ export class FileSystemService implements IFileSystem {
 
       // Escape regex special characters for literal string matching
       const escapedOldString = operation.oldString.replaceAll(
-        /[$()*+.?[\\\]^{|}]/g,
-        '\\$&',
+        /[$()*+.?[\u005C\]^{|}]/g,
+        String.raw`\$&`,
       )
 
       // Count occurrences
@@ -269,12 +112,9 @@ export class FileSystemService implements IFileSystem {
       }
 
       // Perform replacement
-      if (operation.replaceAll) {
-        content = content.replaceAll(operation.oldString, operation.newString)
-      } else {
-        // Replace only the first occurrence
-        content = content.replace(operation.oldString, operation.newString)
-      }
+      content = operation.replaceAll
+        ? content.replaceAll(operation.oldString, operation.newString)
+        : content.replace(operation.oldString, operation.newString)
 
       // Write back
       const writeResult = await this.writeFile(filePath, content, options)
@@ -344,6 +184,7 @@ export class FileSystemService implements IFileSystem {
         // Collect metadata if requested
         if (includeMetadata) {
           try {
+            // eslint-disable-next-line no-await-in-loop
             const stats = await fs.stat(validation.normalizedPath)
             validFiles.push({
               isDirectory: stats.isDirectory(),
@@ -381,6 +222,113 @@ export class FileSystemService implements IFileSystem {
   }
 
   /**
+   * Initialize the file system service.
+   */
+  public async initialize(): Promise<void> {
+    if (this.initialized) {
+      return
+    }
+
+    // Verify working directory exists
+    try {
+      const stats = await fs.stat(this.config.workingDirectory)
+      if (!stats.isDirectory()) {
+        throw new DirectoryNotFoundError(this.config.workingDirectory)
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        throw new DirectoryNotFoundError(this.config.workingDirectory)
+      }
+
+      throw error
+    }
+
+    this.initialized = true
+  }
+
+  /**
+   * Read the contents of a file.
+   */
+  public async readFile(filePath: string, options: ReadFileOptions = {}): Promise<FileContent> {
+    this.ensureInitialized()
+
+    // Validate path
+    const validation = this.pathValidator.validate(filePath, 'read')
+    if (!validation.valid || !validation.normalizedPath) {
+      this.throwValidationError(filePath, validation.error!)
+    }
+
+    const {normalizedPath} = validation
+
+    try {
+      // Check if file exists
+      let stats
+      try {
+        stats = await fs.stat(normalizedPath)
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+          throw new FileNotFoundError(normalizedPath)
+        }
+
+        throw error
+      }
+
+      // Check file size
+      if (stats.size > this.config.maxFileSize) {
+        throw new FileTooLargeError(normalizedPath, stats.size, this.config.maxFileSize)
+      }
+
+      // Read file
+      const encoding = (options.encoding ?? 'utf8') as BufferEncoding
+      const content = await fs.readFile(normalizedPath, encoding)
+
+      // Handle pagination
+      const lines = content.split('\n')
+
+      let selectedLines: string[]
+      let truncated = false
+
+      // Apply offset (1-based, like text editors)
+      const {limit, offset: offset1} = options
+
+      if (offset1 !== undefined || limit !== undefined) {
+        const start =
+          offset1 !== undefined && offset1 > 0 ? Math.max(0, offset1 - 1) : 0
+        const end = limit === undefined ? lines.length : start + limit
+
+        selectedLines = lines.slice(start, end)
+        truncated = end < lines.length
+      } else {
+        selectedLines = lines
+      }
+
+      const selectedContent = selectedLines.join('\n')
+
+      return {
+        content: selectedContent,
+        encoding,
+        lines: selectedLines.length,
+        size: stats.size,
+        truncated,
+      }
+    } catch (error) {
+      // Re-throw known errors
+      if (
+        error instanceof FileNotFoundError ||
+        error instanceof FileTooLargeError ||
+        error instanceof PathNotAllowedError ||
+        error instanceof PathTraversalError ||
+        error instanceof PathBlockedError
+      ) {
+        throw error
+      }
+
+      // Wrap other errors
+      throw new ReadOperationError(normalizedPath, (error as Error).message)
+    }
+  }
+
+  /**
    * Search file contents for a pattern.
    */
   public async searchContent(
@@ -397,88 +345,16 @@ export class FileSystemService implements IFileSystem {
 
     try {
       // Create regex
-      const flags = caseInsensitive ? 'i' : ''
-      let regex: RegExp
-      try {
-        regex = new RegExp(pattern, flags)
-      } catch (error) {
-        throw new InvalidPatternError(pattern, (error as Error).message)
-      }
+      const regex = this.createSearchRegex(pattern, caseInsensitive)
 
       // Find files to search
       const globResult = await this.globFiles(globPattern, {
         cwd,
         includeMetadata: false,
-        maxResults: 10000, // Search more files, but limit results
+        maxResults: 10_000, // Search more files, but limit results
       })
 
-      const matches: SearchMatch[] = []
-      let totalMatches = 0
-      let filesSearched = 0
-
-      // Search each file
-      for (const fileInfo of globResult.files) {
-        filesSearched++
-
-        try {
-          // Read file
-          // eslint-disable-next-line no-await-in-loop
-          const fileContent = await this.readFile(fileInfo.path)
-          const lines = fileContent.content.split('\n')
-
-          // Search lines
-          for (let i = 0; i < lines.length; i++) {
-            const line = lines[i]
-
-            if (regex.test(line)) {
-              totalMatches++
-
-              // Check if we've reached the limit
-              if (matches.length >= maxResults) {
-                return {
-                  filesSearched,
-                  matches,
-                  totalMatches,
-                  truncated: true,
-                }
-              }
-
-              // Collect context lines
-              const before: string[] = []
-              const after: string[] = []
-
-              if (contextLines > 0) {
-                // Lines before
-                for (let j = Math.max(0, i - contextLines); j < i; j++) {
-                  before.push(lines[j])
-                }
-
-                // Lines after
-                for (let j = i + 1; j < Math.min(lines.length, i + 1 + contextLines); j++) {
-                  after.push(lines[j])
-                }
-              }
-
-              matches.push({
-                context: contextLines > 0 ? {after, before} : undefined,
-                file: fileInfo.path,
-                line,
-                lineNumber: i + 1, // 1-based line numbers
-              })
-            }
-          }
-        } catch {
-          // Skip files that can't be read
-          continue
-        }
-      }
-
-      return {
-        filesSearched,
-        matches,
-        totalMatches,
-        truncated: false,
-      }
+      return await this.searchFiles(globResult.files, regex, maxResults, contextLines)
     } catch (error) {
       // Re-throw known errors
       if (error instanceof InvalidPatternError || error instanceof GlobOperationError) {
@@ -486,6 +362,97 @@ export class FileSystemService implements IFileSystem {
       }
 
       throw new SearchOperationError(pattern, (error as Error).message)
+    }
+  }
+
+  /**
+   * Write content to a file.
+   */
+  public async writeFile(
+    filePath: string,
+    content: string,
+    options: WriteFileOptions = {},
+  ): Promise<WriteResult> {
+    this.ensureInitialized()
+
+    // Validate path
+    const validation = this.pathValidator.validate(filePath, 'write')
+    if (!validation.valid || !validation.normalizedPath) {
+      this.throwValidationError(filePath, validation.error!)
+    }
+
+    const {normalizedPath} = validation
+
+    try {
+      // Create parent directories if requested
+      if (options.createDirs) {
+        const dirname = path.dirname(normalizedPath)
+        await fs.mkdir(dirname, {recursive: true})
+      }
+
+      // Write file
+      const encoding = (options.encoding ?? 'utf8') as BufferEncoding
+      await fs.writeFile(normalizedPath, content, encoding)
+
+      // Get file size
+      const stats = await fs.stat(normalizedPath)
+
+      return {
+        bytesWritten: stats.size,
+        path: normalizedPath,
+        success: true,
+      }
+    } catch (error) {
+      // Re-throw known errors
+      if (
+        error instanceof InvalidExtensionError ||
+        error instanceof PathNotAllowedError ||
+        error instanceof PathTraversalError ||
+        error instanceof PathBlockedError
+      ) {
+        throw error
+      }
+
+      // Wrap other errors
+      throw new WriteOperationError(normalizedPath, (error as Error).message)
+    }
+  }
+
+  /**
+   * Collects context lines before and after a match.
+   */
+  private collectContextLines(
+    lines: string[],
+    lineIndex: number,
+    contextLines: number,
+  ): {after: string[]; before: string[]} {
+    const before: string[] = []
+    const after: string[] = []
+
+    if (contextLines > 0) {
+      // Lines before
+      for (let j = Math.max(0, lineIndex - contextLines); j < lineIndex; j++) {
+        before.push(lines[j])
+      }
+
+      // Lines after
+      for (let j = lineIndex + 1; j < Math.min(lines.length, lineIndex + 1 + contextLines); j++) {
+        after.push(lines[j])
+      }
+    }
+
+    return {after, before}
+  }
+
+  /**
+   * Creates a regex from a pattern string.
+   */
+  private createSearchRegex(pattern: string, caseInsensitive: boolean): RegExp {
+    const flags = caseInsensitive ? 'i' : ''
+    try {
+      return new RegExp(pattern, flags)
+    } catch (error) {
+      throw new InvalidPatternError(pattern, (error as Error).message)
     }
   }
 
@@ -500,21 +467,109 @@ export class FileSystemService implements IFileSystem {
   }
 
   /**
+   * Searches a single file for a regex pattern.
+   */
+  private async searchFile(
+    filePath: string,
+    regex: RegExp,
+    maxMatches: number,
+    contextLines: number,
+  ): Promise<{matches: SearchMatch[]; totalMatches: number}> {
+    const fileContent = await this.readFile(filePath)
+    const lines = fileContent.content.split('\n')
+    const matches: SearchMatch[] = []
+    let totalMatches = 0
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]
+
+      if (regex.test(line)) {
+        totalMatches++
+
+        if (matches.length >= maxMatches) {
+          break
+        }
+
+        const context = this.collectContextLines(lines, i, contextLines)
+        matches.push({
+          context: contextLines > 0 ? context : undefined,
+          file: filePath,
+          line,
+          lineNumber: i + 1, // 1-based line numbers
+        })
+      }
+    }
+
+    return {matches, totalMatches}
+  }
+
+  /**
+   * Searches multiple files for a regex pattern.
+   */
+  private async searchFiles(
+    files: FileMetadata[],
+    regex: RegExp,
+    maxResults: number,
+    contextLines: number,
+  ): Promise<SearchResult> {
+    const matches: SearchMatch[] = []
+    let totalMatches = 0
+    let filesSearched = 0
+
+    for (const fileInfo of files) {
+      filesSearched++
+
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        const fileMatches = await this.searchFile(fileInfo.path, regex, maxResults - matches.length, contextLines)
+        totalMatches += fileMatches.totalMatches
+
+        for (const match of fileMatches.matches) {
+          matches.push(match)
+
+          if (matches.length >= maxResults) {
+            return {
+              filesSearched,
+              matches,
+              totalMatches,
+              truncated: true,
+            }
+          }
+        }
+      } catch {
+        // Skip files that can't be read
+        continue
+      }
+    }
+
+    return {
+      filesSearched,
+      matches,
+      totalMatches,
+      truncated: false,
+    }
+  }
+
+  /**
    * Throws the appropriate error based on validation error message.
    */
   private throwValidationError(path: string, error: string): never {
     if (error.includes('empty')) {
       throw new InvalidPathError(path, error)
     }
+
     if (error.includes('traversal')) {
       throw new PathTraversalError(path)
     }
+
     if (error.includes('not in allowed paths')) {
       throw new PathNotAllowedError(path, this.config.allowedPaths)
     }
+
     if (error.includes('blocked')) {
       throw new PathBlockedError(path, error)
     }
+
     if (error.includes('extension')) {
       const ext = path.split('.').pop() ?? ''
       throw new InvalidExtensionError(path, ext)

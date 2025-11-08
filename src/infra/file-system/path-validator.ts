@@ -14,9 +14,9 @@ import type {FileSystemConfig, ValidationResult} from '../../core/domain/file-sy
  * 6. File extension validation
  */
 export class PathValidator {
+  private readonly blockedExtensions: Set<string>
   private readonly normalizedAllowedPaths: string[]
   private readonly normalizedBlockedPaths: string[]
-  private readonly blockedExtensions: Set<string>
   private readonly workingDirectory: string
 
   /**
@@ -106,47 +106,14 @@ export class PathValidator {
   }
 
   /**
-   * Normalizes and resolves a file path to an absolute path.
-   * Uses realpath to resolve symlinks if the path exists.
+   * Checks if a file has a blocked extension.
    *
-   * @param filePath - Path to normalize
-   * @returns Normalized absolute path
+   * @param filePath - File path to check
+   * @returns True if extension is blocked
    */
-  private normalizeAndResolve(filePath: string): string {
-    // First resolve relative to working directory
-    let normalizedPath = path.resolve(this.workingDirectory, filePath)
-
-    // Try to resolve symlinks if path exists
-    try {
-      // Use native variant to preserve casing on Windows
-      normalizedPath = realpathSync.native(normalizedPath)
-    } catch {
-      // Path doesn't exist yet (e.g., for writes) - use resolved path as-is
-      normalizedPath = path.normalize(normalizedPath)
-    }
-
-    return normalizedPath
-  }
-
-  /**
-   * Checks if a path contains path traversal attempts.
-   * Detects both explicit traversal sequences and resolved paths outside working directory.
-   *
-   * @param originalPath - Original path provided by user
-   * @param normalizedPath - Normalized absolute path
-   * @returns True if path traversal detected
-   */
-  private isPathTraversal(originalPath: string, normalizedPath: string): boolean {
-    // Check for explicit traversal sequences
-    if (originalPath.includes('../') || originalPath.includes('..\\')) {
-      // Verify that the resolved path doesn't escape working directory
-      const relative = path.relative(this.workingDirectory, normalizedPath)
-      if (relative.startsWith('..') || path.isAbsolute(relative)) {
-        return true
-      }
-    }
-
-    return false
+  private hasBlockedExtension(filePath: string): boolean {
+    const ext = path.extname(filePath).toLowerCase()
+    return this.blockedExtensions.has(ext)
   }
 
   /**
@@ -200,13 +167,47 @@ export class PathValidator {
   }
 
   /**
-   * Checks if a file has a blocked extension.
+   * Checks if a path contains path traversal attempts.
+   * Detects both explicit traversal sequences and resolved paths outside working directory.
    *
-   * @param filePath - File path to check
-   * @returns True if extension is blocked
+   * @param originalPath - Original path provided by user
+   * @param normalizedPath - Normalized absolute path
+   * @returns True if path traversal detected
    */
-  private hasBlockedExtension(filePath: string): boolean {
-    const ext = path.extname(filePath).toLowerCase()
-    return this.blockedExtensions.has(ext)
+  private isPathTraversal(originalPath: string, normalizedPath: string): boolean {
+    // Check for explicit traversal sequences
+    if (originalPath.includes('../') || originalPath.includes('..\\')) {
+      // Verify that the resolved path doesn't escape working directory
+      const relative = path.relative(this.workingDirectory, normalizedPath)
+      if (relative.startsWith('..') || path.isAbsolute(relative)) {
+        return true
+      }
+    }
+
+    return false
   }
+
+  /**
+   * Normalizes and resolves a file path to an absolute path.
+   * Uses realpath to resolve symlinks if the path exists.
+   *
+   * @param filePath - Path to normalize
+   * @returns Normalized absolute path
+   */
+  private normalizeAndResolve(filePath: string): string {
+    // First resolve relative to working directory
+    let normalizedPath = path.resolve(this.workingDirectory, filePath)
+
+    // Try to resolve symlinks if path exists
+    try {
+      // Use native variant to preserve casing on Windows
+      normalizedPath = realpathSync.native(normalizedPath)
+    } catch {
+      // Path doesn't exist yet (e.g., for writes) - use resolved path as-is
+      normalizedPath = path.normalize(normalizedPath)
+    }
+
+    return normalizedPath
+  }
+
 }
