@@ -6,6 +6,12 @@ import type {ILlmProvider, LlmGenerateParams} from '../../core/interfaces/i-llm-
 import type {BaseLlmConfig, Tool, ToolExecutor} from '../../core/interfaces/llm-types.js'
 import type {InternalMessage, ToolCall} from '../../core/interfaces/message-types.js'
 
+import {
+  LlmGenerationError,
+  LlmMaxIterationsError,
+  LlmMissingToolExecutorError,
+  LlmResponseParsingError,
+} from '../../core/domain/errors/llm-error.js'
 import {GeminiMessageFormatter} from './formatters/gemini-formatter.js'
 
 /**
@@ -83,7 +89,7 @@ export class GeminiLlmProvider implements ILlmProvider {
         // Parse response back to internal format
         const messages = this.formatter.parseResponse(response)
         if (messages.length === 0) {
-          throw new Error('No messages returned from formatter')
+          throw new LlmResponseParsingError('No messages returned from formatter', 'gemini', model)
         }
 
         const lastMessage = messages.at(-1)!
@@ -108,7 +114,7 @@ export class GeminiLlmProvider implements ILlmProvider {
         }
 
         if (!this.toolExecutor) {
-          throw new Error('Function calls requested but no tool executor provided')
+          throw new LlmMissingToolExecutorError('gemini', model)
         }
 
         // Execute tool calls and add results to history
@@ -118,15 +124,25 @@ export class GeminiLlmProvider implements ILlmProvider {
 
         iteration++
       } catch (error) {
-        if (error && typeof error === 'object' && 'message' in error) {
-          throw new Error(`Gemini API error: ${(error as Error).message}`)
+        // Re-throw LLM errors as-is
+        if (
+          error instanceof LlmResponseParsingError ||
+          error instanceof LlmMissingToolExecutorError ||
+          error instanceof LlmGenerationError
+        ) {
+          throw error
         }
 
-        throw new Error(`Failed to generate response: ${String(error)}`)
+        // Wrap other errors as generation errors
+        if (error && typeof error === 'object' && 'message' in error) {
+          throw new LlmGenerationError((error as Error).message, 'gemini', model)
+        }
+
+        throw new LlmGenerationError(String(error), 'gemini', model)
       }
     }
 
-    throw new Error(`Max iterations (${this.config.maxIterations}) reached without completion`)
+    throw new LlmMaxIterationsError(this.config.maxIterations, 'gemini', model)
   }
 
   /**
