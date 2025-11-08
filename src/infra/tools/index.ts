@@ -25,6 +25,7 @@ export {createSearchHistoryTool} from './implementations/search-history-tool.js'
 export {createWriteFileTool} from './implementations/write-file-tool.js'
 
 // Registry and provider
+export {ToolManager} from './tool-manager.js'
 export {ToolProvider} from './tool-provider.js'
 export type {ToolFactory, ToolRegistryEntry, ToolServices} from './tool-registry.js'
 export {TOOL_REGISTRY} from './tool-registry.js'
