@@ -75,20 +75,23 @@ export class GeminiLLMService implements ILLMService {
    *
    * @param sessionId - Unique session identifier
    * @param config - Service configuration
-   * @param toolManager - Tool manager for tool execution
-   * @param systemPromptManager - System prompt manager for building system prompts
-   * @param sessionEventBus - Session event bus for emitting events
+   * @param options - Service dependencies
+   * @param options.toolManager - Tool manager for tool execution
+   * @param options.systemPromptManager - System prompt manager for building system prompts
+   * @param options.sessionEventBus - Session event bus for emitting events
    */
   public constructor(
     sessionId: string,
     config: GeminiServiceConfig,
-    toolManager: ToolManager,
-    systemPromptManager: SystemPromptManager,
-    sessionEventBus: SessionEventBus,
+    options: {
+      sessionEventBus: SessionEventBus
+      systemPromptManager: SystemPromptManager
+      toolManager: ToolManager
+    },
   ) {
-    this.toolManager = toolManager
-    this.systemPromptManager = systemPromptManager
-    this.sessionEventBus = sessionEventBus
+    this.toolManager = options.toolManager
+    this.systemPromptManager = options.systemPromptManager
+    this.sessionEventBus = options.sessionEventBus
     this.config = {
       apiKey: config.apiKey,
       maxInputTokens: config.maxInputTokens ?? 1_000_000,

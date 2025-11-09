@@ -61,7 +61,11 @@ export class SessionManager {
 
     // Create a new LLM service for this session
     // Each session has isolated context via its own service + ContextManager
-    const llmService = new GeminiLLMService(id, this.llmConfig, this.toolManager, systemPromptManager, sessionEventBus)
+    const llmService = new GeminiLLMService(id, this.llmConfig, {
+      sessionEventBus,
+      systemPromptManager,
+      toolManager: this.toolManager,
+    })
 
     // Create the session with the dedicated service
     const session = new ChatSession(id, llmService)

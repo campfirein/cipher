@@ -104,6 +104,7 @@ export class ContextManager<T> {
    * @param toolName - Name of the tool that was executed
    * @param result - Result from tool execution
    * @param _metadata - Additional metadata with success status (currently unused)
+   * @param _metadata.success - Whether the tool execution succeeded
    * @returns The content that was added
    */
   public async addToolResult(

@@ -3,6 +3,7 @@ import {Args, Command, Flags} from '@oclif/core'
 import {CipherAgent} from '../../infra/agents/cipher-agent.js'
 import {startInteractiveLoop} from '../../infra/agents/interactive-loop.js'
 import {ProjectConfigStore} from '../../infra/config/file-config-store.js'
+import {formatToolCall, formatToolResult} from '../../utils/tool-display-formatter.js'
 
 export default class CipherAgentRun extends Command {
   static override args = {
@@ -110,14 +111,16 @@ export default class CipherAgentRun extends Command {
       })
 
       agent.agentEventBus.on('llmservice:toolCall', (payload) => {
-        this.log(`🔧 [Event] Tool Call: ${payload.toolName}`)
+        const formattedCall = formatToolCall(payload.toolName, payload.args)
+        this.log(`🔧 [Event] Tool Call: ${formattedCall}`)
       })
 
       agent.agentEventBus.on('llmservice:toolResult', (payload) => {
+        const resultSummary = formatToolResult(payload.toolName, payload.success, payload.result, payload.error)
         if (payload.success) {
-          this.log(`✓ [Event] Tool Success: ${payload.toolName}`)
+          this.log(`✓ [Event] Tool Success: ${payload.toolName} → ${resultSummary}`)
         } else {
-          this.log(`✗ [Event] Tool Error: ${payload.toolName} - ${payload.error}`)
+          this.log(`✗ [Event] Tool Error: ${payload.toolName} → ${resultSummary}`)
         }
       })
 

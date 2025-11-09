@@ -111,9 +111,11 @@ export async function createCipherServices(
       model: llmConfig.model ?? 'gemini-2.5-flash',
       temperature: llmConfig.temperature ?? 0.7,
     },
-    toolManager,
-    systemPromptManager,
-    sessionEventBus,
+    {
+      sessionEventBus,
+      systemPromptManager,
+      toolManager,
+    },
   )
 
   // 6. Setup event forwarding from session bus to agent bus
