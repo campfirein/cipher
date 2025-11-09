@@ -13,17 +13,21 @@ export class LegacyRuleDetector implements ILegacyRuleDetector {
   private static readonly WORKFLOW_HEADER_PATTERN = /^#\sWorkflow Instruction$/
 
   public detectLegacyRules(content: string, agentName: Agent): LegacyRuleDetectionResult {
-    const lines = content.split('\n')
+    // Normalize line endings to handle CRLF
+    const normalizedContent = content.replaceAll('\r\n', '\n').replaceAll('\r', '\n')
+    const lines = normalizedContent.split('\n')
     const footerTag = `${BRV_RULE_TAG} ${agentName}`
     const reliableMatches: LegacyRuleMatch[] = []
     const uncertainMatches: UncertainMatch[] = []
+    const usedLineRanges: {end: number; start: number}[] = []
     // Find all occurrences of the footer tag
     for (const [index, line] of lines.entries()) {
-      if (line.includes(footerTag)) {
+      // Use exact match to avoid matching partial agent names like "Github Copilot Extended"
+      if (line.trim() === footerTag) {
         const footerIndex = index
         const footerLineNumber = footerIndex + 1
         // Try to find the start of this ByteRover section
-        const startIndex = this.findSectionStart(lines, footerIndex)
+        const startIndex = this.findSectionStart(lines, footerIndex, usedLineRanges)
         if (startIndex === undefined) {
           // Uncertain match - couldn't reliably determine start
           uncertainMatches.push({
@@ -39,6 +43,8 @@ export class LegacyRuleDetector implements ILegacyRuleDetector {
             endLine: footerLineNumber,
             startLine: startLineNumber,
           })
+          // Mark this range as used so it won't be reused by subsequent footers
+          usedLineRanges.push({end: footerIndex, start: startIndex})
         }
       }
     }
@@ -56,13 +62,22 @@ export class LegacyRuleDetector implements ILegacyRuleDetector {
    *
    * @param lines All lines in the file.
    * @param footerIndex Index of the line containing the footer tag (0-indexed).
+   * @param usedLineRanges Line ranges already claimed by detected sections.
    * @returns Index of the start line (0-indexed), or undefined if uncertain.
    */
-  private findSectionStart(lines: string[], footerIndex: number): number | undefined {
+  private findSectionStart(
+    lines: string[],
+    footerIndex: number,
+    usedLineRanges: {end: number; start: number}[],
+  ): number | undefined {
     // Strategy 1: Look for "# Workflow Instruction" header (most reliable)
     for (let i = footerIndex - 1; i >= 0; i--) {
       if (LegacyRuleDetector.WORKFLOW_HEADER_PATTERN.test(lines[i])) {
-        return i
+        // Check if this header is within any already-detected section
+        const isWithinUsedRange = usedLineRanges.some((range) => i >= range.start && i <= range.end)
+        if (!isWithinUsedRange) {
+          return i
+        }
       }
     }
 
@@ -86,6 +101,12 @@ export class LegacyRuleDetector implements ILegacyRuleDetector {
         const linesBetween = footerIndex - sepIndex
         if (linesBetween === 1) {
           // This is the separator right before the footer, skip it
+          continue
+        }
+
+        // Check if this separator is within any already-detected section
+        const isWithinUsedRange = usedLineRanges.some((range) => sepIndex >= range.start && sepIndex <= range.end)
+        if (isWithinUsedRange) {
           continue
         }
 
