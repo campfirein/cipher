@@ -1,4 +1,5 @@
 import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
+import type {FileSystemConfig} from '../../core/domain/file-system/types.js'
 
 import {FileSystemService} from '../file-system/file-system-service.js'
 import {GeminiLLMService} from '../llm/gemini-llm-service.js'
@@ -32,6 +33,7 @@ Remember: You're an agentic system that can autonomously use tools to accomplish
  */
 export interface CipherLLMConfig {
   apiKey: string
+  fileSystemConfig?: Partial<FileSystemConfig>
   maxIterations?: number
   maxTokens?: number
   model?: string
@@ -62,7 +64,8 @@ export async function createCipherServices(
   brvConfig?: BrvConfig,
 ): Promise<CipherServices> {
   // 1. File system service (no dependencies)
-  const fileSystemService = new FileSystemService()
+  const fileSystemService = new FileSystemService(llmConfig.fileSystemConfig)
+  await fileSystemService.initialize()
 
   // 2. Tool system (depends on FileSystemService)
   const toolProvider = new ToolProvider({fileSystemService})

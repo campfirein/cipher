@@ -23,6 +23,10 @@ export default class CipherAgentRun extends Command {
     '',
     '# Piped input (automatically uses non-interactive mode)',
     'echo "Analyze the codebase" | <%= config.bin %> <%= command.id %>',
+    '',
+    '# Specify working directory',
+    '<%= config.bin %> <%= command.id %> -w /path/to/project',
+    '<%= config.bin %> <%= command.id %> --working-directory ~/myproject',
   ]
   static override flags = {
     apiKey: Flags.string({
@@ -46,6 +50,10 @@ export default class CipherAgentRun extends Command {
     temperature: Flags.string({
       char: 'T',
       description: 'Temperature for randomness 0-1 (default: 0.7)',
+    }),
+    workingDirectory: Flags.string({
+      char: 'w',
+      description: 'Working directory for file operations (default: current directory)',
     }),
   }
 
@@ -77,6 +85,9 @@ export default class CipherAgentRun extends Command {
       const model = flags.model ?? 'gemini-2.5-flash'
       const llmConfig = {
         apiKey: flags.apiKey,
+        fileSystemConfig: flags.workingDirectory
+          ? {workingDirectory: flags.workingDirectory}
+          : undefined,
         maxIterations: 50, // Hardcoded default
         maxTokens: flags.maxTokens ?? 8192, // Default: 8192
         model,
