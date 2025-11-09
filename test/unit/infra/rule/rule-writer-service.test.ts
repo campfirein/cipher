@@ -5,7 +5,7 @@ import {Agent, AGENT_VALUES} from '../../../../src/core/domain/entities/agent.js
 import {RuleExistsError} from '../../../../src/core/domain/errors/rule-error.js'
 import {IFileService} from '../../../../src/core/interfaces/i-file-service.js'
 import {IRuleTemplateService} from '../../../../src/core/interfaces/i-rule-template-service.js'
-import {BR_RULE_TAG} from '../../../../src/infra/rule/constants.js'
+import {BRV_RULE_TAG} from '../../../../src/infra/rule/constants.js'
 import {RuleWriterService} from '../../../../src/infra/rule/rule-writer-service.js'
 
 describe('RuleWriterService', () => {
@@ -127,7 +127,7 @@ describe('RuleWriterService', () => {
           })
 
           // eslint-disable-next-line max-nested-callbacks
-          it('should append when file exists but does not contain BR_RULE_TAG', async () => {
+          it('should append when file exists but does not contain BRV_RULE_TAG', async () => {
             fileService.exists.resolves(true)
             fileService.read.resolves('Existing content without tag')
             templateService.generateRuleContent.resolves(`Mock rule content for ${agent}`)
@@ -145,9 +145,9 @@ describe('RuleWriterService', () => {
           })
 
           // eslint-disable-next-line max-nested-callbacks
-          it('should throw RuleExistsError when file exists with BR_RULE_TAG and force=false', async () => {
+          it('should throw RuleExistsError when file exists with BRV_RULE_TAG and force=false', async () => {
             fileService.exists.resolves(true)
-            fileService.read.resolves(`Existing content\n${BR_RULE_TAG}\nMore content`)
+            fileService.read.resolves(`Existing content\n${BRV_RULE_TAG}\nMore content`)
 
             try {
               await service.writeRule(agent, false)
@@ -159,9 +159,9 @@ describe('RuleWriterService', () => {
           })
 
           // eslint-disable-next-line max-nested-callbacks
-          it('should append when file exists with BR_RULE_TAG and force=true', async () => {
+          it('should append when file exists with BRV_RULE_TAG and force=true', async () => {
             fileService.exists.resolves(true)
-            fileService.read.resolves(`Existing content\n${BR_RULE_TAG}\nMore content`)
+            fileService.read.resolves(`Existing content\n${BRV_RULE_TAG}\nMore content`)
             templateService.generateRuleContent.resolves(`Mock rule content for ${agent}`)
 
             await service.writeRule(agent, true)
@@ -354,21 +354,21 @@ describe('RuleWriterService', () => {
 
       it('should not read file when force=true for append mode', async () => {
         fileService.exists.resolves(true)
-        fileService.read.resolves(`Content with ${BR_RULE_TAG}`)
+        fileService.read.resolves(`Content with ${BRV_RULE_TAG}`)
         templateService.generateRuleContent.resolves('Content')
 
         await service.writeRule('Claude Code', true)
 
-        // When force=true, the BR_RULE_TAG check is skipped, so read() is not called
+        // When force=true, the BRV_RULE_TAG check is skipped, so read() is not called
         expect(fileService.read.called).to.be.false
         expect(fileService.write.calledOnce).to.be.true
       })
     })
 
-    describe('BR_RULE_TAG detection', () => {
-      it('should detect BR_RULE_TAG at beginning of content', async () => {
+    describe('BRV_RULE_TAG detection', () => {
+      it('should detect BRV_RULE_TAG at beginning of content', async () => {
         fileService.exists.resolves(true)
-        fileService.read.resolves(`${BR_RULE_TAG} at start`)
+        fileService.read.resolves(`${BRV_RULE_TAG} at start`)
 
         try {
           await service.writeRule('Warp', false)
@@ -378,9 +378,9 @@ describe('RuleWriterService', () => {
         }
       })
 
-      it('should detect BR_RULE_TAG in middle of content', async () => {
+      it('should detect BRV_RULE_TAG in middle of content', async () => {
         fileService.exists.resolves(true)
-        fileService.read.resolves(`Some content\n${BR_RULE_TAG}\nMore content`)
+        fileService.read.resolves(`Some content\n${BRV_RULE_TAG}\nMore content`)
 
         try {
           await service.writeRule('Gemini CLI', false)
@@ -390,9 +390,9 @@ describe('RuleWriterService', () => {
         }
       })
 
-      it('should detect BR_RULE_TAG at end of content', async () => {
+      it('should detect BRV_RULE_TAG at end of content', async () => {
         fileService.exists.resolves(true)
-        fileService.read.resolves(`Content before\n${BR_RULE_TAG}`)
+        fileService.read.resolves(`Content before\n${BRV_RULE_TAG}`)
 
         try {
           await service.writeRule('Junie', false)
@@ -402,12 +402,12 @@ describe('RuleWriterService', () => {
         }
       })
 
-      it('should not detect partial BR_RULE_TAG match', async () => {
+      it('should not detect partial BRV_RULE_TAG match', async () => {
         fileService.exists.resolves(true)
         fileService.read.resolves('Generated by something else')
         templateService.generateRuleContent.resolves('Content')
 
-        // Should not throw since BR_RULE_TAG is not fully present
+        // Should not throw since BRV_RULE_TAG is not fully present
         await service.writeRule('Trae.ai', false)
 
         expect(fileService.write.calledOnce).to.be.true

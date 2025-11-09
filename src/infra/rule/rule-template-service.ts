@@ -1,7 +1,7 @@
 import {type Agent} from '../../core/domain/entities/agent.js'
 import {type IRuleTemplateService} from '../../core/interfaces/i-rule-template-service.js'
 import {type ITemplateLoader} from '../../core/interfaces/i-template-loader.js'
-import {BR_RULE_TAG} from './constants.js'
+import {BRV_RULE_TAG} from './constants.js'
 
 const guideHeaders: {agent: Agent; value: string}[] = [
   {
@@ -78,7 +78,7 @@ export class RuleTemplateService implements IRuleTemplateService {
       return `${header}
 ${content}
 ---
-${BR_RULE_TAG} ${agent}
+${BRV_RULE_TAG} ${agent}
 `
     } catch (error) {
       throw new Error(

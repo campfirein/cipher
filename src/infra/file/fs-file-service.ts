@@ -1,4 +1,4 @@
-import {access, appendFile, mkdir, readFile, writeFile} from 'node:fs/promises'
+import {access, appendFile, copyFile, mkdir, readFile, writeFile} from 'node:fs/promises'
 import {dirname} from 'node:path'
 
 import {type IFileService, type WriteMode} from '../../core/interfaces/i-file-service.js'

@@ -4,7 +4,7 @@ import {type IFileService} from '../../core/interfaces/i-file-service.js'
 import {IRuleTemplateService} from '../../core/interfaces/i-rule-template-service.js'
 import {type IRuleWriterService} from '../../core/interfaces/i-rule-writer-service.js'
 import {AGENT_RULE_CONFIGS} from './agent-rule-config.js'
-import {BR_RULE_TAG} from './constants.js'
+import {BRV_RULE_TAG} from './constants.js'
 
 /**
  * Service for writing agent-specific rule files.
@@ -38,7 +38,7 @@ export class RuleWriterService implements IRuleWriterService {
 
     if (writeMode === 'append' && fileExists && !force) {
       const content = await this.fileService.read(filePath)
-      if (content.includes(BR_RULE_TAG)) {
+      if (content.includes(BRV_RULE_TAG)) {
         throw new RuleExistsError()
       }
     }
