@@ -1,0 +1,56 @@
+import {Args, Command} from '@oclif/core'
+
+import {BrvConfig} from '../../core/domain/entities/brv-config.js'
+import {ProjectConfigStore} from '../../infra/config/file-config-store.js'
+
+export default class CipherAgentSetPrompt extends Command {
+  static override args = {
+    prompt: Args.string({description: 'The system prompt for CipherAgent', required: true}),
+  }
+  static override description = 'Set custom system prompt for CipherAgent'
+  static override examples = [
+    '<%= config.bin %> <%= command.id %> "You are a helpful coding assistant specialized in TypeScript"',
+    '<%= config.bin %> <%= command.id %> "You are an expert in refactoring and code quality improvements"',
+  ]
+
+  public async run(): Promise<void> {
+    const {args} = await this.parse(CipherAgentSetPrompt)
+
+    try {
+      const configStore = new ProjectConfigStore()
+
+      // Check if config exists
+      const configExists = await configStore.exists()
+      if (!configExists) {
+        this.error(
+          'No ByteRover config found. Please run "byterover init" first to initialize the project.',
+        )
+      }
+
+      // Read existing config
+      const existingConfig = await configStore.read()
+      if (!existingConfig) {
+        this.error('Failed to read existing config.')
+      }
+
+      // Create updated config with new system prompt
+      const updatedConfig = new BrvConfig(
+        existingConfig.createdAt,
+        existingConfig.spaceId,
+        existingConfig.spaceName,
+        existingConfig.teamId,
+        existingConfig.teamName,
+        args.prompt,
+      )
+
+      // Write updated config
+      await configStore.write(updatedConfig)
+
+      this.log('✓ CipherAgent system prompt updated successfully!')
+      this.log('\nNew prompt:')
+      this.log(args.prompt)
+    } catch (error) {
+      this.error(`Failed to set system prompt: ${(error as Error).message}`)
+    }
+  }
+}

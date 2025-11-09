@@ -29,10 +29,28 @@ export interface StaticContributorConfig {
 }
 
 /**
- * Union type for all contributor configurations.
- * Currently only includes static, but designed for future extension.
+ * Configuration for a date-time contributor.
+ * Provides current date and time in ISO format.
  */
-export type ContributorConfig = StaticContributorConfig
+export interface DateTimeContributorConfig {
+  /** Whether this contributor is enabled (default: true) */
+  enabled?: boolean
+
+  /** Unique identifier for this contributor */
+  id: string
+
+  /** Priority for ordering (lower = higher priority) */
+  priority: number
+
+  /** Type discriminator */
+  type: 'dateTime'
+}
+
+/**
+ * Union type for all contributor configurations.
+ * Uses discriminated union for type-safe contributor creation.
+ */
+export type ContributorConfig = DateTimeContributorConfig | StaticContributorConfig
 
 /**
  * Configuration for the system prompt manager.

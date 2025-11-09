@@ -1,0 +1,22 @@
+{
+  "bullets": {
+    "testing-00001": {
+      "content": "Test content",
+      "id": "testing-00001",
+      "metadata": {
+        "relatedFiles": [],
+        "tags": [
+          "manual"
+        ],
+        "timestamp": "2025-10-31T07:12:48.845Z"
+      },
+      "section": "Testing"
+    }
+  },
+  "nextId": 2,
+  "sections": {
+    "Testing": [
+      "testing-00001"
+    ]
+  }
+}

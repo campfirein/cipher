@@ -6,6 +6,7 @@ import type {GeminiServiceConfig} from '../llm/gemini-llm-service.js'
 import type {ToolManager} from '../tools/tool-manager.js'
 
 import {GeminiLLMService} from '../llm/gemini-llm-service.js'
+import {SystemPromptManager} from '../system-prompt/system-prompt-manager.js'
 import {ChatSession} from './chat-session.js'
 
 /**
@@ -41,9 +42,22 @@ export class SessionManager {
   public createSession(_config?: SessionConfig): IChatSession {
     const id = randomUUID()
 
+    // Create default system prompt manager for the session
+    const systemPromptManager = new SystemPromptManager({
+      contributors: [
+        {
+          content: 'You are a helpful AI assistant.',
+          enabled: true,
+          id: 'static',
+          priority: 0,
+          type: 'static',
+        },
+      ],
+    })
+
     // Create a new LLM service for this session
     // Each session has isolated context via its own service + ContextManager
-    const llmService = new GeminiLLMService(id, this.llmConfig, this.toolManager)
+    const llmService = new GeminiLLMService(id, this.llmConfig, this.toolManager, systemPromptManager)
 
     // Create the session with the dedicated service
     const session = new ChatSession(id, llmService)

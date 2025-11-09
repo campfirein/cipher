@@ -5,6 +5,7 @@ import type {
 } from '../../core/domain/system-prompt/types.js'
 import type {ISystemPromptContributor} from '../../core/interfaces/i-system-prompt-contributor.js'
 
+import {DateTimeContributor} from './contributors/date-time-contributor.js'
 import {StaticContributor} from './contributors/static-contributor.js'
 
 /**
@@ -62,6 +63,10 @@ export class SystemPromptManager {
    */
   private createContributor(config: ContributorConfig): ISystemPromptContributor {
     switch (config.type) {
+      case 'dateTime': {
+        return new DateTimeContributor(config.id, config.priority)
+      }
+
       case 'static': {
         return new StaticContributor(config.id, config.priority, config.content)
       }

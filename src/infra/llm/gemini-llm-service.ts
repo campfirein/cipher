@@ -10,6 +10,7 @@ import {
   LlmMaxIterationsError,
   LlmResponseParsingError,
 } from '../../core/domain/errors/llm-error.js'
+import {SystemPromptManager} from '../system-prompt/system-prompt-manager.js'
 import {ContextManager, type FileData, type ImageData} from './context/context-manager.js'
 import {GeminiMessageFormatter} from './formatters/gemini-formatter.js'
 import {GeminiLlmProvider, type GeminiProviderConfig} from './gemini-llm-provider.js'
@@ -63,6 +64,7 @@ export class GeminiLLMService implements ILLMService {
   private readonly contextManager: ContextManager<Content>
   private readonly formatter: GeminiMessageFormatter
   private readonly provider: GeminiLlmProvider
+  private readonly systemPromptManager: SystemPromptManager
   private readonly tokenizer: GeminiTokenizer
   private readonly toolManager: ToolManager
 
@@ -72,9 +74,16 @@ export class GeminiLLMService implements ILLMService {
    * @param sessionId - Unique session identifier
    * @param config - Service configuration
    * @param toolManager - Tool manager for tool execution
+   * @param systemPromptManager - System prompt manager for building system prompts
    */
-  public constructor(sessionId: string, config: GeminiServiceConfig, toolManager: ToolManager) {
+  public constructor(
+    sessionId: string,
+    config: GeminiServiceConfig,
+    toolManager: ToolManager,
+    systemPromptManager: SystemPromptManager,
+  ) {
     this.toolManager = toolManager
+    this.systemPromptManager = systemPromptManager
     this.config = {
       apiKey: config.apiKey,
       maxInputTokens: config.maxInputTokens ?? 1_000_000,
@@ -155,8 +164,12 @@ export class GeminiLLMService implements ILLMService {
       // eslint-disable-next-line no-await-in-loop -- Sequential iterations required for agentic loop
       const {formattedMessages} = await this.contextManager.getFormattedMessagesWithCompression()
 
-      // Build generation config
-      const genConfig = this.buildGenerationConfig(tools)
+      // Build system prompt using SystemPromptManager
+      // eslint-disable-next-line no-await-in-loop -- Sequential system prompt building required
+      const systemPrompt = await this.systemPromptManager.build({})
+
+      // Build generation config with system prompt
+      const genConfig = this.buildGenerationConfig(tools, systemPrompt)
 
       try {
         // Call Gemini API via provider
@@ -273,13 +286,15 @@ export class GeminiLLMService implements ILLMService {
    * Build generation configuration for Gemini API.
    *
    * @param tools - Available tools
-   * @returns Generation config with tools
+   * @param systemPrompt - System prompt to include
+   * @returns Generation config with tools and system instruction
    */
-  private buildGenerationConfig(tools: GeminiToolDefinition[]): GenerateContentConfig {
+  private buildGenerationConfig(tools: GeminiToolDefinition[], systemPrompt: string): GenerateContentConfig {
     return {
       maxOutputTokens: this.config.maxTokens,
       temperature: this.config.temperature,
       topP: 1,
+      ...(systemPrompt && {systemInstruction: {parts: [{text: systemPrompt}]}}),
       ...(tools.length > 0 && {
         tools: [
           {
