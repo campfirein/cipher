@@ -10,6 +10,7 @@ import {
   LlmMaxIterationsError,
   LlmResponseParsingError,
 } from '../../core/domain/errors/llm-error.js'
+import {SessionEventBus} from '../events/event-emitter.js'
 import {SystemPromptManager} from '../system-prompt/system-prompt-manager.js'
 import {ContextManager, type FileData, type ImageData} from './context/context-manager.js'
 import {GeminiMessageFormatter} from './formatters/gemini-formatter.js'
@@ -64,6 +65,7 @@ export class GeminiLLMService implements ILLMService {
   private readonly contextManager: ContextManager<Content>
   private readonly formatter: GeminiMessageFormatter
   private readonly provider: GeminiLlmProvider
+  private readonly sessionEventBus: SessionEventBus
   private readonly systemPromptManager: SystemPromptManager
   private readonly tokenizer: GeminiTokenizer
   private readonly toolManager: ToolManager
@@ -75,15 +77,18 @@ export class GeminiLLMService implements ILLMService {
    * @param config - Service configuration
    * @param toolManager - Tool manager for tool execution
    * @param systemPromptManager - System prompt manager for building system prompts
+   * @param sessionEventBus - Session event bus for emitting events
    */
   public constructor(
     sessionId: string,
     config: GeminiServiceConfig,
     toolManager: ToolManager,
     systemPromptManager: SystemPromptManager,
+    sessionEventBus: SessionEventBus,
   ) {
     this.toolManager = toolManager
     this.systemPromptManager = systemPromptManager
+    this.sessionEventBus = sessionEventBus
     this.config = {
       apiKey: config.apiKey,
       maxInputTokens: config.maxInputTokens ?? 1_000_000,
@@ -171,6 +176,9 @@ export class GeminiLLMService implements ILLMService {
       // Build generation config with system prompt
       const genConfig = this.buildGenerationConfig(tools, systemPrompt)
 
+      // Emit thinking event
+      this.sessionEventBus.emit('llmservice:thinking')
+
       try {
         // Call Gemini API via provider
         // eslint-disable-next-line no-await-in-loop -- Sequential LLM calls required for agentic loop
@@ -193,6 +201,13 @@ export class GeminiLLMService implements ILLMService {
           // No tool calls - final response
           const content = this.extractTextContent(lastMessage)
 
+          // Emit response event
+          this.sessionEventBus.emit('llmservice:response', {
+            content,
+            model: this.config.model,
+            provider: 'gemini',
+          })
+
           // Add assistant message to context
           // eslint-disable-next-line no-await-in-loop -- Sequential context update required
           await this.contextManager.addAssistantMessage(content)
@@ -211,9 +226,24 @@ export class GeminiLLMService implements ILLMService {
             const toolName = toolCall.function.name
             const toolArgs = JSON.parse(toolCall.function.arguments)
 
+            // Emit tool call event
+            this.sessionEventBus.emit('llmservice:toolCall', {
+              args: toolArgs,
+              callId: toolCall.id,
+              toolName,
+            })
+
             // Execute tool via ToolManager (handles approval, routing, etc.)
             // eslint-disable-next-line no-await-in-loop -- Sequential tool execution required
             const result = await this.toolManager.executeTool(toolName, toolArgs)
+
+            // Emit tool result event (success)
+            this.sessionEventBus.emit('llmservice:toolResult', {
+              callId: toolCall.id,
+              result,
+              success: true,
+              toolName,
+            })
 
             // Add tool result to context
             // eslint-disable-next-line no-await-in-loop -- Sequential context update required
@@ -221,6 +251,15 @@ export class GeminiLLMService implements ILLMService {
           } catch (error) {
             // Add error result to context
             const errorMessage = error instanceof Error ? error.message : String(error)
+
+            // Emit tool result event (error)
+            this.sessionEventBus.emit('llmservice:toolResult', {
+              callId: toolCall.id,
+              error: errorMessage,
+              success: false,
+              toolName: toolCall.function.name,
+            })
+
             // eslint-disable-next-line no-await-in-loop -- Sequential context update required
             await this.contextManager.addToolResult(
               toolCall.id,
@@ -233,6 +272,12 @@ export class GeminiLLMService implements ILLMService {
 
         iterationCount++
       } catch (error) {
+        // Emit error event
+        const errorMessage = error instanceof Error ? error.message : String(error)
+        this.sessionEventBus.emit('llmservice:error', {
+          error: errorMessage,
+        })
+
         // Re-throw LLM errors as-is
         if (
           error instanceof LlmResponseParsingError ||

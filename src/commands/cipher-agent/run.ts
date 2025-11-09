@@ -100,6 +100,35 @@ export default class CipherAgentRun extends Command {
       this.log('Starting CipherAgent...')
       await agent.start()
 
+      // Setup event listeners for debugging/monitoring
+      agent.agentEventBus.on('llmservice:thinking', () => {
+        this.log('🤔 [Event] LLM is thinking...')
+      })
+
+      agent.agentEventBus.on('llmservice:response', (payload) => {
+        this.log(`✅ [Event] LLM Response (${payload.provider}/${payload.model})`)
+      })
+
+      agent.agentEventBus.on('llmservice:toolCall', (payload) => {
+        this.log(`🔧 [Event] Tool Call: ${payload.toolName}`)
+      })
+
+      agent.agentEventBus.on('llmservice:toolResult', (payload) => {
+        if (payload.success) {
+          this.log(`✓ [Event] Tool Success: ${payload.toolName}`)
+        } else {
+          this.log(`✗ [Event] Tool Error: ${payload.toolName} - ${payload.error}`)
+        }
+      })
+
+      agent.agentEventBus.on('llmservice:error', (payload) => {
+        this.log(`❌ [Event] LLM Error: ${payload.error}`)
+      })
+
+      agent.agentEventBus.on('cipher:conversationReset', () => {
+        this.log('🔄 [Event] Conversation Reset')
+      })
+
       if (isInteractive) {
         // Interactive mode: start the loop
         await startInteractiveLoop(agent, {

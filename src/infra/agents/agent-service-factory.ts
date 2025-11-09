@@ -1,8 +1,10 @@
 import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
 import type {FileSystemConfig} from '../../core/domain/file-system/types.js'
 
+import {AgentEventBus, SessionEventBus} from '../events/event-emitter.js'
 import {FileSystemService} from '../file-system/file-system-service.js'
 import {GeminiLLMService} from '../llm/gemini-llm-service.js'
+import {setupEventForwarding} from '../session/session-event-forwarder.js'
 import {SystemPromptManager} from '../system-prompt/system-prompt-manager.js'
 import {ToolManager} from '../tools/tool-manager.js'
 import {ToolProvider} from '../tools/tool-provider.js'
@@ -44,8 +46,10 @@ export interface CipherLLMConfig {
  * Services created by the factory
  */
 export interface CipherServices {
+  agentEventBus: AgentEventBus
   fileSystemService: FileSystemService
   llmService: GeminiLLMService
+  sessionEventBus: SessionEventBus
   systemPromptManager: SystemPromptManager
   toolManager: ToolManager
   toolProvider: ToolProvider
@@ -63,17 +67,21 @@ export async function createCipherServices(
   llmConfig: CipherLLMConfig,
   brvConfig?: BrvConfig,
 ): Promise<CipherServices> {
-  // 1. File system service (no dependencies)
+  // 1. Event buses (no dependencies)
+  const agentEventBus = new AgentEventBus()
+  const sessionEventBus = new SessionEventBus()
+
+  // 2. File system service (no dependencies)
   const fileSystemService = new FileSystemService(llmConfig.fileSystemConfig)
   await fileSystemService.initialize()
 
-  // 2. Tool system (depends on FileSystemService)
+  // 3. Tool system (depends on FileSystemService)
   const toolProvider = new ToolProvider({fileSystemService})
   await toolProvider.initialize()
   const toolManager = new ToolManager(toolProvider)
   await toolManager.initialize()
 
-  // 3. System prompt manager
+  // 4. System prompt manager
   const customPrompt = brvConfig?.cipherAgentSystemPrompt
   const systemPromptManager = new SystemPromptManager({
     contributors: [
@@ -93,7 +101,7 @@ export async function createCipherServices(
     ],
   })
 
-  // 4. LLM service (depends on ToolManager and SystemPromptManager)
+  // 5. LLM service (depends on ToolManager, SystemPromptManager, SessionEventBus)
   const llmService = new GeminiLLMService(
     'cipher-agent-session',
     {
@@ -105,11 +113,17 @@ export async function createCipherServices(
     },
     toolManager,
     systemPromptManager,
+    sessionEventBus,
   )
 
+  // 6. Setup event forwarding from session bus to agent bus
+  setupEventForwarding(sessionEventBus, agentEventBus, 'cipher-agent-session')
+
   return {
+    agentEventBus,
     fileSystemService,
     llmService,
+    sessionEventBus,
     systemPromptManager,
     toolManager,
     toolProvider,

@@ -5,6 +5,7 @@ import type {IChatSession} from '../../core/interfaces/i-chat-session.js'
 import type {GeminiServiceConfig} from '../llm/gemini-llm-service.js'
 import type {ToolManager} from '../tools/tool-manager.js'
 
+import {SessionEventBus} from '../events/event-emitter.js'
 import {GeminiLLMService} from '../llm/gemini-llm-service.js'
 import {SystemPromptManager} from '../system-prompt/system-prompt-manager.js'
 import {ChatSession} from './chat-session.js'
@@ -55,9 +56,12 @@ export class SessionManager {
       ],
     })
 
+    // Create session event bus for this session
+    const sessionEventBus = new SessionEventBus()
+
     // Create a new LLM service for this session
     // Each session has isolated context via its own service + ContextManager
-    const llmService = new GeminiLLMService(id, this.llmConfig, this.toolManager, systemPromptManager)
+    const llmService = new GeminiLLMService(id, this.llmConfig, this.toolManager, systemPromptManager, sessionEventBus)
 
     // Create the session with the dedicated service
     const session = new ChatSession(id, llmService)

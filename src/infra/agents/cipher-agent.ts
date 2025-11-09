@@ -1,6 +1,7 @@
 import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
 import type {AgentState, ICipherAgent} from '../../core/interfaces/i-cipher-agent.js'
 import type {ILLMService} from '../../core/interfaces/i-llm-service.js'
+import type {AgentEventBus, SessionEventBus} from '../events/event-emitter.js'
 import type {FileSystemService} from '../file-system/file-system-service.js'
 import type {SystemPromptManager} from '../system-prompt/system-prompt-manager.js'
 import type {ToolManager} from '../tools/tool-manager.js'
@@ -27,11 +28,13 @@ import {CipherAgentStateManager} from './cipher-agent-state-manager.js'
  * - Max iterations: 50
  */
 export class CipherAgent implements ICipherAgent {
+  public readonly agentEventBus!: AgentEventBus
   private readonly _brvConfig?: BrvConfig
   private _isStarted: boolean = false
   private fileSystemService!: FileSystemService
   private readonly llmConfig: CipherLLMConfig
   private llmService!: ILLMService
+  private readonly sessionEventBus!: SessionEventBus
   private readonly stateManager: CipherAgentStateManager
   private systemPromptManager!: SystemPromptManager
   private toolManager!: ToolManager
@@ -107,6 +110,11 @@ export class CipherAgent implements ICipherAgent {
    */
   public reset(): void {
     this.stateManager.reset()
+
+    // Emit conversation reset event
+    this.agentEventBus.emit('cipher:conversationReset', {
+      sessionId: 'cipher-agent-session',
+    })
   }
 
   /**
