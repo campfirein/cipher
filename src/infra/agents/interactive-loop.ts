@@ -1,0 +1,131 @@
+import chalk from 'chalk'
+import readline from 'node:readline'
+
+import type {ICipherAgent} from '../../core/interfaces/i-cipher-agent.js'
+
+import {parseInput} from './command-parser.js'
+import {executeCommand} from './interactive-commands.js'
+
+/**
+ * Prompt user for input using readline
+ *
+ * @param rl - Readline interface
+ * @returns Promise resolving to user input
+ */
+function promptUser(rl: readline.Interface): Promise<string> {
+  return new Promise((resolve) => {
+    rl.question(chalk.green('> '), (answer) => {
+      resolve(answer)
+    })
+  })
+}
+
+/**
+ * Display welcome message for interactive mode
+ *
+ * @param sessionId - Session identifier
+ * @param model - LLM model name
+ */
+function displayWelcome(sessionId: string, model: string): void {
+  console.log('\n' + chalk.cyan('═'.repeat(60)))
+  console.log(chalk.bold.cyan('🤖 CipherAgent Interactive Mode'))
+  console.log(chalk.cyan('═'.repeat(60)))
+  console.log(chalk.gray(`Model: ${model}`))
+  console.log(chalk.gray(`Session: ${sessionId}`))
+  console.log(chalk.yellow('\nType /help for available commands'))
+  console.log(chalk.cyan('─'.repeat(60)) + '\n')
+}
+
+/**
+ * Format and display AI response
+ *
+ * @param response - AI response text
+ */
+function displayResponse(response: string): void {
+  console.log('\n' + chalk.rgb(255, 165, 0)('─'.repeat(60)))
+  console.log(chalk.bold.rgb(255, 165, 0)('🤖 AI Response:'))
+  console.log(chalk.rgb(255, 165, 0)('─'.repeat(60)))
+  console.log(chalk.white(response))
+  console.log(chalk.rgb(255, 165, 0)('─'.repeat(60)) + '\n')
+}
+
+/**
+ * Start interactive loop for CipherAgent
+ *
+ * @param agent - CipherAgent instance
+ * @param options - Optional configuration
+ * @param options.model - LLM model name
+ * @param options.sessionId - Session identifier
+ */
+export async function startInteractiveLoop(
+  agent: ICipherAgent,
+  options?: {
+    model?: string
+    sessionId?: string
+  },
+): Promise<void> {
+  // Display welcome message
+  displayWelcome(options?.sessionId ?? 'cipher-agent-session', options?.model ?? 'gemini-2.5-flash')
+
+  // Create readline interface
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  })
+
+  // Resume stdin
+  process.stdin.resume()
+
+  try {
+    // Main interactive loop
+    while (true) {
+      // Get user input
+      // eslint-disable-next-line no-await-in-loop -- Sequential user input required for interactive loop
+      const userInput = await promptUser(rl)
+
+      // Parse input
+      const parsed = parseInput(userInput)
+
+      if (parsed.type === 'command') {
+        // Handle slash command
+        if (!parsed.command) {
+          console.log('\n' + chalk.yellow('💡 Type /help to see available commands\n'))
+          continue
+        }
+
+        // eslint-disable-next-line no-await-in-loop -- Sequential command execution required for interactive loop
+        const shouldContinue = await executeCommand(parsed.command, parsed.args || [], agent)
+
+        if (!shouldContinue) {
+          // Exit command was called
+          break
+        }
+
+        continue
+      }
+
+      // Handle regular prompt - pass to AI
+      if (!parsed.rawInput.trim()) {
+        // Empty input, skip
+        continue
+      }
+
+      try {
+        // Execute AI prompt
+        // eslint-disable-next-line no-await-in-loop -- Sequential agent execution required for interactive loop
+        const response = await agent.execute(parsed.rawInput)
+
+        // Display response
+        displayResponse(response)
+      } catch (error) {
+        // Handle execution error
+        console.error('\n' + chalk.red('❌ Error executing prompt:'))
+        console.error(chalk.red(error instanceof Error ? error.message : String(error)))
+        console.log()
+      }
+    }
+  } finally {
+    // Cleanup: close readline interface
+    rl.close()
+  }
+}

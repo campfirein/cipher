@@ -1,23 +1,39 @@
 import {Args, Command, Flags} from '@oclif/core'
 
 import {CipherAgent} from '../../infra/agents/cipher-agent.js'
+import {startInteractiveLoop} from '../../infra/agents/interactive-loop.js'
 import {ProjectConfigStore} from '../../infra/config/file-config-store.js'
 
 export default class CipherAgentRun extends Command {
   static override args = {
-    prompt: Args.string({description: 'The prompt to send to CipherAgent', required: true}),
+    prompt: Args.string({
+      description: 'The prompt to send to CipherAgent (optional in interactive mode)',
+      required: false,
+    }),
   }
-  static override description = 'Run CipherAgent with a prompt'
+  static override description = 'Run CipherAgent in interactive or single-execution mode'
   static override examples = [
-    '<%= config.bin %> <%= command.id %> "Analyze the project structure"',
-    '<%= config.bin %> <%= command.id %> "Find all TypeScript files and count lines of code"',
-    '<%= config.bin %> <%= command.id %> "Help me refactor the authentication module"',
+    '# Interactive mode (default when TTY is available)',
+    '<%= config.bin %> <%= command.id %>',
+    '<%= config.bin %> <%= command.id %> --interactive',
+    '',
+    '# Single execution mode',
+    '<%= config.bin %> <%= command.id %> "Analyze the project structure" --no-interactive',
+    '<%= config.bin %> <%= command.id %> "Find all TypeScript files" --no-interactive',
+    '',
+    '# Piped input (automatically uses non-interactive mode)',
+    'echo "Analyze the codebase" | <%= config.bin %> <%= command.id %>',
   ]
   static override flags = {
     apiKey: Flags.string({
       char: 'k',
       description: 'Gemini API key (or set GEMINI_API_KEY env var)',
       env: 'GEMINI_API_KEY',
+    }),
+    interactive: Flags.boolean({
+      allowNo: true,
+      char: 'i',
+      description: 'Enable interactive mode (auto-detected from TTY if not specified)',
     }),
     maxTokens: Flags.integer({
       char: 't',
@@ -41,16 +57,29 @@ export default class CipherAgentRun extends Command {
         this.error('API key is required. Set GEMINI_API_KEY environment variable or use --apiKey flag.')
       }
 
+      // Determine interactive mode
+      // Priority: explicit flag > TTY detection
+      const isInteractive: boolean =
+        flags.interactive === undefined
+          ? process.stdin.isTTY === true // Auto-detect from TTY
+          : flags.interactive // User explicitly set --interactive or --no-interactive
+
+      // Validate prompt requirement for non-interactive mode
+      if (!isInteractive && !args.prompt) {
+        this.error('Prompt is required in non-interactive mode. Use --interactive flag for interactive mode.')
+      }
+
       // Load ByteRover config to get custom system prompt (if configured)
       const configStore = new ProjectConfigStore()
       const brvConfig = await configStore.read()
 
       // Create LLM configuration (hardcoded defaults + flag overrides)
+      const model = flags.model ?? 'gemini-2.5-flash'
       const llmConfig = {
         apiKey: flags.apiKey,
         maxIterations: 50, // Hardcoded default
         maxTokens: flags.maxTokens ?? 8192, // Default: 8192
-        model: flags.model ?? 'gemini-2.5-flash', // Default: gemini-2.5-flash
+        model,
         temperature: flags.temperature ? Number.parseFloat(flags.temperature) : 0.7, // Default: 0.7
       }
 
@@ -60,15 +89,24 @@ export default class CipherAgentRun extends Command {
       this.log('Starting CipherAgent...')
       await agent.start()
 
-      this.log('Executing prompt...')
-      const response = await agent.execute(args.prompt)
+      if (isInteractive) {
+        // Interactive mode: start the loop
+        await startInteractiveLoop(agent, {
+          model,
+          sessionId: 'cipher-agent-session',
+        })
+      } else {
+        // Non-interactive mode: single execution
+        this.log('Executing prompt...')
+        const response = await agent.execute(args.prompt!)
 
-      this.log('\nCipherAgent Response:')
-      this.log(response)
+        this.log('\nCipherAgent Response:')
+        this.log(response)
 
-      // Show agent state
-      const state = agent.getState()
-      this.log(`\n[Agent State: ${state.currentIteration} iterations]`)
+        // Show agent state
+        const state = agent.getState()
+        this.log(`\n[Agent State: ${state.currentIteration} iterations]`)
+      }
     } catch (error) {
       this.error(`Failed to execute CipherAgent: ${(error as Error).message}`)
     }
