@@ -1,11 +1,15 @@
 import type {KnownTool} from '../../core/domain/tools/constants.js'
 import type {Tool} from '../../core/domain/tools/types.js'
 import type {IFileSystem} from '../../core/interfaces/i-file-system.js'
+import type {IProcessService} from '../../core/interfaces/i-process-service.js'
 
 import {ToolName} from '../../core/domain/tools/constants.js'
+import {createBashExecTool} from './implementations/bash-exec-tool.js'
+import {createBashOutputTool} from './implementations/bash-output-tool.js'
 import {createEditFileTool} from './implementations/edit-file-tool.js'
 import {createGlobFilesTool} from './implementations/glob-files-tool.js'
 import {createGrepContentTool} from './implementations/grep-content-tool.js'
+import {createKillProcessTool} from './implementations/kill-process-tool.js'
 import {createReadFileTool} from './implementations/read-file-tool.js'
 import {createSearchHistoryTool} from './implementations/search-history-tool.js'
 import {createWriteFileTool} from './implementations/write-file-tool.js'
@@ -18,9 +22,8 @@ export interface ToolServices {
   /** File system service for file operations */
   fileSystemService?: IFileSystem
 
-  // Future services can be added here:
-  // searchService?: ISearchService
-  // processService?: IProcessService
+  /** Process service for command execution */
+  processService?: IProcessService
 }
 
 /**
@@ -51,6 +54,16 @@ export interface ToolRegistryEntry {
  * 3. Add entry to this registry
  */
 export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
+  [ToolName.BASH_EXEC]: {
+    factory: (services) => createBashExecTool(services.processService!),
+    requiredServices: ['processService'] as const,
+  },
+
+  [ToolName.BASH_OUTPUT]: {
+    factory: (services) => createBashOutputTool(services.processService!),
+    requiredServices: ['processService'] as const,
+  },
+
   [ToolName.EDIT_FILE]: {
     factory: (services) => createEditFileTool(services.fileSystemService!),
     requiredServices: ['fileSystemService'] as const,
@@ -64,6 +77,11 @@ export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
   [ToolName.GREP_CONTENT]: {
     factory: (services) => createGrepContentTool(services.fileSystemService!),
     requiredServices: ['fileSystemService'] as const,
+  },
+
+  [ToolName.KILL_PROCESS]: {
+    factory: (services) => createKillProcessTool(services.processService!),
+    requiredServices: ['processService'] as const,
   },
 
   [ToolName.READ_FILE]: {

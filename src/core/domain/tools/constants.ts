@@ -3,9 +3,12 @@
  * These constants ensure type safety and prevent typos.
  */
 export const ToolName = {
+  BASH_EXEC: 'bash_exec',
+  BASH_OUTPUT: 'bash_output',
   EDIT_FILE: 'edit_file',
   GLOB_FILES: 'glob_files',
   GREP_CONTENT: 'grep_content',
+  KILL_PROCESS: 'kill_process',
   READ_FILE: 'read_file',
   SEARCH_HISTORY: 'search_history',
   WRITE_FILE: 'write_file',

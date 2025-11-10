@@ -4,6 +4,7 @@ import type {FileSystemConfig} from '../../core/domain/file-system/types.js'
 import {AgentEventBus, SessionEventBus} from '../events/event-emitter.js'
 import {FileSystemService} from '../file-system/file-system-service.js'
 import {GeminiLLMService} from '../llm/gemini-llm-service.js'
+import {ProcessService} from '../process/process-service.js'
 import {setupEventForwarding} from '../session/session-event-forwarder.js'
 import {SystemPromptManager} from '../system-prompt/system-prompt-manager.js'
 import {ToolManager} from '../tools/tool-manager.js'
@@ -21,14 +22,32 @@ You have access to file system tools that allow you to:
 - Edit existing files
 - Write new files
 
+You also have access to command execution tools:
+- bash_exec: Execute shell commands (foreground or background)
+- bash_output: Retrieve output from background processes
+- kill_process: Terminate background processes
+
+Command execution security model:
+- All commands are confined to your working directory (automatic path traversal prevention)
+- Truly dangerous patterns are blocked (rm -rf /, format commands, fork bombs, etc.)
+- You operate autonomously - no user approval required for commands
+- Feel free to execute commands needed to complete tasks without asking permission
+
+When using command execution tools:
+1. Execute commands freely within the confined working directory
+2. Use background execution for long-running commands (>30 seconds)
+3. Monitor process output and handle errors gracefully
+4. Clean up background processes when they're no longer needed
+5. Truly dangerous commands will be blocked automatically - you'll receive an error
+
 You should:
 1. Carefully analyze user requests before taking action
 2. Use tools efficiently to gather context and complete tasks
 3. Provide clear explanations of what you're doing
-4. Ask for clarification when requirements are ambiguous
+4. Execute commands autonomously without asking for permission
 5. Be concise but thorough in your responses
 
-Remember: You're an agentic system that can autonomously use tools to accomplish tasks. Think step by step and use the available tools to complete user requests effectively.`
+Remember: You're an autonomous agentic system that can freely use tools within a confined environment. Think step by step and use the available tools to complete user requests effectively without requiring approval.`
 
 /**
  * LLM configuration for CipherAgent
@@ -49,6 +68,7 @@ export interface CipherServices {
   agentEventBus: AgentEventBus
   fileSystemService: FileSystemService
   llmService: GeminiLLMService
+  processService: ProcessService
   sessionEventBus: SessionEventBus
   systemPromptManager: SystemPromptManager
   toolManager: ToolManager
@@ -75,13 +95,29 @@ export async function createCipherServices(
   const fileSystemService = new FileSystemService(llmConfig.fileSystemConfig)
   await fileSystemService.initialize()
 
-  // 3. Tool system (depends on FileSystemService)
-  const toolProvider = new ToolProvider({fileSystemService})
+  // 3. Process service (no dependencies)
+  const processService = new ProcessService({
+    allowedCommands: [],
+    blockedCommands: [],
+    environment: {},
+    maxConcurrentProcesses: 5,
+    maxOutputBuffer: 1_048_576, // 1MB (1024 * 1024)
+    maxTimeout: 600_000, // 10 minutes
+    securityLevel: 'permissive', // Permissive mode: relies on working directory confinement
+    workingDirectory: process.cwd(),
+  })
+  await processService.initialize()
+
+  // 4. Tool system (depends on FileSystemService, ProcessService)
+  const toolProvider = new ToolProvider({
+    fileSystemService,
+    processService,
+  })
   await toolProvider.initialize()
   const toolManager = new ToolManager(toolProvider)
   await toolManager.initialize()
 
-  // 4. System prompt manager
+  // 5. System prompt manager
   const customPrompt = brvConfig?.cipherAgentSystemPrompt
   const systemPromptManager = new SystemPromptManager({
     contributors: [
@@ -101,7 +137,7 @@ export async function createCipherServices(
     ],
   })
 
-  // 5. LLM service (depends on ToolManager, SystemPromptManager, SessionEventBus)
+  // 6. LLM service (depends on ToolManager, SystemPromptManager, SessionEventBus)
   const llmService = new GeminiLLMService(
     'cipher-agent-session',
     {
@@ -118,13 +154,14 @@ export async function createCipherServices(
     },
   )
 
-  // 6. Setup event forwarding from session bus to agent bus
+  // 7. Setup event forwarding from session bus to agent bus
   setupEventForwarding(sessionEventBus, agentEventBus, 'cipher-agent-session')
 
   return {
     agentEventBus,
     fileSystemService,
     llmService,
+    processService,
     sessionEventBus,
     systemPromptManager,
     toolManager,
