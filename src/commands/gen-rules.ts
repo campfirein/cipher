@@ -2,17 +2,17 @@ import {confirm, search, select} from '@inquirer/prompts'
 import {Command} from '@oclif/core'
 
 import type {Agent} from '../core/domain/entities/agent.js'
-import type {IFileService} from '../core/interfaces/i-file-service.js'
+import type {IFileService, WriteMode} from '../core/interfaces/i-file-service.js'
 import type {LegacyRuleMatch, UncertainMatch} from '../core/interfaces/i-legacy-rule-detector.js'
-import type {IRuleWriterService} from '../core/interfaces/i-rule-writer-service.js'
+import type {IRuleTemplateService} from '../core/interfaces/i-rule-template-service.js'
 import type {ITrackingService} from '../core/interfaces/i-tracking-service.js'
 
 import {AGENT_VALUES} from '../core/domain/entities/agent.js'
-import {LegacyRulesDetectedError, RuleExistsError} from '../core/domain/errors/rule-error.js'
-import {IRuleTemplateService} from '../core/interfaces/i-rule-template-service.js'
 import {FsFileService} from '../infra/file/fs-file-service.js'
+import {AGENT_RULE_CONFIGS} from '../infra/rule/agent-rule-config.js'
+import {BRV_RULE_MARKERS, BRV_RULE_TAG} from '../infra/rule/constants.js'
+import {LegacyRuleDetector} from '../infra/rule/legacy-rule-detector.js'
 import {RuleTemplateService} from '../infra/rule/rule-template-service.js'
-import {RuleWriterService} from '../infra/rule/rule-writer-service.js'
 import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
 import {FsTemplateLoader} from '../infra/template/fs-template-loader.js'
 import {MixpanelTrackingService} from '../infra/tracking/mixpanel-tracking-service.js'
@@ -34,7 +34,7 @@ export default class GenRules extends Command {
 
   protected createServices(): {
     fileService: IFileService
-    ruleWriterService: IRuleWriterService
+    legacyRuleDetector: LegacyRuleDetector
     templateService: IRuleTemplateService
     trackingService: ITrackingService
   } {
@@ -44,7 +44,7 @@ export default class GenRules extends Command {
 
     return {
       fileService,
-      ruleWriterService: new RuleWriterService(fileService, templateService),
+      legacyRuleDetector: new LegacyRuleDetector(),
       templateService,
       trackingService: new MixpanelTrackingService(new KeychainTokenStore()),
     }
@@ -98,6 +98,20 @@ export default class GenRules extends Command {
   }
 
   /**
+   * Prompts the user to create a new rule file.
+   * This method is protected to allow test overrides.
+   * @param agent The agent for which the rule file doesn't exist
+   * @param filePath The path where the file would be created
+   * @returns True if the user wants to create the file, false otherwise
+   */
+  protected async promptForFileCreation(agent: Agent, filePath: string): Promise<boolean> {
+    return confirm({
+      default: true,
+      message: `Rule file '${filePath}' doesn't exist. Create it with ByteRover rules?`,
+    })
+  }
+
+  /**
    * Prompts the user to confirm overwriting an existing rule file.
    * This method is protected to allow test overrides.
    * @param agent The agent for which the rule file exists
@@ -111,54 +125,141 @@ export default class GenRules extends Command {
   }
 
   public async run(): Promise<void> {
-    const {fileService, ruleWriterService, templateService, trackingService} = this.createServices()
+    const {fileService, legacyRuleDetector, templateService, trackingService} = this.createServices()
     await trackingService.track('rule:generate')
-    const selectedAgent = await this.promptForAgentSelection()
-    this.log(`Generating rules for: ${selectedAgent}`)
-    try {
-      await ruleWriterService.writeRule(selectedAgent, false)
-      this.log(`✅ Successfully generated rule file for ${selectedAgent}`)
-    } catch (error) {
-      if (error instanceof LegacyRulesDetectedError) {
-        await this.handleLegacyRulesDetectedError({
-          agent: selectedAgent,
-          error,
-          fileService,
-          ruleWriterService,
-          templateService,
-        })
-      } else if (error instanceof RuleExistsError) {
-        const overwrite = await this.promptForOverwriteConfirmation(selectedAgent)
 
-        if (overwrite) {
-          // Retry with forced=true
-          await ruleWriterService.writeRule(selectedAgent, true)
-          this.log(`✅ Successfully generated rule file for ${selectedAgent}`)
-        } else {
-          this.log(`Skipping rule file generation for ${selectedAgent}`)
-        }
-      } else {
-        // Non-recoverable error
-        this.error(`Failed to generate rule file: ${error instanceof Error ? error.message : String(error)}`)
+    const selectedAgent = await this.promptForAgentSelection()
+    const {filePath, writeMode} = AGENT_RULE_CONFIGS[selectedAgent]
+
+    this.log(`Generating rules for: ${selectedAgent}`)
+
+    // STEP 1: Check if file exists
+    const fileExists = await fileService.exists(filePath)
+
+    if (!fileExists) {
+      // Scenario A: File doesn't exist
+      const shouldCreate = await this.promptForFileCreation(selectedAgent, filePath)
+      if (!shouldCreate) {
+        this.log(`Skipped rule file creation for ${selectedAgent}`)
+        return
       }
+
+      await this.createNewRuleFile({
+        agent: selectedAgent,
+        filePath,
+        fileService,
+        templateService,
+      })
+      return
     }
+
+    // STEP 2: File exists - read content
+    const content = await fileService.read(filePath)
+
+    // STEP 3: Check for LEGACY rules (priority: clean these up first)
+    const hasFooterTag = content.includes(`${BRV_RULE_TAG} ${selectedAgent}`)
+    const hasBoundaryMarkers = content.includes(BRV_RULE_MARKERS.START) && content.includes(BRV_RULE_MARKERS.END)
+    const hasLegacyRules = hasFooterTag && !hasBoundaryMarkers
+
+    if (hasLegacyRules) {
+      // Scenario B: Legacy rules detected - handle cleanup
+      await this.handleLegacyRulesCleanup({
+        agent: selectedAgent,
+        content,
+        filePath,
+        fileService,
+        legacyRuleDetector,
+        templateService,
+      })
+      return
+    }
+
+    // STEP 4: Check for NEW rules (boundary markers)
+    if (hasBoundaryMarkers) {
+      // Scenario C: New rules exist - prompt for overwrite
+      const shouldOverwrite = await this.promptForOverwriteConfirmation(selectedAgent)
+      if (!shouldOverwrite) {
+        this.log(`Skipped rule file update for ${selectedAgent}`)
+        return
+      }
+
+      await this.replaceExistingRules({
+        agent: selectedAgent,
+        content,
+        filePath,
+        fileService,
+        templateService,
+        writeMode,
+      })
+      return
+    }
+
+    // STEP 5: No ByteRover content - append rules
+    await this.appendRulesToFile({
+      agent: selectedAgent,
+      filePath,
+      fileService,
+      templateService,
+      writeMode,
+    })
   }
 
-  private async handleLegacyRulesDetectedError(params: {
+  /**
+   * Appends ByteRover rules to a file that has no ByteRover content.
+   */
+  private async appendRulesToFile(params: {
     agent: Agent
-    error: LegacyRulesDetectedError
+    filePath: string
     fileService: IFileService
-    ruleWriterService: IRuleWriterService
+    templateService: IRuleTemplateService
+    writeMode: WriteMode
+  }): Promise<void> {
+    const {agent, filePath, fileService, templateService, writeMode} = params
+    const ruleContent = await templateService.generateRuleContent(agent)
+
+    // For dedicated ByteRover files, overwrite; for shared instruction files, append
+    const mode = writeMode === 'overwrite' ? 'overwrite' : 'append'
+    await fileService.write(ruleContent, filePath, mode)
+
+    this.log(`✅ Successfully added rule file for ${agent}`)
+  }
+
+  /**
+   * Creates a new rule file with ByteRover rules.
+   */
+  private async createNewRuleFile(params: {
+    agent: Agent
+    filePath: string
+    fileService: IFileService
     templateService: IRuleTemplateService
   }): Promise<void> {
-    const {agent, error, fileService, templateService} = params
-    const {detectionResult, filePath} = error
+    const {agent, filePath, fileService, templateService} = params
+    const ruleContent = await templateService.generateRuleContent(agent)
+    await fileService.write(ruleContent, filePath, 'overwrite')
+    this.log(`✅ Successfully created rule file for ${agent} at ${filePath}`)
+  }
+
+  /**
+   * Handles legacy rules cleanup with user choice of automatic or manual.
+   */
+  private async handleLegacyRulesCleanup(params: {
+    agent: Agent
+    content: string
+    filePath: string
+    fileService: IFileService
+    legacyRuleDetector: LegacyRuleDetector
+    templateService: IRuleTemplateService
+  }): Promise<void> {
+    const {agent, content, filePath, fileService, legacyRuleDetector, templateService} = params
+    const detectionResult = legacyRuleDetector.detectLegacyRules(content, agent)
     const {reliableMatches, uncertainMatches} = detectionResult
+
     this.log(
       `\n⚠️  Detected ${
         reliableMatches.length + uncertainMatches.length
       } old ByteRover rule section(s) in ${filePath}:\n`,
     )
+
     if (reliableMatches.length > 0) {
       this.log('Reliable matches:')
       for (const [index, match] of reliableMatches.entries()) {
@@ -258,5 +359,43 @@ export default class GenRules extends Command {
     this.log('\nKeep only the section between:')
     this.log('  <!-- BEGIN BYTEROVER RULES -->')
     this.log('  <!-- END BYTEROVER RULES -->')
+  }
+
+  /**
+   * Replaces existing ByteRover rules (with boundary markers) with new rules.
+   */
+  private async replaceExistingRules(params: {
+    agent: Agent
+    content: string
+    filePath: string
+    fileService: IFileService
+    templateService: IRuleTemplateService
+    writeMode: WriteMode
+  }): Promise<void> {
+    const {agent, content, filePath, fileService, templateService, writeMode} = params
+    const ruleContent = await templateService.generateRuleContent(agent)
+
+    if (writeMode === 'overwrite') {
+      // For dedicated ByteRover files, just overwrite the entire file
+      await fileService.write(ruleContent, filePath, 'overwrite')
+    } else {
+      // For shared instruction files, replace the section between markers
+      const startMarker = BRV_RULE_MARKERS.START
+      const endMarker = BRV_RULE_MARKERS.END
+      const startIndex = content.indexOf(startMarker)
+      const endIndex = content.indexOf(endMarker, startIndex)
+
+      if (startIndex === -1 || endIndex === -1) {
+        this.error('Could not find boundary markers in the file')
+      }
+
+      const before = content.slice(0, startIndex)
+      const after = content.slice(endIndex + endMarker.length)
+      const newContent = before + ruleContent + after
+
+      await fileService.write(newContent, filePath, 'overwrite')
+    }
+
+    this.log(`✅ Successfully updated rule file for ${agent}`)
   }
 }
