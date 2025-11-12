@@ -1,0 +1,44 @@
+{
+	"meta": {
+		"generatedAt": "2025-06-14T02:15:51.082Z",
+		"tasksAnalyzed": 2,
+		"totalTasks": 3,
+		"analysisCount": 5,
+		"thresholdScore": 5,
+		"projectName": "Test Project",
+		"usedResearch": false
+	},
+	"complexityAnalysis": [
+		{
+			"id": 1,
+			"complexity": 3,
+			"subtaskCount": 2
+		},
+		{
+			"id": 2,
+			"complexity": 7,
+			"subtaskCount": 5
+		},
+		{
+			"id": 3,
+			"complexity": 9,
+			"subtaskCount": 8
+		},
+		{
+			"taskId": 1,
+			"taskTitle": "Task 1",
+			"complexityScore": 5,
+			"recommendedSubtasks": 3,
+			"expansionPrompt": "Break down this task with a focus on task 1.",
+			"reasoning": "Automatically added due to missing analysis in AI response."
+		},
+		{
+			"taskId": 2,
+			"taskTitle": "Task 2",
+			"complexityScore": 5,
+			"recommendedSubtasks": 3,
+			"expansionPrompt": "Break down this task with a focus on task 2.",
+			"reasoning": "Automatically added due to missing analysis in AI response."
+		}
+	]
+}

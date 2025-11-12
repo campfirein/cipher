@@ -1,0 +1,17 @@
+{
+  "$schema": "https://unpkg.com/@changesets/config@3.1.1/schema.json",
+  "changelog": [
+    "@changesets/changelog-github",
+    {
+      "repo": "eyaltoledano/claude-task-master"
+    }
+  ],
+  "commit": false,
+  "fixed": [],
+  "access": "public",
+  "baseBranch": "main",
+  "ignore": [
+    "docs",
+    "@tm/claude-code-plugin"
+  ]
+}

@@ -1,0 +1,29 @@
+{
+	"compilerOptions": {
+		"module": "ESNext",
+		"target": "ES2022",
+		"outDir": "out",
+		"lib": ["ES2022", "DOM"],
+		"sourceMap": true,
+		"strict": true /* enable all strict type-checking options */,
+		"moduleResolution": "Node",
+		"esModuleInterop": true,
+		"skipLibCheck": true,
+		"forceConsistentCasingInFileNames": true,
+		"jsx": "react-jsx",
+		"allowSyntheticDefaultImports": true,
+		"resolveJsonModule": true,
+		"declaration": false,
+		"declarationMap": false,
+		"baseUrl": ".",
+		"paths": {
+			"@/*": ["./src/*"],
+			"@/components/*": ["./src/components/*"],
+			"@/lib/*": ["./src/lib/*"],
+			"@tm/core": ["../../packages/tm-core/src/index.ts"],
+			"@tm/core/*": ["../../packages/tm-core/src/*"]
+		}
+	},
+	"include": ["src/**/*"],
+	"exclude": ["node_modules", ".vscode-test", "out", "dist"]
+}

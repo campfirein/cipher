@@ -1,0 +1,1229 @@
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import chalk from 'chalk';
+import { z } from 'zod';
+import { AI_COMMAND_NAMES } from '../../src/constants/commands.js';
+import {
+	LEGACY_CONFIG_FILE,
+	TASKMASTER_DIR
+} from '../../src/constants/paths.js';
+import {
+	ALL_PROVIDERS,
+	CUSTOM_PROVIDERS,
+	CUSTOM_PROVIDERS_ARRAY,
+	VALIDATED_PROVIDERS
+} from '@tm/core';
+import { findConfigPath } from '../../src/utils/path-utils.js';
+import { findProjectRoot, isEmpty, log, resolveEnvVariable } from './utils.js';
+import MODEL_MAP from './supported-models.json' with { type: 'json' };
+
+// Calculate __dirname in ESM
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Default configuration values (used if config file is missing or incomplete)
+const DEFAULTS = {
+	models: {
+		main: {
+			provider: 'anthropic',
+			modelId: 'claude-sonnet-4-20250514',
+			maxTokens: 64000,
+			temperature: 0.2
+		},
+		research: {
+			provider: 'perplexity',
+			modelId: 'sonar',
+			maxTokens: 8700,
+			temperature: 0.1
+		},
+		fallback: {
+			// No default fallback provider/model initially
+			provider: 'anthropic',
+			modelId: 'claude-3-7-sonnet-20250219',
+			maxTokens: 120000, // Default parameters if fallback IS configured
+			temperature: 0.2
+		}
+	},
+	global: {
+		logLevel: 'info',
+		debug: false,
+		defaultNumTasks: 10,
+		defaultSubtasks: 5,
+		defaultPriority: 'medium',
+		projectName: 'Task Master',
+		ollamaBaseURL: 'http://localhost:11434/api',
+		bedrockBaseURL: 'https://bedrock.us-east-1.amazonaws.com',
+		responseLanguage: 'English',
+		enableCodebaseAnalysis: true,
+		enableProxy: false
+	},
+	claudeCode: {},
+	codexCli: {},
+	grokCli: {
+		timeout: 120000,
+		workingDirectory: null,
+		defaultModel: 'grok-4-latest'
+	}
+};
+
+// --- Internal Config Loading ---
+let loadedConfig = null;
+let loadedConfigRoot = null; // Track which root loaded the config
+
+// Custom Error for configuration issues
+class ConfigurationError extends Error {
+	constructor(message) {
+		super(message);
+		this.name = 'ConfigurationError';
+	}
+}
+
+function _loadAndValidateConfig(explicitRoot = null) {
+	const defaults = DEFAULTS; // Use the defined defaults
+	let rootToUse = explicitRoot;
+	let configSource = explicitRoot
+		? `explicit root (${explicitRoot})`
+		: 'defaults (no root provided yet)';
+
+	// ---> If no explicit root, TRY to find it <---
+	if (!rootToUse) {
+		rootToUse = findProjectRoot();
+		if (rootToUse) {
+			configSource = `found root (${rootToUse})`;
+		} else {
+			// No root found, use current working directory as fallback
+			// This prevents infinite loops during initialization
+			rootToUse = process.cwd();
+			configSource = `current directory (${rootToUse}) - no project markers found`;
+		}
+	}
+	// ---> End find project root logic <---
+
+	// --- Find configuration file ---
+	let configPath = null;
+	let config = { ...defaults }; // Start with a deep copy of defaults
+	let configExists = false;
+
+	// During initialization (no project markers), skip config file search entirely
+	const hasProjectMarkers =
+		fs.existsSync(path.join(rootToUse, TASKMASTER_DIR)) ||
+		fs.existsSync(path.join(rootToUse, LEGACY_CONFIG_FILE));
+
+	if (hasProjectMarkers) {
+		// Only try to find config if we have project markers
+		// This prevents the repeated warnings during init
+		configPath = findConfigPath(null, { projectRoot: rootToUse });
+	}
+
+	if (configPath) {
+		configExists = true;
+		const isLegacy = configPath.endsWith(LEGACY_CONFIG_FILE);
+
+		try {
+			const rawData = fs.readFileSync(configPath, 'utf-8');
+			const parsedConfig = JSON.parse(rawData);
+
+			// Deep merge parsed config onto defaults
+			config = {
+				models: {
+					main: { ...defaults.models.main, ...parsedConfig?.models?.main },
+					research: {
+						...defaults.models.research,
+						...parsedConfig?.models?.research
+					},
+					fallback:
+						parsedConfig?.models?.fallback?.provider &&
+						parsedConfig?.models?.fallback?.modelId
+							? { ...defaults.models.fallback, ...parsedConfig.models.fallback }
+							: { ...defaults.models.fallback }
+				},
+				global: { ...defaults.global, ...parsedConfig?.global },
+				claudeCode: { ...defaults.claudeCode, ...parsedConfig?.claudeCode },
+				codexCli: { ...defaults.codexCli, ...parsedConfig?.codexCli },
+				grokCli: { ...defaults.grokCli, ...parsedConfig?.grokCli }
+			};
+			configSource = `file (${configPath})`; // Update source info
+
+			// Issue deprecation warning if using legacy config file
+			if (isLegacy) {
+				console.warn(
+					chalk.yellow(
+						`⚠️  DEPRECATION WARNING: Found configuration in legacy location '${configPath}'. Please migrate to .taskmaster/config.json. Run 'task-master migrate' to automatically migrate your project.`
+					)
+				);
+			}
+
+			// --- Validation (Warn if file content is invalid) ---
+			// Use log.warn for consistency
+			if (!validateProvider(config.models.main.provider)) {
+				console.warn(
+					chalk.yellow(
+						`Warning: Invalid main provider "${config.models.main.provider}" in ${configPath}. Falling back to default.`
+					)
+				);
+				config.models.main = { ...defaults.models.main };
+			}
+			if (!validateProvider(config.models.research.provider)) {
+				console.warn(
+					chalk.yellow(
+						`Warning: Invalid research provider "${config.models.research.provider}" in ${configPath}. Falling back to default.`
+					)
+				);
+				config.models.research = { ...defaults.models.research };
+			}
+			if (
+				config.models.fallback?.provider &&
+				!validateProvider(config.models.fallback.provider)
+			) {
+				console.warn(
+					chalk.yellow(
+						`Warning: Invalid fallback provider "${config.models.fallback.provider}" in ${configPath}. Fallback model configuration will be ignored.`
+					)
+				);
+				config.models.fallback.provider = undefined;
+				config.models.fallback.modelId = undefined;
+			}
+			if (config.claudeCode && !isEmpty(config.claudeCode)) {
+				config.claudeCode = validateClaudeCodeSettings(config.claudeCode);
+			}
+			if (config.codexCli && !isEmpty(config.codexCli)) {
+				config.codexCli = validateCodexCliSettings(config.codexCli);
+			}
+		} catch (error) {
+			// Use console.error for actual errors during parsing
+			console.error(
+				chalk.red(
+					`Error reading or parsing ${configPath}: ${error.message}. Using default configuration.`
+				)
+			);
+			config = { ...defaults }; // Reset to defaults on parse error
+			configSource = `defaults (parse error at ${configPath})`;
+		}
+	} else {
+		// Config file doesn't exist at the determined rootToUse.
+		if (explicitRoot) {
+			// Only warn if an explicit root was *expected*.
+			console.warn(
+				chalk.yellow(
+					`Warning: Configuration file not found at provided project root (${explicitRoot}). Using default configuration. Run 'task-master models --setup' to configure.`
+				)
+			);
+		} else {
+			// Don't warn about missing config during initialization
+			// Only warn if this looks like an existing project (has .taskmaster dir or legacy config marker)
+			const hasTaskmasterDir = fs.existsSync(
+				path.join(rootToUse, TASKMASTER_DIR)
+			);
+			const hasLegacyMarker = fs.existsSync(
+				path.join(rootToUse, LEGACY_CONFIG_FILE)
+			);
+
+			if (hasTaskmasterDir || hasLegacyMarker) {
+				console.warn(
+					chalk.yellow(
+						`Warning: Configuration file not found at derived root (${rootToUse}). Using defaults.`
+					)
+				);
+			}
+		}
+		// Keep config as defaults
+		config = { ...defaults };
+		configSource = `defaults (no config file found at ${rootToUse})`;
+	}
+
+	return config;
+}
+
+/**
+ * Gets the current configuration, loading it if necessary.
+ * Handles MCP initialization context gracefully.
+ * @param {string|null} explicitRoot - Optional explicit path to the project root.
+ * @param {boolean} forceReload - Force reloading the config file.
+ * @returns {object} The loaded configuration object.
+ */
+function getConfig(explicitRoot = null, forceReload = false) {
+	// Determine if a reload is necessary
+	const needsLoad =
+		!loadedConfig ||
+		forceReload ||
+		(explicitRoot && explicitRoot !== loadedConfigRoot);
+
+	if (needsLoad) {
+		const newConfig = _loadAndValidateConfig(explicitRoot); // _load handles null explicitRoot
+
+		// Only update the global cache if loading was forced or if an explicit root
+		// was provided (meaning we attempted to load a specific project's config).
+		// We avoid caching the initial default load triggered without an explicitRoot.
+		if (forceReload || explicitRoot) {
+			loadedConfig = newConfig;
+			loadedConfigRoot = explicitRoot; // Store the root used for this loaded config
+		}
+		return newConfig; // Return the newly loaded/default config
+	}
+
+	// If no load was needed, return the cached config
+	return loadedConfig;
+}
+
+/**
+ * Validates if a provider name is supported.
+ * Custom providers (azure, vertex, bedrock, openrouter, ollama) are always allowed.
+ * Validated providers must exist in the MODEL_MAP from supported-models.json.
+ * @param {string} providerName The name of the provider.
+ * @returns {boolean} True if the provider is valid, false otherwise.
+ */
+function validateProvider(providerName) {
+	// Custom providers are always allowed
+	if (CUSTOM_PROVIDERS_ARRAY.includes(providerName)) {
+		return true;
+	}
+
+	// Validated providers must exist in MODEL_MAP
+	if (VALIDATED_PROVIDERS.includes(providerName)) {
+		return !!(MODEL_MAP && MODEL_MAP[providerName]);
+	}
+
+	// Unknown providers are not allowed
+	return false;
+}
+
+/**
+ * Optional: Validates if a modelId is known for a given provider based on MODEL_MAP.
+ * This is a non-strict validation; an unknown model might still be valid.
+ * @param {string} providerName The name of the provider.
+ * @param {string} modelId The model ID.
+ * @returns {boolean} True if the modelId is in the map for the provider, false otherwise.
+ */
+function validateProviderModelCombination(providerName, modelId) {
+	// If provider isn't even in our map, we can't validate the model
+	if (!MODEL_MAP[providerName]) {
+		return true; // Allow unknown providers or those without specific model lists
+	}
+	// If the provider is known, check if the model is in its list OR if the list is empty (meaning accept any)
+	return (
+		MODEL_MAP[providerName].length === 0 ||
+		// Use .some() to check the 'id' property of objects in the array
+		MODEL_MAP[providerName].some((modelObj) => modelObj.id === modelId)
+	);
+}
+
+/**
+ * Gets the list of supported model IDs for a given provider from supported-models.json
+ * @param {string} providerName - The name of the provider (e.g., 'claude-code', 'anthropic')
+ * @returns {string[]} Array of supported model IDs, or empty array if provider not found
+ */
+export function getSupportedModelsForProvider(providerName) {
+	if (!MODEL_MAP[providerName]) {
+		return [];
+	}
+	return MODEL_MAP[providerName]
+		.filter((model) => model.supported !== false)
+		.map((model) => model.id);
+}
+
+/**
+ * Validates Claude Code AI provider custom settings
+ * @param {object} settings The settings to validate
+ * @returns {object} The validated settings
+ */
+function validateClaudeCodeSettings(settings) {
+	// Define the base settings schema without commandSpecific first
+	const BaseSettingsSchema = z.object({
+		pathToClaudeCodeExecutable: z.string().optional(),
+		// Use number().int() for integer validation in Zod
+		maxTurns: z.number().int().positive().optional(),
+		customSystemPrompt: z.string().optional(),
+		appendSystemPrompt: z.string().optional(),
+		permissionMode: z
+			.enum(['default', 'acceptEdits', 'plan', 'bypassPermissions'])
+			.optional(),
+		allowedTools: z.array(z.string()).optional(),
+		disallowedTools: z.array(z.string()).optional(),
+		mcpServers: z
+			.record(
+				z.string(),
+				z.object({
+					type: z.enum(['stdio', 'sse']).optional(),
+					command: z.string(),
+					args: z.array(z.string()).optional(),
+					env: z.record(z.string(), z.string()).optional(),
+					url: z.url().optional(),
+					headers: z.record(z.string(), z.string()).optional()
+				})
+			)
+			.optional()
+	});
+
+	// Define CommandSpecificSchema using flexible keys, but restrict to known commands
+	const CommandSpecificSchema = z
+		.record(z.string(), BaseSettingsSchema)
+		.refine(
+			(obj) =>
+				Object.keys(obj || {}).every((k) => AI_COMMAND_NAMES.includes(k)),
+			{ message: 'Invalid command name in commandSpecific' }
+		);
+
+	// Define the full settings schema with commandSpecific
+	const SettingsSchema = BaseSettingsSchema.extend({
+		commandSpecific: CommandSpecificSchema.optional()
+	});
+
+	let validatedSettings = {};
+
+	try {
+		validatedSettings = SettingsSchema.parse(settings);
+	} catch (error) {
+		console.warn(
+			chalk.yellow(
+				`Warning: Invalid Claude Code settings in config: ${error.message}. Falling back to default.`
+			)
+		);
+
+		validatedSettings = {};
+	}
+
+	return validatedSettings;
+}
+
+/**
+ * Validates Codex CLI provider custom settings
+ * Mirrors the ai-sdk-provider-codex-cli options
+ * @param {object} settings The settings to validate
+ * @returns {object} The validated settings
+ */
+function validateCodexCliSettings(settings) {
+	const BaseSettingsSchema = z.object({
+		codexPath: z.string().optional(),
+		cwd: z.string().optional(),
+		approvalMode: z
+			.enum(['untrusted', 'on-failure', 'on-request', 'never'])
+			.optional(),
+		sandboxMode: z
+			.enum(['read-only', 'workspace-write', 'danger-full-access'])
+			.optional(),
+		fullAuto: z.boolean().optional(),
+		dangerouslyBypassApprovalsAndSandbox: z.boolean().optional(),
+		skipGitRepoCheck: z.boolean().optional(),
+		color: z.enum(['always', 'never', 'auto']).optional(),
+		allowNpx: z.boolean().optional(),
+		outputLastMessageFile: z.string().optional(),
+		env: z.record(z.string(), z.string()).optional(),
+		verbose: z.boolean().optional(),
+		logger: z.union([z.object({}).passthrough(), z.literal(false)]).optional()
+	});
+
+	const CommandSpecificSchema = z
+		.record(z.string(), BaseSettingsSchema)
+		.refine(
+			(obj) =>
+				Object.keys(obj || {}).every((k) => AI_COMMAND_NAMES.includes(k)),
+			{ message: 'Invalid command name in commandSpecific' }
+		);
+
+	const SettingsSchema = BaseSettingsSchema.extend({
+		commandSpecific: CommandSpecificSchema.optional()
+	});
+
+	try {
+		return SettingsSchema.parse(settings);
+	} catch (error) {
+		console.warn(
+			chalk.yellow(
+				`Warning: Invalid Codex CLI settings in config: ${error.message}. Falling back to default.`
+			)
+		);
+		return {};
+	}
+}
+
+// --- Claude Code Settings Getters ---
+
+function getClaudeCodeSettings(explicitRoot = null, forceReload = false) {
+	const config = getConfig(explicitRoot, forceReload);
+	// Ensure Claude Code defaults are applied if Claude Code section is missing
+	return { ...DEFAULTS.claudeCode, ...(config?.claudeCode || {}) };
+}
+
+// --- Codex CLI Settings Getters ---
+
+function getCodexCliSettings(explicitRoot = null, forceReload = false) {
+	const config = getConfig(explicitRoot, forceReload);
+	return { ...DEFAULTS.codexCli, ...(config?.codexCli || {}) };
+}
+
+function getCodexCliSettingsForCommand(
+	commandName,
+	explicitRoot = null,
+	forceReload = false
+) {
+	const settings = getCodexCliSettings(explicitRoot, forceReload);
+	const commandSpecific = settings?.commandSpecific || {};
+	return { ...settings, ...commandSpecific[commandName] };
+}
+
+function getClaudeCodeSettingsForCommand(
+	commandName,
+	explicitRoot = null,
+	forceReload = false
+) {
+	const settings = getClaudeCodeSettings(explicitRoot, forceReload);
+	const commandSpecific = settings?.commandSpecific || {};
+	return { ...settings, ...commandSpecific[commandName] };
+}
+
+function getGrokCliSettings(explicitRoot = null, forceReload = false) {
+	const config = getConfig(explicitRoot, forceReload);
+	// Ensure Grok CLI defaults are applied if Grok CLI section is missing
+	return { ...DEFAULTS.grokCli, ...(config?.grokCli || {}) };
+}
+
+function getGrokCliSettingsForCommand(
+	commandName,
+	explicitRoot = null,
+	forceReload = false
+) {
+	const settings = getGrokCliSettings(explicitRoot, forceReload);
+	const commandSpecific = settings?.commandSpecific || {};
+	return { ...settings, ...commandSpecific[commandName] };
+}
+
+// --- Role-Specific Getters ---
+
+function getModelConfigForRole(role, explicitRoot = null) {
+	const config = getConfig(explicitRoot);
+	const roleConfig = config?.models?.[role];
+	if (!roleConfig) {
+		log(
+			'warn',
+			`No model configuration found for role: ${role}. Returning default.`
+		);
+		return DEFAULTS.models[role] || {};
+	}
+	return roleConfig;
+}
+
+function getMainProvider(explicitRoot = null) {
+	return getModelConfigForRole('main', explicitRoot).provider;
+}
+
+function getMainModelId(explicitRoot = null) {
+	return getModelConfigForRole('main', explicitRoot).modelId;
+}
+
+function getMainMaxTokens(explicitRoot = null) {
+	// Directly return value from config (which includes defaults)
+	return getModelConfigForRole('main', explicitRoot).maxTokens;
+}
+
+function getMainTemperature(explicitRoot = null) {
+	// Directly return value from config
+	return getModelConfigForRole('main', explicitRoot).temperature;
+}
+
+function getResearchProvider(explicitRoot = null) {
+	return getModelConfigForRole('research', explicitRoot).provider;
+}
+
+/**
+ * Check if codebase analysis feature flag is enabled across all sources
+ * Priority: .env > MCP env > config.json
+ * @param {object|null} session - MCP session object (optional)
+ * @param {string|null} projectRoot - Project root path (optional)
+ * @returns {boolean} True if codebase analysis is enabled
+ */
+function isCodebaseAnalysisEnabled(session = null, projectRoot = null) {
+	// Priority 1: Environment variable
+	const envFlag = resolveEnvVariable(
+		'TASKMASTER_ENABLE_CODEBASE_ANALYSIS',
+		session,
+		projectRoot
+	);
+	if (envFlag !== null && envFlag !== undefined && envFlag !== '') {
+		return envFlag.toLowerCase() === 'true' || envFlag === '1';
+	}
+
+	// Priority 2: MCP session environment
+	if (session?.env?.TASKMASTER_ENABLE_CODEBASE_ANALYSIS) {
+		const mcpFlag = session.env.TASKMASTER_ENABLE_CODEBASE_ANALYSIS;
+		return mcpFlag.toLowerCase() === 'true' || mcpFlag === '1';
+	}
+
+	// Priority 3: Configuration file
+	const globalConfig = getGlobalConfig(projectRoot);
+	return globalConfig.enableCodebaseAnalysis !== false; // Default to true
+}
+
+/**
+ * Check if codebase analysis is available and enabled
+ * @param {boolean} useResearch - Whether to check research provider or main provider
+ * @param {string|null} projectRoot - Project root path (optional)
+ * @param {object|null} session - MCP session object (optional)
+ * @returns {boolean} True if codebase analysis is available and enabled
+ */
+function hasCodebaseAnalysis(
+	useResearch = false,
+	projectRoot = null,
+	session = null
+) {
+	// First check if the feature is enabled
+	if (!isCodebaseAnalysisEnabled(session, projectRoot)) {
+		return false;
+	}
+
+	// Then check if a codebase analysis provider is configured
+	const currentProvider = useResearch
+		? getResearchProvider(projectRoot)
+		: getMainProvider(projectRoot);
+
+	return (
+		currentProvider === CUSTOM_PROVIDERS.CLAUDE_CODE ||
+		currentProvider === CUSTOM_PROVIDERS.GEMINI_CLI ||
+		currentProvider === CUSTOM_PROVIDERS.GROK_CLI ||
+		currentProvider === CUSTOM_PROVIDERS.CODEX_CLI
+	);
+}
+
+function getResearchModelId(explicitRoot = null) {
+	return getModelConfigForRole('research', explicitRoot).modelId;
+}
+
+function getResearchMaxTokens(explicitRoot = null) {
+	// Directly return value from config
+	return getModelConfigForRole('research', explicitRoot).maxTokens;
+}
+
+function getResearchTemperature(explicitRoot = null) {
+	// Directly return value from config
+	return getModelConfigForRole('research', explicitRoot).temperature;
+}
+
+function getFallbackProvider(explicitRoot = null) {
+	// Directly return value from config (will be undefined if not set)
+	return getModelConfigForRole('fallback', explicitRoot).provider;
+}
+
+function getFallbackModelId(explicitRoot = null) {
+	// Directly return value from config
+	return getModelConfigForRole('fallback', explicitRoot).modelId;
+}
+
+function getFallbackMaxTokens(explicitRoot = null) {
+	// Directly return value from config
+	return getModelConfigForRole('fallback', explicitRoot).maxTokens;
+}
+
+function getFallbackTemperature(explicitRoot = null) {
+	// Directly return value from config
+	return getModelConfigForRole('fallback', explicitRoot).temperature;
+}
+
+// --- Global Settings Getters ---
+
+function getGlobalConfig(explicitRoot = null) {
+	const config = getConfig(explicitRoot);
+	// Ensure global defaults are applied if global section is missing
+	return { ...DEFAULTS.global, ...(config?.global || {}) };
+}
+
+function getLogLevel(explicitRoot = null) {
+	// Directly return value from config
+	return getGlobalConfig(explicitRoot).logLevel.toLowerCase();
+}
+
+function getDebugFlag(explicitRoot = null) {
+	// Directly return value from config, ensure boolean
+	return getGlobalConfig(explicitRoot).debug === true;
+}
+
+function getDefaultSubtasks(explicitRoot = null) {
+	// Directly return value from config, ensure integer
+	const val = getGlobalConfig(explicitRoot).defaultSubtasks;
+	const parsedVal = parseInt(val, 10);
+	return Number.isNaN(parsedVal) ? DEFAULTS.global.defaultSubtasks : parsedVal;
+}
+
+function getDefaultNumTasks(explicitRoot = null) {
+	const val = getGlobalConfig(explicitRoot).defaultNumTasks;
+	const parsedVal = parseInt(val, 10);
+	return Number.isNaN(parsedVal) ? DEFAULTS.global.defaultNumTasks : parsedVal;
+}
+
+function getDefaultPriority(explicitRoot = null) {
+	// Directly return value from config
+	return getGlobalConfig(explicitRoot).defaultPriority;
+}
+
+function getProjectName(explicitRoot = null) {
+	// Directly return value from config
+	return getGlobalConfig(explicitRoot).projectName;
+}
+
+function getOllamaBaseURL(explicitRoot = null) {
+	// Directly return value from config
+	return getGlobalConfig(explicitRoot).ollamaBaseURL;
+}
+
+function getAzureBaseURL(explicitRoot = null) {
+	// Directly return value from config
+	return getGlobalConfig(explicitRoot).azureBaseURL;
+}
+
+function getBedrockBaseURL(explicitRoot = null) {
+	// Directly return value from config
+	return getGlobalConfig(explicitRoot).bedrockBaseURL;
+}
+
+/**
+ * Gets the Google Cloud project ID for Vertex AI from configuration
+ * @param {string|null} explicitRoot - Optional explicit path to the project root.
+ * @returns {string|null} The project ID or null if not configured
+ */
+function getVertexProjectId(explicitRoot = null) {
+	// Return value from config
+	return getGlobalConfig(explicitRoot).vertexProjectId;
+}
+
+/**
+ * Gets the Google Cloud location for Vertex AI from configuration
+ * @param {string|null} explicitRoot - Optional explicit path to the project root.
+ * @returns {string} The location or default value of "us-central1"
+ */
+function getVertexLocation(explicitRoot = null) {
+	// Return value from config or default
+	return getGlobalConfig(explicitRoot).vertexLocation || 'us-central1';
+}
+
+function getResponseLanguage(explicitRoot = null) {
+	// Directly return value from config
+	return getGlobalConfig(explicitRoot).responseLanguage;
+}
+
+function getCodebaseAnalysisEnabled(explicitRoot = null) {
+	// Return boolean-safe value with default true
+	return getGlobalConfig(explicitRoot).enableCodebaseAnalysis !== false;
+}
+
+function getProxyEnabled(explicitRoot = null) {
+	// Return boolean-safe value with default false
+	return getGlobalConfig(explicitRoot).enableProxy === true;
+}
+
+function isProxyEnabled(session = null, projectRoot = null) {
+	// Priority 1: Environment variable
+	const envFlag = resolveEnvVariable(
+		'TASKMASTER_ENABLE_PROXY',
+		session,
+		projectRoot
+	);
+	if (envFlag !== null && envFlag !== undefined && envFlag !== '') {
+		return envFlag.toLowerCase() === 'true' || envFlag === '1';
+	}
+
+	// Priority 2: MCP session environment (explicit check for parity with other flags)
+	if (session?.env?.TASKMASTER_ENABLE_PROXY) {
+		const mcpFlag = session.env.TASKMASTER_ENABLE_PROXY;
+		return mcpFlag.toLowerCase() === 'true' || mcpFlag === '1';
+	}
+
+	// Priority 3: Configuration file
+	return getProxyEnabled(projectRoot);
+}
+
+/**
+ * Gets model parameters (maxTokens, temperature) for a specific role,
+ * considering model-specific overrides from supported-models.json.
+ * @param {string} role - The role ('main', 'research', 'fallback').
+ * @param {string|null} explicitRoot - Optional explicit path to the project root.
+ * @returns {{maxTokens: number, temperature: number}}
+ */
+function getParametersForRole(role, explicitRoot = null) {
+	const roleConfig = getModelConfigForRole(role, explicitRoot);
+	const roleMaxTokens = roleConfig.maxTokens;
+	const roleTemperature = roleConfig.temperature;
+	const modelId = roleConfig.modelId;
+	const providerName = roleConfig.provider;
+
+	let effectiveMaxTokens = roleMaxTokens; // Start with the role's default
+	let effectiveTemperature = roleTemperature; // Start with the role's default
+
+	try {
+		// Find the model definition in MODEL_MAP
+		const providerModels = MODEL_MAP[providerName];
+		if (providerModels && Array.isArray(providerModels)) {
+			const modelDefinition = providerModels.find((m) => m.id === modelId);
+
+			// Check if a model-specific max_tokens is defined and valid
+			if (
+				modelDefinition &&
+				typeof modelDefinition.max_tokens === 'number' &&
+				modelDefinition.max_tokens > 0
+			) {
+				const modelSpecificMaxTokens = modelDefinition.max_tokens;
+				// Use the minimum of the role default and the model specific limit
+				effectiveMaxTokens = Math.min(roleMaxTokens, modelSpecificMaxTokens);
+				log(
+					'debug',
+					`Applying model-specific max_tokens (${modelSpecificMaxTokens}) for ${modelId}. Effective limit: ${effectiveMaxTokens}`
+				);
+			} else {
+				log(
+					'debug',
+					`No valid model-specific max_tokens override found for ${modelId}. Using role default: ${roleMaxTokens}`
+				);
+			}
+
+			// Check if a model-specific temperature is defined
+			if (
+				modelDefinition &&
+				typeof modelDefinition.temperature === 'number' &&
+				modelDefinition.temperature >= 0 &&
+				modelDefinition.temperature <= 1
+			) {
+				effectiveTemperature = modelDefinition.temperature;
+				log(
+					'debug',
+					`Applying model-specific temperature (${modelDefinition.temperature}) for ${modelId}`
+				);
+			}
+		} else {
+			// Special handling for custom OpenRouter models
+			if (providerName === CUSTOM_PROVIDERS.OPENROUTER) {
+				// Use a conservative default for OpenRouter models not in our list
+				const openrouterDefault = 32768;
+				effectiveMaxTokens = Math.min(roleMaxTokens, openrouterDefault);
+				log(
+					'debug',
+					`Custom OpenRouter model ${modelId} detected. Using conservative max_tokens: ${effectiveMaxTokens}`
+				);
+			} else {
+				log(
+					'debug',
+					`No model definitions found for provider ${providerName} in MODEL_MAP. Using role default maxTokens: ${roleMaxTokens}`
+				);
+			}
+		}
+	} catch (lookupError) {
+		log(
+			'warn',
+			`Error looking up model-specific parameters for ${modelId}: ${lookupError.message}. Using role defaults.`
+		);
+		// Fallback to role defaults on error
+		effectiveMaxTokens = roleMaxTokens;
+		effectiveTemperature = roleTemperature;
+	}
+
+	return {
+		maxTokens: effectiveMaxTokens,
+		temperature: effectiveTemperature
+	};
+}
+
+/**
+ * Checks if the API key for a given provider is set in the environment.
+ * Checks process.env first, then session.env if session is provided, then .env file if projectRoot provided.
+ * @param {string} providerName - The name of the provider (e.g., 'openai', 'anthropic').
+ * @param {object|null} [session=null] - The MCP session object (optional).
+ * @param {string|null} [projectRoot=null] - The project root directory (optional, for .env file check).
+ * @returns {boolean} True if the API key is set, false otherwise.
+ */
+function isApiKeySet(providerName, session = null, projectRoot = null) {
+	// Define the expected environment variable name for each provider
+
+	// Providers that don't require API keys for authentication
+	const providersWithoutApiKeys = [
+		CUSTOM_PROVIDERS.OLLAMA,
+		CUSTOM_PROVIDERS.BEDROCK,
+		CUSTOM_PROVIDERS.GEMINI_CLI,
+		CUSTOM_PROVIDERS.GROK_CLI,
+		CUSTOM_PROVIDERS.MCP,
+		CUSTOM_PROVIDERS.CODEX_CLI
+	];
+
+	if (providersWithoutApiKeys.includes(providerName?.toLowerCase())) {
+		return true; // Indicate key status is effectively "OK"
+	}
+
+	// Claude Code doesn't require an API key
+	if (providerName?.toLowerCase() === 'claude-code') {
+		return true; // No API key needed
+	}
+
+	// Codex CLI supports OAuth via codex login; API key optional
+	if (providerName?.toLowerCase() === 'codex-cli') {
+		return true; // Treat as OK even without key
+	}
+
+	const keyMap = {
+		openai: 'OPENAI_API_KEY',
+		anthropic: 'ANTHROPIC_API_KEY',
+		google: 'GOOGLE_API_KEY',
+		perplexity: 'PERPLEXITY_API_KEY',
+		mistral: 'MISTRAL_API_KEY',
+		azure: 'AZURE_OPENAI_API_KEY',
+		openrouter: 'OPENROUTER_API_KEY',
+		xai: 'XAI_API_KEY',
+		zai: 'ZAI_API_KEY',
+		'zai-coding': 'ZAI_API_KEY',
+		groq: 'GROQ_API_KEY',
+		vertex: 'GOOGLE_API_KEY', // Vertex uses the same key as Google
+		'claude-code': 'CLAUDE_CODE_API_KEY', // Not actually used, but included for consistency
+		bedrock: 'AWS_ACCESS_KEY_ID' // Bedrock uses AWS credentials
+		// Add other providers as needed
+	};
+
+	const providerKey = providerName?.toLowerCase();
+	if (!providerKey || !keyMap[providerKey]) {
+		log('warn', `Unknown provider name: ${providerName} in isApiKeySet check.`);
+		return false;
+	}
+
+	const envVarName = keyMap[providerKey];
+	const apiKeyValue = resolveEnvVariable(envVarName, session, projectRoot);
+
+	// Check if the key exists, is not empty, and is not a placeholder
+	return (
+		apiKeyValue &&
+		apiKeyValue.trim() !== '' &&
+		!/YOUR_.*_API_KEY_HERE/.test(apiKeyValue) && // General placeholder check
+		!apiKeyValue.includes('KEY_HERE')
+	); // Another common placeholder pattern
+}
+
+/**
+ * Checks the API key status within .cursor/mcp.json for a given provider.
+ * Reads the mcp.json file, finds the taskmaster-ai server config, and checks the relevant env var.
+ * @param {string} providerName The name of the provider.
+ * @param {string|null} projectRoot - Optional explicit path to the project root.
+ * @returns {boolean} True if the key exists and is not a placeholder, false otherwise.
+ */
+function getMcpApiKeyStatus(providerName, projectRoot = null) {
+	const rootDir = projectRoot || findProjectRoot(); // Use existing root finding
+	if (!rootDir) {
+		console.warn(
+			chalk.yellow('Warning: Could not find project root to check mcp.json.')
+		);
+		return false; // Cannot check without root
+	}
+	const mcpConfigPath = path.join(rootDir, '.cursor', 'mcp.json');
+
+	if (!fs.existsSync(mcpConfigPath)) {
+		// console.warn(chalk.yellow('Warning: .cursor/mcp.json not found.'));
+		return false; // File doesn't exist
+	}
+
+	try {
+		const mcpConfigRaw = fs.readFileSync(mcpConfigPath, 'utf-8');
+		const mcpConfig = JSON.parse(mcpConfigRaw);
+
+		const mcpEnv =
+			mcpConfig?.mcpServers?.['task-master-ai']?.env ||
+			mcpConfig?.mcpServers?.['taskmaster-ai']?.env;
+		if (!mcpEnv) {
+			return false;
+		}
+
+		let apiKeyToCheck = null;
+		let placeholderValue = null;
+
+		switch (providerName) {
+			case 'anthropic':
+				apiKeyToCheck = mcpEnv.ANTHROPIC_API_KEY;
+				placeholderValue = 'YOUR_ANTHROPIC_API_KEY_HERE';
+				break;
+			case 'openai':
+				apiKeyToCheck = mcpEnv.OPENAI_API_KEY;
+				placeholderValue = 'YOUR_OPENAI_API_KEY_HERE'; // Assuming placeholder matches OPENAI
+				break;
+			case 'openrouter':
+				apiKeyToCheck = mcpEnv.OPENROUTER_API_KEY;
+				placeholderValue = 'YOUR_OPENROUTER_API_KEY_HERE';
+				break;
+			case 'google':
+				apiKeyToCheck = mcpEnv.GOOGLE_API_KEY;
+				placeholderValue = 'YOUR_GOOGLE_API_KEY_HERE';
+				break;
+			case 'perplexity':
+				apiKeyToCheck = mcpEnv.PERPLEXITY_API_KEY;
+				placeholderValue = 'YOUR_PERPLEXITY_API_KEY_HERE';
+				break;
+			case 'xai':
+				apiKeyToCheck = mcpEnv.XAI_API_KEY;
+				placeholderValue = 'YOUR_XAI_API_KEY_HERE';
+				break;
+			case 'zai':
+			case 'zai-coding':
+				apiKeyToCheck = mcpEnv.ZAI_API_KEY;
+				placeholderValue = 'YOUR_ZAI_API_KEY_HERE';
+				break;
+			case 'groq':
+				apiKeyToCheck = mcpEnv.GROQ_API_KEY;
+				placeholderValue = 'YOUR_GROQ_API_KEY_HERE';
+				break;
+			case 'ollama':
+				return true; // No key needed
+			case 'claude-code':
+				return true; // No key needed
+			case 'codex-cli':
+				return true; // OAuth/subscription via Codex CLI
+			case 'mistral':
+				apiKeyToCheck = mcpEnv.MISTRAL_API_KEY;
+				placeholderValue = 'YOUR_MISTRAL_API_KEY_HERE';
+				break;
+			case 'azure':
+				apiKeyToCheck = mcpEnv.AZURE_OPENAI_API_KEY;
+				placeholderValue = 'YOUR_AZURE_OPENAI_API_KEY_HERE';
+				break;
+			case 'vertex':
+				apiKeyToCheck = mcpEnv.GOOGLE_API_KEY; // Vertex uses Google API key
+				placeholderValue = 'YOUR_GOOGLE_API_KEY_HERE';
+				break;
+			case 'bedrock':
+				apiKeyToCheck = mcpEnv.AWS_ACCESS_KEY_ID; // Bedrock uses AWS credentials
+				placeholderValue = 'YOUR_AWS_ACCESS_KEY_ID_HERE';
+				break;
+			default:
+				return false; // Unknown provider
+		}
+
+		return !!apiKeyToCheck && !/KEY_HERE$/.test(apiKeyToCheck);
+	} catch (error) {
+		console.error(
+			chalk.red(`Error reading or parsing .cursor/mcp.json: ${error.message}`)
+		);
+		return false;
+	}
+}
+
+/**
+ * Gets a list of available models based on the MODEL_MAP.
+ * @returns {Array<{id: string, name: string, provider: string, swe_score: number|null, cost_per_1m_tokens: {input: number|null, output: number|null}|null, allowed_roles: string[]}>}
+ */
+function getAvailableModels() {
+	const available = [];
+	for (const [provider, models] of Object.entries(MODEL_MAP)) {
+		if (models.length > 0) {
+			models
+				.filter((modelObj) => Boolean(modelObj.supported))
+				.forEach((modelObj) => {
+					// Basic name generation - can be improved
+					const modelId = modelObj.id;
+					const sweScore = modelObj.swe_score;
+					const cost = modelObj.cost_per_1m_tokens;
+					const allowedRoles = modelObj.allowed_roles || ['main', 'fallback'];
+					const nameParts = modelId
+						.split('-')
+						.map((p) => p.charAt(0).toUpperCase() + p.slice(1));
+					// Handle specific known names better if needed
+					let name = nameParts.join(' ');
+					if (modelId === 'claude-3.5-sonnet-20240620')
+						name = 'Claude 3.5 Sonnet';
+					if (modelId === 'claude-3-7-sonnet-20250219')
+						name = 'Claude 3.7 Sonnet';
+					if (modelId === 'gpt-4o') name = 'GPT-4o';
+					if (modelId === 'gpt-4-turbo') name = 'GPT-4 Turbo';
+					if (modelId === 'sonar-pro') name = 'Perplexity Sonar Pro';
+					if (modelId === 'sonar-mini') name = 'Perplexity Sonar Mini';
+
+					available.push({
+						id: modelId,
+						name: name,
+						provider: provider,
+						swe_score: sweScore,
+						cost_per_1m_tokens: cost,
+						allowed_roles: allowedRoles,
+						max_tokens: modelObj.max_tokens
+					});
+				});
+		} else {
+			// For providers with empty lists (like ollama), maybe add a placeholder or skip
+			available.push({
+				id: `[${provider}-any]`,
+				name: `Any (${provider})`,
+				provider: provider
+			});
+		}
+	}
+	return available;
+}
+
+/**
+ * Writes the configuration object to the file.
+ * @param {Object} config The configuration object to write.
+ * @param {string|null} explicitRoot - Optional explicit path to the project root.
+ * @returns {boolean} True if successful, false otherwise.
+ */
+function writeConfig(config, explicitRoot = null) {
+	// ---> Determine root path reliably <---
+	let rootPath = explicitRoot;
+	if (explicitRoot === null || explicitRoot === undefined) {
+		// Logic matching _loadAndValidateConfig
+		const foundRoot = findProjectRoot(); // *** Explicitly call findProjectRoot ***
+		if (!foundRoot) {
+			console.error(
+				chalk.red(
+					'Error: Could not determine project root. Configuration not saved.'
+				)
+			);
+			return false;
+		}
+		rootPath = foundRoot;
+	}
+	// ---> End determine root path logic <---
+
+	// Use new config location: .taskmaster/config.json
+	const taskmasterDir = path.join(rootPath, '.taskmaster');
+	const configPath = path.join(taskmasterDir, 'config.json');
+
+	try {
+		// Ensure .taskmaster directory exists
+		if (!fs.existsSync(taskmasterDir)) {
+			fs.mkdirSync(taskmasterDir, { recursive: true });
+		}
+
+		fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+		loadedConfig = config; // Update the cache after successful write
+		return true;
+	} catch (error) {
+		console.error(
+			chalk.red(
+				`Error writing configuration to ${configPath}: ${error.message}`
+			)
+		);
+		return false;
+	}
+}
+
+/**
+ * Checks if a configuration file exists at the project root (new or legacy location)
+ * @param {string|null} explicitRoot - Optional explicit path to the project root
+ * @returns {boolean} True if the file exists, false otherwise
+ */
+function isConfigFilePresent(explicitRoot = null) {
+	return findConfigPath(null, { projectRoot: explicitRoot }) !== null;
+}
+
+/**
+ * Gets the user ID from the configuration.
+ * @param {string|null} explicitRoot - Optional explicit path to the project root.
+ * @returns {string|null} The user ID or null if not found.
+ */
+function getUserId(explicitRoot = null) {
+	const config = getConfig(explicitRoot);
+	if (!config.global) {
+		config.global = {}; // Ensure global object exists
+	}
+	if (!config.global.userId) {
+		config.global.userId = '1234567890';
+		// Attempt to write the updated config.
+		// It's important that writeConfig correctly resolves the path
+		// using explicitRoot, similar to how getConfig does.
+		const success = writeConfig(config, explicitRoot);
+		if (!success) {
+			// Log an error or handle the failure to write,
+			// though for now, we'll proceed with the in-memory default.
+			log(
+				'warning',
+				'Failed to write updated configuration with new userId. Please let the developers know.'
+			);
+		}
+	}
+	return config.global.userId;
+}
+
+/**
+ * Gets a list of all known provider names (both validated and custom).
+ * @returns {string[]} An array of all provider names.
+ */
+function getAllProviders() {
+	return ALL_PROVIDERS;
+}
+
+function getBaseUrlForRole(role, explicitRoot = null) {
+	const roleConfig = getModelConfigForRole(role, explicitRoot);
+	if (roleConfig && typeof roleConfig.baseURL === 'string') {
+		return roleConfig.baseURL;
+	}
+	const provider = roleConfig?.provider;
+	if (provider) {
+		const envVarName = `${provider.toUpperCase()}_BASE_URL`;
+		return resolveEnvVariable(envVarName, null, explicitRoot);
+	}
+	return undefined;
+}
+
+// Export the providers without API keys array for use in other modules
+export const providersWithoutApiKeys = [
+	CUSTOM_PROVIDERS.OLLAMA,
+	CUSTOM_PROVIDERS.BEDROCK,
+	CUSTOM_PROVIDERS.GEMINI_CLI,
+	CUSTOM_PROVIDERS.GROK_CLI,
+	CUSTOM_PROVIDERS.MCP,
+	CUSTOM_PROVIDERS.CODEX_CLI
+];
+
+export {
+	// Core config access
+	getConfig,
+	writeConfig,
+	ConfigurationError,
+	isConfigFilePresent,
+	// Claude Code settings
+	getClaudeCodeSettings,
+	getClaudeCodeSettingsForCommand,
+	// Codex CLI settings
+	getCodexCliSettings,
+	getCodexCliSettingsForCommand,
+	// Grok CLI settings
+	getGrokCliSettings,
+	getGrokCliSettingsForCommand,
+	// Validation
+	validateProvider,
+	validateProviderModelCombination,
+	validateClaudeCodeSettings,
+	validateCodexCliSettings,
+	VALIDATED_PROVIDERS,
+	CUSTOM_PROVIDERS,
+	ALL_PROVIDERS,
+	MODEL_MAP,
+	getAvailableModels,
+	// Role-specific getters (No env var overrides)
+	getMainProvider,
+	getMainModelId,
+	getMainMaxTokens,
+	getMainTemperature,
+	getResearchProvider,
+	getResearchModelId,
+	getResearchMaxTokens,
+	getResearchTemperature,
+	hasCodebaseAnalysis,
+	getFallbackProvider,
+	getFallbackModelId,
+	getFallbackMaxTokens,
+	getFallbackTemperature,
+	getBaseUrlForRole,
+	// Global setting getters (No env var overrides)
+	getLogLevel,
+	getDebugFlag,
+	getDefaultNumTasks,
+	getDefaultSubtasks,
+	getDefaultPriority,
+	getProjectName,
+	getOllamaBaseURL,
+	getAzureBaseURL,
+	getBedrockBaseURL,
+	getResponseLanguage,
+	getCodebaseAnalysisEnabled,
+	isCodebaseAnalysisEnabled,
+	getProxyEnabled,
+	isProxyEnabled,
+	getParametersForRole,
+	getUserId,
+	// API Key Checkers (still relevant)
+	isApiKeySet,
+	getMcpApiKeyStatus,
+	// ADD: Function to get all provider names
+	getAllProviders,
+	getVertexProjectId,
+	getVertexLocation
+};

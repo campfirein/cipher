@@ -1,0 +1,56 @@
+{
+	"files": {
+		"ignore": [
+			"build",
+			"coverage",
+			".changeset",
+			"tasks",
+			"package-lock.json",
+			"tests/fixture/*.json",
+			"dist"
+		]
+	},
+	"formatter": {
+		"bracketSpacing": true,
+		"enabled": true,
+		"indentStyle": "tab",
+		"lineWidth": 80
+	},
+	"javascript": {
+		"formatter": {
+			"arrowParentheses": "always",
+			"quoteStyle": "single",
+			"trailingCommas": "none"
+		}
+	},
+	"linter": {
+		"enabled": true,
+		"include": ["apps/extension/**/*.ts", "apps/extension/**/*.tsx"],
+		"ignore": ["**/*", "!apps/extension/**/*"],
+		"rules": {
+			"recommended": true,
+			"complexity": {
+				"noForEach": "off",
+				"useOptionalChain": "off",
+				"useArrowFunction": "off"
+			},
+			"correctness": {
+				"noConstantCondition": "off",
+				"noUnreachable": "off"
+			},
+			"suspicious": {
+				"noDuplicateTestHooks": "off",
+				"noPrototypeBuiltins": "off"
+			},
+			"style": {
+				"noUselessElse": "off",
+				"useNodejsImportProtocol": "off",
+				"useNumberNamespace": "off",
+				"noParameterAssign": "off",
+				"useTemplate": "off",
+				"noUnusedTemplateLiteral": "off",
+				"noNonNullAssertion": "warn"
+			}
+		}
+	}
+}
