@@ -75,7 +75,7 @@ describe('CallbackHandler', () => {
       await handler.start()
 
       try {
-        await handler.waitForCallback('test-state', 100)
+        await handler.waitForCallback('test-state', 25)
         expect.fail('Should have thrown timeout error')
       } catch (error) {
         expect(error).to.be.an('error')

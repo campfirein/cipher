@@ -4,7 +4,8 @@ import sinon, {restore, stub} from 'sinon'
 import {Agent, AGENT_VALUES} from '../../../../src/core/domain/entities/agent.js'
 import {RuleExistsError} from '../../../../src/core/domain/errors/rule-error.js'
 import {IFileService} from '../../../../src/core/interfaces/i-file-service.js'
-import {BR_RULE_TAG, IRuleTemplateService} from '../../../../src/core/interfaces/i-rule-template-service.js'
+import {IRuleTemplateService} from '../../../../src/core/interfaces/i-rule-template-service.js'
+import {BR_RULE_TAG} from '../../../../src/infra/rule/constants.js'
 import {RuleWriterService} from '../../../../src/infra/rule/rule-writer-service.js'
 
 describe('RuleWriterService', () => {

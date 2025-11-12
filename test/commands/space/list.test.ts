@@ -2,7 +2,7 @@ import type {Config} from '@oclif/core'
 
 import {Config as OclifConfig} from '@oclif/core'
 import {expect} from 'chai'
-import sinon, {restore, stub} from 'sinon'
+import sinon, {restore, type SinonStub, stub} from 'sinon'
 
 import type {Space} from '../../../src/core/domain/entities/space.js'
 import type {IProjectConfigStore} from '../../../src/core/interfaces/i-project-config-store.js'
@@ -34,6 +34,21 @@ class TestableSpaceList extends SpaceList {
       tokenStore: this.mockTokenStore,
     }
   }
+
+  // Suppress all output to prevent noisy test runs
+  public error(input: Error | string): never {
+    const errorMessage = typeof input === 'string' ? input : input.message
+    throw new Error(errorMessage)
+  }
+
+  public log(): void {
+    // Do nothing - suppress output
+  }
+
+  public warn(input: Error | string): Error | string {
+    // Do nothing - suppress output, but return input to match base signature
+    return input
+  }
 }
 
 describe('SpaceList Command', () => {
@@ -46,11 +61,20 @@ describe('SpaceList Command', () => {
   let tokenStore: sinon.SinonStubbedInstance<ITokenStore>
   let validToken: AuthToken
 
+  // Stub ux.action to suppress spinner output
+  let uxActionStartStub: SinonStub
+  let uxActionStopStub: SinonStub
+
   before(async () => {
     config = await OclifConfig.load(import.meta.url)
   })
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    // Stub ux.action methods to suppress output
+    const {ux} = await import('@oclif/core')
+    uxActionStartStub = stub(ux.action, 'start')
+    uxActionStopStub = stub(ux.action, 'stop')
+
     projectConfigStore = {
       exists: stub(),
       read: stub(),
@@ -86,6 +110,9 @@ describe('SpaceList Command', () => {
   })
 
   afterEach(() => {
+    // Restore ux.action stubs
+    uxActionStartStub.restore()
+    uxActionStopStub.restore()
     restore()
   })
 

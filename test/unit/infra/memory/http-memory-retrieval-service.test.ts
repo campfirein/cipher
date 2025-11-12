@@ -527,7 +527,7 @@ describe('HttpMemoryRetrievalService', () => {
     it('should throw error on request timeout', async () => {
       nock(apiBaseUrl).get('/retrieve').query(true).delay(35_000).reply(200, {})
 
-      const timeoutService = new HttpMemoryRetrievalService({apiBaseUrl, timeout: 100})
+      const timeoutService = new HttpMemoryRetrievalService({apiBaseUrl, timeout: 25})
 
       try {
         await timeoutService.retrieve({

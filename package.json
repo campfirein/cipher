@@ -1,7 +1,7 @@
 {
   "name": "byterover-cli",
   "description": "ByteRover's CLI",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "author": "ByteRover",
   "bin": {
     "brv": "./bin/run.js"
@@ -51,10 +51,8 @@
     "./dist",
     "./oclif.manifest.json"
   ],
-  "homepage": "https://github.com/campfirein/byterover-cli",
-  "keywords": [
-    "oclif"
-  ],
+  "homepage": "https://www.byterover.dev/",
+  "keywords": [],
   "license": "UNLICENSED",
   "main": "dist/index.js",
   "type": "module",
