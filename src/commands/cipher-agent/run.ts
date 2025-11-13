@@ -1,5 +1,7 @@
 import {Args, Command, Flags} from '@oclif/core'
 
+import type {IProjectConfigStore} from '../../core/interfaces/i-project-config-store.js'
+
 import {CipherAgent} from '../../infra/agents/cipher-agent.js'
 import {startInteractiveLoop} from '../../infra/agents/interactive-loop.js'
 import {ProjectConfigStore} from '../../infra/config/file-config-store.js'
@@ -58,6 +60,14 @@ export default class CipherAgentRun extends Command {
     }),
   }
 
+  protected createServices(): {
+    projectConfigStore: IProjectConfigStore
+  } {
+    return {
+      projectConfigStore: new ProjectConfigStore(),
+    }
+  }
+
   public async run(): Promise<void> {
     const {args, flags} = await this.parse(CipherAgentRun)
 
@@ -79,8 +89,8 @@ export default class CipherAgentRun extends Command {
       }
 
       // Load ByteRover config to get custom system prompt (if configured)
-      const configStore = new ProjectConfigStore()
-      const brvConfig = await configStore.read()
+      const {projectConfigStore} = this.createServices()
+      const brvConfig = await projectConfigStore.read()
 
       // Create LLM configuration (hardcoded defaults + flag overrides)
       const model = flags.model ?? 'gemini-2.5-flash'

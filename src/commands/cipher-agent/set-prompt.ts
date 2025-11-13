@@ -1,5 +1,7 @@
 import {Args, Command} from '@oclif/core'
 
+import type {IProjectConfigStore} from '../../core/interfaces/i-project-config-store.js'
+
 import {BrvConfig} from '../../core/domain/entities/brv-config.js'
 import {ProjectConfigStore} from '../../infra/config/file-config-store.js'
 
@@ -13,14 +15,22 @@ export default class CipherAgentSetPrompt extends Command {
     '<%= config.bin %> <%= command.id %> "You are an expert in refactoring and code quality improvements"',
   ]
 
+  protected createServices(): {
+    projectConfigStore: IProjectConfigStore
+  } {
+    return {
+      projectConfigStore: new ProjectConfigStore(),
+    }
+  }
+
   public async run(): Promise<void> {
     const {args} = await this.parse(CipherAgentSetPrompt)
 
     try {
-      const configStore = new ProjectConfigStore()
+      const {projectConfigStore} = this.createServices()
 
       // Check if config exists
-      const configExists = await configStore.exists()
+      const configExists = await projectConfigStore.exists()
       if (!configExists) {
         this.error(
           'No ByteRover config found. Please run "byterover init" first to initialize the project.',
@@ -28,7 +38,7 @@ export default class CipherAgentSetPrompt extends Command {
       }
 
       // Read existing config
-      const existingConfig = await configStore.read()
+      const existingConfig = await projectConfigStore.read()
       if (!existingConfig) {
         this.error('Failed to read existing config.')
       }
@@ -44,7 +54,7 @@ export default class CipherAgentSetPrompt extends Command {
       )
 
       // Write updated config
-      await configStore.write(updatedConfig)
+      await projectConfigStore.write(updatedConfig)
 
       this.log('✓ CipherAgent system prompt updated successfully!')
       this.log('\nNew prompt:')
