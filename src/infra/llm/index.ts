@@ -16,9 +16,6 @@ export {ContextManager, type FileData, type ImageData} from './context/context-m
 // Message formatter
 export {GeminiMessageFormatter} from './formatters/gemini-formatter.js'
 
-// LLM provider
-export {GeminiLlmProvider, type GeminiProviderConfig} from './gemini-llm-provider.js'
-
 // LLM service
 export {GeminiLLMService, type GeminiServiceConfig, type LLMServiceConfig} from './gemini-llm-service.js'
 

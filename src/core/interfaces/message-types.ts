@@ -85,6 +85,12 @@ export interface InternalMessage {
   name?: string
 
   /**
+   * Optional model reasoning text associated with an assistant response.
+   * Present when the provider supports reasoning and returns a final reasoning trace.
+   */
+  reasoning?: string;
+
+  /**
    * The role of the entity sending the message.
    * - 'system': System instructions or context
    * - 'user': End-user input

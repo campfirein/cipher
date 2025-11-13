@@ -1,5 +1,7 @@
 import type {Content, GenerateContentConfig} from '@google/genai'
 
+import {GoogleGenAI} from '@google/genai'
+
 import type {JSONSchema7, ToolSet} from '../../core/domain/tools/types.js'
 import type {ILLMService} from '../../core/interfaces/i-llm-service.js'
 import type {InternalMessage} from '../../core/interfaces/message-types.js'
@@ -14,15 +16,19 @@ import {SessionEventBus} from '../events/event-emitter.js'
 import {SystemPromptManager} from '../system-prompt/system-prompt-manager.js'
 import {ContextManager, type FileData, type ImageData} from './context/context-manager.js'
 import {GeminiMessageFormatter} from './formatters/gemini-formatter.js'
-import {GeminiLlmProvider, type GeminiProviderConfig} from './gemini-llm-provider.js'
 import {GeminiTokenizer} from './tokenizers/gemini-tokenizer.js'
 
 /**
  * Configuration for Gemini LLM service
  */
-export interface GeminiServiceConfig extends GeminiProviderConfig {
+export interface GeminiServiceConfig {
+  apiKey: string
   maxInputTokens?: number
   maxIterations?: number
+  maxTokens?: number
+  model?: string
+  temperature?: number
+  timeout?: number
 }
 
 /**
@@ -61,10 +67,10 @@ interface GeminiToolDefinition {
  * - Store persistent history (uses in-memory ContextManager)
  */
 export class GeminiLLMService implements ILLMService {
+  private readonly client: GoogleGenAI
   private readonly config: Required<Omit<GeminiServiceConfig, 'timeout'>> & {timeout?: number}
   private readonly contextManager: ContextManager<Content>
   private readonly formatter: GeminiMessageFormatter
-  private readonly provider: GeminiLlmProvider
   private readonly sessionEventBus: SessionEventBus
   private readonly systemPromptManager: SystemPromptManager
   private readonly tokenizer: GeminiTokenizer
@@ -74,6 +80,7 @@ export class GeminiLLMService implements ILLMService {
    * Creates a new Gemini LLM service
    *
    * @param sessionId - Unique session identifier
+   * @param geminiClient - Pre-configured GoogleGenAI client instance
    * @param config - Service configuration
    * @param options - Service dependencies
    * @param options.toolManager - Tool manager for tool execution
@@ -82,6 +89,7 @@ export class GeminiLLMService implements ILLMService {
    */
   public constructor(
     sessionId: string,
+    geminiClient: GoogleGenAI,
     config: GeminiServiceConfig,
     options: {
       sessionEventBus: SessionEventBus
@@ -89,6 +97,7 @@ export class GeminiLLMService implements ILLMService {
       toolManager: ToolManager
     },
   ) {
+    this.client = geminiClient
     this.toolManager = options.toolManager
     this.systemPromptManager = options.systemPromptManager
     this.sessionEventBus = options.sessionEventBus
@@ -101,15 +110,6 @@ export class GeminiLLMService implements ILLMService {
       temperature: config.temperature ?? 0.7,
       timeout: config.timeout,
     }
-
-    // Initialize provider (pure API client)
-    this.provider = new GeminiLlmProvider({
-      apiKey: this.config.apiKey,
-      maxTokens: this.config.maxTokens,
-      model: this.config.model,
-      temperature: this.config.temperature,
-      timeout: this.config.timeout,
-    })
 
     // Initialize formatter and tokenizer
     this.formatter = new GeminiMessageFormatter()
@@ -183,9 +183,13 @@ export class GeminiLLMService implements ILLMService {
       this.sessionEventBus.emit('llmservice:thinking')
 
       try {
-        // Call Gemini API via provider
+        // Call Gemini API directly via client
         // eslint-disable-next-line no-await-in-loop -- Sequential LLM calls required for agentic loop
-        const response = await this.provider.generateContent(formattedMessages as Content[], genConfig)
+        const response = await this.client.models.generateContent({
+          config: genConfig,
+          contents: formattedMessages as Content[],
+          model: this.config.model,
+        })
 
         // Parse response to internal format
         const messages = this.formatter.parseResponse(response)
