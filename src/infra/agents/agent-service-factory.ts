@@ -1,3 +1,5 @@
+import {GoogleGenAI} from '@google/genai'
+
 import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
 import type {FileSystemConfig} from '../../core/domain/file-system/types.js'
 
@@ -137,9 +139,13 @@ export async function createCipherServices(
     ],
   })
 
-  // 6. LLM service (depends on ToolManager, SystemPromptManager, SessionEventBus)
+  // 6. GoogleGenAI client
+  const geminiClient = new GoogleGenAI({apiKey: llmConfig.apiKey})
+
+  // 7. LLM service (depends on GoogleGenAI client, ToolManager, SystemPromptManager, SessionEventBus)
   const llmService = new GeminiLLMService(
     'cipher-agent-session',
+    geminiClient,
     {
       apiKey: llmConfig.apiKey,
       maxIterations: llmConfig.maxIterations ?? 50,
@@ -154,7 +160,7 @@ export async function createCipherServices(
     },
   )
 
-  // 7. Setup event forwarding from session bus to agent bus
+  // 8. Setup event forwarding from session bus to agent bus
   setupEventForwarding(sessionEventBus, agentEventBus, 'cipher-agent-session')
 
   return {

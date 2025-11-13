@@ -40,4 +40,13 @@ export interface IMessageFormatter<TProviderMessage> {
    * @returns Array of internal messages extracted from the response
    */
   parseResponse: (response: unknown) => InternalMessage[]
+
+  /**
+   * Optional method for parsing streaming LLM responses into InternalMessage objects.
+   *
+   * @param response The streaming response from the LLM provider
+   * @returns Promise that resolves to an array of InternalMessage objects
+   */
+  parseStreamResponse?(response: unknown): Promise<InternalMessage[]>
+
 }

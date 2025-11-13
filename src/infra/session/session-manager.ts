@@ -1,3 +1,4 @@
+import {GoogleGenAI} from '@google/genai'
 import {randomUUID} from 'node:crypto'
 
 import type {SessionConfig} from '../../core/domain/session/types.js'
@@ -59,9 +60,12 @@ export class SessionManager {
     // Create session event bus for this session
     const sessionEventBus = new SessionEventBus()
 
+    // Create GoogleGenAI client
+    const geminiClient = new GoogleGenAI({apiKey: this.llmConfig.apiKey})
+
     // Create a new LLM service for this session
     // Each session has isolated context via its own service + ContextManager
-    const llmService = new GeminiLLMService(id, this.llmConfig, {
+    const llmService = new GeminiLLMService(id, geminiClient, this.llmConfig, {
       sessionEventBus,
       systemPromptManager,
       toolManager: this.toolManager,
