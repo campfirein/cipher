@@ -1,8 +1,8 @@
 import {expect} from 'chai'
 
-import type {SystemPromptContext} from '../../../../../src/core/domain/system-prompt/types.js'
+import type {SystemPromptContext} from '../../../../../src/core/domain/cipher/system-prompt/types.js'
 
-import {StaticContributor} from '../../../../../src/infra/system-prompt/contributors/static-contributor.js'
+import {StaticContributor} from '../../../../../src/infra/cipher/system-prompt/contributors/static-contributor.js'
 
 describe('StaticContributor', () => {
   describe('constructor', () => {

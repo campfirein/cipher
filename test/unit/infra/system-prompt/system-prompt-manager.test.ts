@@ -3,9 +3,9 @@ import {expect} from 'chai'
 import type {
   SystemPromptConfig,
   SystemPromptContext,
-} from '../../../../src/core/domain/system-prompt/types.js'
+} from '../../../../src/core/domain/cipher/system-prompt/types.js'
 
-import {SystemPromptManager} from '../../../../src/infra/system-prompt/system-prompt-manager.js'
+import {SystemPromptManager} from '../../../../src/infra/cipher/system-prompt/system-prompt-manager.js'
 
 describe('SystemPromptManager', () => {
   describe('constructor', () => {

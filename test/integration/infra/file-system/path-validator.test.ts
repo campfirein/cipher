@@ -3,9 +3,9 @@ import {mkdir, rm, symlink, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import path, {join} from 'node:path'
 
-import type {FileSystemConfig} from '../../../../src/core/domain/file-system/types.js'
+import type {FileSystemConfig} from '../../../../src/core/domain/cipher/file-system/types.js'
 
-import {PathValidator} from '../../../../src/infra/file-system/path-validator.js'
+import {PathValidator} from '../../../../src/infra/cipher/file-system/path-validator.js'
 
 describe('PathValidator', () => {
   let testDir: string
