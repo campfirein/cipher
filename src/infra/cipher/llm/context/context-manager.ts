@@ -1,6 +1,10 @@
 import type {IMessageFormatter} from '../../../../core/interfaces/cipher/i-message-formatter.js'
 import type {ITokenizer} from '../../../../core/interfaces/cipher/i-tokenizer.js'
 import type {InternalMessage} from '../../../../core/interfaces/cipher/message-types.js'
+import type {ICompressionStrategy} from './compression/types.js'
+
+import {MiddleRemovalStrategy, OldestRemovalStrategy} from './compression/index.js'
+import {countMessagesTokens} from './utils.js'
 
 /**
  * Image data for messages
@@ -29,6 +33,17 @@ export interface FormattedMessagesResult<T> {
 }
 
 /**
+ * Configuration options for ContextManager
+ */
+export interface ContextManagerOptions<T> {
+  compressionStrategies?: ICompressionStrategy[]
+  formatter: IMessageFormatter<T>
+  maxInputTokens: number
+  sessionId: string
+  tokenizer: ITokenizer
+}
+
+/**
  * Context Manager for managing conversation history.
  *
  * Responsibilities:
@@ -41,6 +56,7 @@ export interface FormattedMessagesResult<T> {
  * (e.g., GeminiContent for Gemini, MessageParam for Anthropic)
  */
 export class ContextManager<T> {
+  private readonly compressionStrategies: ICompressionStrategy[]
   private readonly formatter: IMessageFormatter<T>
   private readonly maxInputTokens: number
   private messages: InternalMessage[] = []
@@ -50,21 +66,24 @@ export class ContextManager<T> {
   /**
    * Creates a new context manager
    *
-   * @param sessionId - Unique session identifier
-   * @param formatter - Message formatter for provider-specific format
-   * @param tokenizer - Token counter for the model
-   * @param maxInputTokens - Maximum input tokens allowed
+   * @param options - Configuration options
+   * @param options.sessionId - Unique session identifier
+   * @param options.formatter - Message formatter for provider-specific format
+   * @param options.tokenizer - Token counter for the model
+   * @param options.maxInputTokens - Maximum input tokens allowed
+   * @param options.compressionStrategies - Optional compression strategies (defaults to MiddleRemoval + OldestRemoval)
    */
-  public constructor(
-    sessionId: string,
-    formatter: IMessageFormatter<T>,
-    tokenizer: ITokenizer,
-    maxInputTokens: number,
-  ) {
-    this.sessionId = sessionId
-    this.formatter = formatter
-    this.tokenizer = tokenizer
-    this.maxInputTokens = maxInputTokens
+  public constructor(options: ContextManagerOptions<T>) {
+    this.sessionId = options.sessionId
+    this.formatter = options.formatter
+    this.tokenizer = options.tokenizer
+    this.maxInputTokens = options.maxInputTokens
+
+    // Initialize compression strategies with defaults
+    this.compressionStrategies = options.compressionStrategies ?? [
+      new MiddleRemovalStrategy({preserveEnd: 5, preserveStart: 4}),
+      new OldestRemovalStrategy({minMessagesToKeep: 4}),
+    ]
   }
 
   /**
@@ -160,19 +179,28 @@ export class ContextManager<T> {
   /**
    * Get formatted messages with compression applied.
    *
+   * @param systemPrompt - Optional system prompt (for token accounting)
    * @returns Formatted messages, system prompt, and token count
    */
-  public async getFormattedMessagesWithCompression(): Promise<FormattedMessagesResult<T>> {
-    // For now, no compression - just format messages
-    // Compression logic can be added later when needed
+  public async getFormattedMessagesWithCompression(
+    systemPrompt?: string
+  ): Promise<FormattedMessagesResult<T>> {
+    // Calculate system prompt tokens
+    const systemPromptTokens = systemPrompt ? this.tokenizer.countTokens(systemPrompt) : 0
 
-    const formattedMessages = this.formatter.format(this.messages)
+    // Compress history if needed
+    const compressedHistory = await this.compressHistoryIfNeeded(systemPromptTokens)
 
-    // Count tokens (simplified - count on formatted messages)
-    const tokensUsed = await this.countTokens(formattedMessages)
+    // Format compressed messages
+    const formattedMessages = this.formatter.format(compressedHistory)
+
+    // Count total tokens (system + history)
+    const historyTokens = countMessagesTokens(compressedHistory, this.tokenizer)
+    const tokensUsed = systemPromptTokens + historyTokens
 
     return {
       formattedMessages,
+      systemPrompt,
       tokensUsed,
     }
   }
@@ -196,6 +224,80 @@ export class ContextManager<T> {
    */
   public getSessionId(): string {
     return this.sessionId
+  }
+
+  /**
+   * Compress conversation history if needed to fit within token limits.
+   *
+   * This method applies compression strategies sequentially until the history
+   * fits within the available token budget (maxInputTokens - systemPromptTokens).
+   *
+   * @param systemPromptTokens - Tokens used by system prompt (reserved, not compressible)
+   * @returns Compressed message history
+   */
+  private async compressHistoryIfNeeded(systemPromptTokens: number): Promise<InternalMessage[]> {
+    // Calculate current token usage
+    const currentHistoryTokens = countMessagesTokens(this.messages, this.tokenizer)
+    const totalTokens = systemPromptTokens + currentHistoryTokens
+
+    // No compression needed
+    if (totalTokens <= this.maxInputTokens) {
+      console.log(
+        `[ContextManager] No compression needed: ${totalTokens} / ${this.maxInputTokens} tokens ` +
+        `(system: ${systemPromptTokens}, history: ${currentHistoryTokens})`
+      )
+      return this.messages
+    }
+
+    console.log(
+      `[ContextManager] Compression required: ${totalTokens} / ${this.maxInputTokens} tokens ` +
+      `(system: ${systemPromptTokens}, history: ${currentHistoryTokens})`
+    )
+
+    // Calculate target token budget for history
+    // Reserve space for system prompt
+    const maxHistoryTokens = this.maxInputTokens - systemPromptTokens
+
+    // Apply compression strategies sequentially
+    let compressedHistory = this.messages
+    for (const strategy of this.compressionStrategies) {
+      const strategyName = strategy.getName()
+      console.log(`[ContextManager] Applying compression strategy: ${strategyName}`)
+
+      // eslint-disable-next-line no-await-in-loop
+      compressedHistory = await strategy.compress(
+        compressedHistory,
+        maxHistoryTokens,
+        this.tokenizer
+      )
+
+      // Check if we've met the token limit
+      const compressedTokens = countMessagesTokens(compressedHistory, this.tokenizer)
+      const newTotal = systemPromptTokens + compressedTokens
+
+      if (newTotal <= this.maxInputTokens) {
+        console.log(
+          `[ContextManager] Compression successful with ${strategyName}: ` +
+          `${newTotal} / ${this.maxInputTokens} tokens ` +
+          `(system: ${systemPromptTokens}, history: ${compressedTokens})`
+        )
+        break
+      }
+    }
+
+    // Final token count
+    const finalTokens = countMessagesTokens(compressedHistory, this.tokenizer)
+    const finalTotal = systemPromptTokens + finalTokens
+
+    if (finalTotal > this.maxInputTokens) {
+      console.warn(
+        `[ContextManager] Warning: Unable to compress below token limit. ` +
+        `Final: ${finalTotal} / ${this.maxInputTokens} tokens ` +
+        `(system: ${systemPromptTokens}, history: ${finalTokens})`
+      )
+    }
+
+    return compressedHistory
   }
 
   /**

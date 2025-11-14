@@ -6,6 +6,8 @@ import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
 import {AgentEventBus, SessionEventBus} from './events/event-emitter.js'
 import {FileSystemService} from './file-system/file-system-service.js'
 import {GeminiLLMService} from './llm/gemini-llm-service.js'
+import {JsonMemoryStorage} from './memory/json-memory-storage.js'
+import {MemoryManager} from './memory/memory-manager.js'
 import {ProcessService} from './process/process-service.js'
 import {setupEventForwarding} from './session/session-event-forwarder.js'
 import {SystemPromptManager} from './system-prompt/system-prompt-manager.js'
@@ -70,6 +72,7 @@ export interface CipherServices {
   agentEventBus: AgentEventBus
   fileSystemService: FileSystemService
   llmService: GeminiLLMService
+  memoryManager: MemoryManager
   processService: ProcessService
   sessionEventBus: SessionEventBus
   systemPromptManager: SystemPromptManager
@@ -110,7 +113,12 @@ export async function createCipherServices(
   })
   await processService.initialize()
 
-  // 4. Tool system (depends on FileSystemService, ProcessService)
+  // 4. Memory system (no dependencies)
+  const memoryStorage = new JsonMemoryStorage()
+  await memoryStorage.initialize()
+  const memoryManager = new MemoryManager(memoryStorage)
+
+  // 5. Tool system (depends on FileSystemService, ProcessService)
   const toolProvider = new ToolProvider({
     fileSystemService,
     processService,
@@ -119,30 +127,44 @@ export async function createCipherServices(
   const toolManager = new ToolManager(toolProvider)
   await toolManager.initialize()
 
-  // 5. System prompt manager
+  // 6. System prompt manager (with memory integration)
   const customPrompt = brvConfig?.cipherAgentSystemPrompt
-  const systemPromptManager = new SystemPromptManager({
-    contributors: [
-      {
-        content: customPrompt ?? DEFAULT_SYSTEM_PROMPT,
-        enabled: true,
-        id: 'static',
-        priority: 0,
-        type: 'static',
-      },
-      {
-        enabled: true,
-        id: 'dateTime',
-        priority: 10,
-        type: 'dateTime',
-      },
-    ],
-  })
+  const systemPromptManager = new SystemPromptManager(
+    {
+      contributors: [
+        {
+          content: customPrompt ?? DEFAULT_SYSTEM_PROMPT,
+          enabled: true,
+          id: 'static',
+          priority: 0,
+          type: 'static',
+        },
+        {
+          enabled: true,
+          id: 'dateTime',
+          priority: 10,
+          type: 'dateTime',
+        },
+        {
+          enabled: true,
+          id: 'agentMemories',
+          options: {
+            includeTags: true,
+            includeTimestamps: false,
+            limit: 20,
+          },
+          priority: 20,
+          type: 'memory',
+        },
+      ],
+    },
+    memoryManager,
+  )
 
-  // 6. GoogleGenAI client
+  // 7. GoogleGenAI client
   const geminiClient = new GoogleGenAI({apiKey: llmConfig.apiKey})
 
-  // 7. LLM service (depends on GoogleGenAI client, ToolManager, SystemPromptManager, SessionEventBus)
+  // 8. LLM service (depends on GoogleGenAI client, ToolManager, SystemPromptManager, SessionEventBus)
   const llmService = new GeminiLLMService(
     'cipher-agent-session',
     geminiClient,
@@ -160,13 +182,14 @@ export async function createCipherServices(
     },
   )
 
-  // 8. Setup event forwarding from session bus to agent bus
+  // 9. Setup event forwarding from session bus to agent bus
   setupEventForwarding(sessionEventBus, agentEventBus, 'cipher-agent-session')
 
   return {
     agentEventBus,
     fileSystemService,
     llmService,
+    memoryManager,
     processService,
     sessionEventBus,
     systemPromptManager,
