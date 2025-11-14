@@ -29,7 +29,7 @@ interface LLMServiceClient {
  * Generation parameters sent to gRPC backend.
  * Note: contents and config are sent as JSON strings for proper gRPC serialization.
  */
-interface GenerateParams {
+type GenerateParams = {
   config: string
   contents: string
   model: string
@@ -38,7 +38,7 @@ interface GenerateParams {
 /**
  * Generate request sent to ByteRover gRPC service.
  */
-interface GenerateRequest {
+type GenerateRequest = {
   params: GenerateParams
   project_id: string
   provider: 'claude' | 'gemini'
