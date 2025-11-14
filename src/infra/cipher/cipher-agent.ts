@@ -1,5 +1,5 @@
 import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
-import type {AgentState, ICipherAgent} from '../../core/interfaces/i-cipher-agent.js'
+import type {AgentState, ICipherAgent} from '../../core/interfaces/cipher/i-cipher-agent.js'
 import type {ILLMService} from '../../core/interfaces/i-llm-service.js'
 import type {AgentEventBus, SessionEventBus} from '../events/event-emitter.js'
 import type {FileSystemService} from '../file-system/file-system-service.js'

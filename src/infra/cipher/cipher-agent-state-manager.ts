@@ -1,4 +1,4 @@
-import type {AgentState} from '../../core/interfaces/i-cipher-agent.js'
+import type {AgentState} from '../../core/interfaces/cipher/i-cipher-agent.js'
 
 /**
  * Manages the runtime state of the CipherAgent

@@ -1,6 +1,6 @@
 import {expect} from 'chai'
 
-import {CipherAgentStateManager} from '../../../../src/infra/agents/cipher-agent-state-manager.js'
+import {CipherAgentStateManager} from '../../../../src/infra/cipher/cipher-agent-state-manager.js'
 
 describe('CipherAgentStateManager', () => {
   let stateManager: CipherAgentStateManager

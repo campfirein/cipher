@@ -1,9 +1,9 @@
 import {expect} from 'chai'
 
-import type {CipherLLMConfig} from '../../../../src/infra/agents/agent-service-factory.js'
+import type {CipherLLMConfig} from '../../../../src/infra/cipher/agent-service-factory.js'
 
 import {BrvConfig} from '../../../../src/core/domain/entities/brv-config.js'
-import {CipherAgent} from '../../../../src/infra/agents/cipher-agent.js'
+import {CipherAgent} from '../../../../src/infra/cipher/cipher-agent.js'
 
 describe('CipherAgent', () => {
   let llmConfig: CipherLLMConfig

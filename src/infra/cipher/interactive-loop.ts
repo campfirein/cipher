@@ -1,7 +1,7 @@
 import chalk from 'chalk'
 import readline from 'node:readline'
 
-import type {ICipherAgent} from '../../core/interfaces/i-cipher-agent.js'
+import type {ICipherAgent} from '../../core/interfaces/cipher/i-cipher-agent.js'
 
 import {parseInput} from './command-parser.js'
 import {executeCommand} from './interactive-commands.js'

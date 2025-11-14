@@ -1,6 +1,6 @@
 import chalk from 'chalk'
 
-import type {ICipherAgent} from '../../core/interfaces/i-cipher-agent.js'
+import type {ICipherAgent} from '../../core/interfaces/cipher/i-cipher-agent.js'
 
 /**
  * Interactive command definition

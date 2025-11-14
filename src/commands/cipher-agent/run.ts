@@ -2,8 +2,8 @@ import {Args, Command, Flags} from '@oclif/core'
 
 import type {IProjectConfigStore} from '../../core/interfaces/i-project-config-store.js'
 
-import {CipherAgent} from '../../infra/agents/cipher-agent.js'
-import {startInteractiveLoop} from '../../infra/agents/interactive-loop.js'
+import {CipherAgent} from '../../infra/cipher/cipher-agent.js'
+import {startInteractiveLoop} from '../../infra/cipher/interactive-loop.js'
 import {ProjectConfigStore} from '../../infra/config/file-config-store.js'
 import {formatToolCall, formatToolResult} from '../../utils/tool-display-formatter.js'
 
