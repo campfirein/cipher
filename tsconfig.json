@@ -8,10 +8,10 @@
     "target": "es2022",
     "moduleResolution": "node16",
     "skipLibCheck": true,
-    "jsx": "react"
   },
   "include": ["./src/**/*"],
   "ts-node": {
-    "esm": true
+    "esm": true,
+    "project": "./tsconfig.test.json"
   }
 }

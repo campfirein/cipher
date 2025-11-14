@@ -1,16 +1,16 @@
 import {GoogleGenAI} from '@google/genai'
 
+import type {FileSystemConfig} from '../../core/domain/cipher/file-system/types.js'
 import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
-import type {FileSystemConfig} from '../../core/domain/file-system/types.js'
 
-import {AgentEventBus, SessionEventBus} from '../events/event-emitter.js'
-import {FileSystemService} from '../file-system/file-system-service.js'
-import {GeminiLLMService} from '../llm/gemini-llm-service.js'
-import {ProcessService} from '../process/process-service.js'
-import {setupEventForwarding} from '../session/session-event-forwarder.js'
-import {SystemPromptManager} from '../system-prompt/system-prompt-manager.js'
-import {ToolManager} from '../tools/tool-manager.js'
-import {ToolProvider} from '../tools/tool-provider.js'
+import {AgentEventBus, SessionEventBus} from './events/event-emitter.js'
+import {FileSystemService} from './file-system/file-system-service.js'
+import {GeminiLLMService} from './llm/gemini-llm-service.js'
+import {ProcessService} from './process/process-service.js'
+import {setupEventForwarding} from './session/session-event-forwarder.js'
+import {SystemPromptManager} from './system-prompt/system-prompt-manager.js'
+import {ToolManager} from './tools/tool-manager.js'
+import {ToolProvider} from './tools/tool-provider.js'
 
 /**
  * Default system prompt for CipherAgent
