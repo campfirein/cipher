@@ -3,6 +3,7 @@ import {Args, Command, Flags} from '@oclif/core'
 import type {IProjectConfigStore} from '../../core/interfaces/i-project-config-store.js'
 
 import {getCurrentConfig} from '../../config/environment.js'
+import { PROJECT } from '../../constants.js'
 import {CipherAgent} from '../../infra/cipher/cipher-agent.js'
 import {startInteractiveLoop} from '../../infra/cipher/interactive-loop.js'
 import {ProjectConfigStore} from '../../infra/config/file-config-store.js'
@@ -94,7 +95,6 @@ export default class CipherAgentRun extends Command {
 
       // Create LLM configuration (hardcoded defaults + flag overrides)
       const model = flags.model ?? 'gemini-2.5-flash'
-      const projectId = 'byterover'
       const envConfig = getCurrentConfig()
       const llmConfig = {
         accessToken: token.accessToken,
@@ -105,7 +105,7 @@ export default class CipherAgentRun extends Command {
         maxIterations: 50, // Hardcoded default
         maxTokens: flags.maxTokens ?? 8192, // Default: 8192
         model,
-        projectId,
+        projectId: PROJECT,
         sessionKey: token.sessionKey,
         temperature: flags.temperature ? Number.parseFloat(flags.temperature) : 0.7, // Default: 0.7
       }

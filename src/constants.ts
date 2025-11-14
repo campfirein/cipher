@@ -8,6 +8,7 @@ export const REFLECTIONS_DIR = 'reflections'
 export const DELTAS_DIR = 'deltas'
 export const BULLETS_DIR = 'bullets'
 export const PLAYBOOK_FILE = 'playbook.json'
+export const PROJECT = 'byterover'
 
 /**
  * Default ByteRover branch name for memory storage.
