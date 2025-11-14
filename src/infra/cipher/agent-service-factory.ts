@@ -1,11 +1,10 @@
-import {GoogleGenAI} from '@google/genai'
-
 import type {FileSystemConfig} from '../../core/domain/cipher/file-system/types.js'
 import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
 
 import {AgentEventBus, SessionEventBus} from './events/event-emitter.js'
 import {FileSystemService} from './file-system/file-system-service.js'
-import {GeminiLLMService} from './llm/gemini-llm-service.js'
+import {ByteRoverLlmGrpcService} from './grpc/internal-llm-grpc-service.js'
+import {ByteRoverLLMService} from './llm/internal-llm-service.js'
 import {JsonMemoryStorage} from './memory/json-memory-storage.js'
 import {MemoryManager} from './memory/memory-manager.js'
 import {ProcessService} from './process/process-service.js'
@@ -57,11 +56,15 @@ Remember: You're an autonomous agentic system that can freely use tools within a
  * LLM configuration for CipherAgent
  */
 export interface CipherLLMConfig {
-  apiKey: string
+  accessToken: string
   fileSystemConfig?: Partial<FileSystemConfig>
+  grpcEndpoint: string
   maxIterations?: number
   maxTokens?: number
-  model?: string
+  model: string
+  projectId: string
+  region?: string
+  sessionKey: string
   temperature?: number
 }
 
@@ -71,7 +74,7 @@ export interface CipherLLMConfig {
 export interface CipherServices {
   agentEventBus: AgentEventBus
   fileSystemService: FileSystemService
-  llmService: GeminiLLMService
+  llmService: ByteRoverLLMService
   memoryManager: MemoryManager
   processService: ProcessService
   sessionEventBus: SessionEventBus
@@ -161,15 +164,19 @@ export async function createCipherServices(
     memoryManager,
   )
 
-  // 7. GoogleGenAI client
-  const geminiClient = new GoogleGenAI({apiKey: llmConfig.apiKey})
+  // 7. ByteRover gRPC provider
+  const grpcService = new ByteRoverLlmGrpcService({
+    accessToken: llmConfig.accessToken,
+    grpcEndpoint: llmConfig.grpcEndpoint,
+    projectId: llmConfig.projectId,
+    sessionKey: llmConfig.sessionKey,
+  })
 
-  // 8. LLM service (depends on GoogleGenAI client, ToolManager, SystemPromptManager, SessionEventBus)
-  const llmService = new GeminiLLMService(
+  // 8. LLM service (depends on gRPC provider, ToolManager, SystemPromptManager, SessionEventBus)
+  const llmService = new ByteRoverLLMService(
     'cipher-agent-session',
-    geminiClient,
+    grpcService,
     {
-      apiKey: llmConfig.apiKey,
       maxIterations: llmConfig.maxIterations ?? 50,
       maxTokens: llmConfig.maxTokens ?? 8192,
       model: llmConfig.model ?? 'gemini-2.5-flash',

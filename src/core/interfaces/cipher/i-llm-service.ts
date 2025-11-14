@@ -1,5 +1,5 @@
 import type {ContextManager, FileData, ImageData} from '../../../infra/cipher/llm/context/context-manager.js'
-import type {LLMServiceConfig} from '../../../infra/cipher/llm/gemini-llm-service.js'
+import type {LLMServiceConfig} from '../../../infra/cipher/llm/internal-llm-service.js'
 import type {ToolSet} from '../../domain/cipher/tools/types.js'
 
 /**

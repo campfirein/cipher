@@ -19,6 +19,7 @@ type EnvironmentConfig = {
   clientId: string
   cogitApiBaseUrl: string
   issuerUrl: string
+  llmGrpcEndpoint: string
   memoraApiBaseUrl: string
   mixpanelToken: string
   scopes: string[]
@@ -37,6 +38,7 @@ export const ENV_CONFIG: Record<Environment, EnvironmentConfig> = {
     clientId: 'byterover-cli-client',
     cogitApiBaseUrl: 'https://dev-beta-cogit.byterover.dev/api/v1',
     issuerUrl: 'https://dev-beta-iam.byterover.dev/api/v1/oidc',
+    llmGrpcEndpoint: 'dev-beta-llm-grpc.byterover.dev',
     memoraApiBaseUrl: 'https://dev-beta-memora-retrieve.byterover.dev/api/v3',
     mixpanelToken: '258e1a2b3d44cc634ef28964771b1da0',
     scopes: ['read', 'write', 'debug'],
@@ -49,6 +51,7 @@ export const ENV_CONFIG: Record<Environment, EnvironmentConfig> = {
     clientId: 'byterover-cli',
     cogitApiBaseUrl: 'https://beta-cogit.byterover.dev/api/v1',
     issuerUrl: 'https://beta-iam.byterover.dev/api/v1/oidc',
+    llmGrpcEndpoint: 'beta-llm-grpc.byterover.dev',
     memoraApiBaseUrl: 'https://beta-memora-retrieve.byterover.dev/api/v3',
     mixpanelToken: '4d1198b346d2d6ac75f2e77905cc65ac',
     scopes: ['read', 'write'],
