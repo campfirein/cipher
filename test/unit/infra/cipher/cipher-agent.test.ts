@@ -88,16 +88,16 @@ describe('CipherAgent', () => {
       expect(state.executionHistory).to.deep.equal([])
     })
 
-    it('should throw error when reset is called before start', () => {
+    it('should allow reset before start (no event emission)', () => {
       const agent = new CipherAgent(llmConfig)
 
-      // Reset requires agentEventBus which is only initialized after start()
-      try {
-        agent.reset()
-        expect.fail('Should have thrown error')
-      } catch (error) {
-        expect(error).to.be.instanceOf(TypeError)
-      }
+      // Reset is safe to call before start() - it just won't emit events
+      // This is safer than the old implementation which would throw TypeError
+      agent.reset()
+
+      const state = agent.getState()
+      expect(state.currentIteration).to.equal(0)
+      expect(state.executionHistory).to.deep.equal([])
     })
   })
 
@@ -162,16 +162,16 @@ describe('CipherAgent', () => {
       }
     })
 
-    it('should require start() before reset()', () => {
+    it('should allow reset() before start() (safe behavior)', () => {
       const agent = new CipherAgent(llmConfig)
 
-      // Reset requires start() to initialize agentEventBus
-      try {
-        agent.reset()
-        expect.fail('Should require start() first')
-      } catch (error) {
-        expect(error).to.be.instanceOf(TypeError)
-      }
+      // After refactoring to remove non-null assertions, reset() is now safe
+      // to call before start() - it just won't emit events
+      agent.reset()
+
+      const state = agent.getState()
+      expect(state.currentIteration).to.equal(0)
+      expect(state.executionHistory).to.deep.equal([])
     })
 
     it('should allow getState() before start()', () => {
