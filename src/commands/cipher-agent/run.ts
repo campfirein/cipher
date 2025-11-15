@@ -5,7 +5,8 @@ import type {IProjectConfigStore} from '../../core/interfaces/i-project-config-s
 import {getCurrentConfig} from '../../config/environment.js'
 import { PROJECT } from '../../constants.js'
 import {CipherAgent} from '../../infra/cipher/cipher-agent.js'
-import {startInteractiveLoop} from '../../infra/cipher/interactive-loop.js'
+import {displayInfo, startInteractiveLoop} from '../../infra/cipher/interactive-loop.js'
+import {WorkspaceNotInitializedError} from '../../infra/cipher/validation/workspace-validator.js'
 import {ProjectConfigStore} from '../../infra/config/file-config-store.js'
 import {KeychainTokenStore} from '../../infra/storage/keychain-token-store.js'
 import {formatToolCall, formatToolResult} from '../../utils/tool-display-formatter.js'
@@ -117,35 +118,47 @@ export default class CipherAgentRun extends Command {
       await agent.start()
 
       // Setup event listeners for debugging/monitoring
-      agent.agentEventBus.on('llmservice:thinking', () => {
-        this.log('🤔 [Event] LLM is thinking...')
-      })
+      if (isInteractive) {
+        // In interactive mode, show minimal system info messages for cleaner UX
+        agent.agentEventBus.on('llmservice:error', (payload) => {
+          displayInfo(`Error: ${payload.error}`)
+        })
 
-      agent.agentEventBus.on('llmservice:response', (payload) => {
-        this.log(`✅ [Event] LLM Response (${payload.provider}/${payload.model})`)
-      })
+        agent.agentEventBus.on('cipher:conversationReset', () => {
+          displayInfo('Conversation history cleared')
+        })
+      } else {
+        // In non-interactive mode, show verbose event logs for debugging
+        agent.agentEventBus.on('llmservice:thinking', () => {
+          this.log('🤔 [Event] LLM is thinking...')
+        })
 
-      agent.agentEventBus.on('llmservice:toolCall', (payload) => {
-        const formattedCall = formatToolCall(payload.toolName, payload.args)
-        this.log(`🔧 [Event] Tool Call: ${formattedCall}`)
-      })
+        agent.agentEventBus.on('llmservice:response', (payload) => {
+          this.log(`✅ [Event] LLM Response (${payload.provider}/${payload.model})`)
+        })
 
-      agent.agentEventBus.on('llmservice:toolResult', (payload) => {
-        const resultSummary = formatToolResult(payload.toolName, payload.success, payload.result, payload.error)
-        if (payload.success) {
-          this.log(`✓ [Event] Tool Success: ${payload.toolName} → ${resultSummary}`)
-        } else {
-          this.log(`✗ [Event] Tool Error: ${payload.toolName} → ${resultSummary}`)
-        }
-      })
+        agent.agentEventBus.on('llmservice:toolCall', (payload) => {
+          const formattedCall = formatToolCall(payload.toolName, payload.args)
+          this.log(`🔧 [Event] Tool Call: ${formattedCall}`)
+        })
 
-      agent.agentEventBus.on('llmservice:error', (payload) => {
-        this.log(`❌ [Event] LLM Error: ${payload.error}`)
-      })
+        agent.agentEventBus.on('llmservice:toolResult', (payload) => {
+          const resultSummary = formatToolResult(payload.toolName, payload.success, payload.result, payload.error)
+          if (payload.success) {
+            this.log(`✓ [Event] Tool Success: ${payload.toolName} → ${resultSummary}`)
+          } else {
+            this.log(`✗ [Event] Tool Error: ${payload.toolName} → ${resultSummary}`)
+          }
+        })
 
-      agent.agentEventBus.on('cipher:conversationReset', () => {
-        this.log('🔄 [Event] Conversation Reset')
-      })
+        agent.agentEventBus.on('llmservice:error', (payload) => {
+          this.log(`❌ [Event] LLM Error: ${payload.error}`)
+        })
+
+        agent.agentEventBus.on('cipher:conversationReset', () => {
+          this.log('🔄 [Event] Conversation Reset')
+        })
+      }
 
       if (isInteractive) {
         // Interactive mode: start the loop
@@ -166,6 +179,19 @@ export default class CipherAgentRun extends Command {
         this.log(`\n[Agent State: ${state.currentIteration} iterations]`)
       }
     } catch (error) {
+      // Handle workspace not initialized error with friendly message
+      if (error instanceof WorkspaceNotInitializedError) {
+        this.log('\n⚠️  ByteRover workspace not found!\n')
+        this.log('It looks like you haven\'t initialized ByteRover in this directory yet.')
+        this.log('To get started, please run:\n')
+        this.log('  $ brv init\n')
+        this.log('This will create the necessary workspace structure in:')
+        this.log(`  ${error.expectedPath}\n`)
+        this.log('After initialization, you can run cipher-agent again.')
+        this.exit(1)
+      }
+
+      // Generic error handling
       this.error(`Failed to execute CipherAgent: ${(error as Error).message}`)
     }
   }

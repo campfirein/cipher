@@ -1,6 +1,6 @@
 import type {FileSystemConfig} from '../../core/domain/cipher/file-system/types.js'
 import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
-import type {IBlobStorage} from '../../core/interfaces/cipher/i-blob-storage.js'
+import type {CipherAgentServices, SessionServices} from '../../core/interfaces/cipher/cipher-services.js'
 
 import {FileBlobStorage} from './blob/file-blob-storage.js'
 import {AgentEventBus, SessionEventBus} from './events/event-emitter.js'
@@ -10,6 +10,7 @@ import {ByteRoverLLMService} from './llm/internal-llm-service.js'
 import {MemoryManager} from './memory/memory-manager.js'
 import {ProcessService} from './process/process-service.js'
 import {setupEventForwarding} from './session/session-event-forwarder.js'
+import {BlobHistoryStorage} from './storage/blob-history-storage.js'
 import {SystemPromptManager} from './system-prompt/system-prompt-manager.js'
 import {ToolManager} from './tools/tool-manager.js'
 import {ToolProvider} from './tools/tool-provider.js'
@@ -70,36 +71,37 @@ export interface CipherLLMConfig {
 }
 
 /**
- * Services created by the factory
+ * gRPC configuration for ByteRover LLM service
  */
-export interface CipherServices {
-  agentEventBus: AgentEventBus
-  blobStorage: IBlobStorage
-  fileSystemService: FileSystemService
-  llmService: ByteRoverLLMService
-  memoryManager: MemoryManager
-  processService: ProcessService
-  sessionEventBus: SessionEventBus
-  systemPromptManager: SystemPromptManager
-  toolManager: ToolManager
-  toolProvider: ToolProvider
+export interface ByteRoverGrpcConfig {
+  accessToken: string
+  grpcEndpoint: string
+  projectId: string
+  region?: string
+  sessionKey: string
+  timeout?: number
 }
 
+// Re-export service types for convenience
+export type {CipherAgentServices, SessionManagerConfig, SessionServices} from '../../core/interfaces/cipher/cipher-services.js'
+
 /**
- * Creates all services needed for CipherAgent.
- * This follows the Dexto pattern of centralized service initialization.
+ * Creates shared services for CipherAgent.
+ * These services are singletons shared across all sessions.
  *
- * @param llmConfig - LLM configuration (API key, model settings)
+ * Following Dexto's pattern: shared services are created once at agent level,
+ * while session-specific services (LLM, EventBus) are created per session.
+ *
+ * @param llmConfig - LLM configuration
  * @param brvConfig - Optional ByteRover config (for custom system prompt)
- * @returns Initialized services
+ * @returns Initialized shared services
  */
-export async function createCipherServices(
+export async function createCipherAgentServices(
   llmConfig: CipherLLMConfig,
   brvConfig?: BrvConfig,
-): Promise<CipherServices> {
-  // 1. Event buses (no dependencies)
+): Promise<CipherAgentServices> {
+  // 1. Agent event bus (global)
   const agentEventBus = new AgentEventBus()
-  const sessionEventBus = new SessionEventBus()
 
   // 2. File system service (no dependencies)
   const fileSystemService = new FileSystemService(llmConfig.fileSystemConfig)
@@ -125,10 +127,10 @@ export async function createCipherServices(
   })
   await blobStorage.initialize()
 
-  // 4.5. Memory system (depends on BlobStorage)
+  // 5. Memory system (depends on BlobStorage)
   const memoryManager = new MemoryManager(blobStorage)
 
-  // 5. Tool system (depends on FileSystemService, ProcessService)
+  // 6. Tool system (depends on FileSystemService, ProcessService)
   const toolProvider = new ToolProvider({
     fileSystemService,
     processService,
@@ -137,7 +139,7 @@ export async function createCipherServices(
   const toolManager = new ToolManager(toolProvider)
   await toolManager.initialize()
 
-  // 6. System prompt manager (with memory integration)
+  // 7. System prompt manager (with memory integration) - SHARED across sessions
   const customPrompt = brvConfig?.cipherAgentSystemPrompt
   const systemPromptManager = new SystemPromptManager(
     {
@@ -171,17 +173,65 @@ export async function createCipherServices(
     memoryManager,
   )
 
-  // 7. ByteRover gRPC provider
+  // 8. History storage (depends on BlobStorage) - SHARED across sessions
+  const historyStorage = new BlobHistoryStorage(blobStorage)
+
+  return {
+    agentEventBus,
+    blobStorage,
+    fileSystemService,
+    historyStorage,
+    memoryManager,
+    processService,
+    systemPromptManager,
+    toolManager,
+    toolProvider,
+  }
+}
+
+/**
+ * Creates session-specific services for a ChatSession.
+ *
+ * Following Dexto's pattern: each session gets its own LLM service and event bus
+ * for conversation isolation, while using shared services for tools/prompts.
+ *
+ * @param sessionId - Unique session identifier
+ * @param sharedServices - Shared services from agent
+ * @param grpcConfig - gRPC configuration
+ * @param llmConfig - LLM service configuration
+ * @param llmConfig.maxIterations - Maximum iterations for agentic loop
+ * @param llmConfig.maxTokens - Maximum output tokens
+ * @param llmConfig.model - LLM model identifier
+ * @param llmConfig.temperature - Temperature for generation
+ * @returns Initialized session services
+ */
+export function createSessionServices(
+  sessionId: string,
+  sharedServices: CipherAgentServices,
+  grpcConfig: ByteRoverGrpcConfig,
+  llmConfig: {
+    maxIterations?: number
+    maxTokens?: number
+    model: string
+    temperature?: number
+  },
+): SessionServices {
+  // 1. Create session-specific event bus
+  const sessionEventBus = new SessionEventBus()
+
+  // 2. Create gRPC service for this session
   const grpcService = new ByteRoverLlmGrpcService({
-    accessToken: llmConfig.accessToken,
-    grpcEndpoint: llmConfig.grpcEndpoint,
-    projectId: llmConfig.projectId,
-    sessionKey: llmConfig.sessionKey,
+    accessToken: grpcConfig.accessToken,
+    grpcEndpoint: grpcConfig.grpcEndpoint,
+    projectId: grpcConfig.projectId,
+    region: grpcConfig.region,
+    sessionKey: grpcConfig.sessionKey,
+    timeout: grpcConfig.timeout,
   })
 
-  // 8. LLM service (depends on gRPC provider, ToolManager, SystemPromptManager, SessionEventBus)
+  // 3. Create session-specific LLM service with shared services injected
   const llmService = new ByteRoverLLMService(
-    'cipher-agent-session',
+    sessionId,
     grpcService,
     {
       maxIterations: llmConfig.maxIterations ?? 50,
@@ -190,25 +240,18 @@ export async function createCipherServices(
       temperature: llmConfig.temperature ?? 0.7,
     },
     {
+      historyStorage: sharedServices.historyStorage, // SHARED
       sessionEventBus,
-      systemPromptManager,
-      toolManager,
+      systemPromptManager: sharedServices.systemPromptManager, // SHARED
+      toolManager: sharedServices.toolManager, // SHARED
     },
   )
 
-  // 9. Setup event forwarding from session bus to agent bus
-  setupEventForwarding(sessionEventBus, agentEventBus, 'cipher-agent-session')
+  // 4. Setup event forwarding from session bus to agent bus
+  setupEventForwarding(sessionEventBus, sharedServices.agentEventBus, sessionId)
 
   return {
-    agentEventBus,
-    blobStorage,
-    fileSystemService,
     llmService,
-    memoryManager,
-    processService,
     sessionEventBus,
-    systemPromptManager,
-    toolManager,
-    toolProvider,
   }
 }

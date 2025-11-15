@@ -66,7 +66,8 @@ export class FileBlobStorage implements IBlobStorage {
       };
       this.statsCacheExpiry = Date.now() + this.STATS_CACHE_TTL;
 
-      console.log(`Cleared ${blobFiles.length / 2} blobs from storage`);
+      // Removed verbose console.log for cleaner interactive UX
+      // console.log(`Cleared ${blobFiles.length / 2} blobs from storage`);
     } catch (error) {
       throw BlobError.deleteError(
         `Failed to clear storage: ${error instanceof Error ? error.message : String(error)}`,
@@ -98,7 +99,8 @@ export class FileBlobStorage implements IBlobStorage {
       // Update stats cache
       this.updateStatsCacheAfterDelete(metadata.size);
 
-      console.log(`Deleted blob: ${key}`);
+      // Removed verbose console.log for cleaner interactive UX
+      // console.log(`Deleted blob: ${key}`);
     } catch (error) {
       if (error instanceof BlobError) {
         throw error;
@@ -221,7 +223,8 @@ export class FileBlobStorage implements IBlobStorage {
     try {
       await fs.mkdir(this.storageDir, {recursive: true});
       this.initialized = true;
-      console.log(`Blob storage initialized at: ${this.storageDir}`);
+      // Removed verbose console.log for cleaner interactive UX
+      // console.log(`Blob storage initialized at: ${this.storageDir}`);
     } catch (error) {
       throw BlobError.initializationError(
         `Failed to initialize storage directory: ${error instanceof Error ? error.message : String(error)}`,
@@ -355,7 +358,8 @@ export class FileBlobStorage implements IBlobStorage {
       // Update stats cache
       this.updateStatsCacheAfterStore(buffer.length);
 
-      console.log(`Stored blob: ${key} (${buffer.length} bytes)`);
+      // Removed verbose console.log for cleaner interactive UX
+      // console.log(`Stored blob: ${key} (${buffer.length} bytes)`);
 
       return {
         content: buffer,

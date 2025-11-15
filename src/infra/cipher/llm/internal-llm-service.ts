@@ -1,6 +1,7 @@
 import type {Content, GenerateContentConfig} from '@google/genai'
 
 import type {JSONSchema7, ToolSet} from '../../../core/domain/cipher/tools/types.js'
+import type {IHistoryStorage} from '../../../core/interfaces/cipher/i-history-storage.js'
 import type {ILLMService} from '../../../core/interfaces/cipher/i-llm-service.js'
 import type {InternalMessage} from '../../../core/interfaces/cipher/message-types.js'
 import type {ToolManager} from '../tools/tool-manager.js'
@@ -102,12 +103,14 @@ export class ByteRoverLLMService implements ILLMService {
    * @param options.toolManager - Tool manager for executing agent tools
    * @param options.systemPromptManager - Manager for dynamic system prompts
    * @param options.sessionEventBus - Event bus for session lifecycle events
+   * @param options.historyStorage - Optional history storage for persistence
    */
   public constructor(
     sessionId: string,
     provider: ByteRoverLlmGrpcService,
     config: ByteRoverLLMServiceConfig,
     options: {
+      historyStorage?: IHistoryStorage
       sessionEventBus: SessionEventBus
       systemPromptManager: SystemPromptManager
       toolManager: ToolManager
@@ -130,9 +133,10 @@ export class ByteRoverLLMService implements ILLMService {
     this.formatter = new GeminiMessageFormatter()
     this.tokenizer = new GeminiTokenizer(this.config.model)
 
-    // Initialize context manager
+    // Initialize context manager with optional history storage
     this.contextManager = new ContextManager({
       formatter: this.formatter,
+      historyStorage: options.historyStorage,
       maxInputTokens: this.config.maxInputTokens,
       sessionId,
       tokenizer: this.tokenizer,
@@ -373,6 +377,16 @@ export class ByteRoverLLMService implements ILLMService {
    */
   public getContextManager(): ContextManager<unknown> {
     return this.contextManager
+  }
+
+  /**
+   * Initialize the LLM service by loading persisted history.
+   * Should be called after construction to restore previous conversation.
+   *
+   * @returns True if history was loaded, false otherwise
+   */
+  public async initialize(): Promise<boolean> {
+    return this.contextManager.initialize()
   }
 
   /**

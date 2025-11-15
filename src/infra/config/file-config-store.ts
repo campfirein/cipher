@@ -38,8 +38,9 @@ export class ProjectConfigStore implements IProjectConfigStore {
     const configPath = this.getConfigPath(directory)
 
     try {
-      // Create .brv directory if it doesn't exist
+      // Create .brv directory and blobs subdirectory if they don't exist
       await mkdir(brDirPath, {recursive: true})
+      await mkdir(join(brDirPath, 'blobs'), {recursive: true})
 
       // Write config.json
       const content = JSON.stringify(config.toJson(), undefined, 2)

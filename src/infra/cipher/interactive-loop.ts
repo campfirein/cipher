@@ -14,9 +14,19 @@ import {executeCommand} from './interactive-commands.js'
  */
 function promptUser(rl: readline.Interface): Promise<string> {
   return new Promise((resolve) => {
-    rl.question(chalk.green('> '), (answer) => {
+    // Set the prompt and display it immediately
+    const prompt = chalk.cyan('💬 You: ')
+    rl.setPrompt(prompt)
+    rl.prompt()
+
+    // Listen for line event instead of using question()
+    // This ensures the prompt appears immediately
+    const lineHandler = (answer: string) => {
+      rl.removeListener('line', lineHandler)
       resolve(answer)
-    })
+    }
+
+    rl.on('line', lineHandler)
   })
 }
 
@@ -47,6 +57,15 @@ function displayResponse(response: string): void {
   console.log(chalk.rgb(255, 165, 0)('─'.repeat(60)))
   console.log(chalk.white(response))
   console.log(chalk.rgb(255, 165, 0)('─'.repeat(60)) + '\n')
+}
+
+/**
+ * Display system information message
+ *
+ * @param message - Info message to display
+ */
+export function displayInfo(message: string): void {
+  console.log(chalk.gray(`ℹ️  ${message}`))
 }
 
 /**
