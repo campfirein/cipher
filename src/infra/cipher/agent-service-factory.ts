@@ -2,7 +2,9 @@ import {GoogleGenAI} from '@google/genai'
 
 import type {FileSystemConfig} from '../../core/domain/cipher/file-system/types.js'
 import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
+import type {IBlobStorage} from '../../core/interfaces/cipher/i-blob-storage.js'
 
+import {FileBlobStorage} from './blob/file-blob-storage.js'
 import {AgentEventBus, SessionEventBus} from './events/event-emitter.js'
 import {FileSystemService} from './file-system/file-system-service.js'
 import {GeminiLLMService} from './llm/gemini-llm-service.js'
@@ -70,6 +72,7 @@ export interface CipherLLMConfig {
  */
 export interface CipherServices {
   agentEventBus: AgentEventBus
+  blobStorage: IBlobStorage
   fileSystemService: FileSystemService
   llmService: GeminiLLMService
   memoryManager: MemoryManager
@@ -117,6 +120,13 @@ export async function createCipherServices(
   const memoryStorage = new JsonMemoryStorage()
   await memoryStorage.initialize()
   const memoryManager = new MemoryManager(memoryStorage)
+
+  // 4.5. Blob storage (no dependencies)
+  const blobStorage = new FileBlobStorage({
+    maxBlobSize: 100 * 1024 * 1024, // 100MB
+    maxTotalSize: 1024 * 1024 * 1024, // 1GB
+  })
+  await blobStorage.initialize()
 
   // 5. Tool system (depends on FileSystemService, ProcessService)
   const toolProvider = new ToolProvider({
@@ -187,6 +197,7 @@ export async function createCipherServices(
 
   return {
     agentEventBus,
+    blobStorage,
     fileSystemService,
     llmService,
     memoryManager,
