@@ -8,6 +8,23 @@
 export type MemorySource = 'agent' | 'system' | 'user';
 
 /**
+ * Blob attachment metadata for a memory
+ * References a blob stored in BlobStorage
+ */
+export interface Attachment {
+  /** Reference key to the blob in BlobStorage */
+  blobKey: string;
+  /** Timestamp when the attachment was added (Unix timestamp in milliseconds) */
+  createdAt: number;
+  /** Original filename (if applicable) */
+  name?: string;
+  /** Size of the attachment in bytes */
+  size: number;
+  /** MIME type of the attachment */
+  type: string;
+}
+
+/**
  * Memory item stored in the cipher agent system
  */
 export interface Memory {

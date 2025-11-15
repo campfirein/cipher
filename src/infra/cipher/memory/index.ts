@@ -16,5 +16,4 @@ export type {
 } from '../../../core/domain/cipher/memory/types.js';
 
 // Manager
-export { JsonMemoryStorage } from './json-memory-storage.js';
 export { MemoryManager } from './memory-manager.js';

@@ -7,7 +7,6 @@ import {AgentEventBus, SessionEventBus} from './events/event-emitter.js'
 import {FileSystemService} from './file-system/file-system-service.js'
 import {ByteRoverLlmGrpcService} from './grpc/internal-llm-grpc-service.js'
 import {ByteRoverLLMService} from './llm/internal-llm-service.js'
-import {JsonMemoryStorage} from './memory/json-memory-storage.js'
 import {MemoryManager} from './memory/memory-manager.js'
 import {ProcessService} from './process/process-service.js'
 import {setupEventForwarding} from './session/session-event-forwarder.js'
@@ -119,17 +118,15 @@ export async function createCipherServices(
   })
   await processService.initialize()
 
-  // 4. Memory system (no dependencies)
-  const memoryStorage = new JsonMemoryStorage()
-  await memoryStorage.initialize()
-  const memoryManager = new MemoryManager(memoryStorage)
-
-  // 4.5. Blob storage (no dependencies)
+  // 4. Blob storage (no dependencies)
   const blobStorage = new FileBlobStorage({
     maxBlobSize: 100 * 1024 * 1024, // 100MB
     maxTotalSize: 1024 * 1024 * 1024, // 1GB
   })
   await blobStorage.initialize()
+
+  // 4.5. Memory system (depends on BlobStorage)
+  const memoryManager = new MemoryManager(blobStorage)
 
   // 5. Tool system (depends on FileSystemService, ProcessService)
   const toolProvider = new ToolProvider({
