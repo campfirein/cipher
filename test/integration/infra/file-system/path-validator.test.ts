@@ -41,7 +41,9 @@ describe('PathValidator', () => {
 
       const result = validator.validate('test.exe', 'write')
       expect(result.valid).to.be.false
-      expect(result.error).to.include('.exe')
+      if (!result.valid) {
+        expect(result.error).to.include('.exe')
+      }
     })
   })
 
@@ -51,7 +53,9 @@ describe('PathValidator', () => {
       const result = validator.validate('', 'read')
 
       expect(result.valid).to.be.false
-      expect(result.error).to.equal('Path cannot be empty')
+      if (!result.valid) {
+        expect(result.error).to.equal('Path cannot be empty')
+      }
     })
 
     it('should reject whitespace-only string', () => {
@@ -59,7 +63,9 @@ describe('PathValidator', () => {
       const result = validator.validate('   ', 'read')
 
       expect(result.valid).to.be.false
-      expect(result.error).to.equal('Path cannot be empty')
+      if (!result.valid) {
+        expect(result.error).to.equal('Path cannot be empty')
+      }
     })
   })
 
@@ -69,7 +75,9 @@ describe('PathValidator', () => {
       const result = validator.validate('../../../etc/passwd', 'read')
 
       expect(result.valid).to.be.false
-      expect(result.error).to.equal('Path traversal detected')
+      if (!result.valid) {
+        expect(result.error).to.equal('Path traversal detected')
+      }
     })
 
     it('should block backslash parent directory traversal', () => {
@@ -77,7 +85,9 @@ describe('PathValidator', () => {
       const result = validator.validate(String.raw`..\..\..\windows\system32`, 'read')
 
       expect(result.valid).to.be.false
-      expect(result.error).to.equal('Path traversal detected')
+      if (!result.valid) {
+        expect(result.error).to.equal('Path traversal detected')
+      }
     })
 
     it('should block traversal that escapes working directory', () => {
@@ -85,7 +95,9 @@ describe('PathValidator', () => {
       const result = validator.validate(`../${path.basename(testDir)}/../etc`, 'read')
 
       expect(result.valid).to.be.false
-      expect(result.error).to.equal('Path traversal detected')
+      if (!result.valid) {
+        expect(result.error).to.equal('Path traversal detected')
+      }
     })
 
     it('should allow safe relative paths within working directory', () => {
@@ -93,7 +105,9 @@ describe('PathValidator', () => {
       const result = validator.validate('subdir/file.txt', 'read')
 
       expect(result.valid).to.be.true
-      expect(result.normalizedPath).to.include('subdir')
+      if (result.valid) {
+        expect(result.normalizedPath).to.include('subdir')
+      }
     })
 
     it('should allow legitimate directory names containing dots', () => {
@@ -125,7 +139,9 @@ describe('PathValidator', () => {
       const result = validator.validate(outsidePath, 'read')
 
       expect(result.valid).to.be.false
-      expect(result.error).to.include('not in allowed paths')
+      if (!result.valid) {
+        expect(result.error).to.include('not in allowed paths')
+      }
     })
 
     it('should handle multiple allowed paths', async () => {
@@ -149,7 +165,9 @@ describe('PathValidator', () => {
       const result = validator.validate('/', 'read')
 
       expect(result.valid).to.be.false
-      expect(result.error).to.include('not in allowed paths')
+      if (!result.valid) {
+        expect(result.error).to.include('not in allowed paths')
+      }
     })
   })
 
@@ -159,7 +177,9 @@ describe('PathValidator', () => {
       const result = validator.validate('node_modules/package/index.js', 'read')
 
       expect(result.valid).to.be.false
-      expect(result.error).to.include('blocked directory')
+      if (!result.valid) {
+        expect(result.error).to.include('blocked directory')
+      }
     })
 
     it('should block files in .git', () => {
@@ -167,7 +187,9 @@ describe('PathValidator', () => {
       const result = validator.validate('.git/config', 'read')
 
       expect(result.valid).to.be.false
-      expect(result.error).to.include('blocked directory')
+      if (!result.valid) {
+        expect(result.error).to.include('blocked directory')
+      }
     })
 
     it('should block .env files', () => {
@@ -175,7 +197,9 @@ describe('PathValidator', () => {
       const result = validator.validate('.env', 'read')
 
       expect(result.valid).to.be.false
-      expect(result.error).to.include('blocked directory')
+      if (!result.valid) {
+        expect(result.error).to.include('blocked directory')
+      }
     })
 
     it('should block nested paths within blocked directories', () => {
@@ -183,7 +207,9 @@ describe('PathValidator', () => {
       const result = validator.validate('node_modules/deep/nested/path/file.js', 'read')
 
       expect(result.valid).to.be.false
-      expect(result.error).to.include('blocked directory')
+      if (!result.valid) {
+        expect(result.error).to.include('blocked directory')
+      }
     })
 
     it('should allow files not in blocked paths', () => {
@@ -200,7 +226,9 @@ describe('PathValidator', () => {
       const result = validator.validate('malware.exe', 'write')
 
       expect(result.valid).to.be.false
-      expect(result.error).to.include('.exe')
+      if (!result.valid) {
+        expect(result.error).to.include('.exe')
+      }
     })
 
     it('should block .sh files on write', () => {
@@ -208,7 +236,9 @@ describe('PathValidator', () => {
       const result = validator.validate('script.sh', 'write')
 
       expect(result.valid).to.be.false
-      expect(result.error).to.include('.sh')
+      if (!result.valid) {
+        expect(result.error).to.include('.sh')
+      }
     })
 
     it('should allow .exe files on read (extensions only checked on write)', () => {
@@ -252,7 +282,9 @@ describe('PathValidator', () => {
         const result = validator.validate(symlinkPath, 'read')
 
         expect(result.valid).to.be.false
-        expect(result.error).to.include('not in allowed paths')
+        if (!result.valid) {
+          expect(result.error).to.include('not in allowed paths')
+        }
       } finally {
         await rm(outsideFile, {force: true})
       }
@@ -272,8 +304,10 @@ describe('PathValidator', () => {
       const result = validator.validate('subdir/file.txt', 'read')
 
       expect(result.valid).to.be.true
-      expect(result.normalizedPath).to.be.a('string')
-      expect(path.isAbsolute(result.normalizedPath!)).to.be.true
+      if (result.valid) {
+        expect(result.normalizedPath).to.be.a('string')
+        expect(path.isAbsolute(result.normalizedPath)).to.be.true
+      }
     })
 
     it('should not return normalizedPath on validation failure', () => {
@@ -281,7 +315,10 @@ describe('PathValidator', () => {
       const result = validator.validate('', 'read')
 
       expect(result.valid).to.be.false
-      expect(result.normalizedPath).to.be.undefined
+      if (!result.valid) {
+        // TypeScript knows normalizedPath doesn't exist on invalid results
+        expect('normalizedPath' in result).to.be.false
+      }
     })
   })
 })
