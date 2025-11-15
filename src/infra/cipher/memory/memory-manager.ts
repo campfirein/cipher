@@ -1,13 +1,15 @@
 import { nanoid } from 'nanoid';
 import { z } from 'zod';
 
+import type {StoredBlob} from '../../../core/domain/cipher/blob/types.js';
 import type {
+  Attachment,
   CreateMemoryInput,
   ListMemoriesOptions,
   Memory,
   UpdateMemoryInput,
 } from '../../../core/domain/cipher/memory/types.js';
-import type { IMemoryStorage } from '../../../core/interfaces/cipher/i-memory-storage.js';
+import type {IBlobStorage} from '../../../core/interfaces/cipher/i-blob-storage.js';
 
 import { MemoryError, MemoryErrorCode } from '../../../core/domain/cipher/errors/memory-error.js';
 
@@ -24,8 +26,20 @@ const MAX_TAGS = 10;
  */
 const MemorySourceSchema = z.enum(['agent', 'system', 'user']).describe('Source of the memory');
 
+const AttachmentSchema = z
+  .object({
+    blobKey: z.string().min(1).describe('Reference to blob in BlobStorage'),
+    createdAt: z.number().int().positive().describe('Timestamp when attached (Unix ms)'),
+    name: z.string().optional().describe('Original filename'),
+    size: z.number().int().nonnegative().describe('Size in bytes'),
+    type: z.string().min(1).describe('MIME type'),
+  })
+  .strict()
+  .describe('Blob attachment metadata');
+
 const MemoryMetadataSchema = z
   .object({
+    attachments: z.array(AttachmentSchema).optional().describe('Blob attachments'),
     pinned: z.boolean().optional().describe('Whether this memory is pinned for auto-loading'),
     source: MemorySourceSchema.optional().describe('Source of the memory'),
   })
@@ -113,19 +127,99 @@ const ListMemoriesOptionsSchema = z
  * MemoryManager handles CRUD operations for cipher agent memories
  *
  * Responsibilities:
- * - Store and retrieve memories using the storage abstraction
+ * - Store and retrieve memories using BlobStorage
  * - Validate memory data using embedded Zod schemas
  * - Generate unique IDs for memories
  * - Filter and search memories by tags, source, and pinned status
  * - Sort memories by recency (updatedAt descending)
+ * - Manage blob attachments
  *
- * Storage delegation:
- * - All persistence operations are delegated to IMemoryStorage
- * - Manager focuses on business logic and validation
+ * Storage:
+ * - Memories are stored as JSON blobs with key pattern: memory-{id}
+ * - Attachments are stored as blobs with key pattern: memory-{id}-{suffix}
+ * - All persistence operations use BlobStorage
  */
 export class MemoryManager {
-  constructor(private storage: IMemoryStorage) {
-    console.log('MemoryManager initialized');
+  private static readonly MEMORY_KEY_PREFIX = 'memory-';
+
+  constructor(private blobStorage: IBlobStorage) {
+    console.log('MemoryManager initialized with blob storage');
+  }
+
+  /**
+   * Attach a blob to an existing memory
+   * @param memoryId - Memory ID to attach blob to
+   * @param content - Blob content (Buffer or string)
+   * @param metadata - Blob metadata
+   * @param metadata.name - Optional filename
+   * @param metadata.type - Optional MIME type
+   * @returns Attachment metadata
+   * @throws MemoryError if memory not found or attachment fails
+   */
+  async attachBlob(
+    memoryId: string,
+    content: Buffer | string,
+    metadata: { name?: string; type?: string } = {},
+  ): Promise<Attachment> {
+    // Get existing memory
+    const memory = await this.get(memoryId);
+
+    // Generate unique blob key
+    const blobKey = `memory-${memoryId}-${nanoid(8)}`;
+
+    // Store blob
+    try {
+      const storedBlob = await this.blobStorage.store(blobKey, content, {
+        contentType: metadata.type,
+        originalName: metadata.name,
+        tags: { memoryId },
+      });
+
+      // Create attachment metadata
+      const attachment: Attachment = {
+        blobKey,
+        createdAt: Date.now(),
+        name: metadata.name,
+        size: storedBlob.metadata.size,
+        type: storedBlob.metadata.contentType || 'application/octet-stream',
+      };
+
+      // Validate attachment
+      const validatedAttachment = AttachmentSchema.parse(attachment);
+
+      // Update memory metadata
+      const updatedMemory: Memory = {
+        ...memory,
+        metadata: {
+          ...memory.metadata,
+          attachments: [
+            ...(memory.metadata?.attachments && Array.isArray(memory.metadata.attachments)
+              ? memory.metadata.attachments
+              : []),
+            validatedAttachment,
+          ],
+        },
+        updatedAt: Date.now(),
+      };
+
+      // Save updated memory
+      await this.saveMemory(updatedMemory);
+
+      console.log(`Attached blob ${blobKey} to memory ${memoryId}`);
+      return validatedAttachment;
+    } catch (error) {
+      // Cleanup: try to delete the blob if attachment failed
+      try {
+        await this.blobStorage.delete(blobKey);
+      } catch {
+        // Ignore cleanup errors
+      }
+
+      throw MemoryError.storageError(
+        `Failed to attach blob: ${error instanceof Error ? error.message : String(error)}`,
+        error instanceof Error ? error : undefined,
+      );
+    }
   }
 
   /**
@@ -164,7 +258,7 @@ export class MemoryManager {
     const validatedMemory = MemorySchema.parse(memory);
 
     try {
-      await this.storage.save(validatedMemory);
+      await this.saveMemory(validatedMemory);
       console.log(`Created memory: ${id}`);
       return validatedMemory;
     } catch (error) {
@@ -177,6 +271,7 @@ export class MemoryManager {
 
   /**
    * Delete a memory by ID
+   * Also deletes all associated blob attachments
    * @param id - Memory ID to delete
    * @throws MemoryError if ID is invalid or memory not found
    */
@@ -185,15 +280,76 @@ export class MemoryManager {
       throw MemoryError.invalidId(id);
     }
 
-    // Verify memory exists before deleting
-    await this.get(id);
+    // Get memory to find attachments
+    const memory = await this.get(id);
 
+    // Delete all blob attachments
+    if (memory.metadata?.attachments && Array.isArray(memory.metadata.attachments)) {
+      await Promise.allSettled(
+        memory.metadata.attachments.map((att: Attachment) =>
+          this.blobStorage.delete(att.blobKey).catch((error) => {
+            console.warn(`Failed to delete blob ${att.blobKey}: ${error.message}`);
+          }),
+        ),
+      );
+    }
+
+    // Delete the memory itself
     try {
-      await this.storage.delete(id);
+      await this.deleteMemory(id);
       console.log(`Deleted memory: ${id}`);
     } catch (error) {
       throw MemoryError.deleteError(
         `Failed to delete memory: ${error instanceof Error ? error.message : String(error)}`,
+        error instanceof Error ? error : undefined,
+      );
+    }
+  }
+
+  /**
+   * Detach (remove) a blob from a memory
+   * @param memoryId - Memory ID to detach blob from
+   * @param blobKey - Blob key to remove
+   * @throws MemoryError if memory not found or detachment fails
+   */
+  async detachBlob(memoryId: string, blobKey: string): Promise<void> {
+    // Get memory
+    const memory = await this.get(memoryId);
+
+    // Find attachment
+    const attachments = memory.metadata?.attachments && Array.isArray(memory.metadata.attachments)
+      ? memory.metadata.attachments
+      : [];
+    const attachment = attachments.find((a: Attachment) => a.blobKey === blobKey);
+
+    if (!attachment) {
+      throw MemoryError.storageError(`Attachment not found: ${blobKey}`);
+    }
+
+    // Delete blob from storage
+    try {
+      await this.blobStorage.delete(blobKey);
+    } catch (error) {
+      console.warn(`Failed to delete blob ${blobKey}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    // Update memory metadata (remove attachment)
+    const updatedMemory: Memory = {
+      ...memory,
+      metadata: {
+        ...memory.metadata,
+        attachments: attachments.filter((a: Attachment) => a.blobKey !== blobKey),
+      },
+      updatedAt: Date.now(),
+    };
+
+    // Save updated memory
+    try {
+      await this.saveMemory(updatedMemory);
+      console.log(`Detached blob ${blobKey} from memory ${memoryId}`);
+    } catch (error) {
+      throw MemoryError.storageError(
+        `Failed to update memory after detaching blob: ${error instanceof Error ? error.message : String(error)}`,
         error instanceof Error ? error : undefined,
       );
     }
@@ -211,7 +367,7 @@ export class MemoryManager {
     }
 
     try {
-      const memory = await this.storage.get(id);
+      const memory = await this.loadMemory(id);
       if (!memory) {
         throw MemoryError.notFound(id);
       }
@@ -227,6 +383,46 @@ export class MemoryManager {
 
       throw MemoryError.retrievalError(
         `Failed to retrieve memory: ${error instanceof Error ? error.message : String(error)}`,
+        error instanceof Error ? error : undefined,
+      );
+    }
+  }
+
+  /**
+   * Get a blob attachment from a memory
+   * @param memoryId - Memory ID
+   * @param blobKey - Blob key to retrieve
+   * @returns Stored blob with content and metadata
+   * @throws MemoryError if memory not found or blob not found
+   */
+  async getAttachment(memoryId: string, blobKey: string): Promise<StoredBlob> {
+    // Get memory to verify attachment exists
+    const memory = await this.get(memoryId);
+    const attachments = memory.metadata?.attachments && Array.isArray(memory.metadata.attachments)
+      ? memory.metadata.attachments
+      : [];
+    const attachment = attachments.find((a: Attachment) => a.blobKey === blobKey);
+
+    if (!attachment) {
+      throw MemoryError.storageError(`Attachment not found: ${blobKey}`);
+    }
+
+    // Retrieve blob
+    try {
+      const blob = await this.blobStorage.retrieve(blobKey);
+
+      if (!blob) {
+        throw MemoryError.retrievalError(`Failed to retrieve attachment: Blob ${blobKey} not found in storage`);
+      }
+
+      return blob;
+    } catch (error) {
+      if (error instanceof MemoryError) {
+        throw error;
+      }
+
+      throw MemoryError.retrievalError(
+        `Failed to retrieve attachment: ${error instanceof Error ? error.message : String(error)}`,
         error instanceof Error ? error : undefined,
       );
     }
@@ -263,31 +459,31 @@ export class MemoryManager {
     const validatedOptions = ListMemoriesOptionsSchema.parse(options);
 
     try {
-      // Load all memories from storage
-      const memories = await this.storage.loadAll();
+      // Load all memories from blob storage
+      const memories = await this.loadAllMemories();
 
       // Apply filters
       let filtered = memories;
 
       // Filter by tags (OR logic - match any of the provided tags)
       if (validatedOptions.tags && validatedOptions.tags.length > 0) {
-        filtered = filtered.filter((m) =>
-          m.tags?.some((tag) => validatedOptions.tags!.includes(tag)),
+        filtered = filtered.filter((m: Memory) =>
+          m.tags?.some((tag: string) => validatedOptions.tags!.includes(tag)),
         );
       }
 
       // Filter by source
       if (validatedOptions.source) {
-        filtered = filtered.filter((m) => m.metadata?.source === validatedOptions.source);
+        filtered = filtered.filter((m: Memory) => m.metadata?.source === validatedOptions.source);
       }
 
       // Filter by pinned status
       if (validatedOptions.pinned !== undefined) {
-        filtered = filtered.filter((m) => m.metadata?.pinned === validatedOptions.pinned);
+        filtered = filtered.filter((m: Memory) => m.metadata?.pinned === validatedOptions.pinned);
       }
 
       // Sort by updatedAt descending (most recent first)
-      filtered.sort((a, b) => b.updatedAt - a.updatedAt);
+      filtered.sort((a: Memory, b: Memory) => b.updatedAt - a.updatedAt);
 
       // Apply pagination
       if (validatedOptions.offset !== undefined || validatedOptions.limit !== undefined) {
@@ -303,6 +499,23 @@ export class MemoryManager {
         error instanceof Error ? error : undefined,
       );
     }
+  }
+
+  /**
+   * List all attachments for a memory
+   * @param memoryId - Memory ID
+   * @returns Array of attachment metadata
+   * @throws MemoryError if memory not found
+   */
+  async listAttachments(memoryId: string): Promise<Attachment[]> {
+    const memory = await this.get(memoryId);
+    const attachments = memory.metadata?.attachments;
+
+    if (!attachments || !Array.isArray(attachments)) {
+      return [];
+    }
+
+    return attachments as Attachment[];
   }
 
   /**
@@ -344,7 +557,7 @@ export class MemoryManager {
     const validatedMemory = MemorySchema.parse(updated);
 
     try {
-      await this.storage.save(validatedMemory);
+      await this.saveMemory(validatedMemory);
       console.log(`Updated memory: ${id}`);
       return validatedMemory;
     } catch (error) {
@@ -353,5 +566,101 @@ export class MemoryManager {
         error instanceof Error ? error : undefined,
       );
     }
+  }
+
+  /**
+   * Delete a memory from blob storage
+   */
+  private async deleteMemory(id: string): Promise<void> {
+    const key = this.getMemoryKey(id);
+    await this.blobStorage.delete(key);
+  }
+
+  /**
+   * Extract memory ID from blob key
+   */
+  private extractMemoryId(key: string): string {
+    return key.replace(MemoryManager.MEMORY_KEY_PREFIX, '');
+  }
+
+  /**
+   * Get the blob key for a memory
+   */
+  private getMemoryKey(id: string): string {
+    return `${MemoryManager.MEMORY_KEY_PREFIX}${id}`;
+  }
+
+  /**
+   * Check if a blob key is a memory key (not an attachment)
+   */
+  private isMemoryKey(key: string): boolean {
+    if (!key.startsWith(MemoryManager.MEMORY_KEY_PREFIX)) {
+      return false;
+    }
+
+    // Memory keys have format: memory-{id}
+    // Attachment keys have format: memory-{id}-{suffix}
+    // Count dashes: memory keys have 1 dash, attachments have 2+
+    const dashCount = (key.match(/-/g) || []).length;
+    return dashCount === 1;
+  }
+
+  /**
+   * Load all memories from blob storage
+   */
+  private async loadAllMemories(): Promise<Memory[]> {
+    const keys = await this.blobStorage.list(MemoryManager.MEMORY_KEY_PREFIX);
+
+    // Filter to only memory keys (exclude attachments)
+    const memoryKeys = keys.filter(key => this.isMemoryKey(key));
+
+    // Load all memories in parallel
+    const memories = await Promise.all(
+      memoryKeys.map(async key => {
+        const id = this.extractMemoryId(key);
+        return this.loadMemory(id);
+      }),
+    );
+
+    // Filter out undefined values
+    return memories.filter((m): m is Memory => m !== undefined);
+  }
+
+  /**
+   * Load a memory from blob storage
+   */
+  private async loadMemory(id: string): Promise<Memory | undefined> {
+    const key = this.getMemoryKey(id);
+    const blob = await this.blobStorage.retrieve(key);
+
+    if (!blob) {
+      return undefined;
+    }
+
+    try {
+      const memory = JSON.parse(blob.content.toString('utf8')) as Memory;
+      return memory;
+    } catch (error) {
+      throw MemoryError.retrievalError(
+        `Failed to parse memory ${id}: ${error instanceof Error ? error.message : String(error)}`,
+        error instanceof Error ? error : undefined,
+      );
+    }
+  }
+
+  /**
+   * Save a memory to blob storage
+   */
+  private async saveMemory(memory: Memory): Promise<void> {
+    const key = this.getMemoryKey(memory.id);
+    const content = JSON.stringify(memory, null, 2);
+
+    await this.blobStorage.store(key, content, {
+      contentType: 'application/json',
+      tags: {
+        memoryId: memory.id,
+        source: memory.metadata?.source || 'unknown',
+      },
+    });
   }
 }

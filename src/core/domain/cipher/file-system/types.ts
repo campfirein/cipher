@@ -239,14 +239,18 @@ export interface EditOperation {
 
 /**
  * Result of path validation.
+ * Uses discriminated union for type safety.
  */
-export interface ValidationResult {
-  /** Error message (if invalid) */
-  error?: string
-
-  /** Normalized absolute path (if valid) */
-  normalizedPath?: string
-
-  /** Whether the path is valid */
-  valid: boolean
-}
+export type ValidationResult =
+  | {
+      /** Error message explaining why path is invalid */
+      error: string
+      /** Path is invalid */
+      valid: false
+    }
+  | {
+      /** Normalized absolute path */
+      normalizedPath: string
+      /** Path is valid */
+      valid: true
+    }

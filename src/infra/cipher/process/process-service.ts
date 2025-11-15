@@ -113,11 +113,12 @@ export class ProcessService implements IProcessService {
 
     // Validate command
     const validation = this.commandValidator.validateCommand(command)
+
     if (!validation.isValid) {
-      throw ProcessError.invalidCommand(command, validation.error || 'Validation failed')
+      throw ProcessError.invalidCommand(command, validation.error)
     }
 
-    const normalizedCommand = validation.normalizedCommand!
+    const {normalizedCommand} = validation
 
     // Validate timeout
     const timeout = options.timeout || DEFAULT_TIMEOUT

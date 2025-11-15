@@ -116,12 +116,12 @@ export class GeminiLLMService implements ILLMService {
     this.tokenizer = new GeminiTokenizer(this.config.model)
 
     // Initialize context manager
-    this.contextManager = new ContextManager(
+    this.contextManager = new ContextManager({
+      formatter: this.formatter,
+      maxInputTokens: this.config.maxInputTokens,
       sessionId,
-      this.formatter,
-      this.tokenizer,
-      this.config.maxInputTokens,
-    )
+      tokenizer: this.tokenizer,
+    })
   }
 
   /**
@@ -168,13 +168,16 @@ export class GeminiLLMService implements ILLMService {
         throw new Error('Operation aborted')
       }
 
-      // Get formatted messages from context
-      // eslint-disable-next-line no-await-in-loop -- Sequential iterations required for agentic loop
-      const {formattedMessages} = await this.contextManager.getFormattedMessagesWithCompression()
-
-      // Build system prompt using SystemPromptManager
+      // Build system prompt using SystemPromptManager (before compression for correct token accounting)
       // eslint-disable-next-line no-await-in-loop -- Sequential system prompt building required
       const systemPrompt = await this.systemPromptManager.build({})
+
+      // Get formatted messages from context with compression (passing system prompt for token accounting)
+      // eslint-disable-next-line no-await-in-loop -- Sequential iterations required for agentic loop
+      const {formattedMessages, tokensUsed} = await this.contextManager.getFormattedMessagesWithCompression(systemPrompt)
+
+      // Log token usage for monitoring compression behavior
+      console.log(`[GeminiLLMService] [Iter ${iterationCount + 1}/${this.config.maxIterations}] Sending to LLM: ${tokensUsed} tokens (max: ${this.config.maxInputTokens})`)
 
       // Build generation config with system prompt
       const genConfig = this.buildGenerationConfig(tools, systemPrompt)
@@ -201,7 +204,15 @@ export class GeminiLLMService implements ILLMService {
           )
         }
 
-        const lastMessage = messages.at(-1)!
+        const lastMessage = messages.at(-1)
+
+        if (!lastMessage) {
+          throw new LlmResponseParsingError(
+            'Failed to get last message from response',
+            'gemini',
+            this.config.model,
+          )
+        }
 
         // Check if there are tool calls
         if (!lastMessage.toolCalls || lastMessage.toolCalls.length === 0) {

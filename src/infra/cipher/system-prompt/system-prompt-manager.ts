@@ -4,8 +4,10 @@ import type {
   SystemPromptContext,
 } from '../../../core/domain/cipher/system-prompt/types.js'
 import type {ISystemPromptContributor} from '../../../core/interfaces/cipher/i-system-prompt-contributor.js'
+import type {MemoryManager} from '../memory/memory-manager.js'
 
 import {DateTimeContributor} from './contributors/date-time-contributor.js'
+import {MemoryContributor} from './contributors/memory-contributor.js'
 import {StaticContributor} from './contributors/static-contributor.js'
 
 /**
@@ -19,12 +21,16 @@ import {StaticContributor} from './contributors/static-contributor.js'
  */
 export class SystemPromptManager {
   private readonly contributors: ISystemPromptContributor[]
+  private readonly memoryManager?: MemoryManager
 
   /**
    * Creates a new system prompt manager
    * @param config - Configuration specifying which contributors to enable
+   * @param memoryManager - Optional memory manager for memory contributor (follows dexto pattern)
    */
-  public constructor(config: SystemPromptConfig) {
+  public constructor(config: SystemPromptConfig, memoryManager?: MemoryManager) {
+    this.memoryManager = memoryManager
+
     // Filter out disabled contributors
     const enabledContributors = config.contributors.filter((c) => c.enabled !== false)
 
@@ -59,12 +65,27 @@ export class SystemPromptManager {
    *
    * @param config - Contributor configuration
    * @returns Instantiated contributor
-   * @throws Error if contributor type is unknown
+   * @throws Error if contributor type is unknown or dependencies are missing
    */
   private createContributor(config: ContributorConfig): ISystemPromptContributor {
     switch (config.type) {
       case 'dateTime': {
         return new DateTimeContributor(config.id, config.priority)
+      }
+
+      case 'memory': {
+        if (!this.memoryManager) {
+          throw new Error(
+            'Memory contributor requires MemoryManager to be provided in SystemPromptManager constructor',
+          )
+        }
+
+        return new MemoryContributor(
+          config.id,
+          config.priority,
+          this.memoryManager,
+          config.options,
+        )
       }
 
       case 'static': {

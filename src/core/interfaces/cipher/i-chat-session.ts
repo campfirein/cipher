@@ -12,6 +12,13 @@ export interface IChatSession {
   cancel(): void
 
   /**
+   * Dispose of the session and clean up resources.
+   * Removes event listeners to prevent memory leaks.
+   * Should be called when session is no longer needed.
+   */
+  dispose?(): void
+
+  /**
    * Get the conversation history.
    *
    * @returns Array of messages in chronological order

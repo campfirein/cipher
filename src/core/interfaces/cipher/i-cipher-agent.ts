@@ -1,3 +1,5 @@
+import type {SessionMetadata} from '../../domain/cipher/storage/history-types.js'
+
 /**
  * Agent state information
  */
@@ -12,17 +14,38 @@ export interface AgentState {
  */
 export interface ICipherAgent {
   /**
+   * Delete a session completely (memory + history)
+   * @param sessionId - Session ID to delete
+   * @returns True if session existed and was deleted
+   */
+  deleteSession(sessionId: string): Promise<boolean>
+
+  /**
    * Execute the agent with user input
    * @param input - User input string
+   * @param sessionId - Optional session ID
    * @returns Agent response
    */
-  execute(input: string): Promise<string>
+  execute(input: string, sessionId?: string): Promise<string>
+
+  /**
+   * Get session metadata without loading full history
+   * @param sessionId - Session ID
+   * @returns Session metadata or undefined if not found
+   */
+  getSessionMetadata(sessionId: string): Promise<SessionMetadata | undefined>
 
   /**
    * Get current agent state
    * @returns Current state information
    */
   getState(): AgentState
+
+  /**
+   * List all persisted session IDs from history storage
+   * @returns Array of session IDs
+   */
+  listPersistedSessions(): Promise<string[]>
 
   /**
    * Reset the agent to initial state

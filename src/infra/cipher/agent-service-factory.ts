@@ -2,12 +2,17 @@ import {GoogleGenAI} from '@google/genai'
 
 import type {FileSystemConfig} from '../../core/domain/cipher/file-system/types.js'
 import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
+import type {CipherAgentServices, SessionServices} from '../../core/interfaces/cipher/cipher-services.js'
 
+import {FileBlobStorage} from './blob/file-blob-storage.js'
 import {AgentEventBus, SessionEventBus} from './events/event-emitter.js'
 import {FileSystemService} from './file-system/file-system-service.js'
+import {ByteRoverLlmGrpcService} from './grpc/internal-llm-grpc-service.js'
 import {GeminiLLMService} from './llm/gemini-llm-service.js'
+import {ByteRoverLLMService} from './llm/internal-llm-service.js'
+import {MemoryManager} from './memory/memory-manager.js'
 import {ProcessService} from './process/process-service.js'
-import {setupEventForwarding} from './session/session-event-forwarder.js'
+import {BlobHistoryStorage} from './storage/blob-history-storage.js'
 import {SystemPromptManager} from './system-prompt/system-prompt-manager.js'
 import {ToolManager} from './tools/tool-manager.js'
 import {ToolProvider} from './tools/tool-provider.js'
@@ -55,43 +60,51 @@ Remember: You're an autonomous agentic system that can freely use tools within a
  * LLM configuration for CipherAgent
  */
 export interface CipherLLMConfig {
-  apiKey: string
+  accessToken: string
+  apiKey?: string
   fileSystemConfig?: Partial<FileSystemConfig>
+  grpcEndpoint: string
   maxIterations?: number
   maxTokens?: number
-  model?: string
+  model: string
+  projectId: string
+  region?: string
+  sessionKey: string
   temperature?: number
 }
 
 /**
- * Services created by the factory
+ * gRPC configuration for ByteRover LLM service
  */
-export interface CipherServices {
-  agentEventBus: AgentEventBus
-  fileSystemService: FileSystemService
-  llmService: GeminiLLMService
-  processService: ProcessService
-  sessionEventBus: SessionEventBus
-  systemPromptManager: SystemPromptManager
-  toolManager: ToolManager
-  toolProvider: ToolProvider
+export interface ByteRoverGrpcConfig {
+  accessToken: string
+  grpcEndpoint: string
+  projectId: string
+  region?: string
+  sessionKey: string
+  timeout?: number
 }
 
+// Re-export service types for convenience
+export type {CipherAgentServices, SessionManagerConfig, SessionServices} from '../../core/interfaces/cipher/cipher-services.js'
+
 /**
- * Creates all services needed for CipherAgent.
- * This follows the Dexto pattern of centralized service initialization.
+ * Creates shared services for CipherAgent.
+ * These services are singletons shared across all sessions.
  *
- * @param llmConfig - LLM configuration (API key, model settings)
+ * Following Dexto's pattern: shared services are created once at agent level,
+ * while session-specific services (LLM, EventBus) are created per session.
+ *
+ * @param llmConfig - LLM configuration
  * @param brvConfig - Optional ByteRover config (for custom system prompt)
- * @returns Initialized services
+ * @returns Initialized shared services
  */
-export async function createCipherServices(
+export async function createCipherAgentServices(
   llmConfig: CipherLLMConfig,
   brvConfig?: BrvConfig,
-): Promise<CipherServices> {
-  // 1. Event buses (no dependencies)
+): Promise<CipherAgentServices> {
+  // 1. Agent event bus (global)
   const agentEventBus = new AgentEventBus()
-  const sessionEventBus = new SessionEventBus()
 
   // 2. File system service (no dependencies)
   const fileSystemService = new FileSystemService(llmConfig.fileSystemConfig)
@@ -110,7 +123,17 @@ export async function createCipherServices(
   })
   await processService.initialize()
 
-  // 4. Tool system (depends on FileSystemService, ProcessService)
+  // 4. Blob storage (no dependencies)
+  const blobStorage = new FileBlobStorage({
+    maxBlobSize: 100 * 1024 * 1024, // 100MB
+    maxTotalSize: 1024 * 1024 * 1024, // 1GB
+  })
+  await blobStorage.initialize()
+
+  // 5. Memory system (depends on BlobStorage)
+  const memoryManager = new MemoryManager(blobStorage)
+
+  // 6. Tool system (depends on FileSystemService, ProcessService)
   const toolProvider = new ToolProvider({
     fileSystemService,
     processService,
@@ -119,58 +142,147 @@ export async function createCipherServices(
   const toolManager = new ToolManager(toolProvider)
   await toolManager.initialize()
 
-  // 5. System prompt manager
+  // 7. System prompt manager (with memory integration) - SHARED across sessions
   const customPrompt = brvConfig?.cipherAgentSystemPrompt
-  const systemPromptManager = new SystemPromptManager({
-    contributors: [
-      {
-        content: customPrompt ?? DEFAULT_SYSTEM_PROMPT,
-        enabled: true,
-        id: 'static',
-        priority: 0,
-        type: 'static',
-      },
-      {
-        enabled: true,
-        id: 'dateTime',
-        priority: 10,
-        type: 'dateTime',
-      },
-    ],
-  })
-
-  // 6. GoogleGenAI client
-  const geminiClient = new GoogleGenAI({apiKey: llmConfig.apiKey})
-
-  // 7. LLM service (depends on GoogleGenAI client, ToolManager, SystemPromptManager, SessionEventBus)
-  const llmService = new GeminiLLMService(
-    'cipher-agent-session',
-    geminiClient,
+  const systemPromptManager = new SystemPromptManager(
     {
-      apiKey: llmConfig.apiKey,
-      maxIterations: llmConfig.maxIterations ?? 50,
-      maxTokens: llmConfig.maxTokens ?? 8192,
-      model: llmConfig.model ?? 'gemini-2.5-flash',
-      temperature: llmConfig.temperature ?? 0.7,
+      contributors: [
+        {
+          content: customPrompt ?? DEFAULT_SYSTEM_PROMPT,
+          enabled: true,
+          id: 'static',
+          priority: 0,
+          type: 'static',
+        },
+        {
+          enabled: true,
+          id: 'dateTime',
+          priority: 10,
+          type: 'dateTime',
+        },
+        {
+          enabled: true,
+          id: 'agentMemories',
+          options: {
+            includeTags: true,
+            includeTimestamps: false,
+            limit: 20,
+          },
+          priority: 20,
+          type: 'memory',
+        },
+      ],
     },
-    {
-      sessionEventBus,
-      systemPromptManager,
-      toolManager,
-    },
+    memoryManager,
   )
 
-  // 8. Setup event forwarding from session bus to agent bus
-  setupEventForwarding(sessionEventBus, agentEventBus, 'cipher-agent-session')
+  // 8. History storage (depends on BlobStorage) - SHARED across sessions
+  const historyStorage = new BlobHistoryStorage(blobStorage)
 
   return {
     agentEventBus,
+    blobStorage,
     fileSystemService,
-    llmService,
+    historyStorage,
+    memoryManager,
     processService,
-    sessionEventBus,
     systemPromptManager,
     toolManager,
     toolProvider,
+  }
+}
+
+/**
+ * Creates session-specific services for a ChatSession.
+ *
+ * Following Dexto's pattern: each session gets its own LLM service and event bus
+ * for conversation isolation, while using shared services for tools/prompts.
+ *
+ * @param sessionId - Unique session identifier
+ * @param sharedServices - Shared services from agent
+ * @param grpcConfig - gRPC configuration
+ * @param llmConfig - LLM service configuration
+ * @param llmConfig.apiKey - Optional Gemini API key for direct service
+ * @param llmConfig.maxIterations - Maximum iterations for agentic loop
+ * @param llmConfig.maxTokens - Maximum output tokens
+ * @param llmConfig.model - LLM model identifier
+ * @param llmConfig.temperature - Temperature for generation
+ * @returns Initialized session services
+ */
+export function createSessionServices(
+  sessionId: string,
+  sharedServices: CipherAgentServices,
+  grpcConfig: ByteRoverGrpcConfig,
+  llmConfig: {
+    apiKey?: string
+    maxIterations?: number
+    maxTokens?: number
+    model: string
+    temperature?: number
+  },
+): SessionServices {
+  // 1. Create session-specific event bus
+  const sessionEventBus = new SessionEventBus()
+
+  // 2. Create LLM service based on configuration
+  let llmService
+
+  if (llmConfig.apiKey) {
+    // Use direct Gemini service when API key is provided
+    const geminiClient = new GoogleGenAI({
+      apiKey: llmConfig.apiKey,
+    })
+
+    llmService = new GeminiLLMService(
+      sessionId,
+      geminiClient,
+      {
+        apiKey: llmConfig.apiKey,
+        maxIterations: llmConfig.maxIterations ?? 50,
+        maxTokens: llmConfig.maxTokens ?? 8192,
+        model: llmConfig.model ?? 'gemini-2.0-flash-exp',
+        temperature: llmConfig.temperature ?? 0.7,
+      },
+      {
+        sessionEventBus,
+        systemPromptManager: sharedServices.systemPromptManager, // SHARED
+        toolManager: sharedServices.toolManager, // SHARED
+      },
+    )
+  } else {
+    // Use gRPC backend service (default)
+    const grpcService = new ByteRoverLlmGrpcService({
+      accessToken: grpcConfig.accessToken,
+      grpcEndpoint: grpcConfig.grpcEndpoint,
+      projectId: grpcConfig.projectId,
+      region: grpcConfig.region,
+      sessionKey: grpcConfig.sessionKey,
+      timeout: grpcConfig.timeout,
+    })
+
+    llmService = new ByteRoverLLMService(
+      sessionId,
+      grpcService,
+      {
+        maxIterations: llmConfig.maxIterations ?? 50,
+        maxTokens: llmConfig.maxTokens ?? 8192,
+        model: llmConfig.model ?? 'gemini-2.5-flash',
+        temperature: llmConfig.temperature ?? 0.7,
+      },
+      {
+        historyStorage: sharedServices.historyStorage, // SHARED
+        sessionEventBus,
+        systemPromptManager: sharedServices.systemPromptManager, // SHARED
+        toolManager: sharedServices.toolManager, // SHARED
+      },
+    )
+  }
+
+  // Event forwarding is handled by ChatSession.setupEventForwarding()
+  // to ensure proper cleanup when sessions are disposed
+
+  return {
+    llmService,
+    sessionEventBus,
   }
 }

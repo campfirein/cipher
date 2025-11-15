@@ -231,25 +231,23 @@ export interface ProcessInfo {
 
 /**
  * Result of command validation.
+ * Uses discriminated union for type safety.
  *
  * Returned by CommandValidator.validateCommand().
  */
-export interface CommandValidation {
-  /**
-   * Error message if validation failed.
-   */
-  error?: string
-
-  /**
-   * Whether the command is valid and can be executed.
-   */
-  isValid: boolean
-
-  /**
-   * Normalized command string (trimmed, whitespace collapsed).
-   */
-  normalizedCommand?: string
-}
+export type CommandValidation =
+  | {
+      /** Command is valid */
+      isValid: true
+      /** Normalized command string (trimmed, whitespace collapsed) */
+      normalizedCommand: string
+    }
+  | {
+      /** Error message explaining why validation failed */
+      error: string
+      /** Command is invalid */
+      isValid: false
+    }
 
 /**
  * Output buffer for background process.

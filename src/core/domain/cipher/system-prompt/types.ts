@@ -47,10 +47,52 @@ export interface DateTimeContributorConfig {
 }
 
 /**
+ * Options for memory contributor configuration.
+ * Controls how memories are retrieved and formatted in the system prompt.
+ */
+export interface MemoryContributorOptions {
+  /** Whether to include tags in memory display (default: true) */
+  includeTags?: boolean
+
+  /** Whether to include timestamps in memory display (default: false) */
+  includeTimestamps?: boolean
+
+  /** Maximum number of memories to include */
+  limit?: number
+
+  /** Only include pinned memories (for hybrid approach, default: false) */
+  pinnedOnly?: boolean
+
+  /** Filter by memory source (agent, system, or user) */
+  source?: 'agent' | 'system' | 'user'
+}
+
+/**
+ * Configuration for a memory contributor.
+ * Retrieves and formats agent memories for inclusion in the system prompt.
+ */
+export interface MemoryContributorConfig {
+  /** Whether this contributor is enabled (default: true) */
+  enabled?: boolean
+
+  /** Unique identifier for this contributor */
+  id: string
+
+  /** Options for memory retrieval and formatting */
+  options?: MemoryContributorOptions
+
+  /** Priority for ordering (lower = higher priority) */
+  priority: number
+
+  /** Type discriminator */
+  type: 'memory'
+}
+
+/**
  * Union type for all contributor configurations.
  * Uses discriminated union for type-safe contributor creation.
  */
-export type ContributorConfig = DateTimeContributorConfig | StaticContributorConfig
+export type ContributorConfig = DateTimeContributorConfig | MemoryContributorConfig | StaticContributorConfig
 
 /**
  * Configuration for the system prompt manager.

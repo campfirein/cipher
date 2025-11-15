@@ -81,8 +81,8 @@ export class FileSystemService implements IFileSystem {
 
     // Validate path
     const validation = this.pathValidator.validate(filePath, 'read')
-    if (!validation.valid || !validation.normalizedPath) {
-      this.throwValidationError(filePath, validation.error!)
+    if (!validation.valid) {
+      this.throwValidationError(filePath, validation.error)
     }
 
     const {normalizedPath} = validation
@@ -254,8 +254,8 @@ export class FileSystemService implements IFileSystem {
 
     // Validate path
     const validation = this.pathValidator.validate(filePath, 'read')
-    if (!validation.valid || !validation.normalizedPath) {
-      this.throwValidationError(filePath, validation.error!)
+    if (!validation.valid) {
+      this.throwValidationError(filePath, validation.error)
     }
 
     const {normalizedPath} = validation
@@ -377,8 +377,8 @@ export class FileSystemService implements IFileSystem {
 
     // Validate path
     const validation = this.pathValidator.validate(filePath, 'write')
-    if (!validation.valid || !validation.normalizedPath) {
-      this.throwValidationError(filePath, validation.error!)
+    if (!validation.valid) {
+      this.throwValidationError(filePath, validation.error)
     }
 
     const {normalizedPath} = validation

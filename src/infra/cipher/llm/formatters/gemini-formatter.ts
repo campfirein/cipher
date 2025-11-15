@@ -106,7 +106,7 @@ export class GeminiMessageFormatter implements IMessageFormatter<Content> {
               name: fc.name ?? '',
             },
             id: this.generateToolCallId(fc.name ?? ''),
-            type: 'function' as const,
+            type: 'function',
           }))
         : undefined
 
