@@ -2,17 +2,21 @@
  * Agent-level event names for CipherAgent.
  * These events are emitted at the agent level and include sessionId in payloads.
  */
-export const AGENT_EVENT_NAMES = [
+export const AGENT_EVENT_NAMES: readonly [
   'cipher:conversationReset',
   'cipher:stateChanged',
   'cipher:stateReset',
-] as const
+] = [
+  'cipher:conversationReset',
+  'cipher:stateChanged',
+  'cipher:stateReset',
+]
 
 /**
  * Session-level event names for LLM service operations.
  * These events are emitted at the session level and do not include sessionId in payloads.
  */
-export const SESSION_EVENT_NAMES = [
+export const SESSION_EVENT_NAMES: readonly [
   'llmservice:thinking',
   'llmservice:chunk',
   'llmservice:response',
@@ -20,12 +24,31 @@ export const SESSION_EVENT_NAMES = [
   'llmservice:toolResult',
   'llmservice:error',
   'llmservice:unsupportedInput',
-] as const
+] = [
+  'llmservice:thinking',
+  'llmservice:chunk',
+  'llmservice:response',
+  'llmservice:toolCall',
+  'llmservice:toolResult',
+  'llmservice:error',
+  'llmservice:unsupportedInput',
+]
 
 /**
  * All event names (union of agent and session events).
  */
-export const EVENT_NAMES = [...AGENT_EVENT_NAMES, ...SESSION_EVENT_NAMES] as const
+export const EVENT_NAMES: readonly [
+  'cipher:conversationReset',
+  'cipher:stateChanged',
+  'cipher:stateReset',
+  'llmservice:thinking',
+  'llmservice:chunk',
+  'llmservice:response',
+  'llmservice:toolCall',
+  'llmservice:toolResult',
+  'llmservice:error',
+  'llmservice:unsupportedInput',
+] = [...AGENT_EVENT_NAMES, ...SESSION_EVENT_NAMES]
 
 /**
  * Union type of all agent event names.

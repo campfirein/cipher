@@ -204,7 +204,15 @@ export class GeminiLLMService implements ILLMService {
           )
         }
 
-        const lastMessage = messages.at(-1)!
+        const lastMessage = messages.at(-1)
+
+        if (!lastMessage) {
+          throw new LlmResponseParsingError(
+            'Failed to get last message from response',
+            'gemini',
+            this.config.model,
+          )
+        }
 
         // Check if there are tool calls
         if (!lastMessage.toolCalls || lastMessage.toolCalls.length === 0) {

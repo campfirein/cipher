@@ -39,20 +39,21 @@ import {validateWorkspaceInitialized} from './validation/workspace-validator.js'
  */
 export class CipherAgent implements ICipherAgent {
   // Shared services (exposed publicly for external access)
-  public readonly agentEventBus!: AgentEventBus
-  public readonly fileSystemService!: FileSystemService
-  public readonly historyStorage!: IHistoryStorage
-  public readonly memoryManager!: MemoryManager
-  public readonly processService!: ProcessService
-  public readonly systemPromptManager!: SystemPromptManager
-  public readonly toolManager!: ToolManager
-  public readonly toolProvider!: ToolProvider
+  // Made optional to avoid definite assignment assertions
+  public readonly agentEventBus?: AgentEventBus
+  public readonly fileSystemService?: FileSystemService
+  public readonly historyStorage?: IHistoryStorage
+  public readonly memoryManager?: MemoryManager
+  public readonly processService?: ProcessService
+  public readonly systemPromptManager?: SystemPromptManager
+  public readonly toolManager?: ToolManager
+  public readonly toolProvider?: ToolProvider
   private readonly _brvConfig?: BrvConfig
   private _isStarted: boolean = false
   private readonly currentDefaultSessionId: string = 'default'
   private defaultSession: IChatSession | null = null
   private readonly llmConfig: CipherLLMConfig
-  private sessionManager!: SessionManager
+  private sessionManager?: SessionManager
   private readonly stateManager: CipherAgentStateManager
 
   /**
@@ -76,7 +77,7 @@ export class CipherAgent implements ICipherAgent {
    */
   public async createSession(sessionId?: string): Promise<IChatSession> {
     this.ensureStarted()
-    return this.sessionManager.createSession(sessionId)
+    return this.getSessionManager().createSession(sessionId)
   }
 
   /**
@@ -87,7 +88,7 @@ export class CipherAgent implements ICipherAgent {
    */
   public async deleteSession(sessionId: string): Promise<boolean> {
     this.ensureStarted()
-    return this.sessionManager.deleteSession(sessionId)
+    return this.getSessionManager().deleteSession(sessionId)
   }
 
   /**
@@ -109,8 +110,9 @@ export class CipherAgent implements ICipherAgent {
     const targetSessionId = sessionId ?? this.currentDefaultSessionId
 
     // Get or create session (lazy loading pattern from Dexto)
-    const existingSession = this.sessionManager.getSession(targetSessionId)
-    const session = existingSession ?? (await this.sessionManager.createSession(targetSessionId))
+    const sessionMgr = this.getSessionManager()
+    const existingSession = sessionMgr.getSession(targetSessionId)
+    const session = existingSession ?? (await sessionMgr.createSession(targetSessionId))
 
     // Cache default session for faster access
     if (targetSessionId === this.currentDefaultSessionId && !this.defaultSession) {
@@ -143,7 +145,18 @@ export class CipherAgent implements ICipherAgent {
    */
   public getSession(sessionId: string): IChatSession | undefined {
     this.ensureStarted()
-    return this.sessionManager.getSession(sessionId)
+    return this.getSessionManager().getSession(sessionId)
+  }
+
+  /**
+   * Get session metadata without loading full history.
+   *
+   * @param sessionId - Session ID
+   * @returns Session metadata or undefined if not found
+   */
+  public async getSessionMetadata(sessionId: string): Promise<import('../../core/domain/cipher/storage/history-types.js').SessionMetadata | undefined> {
+    this.ensureStarted()
+    return this.getHistoryStorage().getSessionMetadata(sessionId)
   }
 
   /**
@@ -163,17 +176,27 @@ export class CipherAgent implements ICipherAgent {
    */
   public async getSystemPrompt(): Promise<string> {
     this.ensureStarted()
-    return this.systemPromptManager.build({})
+    return this.getSystemPromptManager().build({})
   }
 
   /**
-   * List all session IDs.
+   * List all persisted session IDs from history storage.
+   *
+   * @returns Array of session IDs
+   */
+  public async listPersistedSessions(): Promise<string[]> {
+    this.ensureStarted()
+    return this.getHistoryStorage().listSessions()
+  }
+
+  /**
+   * List all session IDs (in-memory only).
    *
    * @returns Array of session IDs
    */
   public listSessions(): string[] {
     this.ensureStarted()
-    return this.sessionManager.listSessions()
+    return this.getSessionManager().listSessions()
   }
 
   /**
@@ -188,10 +211,12 @@ export class CipherAgent implements ICipherAgent {
       this.defaultSession.reset()
     }
 
-    // Emit conversation reset event
-    this.agentEventBus.emit('cipher:conversationReset', {
-      sessionId: this.currentDefaultSessionId,
-    })
+    // Emit conversation reset event (only if agent is started)
+    if (this._isStarted) {
+      this.getAgentEventBus().emit('cipher:conversationReset', {
+        sessionId: this.currentDefaultSessionId,
+      })
+    }
   }
 
   /**
@@ -245,13 +270,84 @@ export class CipherAgent implements ICipherAgent {
   }
 
   /**
-   * Ensure the agent has been started
+   * Ensure the agent has been started and all services are initialized
    *
-   * @throws Error if agent is not started
+   * @throws Error if agent is not started or services are not initialized
    */
   private ensureStarted(): void {
     if (!this._isStarted) {
       throw new Error('CipherAgent must be started before use. Call start() first.')
     }
+
+    // Runtime validation to ensure services were properly initialized
+    if (
+      !this.agentEventBus ||
+      !this.fileSystemService ||
+      !this.historyStorage ||
+      !this.memoryManager ||
+      !this.processService ||
+      !this.systemPromptManager ||
+      !this.toolManager ||
+      !this.toolProvider ||
+      !this.sessionManager
+    ) {
+      throw new Error('CipherAgent services not properly initialized. This is a bug.')
+    }
+  }
+
+  /**
+   * Get initialized agent event bus (guaranteed to be defined after start())
+   *
+   * @returns AgentEventBus instance
+   * @throws Error if not initialized
+   */
+  private getAgentEventBus(): AgentEventBus {
+    if (!this.agentEventBus) {
+      throw new Error('AgentEventBus not initialized. This is a bug.')
+    }
+
+    return this.agentEventBus
+  }
+
+  /**
+   * Get initialized history storage (guaranteed to be defined after start())
+   *
+   * @returns IHistoryStorage instance
+   * @throws Error if not initialized
+   */
+  private getHistoryStorage(): IHistoryStorage {
+    if (!this.historyStorage) {
+      throw new Error('HistoryStorage not initialized. This is a bug.')
+    }
+
+    return this.historyStorage
+  }
+
+  /**
+   * Get initialized session manager (guaranteed to be defined after start())
+   *
+   * @returns SessionManager instance
+   * @throws Error if not initialized
+   */
+  private getSessionManager(): SessionManager {
+    if (!this.sessionManager) {
+      throw new Error('SessionManager not initialized. This is a bug.')
+    }
+
+    return this.sessionManager
+  }
+
+  /**
+   * Get initialized system prompt manager (guaranteed to be defined after start())
+   *
+   * @returns SystemPromptManager instance
+   * @throws Error if not initialized
+   */
+  private getSystemPromptManager(): SystemPromptManager {
+    if (!this.systemPromptManager) {
+      throw new Error('SystemPromptManager not initialized. This is a bug.')
+    }
+
+    return this.systemPromptManager
   }
 }

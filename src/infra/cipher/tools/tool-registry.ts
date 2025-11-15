@@ -45,6 +45,23 @@ export interface ToolRegistryEntry {
 }
 
 /**
+ * Helper function to safely retrieve a required service.
+ * Throws a descriptive error if the service is not available.
+ *
+ * @param service - The service to retrieve
+ * @param serviceName - Name of the service for error messages
+ * @returns The service if available
+ * @throws Error if service is undefined
+ */
+function getRequiredService<T>(service: T | undefined, serviceName: string): T {
+  if (!service) {
+    throw new Error(`Required service '${serviceName}' is not available. This is a bug.`)
+  }
+
+  return service
+}
+
+/**
  * Central registry of all tools.
  * Maps tool names to their factory functions and required services.
  *
@@ -55,47 +72,47 @@ export interface ToolRegistryEntry {
  */
 export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
   [ToolName.BASH_EXEC]: {
-    factory: (services) => createBashExecTool(services.processService!),
-    requiredServices: ['processService'] as const,
+    factory: (services) => createBashExecTool(getRequiredService(services.processService, 'processService')),
+    requiredServices: ['processService'],
   },
 
   [ToolName.BASH_OUTPUT]: {
-    factory: (services) => createBashOutputTool(services.processService!),
-    requiredServices: ['processService'] as const,
+    factory: (services) => createBashOutputTool(getRequiredService(services.processService, 'processService')),
+    requiredServices: ['processService'],
   },
 
   [ToolName.EDIT_FILE]: {
-    factory: (services) => createEditFileTool(services.fileSystemService!),
-    requiredServices: ['fileSystemService'] as const,
+    factory: (services) => createEditFileTool(getRequiredService(services.fileSystemService, 'fileSystemService')),
+    requiredServices: ['fileSystemService'],
   },
 
   [ToolName.GLOB_FILES]: {
-    factory: (services) => createGlobFilesTool(services.fileSystemService!),
-    requiredServices: ['fileSystemService'] as const,
+    factory: (services) => createGlobFilesTool(getRequiredService(services.fileSystemService, 'fileSystemService')),
+    requiredServices: ['fileSystemService'],
   },
 
   [ToolName.GREP_CONTENT]: {
-    factory: (services) => createGrepContentTool(services.fileSystemService!),
-    requiredServices: ['fileSystemService'] as const,
+    factory: (services) => createGrepContentTool(getRequiredService(services.fileSystemService, 'fileSystemService')),
+    requiredServices: ['fileSystemService'],
   },
 
   [ToolName.KILL_PROCESS]: {
-    factory: (services) => createKillProcessTool(services.processService!),
-    requiredServices: ['processService'] as const,
+    factory: (services) => createKillProcessTool(getRequiredService(services.processService, 'processService')),
+    requiredServices: ['processService'],
   },
 
   [ToolName.READ_FILE]: {
-    factory: (services) => createReadFileTool(services.fileSystemService!),
-    requiredServices: ['fileSystemService'] as const,
+    factory: (services) => createReadFileTool(getRequiredService(services.fileSystemService, 'fileSystemService')),
+    requiredServices: ['fileSystemService'],
   },
 
   [ToolName.SEARCH_HISTORY]: {
     factory: (_services) => createSearchHistoryTool(),
-    requiredServices: [] as const, // No services required yet (stub implementation)
+    requiredServices: [], // No services required yet (stub implementation)
   },
 
   [ToolName.WRITE_FILE]: {
-    factory: (services) => createWriteFileTool(services.fileSystemService!),
-    requiredServices: ['fileSystemService'] as const,
+    factory: (services) => createWriteFileTool(getRequiredService(services.fileSystemService, 'fileSystemService')),
+    requiredServices: ['fileSystemService'],
   },
 }

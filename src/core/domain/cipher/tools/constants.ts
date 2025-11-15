@@ -2,7 +2,17 @@
  * Known tool names.
  * These constants ensure type safety and prevent typos.
  */
-export const ToolName = {
+export const ToolName: {
+  readonly BASH_EXEC: 'bash_exec'
+  readonly BASH_OUTPUT: 'bash_output'
+  readonly EDIT_FILE: 'edit_file'
+  readonly GLOB_FILES: 'glob_files'
+  readonly GREP_CONTENT: 'grep_content'
+  readonly KILL_PROCESS: 'kill_process'
+  readonly READ_FILE: 'read_file'
+  readonly SEARCH_HISTORY: 'search_history'
+  readonly WRITE_FILE: 'write_file'
+} = {
   BASH_EXEC: 'bash_exec',
   BASH_OUTPUT: 'bash_output',
   EDIT_FILE: 'edit_file',
@@ -12,7 +22,7 @@ export const ToolName = {
   READ_FILE: 'read_file',
   SEARCH_HISTORY: 'search_history',
   WRITE_FILE: 'write_file',
-} as const
+}
 
 /**
  * Union type of all known tool names.

@@ -1,3 +1,4 @@
+import type {SessionMetadata} from '../../domain/cipher/storage/history-types.js'
 import type {InternalMessage} from '../cipher/message-types.js'
 
 /**
@@ -22,6 +23,14 @@ export interface IHistoryStorage {
    * @returns Promise that resolves to true if history exists
    */
   exists(sessionId: string): Promise<boolean>
+
+  /**
+   * Get metadata for a specific session without loading full history.
+   *
+   * @param sessionId - Unique session identifier
+   * @returns Promise that resolves to session metadata or undefined if not found
+   */
+  getSessionMetadata(sessionId: string): Promise<SessionMetadata | undefined>
 
   /**
    * List all session IDs that have persisted history.

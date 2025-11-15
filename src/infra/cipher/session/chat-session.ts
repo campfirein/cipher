@@ -7,7 +7,7 @@ import {LLMError, SessionCancelledError} from '../../../core/domain/cipher/error
 import {SessionEventBus} from '../events/event-emitter.js'
 
 // List of all session events that should be forwarded to agent bus
-const SESSION_EVENT_NAMES = [
+const SESSION_EVENT_NAMES: readonly [
   'llmservice:thinking',
   'llmservice:chunk',
   'llmservice:response',
@@ -15,7 +15,15 @@ const SESSION_EVENT_NAMES = [
   'llmservice:toolResult',
   'llmservice:error',
   'llmservice:unsupportedInput',
-] as const
+] = [
+  'llmservice:thinking',
+  'llmservice:chunk',
+  'llmservice:response',
+  'llmservice:toolCall',
+  'llmservice:toolResult',
+  'llmservice:error',
+  'llmservice:unsupportedInput',
+]
 
 /**
  * Chat session implementation.

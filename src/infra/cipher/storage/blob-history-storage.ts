@@ -1,4 +1,4 @@
-import type {SessionHistoryData} from '../../../core/domain/cipher/storage/history-types.js'
+import type {SessionHistoryData, SessionMetadata} from '../../../core/domain/cipher/storage/history-types.js'
 import type {IBlobStorage} from '../../../core/interfaces/cipher/i-blob-storage.js'
 import type {IHistoryStorage} from '../../../core/interfaces/cipher/i-history-storage.js'
 import type {InternalMessage} from '../../../core/interfaces/cipher/message-types.js'
@@ -51,6 +51,38 @@ export class BlobHistoryStorage implements IHistoryStorage {
     } catch (error) {
       console.error(`[BlobHistoryStorage] Error checking existence for session ${sessionId}:`, error)
       return false
+    }
+  }
+
+  /**
+   * Get metadata for a specific session without loading full history.
+   *
+   * @param sessionId - Unique session identifier
+   * @returns Session metadata or undefined if not found
+   */
+  public async getSessionMetadata(sessionId: string): Promise<SessionMetadata | undefined> {
+    const key = this.getSessionKey(sessionId)
+
+    try {
+      const blob = await this.blobStorage.retrieve(key)
+
+      if (!blob) {
+        return undefined
+      }
+
+      // Parse JSON content to extract metadata
+      const historyData: SessionHistoryData = JSON.parse(blob.content.toString('utf8'))
+
+      return {
+        createdAt: historyData.createdAt,
+        lastActivity: historyData.updatedAt,
+        messageCount: historyData.messageCount,
+        sessionId: historyData.sessionId,
+        title: historyData.metadata?.title as string | undefined,
+      }
+    } catch (error) {
+      console.error(`[BlobHistoryStorage] Failed to get metadata for session ${sessionId}:`, error)
+      return undefined
     }
   }
 
@@ -109,10 +141,13 @@ export class BlobHistoryStorage implements IHistoryStorage {
   public async saveHistory(sessionId: string, messages: InternalMessage[]): Promise<void> {
     const key = this.getSessionKey(sessionId)
 
+    // Check if session already exists to preserve createdAt timestamp
+    const existingMetadata = await this.getSessionMetadata(sessionId)
+
     // Build history data structure
     const now = Date.now()
     const historyData: SessionHistoryData = {
-      createdAt: now,
+      createdAt: existingMetadata?.createdAt ?? now, // Preserve original creation time
       messageCount: messages.length,
       messages,
       sessionId,

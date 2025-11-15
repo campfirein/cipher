@@ -75,12 +75,24 @@ export class SessionManager {
 
     // Check pending operations (race condition protection)
     if (this.pendingCreations.has(id)) {
-      return this.pendingCreations.get(id)!
+      const pending = this.pendingCreations.get(id)
+
+      if (!pending) {
+        throw new Error(`Pending session ${id} not found. This is a bug.`)
+      }
+
+      return pending
     }
 
     // Check in-memory cache
     if (this.sessions.has(id)) {
-      return this.sessions.get(id)!
+      const existing = this.sessions.get(id)
+
+      if (!existing) {
+        throw new Error(`Session ${id} not found in cache. This is a bug.`)
+      }
+
+      return existing
     }
 
     // Check max sessions limit
@@ -188,6 +200,13 @@ export class SessionManager {
 
     // Create session with both shared and session services
     const session = new ChatSession(id, this.sharedServices, sessionServices)
+
+    // Initialize LLM service to load persisted history from blob storage
+    const initialized = await sessionServices.llmService.initialize()
+
+    if (initialized) {
+      console.log(`[SessionManager] Loaded history for session: ${id}`)
+    }
 
     this.sessions.set(id, session)
     return session

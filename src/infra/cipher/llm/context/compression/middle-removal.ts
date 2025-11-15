@@ -87,7 +87,13 @@ export class MiddleRemovalStrategy implements ICompressionStrategy {
 
     while (currentTokenCount > maxHistoryTokens && removableIndices.length > 0) {
       // Remove oldest message from middle (shift from start of removableIndices)
-      const indexToRemove = removableIndices.shift()!
+      const indexToRemove = removableIndices.shift()
+
+      if (indexToRemove === undefined) {
+        // This should never happen since we check length > 0, but be safe
+        break
+      }
+
       removedIndices.add(indexToRemove)
 
       // Recalculate tokens with current removals
