@@ -2,9 +2,12 @@ import {Args, Command, Flags} from '@oclif/core'
 
 import type {IProjectConfigStore} from '../../core/interfaces/i-project-config-store.js'
 
+import {getCurrentConfig} from '../../config/environment.js'
+import { PROJECT } from '../../constants.js'
 import {CipherAgent} from '../../infra/cipher/cipher-agent.js'
 import {startInteractiveLoop} from '../../infra/cipher/interactive-loop.js'
 import {ProjectConfigStore} from '../../infra/config/file-config-store.js'
+import {KeychainTokenStore} from '../../infra/storage/keychain-token-store.js'
 import {formatToolCall, formatToolResult} from '../../utils/tool-display-formatter.js'
 
 export default class CipherAgentRun extends Command {
@@ -32,11 +35,6 @@ export default class CipherAgentRun extends Command {
     '<%= config.bin %> <%= command.id %> --working-directory ~/myproject',
   ]
   static override flags = {
-    apiKey: Flags.string({
-      char: 'k',
-      description: 'Gemini API key (or set GEMINI_API_KEY env var)',
-      env: 'GEMINI_API_KEY',
-    }),
     interactive: Flags.boolean({
       allowNo: true,
       char: 'i',
@@ -72,8 +70,11 @@ export default class CipherAgentRun extends Command {
     const {args, flags} = await this.parse(CipherAgentRun)
 
     try {
-      if (!flags.apiKey) {
-        this.error('API key is required. Set GEMINI_API_KEY environment variable or use --apiKey flag.')
+      // Get authentication token from keychain
+      const tokenStore = new KeychainTokenStore()
+      const token = await tokenStore.load()
+      if (!token) {
+        this.error('Authentication required. Please run "brv login" first.')
       }
 
       // Determine interactive mode
@@ -94,14 +95,18 @@ export default class CipherAgentRun extends Command {
 
       // Create LLM configuration (hardcoded defaults + flag overrides)
       const model = flags.model ?? 'gemini-2.5-flash'
+      const envConfig = getCurrentConfig()
       const llmConfig = {
-        apiKey: flags.apiKey,
+        accessToken: token.accessToken,
         fileSystemConfig: flags.workingDirectory
           ? {workingDirectory: flags.workingDirectory}
           : undefined,
+        grpcEndpoint: envConfig.llmGrpcEndpoint,
         maxIterations: 50, // Hardcoded default
         maxTokens: flags.maxTokens ?? 8192, // Default: 8192
         model,
+        projectId: PROJECT,
+        sessionKey: token.sessionKey,
         temperature: flags.temperature ? Number.parseFloat(flags.temperature) : 0.7, // Default: 0.7
       }
 

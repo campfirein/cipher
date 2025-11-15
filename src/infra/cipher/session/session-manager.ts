@@ -1,13 +1,13 @@
-import {GoogleGenAI} from '@google/genai'
 import {randomUUID} from 'node:crypto'
 
 import type {SessionConfig} from '../../../core/domain/cipher/session/types.js'
 import type {IChatSession} from '../../../core/interfaces/cipher/i-chat-session.js'
-import type {GeminiServiceConfig} from '../llm/gemini-llm-service.js'
+import type {ByteRoverLLMServiceConfig} from '../llm/internal-llm-service.js'
 import type {ToolManager} from '../tools/tool-manager.js'
 
 import {SessionEventBus} from '../events/event-emitter.js'
-import {GeminiLLMService} from '../llm/gemini-llm-service.js'
+import {ByteRoverGrpcConfig, ByteRoverLlmGrpcService} from '../grpc/internal-llm-grpc-service.js'
+import {ByteRoverLLMService} from '../llm/internal-llm-service.js'
 import {SystemPromptManager} from '../system-prompt/system-prompt-manager.js'
 import {ChatSession} from './chat-session.js'
 
@@ -18,17 +18,20 @@ import {ChatSession} from './chat-session.js'
  * Each session gets its own LLM service instance with isolated context.
  */
 export class SessionManager {
-  private readonly llmConfig: GeminiServiceConfig
+  private readonly grpcConfig: ByteRoverGrpcConfig;
+  private readonly llmConfig: ByteRoverLLMServiceConfig
   private readonly sessions: Map<string, IChatSession> = new Map()
   private readonly toolManager: ToolManager
 
   /**
    * Creates a new session manager
    *
+   * @param grpcConfig - gRPC client configuration
    * @param llmConfig - LLM service configuration
    * @param toolManager - Tool manager for tool execution
    */
-  public constructor(llmConfig: GeminiServiceConfig, toolManager: ToolManager) {
+  public constructor(grpcConfig: ByteRoverGrpcConfig, llmConfig: ByteRoverLLMServiceConfig, toolManager: ToolManager) {
+    this.grpcConfig = grpcConfig
     this.llmConfig = llmConfig
     this.toolManager = toolManager
   }
@@ -60,12 +63,19 @@ export class SessionManager {
     // Create session event bus for this session
     const sessionEventBus = new SessionEventBus()
 
-    // Create GoogleGenAI client
-    const geminiClient = new GoogleGenAI({apiKey: this.llmConfig.apiKey})
+    // Create ByteRover gRPC service
+    const grpcService = new ByteRoverLlmGrpcService({
+      accessToken: this.grpcConfig.accessToken,
+      grpcEndpoint: this.grpcConfig.grpcEndpoint,
+      projectId: this.grpcConfig.projectId,
+      region: this.grpcConfig.region,
+      sessionKey: this.grpcConfig.sessionKey,
+      timeout: this.grpcConfig.timeout,
+    })
 
     // Create a new LLM service for this session
     // Each session has isolated context via its own service + ContextManager
-    const llmService = new GeminiLLMService(id, geminiClient, this.llmConfig, {
+    const llmService = new ByteRoverLLMService(id, grpcService, this.llmConfig, {
       sessionEventBus,
       systemPromptManager,
       toolManager: this.toolManager,

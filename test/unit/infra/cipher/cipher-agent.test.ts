@@ -10,10 +10,13 @@ describe('CipherAgent', () => {
 
   beforeEach(() => {
     llmConfig = {
-      apiKey: 'test-api-key',
+      accessToken: 'test-access-token',
+      grpcEndpoint: 'localhost:50051',
       maxIterations: 10,
       maxTokens: 1000,
       model: 'gemini-2.5-flash',
+      projectId: 'byterover',
+      sessionKey: 'test-session-key',
       temperature: 0.5,
     }
   })

@@ -9,6 +9,8 @@
   "bugs": "https://github.com/campfirein/byterover-cli/issues",
   "dependencies": {
     "@google/genai": "^1.29.0",
+    "@grpc/grpc-js": "^1.10.0",
+    "@grpc/proto-loader": "^0.7.13",
     "@inquirer/prompts": "^7.9.0",
     "@oclif/core": "^4",
     "@oclif/plugin-help": "^6",
@@ -76,7 +78,7 @@
   },
   "repository": "campfirein/byterover-cli",
   "scripts": {
-    "build": "shx rm -rf dist && tsc && shx cp -r src/templates dist/templates",
+    "build": "shx rm -rf dist && tsc && shx cp -r src/templates dist/templates && shx cp src/infra/cipher/grpc/internal-llm-grpc.proto dist/infra/cipher/grpc/",
     "lint": "eslint",
     "postpack": "shx rm -f oclif.manifest.json",
     "posttest": "npm run lint",
