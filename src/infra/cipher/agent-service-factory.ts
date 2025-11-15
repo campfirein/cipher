@@ -1,3 +1,5 @@
+import {GoogleGenAI} from '@google/genai'
+
 import type {FileSystemConfig} from '../../core/domain/cipher/file-system/types.js'
 import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
 import type {CipherAgentServices, SessionServices} from '../../core/interfaces/cipher/cipher-services.js'
@@ -6,10 +8,10 @@ import {FileBlobStorage} from './blob/file-blob-storage.js'
 import {AgentEventBus, SessionEventBus} from './events/event-emitter.js'
 import {FileSystemService} from './file-system/file-system-service.js'
 import {ByteRoverLlmGrpcService} from './grpc/internal-llm-grpc-service.js'
+import {GeminiLLMService} from './llm/gemini-llm-service.js'
 import {ByteRoverLLMService} from './llm/internal-llm-service.js'
 import {MemoryManager} from './memory/memory-manager.js'
 import {ProcessService} from './process/process-service.js'
-import {setupEventForwarding} from './session/session-event-forwarder.js'
 import {BlobHistoryStorage} from './storage/blob-history-storage.js'
 import {SystemPromptManager} from './system-prompt/system-prompt-manager.js'
 import {ToolManager} from './tools/tool-manager.js'
@@ -59,6 +61,7 @@ Remember: You're an autonomous agentic system that can freely use tools within a
  */
 export interface CipherLLMConfig {
   accessToken: string
+  apiKey?: string
   fileSystemConfig?: Partial<FileSystemConfig>
   grpcEndpoint: string
   maxIterations?: number
@@ -199,6 +202,7 @@ export async function createCipherAgentServices(
  * @param sharedServices - Shared services from agent
  * @param grpcConfig - gRPC configuration
  * @param llmConfig - LLM service configuration
+ * @param llmConfig.apiKey - Optional Gemini API key for direct service
  * @param llmConfig.maxIterations - Maximum iterations for agentic loop
  * @param llmConfig.maxTokens - Maximum output tokens
  * @param llmConfig.model - LLM model identifier
@@ -210,6 +214,7 @@ export function createSessionServices(
   sharedServices: CipherAgentServices,
   grpcConfig: ByteRoverGrpcConfig,
   llmConfig: {
+    apiKey?: string
     maxIterations?: number
     maxTokens?: number
     model: string
@@ -219,36 +224,62 @@ export function createSessionServices(
   // 1. Create session-specific event bus
   const sessionEventBus = new SessionEventBus()
 
-  // 2. Create gRPC service for this session
-  const grpcService = new ByteRoverLlmGrpcService({
-    accessToken: grpcConfig.accessToken,
-    grpcEndpoint: grpcConfig.grpcEndpoint,
-    projectId: grpcConfig.projectId,
-    region: grpcConfig.region,
-    sessionKey: grpcConfig.sessionKey,
-    timeout: grpcConfig.timeout,
-  })
+  // 2. Create LLM service based on configuration
+  let llmService
 
-  // 3. Create session-specific LLM service with shared services injected
-  const llmService = new ByteRoverLLMService(
-    sessionId,
-    grpcService,
-    {
-      maxIterations: llmConfig.maxIterations ?? 50,
-      maxTokens: llmConfig.maxTokens ?? 8192,
-      model: llmConfig.model ?? 'gemini-2.5-flash',
-      temperature: llmConfig.temperature ?? 0.7,
-    },
-    {
-      historyStorage: sharedServices.historyStorage, // SHARED
-      sessionEventBus,
-      systemPromptManager: sharedServices.systemPromptManager, // SHARED
-      toolManager: sharedServices.toolManager, // SHARED
-    },
-  )
+  if (llmConfig.apiKey) {
+    // Use direct Gemini service when API key is provided
+    const geminiClient = new GoogleGenAI({
+      apiKey: llmConfig.apiKey,
+    })
 
-  // 4. Setup event forwarding from session bus to agent bus
-  setupEventForwarding(sessionEventBus, sharedServices.agentEventBus, sessionId)
+    llmService = new GeminiLLMService(
+      sessionId,
+      geminiClient,
+      {
+        apiKey: llmConfig.apiKey,
+        maxIterations: llmConfig.maxIterations ?? 50,
+        maxTokens: llmConfig.maxTokens ?? 8192,
+        model: llmConfig.model ?? 'gemini-2.0-flash-exp',
+        temperature: llmConfig.temperature ?? 0.7,
+      },
+      {
+        sessionEventBus,
+        systemPromptManager: sharedServices.systemPromptManager, // SHARED
+        toolManager: sharedServices.toolManager, // SHARED
+      },
+    )
+  } else {
+    // Use gRPC backend service (default)
+    const grpcService = new ByteRoverLlmGrpcService({
+      accessToken: grpcConfig.accessToken,
+      grpcEndpoint: grpcConfig.grpcEndpoint,
+      projectId: grpcConfig.projectId,
+      region: grpcConfig.region,
+      sessionKey: grpcConfig.sessionKey,
+      timeout: grpcConfig.timeout,
+    })
+
+    llmService = new ByteRoverLLMService(
+      sessionId,
+      grpcService,
+      {
+        maxIterations: llmConfig.maxIterations ?? 50,
+        maxTokens: llmConfig.maxTokens ?? 8192,
+        model: llmConfig.model ?? 'gemini-2.5-flash',
+        temperature: llmConfig.temperature ?? 0.7,
+      },
+      {
+        historyStorage: sharedServices.historyStorage, // SHARED
+        sessionEventBus,
+        systemPromptManager: sharedServices.systemPromptManager, // SHARED
+        toolManager: sharedServices.toolManager, // SHARED
+      },
+    )
+  }
+
+  // Event forwarding is handled by ChatSession.setupEventForwarding()
+  // to ensure proper cleanup when sessions are disposed
 
   return {
     llmService,

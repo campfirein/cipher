@@ -248,6 +248,7 @@ export class CipherAgent implements ICipherAgent {
 
     // Extract LLM config for sessions
     const sessionLLMConfig = {
+      apiKey: this.llmConfig.apiKey,
       maxIterations: this.llmConfig.maxIterations,
       maxTokens: this.llmConfig.maxTokens,
       model: this.llmConfig.model,

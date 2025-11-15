@@ -196,7 +196,7 @@ export class ByteRoverLLMService implements ILLMService {
       const {formattedMessages, tokensUsed} = await this.contextManager.getFormattedMessagesWithCompression(systemPrompt)
 
       // Log token usage for monitoring compression behavior
-      console.log(`[ByteRoverLLMService] Sending to LLM: ${tokensUsed} tokens (max: ${this.config.maxInputTokens})`)
+      console.log(`[ByteRoverLLMService] [Iter ${iterationCount + 1}/${this.config.maxIterations}] Sending to LLM: ${tokensUsed} tokens (max: ${this.config.maxInputTokens})`)
 
       // Build generation config with system prompt
       const genConfig = this.buildGenerationConfig(tools, systemPrompt)

@@ -48,6 +48,11 @@ export default class CipherAgentRun extends Command {
     '<%= config.bin %> <%= command.id %> --working-directory ~/myproject',
   ]
   static override flags = {
+    apiKey: Flags.string({
+      char: 'k',
+      description: 'Gemini API key (use direct Gemini instead of gRPC backend)',
+      env: 'GEMINI_API_KEY',
+    }),
     continue: Flags.boolean({
       char: 'c',
       description: 'Continue most recent session (requires prompt in headless mode)',
@@ -232,6 +237,7 @@ export default class CipherAgentRun extends Command {
    * @param token.accessToken - Access token for authentication
    * @param token.sessionKey - Session key for authentication
    * @param flags - Command flags
+   * @param flags.apiKey - Gemini API key for direct service (optional)
    * @param flags.maxTokens - Maximum tokens in response
    * @param flags.model - Model to use
    * @param flags.temperature - Temperature for randomness
@@ -240,9 +246,10 @@ export default class CipherAgentRun extends Command {
    */
   private createLLMConfig(
     token: {accessToken: string; sessionKey: string},
-    flags: {maxTokens?: number; model?: string; temperature?: string; workingDirectory?: string},
+    flags: {apiKey?: string; maxTokens?: number; model?: string; temperature?: string; workingDirectory?: string},
   ): {
     accessToken: string
+    apiKey?: string
     fileSystemConfig?: {workingDirectory: string}
     grpcEndpoint: string
     maxIterations: number
@@ -257,6 +264,7 @@ export default class CipherAgentRun extends Command {
 
     return {
       accessToken: token.accessToken,
+      apiKey: flags.apiKey,
       fileSystemConfig: flags.workingDirectory ? {workingDirectory: flags.workingDirectory} : undefined,
       grpcEndpoint: envConfig.llmGrpcEndpoint,
       maxIterations: 50, // Hardcoded default
@@ -351,7 +359,20 @@ export default class CipherAgentRun extends Command {
     const eventBus = agent.agentEventBus
 
     if (isInteractive) {
-      // In interactive mode, show minimal system info messages for cleaner UX
+      // In interactive mode, show concise tool events for transparency
+      eventBus.on('llmservice:toolCall', (payload) => {
+        const details = this.formatToolForInteractive(payload.toolName, payload.args)
+        displayInfo(`🔧 [Tool] ${payload.toolName}: ${details}`)
+      })
+
+      eventBus.on('llmservice:toolResult', (payload) => {
+        if (payload.success) {
+          displayInfo(`✓ [Done] ${payload.toolName}`)
+        } else {
+          displayInfo(`✗ [Error] ${payload.toolName}: ${payload.error}`)
+        }
+      })
+
       eventBus.on('llmservice:error', (payload) => {
         displayInfo(`Error: ${payload.error}`)
       })
@@ -394,5 +415,31 @@ export default class CipherAgentRun extends Command {
     eventBus.on('cipher:conversationReset', () => {
       this.log('🔄 [Event] Conversation Reset')
     })
+  }
+
+  /**
+   * Format tool call for concise display in interactive mode
+   *
+   * @param toolName - Name of the tool
+   * @param args - Tool arguments
+   * @returns Formatted string for display
+   */
+  private formatToolForInteractive(toolName: string, args: Record<string, unknown>): string {
+    // Special case for bash_exec - just show the command
+    if (toolName === 'bash_exec' && args.command) {
+      const cmd = String(args.command)
+      // Truncate long commands but keep readable
+      return cmd.length > 100 ? cmd.slice(0, 97) + '...' : cmd
+    }
+
+    // For other tools, use the existing formatter
+    const formatted = formatToolCall(toolName, args)
+
+    // Remove the tool name prefix since we show it separately
+    // formatToolCall returns: "tool_name(arg1: val1, ...)"
+    // We want: "(arg1: val1, ...)" or just the args portion
+    const argsOnly = formatted.replace(new RegExp(`^${toolName}\\s*`), '')
+
+    return argsOnly
   }
 }

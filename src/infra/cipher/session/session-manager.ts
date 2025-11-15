@@ -202,10 +202,13 @@ export class SessionManager {
     const session = new ChatSession(id, this.sharedServices, sessionServices)
 
     // Initialize LLM service to load persisted history from blob storage
-    const initialized = await sessionServices.llmService.initialize()
+    // Only call initialize() if the service has the method (ByteRoverLLMService has it, GeminiLLMService doesn't)
+    if ('initialize' in sessionServices.llmService && typeof sessionServices.llmService.initialize === 'function') {
+      const initialized = await sessionServices.llmService.initialize()
 
-    if (initialized) {
-      console.log(`[SessionManager] Loaded history for session: ${id}`)
+      if (initialized) {
+        console.log(`[SessionManager] Loaded history for session: ${id}`)
+      }
     }
 
     this.sessions.set(id, session)

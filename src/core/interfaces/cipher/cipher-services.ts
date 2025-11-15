@@ -1,6 +1,5 @@
 import type {AgentEventBus, SessionEventBus} from '../../../infra/cipher/events/event-emitter.js'
 import type {FileSystemService} from '../../../infra/cipher/file-system/file-system-service.js'
-import type {ByteRoverLLMService} from '../../../infra/cipher/llm/internal-llm-service.js'
 import type {MemoryManager} from '../../../infra/cipher/memory/memory-manager.js'
 import type {ProcessService} from '../../../infra/cipher/process/process-service.js'
 import type {SystemPromptManager} from '../../../infra/cipher/system-prompt/system-prompt-manager.js'
@@ -8,6 +7,7 @@ import type {ToolManager} from '../../../infra/cipher/tools/tool-manager.js'
 import type {ToolProvider} from '../../../infra/cipher/tools/tool-provider.js'
 import type {IBlobStorage} from './i-blob-storage.js'
 import type {IHistoryStorage} from './i-history-storage.js'
+import type {ILLMService} from './i-llm-service.js'
 
 /**
  * Shared services created at agent level and shared across all sessions.
@@ -43,7 +43,7 @@ export interface CipherAgentServices {
  * - LLMService: LLM client with isolated context manager
  */
 export interface SessionServices {
-  llmService: ByteRoverLLMService
+  llmService: ILLMService
   sessionEventBus: SessionEventBus
 }
 

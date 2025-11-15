@@ -316,17 +316,11 @@ export class ContextManager<T> {
 
     // No compression needed
     if (totalTokens <= this.maxInputTokens) {
-      console.log(
-        `[ContextManager] No compression needed: ${totalTokens} / ${this.maxInputTokens} tokens ` +
-        `(system: ${systemPromptTokens}, history: ${currentHistoryTokens})`
-      )
+      console.log(`[ContextManager] ${totalTokens}/${this.maxInputTokens} tokens (sys: ${systemPromptTokens}, hist: ${currentHistoryTokens})`)
       return this.messages
     }
 
-    console.log(
-      `[ContextManager] Compression required: ${totalTokens} / ${this.maxInputTokens} tokens ` +
-      `(system: ${systemPromptTokens}, history: ${currentHistoryTokens})`
-    )
+    console.log(`[ContextManager] Compressing: ${totalTokens}/${this.maxInputTokens} tokens (sys: ${systemPromptTokens}, hist: ${currentHistoryTokens})`)
 
     // Calculate target token budget for history
     // Reserve space for system prompt
