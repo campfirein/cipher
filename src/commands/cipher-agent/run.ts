@@ -3,7 +3,7 @@ import {Args, Command, Flags} from '@oclif/core'
 import type {IProjectConfigStore} from '../../core/interfaces/i-project-config-store.js'
 
 import {getCurrentConfig} from '../../config/environment.js'
-import { PROJECT } from '../../constants.js'
+import {PROJECT} from '../../constants.js'
 import {CipherAgent} from '../../infra/cipher/cipher-agent.js'
 import {displayInfo, startInteractiveLoop} from '../../infra/cipher/interactive-loop.js'
 import {WorkspaceNotInitializedError} from '../../infra/cipher/validation/workspace-validator.js'
@@ -112,7 +112,9 @@ export default class CipherAgentRun extends Command {
    * @param agent - CipherAgent instance
    * @returns Most recent session ID or undefined if no sessions found
    */
-  protected async getMostRecentSessionId(agent: import('../../infra/cipher/cipher-agent.js').CipherAgent): Promise<string | undefined> {
+  protected async getMostRecentSessionId(
+    agent: import('../../infra/cipher/cipher-agent.js').CipherAgent,
+  ): Promise<string | undefined> {
     // Get all session IDs from persisted storage
     const sessionIds = await agent.listPersistedSessions()
 
@@ -225,7 +227,10 @@ export default class CipherAgentRun extends Command {
    * @param sessionId - Session ID to validate
    * @returns True if session exists
    */
-  protected async validateSessionExists(agent: import('../../infra/cipher/cipher-agent.js').CipherAgent, sessionId: string): Promise<boolean> {
+  protected async validateSessionExists(
+    agent: import('../../infra/cipher/cipher-agent.js').CipherAgent,
+    sessionId: string,
+  ): Promise<boolean> {
     const metadata = await agent.getSessionMetadata(sessionId)
     return metadata !== undefined
   }
@@ -277,13 +282,39 @@ export default class CipherAgentRun extends Command {
   }
 
   /**
+   * Format tool call for concise display in interactive mode
+   *
+   * @param toolName - Name of the tool
+   * @param args - Tool arguments
+   * @returns Formatted string for display
+   */
+  private formatToolForInteractive(toolName: string, args: Record<string, unknown>): string {
+    // Special case for bash_exec - just show the command
+    if (toolName === 'bash_exec' && args.command) {
+      const cmd = String(args.command)
+      // Truncate long commands but keep readable
+      return cmd.length > 100 ? cmd.slice(0, 97) + '...' : cmd
+    }
+
+    // For other tools, use the existing formatter
+    const formatted = formatToolCall(toolName, args)
+
+    // Remove the tool name prefix since we show it separately
+    // formatToolCall returns: "tool_name(arg1: val1, ...)"
+    // We want: "(arg1: val1, ...)" or just the args portion
+    const argsOnly = formatted.replace(new RegExp(`^${toolName}\\s*`), '')
+
+    return argsOnly
+  }
+
+  /**
    * Handle workspace not initialized error with friendly message
    *
    * @param error - WorkspaceNotInitializedError instance
    */
   private handleWorkspaceError(error: WorkspaceNotInitializedError): void {
     this.log('\n⚠️  ByteRover workspace not found!\n')
-    this.log('It looks like you haven\'t initialized ByteRover in this directory yet.')
+    this.log("It looks like you haven't initialized ByteRover in this directory yet.")
     this.log('To get started, please run:\n')
     this.log('  $ brv init\n')
     this.log('This will create the necessary workspace structure in:')
@@ -415,31 +446,5 @@ export default class CipherAgentRun extends Command {
     eventBus.on('cipher:conversationReset', () => {
       this.log('🔄 [Event] Conversation Reset')
     })
-  }
-
-  /**
-   * Format tool call for concise display in interactive mode
-   *
-   * @param toolName - Name of the tool
-   * @param args - Tool arguments
-   * @returns Formatted string for display
-   */
-  private formatToolForInteractive(toolName: string, args: Record<string, unknown>): string {
-    // Special case for bash_exec - just show the command
-    if (toolName === 'bash_exec' && args.command) {
-      const cmd = String(args.command)
-      // Truncate long commands but keep readable
-      return cmd.length > 100 ? cmd.slice(0, 97) + '...' : cmd
-    }
-
-    // For other tools, use the existing formatter
-    const formatted = formatToolCall(toolName, args)
-
-    // Remove the tool name prefix since we show it separately
-    // formatToolCall returns: "tool_name(arg1: val1, ...)"
-    // We want: "(arg1: val1, ...)" or just the args portion
-    const argsOnly = formatted.replace(new RegExp(`^${toolName}\\s*`), '')
-
-    return argsOnly
   }
 }

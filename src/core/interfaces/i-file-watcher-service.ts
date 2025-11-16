@@ -25,10 +25,10 @@ export interface IFileWatcherService {
   /**
    * Sets the handler to be called when file system events occur.
    * Only one handler can be registered at a time.
-   * @param handler The callback function to invoke with file events.
-   * @returns
+   * The handler is async to support file reading and processing.
+   * @param handler The async callback function to invoke with file events.
    */
-  setFileEventHandler: (handler: (event: FileEvent) => void) => void
+  setFileEventHandler: (handler: (event: FileEvent) => Promise<void>) => void
 
   /**
    * Starts watching the specified paths for file system changes.

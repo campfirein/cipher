@@ -32,7 +32,7 @@ export default class Watch extends Command {
     const {fileWatcherService} = this.createServices()
     const paths = flags.paths.split(',').map((p) => p.trim())
     try {
-      fileWatcherService.setFileEventHandler((event) => {
+      fileWatcherService.setFileEventHandler(async (event) => {
         this.log(`[${event.type}] ${event.path}`)
       })
       await fileWatcherService.start(paths)
