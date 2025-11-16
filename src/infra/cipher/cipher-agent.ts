@@ -1,7 +1,9 @@
+import type {ParsedInteraction} from '../../core/domain/cipher/parsed-interaction.js'
 import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
 import type {CipherAgentServices} from '../../core/interfaces/cipher/cipher-services.js'
 import type {IChatSession} from '../../core/interfaces/cipher/i-chat-session.js'
 import type {AgentState, ICipherAgent} from '../../core/interfaces/cipher/i-cipher-agent.js'
+import type {ICodingAgentLogWatcher} from '../../core/interfaces/cipher/i-coding-agent-log-watcher.js'
 import type {IHistoryStorage} from '../../core/interfaces/cipher/i-history-storage.js'
 import type {ByteRoverGrpcConfig, CipherLLMConfig} from './agent-service-factory.js'
 import type {AgentEventBus} from './events/event-emitter.js'
@@ -41,6 +43,7 @@ export class CipherAgent implements ICipherAgent {
   // Shared services (exposed publicly for external access)
   // Made optional to avoid definite assignment assertions
   public readonly agentEventBus?: AgentEventBus
+  public readonly codingAgentLogWatcher?: ICodingAgentLogWatcher
   public readonly fileSystemService?: FileSystemService
   public readonly historyStorage?: IHistoryStorage
   public readonly memoryManager?: MemoryManager
@@ -154,7 +157,9 @@ export class CipherAgent implements ICipherAgent {
    * @param sessionId - Session ID
    * @returns Session metadata or undefined if not found
    */
-  public async getSessionMetadata(sessionId: string): Promise<import('../../core/domain/cipher/storage/history-types.js').SessionMetadata | undefined> {
+  public async getSessionMetadata(
+    sessionId: string,
+  ): Promise<import('../../core/domain/cipher/storage/history-types.js').SessionMetadata | undefined> {
     this.ensureStarted()
     return this.getHistoryStorage().getSessionMetadata(sessionId)
   }
@@ -266,6 +271,16 @@ export class CipherAgent implements ICipherAgent {
       ...sharedServices,
       sessionManager,
     })
+
+    // Start coding agent log watcher if configured
+    if (sharedServices.codingAgentLogWatcher && this.llmConfig.watchPaths) {
+      await sharedServices.codingAgentLogWatcher.start({
+        onInteraction: async (interaction) => {
+          await this.handleCodingAgentInteraction(interaction)
+        },
+        paths: this.llmConfig.watchPaths,
+      })
+    }
 
     this._isStarted = true
   }
