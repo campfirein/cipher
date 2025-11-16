@@ -30,6 +30,8 @@ export class FileBlobStorage implements IBlobStorage {
   private statsCache: BlobStats | null = null;
   private statsCacheExpiry = 0;
   private readonly storageDir: string;
+  // Lock map to prevent concurrent writes to the same key
+  private readonly writeLocks = new Map<string, Promise<StoredBlob>>();
 
   constructor(config?: Partial<BlobStorageConfig>) {
     this.storageDir = config?.storageDir || join(process.cwd(), '.brv', 'blobs');
@@ -307,6 +309,72 @@ export class FileBlobStorage implements IBlobStorage {
     this.ensureInitialized();
     this.validateKey(key);
 
+    // Check if there's already a write in progress for this key
+    const existingLock = this.writeLocks.get(key);
+    if (existingLock) {
+      // Wait for the existing write to complete, then retry
+      await existingLock.catch(() => {
+        // Ignore errors from the previous write
+      });
+      // Recursive call after the lock is released
+      return this.store(key, content, metadata);
+    }
+
+    // Create a new write operation promise
+    const writePromise = this.performStore(key, content, metadata);
+    this.writeLocks.set(key, writePromise);
+
+    try {
+      const result = await writePromise;
+      return result;
+    } finally {
+      // Always remove the lock when done
+      this.writeLocks.delete(key);
+    }
+  }
+
+  /**
+   * Clean up temporary files
+   */
+  private async cleanup(...paths: string[]): Promise<void> {
+    await Promise.all(
+      paths.map((path) =>
+        existsSync(path) ? fs.unlink(path).catch(() => {}) : Promise.resolve(),
+      ),
+    );
+  }
+
+  /**
+   * Ensure storage has been initialized
+   */
+  private ensureInitialized(): void {
+    if (!this.initialized) {
+      throw BlobError.notInitialized();
+    }
+  }
+
+  /**
+   * Get the file path for blob content
+   */
+  private getBlobPath(key: string): string {
+    return join(this.storageDir, `${key}.blob`);
+  }
+
+  /**
+   * Get the file path for blob metadata
+   */
+  private getMetadataPath(key: string): string {
+    return join(this.storageDir, `${key}.meta.json`);
+  }
+
+  /**
+   * Internal method to perform the actual store operation
+   */
+  private async performStore(
+    key: string,
+    content: Buffer | string,
+    metadata?: Partial<BlobMetadata>,
+  ): Promise<StoredBlob> {
     // Convert content to Buffer
     const buffer = Buffer.isBuffer(content) ? content : Buffer.from(content);
 
@@ -375,40 +443,6 @@ export class FileBlobStorage implements IBlobStorage {
         error instanceof Error ? error : undefined,
       );
     }
-  }
-
-  /**
-   * Clean up temporary files
-   */
-  private async cleanup(...paths: string[]): Promise<void> {
-    await Promise.all(
-      paths.map((path) =>
-        existsSync(path) ? fs.unlink(path).catch(() => {}) : Promise.resolve(),
-      ),
-    );
-  }
-
-  /**
-   * Ensure storage has been initialized
-   */
-  private ensureInitialized(): void {
-    if (!this.initialized) {
-      throw BlobError.notInitialized();
-    }
-  }
-
-  /**
-   * Get the file path for blob content
-   */
-  private getBlobPath(key: string): string {
-    return join(this.storageDir, `${key}.blob`);
-  }
-
-  /**
-   * Get the file path for blob metadata
-   */
-  private getMetadataPath(key: string): string {
-    return join(this.storageDir, `${key}.meta.json`);
   }
 
   /**

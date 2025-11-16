@@ -1,4 +1,5 @@
 import {GoogleGenAI} from '@google/genai'
+import {join} from 'node:path'
 
 import type {FileSystemConfig} from '../../core/domain/cipher/file-system/types.js'
 import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
@@ -111,6 +112,8 @@ export async function createCipherAgentServices(
   await fileSystemService.initialize()
 
   // 3. Process service (no dependencies)
+  // Use the same working directory as FileSystemService to ensure consistency
+  const workingDirectory = llmConfig.fileSystemConfig?.workingDirectory ?? process.cwd()
   const processService = new ProcessService({
     allowedCommands: [],
     blockedCommands: [],
@@ -119,7 +122,7 @@ export async function createCipherAgentServices(
     maxOutputBuffer: 1_048_576, // 1MB (1024 * 1024)
     maxTimeout: 600_000, // 10 minutes
     securityLevel: 'permissive', // Permissive mode: relies on working directory confinement
-    workingDirectory: process.cwd(),
+    workingDirectory,
   })
   await processService.initialize()
 
@@ -127,6 +130,7 @@ export async function createCipherAgentServices(
   const blobStorage = new FileBlobStorage({
     maxBlobSize: 100 * 1024 * 1024, // 100MB
     maxTotalSize: 1024 * 1024 * 1024, // 1GB
+    storageDir: join(workingDirectory, '.brv', 'blobs'),
   })
   await blobStorage.initialize()
 
@@ -153,6 +157,12 @@ export async function createCipherAgentServices(
           id: 'static',
           priority: 0,
           type: 'static',
+        },
+        {
+          enabled: true,
+          id: 'executionMode',
+          priority: 5,
+          type: 'executionMode',
         },
         {
           enabled: true,

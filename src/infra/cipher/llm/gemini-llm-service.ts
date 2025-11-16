@@ -3,8 +3,9 @@ import type {Content, GenerateContentConfig} from '@google/genai'
 import {GoogleGenAI} from '@google/genai'
 
 import type {JSONSchema7, ToolSet} from '../../../core/domain/cipher/tools/types.js'
+import type {ExecutionContext} from '../../../core/interfaces/cipher/i-cipher-agent.js'
 import type {ILLMService} from '../../../core/interfaces/cipher/i-llm-service.js'
-import type {InternalMessage} from '../../../core/interfaces/cipher/message-types.js'
+import type {InternalMessage, ToolCall} from '../../../core/interfaces/cipher/message-types.js'
 import type {ToolManager} from '../tools/tool-manager.js'
 
 import {
@@ -139,14 +140,15 @@ export class GeminiLLMService implements ILLMService {
    * @param options.imageData - Optional image data
    * @param options.fileData - Optional file data
    * @param options.stream - Whether to stream response (not implemented yet)
+   * @param options.executionContext - Optional execution context (for JSON input mode, etc.)
    * @returns Final assistant response
    */
   public async completeTask(
     textInput: string,
-    options?: {fileData?: FileData; imageData?: ImageData; signal?: AbortSignal; stream?: boolean},
+    options?: {executionContext?: ExecutionContext; fileData?: FileData; imageData?: ImageData; signal?: AbortSignal; stream?: boolean},
   ): Promise<string> {
     // Extract options with defaults
-    const {fileData, imageData, signal} = options ?? {}
+    const {executionContext, fileData, imageData, signal} = options ?? {}
 
     // Add user message to context
     await this.contextManager.addUserMessage(textInput, imageData, fileData)
@@ -168,149 +170,17 @@ export class GeminiLLMService implements ILLMService {
         throw new Error('Operation aborted')
       }
 
-      // Build system prompt using SystemPromptManager (before compression for correct token accounting)
-      // eslint-disable-next-line no-await-in-loop -- Sequential system prompt building required
-      const systemPrompt = await this.systemPromptManager.build({})
-
-      // Get formatted messages from context with compression (passing system prompt for token accounting)
-      // eslint-disable-next-line no-await-in-loop -- Sequential iterations required for agentic loop
-      const {formattedMessages, tokensUsed} = await this.contextManager.getFormattedMessagesWithCompression(systemPrompt)
-
-      // Log token usage for monitoring compression behavior
-      console.log(`[GeminiLLMService] [Iter ${iterationCount + 1}/${this.config.maxIterations}] Sending to LLM: ${tokensUsed} tokens (max: ${this.config.maxInputTokens})`)
-
-      // Build generation config with system prompt
-      const genConfig = this.buildGenerationConfig(tools, systemPrompt)
-
-      // Emit thinking event
-      this.sessionEventBus.emit('llmservice:thinking')
-
       try {
-        // Call Gemini API directly via client
-        // eslint-disable-next-line no-await-in-loop -- Sequential LLM calls required for agentic loop
-        const response = await this.client.models.generateContent({
-          config: genConfig,
-          contents: formattedMessages as Content[],
-          model: this.config.model,
-        })
+        // eslint-disable-next-line no-await-in-loop -- Sequential iterations required for agentic loop
+        const result = await this.executeAgenticIteration(iterationCount, tools, executionContext)
 
-        // Parse response to internal format
-        const messages = this.formatter.parseResponse(response)
-        if (messages.length === 0) {
-          throw new LlmResponseParsingError(
-            'No messages returned from formatter',
-            'gemini',
-            this.config.model,
-          )
-        }
-
-        const lastMessage = messages.at(-1)
-
-        if (!lastMessage) {
-          throw new LlmResponseParsingError(
-            'Failed to get last message from response',
-            'gemini',
-            this.config.model,
-          )
-        }
-
-        // Check if there are tool calls
-        if (!lastMessage.toolCalls || lastMessage.toolCalls.length === 0) {
-          // No tool calls - final response
-          const content = this.extractTextContent(lastMessage)
-
-          // Emit response event
-          this.sessionEventBus.emit('llmservice:response', {
-            content,
-            model: this.config.model,
-            provider: 'gemini',
-          })
-
-          // Add assistant message to context
-          // eslint-disable-next-line no-await-in-loop -- Sequential context update required
-          await this.contextManager.addAssistantMessage(content)
-
-          return content
-        }
-
-        // Has tool calls - add assistant message with tool calls
-        const assistantContent = this.extractTextContent(lastMessage)
-        // eslint-disable-next-line no-await-in-loop -- Sequential context update required
-        await this.contextManager.addAssistantMessage(assistantContent, lastMessage.toolCalls)
-
-        // Execute tool calls via ToolManager
-        for (const toolCall of lastMessage.toolCalls) {
-          try {
-            const toolName = toolCall.function.name
-            const toolArgs = JSON.parse(toolCall.function.arguments)
-
-            // Emit tool call event
-            this.sessionEventBus.emit('llmservice:toolCall', {
-              args: toolArgs,
-              callId: toolCall.id,
-              toolName,
-            })
-
-            // Execute tool via ToolManager (handles approval, routing, etc.)
-            // eslint-disable-next-line no-await-in-loop -- Sequential tool execution required
-            const result = await this.toolManager.executeTool(toolName, toolArgs)
-
-            // Emit tool result event (success)
-            this.sessionEventBus.emit('llmservice:toolResult', {
-              callId: toolCall.id,
-              result,
-              success: true,
-              toolName,
-            })
-
-            // Add tool result to context
-            // eslint-disable-next-line no-await-in-loop -- Sequential context update required
-            await this.contextManager.addToolResult(toolCall.id, toolName, result, {success: true})
-          } catch (error) {
-            // Add error result to context
-            const errorMessage = error instanceof Error ? error.message : String(error)
-
-            // Emit tool result event (error)
-            this.sessionEventBus.emit('llmservice:toolResult', {
-              callId: toolCall.id,
-              error: errorMessage,
-              success: false,
-              toolName: toolCall.function.name,
-            })
-
-            // eslint-disable-next-line no-await-in-loop -- Sequential context update required
-            await this.contextManager.addToolResult(
-              toolCall.id,
-              toolCall.function.name,
-              `Error: ${errorMessage}`,
-              {success: false},
-            )
-          }
+        if (result !== null) {
+          return result
         }
 
         iterationCount++
       } catch (error) {
-        // Emit error event
-        const errorMessage = error instanceof Error ? error.message : String(error)
-        this.sessionEventBus.emit('llmservice:error', {
-          error: errorMessage,
-        })
-
-        // Re-throw LLM errors as-is
-        if (
-          error instanceof LlmResponseParsingError ||
-          error instanceof LlmGenerationError ||
-          error instanceof LlmMaxIterationsError
-        ) {
-          throw error
-        }
-
-        // Wrap other errors
-        if (error && typeof error === 'object' && 'message' in error) {
-          throw new LlmGenerationError((error as Error).message, 'gemini', this.config.model)
-        }
-
-        throw new LlmGenerationError(String(error), 'gemini', this.config.model)
+        this.handleLLMError(error)
       }
     }
 
@@ -373,6 +243,126 @@ export class GeminiLLMService implements ILLMService {
   }
 
   /**
+   * Call LLM and parse the response.
+   *
+   * @param genConfig - Generation configuration
+   * @param formattedMessages - Formatted messages to send
+   * @returns Last message from parsed response
+   */
+  private async callLLMAndParseResponse(genConfig: GenerateContentConfig, formattedMessages: Content[]): Promise<InternalMessage> {
+    // Call Gemini API directly via client
+    const response = await this.client.models.generateContent({
+      config: genConfig,
+      contents: formattedMessages,
+      model: this.config.model,
+    })
+
+    // Parse response to internal format
+    const messages = this.formatter.parseResponse(response)
+    if (messages.length === 0) {
+      throw new LlmResponseParsingError('No messages returned from formatter', 'gemini', this.config.model)
+    }
+
+    const lastMessage = messages.at(-1)
+    if (!lastMessage) {
+      throw new LlmResponseParsingError('Failed to get last message from response', 'gemini', this.config.model)
+    }
+
+    return lastMessage
+  }
+
+  /**
+   * Execute a single iteration of the agentic loop.
+   *
+   * @param iterationCount - Current iteration number
+   * @param tools - Available tools for this iteration
+   * @param executionContext - Optional execution context
+   * @returns Final response string if complete, null if more iterations needed
+   */
+  private async executeAgenticIteration(
+    iterationCount: number,
+    tools: GeminiToolDefinition[],
+    executionContext: ExecutionContext | undefined,
+  ): Promise<null | string> {
+    // Build system prompt using SystemPromptManager (before compression for correct token accounting)
+    const systemPrompt = await this.systemPromptManager.build({
+      conversationMetadata: executionContext?.conversationMetadata,
+      isJsonInputMode: executionContext?.isJsonInputMode,
+    })
+
+    // Get formatted messages from context with compression (passing system prompt for token accounting)
+    const {formattedMessages, tokensUsed} = await this.contextManager.getFormattedMessagesWithCompression(systemPrompt)
+
+    // Log token usage for monitoring compression behavior
+    console.log(`[GeminiLLMService] [Iter ${iterationCount + 1}/${this.config.maxIterations}] Sending to LLM: ${tokensUsed} tokens (max: ${this.config.maxInputTokens})`)
+
+    // Build generation config with system prompt
+    const genConfig = this.buildGenerationConfig(tools, systemPrompt)
+
+    // Emit thinking event
+    this.sessionEventBus.emit('llmservice:thinking')
+
+    // Call LLM and parse response
+    const lastMessage = await this.callLLMAndParseResponse(genConfig, formattedMessages)
+
+    // Check if there are tool calls
+    if (!lastMessage.toolCalls || lastMessage.toolCalls.length === 0) {
+      return this.handleFinalResponse(lastMessage)
+    }
+
+    // Has tool calls - handle them
+    await this.handleToolCalls(lastMessage)
+
+    return null
+  }
+
+  /**
+   * Execute a single tool call.
+   *
+   * @param toolCall - Tool call to execute
+   */
+  private async executeToolCall(toolCall: ToolCall): Promise<void> {
+    try {
+      const toolName = toolCall.function.name
+      const toolArgs = JSON.parse(toolCall.function.arguments)
+
+      // Emit tool call event
+      this.sessionEventBus.emit('llmservice:toolCall', {
+        args: toolArgs,
+        callId: toolCall.id,
+        toolName,
+      })
+
+      // Execute tool via ToolManager (handles approval, routing, etc.)
+      const result = await this.toolManager.executeTool(toolName, toolArgs)
+
+      // Emit tool result event (success)
+      this.sessionEventBus.emit('llmservice:toolResult', {
+        callId: toolCall.id,
+        result,
+        success: true,
+        toolName,
+      })
+
+      // Add tool result to context
+      await this.contextManager.addToolResult(toolCall.id, toolName, result, {success: true})
+    } catch (error) {
+      // Add error result to context
+      const errorMessage = error instanceof Error ? error.message : String(error)
+
+      // Emit tool result event (error)
+      this.sessionEventBus.emit('llmservice:toolResult', {
+        callId: toolCall.id,
+        error: errorMessage,
+        success: false,
+        toolName: toolCall.function.name,
+      })
+
+      await this.contextManager.addToolResult(toolCall.id, toolCall.function.name, `Error: ${errorMessage}`, {success: false})
+    }
+  }
+
+  /**
    * Extract text content from an internal message.
    *
    * @param message - Internal message
@@ -391,5 +381,77 @@ export class GeminiLLMService implements ILLMService {
     }
 
     return ''
+  }
+
+  /**
+   * Handle final response when there are no tool calls.
+   *
+   * @param lastMessage - Last message from LLM
+   * @returns Final response content
+   */
+  private async handleFinalResponse(lastMessage: InternalMessage): Promise<string> {
+    const content = this.extractTextContent(lastMessage)
+
+    // Emit response event
+    this.sessionEventBus.emit('llmservice:response', {
+      content,
+      model: this.config.model,
+      provider: 'gemini',
+    })
+
+    // Add assistant message to context
+    await this.contextManager.addAssistantMessage(content)
+
+    return content
+  }
+
+  /**
+   * Handle LLM errors and re-throw or wrap appropriately.
+   *
+   * @param error - Error to handle
+   */
+  private handleLLMError(error: unknown): never {
+    // Emit error event
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    this.sessionEventBus.emit('llmservice:error', {
+      error: errorMessage,
+    })
+
+    // Re-throw LLM errors as-is
+    if (
+      error instanceof LlmResponseParsingError ||
+      error instanceof LlmGenerationError ||
+      error instanceof LlmMaxIterationsError
+    ) {
+      throw error
+    }
+
+    // Wrap other errors
+    if (error && typeof error === 'object' && 'message' in error) {
+      throw new LlmGenerationError((error as Error).message, 'gemini', this.config.model)
+    }
+
+    throw new LlmGenerationError(String(error), 'gemini', this.config.model)
+  }
+
+  /**
+   * Handle tool calls from LLM response.
+   *
+   * @param lastMessage - Last message containing tool calls
+   */
+  private async handleToolCalls(lastMessage: InternalMessage): Promise<void> {
+    if (!lastMessage.toolCalls || lastMessage.toolCalls.length === 0) {
+      return
+    }
+
+    // Has tool calls - add assistant message with tool calls
+    const assistantContent = this.extractTextContent(lastMessage)
+    await this.contextManager.addAssistantMessage(assistantContent, lastMessage.toolCalls)
+
+    // Execute tool calls via ToolManager
+    for (const toolCall of lastMessage.toolCalls) {
+      // eslint-disable-next-line no-await-in-loop -- Sequential tool execution required
+      await this.executeToolCall(toolCall)
+    }
   }
 }

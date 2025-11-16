@@ -1,6 +1,7 @@
 import type {ContextManager, FileData, ImageData} from '../../../infra/cipher/llm/context/context-manager.js'
 import type {LLMServiceConfig} from '../../../infra/cipher/llm/internal-llm-service.js'
 import type {ToolSet} from '../../domain/cipher/tools/types.js'
+import type {ExecutionContext} from './i-cipher-agent.js'
 
 /**
  * LLM Service interface.
@@ -26,11 +27,12 @@ export interface ILLMService {
    * @param options.imageData - Optional image data
    * @param options.fileData - Optional file data
    * @param options.stream - Whether to stream the response (optional)
+   * @param options.executionContext - Optional execution context (for JSON input mode, etc.)
    * @returns Final assistant response
    */
   completeTask(
     textInput: string,
-    options?: {fileData?: FileData; imageData?: ImageData; signal?: AbortSignal; stream?: boolean},
+    options?: {executionContext?: ExecutionContext; fileData?: FileData; imageData?: ImageData; signal?: AbortSignal; stream?: boolean},
   ): Promise<string>
 
   /**

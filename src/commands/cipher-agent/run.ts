@@ -5,7 +5,9 @@ import type {IProjectConfigStore} from '../../core/interfaces/i-project-config-s
 import {getCurrentConfig} from '../../config/environment.js'
 import { PROJECT } from '../../constants.js'
 import {CipherAgent} from '../../infra/cipher/cipher-agent.js'
+import {ExitCode, exitWithCode} from '../../infra/cipher/exit-codes.js'
 import {displayInfo, startInteractiveLoop} from '../../infra/cipher/interactive-loop.js'
+import {parseCursorConversation} from '../../infra/cipher/json-parser.js'
 import {WorkspaceNotInitializedError} from '../../infra/cipher/validation/workspace-validator.js'
 import {ProjectConfigStore} from '../../infra/config/file-config-store.js'
 import {KeychainTokenStore} from '../../infra/storage/keychain-token-store.js'
@@ -40,6 +42,17 @@ export default class CipherAgentRun extends Command {
     '<%= config.bin %> <%= command.id %> -c "What did we discuss?"',
     '<%= config.bin %> <%= command.id %> -r session-1731686400123-a7b3c9 "Continue implementation"',
     '',
+    '# JSON input mode (headless, from Cursor conversation)',
+    '<%= config.bin %> <%= command.id %> -j conversation.json',
+    '<%= config.bin %> <%= command.id %> --input-json /path/to/conversation.json',
+    '',
+    '# JSON input with session continuation',
+    '<%= config.bin %> <%= command.id %> -j conversation.json -c',
+    '<%= config.bin %> <%= command.id %> -j conversation.json -r session-1731686400123-a7b3c9',
+    '',
+    '# JSON input with piped output',
+    '<%= config.bin %> <%= command.id %> -j conversation.json > response.txt',
+    '',
     '# Piped input (automatically uses non-interactive mode)',
     'echo "Analyze the codebase" | <%= config.bin %> <%= command.id %>',
     '',
@@ -56,6 +69,10 @@ export default class CipherAgentRun extends Command {
     continue: Flags.boolean({
       char: 'c',
       description: 'Continue most recent session (requires prompt in headless mode)',
+    }),
+    inputJson: Flags.string({
+      char: 'j',
+      description: 'Path to JSON file with conversation history (Cursor format)',
     }),
     interactive: Flags.boolean({
       allowNo: true,
@@ -103,7 +120,7 @@ export default class CipherAgentRun extends Command {
   protected generateSessionId(): string {
     const timestamp = Date.now()
     const random = Math.random().toString(36).slice(2, 8)
-    return `session-${timestamp}-${random}`
+    return `${timestamp}-${random}`
   }
 
   /**
@@ -145,7 +162,12 @@ export default class CipherAgentRun extends Command {
       const tokenStore = new KeychainTokenStore()
       const token = await tokenStore.load()
       if (!token) {
-        this.error('Authentication required. Please run "brv login" first.')
+        exitWithCode(ExitCode.CONFIG_ERROR, 'Authentication required. Please run "brv login" first.')
+      }
+
+      // Handle JSON input mode
+      if (flags.inputJson) {
+        return this.runWithJsonInput(token, flags)
       }
 
       // Determine interactive mode
@@ -213,8 +235,8 @@ export default class CipherAgentRun extends Command {
         return
       }
 
-      // Generic error handling
-      this.error(`Failed to execute CipherAgent: ${(error as Error).message}`)
+      // Generic error handling with proper exit code
+      exitWithCode(ExitCode.RUNTIME_ERROR, `Failed to execute CipherAgent: ${(error as Error).message}`)
     }
   }
 
@@ -277,19 +299,48 @@ export default class CipherAgentRun extends Command {
   }
 
   /**
+   * Format tool call for concise display in interactive mode
+   *
+   * @param toolName - Name of the tool
+   * @param args - Tool arguments
+   * @returns Formatted string for display
+   */
+  private formatToolForInteractive(toolName: string, args: Record<string, unknown>): string {
+    // Special case for bash_exec - just show the command
+    if (toolName === 'bash_exec' && args.command) {
+      const cmd = String(args.command)
+      // Truncate long commands but keep readable
+      return cmd.length > 100 ? cmd.slice(0, 97) + '...' : cmd
+    }
+
+    // For other tools, use the existing formatter
+    const formatted = formatToolCall(toolName, args)
+
+    // Remove the tool name prefix since we show it separately
+    // formatToolCall returns: "tool_name(arg1: val1, ...)"
+    // We want: "(arg1: val1, ...)" or just the args portion
+    const argsOnly = formatted.replace(new RegExp(`^${toolName}\\s*`), '')
+
+    return argsOnly
+  }
+
+  /**
    * Handle workspace not initialized error with friendly message
    *
    * @param error - WorkspaceNotInitializedError instance
    */
   private handleWorkspaceError(error: WorkspaceNotInitializedError): void {
-    this.log('\n⚠️  ByteRover workspace not found!\n')
-    this.log('It looks like you haven\'t initialized ByteRover in this directory yet.')
-    this.log('To get started, please run:\n')
-    this.log('  $ brv init\n')
-    this.log('This will create the necessary workspace structure in:')
-    this.log(`  ${error.expectedPath}\n`)
-    this.log('After initialization, you can run cipher-agent again.')
-    this.exit(1)
+    const message = [
+      '\n⚠️  ByteRover workspace not found!\n',
+      'It looks like you haven\'t initialized ByteRover in this directory yet.',
+      'To get started, please run:\n',
+      '  $ brv init\n',
+      'This will create the necessary workspace structure in:',
+      `  ${error.expectedPath}\n`,
+      'After initialization, you can run cipher-agent again.',
+    ].join('\n')
+
+    exitWithCode(ExitCode.VALIDATION_ERROR, message)
   }
 
   /**
@@ -307,7 +358,7 @@ export default class CipherAgentRun extends Command {
   ): Promise<string> {
     // Validate flags: -c and -r are mutually exclusive
     if (flags.continue && flags.resume) {
-      this.error('Cannot use both -c/--continue and -r/--resume flags together. Choose one.')
+      exitWithCode(ExitCode.VALIDATION_ERROR, 'Cannot use both -c/--continue and -r/--resume flags together. Choose one.')
     }
 
     if (flags.resume) {
@@ -315,7 +366,10 @@ export default class CipherAgentRun extends Command {
       const sessionExists = await this.validateSessionExists(agent, flags.resume)
 
       if (!sessionExists) {
-        this.error(`Session '${flags.resume}' not found. Use 'brv cipher-agent sessions' to see available sessions.`)
+        exitWithCode(
+          ExitCode.VALIDATION_ERROR,
+          `Session '${flags.resume}' not found. Use 'brv cipher-agent sessions' to see available sessions.`,
+        )
       }
 
       const metadata = await agent.getSessionMetadata(flags.resume)
@@ -328,7 +382,7 @@ export default class CipherAgentRun extends Command {
       const mostRecentSessionId = await this.getMostRecentSessionId(agent)
 
       if (!mostRecentSessionId) {
-        this.error('No previous sessions found. Start a new conversation without -c flag.')
+        exitWithCode(ExitCode.VALIDATION_ERROR, 'No previous sessions found. Start a new conversation without -c flag.')
       }
 
       const metadata = await agent.getSessionMetadata(mostRecentSessionId)
@@ -340,6 +394,108 @@ export default class CipherAgentRun extends Command {
     const newSessionId = this.generateSessionId()
     this.log(`🆕 Starting new session: ${newSessionId}\n`)
     return newSessionId
+  }
+
+  /**
+   * Run with JSON input from a file
+   * Loads conversation history and executes the latest prompt
+   *
+   * @param token - Authentication token
+   * @param token.accessToken - Access token for authentication
+   * @param token.sessionKey - Session key for authentication
+   * @param flags - Command flags
+   * @param flags.apiKey - Gemini API key for direct service (optional)
+   * @param flags.continue - Continue most recent session flag
+   * @param flags.inputJson - Path to JSON file with conversation history
+   * @param flags.maxTokens - Maximum tokens in response
+   * @param flags.model - Model to use
+   * @param flags.resume - Resume specific session by ID
+   * @param flags.temperature - Temperature for randomness
+   * @param flags.workingDirectory - Working directory for file operations
+   */
+  private async runWithJsonInput(
+    token: {accessToken: string; sessionKey: string},
+    flags: {
+      apiKey?: string
+      continue?: boolean
+      inputJson?: string
+      maxTokens?: number
+      model?: string
+      resume?: string
+      temperature?: string
+      workingDirectory?: string
+    },
+  ): Promise<void> {
+    // Validate JSON file path is provided
+    if (!flags.inputJson) {
+      exitWithCode(ExitCode.VALIDATION_ERROR, 'JSON input file path is required')
+    }
+
+    // Parse the Cursor conversation JSON
+    let parsedConversation
+    try {
+      parsedConversation = parseCursorConversation(flags.inputJson)
+    } catch (error) {
+      exitWithCode(ExitCode.VALIDATION_ERROR, `Failed to parse JSON file: ${(error as Error).message}`)
+    }
+
+    const {currentPrompt, history, metadata} = parsedConversation
+
+    // Load ByteRover config
+    const {projectConfigStore} = this.createServices()
+    const brvConfig = await projectConfigStore.read()
+
+    // Create LLM configuration
+    const llmConfig = this.createLLMConfig(token, flags)
+
+    // Create execution context for JSON input mode
+    const executionContext = {
+      conversationMetadata: {
+        conversationId: metadata.conversationId,
+        title: metadata.title,
+      },
+      isJsonInputMode: true,
+    }
+
+    // Create CipherAgent with execution context
+    const agent = new CipherAgent(llmConfig, brvConfig, executionContext)
+
+    try {
+      await agent.start()
+    } catch (error) {
+      if (error instanceof WorkspaceNotInitializedError) {
+        exitWithCode(ExitCode.VALIDATION_ERROR, `Workspace not initialized. Run 'brv init' first.`)
+      }
+
+      exitWithCode(ExitCode.RUNTIME_ERROR, `Failed to start agent: ${(error as Error).message}`)
+    }
+
+    // Resolve session ID based on flags
+    const resolvedSessionId = await this.resolveSessionId(agent, flags)
+
+    // Save conversation history to storage so it's loaded when session initializes
+    if (history.length > 0 && agent.historyStorage) {
+      try {
+        await agent.historyStorage.saveHistory(resolvedSessionId, history)
+      } catch (error) {
+        exitWithCode(ExitCode.RUNTIME_ERROR, `Failed to save conversation history: ${(error as Error).message}`)
+      }
+    }
+
+    // Setup silent event listeners (no output in JSON mode)
+    this.setupSilentEventListeners(agent)
+
+    // Execute the current prompt
+    try {
+      const response = await agent.execute(currentPrompt, resolvedSessionId)
+
+      // Output only the response to stdout (clean, pipeable)
+      process.stdout.write(response)
+
+      // Normal return - oclif handles exit
+    } catch (error) {
+      exitWithCode(ExitCode.RUNTIME_ERROR, `Agent execution failed: ${(error as Error).message}`)
+    }
   }
 
   /**
@@ -418,28 +574,17 @@ export default class CipherAgentRun extends Command {
   }
 
   /**
-   * Format tool call for concise display in interactive mode
+   * Setup silent event listeners for JSON input mode
+   * Suppresses all console output to keep stdout clean
    *
-   * @param toolName - Name of the tool
-   * @param args - Tool arguments
-   * @returns Formatted string for display
+   * @param agent - CipherAgent instance
    */
-  private formatToolForInteractive(toolName: string, args: Record<string, unknown>): string {
-    // Special case for bash_exec - just show the command
-    if (toolName === 'bash_exec' && args.command) {
-      const cmd = String(args.command)
-      // Truncate long commands but keep readable
-      return cmd.length > 100 ? cmd.slice(0, 97) + '...' : cmd
+  private setupSilentEventListeners(agent: import('../../infra/cipher/cipher-agent.js').CipherAgent): void {
+    if (!agent.agentEventBus) {
+      throw new Error('Agent event bus not initialized')
     }
 
-    // For other tools, use the existing formatter
-    const formatted = formatToolCall(toolName, args)
-
-    // Remove the tool name prefix since we show it separately
-    // formatToolCall returns: "tool_name(arg1: val1, ...)"
-    // We want: "(arg1: val1, ...)" or just the args portion
-    const argsOnly = formatted.replace(new RegExp(`^${toolName}\\s*`), '')
-
-    return argsOnly
+    // No event listeners - completely silent
+    // All output goes only to stderr if needed for debugging
   }
 }

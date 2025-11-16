@@ -7,6 +7,7 @@ import type {ISystemPromptContributor} from '../../../core/interfaces/cipher/i-s
 import type {MemoryManager} from '../memory/memory-manager.js'
 
 import {DateTimeContributor} from './contributors/date-time-contributor.js'
+import {ExecutionModeContributor} from './contributors/execution-mode-contributor.js'
 import {MemoryContributor} from './contributors/memory-contributor.js'
 import {StaticContributor} from './contributors/static-contributor.js'
 
@@ -73,6 +74,10 @@ export class SystemPromptManager {
         return new DateTimeContributor(config.id, config.priority)
       }
 
+      case 'executionMode': {
+        return new ExecutionModeContributor(config.id, config.priority)
+      }
+
       case 'memory': {
         if (!this.memoryManager) {
           throw new Error(
@@ -90,6 +95,10 @@ export class SystemPromptManager {
 
       case 'static': {
         return new StaticContributor(config.id, config.priority, config.content)
+      }
+
+      default: {
+        throw new Error(`Unknown contributor type: ${(config as ContributorConfig).type}`)
       }
     }
   }

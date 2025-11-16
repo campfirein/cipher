@@ -1,7 +1,7 @@
 import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
 import type {CipherAgentServices} from '../../core/interfaces/cipher/cipher-services.js'
 import type {IChatSession} from '../../core/interfaces/cipher/i-chat-session.js'
-import type {AgentState, ICipherAgent} from '../../core/interfaces/cipher/i-cipher-agent.js'
+import type {AgentState, ExecutionContext, ICipherAgent} from '../../core/interfaces/cipher/i-cipher-agent.js'
 import type {IHistoryStorage} from '../../core/interfaces/cipher/i-history-storage.js'
 import type {ByteRoverGrpcConfig, CipherLLMConfig} from './agent-service-factory.js'
 import type {AgentEventBus} from './events/event-emitter.js'
@@ -15,7 +15,6 @@ import type {ToolProvider} from './tools/tool-provider.js'
 import {createCipherAgentServices} from './agent-service-factory.js'
 import {CipherAgentStateManager} from './cipher-agent-state-manager.js'
 import {SessionManager} from './session/session-manager.js'
-import {validateWorkspaceInitialized} from './validation/workspace-validator.js'
 
 /**
  * CipherAgent - Main agent implementation
@@ -49,6 +48,7 @@ export class CipherAgent implements ICipherAgent {
   public readonly toolManager?: ToolManager
   public readonly toolProvider?: ToolProvider
   private readonly _brvConfig?: BrvConfig
+  private readonly _executionContext?: ExecutionContext
   private _isStarted: boolean = false
   private readonly currentDefaultSessionId: string = 'default'
   private defaultSession: IChatSession | null = null
@@ -62,10 +62,12 @@ export class CipherAgent implements ICipherAgent {
    *
    * @param llmConfig - LLM configuration (API key, model settings)
    * @param brvConfig - Optional ByteRover config (for custom system prompt)
+   * @param executionContext - Optional execution context (e.g., for JSON input mode)
    */
-  public constructor(llmConfig: CipherLLMConfig, brvConfig?: BrvConfig) {
+  public constructor(llmConfig: CipherLLMConfig, brvConfig?: BrvConfig, executionContext?: ExecutionContext) {
     this.llmConfig = llmConfig
     this._brvConfig = brvConfig
+    this._executionContext = executionContext
     this.stateManager = new CipherAgentStateManager()
   }
 
@@ -224,15 +226,14 @@ export class CipherAgent implements ICipherAgent {
    * Must be called before execute()
    *
    * @throws Error if agent is already started
-   * @throws WorkspaceNotInitializedError if .brv directory doesn't exist
    */
   public async start(): Promise<void> {
     if (this._isStarted) {
       throw new Error('CipherAgent is already started')
     }
 
-    // Validate workspace is initialized (throws if .brv doesn't exist)
-    validateWorkspaceInitialized()
+    // Services will create necessary directories during their initialization
+    // No need for upfront validation - let services handle their own setup
 
     // Create SHARED services only (following Dexto's pattern)
     const sharedServices: CipherAgentServices = await createCipherAgentServices(this.llmConfig, this._brvConfig)
@@ -255,10 +256,13 @@ export class CipherAgent implements ICipherAgent {
       temperature: this.llmConfig.temperature,
     }
 
-    // Create SessionManager with shared services
+    // Create SessionManager with shared services and execution context
     const sessionManager = new SessionManager(sharedServices, grpcConfig, sessionLLMConfig, {
-      maxSessions: 100,
-      sessionTTL: 3_600_000, // 1 hour
+      config: {
+        maxSessions: 100,
+        sessionTTL: 3_600_000, // 1 hour
+      },
+      executionContext: this._executionContext,
     })
 
     // Assign services using Object.assign for readonly properties
