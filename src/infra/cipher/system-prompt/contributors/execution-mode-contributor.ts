@@ -29,11 +29,17 @@ export class ExecutionModeContributor implements ISystemPromptContributor {
    * @returns Execution mode-specific instructions or empty string
    */
   public async getContent(context: SystemPromptContext): Promise<string> {
+    let instructions = ''
+
     if (context.isJsonInputMode === true) {
-      return this.getJsonInputModeInstructions(context)
+      instructions += this.getJsonInputModeInstructions(context)
     }
 
-    return '' // No additional instructions in normal mode
+    if (context.enableSegmentation === true) {
+      instructions += this.getSegmentationInstructions()
+    }
+
+    return instructions
   }
 
   /**
@@ -175,6 +181,278 @@ You have access to:
 - All other file system tools if needed
 
 Now proceed with creating the documentation file before answering the user's prompt.
+`
+  }
+
+  /**
+   * Generate instructions for conversation segmentation
+   *
+   * @returns Instructions for using the segment_conversation tool
+   */
+  private getSegmentationInstructions(): string {
+    return `
+
+## Conversation Segmentation
+
+You have access to the \`segment_conversation\` tool for documenting conversation episodes. **IMPORTANT:** This tool does NOT automatically analyze conversations - YOU must do all the analysis yourself.
+
+### When to Use Segmentation
+
+Use conversation segmentation when:
+- User explicitly requests conversation analysis or segmentation
+- At the end of a session to document conversation structure
+- When creating summaries or documentation of the conversation flow
+
+### YOUR RESPONSIBILITY: Analyze and Create Episodes
+
+**Before calling the tool, YOU MUST:**
+
+1. **Analyze the conversation history yourself:**
+   - Review ALL messages in the conversation chronologically
+   - Identify natural task boundaries based on:
+     - **Time gaps**: Significant pauses between messages (typically >30 minutes)
+     - **Explicit topic switches**: User says "let's work on X", "moving to Y", "new task", "switch to..."
+     - **Context changes**: New files being edited, different commands, branch switches, different features
+   - Group related messages into coherent task episodes
+
+2. **For each episode you identify, track:**
+   - Start and end message indices (0-based)
+   - Start and end timestamps (if available)
+   - What triggered the boundary (time_gap, explicit_reset, context_switch, session_start)
+   - Key context switches (file changes, branch changes, command changes)
+   - Appropriate tags for categorization
+   - Message count
+
+3. **Create episode objects with the required fields:**
+   - \`id\`: Unique identifier (e.g., "episode-1", "episode-2", "ep-setup", etc.)
+   - \`title\`: Clear, concise title summarizing the episode (e.g., "Implement OAuth Flow")
+   - \`summary\`: Brief 1-2 sentence description of what was accomplished
+
+### How to Use the Tool
+
+**The tool accepts an array of episodes you've created:**
+
+\`\`\`javascript
+segment_conversation({
+  episodes: [
+    {
+      id: "episode-1",
+      title: "Project Setup and Configuration",
+      summary: "Initialized TypeScript project with oclif framework and configured linting"
+    },
+    {
+      id: "episode-2",
+      title: "Implement Authentication Flow",
+      summary: "Added OAuth 2.0 authentication with PKCE flow and token management"
+    },
+    {
+      id: "episode-3",
+      title: "Create API Client Service",
+      summary: "Built REST API client with retry logic and error handling"
+    }
+  ]
+})
+\`\`\`
+
+**The tool will return:**
+\`\`\`javascript
+{
+  episodes: [/* your episodes array */],
+  totalEpisodes: 3
+}
+\`\`\`
+
+The tool simply validates your episodes and returns them with the total count. It does NOT add any additional metadata.
+
+### Creating the Episodes Markdown File
+
+After analyzing the conversation and calling the tool, you must:
+
+1. **Get current timestamp for filename:**
+   \`\`\`javascript
+   bash_exec({
+     command: "date +%Y%m%d-%H%M%S"
+   })
+   \`\`\`
+
+2. **Build markdown content** using the metadata YOU collected during analysis:
+
+\`\`\`markdown
+# Conversation Episodes
+
+**Generated:** YYYY-MM-DD HH:MM:SS
+**Total Episodes:** [N]
+**Session Duration:** [calculated from first to last message]
+
+---
+
+## Episode 1: [Title from your episode object]
+
+**Duration:** [start time] - [end time] ([X] minutes)  ← YOU calculate this from message timestamps
+**Messages:** [N] messages (indices [start]-[end])  ← YOU tracked these indices during analysis
+**Boundary Trigger:** [time_gap | explicit_reset | context_switch | session_start]  ← YOU determined this
+**Tags:** [tag1], [tag2]  ← YOU assigned these based on content
+
+### Summary
+[Summary from your episode object]
+
+### Context Switches (if any)
+- **File Change**: Switched from config/ to src/auth/
+- **Branch Change**: From main to feature/oauth-implementation
+- **Command Change**: From npm commands to git operations
+
+### Key Actions
+[List major actions/changes in this episode based on your analysis]
+
+---
+
+## Episode 2: [Next episode title]
+
+[Continue for all episodes...]
+
+---
+
+*Auto-generated by ByteRover CipherAgent*
+*Analysis performed by LLM, validated by segment_conversation tool*
+\`\`\`
+
+3. **Write the file:**
+   \`\`\`javascript
+   write_file({
+     filePath: ".brv/episodes/session-[timestamp]-episodes.md",
+     content: [your formatted markdown]
+   })
+   \`\`\`
+
+### Complete Example Workflow
+
+\`\`\`javascript
+// STEP 1: Analyze conversation yourself
+// - You review messages 0-45 in the conversation
+// - You identify 3 distinct episodes based on topic changes and time gaps
+// - You note message indices, timestamps, triggers, context switches
+
+// STEP 2: Create episode objects with YOUR analysis
+const myEpisodes = [
+  {
+    id: "episode-1",
+    title: "Initial Project Setup",
+    summary: "Created project structure, initialized git, configured TypeScript and linting"
+  },
+  {
+    id: "episode-2",
+    title: "Implement Core Authentication",
+    summary: "Built OAuth flow with PKCE, token refresh logic, and session management"
+  },
+  {
+    id: "episode-3",
+    title: "Add API Integration Layer",
+    summary: "Created REST client with interceptors, retry logic, and error handling"
+  }
+]
+
+// STEP 3: Call tool to validate and register episodes
+const result = await segment_conversation({
+  episodes: myEpisodes
+})
+// Returns: { episodes: [...], totalEpisodes: 3 }
+
+// STEP 4: Get timestamp for filename
+const timestamp = await bash_exec({
+  command: "date +%Y%m%d-%H%M%S"
+})
+
+// STEP 5: Build markdown with ALL metadata from YOUR analysis
+const markdown = \`# Conversation Episodes
+
+**Generated:** 2024-01-15 14:30:00
+**Total Episodes:** \${result.totalEpisodes}
+**Session Duration:** 2 hours 15 minutes
+
+---
+
+## Episode 1: \${myEpisodes[0].title}
+
+**Duration:** 10:00 - 10:45 (45 minutes)
+**Messages:** 15 messages (indices 0-14)
+**Boundary Trigger:** session_start
+**Tags:** setup, configuration, typescript
+
+### Summary
+\${myEpisodes[0].summary}
+
+### Key Actions
+- Initialized npm project
+- Configured TypeScript compiler
+- Set up ESLint and Prettier
+- Created initial directory structure
+
+---
+
+## Episode 2: \${myEpisodes[1].title}
+
+**Duration:** 10:50 - 11:40 (50 minutes)
+**Messages:** 22 messages (indices 15-36)
+**Boundary Trigger:** explicit_reset
+**Tags:** authentication, oauth, security
+
+### Summary
+\${myEpisodes[1].summary}
+
+### Context Switches
+- **File Change**: Switched from config files to src/auth/ module
+- **Topic Change**: User said "let's work on authentication now"
+
+### Key Actions
+- Implemented OAuth 2.0 PKCE flow
+- Created token storage system
+- Added refresh token logic
+- Built session management
+
+---
+
+## Episode 3: \${myEpisodes[2].title}
+
+**Duration:** 12:00 - 12:30 (30 minutes)
+**Messages:** 9 messages (indices 37-45)
+**Boundary Trigger:** time_gap
+**Tags:** api, networking, error-handling
+
+### Summary
+\${myEpisodes[2].summary}
+
+### Context Switches
+- **Time Gap**: 20 minute pause before resuming
+- **File Change**: New directory src/api/ created
+
+### Key Actions
+- Created REST client base class
+- Implemented request/response interceptors
+- Added exponential backoff retry logic
+- Built comprehensive error handling
+
+---
+
+*Auto-generated by ByteRover CipherAgent*
+*Analysis performed by LLM on 2024-01-15*
+\`
+
+// STEP 6: Write markdown file
+await write_file({
+  filePath: \`.brv/episodes/session-\${timestamp.trim()}-episodes.md\`,
+  content: markdown
+})
+\`\`\`
+
+### Critical Reminders
+
+- ⚠️ **YOU must analyze the conversation** - the tool does NOT do automatic analysis
+- ⚠️ **YOU must track all metadata** - message indices, timestamps, triggers, context switches
+- ⚠️ **The tool only validates** - it returns what you give it plus a count
+- ⚠️ **YOU must build the markdown** - include all the rich metadata from YOUR analysis
+- ✅ Use the tool to formalize and validate your episode structure
+- ✅ Episodes help document task boundaries and workflow patterns
+- ✅ Be thorough in your analysis to create meaningful episode groupings
 `
   }
 }

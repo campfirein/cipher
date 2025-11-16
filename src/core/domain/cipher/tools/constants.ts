@@ -11,6 +11,7 @@ export const ToolName: {
   readonly KILL_PROCESS: 'kill_process'
   readonly READ_FILE: 'read_file'
   readonly SEARCH_HISTORY: 'search_history'
+  readonly SEGMENT_CONVERSATION: 'segment_conversation'
   readonly WRITE_FILE: 'write_file'
 } = {
   BASH_EXEC: 'bash_exec',
@@ -21,6 +22,7 @@ export const ToolName: {
   KILL_PROCESS: 'kill_process',
   READ_FILE: 'read_file',
   SEARCH_HISTORY: 'search_history',
+  SEGMENT_CONVERSATION: 'segment_conversation',
   WRITE_FILE: 'write_file',
 }
 
