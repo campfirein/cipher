@@ -137,7 +137,11 @@ export async function createCipherAgentServices(
   // 5. Memory system (depends on BlobStorage)
   const memoryManager = new MemoryManager(blobStorage)
 
-  // 6. Tool system (depends on FileSystemService, ProcessService)
+  // 6. Create a stub ContextManager for ContextTreeService initialization
+  // Note: This is a placeholder. The actual ContextManager is session-specific
+  // and is accessed via LLM service's getContextManager() at runtime
+
+  // 7. Tool system (depends on FileSystemService, ProcessService, ContextTreeService)
   const toolProvider = new ToolProvider({
     fileSystemService,
     processService,
@@ -146,7 +150,7 @@ export async function createCipherAgentServices(
   const toolManager = new ToolManager(toolProvider)
   await toolManager.initialize()
 
-  // 7. System prompt manager (with memory integration) - SHARED across sessions
+  // 8. System prompt manager (with memory integration) - SHARED across sessions
   const customPrompt = brvConfig?.cipherAgentSystemPrompt
   const systemPromptManager = new SystemPromptManager(
     {
@@ -186,7 +190,7 @@ export async function createCipherAgentServices(
     memoryManager,
   )
 
-  // 8. History storage (depends on BlobStorage) - SHARED across sessions
+  // 9. History storage (depends on BlobStorage) - SHARED across sessions
   const historyStorage = new BlobHistoryStorage(blobStorage)
 
   return {
@@ -276,7 +280,7 @@ export function createSessionServices(
       {
         maxIterations: llmConfig.maxIterations ?? 50,
         maxTokens: llmConfig.maxTokens ?? 8192,
-        model: llmConfig.model ?? 'gemini-2.5-flash',
+        model: llmConfig.model ?? 'gemini-2.5-pro',
         temperature: llmConfig.temperature ?? 0.7,
       },
       {

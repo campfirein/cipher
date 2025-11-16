@@ -482,8 +482,8 @@ export default class CipherAgentRun extends Command {
       }
     }
 
-    // Setup silent event listeners (no output in JSON mode)
-    this.setupSilentEventListeners(agent)
+    // Setup event listeners for JSON input mode (logs to stderr)
+    this.setupJsonInputEventListeners(agent)
 
     // Execute the current prompt
     try {
@@ -574,17 +574,35 @@ export default class CipherAgentRun extends Command {
   }
 
   /**
-   * Setup silent event listeners for JSON input mode
-   * Suppresses all console output to keep stdout clean
+   * Setup event listeners for JSON input mode
+   * Logs to stderr to avoid polluting JSON output stream on stdout
    *
    * @param agent - CipherAgent instance
    */
-  private setupSilentEventListeners(agent: import('../../infra/cipher/cipher-agent.js').CipherAgent): void {
+  private setupJsonInputEventListeners(agent: import('../../infra/cipher/cipher-agent.js').CipherAgent): void {
     if (!agent.agentEventBus) {
       throw new Error('Agent event bus not initialized')
     }
 
-    // No event listeners - completely silent
-    // All output goes only to stderr if needed for debugging
+    const eventBus = agent.agentEventBus
+
+    // Listen for tool calls and log to stderr
+    eventBus.on('llmservice:toolCall', (payload) => {
+      const argsStr = JSON.stringify(payload.args, null, 2)
+      console.error(`[ByteRoverLLMService] 🔧 Tool called: ${payload.toolName}`)
+      console.error(`[ByteRoverLLMService]    Args: ${argsStr}`)
+    })
+
+    // Listen for tool results and log to stderr
+    eventBus.on('llmservice:toolResult', (payload) => {
+      if (payload.success) {
+        const resultStr = JSON.stringify(payload.result)
+        const resultPreview = resultStr.slice(0, 200)
+        const truncated = resultStr.length > 200 ? '...' : ''
+        console.error(`[ByteRoverLLMService] ✓ Tool result: ${resultPreview}${truncated}`)
+      } else {
+        console.error(`[ByteRoverLLMService] ✗ Tool error: ${payload.toolName} → ${payload.error}`)
+      }
+    })
   }
 }

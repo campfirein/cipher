@@ -12,6 +12,7 @@ import {createGrepContentTool} from './implementations/grep-content-tool.js'
 import {createKillProcessTool} from './implementations/kill-process-tool.js'
 import {createReadFileTool} from './implementations/read-file-tool.js'
 import {createSearchHistoryTool} from './implementations/search-history-tool.js'
+import {createSegmentConversationTool} from './implementations/segment-conversation-tool.js'
 import {createWriteFileTool} from './implementations/write-file-tool.js'
 
 /**
@@ -19,6 +20,7 @@ import {createWriteFileTool} from './implementations/write-file-tool.js'
  * Tools declare which services they need via requiredServices.
  */
 export interface ToolServices {
+
   /** File system service for file operations */
   fileSystemService?: IFileSystem
 
@@ -108,6 +110,11 @@ export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
 
   [ToolName.SEARCH_HISTORY]: {
     factory: (_services) => createSearchHistoryTool(),
+    requiredServices: [], // No services required yet (stub implementation)
+  },
+
+  [ToolName.SEGMENT_CONVERSATION]: {
+    factory: () => createSegmentConversationTool(),
     requiredServices: [], // No services required yet (stub implementation)
   },
 
