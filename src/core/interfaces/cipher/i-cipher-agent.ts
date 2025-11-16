@@ -1,4 +1,17 @@
 import type {SessionMetadata} from '../../domain/cipher/storage/history-types.js'
+import type {ConversationMetadata} from '../../domain/cipher/system-prompt/types.js'
+
+/**
+ * Execution context for the agent
+ * Contains runtime information about how the agent is being executed
+ */
+export interface ExecutionContext {
+  /** Metadata about the conversation (for JSON input mode) */
+  conversationMetadata?: ConversationMetadata
+
+  /** Whether running in JSON input mode (headless with conversation history) */
+  isJsonInputMode?: boolean
+}
 
 /**
  * Agent state information
