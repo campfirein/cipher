@@ -334,6 +334,40 @@ export class FileBlobStorage implements IBlobStorage {
   }
 
   /**
+   * Clean up temporary files
+   */
+  private async cleanup(...paths: string[]): Promise<void> {
+    await Promise.all(
+      paths.map((path) =>
+        existsSync(path) ? fs.unlink(path).catch(() => {}) : Promise.resolve(),
+      ),
+    );
+  }
+
+  /**
+   * Ensure storage has been initialized
+   */
+  private ensureInitialized(): void {
+    if (!this.initialized) {
+      throw BlobError.notInitialized();
+    }
+  }
+
+  /**
+   * Get the file path for blob content
+   */
+  private getBlobPath(key: string): string {
+    return join(this.storageDir, `${key}.blob`);
+  }
+
+  /**
+   * Get the file path for blob metadata
+   */
+  private getMetadataPath(key: string): string {
+    return join(this.storageDir, `${key}.meta.json`);
+  }
+
+  /**
    * Internal method to perform the actual store operation
    */
   private async performStore(
@@ -409,40 +443,6 @@ export class FileBlobStorage implements IBlobStorage {
         error instanceof Error ? error : undefined,
       );
     }
-  }
-
-  /**
-   * Clean up temporary files
-   */
-  private async cleanup(...paths: string[]): Promise<void> {
-    await Promise.all(
-      paths.map((path) =>
-        existsSync(path) ? fs.unlink(path).catch(() => {}) : Promise.resolve(),
-      ),
-    );
-  }
-
-  /**
-   * Ensure storage has been initialized
-   */
-  private ensureInitialized(): void {
-    if (!this.initialized) {
-      throw BlobError.notInitialized();
-    }
-  }
-
-  /**
-   * Get the file path for blob content
-   */
-  private getBlobPath(key: string): string {
-    return join(this.storageDir, `${key}.blob`);
-  }
-
-  /**
-   * Get the file path for blob metadata
-   */
-  private getMetadataPath(key: string): string {
-    return join(this.storageDir, `${key}.meta.json`);
   }
 
   /**
