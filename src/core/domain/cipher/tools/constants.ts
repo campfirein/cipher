@@ -5,6 +5,7 @@
 export const ToolName: {
   readonly BASH_EXEC: 'bash_exec'
   readonly BASH_OUTPUT: 'bash_output'
+  readonly CREATE_KNOWLEDGE_TOPIC: 'create_knowledge_topic'
   readonly DETECT_DOMAINS: 'detect_domains'
   readonly EDIT_FILE: 'edit_file'
   readonly GLOB_FILES: 'glob_files'
@@ -17,6 +18,7 @@ export const ToolName: {
 } = {
   BASH_EXEC: 'bash_exec',
   BASH_OUTPUT: 'bash_output',
+  CREATE_KNOWLEDGE_TOPIC: 'create_knowledge_topic',
   DETECT_DOMAINS: 'detect_domains',
   EDIT_FILE: 'edit_file',
   GLOB_FILES: 'glob_files',
