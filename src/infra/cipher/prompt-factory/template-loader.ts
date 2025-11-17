@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 
-import {JinjaTemplate} from './jinja-template.js'
+import {PromptRenderer} from '../resources/prompt-renderer.js'
 
 /**
  * Template loader that searches multiple directories for template files.
@@ -13,7 +13,7 @@ import {JinjaTemplate} from './jinja-template.js'
  */
 export class TemplateLoader {
   private cache = new Map<string, string>()
-  private jinjaEngine: JinjaTemplate
+  private renderer: PromptRenderer
 
   /**
    * Creates a new template loader.
@@ -21,7 +21,7 @@ export class TemplateLoader {
    * @param searchPaths - Directories to search for templates (order matters: first found wins)
    */
   public constructor(private searchPaths: string[]) {
-    this.jinjaEngine = new JinjaTemplate()
+    this.renderer = new PromptRenderer()
   }
 
   /**
@@ -96,6 +96,16 @@ export class TemplateLoader {
       template = this.load(templateName)
     }
 
-    return this.jinjaEngine.render(template, context)
+    // Convert context to boolean/number/string values for PromptRenderer
+    const variables: Record<string, boolean | number | string> = {}
+    for (const [key, value] of Object.entries(context)) {
+      if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+        variables[key] = value
+      } else if (value !== null && value !== undefined) {
+        variables[key] = String(value)
+      }
+    }
+
+    return this.renderer.render(template, variables)
   }
 }

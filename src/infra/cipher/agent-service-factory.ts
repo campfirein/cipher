@@ -160,7 +160,7 @@ export async function createCipherAgentServices(
         {
           enabled: true,
           id: 'executionMode',
-          priority: 5,
+          priority: 1,
           type: 'executionMode',
         },
         {
