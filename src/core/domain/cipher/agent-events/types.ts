@@ -4,13 +4,10 @@
  */
 export const AGENT_EVENT_NAMES: readonly [
   'cipher:conversationReset',
+  'cipher:externalInteraction',
   'cipher:stateChanged',
   'cipher:stateReset',
-] = [
-  'cipher:conversationReset',
-  'cipher:stateChanged',
-  'cipher:stateReset',
-]
+] = ['cipher:conversationReset', 'cipher:externalInteraction', 'cipher:stateChanged', 'cipher:stateReset']
 
 /**
  * Session-level event names for LLM service operations.
@@ -39,6 +36,7 @@ export const SESSION_EVENT_NAMES: readonly [
  */
 export const EVENT_NAMES: readonly [
   'cipher:conversationReset',
+  'cipher:externalInteraction',
   'cipher:stateChanged',
   'cipher:stateReset',
   'llmservice:thinking',
@@ -302,9 +300,7 @@ const _checkAgentEventNames: _AgentEventNamesInMap = true
 /**
  * Compile-time validation: Ensure all SESSION_EVENT_NAMES are in SessionEventMap.
  */
-type _SessionEventNamesInMap = (typeof SESSION_EVENT_NAMES)[number] extends keyof SessionEventMap
-  ? true
-  : never
+type _SessionEventNamesInMap = (typeof SESSION_EVENT_NAMES)[number] extends keyof SessionEventMap ? true : never
 const _checkSessionEventNames: _SessionEventNamesInMap = true
 
 /**

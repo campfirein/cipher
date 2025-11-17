@@ -286,6 +286,17 @@ export class CipherAgent implements ICipherAgent {
   }
 
   /**
+   * Stops the agent and clean up resources.
+   */
+  public async stop(): Promise<void> {
+    if (this.codingAgentLogWatcher?.isWatching()) {
+      await this.codingAgentLogWatcher.stop()
+    }
+
+    this._isStarted = false
+  }
+
+  /**
    * Ensure the agent has been started and all services are initialized
    *
    * @throws Error if agent is not started or services are not initialized
@@ -365,5 +376,16 @@ export class CipherAgent implements ICipherAgent {
     }
 
     return this.systemPromptManager
+  }
+
+  /**
+   * Handle interactions captured from external coding agents.
+   * Emits events to the agent event bus for observability.
+   *
+   * @param interaction - The parsed interaction data from a coding agent
+   */
+  private async handleCodingAgentInteraction(interaction: ParsedInteraction): Promise<void> {
+    this.agentEventBus?.emit('cipher:externalInteraction', {interaction})
+    // TODO: Future - process into memory context tree.
   }
 }
