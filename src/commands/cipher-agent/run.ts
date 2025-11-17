@@ -180,33 +180,37 @@ export default class CipherAgentRun extends Command {
       this.log('Starting CipherAgent...')
       await agent.start()
 
-      // Resolve session ID based on flags
-      const resolvedSessionId = await this.resolveSessionId(agent, flags)
+      try {
+        // Resolve session ID based on flags
+        const resolvedSessionId = await this.resolveSessionId(agent, flags)
 
-      // Setup event listeners
-      this.setupEventListeners(agent, isInteractive)
+        // Setup event listeners
+        this.setupEventListeners(agent, isInteractive)
 
-      if (isInteractive) {
-        // Interactive mode: start the loop
-        await startInteractiveLoop(agent, {
-          model: llmConfig.model,
-          sessionId: resolvedSessionId,
-        })
-      } else {
-        // Non-interactive mode: single execution
-        if (!args.prompt) {
-          this.error('Prompt is required in non-interactive mode.')
+        if (isInteractive) {
+          // Interactive mode: start the loop
+          await startInteractiveLoop(agent, {
+            model: llmConfig.model,
+            sessionId: resolvedSessionId,
+          })
+        } else {
+          // Non-interactive mode: single execution
+          if (!args.prompt) {
+            this.error('Prompt is required in non-interactive mode.')
+          }
+
+          this.log('Executing prompt...')
+          const response = await agent.execute(args.prompt, resolvedSessionId)
+
+          this.log('\nCipherAgent Response:')
+          this.log(response)
+
+          // Show agent state
+          const state = agent.getState()
+          this.log(`\n[Agent State: ${state.currentIteration} iterations]`)
         }
-
-        this.log('Executing prompt...')
-        const response = await agent.execute(args.prompt, resolvedSessionId)
-
-        this.log('\nCipherAgent Response:')
-        this.log(response)
-
-        // Show agent state
-        const state = agent.getState()
-        this.log(`\n[Agent State: ${state.currentIteration} iterations]`)
+      } finally {
+        await agent.stop()
       }
     } catch (error) {
       // Handle workspace not initialized error with friendly message

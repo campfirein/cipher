@@ -1,3 +1,5 @@
+/* eslint-disable unicorn/no-process-exit */
+/* eslint-disable n/no-process-exit */
 import chalk from 'chalk'
 import readline from 'node:readline'
 
@@ -93,7 +95,17 @@ export async function startInteractiveLoop(
   })
 
   // Resume stdin
+  // TODO: consider removing this since rl already handles stdin resuming.
   process.stdin.resume()
+
+  const isExitingRef = {value: false}
+  const exitEventHandler = async () => {
+    await cleanup(agent, rl, isExitingRef)
+    process.exit(0)
+  }
+
+  process.on('SIGINT', exitEventHandler)
+  process.on('SIGTERM', exitEventHandler)
 
   try {
     // Main interactive loop
@@ -144,7 +156,24 @@ export async function startInteractiveLoop(
       }
     }
   } finally {
-    // Cleanup: close readline interface
-    rl.close()
+    await cleanup(agent, rl, isExitingRef)
+    process.off('SIGINT', exitEventHandler)
+    process.off('SIGTERM', exitEventHandler)
   }
+}
+
+/**
+ * Cleans up resources when interactive loop is exiting.
+ * @param agent CipherAgent instance to stop
+ * @param rl Readline interface to close
+ * @param isExitingRef Reference object to track if exiting
+ * @param isExitingRef.value Boolean flag indicating if cleanup is in progress
+ */
+const cleanup = async (agent: ICipherAgent, rl: readline.Interface, isExitingRef: {value: boolean}): Promise<void> => {
+  if (isExitingRef.value) return
+  isExitingRef.value = true
+  console.log('\n' + chalk.yellow('👋 Shutting down...'))
+  rl.close()
+  await agent.stop()
+  console.log(chalk.gray('✓ Cleanup complete'))
 }

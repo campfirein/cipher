@@ -285,9 +285,6 @@ export class CipherAgent implements ICipherAgent {
     this._isStarted = true
   }
 
-  /**
-   * Stops the agent and clean up resources.
-   */
   public async stop(): Promise<void> {
     if (this.codingAgentLogWatcher?.isWatching()) {
       await this.codingAgentLogWatcher.stop()
