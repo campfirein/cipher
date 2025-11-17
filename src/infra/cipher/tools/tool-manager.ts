@@ -1,5 +1,6 @@
 import type {ToolSet} from '../../../core/domain/cipher/tools/types.js'
 import type {IToolProvider} from '../../../core/interfaces/cipher/i-tool-provider.js'
+import type {ToolMarker} from './tool-markers.js'
 
 /**
  * Tool Manager for memAgent
@@ -61,6 +62,15 @@ export class ToolManager {
   }
 
   /**
+   * Get all available tool markers from registered tools.
+   *
+   * @returns Set of tool marker strings
+   */
+  public getAvailableMarkers(): Set<string> {
+    return this.toolProvider.getAvailableMarkers()
+  }
+
+  /**
    * Get the count of registered tools.
    *
    * @returns Number of available tools
@@ -76,6 +86,16 @@ export class ToolManager {
    */
   public getToolNames(): string[] {
     return this.toolProvider.getToolNames()
+  }
+
+  /**
+   * Get tool names that have a specific marker.
+   *
+   * @param marker - The tool marker to filter by
+   * @returns Array of tool names with the specified marker
+   */
+  public getToolsByMarker(marker: ToolMarker): string[] {
+    return this.toolProvider.getToolsByMarker(marker)
   }
 
   /**

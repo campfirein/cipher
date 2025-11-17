@@ -5,6 +5,8 @@ import {Space} from './space.js'
  * This config links a project directory to a ByteRover space.
  */
 export class BrvConfig {
+  public readonly cipherAgentContext?: string
+  public readonly cipherAgentModes?: string[]
   public readonly cipherAgentSystemPrompt?: string
   public readonly createdAt: string
   public readonly spaceId: string
@@ -19,7 +21,9 @@ export class BrvConfig {
     spaceName: string,
     teamId: string,
     teamName: string,
-    cipherAgentSystemPrompt?: string
+    cipherAgentSystemPrompt?: string,
+    cipherAgentContext?: string,
+    cipherAgentModes?: string[]
   ) {
     if (createdAt.trim().length === 0) {
       throw new Error('Created at cannot be empty')
@@ -41,6 +45,8 @@ export class BrvConfig {
       throw new Error('Team name cannot be empty')
     }
 
+    this.cipherAgentContext = cipherAgentContext
+    this.cipherAgentModes = cipherAgentModes
     this.cipherAgentSystemPrompt = cipherAgentSystemPrompt
     this.createdAt = createdAt
     this.spaceId = spaceId
@@ -59,7 +65,9 @@ export class BrvConfig {
       json.spaceName as string,
       json.teamId as string,
       json.teamName as string,
-      json.cipherAgentSystemPrompt as string
+      json.cipherAgentSystemPrompt as string | undefined,
+      json.cipherAgentContext as string | undefined,
+      json.cipherAgentModes as string[] | undefined
     )
   }
 
@@ -75,6 +83,8 @@ export class BrvConfig {
    */
   public toJson(): Record<string, unknown> {
     const base = {
+      cipherAgentContext: this.cipherAgentContext,
+      cipherAgentModes: this.cipherAgentModes,
       cipherAgentSystemPrompt: this.cipherAgentSystemPrompt,
       createdAt: this.createdAt,
       spaceId: this.spaceId,

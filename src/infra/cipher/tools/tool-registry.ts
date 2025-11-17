@@ -14,6 +14,7 @@ import {createReadFileTool} from './implementations/read-file-tool.js'
 import {createSearchHistoryTool} from './implementations/search-history-tool.js'
 import {createSegmentConversationTool} from './implementations/segment-conversation-tool.js'
 import {createWriteFileTool} from './implementations/write-file-tool.js'
+import {ToolMarker} from './tool-markers.js'
 
 /**
  * Service dependencies available to tools.
@@ -36,11 +37,14 @@ export type ToolFactory = (services: ToolServices) => Tool
 
 /**
  * Registry entry for a tool.
- * Defines the factory and required services for each tool.
+ * Defines the factory, required services, and semantic markers for each tool.
  */
 export interface ToolRegistryEntry {
   /** Factory function to create the tool */
   factory: ToolFactory
+
+  /** Semantic markers for this tool (enables smart filtering and conditional prompts) */
+  markers: readonly ToolMarker[]
 
   /** Services required by this tool */
   requiredServices: readonly (keyof ToolServices)[]
@@ -75,51 +79,61 @@ function getRequiredService<T>(service: T | undefined, serviceName: string): T {
 export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
   [ToolName.BASH_EXEC]: {
     factory: (services) => createBashExecTool(getRequiredService(services.processService, 'processService')),
+    markers: [ToolMarker.Execution],
     requiredServices: ['processService'],
   },
 
   [ToolName.BASH_OUTPUT]: {
     factory: (services) => createBashOutputTool(getRequiredService(services.processService, 'processService')),
+    markers: [ToolMarker.Execution, ToolMarker.Optional],
     requiredServices: ['processService'],
   },
 
   [ToolName.EDIT_FILE]: {
     factory: (services) => createEditFileTool(getRequiredService(services.fileSystemService, 'fileSystemService')),
+    markers: [ToolMarker.Modification],
     requiredServices: ['fileSystemService'],
   },
 
   [ToolName.GLOB_FILES]: {
     factory: (services) => createGlobFilesTool(getRequiredService(services.fileSystemService, 'fileSystemService')),
+    markers: [ToolMarker.Core, ToolMarker.Discovery],
     requiredServices: ['fileSystemService'],
   },
 
   [ToolName.GREP_CONTENT]: {
     factory: (services) => createGrepContentTool(getRequiredService(services.fileSystemService, 'fileSystemService')),
+    markers: [ToolMarker.Core, ToolMarker.Discovery],
     requiredServices: ['fileSystemService'],
   },
 
   [ToolName.KILL_PROCESS]: {
     factory: (services) => createKillProcessTool(getRequiredService(services.processService, 'processService')),
+    markers: [ToolMarker.Execution, ToolMarker.Optional],
     requiredServices: ['processService'],
   },
 
   [ToolName.READ_FILE]: {
     factory: (services) => createReadFileTool(getRequiredService(services.fileSystemService, 'fileSystemService')),
+    markers: [ToolMarker.Core, ToolMarker.Discovery],
     requiredServices: ['fileSystemService'],
   },
 
   [ToolName.SEARCH_HISTORY]: {
     factory: (_services) => createSearchHistoryTool(),
+    markers: [ToolMarker.ContextBuilding, ToolMarker.Discovery],
     requiredServices: [], // No services required yet (stub implementation)
   },
 
   [ToolName.SEGMENT_CONVERSATION]: {
     factory: () => createSegmentConversationTool(),
-    requiredServices: [], // No services required yet (stub implementation)
+    markers: [ToolMarker.ContextBuilding],
+    requiredServices: [], // No services required (validates user-created episodes)
   },
 
   [ToolName.WRITE_FILE]: {
     factory: (services) => createWriteFileTool(getRequiredService(services.fileSystemService, 'fileSystemService')),
+    markers: [ToolMarker.Modification],
     requiredServices: ['fileSystemService'],
   },
 }

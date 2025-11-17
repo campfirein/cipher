@@ -10,6 +10,7 @@ import {
   ToolProviderNotInitializedError,
   ToolValidationError,
 } from '../../../core/domain/cipher/errors/tool-error.js'
+import {ToolMarker} from './tool-markers.js'
 import {TOOL_REGISTRY} from './tool-registry.js'
 import {convertZodToJsonSchema} from './utils/schema-converter.js'
 
@@ -20,6 +21,7 @@ import {convertZodToJsonSchema} from './utils/schema-converter.js'
 export class ToolProvider implements IToolProvider {
   private initialized: boolean = false
   private readonly services: ToolServices
+  private readonly toolMarkers: Set<string> = new Set()
   private readonly tools: Map<string, Tool> = new Map()
 
   /**
@@ -95,6 +97,14 @@ export class ToolProvider implements IToolProvider {
   }
 
   /**
+   * Get all available tool markers from registered tools.
+   */
+  public getAvailableMarkers(): Set<string> {
+    this.ensureInitialized()
+    return new Set(this.toolMarkers)
+  }
+
+  /**
    * Get the count of registered tools.
    */
   public getToolCount(): number {
@@ -108,6 +118,23 @@ export class ToolProvider implements IToolProvider {
   public getToolNames(): string[] {
     this.ensureInitialized()
     return [...this.tools.keys()]
+  }
+
+  /**
+   * Get tool names that have a specific marker.
+   */
+  public getToolsByMarker(marker: ToolMarker): string[] {
+    this.ensureInitialized()
+
+    const toolNames: string[] = []
+
+    for (const [toolName, entry] of Object.entries(TOOL_REGISTRY)) {
+      if (entry.markers.includes(marker) && this.tools.has(toolName)) {
+        toolNames.push(toolName)
+      }
+    }
+
+    return toolNames
   }
 
   /**
@@ -138,6 +165,11 @@ export class ToolProvider implements IToolProvider {
         try {
           const tool = entry.factory(this.services)
           this.tools.set(toolName, tool)
+
+          // Collect markers from registered tools
+          for (const marker of entry.markers) {
+            this.toolMarkers.add(marker)
+          }
         } catch (error) {
           // Log error but don't fail initialization
           console.error(`Failed to register tool ${toolName}:`, error)

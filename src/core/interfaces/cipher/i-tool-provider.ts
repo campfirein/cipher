@@ -1,3 +1,4 @@
+import type {ToolMarker} from '../../../infra/cipher/tools/tool-markers.js'
 import type {ToolSet} from '../../domain/cipher/tools/types.js'
 
 /**
@@ -27,6 +28,13 @@ export interface IToolProvider {
   getAllTools(): ToolSet
 
   /**
+   * Get all available tool markers from registered tools.
+   *
+   * @returns Set of tool marker strings
+   */
+  getAvailableMarkers(): Set<string>
+
+  /**
    * Get the count of registered tools.
    *
    * @returns Number of registered tools
@@ -39,6 +47,14 @@ export interface IToolProvider {
    * @returns Array of tool names
    */
   getToolNames(): string[]
+
+  /**
+   * Get tool names that have a specific marker.
+   *
+   * @param marker - The tool marker to filter by
+   * @returns Array of tool names with the specified marker
+   */
+  getToolsByMarker(marker: ToolMarker): string[]
 
   /**
    * Check if a tool exists.
