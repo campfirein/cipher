@@ -32,11 +32,11 @@ export interface SystemPromptContext {
 
 /**
  * Configuration for a static contributor.
- * Static contributors return a fixed string content.
+ * Static contributors return the base system prompt from YAML or custom content.
  */
 export interface StaticContributorConfig {
-  /** The fixed content to return */
-  content: string
+  /** Optional custom content to return (overrides YAML) */
+  content?: string
 
   /** Whether this contributor is enabled (default: true) */
   enabled?: boolean

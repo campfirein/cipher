@@ -83,7 +83,7 @@
   },
   "repository": "campfirein/byterover-cli",
   "scripts": {
-    "build": "shx rm -rf dist && shx rm -f tsconfig.tsbuildinfo && tsc && shx cp -r src/templates dist/templates && shx cp src/infra/cipher/grpc/internal-llm-grpc.proto dist/infra/cipher/grpc/",
+    "build": "shx rm -rf dist && shx rm -f tsconfig.tsbuildinfo && tsc && shx cp -r src/templates dist/templates && shx cp -r src/resources dist/resources && shx cp src/infra/cipher/grpc/internal-llm-grpc.proto dist/infra/cipher/grpc/",
     "lint": "eslint",
     "postpack": "shx rm -f oclif.manifest.json",
     "posttest": "npm run lint",

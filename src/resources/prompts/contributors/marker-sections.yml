@@ -1,0 +1,91 @@
+version: "1.0"
+prompt_id: "marker-sections"
+
+# Marker-based prompt sections that dynamically appear based on available tools
+# Each marker corresponds to a ToolMarker enum value
+
+markers:
+  ToolMarkerCore:
+    section_title: "Core Capabilities"
+    header: "You have access to essential file system tools for understanding codebases:"
+    tools:
+      read_file:
+        description: "Read file contents with pagination support (offset/limit)"
+      glob_files:
+        description: "Find files using glob patterns (supports ** for recursive search)"
+      grep_content:
+        description: "Search file contents using regex patterns with context lines"
+
+  ToolMarkerDiscovery:
+    section_title: "Codebase Exploration Strategy"
+    content: |
+      When exploring a new codebase:
+      1. **Discover structure** - Use glob_files to identify file organization patterns
+      2. **Search for patterns** - Use grep_content to find specific code, functions, or imports
+      3. **Read key files** - Use read_file to examine discovered files
+      4. **Build mental model** - Progressively understand the codebase architecture
+
+      Tip: Start with glob patterns like "**/*.ts", "**/*.json", then narrow down based on findings.
+
+  ToolMarkerContextBuilding:
+    section_title: "Context Tree Building"
+    tools:
+      segment_conversation:
+        intro: "You can organize conversations into semantic episodes using **segment_conversation**."
+        workflow:
+          title: "Critical workflow for context tree building"
+          steps:
+            - step: 1
+              title: "Analyze conversation history"
+              description: "Review all messages to understand context flow"
+            - step: 2
+              title: "Identify episode boundaries"
+              description: "Look for:"
+              items:
+                - "Time gaps between messages"
+                - "Topic switches (e.g., setup → implementation → debugging)"
+                - "Context changes (e.g., switching files or modules)"
+            - step: 3
+              title: "Create episode structures"
+              description: "Define id, title, and summary for each segment"
+            - step: 4
+              title: "Validate with segment_conversation"
+              description: "Tool validates your episode structure"
+        examples:
+          header: "Example episodes:"
+          items:
+            - title: "Episode 1: \"Project Setup\""
+              description: "Initialized repo, configured TypeScript"
+            - title: "Episode 2: \"API Implementation\""
+              description: "Built REST endpoints, added validation"
+            - title: "Episode 3: \"Bug Fixes\""
+              description: "Resolved authentication issues"
+        purpose: "This helps you maintain context across long conversations and build a semantic tree of project evolution."
+
+      search_history:
+        description: "Search past conversations to find relevant context"
+
+  ToolMarkerModification:
+    section_title: "File Modification"
+    header: "You can modify files using:"
+    tools:
+      write_file:
+        description: "Create new files or completely overwrite existing ones"
+      edit_file:
+        description: "Make precise edits by replacing text (requires unique match unless replaceAll=true)"
+    best_practice:
+      emphasis: "ALWAYS"
+      content: "read files before editing to ensure accuracy and avoid errors."
+
+  ToolMarkerExecution:
+    section_title: "Command Execution"
+    tools:
+      bash_exec:
+        intro: "You can execute shell commands using **bash_exec**:"
+        features:
+          - "Foreground execution: Wait for command to complete"
+          - "Background execution: Run long tasks asynchronously"
+      bash_output:
+        description: "Retrieve output from background processes"
+      kill_process:
+        description: "Terminate background processes (SIGTERM → SIGKILL escalation)"

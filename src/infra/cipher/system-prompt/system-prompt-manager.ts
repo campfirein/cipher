@@ -6,6 +6,8 @@ import type {
 import type {ISystemPromptContributor} from '../../../core/interfaces/cipher/i-system-prompt-contributor.js'
 import type {MemoryManager} from '../memory/memory-manager.js'
 
+import {PromptRenderer} from '../resources/prompt-renderer.js'
+import {PromptResourceLoader} from '../resources/prompt-resource-loader.js'
 import {DateTimeContributor} from './contributors/date-time-contributor.js'
 import {ExecutionModeContributor} from './contributors/execution-mode-contributor.js'
 import {MarkerPromptContributor} from './contributors/marker-prompt-contributor.js'
@@ -24,14 +26,25 @@ import {StaticContributor} from './contributors/static-contributor.js'
 export class SystemPromptManager {
   private readonly contributors: ISystemPromptContributor[]
   private readonly memoryManager?: MemoryManager
+  private readonly promptRenderer: PromptRenderer
+  private readonly promptResourceLoader: PromptResourceLoader
 
   /**
    * Creates a new system prompt manager
    * @param config - Configuration specifying which contributors to enable
    * @param memoryManager - Optional memory manager for memory contributor (follows dexto pattern)
+   * @param promptResourceLoader - Optional resource loader for YAML prompts (creates default if not provided)
+   * @param promptRenderer - Optional renderer for YAML prompts (creates default if not provided)
    */
-  public constructor(config: SystemPromptConfig, memoryManager?: MemoryManager) {
+  public constructor(
+    config: SystemPromptConfig,
+    memoryManager?: MemoryManager,
+    promptResourceLoader?: PromptResourceLoader,
+    promptRenderer?: PromptRenderer,
+  ) {
     this.memoryManager = memoryManager
+    this.promptResourceLoader = promptResourceLoader ?? new PromptResourceLoader()
+    this.promptRenderer = promptRenderer ?? new PromptRenderer()
 
     // Filter out disabled contributors
     const enabledContributors = config.contributors.filter((c) => c.enabled !== false)
@@ -72,15 +85,15 @@ export class SystemPromptManager {
   private createContributor(config: ContributorConfig): ISystemPromptContributor {
     switch (config.type) {
       case 'dateTime': {
-        return new DateTimeContributor(config.id, config.priority)
+        return new DateTimeContributor(config.id, config.priority, this.promptResourceLoader, this.promptRenderer)
       }
 
       case 'executionMode': {
-        return new ExecutionModeContributor(config.id, config.priority)
+        return new ExecutionModeContributor(config.id, config.priority, this.promptResourceLoader, this.promptRenderer)
       }
 
       case 'markerPrompt': {
-        return new MarkerPromptContributor(config.id, config.priority)
+        return new MarkerPromptContributor(config.id, config.priority, this.promptResourceLoader, this.promptRenderer)
       }
 
       case 'memory': {
@@ -90,16 +103,21 @@ export class SystemPromptManager {
           )
         }
 
-        return new MemoryContributor(
-          config.id,
-          config.priority,
-          this.memoryManager,
-          config.options,
-        )
+        return new MemoryContributor(config.id, config.priority, {
+          memoryManager: this.memoryManager,
+          renderer: this.promptRenderer,
+          resourceLoader: this.promptResourceLoader,
+        }, config.options)
       }
 
       case 'static': {
-        return new StaticContributor(config.id, config.priority, config.content)
+        return new StaticContributor(
+          config.id,
+          config.priority,
+          this.promptResourceLoader,
+          this.promptRenderer,
+          config.content, // Optional custom content for backward compatibility
+        )
       }
 
       default: {
