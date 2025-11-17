@@ -35,11 +35,17 @@ export interface SystemPromptContext {
  * Static contributors return the base system prompt from YAML or custom content.
  */
 export interface StaticContributorConfig {
+  /** Optional category for YAML file (e.g., 'base', 'contributors') */
+  category?: string
+
   /** Optional custom content to return (overrides YAML) */
   content?: string
 
   /** Whether this contributor is enabled (default: true) */
   enabled?: boolean
+
+  /** Optional filename for YAML file (without .yml extension) */
+  filename?: string
 
   /** Unique identifier for this contributor */
   id: string

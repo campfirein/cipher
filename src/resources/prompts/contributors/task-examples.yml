@@ -1,0 +1,197 @@
+version: "1.0"
+prompt_id: "task-examples"
+
+# Task Execution Examples
+# Provides concrete examples of how to process conversation logs
+
+sections:
+  header:
+    content: |
+      ## TASK EXECUTION EXAMPLES
+
+  example_1:
+    header: "### Example 1: Extracting Testing Framework Information"
+    content: |
+      **JSON Conversation Log Extract**:
+      ```json
+      {
+        "messages": [
+          {
+            "type": "assistant",
+            "turn_id": 2,
+            "content": [
+              {
+                "type": "text",
+                "text": "I'll set up the testing framework for the project."
+              },
+              {
+                "type": "tool_use",
+                "name": "read_file",
+                "input": {
+                  "targetFile": "tests/README.md"
+                },
+                "output": {
+                  "type": "tool_result",
+                  "content": "# Testing\n\nWe use pytest for testing..."
+                }
+              }
+            ]
+          }
+        ]
+      }
+      ```
+
+      **Agent Actions**:
+      1. Extract testing framework information from the assistant text message and file contents.
+      2. Use `read-file-tool` to check if `.brv/contexts/Best_Practices/testing.md` exists.
+      3. If file exists: Use `edit-file-tool` to add the testing documentation to the existing file.
+      4. If file doesn't exist: Use `write-file-tool` to create `.brv/contexts/Best_Practices/testing.md` with the extracted information.
+      5. Organize content with clear headings, code examples (structure descriptions), and file path references.
+
+  example_2:
+    header: "### Example 2: Extracting Architecture Decision"
+    content: |
+      **JSON Conversation Log Extract**:
+      ```json
+      {
+        "messages": [
+          {
+            "type": "user",
+            "turn_id": 1,
+            "content": [
+              {
+                "type": "text",
+                "text": "Setup Clean Architecture for todo app."
+              }
+            ]
+          },
+          {
+            "type": "assistant",
+            "turn_id": 2,
+            "content": [
+              {
+                "type": "text",
+                "text": "Creating domain, application, infrastructure, and presentation layers..."
+              },
+              {
+                "type": "tool_use",
+                "name": "write_file",
+                "input": {
+                  "path": "app/domain/entities/todo.py"
+                },
+                "output": {
+                  "type": "tool_result",
+                  "content": "class Todo:\n    def __init__(self, id, title):\n        self.id = id\n        self.title = title"
+                }
+              }
+            ]
+          }
+        ]
+      }
+      ```
+
+      **Agent Actions**:
+      1. Extract the Clean Architecture implementation details from the assistant message and file contents.
+      2. Use `glob-files-tool` with pattern `.brv/contexts/Coding_Convention/patterns/*.md` to find related files.
+      3. Use `read-file-tool` to read `.brv/contexts/Coding_Convention/patterns/CleanArchitecture.md` if it exists.
+      4. If file exists: Use `edit-file-tool` to add a practical example section showing the todo app structure.
+      5. If file doesn't exist: Use `write-file-tool` to create the file with `create_directories: true`.
+      6. Include structural description of the code pattern, file paths involved, and why Clean Architecture was chosen.
+
+  example_3:
+    header: "### Example 3: Extracting Code Refactoring Pattern"
+    content: |
+      **JSON Conversation Log Extract**:
+      ```json
+      {
+        "messages": [
+          {
+            "type": "assistant",
+            "turn_id": 3,
+            "content": [
+              {
+                "type": "thinking",
+                "thinking": "I've identified code duplication in the analysers. I'll extract common functionality to a base class."
+              },
+              {
+                "type": "text",
+                "text": "Here's the refactoring:"
+              },
+              {
+                "type": "tool_use",
+                "name": "read_file",
+                "input": {
+                  "targetFile": "src/analysers/base_analyser.py"
+                },
+                "output": {
+                  "type": "tool_result",
+                  "content": "class Analyser:\n    def analyse(self):\n        raise NotImplementedError"
+                }
+              }
+            ]
+          }
+        ]
+      }
+      ```
+
+      **Agent Actions**:
+      1. Extract the refactoring pattern from the `thinking` block and the base class implementation from the file contents.
+      2. Use `grep-content-tool` to search for "refactoring" or "code duplication" in `.brv/contexts/`.
+      3. Use `read-file-tool` to check existing refactoring documentation in `.brv/contexts/Coding_Convention/`.
+      4. If related file exists: Use `edit-file-tool` to add a new section about eliminating duplication through base classes.
+      5. If no related file: Use `write-file-tool` to create `.brv/contexts/Coding_Convention/refactoring-patterns.md`.
+      6. Include structural description of the code pattern, file paths, and the reasoning from the thinking block.
+
+  example_4:
+    header: "### Example 4: Extracting File Modification with Diff"
+    content: |
+      **JSON Conversation Log Extract**:
+      ```json
+      {
+        "messages": [
+          {
+            "type": "assistant",
+            "turn_id": 5,
+            "content": [
+              {
+                "type": "tool_use",
+                "name": "search_replace",
+                "input": {
+                  "relativeWorkspacePath": "/path/to/project/README.md"
+                },
+                "output": {
+                  "type": "tool_result",
+                  "content": {
+                    "diff": {
+                      "chunks": [
+                        {
+                          "oldStart": 10,
+                          "newStart": 10,
+                          "oldLines": 2,
+                          "newLines": 5,
+                          "diffString": "- Old content\n+ New content\n+ More new content"
+                        }
+                      ]
+                    },
+                    "contentsAfterEdit": "# Updated README\n\nNew content..."
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+      ```
+
+      **Agent Actions**:
+      1. Extract the file path from `input.relativeWorkspacePath`.
+      2. Extract what changed from `output.content.diff.chunks`.
+      3. Extract the full updated content from `output.content.contentsAfterEdit`.
+      4. Determine content type: documentation (README), code (implementation), or configuration (config files).
+      5. Determine appropriate memory directory:
+         - Documentation → `Tooling_and_Workflow/` or `Project_Structure/`
+         - Code changes → `Coding_Convention/` or `Best_Practices/`
+         - Configuration → `Tooling_and_Workflow/`
+      6. Use `read-file-tool` to check if related memory file exists.
+      7. Create or update memory file with extracted information, including what changed and why.
+

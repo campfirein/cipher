@@ -1,0 +1,63 @@
+version: "1.0"
+prompt_id: "memory-organization"
+
+# Memory Organization Workflow
+# Defines how to organize extracted knowledge into memory files
+
+sections:
+  header:
+    content: |
+      ## MEMORY ORGANIZATION WORKFLOW
+
+  directory_structure:
+    header: "### Directory Structure"
+    content: |
+      The `.brv/contexts` directory follows this structure:
+
+      #### Determining File Location
+
+      1. **Project_Structure/**: Architecture, folder layouts, module organization, system design.
+      2. **Coding_Convention/**: Naming rules, code style, design patterns, coding standards.
+      3. **Tooling_and_Workflow/**: Git workflows, build processes, CI/CD, development tools.
+      4. **Best_Practices/**: Performance, security, testing, general best practices.
+      5. **Archive/**: Old or deprecated information.
+
+  workflow_steps:
+    header: "### Workflow Steps"
+    steps:
+      - step: 1
+        title: "Read the conversation log"
+        content: "Understand what happened in the conversation."
+      - step: 2
+        title: "Identify key information"
+        items:
+          - "Technical decisions made."
+          - "Code patterns or implementations."
+          - "Problems solved."
+          - "Best practices applied."
+          - "Configuration changes."
+          - "File structures created."
+      - step: 3
+        title: "Check existing memory files"
+        items:
+          - "Use `glob-files-tool` to explore relevant directories in `.brv/contexts`."
+          - "Use `grep-content-tool` to find related content in existing memory files."
+          - "Use `read-file-tool` to read existing files that might need updates."
+      - step: 4
+        title: "Determine appropriate action"
+        items:
+          - "**New information**: Create new markdown file in the appropriate subdirectory."
+          - "**Related to existing content**: Update existing file using `edit-file-tool` to add new sections."
+          - "**Similar topic exists**: Merge into existing file if conceptually linked."
+          - "**Deprecated information**: Move to Archive or update with deprecation notice."
+      - step: 5
+        title: "Create or update memory files"
+        items:
+          - "Use `write-file-tool` for new markdown files (with `create_directories: true` to create subdirectories as needed)."
+          - "Use `edit-file-tool` for updates (ensure `old_string` is unique and includes sufficient context)."
+          - "Always use `read-file-tool` first to verify current content before editing existing files."
+          - "Format content as markdown with clear headings, code blocks, and organized sections."
+      - step: 6
+        title: "Report actions"
+        content: "After completing operations, summarize what memory files were created/modified, which directory structure was used, and what type of information was extracted and organized."
+

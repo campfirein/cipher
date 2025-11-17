@@ -125,16 +125,52 @@ export async function createCipherAgentServices(
           type: 'static',
         },
         {
+          // Conversation log processing instructions
+          category: 'contributors',
+          enabled: true,
+          filename: 'conversation-log-processing',
+          id: 'conversationLogProcessing',
+          priority: 1,
+          type: 'static',
+        },
+        {
+          // Memory organization workflow
+          category: 'contributors',
+          enabled: true,
+          filename: 'memory-organization',
+          id: 'memoryOrganization',
+          priority: 2,
+          type: 'static',
+        },
+        {
           enabled: true,
           id: 'markerPrompt',
           priority: 3,
           type: 'markerPrompt',
         },
         {
+          // Content extraction rules
+          category: 'contributors',
+          enabled: true,
+          filename: 'content-extraction',
+          id: 'contentExtraction',
+          priority: 4,
+          type: 'static',
+        },
+        {
           enabled: true,
           id: 'executionMode',
           priority: 5,
           type: 'executionMode',
+        },
+        {
+          // Task execution examples
+          category: 'contributors',
+          enabled: true,
+          filename: 'task-examples',
+          id: 'taskExamples',
+          priority: 6,
+          type: 'static',
         },
         {
           enabled: true,
@@ -152,6 +188,15 @@ export async function createCipherAgentServices(
           },
           priority: 20,
           type: 'memory',
+        },
+        {
+          // Final instructions and expected behavior
+          category: 'contributors',
+          enabled: true,
+          filename: 'final-instructions',
+          id: 'finalInstructions',
+          priority: 25,
+          type: 'static',
         },
       ],
     },
