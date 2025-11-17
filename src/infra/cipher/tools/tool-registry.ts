@@ -6,6 +6,7 @@ import type {IProcessService} from '../../../core/interfaces/cipher/i-process-se
 import {ToolName} from '../../../core/domain/cipher/tools/constants.js'
 import {createBashExecTool} from './implementations/bash-exec-tool.js'
 import {createBashOutputTool} from './implementations/bash-output-tool.js'
+import {createDetectDomainsTool} from './implementations/detect-domains-tool.js'
 import {createEditFileTool} from './implementations/edit-file-tool.js'
 import {createGlobFilesTool} from './implementations/glob-files-tool.js'
 import {createGrepContentTool} from './implementations/grep-content-tool.js'
@@ -87,6 +88,12 @@ export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
     factory: (services) => createBashOutputTool(getRequiredService(services.processService, 'processService')),
     markers: [ToolMarker.Execution, ToolMarker.Optional],
     requiredServices: ['processService'],
+  },
+
+  [ToolName.DETECT_DOMAINS]: {
+    factory: () => createDetectDomainsTool(),
+    markers: [ToolMarker.ContextBuilding],
+    requiredServices: [], // No services required (validates LLM-detected domains)
   },
 
   [ToolName.EDIT_FILE]: {

@@ -17,6 +17,7 @@ export type {JSONSchema7, Tool, ToolExecutionContext, ToolSet} from '../../../co
 export type {IToolProvider} from '../../../core/interfaces/cipher/i-tool-provider.js'
 
 // Tool implementations (for direct access if needed)
+export {createDetectDomainsTool} from './implementations/detect-domains-tool.js'
 export {createEditFileTool} from './implementations/edit-file-tool.js'
 export {createGlobFilesTool} from './implementations/glob-files-tool.js'
 export {createGrepContentTool} from './implementations/grep-content-tool.js'
