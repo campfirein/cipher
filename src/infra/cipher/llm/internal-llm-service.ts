@@ -348,7 +348,12 @@ export class ByteRoverLLMService implements ILLMService {
     executionContext: ExecutionContext | undefined,
   ): Promise<null | string> {
     // Build system prompt using SystemPromptManager (before compression for correct token accounting)
+    const availableTools = this.toolManager.getToolNames()
+    const availableMarkers = this.toolManager.getAvailableMarkers()
+
     const systemPrompt = await this.systemPromptManager.build({
+      availableMarkers,
+      availableTools,
       conversationMetadata: executionContext?.conversationMetadata,
       isJsonInputMode: executionContext?.isJsonInputMode,
     })

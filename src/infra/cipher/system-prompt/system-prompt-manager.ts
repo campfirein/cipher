@@ -8,6 +8,7 @@ import type {MemoryManager} from '../memory/memory-manager.js'
 
 import {DateTimeContributor} from './contributors/date-time-contributor.js'
 import {ExecutionModeContributor} from './contributors/execution-mode-contributor.js'
+import {MarkerPromptContributor} from './contributors/marker-prompt-contributor.js'
 import {MemoryContributor} from './contributors/memory-contributor.js'
 import {StaticContributor} from './contributors/static-contributor.js'
 
@@ -76,6 +77,10 @@ export class SystemPromptManager {
 
       case 'executionMode': {
         return new ExecutionModeContributor(config.id, config.priority)
+      }
+
+      case 'markerPrompt': {
+        return new MarkerPromptContributor(config.id, config.priority)
       }
 
       case 'memory': {

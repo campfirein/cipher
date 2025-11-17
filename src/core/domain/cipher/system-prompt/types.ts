@@ -17,6 +17,12 @@ export interface SystemPromptContext {
   /** Additional context properties */
   [key: string]: unknown
 
+  /** Set of available tool marker strings */
+  availableMarkers?: Set<string>
+
+  /** Array of available tool names */
+  availableTools?: string[]
+
   /** Metadata about the conversation (for JSON input mode) */
   conversationMetadata?: ConversationMetadata
 
@@ -124,12 +130,31 @@ export interface ExecutionModeContributorConfig {
 }
 
 /**
+ * Configuration for a marker-based prompt contributor.
+ * Generates prompt sections based on available tool markers.
+ */
+export interface MarkerPromptContributorConfig {
+  /** Whether this contributor is enabled (default: true) */
+  enabled?: boolean
+
+  /** Unique identifier for this contributor */
+  id: string
+
+  /** Priority for ordering (lower = higher priority) */
+  priority: number
+
+  /** Type discriminator */
+  type: 'markerPrompt'
+}
+
+/**
  * Union type for all contributor configurations.
  * Uses discriminated union for type-safe contributor creation.
  */
 export type ContributorConfig =
   | DateTimeContributorConfig
   | ExecutionModeContributorConfig
+  | MarkerPromptContributorConfig
   | MemoryContributorConfig
   | StaticContributorConfig
 

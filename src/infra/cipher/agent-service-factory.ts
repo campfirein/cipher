@@ -164,6 +164,12 @@ export async function createCipherAgentServices(
         },
         {
           enabled: true,
+          id: 'markerPrompt',
+          priority: 3,
+          type: 'markerPrompt',
+        },
+        {
+          enabled: true,
           id: 'executionMode',
           priority: 5,
           type: 'executionMode',

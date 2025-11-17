@@ -40,9 +40,11 @@ describe('ByteRoverLLMService', () => {
         },
       ],
     })
-    // Create a mock toolProvider that provides getAllTools method
+    // Create a mock toolProvider that provides getAllTools, getToolNames, and getAvailableMarkers methods
     mockToolProvider = {
       getAllTools: sandbox.stub().returns({}),
+      getAvailableMarkers: sandbox.stub().returns(new Set<string>()),
+      getToolNames: sandbox.stub().returns([]),
     }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     toolManager = new ToolManager(mockToolProvider as any)
