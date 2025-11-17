@@ -23,7 +23,6 @@
     "keytar": "^7.9.0",
     "mixpanel": "^0.18.1",
     "nanoid": "^5.1.6",
-    "nunjucks": "^3.2.4",
     "open": "^10.2.0",
     "zod": "^3.25.76",
     "zod-to-json-schema": "^3.24.6"
@@ -37,7 +36,6 @@
     "@types/js-yaml": "^4.0.9",
     "@types/mocha": "^10",
     "@types/node": "^18",
-    "@types/nunjucks": "^3.2.6",
     "@types/sinon": "^17.0.4",
     "chai": "^4",
     "eslint": "^9",
