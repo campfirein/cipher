@@ -1,3 +1,5 @@
+import type {ParsedInteraction} from '../parsed-interaction.js'
+
 /**
  * Agent-level event names for CipherAgent.
  * These events are emitted at the agent level and include sessionId in payloads.
@@ -83,6 +85,15 @@ export interface AgentEventMap {
    */
   'cipher:conversationReset': {
     sessionId: string
+  }
+
+  /**
+   * Emitted when an interaction from an external coding agent is captured.
+   * @property {ParsedInteraction} interaction - The parsed interaction data
+   */
+  'cipher:externalInteraction': {
+    interaction: ParsedInteraction
+    sessionId?: string
   }
 
   /**
