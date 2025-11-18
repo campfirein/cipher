@@ -242,6 +242,16 @@ export class CodexRawService {
     return { cacheTokens, inputTokens, outputTokens }
   }
 
+  /**
+   * Convert Codex content block to normalized content block
+   *
+   * Transforms a Codex-specific content block into a standardized ContentBlock format.
+   * Handles tool_use blocks (preserves id, input, name) and text blocks (normalizes types).
+   * Converts input_text type to text type for consistency.
+   *
+   * @param block - Codex content block to convert
+   * @returns Normalized ContentBlock object
+   */
   private convertCodexContentBlockToContentBlock(block: CodexContentBlock): ContentBlock {
     const contentBlock: Record<string, unknown> = {}
 
@@ -258,6 +268,16 @@ export class CodexRawService {
     return contentBlock as ContentBlock
   }
 
+  /**
+   * Convert Codex transcript entries to normalized messages
+   *
+   * Transforms raw JSONL transcript entries (messages, function calls, reasoning, token counts) into
+   * standardized CodexRawMessage objects. Tracks token usage and reasoning context across entries,
+   * maintaining order and relationships between tool calls and responses.
+   *
+   * @param entries - Array of transcript entries from JSONL file
+   * @returns Array of normalized CodexRawMessage objects
+   */
   private convertToMessages(entries: CodexTranscriptEntry[]): CodexRawMessage[] {
     const messages: CodexRawMessage[] = []
     let currentTokenUsage: CodexTokenUsage | null = null
@@ -314,6 +334,16 @@ export class CodexRawService {
     return messages
   }
 
+  /**
+   * Convert transcript entry to raw entry format
+   *
+   * Transforms a transcript entry into the raw entry storage format, filtering entries without payloads
+   * and converting ISO timestamp strings to millisecond timestamps. Validates entry types and applies
+   * fallback type for invalid entries.
+   *
+   * @param entry - Transcript entry to convert
+   * @returns Converted CodexRawEntry object, or null if entry has no payload
+   */
   private convertTranscriptEntryToRawEntry(entry: CodexTranscriptEntry): CodexRawEntry | null {
     // Filter entries that don't have a payload
     if (!entry.payload) {
@@ -335,7 +365,13 @@ export class CodexRawService {
   }
 
   /**
-   * Count user and assistant messages
+   * Count user and assistant messages in a message array
+   *
+   * Iterates through messages and counts the total number of user and assistant messages.
+   * Used for metadata tracking and session statistics.
+   *
+   * @param messages - Array of messages to count
+   * @returns Object with assistantCount and userCount totals
    */
   private countMessageTypes(messages: CodexRawMessage[]): {
     assistantCount: number
@@ -353,7 +389,14 @@ export class CodexRawService {
   }
    
   /**
-   * Extract content blocks from message
+   * Extract and normalize content blocks from message content
+   *
+   * Handles multiple content formats: null/undefined (empty array), strings (wrapped as text block),
+   * arrays of blocks/strings (normalized to CodexContentBlock array), and objects.
+   * Produces consistent CodexContentBlock array output for consistent processing.
+   *
+   * @param content - Raw message content in various formats
+   * @returns Array of normalized CodexContentBlock objects
    */
   private extractContentBlocks(content: unknown): CodexContentBlock[] {
     const blocks: CodexContentBlock[] = []
@@ -405,6 +448,13 @@ export class CodexRawService {
 
   /**
    * Extract session metadata from transcript entries
+   *
+   * Searches transcript entries for session_meta type entries and validates them.
+   * Returns the session metadata payload (containing model, CLI version, timestamp, git info).
+   * Returns null if no valid session metadata is found.
+   *
+   * @param entries - Array of transcript entries to search
+   * @returns Extracted CodexSessionMeta payload, or null if not found
    */
   private extractSessionMeta(entries: CodexTranscriptEntry[]): CodexSessionMeta | null {
     const sessionMetaEntry = entries.find((e) => e.type === 'session_meta')
@@ -416,7 +466,15 @@ export class CodexRawService {
   }
 
   /**
-   * Extract start and end timestamps
+   * Extract session start and end timestamps
+   *
+   * Collects timestamps from transcript entries, filters empty values, sorts chronologically.
+   * Prefers session metadata timestamp for start time if available, otherwise uses first entry timestamp.
+   * Returns last timestamp as end time, or undefined if only one timestamp exists.
+   *
+   * @param entries - Array of transcript entries with optional timestamp fields
+   * @param sessionMeta - Optional session metadata containing preferred start timestamp
+   * @returns Object with startedAt and optional endedAt ISO timestamp strings
    */
   private extractTimestamps(
     entries: CodexTranscriptEntry[],
@@ -435,7 +493,15 @@ export class CodexRawService {
   }
 
   /**
-   * Extract title from messages
+   * Extract session title from first user message
+   *
+   * Uses the first line of the first user message as the session title.
+   * Handles both string and array content formats, extracting text blocks from arrays.
+   * Truncates to TITLE_MAX_LENGTH (100 chars) and appends "..." if truncated.
+   * Returns default title if no user messages found or first message is empty.
+   *
+   * @param messages - Array of parsed session messages
+   * @returns Session title string (max 100 characters)
    */
   private extractTitle(messages: CodexRawMessage[]): string {
     // Use first user message as title
@@ -466,6 +532,14 @@ export class CodexRawService {
 
   /**
    * Extract workspace information from session metadata and log path
+   *
+   * Extracts workspace path and repository information from session metadata (preferred)
+   * or falls back to log path if metadata is unavailable. Includes repository name and
+   * optional git URL if available in session metadata.
+   *
+   * @param logPath - Codex session log file path (used as fallback)
+   * @param sessionMeta - Optional session metadata containing workspace and git info
+   * @returns Object with workspace path and optional repository name/url
    */
   private extractWorkspace(
     logPath: string,
@@ -493,6 +567,12 @@ export class CodexRawService {
 
   /**
    * Type guard for event payload
+   *
+   * Checks if a payload is a valid CodexEventPayload by verifying it's an object
+   * with a type field matching token_count or agent_reasoning event types.
+   *
+   * @param payload - Value to check
+   * @returns True if payload is a valid CodexEventPayload, false otherwise
    */
   private isEventPayload(payload: unknown): payload is CodexEventPayload {
     return (
@@ -505,6 +585,12 @@ export class CodexRawService {
 
   /**
    * Type guard for response payload
+   *
+   * Checks if a payload is a valid CodexResponsePayload by verifying it's an object
+   * with a type field matching one of: function_call, function_call_output, message, or reasoning.
+   *
+   * @param payload - Value to check
+   * @returns True if payload is a valid CodexResponsePayload, false otherwise
    */
   private isResponsePayload(payload: unknown): payload is CodexResponsePayload {
     return (
@@ -519,6 +605,12 @@ export class CodexRawService {
 
   /**
    * Type guard for session meta payload
+   *
+   * Checks if a payload is a valid CodexSessionMetaPayload by verifying it's an object
+   * containing at least one of: model_provider, cli_version, or timestamp fields.
+   *
+   * @param payload - Value to check
+   * @returns True if payload is a valid CodexSessionMetaPayload, false otherwise
    */
   private isSessionMetaPayload(payload: unknown): payload is CodexSessionMetaPayload {
     return (
@@ -530,6 +622,12 @@ export class CodexRawService {
 
   /**
    * Check if entry is a token count event
+   *
+   * Validates that an entry is an event_msg type with an event payload of type 'token_count'
+   * and contains token usage information (info field).
+   *
+   * @param entry - Transcript entry to check
+   * @returns True if entry is a valid token count event, false otherwise
    */
   private isTokenCountEntry(entry: CodexTranscriptEntry): boolean {
     if (entry.type !== 'event_msg' || !entry.payload || !this.isEventPayload(entry.payload)) {
@@ -668,7 +766,14 @@ export class CodexRawService {
   }
 
   /**
-   * Process function call payload and add to messages
+   * Process function call payload and add to last message
+   *
+   * Extracts function call information from a function_call payload and appends it as a tool_use
+   * content block to the last message. Converts string arguments to parsed objects.
+   * If last message content is a string, converts it to an array before adding tool block.
+   *
+   * @param payload - Function call payload containing name, arguments, and call ID
+   * @param messages - Messages array to update (modifies last message in place)
    */
   private processFunctionCall(payload: Record<string, unknown>, messages: CodexRawMessage[]): void {
     if (messages.length === 0) return
@@ -699,7 +804,13 @@ export class CodexRawService {
   }
 
   /**
-   * Process function call output and add to last message
+   * Process function call output and attach to corresponding tool use block
+   *
+   * Finds the most recent tool_use block in the last message and appends the function output to it.
+   * The output field contains the result of the function call execution.
+   *
+   * @param payload - Function call output payload containing output data
+   * @param messages - Messages array to update (modifies last message in place)
    */
   private processFunctionCallOutput(payload: Record<string, unknown>, messages: CodexRawMessage[]): void {
     if (messages.length === 0) return
@@ -717,7 +828,17 @@ export class CodexRawService {
   }
 
   /**
-   * Process message payload and add to messages
+   * Process message payload and add to messages array
+   *
+   * Converts a message payload into a normalized CodexRawMessage and appends to messages array.
+   * Handles content block conversion, attaches token usage and reasoning context if available.
+   * Collapses single text blocks to strings for backward compatibility.
+   *
+   * @param payload - Message payload containing role and content
+   * @param messages - Messages array to update (appends new message)
+   * @param timestamp - ISO timestamp for the message
+   * @param currentTokenUsage - Optional token usage metrics to attach to message
+   * @param currentReasoning - Optional reasoning content to attach to message
    */
   // eslint-disable-next-line max-params
   private processMessage(
@@ -753,7 +874,13 @@ export class CodexRawService {
   }
 
   /**
-   * Process reasoning payload and extract reasoning text
+   * Process reasoning payload and extract reasoning text summary
+   *
+   * Extracts reasoning content from a reasoning payload by filtering summary items of type 'summary_text'
+   * and joining their text content. Returns null if no valid reasoning content is found.
+   *
+   * @param payload - Reasoning payload containing summary array
+   * @returns Extracted reasoning text or null if no valid content found
    */
   private processReasoningPayload(payload: Record<string, unknown>): null | string {
     if (!payload.summary || !Array.isArray(payload.summary)) return null
@@ -765,6 +892,16 @@ export class CodexRawService {
     return summaryTexts.length > 0 ? summaryTexts.join('\n') : null
   }
 
+  /**
+   * Safely parse JSON string or return object as-is
+   *
+   * Attempts to parse a JSON string. If input is already an object, returns it directly.
+   * Returns empty object on parse errors or non-string/object inputs.
+   * Used for defensive parsing of tool call arguments.
+   *
+   * @param jsonString - String to parse or object to validate
+   * @returns Parsed object or empty object if parsing fails
+   */
   private safeJsonParse(jsonString: unknown): Record<string, unknown> {
     if (typeof jsonString === 'object' && jsonString !== null) {
       return jsonString as Record<string, unknown>

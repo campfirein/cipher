@@ -164,6 +164,12 @@ export class CopilotRawService {
 
   /**
    * Calculate total session duration from request timings
+   *
+   * Aggregates the totalElapsed time from all requests' result.timings field.
+   * Returns total duration in milliseconds across all request/response cycles.
+   *
+   * @param requests - Array of Copilot request data with timing information
+   * @returns Total elapsed time in milliseconds
    */
   private calculateTotalDuration(requests: CopilotRequestData[]): number {
     let totalTime = 0
@@ -183,6 +189,13 @@ export class CopilotRawService {
 
   /**
    * Convert Copilot requests to normalized messages
+   *
+   * Transforms request/response pairs into alternating user and assistant messages.
+   * Each request becomes a user message (with attachments), and the response becomes
+   * an assistant message. Handles multiple response blocks and normalizes content format.
+   *
+   * @param requests - Array of Copilot request data to convert
+   * @returns Array of normalized CopilotRawMessage objects
    */
   private convertRequestsToMessages(requests: CopilotRequestData[]): CopilotRawMessage[] {
     const messages: CopilotRawMessage[] = []
@@ -228,6 +241,13 @@ export class CopilotRawService {
 
   /**
    * Detect VS Code Copilot workspace storage path
+   *
+   * Locates the VS Code workspace storage directory where GitHub Copilot chat sessions
+   * are stored. Defaults to ~/Library/Application Support/Code/User/workspaceStorage
+   * on macOS or constructs path from HOME environment variable.
+   *
+   * @returns Absolute path to VS Code workspace storage directory
+   * @throws Error if VS Code workspace storage directory not found
    */
   private detectWorkspacePath(): string {
     const homedir = process.env.HOME || DEFAULT_HOME_DIR
@@ -242,6 +262,12 @@ export class CopilotRawService {
 
   /**
    * Extract attachment file names from variable data
+   *
+   * Extracts names of attached files/references from Copilot variable data.
+   * Returns empty array if variable data is missing or contains no variables.
+   *
+   * @param variableData - Optional Copilot variable data containing attachments
+   * @returns Array of attachment file names
    */
   private extractAttachments(variableData: CopilotVariableData | undefined): string[] {
     const attachments: string[] = []
@@ -264,7 +290,16 @@ export class CopilotRawService {
   // ========================================================================
 
   /**
-   * Extract metadata from session
+   * Extract metadata from session data
+   *
+   * Aggregates session metadata including message counts, participant information,
+   * total duration, and workspace identification. Calculates message count as requests * 2
+   * (user + assistant message per request).
+   *
+   * @param data - Copilot session file data
+   * @param sessionId - Unique session identifier
+   * @param workspaceHash - Workspace hash identifying the workspace
+   * @returns Extracted CopilotSessionMetadata object
    */
   private extractMetadata(
     data: CopilotSessionFileData,
@@ -289,6 +324,14 @@ export class CopilotRawService {
 
   /**
    * Extract session title from first message or request
+   *
+   * Uses the first message content as session title (preferred), falls back to first request text.
+   * Truncates to TITLE_TRUNCATE_LENGTH (100) if content exceeds TITLE_MAX_LENGTH (150) characters.
+   * Appends ellipsis ("...") if truncated. Returns default title if no messages or requests.
+   *
+   * @param requests - Array of Copilot requests (fallback source)
+   * @param messages - Array of normalized messages (preferred source)
+   * @returns Session title string (max 103 characters with ellipsis)
    */
   private extractTitle(requests: CopilotRequestData[], messages: CopilotRawMessage[]): string {
     // Try to use first message text
@@ -308,8 +351,15 @@ export class CopilotRawService {
 
   /**
    * Extract workspace path using hybrid approach
-   * Tier 1A: SQLite scm:view:visibleRepositories (most reliable)
-   * Tier 1B: baseUri.path from session data (fallback)
+   *
+   * Attempts extraction using two tiers in order of reliability:
+   * - Tier 1A: SQLite scm:view:visibleRepositories (most reliable, handles monorepos)
+   * - Tier 1B: baseUri.path from session data (fallback approach)
+   * Returns single string for single repo, array for monorepo, or null if not found.
+   *
+   * @param data - Copilot session file data (used for Tier 1B fallback)
+   * @param workspaceHash - Workspace hash for SQLite database lookup
+   * @returns Workspace path(s) as string, string array, or null if not found
    */
   private extractWorkspacePath(data: CopilotSessionFileData, workspaceHash: string): null | string | string[] {
     // Tier 1A: Try SQLite first
@@ -389,8 +439,14 @@ export class CopilotRawService {
   }
 
   /**
-   * Tier 1B: Extract workspace path from baseUri in session data
-   * This is a fallback if SQLite extraction fails
+   * Extract workspace path from baseUri in session data (Tier 1B fallback)
+   *
+   * Recursively searches session data for objects with baseUri.path property containing
+   * an absolute file path. Used as fallback when SQLite extraction fails. Returns first
+   * valid path found, or null if no baseUri path found.
+   *
+   * @param data - Copilot session file data to search
+   * @returns Extracted workspace path string, or null if not found
    */
   private extractWorkspacePathTier1B(data: CopilotSessionFileData): null | string {
     const traverse = (obj: unknown): null | string => {
@@ -423,6 +479,13 @@ export class CopilotRawService {
 
   /**
    * Normalize Copilot content blocks
+   *
+   * Converts various content block formats to normalized CopilotContentBlock format.
+   * Preserves string content as-is, ensures all blocks have a kind field (defaults to 'unknown'),
+   * and stringifies non-object content as fallback.
+   *
+   * @param block - Content block to normalize (string or object)
+   * @returns Normalized content block or string
    */
   private normalizeContentBlock(block: CopilotResponseBlock | string): CopilotContentBlock | string {
     if (typeof block === 'string') {
@@ -441,7 +504,13 @@ export class CopilotRawService {
   }
 
   /**
-   * Normalize a request to CopilotParsedRequest type
+   * Normalize a Copilot request to CopilotParsedRequest type
+   *
+   * Standardizes request data structure, ensuring all required fields have values
+   * (using empty defaults where needed). Preserves response, result, and variable data.
+   *
+   * @param req - Raw Copilot request data to normalize
+   * @returns Normalized CopilotParsedRequest object
    */
   private normalizeParsedRequest(req: CopilotRequestData): CopilotParsedRequest {
     // Normalize response array if present
@@ -513,6 +582,14 @@ export class CopilotRawService {
 
   /**
    * Parse a single Copilot session file
+   *
+   * Reads and parses a GitHub Copilot session JSON file, extracting all session data
+   * including messages, metadata, requests, title, and workspace information.
+   * Returns null if file cannot be read or parsed.
+   *
+   * @param filePath - Absolute path to Copilot session JSON file
+   * @param workspaceHash - Workspace hash for the session (used for lookups)
+   * @returns Parsed CopilotRawSession object, or null if parsing fails
    */
   private parseSessionFile(filePath: string, workspaceHash: string): CopilotRawSession | null {
     try {
@@ -552,6 +629,15 @@ export class CopilotRawService {
 
   /**
    * Parse sessions from a specific workspace directory
+   *
+   * Reads all .json files from the chatSessions subdirectory within a workspace,
+   * parses each session file, and returns array of successfully parsed sessions.
+   * Returns empty array if chatSessions directory doesn't exist. Logs errors for
+   * failed parses but continues processing remaining files.
+   *
+   * @param workspacePath - Path to workspace directory containing chatSessions
+   * @param workspaceHash - Workspace hash for the workspace
+   * @returns Promise resolving to array of parsed CopilotRawSession objects
    */
   private async parseWorkspaceDirectory(
     workspacePath: string,

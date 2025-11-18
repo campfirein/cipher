@@ -771,8 +771,23 @@ export class CopilotCleanService {
 
   /**
    * Split all messages in a session that have multiple content blocks
-   * Preserves user messages as-is, splits assistant messages into one per content block
-   * Recalculates turn_id for all messages to maintain sequence
+   *
+   * Copilot assistant messages often contain multiple content blocks (thinking + tool_use)
+   * in a single message. This function splits such messages into separate messages, one per
+   * content block, to create a cleaner, more normalized message sequence.
+   *
+   * Processing logic:
+   * - User messages: Preserved as-is (no splitting)
+   * - Assistant messages with single content block: Preserved as-is
+   * - Assistant messages with multiple content blocks: Split into separate messages,
+   *   one per content block, each with the same timestamp
+   *
+   * After splitting, recalculates turn_id for all messages to maintain proper sequential
+   * numbering (1, 2, 3, ...). This ensures the message sequence remains valid after the
+   * splitting transformation.
+   *
+   * @param session - Copilot session object with messages array to be split
+   * @returns New session object with split messages and recalculated turn_ids
    */
   private splitAllCopilotContent(session: Record<string, unknown>): Record<string, unknown> {
     const split: Array<Record<string, unknown>> = []

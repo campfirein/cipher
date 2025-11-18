@@ -327,13 +327,15 @@ export class CursorRawService {
   }
 
   /**
-   * Extract code blocks from a bubble's codeBlocks object
+   * Extract code blocks from a Cursor bubble's codeBlocks object
    *
    * Retrieves the code blocks map from a bubble if it exists and is non-empty.
-   * Returns undefined if bubble has no code blocks or codeBlocks is not an object.
+   * Code blocks are stored as key-value pairs where keys are block IDs and values
+   * are the code content strings. Returns undefined if bubble has no code blocks,
+   * codeBlocks property is not an object, or the object is empty.
    *
    * @param bubble - The raw Cursor bubble object to extract code blocks from
-   * @returns Object mapping code block IDs to code content, or undefined if none exist
+   * @returns Object mapping code block IDs to code content strings, or undefined if none exist
    */
   private extractCodeBlocks(bubble: CursorBubbleRaw): Record<string, string> | undefined {
   if (
@@ -348,15 +350,18 @@ export class CursorRawService {
 }
 
   /**
-   * Extract code diffs associated with a specific bubble
+   * Extract code diffs associated with a specific bubble from the code block diff map
    *
-   * Looks up code diffs for the given bubble ID in the codeBlockDiffMap.
-   * Returns undefined if map is unavailable, bubble has no diffs, or diffs array is empty.
-   * Normalizes diff objects to ensure all required fields are present.
+   * Looks up code diffs for the given bubble ID in the codeBlockDiffMap. Code diffs
+   * represent changes made to files during the conversation, containing both the original
+   * and new versions relative to a base version (v0). Returns undefined if the map is
+   * unavailable, the bubble has no associated diffs, or the diffs array is empty.
+   * Normalizes diff objects to ensure all required fields (diffId, filePath,
+   * newModelDiffWrtV0, originalModelDiffWrtV0) are present, using empty string for missing diffId.
    *
    * @param bubbleId - Unique identifier of the bubble to look up diffs for
    * @param codeBlockDiffMap - Optional map of bubble IDs to CodeDiff arrays
-   * @returns Array of normalized CodeDiff objects, or undefined if none exist
+   * @returns Array of normalized CodeDiff objects with all required fields, or undefined if none exist
    */
   private extractCodeDiffs(
     bubbleId: string,
@@ -380,10 +385,12 @@ export class CursorRawService {
 }
 
   /**
-   * Extract console logs from a bubble's consoleLogs array
+   * Extract console logs from a Cursor bubble's consoleLogs array
    *
    * Retrieves the console logs array from a bubble if it exists and contains entries.
-   * Returns undefined if bubble has no console logs or consoleLogs is not a non-empty array.
+   * Console logs capture terminal or debug output associated with a conversation turn.
+   * Returns undefined if the bubble has no console logs, consoleLogs property is not an array,
+   * or the array is empty. Used to preserve terminal/console output context in enhanced bubbles.
    *
    * @param bubble - The raw Cursor bubble object to extract console logs from
    * @returns Array of console log strings, or undefined if none exist
@@ -401,17 +408,22 @@ export class CursorRawService {
 }
 
   /**
-   * Extract context information from both bubble and message context map
+   * Extract and consolidate context information from bubble and message context map
    *
-   * Consolidates context data from two sources: direct bubble properties
-   * (attachedFoldersListDirResults, cursorRules) and message context map data
-   * (gitStatus, knowledgeItems, todos, deletedFiles, terminalFiles). Preference
-   * given to message context if both sources provide the same field.
+   * Consolidates context data from two sources to create a comprehensive view of the
+   * conversation context:
+   * 1. Direct bubble properties: attachedFoldersListDirResults, cursorRules
+   * 2. Message context map data: gitStatus, knowledgeItems, todos, deletedFiles, terminalFiles
+   *
+   * When both sources provide the same field, preference is given to the message context map
+   * data as it tends to be more complete. Returns undefined if no context data is found from
+   * either source. The consolidated context helps understand the environment and state during
+   * the conversation turn.
    *
    * @param bubble - The raw Cursor bubble object with inline context data
    * @param messageContextMap - Optional map of bubble IDs to MessageRequestContext arrays
    * @param bubbleId - Optional bubble ID to look up context in messageContextMap
-   * @returns ContextInfo object with consolidated context, or undefined if no data found
+   * @returns ContextInfo object with consolidated context data, or undefined if no data found
    */
   private extractContextInfo(
     bubble: CursorBubbleRaw,
@@ -479,16 +491,21 @@ export class CursorRawService {
 }
 
   /**
-   * Extract file checkpoint state associated with a bubble
+   * Extract file checkpoint state associated with a bubble from the checkpoint map
    *
-   * Looks up the file checkpoint for a given bubble ID in the checkpoint map.
-   * Returns undefined if map is unavailable or bubble has no checkpoint.
-   * Normalizes checkpoint object, ensuring array fields (files, newlyCreatedFolders,
-   * nonExistentFiles, activeInlineDiffs) are present even if empty.
+   * Looks up the file checkpoint for a given bubble ID in the checkpoint map. File checkpoints
+   * capture the state of the file system at a particular conversation turn, including which files
+   * existed, were newly created, or were non-existent, as well as active inline diff information.
+   * Returns undefined if the map is unavailable or the bubble has no associated checkpoint.
+   *
+   * Normalizes the checkpoint object to ensure all array fields (files, newlyCreatedFolders,
+   * nonExistentFiles, activeInlineDiffs) are present, using empty arrays as defaults if not found.
+   * This normalization ensures consistent structure for downstream processing. The checkpointId
+   * field is intentionally excluded from the returned object.
    *
    * @param bubbleId - Unique identifier of the bubble to look up checkpoint for
-   * @param checkpointMap - Optional map of bubble IDs to FileCheckpoint objects
-   * @returns Normalized FileCheckpoint object, or undefined if none exists
+   * @param checkpointMap - Optional map of bubble IDs to FileCheckpoint objects with checkpointId
+   * @returns Normalized FileCheckpoint object with all required array fields, or undefined if none exists
    */
   private extractFileCheckpoint(
     bubbleId: string,
@@ -771,9 +788,16 @@ export class CursorRawService {
   /**
    * Log parsing statistics for processed conversations
    *
-   * Outputs summary information about how many conversations were successfully parsed
-   * and how many were skipped due to various conditions (not in workspace, no extractable
-   * bubbles, no headers). Omits zero-count skip reasons from output for cleaner logging.
+   * Outputs summary information about conversation parsing results, including both successful
+   * parses and various skip conditions. Helps users understand why certain conversations were
+   * not included in the output. The function displays:
+   * - Total successfully parsed conversations
+   * - Conversations skipped because they don't belong to this workspace
+   * - Conversations skipped due to having no extractable bubbles (empty conversations)
+   * - Conversations skipped due to missing conversation headers (malformed data)
+   *
+   * Omits zero-count skip reasons from output for cleaner, more focused logging that only
+   * shows relevant information.
    *
    * @param parsed - Number of successfully parsed conversations
    * @param skippedNotInWorkspace - Number of conversations skipped (not in this workspace)
@@ -798,18 +822,29 @@ export class CursorRawService {
   /**
    * Process conversation headers and create enhanced bubbles from raw data
    *
-   * Iterates through conversation headers, looks up corresponding bubbles by ID,
-   * creates enhanced bubbles with extracted metadata (tool results, context, diffs, etc).
-   * Filters out empty bubbles (no text, tool results, or console logs). Tracks unique
-   * workspaces that bubbles belong to.
+   * This is a core transformation function that converts raw Cursor conversation headers and
+   * bubble data into enriched, enhanced bubble objects ready for export. The function:
+   * 1. Iterates through conversation headers (which contain bubble IDs and message types)
+   * 2. Looks up corresponding raw bubbles by ID in the bubbleMap
+   * 3. Determines message type (user vs assistant) based on header type field
+   * 4. Creates enhanced bubbles by extracting and consolidating metadata from multiple sources:
+   *    - Tool results, console logs, code blocks from the bubble itself
+   *    - Context information from messageRequestContextMap
+   *    - Code diffs from codeBlockDiffMap
+   *    - File checkpoints from checkpointMap
+   * 5. Filters out empty bubbles (no text, tool results, or console logs) to keep only meaningful content
+   * 6. Tracks unique workspace hashes that bubbles belong to for workspace association
    *
-   * @param conversationHeaders - Array of header objects containing bubble IDs and types
+   * This process enriches basic bubble data with all available context and metadata, creating
+   * a comprehensive representation of each conversation turn.
+   *
+   * @param conversationHeaders - Array of header objects containing bubble IDs and types (1=user, other=ai)
    * @param bubbleMap - Map of bubble IDs to raw CursorBubbleRaw objects
-   * @param bubbleWorkspaceMap - Map of bubble IDs to their workspace hashes
+   * @param bubbleWorkspaceMap - Map of bubble IDs to their workspace hash identifiers
    * @param messageRequestContextMap - Map of bubble IDs to MessageRequestContext arrays
    * @param codeBlockDiffMap - Map of bubble IDs to CodeDiff arrays
-   * @param checkpointMap - Map of bubble IDs to FileCheckpoint objects
-   * @returns Object with bubbles array and usedWorkspaces set
+   * @param checkpointMap - Map of bubble IDs to FileCheckpoint objects with checkpointId
+   * @returns Object containing enhanced bubbles array and set of workspace hashes used by these bubbles
    */
   // eslint-disable-next-line max-params
   private processBubbleHeaders(

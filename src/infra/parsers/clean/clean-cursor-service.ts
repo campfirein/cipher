@@ -96,15 +96,23 @@ export class CursorCleanService {
   /* eslint-enable no-await-in-loop */
 
   /**
-   * Add paths from property value to path set
+   * Add filesystem paths from property value to path set
    *
-   * Handles both string and array values. Adds individual paths to the provided Set<string>.
-   * Used for normalizing workspace paths from various property formats throughout the codebase.
-   * Array values: each element added individually if it's a string.
-   * String values: added directly to the set.
+   * Helper function for normalizing workspace paths from various property formats found
+   * throughout Cursor session data. Handles both string and array values to accommodate
+   * different workspace path representations (single workspace vs monorepo with multiple paths).
    *
-   * @param value - Property value that may be a string or array of strings
-   * @param paths - Set to accumulate parsed paths
+   * Processing logic:
+   * - Array values: Each element is checked and added individually if it's a string
+   * - String values: Added directly to the set
+   * - Other types: Ignored (no-op)
+   *
+   * The Set data structure automatically handles deduplication of paths. Used extensively
+   * in workspace path extraction to accumulate paths from multiple sources (metadata,
+   * top-level properties, tool results).
+   *
+   * @param value - Property value that may be a string path, array of string paths, or other type
+   * @param paths - Set to accumulate parsed filesystem paths (modified in place)
    */
   private addPathsFromProperty(value: unknown, paths: Set<string>): void {
     if (Array.isArray(value)) {
