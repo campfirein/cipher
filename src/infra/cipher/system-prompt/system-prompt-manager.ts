@@ -117,6 +117,8 @@ export class SystemPromptManager {
           this.promptResourceLoader,
           this.promptRenderer,
           config.content, // Optional custom content for backward compatibility
+          config.category, // Optional category for YAML file
+          config.filename, // Optional filename for YAML file
         )
       }
 
