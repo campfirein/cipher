@@ -9,12 +9,13 @@ import { join as pathJoin } from 'node:path'
 
 import { Agent } from '../../../core/domain/entities/agent.js'
 import {WorkspaceInfo} from '../../../core/domain/entities/parser.js'
+import { ICleanParserService } from '../../../core/interfaces/parser/i-clean-parser-service.js'
 import {normalizeClaudeSession} from './shared.js'
 /**
  * Copilot Clean Service
  * Transforms GitHub Copilot raw parsed sessions to clean normalized format
  */
-export class CopilotCleanService {
+export class CopilotCleanService implements ICleanParserService {
   private ide: Agent
 
   constructor(ide: Agent) {

@@ -5,25 +5,19 @@
  */
 
 import { Agent } from '../../../core/domain/entities/agent.js'
+import { IRawParserService } from '../../../core/interfaces/parser/i-raw-parser-service.js'
 import { ClaudeRawService } from './raw-claude-service.js'
 import { CodexRawService } from './raw-codex-service.js'
 import { CopilotRawService } from './raw-copilot-service.js'
 import { CursorRawService } from './raw-cursor-service.js'
-// import type Agent from '../../../core/domain/entities/agent.js'
-// export type SupportedIDE = 'claude' | 'cursor' | 'copilot' | 'codex'
-
-/**
- * Interface for raw parser services
- */
-export interface IRawParserService {
-  parse(customDir: string): Promise<boolean>
-}
 
 /**
  * Raw Parser Service Factory
  * Creates and returns appropriate parser service for the given IDE
  */
-export const RawParserServiceFactory = {
+export class RawParserServiceFactory {
+  private static readonly SUPPORTED_IDES: Agent[] = ['Claude Code', 'Cursor', 'Github Copilot', 'Codex']
+
   /**
    * Create a raw parser service for the specified IDE
    *
@@ -34,7 +28,7 @@ export const RawParserServiceFactory = {
    * @returns The appropriate raw parser service instance
    * @throws Error if IDE is not supported
    */
-  createRawParserService(ide: Agent): IRawParserService {
+  static createRawParserService(ide: Agent): IRawParserService {
     switch (ide) {
       case 'Claude Code': {
         return new ClaudeRawService(ide)
@@ -58,7 +52,7 @@ export const RawParserServiceFactory = {
         )
       }
     }
-  },
+  }
 
   /**
    * Get list of supported IDEs
@@ -67,9 +61,9 @@ export const RawParserServiceFactory = {
    *
    * @returns Array of supported IDE type strings
    */
-  getSupportedIDEs(): Agent[] {
-    return ['Claude Code', 'Cursor', 'Github Copilot', 'Codex']
-  },
+  static getSupportedIDEs(): Agent[] {
+    return [...this.SUPPORTED_IDES]
+  }
 
   /**
    * Check if IDE is supported
@@ -79,9 +73,9 @@ export const RawParserServiceFactory = {
    * @param ide - IDE name to validate
    * @returns True if IDE is in supported list, false otherwise
    */
-  isSupported(ide: string): boolean {
+  static isSupported(ide: string): boolean {
     return this.getSupportedIDEs().includes(ide as Agent)
-  },
+  }
 
   /**
    * Parse conversations for the specified IDE
@@ -93,8 +87,8 @@ export const RawParserServiceFactory = {
    * @param customDir - Path to custom directory containing IDE session data
    * @returns Promise resolving to true if parsing succeeded, false otherwise
    */
-  async parseConversations(ide: Agent, customDir: string): Promise<boolean> {
+  static async parseConversations(ide: Agent, customDir: string): Promise<boolean> {
     const service = this.createRawParserService(ide)
     return service.parse(customDir)
-  },
-};
+  }
+}

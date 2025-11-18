@@ -7,13 +7,14 @@ import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
 import { join as pathJoin } from 'node:path'
 
 import { Agent } from '../../../core/domain/entities/agent.js'
+import { ICleanParserService } from '../../../core/interfaces/parser/i-clean-parser-service.js'
 import { normalizeClaudeSession} from './shared.js'
 
 /**
  * Cursor Clean Service
  * Transforms Cursor raw parsed sessions to clean normalized format
  */
-export class CursorCleanService {
+export class CursorCleanService implements ICleanParserService {
   private ide: Agent
 
   /**

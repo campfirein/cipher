@@ -23,6 +23,7 @@ import {
   CopilotVariableData,
   DatabaseRow
 } from '../../../core/domain/entities/parser.js'
+import { IRawParserService } from '../../../core/interfaces/parser/i-raw-parser-service.js'
 
 // ============================================================================
 // Constants
@@ -50,7 +51,7 @@ const UNKNOWN_KIND = 'unknown'
  * Copilot Raw Parser Service class
  * Handles extraction of GitHub Copilot sessions from VS Code workspace storage
  */
-export class CopilotRawService {
+export class CopilotRawService implements IRawParserService {
   private ide: Agent
   private workspaceStoragePath: string
 

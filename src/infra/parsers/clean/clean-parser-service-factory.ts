@@ -5,23 +5,19 @@
  */
 
 import { Agent } from '../../../core/domain/entities/agent.js'
+import { ICleanParserService } from '../../../core/interfaces/parser/i-clean-parser-service.js'
 import { ClaudeCleanService } from './clean-claude-service.js'
 import { CodexCleanService } from './clean-codex-service.js'
 import { CopilotCleanService } from './clean-copilot-service.js'
 import { CursorCleanService } from './clean-cursor-service.js'
 
 /**
- * Interface for clean parser services
- */
-export interface ICleanParserService {
-  parse(rawDir: string): Promise<boolean>
-}
-
-/**
  * Clean Parser Service Factory
  * Creates and returns appropriate clean parser service for the given IDE
  */
-export const CleanParserServiceFactory = {
+export class CleanParserServiceFactory {
+  private static readonly SUPPORTED_IDES: Agent[] = ['Claude Code', 'Cursor', 'Github Copilot', 'Codex']
+
   /**
    * Create a clean parser service for the specified IDE
    *
@@ -32,7 +28,7 @@ export const CleanParserServiceFactory = {
    * @returns The appropriate clean parser service instance
    * @throws Error if IDE is not supported
    */
-  createCleanParserService(ide: Agent): ICleanParserService {
+  static createCleanParserService(ide: Agent): ICleanParserService {
     switch (ide) {
       case 'Claude Code': {
         return new ClaudeCleanService(ide)
@@ -56,7 +52,7 @@ export const CleanParserServiceFactory = {
         )
       }
     }
-  },
+  }
 
   /**
    * Get list of supported IDEs
@@ -65,9 +61,9 @@ export const CleanParserServiceFactory = {
    *
    * @returns Array of supported IDE type strings
    */
-  getSupportedIDEs(): Agent[] {
-    return ['Claude Code', 'Cursor', 'Github Copilot', 'Codex']
-  },
+  static getSupportedIDEs(): Agent[] {
+    return [...this.SUPPORTED_IDES]
+  }
 
   /**
    * Check if IDE is supported
@@ -77,9 +73,9 @@ export const CleanParserServiceFactory = {
    * @param ide - IDE name to validate
    * @returns True if IDE is in supported list, false otherwise
    */
-  isSupported(ide: string): boolean {
+  static isSupported(ide: string): boolean {
     return this.getSupportedIDEs().includes(ide as Agent)
-  },
+  }
 
   /**
    * Parse and clean conversations for the specified IDE
@@ -91,8 +87,8 @@ export const CleanParserServiceFactory = {
    * @param rawDir - Path to directory containing raw session files
    * @returns Promise resolving to true if parsing succeeded, false otherwise
    */
-  async parseConversations(ide: Agent, rawDir: string): Promise<boolean> {
+  static async parseConversations(ide: Agent, rawDir: string): Promise<boolean> {
     const service = this.createCleanParserService(ide)
     return service.parse(rawDir)
-  },
-};
+  }
+}

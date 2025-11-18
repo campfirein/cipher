@@ -23,6 +23,7 @@ import {
   CodexTranscriptEntry,
   ContentBlock
 } from '../../../core/domain/entities/parser.js'
+import { IRawParserService } from '../../../core/interfaces/parser/i-raw-parser-service.js'
 
 // ============================================================================
 // CONSTANTS
@@ -36,7 +37,7 @@ const SUMMARY_TEXT_TYPE = 'summary_text'
  * Codex Raw Service
  * Handles extraction of Codex sessions from JSONL transcript files
  */
-export class CodexRawService {
+export class CodexRawService implements IRawParserService {
   private ide: Agent
 
   /**

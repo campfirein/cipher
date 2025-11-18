@@ -9,6 +9,7 @@ import path from 'node:path'
 
 import { Agent } from '../../../core/domain/entities/agent.js'
 import { ClaudeRawSession } from '../../../core/domain/entities/parser.js'
+import { ICleanParserService } from '../../../core/interfaces/parser/i-clean-parser-service.js'
 import { normalizeClaudeSession } from './shared.js'
 
 
@@ -16,7 +17,7 @@ import { normalizeClaudeSession } from './shared.js'
  * Claude Clean Service
  * Transforms Claude raw parsed sessions to clean normalized format
  */
-export class ClaudeCleanService {
+export class ClaudeCleanService implements ICleanParserService {
   private ide: Agent
 
   /**

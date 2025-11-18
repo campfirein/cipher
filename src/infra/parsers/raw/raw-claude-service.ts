@@ -17,6 +17,7 @@ import {
   ContentBlock,
   TextContentBlock,
 } from '../../../core/domain/entities/parser.js'
+import { IRawParserService } from '../../../core/interfaces/parser/i-raw-parser-service.js'
 
 /**
  * Constants
@@ -52,7 +53,7 @@ const MESSAGES = {
 /**
  * Claude Raw Service - Wraps parser and handles file I/O and output management
  */
-export class ClaudeRawService {
+export class ClaudeRawService implements IRawParserService {
   private ide: Agent
 
   /**

@@ -20,6 +20,7 @@ import {
   MessageRequestContext,
   ToolResult,
 } from '../../../core/domain/entities/parser.js'
+import { IRawParserService } from '../../../core/interfaces/parser/i-raw-parser-service.js'
 
 // ============================================================================
 // CONSTANTS
@@ -75,7 +76,7 @@ const COMPOSER_ID_PREVIEW_LENGTH = 8
  * - Private Helper Methods (Bubble Extraction): createEnhancedBubble(), and extraction methods
  * - Private Utility Methods: safeParseJSON()
  */
-export class CursorRawService {
+export class CursorRawService implements IRawParserService {
   private ide: Agent
 
   // ============================================================================

@@ -16,6 +16,7 @@ import {
   ToolResultContentBlock,
   ToolUseContentBlock,
 } from '../../../core/domain/entities/parser.js'
+import { ICleanParserService } from '../../../core/interfaces/parser/i-clean-parser-service.js'
 import {
   addTurnIds,
   combineToolResults,
@@ -25,7 +26,7 @@ import {
  * Codex Clean Service
  * Transforms Codex raw parsed sessions to clean normalized format
  */
-export class CodexCleanService {
+export class CodexCleanService implements ICleanParserService {
   private ide: Agent
 
   constructor(ide: Agent) {
