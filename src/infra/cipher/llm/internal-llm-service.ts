@@ -5,6 +5,8 @@ import type {ExecutionContext} from '../../../core/interfaces/cipher/i-cipher-ag
 import type {IHistoryStorage} from '../../../core/interfaces/cipher/i-history-storage.js'
 import type {ILLMService} from '../../../core/interfaces/cipher/i-llm-service.js'
 import type {InternalMessage, ToolCall} from '../../../core/interfaces/cipher/message-types.js'
+import type {MemoryManager} from '../memory/memory-manager.js'
+import type {SimplePromptFactory} from '../system-prompt/simple-prompt-factory.js'
 import type {ToolManager} from '../tools/tool-manager.js'
 
 import {
@@ -14,7 +16,6 @@ import {
 } from '../../../core/domain/cipher/errors/llm-error.js'
 import {SessionEventBus} from '../events/event-emitter.js'
 import {ByteRoverLlmGrpcService} from '../grpc/internal-llm-grpc-service.js'
-import {SystemPromptManager} from '../system-prompt/system-prompt-manager.js'
 import {ContextManager, type FileData, type ImageData} from './context/context-manager.js'
 import {GeminiMessageFormatter} from './formatters/gemini-formatter.js'
 import {GeminiTokenizer} from './tokenizers/gemini-tokenizer.js'
@@ -30,6 +31,7 @@ export interface ByteRoverLLMServiceConfig {
   model: string
   temperature?: number
   timeout?: number
+  verbose?: boolean
 }
 
 /**
@@ -76,12 +78,14 @@ export class ByteRoverLLMService implements ILLMService {
     model: string
     temperature: number
     timeout?: number
+    verbose: boolean
   }
   private readonly contextManager: ContextManager<Content>
   private readonly formatter: GeminiMessageFormatter
+  private readonly memoryManager?: MemoryManager
+  private readonly promptFactory: SimplePromptFactory
   private readonly provider: ByteRoverLlmGrpcService
   private readonly sessionEventBus: SessionEventBus
-  private readonly systemPromptManager: SystemPromptManager
   private readonly tokenizer: GeminiTokenizer
   private readonly toolManager: ToolManager
 
@@ -102,7 +106,8 @@ export class ByteRoverLLMService implements ILLMService {
    * @param config - LLM service configuration (model, tokens, temperature)
    * @param options - Service dependencies
    * @param options.toolManager - Tool manager for executing agent tools
-   * @param options.systemPromptManager - Manager for dynamic system prompts
+   * @param options.promptFactory - Simple prompt factory for building system prompts
+   * @param options.memoryManager - Memory manager for agent memories
    * @param options.sessionEventBus - Event bus for session lifecycle events
    * @param options.historyStorage - Optional history storage for persistence
    */
@@ -112,14 +117,16 @@ export class ByteRoverLLMService implements ILLMService {
     config: ByteRoverLLMServiceConfig,
     options: {
       historyStorage?: IHistoryStorage
+      memoryManager?: MemoryManager
+      promptFactory: SimplePromptFactory
       sessionEventBus: SessionEventBus
-      systemPromptManager: SystemPromptManager
       toolManager: ToolManager
     },
   ) {
     this.provider = provider
     this.toolManager = options.toolManager
-    this.systemPromptManager = options.systemPromptManager
+    this.promptFactory = options.promptFactory
+    this.memoryManager = options.memoryManager
     this.sessionEventBus = options.sessionEventBus
     this.config = {
       maxInputTokens: config.maxInputTokens ?? 1_000_000,
@@ -128,6 +135,7 @@ export class ByteRoverLLMService implements ILLMService {
       model: config.model ?? 'gemini-2.5-flash',
       temperature: config.temperature ?? 0.7,
       timeout: config.timeout,
+      verbose: config.verbose ?? false,
     }
 
     // Initialize formatter and tokenizer
@@ -347,16 +355,35 @@ export class ByteRoverLLMService implements ILLMService {
     tools: ToolDefinition[],
     executionContext: ExecutionContext | undefined,
   ): Promise<null | string> {
-    // Build system prompt using SystemPromptManager (before compression for correct token accounting)
+    // Build system prompt using SimplePromptFactory (before compression for correct token accounting)
     const availableTools = this.toolManager.getToolNames()
-    const availableMarkers = this.toolManager.getAvailableMarkers()
+    const markersSet = this.toolManager.getAvailableMarkers()
+    // Convert Set to Record for prompt factory
+    const availableMarkers: Record<string, string> = {}
+    for (const marker of markersSet) {
+      availableMarkers[marker] = marker
+    }
 
-    const systemPrompt = await this.systemPromptManager.build({
+    const systemPrompt = await this.promptFactory.buildSystemPrompt({
       availableMarkers,
       availableTools,
-      conversationMetadata: executionContext?.conversationMetadata,
       isJsonInputMode: executionContext?.isJsonInputMode,
+      memoryManager: this.memoryManager,
     })
+
+    // Verbose debug: Show complete system prompt
+    if (this.config.verbose) {
+      console.log(`\n${'='.repeat(80)}`)
+      console.log(`[PromptDebug:LLMService] SYSTEM PROMPT (Iteration ${iterationCount + 1})`)
+      console.log(`${'='.repeat(80)}`)
+      console.log(`Length: ${systemPrompt.length} characters`)
+      console.log(`Lines: ${systemPrompt.split('\n').length}`)
+      console.log(`\n--- FIRST 500 CHARACTERS ---`)
+      console.log(systemPrompt.slice(0, 500))
+      console.log(`\n--- LAST 500 CHARACTERS ---`)
+      console.log(systemPrompt.slice(-500))
+      console.log(`${'='.repeat(80)}\n`)
+    }
 
     // Get formatted messages from context with compression (passing system prompt for token accounting)
     const {formattedMessages, tokensUsed} = await this.contextManager.getFormattedMessagesWithCompression(systemPrompt)

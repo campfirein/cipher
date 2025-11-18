@@ -30,9 +30,12 @@ export class SessionManager {
   private readonly executionContext?: ExecutionContext
   private readonly grpcConfig: ByteRoverGrpcConfig
   private readonly llmConfig: {
+    httpReferer?: string
     maxIterations?: number
     maxTokens?: number
     model: string
+    openRouterApiKey?: string
+    siteName?: string
     temperature?: number
   }
   private pendingCreations = new Map<string, Promise<IChatSession>>()
@@ -45,6 +48,9 @@ export class SessionManager {
    * @param sharedServices - Shared services from CipherAgent (ToolManager, SystemPromptManager, etc.)
    * @param grpcConfig - gRPC client configuration
    * @param llmConfig - LLM service configuration
+   * @param llmConfig.openRouterApiKey - Optional OpenRouter API key for direct service
+   * @param llmConfig.httpReferer - Optional HTTP Referer for OpenRouter rankings
+   * @param llmConfig.siteName - Optional site name for OpenRouter rankings
    * @param llmConfig.maxIterations - Maximum iterations for agentic loop
    * @param llmConfig.maxTokens - Maximum output tokens
    * @param llmConfig.model - LLM model identifier
@@ -57,9 +63,12 @@ export class SessionManager {
     sharedServices: CipherAgentServices,
     grpcConfig: ByteRoverGrpcConfig,
     llmConfig: {
+      httpReferer?: string
       maxIterations?: number
       maxTokens?: number
       model: string
+      openRouterApiKey?: string
+      siteName?: string
       temperature?: number
     },
     options?: SessionManagerOptions,

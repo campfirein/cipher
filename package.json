@@ -24,6 +24,7 @@
     "mixpanel": "^0.18.1",
     "nanoid": "^5.1.6",
     "open": "^10.2.0",
+    "openai": "^6.9.1",
     "zod": "^3.25.76",
     "zod-to-json-schema": "^3.24.6"
   },

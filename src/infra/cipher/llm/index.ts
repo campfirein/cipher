@@ -13,11 +13,14 @@ export type {ILLMService} from '../../../core/interfaces/cipher/i-llm-service.js
 // Context manager
 export {ContextManager, type FileData, type ImageData} from './context/context-manager.js'
 
-// Message formatter
+// Message formatters
 export {GeminiMessageFormatter} from './formatters/gemini-formatter.js'
+export {OpenRouterMessageFormatter} from './formatters/openrouter-formatter.js'
 
-// LLM service
+// LLM services
 export {ByteRoverLLMService, type ByteRoverLLMServiceConfig, type LLMServiceConfig} from './internal-llm-service.js'
+export {OpenRouterLLMService, type OpenRouterServiceConfig} from './openrouter-llm-service.js'
 
-// Tokenizer
+// Tokenizers
 export {GeminiTokenizer} from './tokenizers/gemini-tokenizer.js'
+export {OpenRouterTokenizer} from './tokenizers/openrouter-tokenizer.js'

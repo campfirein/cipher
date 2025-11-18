@@ -1,4 +1,3 @@
-import {GoogleGenAI} from '@google/genai'
 import {join} from 'node:path'
 
 import type {FileSystemConfig} from '../../core/domain/cipher/file-system/types.js'
@@ -9,12 +8,12 @@ import {FileBlobStorage} from './blob/file-blob-storage.js'
 import {AgentEventBus, SessionEventBus} from './events/event-emitter.js'
 import {FileSystemService} from './file-system/file-system-service.js'
 import {ByteRoverLlmGrpcService} from './grpc/internal-llm-grpc-service.js'
-import {GeminiLLMService} from './llm/gemini-llm-service.js'
 import {ByteRoverLLMService} from './llm/internal-llm-service.js'
+import {OpenRouterLLMService} from './llm/openrouter-llm-service.js'
 import {MemoryManager} from './memory/memory-manager.js'
 import {ProcessService} from './process/process-service.js'
 import {BlobHistoryStorage} from './storage/blob-history-storage.js'
-import {SystemPromptManager} from './system-prompt/system-prompt-manager.js'
+import {SimplePromptFactory} from './system-prompt/simple-prompt-factory.js'
 import {ToolManager} from './tools/tool-manager.js'
 import {ToolProvider} from './tools/tool-provider.js'
 
@@ -26,13 +25,17 @@ export interface CipherLLMConfig {
   apiKey?: string
   fileSystemConfig?: Partial<FileSystemConfig>
   grpcEndpoint: string
+  httpReferer?: string
   maxIterations?: number
   maxTokens?: number
   model: string
+  openRouterApiKey?: string
   projectId: string
   region?: string
   sessionKey: string
+  siteName?: string
   temperature?: number
+  verbose?: boolean
 }
 
 /**
@@ -58,12 +61,12 @@ export type {CipherAgentServices, SessionManagerConfig, SessionServices} from '.
  * while session-specific services (LLM, EventBus) are created per session.
  *
  * @param llmConfig - LLM configuration
- * @param brvConfig - Optional ByteRover config (for custom system prompt)
+ * @param _brvConfig - Optional ByteRover config (for custom system prompt)
  * @returns Initialized shared services
  */
 export async function createCipherAgentServices(
   llmConfig: CipherLLMConfig,
-  brvConfig?: BrvConfig,
+  _brvConfig?: BrvConfig,
 ): Promise<CipherAgentServices> {
   // 1. Agent event bus (global)
   const agentEventBus = new AgentEventBus()
@@ -111,97 +114,9 @@ export async function createCipherAgentServices(
   const toolManager = new ToolManager(toolProvider)
   await toolManager.initialize()
 
-  // 8. System prompt manager (with memory integration) - SHARED across sessions
-  const customPrompt = brvConfig?.cipherAgentSystemPrompt
-  const systemPromptManager = new SystemPromptManager(
-    {
-      contributors: [
-        {
-          // Use custom prompt if provided (backward compatibility), otherwise load from YAML
-          content: customPrompt,
-          enabled: true,
-          id: 'static',
-          priority: 0,
-          type: 'static',
-        },
-        {
-          // Conversation log processing instructions
-          category: 'contributors',
-          enabled: true,
-          filename: 'conversation-log-processing',
-          id: 'conversationLogProcessing',
-          priority: 1,
-          type: 'static',
-        },
-        {
-          // Memory organization workflow
-          category: 'contributors',
-          enabled: true,
-          filename: 'memory-organization',
-          id: 'memoryOrganization',
-          priority: 2,
-          type: 'static',
-        },
-        {
-          enabled: true,
-          id: 'markerPrompt',
-          priority: 3,
-          type: 'markerPrompt',
-        },
-        {
-          // Content extraction rules
-          category: 'contributors',
-          enabled: true,
-          filename: 'content-extraction',
-          id: 'contentExtraction',
-          priority: 4,
-          type: 'static',
-        },
-        {
-          enabled: true,
-          id: 'executionMode',
-          priority: 1,
-          type: 'executionMode',
-        },
-        {
-          // Task execution examples
-          category: 'contributors',
-          enabled: true,
-          filename: 'task-examples',
-          id: 'taskExamples',
-          priority: 6,
-          type: 'static',
-        },
-        {
-          enabled: true,
-          id: 'dateTime',
-          priority: 10,
-          type: 'dateTime',
-        },
-        {
-          enabled: true,
-          id: 'agentMemories',
-          options: {
-            includeTags: true,
-            includeTimestamps: false,
-            limit: 20,
-          },
-          priority: 20,
-          type: 'memory',
-        },
-        {
-          // Final instructions and expected behavior
-          category: 'contributors',
-          enabled: true,
-          filename: 'final-instructions',
-          id: 'finalInstructions',
-          priority: 25,
-          type: 'static',
-        },
-      ],
-    },
-    memoryManager,
-  )
+  // 8. Simple prompt factory - SHARED across sessions
+  const verbose = llmConfig.verbose ?? false
+  const promptFactory = new SimplePromptFactory(undefined, verbose)
 
   // 9. History storage (depends on BlobStorage) - SHARED across sessions
   const historyStorage = new BlobHistoryStorage(blobStorage)
@@ -213,7 +128,7 @@ export async function createCipherAgentServices(
     historyStorage,
     memoryManager,
     processService,
-    systemPromptManager,
+    promptFactory,
     toolManager,
     toolProvider,
   }
@@ -229,11 +144,14 @@ export async function createCipherAgentServices(
  * @param sharedServices - Shared services from agent
  * @param grpcConfig - gRPC configuration
  * @param llmConfig - LLM service configuration
- * @param llmConfig.apiKey - Optional Gemini API key for direct service
+ * @param llmConfig.openRouterApiKey - Optional OpenRouter API key for OpenRouter service
+ * @param llmConfig.httpReferer - Optional HTTP Referer for OpenRouter rankings
+ * @param llmConfig.siteName - Optional site name for OpenRouter rankings
  * @param llmConfig.maxIterations - Maximum iterations for agentic loop
  * @param llmConfig.maxTokens - Maximum output tokens
  * @param llmConfig.model - LLM model identifier
  * @param llmConfig.temperature - Temperature for generation
+ * @param llmConfig.verbose - Enable verbose debug output
  * @returns Initialized session services
  */
 export function createSessionServices(
@@ -241,38 +159,40 @@ export function createSessionServices(
   sharedServices: CipherAgentServices,
   grpcConfig: ByteRoverGrpcConfig,
   llmConfig: {
-    apiKey?: string
+    httpReferer?: string
     maxIterations?: number
     maxTokens?: number
     model: string
+    openRouterApiKey?: string
+    siteName?: string
     temperature?: number
+    verbose?: boolean
   },
 ): SessionServices {
   // 1. Create session-specific event bus
   const sessionEventBus = new SessionEventBus()
 
   // 2. Create LLM service based on configuration
+  // Priority: OpenRouter > ByteRover gRPC
   let llmService
 
-  if (llmConfig.apiKey) {
-    // Use direct Gemini service when API key is provided
-    const geminiClient = new GoogleGenAI({
-      apiKey: llmConfig.apiKey,
-    })
-
-    llmService = new GeminiLLMService(
+  if (llmConfig.openRouterApiKey) {
+    // Use OpenRouter service when OpenRouter API key is provided
+    llmService = new OpenRouterLLMService(
       sessionId,
-      geminiClient,
       {
-        apiKey: llmConfig.apiKey,
+        apiKey: llmConfig.openRouterApiKey,
+        httpReferer: llmConfig.httpReferer,
         maxIterations: llmConfig.maxIterations ?? 50,
         maxTokens: llmConfig.maxTokens ?? 8192,
-        model: llmConfig.model ?? 'gemini-2.0-flash-exp',
+        model: llmConfig.model ?? 'anthropic/claude-haiku-4.5',
+        siteName: llmConfig.siteName,
         temperature: llmConfig.temperature ?? 0.7,
       },
       {
+        memoryManager: sharedServices.memoryManager, // SHARED
         sessionEventBus,
-        systemPromptManager: sharedServices.systemPromptManager, // SHARED
+        systemPromptManager: sharedServices.promptFactory, // SHARED
         toolManager: sharedServices.toolManager, // SHARED
       },
     )
@@ -295,11 +215,13 @@ export function createSessionServices(
         maxTokens: llmConfig.maxTokens ?? 8192,
         model: llmConfig.model ?? 'gemini-2.5-pro',
         temperature: llmConfig.temperature ?? 0.7,
+        verbose: llmConfig.verbose ?? false,
       },
       {
         historyStorage: sharedServices.historyStorage, // SHARED
+        memoryManager: sharedServices.memoryManager, // SHARED
+        promptFactory: sharedServices.promptFactory, // SHARED
         sessionEventBus,
-        systemPromptManager: sharedServices.systemPromptManager, // SHARED
         toolManager: sharedServices.toolManager, // SHARED
       },
     )

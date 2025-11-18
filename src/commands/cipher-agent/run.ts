@@ -63,8 +63,8 @@ export default class CipherAgentRun extends Command {
   static override flags = {
     apiKey: Flags.string({
       char: 'k',
-      description: 'Gemini API key (use direct Gemini instead of gRPC backend)',
-      env: 'GEMINI_API_KEY',
+      description: 'OpenRouter API key (use OpenRouter instead of gRPC backend)',
+      env: 'OPENROUTER_API_KEY',
     }),
     continue: Flags.boolean({
       char: 'c',
@@ -85,7 +85,7 @@ export default class CipherAgentRun extends Command {
     }),
     model: Flags.string({
       char: 'm',
-      description: 'Model to use (default: gemini-2.5-flash)',
+      description: 'Model to use (default: anthropic/claude-haiku-4.5 for OpenRouter, gemini-2.5-pro for gRPC)',
     }),
     resume: Flags.string({
       char: 'r',
@@ -94,6 +94,11 @@ export default class CipherAgentRun extends Command {
     temperature: Flags.string({
       char: 'T',
       description: 'Temperature for randomness 0-1 (default: 0.7)',
+    }),
+    verbose: Flags.boolean({
+      char: 'v',
+      default: false,
+      description: 'Enable verbose debug output for prompt loading and agent operations',
     }),
     workingDirectory: Flags.string({
       char: 'w',
@@ -259,42 +264,46 @@ export default class CipherAgentRun extends Command {
    * @param token.accessToken - Access token for authentication
    * @param token.sessionKey - Session key for authentication
    * @param flags - Command flags
-   * @param flags.apiKey - Gemini API key for direct service (optional)
+   * @param flags.apiKey - OpenRouter API key for direct service (optional)
    * @param flags.maxTokens - Maximum tokens in response
    * @param flags.model - Model to use
    * @param flags.temperature - Temperature for randomness
+   * @param flags.verbose - Enable verbose debug output
    * @param flags.workingDirectory - Working directory for file operations
    * @returns LLM configuration object
    */
   private createLLMConfig(
     token: {accessToken: string; sessionKey: string},
-    flags: {apiKey?: string; maxTokens?: number; model?: string; temperature?: string; workingDirectory?: string},
+    flags: {apiKey?: string; maxTokens?: number; model?: string; temperature?: string; verbose?: boolean; workingDirectory?: string},
   ): {
     accessToken: string
-    apiKey?: string
     fileSystemConfig?: {workingDirectory: string}
     grpcEndpoint: string
     maxIterations: number
     maxTokens: number
     model: string
+    openRouterApiKey?: string
     projectId: string
     sessionKey: string
     temperature: number
+    verbose?: boolean
   } {
-    const model = flags.model ?? 'gemini-2.5-flash'
+    // Default model: anthropic/anthropic/claude-haiku-4.5 for OpenRouter, gemini-2.5-pro for gRPC
+    const model = flags.model ?? (flags.apiKey ? 'anthropic/claude-haiku-4.5' : 'gemini-2.5-pro')
     const envConfig = getCurrentConfig()
 
     return {
       accessToken: token.accessToken,
-      apiKey: flags.apiKey,
       fileSystemConfig: flags.workingDirectory ? {workingDirectory: flags.workingDirectory} : undefined,
       grpcEndpoint: envConfig.llmGrpcEndpoint,
       maxIterations: 50, // Hardcoded default
       maxTokens: flags.maxTokens ?? 8192, // Default: 8192
       model,
+      openRouterApiKey: flags.apiKey, // Map -k flag to OpenRouter API key
       projectId: PROJECT,
       sessionKey: token.sessionKey,
       temperature: flags.temperature ? Number.parseFloat(flags.temperature) : 0.7, // Default: 0.7
+      verbose: flags.verbose ?? false,
     }
   }
 

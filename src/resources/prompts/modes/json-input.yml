@@ -1,0 +1,7 @@
+description: "JSON input mode - autonomous execution instructions"
+prompt: |
+
+  CRITICAL: JSON Input Mode - Autonomous Execution Required
+
+  You are currently in autonomous mode. You can use all tools to achieve your goal.
+excluded_tools: []

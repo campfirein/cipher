@@ -8,7 +8,7 @@ import type {AgentEventBus} from './events/event-emitter.js'
 import type {FileSystemService} from './file-system/file-system-service.js'
 import type {MemoryManager} from './memory/memory-manager.js'
 import type {ProcessService} from './process/process-service.js'
-import type {SystemPromptManager} from './system-prompt/system-prompt-manager.js'
+import type {SimplePromptFactory} from './system-prompt/simple-prompt-factory.js'
 import type {ToolManager} from './tools/tool-manager.js'
 import type {ToolProvider} from './tools/tool-provider.js'
 
@@ -44,7 +44,7 @@ export class CipherAgent implements ICipherAgent {
   public readonly historyStorage?: IHistoryStorage
   public readonly memoryManager?: MemoryManager
   public readonly processService?: ProcessService
-  public readonly systemPromptManager?: SystemPromptManager
+  public readonly promptFactory?: SimplePromptFactory
   public readonly toolManager?: ToolManager
   public readonly toolProvider?: ToolProvider
   private readonly _brvConfig?: BrvConfig
@@ -171,14 +171,14 @@ export class CipherAgent implements ICipherAgent {
   }
 
   /**
-   * Get the current system prompt from SystemPromptManager
+   * Get the current system prompt from SimplePromptFactory
    * Useful for debugging and inspection
    *
    * @returns Current system prompt (built dynamically)
    */
   public async getSystemPrompt(): Promise<string> {
     this.ensureStarted()
-    return this.getSystemPromptManager().build({})
+    return this.getPromptFactory().buildSystemPrompt({})
   }
 
   /**
@@ -249,11 +249,14 @@ export class CipherAgent implements ICipherAgent {
 
     // Extract LLM config for sessions
     const sessionLLMConfig = {
-      apiKey: this.llmConfig.apiKey,
+      httpReferer: this.llmConfig.httpReferer,
       maxIterations: this.llmConfig.maxIterations,
       maxTokens: this.llmConfig.maxTokens,
       model: this.llmConfig.model,
+      openRouterApiKey: this.llmConfig.openRouterApiKey,
+      siteName: this.llmConfig.siteName,
       temperature: this.llmConfig.temperature,
+      verbose: this.llmConfig.verbose,
     }
 
     // Create SessionManager with shared services and execution context
@@ -291,7 +294,7 @@ export class CipherAgent implements ICipherAgent {
       !this.historyStorage ||
       !this.memoryManager ||
       !this.processService ||
-      !this.systemPromptManager ||
+      !this.promptFactory ||
       !this.toolManager ||
       !this.toolProvider ||
       !this.sessionManager
@@ -329,6 +332,20 @@ export class CipherAgent implements ICipherAgent {
   }
 
   /**
+   * Get initialized prompt factory (guaranteed to be defined after start())
+   *
+   * @returns SimplePromptFactory instance
+   * @throws Error if not initialized
+   */
+  private getPromptFactory(): SimplePromptFactory {
+    if (!this.promptFactory) {
+      throw new Error('SimplePromptFactory not initialized. This is a bug.')
+    }
+
+    return this.promptFactory
+  }
+
+  /**
    * Get initialized session manager (guaranteed to be defined after start())
    *
    * @returns SessionManager instance
@@ -340,19 +357,5 @@ export class CipherAgent implements ICipherAgent {
     }
 
     return this.sessionManager
-  }
-
-  /**
-   * Get initialized system prompt manager (guaranteed to be defined after start())
-   *
-   * @returns SystemPromptManager instance
-   * @throws Error if not initialized
-   */
-  private getSystemPromptManager(): SystemPromptManager {
-    if (!this.systemPromptManager) {
-      throw new Error('SystemPromptManager not initialized. This is a bug.')
-    }
-
-    return this.systemPromptManager
   }
 }
