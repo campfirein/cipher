@@ -12,7 +12,7 @@ sections:
   directory_structure:
     header: "### Directory Structure"
     content: |
-      The `.brv/contexts` directory follows this structure:
+      The `.brv/context-tree` directory follows this structure:
 
       #### Determining File Location
 
@@ -40,7 +40,7 @@ sections:
       - step: 3
         title: "Check existing memory files"
         items:
-          - "Use `glob-files-tool` to explore relevant directories in `.brv/contexts`."
+          - "Use `glob-files-tool` to explore relevant directories in `.brv/context-tree`."
           - "Use `grep-content-tool` to find related content in existing memory files."
           - "Use `read-file-tool` to read existing files that might need updates."
       - step: 4

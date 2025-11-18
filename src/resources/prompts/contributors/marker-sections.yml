@@ -65,6 +65,79 @@ markers:
       search_history:
         description: "Search past conversations to find relevant context"
 
+      detect_domains:
+        intro: "You can validate and categorize knowledge domains using **detect_domains**."
+        description: |
+          **Tool name:** Use exactly `detect_domains` (with underscore, lowercase) when calling this tool.
+          
+          This tool validates domain classifications that YOU have already detected from analyzing JSON data.
+          **IMPORTANT:** The tool does NOT automatically analyze or detect domains - YOU must do all the analysis yourself.
+        workflow:
+          title: "Domain detection workflow"
+          steps:
+            - step: 1
+              title: "Analyze JSON data content"
+              description: "Review the content to identify domain patterns and knowledge categories"
+            - step: 2
+              title: "Classify knowledge into domains"
+              description: "Identify domains using predefined categories (STYLE_GUIDE, ARCHITECTURE_DECISION, NAMING, WORKFLOW, TROUBLESHOOTING, PERFORMANCE, PLAN, PITFALL) or create custom category names"
+            - step: 3
+              title: "Create domain objects"
+              description: "Build domain objects with category, description, confidence scores, reasoning, and supporting snippets"
+            - step: 4
+              title: "Validate with detect_domains"
+              description: "Call the tool using the exact name `detect_domains` (lowercase with underscore) with original content and your detected domains array to validate and get summary statistics"
+        examples:
+          header: "Example domain classifications:"
+          items:
+            - title: "ARCHITECTURE_DECISION"
+              description: "Decision to use event-driven architecture for scalability"
+            - title: "STYLE_GUIDE"
+              description: "TypeScript naming conventions for interfaces"
+            - title: "Custom: SECURITY_PATTERN"
+              description: "Authentication token validation patterns and best practices"
+        purpose: "Use this in headless mode to build context about code knowledge domains. The tool validates your classifications and returns summary statistics including high-confidence domains (>= 0.7)."
+
+      create_knowledge_topic:
+        intro: "You can create hierarchical knowledge structures using **create_knowledge_topic**."
+        description: |
+          **Tool name:** Use exactly `create_knowledge_topic` (with underscores, lowercase) when calling this tool.
+          
+          This tool takes output from `detect_domains` and creates a structured Markdown hierarchy
+          in `.brv/context-tree/` for later navigation.
+        workflow:
+          title: "Knowledge structure creation workflow"
+          steps:
+            - step: 1
+              title: "Get domains from detect_domains"
+              description: "Use the `domains` array from `detect_domains` output as input"
+            - step: 2
+              title: "Optionally add topics and subtopics"
+              description: "Provide hierarchical structure: domains → topics → subtopics with descriptions, confidence scores, and related files"
+            - step: 3
+              title: "Call create_knowledge_topic"
+              description: "Call the tool using the exact name `create_knowledge_topic` (lowercase with underscores) to create/update directory structure atomically and safely"
+        features:
+          - "Non-destructive: Never recreates existing .brv/context-tree/ directory"
+          - "Incremental: Safely adds new knowledge to existing structure"
+          - "Merge-aware: Skips existing files (future: merge support)"
+          - "Atomic writes: File operations are atomic to prevent corruption"
+        examples:
+          header: "Created structure example:"
+          items:
+            - title: "Directory structure"
+              description: |
+                Creates hierarchical structure:
+                ```
+                .brv/context-tree/
+                ├── ARCHITECTURE_DECISION/
+                │   ├── metadata.md
+                │   └── microservices/
+                │       ├── README.md
+                │       └── service-mesh.md
+                ```
+        purpose: "Use this tool after running `detect_domains` to persist knowledge in a navigable format. Returns statistics about what was created, updated, or skipped."
+
   ToolMarkerModification:
     section_title: "File Modification"
     header: "You can modify files using:"
