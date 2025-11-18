@@ -1,7 +1,6 @@
 import type {Message} from '../../../core/domain/cipher/session/types.js'
 import type {CipherAgentServices, SessionServices} from '../../../core/interfaces/cipher/cipher-services.js'
 import type {IChatSession} from '../../../core/interfaces/cipher/i-chat-session.js'
-import type {ExecutionContext} from '../../../core/interfaces/cipher/i-cipher-agent.js'
 import type {ILLMService} from '../../../core/interfaces/cipher/i-llm-service.js'
 
 import {LLMError, SessionCancelledError} from '../../../core/domain/cipher/errors/session-error.js'
@@ -47,7 +46,6 @@ export class ChatSession implements IChatSession {
   public readonly eventBus: SessionEventBus
   public readonly id: string
   private currentController?: AbortController
-  private readonly executionContext?: ExecutionContext
   private readonly forwarders = new Map<string, (payload?: unknown) => void>()
   private readonly llmService: ILLMService
   private readonly sharedServices: CipherAgentServices
@@ -58,14 +56,12 @@ export class ChatSession implements IChatSession {
    * @param id - Unique session identifier
    * @param sharedServices - Shared services from CipherAgent
    * @param sessionServices - Session-specific services (LLM, EventBus)
-   * @param executionContext - Optional execution context (for JSON input mode, etc.)
    */
-  public constructor(id: string, sharedServices: CipherAgentServices, sessionServices: SessionServices, executionContext?: ExecutionContext) {
+  public constructor(id: string, sharedServices: CipherAgentServices, sessionServices: SessionServices) {
     this.id = id
     this.sharedServices = sharedServices
     this.eventBus = sessionServices.sessionEventBus
     this.llmService = sessionServices.llmService
-    this.executionContext = executionContext
 
     // Setup event forwarding from session bus to agent bus
     this.setupEventForwarding()
@@ -117,6 +113,14 @@ export class ChatSession implements IChatSession {
   }
 
   /**
+   * Get the LLM service for direct access to context manager.
+   * Useful for pre-loading conversation history in JSON input mode.
+   */
+  public getLLMService(): ILLMService {
+    return this.llmService
+  }
+
+  /**
    * Get the number of messages in the conversation.
    */
   public getMessageCount(): number {
@@ -141,14 +145,14 @@ export class ChatSession implements IChatSession {
    * Send a message and get a response.
    * Delegates to the LLM service which handles the agentic loop.
    */
-  public async run(input: string): Promise<string> {
+  public async run(input: string, options?: {mode?: 'default' | 'json-input'}): Promise<string> {
     // Create abort controller for cancellation
     this.currentController = new AbortController()
 
     try {
       // Delegate to service - it handles everything
       const response = await this.llmService.completeTask(input, {
-        executionContext: this.executionContext,
+        mode: options?.mode,
         signal: this.currentController.signal,
       })
 

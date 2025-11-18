@@ -1,4 +1,5 @@
 import {Args, Command, Flags} from '@oclif/core'
+import fs from 'node:fs'
 
 import type {IProjectConfigStore} from '../../core/interfaces/i-project-config-store.js'
 
@@ -7,7 +8,6 @@ import { PROJECT } from '../../constants.js'
 import {CipherAgent} from '../../infra/cipher/cipher-agent.js'
 import {ExitCode, exitWithCode} from '../../infra/cipher/exit-codes.js'
 import {displayInfo, startInteractiveLoop} from '../../infra/cipher/interactive-loop.js'
-import {parseCursorConversation} from '../../infra/cipher/json-parser.js'
 import {WorkspaceNotInitializedError} from '../../infra/cipher/validation/workspace-validator.js'
 import {ProjectConfigStore} from '../../infra/config/file-config-store.js'
 import {KeychainTokenStore} from '../../infra/storage/keychain-token-store.js'
@@ -42,16 +42,17 @@ export default class CipherAgentRun extends Command {
     '<%= config.bin %> <%= command.id %> -c "What did we discuss?"',
     '<%= config.bin %> <%= command.id %> -r session-1731686400123-a7b3c9 "Continue implementation"',
     '',
-    '# JSON input mode (headless, from Cursor conversation)',
-    '<%= config.bin %> <%= command.id %> -j conversation.json',
-    '<%= config.bin %> <%= command.id %> --input-json /path/to/conversation.json',
+    '# Process JSON data with default prompt',
+    '<%= config.bin %> <%= command.id %> -j data.json',
     '',
-    '# JSON input with session continuation',
-    '<%= config.bin %> <%= command.id %> -j conversation.json -c',
-    '<%= config.bin %> <%= command.id %> -j conversation.json -r session-1731686400123-a7b3c9',
+    '# Process JSON with custom prompt',
+    '<%= config.bin %> <%= command.id %> "analyze this data for patterns" -j data.json',
     '',
-    '# JSON input with piped output',
-    '<%= config.bin %> <%= command.id %> -j conversation.json > response.txt',
+    '# Process JSON with session continuation',
+    '<%= config.bin %> <%= command.id %> -j data.json -c',
+    '',
+    '# Process JSON with verbose output',
+    '<%= config.bin %> <%= command.id %> -j data.json -v',
     '',
     '# Piped input (automatically uses non-interactive mode)',
     'echo "Analyze the codebase" | <%= config.bin %> <%= command.id %>',
@@ -63,8 +64,8 @@ export default class CipherAgentRun extends Command {
   static override flags = {
     apiKey: Flags.string({
       char: 'k',
-      description: 'Gemini API key (use direct Gemini instead of gRPC backend)',
-      env: 'GEMINI_API_KEY',
+      description: 'OpenRouter API key (use OpenRouter instead of gRPC backend)',
+      env: 'OPENROUTER_API_KEY',
     }),
     continue: Flags.boolean({
       char: 'c',
@@ -72,7 +73,7 @@ export default class CipherAgentRun extends Command {
     }),
     inputJson: Flags.string({
       char: 'j',
-      description: 'Path to JSON file with conversation history (Cursor format)',
+      description: 'Path to JSON file to process (any format)',
     }),
     interactive: Flags.boolean({
       allowNo: true,
@@ -85,7 +86,7 @@ export default class CipherAgentRun extends Command {
     }),
     model: Flags.string({
       char: 'm',
-      description: 'Model to use (default: gemini-2.5-flash)',
+      description: 'Model to use (default: anthropic/claude-haiku-4.5 for OpenRouter, gemini-2.5-flash for gRPC)',
     }),
     resume: Flags.string({
       char: 'r',
@@ -94,6 +95,11 @@ export default class CipherAgentRun extends Command {
     temperature: Flags.string({
       char: 'T',
       description: 'Temperature for randomness 0-1 (default: 0.7)',
+    }),
+    verbose: Flags.boolean({
+      char: 'v',
+      default: false,
+      description: 'Enable verbose debug output for prompt loading and agent operations',
     }),
     workingDirectory: Flags.string({
       char: 'w',
@@ -165,20 +171,37 @@ export default class CipherAgentRun extends Command {
         exitWithCode(ExitCode.CONFIG_ERROR, 'Authentication required. Please run "brv login" first.')
       }
 
-      // Handle JSON input mode
+      // Construct the prompt
+      let currentPrompt: string
+      let jsonInputMode = false
+
       if (flags.inputJson) {
-        return this.runWithJsonInput(token, flags)
+        // Read and parse JSON file
+        const jsonData = this.readAndParseJson(flags.inputJson)
+
+        // Use custom prompt if provided, otherwise use default
+        const basePrompt = args.prompt || 'process the task for building the context tree with the data'
+
+        // Combine prompt with JSON data
+        currentPrompt = `${basePrompt}\n\n${jsonData}`
+        jsonInputMode = true
+      } else if (args.prompt) {
+        currentPrompt = args.prompt
+      } else {
+        currentPrompt = '' // Will be handled by interactive mode
       }
 
       // Determine interactive mode
       // Priority: explicit flag > TTY detection
-      const isInteractive: boolean =
-        flags.interactive === undefined
+      // Note: JSON input mode is always non-interactive
+      const isInteractive: boolean = jsonInputMode
+        ? false
+        : flags.interactive === undefined
           ? process.stdin.isTTY === true // Auto-detect from TTY
           : flags.interactive // User explicitly set --interactive or --no-interactive
 
       // Validate prompt requirement for non-interactive mode
-      if (!isInteractive && !args.prompt) {
+      if (!isInteractive && !currentPrompt) {
         this.error('Prompt is required in non-interactive mode. Use --interactive flag for interactive mode.')
       }
 
@@ -214,12 +237,16 @@ export default class CipherAgentRun extends Command {
         })
       } else {
         // Non-interactive mode: single execution
-        if (!args.prompt) {
+        if (!currentPrompt) {
           this.error('Prompt is required in non-interactive mode.')
         }
 
         this.log('Executing prompt...')
-        const response = await agent.execute(args.prompt, resolvedSessionId)
+        const response = await agent.execute(
+          currentPrompt,
+          resolvedSessionId,
+          jsonInputMode ? {mode: 'json-input'} : undefined,
+        )
 
         this.log('\nCipherAgent Response:')
         this.log(response)
@@ -259,42 +286,46 @@ export default class CipherAgentRun extends Command {
    * @param token.accessToken - Access token for authentication
    * @param token.sessionKey - Session key for authentication
    * @param flags - Command flags
-   * @param flags.apiKey - Gemini API key for direct service (optional)
+   * @param flags.apiKey - OpenRouter API key for direct service (optional)
    * @param flags.maxTokens - Maximum tokens in response
    * @param flags.model - Model to use
    * @param flags.temperature - Temperature for randomness
+   * @param flags.verbose - Enable verbose debug output
    * @param flags.workingDirectory - Working directory for file operations
    * @returns LLM configuration object
    */
   private createLLMConfig(
     token: {accessToken: string; sessionKey: string},
-    flags: {apiKey?: string; maxTokens?: number; model?: string; temperature?: string; workingDirectory?: string},
+    flags: {apiKey?: string; maxTokens?: number; model?: string; temperature?: string; verbose?: boolean; workingDirectory?: string},
   ): {
     accessToken: string
-    apiKey?: string
     fileSystemConfig?: {workingDirectory: string}
     grpcEndpoint: string
     maxIterations: number
     maxTokens: number
     model: string
+    openRouterApiKey?: string
     projectId: string
     sessionKey: string
     temperature: number
+    verbose?: boolean
   } {
-    const model = flags.model ?? 'gemini-2.5-flash'
+    // Default model: anthropic/anthropic/claude-haiku-4.5 for OpenRouter, gemini-2.5-flash for gRPC
+    const model = flags.model ?? (flags.apiKey ? 'anthropic/claude-haiku-4.5' : 'gemini-2.5-flash')
     const envConfig = getCurrentConfig()
 
     return {
       accessToken: token.accessToken,
-      apiKey: flags.apiKey,
       fileSystemConfig: flags.workingDirectory ? {workingDirectory: flags.workingDirectory} : undefined,
       grpcEndpoint: envConfig.llmGrpcEndpoint,
-      maxIterations: 50, // Hardcoded default
+      maxIterations: 10, // Hardcoded default
       maxTokens: flags.maxTokens ?? 8192, // Default: 8192
       model,
+      openRouterApiKey: flags.apiKey, // Map -k flag to OpenRouter API key
       projectId: PROJECT,
       sessionKey: token.sessionKey,
       temperature: flags.temperature ? Number.parseFloat(flags.temperature) : 0.7, // Default: 0.7
+      verbose: flags.verbose ?? false,
     }
   }
 
@@ -341,6 +372,26 @@ export default class CipherAgentRun extends Command {
     ].join('\n')
 
     exitWithCode(ExitCode.VALIDATION_ERROR, message)
+  }
+
+  /**
+   * Read and parse a JSON file
+   *
+   * @param filePath - Path to JSON file
+   * @returns Pretty-printed JSON string
+   */
+  private readAndParseJson(filePath: string): string {
+    try {
+      const fileContent = fs.readFileSync(filePath, 'utf8')
+      const parsed = JSON.parse(fileContent)
+      return JSON.stringify(parsed, null, 2) // Pretty print for readability
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        throw new Error(`JSON file not found: ${filePath}`)
+      }
+
+      throw new Error(`Invalid JSON in file ${filePath}: ${(error as Error).message}`)
+    }
   }
 
   /**
@@ -396,107 +447,6 @@ export default class CipherAgentRun extends Command {
     return newSessionId
   }
 
-  /**
-   * Run with JSON input from a file
-   * Loads conversation history and executes the latest prompt
-   *
-   * @param token - Authentication token
-   * @param token.accessToken - Access token for authentication
-   * @param token.sessionKey - Session key for authentication
-   * @param flags - Command flags
-   * @param flags.apiKey - Gemini API key for direct service (optional)
-   * @param flags.continue - Continue most recent session flag
-   * @param flags.inputJson - Path to JSON file with conversation history
-   * @param flags.maxTokens - Maximum tokens in response
-   * @param flags.model - Model to use
-   * @param flags.resume - Resume specific session by ID
-   * @param flags.temperature - Temperature for randomness
-   * @param flags.workingDirectory - Working directory for file operations
-   */
-  private async runWithJsonInput(
-    token: {accessToken: string; sessionKey: string},
-    flags: {
-      apiKey?: string
-      continue?: boolean
-      inputJson?: string
-      maxTokens?: number
-      model?: string
-      resume?: string
-      temperature?: string
-      workingDirectory?: string
-    },
-  ): Promise<void> {
-    // Validate JSON file path is provided
-    if (!flags.inputJson) {
-      exitWithCode(ExitCode.VALIDATION_ERROR, 'JSON input file path is required')
-    }
-
-    // Parse the Cursor conversation JSON
-    let parsedConversation
-    try {
-      parsedConversation = parseCursorConversation(flags.inputJson)
-    } catch (error) {
-      exitWithCode(ExitCode.VALIDATION_ERROR, `Failed to parse JSON file: ${(error as Error).message}`)
-    }
-
-    const {currentPrompt, history, metadata} = parsedConversation
-
-    // Load ByteRover config
-    const {projectConfigStore} = this.createServices()
-    const brvConfig = await projectConfigStore.read()
-
-    // Create LLM configuration
-    const llmConfig = this.createLLMConfig(token, flags)
-
-    // Create execution context for JSON input mode
-    const executionContext = {
-      conversationMetadata: {
-        conversationId: metadata.conversationId,
-        title: metadata.title,
-      },
-      isJsonInputMode: true,
-    }
-
-    // Create CipherAgent with execution context
-    const agent = new CipherAgent(llmConfig, brvConfig, executionContext)
-
-    try {
-      await agent.start()
-    } catch (error) {
-      if (error instanceof WorkspaceNotInitializedError) {
-        exitWithCode(ExitCode.VALIDATION_ERROR, `Workspace not initialized. Run 'brv init' first.`)
-      }
-
-      exitWithCode(ExitCode.RUNTIME_ERROR, `Failed to start agent: ${(error as Error).message}`)
-    }
-
-    // Resolve session ID based on flags
-    const resolvedSessionId = await this.resolveSessionId(agent, flags)
-
-    // Save conversation history to storage so it's loaded when session initializes
-    if (history.length > 0 && agent.historyStorage) {
-      try {
-        await agent.historyStorage.saveHistory(resolvedSessionId, history)
-      } catch (error) {
-        exitWithCode(ExitCode.RUNTIME_ERROR, `Failed to save conversation history: ${(error as Error).message}`)
-      }
-    }
-
-    // Setup event listeners for JSON input mode (logs to stderr)
-    this.setupJsonInputEventListeners(agent)
-
-    // Execute the current prompt
-    try {
-      const response = await agent.execute(currentPrompt, resolvedSessionId)
-
-      // Output only the response to stdout (clean, pipeable)
-      process.stdout.write(response)
-
-      // Normal return - oclif handles exit
-    } catch (error) {
-      exitWithCode(ExitCode.RUNTIME_ERROR, `Agent execution failed: ${(error as Error).message}`)
-    }
-  }
 
   /**
    * Setup event listeners based on mode
@@ -573,36 +523,4 @@ export default class CipherAgentRun extends Command {
     })
   }
 
-  /**
-   * Setup event listeners for JSON input mode
-   * Logs to stderr to avoid polluting JSON output stream on stdout
-   *
-   * @param agent - CipherAgent instance
-   */
-  private setupJsonInputEventListeners(agent: import('../../infra/cipher/cipher-agent.js').CipherAgent): void {
-    if (!agent.agentEventBus) {
-      throw new Error('Agent event bus not initialized')
-    }
-
-    const eventBus = agent.agentEventBus
-
-    // Listen for tool calls and log to stderr
-    eventBus.on('llmservice:toolCall', (payload) => {
-      const argsStr = JSON.stringify(payload.args, null, 2)
-      console.error(`[ByteRoverLLMService] 🔧 Tool called: ${payload.toolName}`)
-      console.error(`[ByteRoverLLMService]    Args: ${argsStr}`)
-    })
-
-    // Listen for tool results and log to stderr
-    eventBus.on('llmservice:toolResult', (payload) => {
-      if (payload.success) {
-        const resultStr = JSON.stringify(payload.result)
-        const resultPreview = resultStr.slice(0, 200)
-        const truncated = resultStr.length > 200 ? '...' : ''
-        console.error(`[ByteRoverLLMService] ✓ Tool result: ${resultPreview}${truncated}`)
-      } else {
-        console.error(`[ByteRoverLLMService] ✗ Tool error: ${payload.toolName} → ${payload.error}`)
-      }
-    })
-  }
 }

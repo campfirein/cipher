@@ -1,4 +1,5 @@
 import type {Message} from '../../domain/cipher/session/types.js'
+import type {ILLMService} from './i-llm-service.js'
 
 /**
  * Interface for a chat session.
@@ -26,6 +27,14 @@ export interface IChatSession {
   getHistory(): Message[]
 
   /**
+   * Get the LLM service for direct access to context manager.
+   * Useful for pre-loading conversation history in JSON input mode.
+   *
+   * @returns The LLM service instance
+   */
+  getLLMService(): ILLMService
+
+  /**
    * Get the number of messages in the conversation.
    *
    * @returns Message count
@@ -46,10 +55,12 @@ export interface IChatSession {
    * Handles tool execution loop automatically.
    *
    * @param input - User message content
+   * @param options - Optional execution options
+   * @param options.mode - Optional mode for system prompt ('json-input' enables autonomous mode)
    * @returns Assistant response
    * @throws SessionCancelledError if operation is cancelled
    * @throws MaxIterationsExceededError if tool loop exceeds maximum iterations
    * @throws LLMError if LLM call fails
    */
-  run(input: string): Promise<string>
+  run(input: string, options?: {mode?: 'default' | 'json-input'}): Promise<string>
 }

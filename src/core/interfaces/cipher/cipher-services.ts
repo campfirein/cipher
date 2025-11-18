@@ -2,7 +2,7 @@ import type {AgentEventBus, SessionEventBus} from '../../../infra/cipher/events/
 import type {FileSystemService} from '../../../infra/cipher/file-system/file-system-service.js'
 import type {MemoryManager} from '../../../infra/cipher/memory/memory-manager.js'
 import type {ProcessService} from '../../../infra/cipher/process/process-service.js'
-import type {SystemPromptManager} from '../../../infra/cipher/system-prompt/system-prompt-manager.js'
+import type {SimplePromptFactory} from '../../../infra/cipher/system-prompt/simple-prompt-factory.js'
 import type {ToolManager} from '../../../infra/cipher/tools/tool-manager.js'
 import type {ToolProvider} from '../../../infra/cipher/tools/tool-provider.js'
 import type {IBlobStorage} from './i-blob-storage.js'
@@ -15,7 +15,7 @@ import type {ILLMService} from './i-llm-service.js'
  * These services are singletons that provide global functionality:
  * - AgentEventBus: Global event bus for agent-level events
  * - ToolManager: Manages tool registration and execution (stateless)
- * - SystemPromptManager: Builds system prompts with contributors
+ * - SimplePromptFactory: Builds system prompts from simple YAML templates
  * - FileSystemService: File system operations
  * - ProcessService: Command execution
  * - BlobStorage: Binary data storage
@@ -30,7 +30,7 @@ export interface CipherAgentServices {
   historyStorage: IHistoryStorage
   memoryManager: MemoryManager
   processService: ProcessService
-  systemPromptManager: SystemPromptManager
+  promptFactory: SimplePromptFactory
   toolManager: ToolManager
   toolProvider: ToolProvider
 }

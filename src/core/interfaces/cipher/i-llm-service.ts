@@ -28,11 +28,12 @@ export interface ILLMService {
    * @param options.fileData - Optional file data
    * @param options.stream - Whether to stream the response (optional)
    * @param options.executionContext - Optional execution context (for JSON input mode, etc.)
+   * @param options.mode - Optional mode for system prompt ('json-input' enables autonomous mode)
    * @returns Final assistant response
    */
   completeTask(
     textInput: string,
-    options?: {executionContext?: ExecutionContext; fileData?: FileData; imageData?: ImageData; signal?: AbortSignal; stream?: boolean},
+    options?: {executionContext?: ExecutionContext; fileData?: FileData; imageData?: ImageData; mode?: 'default' | 'json-input'; signal?: AbortSignal; stream?: boolean},
   ): Promise<string>
 
   /**

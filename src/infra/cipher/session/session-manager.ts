@@ -2,7 +2,6 @@ import {randomUUID} from 'node:crypto'
 
 import type {CipherAgentServices, SessionManagerConfig} from '../../../core/interfaces/cipher/cipher-services.js'
 import type {IChatSession} from '../../../core/interfaces/cipher/i-chat-session.js'
-import type {ExecutionContext} from '../../../core/interfaces/cipher/i-cipher-agent.js'
 import type {ByteRoverGrpcConfig} from '../agent-service-factory.js'
 
 import {createSessionServices} from '../agent-service-factory.js'
@@ -13,7 +12,6 @@ import {ChatSession} from './chat-session.js'
  */
 export interface SessionManagerOptions {
   config?: SessionManagerConfig
-  executionContext?: ExecutionContext
 }
 
 /**
@@ -27,12 +25,14 @@ export interface SessionManagerOptions {
  */
 export class SessionManager {
   private readonly config: Required<SessionManagerConfig>
-  private readonly executionContext?: ExecutionContext
   private readonly grpcConfig: ByteRoverGrpcConfig
   private readonly llmConfig: {
+    httpReferer?: string
     maxIterations?: number
     maxTokens?: number
     model: string
+    openRouterApiKey?: string
+    siteName?: string
     temperature?: number
   }
   private pendingCreations = new Map<string, Promise<IChatSession>>()
@@ -45,21 +45,26 @@ export class SessionManager {
    * @param sharedServices - Shared services from CipherAgent (ToolManager, SystemPromptManager, etc.)
    * @param grpcConfig - gRPC client configuration
    * @param llmConfig - LLM service configuration
+   * @param llmConfig.openRouterApiKey - Optional OpenRouter API key for direct service
+   * @param llmConfig.httpReferer - Optional HTTP Referer for OpenRouter rankings
+   * @param llmConfig.siteName - Optional site name for OpenRouter rankings
    * @param llmConfig.maxIterations - Maximum iterations for agentic loop
    * @param llmConfig.maxTokens - Maximum output tokens
    * @param llmConfig.model - LLM model identifier
    * @param llmConfig.temperature - Temperature for generation
    * @param options - Optional session manager options
    * @param options.config - Session manager configuration
-   * @param options.executionContext - Optional execution context (for JSON input mode, etc.)
    */
   public constructor(
     sharedServices: CipherAgentServices,
     grpcConfig: ByteRoverGrpcConfig,
     llmConfig: {
+      httpReferer?: string
       maxIterations?: number
       maxTokens?: number
       model: string
+      openRouterApiKey?: string
+      siteName?: string
       temperature?: number
     },
     options?: SessionManagerOptions,
@@ -67,7 +72,6 @@ export class SessionManager {
     this.sharedServices = sharedServices
     this.grpcConfig = grpcConfig
     this.llmConfig = llmConfig
-    this.executionContext = options?.executionContext
     this.config = {
       maxSessions: options?.config?.maxSessions ?? 100,
       sessionTTL: options?.config?.sessionTTL ?? 3_600_000, // 1 hour
@@ -212,7 +216,7 @@ export class SessionManager {
     const sessionServices = createSessionServices(id, this.sharedServices, this.grpcConfig, this.llmConfig)
 
     // Create session with both shared and session services
-    const session = new ChatSession(id, this.sharedServices, sessionServices, this.executionContext)
+    const session = new ChatSession(id, this.sharedServices, sessionServices)
 
     // Initialize LLM service to load persisted history from blob storage
     // Only call initialize() if the service has the method (ByteRoverLLMService has it, GeminiLLMService doesn't)

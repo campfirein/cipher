@@ -1,14 +1,14 @@
 import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
 import type {CipherAgentServices} from '../../core/interfaces/cipher/cipher-services.js'
 import type {IChatSession} from '../../core/interfaces/cipher/i-chat-session.js'
-import type {AgentState, ExecutionContext, ICipherAgent} from '../../core/interfaces/cipher/i-cipher-agent.js'
+import type {AgentState, ICipherAgent} from '../../core/interfaces/cipher/i-cipher-agent.js'
 import type {IHistoryStorage} from '../../core/interfaces/cipher/i-history-storage.js'
 import type {ByteRoverGrpcConfig, CipherLLMConfig} from './agent-service-factory.js'
 import type {AgentEventBus} from './events/event-emitter.js'
 import type {FileSystemService} from './file-system/file-system-service.js'
 import type {MemoryManager} from './memory/memory-manager.js'
 import type {ProcessService} from './process/process-service.js'
-import type {SystemPromptManager} from './system-prompt/system-prompt-manager.js'
+import type {SimplePromptFactory} from './system-prompt/simple-prompt-factory.js'
 import type {ToolManager} from './tools/tool-manager.js'
 import type {ToolProvider} from './tools/tool-provider.js'
 
@@ -44,11 +44,10 @@ export class CipherAgent implements ICipherAgent {
   public readonly historyStorage?: IHistoryStorage
   public readonly memoryManager?: MemoryManager
   public readonly processService?: ProcessService
-  public readonly systemPromptManager?: SystemPromptManager
+  public readonly promptFactory?: SimplePromptFactory
   public readonly toolManager?: ToolManager
   public readonly toolProvider?: ToolProvider
   private readonly _brvConfig?: BrvConfig
-  private readonly _executionContext?: ExecutionContext
   private _isStarted: boolean = false
   private readonly currentDefaultSessionId: string = 'default'
   private defaultSession: IChatSession | null = null
@@ -62,12 +61,10 @@ export class CipherAgent implements ICipherAgent {
    *
    * @param llmConfig - LLM configuration (API key, model settings)
    * @param brvConfig - Optional ByteRover config (for custom system prompt)
-   * @param executionContext - Optional execution context (e.g., for JSON input mode)
    */
-  public constructor(llmConfig: CipherLLMConfig, brvConfig?: BrvConfig, executionContext?: ExecutionContext) {
+  public constructor(llmConfig: CipherLLMConfig, brvConfig?: BrvConfig) {
     this.llmConfig = llmConfig
     this._brvConfig = brvConfig
-    this._executionContext = executionContext
     this.stateManager = new CipherAgentStateManager()
   }
 
@@ -101,10 +98,12 @@ export class CipherAgent implements ICipherAgent {
    *
    * @param input - User input string
    * @param sessionId - Optional session ID (uses 'default' if not provided)
+   * @param options - Optional execution options
+   * @param options.mode - Optional mode for system prompt ('json-input' enables autonomous mode)
    * @returns Agent response from LLM
    * @throws Error if agent is not started
    */
-  public async execute(input: string, sessionId?: string): Promise<string> {
+  public async execute(input: string, sessionId?: string, options?: {mode?: 'default' | 'json-input'}): Promise<string> {
     // Ensure agent is started
     this.ensureStarted()
 
@@ -134,9 +133,23 @@ export class CipherAgent implements ICipherAgent {
     // 1. Call llmService.completeTask()
     // 2. LLM service handles agentic loop (tools, prompts, iterations)
     // 3. Events forwarded from session bus to agent bus
-    const response = await session.run(input)
+    const response = await session.run(input, options)
 
     return response
+  }
+
+  /**
+   * Get an existing session or create a new one.
+   * Useful for ensuring a session exists before pre-loading history.
+   *
+   * @param sessionId - Session ID to get or create
+   * @returns Existing or newly created chat session
+   */
+  public async getOrCreateSession(sessionId: string): Promise<IChatSession> {
+    this.ensureStarted()
+    const sessionMgr = this.getSessionManager()
+    const existingSession = sessionMgr.getSession(sessionId)
+    return existingSession ?? sessionMgr.createSession(sessionId)
   }
 
   /**
@@ -171,14 +184,14 @@ export class CipherAgent implements ICipherAgent {
   }
 
   /**
-   * Get the current system prompt from SystemPromptManager
+   * Get the current system prompt from SimplePromptFactory
    * Useful for debugging and inspection
    *
    * @returns Current system prompt (built dynamically)
    */
   public async getSystemPrompt(): Promise<string> {
     this.ensureStarted()
-    return this.getSystemPromptManager().build({})
+    return this.getPromptFactory().buildSystemPrompt({})
   }
 
   /**
@@ -249,20 +262,22 @@ export class CipherAgent implements ICipherAgent {
 
     // Extract LLM config for sessions
     const sessionLLMConfig = {
-      apiKey: this.llmConfig.apiKey,
+      httpReferer: this.llmConfig.httpReferer,
       maxIterations: this.llmConfig.maxIterations,
       maxTokens: this.llmConfig.maxTokens,
       model: this.llmConfig.model,
+      openRouterApiKey: this.llmConfig.openRouterApiKey,
+      siteName: this.llmConfig.siteName,
       temperature: this.llmConfig.temperature,
+      verbose: this.llmConfig.verbose,
     }
 
-    // Create SessionManager with shared services and execution context
+    // Create SessionManager with shared services
     const sessionManager = new SessionManager(sharedServices, grpcConfig, sessionLLMConfig, {
       config: {
         maxSessions: 100,
         sessionTTL: 3_600_000, // 1 hour
       },
-      executionContext: this._executionContext,
     })
 
     // Assign services using Object.assign for readonly properties
@@ -291,7 +306,7 @@ export class CipherAgent implements ICipherAgent {
       !this.historyStorage ||
       !this.memoryManager ||
       !this.processService ||
-      !this.systemPromptManager ||
+      !this.promptFactory ||
       !this.toolManager ||
       !this.toolProvider ||
       !this.sessionManager
@@ -329,6 +344,20 @@ export class CipherAgent implements ICipherAgent {
   }
 
   /**
+   * Get initialized prompt factory (guaranteed to be defined after start())
+   *
+   * @returns SimplePromptFactory instance
+   * @throws Error if not initialized
+   */
+  private getPromptFactory(): SimplePromptFactory {
+    if (!this.promptFactory) {
+      throw new Error('SimplePromptFactory not initialized. This is a bug.')
+    }
+
+    return this.promptFactory
+  }
+
+  /**
    * Get initialized session manager (guaranteed to be defined after start())
    *
    * @returns SessionManager instance
@@ -340,19 +369,5 @@ export class CipherAgent implements ICipherAgent {
     }
 
     return this.sessionManager
-  }
-
-  /**
-   * Get initialized system prompt manager (guaranteed to be defined after start())
-   *
-   * @returns SystemPromptManager instance
-   * @throws Error if not initialized
-   */
-  private getSystemPromptManager(): SystemPromptManager {
-    if (!this.systemPromptManager) {
-      throw new Error('SystemPromptManager not initialized. This is a bug.')
-    }
-
-    return this.systemPromptManager
   }
 }
