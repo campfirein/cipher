@@ -188,6 +188,7 @@ export function createSessionServices(
         model: llmConfig.model ?? 'anthropic/claude-haiku-4.5',
         siteName: llmConfig.siteName,
         temperature: llmConfig.temperature ?? 0.7,
+        verbose: llmConfig.verbose ?? false,
       },
       {
         memoryManager: sharedServices.memoryManager, // SHARED

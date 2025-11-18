@@ -1,7 +1,8 @@
-description: "JSON input mode - autonomous execution instructions"
+description: "autonomous execution instructions"
 prompt: |
 
-  CRITICAL: JSON Input Mode - Autonomous Execution Required
+  CRITICAL: Autonomous Execution Required
 
-  You are currently in autonomous mode. You can use all tools to achieve your goal.
+  You are currently in autonomous mode. You can use all tools to process the input data and perform the CUD operations on the context tree. the following is the input data:
+
 excluded_tools: []

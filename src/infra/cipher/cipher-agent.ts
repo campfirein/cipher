@@ -1,7 +1,7 @@
 import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
 import type {CipherAgentServices} from '../../core/interfaces/cipher/cipher-services.js'
 import type {IChatSession} from '../../core/interfaces/cipher/i-chat-session.js'
-import type {AgentState, ExecutionContext, ICipherAgent} from '../../core/interfaces/cipher/i-cipher-agent.js'
+import type {AgentState, ICipherAgent} from '../../core/interfaces/cipher/i-cipher-agent.js'
 import type {IHistoryStorage} from '../../core/interfaces/cipher/i-history-storage.js'
 import type {ByteRoverGrpcConfig, CipherLLMConfig} from './agent-service-factory.js'
 import type {AgentEventBus} from './events/event-emitter.js'
@@ -48,7 +48,6 @@ export class CipherAgent implements ICipherAgent {
   public readonly toolManager?: ToolManager
   public readonly toolProvider?: ToolProvider
   private readonly _brvConfig?: BrvConfig
-  private readonly _executionContext?: ExecutionContext
   private _isStarted: boolean = false
   private readonly currentDefaultSessionId: string = 'default'
   private defaultSession: IChatSession | null = null
@@ -62,12 +61,10 @@ export class CipherAgent implements ICipherAgent {
    *
    * @param llmConfig - LLM configuration (API key, model settings)
    * @param brvConfig - Optional ByteRover config (for custom system prompt)
-   * @param executionContext - Optional execution context (e.g., for JSON input mode)
    */
-  public constructor(llmConfig: CipherLLMConfig, brvConfig?: BrvConfig, executionContext?: ExecutionContext) {
+  public constructor(llmConfig: CipherLLMConfig, brvConfig?: BrvConfig) {
     this.llmConfig = llmConfig
     this._brvConfig = brvConfig
-    this._executionContext = executionContext
     this.stateManager = new CipherAgentStateManager()
   }
 
@@ -137,6 +134,20 @@ export class CipherAgent implements ICipherAgent {
     const response = await session.run(input)
 
     return response
+  }
+
+  /**
+   * Get an existing session or create a new one.
+   * Useful for ensuring a session exists before pre-loading history.
+   *
+   * @param sessionId - Session ID to get or create
+   * @returns Existing or newly created chat session
+   */
+  public async getOrCreateSession(sessionId: string): Promise<IChatSession> {
+    this.ensureStarted()
+    const sessionMgr = this.getSessionManager()
+    const existingSession = sessionMgr.getSession(sessionId)
+    return existingSession ?? sessionMgr.createSession(sessionId)
   }
 
   /**
@@ -259,13 +270,12 @@ export class CipherAgent implements ICipherAgent {
       verbose: this.llmConfig.verbose,
     }
 
-    // Create SessionManager with shared services and execution context
+    // Create SessionManager with shared services
     const sessionManager = new SessionManager(sharedServices, grpcConfig, sessionLLMConfig, {
       config: {
         maxSessions: 100,
         sessionTTL: 3_600_000, // 1 hour
       },
-      executionContext: this._executionContext,
     })
 
     // Assign services using Object.assign for readonly properties

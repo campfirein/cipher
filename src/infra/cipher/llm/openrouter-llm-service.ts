@@ -34,6 +34,7 @@ export interface OpenRouterServiceConfig {
   siteName?: string
   temperature?: number
   timeout?: number
+  verbose?: boolean
 }
 
 /**
@@ -78,10 +79,11 @@ interface OpenAIToolDefinition {
  */
 export class OpenRouterLLMService implements ILLMService {
   private readonly client: OpenAI
-  private readonly config: Required<Omit<OpenRouterServiceConfig, 'httpReferer' | 'siteName' | 'timeout'>> & {
+  private readonly config: Required<Omit<OpenRouterServiceConfig, 'httpReferer' | 'siteName' | 'timeout' | 'verbose'>> & {
     httpReferer?: string
     siteName?: string
     timeout?: number
+    verbose?: boolean
   }
   private readonly contextManager: ContextManager<ChatCompletionMessageParam>
   private readonly formatter: OpenRouterMessageFormatter
@@ -127,6 +129,7 @@ export class OpenRouterLLMService implements ILLMService {
       siteName: config.siteName,
       temperature: config.temperature ?? 0.7,
       timeout: config.timeout,
+      verbose: config.verbose,
     }
 
     // Initialize OpenAI client with OpenRouter base URL
@@ -308,21 +311,18 @@ export class OpenRouterLLMService implements ILLMService {
       availableMarkers,
       availableTools,
       conversationMetadata: executionContext?.conversationMetadata,
-      isJsonInputMode: executionContext?.isJsonInputMode,
       memoryManager: this.memoryManager,
     })
 
-    // DEBUG: Log the full system prompt being sent to OpenRouter
-    console.log('\n========== SYSTEM PROMPT START ==========')
-    console.log(systemPrompt)
-    console.log('========== SYSTEM PROMPT END ==========\n')
-    console.log(`[DEBUG] isJsonInputMode: ${executionContext?.isJsonInputMode}`)
-    console.log(`[DEBUG] conversationMetadata:`, executionContext?.conversationMetadata)
-    console.log(`[DEBUG] availableTools:`, availableTools)
-    console.log(`[DEBUG] availableMarkers:`, Object.keys(availableMarkers))
-
     // Get formatted messages from context with compression (passing system prompt for token accounting)
     const {formattedMessages, tokensUsed} = await this.contextManager.getFormattedMessagesWithCompression(systemPrompt)
+
+    // Verbose: Log formatted messages that will be sent to LLM
+    if (this.config.verbose) {
+      console.log('\n========== FORMATTED MESSAGES (Sent to LLM) ==========')
+      console.log(JSON.stringify(formattedMessages, null, 2))
+      console.log('========== END FORMATTED MESSAGES ==========\n')
+    }
 
     // Log token usage for monitoring compression behavior
     console.log(`[OpenRouterLLMService] [Iter ${iterationCount + 1}/${this.config.maxIterations}] Sending to LLM: ${tokensUsed} tokens (max: ${this.config.maxInputTokens})`)

@@ -1,4 +1,5 @@
 import type {Message} from '../../domain/cipher/session/types.js'
+import type {ILLMService} from './i-llm-service.js'
 
 /**
  * Interface for a chat session.
@@ -24,6 +25,14 @@ export interface IChatSession {
    * @returns Array of messages in chronological order
    */
   getHistory(): Message[]
+
+  /**
+   * Get the LLM service for direct access to context manager.
+   * Useful for pre-loading conversation history in JSON input mode.
+   *
+   * @returns The LLM service instance
+   */
+  getLLMService(): ILLMService
 
   /**
    * Get the number of messages in the conversation.

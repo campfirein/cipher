@@ -296,7 +296,7 @@ export default class CipherAgentRun extends Command {
       accessToken: token.accessToken,
       fileSystemConfig: flags.workingDirectory ? {workingDirectory: flags.workingDirectory} : undefined,
       grpcEndpoint: envConfig.llmGrpcEndpoint,
-      maxIterations: 50, // Hardcoded default
+      maxIterations: 10, // Hardcoded default
       maxTokens: flags.maxTokens ?? 8192, // Default: 8192
       model,
       openRouterApiKey: flags.apiKey, // Map -k flag to OpenRouter API key
@@ -448,7 +448,7 @@ export default class CipherAgentRun extends Command {
       exitWithCode(ExitCode.VALIDATION_ERROR, `Failed to parse JSON file: ${(error as Error).message}`)
     }
 
-    const {currentPrompt, history, metadata} = parsedConversation
+    const {currentPrompt, history} = parsedConversation
 
     // Load ByteRover config
     const {projectConfigStore} = this.createServices()
@@ -457,17 +457,8 @@ export default class CipherAgentRun extends Command {
     // Create LLM configuration
     const llmConfig = this.createLLMConfig(token, flags)
 
-    // Create execution context for JSON input mode
-    const executionContext = {
-      conversationMetadata: {
-        conversationId: metadata.conversationId,
-        title: metadata.title,
-      },
-      isJsonInputMode: true,
-    }
-
-    // Create CipherAgent with execution context
-    const agent = new CipherAgent(llmConfig, brvConfig, executionContext)
+    // Create CipherAgent
+    const agent = new CipherAgent(llmConfig, brvConfig)
 
     try {
       await agent.start()
@@ -482,13 +473,65 @@ export default class CipherAgentRun extends Command {
     // Resolve session ID based on flags
     const resolvedSessionId = await this.resolveSessionId(agent, flags)
 
-    // Save conversation history to storage so it's loaded when session initializes
-    if (history.length > 0 && agent.historyStorage) {
-      try {
-        await agent.historyStorage.saveHistory(resolvedSessionId, history)
-      } catch (error) {
-        exitWithCode(ExitCode.RUNTIME_ERROR, `Failed to save conversation history: ${(error as Error).message}`)
+    // Pre-create the session and load history directly into ContextManager
+    // This ensures history is available BEFORE the first execute() call
+    try {
+      // Create or get the session (triggers initialization)
+      const session = await agent.getOrCreateSession(resolvedSessionId)
+
+      // Load history directly into the ContextManager if we have history
+      // Note: We load the FULL history including the last user message because
+      // the currentPrompt will be added again by agent.execute()
+      if (history.length > 0) {
+        const llmService = session.getLLMService()
+        const contextManager = llmService.getContextManager()
+
+        // Find the index of the last user message (which is the currentPrompt)
+        let lastUserMessageIndex = -1
+        for (let i = history.length - 1; i >= 0; i--) {
+          if (history[i].role === 'user' && history[i].content === currentPrompt) {
+            lastUserMessageIndex = i
+            break
+          }
+        }
+
+        // Load all messages EXCEPT the last user message (it will be added by execute())
+        const messagesToLoad = lastUserMessageIndex >= 0 ? history.slice(0, lastUserMessageIndex) : history
+
+        // Add each message from the parsed conversation to the context
+        // Sequential processing is required to maintain message order
+        for (const msg of messagesToLoad) {
+          switch (msg.role) {
+            case 'assistant': {
+              // Assistant messages (with optional tool calls)
+              // eslint-disable-next-line no-await-in-loop -- Messages must be added sequentially to preserve order
+              await contextManager.addAssistantMessage(msg.content as null | string, msg.toolCalls)
+              break
+            }
+
+            case 'tool': {
+              // Tool results
+              // eslint-disable-next-line no-await-in-loop -- Messages must be added sequentially to preserve order
+              await contextManager.addToolResult(msg.toolCallId!, msg.name!, msg.content, {success: true})
+              break
+            }
+
+            case 'user': {
+              // User messages
+              // eslint-disable-next-line no-await-in-loop -- Messages must be added sequentially to preserve order
+              await contextManager.addUserMessage(msg.content as string)
+              break
+            }
+            // No default case needed - we only expect these three role types
+          }
+        }
+
+        console.error(
+          `[JSON Input] Loaded ${messagesToLoad.length} messages into session ${resolvedSessionId} (excluding current prompt)`,
+        )
       }
+    } catch (error) {
+      exitWithCode(ExitCode.RUNTIME_ERROR, `Failed to pre-load conversation history: ${(error as Error).message}`)
     }
 
     // Setup event listeners for JSON input mode (logs to stderr)

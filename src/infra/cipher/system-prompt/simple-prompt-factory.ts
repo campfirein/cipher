@@ -21,7 +21,6 @@ export interface BuildContext {
   availableMarkers?: Record<string, string>
   availableTools?: string[]
   conversationMetadata?: {conversationId?: string; title?: string}
-  isJsonInputMode?: boolean
   memoryManager?: MemoryManager
 }
 
@@ -66,26 +65,18 @@ export class SimplePromptFactory {
       console.log('[PromptDebug:SimpleFactory] Context:', JSON.stringify({
         availableMarkers: Object.keys(context.availableMarkers ?? {}).length,
         availableTools: context.availableTools?.length,
-        isJsonInputMode: context.isJsonInputMode,
       }, null, 2))
     }
 
     // 1. Load base prompt
     const basePrompt = this.loadPrompt('system-prompt.yml')
 
-    // 2. Load mode prompts conditionally
-    const modePrompts: string[] = []
-    if (context.isJsonInputMode) {
-      const jsonModePrompt = this.loadPrompt('modes/json-input.yml')
-      modePrompts.push(jsonModePrompt.prompt)
-    }
-
-    // 3. Get memories if available
+    // 2. Get memories if available
     const memories = context.memoryManager
       ? await this.formatMemories(context.memoryManager)
       : ''
 
-    // 4. Prepare template variables
+    // 3. Prepare template variables
     // Note: Variable names use snake_case to match template placeholders ({{available_tools}}, etc.)
     /* eslint-disable camelcase */
     const vars = {
@@ -93,11 +84,10 @@ export class SimplePromptFactory {
       available_tools: context.availableTools?.join(', ') ?? '',
       datetime: `<dateTime>Current date and time: ${new Date().toISOString()}</dateTime>`,
       memories,
-      mode_prompts: modePrompts.join('\n\n'),
     }
     /* eslint-enable camelcase */
 
-    // 5. Render final prompt
+    // 4. Render final prompt
     const finalPrompt = this.renderTemplate(basePrompt.prompt, vars)
 
     if (this.verbose) {

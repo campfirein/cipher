@@ -1,7 +1,6 @@
 import type {Content, GenerateContentConfig} from '@google/genai'
 
 import type {JSONSchema7, ToolSet} from '../../../core/domain/cipher/tools/types.js'
-import type {ExecutionContext} from '../../../core/interfaces/cipher/i-cipher-agent.js'
 import type {IHistoryStorage} from '../../../core/interfaces/cipher/i-history-storage.js'
 import type {ILLMService} from '../../../core/interfaces/cipher/i-llm-service.js'
 import type {InternalMessage, ToolCall} from '../../../core/interfaces/cipher/message-types.js'
@@ -167,15 +166,14 @@ export class ByteRoverLLMService implements ILLMService {
    * @param options.imageData - Optional image data
    * @param options.fileData - Optional file data
    * @param options.stream - Whether to stream response (not implemented yet)
-   * @param options.executionContext - Optional execution context (for JSON input mode, etc.)
    * @returns Final assistant response
    */
   public async completeTask(
     textInput: string,
-    options?: {executionContext?: ExecutionContext; fileData?: FileData; imageData?: ImageData; signal?: AbortSignal; stream?: boolean},
+    options?: {fileData?: FileData; imageData?: ImageData; signal?: AbortSignal; stream?: boolean},
   ): Promise<string> {
     // Extract options with defaults
-    const {executionContext, fileData, imageData, signal} = options ?? {}
+    const {fileData, imageData, signal} = options ?? {}
 
     // Add user message to context
     await this.contextManager.addUserMessage(textInput, imageData, fileData)
@@ -199,7 +197,7 @@ export class ByteRoverLLMService implements ILLMService {
 
       try {
         // eslint-disable-next-line no-await-in-loop -- Sequential iterations required for agentic loop
-        const result = await this.executeAgenticIteration(iterationCount, tools, executionContext)
+        const result = await this.executeAgenticIteration(iterationCount, tools)
 
         if (result !== null) {
           return result
@@ -347,13 +345,11 @@ export class ByteRoverLLMService implements ILLMService {
    *
    * @param iterationCount - Current iteration number
    * @param tools - Available tools for this iteration
-   * @param executionContext - Optional execution context
    * @returns Final response string if complete, null if more iterations needed
    */
   private async executeAgenticIteration(
     iterationCount: number,
     tools: ToolDefinition[],
-    executionContext: ExecutionContext | undefined,
   ): Promise<null | string> {
     // Build system prompt using SimplePromptFactory (before compression for correct token accounting)
     const availableTools = this.toolManager.getToolNames()
@@ -367,7 +363,6 @@ export class ByteRoverLLMService implements ILLMService {
     const systemPrompt = await this.promptFactory.buildSystemPrompt({
       availableMarkers,
       availableTools,
-      isJsonInputMode: executionContext?.isJsonInputMode,
       memoryManager: this.memoryManager,
     })
 
@@ -387,6 +382,13 @@ export class ByteRoverLLMService implements ILLMService {
 
     // Get formatted messages from context with compression (passing system prompt for token accounting)
     const {formattedMessages, tokensUsed} = await this.contextManager.getFormattedMessagesWithCompression(systemPrompt)
+
+    // Verbose: Log formatted messages that will be sent to LLM
+    if (this.config.verbose) {
+      console.log('\n========== FORMATTED MESSAGES (Sent to LLM) ==========')
+      console.log(JSON.stringify(formattedMessages, null, 2))
+      console.log('========== END FORMATTED MESSAGES ==========\n')
+    }
 
     // Log token usage for monitoring compression behavior
     console.log(`[ByteRoverLLMService] [Iter ${iterationCount + 1}/${this.config.maxIterations}] Sending to LLM: ${tokensUsed} tokens (max: ${this.config.maxInputTokens})`)
