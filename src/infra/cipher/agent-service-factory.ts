@@ -214,7 +214,7 @@ export function createSessionServices(
       {
         maxIterations: llmConfig.maxIterations ?? 50,
         maxTokens: llmConfig.maxTokens ?? 8192,
-        model: llmConfig.model ?? 'gemini-2.5-pro',
+        model: llmConfig.model ?? 'gemini-2.5-flash',
         temperature: llmConfig.temperature ?? 0.7,
         verbose: llmConfig.verbose ?? false,
       },

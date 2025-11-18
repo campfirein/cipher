@@ -172,14 +172,15 @@ export class OpenRouterLLMService implements ILLMService {
    * @param options.fileData - Optional file data
    * @param options.stream - Whether to stream response (not implemented yet)
    * @param options.executionContext - Optional execution context (for JSON input mode, etc.)
+   * @param options.mode - Optional mode for system prompt ('json-input' enables autonomous mode)
    * @returns Final assistant response
    */
   public async completeTask(
     textInput: string,
-    options?: {executionContext?: ExecutionContext; fileData?: FileData; imageData?: ImageData; signal?: AbortSignal; stream?: boolean},
+    options?: {executionContext?: ExecutionContext; fileData?: FileData; imageData?: ImageData; mode?: 'default' | 'json-input'; signal?: AbortSignal; stream?: boolean},
   ): Promise<string> {
     // Extract options with defaults
-    const {executionContext, fileData, imageData, signal} = options ?? {}
+    const {executionContext, fileData, imageData, mode, signal} = options ?? {}
 
     // Add user message to context
     await this.contextManager.addUserMessage(textInput, imageData, fileData)
@@ -206,7 +207,7 @@ export class OpenRouterLLMService implements ILLMService {
 
       try {
         // eslint-disable-next-line no-await-in-loop -- Sequential iterations required for agentic loop
-        const result = await this.executeAgenticIteration(iterationCount, tools, executionContext)
+        const result = await this.executeAgenticIteration(iterationCount, tools, executionContext, mode)
 
         if (result !== null) {
           return result
@@ -290,12 +291,14 @@ export class OpenRouterLLMService implements ILLMService {
    * @param iterationCount - Current iteration number
    * @param tools - Available tools for this iteration
    * @param executionContext - Optional execution context
+   * @param mode - Optional mode for system prompt
    * @returns Final response string if complete, null if more iterations needed
    */
   private async executeAgenticIteration(
     iterationCount: number,
     tools: OpenAIToolDefinition[],
     executionContext: ExecutionContext | undefined,
+    mode?: 'default' | 'json-input',
   ): Promise<null | string> {
     // Build system prompt using SimplePromptFactory (before compression for correct token accounting)
     const availableTools = this.toolManager.getToolNames()
@@ -312,6 +315,7 @@ export class OpenRouterLLMService implements ILLMService {
       availableTools,
       conversationMetadata: executionContext?.conversationMetadata,
       memoryManager: this.memoryManager,
+      mode,
     })
 
     // Get formatted messages from context with compression (passing system prompt for token accounting)

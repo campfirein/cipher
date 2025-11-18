@@ -3,6 +3,6 @@ prompt: |
 
   CRITICAL: Autonomous Execution Required
 
-  You are currently in autonomous mode. You can use all tools to process the input data and perform the CUD operations on the context tree. the following is the input data:
+  You are currently in autonomous mode. The user will provide JSON data in their message. You can use all tools to process the input data and perform the CUD operations on the context tree.
 
 excluded_tools: []

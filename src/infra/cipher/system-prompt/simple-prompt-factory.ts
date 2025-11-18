@@ -22,6 +22,7 @@ export interface BuildContext {
   availableTools?: string[]
   conversationMetadata?: {conversationId?: string; title?: string}
   memoryManager?: MemoryManager
+  mode?: 'default' | 'json-input'
 }
 
 /**
@@ -65,6 +66,7 @@ export class SimplePromptFactory {
       console.log('[PromptDebug:SimpleFactory] Context:', JSON.stringify({
         availableMarkers: Object.keys(context.availableMarkers ?? {}).length,
         availableTools: context.availableTools?.length,
+        mode: context.mode,
       }, null, 2))
     }
 
@@ -87,8 +89,14 @@ export class SimplePromptFactory {
     }
     /* eslint-enable camelcase */
 
-    // 4. Render final prompt
-    const finalPrompt = this.renderTemplate(basePrompt.prompt, vars)
+    // 4. Render base prompt
+    let finalPrompt = this.renderTemplate(basePrompt.prompt, vars)
+
+    // 5. Append mode-specific prompt if specified
+    if (context.mode === 'json-input') {
+      const modePrompt = this.loadPrompt('modes/json-input.yml')
+      finalPrompt = finalPrompt + '\n\n' + modePrompt.prompt
+    }
 
     if (this.verbose) {
       console.log(`[PromptDebug:SimpleFactory] Final prompt: ${finalPrompt.length} chars`)

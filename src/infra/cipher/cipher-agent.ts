@@ -98,10 +98,12 @@ export class CipherAgent implements ICipherAgent {
    *
    * @param input - User input string
    * @param sessionId - Optional session ID (uses 'default' if not provided)
+   * @param options - Optional execution options
+   * @param options.mode - Optional mode for system prompt ('json-input' enables autonomous mode)
    * @returns Agent response from LLM
    * @throws Error if agent is not started
    */
-  public async execute(input: string, sessionId?: string): Promise<string> {
+  public async execute(input: string, sessionId?: string, options?: {mode?: 'default' | 'json-input'}): Promise<string> {
     // Ensure agent is started
     this.ensureStarted()
 
@@ -131,7 +133,7 @@ export class CipherAgent implements ICipherAgent {
     // 1. Call llmService.completeTask()
     // 2. LLM service handles agentic loop (tools, prompts, iterations)
     // 3. Events forwarded from session bus to agent bus
-    const response = await session.run(input)
+    const response = await session.run(input, options)
 
     return response
   }
