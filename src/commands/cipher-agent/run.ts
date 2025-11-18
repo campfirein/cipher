@@ -86,7 +86,7 @@ export default class CipherAgentRun extends Command {
     }),
     model: Flags.string({
       char: 'm',
-      description: 'Model to use (default: anthropic/claude-haiku-4.5 for OpenRouter, gemini-2.5-pro for gRPC)',
+      description: 'Model to use (default: anthropic/claude-haiku-4.5 for OpenRouter, gemini-2.5-flash for gRPC)',
     }),
     resume: Flags.string({
       char: 'r',
@@ -310,8 +310,8 @@ export default class CipherAgentRun extends Command {
     temperature: number
     verbose?: boolean
   } {
-    // Default model: anthropic/anthropic/claude-haiku-4.5 for OpenRouter, gemini-2.5-pro for gRPC
-    const model = flags.model ?? (flags.apiKey ? 'anthropic/claude-haiku-4.5' : 'gemini-2.5-pro')
+    // Default model: anthropic/anthropic/claude-haiku-4.5 for OpenRouter, gemini-2.5-flash for gRPC
+    const model = flags.model ?? (flags.apiKey ? 'anthropic/claude-haiku-4.5' : 'gemini-2.5-flash')
     const envConfig = getCurrentConfig()
 
     return {
