@@ -1,0 +1,585 @@
+/**
+ * GitHub Copilot Raw Service
+ * Consolidates CopilotParser + CopilotRawParser
+ * Extracts and exports GitHub Copilot chat sessions
+ */
+
+import Database from 'better-sqlite3'
+import { readFileSync, writeFileSync } from 'node:fs'
+import * as fs from 'node:fs'
+import { basename, join } from 'node:path'
+
+import { Agent } from '../../../core/domain/entities/agent.js'
+import {
+  CopilotContentBlock,
+  CopilotParsedRequest,
+  CopilotRawMessage,
+  CopilotRawSession,
+  CopilotRequestData,
+  CopilotResponseBlock,
+  CopilotResponseItem,
+  CopilotSessionFileData,
+  CopilotSessionMetadata,
+  CopilotVariableData,
+  DatabaseRow
+} from '../../../core/domain/entities/parser.js'
+
+// ============================================================================
+// Constants
+// ============================================================================
+
+const VS_CODE_STORAGE_PATH = 'Library/Application Support/Code/User/workspaceStorage'
+const DEFAULT_HOME_DIR = '~'
+const SCM_REPOSITORIES_KEY = 'scm:view:visibleRepositories'
+const FILE_URI_PATTERN = /file:\/\/(.+)$/
+const TITLE_MAX_LENGTH = 150
+const TITLE_TRUNCATE_LENGTH = 100
+const TITLE_ELLIPSIS = '...'
+const UNKNOWN_USERNAME = 'Unknown'
+const GITHUB_COPILOT = 'GitHub Copilot'
+const UNKNOWN_LOCATION = 'unknown'
+const DEFAULT_SESSION_TITLE = 'Copilot Chat Session'
+const UNKNOWN_WORKSPACE = 'unknown-workspace'
+const UNKNOWN_KIND = 'unknown'
+
+// ============================================================================
+// Copilot Raw Parser Service
+// ============================================================================
+
+/**
+ * Copilot Raw Parser Service class
+ * Handles extraction of GitHub Copilot sessions from VS Code workspace storage
+ */
+export class CopilotRawService {
+  private ide: Agent
+  private workspaceStoragePath: string
+
+  // ========================================================================
+  // Constructor
+  // ========================================================================
+
+  /**
+   * Initialize Copilot Raw Service
+   *
+   * Detects and initializes the VS Code workspace storage path where
+   * GitHub Copilot chat session databases are stored.
+   *
+   * @param ide - The IDE type (Github Copilot)
+   */
+  constructor(ide: Agent) {
+    this.ide = ide
+    this.workspaceStoragePath = this.detectWorkspacePath()
+  }
+
+  // ========================================================================
+  // Public Methods
+  // ========================================================================
+
+  /**
+   * Main entry point - Parse and export GitHub Copilot sessions
+   *
+   * Parses GitHub Copilot sessions from custom directory, extracts session data,
+   * and exports to JSON files organized by workspace. Creates summary file with
+   * aggregate statistics across all sessions. Returns success status.
+   *
+   * @param customDir - Path to directory containing GitHub Copilot session data
+   * @returns Promise resolving to true if parsing succeeded, false otherwise
+   */
+  async parse(customDir: string): Promise<boolean> {
+    const outputDir = join(process.cwd(), `.brv/logs/${this.ide}/raw`)
+
+    console.log('🔍 Starting GitHub Copilot conversation parsing...')
+
+    try {
+      // Parse all sessions from custom directory
+      const sessions = await this.parseFromDirectory(customDir)
+
+      if (sessions.length === 0) {
+        console.log('ℹ️  No GitHub Copilot sessions found')
+        return true
+      }
+
+      console.log(`\n✅ Found ${sessions.length} Copilot sessions`)
+
+      // Organize sessions by workspace hash
+      const sessionsByWorkspace: Record<
+        string,
+        Array<typeof sessions[0] & { workspaceHash: string }>
+      > = {}
+
+      for (const session of sessions) {
+        const workspaceHash = session.metadata.workspace?.path || UNKNOWN_WORKSPACE
+
+        if (!sessionsByWorkspace[workspaceHash]) {
+          sessionsByWorkspace[workspaceHash] = []
+        }
+
+        sessionsByWorkspace[workspaceHash].push({
+          ...session,
+          workspaceHash,
+        })
+      }
+
+      console.log(`\n📁 Organized into ${Object.keys(sessionsByWorkspace).length} workspace(s)`)
+
+      // Export sessions organized by workspace
+      console.log('\n💾 Exporting sessions by workspace...')
+
+      for (const [workspaceHash, workspaceSessions] of Object.entries(sessionsByWorkspace)) {
+        const workspaceDir = join(outputDir, workspaceHash)
+
+        if (!fs.existsSync(workspaceDir)) {
+          fs.mkdirSync(workspaceDir, { recursive: true })
+        }
+
+        console.log(`\n  📂 Workspace (${workspaceHash})`)
+
+        // Extract workspace path from first session (should be consistent)
+        const workspacePath = workspaceSessions[0]?.workspacePath || 'Unknown Workspace'
+
+        // Export session files for this workspace
+        for (const session of workspaceSessions) {
+          const filename = `${session.id}.json`
+          const filepath = join(workspaceDir, filename)
+
+          const sessionData = {
+            ...session,
+            workspacePath: session.workspacePath || workspacePath
+          }
+
+          writeFileSync(filepath, JSON.stringify(sessionData, null, 2))
+          const fileSize = readFileSync(filepath).length
+          const fileSizeKb = (fileSize / 1024).toFixed(1)
+          console.log(`    ✅ ${session.title} (${fileSizeKb} KB)`)
+        }
+      }
+
+      console.log(`\n🎉 Copilot export complete! Sessions exported to: ${outputDir}`)
+      return true
+    } catch (error) {
+      console.error('❌ Error during parsing:', error)
+      throw error
+    }
+  }
+
+  /**
+   * Calculate total session duration from request timings
+   */
+  private calculateTotalDuration(requests: CopilotRequestData[]): number {
+    let totalTime = 0
+
+    for (const request of requests) {
+      if (request.result?.timings?.totalElapsed) {
+        totalTime += request.result.timings.totalElapsed
+      }
+    }
+
+    return totalTime
+  }
+
+  // ========================================================================
+  // Private Methods - Initialization
+  // ========================================================================
+
+  /**
+   * Convert Copilot requests to normalized messages
+   */
+  private convertRequestsToMessages(requests: CopilotRequestData[]): CopilotRawMessage[] {
+    const messages: CopilotRawMessage[] = []
+
+    for (const request of requests) {
+      // Add user message
+      if (request.message?.text) {
+        messages.push({
+          attachments: this.extractAttachments(request.variableData),
+          content: request.message.text,
+          type: 'user',
+        } as CopilotRawMessage)
+      }
+
+      // Add assistant response(s)
+      if (request.response && Array.isArray(request.response)) {
+        const responseContent = request.response.map((block: CopilotResponseBlock) => this.normalizeContentBlock(block))
+
+        if (responseContent.length > 0) {
+          // If single string, use it directly; if single block, use it; otherwise filter blocks only
+          let content: CopilotContentBlock | CopilotContentBlock[] | string
+          if (responseContent.length === 1 && typeof responseContent[0] === 'string') {
+            content = responseContent[0] as string
+          } else {
+            const blockContent = responseContent.filter((item): item is CopilotContentBlock => typeof item !== 'string')
+            content = blockContent.length === 1 ? blockContent[0] : blockContent
+          }
+
+          messages.push({
+            content,
+            type: 'assistant',
+          } as CopilotRawMessage)
+        }
+      }
+    }
+
+    return messages
+  }
+
+  // ========================================================================
+  // Private Methods - Parsing
+  // ========================================================================
+
+  /**
+   * Detect VS Code Copilot workspace storage path
+   */
+  private detectWorkspacePath(): string {
+    const homedir = process.env.HOME || DEFAULT_HOME_DIR
+    const defaultPath = join(homedir, VS_CODE_STORAGE_PATH)
+
+    if (fs.existsSync(defaultPath)) {
+      return defaultPath
+    }
+
+    throw new Error(`VS Code workspace storage not found at ${defaultPath}`)
+  }
+
+  /**
+   * Extract attachment file names from variable data
+   */
+  private extractAttachments(variableData: CopilotVariableData | undefined): string[] {
+    const attachments: string[] = []
+
+    if (!variableData?.variables || !Array.isArray(variableData.variables)) {
+      return attachments
+    }
+
+    for (const variable of variableData.variables) {
+      if (variable.name) {
+        attachments.push(variable.name)
+      }
+    }
+
+    return attachments
+  }
+
+  // ========================================================================
+  // Private Methods - Data Transformation
+  // ========================================================================
+
+  /**
+   * Extract metadata from session
+   */
+  private extractMetadata(
+    data: CopilotSessionFileData,
+    sessionId: string,
+    workspaceHash: string
+  ): CopilotSessionMetadata {
+    const requests = data.requests || []
+
+    return {
+      initialLocation: data.initialLocation || UNKNOWN_LOCATION,
+      messageCount: Math.max(0, requests.length * 2), // Each request has user + assistant
+      requestCount: requests.length,
+      requesterUsername: data.requesterUsername || UNKNOWN_USERNAME,
+      responderUsername: data.responderUsername || GITHUB_COPILOT,
+      sessionId,
+      totalDuration: this.calculateTotalDuration(requests),
+      workspace: {
+        path: workspaceHash
+      }
+    }
+  }
+
+  /**
+   * Extract session title from first message or request
+   */
+  private extractTitle(requests: CopilotRequestData[], messages: CopilotRawMessage[]): string {
+    // Try to use first message text
+    if (messages.length > 0 && typeof messages[0].content === 'string') {
+      const text = messages[0].content
+      return text.length > TITLE_MAX_LENGTH ? text.slice(0, Math.max(0, TITLE_TRUNCATE_LENGTH)) + TITLE_ELLIPSIS : text
+    }
+
+    // Fallback to first request message
+    if (requests.length > 0 && requests[0].message?.text) {
+      const {text} = requests[0].message
+      return text.length > TITLE_MAX_LENGTH ? text.slice(0, Math.max(0, TITLE_TRUNCATE_LENGTH)) + TITLE_ELLIPSIS : text
+    }
+
+    return DEFAULT_SESSION_TITLE
+  }
+
+  /**
+   * Extract workspace path using hybrid approach
+   * Tier 1A: SQLite scm:view:visibleRepositories (most reliable)
+   * Tier 1B: baseUri.path from session data (fallback)
+   */
+  private extractWorkspacePath(data: CopilotSessionFileData, workspaceHash: string): null | string | string[] {
+    // Tier 1A: Try SQLite first
+    const tier1aResult = this.extractWorkspacePathTier1A(workspaceHash)
+    if (tier1aResult) {
+      return tier1aResult
+    }
+
+    // Tier 1B: Fall back to baseUri extraction
+    const tier1bResult = this.extractWorkspacePathTier1B(data)
+    if (tier1bResult) {
+      return tier1bResult
+    }
+
+    return null
+  }
+
+  /**
+   * Tier 1A: Extract repository paths from VS Code SQLite state.vscdb
+   * This is the most reliable source as it contains actual repositories visible in the workspace
+   * and can handle multi-repo/monorepo setups
+   *
+   * Returns:
+   * - Array of strings for monorepo/multi-repo workspaces
+   * - Single string for single-repo workspaces
+   * - null if not found
+   */
+  private extractWorkspacePathTier1A(workspaceHash: string): null | string | string[] {
+    try {
+      const dbPath = join(this.workspaceStoragePath, workspaceHash, 'state.vscdb')
+
+      if (!fs.existsSync(dbPath)) {
+        return null
+      }
+
+      const db = new Database(dbPath, { readonly: true })
+
+      try {
+        // Query for scm:view:visibleRepositories
+        const stmt = db.prepare(`SELECT value FROM ItemTable WHERE key = '${SCM_REPOSITORIES_KEY}'`)
+        const row = stmt.get() as DatabaseRow | undefined
+
+        if (!row?.value) {
+          return null
+        }
+
+        // Parse the JSON value
+        const scmData = JSON.parse(row.value) as { all?: string[] }
+        const repositories = scmData.all
+
+        if (!repositories || repositories.length === 0) {
+          return null
+        }
+
+        // Extract all repository paths
+        // Format is: git:Git:file:///path/to/repo
+        const extractedPaths: string[] = []
+        for (const repoUri of repositories) {
+          const pathMatch = repoUri.match(FILE_URI_PATTERN)
+          if (pathMatch && pathMatch[1]) {
+            extractedPaths.push(pathMatch[1])
+          }
+        }
+
+        if (extractedPaths.length === 0) {
+          return null
+        }
+
+        // Return array for multiple repos, string for single repo
+        return extractedPaths.length > 1 ? extractedPaths : extractedPaths[0]
+      } finally {
+        db.close()
+      }
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * Tier 1B: Extract workspace path from baseUri in session data
+   * This is a fallback if SQLite extraction fails
+   */
+  private extractWorkspacePathTier1B(data: CopilotSessionFileData): null | string {
+    const traverse = (obj: unknown): null | string => {
+      if (!obj || typeof obj !== 'object') return null
+
+      const objRecord = obj as Record<string, unknown>
+
+      // If this object has baseUri with path, return it
+      const baseUri = objRecord.baseUri as Record<string, unknown> | undefined
+      if (baseUri?.path && typeof baseUri.path === 'string') {
+        const filePath = baseUri.path
+        if (filePath.startsWith('/')) {
+          return filePath
+        }
+      }
+
+      // Traverse all properties
+      for (const key in objRecord) {
+        if (typeof objRecord[key] === 'object' && objRecord[key] !== null) {
+          const result = traverse(objRecord[key])
+          if (result) return result
+        }
+      }
+
+      return null
+    }
+
+    return traverse(data)
+  }
+
+  /**
+   * Normalize Copilot content blocks
+   */
+  private normalizeContentBlock(block: CopilotResponseBlock | string): CopilotContentBlock | string {
+    if (typeof block === 'string') {
+      return block
+    }
+
+    if (!block || typeof block !== 'object') {
+      return JSON.stringify(block)
+    }
+
+    // Return block as-is with kind field
+    return {
+      kind: block.kind || UNKNOWN_KIND,
+      ...block
+    } as CopilotContentBlock
+  }
+
+  /**
+   * Normalize a request to CopilotParsedRequest type
+   */
+  private normalizeParsedRequest(req: CopilotRequestData): CopilotParsedRequest {
+    // Normalize response array if present
+    let response: undefined | unknown[]
+    if (Array.isArray(req.response)) {
+      response = req.response
+    }
+
+    return {
+      message: req.message || {},
+      requestId: req.requestId || '',
+      response: response as CopilotResponseItem[] | undefined,
+      responseId: req.responseId || '',
+      result: req.result,
+      variableData: req.variableData,
+    }
+  }
+
+  /**
+   * Parse GitHub Copilot sessions from a custom directory
+   *
+   * Handles two directory structures:
+   * 1. Direct workspace directory (containing chatSessions/ subdirectory)
+   * 2. Parent directory (containing multiple workspace hash subdirectories)
+   * Parses all workspace directories in parallel and returns combined sessions array.
+   *
+   * @param customDir - Path to custom directory containing Copilot session data
+   * @returns Promise resolving to array of parsed CopilotRawSession objects
+   */
+  private async parseFromDirectory(customDir: string): Promise<CopilotRawSession[]> {
+    const sessions: CopilotRawSession[] = []
+
+    try {
+      // Check if the provided directory itself contains chatSessions
+      const chatSessionsPath = join(customDir, 'chatSessions')
+      if (fs.existsSync(chatSessionsPath)) {
+        // This is a workspace directory, parse it directly
+        const workspaceSessions = await this.parseWorkspaceDirectory(
+          customDir,
+          basename(customDir)
+        )
+        sessions.push(...workspaceSessions)
+        return sessions
+      }
+
+      // Otherwise, iterate through subdirectories looking for workspace directories
+      const workspaceDirs = fs.readdirSync(customDir)
+
+      const parsePromises = workspaceDirs
+        .filter((workspaceDir) => {
+          const workspacePath = join(customDir, workspaceDir)
+          const stat = fs.statSync(workspacePath)
+          return stat.isDirectory()
+        })
+        .map((workspaceDir) =>
+          this.parseWorkspaceDirectory(join(customDir, workspaceDir), workspaceDir)
+        )
+
+      const allSessions = await Promise.all(parsePromises)
+      for (const workspaceSessions of allSessions) {
+        sessions.push(...workspaceSessions)
+      }
+    } catch (error) {
+      console.error('Error parsing custom directory:', error)
+    }
+
+    return sessions
+  }
+
+  /**
+   * Parse a single Copilot session file
+   */
+  private parseSessionFile(filePath: string, workspaceHash: string): CopilotRawSession | null {
+    try {
+      const content = fs.readFileSync(filePath, 'utf8')
+      const data = JSON.parse(content) as CopilotSessionFileData
+
+      const sessionId = basename(filePath, '.json')
+      const requests = data.requests || []
+
+      // Convert requests to messages
+      const messages = this.convertRequestsToMessages(requests)
+
+      // Generate title from first message or request
+      const title = this.extractTitle(requests, messages)
+
+      // Extract metadata
+      const metadata = this.extractMetadata(data, sessionId, workspaceHash)
+
+      // Extract workspace path using hybrid approach (Tier 1A SQLite, fallback to Tier 1B baseUri)
+      const workspacePath = this.extractWorkspacePath(data, workspaceHash)
+
+      return {
+        id: sessionId,
+        messages,
+        metadata,
+        requests: requests.map((req: CopilotRequestData) => this.normalizeParsedRequest(req)),
+        timestamp: Date.now(),
+        title,
+        workspaceHash,
+        workspacePath: workspacePath || undefined,
+      } as CopilotRawSession
+    } catch (error) {
+      console.error(`Error parsing session ${filePath}:`, error)
+      return null
+    }
+  }
+
+  /**
+   * Parse sessions from a specific workspace directory
+   */
+  private async parseWorkspaceDirectory(
+    workspacePath: string,
+    workspaceHash: string
+  ): Promise<CopilotRawSession[]> {
+    const sessions: CopilotRawSession[] = []
+    const chatSessionsDir = join(workspacePath, 'chatSessions')
+
+    if (!fs.existsSync(chatSessionsDir)) {
+      return sessions
+    }
+
+    try {
+      const files = fs.readdirSync(chatSessionsDir)
+
+      for (const file of files) {
+        if (file.endsWith('.json')) {
+          const filePath = join(chatSessionsDir, file)
+          const session = this.parseSessionFile(filePath, workspaceHash)
+          if (session) {
+            sessions.push(session)
+          }
+        }
+      }
+    } catch (error) {
+      console.error(`Error parsing workspace ${workspaceHash}:`, error)
+    }
+
+    return sessions
+  }
+}

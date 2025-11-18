@@ -1,4 +1,4 @@
-import {confirm, select} from '@inquirer/prompts'
+import {confirm, search, select} from '@inquirer/prompts'
 import {Command, Flags, ux} from '@oclif/core'
 import {rm} from 'node:fs/promises'
 import {join} from 'node:path'
@@ -13,6 +13,7 @@ import type {ITokenStore} from '../core/interfaces/i-token-store.js'
 
 import {getCurrentConfig} from '../config/environment.js'
 import {BRV_DIR, PROJECT_CONFIG_FILE} from '../constants.js'
+import {type Agent, AGENT_VALUES} from '../core/domain/entities/agent.js'
 import {BrvConfig} from '../core/domain/entities/brv-config.js'
 import {ITrackingService} from '../core/interfaces/i-tracking-service.js'
 import {ProjectConfigStore} from '../infra/config/file-config-store.js'
@@ -21,6 +22,7 @@ import {HttpSpaceService} from '../infra/space/http-space-service.js'
 import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
 import {HttpTeamService} from '../infra/team/http-team-service.js'
 import {MixpanelTrackingService} from '../infra/tracking/mixpanel-tracking-service.js'
+import {WorkspaceDetectorService} from '../infra/workspace/workspace-detector-service.js'
 
 export default class Init extends Command {
   public static description = `Initialize a project with ByteRover (creates ${BRV_DIR}/${PROJECT_CONFIG_FILE} with team/space selection and initializes ACE playbook)`
@@ -36,6 +38,7 @@ export default class Init extends Command {
       description: 'Force re-initialization without confirmation prompt',
     }),
   }
+
 
   protected async cleanupBeforeReInitialization(): Promise<void> {
     const brvDir = join(process.cwd(), BRV_DIR)
@@ -92,6 +95,41 @@ export default class Init extends Command {
     }
   }
 
+  protected detectWorkspacesForAgent(agent: Agent): {chatLogPath: string; cwd: string;} {
+    const detector = new WorkspaceDetectorService()
+    const result = detector.detectWorkspaces(agent)
+    return {
+      chatLogPath: result.chatLogPath,
+      cwd: result.cwd,
+    }
+  }
+
+  /**
+   * Prompts the user to select an agent.
+   * This method is protected to allow test overrides.
+   * @returns The selected agent
+   */
+  protected async promptForAgentSelection(): Promise<Agent> {
+    const AGENTS = AGENT_VALUES.map((agent) => ({
+      name: agent,
+      value: agent,
+    }))
+    const answer = await search({
+      message: 'Which agent you are using (type to search):',
+      async source(input) {
+        if (!input) return AGENTS
+
+        return AGENTS.filter(
+          (agent) =>
+            agent.name.toLowerCase().includes(input.toLowerCase()) ||
+            agent.value.toLowerCase().includes(input.toLowerCase()),
+        )
+      },
+    })
+
+    return answer
+  }
+
   protected async promptForSpaceSelection(spaces: Space[]): Promise<Space> {
     const selectedSpaceId = await select({
       choices: spaces.map((space) => ({
@@ -125,6 +163,7 @@ export default class Init extends Command {
 
     return selectedTeam
   }
+
 
   public async run(): Promise<void> {
     const {flags} = await this.parse(Init)
@@ -204,9 +243,6 @@ export default class Init extends Command {
       this.log()
       const selectedSpace = await this.promptForSpaceSelection(spaces)
 
-      const config = BrvConfig.fromSpace(selectedSpace)
-      await projectConfigStore.write(config)
-
       this.log('\nInitializing ACE context...')
       try {
         const playbookPath = await playbookService.initialize()
@@ -216,9 +252,18 @@ export default class Init extends Command {
         this.warn(`ACE initialization skipped: ${error instanceof Error ? error.message : 'Unknown error'}`)
       }
 
+      this.log()
+      const selectedAgent = await this.promptForAgentSelection()
+
+      const {chatLogPath, cwd} = await this.detectWorkspacesForAgent(selectedAgent)
+      this.log(`Detecting workspaces for agent "${cwd}"...`)
+
+      const config = BrvConfig.fromSpace(selectedSpace, chatLogPath, selectedAgent, cwd)
+      await projectConfigStore.write(config)
+      
       this.log(`\nGenerate rule instructions for coding agents to work with ByteRover correctly`)
       this.log()
-      await this.config.runCommand('gen-rules')
+      await this.config.runCommand('gen-rules', ['--agent', selectedAgent])
 
       await trackingService.track('space:init')
 

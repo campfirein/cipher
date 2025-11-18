@@ -3,22 +3,27 @@ import {expect} from 'chai'
 import {restore, SinonStubbedInstance, stub} from 'sinon'
 
 import type {IFileWatcherService} from '../../src/core/interfaces/i-file-watcher-service.js'
+import type {IProjectConfigStore} from '../../src/core/interfaces/i-project-config-store.js'
 
 import Watch from '../../src/commands/watch.js'
 
 class TestableWatch extends Watch {
   private readonly mockFileWatcherService: IFileWatcherService
+  private readonly mockProjectConfigStore: IProjectConfigStore
 
-  public constructor(mockFileWatcherService: IFileWatcherService, argv: string[], config: Config) {
+  public constructor(mockFileWatcherService: IFileWatcherService, mockProjectConfigStore: IProjectConfigStore, argv: string[], config: Config) {
     super(argv, config)
     this.mockFileWatcherService = mockFileWatcherService
+    this.mockProjectConfigStore = mockProjectConfigStore
   }
 
   protected createServices(): {
     fileWatcherService: IFileWatcherService
+    projectConfigStore: IProjectConfigStore
   } {
     return {
       fileWatcherService: this.mockFileWatcherService,
+      projectConfigStore: this.mockProjectConfigStore,
     }
   }
 
@@ -39,6 +44,7 @@ class TestableWatch extends Watch {
 describe('watch command', () => {
   let config: Config
   let fileWatcherService: SinonStubbedInstance<IFileWatcherService>
+  let projectConfigStore: SinonStubbedInstance<IProjectConfigStore>
 
   before(async () => {
     config = await Config.load(import.meta.url)
@@ -49,6 +55,12 @@ describe('watch command', () => {
       setFileEventHandler: stub(),
       start: stub(),
       stop: stub(),
+    }
+
+    projectConfigStore = {
+      exists: stub(),
+      read: stub(),
+      write: stub(),
     }
   })
 
@@ -61,7 +73,7 @@ describe('watch command', () => {
       fileWatcherService.start.resolves()
       fileWatcherService.stop.resolves()
 
-      const command = new TestableWatch(fileWatcherService, ['--paths', './test-folder'], config)
+      const command = new TestableWatch(fileWatcherService, projectConfigStore, ['--paths', './test-folder'], config)
       await command.run()
 
       expect(fileWatcherService.start.calledOnce).to.be.true
@@ -72,7 +84,7 @@ describe('watch command', () => {
       fileWatcherService.start.resolves()
       fileWatcherService.stop.resolves()
 
-      const command = new TestableWatch(fileWatcherService, ['--paths', './logs,./outputs,./workspace'], config)
+      const command = new TestableWatch(fileWatcherService, projectConfigStore, ['--paths', './logs,./outputs,./workspace'], config)
       await command.run()
 
       expect(fileWatcherService.start.calledOnce).to.be.true
@@ -83,7 +95,7 @@ describe('watch command', () => {
       fileWatcherService.start.resolves()
       fileWatcherService.stop.resolves()
 
-      const command = new TestableWatch(fileWatcherService, ['--paths', ' ./logs , ./outputs , ./workspace '], config)
+      const command = new TestableWatch(fileWatcherService, projectConfigStore, ['--paths', ' ./logs , ./outputs , ./workspace '], config)
       await command.run()
 
       expect(fileWatcherService.start.calledOnce).to.be.true
@@ -94,7 +106,7 @@ describe('watch command', () => {
       fileWatcherService.start.resolves()
       fileWatcherService.stop.resolves()
 
-      const command = new TestableWatch(fileWatcherService, ['-p', './test'], config)
+      const command = new TestableWatch(fileWatcherService, projectConfigStore, ['-p', './test'], config)
       await command.run()
 
       expect(fileWatcherService.start.calledOnce).to.be.true
@@ -107,7 +119,7 @@ describe('watch command', () => {
       fileWatcherService.start.resolves()
       fileWatcherService.stop.resolves()
 
-      const command = new TestableWatch(fileWatcherService, ['--paths', './test'], config)
+      const command = new TestableWatch(fileWatcherService, projectConfigStore, ['--paths', './test'], config)
       await command.run()
 
       expect(fileWatcherService.setFileEventHandler.calledOnce).to.be.true
@@ -118,7 +130,7 @@ describe('watch command', () => {
       fileWatcherService.start.resolves()
       fileWatcherService.stop.resolves()
 
-      const command = new TestableWatch(fileWatcherService, ['--paths', './test'], config)
+      const command = new TestableWatch(fileWatcherService, projectConfigStore, ['--paths', './test'], config)
       await command.run()
 
       expect(fileWatcherService.start.calledOnce).to.be.true
@@ -128,7 +140,7 @@ describe('watch command', () => {
       fileWatcherService.start.resolves()
       fileWatcherService.stop.resolves()
 
-      const command = new TestableWatch(fileWatcherService, ['--paths', './test'], config)
+      const command = new TestableWatch(fileWatcherService, projectConfigStore, ['--paths', './test'], config)
       await command.run()
 
       expect(fileWatcherService.stop.calledOnce).to.be.true
@@ -138,7 +150,7 @@ describe('watch command', () => {
       fileWatcherService.start.rejects(new Error('Start failed'))
       fileWatcherService.stop.resolves()
 
-      const command = new TestableWatch(fileWatcherService, ['--paths', './test'], config)
+      const command = new TestableWatch(fileWatcherService, projectConfigStore, ['--paths', './test'], config)
 
       try {
         await command.run()
@@ -154,7 +166,7 @@ describe('watch command', () => {
 
   describe('Error handling', () => {
     it('should throw error if paths flag is missing', async () => {
-      const command = new TestableWatch(fileWatcherService, [], config)
+      const command = new TestableWatch(fileWatcherService, projectConfigStore, [], config)
 
       try {
         await command.run()
@@ -169,7 +181,7 @@ describe('watch command', () => {
       fileWatcherService.start.rejects(new Error('Failed to start watcher'))
       fileWatcherService.stop.resolves()
 
-      const command = new TestableWatch(fileWatcherService, ['--paths', './test'], config)
+      const command = new TestableWatch(fileWatcherService, projectConfigStore, ['--paths', './test'], config)
 
       try {
         await command.run()
