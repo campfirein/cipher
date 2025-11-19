@@ -1,6 +1,9 @@
 import type {Content, GenerateContentConfig} from '@google/genai'
 
+import {FunctionCallingConfigMode} from '@google/genai'
+
 import type {JSONSchema7, ToolSet} from '../../../core/domain/cipher/tools/types.js'
+import type {ExecutionContext} from '../../../core/interfaces/cipher/i-cipher-agent.js'
 import type {IHistoryStorage} from '../../../core/interfaces/cipher/i-history-storage.js'
 import type {ILLMService} from '../../../core/interfaces/cipher/i-llm-service.js'
 import type {InternalMessage, ToolCall} from '../../../core/interfaces/cipher/message-types.js'
@@ -162,6 +165,7 @@ export class ByteRoverLLMService implements ILLMService {
    *
    * @param textInput - User input text
    * @param options - Execution options
+   * @param options.executionContext - Optional execution context with conversation metadata
    * @param options.signal - Optional abort signal for cancellation
    * @param options.imageData - Optional image data
    * @param options.fileData - Optional file data
@@ -171,10 +175,10 @@ export class ByteRoverLLMService implements ILLMService {
    */
   public async completeTask(
     textInput: string,
-    options?: {fileData?: FileData; imageData?: ImageData; mode?: 'default' | 'json-input'; signal?: AbortSignal; stream?: boolean},
+    options?: {executionContext?: ExecutionContext;fileData?: FileData; imageData?: ImageData; mode?: 'default' | 'json-input'; signal?: AbortSignal; stream?: boolean},
   ): Promise<string> {
     // Extract options with defaults
-    const {fileData, imageData, mode, signal} = options ?? {}
+    const {executionContext, fileData, imageData, mode, signal} = options ?? {}
 
     // Add user message to context
     await this.contextManager.addUserMessage(textInput, imageData, fileData)
@@ -198,7 +202,7 @@ export class ByteRoverLLMService implements ILLMService {
 
       try {
         // eslint-disable-next-line no-await-in-loop -- Sequential iterations required for agentic loop
-        const result = await this.executeAgenticIteration(iterationCount, tools, mode)
+        const result = await this.executeAgenticIteration(iterationCount, tools, executionContext, mode)
 
         if (result !== null) {
           return result
@@ -285,24 +289,31 @@ export class ByteRoverLLMService implements ILLMService {
    * Constructs the complete generation parameters including:
    * - Output token limit (from config)
    * - Temperature/sampling parameters
-   * - System instruction from the prompt manager
    * - Available tools for function calling
+   *
+   * System prompt is sent in messages array (merged with first user message)
+   * to match OpenRouter's behavior. This ensures Gemini maintains context on
+   * all iterations.
    *
    * This configuration is passed to the provider and controls how the LLM
    * generates responses. It bridges between service configuration and
    * the provider's expected format.
    *
    * @param tools - List of tool definitions available to the LLM
-   * @param systemPrompt - System prompt text to guide LLM behavior
    * @returns Complete generation configuration for gRPC API
    */
-  private buildGenerationConfig(tools: ToolDefinition[], systemPrompt: string): GenerateContentConfig {
+  private buildGenerationConfig(tools: ToolDefinition[]): GenerateContentConfig {
     return {
       maxOutputTokens: this.config.maxTokens,
       temperature: this.config.temperature,
       topP: 1,
-      ...(systemPrompt && {systemInstruction: {parts: [{text: systemPrompt}]}}),
+      // System prompt is sent in messages array, not config
       ...(tools.length > 0 && {
+        toolConfig: {
+          functionCallingConfig: {
+            mode: FunctionCallingConfigMode.ANY,  // Force Gemini to use function calling, not code generation
+          },
+        },
         tools: [
           {
             functionDeclarations: tools.map((tool) => ({
@@ -346,12 +357,14 @@ export class ByteRoverLLMService implements ILLMService {
    *
    * @param iterationCount - Current iteration number
    * @param tools - Available tools for this iteration
+   * @param executionContext - Optional execution context with conversation metadata
    * @param mode - Optional mode for system prompt
    * @returns Final response string if complete, null if more iterations needed
    */
   private async executeAgenticIteration(
     iterationCount: number,
     tools: ToolDefinition[],
+    executionContext: ExecutionContext | undefined,
     mode?: 'default' | 'json-input',
   ): Promise<null | string> {
     // Build system prompt using SimplePromptFactory (before compression for correct token accounting)
@@ -366,6 +379,7 @@ export class ByteRoverLLMService implements ILLMService {
     const systemPrompt = await this.promptFactory.buildSystemPrompt({
       availableMarkers,
       availableTools,
+      conversationMetadata: executionContext?.conversationMetadata,
       memoryManager: this.memoryManager,
       mode,
     })
@@ -397,8 +411,8 @@ export class ByteRoverLLMService implements ILLMService {
     // Log token usage for monitoring compression behavior
     console.log(`[ByteRoverLLMService] [Iter ${iterationCount + 1}/${this.config.maxIterations}] Sending to LLM: ${tokensUsed} tokens (max: ${this.config.maxInputTokens})`)
 
-    // Build generation config with system prompt
-    const genConfig = this.buildGenerationConfig(tools, systemPrompt)
+    // Build generation config (system prompt is in messages array now)
+    const genConfig = this.buildGenerationConfig(tools)
 
     // Emit thinking event
     this.sessionEventBus.emit('llmservice:thinking')

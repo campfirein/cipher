@@ -228,8 +228,8 @@ export class ContextManager<T> {
     // Compress history if needed
     const compressedHistory = await this.compressHistoryIfNeeded(systemPromptTokens)
 
-    // Format compressed messages
-    const formattedMessages = this.formatter.format(compressedHistory)
+    // Format compressed messages - PASS systemPrompt to formatter
+    const formattedMessages = this.formatter.format(compressedHistory, systemPrompt)
 
     // Count total tokens (system + history)
     const historyTokens = countMessagesTokens(compressedHistory, this.tokenizer)
