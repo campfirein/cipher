@@ -7,39 +7,161 @@ import {join} from 'node:path';
 import type {Attachment} from '../../../../../src/core/domain/cipher/memory/types.js';
 
 import {FileBlobStorage} from '../../../../../src/infra/cipher/blob/file-blob-storage.js';
-import {MemoryError} from '../../../../../src/infra/cipher/memory/index.js';
-import {MemoryManager} from '../../../../../src/infra/cipher/memory/memory-manager.js';
+import {
+  type CreateMemoryInput,
+  type ListMemoriesOptions,
+  type Memory,
+  type MemoryConfig,
+  MemoryError,
+  MemoryErrorCode,
+  MemoryManager,
+  type MemorySource,
+  type UpdateMemoryInput,
+} from '../../../../../src/infra/cipher/memory/index.js';
 
-describe('MemoryManager - Blob Attachments', () => {
-  let memoryManager: MemoryManager;
-  let blobStorage: FileBlobStorage;
-  let testDir: string;
+describe('Memory Module', () => {
+  describe('Exports (index.ts)', () => {
+    describe('MemoryManager', () => {
+      it('should export MemoryManager class', () => {
+        expect(MemoryManager).to.exist;
+        expect(MemoryManager).to.be.a('function');
+      });
 
-  beforeEach(async () => {
-    // Create temporary test directory
-    testDir = join(tmpdir(), `memory-blob-test-${Date.now()}`);
-    await mkdir(testDir, {recursive: true});
-
-    // Initialize blob storage
-    blobStorage = new FileBlobStorage({
-      maxBlobSize: 1024 * 1024, // 1MB for tests
-      maxTotalSize: 5 * 1024 * 1024, // 5MB for tests
-      storageDir: join(testDir, 'blobs'),
+      it('should be instantiable', () => {
+        expect(MemoryManager.prototype).to.exist;
+      });
     });
-    await blobStorage.initialize();
 
-    // Initialize memory manager with blob storage
-    memoryManager = new MemoryManager(blobStorage);
+    describe('MemoryError', () => {
+      it('should export MemoryError class', () => {
+        expect(MemoryError).to.exist;
+        expect(MemoryError).to.be.a('function');
+      });
+
+      it('should export MemoryErrorCode enum', () => {
+        expect(MemoryErrorCode).to.exist;
+        expect(MemoryErrorCode).to.be.an('object');
+      });
+
+      it('should have expected error codes', () => {
+        expect(MemoryErrorCode).to.have.property('MEMORY_NOT_FOUND');
+        expect(MemoryErrorCode).to.have.property('MEMORY_RETRIEVAL_ERROR');
+        expect(MemoryErrorCode).to.have.property('MEMORY_STORAGE_ERROR');
+        expect(MemoryErrorCode).to.have.property('MEMORY_DELETE_ERROR');
+        expect(MemoryErrorCode).to.have.property('MEMORY_INVALID_ID');
+      });
+    });
+
+    describe('Types', () => {
+      it('should export CreateMemoryInput type', () => {
+        const input: CreateMemoryInput = {
+          content: 'test',
+        };
+        expect(input).to.exist;
+      });
+
+      it('should export UpdateMemoryInput type', () => {
+        const input: UpdateMemoryInput = {
+          content: 'updated',
+        };
+        expect(input).to.exist;
+      });
+
+      it('should export ListMemoriesOptions type', () => {
+        const options: ListMemoriesOptions = {
+          limit: 10,
+        };
+        expect(options).to.exist;
+      });
+
+      it('should export Memory type', () => {
+        const memory: Memory = {
+          content: 'test',
+          createdAt: Date.now(),
+          id: 'test',
+          updatedAt: Date.now(),
+        };
+        expect(memory).to.exist;
+      });
+
+      it('should export MemorySource type', () => {
+        const source: MemorySource = 'agent';
+        expect(source).to.equal('agent');
+      });
+
+      it('should export MemoryConfig type', () => {
+        const config: MemoryConfig = {};
+        expect(config).to.exist;
+      });
+    });
+
+    describe('Import verification', () => {
+      it('should allow importing all exports together', () => {
+        expect(MemoryManager).to.exist;
+        expect(MemoryError).to.exist;
+        expect(MemoryErrorCode).to.exist;
+      });
+
+      it('should have correct type definitions', () => {
+        const memory: Memory = {
+          content: 'test content',
+          createdAt: 1000,
+          id: 'test-id',
+          metadata: {
+            source: 'agent',
+          },
+          tags: ['tag1'],
+          updatedAt: 2000,
+        };
+
+        expect(memory.id).to.equal('test-id');
+        expect(memory.content).to.equal('test content');
+        expect(memory.tags).to.deep.equal(['tag1']);
+        expect(memory.metadata?.source).to.equal('agent');
+      });
+    });
   });
 
-  afterEach(async () => {
-    // Clean up test directory
-    if (existsSync(testDir)) {
-      await rm(testDir, {force: true, recursive: true});
-    }
-  });
+  describe('MemoryManager - Blob Attachments', () => {
+    let memoryManager: MemoryManager;
+    let blobStorage: FileBlobStorage;
+    let testDir: string;
 
-  describe('constructor', () => {
+    beforeEach(async () => {
+      // Create temporary test directory
+      testDir = join(tmpdir(), `memory-blob-test-${Date.now()}`);
+      await mkdir(testDir, {recursive: true});
+
+      // Initialize blob storage
+      blobStorage = new FileBlobStorage({
+        maxBlobSize: 1024 * 1024, // 1MB for tests
+        maxTotalSize: 5 * 1024 * 1024, // 5MB for tests
+        storageDir: join(testDir, 'blobs'),
+      });
+      await blobStorage.initialize();
+
+      // Initialize memory manager with blob storage
+      memoryManager = new MemoryManager(blobStorage);
+
+      // Cleanup any existing memories for test isolation
+      try {
+        const existing = await memoryManager.list();
+        await Promise.allSettled(
+          existing.map(m => memoryManager.delete(m.id).catch(() => {})),
+        );
+      } catch {
+        // Ignore errors during cleanup
+      }
+    });
+
+    afterEach(async () => {
+      // Clean up test directory
+      if (existsSync(testDir)) {
+        await rm(testDir, {force: true, recursive: true});
+      }
+    });
+
+    describe('constructor', () => {
     it('should initialize with blob storage', () => {
       expect(memoryManager).to.exist;
     });
@@ -503,21 +625,23 @@ describe('MemoryManager - Blob Attachments', () => {
   });
 
   describe('edge cases', () => {
-    it('should handle empty buffer attachment', async () => {
-      const memory = await memoryManager.create({
-        content: 'Test',
+      it('should handle empty buffer attachment', async () => {
+        const memory = await memoryManager.create({
+          content: 'Test',
+        });
+
+        const attachment = await memoryManager.attachBlob(
+          memory.id,
+          Buffer.from(''),
+        );
+
+        expect(attachment.size).to.equal(0);
+
+        const retrieved = await memoryManager.getAttachment(memory.id, attachment.blobKey);
+        expect(retrieved).to.exist;
+        expect(retrieved!.content).to.exist;
+        expect(retrieved!.content.length).to.equal(0);
       });
-
-      const attachment = await memoryManager.attachBlob(
-        memory.id,
-        Buffer.from(''),
-      );
-
-      expect(attachment.size).to.equal(0);
-
-      const retrieved = await memoryManager.getAttachment(memory.id, attachment.blobKey);
-      expect(retrieved!.content.length).to.equal(0);
-    });
 
     it('should handle binary data attachments', async () => {
       const memory = await memoryManager.create({
@@ -553,5 +677,506 @@ describe('MemoryManager - Blob Attachments', () => {
       expect(updated.metadata?.attachments).to.be.an('array');
       expect(updated.metadata?.attachments).to.have.lengthOf(1);
     });
+  });
+
+  describe('save/load/clear logic', () => {
+    describe('save logic', () => {
+      it('should save memory via create()', async () => {
+        const memory = await memoryManager.create({
+          content: 'Test save via create',
+        });
+
+        expect(memory.id).to.be.a('string');
+        expect(memory.content).to.equal('Test save via create');
+
+        const retrieved = await memoryManager.get(memory.id);
+        expect(retrieved.content).to.equal('Test save via create');
+      });
+
+      it('should save updated memory via update()', async () => {
+        const memory = await memoryManager.create({
+          content: 'Original content',
+        });
+
+        const updated = await memoryManager.update(memory.id, {
+          content: 'Updated content',
+        });
+
+        expect(updated.content).to.equal('Updated content');
+
+        const retrieved = await memoryManager.get(memory.id);
+        expect(retrieved.content).to.equal('Updated content');
+      });
+    });
+
+    describe('load logic', () => {
+      it('should load existing memory via get()', async () => {
+        const memory = await memoryManager.create({
+          content: 'Test load',
+          tags: ['test'],
+        });
+
+        const loaded = await memoryManager.get(memory.id);
+        expect(loaded.id).to.equal(memory.id);
+        expect(loaded.content).to.equal('Test load');
+        expect(loaded.tags).to.deep.equal(['test']);
+      });
+
+      it('should load all memories via list()', async () => {
+        const mem1 = await memoryManager.create({content: 'Memory 1'});
+        const mem2 = await memoryManager.create({content: 'Memory 2'});
+        const mem3 = await memoryManager.create({content: 'Memory 3'});
+
+        const testMemoryIds = new Set([mem1.id, mem2.id, mem3.id]);
+
+        // Verify all 3 memories exist first
+        await memoryManager.get(mem1.id);
+        await memoryManager.get(mem2.id);
+        await memoryManager.get(mem3.id);
+
+        // Retry until all memories are in the list (with timeout)
+        let testMemories: Memory[] = [];
+        const maxRetries = 20;
+
+         
+        for (let i = 0; i < maxRetries; i++) {
+          // eslint-disable-next-line no-await-in-loop
+          const all = await memoryManager.list();
+          testMemories = all.filter(m => testMemoryIds.has(m.id));
+          if (testMemories.length === 3) {
+            break;
+          }
+
+          // eslint-disable-next-line no-await-in-loop
+          await new Promise<void>(resolve => {
+            setTimeout(() => {
+              resolve();
+            }, 100);
+          });
+        }
+
+        // Verify all three memories are in the list
+        expect(testMemories.length).to.equal(3, 'Should have 3 test memories');
+        expect(testMemories.some(m => m.id === mem1.id)).to.be.true;
+        expect(testMemories.some(m => m.id === mem2.id)).to.be.true;
+        expect(testMemories.some(m => m.id === mem3.id)).to.be.true;
+
+        // Clean up
+        await memoryManager.delete(mem1.id).catch(() => {});
+        await memoryManager.delete(mem2.id).catch(() => {});
+        await memoryManager.delete(mem3.id).catch(() => {});
+      });
+
+      it('should handle missing memory gracefully', async () => {
+        try {
+          await memoryManager.get('non-existent-id');
+          expect.fail('Should have thrown MemoryError');
+        } catch (error) {
+          expect(error).to.be.instanceOf(MemoryError);
+          expect((error as MemoryError).code).to.equal('MEMORY_NOT_FOUND');
+        }
+      });
+
+      it('should list memories with all options (limit, offset, tags, source, pinned, combined)', async () => {
+        // Insert test data with delays after each create to ensure filesystem sync
+        const mem1 = await memoryManager.create({
+          content: 'Memory 1',
+          metadata: {pinned: true, source: 'agent'},
+          tags: ['tag1', 'tag2', 'important'],
+        });
+        // Delay after create to ensure filesystem sync
+        await new Promise<void>(resolve => {
+          setTimeout(() => {
+            resolve();
+          }, 200);
+        });
+
+        const mem2 = await memoryManager.create({
+          content: 'Memory 2',
+          metadata: {pinned: false, source: 'user'},
+          tags: ['tag2', 'tag3', 'important'],
+        });
+        await new Promise<void>(resolve => {
+          setTimeout(() => {
+            resolve();
+          }, 200);
+        });
+
+        const mem3 = await memoryManager.create({
+          content: 'Memory 3',
+          metadata: {pinned: false, source: 'agent'},
+          tags: ['tag3', 'important'],
+        });
+        await new Promise<void>(resolve => {
+          setTimeout(() => {
+            resolve();
+          }, 200);
+        });
+
+        const mem4 = await memoryManager.create({
+          content: 'Memory 4',
+          metadata: {pinned: true, source: 'agent'},
+          tags: ['tag1'],
+        });
+        // Extra delay after last create before calling list()
+        await new Promise<void>(resolve => {
+          setTimeout(() => {
+            resolve();
+          }, 500);
+        });
+
+        const testMemoryIds = new Set([mem1.id, mem2.id, mem3.id, mem4.id]);
+
+        // Verify all 4 memories can be retrieved individually (proves they exist)
+        const mem1Retrieved = await memoryManager.get(mem1.id);
+        const mem2Retrieved = await memoryManager.get(mem2.id);
+        const mem3Retrieved = await memoryManager.get(mem3.id);
+        const mem4Retrieved = await memoryManager.get(mem4.id);
+        expect(mem1Retrieved).to.exist;
+        expect(mem2Retrieved).to.exist;
+        expect(mem3Retrieved).to.exist;
+        expect(mem4Retrieved).to.exist;
+
+        // Verify files exist in filesystem directly
+        const memoryKeyPrefix = 'memory-';
+        const verifyFileExists = (memoryId: string): boolean => {
+          const key = `${memoryKeyPrefix}${memoryId}`;
+          const blobPath = join(testDir, 'blobs', `${key}.blob`);
+          return existsSync(blobPath);
+        };
+
+        expect(verifyFileExists(mem1.id)).to.be.true;
+        expect(verifyFileExists(mem2.id)).to.be.true;
+        expect(verifyFileExists(mem3.id)).to.be.true;
+        expect(verifyFileExists(mem4.id)).to.be.true;
+
+        // Retry list() multiple times to handle filesystem timing issues
+        // fs.readdir() may not immediately see files after atomic rename
+        // Note: Some memory IDs may contain dashes, causing isMemoryKey() to filter them out incorrectly
+        let all: Memory[] = [];
+        let testMemories: Memory[] = [];
+        const maxListRetries = 30;
+
+        for (let i = 0; i < maxListRetries; i++) {
+          // eslint-disable-next-line no-await-in-loop
+          all = await memoryManager.list();
+          testMemories = all.filter(m => testMemoryIds.has(m.id));
+          if (testMemories.length === 4) {
+            break;
+          }
+
+          // eslint-disable-next-line no-await-in-loop
+          await new Promise<void>(resolve => {
+            setTimeout(() => {
+              resolve();
+            }, 150);
+          });
+        }
+
+        // Test limit - filter to only test memories
+        expect(testMemories.length).to.equal(4, `Should have 4 test memories, found: ${testMemories.map(m => m.id).join(', ')}. All memories: ${all.map(m => m.id).join(', ')}. Created IDs: ${[...testMemoryIds].join(', ')}`);
+
+        const limited = await memoryManager.list({limit: 2});
+        expect(limited.length).to.equal(2);
+
+        // Test offset
+        const offset = await memoryManager.list({offset: 1});
+        expect(offset.length).to.equal(all.length - 1);
+        if (offset.length > 0 && all.length > 1) {
+          expect(offset[0].id).to.equal(all[1].id);
+        }
+
+        // Test limit + offset
+        const paginated = await memoryManager.list({limit: 1, offset: 1});
+        expect(paginated.length).to.equal(1);
+
+        // Test filter by tags - only check test memories
+        const filteredByTag2 = await memoryManager.list({tags: ['tag2']});
+        const testMemoriesInTag2 = filteredByTag2.filter(m => testMemoryIds.has(m.id));
+        expect(testMemoriesInTag2.some(m => m.id === mem1.id)).to.be.true;
+        expect(testMemoriesInTag2.some(m => m.id === mem2.id)).to.be.true;
+        expect(testMemoriesInTag2.some(m => m.id === mem3.id)).to.be.false;
+        expect(testMemoriesInTag2.some(m => m.id === mem4.id)).to.be.false;
+
+        // Test filter by source - only check test memories
+        const filteredByAgent = await memoryManager.list({source: 'agent'});
+        const testMemoriesInAgent = filteredByAgent.filter(m => testMemoryIds.has(m.id));
+        expect(testMemoriesInAgent.every(m => m.metadata?.source === 'agent')).to.be.true;
+        expect(testMemoriesInAgent.some(m => m.id === mem1.id)).to.be.true;
+        expect(testMemoriesInAgent.some(m => m.id === mem3.id)).to.be.true;
+        expect(testMemoriesInAgent.some(m => m.id === mem4.id)).to.be.true;
+        expect(testMemoriesInAgent.some(m => m.id === mem2.id)).to.be.false;
+
+        // Test filter by pinned - only check test memories
+        const pinned = await memoryManager.list({pinned: true});
+        const testMemoriesPinned = pinned.filter(m => testMemoryIds.has(m.id));
+        expect(testMemoriesPinned.every(m => m.metadata?.pinned === true)).to.be.true;
+        expect(testMemoriesPinned.some(m => m.id === mem1.id)).to.be.true;
+        expect(testMemoriesPinned.some(m => m.id === mem4.id)).to.be.true;
+        expect(testMemoriesPinned.some(m => m.id === mem2.id)).to.be.false;
+        expect(testMemoriesPinned.some(m => m.id === mem3.id)).to.be.false;
+
+        const unpinned = await memoryManager.list({pinned: false});
+        const testMemoriesUnpinned = unpinned.filter(m => testMemoryIds.has(m.id));
+        expect(testMemoriesUnpinned.every(m => m.metadata?.pinned !== true)).to.be.true;
+        expect(testMemoriesUnpinned.some(m => m.id === mem2.id)).to.be.true;
+        expect(testMemoriesUnpinned.some(m => m.id === mem3.id)).to.be.true;
+        expect(testMemoriesUnpinned.some(m => m.id === mem1.id)).to.be.false;
+        expect(testMemoriesUnpinned.some(m => m.id === mem4.id)).to.be.false;
+
+        // Test combined filters - only check test memories
+        const combined = await memoryManager.list({
+          pinned: true,
+          source: 'agent',
+          tags: ['important'],
+        });
+        const testMemoriesCombined = combined.filter(m => testMemoryIds.has(m.id));
+        expect(testMemoriesCombined.every(m =>
+          m.tags?.includes('important') &&
+                 m.metadata?.source === 'agent' &&
+                 m.metadata?.pinned === true
+        )).to.be.true;
+        expect(testMemoriesCombined.some(m => m.id === mem1.id)).to.be.true;
+        expect(testMemoriesCombined.some(m => m.id === mem2.id)).to.be.false;
+        expect(testMemoriesCombined.some(m => m.id === mem3.id)).to.be.false;
+        expect(testMemoriesCombined.some(m => m.id === mem4.id)).to.be.false;
+
+        // Clean up
+        await memoryManager.delete(mem1.id).catch(() => {});
+        await memoryManager.delete(mem2.id).catch(() => {});
+        await memoryManager.delete(mem3.id).catch(() => {});
+        await memoryManager.delete(mem4.id).catch(() => {});
+      });
+
+      it('should sort memories by updatedAt descending', async () => {
+        // Create memories with delays to ensure different timestamps
+        const mem1 = await memoryManager.create({content: 'Memory 1'});
+        await new Promise<void>(resolve => {
+          setTimeout(() => {
+            resolve();
+          }, 20);
+        }); // Delay to ensure different updatedAt
+        const mem2 = await memoryManager.create({content: 'Memory 2'});
+        await new Promise<void>(resolve => {
+          setTimeout(() => {
+            resolve();
+          }, 20);
+        }); // Delay to ensure different updatedAt
+        const mem3 = await memoryManager.create({content: 'Memory 3'});
+
+        const testMemoryIds = new Set([mem1.id, mem2.id, mem3.id]);
+
+        // Verify all 3 memories exist first
+        await memoryManager.get(mem1.id);
+        await memoryManager.get(mem2.id);
+        await memoryManager.get(mem3.id);
+
+        // Retry until all 3 memories are in the list (with timeout)
+        let testMemories: Memory[] = [];
+        const maxRetries = 20;
+
+         
+        for (let i = 0; i < maxRetries; i++) {
+          // eslint-disable-next-line no-await-in-loop
+          const all = await memoryManager.list();
+          testMemories = all.filter(m => testMemoryIds.has(m.id));
+          if (testMemories.length === 3) {
+            break;
+          }
+
+          // eslint-disable-next-line no-await-in-loop
+          await new Promise<void>(resolve => {
+            setTimeout(() => {
+              resolve();
+            }, 100);
+          });
+        }
+
+        // Verify all 3 memories are found
+        const all = await memoryManager.list();
+        expect(testMemories.length).to.equal(3, `Should find all 3 test memories, found ${testMemories.length}. All memories: ${all.map(m => m.id).join(', ')}`);
+
+        // Find indices in the filtered list
+        const mem3Index = testMemories.findIndex(m => m.id === mem3.id);
+        const mem2Index = testMemories.findIndex(m => m.id === mem2.id);
+        const mem1Index = testMemories.findIndex(m => m.id === mem1.id);
+
+        // Verify all are found
+        expect(mem3Index).to.be.at.least(0, 'mem3 should be found');
+        expect(mem2Index).to.be.at.least(0, 'mem2 should be found');
+        expect(mem1Index).to.be.at.least(0, 'mem1 should be found');
+
+        // Most recent first (mem3 should be before mem2, mem2 before mem1)
+        expect(mem3Index).to.be.lessThan(mem2Index, 'mem3 (most recent) should be before mem2');
+        expect(mem2Index).to.be.lessThan(mem1Index, 'mem2 should be before mem1');
+
+        // Clean up
+        await memoryManager.delete(mem1.id).catch(() => {});
+        await memoryManager.delete(mem2.id).catch(() => {});
+        await memoryManager.delete(mem3.id).catch(() => {});
+      });
+    });
+
+    describe('delete logic', () => {
+      it('should delete a memory', async () => {
+        const memory = await memoryManager.create({content: 'To be deleted'});
+
+        await memoryManager.delete(memory.id);
+
+        try {
+          await memoryManager.get(memory.id);
+          expect.fail('Memory should be deleted');
+        } catch (error) {
+          expect(error).to.be.instanceOf(MemoryError);
+          expect((error as MemoryError).code).to.equal('MEMORY_NOT_FOUND');
+        }
+      });
+
+      it('should delete memory with attachments', async () => {
+        const memory = await memoryManager.create({content: 'With attachment'});
+        await memoryManager.attachBlob(memory.id, Buffer.from('attachment data'), {
+          name: 'test.txt',
+          type: 'text/plain',
+        });
+
+        const attachments = await memoryManager.listAttachments(memory.id);
+        expect(attachments.length).to.equal(1);
+
+        await memoryManager.delete(memory.id);
+
+        try {
+          await memoryManager.get(memory.id);
+          expect.fail('Memory should be deleted');
+        } catch (error) {
+          expect(error).to.be.instanceOf(MemoryError);
+        }
+      });
+    });
+  });
+
+  describe('JSON operations (BlobStorage integration)', () => {
+    describe('read/write JSON', () => {
+      it('should preserve all memory fields in JSON', async () => {
+        const memory = await memoryManager.create({
+          content: 'Full test content with special chars: !@#$%^&*()',
+          metadata: {
+            pinned: false,
+            source: 'user',
+          },
+          tags: ['tag1', 'tag2', 'tag3'],
+        });
+
+        const retrieved = await memoryManager.get(memory.id);
+        expect(retrieved.content).to.equal('Full test content with special chars: !@#$%^&*()');
+        expect(retrieved.tags).to.deep.equal(['tag1', 'tag2', 'tag3']);
+        expect(retrieved.metadata?.source).to.equal('user');
+        expect(retrieved.metadata?.pinned).to.be.false;
+      });
+
+      it('should handle special characters in content', async () => {
+        const memory = await memoryManager.create({
+          content: 'Content with special chars: \n\t\r"\'\\{}[]',
+        });
+
+        const retrieved = await memoryManager.get(memory.id);
+        expect(retrieved.content).to.equal('Content with special chars: \n\t\r"\'\\{}[]');
+      });
+
+      it('should handle unicode characters', async () => {
+        const memory = await memoryManager.create({
+          content: 'Unicode: 你好世界 🌍 émojis 🎉',
+        });
+
+        const retrieved = await memoryManager.get(memory.id);
+        expect(retrieved.content).to.equal('Unicode: 你好世界 🌍 émojis 🎉');
+      });
+    });
+
+    describe('missing keys', () => {
+      it('should throw MemoryError.notFound when getting missing key', async () => {
+        try {
+          await memoryManager.get('non-existent-id');
+          expect.fail('Should have thrown MemoryError');
+        } catch (error) {
+          expect(error).to.be.instanceOf(MemoryError);
+          expect((error as MemoryError).code).to.equal('MEMORY_NOT_FOUND');
+        }
+      });
+
+      it('should return false for has() when key does not exist', async () => {
+        const exists = await memoryManager.has('non-existent-id');
+        expect(exists).to.be.false;
+      });
+
+      it('should return true for has() when key exists', async () => {
+        const memory = await memoryManager.create({
+          content: 'Test',
+        });
+
+        const exists = await memoryManager.has(memory.id);
+        expect(exists).to.be.true;
+      });
+    });
+
+    describe('invalid JSON', () => {
+      it('should throw MemoryError.retrievalError for malformed JSON', async () => {
+        const memory = await memoryManager.create({
+          content: 'Valid memory',
+        });
+
+        const key = `memory-${memory.id}`;
+        await blobStorage.store(key, '{ invalid json }', {
+          contentType: 'application/json',
+        });
+
+        try {
+          await memoryManager.get(memory.id);
+          expect.fail('Should have thrown MemoryError');
+        } catch (error) {
+          expect(error).to.be.instanceOf(MemoryError);
+          expect((error as MemoryError).code).to.equal('MEMORY_RETRIEVAL_ERROR');
+          expect((error as Error).message).to.include('Failed to parse memory');
+        }
+      });
+
+      it('should throw MemoryError.retrievalError for empty JSON', async () => {
+        const memory = await memoryManager.create({
+          content: 'Valid memory',
+        });
+
+        const key = `memory-${memory.id}`;
+        await blobStorage.store(key, '', {
+          contentType: 'application/json',
+        });
+
+        try {
+          await memoryManager.get(memory.id);
+          expect.fail('Should have thrown MemoryError');
+        } catch (error) {
+          expect(error).to.be.instanceOf(MemoryError);
+          expect((error as MemoryError).code).to.equal('MEMORY_RETRIEVAL_ERROR');
+        }
+      });
+
+      it('should handle corrupted blob content gracefully', async () => {
+        const memory = await memoryManager.create({
+          content: 'Valid memory',
+        });
+
+        const key = `memory-${memory.id}`;
+        await blobStorage.store(key, Buffer.from([0xFF, 0xFE, 0xFD]), {
+          contentType: 'application/json',
+        });
+
+        try {
+          await memoryManager.get(memory.id);
+          expect.fail('Should have thrown MemoryError');
+        } catch (error) {
+          expect(error).to.be.instanceOf(MemoryError);
+          expect((error as MemoryError).code).to.equal('MEMORY_RETRIEVAL_ERROR');
+        }
+      });
+    });
+  });
   });
 });
