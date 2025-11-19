@@ -5,6 +5,7 @@ import {join} from 'node:path'
 
 import type {Space} from '../core/domain/entities/space.js'
 import type {Team} from '../core/domain/entities/team.js'
+import type {IContextTreeService} from '../core/interfaces/i-context-tree-service.js'
 import type {IPlaybookService} from '../core/interfaces/i-playbook-service.js'
 import type {IProjectConfigStore} from '../core/interfaces/i-project-config-store.js'
 import type {ISpaceService} from '../core/interfaces/i-space-service.js'
@@ -16,6 +17,7 @@ import {BRV_DIR, PROJECT_CONFIG_FILE} from '../constants.js'
 import {BrvConfig} from '../core/domain/entities/brv-config.js'
 import {ITrackingService} from '../core/interfaces/i-tracking-service.js'
 import {ProjectConfigStore} from '../infra/config/file-config-store.js'
+import {FileContextTreeService} from '../infra/context-tree/file-context-tree-service.js'
 import {FilePlaybookService} from '../infra/playbook/file-playbook-service.js'
 import {HttpSpaceService} from '../infra/space/http-space-service.js'
 import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
@@ -67,6 +69,7 @@ export default class Init extends Command {
   }
 
   protected createServices(): {
+    contextTreeService: IContextTreeService
     playbookService: IPlaybookService
     projectConfigStore: IProjectConfigStore
     spaceService: ISpaceService
@@ -79,6 +82,7 @@ export default class Init extends Command {
     const trackingService = new MixpanelTrackingService(tokenStore)
 
     return {
+      contextTreeService: new FileContextTreeService(),
       playbookService: new FilePlaybookService(),
       projectConfigStore: new ProjectConfigStore(),
       spaceService: new HttpSpaceService({
@@ -130,7 +134,7 @@ export default class Init extends Command {
     const {flags} = await this.parse(Init)
 
     try {
-      const {playbookService, projectConfigStore, spaceService, teamService, tokenStore, trackingService} =
+      const {contextTreeService, playbookService, projectConfigStore, spaceService, teamService, tokenStore, trackingService} =
         this.createServices()
 
       const alreadyInitialized = await projectConfigStore.exists()
@@ -214,6 +218,15 @@ export default class Init extends Command {
       } catch (error) {
         // Warn but don't fail if ACE init fails
         this.warn(`ACE initialization skipped: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      }
+
+      this.log('\nInitializing context tree...')
+      try {
+        const contextTreePath = await contextTreeService.initialize()
+        this.log(`✓ Context tree initialized in ${contextTreePath}`)
+      } catch (error) {
+        // Warn but don't fail if context tree init fails
+        this.warn(`Context tree initialization skipped: ${error instanceof Error ? error.message : 'Unknown error'}`)
       }
 
       this.log(`\nGenerate rule instructions for coding agents to work with ByteRover correctly`)

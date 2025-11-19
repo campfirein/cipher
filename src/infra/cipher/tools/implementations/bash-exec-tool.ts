@@ -64,25 +64,15 @@ type BashExecInput = z.infer<typeof BashExecInputSchema>
  */
 export function createBashExecTool(processService: IProcessService): Tool {
   return {
-    description: `Execute shell commands with security validation and working directory confinement.
+    description: `Execute a shell command and return its output.
 
-Features:
-- Foreground execution: Waits for command to complete and returns output
-- Background execution: Returns immediately with process ID for later retrieval
-- Security validation: Blocks dangerous patterns (rm -rf /, fork bombs, etc.)
-- Timeout management: Automatically terminates long-running commands
-- Working directory confinement: All commands confined to configured base directory
+If there is a memory about suggested commands, read that first.
 
-Security model:
-- Commands are confined to the working directory (cannot escape via path traversal)
-- Truly dangerous patterns are blocked (rm -rf /, format commands, fork bombs)
-- No approval system - agent operates autonomously within confined environment
+**IMPORTANT:** Do not use this tool to start any process that is not intended to terminate quickly, or requires user interaction.
 
-Best practices:
-- All file operations are automatically confined to the working directory
-- Use background execution for long-running commands (>30 seconds)
-- Monitor process output and handle errors gracefully
-- Clean up background processes when no longer needed`,
+Examples of inappropriate use:
+- Long-running processes (e.g. servers) that are not intended to terminate quickly
+- Processes that require user interaction`,
 
     async execute(input: unknown, _context?: ToolExecutionContext) {
       const {command, cwd, description, runInBackground, timeout} = input as BashExecInput

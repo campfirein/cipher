@@ -6,7 +6,7 @@ import type {InternalMessage} from '../../../../src/core/interfaces/cipher/messa
 import {SessionEventBus} from '../../../../src/infra/cipher/events/event-emitter.js'
 import {ByteRoverLlmGrpcService} from '../../../../src/infra/cipher/grpc/internal-llm-grpc-service.js'
 import {ByteRoverLLMService} from '../../../../src/infra/cipher/llm/internal-llm-service.js'
-import {SystemPromptManager} from '../../../../src/infra/cipher/system-prompt/system-prompt-manager.js'
+import {SimplePromptFactory} from '../../../../src/infra/cipher/system-prompt/simple-prompt-factory.js'
 import {ToolManager} from '../../../../src/infra/cipher/tools/tool-manager.js'
 
 // Helper function to create a ByteRover gRPC provider with test config
@@ -20,7 +20,7 @@ function createGrpcProvider() {
 
 describe('ByteRoverLLMService', () => {
   let sessionEventBus: SessionEventBus
-  let systemPromptManager: SystemPromptManager
+  let promptFactory: SimplePromptFactory
   let toolManager: ToolManager
   let sandbox: sinon.SinonSandbox
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -29,17 +29,7 @@ describe('ByteRoverLLMService', () => {
   beforeEach(() => {
     sandbox = sinon.createSandbox()
     sessionEventBus = new SessionEventBus()
-    systemPromptManager = new SystemPromptManager({
-      contributors: [
-        {
-          content: 'Test prompt',
-          enabled: true,
-          id: 'test',
-          priority: 0,
-          type: 'static',
-        },
-      ],
-    })
+    promptFactory = new SimplePromptFactory()
     // Create a mock toolProvider that provides getAllTools, getToolNames, and getAvailableMarkers methods
     mockToolProvider = {
       getAllTools: sandbox.stub().returns({}),
@@ -64,8 +54,8 @@ describe('ByteRoverLLMService', () => {
           model: 'gemini-2.5-flash',
         },
         {
+          promptFactory,
           sessionEventBus,
-          systemPromptManager,
           toolManager,
         }
       )
@@ -83,8 +73,8 @@ describe('ByteRoverLLMService', () => {
           model: 'claude-3-5-sonnet',
         },
         {
+          promptFactory,
           sessionEventBus,
-          systemPromptManager,
           toolManager,
         }
       )
@@ -102,8 +92,8 @@ describe('ByteRoverLLMService', () => {
           model: 'gemini-2.5-flash',
         },
         {
+          promptFactory,
           sessionEventBus,
-          systemPromptManager,
           toolManager,
         }
       )
@@ -121,8 +111,8 @@ describe('ByteRoverLLMService', () => {
           model: 'gemini-2.5-flash',
         },
         {
+          promptFactory,
           sessionEventBus,
-          systemPromptManager,
           toolManager,
         }
       )
@@ -140,8 +130,8 @@ describe('ByteRoverLLMService', () => {
           temperature: 0.5,
         },
         {
+          promptFactory,
           sessionEventBus,
-          systemPromptManager,
           toolManager,
         }
       )
@@ -158,8 +148,8 @@ describe('ByteRoverLLMService', () => {
           model: 'gemini-2.5-flash',
         },
         {
+          promptFactory,
           sessionEventBus,
-          systemPromptManager,
           toolManager,
         }
       )
@@ -176,8 +166,8 @@ describe('ByteRoverLLMService', () => {
           model: 'gemini-2.5-flash',
         },
         {
+          promptFactory,
           sessionEventBus,
-          systemPromptManager,
           toolManager,
         }
       )
@@ -196,8 +186,8 @@ describe('ByteRoverLLMService', () => {
           model: 'gemini-2.5-flash',
         },
         {
+          promptFactory,
           sessionEventBus,
-          systemPromptManager,
           toolManager,
         }
       )
@@ -218,8 +208,8 @@ describe('ByteRoverLLMService', () => {
           model: 'gemini-2.5-flash',
         },
         {
+          promptFactory,
           sessionEventBus,
-          systemPromptManager,
           toolManager,
         }
       )
@@ -237,8 +227,8 @@ describe('ByteRoverLLMService', () => {
           model: 'gemini-2.5-flash',
         },
         {
+          promptFactory,
           sessionEventBus,
-          systemPromptManager,
           toolManager,
         }
       )
@@ -258,8 +248,8 @@ describe('ByteRoverLLMService', () => {
           model: 'gemini-2.5-flash',
         },
         {
+          promptFactory,
           sessionEventBus,
-          systemPromptManager,
           toolManager,
         }
       )
@@ -289,8 +279,8 @@ describe('ByteRoverLLMService', () => {
           model: 'gemini-2.5-flash',
         },
         {
+          promptFactory,
           sessionEventBus,
-          systemPromptManager,
           toolManager,
         }
       )
@@ -311,8 +301,8 @@ describe('ByteRoverLLMService', () => {
           model: 'gemini-2.5-flash',
         },
         {
+          promptFactory,
           sessionEventBus,
-          systemPromptManager,
           toolManager,
         }
       )
@@ -332,8 +322,8 @@ describe('ByteRoverLLMService', () => {
           model: 'gemini-2.5-flash',
         },
         {
+          promptFactory,
           sessionEventBus,
-          systemPromptManager,
           toolManager,
         }
       )
@@ -343,7 +333,7 @@ describe('ByteRoverLLMService', () => {
       expect(contextManager).to.exist
     })
 
-    it('should have systemPromptManager for building prompts', () => {
+    it('should have promptFactory for building prompts', () => {
       const provider = createGrpcProvider()
       const service = new ByteRoverLLMService(
         'test-session',
@@ -352,8 +342,8 @@ describe('ByteRoverLLMService', () => {
           model: 'gemini-2.5-flash',
         },
         {
+          promptFactory,
           sessionEventBus,
-          systemPromptManager,
           toolManager,
         }
       )
@@ -374,8 +364,8 @@ describe('ByteRoverLLMService', () => {
           model: 'gemini-2.5-flash',
         },
         {
+          promptFactory,
           sessionEventBus,
-          systemPromptManager,
           toolManager,
         }
       )
@@ -399,8 +389,8 @@ describe('ByteRoverLLMService', () => {
           model: 'gemini-2.5-flash',
         },
         {
+          promptFactory,
           sessionEventBus,
-          systemPromptManager,
           toolManager,
         }
       )
@@ -428,8 +418,8 @@ describe('ByteRoverLLMService', () => {
           model: 'gemini-2.5-flash',
         },
         {
+          promptFactory,
           sessionEventBus,
-          systemPromptManager,
           toolManager,
         }
       )
@@ -457,8 +447,8 @@ describe('ByteRoverLLMService', () => {
           model: 'gemini-2.5-flash',
         },
         {
+          promptFactory,
           sessionEventBus,
-          systemPromptManager,
           toolManager,
         }
       )
@@ -482,8 +472,8 @@ describe('ByteRoverLLMService', () => {
           model: 'gemini-2.5-flash',
         },
         {
+          promptFactory,
           sessionEventBus,
-          systemPromptManager,
           toolManager,
         }
       )
@@ -512,8 +502,8 @@ describe('ByteRoverLLMService', () => {
           temperature: 0.8,
         },
         {
+          promptFactory,
           sessionEventBus,
-          systemPromptManager,
           toolManager,
         }
       )
@@ -534,8 +524,8 @@ describe('ByteRoverLLMService', () => {
           model: 'gemini-2.5-flash',
         },
         {
+          promptFactory,
           sessionEventBus,
-          systemPromptManager,
           toolManager,
         }
       )
@@ -563,8 +553,8 @@ describe('ByteRoverLLMService', () => {
           model: 'gemini-2.5-flash',
         },
         {
+          promptFactory,
           sessionEventBus,
-          systemPromptManager,
           toolManager,
         }
       )
@@ -583,8 +573,8 @@ describe('ByteRoverLLMService', () => {
           model: 'gemini-2.5-flash',
         },
         {
+          promptFactory,
           sessionEventBus,
-          systemPromptManager,
           toolManager,
         }
       )
@@ -603,8 +593,8 @@ describe('ByteRoverLLMService', () => {
           model: 'gemini-2.5-flash',
         },
         {
+          promptFactory,
           sessionEventBus,
-          systemPromptManager,
           toolManager,
         }
       )
@@ -625,8 +615,8 @@ describe('ByteRoverLLMService', () => {
           model: 'gemini-2.5-flash',
         },
         {
+          promptFactory,
           sessionEventBus,
-          systemPromptManager,
           toolManager,
         }
       )
@@ -644,8 +634,8 @@ describe('ByteRoverLLMService', () => {
           model: 'gemini-2.5-flash',
         },
         {
+          promptFactory,
           sessionEventBus,
-          systemPromptManager,
           toolManager,
         }
       )
@@ -662,8 +652,8 @@ describe('ByteRoverLLMService', () => {
           model: 'gemini-2.5-flash',
         },
         {
+          promptFactory,
           sessionEventBus,
-          systemPromptManager,
           toolManager,
         }
       )
@@ -680,8 +670,8 @@ describe('ByteRoverLLMService', () => {
           model: 'gemini-2.5-flash',
         },
         {
+          promptFactory,
           sessionEventBus,
-          systemPromptManager,
           toolManager,
         }
       )
@@ -698,8 +688,8 @@ describe('ByteRoverLLMService', () => {
           model: 'gemini-2.5-flash',
         },
         {
+          promptFactory,
           sessionEventBus,
-          systemPromptManager,
           toolManager,
         }
       )
@@ -718,8 +708,8 @@ describe('ByteRoverLLMService', () => {
           model: 'gemini-2.5-flash',
         },
         {
+          promptFactory,
           sessionEventBus,
-          systemPromptManager,
           toolManager,
         }
       )
@@ -766,8 +756,8 @@ describe('ByteRoverLLMService', () => {
           model: 'gemini-2.5-flash',
         },
         {
+          promptFactory,
           sessionEventBus,
-          systemPromptManager,
           toolManager,
         }
       )
@@ -800,8 +790,8 @@ describe('ByteRoverLLMService', () => {
           model: 'claude-3-5-sonnet',
         },
         {
+          promptFactory,
           sessionEventBus,
-          systemPromptManager,
           toolManager,
         }
       )
@@ -819,8 +809,8 @@ describe('ByteRoverLLMService', () => {
           model: 'gemini-2.5-flash',
         },
         {
+          promptFactory,
           sessionEventBus,
-          systemPromptManager,
           toolManager,
         }
       )
@@ -839,8 +829,8 @@ describe('ByteRoverLLMService', () => {
           model: 'gemini-2.5-flash',
         },
         {
+          promptFactory,
           sessionEventBus,
-          systemPromptManager,
           toolManager,
         }
       )
@@ -860,8 +850,8 @@ describe('ByteRoverLLMService', () => {
           temperature: 0.9,
         },
         {
+          promptFactory,
           sessionEventBus,
-          systemPromptManager,
           toolManager,
         }
       )
@@ -879,8 +869,8 @@ describe('ByteRoverLLMService', () => {
           model: 'gemini-2.5-flash',
         },
         {
+          promptFactory,
           sessionEventBus,
-          systemPromptManager,
           toolManager,
         }
       )

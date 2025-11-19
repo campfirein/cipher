@@ -14,7 +14,6 @@ import {createGrepContentTool} from './implementations/grep-content-tool.js'
 import {createKillProcessTool} from './implementations/kill-process-tool.js'
 import {createReadFileTool} from './implementations/read-file-tool.js'
 import {createSearchHistoryTool} from './implementations/search-history-tool.js'
-import {createSegmentConversationTool} from './implementations/segment-conversation-tool.js'
 import {createWriteFileTool} from './implementations/write-file-tool.js'
 import {ToolMarker} from './tool-markers.js'
 
@@ -137,12 +136,6 @@ export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
     factory: (_services) => createSearchHistoryTool(),
     markers: [ToolMarker.ContextBuilding, ToolMarker.Discovery],
     requiredServices: [], // No services required yet (stub implementation)
-  },
-
-  [ToolName.SEGMENT_CONVERSATION]: {
-    factory: () => createSegmentConversationTool(),
-    markers: [ToolMarker.ContextBuilding],
-    requiredServices: [], // No services required (validates user-created episodes)
   },
 
   [ToolName.WRITE_FILE]: {
