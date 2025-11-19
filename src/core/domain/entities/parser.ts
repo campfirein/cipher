@@ -1,12 +1,21 @@
 /**
  * Centralized parser types for both raw and clean parsers
  * Single source of truth for all parser-related data structures
+ *
+ * Organization:
+ * 1. TARGET LAYER - Final normalized output types (CleanSession, CleanMessage, etc.)
+ * 2. RAW LAYER - Types used by raw parsers, organized by IDE
+ * 3. CLEAN LAYER - Helper types for clean parsers
  */
 
 // ============================================================================
-// WORKSPACE TYPES
+// TARGET LAYER - Final Normalized Output Types
 // ============================================================================
 
+/**
+ * Workspace information type
+ * Used across raw parsers for workspace validation and identification
+ */
 export type WorkspaceInfo = {
   isValid: boolean
   name: string
@@ -15,12 +24,14 @@ export type WorkspaceInfo = {
   type: 'claude' | 'codex' | 'copilot' | 'cursor'
 }
 
+/**
+ * Session type union for all supported IDEs
+ */
 export type SessionType = 'Claude' | 'Codex' | 'Copilot' | 'Cursor'
 
-// ============================================================================
-// CONTENT BLOCK TYPES (Unified)
-// ============================================================================
-
+/**
+ * Content block types - Unified representation across all IDEs
+ */
 export type TextContentBlock = {
   text: string
   type: 'text'
@@ -52,10 +63,9 @@ export type ContentBlock =
   | ToolResultContentBlock
   | ToolUseContentBlock
 
-// ============================================================================
-// CLEAN MESSAGE TYPES (Normalized)
-// ============================================================================
-
+/**
+ * Clean message type - Normalized message format across all IDEs
+ */
 export type CleanMessage = {
   [key: string]: unknown
   attachments?: string[]
@@ -65,12 +75,28 @@ export type CleanMessage = {
   type: 'assistant' | 'user'
 }
 
+/**
+ * Clean session type - Final normalized session format
+ */
+export type CleanSession = {
+  id: string
+  messages: CleanMessage[]
+  metadata?: unknown
+  timestamp: number
+  title: string
+  type: SessionType
+  workspacePaths: string[]
+}
+
 // ============================================================================
-// RAW SESSION TYPES (from Raw Parsers)
+// RAW LAYER - Types Used by Raw Parsers
 // ============================================================================
 
-// Claude Raw Session - Message and Content Types
-export type ClaudeTranscriptEntry = {
+// ----------------------------------------------------------------------------
+// Claude Raw Types
+// ----------------------------------------------------------------------------
+
+export type RawClaudeTranscriptEntry = {
   content?: string
   cwd?: string
   message?: {
@@ -89,14 +115,14 @@ export type ClaudeTranscriptEntry = {
   uuid?: string
 }
 
-export type ClaudeTokenUsage = {
+export type RawClaudeTokenUsage = {
   cacheTokens?: number
   inputTokens: number
   outputTokens: number
   totalTokens: number
 }
 
-export type ClaudeWorkspaceMetadata = {
+export type RawClaudeWorkspaceMetadata = {
   path: string
   repository?: {
     name: string
@@ -104,7 +130,7 @@ export type ClaudeWorkspaceMetadata = {
   }
 }
 
-export type ClaudeSessionMetadata = {
+export type RawClaudeSessionMetadata = {
   assistantMessageCount: number
   cwd?: string
   duration: number
@@ -112,12 +138,12 @@ export type ClaudeSessionMetadata = {
   messageCount: number
   sessionId: string
   startedAt: string
-  tokenUsage: ClaudeTokenUsage
+  tokenUsage: RawClaudeTokenUsage
   userMessageCount: number
-  workspace: ClaudeWorkspaceMetadata
+  workspace: RawClaudeWorkspaceMetadata
 }
 
-export type ClaudeRawMessage = {
+export type RawClaudeRawMessage = {
   content: ContentBlock[] | string
   cwd?: string
   timestamp: string
@@ -128,31 +154,38 @@ export type ClaudeRawMessage = {
   type: 'assistant' | 'system' | 'user'
 }
 
-export type ClaudeRawSession = {
+export type RawClaudeRawSession = {
   id: string
-  messages: ClaudeRawMessage[]
-  metadata: ClaudeSessionMetadata
+  messages: RawClaudeRawMessage[]
+  metadata: RawClaudeSessionMetadata
   timestamp: number
   title: string
 }
 
-// Codex Raw Session - Helper Types
+export type RawClaudeTimestamps = {
+  endedAt?: string
+  startedAt: string
+}
 
-export type CodexTokenUsage = {
+// ----------------------------------------------------------------------------
+// Codex Raw Types
+// ----------------------------------------------------------------------------
+
+export type RawCodexTokenUsage = {
   cached_input_tokens?: number
   input_tokens?: number
   output_tokens?: number
 }
 
-export type CodexEventPayload = {
-  info?: { total_token_usage: CodexTokenUsage }
+export type RawCodexEventPayload = {
+  info?: { total_token_usage: RawCodexTokenUsage }
   text?: string
   type: 'agent_reasoning' | 'token_count'
 }
 
-export type CodexResponsePayload = {
+export type RawCodexResponsePayload = {
   arguments?: Record<string, unknown> | string
-  content?: CodexContentBlock[] | string
+  content?: RawCodexContentBlock[] | string
   name?: string
   output?: unknown
   role?: 'assistant' | 'user'
@@ -160,7 +193,7 @@ export type CodexResponsePayload = {
   type: 'function_call' | 'function_call_output' | 'message' | 'reasoning'
 }
 
-export type CodexSessionMetaPayload = {
+export type RawCodexSessionMetaPayload = {
   cli_version?: string
   cwd?: string
   git?: { repository_url?: string }
@@ -170,7 +203,7 @@ export type CodexSessionMetaPayload = {
   timestamp?: string
 }
 
-export type CodexSessionMeta = {
+export type RawCodexSessionMeta = {
   cli_version?: string
   cwd?: string
   git?: { repository_url?: string }
@@ -180,13 +213,13 @@ export type CodexSessionMeta = {
   timestamp?: string
 }
 
-export type CodexTranscriptEntry = {
+export type RawCodexTranscriptEntry = {
   payload?: Record<string, unknown>
   timestamp?: string
   type: 'event_msg' | 'response_item' | 'session_meta' | string
 }
 
-export type CodexContentBlock = {
+export type RawCodexContentBlock = {
   input?: Record<string, unknown>
   name?: string
   output?: unknown
@@ -194,8 +227,7 @@ export type CodexContentBlock = {
   type: 'input_text' | 'output_text' | 'tool_use'
 }
 
-// Codex Raw Session
-export type CodexSessionMetadata = {
+export type RawCodexSessionMetadata = {
   assistantMessageCount: number
   cliVersion?: string
   duration: number
@@ -207,18 +239,18 @@ export type CodexSessionMetadata = {
   sessionId: string
   source?: string
   startedAt: string
-  tokenUsage: ClaudeTokenUsage
+  tokenUsage: RawClaudeTokenUsage
   userMessageCount: number
-  workspace: ClaudeWorkspaceMetadata
+  workspace: RawClaudeWorkspaceMetadata
 }
 
-export type CodexRawEntry = {
+export type RawCodexRawEntry = {
   payload: Record<string, unknown>
   timestamp: number
   type: 'event_msg' | 'response_item' | 'session_meta' | 'turn_context'
 }
 
-export type CodexRawMessage = {
+export type RawCodexRawMessage = {
   content: ContentBlock[] | string | undefined
   reasoning?: string
   timestamp: string
@@ -229,58 +261,58 @@ export type CodexRawMessage = {
   type: 'assistant' | 'user'
 }
 
-export type CodexRawSession = {
+export type RawCodexRawSession = {
   id: string
-  messages: CodexRawMessage[]
-  metadata: CodexSessionMetadata
-  rawEntries: CodexRawEntry[]
+  messages: RawCodexRawMessage[]
+  metadata: RawCodexSessionMetadata
+  rawEntries: RawCodexRawEntry[]
   timestamp: number
   title: string
 }
 
-// Copilot Raw Session - Helper Types
-// Basic value types
-export type DatabaseRow = {
+// ----------------------------------------------------------------------------
+// Copilot Raw Types
+// ----------------------------------------------------------------------------
+
+export type RawCopilotDatabaseRow = {
   value?: string
 }
 
-// Response block type used internally
-export type CopilotResponseBlock = {
+export type RawCopilotResponseBlock = {
   [key: string]: unknown
   kind?: string
   text?: string
 }
 
-export type CopilotVariableData = {
+export type RawCopilotVariableData = {
   variables?: Array<{ kind?: string; name: string; }>
 }
 
-export type CopilotContentBlock = {
-  [key: string]: CopilotContentBlock | CopilotContentBlock[] | string | undefined
+export type RawCopilotContentBlock = {
+  [key: string]: RawCopilotContentBlock | RawCopilotContentBlock[] | string | undefined
   kind?: string
   text?: string
 }
 
-export type CopilotRequestData = {
+export type RawCopilotRequestData = {
   message?: { text?: string }
   requestId?: string
   response?: Record<string, unknown> | Record<string, unknown>[]
   responseId?: string
   result?: { [key: string]: unknown; timings?: { totalElapsed?: number }; }
-  variableData?: CopilotVariableData
+  variableData?: RawCopilotVariableData
 }
 
-export type CopilotSessionFileData = {
+export type RawCopilotSessionFileData = {
   [key: string]: unknown
   baseUri?: { path?: string }
   initialLocation?: string
   requesterUsername?: string
-  requests?: CopilotRequestData[]
+  requests?: RawCopilotRequestData[]
   responderUsername?: string
 }
 
-// Copilot Raw Session
-export type CopilotSessionMetadata = {
+export type RawCopilotSessionMetadata = {
   initialLocation?: string
   messageCount: number
   requestCount: number
@@ -293,7 +325,7 @@ export type CopilotSessionMetadata = {
   }
 }
 
-export type CopilotResponseItem = {
+export type RawCopilotResponseItem = {
   [key: string]: unknown
   invocationMessage?: {
     value: unknown
@@ -305,24 +337,24 @@ export type CopilotResponseItem = {
   value?: string
 }
 
-export type CopilotToolCallRound = {
+export type RawCopilotToolCallRound = {
   toolCalls: Array<{
     arguments?: Record<string, unknown> | string
     id: string
   }>
 }
 
-export type CopilotParsedRequest = {
+export type RawCopilotParsedRequest = {
   message?: {
     text?: string
   }
   requestId: string
-  response?: CopilotResponseItem[]
+  response?: RawCopilotResponseItem[]
   responseId: string
   result?: {
     metadata?: {
       toolCallResults?: Record<string, unknown>
-      toolCallRounds?: CopilotToolCallRound[]
+      toolCallRounds?: RawCopilotToolCallRound[]
     }
     timings?: {
       totalElapsed?: number
@@ -336,85 +368,88 @@ export type CopilotParsedRequest = {
   }
 }
 
-export type CopilotRawMessage = {
+export type RawCopilotRawMessage = {
   attachments?: string[]
   content: ContentBlock[] | string
   type: 'assistant' | 'user'
 }
 
-export type CopilotRawSession = {
+export type RawCopilotRawSession = {
   id: string
-  messages: CopilotRawMessage[]
-  metadata: CopilotSessionMetadata
-  requests?: CopilotParsedRequest[]
+  messages: RawCopilotRawMessage[]
+  metadata: RawCopilotSessionMetadata
+  requests?: RawCopilotParsedRequest[]
   timestamp: number
   title: string
   workspaceHash: string
   workspacePath?: string | string[]
 }
 
-// Cursor Raw Session - Helper Types
-export type ComposerData = {
+// ----------------------------------------------------------------------------
+// Cursor Raw Types
+// ----------------------------------------------------------------------------
+
+export type RawCursorComposerData = {
   [key: string]: unknown
   composerId: string
 }
 
-export type DatabaseQueryResult = {
+export type RawCursorDatabaseQueryResult = {
   [key: string]: unknown
   value: Buffer | string
 }
 
-export type CursorRule = {
+export type RawCursorRule = {
   [key: string]: unknown
   content?: string
   id?: string
   name?: string
 }
 
-export type TerminalFile = {
+export type RawCursorTerminalFile = {
   [key: string]: unknown
   name: string
   path: string
 }
 
-export type KnowledgeItem = {
+export type RawCursorKnowledgeItem = {
   [key: string]: unknown
   content?: string
   id?: string
   title?: string
 }
 
-export type TodoItem = {
+export type RawCursorTodoItem = {
   [key: string]: unknown
   completed?: boolean
   id?: string
   text?: string
 }
 
-export type DeletedFile = {
+export type RawCursorDeletedFile = {
   [key: string]: unknown
   deletedAt?: number
   path: string
 }
 
-export type AttachedFolderListDirResult = {
+export type RawCursorAttachedFolderListDirResult = {
   [key: string]: unknown
   contents: string[]
   path: string
 }
 
-export type CursorBubbleRaw = {
+export type RawCursorBubbleRaw = {
   [key: string]: unknown
-  attachedFoldersListDirResults?: AttachedFolderListDirResult[]
+  attachedFoldersListDirResults?: RawCursorAttachedFolderListDirResult[]
   codeBlocks?: Record<string, string>
   consoleLogs?: string[]
-  cursorRules?: CursorRule[]
+  cursorRules?: RawCursorRule[]
   text?: string
   timestamp?: number
   toolFormerData?: Record<string, unknown>
 }
 
-export type ToolResult = {
+export type RawCursorToolResult = {
   additionalData?: Record<string, unknown>
   modelCallId: string
   name: string
@@ -427,18 +462,18 @@ export type ToolResult = {
   toolIndex: number
 }
 
-export type ContextInfo = {
+export type RawCursorContextInfo = {
   attachedFolders?: Record<string, unknown>[]
-  attachedFoldersListDirResults?: AttachedFolderListDirResult[]
-  cursorRules?: CursorRule[]
-  deletedFiles?: DeletedFile[]
+  attachedFoldersListDirResults?: RawCursorAttachedFolderListDirResult[]
+  cursorRules?: RawCursorRule[]
+  deletedFiles?: RawCursorDeletedFile[]
   gitStatus?: string
-  knowledgeItems?: KnowledgeItem[]
-  terminalFiles?: TerminalFile[]
-  todos?: TodoItem[]
+  knowledgeItems?: RawCursorKnowledgeItem[]
+  terminalFiles?: RawCursorTerminalFile[]
+  todos?: RawCursorTodoItem[]
 }
 
-export type CodeDiff = {
+export type RawCursorCodeDiff = {
   [key: string]: unknown
   diffId: string
   filePath?: string
@@ -446,7 +481,7 @@ export type CodeDiff = {
   originalModelDiffWrtV0?: Array<unknown>
 }
 
-export type FileCheckpoint = {
+export type RawCursorFileCheckpoint = {
   activeInlineDiffs: string[]
   files: string[]
   inlineDiffNewlyCreatedResources?: {
@@ -457,32 +492,51 @@ export type FileCheckpoint = {
   nonExistentFiles: string[]
 }
 
-export type MessageRequestContext = {
+export type RawCursorMessageRequestContext = {
   [key: string]: unknown
-  attachedFoldersListDirResults?: AttachedFolderListDirResult[]
+  attachedFoldersListDirResults?: RawCursorAttachedFolderListDirResult[]
   bubbleId?: string
   contextId?: string
-  cursorRules?: CursorRule[]
-  deletedFiles?: DeletedFile[]
+  cursorRules?: RawCursorRule[]
+  deletedFiles?: RawCursorDeletedFile[]
   gitStatusRaw?: string
-  knowledgeItems?: KnowledgeItem[]
-  terminalFiles?: TerminalFile[]
-  todos?: TodoItem[]
+  knowledgeItems?: RawCursorKnowledgeItem[]
+  terminalFiles?: RawCursorTerminalFile[]
+  todos?: RawCursorTodoItem[]
 }
 
-export type EnhancedChatBubble = {
+export type RawCursorEnhancedChatBubble = {
   codeBlocks?: Record<string, string>
-  codeDiffs?: CodeDiff[]
+  codeDiffs?: RawCursorCodeDiff[]
   consoleLogs?: string[]
-  context?: ContextInfo
-  fileCheckpoint?: FileCheckpoint
+  context?: RawCursorContextInfo
+  fileCheckpoint?: RawCursorFileCheckpoint
   text: string
   timestamp: number
-  toolResults?: ToolResult
+  toolResults?: RawCursorToolResult
   type: 'ai' | 'user'
 }
 
-export type CursorParseResult = {
+export type RawCursorBubbleLoadResult = {
+  bubbleMap: Record<string, RawCursorBubbleRaw>
+  bubbleWorkspaceMap: Record<string, string>
+  uniqueWorkspaces: Set<string>
+}
+
+export type RawCursorBubbleProcessResult = {
+  bubbles: RawCursorEnhancedChatBubble[]
+  usedWorkspaces: Set<string>
+}
+
+export type RawCursorConversation = {
+  bubbles: RawCursorEnhancedChatBubble[]
+  composerId: string
+  name: string
+  timestamp: number
+  workspacePath?: string | string[]
+}
+
+export type RawCursorParseResult = {
   errors?: Array<{
     error: string
     path: string
@@ -497,13 +551,12 @@ export type CursorParseResult = {
       totalSessions: number
       totalToolInvocations: number
     }
-    sessions: CursorRawSession[]
+    sessions: RawCursorRawSession[]
     workspaceHash: string
     workspacePath: string | string[]
   }>
 }
 
-// Cursor Raw Session
 export type CursorToolResult = {
   content?: unknown
   name: string
@@ -538,7 +591,7 @@ export type CursorBubble = {
   type: 'ai' | 'user'
 }
 
-export type CursorSessionMetadata = {
+export type RawCursorSessionMetadata = {
   aiBubbles: number
   bubbleCount: number
   codeBlockLanguages: string[]
@@ -550,29 +603,68 @@ export type CursorSessionMetadata = {
   workspacePath?: string
 }
 
-export type CursorRawSession = {
+export type RawCursorRawSession = {
   bubbles: CursorBubble[]
   id: string
-  metadata?: CursorSessionMetadata
+  metadata?: RawCursorSessionMetadata
   timestamp: number
   title: string
   workspaceHash: string
   workspacePath: string | string[]
 }
 
-// Union type for all raw sessions
-export type RawSession = ClaudeRawSession | CodexRawSession | CopilotRawSession | CursorRawSession
+// ----------------------------------------------------------------------------
+// Raw Session Union Type
+// ----------------------------------------------------------------------------
+
+/**
+ * Union type for all raw sessions from different IDEs
+ */
+export type RawSession = RawClaudeRawSession | RawCodexRawSession | RawCopilotRawSession | RawCursorRawSession
 
 // ============================================================================
-// CLEAN SESSION TYPES (Normalized Output)
+// CLEAN LAYER - Helper Types for Clean Parsers
 // ============================================================================
 
-export type CleanSession = {
+// ----------------------------------------------------------------------------
+// Clean Claude Helper Types
+// ----------------------------------------------------------------------------
+
+export type CleanClaudeSessionLoadResult = {
+  agentSessions: Map<string, RawClaudeRawSession>
+  allSessions: Map<string, RawClaudeRawSession>
+}
+
+// ----------------------------------------------------------------------------
+// Clean Codex Helper Types
+// ----------------------------------------------------------------------------
+
+// (Currently no Codex-specific clean helper types)
+
+// ----------------------------------------------------------------------------
+// Clean Copilot Helper Types
+// ----------------------------------------------------------------------------
+
+export type CleanCopilotProcessResult = {
+  invalid: number
+  total: number
+  valid: number
+}
+
+// ----------------------------------------------------------------------------
+// Clean Cursor Helper Types
+// ----------------------------------------------------------------------------
+
+export type CleanCursorToolUseBlock = {
   id: string
-  messages: CleanMessage[]
-  metadata?: unknown
-  timestamp: number
-  title: string
-  type: SessionType
-  workspacePaths: string[]
+  input?: Record<string, unknown>
+  name: string
+  output?: Record<string, unknown> | string
+  tool_use_id: string
+  type: 'tool_use'
+}
+
+export type CleanCursorToolResultBlock = {
+  content: Record<string, unknown> | string
+  type: 'tool_result'
 }

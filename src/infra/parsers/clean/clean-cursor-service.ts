@@ -7,8 +7,15 @@ import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
 import { join as pathJoin } from 'node:path'
 
 import { Agent } from '../../../core/domain/entities/agent.js'
+import {
+  CleanCursorToolResultBlock,
+  CleanCursorToolUseBlock,
+  CursorBubble,
+  CursorToolResult,
+  RawCursorRawSession,
+} from '../../../core/domain/entities/parser.js'
 import { ICleanParserService } from '../../../core/interfaces/parser/i-clean-parser-service.js'
-import { normalizeClaudeSession} from './shared.js'
+import { normalizeClaudeSession } from './shared.js'
 
 /**
  * Cursor Clean Service
@@ -67,7 +74,7 @@ export class CursorCleanService implements ICleanParserService {
           try {
 
             const content = await readFile(pathJoin(workspacePath, file), 'utf8')
-            const session = JSON.parse(content)
+            const session = JSON.parse(content) as RawCursorRawSession
 
             // Transform Cursor format to Claude format using workspace ID as hash
             const claudeFormatted = this.transformCursorToClaudeFormat(session, entry)
@@ -134,15 +141,15 @@ export class CursorCleanService implements ICleanParserService {
    * Returns null if no valid toolResults provided.
    *
    * @param toolResults - Cursor bubble's toolResults object with name, toolCallId, params, result
-   * @returns Tool_use content block or null if toolResults is empty
+   * @returns CleanCursorToolUseBlock or null if toolResults is empty
    */
-  private extractCursorToolResult(toolResults: Record<string, unknown>): null | Record<string, unknown> {
+  private extractCursorToolResult(toolResults: CursorToolResult): CleanCursorToolUseBlock | null {
     if (!toolResults) return null
 
-    const toolName = typeof toolResults.name === 'string' ? toolResults.name : 'unknown_tool'
-    const toolId = typeof toolResults.toolCallId === 'string' ? toolResults.toolCallId : `tool_${Date.now()}`
+    const toolName = toolResults.name
+    const toolId = toolResults.toolCallId
 
-    const toolUse: Record<string, unknown> = {
+    const toolUse: CleanCursorToolUseBlock = {
       id: toolId,
       name: toolName,
       // eslint-disable-next-line camelcase
@@ -152,12 +159,12 @@ export class CursorCleanService implements ICleanParserService {
 
     // Extract and simplify input parameters
     if (toolResults.params) {
-      toolUse.input = this.simplifyToolInput(toolName, toolResults.params as Record<string, unknown>)
+      toolUse.input = this.simplifyToolInput(toolName, toolResults.params)
     }
 
     // Extract and simplify execution result
     if (toolResults.result) {
-      toolUse.output = this.simplifyToolOutput(toolName, toolResults.result as Record<string, unknown>)
+      toolUse.output = this.simplifyToolOutput(toolName, toolResults.result)
     }
 
     return toolUse
@@ -170,15 +177,15 @@ export class CursorCleanService implements ICleanParserService {
    * Handles both string and array workspace paths using addPathsFromProperty helper.
    * No-op if metadata is missing or does not contain workspacePath.
    *
-   * @param cursorSession - Cursor session object containing optional metadata
+   * @param cursorSession - RawCursorRawSession object containing optional metadata
    * @param paths - Set to accumulate workspace paths
    */
-  private extractPathsFromMetadata(cursorSession: Record<string, unknown>, paths: Set<string>): void {
-    if (!cursorSession.metadata || typeof cursorSession.metadata !== 'object') {
+  private extractPathsFromMetadata(cursorSession: RawCursorRawSession, paths: Set<string>): void {
+    if (!cursorSession.metadata) {
       return
     }
 
-    const metadata = cursorSession.metadata as Record<string, unknown>
+    const {metadata} = cursorSession
     if (metadata.workspacePath) {
       this.addPathsFromProperty(metadata.workspacePath, paths)
     }
@@ -217,21 +224,16 @@ export class CursorCleanService implements ICleanParserService {
    * filesystem paths from tool execution results (common in run_terminal_cmd results).
    * Used to discover workspace paths from command execution outputs.
    *
-   * @param cursorSession - Cursor session object containing bubbles array
+   * @param cursorSession - RawCursorRawSession object containing bubbles array
    * @param paths - Set to accumulate discovered workspace paths
    */
-  private extractPathsFromToolResults(cursorSession: Record<string, unknown>, paths: Set<string>): void {
-    if (!Array.isArray(cursorSession.bubbles)) {
-      return
-    }
-
+  private extractPathsFromToolResults(cursorSession: RawCursorRawSession, paths: Set<string>): void {
     for (const bubble of cursorSession.bubbles) {
-      const b = bubble as Record<string, unknown>
-      if (!b.toolResults || typeof b.toolResults !== 'object') {
+      if (!bubble.toolResults) {
         continue
       }
 
-      const toolResults = b.toolResults as Record<string, unknown>
+      const {toolResults} = bubble
       // Parse tool result output for file paths (common in run_terminal_cmd)
       const output = typeof toolResults.output === 'string'
         ? toolResults.output
@@ -250,10 +252,10 @@ export class CursorCleanService implements ICleanParserService {
    * Deduplicates paths and returns a sorted array. Provides comprehensive path discovery
    * from various locations where Cursor stores workspace information.
    *
-   * @param cursorSession - Cursor session object with optional workspacePath, metadata, and bubbles
+   * @param cursorSession - RawCursorRawSession object with workspacePath, metadata, and bubbles
    * @returns Sorted array of unique workspace paths discovered
    */
-  private extractWorkspacePathsFromCursor(cursorSession: Record<string, unknown>): string[] {
+  private extractWorkspacePathsFromCursor(cursorSession: RawCursorRawSession): string[] {
     const paths = new Set<string>()
 
     // Check if raw parser already extracted workspace paths
@@ -345,20 +347,20 @@ export class CursorCleanService implements ICleanParserService {
    * redundant metadata while preserving actionable information. Handles common tools:
    * codebase_search (search results), file operations (success/message), read_file (contents),
    * run_terminal_cmd (output), and others. Returns tool_result wrapper with simplified content.
-   * Returns null if result is empty.
+   * Returns undefined if result is empty.
    *
    * @param toolName - Name of the tool (determines which output fields to extract)
    * @param result - Full result object from Cursor tool execution
-   * @returns Tool_result wrapper with simplified content or null if empty
+   * @returns CleanCursorToolResultBlock with simplified content or undefined if empty
    */
-  private simplifyToolOutput(toolName: string, result: Record<string, unknown>): null | Record<string, unknown> {
-    if (!result) return null
+  private simplifyToolOutput(toolName: string, result: Record<string, unknown>): CleanCursorToolResultBlock | undefined {
+    if (!result) return undefined
 
     switch (toolName) {
       case 'codebase_search': {
         // Keep the search results
         return {
-          content: result.codeResults || result,
+          content: (result.codeResults as Record<string, unknown>) || result,
           type: 'tool_result',
         }
       }
@@ -370,29 +372,28 @@ export class CursorCleanService implements ICleanParserService {
       case 'delete_folder':
       case 'write_file': {
         // For file operations, keep simple confirmation
+        const message = (result.message as string) || ((result.content as Record<string, unknown>)?.message as string) || ''
+        const success = result.success !== false
         return {
-          content: {
-            message: result.message || (result.content as Record<string, unknown>)?.message || '',
-            success: result.success !== false,
-          },
+          content: { message, success } as Record<string, unknown>,
           type: 'tool_result',
         }
       }
 
       case 'read_file': {
         // Return the file contents as a string instead of wrapped object
+        const contents = (result.contents as string) || ((result.content as Record<string, unknown>)?.contents as string) || ''
         return {
-          content: result.contents || (result.content as Record<string, unknown>)?.contents || '',
+          content: contents,
           type: 'tool_result',
         }
       }
 
       case 'run_terminal_cmd': {
         // Extract only the command output
+        const output = (result.output as string) || ((result.content as Record<string, unknown>)?.output as string) || ''
         return {
-          content: {
-            output: result.output || (result.content as Record<string, unknown>)?.output || '',
-          },
+          content: { output } as Record<string, unknown>,
           type: 'tool_result',
         }
       }
@@ -415,17 +416,17 @@ export class CursorCleanService implements ICleanParserService {
    * Extracts and includes tool results, code blocks, and timestamp. Returns message with
    * content array (may be empty thinking block if no content).
    *
-   * @param bubble - Cursor bubble object with type, text, toolResults, codeBlocks, timestamp
+   * @param bubble - CursorBubble object with type, text, toolResults, codeBlocks, timestamp
    * @returns Message object with type, content array, and ISO timestamp
    */
-  private transformCursorBubbleToClaudeMessage(bubble: Record<string, unknown>): Record<string, unknown> {
+  private transformCursorBubbleToClaudeMessage(bubble: CursorBubble): Record<string, unknown> {
     const messageType = bubble.type === 'ai' ? 'assistant' : 'user'
     const content: Array<Record<string, unknown>> = []
 
     // Add main text content
     // For assistant messages: convert to thinking block
     // For user messages: keep as text block
-    if (bubble.text && typeof bubble.text === 'string') {
+    if (bubble.text) {
       if (messageType === 'assistant') {
         content.push({
           thinking: bubble.text,
@@ -441,27 +442,26 @@ export class CursorCleanService implements ICleanParserService {
 
     // Add tool results as tool_use blocks
     if (bubble.toolResults) {
-      const toolBlock = this.extractCursorToolResult(bubble.toolResults as Record<string, unknown>)
+      const toolBlock = this.extractCursorToolResult(bubble.toolResults)
       if (toolBlock) {
         content.push(toolBlock)
       }
     }
 
     // Add code blocks as text blocks with language info
-    if (bubble.codeBlocks && Array.isArray(bubble.codeBlocks)) {
+    if (bubble.codeBlocks) {
       for (const codeBlock of bubble.codeBlocks) {
-        const block = codeBlock as Record<string, unknown>
-        if (block.content && typeof block.content === 'string') {
-          const languageId = typeof block.languageId === 'string' ? block.languageId : ''
+        if (codeBlock.content) {
+          const languageId = codeBlock.languageId || ''
           content.push({
-            text: `\`\`\`${languageId}\n${block.content}\n\`\`\``,
+            text: `\`\`\`${languageId}\n${codeBlock.content}\n\`\`\``,
             type: 'text',
           })
         }
       }
     }
 
-    const timestamp = typeof bubble.timestamp === 'number' ? bubble.timestamp : Date.now()
+    const {timestamp} = bubble
 
     return {
       content: content.length > 0 ? content : [{ thinking: '', type: 'thinking' }],
@@ -477,14 +477,14 @@ export class CursorCleanService implements ICleanParserService {
    * from multiple sources (direct property, metadata, tool outputs). Produces normalized
    * session object with messages array, workspace paths, and preserved metadata/timestamps.
    *
-   * @param cursorSession - Cursor session object with bubbles array and metadata
+   * @param cursorSession - RawCursorRawSession object with bubbles array and metadata
    * @param workspaceHash - Workspace identifier hash to include in output
    * @returns Session object in Claude format with messages and workspace information
    */
-  private transformCursorToClaudeFormat(cursorSession: Record<string, unknown>, workspaceHash: string): Record<string, unknown> {
-    const bubbles = Array.isArray(cursorSession.bubbles) ? cursorSession.bubbles : []
-    const messages = bubbles.map((bubble: unknown) =>
-      this.transformCursorBubbleToClaudeMessage(bubble as Record<string, unknown>)
+  private transformCursorToClaudeFormat(cursorSession: RawCursorRawSession, workspaceHash: string): Record<string, unknown> {
+    const {bubbles} = cursorSession
+    const messages = bubbles.map((bubble) =>
+      this.transformCursorBubbleToClaudeMessage(bubble)
     )
 
     // Extract workspace paths - check raw parser first, then fallback to extraction

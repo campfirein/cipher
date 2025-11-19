@@ -118,13 +118,13 @@ describe('CleanParserServiceFactory', () => {
     })
 
     it('should return false for unsupported IDE', () => {
-      const result = CleanParserServiceFactory.isSupported('Unknown IDE')
+      const result = CleanParserServiceFactory.isSupported('Unknown IDE' as any)
 
       expect(result).to.be.false
     })
 
     it('should be case-sensitive', () => {
-      const result = CleanParserServiceFactory.isSupported('claude code')
+      const result = CleanParserServiceFactory.isSupported('claude code' as any)
 
       expect(result).to.be.false
     })
@@ -209,7 +209,7 @@ describe('CleanParserServiceFactory', () => {
     })
 
     it('should handle whitespace-padded IDE names', () => {
-      const result = CleanParserServiceFactory.isSupported(' Claude Code ')
+      const result = CleanParserServiceFactory.isSupported(' Claude Code ' as any)
 
       expect(result).to.be.false
     })

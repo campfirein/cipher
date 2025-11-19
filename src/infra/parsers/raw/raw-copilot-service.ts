@@ -11,17 +11,17 @@ import { basename, join } from 'node:path'
 
 import { Agent } from '../../../core/domain/entities/agent.js'
 import {
-  CopilotContentBlock,
-  CopilotParsedRequest,
-  CopilotRawMessage,
-  CopilotRawSession,
-  CopilotRequestData,
-  CopilotResponseBlock,
-  CopilotResponseItem,
-  CopilotSessionFileData,
-  CopilotSessionMetadata,
-  CopilotVariableData,
-  DatabaseRow
+  RawCopilotContentBlock,
+  RawCopilotDatabaseRow,
+  RawCopilotParsedRequest,
+  RawCopilotRawMessage,
+  RawCopilotRawSession,
+  RawCopilotRequestData,
+  RawCopilotResponseBlock,
+  RawCopilotResponseItem,
+  RawCopilotSessionFileData,
+  RawCopilotSessionMetadata,
+  RawCopilotVariableData,
 } from '../../../core/domain/entities/parser.js'
 import { IRawParserService } from '../../../core/interfaces/parser/i-raw-parser-service.js'
 
@@ -172,7 +172,7 @@ export class CopilotRawService implements IRawParserService {
    * @param requests - Array of Copilot request data with timing information
    * @returns Total elapsed time in milliseconds
    */
-  private calculateTotalDuration(requests: CopilotRequestData[]): number {
+  private calculateTotalDuration(requests: RawCopilotRequestData[]): number {
     let totalTime = 0
 
     for (const request of requests) {
@@ -196,10 +196,10 @@ export class CopilotRawService implements IRawParserService {
    * an assistant message. Handles multiple response blocks and normalizes content format.
    *
    * @param requests - Array of Copilot request data to convert
-   * @returns Array of normalized CopilotRawMessage objects
+   * @returns Array of normalized RawCopilotRawMessage objects
    */
-  private convertRequestsToMessages(requests: CopilotRequestData[]): CopilotRawMessage[] {
-    const messages: CopilotRawMessage[] = []
+  private convertRequestsToMessages(requests: RawCopilotRequestData[]): RawCopilotRawMessage[] {
+    const messages: RawCopilotRawMessage[] = []
 
     for (const request of requests) {
       // Add user message
@@ -208,27 +208,27 @@ export class CopilotRawService implements IRawParserService {
           attachments: this.extractAttachments(request.variableData),
           content: request.message.text,
           type: 'user',
-        } as CopilotRawMessage)
+        } as RawCopilotRawMessage)
       }
 
       // Add assistant response(s)
       if (request.response && Array.isArray(request.response)) {
-        const responseContent = request.response.map((block: CopilotResponseBlock) => this.normalizeContentBlock(block))
+        const responseContent = request.response.map((block: RawCopilotResponseBlock) => this.normalizeContentBlock(block))
 
         if (responseContent.length > 0) {
           // If single string, use it directly; if single block, use it; otherwise filter blocks only
-          let content: CopilotContentBlock | CopilotContentBlock[] | string
+          let content: RawCopilotContentBlock | RawCopilotContentBlock[] | string
           if (responseContent.length === 1 && typeof responseContent[0] === 'string') {
             content = responseContent[0] as string
           } else {
-            const blockContent = responseContent.filter((item): item is CopilotContentBlock => typeof item !== 'string')
+            const blockContent = responseContent.filter((item): item is RawCopilotContentBlock => typeof item !== 'string')
             content = blockContent.length === 1 ? blockContent[0] : blockContent
           }
 
           messages.push({
             content,
             type: 'assistant',
-          } as CopilotRawMessage)
+          } as RawCopilotRawMessage)
         }
       }
     }
@@ -270,7 +270,7 @@ export class CopilotRawService implements IRawParserService {
    * @param variableData - Optional Copilot variable data containing attachments
    * @returns Array of attachment file names
    */
-  private extractAttachments(variableData: CopilotVariableData | undefined): string[] {
+  private extractAttachments(variableData: RawCopilotVariableData | undefined): string[] {
     const attachments: string[] = []
 
     if (!variableData?.variables || !Array.isArray(variableData.variables)) {
@@ -300,13 +300,13 @@ export class CopilotRawService implements IRawParserService {
    * @param data - Copilot session file data
    * @param sessionId - Unique session identifier
    * @param workspaceHash - Workspace hash identifying the workspace
-   * @returns Extracted CopilotSessionMetadata object
+   * @returns Extracted RawCopilotSessionMetadata object
    */
   private extractMetadata(
-    data: CopilotSessionFileData,
+    data: RawCopilotSessionFileData,
     sessionId: string,
     workspaceHash: string
-  ): CopilotSessionMetadata {
+  ): RawCopilotSessionMetadata {
     const requests = data.requests || []
 
     return {
@@ -334,7 +334,7 @@ export class CopilotRawService implements IRawParserService {
    * @param messages - Array of normalized messages (preferred source)
    * @returns Session title string (max 103 characters with ellipsis)
    */
-  private extractTitle(requests: CopilotRequestData[], messages: CopilotRawMessage[]): string {
+  private extractTitle(requests: RawCopilotRequestData[], messages: RawCopilotRawMessage[]): string {
     // Try to use first message text
     if (messages.length > 0 && typeof messages[0].content === 'string') {
       const text = messages[0].content
@@ -362,7 +362,7 @@ export class CopilotRawService implements IRawParserService {
    * @param workspaceHash - Workspace hash for SQLite database lookup
    * @returns Workspace path(s) as string, string array, or null if not found
    */
-  private extractWorkspacePath(data: CopilotSessionFileData, workspaceHash: string): null | string | string[] {
+  private extractWorkspacePath(data: RawCopilotSessionFileData, workspaceHash: string): null | string | string[] {
     // Tier 1A: Try SQLite first
     const tier1aResult = this.extractWorkspacePathTier1A(workspaceHash)
     if (tier1aResult) {
@@ -401,7 +401,7 @@ export class CopilotRawService implements IRawParserService {
       try {
         // Query for scm:view:visibleRepositories
         const stmt = db.prepare(`SELECT value FROM ItemTable WHERE key = '${SCM_REPOSITORIES_KEY}'`)
-        const row = stmt.get() as DatabaseRow | undefined
+        const row = stmt.get() as RawCopilotDatabaseRow | undefined
 
         if (!row?.value) {
           return null
@@ -449,7 +449,7 @@ export class CopilotRawService implements IRawParserService {
    * @param data - Copilot session file data to search
    * @returns Extracted workspace path string, or null if not found
    */
-  private extractWorkspacePathTier1B(data: CopilotSessionFileData): null | string {
+  private extractWorkspacePathTier1B(data: RawCopilotSessionFileData): null | string {
     const traverse = (obj: unknown): null | string => {
       if (!obj || typeof obj !== 'object') return null
 
@@ -481,14 +481,14 @@ export class CopilotRawService implements IRawParserService {
   /**
    * Normalize Copilot content blocks
    *
-   * Converts various content block formats to normalized CopilotContentBlock format.
+   * Converts various content block formats to normalized RawCopilotContentBlock format.
    * Preserves string content as-is, ensures all blocks have a kind field (defaults to 'unknown'),
    * and stringifies non-object content as fallback.
    *
    * @param block - Content block to normalize (string or object)
    * @returns Normalized content block or string
    */
-  private normalizeContentBlock(block: CopilotResponseBlock | string): CopilotContentBlock | string {
+  private normalizeContentBlock(block: RawCopilotResponseBlock | string): RawCopilotContentBlock | string {
     if (typeof block === 'string') {
       return block
     }
@@ -501,19 +501,19 @@ export class CopilotRawService implements IRawParserService {
     return {
       kind: block.kind || UNKNOWN_KIND,
       ...block
-    } as CopilotContentBlock
+    } as RawCopilotContentBlock
   }
 
   /**
-   * Normalize a Copilot request to CopilotParsedRequest type
+   * Normalize a Copilot request to RawCopilotParsedRequest type
    *
    * Standardizes request data structure, ensuring all required fields have values
    * (using empty defaults where needed). Preserves response, result, and variable data.
    *
    * @param req - Raw Copilot request data to normalize
-   * @returns Normalized CopilotParsedRequest object
+   * @returns Normalized RawCopilotParsedRequest object
    */
-  private normalizeParsedRequest(req: CopilotRequestData): CopilotParsedRequest {
+  private normalizeParsedRequest(req: RawCopilotRequestData): RawCopilotParsedRequest {
     // Normalize response array if present
     let response: undefined | unknown[]
     if (Array.isArray(req.response)) {
@@ -523,7 +523,7 @@ export class CopilotRawService implements IRawParserService {
     return {
       message: req.message || {},
       requestId: req.requestId || '',
-      response: response as CopilotResponseItem[] | undefined,
+      response: response as RawCopilotResponseItem[] | undefined,
       responseId: req.responseId || '',
       result: req.result,
       variableData: req.variableData,
@@ -539,10 +539,10 @@ export class CopilotRawService implements IRawParserService {
    * Parses all workspace directories in parallel and returns combined sessions array.
    *
    * @param customDir - Path to custom directory containing Copilot session data
-   * @returns Promise resolving to array of parsed CopilotRawSession objects
+   * @returns Promise resolving to array of parsed RawCopilotRawSession objects
    */
-  private async parseFromDirectory(customDir: string): Promise<CopilotRawSession[]> {
-    const sessions: CopilotRawSession[] = []
+  private async parseFromDirectory(customDir: string): Promise<RawCopilotRawSession[]> {
+    const sessions: RawCopilotRawSession[] = []
 
     try {
       // Check if the provided directory itself contains chatSessions
@@ -590,12 +590,12 @@ export class CopilotRawService implements IRawParserService {
    *
    * @param filePath - Absolute path to Copilot session JSON file
    * @param workspaceHash - Workspace hash for the session (used for lookups)
-   * @returns Parsed CopilotRawSession object, or null if parsing fails
+   * @returns Parsed RawCopilotRawSession object, or null if parsing fails
    */
-  private parseSessionFile(filePath: string, workspaceHash: string): CopilotRawSession | null {
+  private parseSessionFile(filePath: string, workspaceHash: string): null | RawCopilotRawSession {
     try {
       const content = fs.readFileSync(filePath, 'utf8')
-      const data = JSON.parse(content) as CopilotSessionFileData
+      const data = JSON.parse(content) as RawCopilotSessionFileData
 
       const sessionId = basename(filePath, '.json')
       const requests = data.requests || []
@@ -616,12 +616,12 @@ export class CopilotRawService implements IRawParserService {
         id: sessionId,
         messages,
         metadata,
-        requests: requests.map((req: CopilotRequestData) => this.normalizeParsedRequest(req)),
+        requests: requests.map((req: RawCopilotRequestData) => this.normalizeParsedRequest(req)),
         timestamp: Date.now(),
         title,
         workspaceHash,
         workspacePath: workspacePath || undefined,
-      } as CopilotRawSession
+      } as RawCopilotRawSession
     } catch (error) {
       console.error(`Error parsing session ${filePath}:`, error)
       return null
@@ -638,13 +638,13 @@ export class CopilotRawService implements IRawParserService {
    *
    * @param workspacePath - Path to workspace directory containing chatSessions
    * @param workspaceHash - Workspace hash for the workspace
-   * @returns Promise resolving to array of parsed CopilotRawSession objects
+   * @returns Promise resolving to array of parsed RawCopilotRawSession objects
    */
   private async parseWorkspaceDirectory(
     workspacePath: string,
     workspaceHash: string
-  ): Promise<CopilotRawSession[]> {
-    const sessions: CopilotRawSession[] = []
+  ): Promise<RawCopilotRawSession[]> {
+    const sessions: RawCopilotRawSession[] = []
     const chatSessionsDir = join(workspacePath, 'chatSessions')
 
     if (!fs.existsSync(chatSessionsDir)) {

@@ -9,8 +9,9 @@ import path from 'node:path'
 import { Agent } from '../../../core/domain/entities/agent.js'
 import {
   CleanMessage,
-  CodexRawEntry,
   ContentBlock,
+  RawCodexRawEntry,
+  RawCodexRawSession,
   TextContentBlock,
   ThinkingContentBlock,
   ToolResultContentBlock,
@@ -73,7 +74,7 @@ export class CodexCleanService implements ICleanParserService {
 
           try {
             const content = await readFile(path.join(datePath, file), 'utf8')
-            const session = JSON.parse(content)
+            const session = JSON.parse(content) as RawCodexRawSession
 
             // Normalize the session using Codex-specific transformer
             const normalized = this.normalizeCodexSession(session)
@@ -243,8 +244,8 @@ export class CodexCleanService implements ICleanParserService {
    * @param session - Raw Codex session object with rawEntries and metadata
    * @returns Normalized session object with messages, metadata, and workspace paths
    */
-  private normalizeCodexSession(session: Record<string, unknown>): Record<string, unknown> {
-    const rawEntries = (session.rawEntries as CodexRawEntry[]) || []
+  private normalizeCodexSession(session: RawCodexRawSession): Record<string, unknown> {
+    const rawEntries = session.rawEntries || []
 
     // Find session metadata
     const sessionMeta = rawEntries.find((e) => e.type === 'session_meta')
@@ -278,7 +279,7 @@ export class CodexCleanService implements ICleanParserService {
         source: sessionPayload.source,
       },
       timestamp: session.timestamp,
-      title: (session.title as string) || 'Codex Session',
+      title: session.title || 'Codex Session',
       type: 'Codex',
       workspacePaths: [...workspacePaths].sort(),
     }
@@ -493,7 +494,7 @@ export class CodexCleanService implements ICleanParserService {
    * @param item - Codex raw entry to process
    * @returns CleanMessage with type, content, and timestamp, or null if no content
    */
-  private processResponseItem(item: CodexRawEntry): CleanMessage | null {
+  private processResponseItem(item: RawCodexRawEntry): CleanMessage | null {
     const payload = item.payload as Record<string, unknown>
     const itemType = payload.type as string
     const role = (payload.role as 'assistant' | 'user' | undefined) || 'assistant'
@@ -597,7 +598,7 @@ export class CodexCleanService implements ICleanParserService {
    * @param rawEntries - Array of Codex raw entries from session
    * @returns Array of CleanMessage objects with turn IDs and combined tool blocks
    */
-  private transformCodexEntries(rawEntries: CodexRawEntry[]): CleanMessage[] {
+  private transformCodexEntries(rawEntries: RawCodexRawEntry[]): CleanMessage[] {
     // Filter out event_msg and turn_context entries - keep only response_item and session_meta
     const filteredEntries = rawEntries.filter(
       (entry) => entry.type !== 'event_msg' && entry.type !== 'turn_context'

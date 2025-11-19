@@ -8,7 +8,7 @@ import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 
 import { Agent } from '../../../core/domain/entities/agent.js'
-import { ClaudeRawSession } from '../../../core/domain/entities/parser.js'
+import { CleanClaudeSessionLoadResult, RawClaudeRawSession } from '../../../core/domain/entities/parser.js'
 import { ICleanParserService } from '../../../core/interfaces/parser/i-clean-parser-service.js'
 import { normalizeClaudeSession } from './shared.js'
 
@@ -113,9 +113,9 @@ export class ClaudeCleanService implements ICleanParserService {
    * @returns Promise resolving to consolidated session with agent messages merged
    */
   private async consolidateAgentSessions(
-    mainSession: ClaudeRawSession,
-    agentSessions: Map<string, ClaudeRawSession>
-  ): Promise<ClaudeRawSession> {
+    mainSession: RawClaudeRawSession,
+    agentSessions: Map<string, RawClaudeRawSession>
+  ): Promise<RawClaudeRawSession> {
     if (!mainSession.messages || mainSession.messages.length === 0) {
       return mainSession
     }
@@ -150,9 +150,9 @@ export class ClaudeCleanService implements ICleanParserService {
   private findMatchingAgentSession(
     description: string,
     messageTimestamp: number,
-    agentSessions: Map<string, ClaudeRawSession>
-  ): ClaudeRawSession | null {
-    let matchedAgent: ClaudeRawSession | null = null
+    agentSessions: Map<string, RawClaudeRawSession>
+  ): null | RawClaudeRawSession {
+    let matchedAgent: null | RawClaudeRawSession = null
     let bestScore = 0.2 // Minimum similarity threshold
 
     for (const agentSession of agentSessions.values()) {
@@ -190,11 +190,11 @@ export class ClaudeCleanService implements ICleanParserService {
    * @returns Flattened message array with agent messages interleaved
    */
   private flattenMessagesWithAgentSessions(
-    messages: ClaudeRawSession['messages'],
+    messages: RawClaudeRawSession['messages'],
     taskToolUseIds: Set<string>,
-    agentSessions: Map<string, ClaudeRawSession>
-  ): ClaudeRawSession['messages'] {
-    const newMessages: ClaudeRawSession['messages'] = []
+    agentSessions: Map<string, RawClaudeRawSession>
+  ): RawClaudeRawSession['messages'] {
+    const newMessages: RawClaudeRawSession['messages'] = []
 
     for (const message of messages) {
       newMessages.push(message)
@@ -238,8 +238,8 @@ export class ClaudeCleanService implements ICleanParserService {
    * @returns Set of tool_use IDs that have matching agent sessions
    */
   private identifyTaskToolIds(
-    messages: ClaudeRawSession['messages'],
-    agentSessions: Map<string, ClaudeRawSession>
+    messages: RawClaudeRawSession['messages'],
+    agentSessions: Map<string, RawClaudeRawSession>
   ): Set<string> {
     const taskToolUseIds: Set<string> = new Set()
 
@@ -281,12 +281,9 @@ export class ClaudeCleanService implements ICleanParserService {
   private async loadSessions(
     workspacePath: string,
     jsonFiles: string[]
-  ): Promise<{
-    agentSessions: Map<string, ClaudeRawSession>
-    allSessions: Map<string, ClaudeRawSession>
-  }> {
-    const allSessions = new Map<string, ClaudeRawSession>()
-    const agentSessions = new Map<string, ClaudeRawSession>()
+  ): Promise<CleanClaudeSessionLoadResult> {
+    const allSessions = new Map<string, RawClaudeRawSession>()
+    const agentSessions = new Map<string, RawClaudeRawSession>()
 
     /* eslint-disable no-await-in-loop */
     for (const file of jsonFiles) {
@@ -321,8 +318,8 @@ export class ClaudeCleanService implements ICleanParserService {
    * @returns Promise resolving to count of successfully processed sessions
    */
   private async processMainSessions(
-    allSessions: Map<string, ClaudeRawSession>,
-    agentSessions: Map<string, ClaudeRawSession>,
+    allSessions: Map<string, RawClaudeRawSession>,
+    agentSessions: Map<string, RawClaudeRawSession>,
     wsOutputDir: string
   ): Promise<number> {
     let totalSessions = 0

@@ -10,11 +10,13 @@ import path, { basename, join } from 'node:path'
 
 import { Agent } from '../../../core/domain/entities/agent.js'
 import {
-  ClaudeRawMessage,
-  ClaudeRawSession,
-  ClaudeSessionMetadata,
-  ClaudeTranscriptEntry,
   ContentBlock,
+  RawClaudeRawMessage,
+  RawClaudeRawSession,
+  RawClaudeSessionMetadata,
+  RawClaudeTimestamps,
+  RawClaudeTranscriptEntry,
+  RawClaudeWorkspaceMetadata,
   TextContentBlock,
 } from '../../../core/domain/entities/parser.js'
 import { IRawParserService } from '../../../core/interfaces/parser/i-raw-parser-service.js'
@@ -94,7 +96,7 @@ export class ClaudeRawService implements IRawParserService {
 
     try {
       // Parse sessions from custom directory
-      const sessions = await this.parseSessionDirectory(customDir) as ClaudeRawSession[]
+      const sessions = await this.parseSessionDirectory(customDir) as RawClaudeRawSession[]
 
       if (sessions.length === 0) {
         console.log(MESSAGES.NO_SESSIONS)
@@ -137,13 +139,13 @@ export class ClaudeRawService implements IRawParserService {
    * @param entries - Array of transcript entries from JSONL file
    * @param messages - Parsed messages array (for count verification)
    * @param logPath - Log file path (used to extract workspace information)
-   * @returns ClaudeSessionMetadata object with aggregated statistics
+   * @returns RawClaudeSessionMetadata object with aggregated statistics
    */
   private calculateMetadata(
-    entries: ClaudeTranscriptEntry[],
-    messages: ClaudeRawMessage[],
+    entries: RawClaudeTranscriptEntry[],
+    messages: RawClaudeRawMessage[],
     logPath: string
-  ): ClaudeSessionMetadata {
+  ): RawClaudeSessionMetadata {
     let inputTokens = 0
     let outputTokens = 0
     let cacheTokens = 0
@@ -171,7 +173,7 @@ export class ClaudeRawService implements IRawParserService {
     const { endedAt, startedAt } = this.extractTimestamps(entries)
     const duration = new Date(endedAt || new Date()).getTime() - new Date(startedAt).getTime()
 
-    const metadata: ClaudeSessionMetadata = {
+    const metadata: RawClaudeSessionMetadata = {
       assistantMessageCount: assistantCount,
       duration,
       endedAt,
@@ -200,14 +202,14 @@ export class ClaudeRawService implements IRawParserService {
    * Convert Claude Code transcript entries to normalized messages
    *
    * Transforms raw JSONL transcript entries (user, assistant, system) into standardized
-   * ClaudeRawMessage objects with preserved content, timestamps, and token counts.
+   * RawClaudeRawMessage objects with preserved content, timestamps, and token counts.
    * Filters out invalid entries without content.
    *
-   * @param entries - Array of ClaudeTranscriptEntry objects from JSONL file
-   * @returns Array of normalized ClaudeRawMessage objects
+   * @param entries - Array of RawClaudeTranscriptEntry objects from JSONL file
+   * @returns Array of normalized RawClaudeRawMessage objects
    */
-  private convertToMessages(entries: ClaudeTranscriptEntry[]): ClaudeRawMessage[] {
-    const messages: ClaudeRawMessage[] = []
+  private convertToMessages(entries: RawClaudeTranscriptEntry[]): RawClaudeRawMessage[] {
+    const messages: RawClaudeRawMessage[] = []
 
     for (const entry of entries) {
       if (entry.type === 'user' && entry.message) {
@@ -232,10 +234,10 @@ export class ClaudeRawService implements IRawParserService {
    *
    * @param entry - Transcript entry with message content
    * @param type - Message type: 'user' or 'assistant'
-   * @returns Normalized ClaudeRawMessage object
+   * @returns Normalized RawClaudeRawMessage object
    * @throws Error if message field is missing
    */
-  private createMessageFromEntry(entry: ClaudeTranscriptEntry, type: 'assistant' | 'user'): ClaudeRawMessage {
+  private createMessageFromEntry(entry: RawClaudeTranscriptEntry, type: 'assistant' | 'user'): RawClaudeRawMessage {
     const { message } = entry
     if (!message) {
       throw new Error(`Message required for ${type} entry`)
@@ -245,7 +247,7 @@ export class ClaudeRawService implements IRawParserService {
     const contentBlocks = this.extractContentBlocks(message.content)
     const isSingleTextBlock = contentBlocks.length === 1 && contentBlocks[0].type === 'text' && 'text' in contentBlocks[0]
 
-    const result: ClaudeRawMessage = {
+    const result: RawClaudeRawMessage = {
       content: isSingleTextBlock
         ? (contentBlocks[0] as TextContentBlock).text
         : contentBlocks,
@@ -294,10 +296,10 @@ export class ClaudeRawService implements IRawParserService {
    * Preserves cwd if present in the entry.
    *
    * @param entry - Transcript entry with type='system'
-   * @returns Normalized ClaudeRawMessage with type='system'
+   * @returns Normalized RawClaudeRawMessage with type='system'
    */
-  private createSystemMessage(entry: ClaudeTranscriptEntry): ClaudeRawMessage {
-    const result: ClaudeRawMessage = {
+  private createSystemMessage(entry: RawClaudeTranscriptEntry): RawClaudeRawMessage {
+    const result: RawClaudeRawMessage = {
       content: entry.content || MESSAGES.SYSTEM_MESSAGE,
       timestamp: entry.timestamp || new Date().toISOString(),
       type: 'system',
@@ -389,9 +391,9 @@ export class ClaudeRawService implements IRawParserService {
    * Returns default current timestamp if no valid timestamps found.
    *
    * @param entries - Array of transcript entries with optional timestamp fields
-   * @returns Object with startedAt and optional endedAt ISO timestamp strings
+   * @returns RawClaudeTimestamps object with startedAt and optional endedAt ISO timestamp strings
    */
-  private extractTimestamps(entries: ClaudeTranscriptEntry[]): { endedAt?: string; startedAt: string; } {
+  private extractTimestamps(entries: RawClaudeTranscriptEntry[]): RawClaudeTimestamps {
     const validTimestamps = entries
       .filter((e) => e.timestamp)
       .map((e) => e.timestamp || '')
@@ -414,7 +416,7 @@ export class ClaudeRawService implements IRawParserService {
    * @param messages - Array of parsed session messages
    * @returns Session title string (max 100 characters)
    */
-  private extractTitle(messages: ClaudeRawMessage[]): string {
+  private extractTitle(messages: RawClaudeRawMessage[]): string {
     // Use first user message as title
     const firstUserMessage = messages.find((m) => m.type === 'user')
     if (firstUserMessage && typeof firstUserMessage.content === 'string') {
@@ -438,11 +440,11 @@ export class ClaudeRawService implements IRawParserService {
    * Returns default path object if extraction fails.
    *
    * @param logPath - Claude Code session log file path
-   * @returns Object with workspace path and optional repository name/url
+   * @returns RawClaudeWorkspaceMetadata with workspace path and optional repository name/url
    */
   private extractWorkspace(
     logPath: string
-  ): { path: string; repository?: { name: string; url?: string } } {
+  ): RawClaudeWorkspaceMetadata {
     // Claude Code stores projects in ~/.claude/projects/-path-to-workspace
     // Extract the workspace path from the CLAUDE_PROJECTS_PATH directory name
     try {
@@ -495,10 +497,10 @@ export class ClaudeRawService implements IRawParserService {
    * Collects and reports any parse errors without failing completely.
    *
    * @param dirPath - Path to directory containing JSONL session files
-   * @returns Promise resolving to array of parsed ClaudeRawSession objects
+   * @returns Promise resolving to array of parsed RawClaudeRawSession objects
    * @throws Error if directory cannot be read
    */
-  private async parseSessionDirectory(dirPath: string): Promise<ClaudeRawSession[]> {
+  private async parseSessionDirectory(dirPath: string): Promise<RawClaudeRawSession[]> {
     try {
       const files = await readdir(dirPath, { recursive: false })
       const jsonlFiles = files.filter(
@@ -519,7 +521,7 @@ export class ClaudeRawService implements IRawParserService {
       })
 
       const results = await Promise.all(parsePromises)
-      const sessions = results.filter((session): session is ClaudeRawSession => session !== null)
+      const sessions = results.filter((session): session is RawClaudeRawSession => session !== null)
 
       if (sessions.length === 0 && errors.length > 0) {
         console.warn(`${MESSAGES.SESSIONS_FAILED} ${errors.join(', ')}`)
@@ -543,10 +545,10 @@ export class ClaudeRawService implements IRawParserService {
    * Throws detailed error if log file is invalid or unparseable.
    *
    * @param logPath - Absolute path to Claude Code session JSONL file
-   * @returns Promise resolving to parsed ClaudeRawSession object
+   * @returns Promise resolving to parsed RawClaudeRawSession object
    * @throws Error if file is invalid or cannot be parsed
    */
-  private async parseSessionLog(logPath: string): Promise<ClaudeRawSession> {
+  private async parseSessionLog(logPath: string): Promise<RawClaudeRawSession> {
     try {
       // Validate first
       const valid = await this.validateLogFile(logPath)
@@ -558,13 +560,13 @@ export class ClaudeRawService implements IRawParserService {
       const content = await readFile(logPath, 'utf8')
       const lines = content.trim().split('\n').filter((l) => l.trim())
 
-      const entries: ClaudeTranscriptEntry[] = []
+      const entries: RawClaudeTranscriptEntry[] = []
       const parseErrors: string[] = []
 
       for (const [i, line] of lines.entries()) {
         try {
           const entry = JSON.parse(line)
-          entries.push(entry as ClaudeTranscriptEntry)
+          entries.push(entry as RawClaudeTranscriptEntry)
         } catch (error) {
           parseErrors.push(`Line ${i + 1}: ${error instanceof Error ? error.message : MESSAGES.PARSE_ERROR}`)
         }

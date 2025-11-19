@@ -10,18 +10,18 @@ import path, { join } from 'node:path'
 
 import { Agent } from '../../../core/domain/entities/agent.js'
 import {
-  CodexContentBlock,
-  CodexEventPayload,
-  CodexRawEntry,
-  CodexRawMessage,
-  CodexRawSession,
-  CodexResponsePayload,
-  CodexSessionMeta,
-  CodexSessionMetadata,
-  CodexSessionMetaPayload,
-  CodexTokenUsage,
-  CodexTranscriptEntry,
-  ContentBlock
+  ContentBlock,
+  RawCodexContentBlock,
+  RawCodexEventPayload,
+  RawCodexRawEntry,
+  RawCodexRawMessage,
+  RawCodexRawSession,
+  RawCodexResponsePayload,
+  RawCodexSessionMeta,
+  RawCodexSessionMetadata,
+  RawCodexSessionMetaPayload,
+  RawCodexTokenUsage,
+  RawCodexTranscriptEntry,
 } from '../../../core/domain/entities/parser.js'
 import { IRawParserService } from '../../../core/interfaces/parser/i-raw-parser-service.js'
 
@@ -176,14 +176,14 @@ export class CodexRawService implements IRawParserService {
    * @param messages - Parsed messages array (for count verification)
    * @param logPath - Log file path (used to extract workspace information)
    * @param sessionMeta - Extracted session metadata (may be null)
-   * @returns CodexSessionMetadata object with aggregated statistics
+   * @returns RawCodexSessionMetadata object with aggregated statistics
    */
   private calculateMetadata(
-    entries: CodexTranscriptEntry[],
-    messages: CodexRawMessage[],
+    entries: RawCodexTranscriptEntry[],
+    messages: RawCodexRawMessage[],
     logPath: string,
-    sessionMeta: CodexSessionMeta | null
-  ): CodexSessionMetadata {
+    sessionMeta: null | RawCodexSessionMeta
+  ): RawCodexSessionMetadata {
     const { cacheTokens, inputTokens, outputTokens } = this.calculateTokenUsage(entries)
     const { assistantCount, userCount } = this.countMessageTypes(messages)
     const { endedAt, startedAt } = this.extractTimestamps(entries, sessionMeta)
@@ -216,7 +216,7 @@ export class CodexRawService implements IRawParserService {
    * @param entries - Array of transcript entries to analyze
    * @returns Object with aggregated cacheTokens, inputTokens, and outputTokens
    */
-  private calculateTokenUsage(entries: CodexTranscriptEntry[]): {
+  private calculateTokenUsage(entries: RawCodexTranscriptEntry[]): {
     cacheTokens: number
     inputTokens: number
     outputTokens: number
@@ -252,7 +252,7 @@ export class CodexRawService implements IRawParserService {
    * @param block - Codex content block to convert
    * @returns Normalized ContentBlock object
    */
-  private convertCodexContentBlockToContentBlock(block: CodexContentBlock): ContentBlock {
+  private convertCodexContentBlockToContentBlock(block: RawCodexContentBlock): ContentBlock {
     const contentBlock: Record<string, unknown> = {}
 
     if (block.type === 'tool_use') {
@@ -272,15 +272,15 @@ export class CodexRawService implements IRawParserService {
    * Convert Codex transcript entries to normalized messages
    *
    * Transforms raw JSONL transcript entries (messages, function calls, reasoning, token counts) into
-   * standardized CodexRawMessage objects. Tracks token usage and reasoning context across entries,
+   * standardized RawCodexRawMessage objects. Tracks token usage and reasoning context across entries,
    * maintaining order and relationships between tool calls and responses.
    *
    * @param entries - Array of transcript entries from JSONL file
-   * @returns Array of normalized CodexRawMessage objects
+   * @returns Array of normalized RawCodexRawMessage objects
    */
-  private convertToMessages(entries: CodexTranscriptEntry[]): CodexRawMessage[] {
-    const messages: CodexRawMessage[] = []
-    let currentTokenUsage: CodexTokenUsage | null = null
+  private convertToMessages(entries: RawCodexTranscriptEntry[]): RawCodexRawMessage[] {
+    const messages: RawCodexRawMessage[] = []
+    let currentTokenUsage: null | RawCodexTokenUsage = null
     let currentReasoning: null | string = null
 
     for (const entry of entries) {
@@ -342,9 +342,9 @@ export class CodexRawService implements IRawParserService {
    * fallback type for invalid entries.
    *
    * @param entry - Transcript entry to convert
-   * @returns Converted CodexRawEntry object, or null if entry has no payload
+   * @returns Converted RawCodexRawEntry object, or null if entry has no payload
    */
-  private convertTranscriptEntryToRawEntry(entry: CodexTranscriptEntry): CodexRawEntry | null {
+  private convertTranscriptEntryToRawEntry(entry: RawCodexTranscriptEntry): null | RawCodexRawEntry {
     // Filter entries that don't have a payload
     if (!entry.payload) {
       return null
@@ -373,7 +373,7 @@ export class CodexRawService implements IRawParserService {
    * @param messages - Array of messages to count
    * @returns Object with assistantCount and userCount totals
    */
-  private countMessageTypes(messages: CodexRawMessage[]): {
+  private countMessageTypes(messages: RawCodexRawMessage[]): {
     assistantCount: number
     userCount: number
   } {
@@ -392,14 +392,14 @@ export class CodexRawService implements IRawParserService {
    * Extract and normalize content blocks from message content
    *
    * Handles multiple content formats: null/undefined (empty array), strings (wrapped as text block),
-   * arrays of blocks/strings (normalized to CodexContentBlock array), and objects.
-   * Produces consistent CodexContentBlock array output for consistent processing.
+   * arrays of blocks/strings (normalized to RawCodexContentBlock array), and objects.
+   * Produces consistent RawCodexContentBlock array output for consistent processing.
    *
    * @param content - Raw message content in various formats
-   * @returns Array of normalized CodexContentBlock objects
+   * @returns Array of normalized RawCodexContentBlock objects
    */
-  private extractContentBlocks(content: unknown): CodexContentBlock[] {
-    const blocks: CodexContentBlock[] = []
+  private extractContentBlocks(content: unknown): RawCodexContentBlock[] {
+    const blocks: RawCodexContentBlock[] = []
 
     // If content is a string, wrap it as a text block
     if (typeof content === 'string') {
@@ -414,7 +414,7 @@ export class CodexRawService implements IRawParserService {
         } else if (block && typeof block === 'object') {
           // Check if it's a valid block with a type field
           if ('type' in block) {
-            blocks.push(block as CodexContentBlock)
+            blocks.push(block as RawCodexContentBlock)
           } else {
             // Fallback: wrap as text
             blocks.push({ text: JSON.stringify(block), type: 'output_text' })
@@ -454,9 +454,9 @@ export class CodexRawService implements IRawParserService {
    * Returns null if no valid session metadata is found.
    *
    * @param entries - Array of transcript entries to search
-   * @returns Extracted CodexSessionMeta payload, or null if not found
+   * @returns Extracted RawCodexSessionMeta payload, or null if not found
    */
-  private extractSessionMeta(entries: CodexTranscriptEntry[]): CodexSessionMeta | null {
+  private extractSessionMeta(entries: RawCodexTranscriptEntry[]): null | RawCodexSessionMeta {
     const sessionMetaEntry = entries.find((e) => e.type === 'session_meta')
     if (sessionMetaEntry && sessionMetaEntry.payload && this.isSessionMetaPayload(sessionMetaEntry.payload)) {
       return sessionMetaEntry.payload
@@ -477,8 +477,8 @@ export class CodexRawService implements IRawParserService {
    * @returns Object with startedAt and optional endedAt ISO timestamp strings
    */
   private extractTimestamps(
-    entries: CodexTranscriptEntry[],
-    sessionMeta: CodexSessionMeta | null
+    entries: RawCodexTranscriptEntry[],
+    sessionMeta: null | RawCodexSessionMeta
   ): { endedAt?: string; startedAt: string; } {
     const validTimestamps = entries
       .filter((e) => e.timestamp)
@@ -503,7 +503,7 @@ export class CodexRawService implements IRawParserService {
    * @param messages - Array of parsed session messages
    * @returns Session title string (max 100 characters)
    */
-  private extractTitle(messages: CodexRawMessage[]): string {
+  private extractTitle(messages: RawCodexRawMessage[]): string {
     // Use first user message as title
     const firstUserMessage = messages.find((m) => m.type === 'user')
     if (firstUserMessage) {
@@ -543,7 +543,7 @@ export class CodexRawService implements IRawParserService {
    */
   private extractWorkspace(
     logPath: string,
-    sessionMeta: CodexSessionMeta | null
+    sessionMeta: null | RawCodexSessionMeta
   ): { path: string; repository?: { name: string; url?: string } } {
     // Try to get from session metadata first
     if (sessionMeta?.cwd) {
@@ -568,13 +568,13 @@ export class CodexRawService implements IRawParserService {
   /**
    * Type guard for event payload
    *
-   * Checks if a payload is a valid CodexEventPayload by verifying it's an object
+   * Checks if a payload is a valid RawCodexEventPayload by verifying it's an object
    * with a type field matching token_count or agent_reasoning event types.
    *
    * @param payload - Value to check
-   * @returns True if payload is a valid CodexEventPayload, false otherwise
+   * @returns True if payload is a valid RawCodexEventPayload, false otherwise
    */
-  private isEventPayload(payload: unknown): payload is CodexEventPayload {
+  private isEventPayload(payload: unknown): payload is RawCodexEventPayload {
     return (
       typeof payload === 'object' &&
       payload !== null &&
@@ -586,13 +586,13 @@ export class CodexRawService implements IRawParserService {
   /**
    * Type guard for response payload
    *
-   * Checks if a payload is a valid CodexResponsePayload by verifying it's an object
+   * Checks if a payload is a valid RawCodexResponsePayload by verifying it's an object
    * with a type field matching one of: function_call, function_call_output, message, or reasoning.
    *
    * @param payload - Value to check
-   * @returns True if payload is a valid CodexResponsePayload, false otherwise
+   * @returns True if payload is a valid RawCodexResponsePayload, false otherwise
    */
-  private isResponsePayload(payload: unknown): payload is CodexResponsePayload {
+  private isResponsePayload(payload: unknown): payload is RawCodexResponsePayload {
     return (
       typeof payload === 'object' &&
       payload !== null &&
@@ -606,13 +606,13 @@ export class CodexRawService implements IRawParserService {
   /**
    * Type guard for session meta payload
    *
-   * Checks if a payload is a valid CodexSessionMetaPayload by verifying it's an object
+   * Checks if a payload is a valid RawCodexSessionMetaPayload by verifying it's an object
    * containing at least one of: model_provider, cli_version, or timestamp fields.
    *
    * @param payload - Value to check
-   * @returns True if payload is a valid CodexSessionMetaPayload, false otherwise
+   * @returns True if payload is a valid RawCodexSessionMetaPayload, false otherwise
    */
-  private isSessionMetaPayload(payload: unknown): payload is CodexSessionMetaPayload {
+  private isSessionMetaPayload(payload: unknown): payload is RawCodexSessionMetaPayload {
     return (
       typeof payload === 'object' &&
       payload !== null &&
@@ -629,7 +629,7 @@ export class CodexRawService implements IRawParserService {
    * @param entry - Transcript entry to check
    * @returns True if entry is a valid token count event, false otherwise
    */
-  private isTokenCountEntry(entry: CodexTranscriptEntry): boolean {
+  private isTokenCountEntry(entry: RawCodexTranscriptEntry): boolean {
     if (entry.type !== 'event_msg' || !entry.payload || !this.isEventPayload(entry.payload)) {
       return false
     }
@@ -646,18 +646,18 @@ export class CodexRawService implements IRawParserService {
    * Collects and reports any parse errors without failing completely.
    *
    * @param dirPath - Path to directory containing JSONL session files
-   * @returns Promise resolving to array of parsed CodexRawSession objects
+   * @returns Promise resolving to array of parsed RawCodexRawSession objects
    * @throws Error if directory cannot be read
    */
   /* eslint-disable no-await-in-loop */
-  private async parseSessionDirectory(dirPath: string): Promise<CodexRawSession[]> {
+  private async parseSessionDirectory(dirPath: string): Promise<RawCodexRawSession[]> {
     try {
       const files = await readdir(dirPath, { recursive: true })
       const jsonlFiles = files.filter(
         (f) => typeof f === 'string' && f.endsWith('.jsonl') && !f.includes('-combined')
       )
 
-      const sessions: CodexRawSession[] = []
+      const sessions: RawCodexRawSession[] = []
       const errors: string[] = []
 
       for (const file of jsonlFiles) {
@@ -693,10 +693,10 @@ export class CodexRawService implements IRawParserService {
    * and extracts session title. Handles token usage, function calls, and reasoning payloads.
    *
    * @param logPath - Absolute path to Codex session JSONL file
-   * @returns Promise resolving to parsed CodexRawSession object
+   * @returns Promise resolving to parsed RawCodexRawSession object
    * @throws Error if file is invalid or cannot be parsed
    */
-  private async parseSessionLog(logPath: string): Promise<CodexRawSession> {
+  private async parseSessionLog(logPath: string): Promise<RawCodexRawSession> {
     try {
       // Validate first
       const valid = await this.validateLogFile(logPath)
@@ -708,13 +708,13 @@ export class CodexRawService implements IRawParserService {
       const content = await readFile(logPath, 'utf8')
       const lines = content.trim().split('\n').filter((l) => l.trim())
 
-      const entries: CodexTranscriptEntry[] = []
+      const entries: RawCodexTranscriptEntry[] = []
       const parseErrors: string[] = []
 
       for (const [i, line] of lines.entries()) {
         try {
           const entry = JSON.parse(line)
-          entries.push(entry as CodexTranscriptEntry)
+          entries.push(entry as RawCodexTranscriptEntry)
         } catch (error) {
           parseErrors.push(`Line ${i + 1}: ${error instanceof Error ? error.message : 'Parse error'}`)
         }
@@ -733,9 +733,9 @@ export class CodexRawService implements IRawParserService {
       const title = this.extractTitle(messages)
 
       // Convert transcript entries to raw entries, filtering out entries without payloads
-      const rawEntries: CodexRawEntry[] = entries
+      const rawEntries: RawCodexRawEntry[] = entries
         .map((entry) => this.convertTranscriptEntryToRawEntry(entry))
-        .filter((entry): entry is CodexRawEntry => entry !== null)
+        .filter((entry): entry is RawCodexRawEntry => entry !== null)
 
       return {
         id: sessionId,
@@ -762,7 +762,7 @@ export class CodexRawService implements IRawParserService {
    * @param payload - Function call payload containing name, arguments, and call ID
    * @param messages - Messages array to update (modifies last message in place)
    */
-  private processFunctionCall(payload: Record<string, unknown>, messages: CodexRawMessage[]): void {
+  private processFunctionCall(payload: Record<string, unknown>, messages: RawCodexRawMessage[]): void {
     if (messages.length === 0) return
 
     const lastMessage = messages.at(-1)
@@ -799,7 +799,7 @@ export class CodexRawService implements IRawParserService {
    * @param payload - Function call output payload containing output data
    * @param messages - Messages array to update (modifies last message in place)
    */
-  private processFunctionCallOutput(payload: Record<string, unknown>, messages: CodexRawMessage[]): void {
+  private processFunctionCallOutput(payload: Record<string, unknown>, messages: RawCodexRawMessage[]): void {
     if (messages.length === 0) return
 
     const lastMessage = messages.at(-1)
@@ -808,7 +808,7 @@ export class CodexRawService implements IRawParserService {
     // Find the tool use block with matching call_id
     const toolBlock = lastMessage.content.find(
       (b) => b.type === 'tool_use'
-    ) as CodexContentBlock | undefined
+    ) as RawCodexContentBlock | undefined
     if (toolBlock) {
       toolBlock.output = payload.output
     }
@@ -817,7 +817,7 @@ export class CodexRawService implements IRawParserService {
   /**
    * Process message payload and add to messages array
    *
-   * Converts a message payload into a normalized CodexRawMessage and appends to messages array.
+   * Converts a message payload into a normalized RawCodexRawMessage and appends to messages array.
    * Handles content block conversion, attaches token usage and reasoning context if available.
    * Collapses single text blocks to strings for backward compatibility.
    *
@@ -830,9 +830,9 @@ export class CodexRawService implements IRawParserService {
   // eslint-disable-next-line max-params
   private processMessage(
     payload: Record<string, unknown>,
-    messages: CodexRawMessage[],
+    messages: RawCodexRawMessage[],
     timestamp: string,
-    currentTokenUsage: CodexTokenUsage | null,
+    currentTokenUsage: null | RawCodexTokenUsage,
     currentReasoning: null | string
   ): void {
     const role = payload.role as 'assistant' | 'user'

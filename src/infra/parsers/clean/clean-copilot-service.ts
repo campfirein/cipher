@@ -8,7 +8,15 @@ import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
 import { join as pathJoin } from 'node:path'
 
 import { Agent } from '../../../core/domain/entities/agent.js'
-import {WorkspaceInfo} from '../../../core/domain/entities/parser.js'
+import {
+  CleanCopilotProcessResult,
+  RawCopilotParsedRequest,
+  RawCopilotRawSession,
+  RawCopilotResponseItem,
+  RawCopilotToolCallRound,
+  RawCopilotVariableData,
+  WorkspaceInfo,
+} from '../../../core/domain/entities/parser.js'
 import { ICleanParserService } from '../../../core/interfaces/parser/i-clean-parser-service.js'
 import {normalizeClaudeSession} from './shared.js'
 /**
@@ -60,7 +68,7 @@ export class CopilotCleanService implements ICleanParserService {
 
           try {
             const content = await readFile(pathJoin(workspacePath, file), 'utf8')
-            const session = JSON.parse(content)
+            const session = JSON.parse(content) as RawCopilotRawSession
 
             // Transform Copilot format to Claude format
             const claudeFormatted = this.transformCopilotToClaudeFormat(session)
@@ -105,7 +113,7 @@ export class CopilotCleanService implements ICleanParserService {
   public async processCopilotData(
     rawResultsDir: string,
     cleanResultsDir: string
-  ): Promise<{ invalid: number; total: number; valid: number; }> {
+  ): Promise<CleanCopilotProcessResult> {
     console.log('\n📊 Analyzing Copilot workspaces...')
 
     const workspaces = await this.analyzeCopilotWorkspaces(rawResultsDir)
@@ -207,9 +215,9 @@ export class CopilotCleanService implements ICleanParserService {
    */
   private buildSessionMetadata(
     transformedMessages: Array<Record<string, unknown>>,
-    copilotSession: Record<string, unknown>
+    copilotSession: RawCopilotRawSession
   ): Record<string, unknown> {
-    const metadata = copilotSession.metadata as Record<string, unknown> | undefined
+    const {metadata} = copilotSession
 
     return {
       messageCount: transformedMessages.length,
@@ -255,7 +263,7 @@ export class CopilotCleanService implements ICleanParserService {
         try {
           const sourceFile = pathJoin(sourcePath, file)
           const content = await fs.readFile(sourceFile, 'utf8')
-          const data = JSON.parse(content)
+          const data = JSON.parse(content) as RawCopilotRawSession
 
           // Only copy if has valid requests (messages field from raw parser)
           if (data.requests && data.requests.length > 0) {
@@ -316,7 +324,7 @@ export class CopilotCleanService implements ICleanParserService {
    * @param req - Copilot request object with response and result data
    * @returns Assistant message object with content array, or null if no valid content
    */
-  private createAssistantMessageFromRequest(req: Record<string, unknown>): null | Record<string, unknown> {
+  private createAssistantMessageFromRequest(req: RawCopilotParsedRequest): null | Record<string, unknown> {
     if (!req.response || !Array.isArray(req.response)) {
       return null
     }
@@ -324,7 +332,7 @@ export class CopilotCleanService implements ICleanParserService {
     const assistantContent: Array<Record<string, unknown>> = []
 
     // Extract main text response and convert to thinking block
-    const responseText = this.extractCopilotResponseText(req.response as Array<Record<string, unknown>>)
+    const responseText = this.extractCopilotResponseText(req.response)
     if (responseText) {
       assistantContent.push({
         thinking: responseText,
@@ -333,12 +341,12 @@ export class CopilotCleanService implements ICleanParserService {
     }
 
     // Extract tool invocations with their arguments and results
-    const result = req.result as Record<string, unknown> | undefined
-    const resultMetadata = result?.metadata as Record<string, unknown> | undefined
-    const toolCallRounds = resultMetadata?.toolCallRounds as Array<Record<string, unknown>> | undefined
-    const toolCallResults = resultMetadata?.toolCallResults as Record<string, unknown> | undefined
+    const {result} = req
+    const resultMetadata = result?.metadata
+    const toolCallRounds = resultMetadata?.toolCallRounds
+    const toolCallResults = resultMetadata?.toolCallResults
     const toolInvocations = this.extractCopilotToolInvocations(
-      req.response as Array<Record<string, unknown>>,
+      req.response,
       toolCallRounds,
       toolCallResults
     )
@@ -365,12 +373,12 @@ export class CopilotCleanService implements ICleanParserService {
    * @param req - Copilot request object with message and variableData
    * @returns User message object with text content and optional attachments, or null
    */
-  private createUserMessageFromRequest(req: Record<string, unknown>): null | Record<string, unknown> {
+  private createUserMessageFromRequest(req: RawCopilotParsedRequest): null | Record<string, unknown> {
     if (!req.message) {
       return null
     }
 
-    const message = req.message as Record<string, unknown>
+    const {message} = req
     const userMessage: Record<string, unknown> = {
       content: [
         {
@@ -383,7 +391,7 @@ export class CopilotCleanService implements ICleanParserService {
     }
 
     // Add attachments if present
-    const attachments = this.extractCopilotAttachments(req.variableData as Record<string, unknown> || {})
+    const attachments = this.extractCopilotAttachments(req.variableData || { variables: [] })
     if (attachments.length > 0) {
       userMessage.attachments = attachments
     }
@@ -401,14 +409,13 @@ export class CopilotCleanService implements ICleanParserService {
    * @param variableData - Object containing variables array with file references
    * @returns Array of file attachment names extracted from variables
    */
-  private extractCopilotAttachments(variableData: Record<string, unknown>): string[] {
+  private extractCopilotAttachments(variableData: RawCopilotVariableData): string[] {
     const attachments: string[] = []
 
     if (variableData?.variables && Array.isArray(variableData.variables)) {
       for (const variable of variableData.variables) {
-        const v = variable as Record<string, unknown>
-        if (v.kind === 'file' && typeof v.name === 'string') {
-          attachments.push(v.name)
+        if (variable.kind === 'file' && typeof variable.name === 'string') {
+          attachments.push(variable.name)
         }
       }
     }
@@ -426,7 +433,7 @@ export class CopilotCleanService implements ICleanParserService {
    * @param responseItems - Array of response item objects with kind and value properties
    * @returns Concatenated text content from non-tool response items
    */
-  private extractCopilotResponseText(responseItems: Array<Record<string, unknown>>): string {
+  private extractCopilotResponseText(responseItems: RawCopilotResponseItem[]): string {
     const textParts: string[] = []
 
     for (const item of responseItems) {
@@ -459,18 +466,18 @@ export class CopilotCleanService implements ICleanParserService {
    * @returns Array of tool_use content blocks with input arguments and output results
    */
   private extractCopilotToolInvocations(
-    responseItems: Array<Record<string, unknown>>,
-    toolCallRounds?: Array<Record<string, unknown>>,
+    responseItems: RawCopilotResponseItem[],
+    toolCallRounds?: RawCopilotToolCallRound[],
     toolCallResults?: Record<string, unknown>
   ): Array<Record<string, unknown>> {
     const toolInvocations: Array<Record<string, unknown>> = []
 
     // First, collect all toolCalls from all rounds in order
-    const allToolCalls: Array<Record<string, unknown>> = []
+    const allToolCalls: Array<{ arguments?: Record<string, unknown> | string; id: string }> = []
     if (toolCallRounds && Array.isArray(toolCallRounds)) {
       for (const round of toolCallRounds) {
         if (round.toolCalls && Array.isArray(round.toolCalls)) {
-          allToolCalls.push(...(round.toolCalls as Array<Record<string, unknown>>))
+          allToolCalls.push(...round.toolCalls)
         }
       }
     }
@@ -688,7 +695,7 @@ export class CopilotCleanService implements ICleanParserService {
    * @param copilotSession - Copilot session object containing nested data structures with baseUri patterns
    * @returns First valid workspace path found (absolute path starting with '/'), or null if not found
    */
-  private extractWorkspacePathFromCopilot(copilotSession: Record<string, unknown>): null | string {
+  private extractWorkspacePathFromCopilot(copilotSession: RawCopilotRawSession): null | string {
     const seenPaths = new Set<string>()
 
     const traverse = (obj: unknown): null | string => {
@@ -755,7 +762,7 @@ export class CopilotCleanService implements ICleanParserService {
    * @param copilotSession - Copilot session object which may have workspacePath property or nested paths
    * @returns Array of workspace paths (may be empty if no paths found)
    */
-  private normalizeWorkspacePaths(copilotSession: Record<string, unknown>): string[] {
+  private normalizeWorkspacePaths(copilotSession: RawCopilotRawSession): string[] {
     const workspacePath = copilotSession.workspacePath || this.extractWorkspacePathFromCopilot(copilotSession) || ''
 
     // Handle array workspace paths (monorepo)
@@ -830,12 +837,12 @@ export class CopilotCleanService implements ICleanParserService {
    * Transform Copilot session to match Claude format
    * Uses the requests array which contains detailed conversation structure
    */
-  private transformCopilotToClaudeFormat(copilotSession: Record<string, unknown>): Record<string, unknown> {
+  private transformCopilotToClaudeFormat(copilotSession: RawCopilotRawSession): Record<string, unknown> {
     const transformedMessages: Array<Record<string, unknown>> = []
-    const requests = Array.isArray(copilotSession.requests) ? copilotSession.requests : []
+    const requests = copilotSession.requests || []
 
     for (const request of requests) {
-      const req = request as Record<string, unknown>
+      const req = request
 
       // Create user message from request
       const userMessage = this.createUserMessageFromRequest(req)

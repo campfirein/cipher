@@ -10,15 +10,18 @@ import { basename, dirname, join } from 'node:path'
 
 import { Agent } from '../../../core/domain/entities/agent.js'
 import {
-  CodeDiff,
-  ComposerData,
-  ContextInfo,
-  CursorBubbleRaw,
-  DatabaseQueryResult,
-  EnhancedChatBubble,
-  FileCheckpoint,
-  MessageRequestContext,
-  ToolResult,
+  RawCursorBubbleLoadResult,
+  RawCursorBubbleProcessResult,
+  RawCursorBubbleRaw,
+  RawCursorCodeDiff,
+  RawCursorComposerData,
+  RawCursorContextInfo,
+  RawCursorConversation,
+  RawCursorDatabaseQueryResult,
+  RawCursorEnhancedChatBubble,
+  RawCursorFileCheckpoint,
+  RawCursorMessageRequestContext,
+  RawCursorToolResult,
 } from '../../../core/domain/entities/parser.js'
 import { IRawParserService } from '../../../core/interfaces/parser/i-raw-parser-service.js'
 
@@ -210,9 +213,9 @@ export class CursorRawService implements IRawParserService {
    * @param timestamp - Unix timestamp in milliseconds when the bubble was created
    * @param bubble - Raw Cursor bubble object containing base message data
    * @param bubbleId - Unique identifier for this bubble, used to look up associated data
-   * @param messageContextMap - Optional map of bubble IDs to MessageRequestContext arrays
-   * @param codeBlockDiffMap - Optional map of bubble IDs to CodeDiff arrays
-   * @param checkpointMap - Optional map of bubble IDs to FileCheckpoint data
+   * @param messageContextMap - Optional map of bubble IDs to RawCursorMessageRequestContext arrays
+   * @param codeBlockDiffMap - Optional map of bubble IDs to RawCursorCodeDiff arrays
+   * @param checkpointMap - Optional map of bubble IDs to RawCursorFileCheckpoint data
    * @returns Enhanced bubble with all extracted metadata and context information
    */
   // eslint-disable-next-line max-params
@@ -220,13 +223,13 @@ export class CursorRawService implements IRawParserService {
     type: 'ai' | 'user',
     text: string,
     timestamp: number,
-    bubble: CursorBubbleRaw,
+    bubble: RawCursorBubbleRaw,
     bubbleId: string,
-    messageContextMap?: Record<string, MessageRequestContext[]>,
-    codeBlockDiffMap?: Record<string, CodeDiff[]>,
-    checkpointMap?: Record<string, FileCheckpoint & { checkpointId: string }>
-  ): EnhancedChatBubble {
-    const enhanced: EnhancedChatBubble = {
+    messageContextMap?: Record<string, RawCursorMessageRequestContext[]>,
+    codeBlockDiffMap?: Record<string, RawCursorCodeDiff[]>,
+    checkpointMap?: Record<string, RawCursorFileCheckpoint & { checkpointId: string }>
+  ): RawCursorEnhancedChatBubble {
+    const enhanced: RawCursorEnhancedChatBubble = {
       text,
       timestamp,
       type,
@@ -284,7 +287,7 @@ export class CursorRawService implements IRawParserService {
    * @param _outputDir - Root output directory (used for logging reference)
    */
   private exportConversations(
-    allConversations: Array<{ bubbles: EnhancedChatBubble[]; composerId: string; name: string; timestamp: number; workspacePath?: string | string[] }>,
+    allConversations: RawCursorConversation[],
     workspaceDir: string,
     workspaceHash: string,
     _outputDir: string
@@ -338,7 +341,7 @@ export class CursorRawService implements IRawParserService {
    * @param bubble - The raw Cursor bubble object to extract code blocks from
    * @returns Object mapping code block IDs to code content strings, or undefined if none exist
    */
-  private extractCodeBlocks(bubble: CursorBubbleRaw): Record<string, string> | undefined {
+  private extractCodeBlocks(bubble: RawCursorBubbleRaw): Record<string, string> | undefined {
   if (
     bubble.codeBlocks &&
     typeof bubble.codeBlocks === 'object' &&
@@ -361,13 +364,13 @@ export class CursorRawService implements IRawParserService {
    * newModelDiffWrtV0, originalModelDiffWrtV0) are present, using empty string for missing diffId.
    *
    * @param bubbleId - Unique identifier of the bubble to look up diffs for
-   * @param codeBlockDiffMap - Optional map of bubble IDs to CodeDiff arrays
-   * @returns Array of normalized CodeDiff objects with all required fields, or undefined if none exist
+   * @param codeBlockDiffMap - Optional map of bubble IDs to RawCursorCodeDiff arrays
+   * @returns Array of normalized RawCursorCodeDiff objects with all required fields, or undefined if none exist
    */
   private extractCodeDiffs(
     bubbleId: string,
-    codeBlockDiffMap?: Record<string, CodeDiff[]>
-  ): CodeDiff[] | undefined {
+    codeBlockDiffMap?: Record<string, RawCursorCodeDiff[]>
+  ): RawCursorCodeDiff[] | undefined {
   if (!codeBlockDiffMap) {
     return undefined
   }
@@ -396,7 +399,7 @@ export class CursorRawService implements IRawParserService {
    * @param bubble - The raw Cursor bubble object to extract console logs from
    * @returns Array of console log strings, or undefined if none exist
    */
-  private extractConsoleLogs(bubble: CursorBubbleRaw): string[] | undefined {
+  private extractConsoleLogs(bubble: RawCursorBubbleRaw): string[] | undefined {
   if (
     bubble.consoleLogs &&
     Array.isArray(bubble.consoleLogs) &&
@@ -422,16 +425,16 @@ export class CursorRawService implements IRawParserService {
    * the conversation turn.
    *
    * @param bubble - The raw Cursor bubble object with inline context data
-   * @param messageContextMap - Optional map of bubble IDs to MessageRequestContext arrays
+   * @param messageContextMap - Optional map of bubble IDs to RawCursorMessageRequestContext arrays
    * @param bubbleId - Optional bubble ID to look up context in messageContextMap
-   * @returns ContextInfo object with consolidated context data, or undefined if no data found
+   * @returns RawCursorContextInfo object with consolidated context data, or undefined if no data found
    */
   private extractContextInfo(
-    bubble: CursorBubbleRaw,
-    messageContextMap?: Record<string, MessageRequestContext[]>,
+    bubble: RawCursorBubbleRaw,
+    messageContextMap?: Record<string, RawCursorMessageRequestContext[]>,
     bubbleId?: string
-  ): ContextInfo | undefined {
-  const context: ContextInfo = {}
+  ): RawCursorContextInfo | undefined {
+  const context: RawCursorContextInfo = {}
   let hasData = false
 
   // From bubble itself
@@ -505,13 +508,13 @@ export class CursorRawService implements IRawParserService {
    * field is intentionally excluded from the returned object.
    *
    * @param bubbleId - Unique identifier of the bubble to look up checkpoint for
-   * @param checkpointMap - Optional map of bubble IDs to FileCheckpoint objects with checkpointId
-   * @returns Normalized FileCheckpoint object with all required array fields, or undefined if none exists
+   * @param checkpointMap - Optional map of bubble IDs to RawCursorFileCheckpoint objects with checkpointId
+   * @returns Normalized RawCursorFileCheckpoint object with all required array fields, or undefined if none exists
    */
   private extractFileCheckpoint(
     bubbleId: string,
-    checkpointMap?: Record<string, FileCheckpoint & { checkpointId: string }>
-  ): FileCheckpoint | undefined {
+    checkpointMap?: Record<string, RawCursorFileCheckpoint & { checkpointId: string }>
+  ): RawCursorFileCheckpoint | undefined {
   if (!checkpointMap || !checkpointMap[bubbleId]) {
     return undefined
   }
@@ -536,9 +539,9 @@ export class CursorRawService implements IRawParserService {
    * strings for params, rawArgs, and result fields that may contain serialized data.
    *
    * @param bubble - The raw Cursor bubble object containing tool execution data
-   * @returns ToolResult object with execution details, or undefined if no valid tool data
+   * @returns RawCursorToolResult object with execution details, or undefined if no valid tool data
    */
-  private extractToolResults(bubble: CursorBubbleRaw): ToolResult | undefined {
+  private extractToolResults(bubble: RawCursorBubbleRaw): RawCursorToolResult | undefined {
   if (!bubble.toolFormerData || typeof bubble.toolFormerData !== 'object') {
     return undefined
   }
@@ -574,9 +577,9 @@ export class CursorRawService implements IRawParserService {
    * @param db - Better-sqlite3 database instance with cursorDiskKV table
    * @returns Object containing: bubbleMap (ID -> bubble), bubbleWorkspaceMap (ID -> workspace hash), uniqueWorkspaces set
    */
-  private loadBubbles(db: Database.Database): { bubbleMap: Record<string, CursorBubbleRaw>; bubbleWorkspaceMap: Record<string, string>; uniqueWorkspaces: Set<string> } {
+  private loadBubbles(db: Database.Database): RawCursorBubbleLoadResult {
     console.log('\n📝 Loading bubbles...')
-    const bubbleMap: Record<string, CursorBubbleRaw> = {}
+    const bubbleMap: Record<string, RawCursorBubbleRaw> = {}
     const bubbleWorkspaceMap: Record<string, string> = {}
     const bubblesByWorkspace: Record<string, Set<string>> = {}
 
@@ -621,11 +624,11 @@ export class CursorRawService implements IRawParserService {
    * Skips invalid or unparseable entries.
    *
    * @param db - Better-sqlite3 database instance with cursorDiskKV table
-   * @returns Map of composer IDs to their FileCheckpoint objects with checkpointId field
+   * @returns Map of composer IDs to their RawCursorFileCheckpoint objects with checkpointId field
    */
-  private loadCheckpoints(db: Database.Database): Record<string, FileCheckpoint & { checkpointId: string }> {
+  private loadCheckpoints(db: Database.Database): Record<string, RawCursorFileCheckpoint & { checkpointId: string }> {
     console.log('📝 Loading checkpoints...')
-    const checkpointMap: Record<string, FileCheckpoint & { checkpointId: string }> = {}
+    const checkpointMap: Record<string, RawCursorFileCheckpoint & { checkpointId: string }> = {}
     const checkpointRows = db.prepare(SQL_QUERIES.CHECKPOINT_ROWS).all()
 
     for (const rowUntyped of checkpointRows) {
@@ -660,11 +663,11 @@ export class CursorRawService implements IRawParserService {
    * the diffId extracted from the database key. Skips invalid or unparseable entries.
    *
    * @param db - Better-sqlite3 database instance with cursorDiskKV table
-   * @returns Map of composer IDs to arrays of CodeDiff objects with diffId field
+   * @returns Map of composer IDs to arrays of RawCursorCodeDiff objects with diffId field
    */
-  private loadCodeBlockDiffs(db: Database.Database): Record<string, CodeDiff[]> {
+  private loadCodeBlockDiffs(db: Database.Database): Record<string, RawCursorCodeDiff[]> {
     console.log('📝 Loading code diffs...')
-    const codeBlockDiffMap: Record<string, CodeDiff[]> = {}
+    const codeBlockDiffMap: Record<string, RawCursorCodeDiff[]> = {}
     const codeBlockDiffRows = db.prepare(SQL_QUERIES.CODE_BLOCK_DIFF_ROWS).all()
 
     for (const rowUntyped of codeBlockDiffRows) {
@@ -696,11 +699,11 @@ export class CursorRawService implements IRawParserService {
    * with insufficient format.
    *
    * @param db - Better-sqlite3 database instance with cursorDiskKV table
-   * @returns Map of composer IDs to arrays of MessageRequestContext objects with contextId field
+   * @returns Map of composer IDs to arrays of RawCursorMessageRequestContext objects with contextId field
    */
-  private loadMessageContext(db: Database.Database): Record<string, MessageRequestContext[]> {
+  private loadMessageContext(db: Database.Database): Record<string, RawCursorMessageRequestContext[]> {
     console.log('📝 Loading message context...')
-    const messageRequestContextMap: Record<string, MessageRequestContext[]> = {}
+    const messageRequestContextMap: Record<string, RawCursorMessageRequestContext[]> = {}
     const messageRequestContextRows = db.prepare(SQL_QUERIES.MESSAGE_REQUEST_CONTEXT_ROWS).all()
 
     for (const rowUntyped of messageRequestContextRows) {
@@ -753,18 +756,18 @@ export class CursorRawService implements IRawParserService {
       try {
         const result = wsDb
           .prepare(SQL_QUERIES.COMPOSER_DATA)
-          .get() as DatabaseQueryResult | undefined
+          .get() as RawCursorDatabaseQueryResult | undefined
 
         if (!result || !result.value) {
           console.log('⚠️  No composer data found in workspace ItemTable')
           return workspaceComposers
         }
 
-        const composerData = JSON.parse(result.value.toString()) as { allComposers?: ComposerData[] }
+        const composerData = JSON.parse(result.value.toString()) as { allComposers?: RawCursorComposerData[] }
         const allComposers = composerData.allComposers || []
 
         for (const composer of allComposers) {
-          const composerData = composer as ComposerData
+          const composerData = composer as RawCursorComposerData
           if (composerData.composerId) {
             workspaceComposers.add(composerData.composerId)
           }
@@ -840,23 +843,23 @@ export class CursorRawService implements IRawParserService {
    * a comprehensive representation of each conversation turn.
    *
    * @param conversationHeaders - Array of header objects containing bubble IDs and types (1=user, other=ai)
-   * @param bubbleMap - Map of bubble IDs to raw CursorBubbleRaw objects
+   * @param bubbleMap - Map of bubble IDs to raw RawCursorBubbleRaw objects
    * @param bubbleWorkspaceMap - Map of bubble IDs to their workspace hash identifiers
-   * @param messageRequestContextMap - Map of bubble IDs to MessageRequestContext arrays
-   * @param codeBlockDiffMap - Map of bubble IDs to CodeDiff arrays
-   * @param checkpointMap - Map of bubble IDs to FileCheckpoint objects with checkpointId
+   * @param messageRequestContextMap - Map of bubble IDs to RawCursorMessageRequestContext arrays
+   * @param codeBlockDiffMap - Map of bubble IDs to RawCursorCodeDiff arrays
+   * @param checkpointMap - Map of bubble IDs to RawCursorFileCheckpoint objects with checkpointId
    * @returns Object containing enhanced bubbles array and set of workspace hashes used by these bubbles
    */
   // eslint-disable-next-line max-params
   private processBubbleHeaders(
     conversationHeaders: Array<Record<string, unknown>>,
-    bubbleMap: Record<string, CursorBubbleRaw>,
+    bubbleMap: Record<string, RawCursorBubbleRaw>,
     bubbleWorkspaceMap: Record<string, string>,
-    messageRequestContextMap: Record<string, MessageRequestContext[]>,
-    codeBlockDiffMap: Record<string, CodeDiff[]>,
-    checkpointMap: Record<string, FileCheckpoint & { checkpointId: string }>
-  ): { bubbles: EnhancedChatBubble[]; usedWorkspaces: Set<string> } {
-    const bubbles: EnhancedChatBubble[] = []
+    messageRequestContextMap: Record<string, RawCursorMessageRequestContext[]>,
+    codeBlockDiffMap: Record<string, RawCursorCodeDiff[]>,
+    checkpointMap: Record<string, RawCursorFileCheckpoint & { checkpointId: string }>
+  ): RawCursorBubbleProcessResult {
+    const bubbles: RawCursorEnhancedChatBubble[] = []
     const usedWorkspaces = new Set<string>()
 
     for (const header of conversationHeaders) {
@@ -903,11 +906,11 @@ export class CursorRawService implements IRawParserService {
    * @param db - Better-sqlite3 database instance
    * @param workspacePath - Path to the workspace directory
    * @param workspaceComposers - Set of composer IDs belonging to this workspace
-   * @param bubbleMap - Map of bubble IDs to raw CursorBubbleRaw objects
+   * @param bubbleMap - Map of bubble IDs to raw RawCursorBubbleRaw objects
    * @param bubbleWorkspaceMap - Map of bubble IDs to their workspace hashes
-   * @param messageRequestContextMap - Map of bubble IDs to MessageRequestContext arrays
-   * @param codeBlockDiffMap - Map of bubble IDs to CodeDiff arrays
-   * @param checkpointMap - Map of bubble IDs to FileCheckpoint objects
+   * @param messageRequestContextMap - Map of bubble IDs to RawCursorMessageRequestContext arrays
+   * @param codeBlockDiffMap - Map of bubble IDs to RawCursorCodeDiff arrays
+   * @param checkpointMap - Map of bubble IDs to RawCursorFileCheckpoint objects
    * @returns Array of conversation objects with bubbles and metadata
    */
   // eslint-disable-next-line max-params
@@ -915,12 +918,12 @@ export class CursorRawService implements IRawParserService {
     db: Database.Database,
     workspacePath: string,
     workspaceComposers: Set<string>,
-    bubbleMap: Record<string, CursorBubbleRaw>,
+    bubbleMap: Record<string, RawCursorBubbleRaw>,
     bubbleWorkspaceMap: Record<string, string>,
-    messageRequestContextMap: Record<string, MessageRequestContext[]>,
-    codeBlockDiffMap: Record<string, CodeDiff[]>,
-    checkpointMap: Record<string, FileCheckpoint & { checkpointId: string }>
-  ): Array<{ bubbles: EnhancedChatBubble[]; composerId: string; name: string; timestamp: number; workspacePath?: string | string[] }> {
+    messageRequestContextMap: Record<string, RawCursorMessageRequestContext[]>,
+    codeBlockDiffMap: Record<string, RawCursorCodeDiff[]>,
+    checkpointMap: Record<string, RawCursorFileCheckpoint & { checkpointId: string }>
+  ): RawCursorConversation[] {
     console.log('📝 Loading conversations...')
     const composerRows = db.prepare(SQL_QUERIES.COMPOSER_ROWS).all()
 
@@ -930,7 +933,7 @@ export class CursorRawService implements IRawParserService {
     let skippedNoBubbles = 0
     let skippedNotInWorkspace = 0
 
-    const allConversations: Array<{ bubbles: EnhancedChatBubble[]; composerId: string; name: string; timestamp: number; workspacePath?: string | string[] }> = []
+    const allConversations: RawCursorConversation[] = []
 
     for (const rowUntyped of composerRows) {
       const row = rowUntyped as { key: string; value: string }

@@ -319,10 +319,10 @@ describe('CursorCleanService', () => {
       expect(result.content.success).to.be.true
     })
 
-    it('should return null for empty output', () => {
+    it('should return undefined for empty output', () => {
       const result = (service as any).simplifyToolOutput('unknown_tool', null)
 
-      expect(result).to.be.null
+      expect(result).to.be.undefined
     })
   })
 
