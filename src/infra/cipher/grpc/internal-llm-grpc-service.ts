@@ -100,7 +100,7 @@ export class ByteRoverLlmGrpcService {
       projectId: config.projectId ?? 'byterover',
       region: config.region ?? 'us-east1',
       sessionKey: config.sessionKey,
-      timeout: config.timeout ?? 30_000,
+      timeout: config.timeout ?? 60_000,
     }
 
     // Determine if using secure (TLS) or insecure connection based on endpoint
@@ -192,7 +192,7 @@ export class ByteRoverLlmGrpcService {
         if (!settled) {
           settled = true
           call.cancel()
-          reject(new Error('gRPC call timeout: server did not respond within 30 seconds'))
+          reject(new Error('gRPC call timeout: server did not respond within 60 seconds'))
         }
       }, this.config.timeout)
 
