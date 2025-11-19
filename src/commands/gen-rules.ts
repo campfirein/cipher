@@ -1,5 +1,5 @@
 import {confirm, search} from '@inquirer/prompts'
-import {Command} from '@oclif/core'
+import {Command, Flags} from '@oclif/core'
 
 import {type Agent, AGENT_VALUES} from '../core/domain/entities/agent.js'
 import {RuleExistsError} from '../core/domain/errors/rule-error.js'
@@ -24,6 +24,12 @@ const AGENTS = AGENT_VALUES.map((agent) => ({
 export default class GenRules extends Command {
   static override description = 'Generate rule instructions for coding agents to work with ByteRover correctly'
   static override examples = ['<%= config.bin %> <%= command.id %>']
+  static override flags = {
+    agent: Flags.string({
+      char: 'a',
+      description: 'Agent to generate rules for (optional, will prompt if not provided)',
+    }),
+  }
 
   protected createServices(): {
     ruleWriterService: IRuleWriterService
@@ -38,6 +44,7 @@ export default class GenRules extends Command {
       trackingService: new MixpanelTrackingService(new KeychainTokenStore()),
     }
   }
+
 
   /**
    * Prompts the user to select an agent.
@@ -75,13 +82,14 @@ export default class GenRules extends Command {
   }
 
   public async run(): Promise<void> {
+    const {flags} = await this.parse(GenRules)
     const {ruleWriterService, trackingService} = this.createServices()
 
     // Track rule generation
     await trackingService.track('rule:generate')
 
-    // Interactive selection with search
-    const answer = await this.promptForAgentSelection()
+    // Use provided agent or prompt for selection
+    const answer = flags.agent ? (flags.agent as Agent) : await this.promptForAgentSelection()
 
     this.log(`Generating rules for: ${answer}`)
 

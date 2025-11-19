@@ -1,5 +1,6 @@
 import {expect} from 'chai'
 
+import type {Agent} from '../../../../src/core/domain/entities/agent.js'
 import type {CipherLLMConfig} from '../../../../src/infra/cipher/agent-service-factory.js'
 
 import {BrvConfig} from '../../../../src/core/domain/entities/brv-config.js'
@@ -35,6 +36,9 @@ describe('CipherAgent', () => {
         'Space Name',
         'team-id',
         'Team Name',
+        'Claude Code' as Agent,
+        'chat.log',
+        '/test/cwd',
         'Custom system prompt',
       )
 
