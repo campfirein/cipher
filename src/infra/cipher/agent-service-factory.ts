@@ -101,22 +101,20 @@ export async function createCipherAgentServices(
   // 5. Memory system (depends on BlobStorage)
   const memoryManager = new MemoryManager(blobStorage)
 
-  // 6. Create a stub ContextManager for ContextTreeService initialization
-  // Note: This is a placeholder. The actual ContextManager is session-specific
-  // and is accessed via LLM service's getContextManager() at runtime
+  // 6. Simple prompt factory - SHARED across sessions
+  // Created early so it can be used by ToolProvider
+  const verbose = llmConfig.verbose ?? false
+  const promptFactory = new SimplePromptFactory(undefined, verbose)
 
-  // 7. Tool system (depends on FileSystemService, ProcessService, ContextTreeService)
+  // 7. Tool system (depends on FileSystemService, ProcessService, MemoryManager, PromptFactory)
   const toolProvider = new ToolProvider({
     fileSystemService,
+    memoryManager,
     processService,
-  })
+  }, promptFactory)
   await toolProvider.initialize()
   const toolManager = new ToolManager(toolProvider)
   await toolManager.initialize()
-
-  // 8. Simple prompt factory - SHARED across sessions
-  const verbose = llmConfig.verbose ?? false
-  const promptFactory = new SimplePromptFactory(undefined, verbose)
 
   // 9. History storage (depends on BlobStorage) - SHARED across sessions
   const historyStorage = new BlobHistoryStorage(blobStorage)

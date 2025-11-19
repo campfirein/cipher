@@ -2,6 +2,7 @@ import {ZodError} from 'zod'
 
 import type {Tool, ToolExecutionContext, ToolSet} from '../../../core/domain/cipher/tools/types.js'
 import type {IToolProvider} from '../../../core/interfaces/cipher/i-tool-provider.js'
+import type {SimplePromptFactory} from '../system-prompt/simple-prompt-factory.js'
 import type {ToolServices} from './tool-registry.js'
 
 import {
@@ -20,6 +21,7 @@ import {convertZodToJsonSchema} from './utils/schema-converter.js'
  */
 export class ToolProvider implements IToolProvider {
   private initialized: boolean = false
+  private readonly promptFactory?: SimplePromptFactory
   private readonly services: ToolServices
   private readonly toolMarkers: Set<string> = new Set()
   private readonly tools: Map<string, Tool> = new Map()
@@ -27,9 +29,11 @@ export class ToolProvider implements IToolProvider {
   /**
    * Creates a new tool provider
    * @param services - Services available to tools
+   * @param promptFactory - Optional prompt factory for tool output guidance
    */
-  public constructor(services: ToolServices) {
+  public constructor(services: ToolServices, promptFactory?: SimplePromptFactory) {
     this.services = services
+    this.promptFactory = promptFactory
   }
 
   /**
@@ -59,6 +63,22 @@ export class ToolProvider implements IToolProvider {
 
       // Execute tool
       const result = await tool.execute(validatedInput, context)
+
+      // Check if this tool has output guidance configured
+      const registryEntry = TOOL_REGISTRY[toolName as keyof typeof TOOL_REGISTRY]
+      if (registryEntry?.outputGuidance && this.promptFactory) {
+        const guidance = this.promptFactory.getToolOutputGuidance(registryEntry.outputGuidance)
+
+        if (guidance) {
+          // Return structured result with guidance (Option A)
+          return {
+            guidance,
+            result,
+          }
+        }
+      }
+
+      // Return result without guidance
       return result
     } catch (error) {
       // Handle Zod validation errors

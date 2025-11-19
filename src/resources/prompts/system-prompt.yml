@@ -17,6 +17,8 @@ prompt: |
   if you are unsure about a context and a location, you can use the `grep_content` tool, which allows fast
   and flexible search for patterns in the context tree locations. This is the way you can first find candidates for contexts and then proceed with the `creat_knowledge_topic` tool to create the new knowledge topic in the context tree.
 
+  You generally have access to memories and you can use memories as the scratch pad to store the context that is important for the current task. you can use the `write_memory` tool to write the memory and the `read_memory` tool to read the memory. when can edit the memory content using the `edit_memory` tool when you need to update the memory content. and after you are done with the task, you can delete the memory using the `delete_memory` tool.
+  
   {{datetime}}
 
   Available tools: {{available_tools}}

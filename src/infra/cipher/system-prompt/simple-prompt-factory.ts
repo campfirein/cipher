@@ -12,6 +12,7 @@ export interface PromptConfig {
   description?: string
   excluded_tools?: string[]
   prompt: string
+  prompts?: Record<string, string>
 }
 
 /**
@@ -105,6 +106,46 @@ export class SimplePromptFactory {
     }
 
     return finalPrompt
+  }
+
+  /**
+   * Get tool-specific output guidance for a tool
+   *
+   * @param toolName - The name of the tool (e.g., 'write_memory')
+   * @returns The guidance text if available, null otherwise
+   */
+  public getToolOutputGuidance(toolName: string): null | string {
+    try {
+      // Load tool-outputs.yml
+      const toolOutputsConfig = this.loadPrompt('tool-outputs.yml')
+
+      // Check if prompts section exists and has the requested prompt
+      if (toolOutputsConfig.prompts) {
+        const promptKey = `${toolName}_output`
+        const guidance = toolOutputsConfig.prompts[promptKey]
+
+        if (guidance) {
+          if (this.verbose) {
+            console.log(`[PromptDebug:SimpleFactory] Found tool guidance for: ${toolName}`)
+          }
+
+          return guidance
+        }
+      }
+
+      if (this.verbose) {
+        console.log(`[PromptDebug:SimpleFactory] No tool guidance found for: ${toolName}`)
+      }
+
+      return null
+    } catch (error) {
+      // If tool-outputs.yml doesn't exist or can't be loaded, return null
+      if (this.verbose) {
+        console.log(`[PromptDebug:SimpleFactory] Error loading tool guidance: ${error}`)
+      }
+
+      return null
+    }
   }
 
   /**
