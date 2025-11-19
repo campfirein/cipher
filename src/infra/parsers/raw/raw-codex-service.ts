@@ -29,7 +29,6 @@ import { IRawParserService } from '../../../core/interfaces/parser/i-raw-parser-
 // CONSTANTS
 // ============================================================================
 
-const CODEX_LOGS_BASE_DIR = '.brv/logs'
 const TITLE_MAX_LENGTH = 100
 const SUMMARY_TEXT_TYPE = 'summary_text'
 
@@ -61,14 +60,14 @@ export class CodexRawService implements IRawParserService {
    * @returns Promise resolving to true if parsing succeeded, false otherwise
    */
   async parse(customDir: string): Promise<boolean> {
-    const outputDir = path.join(process.cwd(), `${CODEX_LOGS_BASE_DIR}/${this.ide}/raw`)
+    const outputDir = path.join(process.cwd(), `.brv/logs/${this.ide}/raw`)
 
     console.log('🔍 Starting Codex conversation parsing...')
     console.log(`📁 Custom directory: ${customDir}`)
 
     try {
       // Parse all sessions from the Codex directory
-      const sessions = await this.parseFromDirectory(customDir)
+      const sessions = await this.parseSessionDirectory(customDir)
 
       if (sessions.length === 0) {
         console.log('ℹ️  No Codex sessions found')
@@ -637,19 +636,6 @@ export class CodexRawService implements IRawParserService {
 
     const payload = entry.payload as Record<string, unknown>
     return payload.type === 'token_count' && payload.info !== undefined
-  }
-
-  /**
-   * Alias method - Parse sessions from a custom directory
-   *
-   * Convenience alias that delegates to parseSessionDirectory for parsing
-   * all Codex session files in a directory.
-   *
-   * @param dirPath - Path to directory containing JSONL session files
-   * @returns Promise resolving to array of parsed CodexRawSession objects
-   */
-  private async parseFromDirectory(dirPath: string): Promise<CodexRawSession[]> {
-    return this.parseSessionDirectory(dirPath)
   }
 
   /**

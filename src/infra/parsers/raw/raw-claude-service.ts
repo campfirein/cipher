@@ -94,7 +94,7 @@ export class ClaudeRawService implements IRawParserService {
 
     try {
       // Parse sessions from custom directory
-      const sessions = await this.parseFromDirectory(customDir) as ClaudeRawSession[]
+      const sessions = await this.parseSessionDirectory(customDir) as ClaudeRawSession[]
 
       if (sessions.length === 0) {
         console.log(MESSAGES.NO_SESSIONS)
@@ -481,19 +481,6 @@ export class ClaudeRawService implements IRawParserService {
    */
   private getOutputDir(ide: Agent): string {
     return path.join(process.cwd(), `.brv/logs/${ide}/raw`)
-  }
-
-  /**
-   * Alias method - Parse sessions from a custom directory
-   *
-   * Convenience alias that delegates to parseSessionDirectory for parsing
-   * all Claude Code session files in a directory.
-   *
-   * @param dirPath - Path to directory containing JSONL session files
-   * @returns Promise resolving to array of parsed ClaudeRawSession objects
-   */
-  private async parseFromDirectory(dirPath: string): Promise<ClaudeRawSession[]> {
-    return this.parseSessionDirectory(dirPath)
   }
 
   // ============================================================================
