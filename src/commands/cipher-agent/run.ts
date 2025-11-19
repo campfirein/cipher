@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import type {IProjectConfigStore} from '../../core/interfaces/i-project-config-store.js'
 
 import {getCurrentConfig} from '../../config/environment.js'
-import { PROJECT } from '../../constants.js'
+import {PROJECT} from '../../constants.js'
 import {CipherAgent} from '../../infra/cipher/cipher-agent.js'
 import {ExitCode, exitWithCode} from '../../infra/cipher/exit-codes.js'
 import {displayInfo, startInteractiveLoop} from '../../infra/cipher/interactive-loop.js'
@@ -135,7 +135,9 @@ export default class CipherAgentRun extends Command {
    * @param agent - CipherAgent instance
    * @returns Most recent session ID or undefined if no sessions found
    */
-  protected async getMostRecentSessionId(agent: import('../../infra/cipher/cipher-agent.js').CipherAgent): Promise<string | undefined> {
+  protected async getMostRecentSessionId(
+    agent: import('../../infra/cipher/cipher-agent.js').CipherAgent,
+  ): Promise<string | undefined> {
     // Get all session IDs from persisted storage
     const sessionIds = await agent.listPersistedSessions()
 
@@ -197,8 +199,8 @@ export default class CipherAgentRun extends Command {
       const isInteractive: boolean = jsonInputMode
         ? false
         : flags.interactive === undefined
-          ? process.stdin.isTTY === true // Auto-detect from TTY
-          : flags.interactive // User explicitly set --interactive or --no-interactive
+        ? process.stdin.isTTY === true // Auto-detect from TTY
+        : flags.interactive // User explicitly set --interactive or --no-interactive
 
       // Validate prompt requirement for non-interactive mode
       if (!isInteractive && !currentPrompt) {
@@ -223,37 +225,41 @@ export default class CipherAgentRun extends Command {
       this.log('Starting CipherAgent...')
       await agent.start()
 
-      // Resolve session ID based on flags
-      const resolvedSessionId = await this.resolveSessionId(agent, flags)
+      try {
+        // Resolve session ID based on flags
+        const resolvedSessionId = await this.resolveSessionId(agent, flags)
 
-      // Setup event listeners
-      this.setupEventListeners(agent, isInteractive)
+        // Setup event listeners
+        this.setupEventListeners(agent, isInteractive)
 
-      if (isInteractive) {
-        // Interactive mode: start the loop
-        await startInteractiveLoop(agent, {
-          model: llmConfig.model,
-          sessionId: resolvedSessionId,
-        })
-      } else {
-        // Non-interactive mode: single execution
-        if (!currentPrompt) {
-          this.error('Prompt is required in non-interactive mode.')
+        if (isInteractive) {
+          // Interactive mode: start the loop
+          await startInteractiveLoop(agent, {
+            model: llmConfig.model,
+            sessionId: resolvedSessionId,
+          })
+        } else {
+          // Non-interactive mode: single execution
+          if (!currentPrompt) {
+            this.error('Prompt is required in non-interactive mode.')
+          }
+
+          this.log('Executing prompt...')
+          const response = await agent.execute(
+            currentPrompt,
+            resolvedSessionId,
+            jsonInputMode ? {mode: 'json-input'} : undefined,
+          )
+
+          this.log('\nCipherAgent Response:')
+          this.log(response)
+
+          // Show agent state
+          const state = agent.getState()
+          this.log(`\n[Agent State: ${state.currentIteration} iterations]`)
         }
-
-        this.log('Executing prompt...')
-        const response = await agent.execute(
-          currentPrompt,
-          resolvedSessionId,
-          jsonInputMode ? {mode: 'json-input'} : undefined,
-        )
-
-        this.log('\nCipherAgent Response:')
-        this.log(response)
-
-        // Show agent state
-        const state = agent.getState()
-        this.log(`\n[Agent State: ${state.currentIteration} iterations]`)
+      } finally {
+        await agent.stop()
       }
     } catch (error) {
       // Handle workspace not initialized error with friendly message
@@ -274,7 +280,10 @@ export default class CipherAgentRun extends Command {
    * @param sessionId - Session ID to validate
    * @returns True if session exists
    */
-  protected async validateSessionExists(agent: import('../../infra/cipher/cipher-agent.js').CipherAgent, sessionId: string): Promise<boolean> {
+  protected async validateSessionExists(
+    agent: import('../../infra/cipher/cipher-agent.js').CipherAgent,
+    sessionId: string,
+  ): Promise<boolean> {
     const metadata = await agent.getSessionMetadata(sessionId)
     return metadata !== undefined
   }
@@ -296,7 +305,14 @@ export default class CipherAgentRun extends Command {
    */
   private createLLMConfig(
     token: {accessToken: string; sessionKey: string},
-    flags: {apiKey?: string; maxTokens?: number; model?: string; temperature?: string; verbose?: boolean; workingDirectory?: string},
+    flags: {
+      apiKey?: string
+      maxTokens?: number
+      model?: string
+      temperature?: string
+      verbose?: boolean
+      workingDirectory?: string
+    },
   ): {
     accessToken: string
     fileSystemConfig?: {workingDirectory: string}
@@ -363,7 +379,7 @@ export default class CipherAgentRun extends Command {
   private handleWorkspaceError(error: WorkspaceNotInitializedError): void {
     const message = [
       '\n⚠️  ByteRover workspace not found!\n',
-      'It looks like you haven\'t initialized ByteRover in this directory yet.',
+      "It looks like you haven't initialized ByteRover in this directory yet.",
       'To get started, please run:\n',
       '  $ brv init\n',
       'This will create the necessary workspace structure in:',
@@ -409,7 +425,10 @@ export default class CipherAgentRun extends Command {
   ): Promise<string> {
     // Validate flags: -c and -r are mutually exclusive
     if (flags.continue && flags.resume) {
-      exitWithCode(ExitCode.VALIDATION_ERROR, 'Cannot use both -c/--continue and -r/--resume flags together. Choose one.')
+      exitWithCode(
+        ExitCode.VALIDATION_ERROR,
+        'Cannot use both -c/--continue and -r/--resume flags together. Choose one.',
+      )
     }
 
     if (flags.resume) {
@@ -446,7 +465,6 @@ export default class CipherAgentRun extends Command {
     this.log(`🆕 Starting new session: ${newSessionId}\n`)
     return newSessionId
   }
-
 
   /**
    * Setup event listeners based on mode
@@ -522,5 +540,4 @@ export default class CipherAgentRun extends Command {
       this.log('🔄 [Event] Conversation Reset')
     })
   }
-
 }

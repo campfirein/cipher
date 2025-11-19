@@ -27,6 +27,7 @@ describe('ByteRoverLLMService', () => {
   let mockToolProvider: any
 
   beforeEach(() => {
+    sinon.stub(console, 'log')
     sandbox = sinon.createSandbox()
     sessionEventBus = new SessionEventBus()
     promptFactory = new SimplePromptFactory()
@@ -42,6 +43,7 @@ describe('ByteRoverLLMService', () => {
 
   afterEach(() => {
     sandbox.restore()
+    sinon.restore()
   })
 
   describe('initialization', () => {
@@ -57,7 +59,7 @@ describe('ByteRoverLLMService', () => {
           promptFactory,
           sessionEventBus,
           toolManager,
-        }
+        },
       )
 
       expect(service).to.exist
@@ -76,7 +78,7 @@ describe('ByteRoverLLMService', () => {
           promptFactory,
           sessionEventBus,
           toolManager,
-        }
+        },
       )
 
       expect(service.getConfig().model).to.equal('claude-3-5-sonnet')
@@ -95,7 +97,7 @@ describe('ByteRoverLLMService', () => {
           promptFactory,
           sessionEventBus,
           toolManager,
-        }
+        },
       )
 
       expect(service).to.exist
@@ -114,7 +116,7 @@ describe('ByteRoverLLMService', () => {
           promptFactory,
           sessionEventBus,
           toolManager,
-        }
+        },
       )
 
       expect(service).to.exist
@@ -133,7 +135,7 @@ describe('ByteRoverLLMService', () => {
           promptFactory,
           sessionEventBus,
           toolManager,
-        }
+        },
       )
 
       expect(service).to.exist
@@ -151,7 +153,7 @@ describe('ByteRoverLLMService', () => {
           promptFactory,
           sessionEventBus,
           toolManager,
-        }
+        },
       )
 
       expect(service).to.exist
@@ -169,7 +171,7 @@ describe('ByteRoverLLMService', () => {
           promptFactory,
           sessionEventBus,
           toolManager,
-        }
+        },
       )
 
       expect(service).to.exist
@@ -189,7 +191,7 @@ describe('ByteRoverLLMService', () => {
           promptFactory,
           sessionEventBus,
           toolManager,
-        }
+        },
       )
 
       const config = service.getConfig()
@@ -211,7 +213,7 @@ describe('ByteRoverLLMService', () => {
           promptFactory,
           sessionEventBus,
           toolManager,
-        }
+        },
       )
 
       const config = service.getConfig()
@@ -230,7 +232,7 @@ describe('ByteRoverLLMService', () => {
           promptFactory,
           sessionEventBus,
           toolManager,
-        }
+        },
       )
 
       const config = service.getConfig()
@@ -251,7 +253,7 @@ describe('ByteRoverLLMService', () => {
           promptFactory,
           sessionEventBus,
           toolManager,
-        }
+        },
       )
 
       const contextManager = service.getContextManager()
@@ -282,7 +284,7 @@ describe('ByteRoverLLMService', () => {
           promptFactory,
           sessionEventBus,
           toolManager,
-        }
+        },
       )
 
       const tools = await service.getAllTools()
@@ -304,7 +306,7 @@ describe('ByteRoverLLMService', () => {
           promptFactory,
           sessionEventBus,
           toolManager,
-        }
+        },
       )
 
       const tools = await service.getAllTools()
@@ -325,7 +327,7 @@ describe('ByteRoverLLMService', () => {
           promptFactory,
           sessionEventBus,
           toolManager,
-        }
+        },
       )
 
       expect(service).to.exist
@@ -345,7 +347,7 @@ describe('ByteRoverLLMService', () => {
           promptFactory,
           sessionEventBus,
           toolManager,
-        }
+        },
       )
 
       expect(service).to.exist
@@ -367,7 +369,7 @@ describe('ByteRoverLLMService', () => {
           promptFactory,
           sessionEventBus,
           toolManager,
-        }
+        },
       )
 
       const message: InternalMessage = {
@@ -392,7 +394,7 @@ describe('ByteRoverLLMService', () => {
           promptFactory,
           sessionEventBus,
           toolManager,
-        }
+        },
       )
 
       const message: InternalMessage = {
@@ -421,7 +423,7 @@ describe('ByteRoverLLMService', () => {
           promptFactory,
           sessionEventBus,
           toolManager,
-        }
+        },
       )
 
       const message: InternalMessage = {
@@ -450,7 +452,7 @@ describe('ByteRoverLLMService', () => {
           promptFactory,
           sessionEventBus,
           toolManager,
-        }
+        },
       )
 
       const message: InternalMessage = {
@@ -475,7 +477,7 @@ describe('ByteRoverLLMService', () => {
           promptFactory,
           sessionEventBus,
           toolManager,
-        }
+        },
       )
 
       const message: InternalMessage = {
@@ -505,7 +507,7 @@ describe('ByteRoverLLMService', () => {
           promptFactory,
           sessionEventBus,
           toolManager,
-        }
+        },
       )
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -527,7 +529,7 @@ describe('ByteRoverLLMService', () => {
           promptFactory,
           sessionEventBus,
           toolManager,
-        }
+        },
       )
 
       const tools = [
@@ -556,7 +558,7 @@ describe('ByteRoverLLMService', () => {
           promptFactory,
           sessionEventBus,
           toolManager,
-        }
+        },
       )
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -576,7 +578,7 @@ describe('ByteRoverLLMService', () => {
           promptFactory,
           sessionEventBus,
           toolManager,
-        }
+        },
       )
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -596,7 +598,7 @@ describe('ByteRoverLLMService', () => {
           promptFactory,
           sessionEventBus,
           toolManager,
-        }
+        },
       )
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -618,7 +620,7 @@ describe('ByteRoverLLMService', () => {
           promptFactory,
           sessionEventBus,
           toolManager,
-        }
+        },
       )
 
       const config = service.getConfig()
@@ -637,7 +639,7 @@ describe('ByteRoverLLMService', () => {
           promptFactory,
           sessionEventBus,
           toolManager,
-        }
+        },
       )
 
       expect(service).to.exist
@@ -655,7 +657,7 @@ describe('ByteRoverLLMService', () => {
           promptFactory,
           sessionEventBus,
           toolManager,
-        }
+        },
       )
 
       expect(service).to.exist
@@ -673,7 +675,7 @@ describe('ByteRoverLLMService', () => {
           promptFactory,
           sessionEventBus,
           toolManager,
-        }
+        },
       )
 
       expect(service).to.exist
@@ -691,7 +693,7 @@ describe('ByteRoverLLMService', () => {
           promptFactory,
           sessionEventBus,
           toolManager,
-        }
+        },
       )
 
       expect(service).to.exist
@@ -711,7 +713,7 @@ describe('ByteRoverLLMService', () => {
           promptFactory,
           sessionEventBus,
           toolManager,
-        }
+        },
       )
 
       // Mock contextManager.addUserMessage
@@ -759,7 +761,7 @@ describe('ByteRoverLLMService', () => {
           promptFactory,
           sessionEventBus,
           toolManager,
-        }
+        },
       )
 
       const controller = new AbortController()
@@ -780,7 +782,6 @@ describe('ByteRoverLLMService', () => {
       }
     })
 
-
     it('should support custom model in configuration', () => {
       const provider = createGrpcProvider()
       const service = new ByteRoverLLMService(
@@ -793,7 +794,7 @@ describe('ByteRoverLLMService', () => {
           promptFactory,
           sessionEventBus,
           toolManager,
-        }
+        },
       )
 
       // Verify the configuration is stored correctly
@@ -812,7 +813,7 @@ describe('ByteRoverLLMService', () => {
           promptFactory,
           sessionEventBus,
           toolManager,
-        }
+        },
       )
 
       // Verify context manager exists and is accessible
@@ -832,7 +833,7 @@ describe('ByteRoverLLMService', () => {
           promptFactory,
           sessionEventBus,
           toolManager,
-        }
+        },
       )
 
       // Verify service has access to event bus (used internally for events)
@@ -853,7 +854,7 @@ describe('ByteRoverLLMService', () => {
           promptFactory,
           sessionEventBus,
           toolManager,
-        }
+        },
       )
 
       // Verify the service is initialized correctly with temperature
@@ -872,7 +873,7 @@ describe('ByteRoverLLMService', () => {
           promptFactory,
           sessionEventBus,
           toolManager,
-        }
+        },
       )
 
       const imageData = {

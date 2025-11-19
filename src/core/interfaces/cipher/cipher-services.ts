@@ -6,6 +6,7 @@ import type {SimplePromptFactory} from '../../../infra/cipher/system-prompt/simp
 import type {ToolManager} from '../../../infra/cipher/tools/tool-manager.js'
 import type {ToolProvider} from '../../../infra/cipher/tools/tool-provider.js'
 import type {IBlobStorage} from './i-blob-storage.js'
+import type {ICodingAgentLogWatcher} from './i-coding-agent-log-watcher.js'
 import type {IHistoryStorage} from './i-history-storage.js'
 import type {ILLMService} from './i-llm-service.js'
 
@@ -22,10 +23,12 @@ import type {ILLMService} from './i-llm-service.js'
  * - HistoryStorage: Conversation history persistence
  * - MemoryManager: Agent memory system
  * - ToolProvider: Provides available tools
+ * - CodingAgentLogWatcher: Watches coding agent logs for learning (optional)
  */
 export interface CipherAgentServices {
   agentEventBus: AgentEventBus
   blobStorage: IBlobStorage
+  codingAgentLogWatcher?: ICodingAgentLogWatcher
   fileSystemService: FileSystemService
   historyStorage: IHistoryStorage
   memoryManager: MemoryManager
