@@ -1,7 +1,9 @@
 import type {Content, GenerateContentConfig} from '@google/genai'
+
 import {FunctionCallingConfigMode} from '@google/genai'
 
 import type {JSONSchema7, ToolSet} from '../../../core/domain/cipher/tools/types.js'
+import type {ExecutionContext} from '../../../core/interfaces/cipher/i-cipher-agent.js'
 import type {IHistoryStorage} from '../../../core/interfaces/cipher/i-history-storage.js'
 import type {ILLMService} from '../../../core/interfaces/cipher/i-llm-service.js'
 import type {InternalMessage, ToolCall} from '../../../core/interfaces/cipher/message-types.js'
@@ -19,7 +21,6 @@ import {ByteRoverLlmGrpcService} from '../grpc/internal-llm-grpc-service.js'
 import {ContextManager, type FileData, type ImageData} from './context/context-manager.js'
 import {GeminiMessageFormatter} from './formatters/gemini-formatter.js'
 import {GeminiTokenizer} from './tokenizers/gemini-tokenizer.js'
-import { ExecutionContext } from '../../../core/interfaces/cipher/i-cipher-agent.js'
 
 
 /**
@@ -164,6 +165,7 @@ export class ByteRoverLLMService implements ILLMService {
    *
    * @param textInput - User input text
    * @param options - Execution options
+   * @param options.executionContext - Optional execution context with conversation metadata
    * @param options.signal - Optional abort signal for cancellation
    * @param options.imageData - Optional image data
    * @param options.fileData - Optional file data
@@ -355,6 +357,7 @@ export class ByteRoverLLMService implements ILLMService {
    *
    * @param iterationCount - Current iteration number
    * @param tools - Available tools for this iteration
+   * @param executionContext - Optional execution context with conversation metadata
    * @param mode - Optional mode for system prompt
    * @returns Final response string if complete, null if more iterations needed
    */

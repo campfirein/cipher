@@ -491,7 +491,7 @@ describe('ByteRoverLLMService', () => {
   })
 
   describe('generation config building', () => {
-    it('should build generation config with system prompt', () => {
+    it('should build generation config with correct parameters', () => {
       const provider = createGrpcProvider()
       const service = new ByteRoverLLMService(
         'test-session',
@@ -509,10 +509,11 @@ describe('ByteRoverLLMService', () => {
       )
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const config = (service as any).buildGenerationConfig([], 'Test system prompt')
+      const config = (service as any).buildGenerationConfig([])
       expect(config.maxOutputTokens).to.equal(4096)
       expect(config.temperature).to.equal(0.8)
-      expect(config.systemInstruction).to.exist
+      // System prompt is now in messages array, not in config
+      expect(config.systemInstruction).to.be.undefined
     })
 
     it('should build generation config with tools', () => {
@@ -539,9 +540,13 @@ describe('ByteRoverLLMService', () => {
       ]
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const config = (service as any).buildGenerationConfig(tools, '')
+      const config = (service as any).buildGenerationConfig(tools)
       expect(config.tools).to.exist
       expect(config.tools[0].functionDeclarations).to.have.lengthOf(1)
+      // Verify function calling mode is set to ANY to prevent code generation
+      expect(config.toolConfig).to.exist
+      expect(config.toolConfig.functionCallingConfig).to.exist
+      expect(config.toolConfig.functionCallingConfig.mode).to.equal('ANY')
     })
 
     it('should not include tools when empty array provided', () => {
@@ -560,11 +565,12 @@ describe('ByteRoverLLMService', () => {
       )
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const config = (service as any).buildGenerationConfig([], '')
+      const config = (service as any).buildGenerationConfig([])
       expect(config.tools).to.be.undefined
+      expect(config.toolConfig).to.be.undefined
     })
 
-    it('should not include system instruction when empty string', () => {
+    it('should never include system instruction in config', () => {
       const provider = createGrpcProvider()
       const service = new ByteRoverLLMService(
         'test-session',
@@ -579,8 +585,9 @@ describe('ByteRoverLLMService', () => {
         }
       )
 
+      // System prompt is now sent in messages array, not in config
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const config = (service as any).buildGenerationConfig([], '')
+      const config = (service as any).buildGenerationConfig([])
       expect(config.systemInstruction).to.be.undefined
     })
 
@@ -600,7 +607,7 @@ describe('ByteRoverLLMService', () => {
       )
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const config = (service as any).buildGenerationConfig([], '')
+      const config = (service as any).buildGenerationConfig([])
       expect(config.topP).to.equal(1)
     })
   })
