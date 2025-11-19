@@ -101,13 +101,13 @@ describe('RawParserServiceFactory', () => {
     })
 
     it('should return false for unsupported IDE', () => {
-      expect(RawParserServiceFactory.isSupported('Unknown IDE')).to.be.false
-      expect(RawParserServiceFactory.isSupported('VS Code')).to.be.false
-      expect(RawParserServiceFactory.isSupported('WebStorm')).to.be.false
+      expect(RawParserServiceFactory.isSupported('Unknown IDE' as any)).to.be.false
+      expect(RawParserServiceFactory.isSupported('VS Code' as any)).to.be.false
+      expect(RawParserServiceFactory.isSupported('WebStorm' as any)).to.be.false
     })
 
     it('should return false for empty string', () => {
-      expect(RawParserServiceFactory.isSupported('')).to.be.false
+      expect(RawParserServiceFactory.isSupported('' as any)).to.be.false
     })
 
     it('should return false for null', () => {
@@ -115,9 +115,9 @@ describe('RawParserServiceFactory', () => {
     })
 
     it('should be case sensitive', () => {
-      expect(RawParserServiceFactory.isSupported('claude code')).to.be.false
-      expect(RawParserServiceFactory.isSupported('CLAUDE CODE')).to.be.false
-      expect(RawParserServiceFactory.isSupported('cursor')).to.be.false
+      expect(RawParserServiceFactory.isSupported('claude code' as any)).to.be.false
+      expect(RawParserServiceFactory.isSupported('CLAUDE CODE' as any)).to.be.false
+      expect(RawParserServiceFactory.isSupported('cursor' as any)).to.be.false
     })
   })
 

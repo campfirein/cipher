@@ -4,7 +4,7 @@ import {join} from 'node:path'
 
 import { Agent } from '../../core/domain/entities/agent.js'
 
-export interface WorkspaceInfo {
+export type WorkspaceInfo = {
   chatLogPath: string
   cwd: string
 }

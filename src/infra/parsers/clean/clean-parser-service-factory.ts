@@ -73,8 +73,8 @@ export class CleanParserServiceFactory {
    * @param ide - IDE name to validate
    * @returns True if IDE is in supported list, false otherwise
    */
-  static isSupported(ide: string): boolean {
-    return this.getSupportedIDEs().includes(ide as Agent)
+  static isSupported(ide: Agent): boolean {
+    return this.getSupportedIDEs().includes(ide)
   }
 
   /**
