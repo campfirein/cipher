@@ -50,6 +50,9 @@ export default class CipherAgentSetPrompt extends Command {
         existingConfig.spaceName,
         existingConfig.teamId,
         existingConfig.teamName,
+        existingConfig.ide,
+        existingConfig.chatLogPath, 
+        existingConfig.cwd,
         args.prompt,
       )
 

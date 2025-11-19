@@ -4,6 +4,7 @@ import {Config as OclifConfig} from '@oclif/core'
 import {expect} from 'chai'
 import sinon, {restore, stub} from 'sinon'
 
+import type {Agent} from '../../src/core/domain/entities/agent.js'
 import type {IMemoryRetrievalService} from '../../src/core/interfaces/i-memory-retrieval-service.js'
 import type {IProjectConfigStore} from '../../src/core/interfaces/i-project-config-store.js'
 import type {ITokenStore} from '../../src/core/interfaces/i-token-store.js'
@@ -93,6 +94,9 @@ describe('retrieve command', () => {
     'test-space',
     'team-id',
     'test-team',
+    'Claude Code' as Agent,
+    'chat.log',
+    '/test/cwd',
   )
 
   const sampleMemory = new Memory({
