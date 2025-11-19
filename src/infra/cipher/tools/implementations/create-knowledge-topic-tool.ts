@@ -1,7 +1,7 @@
 import {join} from 'node:path'
 import {z} from 'zod'
 
-import type {Tool} from '../../../../core/domain/cipher/tools/types.js'
+import type {Tool, ToolExecutionContext} from '../../../../core/domain/cipher/tools/types.js'
 
 import {ToolName} from '../../../../core/domain/cipher/tools/constants.js'
 import {DirectoryManager} from '../../../../core/domain/knowledge/directory-manager.js'
@@ -10,265 +10,162 @@ import {MarkdownWriter} from '../../../../core/domain/knowledge/markdown-writer.
 const CreateKnowledgeTopicInputSchema = z.object({
   // Base path for knowledge storage
   basePath: z.string().default('.brv/context-tree'),
-
-  // Domains from detect_domains output
-  domains: z.array(
-    z.object({
-      category: z.string().describe('Domain category name (e.g., ARCHITECTURE_DECISION)'),
-      confidence: z.number().min(0).max(1).describe('Confidence score for domain'),
-      description: z.string().describe('Description of the domain knowledge'),
-      reasoning: z.string().optional().describe('Reasoning for domain classification'),
-      snippets: z.array(z.string()).optional().describe('Code/text snippets'),
-    }),
-  ),
-
+  domains: z.array(z.string()).describe('Array of domain names'),
   // Manual topics (optional)
   topics: z
     .array(
       z.object({
-        confidence: z.number().min(0).max(1),
-        description: z.string(),
-        domain: z.string(),
-        name: z.string(),
-        reasoning: z.string().optional(),
-        relatedFiles: z.array(z.string()).optional(),
+        domain: z.string().describe('Domain category name from predefined list'),
+        name: z.string().describe('Topic name'),
+        snippets: z.array(z.string()).describe('Code/text snippets'),
         subtopics: z
           .array(
             z.object({
-              confidence: z.number().min(0).max(1),
-              description: z.string(),
-              name: z.string(),
-              reasoning: z.string().optional(),
-              relatedFiles: z.array(z.string()).optional(),
-              snippets: z.array(z.string()).optional(),
-              tags: z.array(z.string()).optional(),
+              name: z.string().describe('Subtopic name'),
+              snippets: z.array(z.string()).describe('Code/text snippets'),
             }),
           )
-          .optional(),
+          .describe('Array of subtopics'),
       }),
     )
-    .optional(),
+    .describe('Array of topics for each domain'),
 })
 
 type CreateKnowledgeTopicInput = z.infer<typeof CreateKnowledgeTopicInputSchema>
 
+/**
+ * Output type for create knowledge topic tool
+ */
 interface CreateKnowledgeTopicOutput {
-  created: {
-    domains: number
-    filesWritten: string[]
-    subtopics: number
-    topics: number
-  }
-  directoryStatus: {
-    contextTreeExisted: boolean
-    indexExisted: boolean
-  }
-  skipped: {
-    files: number
-    filesList: string[]
-  }
-  updated: {
-    domains: number
-    filesUpdated: string[]
-    subtopics: number
-    topics: number
-  }
+  created: Array<{
+    domain: string
+    subtopics: string[]
+    topic: string
+  }>
+  updated: Array<{
+    domain: string
+    subtopics: string[]
+    topic: string
+  }>
 }
 
+/**
+ * Execute function for create knowledge topic tool
+ */
 async function executeCreateKnowledgeTopic(
-  input: CreateKnowledgeTopicInput,
+  input: unknown,
+  _context?: ToolExecutionContext,
 ): Promise<CreateKnowledgeTopicOutput> {
-  const validatedInput = CreateKnowledgeTopicInputSchema.parse(input)
+  const {basePath, topics} = input as CreateKnowledgeTopicInput
 
-  const stats: CreateKnowledgeTopicOutput = {
-    created: {
-      domains: 0,
-      filesWritten: [],
-      subtopics: 0,
-      topics: 0,
-    },
-    directoryStatus: {
-      contextTreeExisted: false,
-      indexExisted: false,
-    },
-    skipped: {
-      files: 0,
-      filesList: [],
-    },
-    updated: {
-      domains: 0,
-      filesUpdated: [],
-      subtopics: 0,
-      topics: 0,
-    },
-  }
+  // Ensure base knowledge structure exists
+  await DirectoryManager.ensureKnowledgeStructure(basePath)
 
-  // 1. Ensure knowledge structure exists
-  const dirStatus = await DirectoryManager.ensureKnowledgeStructure(validatedInput.basePath)
-  stats.directoryStatus = dirStatus
+  const created: Array<{domain: string; subtopics: string[]; topic: string}> = []
+  const updated: Array<{domain: string; subtopics: string[]; topic: string}> = []
 
-  // 2. Process each domain
-  // Sequential processing is required for file system operations
-  /* eslint-disable no-await-in-loop */
-  for (const domain of validatedInput.domains) {
-    const domainPath = join(validatedInput.basePath, domain.category)
+  // Process each topic sequentially (domains/topics must be created in order)
+  /* eslint-disable no-await-in-loop -- Sequential processing required for domain/topic hierarchy */
+  for (const topicData of topics) {
+    const {domain, name: topicName, snippets, subtopics: subtopicData} = topicData
 
     // Create or update domain folder
+    const domainPath = join(basePath, domain)
     const domainResult = await DirectoryManager.createOrUpdateDomain(domainPath)
-    if (domainResult.created) stats.created.domains++
-    else if (domainResult.updated) stats.updated.domains++
 
-    // Write domain metadata
-    const metadataPath = join(domainPath, 'metadata.md')
-    const domainMD = MarkdownWriter.generateDomainMetadata({
-      category: domain.category,
-      confidence: domain.confidence,
-      description: domain.description,
-      reasoning: domain.reasoning,
+    // Create or update topic folder
+    const topicPath = join(domainPath, topicName)
+    const topicResult = await DirectoryManager.createOrUpdateTopic(topicPath)
+
+    // Generate and write topic context.md
+    const topicContextContent = MarkdownWriter.generateContext({
+      name: topicName,
+      snippets,
     })
+    const topicContextPath = join(topicPath, 'context.md')
+    await DirectoryManager.writeFileAtomic(topicContextPath, topicContextContent)
 
-    await DirectoryManager.ensureParentDirectory(metadataPath)
-    await DirectoryManager.writeFileAtomic(metadataPath, domainMD)
-    stats.created.filesWritten.push(metadataPath)
+    // Process subtopics in parallel
+    const subtopicResults = await Promise.all(
+      subtopicData.map(async (subtopic) => {
+        // Create subtopic folder
+        const subtopicPath = join(topicPath, subtopic.name)
+        const subtopicResult = await DirectoryManager.createOrUpdateTopic(subtopicPath)
 
-    // 3. Process manual topics if provided
-    const topicsForDomain = validatedInput.topics?.filter((t) => t.domain === domain.category) || []
+        // Generate and write subtopic context.md
+        const subtopicContextContent = MarkdownWriter.generateContext({
+          name: subtopic.name,
+          snippets: subtopic.snippets,
+        })
+        const subtopicContextPath = join(subtopicPath, 'context.md')
+        await DirectoryManager.writeFileAtomic(subtopicContextPath, subtopicContextContent)
 
-    for (const topic of topicsForDomain) {
-      const topicPath = join(domainPath, topic.name)
-
-      // Create or update topic folder
-      const topicResult = await DirectoryManager.createOrUpdateTopic(topicPath)
-      if (topicResult.created) stats.created.topics++
-      else if (topicResult.updated) stats.updated.topics++
-
-      // Write topic README
-      const readmePath = join(topicPath, 'README.md')
-      const topicMD = MarkdownWriter.generateTopicReadme({
-        confidence: topic.confidence,
-        description: topic.description,
-        domain: topic.domain,
-        name: topic.name,
-        reasoning: topic.reasoning,
-        relatedFiles: topic.relatedFiles,
-        subtopics: topic.subtopics?.map((s) => s.name),
-      })
-
-      await DirectoryManager.ensureParentDirectory(readmePath)
-      await DirectoryManager.writeFileAtomic(readmePath, topicMD)
-      stats.created.filesWritten.push(readmePath)
-
-      // 4. Process subtopics
-      for (const subtopic of topic.subtopics || []) {
-        const subtopicPath = join(topicPath, `${subtopic.name}.md`)
-
-        // Check if subtopic file exists
-        const exists = await DirectoryManager.fileExists(subtopicPath)
-
-        if (exists) {
-          // For now, skip existing subtopics (merge will be in future iteration)
-          stats.skipped.files++
-          stats.skipped.filesList.push(subtopicPath)
-        } else {
-          // Create new subtopic
-          const subtopicMD = MarkdownWriter.generateSubtopic({
-            confidence: subtopic.confidence,
-            description: subtopic.description,
-            domain: topic.domain,
-            name: subtopic.name,
-            parentTopic: topic.name,
-            reasoning: subtopic.reasoning,
-            relatedFiles: subtopic.relatedFiles,
-            snippets: subtopic.snippets,
-            tags: subtopic.tags,
-          })
-
-          await DirectoryManager.writeFileAtomic(subtopicPath, subtopicMD)
-          stats.created.subtopics++
-          stats.created.filesWritten.push(subtopicPath)
+        return {
+          existed: !subtopicResult.created,
+          name: subtopic.name,
         }
-      }
+      }),
+    )
+
+    // Separate created vs updated subtopics
+    const createdSubtopics = subtopicResults.filter((r) => !r.existed).map((r) => r.name)
+    const updatedSubtopics = subtopicResults.filter((r) => r.existed).map((r) => r.name)
+
+    // Track what was created vs updated
+    if (domainResult.created || topicResult.created) {
+      created.push({
+        domain,
+        subtopics: createdSubtopics,
+        topic: topicName,
+      })
+    } else {
+      updated.push({
+        domain,
+        subtopics: updatedSubtopics,
+        topic: topicName,
+      })
     }
   }
   /* eslint-enable no-await-in-loop */
 
-  return stats
+  return {
+    created,
+    updated,
+  }
 }
 
 /**
  * Creates the create knowledge topic tool.
  *
- * This tool takes output from detect_domains and creates hierarchical
- * Markdown files in .brv/context-tree/ for later retrieval.
+ * Creates organized knowledge topics within domain folders, where each topic and subtopic
+ * has its own folder containing a context.md file with relevant snippets. This tool should
+ * be used after detecting domains to organize the extracted knowledge into a structured hierarchy.
+ *
+ * @returns Configured create knowledge topic tool
  */
 export function createCreateKnowledgeTopicTool(): Tool {
   return {
-    description: `Create hierarchical knowledge structure from detected domains.
+    description: `Create organized knowledge topics within domain folders. This tool structures knowledge by creating topic and subtopic folders, each containing a context.md file with relevant snippets.
 
-This tool takes the output from \`detect_domains\` and creates a structured Markdown hierarchy
-in \`.brv/context-tree/\` for later navigation using \`find_knowledge_topic\`.
+Use this tool after detecting domains to organize extracted knowledge into a hierarchical structure:
+- Domain folders (e.g., .brv/context-tree/domain-name/)
+- Topic folders (e.g., .brv/context-tree/domain-name/topic-name/)
+- Topic context.md files (e.g., .brv/context-tree/domain-name/topic-name/context.md)
+- Subtopic folders (e.g., .brv/context-tree/domain-name/topic-name/subtopic-name/)
+- Subtopic context.md files (e.g., .brv/context-tree/domain-name/topic-name/subtopic-name/context.md)
 
-**Key Features:**
-- **Non-destructive**: Never recreates existing .brv/context-tree/ directory
-- **Incremental**: Safely adds new knowledge to existing structure
-- **Merge-aware**: Skips existing files (future: merge support)
-- **Atomic writes**: File operations are atomic to prevent corruption
+Each topic should include:
+1. A clear topic name
+2. Relevant code/text snippets that demonstrate the knowledge
+3. Subtopics (optional) that break down the topic into smaller pieces
 
-**Input Format:**
+The tool automatically:
+- Creates the base knowledge structure if it doesn't exist
+- Creates topic, and subtopic folders as needed
+- Generates context.md files containing all relevant snippets
+- Handles existing topics gracefully (updates instead of recreating)`,
 
-\`\`\`json
-{
-  "domains": [
-    {
-      "category": "ARCHITECTURE_DECISION",
-      "description": "Architectural patterns and decisions",
-      "confidence": 0.92,
-      "reasoning": "Multiple ADRs found",
-      "snippets": ["We chose microservices because..."]
-    }
-  ],
-  "topics": [
-    {
-      "domain": "ARCHITECTURE_DECISION",
-      "name": "microservices",
-      "description": "Microservices architecture",
-      "confidence": 0.90,
-      "subtopics": [
-        {
-          "name": "service-mesh",
-          "description": "Istio service mesh implementation",
-          "confidence": 0.85,
-          "snippets": ["We use Istio for..."],
-          "tags": ["istio", "observability"]
-        }
-      ]
-    }
-  ]
-}
-\`\`\`
-
-**Created Structure:**
-
-\`\`\`
-.brv/context-tree/
-├── ARCHITECTURE_DECISION/
-│   ├── metadata.md
-│   └── microservices/
-│       ├── README.md
-│       └── service-mesh.md
-\`\`\`
-
-**Output:**
-
-Returns statistics about what was created, updated, or skipped:
-- Number of domains/topics/subtopics created
-- List of all files written
-- Status of existing .brv/context-tree/
-- Files skipped (already exist)
-
-Use this tool after running \`detect_domains\` to persist knowledge in a navigable format.`,
-
-    execute: executeCreateKnowledgeTopic as Tool['execute'],
+    execute: executeCreateKnowledgeTopic,
 
     id: ToolName.CREATE_KNOWLEDGE_TOPIC,
     inputSchema: CreateKnowledgeTopicInputSchema,

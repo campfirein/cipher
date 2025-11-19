@@ -12,6 +12,7 @@ import {createDeleteMemoryTool} from './implementations/delete-memory-tool.js'
 import {createDetectDomainsTool} from './implementations/detect-domains-tool.js'
 import {createEditFileTool} from './implementations/edit-file-tool.js'
 import {createEditMemoryTool} from './implementations/edit-memory-tool.js'
+import {createFindKnowledgeTopicsTool} from './implementations/find-knowledge-topics-tool.js'
 import {createGlobFilesTool} from './implementations/glob-files-tool.js'
 import {createGrepContentTool} from './implementations/grep-content-tool.js'
 import {createKillProcessTool} from './implementations/kill-process-tool.js'
@@ -139,6 +140,13 @@ export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
     markers: [ToolMarker.ContextBuilding],
     outputGuidance: 'edit_memory',
     requiredServices: ['memoryManager'],
+  },
+
+  [ToolName.FIND_KNOWLEDGE_TOPICS]: {
+    factory: () => createFindKnowledgeTopicsTool(),
+    markers: [ToolMarker.ContextBuilding, ToolMarker.Discovery],
+    outputGuidance: 'find_knowledge_topics',
+    requiredServices: [], // Uses DirectoryManager for file operations
   },
 
   [ToolName.GLOB_FILES]: {

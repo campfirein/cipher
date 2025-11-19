@@ -1,9 +1,9 @@
-import {load as loadYaml} from 'js-yaml'
+import { load as loadYaml } from 'js-yaml'
 import fs from 'node:fs'
 import path from 'node:path'
-import {fileURLToPath} from 'node:url'
+import { fileURLToPath } from 'node:url'
 
-import type {MemoryManager} from '../memory/memory-manager.js'
+import type { MemoryManager } from '../memory/memory-manager.js'
 
 /**
  * Simple prompt configuration loaded from YAML
@@ -21,7 +21,7 @@ export interface PromptConfig {
 export interface BuildContext {
   availableMarkers?: Record<string, string>
   availableTools?: string[]
-  conversationMetadata?: {conversationId?: string; title?: string}
+  conversationMetadata?: { conversationId?: string; title?: string }
   memoryManager?: MemoryManager
   mode?: 'default' | 'json-input'
 }
@@ -156,7 +156,7 @@ export class SimplePromptFactory {
    */
   private async formatMemories(memoryManager: MemoryManager): Promise<string> {
     try {
-      const memories = await memoryManager.list({limit: 20})
+      const memories = await memoryManager.list({ limit: 20 })
       if (!memories || memories.length === 0) {
         return ''
       }

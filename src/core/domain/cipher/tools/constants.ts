@@ -10,6 +10,7 @@ export const ToolName: {
   readonly DETECT_DOMAINS: 'detect_domains'
   readonly EDIT_FILE: 'edit_file'
   readonly EDIT_MEMORY: 'edit_memory'
+  readonly FIND_KNOWLEDGE_TOPICS: 'find_knowledge_topics'
   readonly GLOB_FILES: 'glob_files'
   readonly GREP_CONTENT: 'grep_content'
   readonly KILL_PROCESS: 'kill_process'
@@ -27,6 +28,7 @@ export const ToolName: {
   DETECT_DOMAINS: 'detect_domains',
   EDIT_FILE: 'edit_file',
   EDIT_MEMORY: 'edit_memory',
+  FIND_KNOWLEDGE_TOPICS: 'find_knowledge_topics',
   GLOB_FILES: 'glob_files',
   GREP_CONTENT: 'grep_content',
   KILL_PROCESS: 'kill_process',
