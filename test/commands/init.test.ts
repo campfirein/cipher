@@ -138,7 +138,6 @@ describe('Init Command', () => {
 
     contextTreeService = {
       exists: stub(),
-      getIndex: stub(),
       initialize: stub<[directory?: string], Promise<string>>().resolves('/test/.brv/context-tree'),
     }
 

@@ -4,7 +4,6 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
 import {CONTEXT_TREE_DOMAINS} from '../../../../src/config/context-tree-domains.js'
-import {ContextTreeIndex} from '../../../../src/core/domain/entities/context-tree-index.js'
 import {FileContextTreeService} from '../../../../src/infra/context-tree/file-context-tree-service.js'
 
 describe('FileContextTreeService', () => {
@@ -27,19 +26,15 @@ describe('FileContextTreeService', () => {
   })
 
   describe('initialize', () => {
-    it('should create directory structure and index.json', async () => {
+    it('should create directory structure', async () => {
       const contextTreePath = await service.initialize(testDir)
 
       // Verify path structure
       expect(contextTreePath).to.include('.brv/context-tree')
 
-      // Verify index.json exists and is valid
-      const indexPath = join(contextTreePath, 'index.json')
-      const content = await readFile(indexPath, 'utf8')
-      const indexJson = JSON.parse(content)
-
-      expect(indexJson.domains).to.exist
-      expect(indexJson.domains).to.have.lengthOf(CONTEXT_TREE_DOMAINS.length)
+      // Verify all domain directories exist
+      const domainDirs = await readdir(contextTreePath)
+      expect(domainDirs).to.have.lengthOf(CONTEXT_TREE_DOMAINS.length)
     })
 
     it('should create all domain folders with context.md files', async () => {
@@ -47,10 +42,7 @@ describe('FileContextTreeService', () => {
 
       // Verify all domain directories exist
       const domainDirs = await readdir(contextTreePath)
-
-      // Filter out index.json from the list
-      const actualDomains = domainDirs.filter((name) => name !== 'index.json')
-      expect(actualDomains).to.have.lengthOf(CONTEXT_TREE_DOMAINS.length)
+      expect(domainDirs).to.have.lengthOf(CONTEXT_TREE_DOMAINS.length)
 
       // Verify each domain has context.md
       await Promise.all(
@@ -74,32 +66,6 @@ describe('FileContextTreeService', () => {
       // Should have title and description
       expect(content).to.include('# Code Style')
       expect(content).to.include('Ensure all code follows style guidelines and quality standards')
-    })
-
-    it('should create valid index.json structure', async () => {
-      const contextTreePath = await service.initialize(testDir)
-      const indexPath = join(contextTreePath, 'index.json')
-      const content = await readFile(indexPath, 'utf8')
-      const indexJson = JSON.parse(content)
-
-      // Verify structure
-      expect(indexJson.domains).to.be.an('array')
-
-      // Verify each domain node
-      for (const domainNode of indexJson.domains) {
-        expect(domainNode.name).to.exist
-        expect(domainNode.path).to.exist
-        expect(domainNode.type).to.equal('folder')
-      }
-
-      // Verify all expected domains are present
-      const domainNames = indexJson.domains.map((d: {name: string}) => d.name)
-      expect(domainNames).to.include('code_style')
-      expect(domainNames).to.include('design')
-      expect(domainNames).to.include('structure')
-      expect(domainNames).to.include('compliance')
-      expect(domainNames).to.include('testing')
-      expect(domainNames).to.include('bug_fixes')
     })
 
     it('should use baseDirectory from config if directory not provided', async () => {
@@ -131,48 +97,6 @@ describe('FileContextTreeService', () => {
 
       const exists = await serviceWithConfig.exists()
       expect(exists).to.be.true
-    })
-  })
-
-  describe('getIndex', () => {
-    it('should return context tree index', async () => {
-      await service.initialize(testDir)
-
-      const index = await service.getIndex(testDir)
-
-      expect(index).to.be.instanceOf(ContextTreeIndex)
-      expect(index.domains).to.have.lengthOf(CONTEXT_TREE_DOMAINS.length)
-    })
-
-    it('should throw error if index.json does not exist', async () => {
-      try {
-        await service.getIndex(testDir)
-        expect.fail('Should have thrown error')
-      } catch (error: unknown) {
-        expect((error as Error).message).to.include('Context tree index not found')
-      }
-    })
-
-    it('should throw error if index.json is invalid', async () => {
-      // Create invalid index.json
-      const contextTreePath = join(testDir, '.brv', 'context-tree')
-      const indexPath = join(contextTreePath, 'index.json')
-
-      await service.initialize(testDir)
-      await readFile(indexPath, 'utf8') // Ensure it exists first
-
-      // Overwrite with invalid JSON (this would require Write tool, so we'll skip the invalid JSON test)
-      // Instead, we can test that a valid index is properly parsed
-    })
-
-    it('should use baseDirectory from config if directory not provided', async () => {
-      const serviceWithConfig = new FileContextTreeService({baseDirectory: testDir})
-      await serviceWithConfig.initialize()
-
-      const index = await serviceWithConfig.getIndex()
-
-      expect(index).to.be.instanceOf(ContextTreeIndex)
-      expect(index.domains).to.have.lengthOf(CONTEXT_TREE_DOMAINS.length)
     })
   })
 })
