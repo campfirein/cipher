@@ -146,7 +146,7 @@ export class ByteRoverLlmGrpcService {
       },
       project_id: this.config.projectId,
       provider: this.detectProviderFromModel(model),
-      region: this.config.region,
+      region: this.detectRegionFromModel(model),
     }
 
     try {
@@ -192,7 +192,7 @@ export class ByteRoverLlmGrpcService {
         if (!settled) {
           settled = true
           call.cancel()
-          reject(new Error('gRPC call timeout: server did not respond within 60 seconds'))
+          reject(new Error('gRPC call timeout: server did not respond within 30 seconds'))
         }
       }, this.config.timeout)
 
@@ -260,6 +260,19 @@ export class ByteRoverLlmGrpcService {
    */
   private detectProviderFromModel(model: string): 'claude' | 'gemini' {
     return model.toLowerCase().startsWith('claude') ? 'claude' : 'gemini'
+  }
+
+  /**
+   * Detect appropriate GCP region from model identifier.
+   *
+   * Routes Claude models to us-east5 and Gemini models to us-east1.
+   * This ensures compatibility with the provider's available regions on Vertex AI.
+   *
+   * @param model - Model identifier (e.g., 'claude-3-5-sonnet', 'gemini-2.5-flash')
+   * @returns GCP region identifier ('us-east5' or 'us-east1')
+   */
+  private detectRegionFromModel(model: string): string {
+    return model.toLowerCase().startsWith('claude') ? 'us-east5' : 'us-central1'
   }
 
   /**

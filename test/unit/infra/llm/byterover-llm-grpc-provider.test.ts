@@ -377,7 +377,6 @@ describe('ByteRoverLlmGrpcService', () => {
       const provider = new ByteRoverLlmGrpcService({
         accessToken: 'test-token',
         grpcEndpoint: 'localhost:50051',
-        region: 'us-east5',
         sessionKey: 'test-session',
       })
 
@@ -425,7 +424,6 @@ describe('ByteRoverLlmGrpcService', () => {
       const provider = new ByteRoverLlmGrpcService({
         accessToken: 'test-token',
         grpcEndpoint: 'localhost:50051',
-        region: 'us-central1',
         sessionKey: 'test-session',
       })
 
