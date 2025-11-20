@@ -3,7 +3,7 @@ import {type FSWatcher, watch} from 'chokidar'
 import type {FileEvent, IFileWatcherService} from '../../core/interfaces/i-file-watcher-service.js'
 
 export class FileWatcherService implements IFileWatcherService {
-  private eventHandler: ((event: FileEvent) => void) | undefined
+  private eventHandler: ((event: FileEvent) => Promise<void>) | undefined
   private watcher: FSWatcher | undefined
 
   public constructor() {
@@ -11,7 +11,7 @@ export class FileWatcherService implements IFileWatcherService {
     this.watcher = undefined
   }
 
-  public setFileEventHandler(handler: (event: FileEvent) => void): void {
+  public setFileEventHandler(handler: (event: FileEvent) => Promise<void>): void {
     this.eventHandler = handler
   }
 
@@ -28,24 +28,25 @@ export class FileWatcherService implements IFileWatcherService {
     })
 
     // Register event LISTENERS for all file system events
-    this.watcher.on('add', (path) => {
-      this.invokeHandler('add', path)
+    // Note: invokeHandler is async and handles errors internally
+    this.watcher.on('add', async (path) => {
+      await this.invokeHandler('add', path)
     })
 
-    this.watcher.on('addDir', (path) => {
-      this.invokeHandler('addDir', path)
+    this.watcher.on('addDir', async (path) => {
+      await this.invokeHandler('addDir', path)
     })
 
-    this.watcher.on('change', (path) => {
-      this.invokeHandler('change', path)
+    this.watcher.on('change', async (path) => {
+      await this.invokeHandler('change', path)
     })
 
-    this.watcher.on('unlink', (path) => {
-      this.invokeHandler('unlink', path)
+    this.watcher.on('unlink', async (path) => {
+      await this.invokeHandler('unlink', path)
     })
 
-    this.watcher.on('unlinkDir', (path) => {
-      this.invokeHandler('unlinkDir', path)
+    this.watcher.on('unlinkDir', async (path) => {
+      await this.invokeHandler('unlinkDir', path)
     })
 
     // Wait for watcher to be ready.
@@ -81,10 +82,14 @@ export class FileWatcherService implements IFileWatcherService {
     this.eventHandler = undefined
   }
 
-  private invokeHandler(type: FileEvent['type'], path: string): void {
+  private async invokeHandler(type: FileEvent['type'], path: string): Promise<void> {
     if (this.eventHandler !== undefined) {
       const event: FileEvent = {path, type}
-      this.eventHandler(event)
+      try {
+        await this.eventHandler(event)
+      } catch (error) {
+        console.error(`[FileWatcherService] Error in event handler for ${type} ${path}:`, error)
+      }
     }
   }
 }

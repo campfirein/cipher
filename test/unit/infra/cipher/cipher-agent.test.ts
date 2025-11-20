@@ -1,4 +1,5 @@
 import {expect} from 'chai'
+import {restore, stub} from 'sinon'
 
 import type {CipherLLMConfig} from '../../../../src/infra/cipher/agent-service-factory.js'
 
@@ -19,6 +20,11 @@ describe('CipherAgent', () => {
       sessionKey: 'test-session-key',
       temperature: 0.5,
     }
+    stub(console, 'log')
+  })
+
+  afterEach(() => {
+    restore()
   })
 
   describe('constructor', () => {

@@ -1,12 +1,15 @@
+import type {ParsedInteraction} from '../parsed-interaction.js'
+
 /**
  * Agent-level event names for CipherAgent.
  * These events are emitted at the agent level and include sessionId in payloads.
  */
 export const AGENT_EVENT_NAMES = [
   'cipher:conversationReset',
+  'cipher:externalInteraction',
   'cipher:stateChanged',
   'cipher:stateReset',
-] as const; 
+] as const
 
 /**
  * Session-level event names for LLM service operations.
@@ -20,12 +23,12 @@ export const SESSION_EVENT_NAMES = [
   'llmservice:toolResult',
   'llmservice:error',
   'llmservice:unsupportedInput',
-] as const; 
+] as const
 
 /**
  * All event names (union of agent and session events).
  */
-export const EVENT_NAMES = [...AGENT_EVENT_NAMES, ...SESSION_EVENT_NAMES] as const; 
+export const EVENT_NAMES = [...AGENT_EVENT_NAMES, ...SESSION_EVENT_NAMES] as const
 
 /**
  * Union type of all agent event names.
@@ -62,6 +65,15 @@ export interface AgentEventMap {
    */
   'cipher:conversationReset': {
     sessionId: string
+  }
+
+  /**
+   * Emitted when an interaction from an external coding agent is captured.
+   * @property {ParsedInteraction} interaction - The parsed interaction data
+   */
+  'cipher:externalInteraction': {
+    interaction: ParsedInteraction
+    sessionId?: string
   }
 
   /**
@@ -279,9 +291,7 @@ const _checkAgentEventNames: _AgentEventNamesInMap = true
 /**
  * Compile-time validation: Ensure all SESSION_EVENT_NAMES are in SessionEventMap.
  */
-type _SessionEventNamesInMap = (typeof SESSION_EVENT_NAMES)[number] extends keyof SessionEventMap
-  ? true
-  : never
+type _SessionEventNamesInMap = (typeof SESSION_EVENT_NAMES)[number] extends keyof SessionEventMap ? true : never
 const _checkSessionEventNames: _SessionEventNamesInMap = true
 
 /**
