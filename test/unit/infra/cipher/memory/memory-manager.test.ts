@@ -1,10 +1,20 @@
-import { expect } from 'chai'
-import { SinonStub, stub } from 'sinon'
+import {expect} from 'chai'
+import {SinonStub, stub} from 'sinon'
 
-import type { StoredBlob } from '../../../../../src/core/domain/cipher/blob/types.js'
-import type { IBlobStorage } from '../../../../../src/core/interfaces/cipher/i-blob-storage.js'
+import type {StoredBlob} from '../../../../../src/core/domain/cipher/blob/types.js'
+import type {IBlobStorage} from '../../../../../src/core/interfaces/cipher/i-blob-storage.js'
 
-import { MemoryError, MemoryErrorCode, MemoryManager } from '../../../../../src/infra/cipher/memory/index.js'
+import {
+  CreateMemoryInput,
+  ListMemoriesOptions,
+  Memory,
+  MemoryConfig,
+  MemoryError,
+  MemoryErrorCode,
+  MemoryManager,
+  MemorySource,
+  UpdateMemoryInput,
+} from '../../../../../src/infra/cipher/memory/index.js'
 
 describe('MemoryManager - Unit Tests (Mocked)', () => {
   let memoryManager: MemoryManager
@@ -46,6 +56,108 @@ describe('MemoryManager - Unit Tests (Mocked)', () => {
 
     // Initialize MemoryManager with mocked storage
     memoryManager = new MemoryManager(mockBlobStorage)
+  })
+
+  describe('Exports (index.ts)', () => {
+    describe('MemoryManager', () => {
+      it('should export MemoryManager class', () => {
+        expect(MemoryManager).to.exist
+        expect(MemoryManager).to.be.a('function')
+      })
+
+      it('should be instantiable', () => {
+        expect(MemoryManager.prototype).to.exist
+      })
+    })
+
+    describe('MemoryError', () => {
+      it('should export MemoryError class', () => {
+        expect(MemoryError).to.exist
+        expect(MemoryError).to.be.a('function')
+      })
+
+      it('should export MemoryErrorCode enum', () => {
+        expect(MemoryErrorCode).to.exist
+        expect(MemoryErrorCode).to.be.an('object')
+      })
+
+      it('should have expected error codes', () => {
+        expect(MemoryErrorCode).to.have.property('MEMORY_NOT_FOUND')
+        expect(MemoryErrorCode).to.have.property('MEMORY_RETRIEVAL_ERROR')
+        expect(MemoryErrorCode).to.have.property('MEMORY_STORAGE_ERROR')
+        expect(MemoryErrorCode).to.have.property('MEMORY_DELETE_ERROR')
+        expect(MemoryErrorCode).to.have.property('MEMORY_INVALID_ID')
+      })
+    })
+
+    describe('Types', () => {
+      it('should export CreateMemoryInput type', () => {
+        const input: CreateMemoryInput = {
+          content: 'test',
+        }
+        expect(input).to.exist
+      })
+
+      it('should export UpdateMemoryInput type', () => {
+        const input: UpdateMemoryInput = {
+          content: 'updated',
+        }
+        expect(input).to.exist
+      })
+
+      it('should export ListMemoriesOptions type', () => {
+        const options: ListMemoriesOptions = {
+          limit: 10,
+        }
+        expect(options).to.exist
+      })
+
+      it('should export Memory type', () => {
+        const memory: Memory = {
+          content: 'test',
+          createdAt: Date.now(),
+          id: 'test',
+          updatedAt: Date.now(),
+        }
+        expect(memory).to.exist
+      })
+
+      it('should export MemorySource type', () => {
+        const source: MemorySource = 'agent'
+        expect(source).to.equal('agent')
+      })
+
+      it('should export MemoryConfig type', () => {
+        const config: MemoryConfig = {}
+        expect(config).to.exist
+      })
+    })
+
+    describe('Import verification', () => {
+      it('should allow importing all exports together', () => {
+        expect(MemoryManager).to.exist
+        expect(MemoryError).to.exist
+        expect(MemoryErrorCode).to.exist
+      })
+
+      it('should have correct type definitions', () => {
+        const memory: Memory = {
+          content: 'test content',
+          createdAt: 1000,
+          id: 'test-id',
+          metadata: {
+            source: 'agent',
+          },
+          tags: ['tag1'],
+          updatedAt: 2000,
+        }
+
+        expect(memory.id).to.equal('test-id')
+        expect(memory.content).to.equal('test content')
+        expect(memory.tags).to.deep.equal(['tag1'])
+        expect(memory.metadata?.source).to.equal('agent')
+      })
+    })
   })
 
   describe('create', () => {
@@ -94,7 +206,7 @@ describe('MemoryManager - Unit Tests (Mocked)', () => {
       const longContent = 'a'.repeat(10_001) // > 10k chars
 
       try {
-        await memoryManager.create({ content: longContent })
+        await memoryManager.create({content: longContent})
         expect.fail('Should have thrown validation error')
       } catch (error) {
         expect(error).to.exist
@@ -102,7 +214,7 @@ describe('MemoryManager - Unit Tests (Mocked)', () => {
     })
 
     it('should throw error if too many tags', async () => {
-      const manyTags = Array.from({ length: 11 }, (_, i) => `tag${i}`)
+      const manyTags = Array.from({length: 11}, (_, i) => `tag${i}`)
 
       try {
         await memoryManager.create({
@@ -119,7 +231,7 @@ describe('MemoryManager - Unit Tests (Mocked)', () => {
       storeStub.rejects(new Error('Storage error'))
 
       try {
-        await memoryManager.create({ content: 'Test' })
+        await memoryManager.create({content: 'Test'})
         expect.fail('Should have thrown MemoryError')
       } catch (error) {
         expect(error).to.be.instanceOf(MemoryError)
@@ -234,7 +346,7 @@ describe('MemoryManager - Unit Tests (Mocked)', () => {
       storeStub.resolves({})
 
       const updated = await memoryManager.update('test-id', {
-        metadata: { pinned: true },
+        metadata: {pinned: true},
       })
 
       expect(updated.metadata?.pinned).to.be.true
@@ -245,7 +357,7 @@ describe('MemoryManager - Unit Tests (Mocked)', () => {
       retrieveStub.resolves()
 
       try {
-        await memoryManager.update('non-existent', { content: 'Test' })
+        await memoryManager.update('non-existent', {content: 'Test'})
         expect.fail('Should have thrown MemoryError')
       } catch (error) {
         expect(error).to.be.instanceOf(MemoryError)
@@ -282,8 +394,8 @@ describe('MemoryManager - Unit Tests (Mocked)', () => {
         id: 'test-id',
         metadata: {
           attachments: [
-            { blobKey: 'blob-1', createdAt: 1000, size: 100, type: 'text/plain' },
-            { blobKey: 'blob-2', createdAt: 1000, size: 200, type: 'text/plain' },
+            {blobKey: 'blob-1', createdAt: 1000, size: 100, type: 'text/plain'},
+            {blobKey: 'blob-2', createdAt: 1000, size: 200, type: 'text/plain'},
           ],
         },
         updatedAt: 1000,
@@ -323,14 +435,20 @@ describe('MemoryManager - Unit Tests (Mocked)', () => {
       listStub.resolves(['memory-id1', 'memory-id2', 'memory-id3'])
 
       const memories = [
-        { content: 'Memory 1', createdAt: 1000, id: 'id1', updatedAt: 3000 },
-        { content: 'Memory 2', createdAt: 2000, id: 'id2', updatedAt: 2000 },
-        { content: 'Memory 3', createdAt: 3000, id: 'id3', updatedAt: 1000 },
+        {content: 'Memory 1', createdAt: 1000, id: 'id1', updatedAt: 3000},
+        {content: 'Memory 2', createdAt: 2000, id: 'id2', updatedAt: 2000},
+        {content: 'Memory 3', createdAt: 3000, id: 'id3', updatedAt: 1000},
       ]
 
-      retrieveStub.onCall(0).resolves({ content: Buffer.from(JSON.stringify(memories[0])), key: 'memory-id1', metadata: {} })
-      retrieveStub.onCall(1).resolves({ content: Buffer.from(JSON.stringify(memories[1])), key: 'memory-id2', metadata: {} })
-      retrieveStub.onCall(2).resolves({ content: Buffer.from(JSON.stringify(memories[2])), key: 'memory-id3', metadata: {} })
+      retrieveStub
+        .onCall(0)
+        .resolves({content: Buffer.from(JSON.stringify(memories[0])), key: 'memory-id1', metadata: {}})
+      retrieveStub
+        .onCall(1)
+        .resolves({content: Buffer.from(JSON.stringify(memories[1])), key: 'memory-id2', metadata: {}})
+      retrieveStub
+        .onCall(2)
+        .resolves({content: Buffer.from(JSON.stringify(memories[2])), key: 'memory-id3', metadata: {}})
 
       const result = await memoryManager.list()
 
@@ -345,14 +463,18 @@ describe('MemoryManager - Unit Tests (Mocked)', () => {
       listStub.resolves(['memory-id1', 'memory-id2'])
 
       const memories = [
-        { content: 'Memory 1', createdAt: 1000, id: 'id1', metadata: { source: 'agent' }, updatedAt: 1000 },
-        { content: 'Memory 2', createdAt: 2000, id: 'id2', metadata: { source: 'user' }, updatedAt: 2000 },
+        {content: 'Memory 1', createdAt: 1000, id: 'id1', metadata: {source: 'agent'}, updatedAt: 1000},
+        {content: 'Memory 2', createdAt: 2000, id: 'id2', metadata: {source: 'user'}, updatedAt: 2000},
       ]
 
-      retrieveStub.onCall(0).resolves({ content: Buffer.from(JSON.stringify(memories[0])), key: 'memory-id1', metadata: {} })
-      retrieveStub.onCall(1).resolves({ content: Buffer.from(JSON.stringify(memories[1])), key: 'memory-id2', metadata: {} })
+      retrieveStub
+        .onCall(0)
+        .resolves({content: Buffer.from(JSON.stringify(memories[0])), key: 'memory-id1', metadata: {}})
+      retrieveStub
+        .onCall(1)
+        .resolves({content: Buffer.from(JSON.stringify(memories[1])), key: 'memory-id2', metadata: {}})
 
-      const result = await memoryManager.list({ source: 'agent' })
+      const result = await memoryManager.list({source: 'agent'})
 
       expect(result).to.have.lengthOf(1)
       expect(result[0].metadata?.source).to.equal('agent')
@@ -362,14 +484,18 @@ describe('MemoryManager - Unit Tests (Mocked)', () => {
       listStub.resolves(['memory-id1', 'memory-id2'])
 
       const memories = [
-        { content: 'Memory 1', createdAt: 1000, id: 'id1', metadata: { pinned: true }, updatedAt: 1000 },
-        { content: 'Memory 2', createdAt: 2000, id: 'id2', metadata: { pinned: false }, updatedAt: 2000 },
+        {content: 'Memory 1', createdAt: 1000, id: 'id1', metadata: {pinned: true}, updatedAt: 1000},
+        {content: 'Memory 2', createdAt: 2000, id: 'id2', metadata: {pinned: false}, updatedAt: 2000},
       ]
 
-      retrieveStub.onCall(0).resolves({ content: Buffer.from(JSON.stringify(memories[0])), key: 'memory-id1', metadata: {} })
-      retrieveStub.onCall(1).resolves({ content: Buffer.from(JSON.stringify(memories[1])), key: 'memory-id2', metadata: {} })
+      retrieveStub
+        .onCall(0)
+        .resolves({content: Buffer.from(JSON.stringify(memories[0])), key: 'memory-id1', metadata: {}})
+      retrieveStub
+        .onCall(1)
+        .resolves({content: Buffer.from(JSON.stringify(memories[1])), key: 'memory-id2', metadata: {}})
 
-      const result = await memoryManager.list({ pinned: true })
+      const result = await memoryManager.list({pinned: true})
 
       expect(result).to.have.lengthOf(1)
       expect(result[0].metadata?.pinned).to.be.true
@@ -379,16 +505,22 @@ describe('MemoryManager - Unit Tests (Mocked)', () => {
       listStub.resolves(['memory-id1', 'memory-id2', 'memory-id3'])
 
       const memories = [
-        { content: 'Memory 1', createdAt: 1000, id: 'id1', updatedAt: 3000 },
-        { content: 'Memory 2', createdAt: 2000, id: 'id2', updatedAt: 2000 },
-        { content: 'Memory 3', createdAt: 3000, id: 'id3', updatedAt: 1000 },
+        {content: 'Memory 1', createdAt: 1000, id: 'id1', updatedAt: 3000},
+        {content: 'Memory 2', createdAt: 2000, id: 'id2', updatedAt: 2000},
+        {content: 'Memory 3', createdAt: 3000, id: 'id3', updatedAt: 1000},
       ]
 
-      retrieveStub.onCall(0).resolves({ content: Buffer.from(JSON.stringify(memories[0])), key: 'memory-id1', metadata: {} })
-      retrieveStub.onCall(1).resolves({ content: Buffer.from(JSON.stringify(memories[1])), key: 'memory-id2', metadata: {} })
-      retrieveStub.onCall(2).resolves({ content: Buffer.from(JSON.stringify(memories[2])), key: 'memory-id3', metadata: {} })
+      retrieveStub
+        .onCall(0)
+        .resolves({content: Buffer.from(JSON.stringify(memories[0])), key: 'memory-id1', metadata: {}})
+      retrieveStub
+        .onCall(1)
+        .resolves({content: Buffer.from(JSON.stringify(memories[1])), key: 'memory-id2', metadata: {}})
+      retrieveStub
+        .onCall(2)
+        .resolves({content: Buffer.from(JSON.stringify(memories[2])), key: 'memory-id3', metadata: {}})
 
-      const result = await memoryManager.list({ limit: 2, offset: 1 })
+      const result = await memoryManager.list({limit: 2, offset: 1})
 
       expect(result).to.have.lengthOf(2)
       expect(result[0].id).to.equal('id2')
@@ -399,7 +531,7 @@ describe('MemoryManager - Unit Tests (Mocked)', () => {
   describe('has', () => {
     it('should return true if memory exists', async () => {
       retrieveStub.resolves({
-        content: Buffer.from(JSON.stringify({ content: 'Test', createdAt: 1000, id: 'test-id', updatedAt: 1000 })),
+        content: Buffer.from(JSON.stringify({content: 'Test', createdAt: 1000, id: 'test-id', updatedAt: 1000})),
         key: 'memory-test-id',
         metadata: {},
       })
@@ -422,9 +554,21 @@ describe('MemoryManager - Unit Tests (Mocked)', () => {
     it('should return count of all memories', async () => {
       listStub.resolves(['memory-id1', 'memory-id2', 'memory-id3'])
 
-      retrieveStub.onCall(0).resolves({ content: Buffer.from(JSON.stringify({ content: 'Test', createdAt: 1000, id: 'id1', updatedAt: 1000 })), key: 'memory-id1', metadata: {} })
-      retrieveStub.onCall(1).resolves({ content: Buffer.from(JSON.stringify({ content: 'Test', createdAt: 1000, id: 'id2', updatedAt: 1000 })), key: 'memory-id2', metadata: {} })
-      retrieveStub.onCall(2).resolves({ content: Buffer.from(JSON.stringify({ content: 'Test', createdAt: 1000, id: 'id3', updatedAt: 1000 })), key: 'memory-id3', metadata: {} })
+      retrieveStub.onCall(0).resolves({
+        content: Buffer.from(JSON.stringify({content: 'Test', createdAt: 1000, id: 'id1', updatedAt: 1000})),
+        key: 'memory-id1',
+        metadata: {},
+      })
+      retrieveStub.onCall(1).resolves({
+        content: Buffer.from(JSON.stringify({content: 'Test', createdAt: 1000, id: 'id2', updatedAt: 1000})),
+        key: 'memory-id2',
+        metadata: {},
+      })
+      retrieveStub.onCall(2).resolves({
+        content: Buffer.from(JSON.stringify({content: 'Test', createdAt: 1000, id: 'id3', updatedAt: 1000})),
+        key: 'memory-id3',
+        metadata: {},
+      })
 
       const count = await memoryManager.count()
 
@@ -434,10 +578,22 @@ describe('MemoryManager - Unit Tests (Mocked)', () => {
     it('should return count with filters applied', async () => {
       listStub.resolves(['memory-id1', 'memory-id2'])
 
-      retrieveStub.onCall(0).resolves({ content: Buffer.from(JSON.stringify({ content: 'Test', createdAt: 1000, id: 'id1', metadata: { pinned: true }, updatedAt: 1000 })), key: 'memory-id1', metadata: {} })
-      retrieveStub.onCall(1).resolves({ content: Buffer.from(JSON.stringify({ content: 'Test', createdAt: 1000, id: 'id2', metadata: { pinned: false }, updatedAt: 1000 })), key: 'memory-id2', metadata: {} })
+      retrieveStub.onCall(0).resolves({
+        content: Buffer.from(
+          JSON.stringify({content: 'Test', createdAt: 1000, id: 'id1', metadata: {pinned: true}, updatedAt: 1000}),
+        ),
+        key: 'memory-id1',
+        metadata: {},
+      })
+      retrieveStub.onCall(1).resolves({
+        content: Buffer.from(
+          JSON.stringify({content: 'Test', createdAt: 1000, id: 'id2', metadata: {pinned: false}, updatedAt: 1000}),
+        ),
+        key: 'memory-id2',
+        metadata: {},
+      })
 
-      const count = await memoryManager.count({ pinned: true })
+      const count = await memoryManager.count({pinned: true})
 
       expect(count).to.equal(1)
     })
@@ -498,7 +654,7 @@ describe('MemoryManager - Unit Tests (Mocked)', () => {
       storeStub.onCall(0).resolves({
         content: Buffer.from('blob'),
         key: 'blob-key',
-        metadata: { size: 4 },
+        metadata: {size: 4},
       } as StoredBlob)
 
       storeStub.onCall(1).rejects(new Error('Storage error'))
@@ -521,9 +677,7 @@ describe('MemoryManager - Unit Tests (Mocked)', () => {
         createdAt: 1000,
         id: 'test-id',
         metadata: {
-          attachments: [
-            { blobKey: 'blob-1', createdAt: 1000, size: 100, type: 'text/plain' },
-          ],
+          attachments: [{blobKey: 'blob-1', createdAt: 1000, size: 100, type: 'text/plain'}],
         },
         updatedAt: 1000,
       }
@@ -574,9 +728,7 @@ describe('MemoryManager - Unit Tests (Mocked)', () => {
         createdAt: 1000,
         id: 'test-id',
         metadata: {
-          attachments: [
-            { blobKey: 'blob-1', createdAt: 1000, size: 100, type: 'text/plain' },
-          ],
+          attachments: [{blobKey: 'blob-1', createdAt: 1000, size: 100, type: 'text/plain'}],
         },
         updatedAt: 1000,
       }
@@ -590,7 +742,7 @@ describe('MemoryManager - Unit Tests (Mocked)', () => {
       retrieveStub.onCall(1).resolves({
         content: Buffer.from('blob content'),
         key: 'blob-1',
-        metadata: { size: 12 },
+        metadata: {size: 12},
       })
 
       const blob = await memoryManager.getAttachment('test-id', 'blob-1')
@@ -632,8 +784,8 @@ describe('MemoryManager - Unit Tests (Mocked)', () => {
         id: 'test-id',
         metadata: {
           attachments: [
-            { blobKey: 'blob-1', createdAt: 1000, name: 'file1.txt', size: 100, type: 'text/plain' },
-            { blobKey: 'blob-2', createdAt: 2000, name: 'file2.txt', size: 200, type: 'text/plain' },
+            {blobKey: 'blob-1', createdAt: 1000, name: 'file1.txt', size: 100, type: 'text/plain'},
+            {blobKey: 'blob-2', createdAt: 2000, name: 'file2.txt', size: 200, type: 'text/plain'},
           ],
         },
         updatedAt: 1000,

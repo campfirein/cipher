@@ -1,129 +1,17 @@
 /* eslint-disable max-nested-callbacks */
-import { expect } from 'chai'
-import { existsSync } from 'node:fs'
-import { mkdir, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { restore, stub } from 'sinon'
+import {expect} from 'chai'
+import {existsSync} from 'node:fs'
+import {mkdir, rm} from 'node:fs/promises'
+import {tmpdir} from 'node:os'
+import {join} from 'node:path'
+import {restore, stub} from 'sinon'
 
-import type { Attachment } from '../../../../../src/core/domain/cipher/memory/types.js'
+import type {Attachment} from '../../../../../src/core/domain/cipher/memory/types.js'
 
-import { FileBlobStorage } from '../../../../../src/infra/cipher/blob/file-blob-storage.js'
-import {
-  type CreateMemoryInput,
-  type ListMemoriesOptions,
-  type Memory,
-  type MemoryConfig,
-  MemoryError,
-  MemoryErrorCode,
-  MemoryManager,
-  type MemorySource,
-  type UpdateMemoryInput,
-} from '../../../../../src/infra/cipher/memory/index.js'
+import {FileBlobStorage} from '../../../../../src/infra/cipher/blob/file-blob-storage.js'
+import {type Memory, MemoryError, MemoryManager} from '../../../../../src/infra/cipher/memory/index.js'
 
 describe('Memory Module', () => {
-  describe('Exports (index.ts)', () => {
-    describe('MemoryManager', () => {
-      it('should export MemoryManager class', () => {
-        expect(MemoryManager).to.exist
-        expect(MemoryManager).to.be.a('function')
-      })
-
-      it('should be instantiable', () => {
-        expect(MemoryManager.prototype).to.exist
-      })
-    })
-
-    describe('MemoryError', () => {
-      it('should export MemoryError class', () => {
-        expect(MemoryError).to.exist
-        expect(MemoryError).to.be.a('function')
-      })
-
-      it('should export MemoryErrorCode enum', () => {
-        expect(MemoryErrorCode).to.exist
-        expect(MemoryErrorCode).to.be.an('object')
-      })
-
-      it('should have expected error codes', () => {
-        expect(MemoryErrorCode).to.have.property('MEMORY_NOT_FOUND')
-        expect(MemoryErrorCode).to.have.property('MEMORY_RETRIEVAL_ERROR')
-        expect(MemoryErrorCode).to.have.property('MEMORY_STORAGE_ERROR')
-        expect(MemoryErrorCode).to.have.property('MEMORY_DELETE_ERROR')
-        expect(MemoryErrorCode).to.have.property('MEMORY_INVALID_ID')
-      })
-    })
-
-    describe('Types', () => {
-      it('should export CreateMemoryInput type', () => {
-        const input: CreateMemoryInput = {
-          content: 'test',
-        }
-        expect(input).to.exist
-      })
-
-      it('should export UpdateMemoryInput type', () => {
-        const input: UpdateMemoryInput = {
-          content: 'updated',
-        }
-        expect(input).to.exist
-      })
-
-      it('should export ListMemoriesOptions type', () => {
-        const options: ListMemoriesOptions = {
-          limit: 10,
-        }
-        expect(options).to.exist
-      })
-
-      it('should export Memory type', () => {
-        const memory: Memory = {
-          content: 'test',
-          createdAt: Date.now(),
-          id: 'test',
-          updatedAt: Date.now(),
-        }
-        expect(memory).to.exist
-      })
-
-      it('should export MemorySource type', () => {
-        const source: MemorySource = 'agent'
-        expect(source).to.equal('agent')
-      })
-
-      it('should export MemoryConfig type', () => {
-        const config: MemoryConfig = {}
-        expect(config).to.exist
-      })
-    })
-
-    describe('Import verification', () => {
-      it('should allow importing all exports together', () => {
-        expect(MemoryManager).to.exist
-        expect(MemoryError).to.exist
-        expect(MemoryErrorCode).to.exist
-      })
-
-      it('should have correct type definitions', () => {
-        const memory: Memory = {
-          content: 'test content',
-          createdAt: 1000,
-          id: 'test-id',
-          metadata: {
-            source: 'agent',
-          },
-          tags: ['tag1'],
-          updatedAt: 2000,
-        }
-
-        expect(memory.id).to.equal('test-id')
-        expect(memory.content).to.equal('test content')
-        expect(memory.tags).to.deep.equal(['tag1'])
-        expect(memory.metadata?.source).to.equal('agent')
-      })
-    })
-  })
-
   describe('MemoryManager - Blob Attachments', () => {
     let memoryManager: MemoryManager
     let blobStorage: FileBlobStorage
@@ -134,7 +22,7 @@ describe('Memory Module', () => {
       stub(console, 'warn')
       // Create temporary test directory
       testDir = join(tmpdir(), `memory-blob-test-${Date.now()}`)
-      await mkdir(testDir, { recursive: true })
+      await mkdir(testDir, {recursive: true})
 
       // Initialize blob storage
       blobStorage = new FileBlobStorage({
@@ -150,7 +38,7 @@ describe('Memory Module', () => {
       // Cleanup any existing memories for test isolation
       try {
         const existing = await memoryManager.list()
-        await Promise.allSettled(existing.map((m) => memoryManager.delete(m.id).catch(() => { })))
+        await Promise.allSettled(existing.map((m) => memoryManager.delete(m.id).catch(() => {})))
       } catch {
         // Ignore errors during cleanup
       }
@@ -159,7 +47,7 @@ describe('Memory Module', () => {
     afterEach(async () => {
       // Clean up test directory
       if (existsSync(testDir)) {
-        await rm(testDir, { force: true, recursive: true })
+        await rm(testDir, {force: true, recursive: true})
       }
 
       restore()
@@ -286,7 +174,7 @@ describe('Memory Module', () => {
           content: 'Test memory',
         })
 
-        const attachment = await memoryManager.attachBlob(memory.id, Buffer.from('test'), { name: 'test.txt' })
+        const attachment = await memoryManager.attachBlob(memory.id, Buffer.from('test'), {name: 'test.txt'})
 
         // Detach the blob
         await memoryManager.detachBlob(memory.id, attachment.blobKey)
@@ -306,8 +194,8 @@ describe('Memory Module', () => {
           content: 'Test memory',
         })
 
-        const attachment1 = await memoryManager.attachBlob(memory.id, Buffer.from('file1'), { name: 'file1.txt' })
-        const attachment2 = await memoryManager.attachBlob(memory.id, Buffer.from('file2'), { name: 'file2.txt' })
+        const attachment1 = await memoryManager.attachBlob(memory.id, Buffer.from('file1'), {name: 'file1.txt'})
+        const attachment2 = await memoryManager.attachBlob(memory.id, Buffer.from('file2'), {name: 'file2.txt'})
 
         // Detach first blob
         await memoryManager.detachBlob(memory.id, attachment1.blobKey)
@@ -536,7 +424,7 @@ describe('Memory Module', () => {
           type: 'text/plain',
         })
 
-        const doc2 = await memoryManager.attachBlob(memory.id, Buffer.from(JSON.stringify({ data: 'test' })), {
+        const doc2 = await memoryManager.attachBlob(memory.id, Buffer.from(JSON.stringify({data: 'test'})), {
           name: 'data.json',
           type: 'application/json',
         })
@@ -684,15 +572,15 @@ describe('Memory Module', () => {
           expect(loaded.tags).to.deep.equal(['test'])
         })
 
-        // TODO: Temporarily disabled - these tests are flaky because isMemoryKey() counts dashes
+        // Temporarily disabled - these tests are flaky because isMemoryKey() counts dashes
         // Problem: nanoid can generate IDs with dashes (e.g., 'xPRj7Nb-ogZd')
         // When this happens, memory-xPRj7Nb-ogZd has 2 dashes and gets filtered out as an attachment
         // Solution: Either fix isMemoryKey() logic or mock nanoid to generate IDs without dashes
         // eslint-disable-next-line mocha/no-skipped-tests
         it.skip('should load all memories via list()', async () => {
-          const mem1 = await memoryManager.create({ content: 'Memory 1' })
-          const mem2 = await memoryManager.create({ content: 'Memory 2' })
-          const mem3 = await memoryManager.create({ content: 'Memory 3' })
+          const mem1 = await memoryManager.create({content: 'Memory 1'})
+          const mem2 = await memoryManager.create({content: 'Memory 2'})
+          const mem3 = await memoryManager.create({content: 'Memory 3'})
 
           const testMemoryIds = new Set([mem1.id, mem2.id, mem3.id])
 
@@ -728,9 +616,9 @@ describe('Memory Module', () => {
           expect(testMemories.some((m) => m.id === mem3.id)).to.be.true
 
           // Clean up
-          await memoryManager.delete(mem1.id).catch(() => { })
-          await memoryManager.delete(mem2.id).catch(() => { })
-          await memoryManager.delete(mem3.id).catch(() => { })
+          await memoryManager.delete(mem1.id).catch(() => {})
+          await memoryManager.delete(mem2.id).catch(() => {})
+          await memoryManager.delete(mem3.id).catch(() => {})
         })
 
         it('should handle missing memory gracefully', async () => {
@@ -743,13 +631,13 @@ describe('Memory Module', () => {
           }
         })
 
-        // TODO: Same issue as above - flaky due to isMemoryKey() logic
+        // Same issue as above - flaky due to isMemoryKey() logic
         // eslint-disable-next-line mocha/no-skipped-tests
         it.skip('should list memories with all options (limit, offset, source, pinned, combined)', async () => {
           // Insert test data with delays after each create to ensure filesystem sync
           const mem1 = await memoryManager.create({
             content: 'Memory 1',
-            metadata: { pinned: true, source: 'agent' },
+            metadata: {pinned: true, source: 'agent'},
             tags: ['tag1', 'tag2', 'important'],
           })
           // Delay after create to ensure filesystem sync
@@ -761,7 +649,7 @@ describe('Memory Module', () => {
 
           const mem2 = await memoryManager.create({
             content: 'Memory 2',
-            metadata: { pinned: false, source: 'user' },
+            metadata: {pinned: false, source: 'user'},
             tags: ['tag2', 'tag3', 'important'],
           })
           await new Promise<void>((resolve) => {
@@ -772,7 +660,7 @@ describe('Memory Module', () => {
 
           const mem3 = await memoryManager.create({
             content: 'Memory 3',
-            metadata: { pinned: false, source: 'agent' },
+            metadata: {pinned: false, source: 'agent'},
             tags: ['tag3', 'important'],
           })
           await new Promise<void>((resolve) => {
@@ -783,7 +671,7 @@ describe('Memory Module', () => {
 
           const mem4 = await memoryManager.create({
             content: 'Memory 4',
-            metadata: { pinned: true, source: 'agent' },
+            metadata: {pinned: true, source: 'agent'},
             tags: ['tag1'],
           })
           // Extra delay after last create before calling list()
@@ -849,22 +737,22 @@ describe('Memory Module', () => {
               .join(', ')}. Created IDs: ${[...testMemoryIds].join(', ')}`,
           )
 
-          const limited = await memoryManager.list({ limit: 2 })
+          const limited = await memoryManager.list({limit: 2})
           expect(limited.length).to.equal(2)
 
           // Test offset
-          const offset = await memoryManager.list({ offset: 1 })
+          const offset = await memoryManager.list({offset: 1})
           expect(offset.length).to.equal(all.length - 1)
           if (offset.length > 0 && all.length > 1) {
             expect(offset[0].id).to.equal(all[1].id)
           }
 
           // Test limit + offset
-          const paginated = await memoryManager.list({ limit: 1, offset: 1 })
+          const paginated = await memoryManager.list({limit: 1, offset: 1})
           expect(paginated.length).to.equal(1)
 
           // Test filter by source - only check test memories
-          const filteredByAgent = await memoryManager.list({ source: 'agent' })
+          const filteredByAgent = await memoryManager.list({source: 'agent'})
           const testMemoriesInAgent = filteredByAgent.filter((m) => testMemoryIds.has(m.id))
           expect(testMemoriesInAgent.every((m) => m.metadata?.source === 'agent')).to.be.true
           expect(testMemoriesInAgent.some((m) => m.id === mem1.id)).to.be.true
@@ -873,7 +761,7 @@ describe('Memory Module', () => {
           expect(testMemoriesInAgent.some((m) => m.id === mem2.id)).to.be.false
 
           // Test filter by pinned - only check test memories
-          const pinned = await memoryManager.list({ pinned: true })
+          const pinned = await memoryManager.list({pinned: true})
           const testMemoriesPinned = pinned.filter((m) => testMemoryIds.has(m.id))
           expect(testMemoriesPinned.every((m) => m.metadata?.pinned === true)).to.be.true
           expect(testMemoriesPinned.some((m) => m.id === mem1.id)).to.be.true
@@ -881,7 +769,7 @@ describe('Memory Module', () => {
           expect(testMemoriesPinned.some((m) => m.id === mem2.id)).to.be.false
           expect(testMemoriesPinned.some((m) => m.id === mem3.id)).to.be.false
 
-          const unpinned = await memoryManager.list({ pinned: false })
+          const unpinned = await memoryManager.list({pinned: false})
           const testMemoriesUnpinned = unpinned.filter((m) => testMemoryIds.has(m.id))
           expect(testMemoriesUnpinned.every((m) => m.metadata?.pinned !== true)).to.be.true
           expect(testMemoriesUnpinned.some((m) => m.id === mem2.id)).to.be.true
@@ -895,40 +783,37 @@ describe('Memory Module', () => {
             source: 'agent',
           })
           const testMemoriesCombined = combined.filter((m) => testMemoryIds.has(m.id))
-          expect(
-            testMemoriesCombined.every(
-              (m) => m.metadata?.source === 'agent' && m.metadata?.pinned === true,
-            ),
-          ).to.be.true
+          expect(testMemoriesCombined.every((m) => m.metadata?.source === 'agent' && m.metadata?.pinned === true)).to.be
+            .true
           expect(testMemoriesCombined.some((m) => m.id === mem1.id)).to.be.true
           expect(testMemoriesCombined.some((m) => m.id === mem4.id)).to.be.true
           expect(testMemoriesCombined.some((m) => m.id === mem2.id)).to.be.false
           expect(testMemoriesCombined.some((m) => m.id === mem3.id)).to.be.false
 
           // Clean up
-          await memoryManager.delete(mem1.id).catch(() => { })
-          await memoryManager.delete(mem2.id).catch(() => { })
-          await memoryManager.delete(mem3.id).catch(() => { })
-          await memoryManager.delete(mem4.id).catch(() => { })
+          await memoryManager.delete(mem1.id).catch(() => {})
+          await memoryManager.delete(mem2.id).catch(() => {})
+          await memoryManager.delete(mem3.id).catch(() => {})
+          await memoryManager.delete(mem4.id).catch(() => {})
         })
 
-        // TODO: Same issue as above - flaky due to isMemoryKey() logic
+        // Same issue as above - flaky due to isMemoryKey() logic
         // eslint-disable-next-line mocha/no-skipped-tests
         it.skip('should sort memories by updatedAt descending', async () => {
           // Create memories with delays to ensure different timestamps
-          const mem1 = await memoryManager.create({ content: 'Memory 1' })
+          const mem1 = await memoryManager.create({content: 'Memory 1'})
           await new Promise<void>((resolve) => {
             setTimeout(() => {
               resolve()
             }, 20)
           }) // Delay to ensure different updatedAt
-          const mem2 = await memoryManager.create({ content: 'Memory 2' })
+          const mem2 = await memoryManager.create({content: 'Memory 2'})
           await new Promise<void>((resolve) => {
             setTimeout(() => {
               resolve()
             }, 20)
           }) // Delay to ensure different updatedAt
-          const mem3 = await memoryManager.create({ content: 'Memory 3' })
+          const mem3 = await memoryManager.create({content: 'Memory 3'})
 
           const testMemoryIds = new Set([mem1.id, mem2.id, mem3.id])
 
@@ -981,15 +866,15 @@ describe('Memory Module', () => {
           expect(mem2Index).to.be.lessThan(mem1Index, 'mem2 should be before mem1')
 
           // Clean up
-          await memoryManager.delete(mem1.id).catch(() => { })
-          await memoryManager.delete(mem2.id).catch(() => { })
-          await memoryManager.delete(mem3.id).catch(() => { })
+          await memoryManager.delete(mem1.id).catch(() => {})
+          await memoryManager.delete(mem2.id).catch(() => {})
+          await memoryManager.delete(mem3.id).catch(() => {})
         })
       })
 
       describe('delete logic', () => {
         it('should delete a memory', async () => {
-          const memory = await memoryManager.create({ content: 'To be deleted' })
+          const memory = await memoryManager.create({content: 'To be deleted'})
 
           await memoryManager.delete(memory.id)
 
@@ -1003,7 +888,7 @@ describe('Memory Module', () => {
         })
 
         it('should delete memory with attachments', async () => {
-          const memory = await memoryManager.create({ content: 'With attachment' })
+          const memory = await memoryManager.create({content: 'With attachment'})
           await memoryManager.attachBlob(memory.id, Buffer.from('attachment data'), {
             name: 'test.txt',
             type: 'text/plain',
