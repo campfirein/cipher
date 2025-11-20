@@ -56,6 +56,44 @@ export class SimplePromptFactory {
   }
 
   /**
+   * Build a reflection prompt for completion checking.
+   *
+   * @param context - Context with iteration information
+   * @param context.type - Type of reflection prompt to build
+   * @param context.currentIteration - Current iteration number (required for near_max_iterations)
+   * @param context.maxIterations - Maximum iterations allowed (required for near_max_iterations)
+   * @returns Formatted reflection prompt
+   */
+  public buildReflectionPrompt(context: {
+    currentIteration?: number
+    maxIterations?: number
+    type: 'completion_check' | 'near_max_iterations'
+  }): string {
+    const reflectionConfig = this.loadPrompt('reflection.yml')
+
+    if (!reflectionConfig.prompts) {
+      throw new Error('Invalid reflection.yml file: missing prompts section')
+    }
+
+    const template = reflectionConfig.prompts[context.type]
+
+    if (!template) {
+      throw new Error(`Reflection prompt type '${context.type}' not found in reflection.yml`)
+    }
+
+    if (context.type === 'near_max_iterations' && context.currentIteration && context.maxIterations) {
+      /* eslint-disable camelcase */
+      return this.renderTemplate(template, {
+        current_iteration: context.currentIteration.toString(),
+        max_iterations: context.maxIterations.toString()
+      })
+      /* eslint-enable camelcase */
+    }
+
+    return template
+  }
+
+  /**
    * Build the complete system prompt
    *
    * @param context - Runtime context with tools, markers, modes, etc.

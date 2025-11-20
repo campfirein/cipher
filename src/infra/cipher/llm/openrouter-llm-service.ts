@@ -219,8 +219,26 @@ export class OpenRouterLLMService implements ILLMService {
       }
     }
 
-    // Max iterations exceeded
-    throw new LlmMaxIterationsError(this.config.maxIterations, 'openrouter', this.config.model)
+    // Max iterations exceeded - emit warning and return partial response
+    console.warn(`[OpenRouterLLMService] WARNING: Reached maximum iterations (${this.config.maxIterations}) without completion`)
+
+    this.sessionEventBus.emit('llmservice:warning', {
+      message: `Maximum iterations (${this.config.maxIterations}) reached without completion`,
+      model: this.config.model,
+      provider: 'openrouter'
+    })
+
+    // Get accumulated response from context
+    const partialResponse = await this.getPartialResponse()
+
+    this.sessionEventBus.emit('llmservice:response', {
+      content: partialResponse,
+      model: this.config.model,
+      partial: true,
+      provider: 'openrouter'
+    })
+
+    return partialResponse || 'Maximum iterations reached without completing the task. Please try breaking down the task into smaller steps.'
   }
 
   /**
@@ -310,13 +328,31 @@ export class OpenRouterLLMService implements ILLMService {
       availableMarkers[marker] = marker
     }
 
-    const systemPrompt = await this.promptFactory.buildSystemPrompt({
+    let systemPrompt = await this.promptFactory.buildSystemPrompt({
       availableMarkers,
       availableTools,
       conversationMetadata: executionContext?.conversationMetadata,
       memoryManager: this.memoryManager,
       mode,
     })
+
+    // Add reflection prompt when approaching max iterations (80% threshold)
+    const iterationThreshold = Math.floor(this.config.maxIterations * 0.8)
+    if (iterationCount >= iterationThreshold) {
+      const reflectionPrompt = this.promptFactory.buildReflectionPrompt({
+        currentIteration: iterationCount + 1,
+        maxIterations: this.config.maxIterations,
+        type: 'near_max_iterations'
+      })
+      systemPrompt = systemPrompt + '\n\n' + reflectionPrompt
+    }
+    // Add periodic completion check every 3 iterations (after iteration 3)
+    else if (iterationCount > 0 && iterationCount % 3 === 0) {
+      const reflectionPrompt = this.promptFactory.buildReflectionPrompt({
+        type: 'completion_check'
+      })
+      systemPrompt = systemPrompt + '\n\n' + reflectionPrompt
+    }
 
     // Get formatted messages from context with compression (passing system prompt for token accounting)
     const {formattedMessages, tokensUsed} = await this.contextManager.getFormattedMessagesWithCompression(systemPrompt)
@@ -410,6 +446,26 @@ export class OpenRouterLLMService implements ILLMService {
         .filter((part) => part.type === 'text')
         .map((part) => (part.type === 'text' ? part.text : ''))
         .join('')
+    }
+
+    return ''
+  }
+
+  /**
+   * Extract partial response from conversation history when max iterations reached.
+   * Returns the last assistant message or accumulated tool outputs.
+   *
+   * @returns Partial response string
+   */
+  private async getPartialResponse(): Promise<string> {
+    const history = this.contextManager.getMessages()
+
+    // Find last assistant message
+    for (let i = history.length - 1; i >= 0; i--) {
+      const msg = history[i]
+      if (msg && msg.role === 'assistant') {
+        return this.extractTextContent(msg)
+      }
     }
 
     return ''
