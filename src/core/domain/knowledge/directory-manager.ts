@@ -63,7 +63,7 @@ export const DirectoryManager = {
 
   /**
    * Ensure the base knowledge structure exists.
-   * Creates .brv/context-tree/ and index.json only if they don't exist.
+   * Creates .brv/context-tree/ directory if it doesn't exist.
    *
    * @param basePath - Base path for knowledge storage (typically .brv/context-tree)
    * @returns Information about what existed and what was created
@@ -79,27 +79,9 @@ export const DirectoryManager = {
       await fs.mkdir(basePath, {recursive: true})
     }
 
-    // Check if index.json exists
-    const indexPath = join(basePath, 'index.json')
-    let indexExisted = false
-    try {
-      await fs.access(indexPath)
-      indexExisted = true
-    } catch {
-      // Index doesn't exist, create empty index
-      const emptyIndex = {
-        domainIndex: {},
-        lastUpdated: new Date().toISOString(),
-        nameIndex: {},
-        paths: {},
-        version: '1.0',
-      }
-      await fs.writeFile(indexPath, JSON.stringify(emptyIndex, null, 2))
-    }
-
     return {
       contextTreeExisted,
-      indexExisted,
+      indexExisted: false, // No longer creating index.json
     }
   },
 

@@ -100,7 +100,7 @@ export class ByteRoverLlmGrpcService {
       projectId: config.projectId ?? 'byterover',
       region: config.region ?? 'us-east1',
       sessionKey: config.sessionKey,
-      timeout: config.timeout ?? 30_000,
+      timeout: config.timeout ?? 60_000,
     }
 
     // Determine if using secure (TLS) or insecure connection based on endpoint

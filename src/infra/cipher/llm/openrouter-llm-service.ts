@@ -1,6 +1,6 @@
 import type {ChatCompletionMessageParam, ChatCompletionTool} from 'openai/resources'
 
-import OpenAI from 'openai'
+import {OpenAI} from 'openai'
 
 import type {JSONSchema7, ToolSet} from '../../../core/domain/cipher/tools/types.js'
 import type {ExecutionContext} from '../../../core/interfaces/cipher/i-cipher-agent.js'

@@ -2,20 +2,26 @@ import type {KnownTool} from '../../../core/domain/cipher/tools/constants.js'
 import type {Tool} from '../../../core/domain/cipher/tools/types.js'
 import type {IFileSystem} from '../../../core/interfaces/cipher/i-file-system.js'
 import type {IProcessService} from '../../../core/interfaces/cipher/i-process-service.js'
+import type {MemoryManager} from '../memory/memory-manager.js'
 
 import {ToolName} from '../../../core/domain/cipher/tools/constants.js'
 import {createBashExecTool} from './implementations/bash-exec-tool.js'
 import {createBashOutputTool} from './implementations/bash-output-tool.js'
 import {createCreateKnowledgeTopicTool} from './implementations/create-knowledge-topic-tool.js'
+import {createDeleteMemoryTool} from './implementations/delete-memory-tool.js'
 import {createDetectDomainsTool} from './implementations/detect-domains-tool.js'
 import {createEditFileTool} from './implementations/edit-file-tool.js'
+import {createEditMemoryTool} from './implementations/edit-memory-tool.js'
+import {createFindKnowledgeTopicsTool} from './implementations/find-knowledge-topics-tool.js'
 import {createGlobFilesTool} from './implementations/glob-files-tool.js'
 import {createGrepContentTool} from './implementations/grep-content-tool.js'
 import {createKillProcessTool} from './implementations/kill-process-tool.js'
+import {createListMemoriesTool} from './implementations/list-memories-tool.js'
 import {createReadFileTool} from './implementations/read-file-tool.js'
+import {createReadMemoryTool} from './implementations/read-memory-tool.js'
 import {createSearchHistoryTool} from './implementations/search-history-tool.js'
-import {createSegmentConversationTool} from './implementations/segment-conversation-tool.js'
 import {createWriteFileTool} from './implementations/write-file-tool.js'
+import {createWriteMemoryTool} from './implementations/write-memory-tool.js'
 import {ToolMarker} from './tool-markers.js'
 
 /**
@@ -26,6 +32,9 @@ export interface ToolServices {
 
   /** File system service for file operations */
   fileSystemService?: IFileSystem
+
+  /** Memory manager for agent memory operations */
+  memoryManager?: MemoryManager
 
   /** Process service for command execution */
   processService?: IProcessService
@@ -39,7 +48,7 @@ export type ToolFactory = (services: ToolServices) => Tool
 
 /**
  * Registry entry for a tool.
- * Defines the factory, required services, and semantic markers for each tool.
+ * Defines the factory, required services, semantic markers, and optional output guidance for each tool.
  */
 export interface ToolRegistryEntry {
   /** Factory function to create the tool */
@@ -47,6 +56,14 @@ export interface ToolRegistryEntry {
 
   /** Semantic markers for this tool (enables smart filtering and conditional prompts) */
   markers: readonly ToolMarker[]
+
+  /**
+   * Optional output guidance prompt key.
+   * If specified, the ToolProvider will append guidance from tool-outputs.yml
+   * after tool execution to help the LLM understand next steps.
+   * Example: 'write_memory' will load the 'write_memory_output' prompt.
+   */
+  outputGuidance?: string
 
   /** Services required by this tool */
   requiredServices: readonly (keyof ToolServices)[]
@@ -94,12 +111,21 @@ export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
   [ToolName.CREATE_KNOWLEDGE_TOPIC]: {
     factory: () => createCreateKnowledgeTopicTool(),
     markers: [ToolMarker.ContextBuilding],
+    outputGuidance: 'create_knowledge_topic',
     requiredServices: [], // Uses DirectoryManager for file operations
+  },
+
+  [ToolName.DELETE_MEMORY]: {
+    factory: (services) => createDeleteMemoryTool(getRequiredService(services.memoryManager, 'memoryManager')),
+    markers: [ToolMarker.ContextBuilding],
+    outputGuidance: 'delete_memory',
+    requiredServices: ['memoryManager'],
   },
 
   [ToolName.DETECT_DOMAINS]: {
     factory: () => createDetectDomainsTool(),
     markers: [ToolMarker.ContextBuilding],
+    outputGuidance: 'detect_domains',
     requiredServices: [], // No services required (validates LLM-detected domains)
   },
 
@@ -107,6 +133,20 @@ export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
     factory: (services) => createEditFileTool(getRequiredService(services.fileSystemService, 'fileSystemService')),
     markers: [ToolMarker.Modification],
     requiredServices: ['fileSystemService'],
+  },
+
+  [ToolName.EDIT_MEMORY]: {
+    factory: (services) => createEditMemoryTool(getRequiredService(services.memoryManager, 'memoryManager')),
+    markers: [ToolMarker.ContextBuilding],
+    outputGuidance: 'edit_memory',
+    requiredServices: ['memoryManager'],
+  },
+
+  [ToolName.FIND_KNOWLEDGE_TOPICS]: {
+    factory: () => createFindKnowledgeTopicsTool(),
+    markers: [ToolMarker.ContextBuilding, ToolMarker.Discovery],
+    outputGuidance: 'find_knowledge_topics',
+    requiredServices: [], // Uses DirectoryManager for file operations
   },
 
   [ToolName.GLOB_FILES]: {
@@ -127,10 +167,24 @@ export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
     requiredServices: ['processService'],
   },
 
+  [ToolName.LIST_MEMORIES]: {
+    factory: (services) => createListMemoriesTool(getRequiredService(services.memoryManager, 'memoryManager')),
+    markers: [ToolMarker.ContextBuilding, ToolMarker.Discovery],
+    outputGuidance: 'list_memories',
+    requiredServices: ['memoryManager'],
+  },
+
   [ToolName.READ_FILE]: {
     factory: (services) => createReadFileTool(getRequiredService(services.fileSystemService, 'fileSystemService')),
     markers: [ToolMarker.Core, ToolMarker.Discovery],
     requiredServices: ['fileSystemService'],
+  },
+
+  [ToolName.READ_MEMORY]: {
+    factory: (services) => createReadMemoryTool(getRequiredService(services.memoryManager, 'memoryManager')),
+    markers: [ToolMarker.ContextBuilding, ToolMarker.Discovery],
+    outputGuidance: 'read_memory',
+    requiredServices: ['memoryManager'],
   },
 
   [ToolName.SEARCH_HISTORY]: {
@@ -139,15 +193,16 @@ export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
     requiredServices: [], // No services required yet (stub implementation)
   },
 
-  [ToolName.SEGMENT_CONVERSATION]: {
-    factory: () => createSegmentConversationTool(),
-    markers: [ToolMarker.ContextBuilding],
-    requiredServices: [], // No services required (validates user-created episodes)
-  },
-
   [ToolName.WRITE_FILE]: {
     factory: (services) => createWriteFileTool(getRequiredService(services.fileSystemService, 'fileSystemService')),
     markers: [ToolMarker.Modification],
     requiredServices: ['fileSystemService'],
+  },
+
+  [ToolName.WRITE_MEMORY]: {
+    factory: (services) => createWriteMemoryTool(getRequiredService(services.memoryManager, 'memoryManager')),
+    markers: [ToolMarker.ContextBuilding],
+    outputGuidance: 'write_memory',
+    requiredServices: ['memoryManager'],
   },
 }

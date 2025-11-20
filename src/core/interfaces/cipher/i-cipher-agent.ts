@@ -71,4 +71,9 @@ export interface ICipherAgent {
    * Must be called before execute()
    */
   start(): Promise<void>
+
+  /**
+   * Stops the agent and clean up resources.
+   */
+  stop: () => Promise<void>
 }

@@ -10,6 +10,10 @@ export const BULLETS_DIR = 'bullets'
 export const PLAYBOOK_FILE = 'playbook.json'
 export const PROJECT = 'byterover'
 
+// Context Tree directory structure constants
+export const CONTEXT_TREE_DIR = 'context-tree'
+export const CONTEXT_FILE = 'context.md'
+
 /**
  * Default ByteRover branch name for memory storage.
  * This is ByteRover's internal branching mechanism, not Git branches.

@@ -35,19 +35,9 @@ export function createBashOutputTool(processService: IProcessService): Tool {
   return {
     description: `Retrieve output from a background process started by bash_exec.
 
-Features:
-- Returns new output since last read (incremental)
-- Reading output clears the buffer (output returned only once)
-- Shows process status (running/completed/failed)
-- Includes exit code and duration when completed
+Returns new output since last read (incremental). Reading output clears the buffer, so output is returned only once. Shows process status (running/completed/failed) and includes exit code and duration when completed.
 
-Usage:
-1. Start a background process with bash_exec (runInBackground: true)
-2. Use the returned processId with this tool to retrieve output
-3. Call repeatedly to get incremental output as process runs
-4. Process automatically cleaned up 1 hour after completion
-
-Note: Output is truncated if it exceeds buffer limit (default 1MB).`,
+**IMPORTANT:** Output is truncated if it exceeds buffer limit (default 1MB). Process is automatically cleaned up 1 hour after completion.`,
 
     async execute(input: unknown, _context?: ToolExecutionContext) {
       const {processId} = input as BashOutputInput

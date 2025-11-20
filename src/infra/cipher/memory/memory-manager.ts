@@ -84,7 +84,7 @@ const CreateMemoryInputSchema = z
       .array(z.string().min(1).max(MAX_TAG_LENGTH))
       .max(MAX_TAGS)
       .optional()
-      .describe('Optional tags'),
+      .describe('Optional tags for categorization'),
   })
   .strict()
   .describe('Input for creating a new memory');
@@ -103,11 +103,6 @@ const UpdateMemoryInputSchema = z
     metadata: MemoryMetadataSchema.optional().describe(
       'Updated metadata (merges with existing)',
     ),
-    tags: z
-      .array(z.string().min(1).max(MAX_TAG_LENGTH))
-      .max(MAX_TAGS)
-      .optional()
-      .describe('Updated tags (replaces existing)'),
   })
   .strict()
   .describe('Input for updating an existing memory');
@@ -118,7 +113,6 @@ const ListMemoriesOptionsSchema = z
     offset: z.number().int().nonnegative().optional().describe('Skip first N results'),
     pinned: z.boolean().optional().describe('Filter by pinned status'),
     source: MemorySourceSchema.optional().describe('Filter by source'),
-    tags: z.array(z.string()).optional().describe('Filter by tags'),
   })
   .strict()
   .describe('Options for listing memories');
@@ -130,7 +124,7 @@ const ListMemoriesOptionsSchema = z
  * - Store and retrieve memories using BlobStorage
  * - Validate memory data using embedded Zod schemas
  * - Generate unique IDs for memories
- * - Filter and search memories by tags, source, and pinned status
+ * - Filter and search memories by source and pinned status
  * - Sort memories by recency (updatedAt descending)
  * - Manage blob attachments
  *
@@ -465,13 +459,6 @@ export class MemoryManager {
       // Apply filters
       let filtered = memories;
 
-      // Filter by tags (OR logic - match any of the provided tags)
-      if (validatedOptions.tags && validatedOptions.tags.length > 0) {
-        filtered = filtered.filter((m: Memory) =>
-          m.tags?.some((tag: string) => validatedOptions.tags!.includes(tag)),
-        );
-      }
-
       // Filter by source
       if (validatedOptions.source) {
         filtered = filtered.filter((m: Memory) => m.metadata?.source === validatedOptions.source);
@@ -541,7 +528,6 @@ export class MemoryManager {
       ...existing,
       content:
         validatedInput.content === undefined ? existing.content : validatedInput.content,
-      tags: validatedInput.tags === undefined ? existing.tags : validatedInput.tags,
       updatedAt: Date.now(),
     };
 

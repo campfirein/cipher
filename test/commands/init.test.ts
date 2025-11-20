@@ -6,6 +6,7 @@ import sinon, {restore, stub} from 'sinon'
 
 import type {Space} from '../../src/core/domain/entities/space.js'
 import type {Team} from '../../src/core/domain/entities/team.js'
+import type {IContextTreeService} from '../../src/core/interfaces/i-context-tree-service.js'
 import type {IPlaybookService} from '../../src/core/interfaces/i-playbook-service.js'
 import type {IProjectConfigStore} from '../../src/core/interfaces/i-project-config-store.js'
 import type {ISpaceService} from '../../src/core/interfaces/i-space-service.js'
@@ -29,6 +30,7 @@ class TestableInit extends Init {
   // eslint-disable-next-line max-params
   constructor(
     private readonly mockConfigStore: IProjectConfigStore,
+    private readonly mockContextTreeService: IContextTreeService,
     private readonly mockPlaybookService: IPlaybookService,
     private readonly mockSpaceService: ISpaceService,
     private readonly mockTeamService: ITeamService,
@@ -55,6 +57,7 @@ class TestableInit extends Init {
 
   protected createServices() {
     return {
+      contextTreeService: this.mockContextTreeService,
       playbookService: this.mockPlaybookService,
       projectConfigStore: this.mockConfigStore,
       spaceService: this.mockSpaceService,
@@ -92,6 +95,7 @@ class TestableInit extends Init {
 describe('Init Command', () => {
   let config: Config
   let configStore: sinon.SinonStubbedInstance<IProjectConfigStore>
+  let contextTreeService: sinon.SinonStubbedInstance<IContextTreeService>
   let playbookService: sinon.SinonStubbedInstance<IPlaybookService>
   let runCommandStub: sinon.SinonStub
   let spaceService: sinon.SinonStubbedInstance<ISpaceService>
@@ -130,6 +134,11 @@ describe('Init Command', () => {
       exists: stub(),
       read: stub(),
       write: stub(),
+    }
+
+    contextTreeService = {
+      exists: stub(),
+      initialize: stub<[directory?: string], Promise<string>>().resolves('/test/.brv/context-tree'),
     }
 
     playbookService = {
@@ -189,6 +198,7 @@ describe('Init Command', () => {
 
       const command = new TestableInit(
         configStore,
+        contextTreeService,
         playbookService,
         spaceService,
         teamService,
@@ -212,6 +222,7 @@ describe('Init Command', () => {
 
       const command = new TestableInit(
         configStore,
+        contextTreeService,
         playbookService,
         spaceService,
         teamService,
@@ -247,6 +258,7 @@ describe('Init Command', () => {
 
       const command = new TestableInit(
         configStore,
+        contextTreeService,
         playbookService,
         spaceService,
         teamService,
@@ -273,6 +285,7 @@ describe('Init Command', () => {
 
       const command = new TestableInit(
         configStore,
+        contextTreeService,
         playbookService,
         spaceService,
         teamService,
@@ -298,6 +311,7 @@ describe('Init Command', () => {
 
       const command = new TestableInit(
         configStore,
+        contextTreeService,
         playbookService,
         spaceService,
         teamService,
@@ -324,6 +338,7 @@ describe('Init Command', () => {
 
       const command = new TestableInit(
         configStore,
+        contextTreeService,
         playbookService,
         spaceService,
         teamService,
@@ -356,6 +371,7 @@ describe('Init Command', () => {
 
       const command = new TestableInit(
         configStore,
+        contextTreeService,
         playbookService,
         spaceService,
         teamService,
@@ -380,6 +396,7 @@ describe('Init Command', () => {
 
       const command = new TestableInit(
         configStore,
+        contextTreeService,
         playbookService,
         spaceService,
         teamService,
@@ -407,6 +424,7 @@ describe('Init Command', () => {
 
       const command = new TestableInit(
         configStore,
+        contextTreeService,
         playbookService,
         spaceService,
         teamService,
@@ -435,6 +453,7 @@ describe('Init Command', () => {
 
       const command = new TestableInit(
         configStore,
+        contextTreeService,
         playbookService,
         spaceService,
         teamService,
@@ -463,6 +482,7 @@ describe('Init Command', () => {
 
       const command = new TestableInit(
         configStore,
+        contextTreeService,
         playbookService,
         spaceService,
         teamService,
@@ -488,6 +508,7 @@ describe('Init Command', () => {
 
       const command = new TestableInit(
         configStore,
+        contextTreeService,
         playbookService,
         spaceService,
         teamService,
@@ -513,6 +534,7 @@ describe('Init Command', () => {
 
       const command = new TestableInit(
         configStore,
+        contextTreeService,
         playbookService,
         spaceService,
         teamService,
@@ -539,6 +561,7 @@ describe('Init Command', () => {
 
       const command = new TestableInit(
         configStore,
+        contextTreeService,
         playbookService,
         spaceService,
         teamService,
@@ -566,6 +589,7 @@ describe('Init Command', () => {
 
       const command = new TestableInit(
         configStore,
+        contextTreeService,
         playbookService,
         spaceService,
         teamService,
@@ -597,6 +621,7 @@ describe('Init Command', () => {
 
       const command = new TestableInit(
         configStore,
+        contextTreeService,
         playbookService,
         spaceService,
         teamService,
@@ -626,6 +651,7 @@ describe('Init Command', () => {
 
       const command = new TestableInit(
         configStore,
+        contextTreeService,
         playbookService,
         spaceService,
         teamService,
@@ -657,6 +683,7 @@ describe('Init Command', () => {
 
       const command = new TestableInit(
         configStore,
+        contextTreeService,
         playbookService,
         spaceService,
         teamService,
@@ -685,6 +712,7 @@ describe('Init Command', () => {
 
       const command = new TestableInit(
         configStore,
+        contextTreeService,
         playbookService,
         spaceService,
         teamService,
@@ -714,6 +742,7 @@ describe('Init Command', () => {
 
       const command = new TestableInit(
         configStore,
+        contextTreeService,
         playbookService,
         spaceService,
         teamService,

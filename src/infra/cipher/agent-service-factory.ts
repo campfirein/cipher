@@ -3,7 +3,11 @@ import {join} from 'node:path'
 import type {FileSystemConfig} from '../../core/domain/cipher/file-system/types.js'
 import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
 import type {CipherAgentServices, SessionServices} from '../../core/interfaces/cipher/cipher-services.js'
+import type {ICodingAgentLogParser} from '../../core/interfaces/cipher/i-coding-agent-log-parser.js'
+import type {ICodingAgentLogWatcher} from '../../core/interfaces/cipher/i-coding-agent-log-watcher.js'
+import type {IFileWatcherService} from '../../core/interfaces/i-file-watcher-service.js'
 
+import {FileWatcherService} from '../watcher/file-watcher-service.js'
 import {FileBlobStorage} from './blob/file-blob-storage.js'
 import {AgentEventBus, SessionEventBus} from './events/event-emitter.js'
 import {FileSystemService} from './file-system/file-system-service.js'
@@ -11,11 +15,13 @@ import {ByteRoverLlmGrpcService} from './grpc/internal-llm-grpc-service.js'
 import {ByteRoverLLMService} from './llm/internal-llm-service.js'
 import {OpenRouterLLMService} from './llm/openrouter-llm-service.js'
 import {MemoryManager} from './memory/memory-manager.js'
+import {StubCodingAgentLogParser} from './parsers/stub-coding-agent-log-parser.js'
 import {ProcessService} from './process/process-service.js'
 import {BlobHistoryStorage} from './storage/blob-history-storage.js'
 import {SimplePromptFactory} from './system-prompt/simple-prompt-factory.js'
 import {ToolManager} from './tools/tool-manager.js'
 import {ToolProvider} from './tools/tool-provider.js'
+import {CodingAgentLogWatcher} from './watcher/coding-agent-log-watcher.js'
 
 /**
  * LLM configuration for CipherAgent
@@ -36,6 +42,11 @@ export interface CipherLLMConfig {
   siteName?: string
   temperature?: number
   verbose?: boolean
+  // TODO: This wil be refactored to 2 separate configs once everything is integrated
+  // - user's selected coding agents in brv config.json
+  // - coding agents' specific log paths
+  /** Paths to watch for coding agent log files (for learning from user interactions) */
+  watchPaths?: string[]
 }
 
 /**
@@ -51,7 +62,11 @@ export interface ByteRoverGrpcConfig {
 }
 
 // Re-export service types for convenience
-export type {CipherAgentServices, SessionManagerConfig, SessionServices} from '../../core/interfaces/cipher/cipher-services.js'
+export type {
+  CipherAgentServices,
+  SessionManagerConfig,
+  SessionServices,
+} from '../../core/interfaces/cipher/cipher-services.js'
 
 /**
  * Creates shared services for CipherAgent.
@@ -101,29 +116,39 @@ export async function createCipherAgentServices(
   // 5. Memory system (depends on BlobStorage)
   const memoryManager = new MemoryManager(blobStorage)
 
-  // 6. Create a stub ContextManager for ContextTreeService initialization
-  // Note: This is a placeholder. The actual ContextManager is session-specific
-  // and is accessed via LLM service's getContextManager() at runtime
+  // 6. Simple prompt factory - SHARED across sessions
+  // Created early so it can be used by ToolProvider
+  const verbose = llmConfig.verbose ?? false
+  const promptFactory = new SimplePromptFactory(undefined, verbose)
 
-  // 7. Tool system (depends on FileSystemService, ProcessService, ContextTreeService)
-  const toolProvider = new ToolProvider({
-    fileSystemService,
-    processService,
-  })
+  // 7. Tool system (depends on FileSystemService, ProcessService, MemoryManager, PromptFactory)
+  const toolProvider = new ToolProvider(
+    {
+      fileSystemService,
+      memoryManager,
+      processService,
+    },
+    promptFactory,
+  )
   await toolProvider.initialize()
   const toolManager = new ToolManager(toolProvider)
   await toolManager.initialize()
 
-  // 8. Simple prompt factory - SHARED across sessions
-  const verbose = llmConfig.verbose ?? false
-  const promptFactory = new SimplePromptFactory(undefined, verbose)
-
   // 9. History storage (depends on BlobStorage) - SHARED across sessions
   const historyStorage = new BlobHistoryStorage(blobStorage)
+
+  // 9. Coding agent log watcher
+  let codingAgentLogWatcher: ICodingAgentLogWatcher | undefined
+  if (llmConfig.watchPaths && llmConfig.watchPaths.length > 0) {
+    const fileWatcherService: IFileWatcherService = new FileWatcherService()
+    const parser: ICodingAgentLogParser = new StubCodingAgentLogParser()
+    codingAgentLogWatcher = new CodingAgentLogWatcher(fileWatcherService, parser)
+  }
 
   return {
     agentEventBus,
     blobStorage,
+    codingAgentLogWatcher,
     fileSystemService,
     historyStorage,
     memoryManager,

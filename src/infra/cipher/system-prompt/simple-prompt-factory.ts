@@ -1,9 +1,9 @@
-import {load as loadYaml} from 'js-yaml'
+import { load as loadYaml } from 'js-yaml'
 import fs from 'node:fs'
 import path from 'node:path'
-import {fileURLToPath} from 'node:url'
+import { fileURLToPath } from 'node:url'
 
-import type {MemoryManager} from '../memory/memory-manager.js'
+import type { MemoryManager } from '../memory/memory-manager.js'
 
 /**
  * Simple prompt configuration loaded from YAML
@@ -12,6 +12,7 @@ export interface PromptConfig {
   description?: string
   excluded_tools?: string[]
   prompt: string
+  prompts?: Record<string, string>
 }
 
 /**
@@ -20,7 +21,7 @@ export interface PromptConfig {
 export interface BuildContext {
   availableMarkers?: Record<string, string>
   availableTools?: string[]
-  conversationMetadata?: {conversationId?: string; title?: string}
+  conversationMetadata?: { conversationId?: string; title?: string }
   memoryManager?: MemoryManager
   mode?: 'default' | 'json-input'
 }
@@ -108,6 +109,46 @@ export class SimplePromptFactory {
   }
 
   /**
+   * Get tool-specific output guidance for a tool
+   *
+   * @param toolName - The name of the tool (e.g., 'write_memory')
+   * @returns The guidance text if available, null otherwise
+   */
+  public getToolOutputGuidance(toolName: string): null | string {
+    try {
+      // Load tool-outputs.yml
+      const toolOutputsConfig = this.loadPrompt('tool-outputs.yml')
+
+      // Check if prompts section exists and has the requested prompt
+      if (toolOutputsConfig.prompts) {
+        const promptKey = `${toolName}_output`
+        const guidance = toolOutputsConfig.prompts[promptKey]
+
+        if (guidance) {
+          if (this.verbose) {
+            console.log(`[PromptDebug:SimpleFactory] Found tool guidance for: ${toolName}`)
+          }
+
+          return guidance
+        }
+      }
+
+      if (this.verbose) {
+        console.log(`[PromptDebug:SimpleFactory] No tool guidance found for: ${toolName}`)
+      }
+
+      return null
+    } catch (error) {
+      // If tool-outputs.yml doesn't exist or can't be loaded, return null
+      if (this.verbose) {
+        console.log(`[PromptDebug:SimpleFactory] Error loading tool guidance: ${error}`)
+      }
+
+      return null
+    }
+  }
+
+  /**
    * Format memories for inclusion in system prompt
    *
    * @param memoryManager - Memory manager instance
@@ -115,7 +156,7 @@ export class SimplePromptFactory {
    */
   private async formatMemories(memoryManager: MemoryManager): Promise<string> {
     try {
-      const memories = await memoryManager.list({limit: 20})
+      const memories = await memoryManager.list({ limit: 20 })
       if (!memories || memories.length === 0) {
         return ''
       }

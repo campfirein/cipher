@@ -1,0 +1,37 @@
+description: "Tool-specific output guidance prompts for Cipher agent"
+prompts:
+  write_memory_output: |
+    Memory saved successfully. You can reference this memory later using its ID.
+    Consider whether you have gathered enough context to proceed with your task,
+    or if you need to continue exploring and storing more information.
+
+  read_memory_output: |
+    You have retrieved the memory content. Use this information to inform your
+    next steps. Consider if you need to read additional memories or if you can
+    now proceed with using this context.
+
+  list_memories_output: |
+    You have retrieved the list of available memories. Review the content previews
+    to understand what context is already stored. Use read_memory to get full details
+    of relevant memories, or proceed with your task if the previews are sufficient.
+
+  edit_memory_output: |
+    Memory updated successfully. The changes have been persisted and will be
+    available in future sessions. Continue with your task using the updated context.
+
+  delete_memory_output: |
+    Memory deleted successfully. The scratch pad has been cleaned up.
+    Continue with your task or manage additional memories as needed.
+
+  detect_domains_output: |
+    You have successfully detected knowledge domains in the input data.
+    Now you should use the create_knowledge_topic tool to create organized topics
+    for each domain under the .brv/context-tree/ directory. Structure them
+    hierarchically based on their relationships and importance.
+
+  create_knowledge_topic_output: |
+    Knowledge topic created successfully. Consider if you need to:
+    - Create related sub-topics for more detailed organization
+    - Read existing context to understand the current structure
+    - Create additional topics for other domains you detected
+    - Proceed with populating this topic with relevant information
