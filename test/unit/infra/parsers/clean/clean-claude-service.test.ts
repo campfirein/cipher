@@ -30,7 +30,7 @@ describe('ClaudeCleanService', () => {
   })
 
   describe('parse', () => {
-    it('should successfully parse raw directory with sessions', async () => {
+    it('should return array of CleanSession for valid sessions', async () => {
       const inputDir = join(tempDir, 'raw')
       const workspaceDir = join(inputDir, 'workspace-hash')
       fs.mkdirSync(workspaceDir, { recursive: true })
@@ -60,18 +60,32 @@ describe('ClaudeCleanService', () => {
       )
 
       const result = await service.parse(inputDir)
-      expect(result).to.be.true
+
+      // Should return array instead of boolean
+      expect(Array.isArray(result)).to.be.true
+      expect(result.length).to.be.greaterThan(0)
+
+      // Verify CleanSession structure
+      const session = result[0]
+      expect(session).to.have.property('id')
+      expect(session).to.have.property('messages')
+      expect(session).to.have.property('timestamp')
+      expect(session).to.have.property('title')
+      expect(session).to.have.property('type')
+      expect(session.type).to.equal('Claude')
     })
 
-    it('should handle directory with no sessions', async () => {
+    it('should return empty array for directory with no sessions', async () => {
       const inputDir = join(tempDir, 'raw')
       fs.mkdirSync(inputDir, { recursive: true })
 
       const result = await service.parse(inputDir)
-      expect(result).to.be.true
+
+      expect(Array.isArray(result)).to.be.true
+      expect(result).to.have.length(0)
     })
 
-    it('should handle parse errors gracefully', async () => {
+    it('should skip invalid JSON files and continue parsing', async () => {
       const inputDir = join(tempDir, 'raw')
       const workspaceDir = join(inputDir, 'workspace-hash')
       fs.mkdirSync(workspaceDir, { recursive: true })
@@ -82,9 +96,48 @@ describe('ClaudeCleanService', () => {
         'invalid json'
       )
 
-      // Parse still succeeds because it catches errors and continues
+      // Create valid session file
+      const validSessionData = {
+        id: 'session-2',
+        messages: [{content: 'Test', timestamp: new Date().toISOString(), type: 'user'}],
+        timestamp: Date.now(),
+        title: 'Valid Session'
+      }
+      fs.writeFileSync(
+        join(workspaceDir, 'session-2.json'),
+        JSON.stringify(validSessionData)
+      )
+
+      // Parse should skip invalid and return valid sessions
       const result = await service.parse(inputDir)
-      expect(result).to.be.true
+      expect(Array.isArray(result)).to.be.true
+      expect(result.length).to.be.greaterThan(0)
+    })
+
+    it('should not write files to disk', async () => {
+      const inputDir = join(tempDir, 'raw')
+      const workspaceDir = join(inputDir, 'workspace-hash')
+      fs.mkdirSync(workspaceDir, { recursive: true })
+
+      // Create a sample session file
+      const sessionData = {
+        id: 'session-3',
+        messages: [{content: 'Test', timestamp: new Date().toISOString(), type: 'user'}],
+        timestamp: Date.now(),
+        title: 'Test Session'
+      }
+      fs.writeFileSync(
+        join(workspaceDir, 'session-3.json'),
+        JSON.stringify(sessionData)
+      )
+
+      // Spy on writeFile to ensure it's NOT called
+      const writeFileSpy = sinon.spy(fs.promises, 'writeFile')
+
+      await service.parse(inputDir)
+
+      expect(writeFileSpy).to.not.have.been.called
+      writeFileSpy.restore()
     })
   })
 
