@@ -1,8 +1,13 @@
+// @ts-expect-error - Internal SDK path not exported in package.json, but exists and works at runtime
+import type {RequestOptions} from '@anthropic-ai/sdk/internal/request-options'
+import type {Tool as ClaudeTool, MessageCreateParamsNonStreaming, MessageParam} from '@anthropic-ai/sdk/resources/messages'
 import type {Content, GenerateContentConfig} from '@google/genai'
 
 import type {JSONSchema7, ToolSet} from '../../../core/domain/cipher/tools/types.js'
 import type {IHistoryStorage} from '../../../core/interfaces/cipher/i-history-storage.js'
 import type {ILLMService} from '../../../core/interfaces/cipher/i-llm-service.js'
+import type {IMessageFormatter} from '../../../core/interfaces/cipher/i-message-formatter.js'
+import type {ITokenizer} from '../../../core/interfaces/cipher/i-tokenizer.js'
 import type {InternalMessage, ToolCall} from '../../../core/interfaces/cipher/message-types.js'
 import type {MemoryManager} from '../memory/memory-manager.js'
 import type {SimplePromptFactory} from '../system-prompt/simple-prompt-factory.js'
@@ -16,7 +21,9 @@ import {
 import {SessionEventBus} from '../events/event-emitter.js'
 import {ByteRoverLlmGrpcService} from '../grpc/internal-llm-grpc-service.js'
 import {ContextManager, type FileData, type ImageData} from './context/context-manager.js'
+import {ClaudeMessageFormatter} from './formatters/claude-formatter.js'
 import {GeminiMessageFormatter} from './formatters/gemini-formatter.js'
+import {ClaudeTokenizer} from './tokenizers/claude-tokenizer.js'
 import {GeminiTokenizer} from './tokenizers/gemini-tokenizer.js'
 
 
@@ -61,7 +68,7 @@ interface ToolDefinition {
  * - Manage conversation context via ContextManager
  * - Execute agentic loop (call LLM → execute tools → repeat)
  * - Delegate tool execution to ToolManager
- * - Format messages for ByteRover gRPC API via formatter
+ * - Format messages for ByteRover gRPC API via formatter (Gemini or Claude)
  * - Handle errors and iteration limits
  *
  * Does NOT:
@@ -79,13 +86,14 @@ export class ByteRoverLLMService implements ILLMService {
     timeout?: number
     verbose: boolean
   }
-  private readonly contextManager: ContextManager<Content>
-  private readonly formatter: GeminiMessageFormatter
+  private readonly contextManager: ContextManager<Content | MessageParam>
+  private readonly formatter: IMessageFormatter<Content | MessageParam>
   private readonly memoryManager?: MemoryManager
   private readonly promptFactory: SimplePromptFactory
   private readonly provider: ByteRoverLlmGrpcService
+  private readonly providerType: 'claude' | 'gemini'
   private readonly sessionEventBus: SessionEventBus
-  private readonly tokenizer: GeminiTokenizer
+  private readonly tokenizer: ITokenizer
   private readonly toolManager: ToolManager
 
   /**
@@ -93,7 +101,7 @@ export class ByteRoverLLMService implements ILLMService {
    *
    * Sets up the service with all required dependencies and initializes:
    * - Context manager for conversation history
-   * - Message formatter (Gemini format)
+   * - Message formatter (Gemini or Claude format based on model)
    * - Token counter/tokenizer for the selected model
    * - Configuration with sensible defaults
    *
@@ -137,9 +145,17 @@ export class ByteRoverLLMService implements ILLMService {
       verbose: config.verbose ?? false,
     }
 
-    // Initialize formatter and tokenizer
-    this.formatter = new GeminiMessageFormatter()
-    this.tokenizer = new GeminiTokenizer(this.config.model)
+    // Detect provider type from model name
+    this.providerType = this.detectProviderType(this.config.model)
+
+    // Initialize formatter and tokenizer based on provider type
+    if (this.providerType === 'claude') {
+      this.formatter = new ClaudeMessageFormatter()
+      this.tokenizer = new ClaudeTokenizer(this.config.model)
+    } else {
+      this.formatter = new GeminiMessageFormatter()
+      this.tokenizer = new GeminiTokenizer(this.config.model)
+    }
 
     // Initialize context manager with optional history storage
     this.contextManager = new ContextManager({
@@ -280,23 +296,43 @@ export class ByteRoverLLMService implements ILLMService {
   }
 
   /**
-   * Build the generation configuration for the ByteRover gRPC API call.
+   * Build Claude-specific generation configuration.
    *
-   * Constructs the complete generation parameters including:
-   * - Output token limit (from config)
-   * - Temperature/sampling parameters
-   * - System instruction from the prompt manager
-   * - Available tools for function calling
+   * For Claude, the config includes BOTH messages and generation parameters
+   * since Claude's SDK expects everything in the first parameter (MessageCreateParams).
    *
-   * This configuration is passed to the provider and controls how the LLM
-   * generates responses. It bridges between service configuration and
-   * the provider's expected format.
-   *
-   * @param tools - List of tool definitions available to the LLM
-   * @param systemPrompt - System prompt text to guide LLM behavior
-   * @returns Complete generation configuration for gRPC API
+   * @param tools - Available tool definitions
+   * @param systemPrompt - System prompt (passed in config.system)
+   * @param messages - Formatted messages (included in config for Claude)
+   * @returns Complete Claude API request body (MessageCreateParamsNonStreaming)
    */
-  private buildGenerationConfig(tools: ToolDefinition[], systemPrompt: string): GenerateContentConfig {
+  private buildClaudeConfig(tools: ToolDefinition[], systemPrompt: string, messages: MessageParam[]): MessageCreateParamsNonStreaming {
+    /* eslint-disable camelcase */
+    const claudeTools: ClaudeTool[] = tools.map((tool) => ({
+      input_schema: tool.parameters as ClaudeTool.InputSchema,
+      name: tool.name,
+      ...(tool.description && {description: tool.description}),
+    }))
+
+    return {
+      max_tokens: this.config.maxTokens,
+      messages,  // Messages array is part of the config for Claude
+      model: this.config.model,  // Model is also part of the body
+      system: systemPrompt,
+      temperature: this.config.temperature,
+      ...(claudeTools.length > 0 && {tools: claudeTools}),
+    }
+    /* eslint-enable camelcase */
+  }
+
+  /**
+   * Build Gemini-specific generation configuration.
+   *
+   * @param tools - Available tool definitions
+   * @param systemPrompt - System prompt (passed in systemInstruction)
+   * @returns Gemini API configuration object
+   */
+  private buildGeminiConfig(tools: ToolDefinition[], systemPrompt: string): GenerateContentConfig {
     return {
       maxOutputTokens: this.config.maxTokens,
       temperature: this.config.temperature,
@@ -317,15 +353,64 @@ export class ByteRoverLLMService implements ILLMService {
   }
 
   /**
+   * Build the generation configuration for the ByteRover gRPC API call.
+   *
+   * Constructs the complete generation parameters including:
+   * - Output token limit (from config)
+   * - Temperature/sampling parameters
+   * - System instruction from the prompt manager
+   * - Available tools for function calling
+   *
+   * For Claude: messages are included in the config (merged into body)
+   * For Gemini: messages are passed separately
+   *
+   * This configuration is passed to the provider and controls how the LLM
+   * generates responses. It bridges between service configuration and
+   * the provider's expected format.
+   *
+   * @param tools - List of tool definitions available to the LLM
+   * @param systemPrompt - System prompt text to guide LLM behavior
+   * @param messages - Formatted messages (for Claude, these are merged into config)
+   * @returns Complete generation configuration for gRPC API (Gemini or Claude format)
+   */
+  private buildGenerationConfig(
+    tools: ToolDefinition[],
+    systemPrompt: string,
+    messages: Content[] | MessageParam[]
+  ): GenerateContentConfig | MessageCreateParamsNonStreaming {
+    if (this.providerType === 'claude') {
+      return this.buildClaudeConfig(tools, systemPrompt, messages as MessageParam[])
+    }
+
+    return this.buildGeminiConfig(tools, systemPrompt)
+  }
+
+  /**
    * Call LLM and parse the response.
    *
-   * @param genConfig - Generation configuration
-   * @param formattedMessages - Formatted messages to send
+   * Parameter structure differs by provider:
+   * - Gemini: contents = formattedMessages, config = genConfig
+   * - Claude: contents = genConfig (complete body), config = {} (empty RequestOptions)
+   *
+   * @param genConfig - For Gemini: GenerateContentConfig. For Claude: MessageCreateParamsNonStreaming (complete body)
+   * @param formattedMessages - Formatted messages (only used for Gemini; Claude has messages in genConfig)
    * @returns Last message from parsed response
    */
-  private async callLLMAndParseResponse(genConfig: GenerateContentConfig, formattedMessages: Content[]): Promise<InternalMessage> {
+  private async callLLMAndParseResponse(
+    genConfig: GenerateContentConfig | MessageCreateParamsNonStreaming,
+    formattedMessages: Content[] | MessageParam[],
+  ): Promise<InternalMessage> {
     // Call ByteRover gRPC API via provider
-    const response = await this.provider.generateContent(formattedMessages, genConfig, this.config.model)
+    // For Claude: pass genConfig as contents (complete body), config = {} (empty RequestOptions)
+    // For Gemini: pass formattedMessages as contents, genConfig as config
+    const contents = this.providerType === 'claude' ? genConfig : formattedMessages
+    const config = this.providerType === 'claude' ? {} as RequestOptions : genConfig
+
+    const response = await this.provider.generateContent(
+      contents as Content[] | MessageCreateParamsNonStreaming,
+      config as GenerateContentConfig | RequestOptions,
+      this.config.model,
+    )
 
     // Parse response to internal format
     const messages = this.formatter.parseResponse(response)
@@ -339,6 +424,16 @@ export class ByteRoverLLMService implements ILLMService {
     }
 
     return lastMessage
+  }
+
+  /**
+   * Detect provider type from model name.
+   *
+   * @param model - Model identifier
+   * @returns Provider type ('claude' or 'gemini')
+   */
+  private detectProviderType(model: string): 'claude' | 'gemini' {
+    return model.toLowerCase().startsWith('claude') ? 'claude' : 'gemini'
   }
 
   /**
@@ -397,14 +492,16 @@ export class ByteRoverLLMService implements ILLMService {
     // Log token usage for monitoring compression behavior
     console.log(`[ByteRoverLLMService] [Iter ${iterationCount + 1}/${this.config.maxIterations}] Sending to LLM: ${tokensUsed} tokens (max: ${this.config.maxInputTokens})`)
 
-    // Build generation config with system prompt
-    const genConfig = this.buildGenerationConfig(tools, systemPrompt)
+    // Build generation config with system prompt and messages
+    // For Claude: messages are included in the config
+    // For Gemini: messages are passed separately to the API call
+    const genConfig = this.buildGenerationConfig(tools, systemPrompt, formattedMessages)
 
     // Emit thinking event
     this.sessionEventBus.emit('llmservice:thinking')
 
     // Call LLM and parse response
-    const lastMessage = await this.callLLMAndParseResponse(genConfig, formattedMessages as Content[])
+    const lastMessage = await this.callLLMAndParseResponse(genConfig, formattedMessages)
 
     // Check if there are tool calls
     if (!lastMessage.toolCalls || lastMessage.toolCalls.length === 0) {
