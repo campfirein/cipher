@@ -1,4 +1,4 @@
-import {expect} from 'chai'
+import { expect } from 'chai'
 
 import {
   ChatSession,
@@ -92,7 +92,7 @@ describe('Session index exports', () => {
     it('should export IChatSession interface', () => {
       // Type check - if this compiles, the interface is exported
       const session: IChatSession = {
-        cancel() {},
+        cancel() { },
         getHistory() {
           return []
         },
@@ -103,7 +103,7 @@ describe('Session index exports', () => {
           return 0
         },
         id: 'test',
-        reset() {},
+        reset() { },
         async run() {
           return 'response'
         },
@@ -163,11 +163,11 @@ describe('Session index exports', () => {
     it('should export all 5 types', () => {
       // Types are checked above via type annotations
       // Cannot test types as values, but compilation ensures they exist
-      const message: Message = {content: 'test', role: 'user'}
+      const message: Message = { content: 'test', role: 'user' }
       const role: MessageRole = 'user'
-      const response: LLMResponse = {content: 'test'}
+      const response: LLMResponse = { content: 'test' }
       const config: SessionConfig = {}
-      const toolCall: ToolCall = {arguments: {}, id: '1', name: 'test'}
+      const toolCall: ToolCall = { arguments: {}, id: '1', name: 'test' }
       expect(message).to.exist
       expect(role).to.exist
       expect(response).to.exist
@@ -179,7 +179,7 @@ describe('Session index exports', () => {
       // Interfaces are checked above via type annotations
       // Cannot test interfaces as values, but compilation ensures they exist
       const session: IChatSession = {
-        cancel() {},
+        cancel() { },
         getHistory() {
           return []
         },
@@ -190,7 +190,7 @@ describe('Session index exports', () => {
           return 0
         },
         id: 'test',
-        reset() {},
+        reset() { },
         async run() {
           return 'response'
         },
@@ -223,4 +223,3 @@ describe('Session index exports', () => {
     })
   })
 })
-
