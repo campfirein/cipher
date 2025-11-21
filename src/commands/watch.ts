@@ -85,7 +85,7 @@ export default class Watch extends Command {
 
     try {
       // Set up file event handler with parsing pipeline
-      fileWatcherService.setFileEventHandler((event) => {
+      fileWatcherService.setFileEventHandler(async (event) => {
         this.log(`[${event.type}] ${event.path}`)
 
         // Only trigger parsing if IDE is configured
@@ -152,8 +152,8 @@ export default class Watch extends Command {
       let isRawSuccess = false
       try {
         // Cast is safe because we already validated with isSupported()
-         
-         isRawSuccess = await RawParserServiceFactory.parseConversations(ide, chatLogPath)
+
+        isRawSuccess = await RawParserServiceFactory.parseConversations(ide, chatLogPath)
       } catch (error) {
         this.warn(`⚠️ Raw parsing error: ${error instanceof Error ? error.message : String(error)}`)
         return
