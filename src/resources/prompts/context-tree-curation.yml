@@ -1,7 +1,7 @@
 description: "context tree curation instructions"
 prompt: |
 
-  Your task is to assemble relevant high-level information (context) about the chat history between the user and the coding assistant which will be saved to the context tree in the following steps.
+  Your task is to assemble relevant high-level information (context) from the input data which will be saved to the context tree in the following steps.
 
   The information should be sufficient to understand what the user has provided to the coding assistant as the important context so that the coding assistant can use it completed the task at hand.
   - the domains of the context
@@ -25,3 +25,4 @@ prompt: |
      - The context is concise and well-structured
      - There is no duplication with existing context
      - The information is clear and easy to understand
+     

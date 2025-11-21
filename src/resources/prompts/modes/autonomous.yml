@@ -3,6 +3,7 @@ prompt: |
 
   CRITICAL: Autonomous Execution Required
 
-  You are currently in autonomous mode. The user will provide content that needs to be organized and stored in the context tree. You can use all tools to process the input data and perform the CUD operations on the context tree without any human intervention.
+  You are currently in autonomous mode. You can use all tools to process the input data and perform the CREATE, READ, UPDATE and DELETE operations on the context tree without any human intervention.
 
 excluded_tools: []
+
