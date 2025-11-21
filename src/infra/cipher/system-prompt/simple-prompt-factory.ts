@@ -23,7 +23,7 @@ export interface BuildContext {
   availableTools?: string[]
   conversationMetadata?: { conversationId?: string; title?: string }
   memoryManager?: MemoryManager
-  mode?: 'default' | 'json-input'
+  mode?: 'autonomous' | 'default'
 }
 
 /**
@@ -94,9 +94,10 @@ export class SimplePromptFactory {
     let finalPrompt = this.renderTemplate(basePrompt.prompt, vars)
 
     // 5. Append mode-specific prompt if specified
-    if (context.mode === 'json-input') {
-      const modePrompt = this.loadPrompt('modes/json-input.yml')
-      finalPrompt = finalPrompt + '\n\n' + modePrompt.prompt
+    if (context.mode === 'autonomous') {
+      const modePrompt = this.loadPrompt('modes/autonomous.yml')
+      const curationPrompt = this.loadPrompt('context-tree-curation.yml')
+      finalPrompt = finalPrompt + '\n\n' + modePrompt.prompt + '\n\n' + curationPrompt.prompt
     }
 
     if (this.verbose) {

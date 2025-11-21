@@ -102,14 +102,14 @@ export class CipherAgent implements ICipherAgent {
    * @param input - User input string
    * @param sessionId - Optional session ID (uses 'default' if not provided)
    * @param options - Optional execution options
-   * @param options.mode - Optional mode for system prompt ('json-input' enables autonomous mode)
+   * @param options.mode - Optional mode for system prompt ('autonomous' enables autonomous mode)
    * @returns Agent response from LLM
    * @throws Error if agent is not started
    */
   public async execute(
     input: string,
     sessionId?: string,
-    options?: {mode?: 'default' | 'json-input'},
+    options?: {mode?: 'autonomous' | 'default'},
   ): Promise<string> {
     // Ensure agent is started
     this.ensureStarted()

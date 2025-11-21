@@ -1,6 +1,7 @@
 import type {Content, GenerateContentConfig} from '@google/genai'
 
 import type {JSONSchema7, ToolSet} from '../../../core/domain/cipher/tools/types.js'
+import type {ExecutionContext} from '../../../core/interfaces/cipher/i-cipher-agent.js'
 import type {IHistoryStorage} from '../../../core/interfaces/cipher/i-history-storage.js'
 import type {ILLMService} from '../../../core/interfaces/cipher/i-llm-service.js'
 import type {InternalMessage, ToolCall} from '../../../core/interfaces/cipher/message-types.js'
@@ -171,7 +172,7 @@ export class ByteRoverLLMService implements ILLMService {
    */
   public async completeTask(
     textInput: string,
-    options?: {fileData?: FileData; imageData?: ImageData; mode?: 'default' | 'json-input'; signal?: AbortSignal; stream?: boolean},
+    options?: {executionContext?: ExecutionContext; fileData?: FileData; imageData?: ImageData; mode?: 'autonomous' | 'default'; signal?: AbortSignal; stream?: boolean},
   ): Promise<string> {
     // Extract options with defaults
     const {fileData, imageData, mode, signal} = options ?? {}
@@ -352,7 +353,7 @@ export class ByteRoverLLMService implements ILLMService {
   private async executeAgenticIteration(
     iterationCount: number,
     tools: ToolDefinition[],
-    mode?: 'default' | 'json-input',
+    mode?: 'autonomous' | 'default',
   ): Promise<null | string> {
     // Build system prompt using SimplePromptFactory (before compression for correct token accounting)
     const availableTools = this.toolManager.getToolNames()

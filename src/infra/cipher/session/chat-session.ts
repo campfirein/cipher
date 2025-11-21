@@ -145,7 +145,7 @@ export class ChatSession implements IChatSession {
    * Send a message and get a response.
    * Delegates to the LLM service which handles the agentic loop.
    */
-  public async run(input: string, options?: {mode?: 'default' | 'json-input'}): Promise<string> {
+  public async run(input: string, options?: {mode?: 'autonomous' | 'default'}): Promise<string> {
     // Create abort controller for cancellation
     this.currentController = new AbortController()
 
