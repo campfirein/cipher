@@ -1,3 +1,4 @@
+import {Agent} from './agent.js'
 import {Space} from './space.js'
 
 /**
@@ -5,10 +6,13 @@ import {Space} from './space.js'
  * This config links a project directory to a ByteRover space.
  */
 export class BrvConfig {
+  public readonly chatLogPath: string
   public readonly cipherAgentContext?: string
   public readonly cipherAgentModes?: string[]
   public readonly cipherAgentSystemPrompt?: string
   public readonly createdAt: string
+  public readonly cwd: string
+  public readonly ide: Agent
   public readonly spaceId: string
   public readonly spaceName: string
   public readonly teamId: string
@@ -21,6 +25,9 @@ export class BrvConfig {
     spaceName: string,
     teamId: string,
     teamName: string,
+    ide: Agent,
+    chatLogPath: string,
+    cwd: string,
     cipherAgentSystemPrompt?: string,
     cipherAgentContext?: string,
     cipherAgentModes?: string[]
@@ -53,6 +60,9 @@ export class BrvConfig {
     this.spaceName = spaceName
     this.teamId = teamId
     this.teamName = teamName
+    this.ide = ide
+    this.chatLogPath = chatLogPath
+    this.cwd = cwd
   }
 
   /**
@@ -65,17 +75,35 @@ export class BrvConfig {
       json.spaceName as string,
       json.teamId as string,
       json.teamName as string,
+      json.ide as Agent,
+      json.chatLogPath as string,
+      json.cwd as string,
       json.cipherAgentSystemPrompt as string | undefined,
       json.cipherAgentContext as string | undefined,
-      json.cipherAgentModes as string[] | undefined
+      json.cipherAgentModes as string[] | undefined,
     )
   }
 
   /**
    * Creates a BrvConfig from a Space entity
    */
-  public static fromSpace(space: Space): BrvConfig {
-    return new BrvConfig(new Date().toISOString(), space.id, space.name, space.teamId, space.teamName)
+  public static fromSpace(
+    space: Space,
+    chatLogPath: string,
+    ide: Agent,
+    cwd: string,
+  ): BrvConfig {
+    return new BrvConfig(
+      new Date().toISOString(),
+      space.id,
+      space.name,
+      space.teamId,
+      space.teamName,
+      ide,
+      chatLogPath,
+      cwd,
+      undefined,
+    )
   }
 
   /**
@@ -83,10 +111,13 @@ export class BrvConfig {
    */
   public toJson(): Record<string, unknown> {
     const base = {
+      chatLogPath: this.chatLogPath,
       cipherAgentContext: this.cipherAgentContext,
       cipherAgentModes: this.cipherAgentModes,
       cipherAgentSystemPrompt: this.cipherAgentSystemPrompt,
       createdAt: this.createdAt,
+      cwd: this.cwd,
+      ide: this.ide,
       spaceId: this.spaceId,
       spaceName: this.spaceName,
       teamId: this.teamId,

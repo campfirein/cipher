@@ -1,8 +1,9 @@
 import type {Config} from '@oclif/core'
 
 import {expect} from 'chai'
-import {type SinonStub, stub} from 'sinon'
+import {restore, type SinonStub, stub} from 'sinon'
 
+import type {Agent} from '../../../src/core/domain/entities/agent.js'
 import type {IProjectConfigStore} from '../../../src/core/interfaces/i-project-config-store.js'
 import type {ISpaceService} from '../../../src/core/interfaces/i-space-service.js'
 import type {ITeamService} from '../../../src/core/interfaces/i-team-service.js'
@@ -50,6 +51,10 @@ class TestableSpaceSwitch extends SpaceSwitch {
 
   public log(): void {
     // Do nothing - suppress output
+  }
+
+  protected async promptForAgentSelection(): Promise<Agent> {
+    return 'Claude Code'
   }
 
   protected async promptForSpaceSelection(_spaces: Space[]): Promise<Space> {
@@ -160,13 +165,23 @@ describe('space:switch', () => {
       }),
     ]
 
-    currentConfig = new BrvConfig('2024-01-01T00:00:00.000Z', 'space-1', 'frontend-app', 'team-1', 'acme-corp')
+    currentConfig = new BrvConfig(
+      '2024-01-01T00:00:00.000Z',
+      'space-1',
+      'frontend-app',
+      'team-1',
+      'acme-corp',
+      'Claude Code' as Agent,
+      'chat.log',
+      '/test/cwd',
+    )
   })
 
   afterEach(() => {
-    // Restore ux.action stubs
+    // Restore all stubs
     uxActionStartStub.restore()
     uxActionStopStub.restore()
+    restore()
   })
 
   it('should error if project not initialized', async () => {
