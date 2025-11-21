@@ -16,3 +16,6 @@ pnpm-lock.yaml
 
 # TypeScript build info
 tsconfig.tsbuildinfo
+
+# ByteRover workspace (local development only)
+.brv/

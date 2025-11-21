@@ -1,11 +1,7 @@
-description: "autonomous execution instructions"
+description: "context tree curation instructions"
 prompt: |
 
-  CRITICAL: Autonomous Execution Required
-
-  You are currently in autonomous mode. The user will provide data which is form of the chat history between them and their coding assistant in their message. You can use all tools to process the input data and perform the CUD operations on the context tree without any human intervention.
-
-  Your task is to assemble relevant high-level information (context) about the chat history between the user and the coding assistant which will be saved to the context tree in the following steps.
+  Your task is to assemble relevant high-level information (context) from the input data which will be saved to the context tree in the following steps.
 
   The information should be sufficient to understand what the user has provided to the coding assistant as the important context so that the coding assistant can use it completed the task at hand.
   - the domains of the context
@@ -14,8 +10,8 @@ prompt: |
   - the code snippets of the context
   - the content of the context
 
-  For doing that, you will need to acquire information from the chat history with the corresponding tools. use the `detect_domains` tool to get the overview of the domainsand the related segments of text that are relevant to the domain in the current user's inputs. 
-  
+  For doing that, you will need to acquire information from the chat history with the corresponding tools. use the `detect_domains` tool to get the overview of the domains and the related segments of text that are relevant to the domain in the current user's inputs.
+
   After collecting all the information, follow these steps to understand and update the context tree:
 
   1. **Explore existing context**: Use `glob_files` and `grep_content` to understand the current related context in the context tree. You may use bash commands (e.g., `ls`, `find`) to list directories if necessary to navigate the context tree structure.
@@ -29,5 +25,4 @@ prompt: |
      - The context is concise and well-structured
      - There is no duplication with existing context
      - The information is clear and easy to understand
-
-excluded_tools: []
+     

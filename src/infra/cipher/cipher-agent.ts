@@ -2,7 +2,7 @@ import type {ParsedInteraction} from '../../core/domain/cipher/parsed-interactio
 import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
 import type {CipherAgentServices} from '../../core/interfaces/cipher/cipher-services.js'
 import type {IChatSession} from '../../core/interfaces/cipher/i-chat-session.js'
-import type {AgentState, ICipherAgent} from '../../core/interfaces/cipher/i-cipher-agent.js'
+import type {AgentState, ExecutionContext, ICipherAgent} from '../../core/interfaces/cipher/i-cipher-agent.js'
 import type {ICodingAgentLogWatcher} from '../../core/interfaces/cipher/i-coding-agent-log-watcher.js'
 import type {IHistoryStorage} from '../../core/interfaces/cipher/i-history-storage.js'
 import type {ByteRoverGrpcConfig, CipherLLMConfig} from './agent-service-factory.js'
@@ -102,14 +102,15 @@ export class CipherAgent implements ICipherAgent {
    * @param input - User input string
    * @param sessionId - Optional session ID (uses 'default' if not provided)
    * @param options - Optional execution options
-   * @param options.mode - Optional mode for system prompt ('json-input' enables autonomous mode)
+   * @param options.mode - Optional mode for system prompt ('autonomous' enables autonomous mode)
+   * @param options.executionContext - Optional execution context
    * @returns Agent response from LLM
    * @throws Error if agent is not started
    */
   public async execute(
     input: string,
     sessionId?: string,
-    options?: {mode?: 'default' | 'json-input'},
+    options?: {executionContext?: ExecutionContext; mode?: 'autonomous' | 'default' | 'query'},
   ): Promise<string> {
     // Ensure agent is started
     this.ensureStarted()
