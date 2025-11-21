@@ -42,6 +42,15 @@ class TestableAdd extends Add {
     throw new Error(errorMessage)
   }
 
+  // Override file system operations
+  protected getExistingDomains(): string[] {
+    return ['code_style', 'design']
+  }
+
+  protected getExistingTopics(_domain: string): string[] {
+    return ['formatting', 'naming']
+  }
+
   public getLogMessages(): string[] {
     return this.logMessages
   }
@@ -64,15 +73,6 @@ class TestableAdd extends Add {
 
   protected async promptForDomain(_existingDomains: string[]): Promise<string> {
     return this.mockDomain
-  }
-
-  // Override file system operations
-  protected getExistingDomains(): string[] {
-    return ['code_style', 'design']
-  }
-
-  protected getExistingTopics(_domain: string): string[] {
-    return ['formatting', 'naming']
   }
 
   protected async promptForTopic(_domain: string, _existingTopics: string[]): Promise<string> {

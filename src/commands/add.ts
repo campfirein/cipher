@@ -3,11 +3,12 @@ import {Args, Command, Flags} from '@oclif/core'
 import fs from 'node:fs'
 import path from 'node:path'
 
-import {getCurrentConfig} from '../config/environment.js'
-import {CONTEXT_TREE_DOMAINS} from '../config/context-tree-domains.js'
-import {PROJECT} from '../constants.js'
 import type {IProjectConfigStore} from '../core/interfaces/i-project-config-store.js'
 import type {ITrackingService} from '../core/interfaces/i-tracking-service.js'
+
+import {CONTEXT_TREE_DOMAINS} from '../config/context-tree-domains.js'
+import {getCurrentConfig} from '../config/environment.js'
+import {PROJECT} from '../constants.js'
 import {CipherAgent} from '../infra/cipher/cipher-agent.js'
 import {ExitCode, exitWithCode} from '../infra/cipher/exit-codes.js'
 import {WorkspaceNotInitializedError} from '../infra/cipher/validation/workspace-validator.js'
@@ -88,6 +89,58 @@ export default class Add extends Command {
   }
 
   /**
+   * Get existing domains from the context tree
+   */
+  protected getExistingDomains(): string[] {
+    try {
+      if (!fs.existsSync(CONTEXT_TREE_PATH)) {
+        return []
+      }
+
+      const entries = fs.readdirSync(CONTEXT_TREE_PATH, {withFileTypes: true})
+      return entries.filter((e) => e.isDirectory()).map((e) => e.name)
+    } catch {
+      return []
+    }
+  }
+
+  /**
+   * Get existing topics for a domain
+   */
+  protected getExistingTopics(domain: string): string[] {
+    try {
+      const domainPath = path.join(CONTEXT_TREE_PATH, domain)
+      if (!fs.existsSync(domainPath)) {
+        return []
+      }
+
+      const entries = fs.readdirSync(domainPath, {withFileTypes: true})
+      return entries.filter((e) => e.isDirectory()).map((e) => e.name)
+    } catch {
+      return []
+    }
+  }
+
+  /**
+   * Prompt user to confirm adding content
+   */
+  protected async promptForConfirmation(domain: string, topic: string, content: string): Promise<boolean> {
+    this.log('\nReview your content:')
+    this.log(`  Domain: ${domain}`)
+    this.log(`  Topic: ${topic}`)
+
+    const contentDisplay = content.length > 200 ? `${content.slice(0, 200)}...` : content
+    this.log(`  Content: ${contentDisplay}`)
+
+    const confirmed = await confirm({
+      default: true,
+      message: 'Add this content to the context tree?',
+    })
+
+    return confirmed
+  }
+
+  /**
    * Prompt user to enter content
    */
   protected async promptForContent(prefilled?: string): Promise<string> {
@@ -114,8 +167,8 @@ export default class Add extends Command {
   protected async promptForDomain(existingDomains: string[]): Promise<string> {
     const allDomains = [
       ...new Set([
-        ...existingDomains,
         ...CONTEXT_TREE_DOMAINS.map((d) => d.name),
+        ...existingDomains,
       ]),
     ]
 
@@ -142,7 +195,7 @@ export default class Add extends Command {
         )
 
         // Allow creating new domain
-        if (filtered.length === 0 || !filtered.find((d) => d.name === input)) {
+        if (filtered.length === 0 || !filtered.some((d) => d.name === input)) {
           filtered.unshift({description: undefined, name: input, value: input})
         }
 
@@ -178,56 +231,15 @@ export default class Add extends Command {
     return topic
   }
 
-  /**
-   * Prompt user to confirm adding content
-   */
-  protected async promptForConfirmation(domain: string, topic: string, content: string): Promise<boolean> {
-    this.log('\nReview your content:')
-    this.log(`  Domain: ${domain}`)
-    this.log(`  Topic: ${topic}`)
+  public async run(): Promise<void> {
+    const {args, flags} = await this.parse(Add)
 
-    const contentDisplay = content.length > 200 ? `${content.slice(0, 200)}...` : content
-    this.log(`  Content: ${contentDisplay}`)
+    // Determine mode: autonomous if content is provided via args or flags
+    const contentInput = args.content || flags.content
 
-    const confirmed = await confirm({
-      default: true,
-      message: 'Add this content to the context tree?',
-    })
-
-    return confirmed
-  }
-
-  /**
-   * Get existing domains from the context tree
-   */
-  protected getExistingDomains(): string[] {
-    try {
-      if (!fs.existsSync(CONTEXT_TREE_PATH)) {
-        return []
-      }
-
-      const entries = fs.readdirSync(CONTEXT_TREE_PATH, {withFileTypes: true})
-      return entries.filter((e) => e.isDirectory()).map((e) => e.name)
-    } catch {
-      return []
-    }
-  }
-
-  /**
-   * Get existing topics for a domain
-   */
-  protected getExistingTopics(domain: string): string[] {
-    try {
-      const domainPath = path.join(CONTEXT_TREE_PATH, domain)
-      if (!fs.existsSync(domainPath)) {
-        return []
-      }
-
-      const entries = fs.readdirSync(domainPath, {withFileTypes: true})
-      return entries.filter((e) => e.isDirectory()).map((e) => e.name)
-    } catch {
-      return []
-    }
+    // Autonomous mode: use CipherAgent to process content
+    // Interactive mode: manually prompt for domain/topic/content
+    return contentInput ? this.runAutonomous(contentInput, flags) : this.runInteractive()
   }
 
   /**
@@ -253,19 +265,21 @@ export default class Add extends Command {
     this.log(`\n✓ Content added successfully to ${domain}/${topic}`)
   }
 
-  public async run(): Promise<void> {
-    const {args, flags} = await this.parse(Add)
+  /**
+   * Handle workspace not initialized error
+   */
+  private handleWorkspaceError(error: WorkspaceNotInitializedError): void {
+    const message = [
+      '\n⚠️  ByteRover workspace not found!\n',
+      "It looks like you haven't initialized ByteRover in this directory yet.",
+      'To get started, please run:\n',
+      '  $ brv init\n',
+      'This will create the necessary workspace structure in:',
+      `  ${error.expectedPath}\n`,
+      'After initialization, you can run add again.',
+    ].join('\n')
 
-    // Determine mode: autonomous if content is provided via args or flags
-    const contentInput = args.content || flags.content
-
-    if (contentInput) {
-      // Autonomous mode: use CipherAgent to process content
-      await this.runAutonomous(contentInput, flags)
-    } else {
-      // Interactive mode: manually prompt for domain/topic/content
-      await this.runInteractive()
-    }
+    exitWithCode(ExitCode.VALIDATION_ERROR, message)
   }
 
   /**
@@ -440,22 +454,5 @@ export default class Add extends Command {
         this.log(`❌ Error: ${payload.error}`)
       })
     }
-  }
-
-  /**
-   * Handle workspace not initialized error
-   */
-  private handleWorkspaceError(error: WorkspaceNotInitializedError): void {
-    const message = [
-      '\n⚠️  ByteRover workspace not found!\n',
-      "It looks like you haven't initialized ByteRover in this directory yet.",
-      'To get started, please run:\n',
-      '  $ brv init\n',
-      'This will create the necessary workspace structure in:',
-      `  ${error.expectedPath}\n`,
-      'After initialization, you can run add again.',
-    ].join('\n')
-
-    exitWithCode(ExitCode.VALIDATION_ERROR, message)
   }
 }

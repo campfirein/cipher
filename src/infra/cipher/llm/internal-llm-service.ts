@@ -163,11 +163,12 @@ export class ByteRoverLLMService implements ILLMService {
    *
    * @param textInput - User input text
    * @param options - Execution options
+   * @param options.executionContext - Optional execution context
    * @param options.signal - Optional abort signal for cancellation
    * @param options.imageData - Optional image data
    * @param options.fileData - Optional file data
    * @param options.stream - Whether to stream response (not implemented yet)
-   * @param options.mode - Optional mode for system prompt ('json-input' enables autonomous mode)
+   * @param options.mode - Optional mode for system prompt ('autonomous' enables autonomous mode)
    * @returns Final assistant response
    */
   public async completeTask(
