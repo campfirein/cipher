@@ -289,7 +289,7 @@ export default class CipherAgentRun extends Command {
     verbose?: boolean
   } {
     // Default model: anthropic/anthropic/claude-haiku-4.5 for OpenRouter, gemini-2.5-flash for gRPC
-    const model = flags.model ?? (flags.apiKey ? 'anthropic/claude-haiku-4.5' : 'gemini-2.5-flash')
+    const model = flags.model ?? (flags.apiKey ? 'anthropic/claude-haiku-4.5' : 'claude-haiku-4-5@20251001') // change it to claude-haiku-4-5@20251001 | gemini-2.5-flash for internal llm service model
     const envConfig = getCurrentConfig()
 
     return {

@@ -1,3 +1,6 @@
+// @ts-expect-error - Internal SDK path not exported in package.json, but exists and works at runtime
+import type {RequestOptions} from '@anthropic-ai/sdk/internal/request-options'
+import type {MessageCreateParamsNonStreaming} from '@anthropic-ai/sdk/resources/messages.js'
 import type {Content, GenerateContentConfig, GenerateContentResponse} from '@google/genai'
 
 import * as grpc from '@grpc/grpc-js'
@@ -125,15 +128,21 @@ export class ByteRoverLlmGrpcService {
    * Call ByteRover gRPC LLM service to generate content.
    *
    * Simple forward to remote gRPC service - delegates all formatting to backend.
+   * Supports both Gemini and Claude formats - the correct format is determined
+   * automatically based on the model name.
    *
-   * @param contents - Formatted messages in Gemini Content format
-   * @param config - Generation configuration including tools and system instruction
-   * @param model - Model to use (optional, uses default if not provided)
+   * Parameter structure differs by provider:
+   * - Gemini: contents = Content[], config = GenerateContentConfig
+   * - Claude: contents = MessageCreateParamsNonStreaming (complete body), config = RequestOptions (HTTP options)
+   *
+   * @param contents - For Gemini: Content[]. For Claude: MessageCreateParamsNonStreaming (complete body)
+   * @param config - For Gemini: GenerateContentConfig. For Claude: RequestOptions (optional HTTP options)
+   * @param model - Model to use (detects provider from model name)
    * @returns Response in GenerateContentResponse format
    */
   public async generateContent(
-    contents: Content[],
-    config: GenerateContentConfig,
+    contents: Content[] | MessageCreateParamsNonStreaming,
+    config: GenerateContentConfig | RequestOptions,
     model: string,
   ): Promise<GenerateContentResponse> {
     await this.initializeClient()
