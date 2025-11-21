@@ -4,6 +4,7 @@ import {OpenAI} from 'openai'
 
 import type {JSONSchema7, ToolSet} from '../../../core/domain/cipher/tools/types.js'
 import type {ExecutionContext} from '../../../core/interfaces/cipher/i-cipher-agent.js'
+import type {IHistoryStorage} from '../../../core/interfaces/cipher/i-history-storage.js'
 import type {ILLMService} from '../../../core/interfaces/cipher/i-llm-service.js'
 import type {InternalMessage, ToolCall} from '../../../core/interfaces/cipher/message-types.js'
 import type {MemoryManager} from '../memory/memory-manager.js'
@@ -103,11 +104,13 @@ export class OpenRouterLLMService implements ILLMService {
    * @param options.systemPromptManager - Simple prompt factory for building system prompts
    * @param options.sessionEventBus - Session event bus for emitting events
    * @param options.memoryManager - Optional memory manager for agent memories
+   * @param options.historyStorage - Optional history storage for persistence
    */
   public constructor(
     sessionId: string,
     config: OpenRouterServiceConfig,
     options: {
+      historyStorage?: IHistoryStorage
       memoryManager?: MemoryManager
       sessionEventBus: SessionEventBus
       systemPromptManager: SimplePromptFactory
@@ -147,9 +150,10 @@ export class OpenRouterLLMService implements ILLMService {
     this.formatter = new OpenRouterMessageFormatter()
     this.tokenizer = new OpenRouterTokenizer()
 
-    // Initialize context manager
+    // Initialize context manager with optional history storage
     this.contextManager = new ContextManager({
       formatter: this.formatter,
+      historyStorage: options.historyStorage,
       maxInputTokens: this.config.maxInputTokens,
       sessionId,
       tokenizer: this.tokenizer,
@@ -251,6 +255,16 @@ export class OpenRouterLLMService implements ILLMService {
   }
 
   /**
+   * Initialize the LLM service by loading persisted history.
+   * Should be called after construction to restore previous conversation.
+   *
+   * @returns True if history was loaded, false otherwise
+   */
+  public async initialize(): Promise<boolean> {
+    return this.contextManager.initialize()
+  }
+
+  /**
    * Call LLM and parse the response.
    *
    * @param tools - Available tools for function calling
@@ -318,6 +332,20 @@ export class OpenRouterLLMService implements ILLMService {
       memoryManager: this.memoryManager,
       mode,
     })
+
+    // Verbose debug: Show complete system prompt
+    if (this.config.verbose) {
+      console.log(`\n${'='.repeat(80)}`)
+      console.log(`[PromptDebug:OpenRouterLLMService] SYSTEM PROMPT (Iteration ${iterationCount + 1})`)
+      console.log(`${'='.repeat(80)}`)
+      console.log(`Length: ${systemPrompt.length} characters`)
+      console.log(`Lines: ${systemPrompt.split('\n').length}`)
+      console.log(`\n--- FIRST 500 CHARACTERS ---`)
+      console.log(systemPrompt.slice(0, 500))
+      console.log(`\n--- LAST 500 CHARACTERS ---`)
+      console.log(systemPrompt.slice(-500))
+      console.log(`${'='.repeat(80)}\n`)
+    }
 
     // Get formatted messages from context with compression (passing system prompt for token accounting)
     const {formattedMessages, tokensUsed} = await this.contextManager.getFormattedMessagesWithCompression(systemPrompt)
