@@ -4,6 +4,7 @@ import {Config as OclifConfig} from '@oclif/core'
 import {expect} from 'chai'
 import sinon, {restore, type SinonStub, stub} from 'sinon'
 
+import type {Agent} from '../../../src/core/domain/entities/agent.js'
 import type {Space} from '../../../src/core/domain/entities/space.js'
 import type {IProjectConfigStore} from '../../../src/core/interfaces/i-project-config-store.js'
 import type {ISpaceService} from '../../../src/core/interfaces/i-space-service.js'
@@ -101,7 +102,16 @@ describe('SpaceList Command', () => {
       userId: 'user-list',
     })
 
-    testBrConfig = new BrvConfig(new Date().toISOString(), 'space-1', 'frontend-app', 'team-1', 'acme-corp')
+    testBrConfig = new BrvConfig(
+      new Date().toISOString(),
+      'space-1',
+      'frontend-app',
+      'team-1',
+      'acme-corp',
+      'Claude Code' as Agent,
+      'chat.log',
+      '/test/cwd',
+    )
 
     testSpaces = [
       new SpaceImpl('space-1', 'frontend-app', 'team-1', 'acme-corp'),

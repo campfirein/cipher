@@ -4,6 +4,7 @@ import {Config as OclifConfig} from '@oclif/core'
 import {expect} from 'chai'
 import sinon, {restore, stub} from 'sinon'
 
+import type {Agent} from '../../src/core/domain/entities/agent.js'
 import type {IPlaybookStore} from '../../src/core/interfaces/i-playbook-store.js'
 import type {IProjectConfigStore} from '../../src/core/interfaces/i-project-config-store.js'
 import type {ITokenStore} from '../../src/core/interfaces/i-token-store.js'
@@ -103,7 +104,16 @@ describe('Status Command', () => {
       userId: 'user-123',
     })
 
-    testConfig = new BrvConfig(new Date().toISOString(), 'space-1', 'backend-api', 'team-1', 'acme-corp')
+    testConfig = new BrvConfig(
+      new Date().toISOString(),
+      'space-1',
+      'backend-api',
+      'team-1',
+      'acme-corp',
+      'Claude Code' as Agent,
+      'chat.log',
+      '/test/cwd',
+    )
   })
 
   afterEach(() => {

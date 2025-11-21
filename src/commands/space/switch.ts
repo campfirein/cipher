@@ -1,4 +1,4 @@
-import {select} from '@inquirer/prompts'
+import {search, select} from '@inquirer/prompts'
 import {Command, ux} from '@oclif/core'
 
 import type {Space} from '../../core/domain/entities/space.js'
@@ -10,11 +10,13 @@ import type {ITokenStore} from '../../core/interfaces/i-token-store.js'
 
 import {getCurrentConfig} from '../../config/environment.js'
 import {BRV_DIR, PROJECT_CONFIG_FILE} from '../../constants.js'
+import {Agent, AGENT_VALUES} from '../../core/domain/entities/agent.js'
 import {BrvConfig} from '../../core/domain/entities/brv-config.js'
 import {ProjectConfigStore} from '../../infra/config/file-config-store.js'
 import {HttpSpaceService} from '../../infra/space/http-space-service.js'
 import {KeychainTokenStore} from '../../infra/storage/keychain-token-store.js'
 import {HttpTeamService} from '../../infra/team/http-team-service.js'
+import {WorkspaceDetectorService} from '../../infra/workspace/workspace-detector-service.js'
 
 export default class SpaceSwitch extends Command {
   public static description = `Switch to a different team or space (updates ${BRV_DIR}/${PROJECT_CONFIG_FILE})`
@@ -40,6 +42,41 @@ export default class SpaceSwitch extends Command {
       }),
       tokenStore: new KeychainTokenStore(),
     }
+  }
+
+  protected detectWorkspacesForAgent(agent: Agent): {chatLogPath: string; cwd: string;} {
+    const detector = new WorkspaceDetectorService()
+    const result = detector.detectWorkspaces(agent)
+    return {
+      chatLogPath: result.chatLogPath,
+      cwd: result.cwd,
+    }
+  }
+
+  /**
+   * Prompts the user to select an agent.
+   * This method is protected to allow test overrides.
+   * @returns The selected agent
+   */
+  protected async promptForAgentSelection(): Promise<Agent> {
+    const AGENTS = AGENT_VALUES.map((agent) => ({
+      name: agent,
+      value: agent,
+    }))
+    const answer = await search({
+      message: 'Which agent you are using (type to search):',
+      async source(input) {
+        if (!input) return AGENTS
+
+        return AGENTS.filter(
+          (agent) =>
+            agent.name.toLowerCase().includes(input.toLowerCase()) ||
+            agent.value.toLowerCase().includes(input.toLowerCase()),
+        )
+      },
+    })
+
+    return answer
   }
 
   protected async promptForSpaceSelection(spaces: Space[]): Promise<Space> {
@@ -132,8 +169,15 @@ export default class SpaceSwitch extends Command {
       this.log()
       const selectedSpace = await this.promptForSpaceSelection(spaceResult.spaces)
 
+      // Prompt for agent selection
+      this.log()
+      const selectedAgent = await this.promptForAgentSelection()
+
+      this.log()
+      const {chatLogPath, cwd} = await this.detectWorkspacesForAgent(selectedAgent)
+
       // Update configuration
-      const newConfig = BrvConfig.fromSpace(selectedSpace)
+      const newConfig = BrvConfig.fromSpace(selectedSpace, chatLogPath, selectedAgent, cwd)
       await projectConfigStore.write(newConfig)
 
       // Display success
