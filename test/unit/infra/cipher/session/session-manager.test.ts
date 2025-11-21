@@ -63,10 +63,7 @@ class TestableSessionManager extends SessionManager {
       const session = new ChatSession(id, this.sharedServices, sessionServices)
 
       if ('initialize' in sessionServices.llmService && typeof sessionServices.llmService.initialize === 'function') {
-        const initialized = await sessionServices.llmService.initialize()
-        if (initialized) {
-          console.log(`[SessionManager] Loaded history for session: ${id}`)
-        }
+        await sessionServices.llmService.initialize()
       }
 
       // @ts-expect-error - accessing private property for testing
