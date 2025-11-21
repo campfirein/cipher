@@ -78,6 +78,10 @@ class TestableInit extends Init {
     // Do nothing - suppress output
   }
 
+  protected async promptForAgentSelection(): Promise<import('../../src/core/domain/entities/agent.js').Agent> {
+    return 'Claude Code' // Default mock agent
+  }
+
   protected async promptForSpaceSelection(_spaces: Space[]): Promise<Space> {
     return this.mockSelectedSpace
   }
@@ -194,7 +198,7 @@ describe('Init Command', () => {
   describe('execute()', () => {
     it('should exit early if project is already initialized', async () => {
       configStore.exists.resolves(true)
-      configStore.read.resolves(BrvConfig.fromSpace(testSpaces[0]))
+      configStore.read.resolves(BrvConfig.fromSpace(testSpaces[0], 'chat.log', 'Claude Code', '/test/cwd'))
 
       const command = new TestableInit(
         configStore,
@@ -496,7 +500,7 @@ describe('Init Command', () => {
       await command.run()
 
       expect(runCommandStub.calledOnce).to.be.true
-      expect(runCommandStub.calledWith('gen-rules')).to.be.true
+      expect(runCommandStub.calledWith('gen-rules', ['--agent', 'Claude Code'])).to.be.true
     })
 
     it('should call gen-rules after config write but before success message', async () => {
@@ -576,7 +580,7 @@ describe('Init Command', () => {
 
       // Should still call gen-rules even though ACE init failed
       expect(runCommandStub.calledOnce).to.be.true
-      expect(runCommandStub.calledWith('gen-rules')).to.be.true
+      expect(runCommandStub.calledWith('gen-rules', ['--agent', 'Claude Code'])).to.be.true
     })
 
     it('should propagate errors from gen-rules command', async () => {
@@ -613,7 +617,7 @@ describe('Init Command', () => {
   describe('re-initialization', () => {
     it('should re-initialize when user confirms', async () => {
       configStore.exists.resolves(true)
-      configStore.read.resolves(BrvConfig.fromSpace(testSpaces[0]))
+      configStore.read.resolves(BrvConfig.fromSpace(testSpaces[0], 'chat.log', 'Claude Code', '/test/cwd'))
       configStore.write.resolves()
       tokenStore.load.resolves(validToken)
       teamService.getTeams.resolves({teams: testTeams, total: testTeams.length})
@@ -646,7 +650,7 @@ describe('Init Command', () => {
 
     it('should not proceed when user cancels re-initialization', async () => {
       configStore.exists.resolves(true)
-      configStore.read.resolves(BrvConfig.fromSpace(testSpaces[0]))
+      configStore.read.resolves(BrvConfig.fromSpace(testSpaces[0], 'chat.log', 'Claude Code', '/test/cwd'))
       tokenStore.load.resolves(validToken)
 
       const command = new TestableInit(
@@ -675,7 +679,7 @@ describe('Init Command', () => {
 
     it('should skip confirmation with --force flag', async () => {
       configStore.exists.resolves(true)
-      configStore.read.resolves(BrvConfig.fromSpace(testSpaces[0]))
+      configStore.read.resolves(BrvConfig.fromSpace(testSpaces[0], 'chat.log', 'Claude Code', '/test/cwd'))
       configStore.write.resolves()
       tokenStore.load.resolves(validToken)
       teamService.getTeams.resolves({teams: testTeams, total: testTeams.length})
@@ -708,7 +712,7 @@ describe('Init Command', () => {
 
     it('should handle cleanup failure during re-initialization', async () => {
       configStore.exists.resolves(true)
-      configStore.read.resolves(BrvConfig.fromSpace(testSpaces[0]))
+      configStore.read.resolves(BrvConfig.fromSpace(testSpaces[0], 'chat.log', 'Claude Code', '/test/cwd'))
 
       const command = new TestableInit(
         configStore,

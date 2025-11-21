@@ -4,6 +4,7 @@ import {Config as OclifConfig, ux} from '@oclif/core'
 import {expect} from 'chai'
 import sinon, {match, restore, stub} from 'sinon'
 
+import type {Agent} from '../../src/core/domain/entities/agent.js'
 import type {IMemoryStorageService} from '../../src/core/interfaces/i-memory-storage-service.js'
 import type {IPlaybookStore} from '../../src/core/interfaces/i-playbook-store.js'
 import type {IProjectConfigStore} from '../../src/core/interfaces/i-project-config-store.js'
@@ -98,7 +99,16 @@ describe('Push Command', () => {
       userId: 'user-push',
     })
 
-    projectConfig = new BrvConfig(new Date().toISOString(), 'space-123', 'my-space', 'team-456', 'my-team')
+    projectConfig = new BrvConfig(
+      new Date().toISOString(),
+      'space-123',
+      'my-space',
+      'team-456',
+      'my-team',
+      'Claude Code' as Agent,
+      'chat.log',
+      '/test/cwd',
+    )
   })
 
   afterEach(() => {
