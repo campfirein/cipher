@@ -140,7 +140,7 @@ export class ByteRoverLLMService implements ILLMService {
       maxInputTokens: config.maxInputTokens ?? 1_000_000,
       maxIterations: config.maxIterations ?? 50,
       maxTokens: config.maxTokens ?? 8192,
-      model: config.model ?? 'gemini-2.5-flash',
+      model: config.model ?? 'claude-haiku-4-5@20251001',
       temperature: config.temperature ?? 0.7,
       timeout: config.timeout,
       verbose: config.verbose ?? false,

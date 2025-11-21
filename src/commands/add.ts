@@ -60,7 +60,7 @@ export default class Add extends Command {
     }),
     model: Flags.string({
       char: 'm',
-      description: 'Model to use (default: anthropic/claude-haiku-4.5 for OpenRouter, gemini-2.5-flash for gRPC)',
+      description: 'Model to use (default: anthropic/claude-haiku-4.5 for OpenRouter, claude-haiku-4-5@20251001 for gRPC)',
     }),
     verbose: Flags.boolean({
       char: 'v',
@@ -307,7 +307,7 @@ export default class Add extends Command {
       const brvConfig = await projectConfigStore.read()
 
       // Create LLM config
-      const model = flags.model ?? (flags.apiKey ? 'anthropic/claude-haiku-4.5' : 'gemini-2.5-flash')
+      const model = flags.model ?? (flags.apiKey ? 'anthropic/claude-haiku-4.5' : 'claude-haiku-4-5@20251001')
       const envConfig = getCurrentConfig()
 
       const llmConfig = {

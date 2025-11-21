@@ -239,7 +239,7 @@ export function createSessionServices(
       {
         maxIterations: llmConfig.maxIterations ?? 50,
         maxTokens: llmConfig.maxTokens ?? 8192,
-        model: llmConfig.model ?? 'gemini-2.5-flash',
+        model: llmConfig.model ?? 'claude-haiku-4-5@20251001',
         temperature: llmConfig.temperature ?? 0.7,
         verbose: llmConfig.verbose ?? false,
       },
