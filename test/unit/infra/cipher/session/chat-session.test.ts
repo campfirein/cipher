@@ -248,13 +248,13 @@ describe('ChatSession', () => {
       expect(signalSpy.firstCall.args[0]).to.be.instanceOf(AbortSignal)
     })
 
-    it('should support mode json-input', async () => {
-      await session.run('input', { mode: 'json-input' })
+    it('should support mode query', async () => {
+      await session.run('input', { mode: 'query' })
 
       expect((mockLLMService.completeTask as SinonStub).calledOnce).to.be.true
       expect((mockLLMService.completeTask as SinonStub).firstCall.args[0]).to.equal('input')
       expect((mockLLMService.completeTask as SinonStub).firstCall.args[1]).to.deep.include({
-        mode: 'json-input',
+        mode: 'query',
       })
       expect((mockLLMService.completeTask as SinonStub).firstCall.args[1].signal).to.be.instanceOf(AbortSignal)
     })
