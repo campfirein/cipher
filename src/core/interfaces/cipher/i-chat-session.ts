@@ -57,10 +57,11 @@ export interface IChatSession {
    * @param input - User message content
    * @param options - Optional execution options
    * @param options.mode - Optional mode for system prompt ('autonomous' enables autonomous mode)
+   * @param options.executionContext - Optional execution context
    * @returns Assistant response
    * @throws SessionCancelledError if operation is cancelled
    * @throws MaxIterationsExceededError if tool loop exceeds maximum iterations
    * @throws LLMError if LLM call fails
    */
-  run(input: string, options?: {mode?: 'autonomous' | 'default'}): Promise<string>
+  run(input: string, options?: {executionContext?: import('./i-cipher-agent.js').ExecutionContext; mode?: 'autonomous' | 'default' | 'query'}): Promise<string>
 }

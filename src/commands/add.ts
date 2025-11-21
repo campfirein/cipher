@@ -336,9 +336,12 @@ export default class Add extends Command {
         // Setup event listeners
         this.setupEventListeners(agent, flags.verbose ?? false)
 
-        // Execute with autonomous mode
+        // Execute with autonomous mode and add commandType
         const prompt = `Add the following content to the context tree:\n\n${content}`
-        const response = await agent.execute(prompt, sessionId, {mode: 'autonomous'})
+        const response = await agent.execute(prompt, sessionId, {
+          executionContext: {commandType: 'add'},
+          mode: 'autonomous',
+        })
 
         this.log('\nCipherAgent Response:')
         this.log(response)

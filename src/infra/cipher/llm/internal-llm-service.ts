@@ -173,10 +173,10 @@ export class ByteRoverLLMService implements ILLMService {
    */
   public async completeTask(
     textInput: string,
-    options?: {executionContext?: ExecutionContext; fileData?: FileData; imageData?: ImageData; mode?: 'autonomous' | 'default'; signal?: AbortSignal; stream?: boolean},
+    options?: {executionContext?: ExecutionContext; fileData?: FileData; imageData?: ImageData; mode?: 'autonomous' | 'default' | 'query'; signal?: AbortSignal; stream?: boolean},
   ): Promise<string> {
     // Extract options with defaults
-    const {fileData, imageData, mode, signal} = options ?? {}
+    const {executionContext, fileData, imageData, mode, signal} = options ?? {}
 
     // Add user message to context
     await this.contextManager.addUserMessage(textInput, imageData, fileData)
@@ -200,7 +200,7 @@ export class ByteRoverLLMService implements ILLMService {
 
       try {
         // eslint-disable-next-line no-await-in-loop -- Sequential iterations required for agentic loop
-        const result = await this.executeAgenticIteration(iterationCount, tools, mode)
+        const result = await this.executeAgenticIteration(iterationCount, tools, mode, executionContext)
 
         if (result !== null) {
           return result
@@ -349,12 +349,14 @@ export class ByteRoverLLMService implements ILLMService {
    * @param iterationCount - Current iteration number
    * @param tools - Available tools for this iteration
    * @param mode - Optional mode for system prompt
+   * @param executionContext - Optional execution context
    * @returns Final response string if complete, null if more iterations needed
    */
   private async executeAgenticIteration(
     iterationCount: number,
     tools: ToolDefinition[],
-    mode?: 'autonomous' | 'default',
+    mode?: 'autonomous' | 'default' | 'query',
+    executionContext?: ExecutionContext,
   ): Promise<null | string> {
     // Build system prompt using SimplePromptFactory (before compression for correct token accounting)
     const availableTools = this.toolManager.getToolNames()
@@ -368,6 +370,7 @@ export class ByteRoverLLMService implements ILLMService {
     const systemPrompt = await this.promptFactory.buildSystemPrompt({
       availableMarkers,
       availableTools,
+      commandType: executionContext?.commandType,
       memoryManager: this.memoryManager,
       mode,
     })

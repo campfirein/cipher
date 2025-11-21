@@ -177,7 +177,7 @@ export class OpenRouterLLMService implements ILLMService {
    */
   public async completeTask(
     textInput: string,
-    options?: {executionContext?: ExecutionContext; fileData?: FileData; imageData?: ImageData; mode?: 'autonomous' | 'default'; signal?: AbortSignal; stream?: boolean},
+    options?: {executionContext?: ExecutionContext; fileData?: FileData; imageData?: ImageData; mode?: 'autonomous' | 'default' | 'query'; signal?: AbortSignal; stream?: boolean},
   ): Promise<string> {
     // Extract options with defaults
     const {executionContext, fileData, imageData, mode, signal} = options ?? {}
@@ -298,7 +298,7 @@ export class OpenRouterLLMService implements ILLMService {
     iterationCount: number,
     tools: OpenAIToolDefinition[],
     executionContext: ExecutionContext | undefined,
-    mode?: 'autonomous' | 'default',
+    mode?: 'autonomous' | 'default' | 'query',
   ): Promise<null | string> {
     // Build system prompt using SimplePromptFactory (before compression for correct token accounting)
     const availableTools = this.toolManager.getToolNames()
@@ -313,6 +313,7 @@ export class OpenRouterLLMService implements ILLMService {
     const systemPrompt = await this.promptFactory.buildSystemPrompt({
       availableMarkers,
       availableTools,
+      commandType: executionContext?.commandType,
       conversationMetadata: executionContext?.conversationMetadata,
       memoryManager: this.memoryManager,
       mode,
