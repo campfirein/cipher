@@ -23,6 +23,7 @@ export const SESSION_EVENT_NAMES = [
   'llmservice:toolResult',
   'llmservice:error',
   'llmservice:unsupportedInput',
+  'llmservice:warning',
 ] as const
 
 /**
@@ -132,6 +133,7 @@ export interface AgentEventMap {
    * Emitted when LLM completes a response.
    * @property {string} content - Full response content
    * @property {string} [model] - Model identifier
+   * @property {boolean} [partial] - Whether this is a partial response (e.g., max iterations reached)
    * @property {string} [provider] - LLM provider name
    * @property {string} [reasoning] - Internal reasoning (if available)
    * @property {string} sessionId - ID of the session
@@ -140,6 +142,7 @@ export interface AgentEventMap {
   'llmservice:response': {
     content: string
     model?: string
+    partial?: boolean
     provider?: string
     reasoning?: string
     sessionId: string
@@ -195,6 +198,20 @@ export interface AgentEventMap {
     reason: string
     sessionId: string
   }
+
+  /**
+   * Emitted when LLM service encounters a warning (e.g., max iterations reached).
+   * @property {string} message - Warning message
+   * @property {string} [model] - Model identifier
+   * @property {string} [provider] - LLM provider name
+   * @property {string} sessionId - ID of the session
+   */
+  'llmservice:warning': {
+    message: string
+    model?: string
+    provider?: string
+    sessionId: string
+  }
 }
 
 /**
@@ -228,6 +245,7 @@ export interface SessionEventMap {
    * Emitted when LLM completes a response.
    * @property {string} content - Full response content
    * @property {string} [model] - Model identifier
+   * @property {boolean} [partial] - Whether this is a partial response (e.g., max iterations reached)
    * @property {string} [provider] - LLM provider name
    * @property {string} [reasoning] - Internal reasoning (if available)
    * @property {TokenUsage} [tokenUsage] - Token usage statistics
@@ -235,6 +253,7 @@ export interface SessionEventMap {
   'llmservice:response': {
     content: string
     model?: string
+    partial?: boolean
     provider?: string
     reasoning?: string
     tokenUsage?: TokenUsage
@@ -279,6 +298,18 @@ export interface SessionEventMap {
    */
   'llmservice:unsupportedInput': {
     reason: string
+  }
+
+  /**
+   * Emitted when LLM service encounters a warning (e.g., max iterations reached).
+   * @property {string} message - Warning message
+   * @property {string} [model] - Model identifier
+   * @property {string} [provider] - LLM provider name
+   */
+  'llmservice:warning': {
+    message: string
+    model?: string
+    provider?: string
   }
 }
 
