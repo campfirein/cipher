@@ -1,5 +1,4 @@
 import {Args, Command, Flags} from '@oclif/core'
-import fs from 'node:fs'
 
 import type {IProjectConfigStore} from '../../core/interfaces/i-project-config-store.js'
 
@@ -42,18 +41,6 @@ export default class CipherAgentRun extends Command {
     '<%= config.bin %> <%= command.id %> -c "What did we discuss?"',
     '<%= config.bin %> <%= command.id %> -r session-1731686400123-a7b3c9 "Continue implementation"',
     '',
-    '# Process JSON data with default prompt',
-    '<%= config.bin %> <%= command.id %> -j data.json',
-    '',
-    '# Process JSON with custom prompt',
-    '<%= config.bin %> <%= command.id %> "analyze this data for patterns" -j data.json',
-    '',
-    '# Process JSON with session continuation',
-    '<%= config.bin %> <%= command.id %> -j data.json -c',
-    '',
-    '# Process JSON with verbose output',
-    '<%= config.bin %> <%= command.id %> -j data.json -v',
-    '',
     '# Piped input (automatically uses non-interactive mode)',
     'echo "Analyze the codebase" | <%= config.bin %> <%= command.id %>',
     '',
@@ -70,10 +57,6 @@ export default class CipherAgentRun extends Command {
     continue: Flags.boolean({
       char: 'c',
       description: 'Continue most recent session (requires prompt in headless mode)',
-    }),
-    inputJson: Flags.string({
-      char: 'j',
-      description: 'Path to JSON file to process (any format)',
     }),
     interactive: Flags.boolean({
       allowNo: true,
@@ -174,31 +157,11 @@ export default class CipherAgentRun extends Command {
       }
 
       // Construct the prompt
-      let currentPrompt: string
-      let jsonInputMode = false
-
-      if (flags.inputJson) {
-        // Read and parse JSON file
-        const jsonData = this.readAndParseJson(flags.inputJson)
-
-        // Use custom prompt if provided, otherwise use default
-        const basePrompt = args.prompt || 'process the task for building the context tree with the data'
-
-        // Combine prompt with JSON data
-        currentPrompt = `${basePrompt}\n\n${jsonData}`
-        jsonInputMode = true
-      } else if (args.prompt) {
-        currentPrompt = args.prompt
-      } else {
-        currentPrompt = '' // Will be handled by interactive mode
-      }
+      const currentPrompt: string = args.prompt || '' // Will be handled by interactive mode if empty
 
       // Determine interactive mode
       // Priority: explicit flag > TTY detection
-      // Note: JSON input mode is always non-interactive
-      const isInteractive: boolean = jsonInputMode
-        ? false
-        : flags.interactive === undefined
+      const isInteractive: boolean = flags.interactive === undefined
         ? process.stdin.isTTY === true // Auto-detect from TTY
         : flags.interactive // User explicitly set --interactive or --no-interactive
 
@@ -217,7 +180,7 @@ export default class CipherAgentRun extends Command {
       const brvConfig = await projectConfigStore.read()
 
       // Create LLM configuration
-      const llmConfig = this.createLLMConfig(token, flags)
+      const llmConfig = this.createLLMConfig({...token, spaceId: brvConfig?.spaceId ?? '', teamId: brvConfig?.teamId ?? ''}, flags)
 
       // Create CipherAgent with service factory pattern
       const agent = new CipherAgent(llmConfig, brvConfig)
@@ -248,7 +211,6 @@ export default class CipherAgentRun extends Command {
           const response = await agent.execute(
             currentPrompt,
             resolvedSessionId,
-            jsonInputMode ? {mode: 'json-input'} : undefined,
           )
 
           this.log('\nCipherAgent Response:')
@@ -294,6 +256,8 @@ export default class CipherAgentRun extends Command {
    * @param token - Authentication token
    * @param token.accessToken - Access token for authentication
    * @param token.sessionKey - Session key for authentication
+   * @param token.spaceId - Space ID for the session
+   * @param token.teamId - Team ID for the session
    * @param flags - Command flags
    * @param flags.apiKey - OpenRouter API key for direct service (optional)
    * @param flags.maxTokens - Maximum tokens in response
@@ -304,7 +268,7 @@ export default class CipherAgentRun extends Command {
    * @returns LLM configuration object
    */
   private createLLMConfig(
-    token: {accessToken: string; sessionKey: string},
+    token: {accessToken: string; sessionKey: string, spaceId: string; teamId: string,},
     flags: {
       apiKey?: string
       maxTokens?: number
@@ -323,11 +287,13 @@ export default class CipherAgentRun extends Command {
     openRouterApiKey?: string
     projectId: string
     sessionKey: string
+    spaceId: string
+    teamId: string
     temperature: number
     verbose?: boolean
   } {
     // Default model: anthropic/anthropic/claude-haiku-4.5 for OpenRouter, gemini-2.5-flash for gRPC
-    const model = flags.model ?? (flags.apiKey ? 'anthropic/claude-haiku-4.5' : 'gemini-2.5-flash')
+    const model = flags.model ?? (flags.apiKey ? 'anthropic/claude-haiku-4.5' : 'claude-haiku-4-5@20251001') // change it to claude-haiku-4-5@20251001 | gemini-2.5-flash for internal llm service model
     const envConfig = getCurrentConfig()
 
     return {
@@ -340,6 +306,8 @@ export default class CipherAgentRun extends Command {
       openRouterApiKey: flags.apiKey, // Map -k flag to OpenRouter API key
       projectId: PROJECT,
       sessionKey: token.sessionKey,
+      spaceId: token.spaceId,
+      teamId: token.teamId,
       temperature: flags.temperature ? Number.parseFloat(flags.temperature) : 0.7, // Default: 0.7
       verbose: flags.verbose ?? false,
     }
@@ -388,26 +356,6 @@ export default class CipherAgentRun extends Command {
     ].join('\n')
 
     exitWithCode(ExitCode.VALIDATION_ERROR, message)
-  }
-
-  /**
-   * Read and parse a JSON file
-   *
-   * @param filePath - Path to JSON file
-   * @returns Pretty-printed JSON string
-   */
-  private readAndParseJson(filePath: string): string {
-    try {
-      const fileContent = fs.readFileSync(filePath, 'utf8')
-      const parsed = JSON.parse(fileContent)
-      return JSON.stringify(parsed, null, 2) // Pretty print for readability
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-        throw new Error(`JSON file not found: ${filePath}`)
-      }
-
-      throw new Error(`Invalid JSON in file ${filePath}: ${(error as Error).message}`)
-    }
   }
 
   /**

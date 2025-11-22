@@ -1,3 +1,6 @@
+// @ts-expect-error - Internal SDK path not exported in package.json, but exists and works at runtime
+import type {RequestOptions} from '@anthropic-ai/sdk/internal/request-options'
+import type {MessageCreateParamsNonStreaming} from '@anthropic-ai/sdk/resources/messages.js'
 import type {Content, GenerateContentConfig, GenerateContentResponse} from '@google/genai'
 
 import * as grpc from '@grpc/grpc-js'
@@ -15,6 +18,7 @@ interface ClientDuplexStream {
   on(event: 'data', listener: (message: unknown) => void): this
   on(event: 'end', listener: () => void): this
   on(event: 'error', listener: (error: NodeJS.ErrnoException) => void): this
+  on(event: 'status', listener: (status: grpc.StatusObject) => void): this
 }
 
 /**
@@ -43,6 +47,8 @@ type GenerateRequest = {
   project_id: string
   provider: 'claude' | 'gemini'
   region: string
+  spaceId: string
+  teamId: string
 }
 
 /**
@@ -54,6 +60,8 @@ export interface ByteRoverGrpcConfig {
   projectId?: string
   region?: string
   sessionKey: string
+  spaceId: string
+  teamId: string
   timeout?: number
 }
 
@@ -100,6 +108,8 @@ export class ByteRoverLlmGrpcService {
       projectId: config.projectId ?? 'byterover',
       region: config.region ?? 'us-east1',
       sessionKey: config.sessionKey,
+      spaceId: config.spaceId,
+      teamId: config.teamId,
       timeout: config.timeout ?? 60_000,
     }
 
@@ -125,15 +135,21 @@ export class ByteRoverLlmGrpcService {
    * Call ByteRover gRPC LLM service to generate content.
    *
    * Simple forward to remote gRPC service - delegates all formatting to backend.
+   * Supports both Gemini and Claude formats - the correct format is determined
+   * automatically based on the model name.
    *
-   * @param contents - Formatted messages in Gemini Content format
-   * @param config - Generation configuration including tools and system instruction
-   * @param model - Model to use (optional, uses default if not provided)
+   * Parameter structure differs by provider:
+   * - Gemini: contents = Content[], config = GenerateContentConfig
+   * - Claude: contents = MessageCreateParamsNonStreaming (complete body), config = RequestOptions (HTTP options)
+   *
+   * @param contents - For Gemini: Content[]. For Claude: MessageCreateParamsNonStreaming (complete body)
+   * @param config - For Gemini: GenerateContentConfig. For Claude: RequestOptions (optional HTTP options)
+   * @param model - Model to use (detects provider from model name)
    * @returns Response in GenerateContentResponse format
    */
   public async generateContent(
-    contents: Content[],
-    config: GenerateContentConfig,
+    contents: Content[] | MessageCreateParamsNonStreaming,
+    config: GenerateContentConfig | RequestOptions,
     model: string,
   ): Promise<GenerateContentResponse> {
     await this.initializeClient()
@@ -147,6 +163,8 @@ export class ByteRoverLlmGrpcService {
       project_id: this.config.projectId,
       provider: this.detectProviderFromModel(model),
       region: this.detectRegionFromModel(model),
+      spaceId: this.config.spaceId,
+      teamId: this.config.teamId,
     }
 
     try {
@@ -245,6 +263,17 @@ export class ByteRoverLlmGrpcService {
         cleanup()
         console.error(`[gRPC Provider] Stream error:`, error)
         reject(new Error(`gRPC call error: ${error.message}`))
+      })
+
+      // Handle gRPC status codes (server-sent errors)
+      call.on('status', (status: grpc.StatusObject) => {
+        if (status.code !== grpc.status.OK && !settled) {
+          settled = true
+          cleanup()
+          const errorMsg = `gRPC error [${grpc.status[status.code]}]: ${status.details}`
+          console.error(`[gRPC Provider] Status error:`, errorMsg)
+          reject(new Error(errorMsg))
+        }
       })
     })
   }

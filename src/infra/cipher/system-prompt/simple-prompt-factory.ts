@@ -21,9 +21,10 @@ export interface PromptConfig {
 export interface BuildContext {
   availableMarkers?: Record<string, string>
   availableTools?: string[]
+  commandType?: 'add' | 'query'
   conversationMetadata?: { conversationId?: string; title?: string }
   memoryManager?: MemoryManager
-  mode?: 'default' | 'json-input'
+  mode?: 'autonomous' | 'default' | 'query'
 }
 
 /**
@@ -131,10 +132,45 @@ export class SimplePromptFactory {
     // 4. Render base prompt
     let finalPrompt = this.renderTemplate(basePrompt.prompt, vars)
 
-    // 5. Append mode-specific prompt if specified
-    if (context.mode === 'json-input') {
-      const modePrompt = this.loadPrompt('modes/json-input.yml')
-      finalPrompt = finalPrompt + '\n\n' + modePrompt.prompt
+    // 5. Append mode-specific prompts if specified (convention-based loading)
+    if (context.mode && context.mode !== 'default') {
+      // Load main mode prompt: modes/{mode}.yml
+      try {
+        const modePrompt = this.loadPrompt(`modes/${context.mode}.yml`)
+        finalPrompt = finalPrompt + '\n\n' + modePrompt.prompt
+
+        if (this.verbose) {
+          console.log(`[PromptDebug:SimpleFactory] Loaded mode prompt: modes/${context.mode}.yml`)
+        }
+      } catch {
+        if (this.verbose) {
+          console.log(`[PromptDebug:SimpleFactory] No mode prompt found: modes/${context.mode}.yml`)
+        }
+      }
+
+      // Load companion prompts: {commandType}-*.yml or {mode}-*.yml
+      // Priority: commandType > mode for companion discovery
+      const discoveryKey = context.commandType || context.mode
+      const companionPrompts = this.discoverCompanionPrompts(discoveryKey)
+
+      if (this.verbose) {
+        console.log(`[PromptDebug:SimpleFactory] Discovering companion prompts with key: ${discoveryKey}`)
+      }
+
+      for (const companionPath of companionPrompts) {
+        try {
+          const companionPrompt = this.loadPrompt(companionPath)
+          finalPrompt = finalPrompt + '\n\n' + companionPrompt.prompt
+
+          if (this.verbose) {
+            console.log(`[PromptDebug:SimpleFactory] Loaded companion prompt: ${companionPath}`)
+          }
+        } catch {
+          if (this.verbose) {
+            console.log(`[PromptDebug:SimpleFactory] Failed to load companion prompt: ${companionPath}`)
+          }
+        }
+      }
     }
 
     if (this.verbose) {
@@ -184,6 +220,41 @@ export class SimplePromptFactory {
 
       return null
     }
+  }
+
+  /**
+   * Discover companion prompt files for a given mode.
+   * Looks for files matching the pattern: {mode}-*.yml
+   *
+   * @param mode - The mode name (e.g., 'autonomous', 'query')
+   * @returns Array of relative file paths to companion prompts
+   */
+  private discoverCompanionPrompts(mode: string): string[] {
+    const companionPrompts: string[] = []
+
+    try {
+      // Read all files in the prompts directory
+      const files = fs.readdirSync(this.basePath)
+
+      // Filter files matching {mode}-*.yml pattern
+      const pattern = new RegExp(`^${mode}-.*\\.yml$`)
+      const matchingFiles = files.filter((file) => pattern.test(file))
+
+      // Add matching files to result
+      for (const file of matchingFiles) {
+        companionPrompts.push(file)
+      }
+
+      if (this.verbose && companionPrompts.length > 0) {
+        console.log(`[PromptDebug:SimpleFactory] Found ${companionPrompts.length} companion prompts for mode '${mode}':`, companionPrompts)
+      }
+    } catch (error) {
+      if (this.verbose) {
+        console.log(`[PromptDebug:SimpleFactory] Error discovering companion prompts: ${error}`)
+      }
+    }
+
+    return companionPrompts
   }
 
   /**

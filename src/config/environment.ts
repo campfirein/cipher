@@ -65,3 +65,9 @@ export const ENV_CONFIG: Record<Environment, EnvironmentConfig> = {
  * @returns The environment configuration.
  */
 export const getCurrentConfig = (): EnvironmentConfig => ENV_CONFIG[ENVIRONMENT]
+
+/**
+ * Check if the current environment is development.
+ * @returns True if in development mode, false otherwise.
+ */
+export const isDevelopment = (): boolean => ENVIRONMENT === 'development'

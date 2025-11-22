@@ -1,6 +1,7 @@
 import type {Message} from '../../../core/domain/cipher/session/types.js'
 import type {CipherAgentServices, SessionServices} from '../../../core/interfaces/cipher/cipher-services.js'
 import type {IChatSession} from '../../../core/interfaces/cipher/i-chat-session.js'
+import type {ExecutionContext} from '../../../core/interfaces/cipher/i-cipher-agent.js'
 import type {ILLMService} from '../../../core/interfaces/cipher/i-llm-service.js'
 
 import {LLMError, SessionCancelledError} from '../../../core/domain/cipher/errors/session-error.js'
@@ -145,13 +146,14 @@ export class ChatSession implements IChatSession {
    * Send a message and get a response.
    * Delegates to the LLM service which handles the agentic loop.
    */
-  public async run(input: string, options?: {mode?: 'default' | 'json-input'}): Promise<string> {
+  public async run(input: string, options?: {executionContext?: ExecutionContext; mode?: 'autonomous' | 'default' | 'query'}): Promise<string> {
     // Create abort controller for cancellation
     this.currentController = new AbortController()
 
     try {
       // Delegate to service - it handles everything
       const response = await this.llmService.completeTask(input, {
+        executionContext: options?.executionContext,
         mode: options?.mode,
         signal: this.currentController.signal,
       })

@@ -4,6 +4,7 @@ import {OpenAI} from 'openai'
 
 import type {JSONSchema7, ToolSet} from '../../../core/domain/cipher/tools/types.js'
 import type {ExecutionContext} from '../../../core/interfaces/cipher/i-cipher-agent.js'
+import type {IHistoryStorage} from '../../../core/interfaces/cipher/i-history-storage.js'
 import type {ILLMService} from '../../../core/interfaces/cipher/i-llm-service.js'
 import type {InternalMessage, ToolCall} from '../../../core/interfaces/cipher/message-types.js'
 import type {MemoryManager} from '../memory/memory-manager.js'
@@ -103,11 +104,13 @@ export class OpenRouterLLMService implements ILLMService {
    * @param options.systemPromptManager - Simple prompt factory for building system prompts
    * @param options.sessionEventBus - Session event bus for emitting events
    * @param options.memoryManager - Optional memory manager for agent memories
+   * @param options.historyStorage - Optional history storage for persistence
    */
   public constructor(
     sessionId: string,
     config: OpenRouterServiceConfig,
     options: {
+      historyStorage?: IHistoryStorage
       memoryManager?: MemoryManager
       sessionEventBus: SessionEventBus
       systemPromptManager: SimplePromptFactory
@@ -147,9 +150,10 @@ export class OpenRouterLLMService implements ILLMService {
     this.formatter = new OpenRouterMessageFormatter()
     this.tokenizer = new OpenRouterTokenizer()
 
-    // Initialize context manager
+    // Initialize context manager with optional history storage
     this.contextManager = new ContextManager({
       formatter: this.formatter,
+      historyStorage: options.historyStorage,
       maxInputTokens: this.config.maxInputTokens,
       sessionId,
       tokenizer: this.tokenizer,
@@ -177,7 +181,7 @@ export class OpenRouterLLMService implements ILLMService {
    */
   public async completeTask(
     textInput: string,
-    options?: {executionContext?: ExecutionContext; fileData?: FileData; imageData?: ImageData; mode?: 'default' | 'json-input'; signal?: AbortSignal; stream?: boolean},
+    options?: {executionContext?: ExecutionContext; fileData?: FileData; imageData?: ImageData; mode?: 'autonomous' | 'default' | 'query'; signal?: AbortSignal; stream?: boolean},
   ): Promise<string> {
     // Extract options with defaults
     const {executionContext, fileData, imageData, mode, signal} = options ?? {}
@@ -219,26 +223,8 @@ export class OpenRouterLLMService implements ILLMService {
       }
     }
 
-    // Max iterations exceeded - emit warning and return partial response
-    console.warn(`[OpenRouterLLMService] WARNING: Reached maximum iterations (${this.config.maxIterations}) without completion`)
-
-    this.sessionEventBus.emit('llmservice:warning', {
-      message: `Maximum iterations (${this.config.maxIterations}) reached without completion`,
-      model: this.config.model,
-      provider: 'openrouter'
-    })
-
-    // Get accumulated response from context
-    const partialResponse = await this.getPartialResponse()
-
-    this.sessionEventBus.emit('llmservice:response', {
-      content: partialResponse,
-      model: this.config.model,
-      partial: true,
-      provider: 'openrouter'
-    })
-
-    return partialResponse || 'Maximum iterations reached without completing the task. Please try breaking down the task into smaller steps.'
+    // Max iterations exceeded
+    throw new LlmMaxIterationsError(this.config.maxIterations, 'openrouter', this.config.model)
   }
 
   /**
@@ -266,6 +252,16 @@ export class OpenRouterLLMService implements ILLMService {
    */
   public getContextManager(): ContextManager<unknown> {
     return this.contextManager
+  }
+
+  /**
+   * Initialize the LLM service by loading persisted history.
+   * Should be called after construction to restore previous conversation.
+   *
+   * @returns True if history was loaded, false otherwise
+   */
+  public async initialize(): Promise<boolean> {
+    return this.contextManager.initialize()
   }
 
   /**
@@ -316,7 +312,7 @@ export class OpenRouterLLMService implements ILLMService {
     iterationCount: number,
     tools: OpenAIToolDefinition[],
     executionContext: ExecutionContext | undefined,
-    mode?: 'default' | 'json-input',
+    mode?: 'autonomous' | 'default' | 'query',
   ): Promise<null | string> {
     // Build system prompt using SimplePromptFactory (before compression for correct token accounting)
     const availableTools = this.toolManager.getToolNames()
@@ -328,30 +324,27 @@ export class OpenRouterLLMService implements ILLMService {
       availableMarkers[marker] = marker
     }
 
-    let systemPrompt = await this.promptFactory.buildSystemPrompt({
+    const systemPrompt = await this.promptFactory.buildSystemPrompt({
       availableMarkers,
       availableTools,
+      commandType: executionContext?.commandType,
       conversationMetadata: executionContext?.conversationMetadata,
       memoryManager: this.memoryManager,
       mode,
     })
 
-    // Add reflection prompt when approaching max iterations (80% threshold)
-    const iterationThreshold = Math.floor(this.config.maxIterations * 0.8)
-    if (iterationCount >= iterationThreshold) {
-      const reflectionPrompt = this.promptFactory.buildReflectionPrompt({
-        currentIteration: iterationCount + 1,
-        maxIterations: this.config.maxIterations,
-        type: 'near_max_iterations'
-      })
-      systemPrompt = systemPrompt + '\n\n' + reflectionPrompt
-    }
-    // Add periodic completion check every 3 iterations (after iteration 3)
-    else if (iterationCount > 0 && iterationCount % 3 === 0) {
-      const reflectionPrompt = this.promptFactory.buildReflectionPrompt({
-        type: 'completion_check'
-      })
-      systemPrompt = systemPrompt + '\n\n' + reflectionPrompt
+    // Verbose debug: Show complete system prompt
+    if (this.config.verbose) {
+      console.log(`\n${'='.repeat(80)}`)
+      console.log(`[PromptDebug:OpenRouterLLMService] SYSTEM PROMPT (Iteration ${iterationCount + 1})`)
+      console.log(`${'='.repeat(80)}`)
+      console.log(`Length: ${systemPrompt.length} characters`)
+      console.log(`Lines: ${systemPrompt.split('\n').length}`)
+      console.log(`\n--- FIRST 500 CHARACTERS ---`)
+      console.log(systemPrompt.slice(0, 500))
+      console.log(`\n--- LAST 500 CHARACTERS ---`)
+      console.log(systemPrompt.slice(-500))
+      console.log(`${'='.repeat(80)}\n`)
     }
 
     // Get formatted messages from context with compression (passing system prompt for token accounting)
@@ -446,26 +439,6 @@ export class OpenRouterLLMService implements ILLMService {
         .filter((part) => part.type === 'text')
         .map((part) => (part.type === 'text' ? part.text : ''))
         .join('')
-    }
-
-    return ''
-  }
-
-  /**
-   * Extract partial response from conversation history when max iterations reached.
-   * Returns the last assistant message or accumulated tool outputs.
-   *
-   * @returns Partial response string
-   */
-  private async getPartialResponse(): Promise<string> {
-    const history = this.contextManager.getMessages()
-
-    // Find last assistant message
-    for (let i = history.length - 1; i >= 0; i--) {
-      const msg = history[i]
-      if (msg && msg.role === 'assistant') {
-        return this.extractTextContent(msg)
-      }
     }
 
     return ''

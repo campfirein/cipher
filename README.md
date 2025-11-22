@@ -147,10 +147,6 @@ brv space switch
 ### Memory Operations
 
 ```bash
-# Retrieve memories from ByteRover (outputs to stdout for agent context)
-brv retrieve --query "authentication best practices"
-brv retrieve -q "error handling" -n "src/auth/login.ts,src/auth/oauth.ts"
-
 # Push your playbook to ByteRover's memory storage
 brv push
 ```

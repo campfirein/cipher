@@ -31,7 +31,6 @@ Authentication uses OAuth 2.0 with PKCE flow. Your credentials are securely stor
 | `brv init`                                      | Initialize a project with ByteRover          | `brv init`                                         |
 | `brv space list`                                | List all spaces for the current team         | `brv space list --all`                             |
 | `brv space switch`                              | Switch to a different team or space          | `brv space switch`                                 |
-| `brv retrieve -q <query>`                       | Retrieve memories from ByteRover             | `brv retrieve -q "auth flow"`                      |
 | `brv push`                                      | Push playbook to ByteRover memory storage    | `brv push`                                         |
 | `brv add`                                       | Add or update a bullet in the playbook       | `brv add --interactive`                            |
 | `brv clear [DIRECTORY]`                         | Clear local ACE playbook                     | `brv clear`                                        |
@@ -269,47 +268,6 @@ brv space switch
 - Displays current team and space configuration
 - Interactive prompts guide you through new team and space selection
 - Updates configuration but does NOT initialize playbook
-
----
-
-### `brv retrieve`
-
-Retrieve memories from ByteRover Memora service and output as JSON. Searches your team's knowledge base and returns relevant memories with related context.
-
-**Arguments**
-
-None
-
-**Flags**
-
-| Flag                      | Description                                          | Required |
-| ------------------------- | ---------------------------------------------------- | -------- |
-| `-q, --query <value>`     | Search query string                                  | Yes      |
-| `-n, --node-keys <value>` | Comma-separated list of file paths to filter results | No       |
-| `--compact`               | Output compact JSON (single line)                    | No       |
-
-**Examples**
-
-```bash
-# Retrieve memories about authentication
-brv retrieve --query "authentication best practices"
-
-# Short form
-brv retrieve -q "error handling patterns"
-
-# Filter by specific files
-brv retrieve -q "database connection" -n "src/db/connection.ts,src/db/pool.ts"
-
-# Compact JSON output (single line)
-brv retrieve -q "API endpoints" --compact
-```
-
-**Notes**
-
-- Requires `brv login` and `brv init` first
-- Returns JSON with `memories` (primary results with scores) and `relatedMemories` (additional context)
-- Each memory includes: content, section, tags, metadata type, timestamp, related files
-- Use `--node-keys` to scope search to specific files in your codebase
 
 ---
 

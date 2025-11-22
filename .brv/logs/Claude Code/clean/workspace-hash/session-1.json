@@ -1,0 +1,31 @@
+{
+  "id": "session-1",
+  "messages": [
+    {
+      "content": [
+        {
+          "text": "Hello",
+          "type": "text"
+        }
+      ],
+      "timestamp": "2025-11-21T10:34:31.814Z",
+      "type": "user",
+      "turn_id": 1
+    },
+    {
+      "content": [
+        {
+          "text": "Hi there!",
+          "type": "text"
+        }
+      ],
+      "timestamp": "2025-11-21T10:34:31.814Z",
+      "type": "assistant",
+      "turn_id": 2
+    }
+  ],
+  "timestamp": 1763721271814,
+  "title": "Test Session",
+  "type": "Claude",
+  "workspacePaths": []
+}
