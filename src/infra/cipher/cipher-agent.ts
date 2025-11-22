@@ -268,6 +268,8 @@ export class CipherAgent implements ICipherAgent {
       projectId: this.llmConfig.projectId,
       region: this.llmConfig.region,
       sessionKey: this.llmConfig.sessionKey,
+      spaceId: this._brvConfig?.spaceId ?? '',
+      teamId: this._brvConfig?.teamId ?? '',
     }
 
     // Extract LLM config for sessions

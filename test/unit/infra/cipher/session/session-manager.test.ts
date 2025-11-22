@@ -136,6 +136,8 @@ describe('SessionManager', () => {
       grpcEndpoint: 'localhost:50051',
       projectId: 'test-project',
       sessionKey: 'test-session-key',
+      spaceId: 'test-space-id',
+      teamId: 'test-team-id',
     }
 
     // LLM config

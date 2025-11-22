@@ -15,6 +15,8 @@ function createGrpcProvider() {
     accessToken: 'test-token',
     grpcEndpoint: 'localhost:50051',
     sessionKey: 'test-session-key',
+    spaceId: 'test-space-id',
+    teamId: 'test-team-id',
   })
 }
 
