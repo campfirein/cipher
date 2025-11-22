@@ -1,4 +1,4 @@
-import type {ParsedInteraction} from '../parsed-interaction.js'
+import type {CleanSession} from '../../entities/parser.js'
 
 /**
  * Agent-level event names for CipherAgent.
@@ -6,7 +6,7 @@ import type {ParsedInteraction} from '../parsed-interaction.js'
  */
 export const AGENT_EVENT_NAMES = [
   'cipher:conversationReset',
-  'cipher:externalInteraction',
+  'cipher:externalSession',
   'cipher:stateChanged',
   'cipher:stateReset',
 ] as const
@@ -69,11 +69,11 @@ export interface AgentEventMap {
   }
 
   /**
-   * Emitted when an interaction from an external coding agent is captured.
-   * @property {ParsedInteraction} interaction - The parsed interaction data
+   * Emitted when a session from an external coding agent is captured.
+   * @property {CleanSession} session - The clean session data
    */
-  'cipher:externalInteraction': {
-    interaction: ParsedInteraction
+  'cipher:externalSession': {
+    session: CleanSession
     sessionId?: string
   }
 

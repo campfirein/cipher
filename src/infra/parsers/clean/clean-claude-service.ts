@@ -4,14 +4,15 @@
  * Consolidates agent sessions and normalizes messages
  */
 
-import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
+import {readdir, readFile} from 'node:fs/promises'
 import path from 'node:path'
 
-import { Agent } from '../../../core/domain/entities/agent.js'
-import { CleanClaudeSessionLoadResult, RawClaudeRawSession } from '../../../core/domain/entities/parser.js'
-import { ICleanParserService } from '../../../core/interfaces/parser/i-clean-parser-service.js'
-import { normalizeClaudeSession } from './shared.js'
+import type {CleanSession} from '../../../core/domain/entities/parser.js'
 
+import {Agent} from '../../../core/domain/entities/agent.js'
+import {CleanClaudeSessionLoadResult, RawClaudeRawSession} from '../../../core/domain/entities/parser.js'
+import {ICleanParserService} from '../../../core/interfaces/parser/i-clean-parser-service.js'
+import {normalizeClaudeSession} from './shared.js'
 
 /**
  * Claude Clean Service
@@ -33,50 +34,33 @@ export class ClaudeCleanService implements ICleanParserService {
    * Parse and transform raw Claude sessions to clean normalized format
    *
    * Reads raw sessions organized by workspace, consolidates agent sessions into main
-   * conversations, normalizes message format, and writes cleaned JSON files to output.
+   * conversations, and normalizes message format. Returns sessions in-memory without file writing.
    *
    * @param rawDir - Path to directory containing raw Claude session files organized by workspace
-   * @returns Promise resolving to true if transformation completed successfully, false on error
+   * @returns Promise resolving to array of clean normalized sessions
    */
   /* eslint-disable no-await-in-loop */
-  async parse(rawDir: string): Promise<boolean> {
-    const outputDir = path.join(process.cwd(), `.brv/logs/${this.ide}/clean`)
-
+  public async parse(rawDir: string): Promise<readonly CleanSession[]> {
     console.log('🔍 Starting Claude clean transformation...')
     console.log(`📁 Raw directory: ${rawDir}`)
-
     try {
-      // Create output directory
-      await mkdir(outputDir, { recursive: true })
-
-      // Read raw sessions organized by workspace
       const entries = await readdir(rawDir)
-
-      let totalSessions = 0
-
+      const allCleanSessions: CleanSession[] = []
       for (const entry of entries) {
         const workspacePath = path.join(rawDir, entry)
         const files = await readdir(workspacePath)
         const jsonFiles = files.filter((f) => f.endsWith('.json') && f !== 'summary.json')
-
         if (jsonFiles.length === 0) continue
-
-        // Create workspace output directory
-        const wsOutputDir = path.join(outputDir, entry)
-        await mkdir(wsOutputDir, { recursive: true })
-
-        // Load all sessions for consolidation
-        const { agentSessions, allSessions } = await this.loadSessions(workspacePath, jsonFiles)
-
-        // Process main sessions
-        totalSessions += await this.processMainSessions(allSessions, agentSessions, wsOutputDir)
+        const {agentSessions, allSessions} = await this.loadSessions(workspacePath, jsonFiles)
+        const cleanedSession = await this.processMainSessions(allSessions, agentSessions)
+        allCleanSessions.push(...cleanedSession)
       }
 
-      console.log(`\n🎉 Claude clean transformation complete! ${totalSessions} sessions saved to: ${outputDir}`)
-      return true
+      console.log(`\n🎉 Claude clean transformation complete! ${allCleanSessions.length} sessions processed`)
+      return Object.freeze(allCleanSessions)
     } catch (error) {
-      console.error('❌ Error during transformation:', error)
-      return false
+      console.error('❌ Error during transformation:', error instanceof Error ? error.message : 'Unknown error')
+      return Object.freeze([])
     }
   }
   /* eslint-enable no-await-in-loop */
@@ -92,8 +76,14 @@ export class ClaudeCleanService implements ICleanParserService {
    * @returns Similarity score between 0 (no match) and 1 (perfect match)
    */
   private calculateSimilarity(str1: string, str2: string): number {
-    const words1 = str1.toLowerCase().split(/\s+/).filter((w) => w.length > 3)
-    const words2 = str2.toLowerCase().split(/\s+/).filter((w) => w.length > 3)
+    const words1 = str1
+      .toLowerCase()
+      .split(/\s+/)
+      .filter((w) => w.length > 3)
+    const words2 = str2
+      .toLowerCase()
+      .split(/\s+/)
+      .filter((w) => w.length > 3)
 
     if (words1.length === 0 || words2.length === 0) return 0
 
@@ -114,7 +104,7 @@ export class ClaudeCleanService implements ICleanParserService {
    */
   private async consolidateAgentSessions(
     mainSession: RawClaudeRawSession,
-    agentSessions: Map<string, RawClaudeRawSession>
+    agentSessions: Map<string, RawClaudeRawSession>,
   ): Promise<RawClaudeRawSession> {
     if (!mainSession.messages || mainSession.messages.length === 0) {
       return mainSession
@@ -124,11 +114,7 @@ export class ClaudeCleanService implements ICleanParserService {
     const taskToolUseIds = this.identifyTaskToolIds(mainSession.messages, agentSessions)
 
     // Second pass: flatten messages, inserting agent messages after Task invocations
-    const newMessages = this.flattenMessagesWithAgentSessions(
-      mainSession.messages,
-      taskToolUseIds,
-      agentSessions
-    )
+    const newMessages = this.flattenMessagesWithAgentSessions(mainSession.messages, taskToolUseIds, agentSessions)
 
     return {
       ...mainSession,
@@ -150,7 +136,7 @@ export class ClaudeCleanService implements ICleanParserService {
   private findMatchingAgentSession(
     description: string,
     messageTimestamp: number,
-    agentSessions: Map<string, RawClaudeRawSession>
+    agentSessions: Map<string, RawClaudeRawSession>,
   ): null | RawClaudeRawSession {
     let matchedAgent: null | RawClaudeRawSession = null
     let bestScore = 0.2 // Minimum similarity threshold
@@ -192,7 +178,7 @@ export class ClaudeCleanService implements ICleanParserService {
   private flattenMessagesWithAgentSessions(
     messages: RawClaudeRawSession['messages'],
     taskToolUseIds: Set<string>,
-    agentSessions: Map<string, RawClaudeRawSession>
+    agentSessions: Map<string, RawClaudeRawSession>,
   ): RawClaudeRawSession['messages'] {
     const newMessages: RawClaudeRawSession['messages'] = []
 
@@ -239,7 +225,7 @@ export class ClaudeCleanService implements ICleanParserService {
    */
   private identifyTaskToolIds(
     messages: RawClaudeRawSession['messages'],
-    agentSessions: Map<string, RawClaudeRawSession>
+    agentSessions: Map<string, RawClaudeRawSession>,
   ): Set<string> {
     const taskToolUseIds: Set<string> = new Set()
 
@@ -278,10 +264,7 @@ export class ClaudeCleanService implements ICleanParserService {
    * @param jsonFiles - Array of JSON filenames to load
    * @returns Promise resolving to object with separated agentSessions and allSessions maps
    */
-  private async loadSessions(
-    workspacePath: string,
-    jsonFiles: string[]
-  ): Promise<CleanClaudeSessionLoadResult> {
+  private async loadSessions(workspacePath: string, jsonFiles: string[]): Promise<CleanClaudeSessionLoadResult> {
     const allSessions = new Map<string, RawClaudeRawSession>()
     const agentSessions = new Map<string, RawClaudeRawSession>()
 
@@ -303,27 +286,24 @@ export class ClaudeCleanService implements ICleanParserService {
     }
     /* eslint-enable no-await-in-loop */
 
-    return { agentSessions, allSessions }
+    return {agentSessions, allSessions}
   }
 
   /**
-   * Process main sessions and write normalized outputs
+   * Process main sessions and return normalized outputs
    *
-   * Consolidates agent sessions, normalizes each session, and writes clean
-   * JSON files to output directory.
+   * Consolidates agent sessions and normalizes each session.
+   * Returns normalized sessions in-memory without writing to disk.
    *
    * @param allSessions - Map of main sessions to process
    * @param agentSessions - Map of available agent sessions for consolidation
-   * @param wsOutputDir - Output directory path for processed sessions
-   * @returns Promise resolving to count of successfully processed sessions
+   * @returns Promise resolving to array of clean normalized sessions
    */
   private async processMainSessions(
     allSessions: Map<string, RawClaudeRawSession>,
     agentSessions: Map<string, RawClaudeRawSession>,
-    wsOutputDir: string
-  ): Promise<number> {
-    let totalSessions = 0
-
+  ): Promise<CleanSession[]> {
+    const cleanedSessions: CleanSession[] = []
     /* eslint-disable no-await-in-loop */
     for (const [sessionId, session] of allSessions) {
       try {
@@ -333,20 +313,15 @@ export class ClaudeCleanService implements ICleanParserService {
           consolidatedSession = await this.consolidateAgentSessions(session, agentSessions)
         }
 
-        // Normalize the session
         const normalized = normalizeClaudeSession(consolidatedSession as unknown as Record<string, unknown>, 'Claude')
-
-        // Write normalized session
-        const outputFile = path.join(wsOutputDir, `${sessionId}.json`)
-        await writeFile(outputFile, JSON.stringify(normalized, null, 2))
-        totalSessions++
+        cleanedSessions.push(normalized)
         console.log(`    ✅ ${session.title}`)
       } catch (error) {
-        console.warn(`⚠️  Failed to transform ${sessionId}:`, error instanceof Error ? error.message : String(error))
+        console.warn(`⚠️  Failed to transform ${sessionId}:`, error instanceof Error ? error.message : 'Unknown error')
       }
     }
-    /* eslint-enable no-await-in-loop */
 
-    return totalSessions
+    /* eslint-enable no-await-in-loop */
+    return cleanedSessions
   }
 }

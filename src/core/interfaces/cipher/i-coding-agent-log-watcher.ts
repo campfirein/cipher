@@ -1,16 +1,16 @@
-import type {ParsedInteraction} from '../../domain/cipher/parsed-interaction.js'
+import type {CleanSession} from '../../domain/entities/parser.js'
 
 /** Options for starting the coding agent log watcher. */
-type CodingAgentLogWatcherOptions = {
-  /** Callback invoked when interactions are parsed from log files */
-  onInteraction: (interaction: ParsedInteraction) => Promise<void>
+export type CodingAgentLogWatcherOptions = {
+  /** Callback invoked when sessions are parsed from log files */
+  onSession: (session: CleanSession) => Promise<void>
 
   /** Paths to watch for coding agent log files */
   paths: string[]
 }
 
 /**
- * Interface for watching coding agent log files and processing interactions.
+ * Interface for watching coding agent log files and processing sessions.
  * Implementations should handle the first watch (process existing files) differently from subsequent watches (only new/changed files).
  */
 export interface ICodingAgentLogWatcher {
