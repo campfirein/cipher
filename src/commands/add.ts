@@ -7,7 +7,7 @@ import type {IProjectConfigStore} from '../core/interfaces/i-project-config-stor
 import type {ITrackingService} from '../core/interfaces/i-tracking-service.js'
 
 import {CONTEXT_TREE_DOMAINS} from '../config/context-tree-domains.js'
-import {getCurrentConfig} from '../config/environment.js'
+import {getCurrentConfig, isDevelopment} from '../config/environment.js'
 import {PROJECT} from '../constants.js'
 import {CipherAgent} from '../infra/cipher/cipher-agent.js'
 import {ExitCode, exitWithCode} from '../infra/cipher/exit-codes.js'
@@ -38,30 +38,31 @@ export default class Add extends Command {
     '# Autonomous mode with internal LLM (default)',
     '<%= config.bin %> <%= command.id %> "User authentication uses JWT tokens with 24h expiry"',
     '',
-    '# Autonomous mode with OpenRouter',
-    '<%= config.bin %> <%= command.id %> -k YOUR_API_KEY "React components follow atomic design pattern"',
-    '',
-    '# Autonomous mode with custom model',
-    '<%= config.bin %> <%= command.id %> -k YOUR_API_KEY -m anthropic/claude-sonnet-4 "API rate limit is 100 req/min"',
-    '',
-    '# Interactive mode with content pre-filled (still prompts for domain/topic)',
-    '<%= config.bin %> <%= command.id %> -c "Database uses PostgreSQL 15 with connection pooling"',
+    ...(isDevelopment()
+      ? [
+          '# Autonomous mode with OpenRouter (development only)',
+          '<%= config.bin %> <%= command.id %> -k YOUR_API_KEY "React components follow atomic design pattern"',
+          '',
+          '# Autonomous mode with custom model (development only)',
+          '<%= config.bin %> <%= command.id %> -k YOUR_API_KEY -m anthropic/claude-sonnet-4 "API rate limit is 100 req/min"',
+        ]
+      : []),
   ]
   public static flags = {
-    apiKey: Flags.string({
-      char: 'k',
-      description: 'OpenRouter API key (use OpenRouter instead of internal gRPC backend)',
-      env: 'OPENROUTER_API_KEY',
-    }),
-    content: Flags.string({
-      char: 'c',
-      description: 'Content to add (for autonomous mode via flag)',
-      required: false,
-    }),
-    model: Flags.string({
-      char: 'm',
-      description: 'Model to use (default: anthropic/claude-haiku-4.5 for OpenRouter, claude-haiku-4-5@20251001 for gRPC)',
-    }),
+    ...(isDevelopment()
+      ? {
+          apiKey: Flags.string({
+            char: 'k',
+            description: 'OpenRouter API key (use OpenRouter instead of internal gRPC backend) [Development only]',
+            env: 'OPENROUTER_API_KEY',
+          }),
+          model: Flags.string({
+            char: 'm',
+            description:
+              'Model to use (default: anthropic/claude-haiku-4.5 for OpenRouter, claude-haiku-4-5@20251001 for gRPC) [Development only]',
+          }),
+        }
+      : {}),
     verbose: Flags.boolean({
       char: 'v',
       default: false,
@@ -234,8 +235,8 @@ export default class Add extends Command {
   public async run(): Promise<void> {
     const {args, flags} = await this.parse(Add)
 
-    // Determine mode: autonomous if content is provided via args or flags
-    const contentInput = args.content || flags.content
+    // Determine mode: autonomous if content is provided via args
+    const contentInput = args.content
 
     // Autonomous mode: use CipherAgent to process content
     // Interactive mode: manually prompt for domain/topic/content

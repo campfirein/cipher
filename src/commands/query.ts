@@ -3,7 +3,7 @@ import {Args, Command, Flags} from '@oclif/core'
 import type {IProjectConfigStore} from '../core/interfaces/i-project-config-store.js'
 import type {ITrackingService} from '../core/interfaces/i-tracking-service.js'
 
-import {getCurrentConfig} from '../config/environment.js'
+import {getCurrentConfig, isDevelopment} from '../config/environment.js'
 import {PROJECT} from '../constants.js'
 import {CipherAgent} from '../infra/cipher/cipher-agent.js'
 import {ExitCode, exitWithCode} from '../infra/cipher/exit-codes.js'
@@ -15,42 +15,52 @@ import {formatToolCall, formatToolResult} from '../utils/tool-display-formatter.
 
 export default class Query extends Command {
   public static args = {
-    question: Args.string({
-      description: 'Question or query to search in the context tree',
+    query: Args.string({
+      description: 'Query terms to search in the context tree',
       required: true,
     }),
   }
   public static description = 'Query and retrieve information from the context tree'
   public static examples = [
     '# Query with internal LLM (default)',
-    '<%= config.bin %> <%= command.id %> "What are the coding standards?"',
-    '<%= config.bin %> <%= command.id %> "How is authentication implemented?"',
+    '<%= config.bin %> <%= command.id %> What are the coding standards?',
+    '<%= config.bin %> <%= command.id %> How is authentication implemented?',
     '',
-    '# Query with OpenRouter',
-    '<%= config.bin %> <%= command.id %> -k YOUR_API_KEY "Show me all API endpoints"',
-    '',
-    '# Query with custom model',
-    '<%= config.bin %> <%= command.id %> -k YOUR_API_KEY -m anthropic/claude-sonnet-4 "Explain the database schema"',
-    '',
+    ...(isDevelopment()
+      ? [
+          '# Query with OpenRouter (development only)',
+          '<%= config.bin %> <%= command.id %> -k YOUR_API_KEY Show me all API endpoints',
+          '',
+          '# Query with custom model (development only)',
+          '<%= config.bin %> <%= command.id %> -k YOUR_API_KEY -m anthropic/claude-sonnet-4 Explain the database schema',
+          '',
+        ]
+      : []),
     '# Query with verbose output',
-    '<%= config.bin %> <%= command.id %> -v "What testing strategies are used?"',
+    '<%= config.bin %> <%= command.id %> -v What testing strategies are used?',
   ]
   public static flags = {
-    apiKey: Flags.string({
-      char: 'k',
-      description: 'OpenRouter API key (use OpenRouter instead of internal gRPC backend)',
-      env: 'OPENROUTER_API_KEY',
-    }),
-    model: Flags.string({
-      char: 'm',
-      description: 'Model to use (default: anthropic/claude-haiku-4.5 for OpenRouter, claude-haiku-4-5@20251001 for gRPC)',
-    }),
+    ...(isDevelopment()
+      ? {
+          apiKey: Flags.string({
+            char: 'k',
+            description: 'OpenRouter API key (use OpenRouter instead of internal gRPC backend) [Development only]',
+            env: 'OPENROUTER_API_KEY',
+          }),
+          model: Flags.string({
+            char: 'm',
+            description:
+              'Model to use (default: anthropic/claude-haiku-4.5 for OpenRouter, claude-haiku-4-5@20251001 for gRPC) [Development only]',
+          }),
+        }
+      : {}),
     verbose: Flags.boolean({
       char: 'v',
       default: false,
       description: 'Enable verbose debug output',
     }),
   }
+  public static strict = false
 
   protected createServices(): {
     projectConfigStore: IProjectConfigStore
@@ -72,7 +82,7 @@ export default class Query extends Command {
   }
 
   public async run(): Promise<void> {
-    const {args, flags} = await this.parse(Query)
+    const {argv, flags} = await this.parse(Query)
 
     const {projectConfigStore, trackingService} = this.createServices()
 
@@ -117,8 +127,11 @@ export default class Query extends Command {
         // Setup event listeners
         this.setupEventListeners(agent, flags.verbose ?? false)
 
+        // Combine all query terms from argv (everything after flags)
+        const queryTerms = argv.join(' ')
+
         // Execute with autonomous mode and query commandType
-        const prompt = `Search the context tree for: ${args.question}`
+        const prompt = `Search the context tree for: ${queryTerms}`
         const response = await agent.execute(prompt, sessionId, {
           executionContext: {commandType: 'query'},
           mode: 'autonomous',

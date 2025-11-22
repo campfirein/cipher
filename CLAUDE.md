@@ -93,7 +93,6 @@ protected createServices(): {myService: IMyService} {
 - `brv status` - Reads `userEmail` from AuthToken (no API). Shows: version, auth, directory, config
 - `brv init` - `{fetchAll: true}` for teams/spaces, initializes ACE playbook
 - `brv space switch` - **No playbook init**
-- `brv retrieve --query <q> [--node-keys <paths>]` - Clears playbook, combines memories+relatedMemories, uses Memora tags. Warns on save error
 - `brv push [--branch <name>]` - Default: `main` (ByteRover, not git). Flow: presigned URLs → PUT → **confirm**. Cleanup (after confirm): clear playbook, remove executor-outputs/, reflections/, deltas/
 - `brv space list` - Default 50, needs `--all` or manual pagination
 
