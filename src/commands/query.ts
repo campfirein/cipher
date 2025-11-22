@@ -98,7 +98,7 @@ export default class Query extends Command {
       const brvConfig = await projectConfigStore.read()
 
       // Create LLM config
-      const model = flags.model ?? (flags.apiKey ? 'anthropic/claude-haiku-4.5' : 'claude-haiku-4-5@20251001')
+      const model = flags.model ?? (flags.apiKey ? 'anthropic/claude-haiku-4.5' : 'claude-haiku-4-5@20251001') // change it to claude-haiku-4-5@20251001 | gemini-2.5-flash for internal llm service model
       const envConfig = getCurrentConfig()
 
       const llmConfig = {

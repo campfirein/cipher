@@ -53,6 +53,12 @@ message GenerateRequest {
 
   // Region for the request (e.g., "us-east1", "us-east5")
   string region = 4;
+
+  // Current user teamID for the request
+  string teamId = 5;
+
+  // Current user spaceID for the request
+  string spaceId = 6;
 }
 
 message GenerateParams {
