@@ -5,6 +5,7 @@ import type { Tool, ToolExecutionContext } from '../../../../core/domain/cipher/
 
 import { ToolName } from '../../../../core/domain/cipher/tools/constants.js'
 import { DirectoryManager } from '../../../../core/domain/knowledge/directory-manager.js'
+import { parseRelations } from '../../../../core/domain/knowledge/relation-parser.js'
 
 /**
  * Input schema for finding knowledge topics.
@@ -26,6 +27,13 @@ const FindKnowledgeTopicsInputSchema = z.object({
     .string()
     .optional()
     .describe('Domain name pattern for substring matching'),
+
+  // Relation traversal
+  followRelations: z
+    .boolean()
+    .default(false)
+    .describe('Automatically fetch related topics referenced in Relations section'),
+
   includeContent: z
     .boolean()
     .default(false)
@@ -51,6 +59,13 @@ const FindKnowledgeTopicsInputSchema = z.object({
     .default(0)
     .describe('Number of results to skip'),
 
+  relationDepth: z
+    .number()
+    .int()
+    .positive()
+    .default(1)
+    .describe('How many levels deep to follow relations (default: 1, max: 3)'),
+
   subtopicPattern: z
     .string()
     .optional()
@@ -71,10 +86,12 @@ interface FindKnowledgeTopicsOutput {
     contentPreview?: string
     domain: string
     path: string
+    relations?: string[]
     subtopics?: Array<{
       contentPreview?: string
       name: string
       path: string
+      relations?: string[]
     }>
     topic: string
   }>
@@ -85,6 +102,7 @@ type SubtopicEntry = {
   contentPreview?: string
   name: string
   path: string
+  relations?: string[]
 }
 
 /**
@@ -96,6 +114,18 @@ async function readContentPreview(filePath: string): Promise<string> {
     return content.length > 500 ? content.slice(0, 500) + '...' : content
   } catch {
     return '[Content unavailable]'
+  }
+}
+
+/**
+ * Read and parse relations from a context.md file.
+ */
+async function readRelations(filePath: string): Promise<string[]> {
+  try {
+    const content = await DirectoryManager.readFile(filePath)
+    return parseRelations(content)
+  } catch {
+    return []
   }
 }
 
@@ -135,6 +165,12 @@ async function processSubtopicFile(params: {
   // Include subtopic content preview if requested
   if (includeContent) {
     subtopicEntry.contentPreview = await readContentPreview(subtopicFile)
+  }
+
+  // Always parse relations to enable relation traversal
+  const relations = await readRelations(subtopicFile)
+  if (relations.length > 0) {
+    subtopicEntry.relations = relations
   }
 
   return subtopicEntry
@@ -198,6 +234,120 @@ function matchesFilters(params: {
 }
 
 /**
+ * Collect relations from subtopics.
+ */
+function collectSubtopicRelations(subtopics: Array<{relations?: string[]}>): string[] {
+  const relations: string[] = []
+
+  for (const subtopic of subtopics) {
+    if (subtopic.relations) {
+      relations.push(...subtopic.relations)
+    }
+  }
+
+  return relations
+}
+
+/**
+ * Collect all relation paths from a set of results.
+ */
+function collectAllRelations(results: FindKnowledgeTopicsOutput['results']): Set<string> {
+  const allRelations = new Set<string>()
+
+  for (const result of results) {
+    if (result.relations) {
+      for (const rel of result.relations) allRelations.add(rel)
+    }
+
+    if (result.subtopics) {
+      const subtopicRelations = collectSubtopicRelations(result.subtopics)
+      for (const rel of subtopicRelations) allRelations.add(rel)
+    }
+  }
+
+  return allRelations
+}
+
+/**
+ * Fetch related topics by following relation references.
+ * Recursively traverses relations up to the specified depth.
+ */
+async function fetchRelatedTopics(params: {
+  basePath: string
+  currentDepth: number
+  includeContent: boolean
+  maxDepth: number
+  relationPaths: string[]
+  seenPaths: Set<string>
+}): Promise<FindKnowledgeTopicsOutput['results']> {
+  const {basePath, currentDepth, includeContent, maxDepth, relationPaths, seenPaths} = params
+
+  if (currentDepth > maxDepth || relationPaths.length === 0) {
+    return []
+  }
+
+  const relatedTopics: FindKnowledgeTopicsOutput['results'] = []
+
+  for (const relationPath of relationPaths) {
+    // Avoid circular references
+    if (seenPaths.has(relationPath)) continue
+    seenPaths.add(relationPath)
+
+    const parts = relationPath.split('/')
+    if (parts.length < 2 || parts.length > 3) continue
+
+    const [domainName, topicName] = parts
+    const contextPath = join(basePath, ...parts, 'context.md')
+
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      const fileExists = await DirectoryManager.fileExists(contextPath)
+      if (!fileExists) continue
+
+      const entry: FindKnowledgeTopicsOutput['results'][number] = {
+        domain: domainName,
+        path: relationPath,
+        topic: topicName,
+      }
+
+      // Include content preview if requested
+      if (includeContent) {
+        // eslint-disable-next-line no-await-in-loop
+        entry.contentPreview = await readContentPreview(contextPath)
+      }
+
+      // Parse relations from this topic
+      // eslint-disable-next-line no-await-in-loop
+      const nestedRelations = await readRelations(contextPath)
+      if (nestedRelations.length > 0) {
+        entry.relations = nestedRelations
+
+        // Recursively fetch nested relations if depth allows
+        if (currentDepth < maxDepth) {
+          // eslint-disable-next-line no-await-in-loop
+          const nestedTopics = await fetchRelatedTopics({
+            basePath,
+            currentDepth: currentDepth + 1,
+            includeContent,
+            maxDepth,
+            relationPaths: nestedRelations,
+            seenPaths,
+          })
+          relatedTopics.push(...nestedTopics)
+        }
+      }
+
+      relatedTopics.push(entry)
+    } catch {
+      // Skip missing or invalid relations
+      continue
+    }
+  }
+
+  return relatedTopics
+}
+
+/**
  * Execute the find knowledge topics operation.
  * Searches the context tree structure and applies filters.
  *
@@ -213,10 +363,12 @@ async function executeFindKnowledgeTopics(
     basePath,
     domain,
     domainPattern,
+    followRelations,
     includeContent,
     includeSubtopics,
     limit,
     offset,
+    relationDepth,
     subtopicPattern,
     topicPattern,
   } = input as FindKnowledgeTopicsInput
@@ -284,6 +436,13 @@ async function executeFindKnowledgeTopics(
         entry.contentPreview = await readContentPreview(filePath)
       }
 
+      // Always parse relations to enable relation traversal
+      // eslint-disable-next-line no-await-in-loop
+      const topicRelations = await readRelations(filePath)
+      if (topicRelations.length > 0) {
+        entry.relations = topicRelations
+      }
+
       // Include subtopics if requested
       if (includeSubtopics) {
         // eslint-disable-next-line no-await-in-loop
@@ -310,6 +469,27 @@ async function executeFindKnowledgeTopics(
       ? results.slice(effectiveOffset, effectiveOffset + limit)
       : results.slice(effectiveOffset)
 
+    // Follow relations if requested
+    if (followRelations && paginatedResults.length > 0) {
+      const maxDepth = Math.min(relationDepth ?? 1, 3) // Cap at 3 to prevent excessive traversal
+      const allRelations = collectAllRelations(paginatedResults)
+
+      // Fetch related topics recursively
+      if (allRelations.size > 0) {
+        const relatedTopics = await fetchRelatedTopics({
+          basePath,
+          currentDepth: 1,
+          includeContent,
+          maxDepth,
+          relationPaths: [...allRelations],
+          seenPaths: seenTopics, // Reuse seenTopics to avoid duplicates
+        })
+
+        // Append related topics to results
+        paginatedResults.push(...relatedTopics)
+      }
+    }
+
     return {
       results: paginatedResults,
       total,
@@ -330,16 +510,17 @@ async function executeFindKnowledgeTopics(
  */
 export function createFindKnowledgeTopicsTool(): Tool {
   return {
-    description: `Search and filter knowledge topics in the context tree structure.
+    description: `Search and filter knowledge topics in the context tree structure with relation support.
 
-This tool helps discover what knowledge has been stored and navigate the domain/topic hierarchy. It works similarly to find_symbol but for knowledge organization.
+This tool helps discover what knowledge has been stored and navigate the domain/topic hierarchy. It works similarly to find_symbol but for knowledge organization, with the ability to follow relations between topics.
 
 **Use cases:**
 - Discover what knowledge topics exist in a domain
 - Find topics matching specific patterns
-- Navigate the knowledge hierarchy
+- Navigate the knowledge hierarchy via relations
 - Retrieve context for specific areas
 - Check what has been documented
+- Follow related topics for comprehensive context
 
 **Search capabilities:**
 - Pattern matching on domain, topic, and subtopic names (substring matching)
@@ -347,17 +528,19 @@ This tool helps discover what knowledge has been stored and navigate the domain/
 - Optional subtopic inclusion (depth control)
 - Optional content preview (500 character limit)
 - Pagination for large result sets
+- Relation traversal (automatically fetch related topics up to 3 levels deep)
 
 **Examples:**
 - Find all topics in "testing" domain: {domain: "testing"}
 - Find topics about "eslint": {topicPattern: "eslint"}
 - Find subtopics with "config": {subtopicPattern: "config", includeSubtopics: true}
 - Get content previews: {domain: "architecture", includeContent: true}
+- Follow relations: {topicPattern: "auth", followRelations: true, relationDepth: 2}
 - Paginate results: {limit: 10, offset: 0}
 
 **Returns:**
-- total: Total number of matching topics
-- results: Array of topic entries with domain, topic name, path, and optional subtopics/content`,
+- total: Total number of matching topics (before relation traversal)
+- results: Array of topic entries with domain, topic name, path, optional relations, subtopics, and content`,
 
     execute: executeFindKnowledgeTopics,
 

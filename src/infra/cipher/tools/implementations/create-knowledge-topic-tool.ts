@@ -17,11 +17,19 @@ const CreateKnowledgeTopicInputSchema = z.object({
       z.object({
         domain: z.string().describe('Domain category name from predefined list'),
         name: z.string().describe('Topic name'),
+        relations: z
+          .array(z.string())
+          .optional()
+          .describe('Related topics using @domain/topic or @domain/topic/subtopic notation'),
         snippets: z.array(z.string()).describe('Code/text snippets'),
         subtopics: z
           .array(
             z.object({
               name: z.string().describe('Subtopic name'),
+              relations: z
+                .array(z.string())
+                .optional()
+                .describe('Related topics using @domain/topic or @domain/topic/subtopic notation'),
               snippets: z.array(z.string()).describe('Code/text snippets'),
             }),
           )
@@ -67,7 +75,7 @@ async function executeCreateKnowledgeTopic(
   // Process each topic sequentially (domains/topics must be created in order)
   /* eslint-disable no-await-in-loop -- Sequential processing required for domain/topic hierarchy */
   for (const topicData of topics) {
-    const {domain, name: topicName, snippets, subtopics: subtopicData} = topicData
+    const {domain, name: topicName, relations, snippets, subtopics: subtopicData} = topicData
 
     // Create or update domain folder
     const domainPath = join(basePath, domain)
@@ -80,6 +88,7 @@ async function executeCreateKnowledgeTopic(
     // Generate and write topic context.md
     const topicContextContent = MarkdownWriter.generateContext({
       name: topicName,
+      relations,
       snippets,
     })
     const topicContextPath = join(topicPath, 'context.md')
@@ -95,6 +104,7 @@ async function executeCreateKnowledgeTopic(
         // Generate and write subtopic context.md
         const subtopicContextContent = MarkdownWriter.generateContext({
           name: subtopic.name,
+          relations: subtopic.relations,
           snippets: subtopic.snippets,
         })
         const subtopicContextPath = join(subtopicPath, 'context.md')
@@ -145,7 +155,7 @@ async function executeCreateKnowledgeTopic(
  */
 export function createCreateKnowledgeTopicTool(): Tool {
   return {
-    description: `Create organized knowledge topics within domain folders. This tool structures knowledge by creating topic and subtopic folders, each containing a context.md file with relevant snippets.
+    description: `Create organized knowledge topics within domain folders. This tool structures knowledge by creating topic and subtopic folders, each containing a context.md file with relevant snippets and optional relations.
 
 Use this tool after detecting domains to organize extracted knowledge into a hierarchical structure:
 - Domain folders (e.g., .brv/context-tree/domain-name/)
@@ -157,12 +167,16 @@ Use this tool after detecting domains to organize extracted knowledge into a hie
 Each topic should include:
 1. A clear topic name
 2. Relevant code/text snippets that demonstrate the knowledge
-3. Subtopics (optional) that break down the topic into smaller pieces
+3. Optional relations to other topics using @domain/topic or @domain/topic/subtopic notation
+4. Subtopics (optional) that break down the topic into smaller pieces
+
+Relations enhance knowledge discovery by linking related contexts. Example:
+- relations: ['code_style/error-handling', 'structure/api-endpoints/validation']
 
 The tool automatically:
 - Creates the base knowledge structure if it doesn't exist
-- Creates topic, and subtopic folders as needed
-- Generates context.md files containing all relevant snippets
+- Creates topic and subtopic folders as needed
+- Generates context.md files with snippets and relations
 - Handles existing topics gracefully (updates instead of recreating)`,
 
     execute: executeCreateKnowledgeTopic,

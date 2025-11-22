@@ -30,8 +30,19 @@ prompts:
     hierarchically based on their relationships and importance.
 
   create_knowledge_topic_output: |
-    Knowledge topic created successfully. Consider if you need to:
+    Knowledge topic created successfully. Topics now support relations using @domain/topic notation.
+    Consider if you need to:
+    - Add relations to connect related topics (e.g., relations: ['code_style/error-handling'])
     - Create related sub-topics for more detailed organization
     - Read existing context to understand the current structure
     - Create additional topics for other domains you detected
     - Proceed with populating this topic with relevant information
+
+  find_knowledge_topics_output: |
+    Search complete. Use the results to navigate the knowledge tree and understand the codebase.
+    Topics may include relations to other topics - use followRelations to automatically fetch them.
+    Consider:
+    - Using includeContent to preview topic details
+    - Following relations for comprehensive context (set followRelations: true)
+    - Adjusting relationDepth (1-3) to control how deep to traverse
+    - Refining search with pattern filters if too many results
