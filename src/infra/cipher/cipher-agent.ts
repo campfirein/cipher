@@ -1,5 +1,5 @@
-import type {ParsedInteraction} from '../../core/domain/cipher/parsed-interaction.js'
 import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
+import type {CleanSession} from '../../core/domain/entities/parser.js'
 import type {CipherAgentServices} from '../../core/interfaces/cipher/cipher-services.js'
 import type {IChatSession} from '../../core/interfaces/cipher/i-chat-session.js'
 import type {AgentState, ICipherAgent} from '../../core/interfaces/cipher/i-cipher-agent.js'
@@ -296,12 +296,12 @@ export class CipherAgent implements ICipherAgent {
     })
 
     // Start coding agent log watcher if configured
-    if (sharedServices.codingAgentLogWatcher && this.llmConfig.watchPaths) {
+    if (sharedServices.codingAgentLogWatcher && this._brvConfig) {
       await sharedServices.codingAgentLogWatcher.start({
-        onInteraction: async (interaction) => {
-          await this.handleCodingAgentInteraction(interaction)
+        onSession: async (session) => {
+          await this.handleCodingAgentSession(session)
         },
-        paths: this.llmConfig.watchPaths,
+        paths: [this._brvConfig.chatLogPath],
       })
     }
 
@@ -399,13 +399,13 @@ export class CipherAgent implements ICipherAgent {
   }
 
   /**
-   * Handle interactions captured from external coding agents.
+   * Handle sessions captured from external coding agents.
    * Emits events to the agent event bus for observability.
    *
-   * @param interaction - The parsed interaction data from a coding agent
+   * @param session - The clean session data from a coding agent
    */
-  private async handleCodingAgentInteraction(interaction: ParsedInteraction): Promise<void> {
-    this.agentEventBus?.emit('cipher:externalInteraction', {interaction})
+  private async handleCodingAgentSession(session: CleanSession): Promise<void> {
+    this.agentEventBus?.emit('cipher:externalSession', {session})
     // TODO: Future - process into memory context tree.
   }
 }

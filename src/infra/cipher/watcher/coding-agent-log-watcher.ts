@@ -1,12 +1,12 @@
-import type {ParsedInteraction} from '../../../core/domain/cipher/parsed-interaction.js'
+import type {CleanSession} from '../../../core/domain/entities/parser.js'
 import type {ICodingAgentLogParser} from '../../../core/interfaces/cipher/i-coding-agent-log-parser.js'
-import type {ICodingAgentLogWatcher} from '../../../core/interfaces/cipher/i-coding-agent-log-watcher.js'
+import type {CodingAgentLogWatcherOptions, ICodingAgentLogWatcher} from '../../../core/interfaces/cipher/i-coding-agent-log-watcher.js'
 import type {FileEvent, IFileWatcherService} from '../../../core/interfaces/i-file-watcher-service.js'
 
-type OnInteractionCallback = (interaction: ParsedInteraction) => Promise<void>
+type OnSessionCallback = (session: CleanSession) => Promise<void>
 
 export class CodingAgentLogWatcher implements ICodingAgentLogWatcher {
-  private callback: OnInteractionCallback | undefined
+  private callback: OnSessionCallback | undefined
   private readonly fileWatcher: IFileWatcherService
   private firstWatch: boolean
   private readonly parser: ICodingAgentLogParser
@@ -25,12 +25,12 @@ export class CodingAgentLogWatcher implements ICodingAgentLogWatcher {
     return this.watching
   }
 
-  public async start(options: {onInteraction: OnInteractionCallback; paths: string[]}): Promise<void> {
+  public async start(options: CodingAgentLogWatcherOptions): Promise<void> {
     if (this.watching) {
       throw new Error('Already watching. Stop the watcher before starting again.')
     }
 
-    this.callback = options.onInteraction
+    this.callback = options.onSession
     this.watching = true
 
     this.fileWatcher.setFileEventHandler(async (event: FileEvent) => {
@@ -61,10 +61,6 @@ export class CodingAgentLogWatcher implements ICodingAgentLogWatcher {
         return
       }
 
-      if (!this.parser.isValidLogFile(event.path)) {
-        return
-      }
-
       // Skip already-processed add events on subsequent watches
       if (!this.firstWatch && event.type === 'add' && this.processedAddFiles.has(event.path)) {
         return
@@ -75,15 +71,15 @@ export class CodingAgentLogWatcher implements ICodingAgentLogWatcher {
         this.processedAddFiles.add(event.path)
       }
 
-      const interactions = await this.parser.parseLogFile(event.path)
+      const sessions = await this.parser.parseLogFile()
 
       if (this.callback !== undefined) {
-        for (const interaction of interactions) {
+        for (const session of sessions) {
           try {
             // eslint-disable-next-line no-await-in-loop
-            await this.callback(interaction)
+            await this.callback(session)
           } catch (error) {
-            console.error(`[CodingAgentLogWatcher] Error in interaction callback: ${error}`)
+            console.error(`[CodingAgentLogWatcher] Error in session callback: ${error}`)
           }
         }
       }
