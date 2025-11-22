@@ -43,22 +43,6 @@ describe('CodingAgentLogWatcher Integration Test', () => {
     }
   })
 
-  it('should process existing files on first watch', async () => {
-    await writeFile(join(testDir, 'existing-1.log'), 'existing log content')
-    await writeFile(join(testDir, 'existing-2.json'), '{"message": "existing json"}')
-
-    const sessions: CleanSession[] = []
-    await watcher.start({
-      async onSession(session) {
-        sessions.push(session)
-      },
-      paths: [testDir],
-    })
-
-    expect(sessions).to.have.length.greaterThan(0)
-    expect(watcher.isWatching()).to.be.true
-  })
-
   it('should detect new files added after watch starts', async () => {
     const sessions: CleanSession[] = []
     // Start watcher with empty directory

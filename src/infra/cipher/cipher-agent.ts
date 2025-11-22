@@ -405,7 +405,9 @@ export class CipherAgent implements ICipherAgent {
    * @param session - The clean session data from a coding agent
    */
   private async handleCodingAgentSession(session: CleanSession): Promise<void> {
+    // This event is purely for observability for now. No consumers/handlers yet.
     this.agentEventBus?.emit('cipher:externalSession', {session})
-    // TODO: Future - process into memory context tree.
+    // Verify that clean session is generated in memory correctly.
+    console.log('CLEAN SESSION', session)
   }
 }

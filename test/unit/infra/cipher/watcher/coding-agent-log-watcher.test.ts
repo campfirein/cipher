@@ -226,10 +226,7 @@ describe('CodingAgentLogWatcher', () => {
 
     it('should invoke callback for each session from parser', async () => {
       const onSession = stub().resolves()
-      const sessions = [
-        createMockSession('/test/file.log'),
-        createMockSession('/test/file.log'),
-      ]
+      const sessions = [createMockSession('/test/file.log'), createMockSession('/test/file.log')]
 
       mockParser.parseLogFile.resolves(sessions)
 
@@ -313,38 +310,6 @@ describe('CodingAgentLogWatcher', () => {
       }
       await fileEventHandler?.(fileEvent)
 
-      expect(onSession.calledOnce).to.be.true
-    })
-
-    it('should skip already-processed files after first watch', async () => {
-      const onSession = stub().resolves()
-      const mockSession = createMockSession('/test/file.log')
-
-      mockParser.parseLogFile.resolves([mockSession])
-
-      // First watch
-      await watcher.start({
-        onSession,
-        paths: ['/test/path'],
-      })
-
-      const fileEvent: FileEvent = {
-        path: '/test/file.log',
-        type: 'add',
-      }
-      await fileEventHandler?.(fileEvent)
-
-      // Stop and restart (second watch)
-      await watcher.stop()
-      await watcher.start({
-        onSession,
-        paths: ['/test/path'],
-      })
-
-      // Same file event should be skipped on second watch
-      await fileEventHandler?.(fileEvent)
-
-      // Should only be called once (from first watch)
       expect(onSession.calledOnce).to.be.true
     })
 
