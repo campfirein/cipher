@@ -18,6 +18,7 @@ interface ClientDuplexStream {
   on(event: 'data', listener: (message: unknown) => void): this
   on(event: 'end', listener: () => void): this
   on(event: 'error', listener: (error: NodeJS.ErrnoException) => void): this
+  on(event: 'status', listener: (status: grpc.StatusObject) => void): this
 }
 
 /**
@@ -46,6 +47,8 @@ type GenerateRequest = {
   project_id: string
   provider: 'claude' | 'gemini'
   region: string
+  spaceId: string
+  teamId: string
 }
 
 /**
@@ -57,6 +60,8 @@ export interface ByteRoverGrpcConfig {
   projectId?: string
   region?: string
   sessionKey: string
+  spaceId: string
+  teamId: string
   timeout?: number
 }
 
@@ -103,6 +108,8 @@ export class ByteRoverLlmGrpcService {
       projectId: config.projectId ?? 'byterover',
       region: config.region ?? 'us-east1',
       sessionKey: config.sessionKey,
+      spaceId: config.spaceId,
+      teamId: config.teamId,
       timeout: config.timeout ?? 60_000,
     }
 
@@ -156,6 +163,8 @@ export class ByteRoverLlmGrpcService {
       project_id: this.config.projectId,
       provider: this.detectProviderFromModel(model),
       region: this.detectRegionFromModel(model),
+      spaceId: this.config.spaceId,
+      teamId: this.config.teamId,
     }
 
     try {
@@ -254,6 +263,17 @@ export class ByteRoverLlmGrpcService {
         cleanup()
         console.error(`[gRPC Provider] Stream error:`, error)
         reject(new Error(`gRPC call error: ${error.message}`))
+      })
+
+      // Handle gRPC status codes (server-sent errors)
+      call.on('status', (status: grpc.StatusObject) => {
+        if (status.code !== grpc.status.OK && !settled) {
+          settled = true
+          cleanup()
+          const errorMsg = `gRPC error [${grpc.status[status.code]}]: ${status.details}`
+          console.error(`[gRPC Provider] Status error:`, errorMsg)
+          reject(new Error(errorMsg))
+        }
       })
     })
   }

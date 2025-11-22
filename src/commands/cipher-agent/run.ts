@@ -180,7 +180,7 @@ export default class CipherAgentRun extends Command {
       const brvConfig = await projectConfigStore.read()
 
       // Create LLM configuration
-      const llmConfig = this.createLLMConfig(token, flags)
+      const llmConfig = this.createLLMConfig({...token, spaceId: brvConfig?.spaceId ?? '', teamId: brvConfig?.teamId ?? ''}, flags)
 
       // Create CipherAgent with service factory pattern
       const agent = new CipherAgent(llmConfig, brvConfig)
@@ -256,6 +256,8 @@ export default class CipherAgentRun extends Command {
    * @param token - Authentication token
    * @param token.accessToken - Access token for authentication
    * @param token.sessionKey - Session key for authentication
+   * @param token.spaceId - Space ID for the session
+   * @param token.teamId - Team ID for the session
    * @param flags - Command flags
    * @param flags.apiKey - OpenRouter API key for direct service (optional)
    * @param flags.maxTokens - Maximum tokens in response
@@ -266,7 +268,7 @@ export default class CipherAgentRun extends Command {
    * @returns LLM configuration object
    */
   private createLLMConfig(
-    token: {accessToken: string; sessionKey: string},
+    token: {accessToken: string; sessionKey: string, spaceId: string; teamId: string,},
     flags: {
       apiKey?: string
       maxTokens?: number
@@ -285,6 +287,8 @@ export default class CipherAgentRun extends Command {
     openRouterApiKey?: string
     projectId: string
     sessionKey: string
+    spaceId: string
+    teamId: string
     temperature: number
     verbose?: boolean
   } {
@@ -302,6 +306,8 @@ export default class CipherAgentRun extends Command {
       openRouterApiKey: flags.apiKey, // Map -k flag to OpenRouter API key
       projectId: PROJECT,
       sessionKey: token.sessionKey,
+      spaceId: token.spaceId,
+      teamId: token.teamId,
       temperature: flags.temperature ? Number.parseFloat(flags.temperature) : 0.7, // Default: 0.7
       verbose: flags.verbose ?? false,
     }

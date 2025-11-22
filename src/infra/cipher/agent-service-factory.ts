@@ -58,6 +58,8 @@ export interface ByteRoverGrpcConfig {
   projectId: string
   region?: string
   sessionKey: string
+  spaceId: string
+  teamId: string
   timeout?: number
 }
 
@@ -230,6 +232,8 @@ export function createSessionServices(
       projectId: grpcConfig.projectId,
       region: grpcConfig.region,
       sessionKey: grpcConfig.sessionKey,
+      spaceId: grpcConfig.spaceId,
+      teamId: grpcConfig.teamId,
       timeout: grpcConfig.timeout,
     })
 

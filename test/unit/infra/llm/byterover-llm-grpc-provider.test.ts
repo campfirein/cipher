@@ -9,6 +9,8 @@ describe('ByteRoverLlmGrpcService', () => {
         accessToken: 'test-token',
         grpcEndpoint: 'localhost:50051',
         sessionKey: 'test-session',
+        spaceId: 'test-space-id',
+        teamId: 'test-team-id',
       })
 
       expect(provider).to.exist
@@ -21,6 +23,8 @@ describe('ByteRoverLlmGrpcService', () => {
         grpcEndpoint: 'localhost:50051',
         projectId: 'custom-project',
         sessionKey: 'test-session',
+        spaceId: 'test-space-id',
+        teamId: 'test-team-id',
       })
 
       expect(provider).to.exist
@@ -32,6 +36,8 @@ describe('ByteRoverLlmGrpcService', () => {
         accessToken: 'test-token',
         grpcEndpoint: 'beta-llm.byterover.dev:443',
         sessionKey: 'test-session',
+        spaceId: 'test-space-id',
+        teamId: 'test-team-id',
       })
 
       expect(provider).to.exist
@@ -44,6 +50,8 @@ describe('ByteRoverLlmGrpcService', () => {
         grpcEndpoint: 'localhost:50051',
         region: 'us-east1',
         sessionKey: 'test-session',
+        spaceId: 'test-space-id',
+        teamId: 'test-team-id',
       })
 
       expect(provider).to.exist
@@ -55,6 +63,8 @@ describe('ByteRoverLlmGrpcService', () => {
         accessToken: 'test-token',
         grpcEndpoint: 'localhost:50051',
         sessionKey: 'test-session',
+        spaceId: 'test-space-id',
+        teamId: 'test-team-id',
         timeout: 60_000,
       })
 
@@ -67,6 +77,8 @@ describe('ByteRoverLlmGrpcService', () => {
         accessToken: 'test-token',
         grpcEndpoint: 'localhost:50051',
         sessionKey: 'test-session',
+        spaceId: 'test-space-id',
+        teamId: 'test-team-id',
       })
 
       expect(provider).to.exist
@@ -78,6 +90,8 @@ describe('ByteRoverLlmGrpcService', () => {
         accessToken: 'test-token',
         grpcEndpoint: '127.0.0.1:50051',
         sessionKey: 'test-session',
+        spaceId: 'test-space-id',
+        teamId: 'test-team-id',
       })
 
       expect(provider).to.exist
@@ -89,6 +103,8 @@ describe('ByteRoverLlmGrpcService', () => {
         accessToken: 'test-token',
         grpcEndpoint: 'beta-llm.byterover.dev:443',
         sessionKey: 'test-session',
+        spaceId: 'test-space-id',
+        teamId: 'test-team-id',
       })
 
       expect(provider).to.exist
@@ -102,6 +118,8 @@ describe('ByteRoverLlmGrpcService', () => {
         accessToken: 'test-token',
         grpcEndpoint: 'localhost:50051',
         sessionKey: 'test-session',
+        spaceId: 'test-space-id',
+        teamId: 'test-team-id',
       })
 
       expect(provider1).to.exist
@@ -111,6 +129,8 @@ describe('ByteRoverLlmGrpcService', () => {
         accessToken: 'test-token',
         grpcEndpoint: 'localhost:50051',
         sessionKey: 'test-session',
+        spaceId: 'test-space-id',
+        teamId: 'test-team-id',
       })
 
       expect(provider2).to.exist
@@ -124,6 +144,8 @@ describe('ByteRoverLlmGrpcService', () => {
         accessToken: 'test-token',
         grpcEndpoint: 'localhost:50051',
         sessionKey: 'test-session',
+        spaceId: 'test-space-id',
+        teamId: 'test-team-id',
       })
 
       provider.close()
@@ -135,6 +157,8 @@ describe('ByteRoverLlmGrpcService', () => {
         accessToken: 'test-token',
         grpcEndpoint: 'localhost:50051',
         sessionKey: 'test-session',
+        spaceId: 'test-space-id',
+        teamId: 'test-team-id',
       })
 
       provider.close()
@@ -150,6 +174,8 @@ describe('ByteRoverLlmGrpcService', () => {
         accessToken: '',
         grpcEndpoint: 'localhost:50051',
         sessionKey: 'test-session',
+        spaceId: 'test-space-id',
+        teamId: 'test-team-id',
       }
       expect(() => new ByteRoverLlmGrpcService(config)).not.to.throw()
     })
@@ -160,6 +186,8 @@ describe('ByteRoverLlmGrpcService', () => {
         accessToken: 'test-token',
         grpcEndpoint: '',
         sessionKey: 'test-session',
+        spaceId: 'test-space-id',
+        teamId: 'test-team-id',
       }
       expect(() => new ByteRoverLlmGrpcService(config)).not.to.throw()
     })
@@ -170,6 +198,8 @@ describe('ByteRoverLlmGrpcService', () => {
         accessToken: 'test-token',
         grpcEndpoint: 'localhost:50051',
         sessionKey: '',
+        spaceId: 'test-space-id',
+        teamId: 'test-team-id',
       }
       expect(() => new ByteRoverLlmGrpcService(config)).not.to.throw()
     })
@@ -181,6 +211,8 @@ describe('ByteRoverLlmGrpcService', () => {
         accessToken: 'test-token',
         grpcEndpoint: 'localhost:50051',
         sessionKey: 'test-session',
+        spaceId: 'test-space-id',
+        teamId: 'test-team-id',
       })
 
       const request = {
@@ -189,6 +221,8 @@ describe('ByteRoverLlmGrpcService', () => {
         project_id: 'byterover',
         provider: 'gemini' as const,
         region: 'us-east1',
+        spaceId: 'test-space-id',
+        teamId: 'test-team-id',
       }
 
       try {
@@ -208,6 +242,8 @@ describe('ByteRoverLlmGrpcService', () => {
         accessToken: 'test-token',
         grpcEndpoint: 'localhost:50051',
         sessionKey: 'test-session',
+        spaceId: 'test-space-id',
+        teamId: 'test-team-id',
       })
 
       // Create a mock that will cause generateContent to fail
@@ -253,6 +289,8 @@ describe('ByteRoverLlmGrpcService', () => {
         accessToken: 'test-token',
         grpcEndpoint: 'localhost:50051',
         sessionKey: 'test-session',
+        spaceId: 'test-space-id',
+        teamId: 'test-team-id',
       })
 
       const mockResponse = {candidates: [{content: {parts: [{text: 'Hello!'}]}}]}
@@ -292,6 +330,8 @@ describe('ByteRoverLlmGrpcService', () => {
         accessToken: 'test-token',
         grpcEndpoint: 'localhost:50051',
         sessionKey: 'test-session',
+        spaceId: 'test-space-id',
+        teamId: 'test-team-id',
       })
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -320,6 +360,8 @@ describe('ByteRoverLlmGrpcService', () => {
         project_id: 'byterover',
         provider: 'gemini' as const,
         region: 'us-east1',
+        spaceId: 'test-space-id',
+        teamId: 'test-team-id',
       }
 
       try {
@@ -339,6 +381,8 @@ describe('ByteRoverLlmGrpcService', () => {
         accessToken: 'test-token',
         grpcEndpoint: 'localhost:50051',
         sessionKey: 'test-session',
+        spaceId: 'test-space-id',
+        teamId: 'test-team-id',
       })
 
       const validResponse = {candidates: [{content: {parts: [{text: 'OK'}]}}]}
@@ -378,6 +422,8 @@ describe('ByteRoverLlmGrpcService', () => {
         accessToken: 'test-token',
         grpcEndpoint: 'localhost:50051',
         sessionKey: 'test-session',
+        spaceId: 'test-space-id',
+        teamId: 'test-team-id',
       })
 
       const mockResponse = {candidates: [{content: {parts: [{text: 'Response'}]}}]}
@@ -425,6 +471,8 @@ describe('ByteRoverLlmGrpcService', () => {
         accessToken: 'test-token',
         grpcEndpoint: 'localhost:50051',
         sessionKey: 'test-session',
+        spaceId: 'test-space-id',
+        teamId: 'test-team-id',
       })
 
       const mockResponse = {candidates: [{content: {parts: [{text: 'Response'}]}}]}
