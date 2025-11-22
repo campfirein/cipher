@@ -164,8 +164,8 @@ export default class Watch extends Command {
       if (isRawSuccess && flags.clean) {
         try {
           const rawOutputDir = `${process.cwd()}/.brv/logs/${ide}/raw`
-          const isCleanSuccess = await CleanParserServiceFactory.parseConversations(ide, rawOutputDir)
-          if (isCleanSuccess) {
+          const cleanSessions = await CleanParserServiceFactory.parseConversations(ide, rawOutputDir)
+          if (cleanSessions.length > 0) {
             this.log('✅ Clean parsing complete\n')
           } else {
             this.warn('⚠️ Clean parsing failed')

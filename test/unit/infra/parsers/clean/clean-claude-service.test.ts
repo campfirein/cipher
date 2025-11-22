@@ -136,7 +136,7 @@ describe('ClaudeCleanService', () => {
 
       await service.parse(inputDir)
 
-      expect(writeFileSpy).to.not.have.been.called
+      expect(writeFileSpy.called).to.be.false
       writeFileSpy.restore()
     })
   })
@@ -336,10 +336,7 @@ describe('ClaudeCleanService', () => {
   })
 
   describe('processMainSessions', () => {
-    it('should process and write main sessions', async () => {
-      const outputDir = join(tempDir, 'output')
-      fs.mkdirSync(outputDir, { recursive: true })
-
+    it('should process and return main sessions', async () => {
       const allSessions = new Map([
         ['session-1', {
           id: 'session-1',
@@ -351,8 +348,9 @@ describe('ClaudeCleanService', () => {
 
       const agentSessions = new Map()
 
-      const result = await (service as any).processMainSessions(allSessions, agentSessions, outputDir)
-      expect(result).to.equal(1)
+      const result = await (service as any).processMainSessions(allSessions, agentSessions)
+      expect(Array.isArray(result)).to.be.true
+      expect(result.length).to.equal(1)
     })
   })
 
