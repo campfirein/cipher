@@ -1,12 +1,14 @@
-import type {CleanSession} from '../../entities/parser.js'
+import type {SessionType} from '../../entities/parser.js'
 
 /**
  * Agent-level event names for CipherAgent.
  * These events are emitted at the agent level and include sessionId in payloads.
  */
 export const AGENT_EVENT_NAMES = [
+  'cipher:cleanExternalSessionProcessing',
+  'cipher:cleanExternalSessionProcessed',
+  'cipher:cleanExternalSessionProcessingError',
   'cipher:conversationReset',
-  'cipher:externalSession',
   'cipher:stateChanged',
   'cipher:stateReset',
 ] as const
@@ -61,20 +63,45 @@ export interface TokenUsage {
  */
 export interface AgentEventMap {
   /**
+   * Emitted when a clean external session has been successfully processed.
+   * @property {string} externalSessionId - External session ID
+   * @property {string} title - Session title
+   * @property {number} timestamp - Session timestamp
+   * @property {number} messageCount - Number of messages in the session
+   * @property {string} ideType - IDE type (Claude, Cursor, etc.)
+   */
+  'cipher:cleanExternalSessionProcessed': {
+    externalSessionId: string
+    ideType: string
+    messageCount: number
+    timestamp: number
+    title: string
+  }
+
+  /**
+   * Emitted when processing a clean external session starts.
+   */
+  'cipher:cleanExternalSessionProcessing': {
+    codingAgent: SessionType
+    externalSessionTitle: string
+  }
+
+  /**
+   * Emitted when processing a clean external session fails.
+   * @property {string} externalSessionId - External session ID
+   * @property {Error} error - Error that occurred during processing
+   */
+  'cipher:cleanExternalSessionProcessingError': {
+    error: Error
+    externalSessionId: string
+  }
+
+  /**
    * Emitted when a conversation is reset.
    * @property {string} sessionId - ID of the session being reset
    */
   'cipher:conversationReset': {
     sessionId: string
-  }
-
-  /**
-   * Emitted when a session from an external coding agent is captured.
-   * @property {CleanSession} session - The clean session data
-   */
-  'cipher:externalSession': {
-    session: CleanSession
-    sessionId?: string
   }
 
   /**
