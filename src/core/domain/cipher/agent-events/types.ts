@@ -64,18 +64,10 @@ export interface TokenUsage {
 export interface AgentEventMap {
   /**
    * Emitted when a clean external session has been successfully processed.
-   * @property {string} externalSessionId - External session ID
-   * @property {string} title - Session title
-   * @property {number} timestamp - Session timestamp
-   * @property {number} messageCount - Number of messages in the session
-   * @property {string} ideType - IDE type (Claude, Cursor, etc.)
    */
   'cipher:cleanExternalSessionProcessed': {
-    externalSessionId: string
-    ideType: string
-    messageCount: number
-    timestamp: number
-    title: string
+    codingAgent: SessionType
+    externalSessionTitle: string
   }
 
   /**
@@ -88,12 +80,11 @@ export interface AgentEventMap {
 
   /**
    * Emitted when processing a clean external session fails.
-   * @property {string} externalSessionId - External session ID
-   * @property {Error} error - Error that occurred during processing
    */
   'cipher:cleanExternalSessionProcessingError': {
+    codingAgent: SessionType
     error: Error
-    externalSessionId: string
+    externalSessionTitle: string
   }
 
   /**

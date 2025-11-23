@@ -161,9 +161,10 @@ export default class CipherAgentRun extends Command {
 
       // Determine interactive mode
       // Priority: explicit flag > TTY detection
-      const isInteractive: boolean = flags.interactive === undefined
-        ? process.stdin.isTTY === true // Auto-detect from TTY
-        : flags.interactive // User explicitly set --interactive or --no-interactive
+      const isInteractive: boolean =
+        flags.interactive === undefined
+          ? process.stdin.isTTY === true // Auto-detect from TTY
+          : flags.interactive // User explicitly set --interactive or --no-interactive
 
       // Validate prompt requirement for non-interactive mode
       if (!isInteractive && !currentPrompt) {
@@ -180,7 +181,10 @@ export default class CipherAgentRun extends Command {
       const brvConfig = await projectConfigStore.read()
 
       // Create LLM configuration
-      const llmConfig = this.createLLMConfig({...token, spaceId: brvConfig?.spaceId ?? '', teamId: brvConfig?.teamId ?? ''}, flags)
+      const llmConfig = this.createLLMConfig(
+        {...token, spaceId: brvConfig?.spaceId ?? '', teamId: brvConfig?.teamId ?? ''},
+        flags,
+      )
 
       // Create CipherAgent with service factory pattern
       const agent = new CipherAgent(llmConfig, brvConfig)
@@ -208,10 +212,7 @@ export default class CipherAgentRun extends Command {
           }
 
           this.log('Executing prompt...')
-          const response = await agent.execute(
-            currentPrompt,
-            resolvedSessionId,
-          )
+          const response = await agent.execute(currentPrompt, resolvedSessionId)
 
           this.log('\nCipherAgent Response:')
           this.log(response)
@@ -268,7 +269,7 @@ export default class CipherAgentRun extends Command {
    * @returns LLM configuration object
    */
   private createLLMConfig(
-    token: {accessToken: string; sessionKey: string, spaceId: string; teamId: string,},
+    token: {accessToken: string; sessionKey: string; spaceId: string; teamId: string},
     flags: {
       apiKey?: string
       maxTokens?: number
@@ -451,6 +452,22 @@ export default class CipherAgentRun extends Command {
 
       eventBus.on('cipher:conversationReset', () => {
         displayInfo('Conversation history cleared')
+      })
+
+      eventBus.on('cipher:cleanExternalSessionProcessing', (payload) => {
+        displayInfo(`Processing external session from ${payload.codingAgent}:\n\n${payload.externalSessionTitle}`)
+      })
+
+      eventBus.on('cipher:cleanExternalSessionProcessed', (payload) => {
+        displayInfo(
+          `Context tree updated with external session from ${payload.codingAgent}:\n\n${payload.externalSessionTitle}`,
+        )
+      })
+
+      eventBus.on('cipher:cleanExternalSessionProcessingError', (payload) => {
+        displayInfo(
+          `Error processing external session from ${payload.codingAgent}:\n\n${payload.externalSessionTitle}\n\n${payload.error.message}`,
+        )
       })
 
       return

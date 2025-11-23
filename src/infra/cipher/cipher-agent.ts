@@ -246,16 +246,14 @@ export class CipherAgent implements ICipherAgent {
         mode: 'autonomous',
       })
       this.getAgentEventBus().emit('cipher:cleanExternalSessionProcessed', {
-        externalSessionId: cleanExternalSession.id,
-        ideType: cleanExternalSession.type,
-        messageCount: cleanExternalSession.messages.length,
-        timestamp: cleanExternalSession.timestamp,
-        title: cleanExternalSession.title,
+        codingAgent: cleanExternalSession.type,
+        externalSessionTitle: cleanExternalSession.title,
       })
     } catch (error) {
       this.getAgentEventBus().emit('cipher:cleanExternalSessionProcessingError', {
+        codingAgent: cleanExternalSession.type,
         error: error instanceof Error ? error : new Error('Unknown error'),
-        externalSessionId: cleanExternalSession.id,
+        externalSessionTitle: cleanExternalSession.title,
       })
       console.error(`Error processing external session ${cleanExternalSession.id}:`, error)
     } finally {
