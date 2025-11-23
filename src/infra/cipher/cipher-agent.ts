@@ -1,5 +1,5 @@
-import type {ParsedInteraction} from '../../core/domain/cipher/parsed-interaction.js'
 import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
+import type {CleanSession} from '../../core/domain/entities/parser.js'
 import type {CipherAgentServices} from '../../core/interfaces/cipher/cipher-services.js'
 import type {IChatSession} from '../../core/interfaces/cipher/i-chat-session.js'
 import type {AgentState, ExecutionContext, ICipherAgent} from '../../core/interfaces/cipher/i-cipher-agent.js'
@@ -225,6 +225,47 @@ export class CipherAgent implements ICipherAgent {
   }
 
   /**
+   * Processes a clean external session between user and coding agent into context tree by calling LLM service.
+   * @param cleanExternalSession The clean external session to process.
+   */
+  public async processCleanExternalSession(cleanExternalSession: CleanSession): Promise<void> {
+    // Cipher agent must be started because the log watcher starts with it.
+    this.ensureStarted()
+    const internalSessionId = `${cleanExternalSession.id}-process-${Date.now()}`
+    try {
+      const cleanExternalSessionJsonStr = JSON.stringify(cleanExternalSession, null, 2)
+      const llmPrompt = `Process the following external coding session into the context tree:\n\n${cleanExternalSessionJsonStr}`
+      this.getAgentEventBus().emit('cipher:cleanExternalSessionProcessing', {
+        codingAgent: cleanExternalSession.type,
+        externalSessionTitle: cleanExternalSession.title,
+      })
+      await this.execute(llmPrompt, internalSessionId, {
+        executionContext: {
+          commandType: 'add',
+        },
+        mode: 'autonomous',
+      })
+      this.getAgentEventBus().emit('cipher:cleanExternalSessionProcessed', {
+        codingAgent: cleanExternalSession.type,
+        externalSessionTitle: cleanExternalSession.title,
+      })
+    } catch (error) {
+      this.getAgentEventBus().emit('cipher:cleanExternalSessionProcessingError', {
+        codingAgent: cleanExternalSession.type,
+        error: error instanceof Error ? error : new Error('Unknown error'),
+        externalSessionTitle: cleanExternalSession.title,
+      })
+      console.error(`Error processing external session ${cleanExternalSession.id}:`, error)
+    } finally {
+      try {
+        await this.deleteSession(internalSessionId)
+      } catch (cleanupError) {
+        console.error(`Error cleaning up processing session ${internalSessionId}:`, cleanupError)
+      }
+    }
+  }
+
+  /**
    * Reset the agent to initial state.
    * Clears execution history, resets iteration counter, and resets default session.
    */
@@ -299,12 +340,12 @@ export class CipherAgent implements ICipherAgent {
     })
 
     // Start coding agent log watcher if configured
-    if (sharedServices.codingAgentLogWatcher && this.llmConfig.watchPaths) {
+    if (sharedServices.codingAgentLogWatcher && this._brvConfig) {
       await sharedServices.codingAgentLogWatcher.start({
-        onInteraction: async (interaction) => {
-          await this.handleCodingAgentInteraction(interaction)
+        onSession: async (session) => {
+          await this.processCleanExternalSession(session)
         },
-        paths: this.llmConfig.watchPaths,
+        paths: [this._brvConfig.chatLogPath],
       })
     }
 
@@ -399,16 +440,5 @@ export class CipherAgent implements ICipherAgent {
     }
 
     return this.sessionManager
-  }
-
-  /**
-   * Handle interactions captured from external coding agents.
-   * Emits events to the agent event bus for observability.
-   *
-   * @param interaction - The parsed interaction data from a coding agent
-   */
-  private async handleCodingAgentInteraction(interaction: ParsedInteraction): Promise<void> {
-    this.agentEventBus?.emit('cipher:externalInteraction', {interaction})
-    // TODO: Future - process into memory context tree.
   }
 }

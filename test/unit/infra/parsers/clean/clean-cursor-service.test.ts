@@ -50,7 +50,8 @@ describe('CursorCleanService', () => {
       )
 
       const result = await service.parse(inputDir)
-      expect(result).to.be.true
+      expect(Array.isArray(result)).to.be.true
+      expect(result.length).to.be.greaterThan(0)
     })
 
     it('should handle directory with no sessions', async () => {
@@ -59,7 +60,8 @@ describe('CursorCleanService', () => {
       fs.mkdirSync(wsDir, { recursive: true })
 
       const result = await service.parse(inputDir)
-      expect(result).to.be.true
+      expect(Array.isArray(result)).to.be.true
+      expect(result.length).to.equal(0)
     })
 
     it('should handle parse errors gracefully', async () => {
@@ -70,7 +72,8 @@ describe('CursorCleanService', () => {
       fs.writeFileSync(join(wsDir, 'invalid.json'), 'invalid json')
 
       const result = await service.parse(inputDir)
-      expect(result).to.be.true
+      expect(Array.isArray(result)).to.be.true
+      expect(result.length).to.equal(0)
     })
 
     it('should skip non-JSON files', async () => {
@@ -81,7 +84,8 @@ describe('CursorCleanService', () => {
       fs.writeFileSync(join(wsDir, 'readme.txt'), 'text file')
 
       const result = await service.parse(inputDir)
-      expect(result).to.be.true
+      expect(Array.isArray(result)).to.be.true
+      expect(result.length).to.equal(0)
     })
   })
 

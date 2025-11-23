@@ -4,6 +4,8 @@
  * Supports: Claude Code, Cursor, GitHub Copilot, Codex
  */
 
+import type {CleanSession} from '../../../core/domain/entities/parser.js'
+
 import { Agent } from '../../../core/domain/entities/agent.js'
 import { ICleanParserService } from '../../../core/interfaces/parser/i-clean-parser-service.js'
 import { ClaudeCleanService } from './clean-claude-service.js'
@@ -81,13 +83,13 @@ export class CleanParserServiceFactory {
    * Parse and clean conversations for the specified IDE
    *
    * Creates appropriate service and delegates to its parse method to transform
-   * raw session data into clean normalized format.
+   * raw session data into clean normalized format. Returns sessions in-memory.
    *
    * @param ide - The IDE type (Claude Code, Cursor, Github Copilot, Codex)
    * @param rawDir - Path to directory containing raw session files
-   * @returns Promise resolving to true if parsing succeeded, false otherwise
+   * @returns Promise resolving to array of clean normalized sessions
    */
-  static async parseConversations(ide: Agent, rawDir: string): Promise<boolean> {
+  static async parseConversations(ide: Agent, rawDir: string): Promise<readonly CleanSession[]> {
     const service = this.createCleanParserService(ide)
     return service.parse(rawDir)
   }

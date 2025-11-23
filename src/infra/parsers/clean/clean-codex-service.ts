@@ -3,10 +3,12 @@
  * Transforms Codex raw parsed data to clean normalized format
  */
 
-import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
+import {readdir, readFile} from 'node:fs/promises'
 import path from 'node:path'
 
-import { Agent } from '../../../core/domain/entities/agent.js'
+import type {CleanSession} from '../../../core/domain/entities/parser.js'
+
+import {Agent} from '../../../core/domain/entities/agent.js'
 import {
   CleanMessage,
   ContentBlock,
@@ -38,38 +40,29 @@ export class CodexCleanService implements ICleanParserService {
    * Parse and transform Codex raw sessions to clean normalized format
    *
    * Reads Codex raw session files organized by date, transforms them to a unified
-   * format, and writes the normalized sessions to the output directory. Each session
-   * is processed using Codex-specific transformation logic.
+   * format, and returns the normalized sessions. Each session is processed using
+   * Codex-specific transformation logic. Returns sessions in-memory without file writing.
    *
    * @param rawDir - Absolute path to the directory containing raw Codex session files organized by date
-   * @returns Promise that resolves to true if parsing succeeded, false otherwise
+   * @returns Promise resolving to array of clean normalized sessions
    */
   /* eslint-disable no-await-in-loop */
-  async parse(rawDir: string): Promise<boolean> {
-    const outputDir = path.join(process.cwd(), `.brv/logs/${this.ide}/clean`)
-
+  public async parse(rawDir: string): Promise<readonly CleanSession[]> {
     console.log('🔍 Starting Codex clean transformation...')
     console.log(`📁 Raw directory: ${rawDir}`)
 
     try {
-      await mkdir(outputDir, { recursive: true })
-
       // Read raw sessions organized by date
       const dateDirs = await readdir(rawDir)
-
-      let totalSessions = 0
+      const allCleanSessions: CleanSession[] = []
 
       for (const dateDir of dateDirs) {
         const datePath = path.join(rawDir, dateDir)
-        const stat = await readdir(datePath)
-
-        // Create date output directory
-        const dateOutputDir = path.join(outputDir, dateDir)
-        await mkdir(dateOutputDir, { recursive: true })
+        const files = await readdir(datePath)
 
         console.log(`\n  📅 ${dateDir}`)
 
-        for (const file of stat) {
+        for (const file of files) {
           if (!file.endsWith('.json')) continue
 
           try {
@@ -79,22 +72,20 @@ export class CodexCleanService implements ICleanParserService {
             // Normalize the session using Codex-specific transformer
             const normalized = this.normalizeCodexSession(session)
 
-            // Write normalized session
-            const outputFile = path.join(dateOutputDir, file)
-            await writeFile(outputFile, JSON.stringify(normalized, null, 2))
-            totalSessions++
+            // Add to array instead of writing to disk
+            allCleanSessions.push(normalized as CleanSession)
             console.log(`    ✅ ${session.title}`)
-          } catch (error) {
+          } catch (error: unknown) {
             console.warn(`⚠️  Failed to transform ${file}:`, error instanceof Error ? error.message : String(error))
           }
         }
       }
 
-      console.log(`\n🎉 Codex clean transformation complete! ${totalSessions} sessions saved to: ${outputDir}`)
-      return true
-    } catch (error) {
-      console.error('❌ Error during transformation:', error)
-      return false
+      console.log(`\n🎉 Codex clean transformation complete! ${allCleanSessions.length} sessions processed`)
+      return Object.freeze(allCleanSessions)
+    } catch (error: unknown) {
+      console.error('❌ Error during transformation:', error instanceof Error ? error.message : 'Unknown error')
+      return Object.freeze([])
     }
   }
 

@@ -8,13 +8,13 @@ import {restore, stub} from 'sinon'
 
 import type {Attachment} from '../../../../../src/core/domain/cipher/memory/types.js'
 
-import {FileBlobStorage} from '../../../../../src/infra/cipher/blob/file-blob-storage.js'
+import {SqliteBlobStorage} from '../../../../../src/infra/cipher/blob/sqlite-blob-storage.js'
 import {type Memory, MemoryError, MemoryManager} from '../../../../../src/infra/cipher/memory/index.js'
 
 describe('Memory Module', () => {
   describe('MemoryManager - Blob Attachments', () => {
     let memoryManager: MemoryManager
-    let blobStorage: FileBlobStorage
+    let blobStorage: SqliteBlobStorage
     let testDir: string
 
     beforeEach(async () => {
@@ -25,7 +25,7 @@ describe('Memory Module', () => {
       await mkdir(testDir, {recursive: true})
 
       // Initialize blob storage
-      blobStorage = new FileBlobStorage({
+      blobStorage = new SqliteBlobStorage({
         maxBlobSize: 1024 * 1024, // 1MB for tests
         maxTotalSize: 5 * 1024 * 1024, // 5MB for tests
         storageDir: join(testDir, 'blobs'),
