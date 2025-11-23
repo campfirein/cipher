@@ -1,103 +1,111 @@
 /**
- * Blob metadata interface
+ * Blob metadata type
  * Contains information about a stored blob
  */
-export interface BlobMetadata {
+export type BlobMetadata = {
   /**
    * MIME type of the blob content
    * @example 'image/png', 'application/pdf', 'text/plain'
    */
-  contentType?: string;
+  contentType?: string
 
   /**
    * Timestamp when the blob was created (Unix timestamp in milliseconds)
    */
-  createdAt: number;
+  createdAt: number
 
   /**
    * Original filename if the blob was created from a file
    * @example 'screenshot.png', 'document.pdf'
    */
-  originalName?: string;
+  originalName?: string
 
   /**
    * Size of the blob in bytes
    */
-  size: number;
+  size: number
 
   /**
    * Custom metadata tags for categorization and filtering
    * @example { category: 'screenshot', project: 'myapp' }
    */
-  tags?: Record<string, string>;
+  tags?: Record<string, string>
 
   /**
    * Timestamp when the blob was last updated (Unix timestamp in milliseconds)
    */
-  updatedAt: number;
+  updatedAt: number
 }
 
 /**
  * Stored blob with content and metadata
  * Represents a complete blob retrieved from storage
  */
-export interface StoredBlob {
+export type StoredBlob = {
   /**
    * Binary content of the blob
    */
-  content: Buffer;
+  content: Buffer
 
   /**
    * Unique identifier for the blob
    * Must be alphanumeric with hyphens and underscores only
    */
-  key: string;
+  key: string
 
   /**
    * Associated metadata
    */
-  metadata: BlobMetadata;
+  metadata: BlobMetadata
 }
 
 /**
  * Configuration options for blob storage
+ * SQLite is always used as the backend
  */
-export interface BlobStorageConfig {
+export type BlobStorageConfig = {
+  /**
+   * Use in-memory storage (useful for testing)
+   * When true, no file is created - data lives only in memory
+   * @default false
+   */
+  inMemory?: boolean
+
   /**
    * Maximum size for a single blob in bytes
    * @default 104857600 (100MB)
    */
-  maxBlobSize?: number;
+  maxBlobSize?: number
 
   /**
    * Maximum total size for all blobs in bytes
    * @default 1073741824 (1GB)
    */
-  maxTotalSize?: number;
+  maxTotalSize?: number
 
   /**
-   * Base directory where blobs will be stored
+   * Base directory where blobs/database will be stored
    * @default '.brv/blobs'
    */
-  storageDir?: string;
+  storageDir?: string
 }
 
 /**
  * Statistics about blob storage
  */
-export interface BlobStats {
+export type BlobStats = {
   /**
    * Timestamp when stats were last calculated (Unix timestamp in milliseconds)
    */
-  lastUpdated: number;
+  lastUpdated: number
 
   /**
    * Total number of blobs stored
    */
-  totalBlobs: number;
+  totalBlobs: number
 
   /**
    * Total size of all blobs in bytes
    */
-  totalSize: number;
+  totalSize: number
 }
