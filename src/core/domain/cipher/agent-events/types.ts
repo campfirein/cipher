@@ -1,12 +1,14 @@
-import type {ParsedInteraction} from '../parsed-interaction.js'
+import type {SessionType} from '../../entities/parser.js'
 
 /**
  * Agent-level event names for CipherAgent.
  * These events are emitted at the agent level and include sessionId in payloads.
  */
 export const AGENT_EVENT_NAMES = [
+  'cipher:cleanExternalSessionProcessing',
+  'cipher:cleanExternalSessionProcessed',
+  'cipher:cleanExternalSessionProcessingError',
   'cipher:conversationReset',
-  'cipher:externalInteraction',
   'cipher:stateChanged',
   'cipher:stateReset',
 ] as const
@@ -61,20 +63,36 @@ export interface TokenUsage {
  */
 export interface AgentEventMap {
   /**
+   * Emitted when a clean external session has been successfully processed.
+   */
+  'cipher:cleanExternalSessionProcessed': {
+    codingAgent: SessionType
+    externalSessionTitle: string
+  }
+
+  /**
+   * Emitted when processing a clean external session starts.
+   */
+  'cipher:cleanExternalSessionProcessing': {
+    codingAgent: SessionType
+    externalSessionTitle: string
+  }
+
+  /**
+   * Emitted when processing a clean external session fails.
+   */
+  'cipher:cleanExternalSessionProcessingError': {
+    codingAgent: SessionType
+    error: Error
+    externalSessionTitle: string
+  }
+
+  /**
    * Emitted when a conversation is reset.
    * @property {string} sessionId - ID of the session being reset
    */
   'cipher:conversationReset': {
     sessionId: string
-  }
-
-  /**
-   * Emitted when an interaction from an external coding agent is captured.
-   * @property {ParsedInteraction} interaction - The parsed interaction data
-   */
-  'cipher:externalInteraction': {
-    interaction: ParsedInteraction
-    sessionId?: string
   }
 
   /**

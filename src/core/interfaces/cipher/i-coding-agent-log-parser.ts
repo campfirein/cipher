@@ -1,24 +1,20 @@
-import type {ParsedInteraction} from '../../domain/cipher/parsed-interaction.js'
+import type {CleanSession} from '../../domain/entities/parser.js'
 
 /**
  * Interface for parsing coding agent log files.
- * Implementations should handle different log formats from various coding agents
- * (Claude Code, GitHub Copilot, Cursor, Codex, etc.).
+ * Implementations use the raw/clean parser pipeline to process log files
+ * from various coding agents (Claude Code, GitHub Copilot, Cursor, Codex, etc.).
  */
 export interface ICodingAgentLogParser {
   /**
-   * Determines if a file is a valid log file that can be parsed.
-   * This method should perform quick validation (e.g., file extension check)
-   * without reading the entire file.
-   * @param filePath Absolute path to the file
-   * @returns true if the file can be parsed, false otherwise
+   * Parses coding agent log files using the configured IDE and chat log path.
+   *
+   * This method follows the two-phase raw/clean parser pipeline:
+   * 1. Raw Phase: Parse IDE-specific files, write to .brv/logs/{ide}/raw/
+   * 2. Clean Phase: Read from .brv/logs/{ide}/raw/, normalize to CleanSession format
+   *
+   * @returns A promise that resolves to a frozen array of CleanSession objects
+   * @throws Error if parsing fails at any phase
    */
-  isValidLogFile: (filePath: string) => boolean
-
-  /**
-   * Parses a coding agent log file and extracts interactions.
-   * @param filePath Absolute path to the log file
-   * @returns A promise that resolves to an array of ParsedInteraction objects
-   */
-  parseLogFile: (filePath: string) => Promise<ParsedInteraction[]>
+  parseLogFile: () => Promise<readonly CleanSession[]>
 }

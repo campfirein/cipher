@@ -8,14 +8,14 @@ import type {ICodingAgentLogWatcher} from '../../core/interfaces/cipher/i-coding
 import type {IFileWatcherService} from '../../core/interfaces/i-file-watcher-service.js'
 
 import {FileWatcherService} from '../watcher/file-watcher-service.js'
-import {FileBlobStorage} from './blob/file-blob-storage.js'
+import {createBlobStorage} from './blob/blob-storage-factory.js'
 import {AgentEventBus, SessionEventBus} from './events/event-emitter.js'
 import {FileSystemService} from './file-system/file-system-service.js'
 import {ByteRoverLlmGrpcService} from './grpc/internal-llm-grpc-service.js'
 import {ByteRoverLLMService} from './llm/internal-llm-service.js'
 import {OpenRouterLLMService} from './llm/openrouter-llm-service.js'
 import {MemoryManager} from './memory/memory-manager.js'
-import {StubCodingAgentLogParser} from './parsers/stub-coding-agent-log-parser.js'
+import {CodingAgentLogParser} from './parsers/coding-agent-log-parser.js'
 import {ProcessService} from './process/process-service.js'
 import {BlobHistoryStorage} from './storage/blob-history-storage.js'
 import {SimplePromptFactory} from './system-prompt/simple-prompt-factory.js'
@@ -42,11 +42,6 @@ export interface CipherLLMConfig {
   siteName?: string
   temperature?: number
   verbose?: boolean
-  // TODO: This wil be refactored to 2 separate configs once everything is integrated
-  // - user's selected coding agents in brv config.json
-  // - coding agents' specific log paths
-  /** Paths to watch for coding agent log files (for learning from user interactions) */
-  watchPaths?: string[]
 }
 
 /**
@@ -78,12 +73,12 @@ export type {
  * while session-specific services (LLM, EventBus) are created per session.
  *
  * @param llmConfig - LLM configuration
- * @param _brvConfig - Optional ByteRover config (for custom system prompt)
+ * @param brvConfig - Optional ByteRover config (for coding agent parser and custom system prompt)
  * @returns Initialized shared services
  */
 export async function createCipherAgentServices(
   llmConfig: CipherLLMConfig,
-  _brvConfig?: BrvConfig,
+  brvConfig?: BrvConfig,
 ): Promise<CipherAgentServices> {
   // 1. Agent event bus (global)
   const agentEventBus = new AgentEventBus()
@@ -108,7 +103,8 @@ export async function createCipherAgentServices(
   await processService.initialize()
 
   // 4. Blob storage (no dependencies)
-  const blobStorage = new FileBlobStorage({
+  // Always uses SQLite for performance and ACID transactions
+  const blobStorage = createBlobStorage({
     maxBlobSize: 100 * 1024 * 1024, // 100MB
     maxTotalSize: 1024 * 1024 * 1024, // 1GB
     storageDir: join(workingDirectory, '.brv', 'blobs'),
@@ -141,9 +137,9 @@ export async function createCipherAgentServices(
 
   // 9. Coding agent log watcher
   let codingAgentLogWatcher: ICodingAgentLogWatcher | undefined
-  if (llmConfig.watchPaths && llmConfig.watchPaths.length > 0) {
+  if (brvConfig) {
     const fileWatcherService: IFileWatcherService = new FileWatcherService()
-    const parser: ICodingAgentLogParser = new StubCodingAgentLogParser()
+    const parser: ICodingAgentLogParser = new CodingAgentLogParser(brvConfig.chatLogPath, brvConfig.ide)
     codingAgentLogWatcher = new CodingAgentLogWatcher(fileWatcherService, parser)
   }
 

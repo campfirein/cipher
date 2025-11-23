@@ -2,6 +2,10 @@
  * Represents a parsed interaction between a user and a coding agent.
  * This entity captures valuable interaction data from coding agent logs
  * (Claude Code, GitHub Copilot, Cursor, Codex, etc.).
+ *
+ * @deprecated Use CleanSession from '../entities/parser.js' instead.
+ * ParsedInteraction is a lossy format that only captures single Q&A pairs.
+ * CleanSession preserves full conversation history, tool calls, thinking blocks, and workspace context.
  */
 export type ParsedInteraction = {
   /** Agent's response  */
