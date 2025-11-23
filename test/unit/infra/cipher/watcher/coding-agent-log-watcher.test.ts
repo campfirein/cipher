@@ -1,21 +1,34 @@
 import {expect} from 'chai'
 import sinon, {stub} from 'sinon'
 
-import type {ParsedInteraction} from '../../../../../src/core/domain/cipher/parsed-interaction.js'
+import type {CleanSession} from '../../../../../src/core/domain/entities/parser.js'
 import type {ICodingAgentLogParser} from '../../../../../src/core/interfaces/cipher/i-coding-agent-log-parser.js'
 import type {FileEvent, IFileWatcherService} from '../../../../../src/core/interfaces/i-file-watcher-service.js'
 
 import {CodingAgentLogWatcher} from '../../../../../src/infra/cipher/watcher/coding-agent-log-watcher.js'
 
-const createMockInteraction = (filePath: string): ParsedInteraction => ({
-  agentResponse: 'Mock response',
-  agentType: 'stub',
+const createMockSession = (filePath: string): CleanSession => ({
+  id: `mock-session-${Date.now()}`,
+  messages: [
+    {
+      content: [{text: 'Mock message', type: 'text'}],
+      timestamp: new Date().toISOString(),
+      type: 'user',
+    },
+    {
+      content: [{text: 'Mock response', type: 'text'}],
+      timestamp: new Date().toISOString(),
+      type: 'assistant',
+    },
+  ],
   metadata: {
     originalFile: filePath,
     source: 'test',
   },
   timestamp: Date.now(),
-  userMessage: 'Mock message',
+  title: 'Mock Session',
+  type: 'Claude',
+  workspacePaths: [],
 })
 
 describe('CodingAgentLogWatcher', () => {
@@ -39,8 +52,7 @@ describe('CodingAgentLogWatcher', () => {
 
     // Create mock parser
     mockParser = {
-      isValidLogFile: stub<[filePath: string], boolean>().returns(true),
-      parseLogFile: stub<[filePath: string], Promise<ParsedInteraction[]>>(),
+      parseLogFile: stub<[], Promise<readonly CleanSession[]>>(),
     }
 
     watcher = new CodingAgentLogWatcher(mockFileWatcher, mockParser)
@@ -57,7 +69,7 @@ describe('CodingAgentLogWatcher', () => {
 
     it('should return true after start', async () => {
       await watcher.start({
-        onInteraction: stub(),
+        onSession: stub(),
         paths: ['/test/path'],
       })
 
@@ -66,7 +78,7 @@ describe('CodingAgentLogWatcher', () => {
 
     it('should return false after stop', async () => {
       await watcher.start({
-        onInteraction: stub(),
+        onSession: stub(),
         paths: ['/test/path'],
       })
       await watcher.stop()
@@ -78,7 +90,7 @@ describe('CodingAgentLogWatcher', () => {
   describe('start', () => {
     it('should register file event handler', async () => {
       await watcher.start({
-        onInteraction: stub(),
+        onSession: stub(),
         paths: ['/test/path'],
       })
 
@@ -88,7 +100,7 @@ describe('CodingAgentLogWatcher', () => {
     it('should start file watcher with provided paths', async () => {
       const paths = ['/path1', '/path2']
       await watcher.start({
-        onInteraction: stub(),
+        onSession: stub(),
         paths,
       })
 
@@ -98,13 +110,13 @@ describe('CodingAgentLogWatcher', () => {
 
     it('should throw error if already watching', async () => {
       await watcher.start({
-        onInteraction: stub(),
+        onSession: stub(),
         paths: ['/test/path'],
       })
 
       try {
         await watcher.start({
-          onInteraction: stub(),
+          onSession: stub(),
           paths: ['/test/path'],
         })
         expect.fail('Should have thrown an error')
@@ -118,7 +130,7 @@ describe('CodingAgentLogWatcher', () => {
   describe('stop', () => {
     it('should stop file watcher', async () => {
       await watcher.start({
-        onInteraction: stub(),
+        onSession: stub(),
         paths: ['/test/path'],
       })
       await watcher.stop()
@@ -134,13 +146,13 @@ describe('CodingAgentLogWatcher', () => {
 
   describe('file event handling', () => {
     it('should process add events for valid log files', async () => {
-      const onInteraction = stub().resolves()
-      const mockInteraction = createMockInteraction('/test/file.log')
+      const onSession = stub().resolves()
+      const mockSession = createMockSession('/test/file.log')
 
-      mockParser.parseLogFile.resolves([mockInteraction])
+      mockParser.parseLogFile.resolves([mockSession])
 
       await watcher.start({
-        onInteraction,
+        onSession,
         paths: ['/test/path'],
       })
 
@@ -152,19 +164,18 @@ describe('CodingAgentLogWatcher', () => {
       await fileEventHandler?.(fileEvent)
 
       expect(mockParser.parseLogFile.calledOnce).to.be.true
-      expect(mockParser.parseLogFile.calledWith('/test/file.log')).to.be.true
-      expect(onInteraction.calledOnce).to.be.true
-      expect(onInteraction.calledWith(mockInteraction)).to.be.true
+      expect(onSession.calledOnce).to.be.true
+      expect(onSession.calledWith(mockSession)).to.be.true
     })
 
     it('should process change events for valid log files', async () => {
-      const onInteraction = stub().resolves()
-      const mockInteraction = createMockInteraction('/test/file.log')
+      const onSession = stub().resolves()
+      const mockSession = createMockSession('/test/file.log')
 
-      mockParser.parseLogFile.resolves([mockInteraction])
+      mockParser.parseLogFile.resolves([mockSession])
 
       await watcher.start({
-        onInteraction,
+        onSession,
         paths: ['/test/path'],
       })
 
@@ -174,14 +185,14 @@ describe('CodingAgentLogWatcher', () => {
       }
       await fileEventHandler?.(fileEvent)
 
-      expect(onInteraction.calledOnce).to.be.true
+      expect(onSession.calledOnce).to.be.true
     })
 
     it('should ignore unlink events', async () => {
-      const onInteraction = stub().resolves()
+      const onSession = stub().resolves()
 
       await watcher.start({
-        onInteraction,
+        onSession,
         paths: ['/test/path'],
       })
 
@@ -192,14 +203,14 @@ describe('CodingAgentLogWatcher', () => {
       await fileEventHandler?.(fileEvent)
 
       expect(mockParser.parseLogFile.called).to.be.false
-      expect(onInteraction.called).to.be.false
+      expect(onSession.called).to.be.false
     })
 
     it('should ignore addDir events', async () => {
-      const onInteraction = stub().resolves()
+      const onSession = stub().resolves()
 
       await watcher.start({
-        onInteraction,
+        onSession,
         paths: ['/test/path'],
       })
 
@@ -210,40 +221,17 @@ describe('CodingAgentLogWatcher', () => {
       await fileEventHandler?.(fileEvent)
 
       expect(mockParser.parseLogFile.called).to.be.false
-      expect(onInteraction.called).to.be.false
+      expect(onSession.called).to.be.false
     })
 
-    it('should skip invalid log files', async () => {
-      const onInteraction = stub().resolves()
+    it('should invoke callback for each session from parser', async () => {
+      const onSession = stub().resolves()
+      const sessions = [createMockSession('/test/file.log'), createMockSession('/test/file.log')]
 
-      mockParser.isValidLogFile.returns(false)
-
-      await watcher.start({
-        onInteraction,
-        paths: ['/test/path'],
-      })
-
-      const fileEvent: FileEvent = {
-        path: '/test/file.txt',
-        type: 'add',
-      }
-      await fileEventHandler?.(fileEvent)
-
-      expect(mockParser.parseLogFile.called).to.be.false
-      expect(onInteraction.called).to.be.false
-    })
-
-    it('should invoke callback for each interaction from parser', async () => {
-      const onInteraction = stub().resolves()
-      const interactions = [
-        createMockInteraction('/test/file.log'),
-        createMockInteraction('/test/file.log'),
-      ]
-
-      mockParser.parseLogFile.resolves(interactions)
+      mockParser.parseLogFile.resolves(sessions)
 
       await watcher.start({
-        onInteraction,
+        onSession,
         paths: ['/test/path'],
       })
 
@@ -253,20 +241,20 @@ describe('CodingAgentLogWatcher', () => {
       }
       await fileEventHandler?.(fileEvent)
 
-      expect(onInteraction.callCount).to.equal(2)
-      expect(onInteraction.firstCall.calledWith(interactions[0])).to.be.true
-      expect(onInteraction.secondCall.calledWith(interactions[1])).to.be.true
+      expect(onSession.callCount).to.equal(2)
+      expect(onSession.firstCall.calledWith(sessions[0])).to.be.true
+      expect(onSession.secondCall.calledWith(sessions[1])).to.be.true
     })
   })
 
   describe('error handling', () => {
     it('should handle parser errors gracefully', async () => {
-      const onInteraction = stub().resolves()
+      const onSession = stub().resolves()
 
       mockParser.parseLogFile.rejects(new Error('Parse error'))
 
       await watcher.start({
-        onInteraction,
+        onSession,
         paths: ['/test/path'],
       })
 
@@ -278,17 +266,17 @@ describe('CodingAgentLogWatcher', () => {
       // Should not throw
       await fileEventHandler?.(fileEvent)
 
-      expect(onInteraction.called).to.be.false
+      expect(onSession.called).to.be.false
     })
 
     it('should handle callback errors gracefully', async () => {
-      const onInteraction = stub().rejects(new Error('Callback error'))
-      const mockInteraction = createMockInteraction('/test/file.log')
+      const onSession = stub().rejects(new Error('Callback error'))
+      const mockSession = createMockSession('/test/file.log')
 
-      mockParser.parseLogFile.resolves([mockInteraction])
+      mockParser.parseLogFile.resolves([mockSession])
 
       await watcher.start({
-        onInteraction,
+        onSession,
         paths: ['/test/path'],
       })
 
@@ -300,19 +288,19 @@ describe('CodingAgentLogWatcher', () => {
       // Should not throw
       await fileEventHandler?.(fileEvent)
 
-      expect(onInteraction.calledOnce).to.be.true
+      expect(onSession.calledOnce).to.be.true
     })
   })
 
   describe('first watch behavior', () => {
     it('should process files on first watch', async () => {
-      const onInteraction = stub().resolves()
-      const mockInteraction = createMockInteraction('/test/file.log')
+      const onSession = stub().resolves()
+      const mockSession = createMockSession('/test/file.log')
 
-      mockParser.parseLogFile.resolves([mockInteraction])
+      mockParser.parseLogFile.resolves([mockSession])
 
       await watcher.start({
-        onInteraction,
+        onSession,
         paths: ['/test/path'],
       })
 
@@ -322,49 +310,17 @@ describe('CodingAgentLogWatcher', () => {
       }
       await fileEventHandler?.(fileEvent)
 
-      expect(onInteraction.calledOnce).to.be.true
-    })
-
-    it('should skip already-processed files after first watch', async () => {
-      const onInteraction = stub().resolves()
-      const mockInteraction = createMockInteraction('/test/file.log')
-
-      mockParser.parseLogFile.resolves([mockInteraction])
-
-      // First watch
-      await watcher.start({
-        onInteraction,
-        paths: ['/test/path'],
-      })
-
-      const fileEvent: FileEvent = {
-        path: '/test/file.log',
-        type: 'add',
-      }
-      await fileEventHandler?.(fileEvent)
-
-      // Stop and restart (second watch)
-      await watcher.stop()
-      await watcher.start({
-        onInteraction,
-        paths: ['/test/path'],
-      })
-
-      // Same file event should be skipped on second watch
-      await fileEventHandler?.(fileEvent)
-
-      // Should only be called once (from first watch)
-      expect(onInteraction.calledOnce).to.be.true
+      expect(onSession.calledOnce).to.be.true
     })
 
     it('should process change events even for previously seen files', async () => {
-      const onInteraction = stub().resolves()
-      const mockInteraction = createMockInteraction('/test/file.log')
+      const onSession = stub().resolves()
+      const mockSession = createMockSession('/test/file.log')
 
-      mockParser.parseLogFile.resolves([mockInteraction])
+      mockParser.parseLogFile.resolves([mockSession])
 
       await watcher.start({
-        onInteraction,
+        onSession,
         paths: ['/test/path'],
       })
 
@@ -378,7 +334,7 @@ describe('CodingAgentLogWatcher', () => {
       // Stop and restart
       await watcher.stop()
       await watcher.start({
-        onInteraction,
+        onSession,
         paths: ['/test/path'],
       })
 
@@ -390,7 +346,7 @@ describe('CodingAgentLogWatcher', () => {
       await fileEventHandler?.(changeEvent)
 
       // Should be called twice (add + change)
-      expect(onInteraction.calledTwice).to.be.true
+      expect(onSession.calledTwice).to.be.true
     })
   })
 })

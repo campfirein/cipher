@@ -22,7 +22,7 @@ export class FileWatcherService implements IFileWatcherService {
       //   - We only care about NEW LOGS that agents write AFTER we start watching.
       //   - We don't want to process old/existing log files that were already there.
       //   - Cleaner output - no flood of events when watcher starts.
-      ignoreInitial: false,
+      ignoreInitial: true,
       // Keep watching indefinitely (we want a long-running watcher)
       persistent: true,
     })

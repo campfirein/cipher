@@ -30,7 +30,7 @@ export class BrvConfig {
     cwd: string,
     cipherAgentSystemPrompt?: string,
     cipherAgentContext?: string,
-    cipherAgentModes?: string[]
+    cipherAgentModes?: string[],
   ) {
     if (createdAt.trim().length === 0) {
       throw new Error('Created at cannot be empty')
@@ -87,12 +87,7 @@ export class BrvConfig {
   /**
    * Creates a BrvConfig from a Space entity
    */
-  public static fromSpace(
-    space: Space,
-    chatLogPath: string,
-    ide: Agent,
-    cwd: string,
-  ): BrvConfig {
+  public static fromSpace(space: Space, chatLogPath: string, ide: Agent, cwd: string): BrvConfig {
     return new BrvConfig(
       new Date().toISOString(),
       space.id,
@@ -102,7 +97,9 @@ export class BrvConfig {
       ide,
       chatLogPath,
       cwd,
-      undefined,
+      undefined, // cipherAgentSystemPrompt
+      undefined, // cipherAgentContext
+      undefined, // cipherAgentModes
     )
   }
 

@@ -60,7 +60,8 @@ describe('CodexCleanService', () => {
       )
 
       const result = await service.parse(inputDir)
-      expect(result).to.be.true
+      expect(Array.isArray(result)).to.be.true
+      expect(result.length).to.be.greaterThan(0)
     })
 
     it('should handle directory with no sessions', async () => {
@@ -69,7 +70,8 @@ describe('CodexCleanService', () => {
       fs.mkdirSync(dateDir, { recursive: true })
 
       const result = await service.parse(inputDir)
-      expect(result).to.be.true
+      expect(Array.isArray(result)).to.be.true
+      expect(result.length).to.equal(0)
     })
 
     it('should handle parse errors gracefully', async () => {
@@ -83,7 +85,8 @@ describe('CodexCleanService', () => {
       )
 
       const result = await service.parse(inputDir)
-      expect(result).to.be.true
+      expect(Array.isArray(result)).to.be.true
+      expect(result.length).to.equal(0)
     })
 
     it('should skip non-JSON files', async () => {
@@ -94,7 +97,8 @@ describe('CodexCleanService', () => {
       fs.writeFileSync(join(dateDir, 'readme.txt'), 'text file')
 
       const result = await service.parse(inputDir)
-      expect(result).to.be.true
+      expect(Array.isArray(result)).to.be.true
+      expect(result.length).to.equal(0)
     })
   })
 

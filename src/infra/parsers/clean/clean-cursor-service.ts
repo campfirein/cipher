@@ -3,10 +3,12 @@
  * Transforms Cursor raw parsed data to clean normalized format
  */
 
-import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
-import { join as pathJoin } from 'node:path'
+import {readdir, readFile} from 'node:fs/promises'
+import {join as pathJoin} from 'node:path'
 
-import { Agent } from '../../../core/domain/entities/agent.js'
+import type {CleanSession} from '../../../core/domain/entities/parser.js'
+
+import {Agent} from '../../../core/domain/entities/agent.js'
 import {
   CleanCursorToolResultBlock,
   CleanCursorToolUseBlock,
@@ -37,42 +39,29 @@ export class CursorCleanService implements ICleanParserService {
    * Parse and transform Cursor raw sessions to clean normalized format
    *
    * Reads Cursor raw session files organized by workspace, transforms them using
-   * Cursor-to-Claude conversion, and writes the normalized sessions to the output directory.
-   * Each session is transformed through Cursor bubble format conversion and then normalized.
+   * Cursor-to-Claude conversion, and normalizes the sessions.
+   * Returns sessions in-memory without file writing.
    *
    * @param rawDir - Absolute path to the directory containing raw Cursor session files organized by workspace
-   * @returns Promise that resolves to true if parsing succeeded, false otherwise
+   * @returns Promise resolving to array of clean normalized sessions
    */
   /* eslint-disable no-await-in-loop */
-  async parse(rawDir: string): Promise<boolean> {
-    const outputDir = pathJoin(process.cwd(), `.brv/logs/${this.ide}/clean`)
-
+  public async parse(rawDir: string): Promise<readonly CleanSession[]> {
     console.log('🔍 Starting Cursor clean transformation...')
     console.log(`📁 Raw directory: ${rawDir}`)
 
     try {
-      await mkdir(outputDir, { recursive: true })
-
-      // Read raw sessions organized by workspace
       const entries = await readdir(rawDir)
-
-      let totalSessions = 0
+      const allCleanSessions: CleanSession[] = []
 
       for (const entry of entries) {
         const workspacePath = pathJoin(rawDir, entry)
+        const files = await readdir(workspacePath)
 
-        const stat = await readdir(workspacePath)
-
-        // Create workspace output directory
-        const wsOutputDir = pathJoin(outputDir, entry)
-
-        await mkdir(wsOutputDir, { recursive: true })
-
-        for (const file of stat) {
+        for (const file of files) {
           if (!file.endsWith('.json')) continue
 
           try {
-
             const content = await readFile(pathJoin(workspacePath, file), 'utf8')
             const session = JSON.parse(content) as RawCursorRawSession
 
@@ -82,23 +71,20 @@ export class CursorCleanService implements ICleanParserService {
             // Normalize the session using shared transformer
             const normalized = normalizeClaudeSession(claudeFormatted, 'Cursor')
 
-            // Write normalized session
-            const outputFile = pathJoin(wsOutputDir, file)
-
-            await writeFile(outputFile, JSON.stringify(normalized, null, 2))
-            totalSessions++
+            // Add to array instead of writing to disk
+            allCleanSessions.push(normalized)
             console.log(`    ✅ ${session.title}`)
-          } catch (error) {
+          } catch (error: unknown) {
             console.warn(`⚠️  Failed to transform ${file}:`, error instanceof Error ? error.message : String(error))
           }
         }
       }
 
-      console.log(`\n🎉 Cursor clean transformation complete! ${totalSessions} sessions saved to: ${outputDir}`)
-      return true
-    } catch (error) {
-      console.error('❌ Error during transformation:', error)
-      return false
+      console.log(`\n🎉 Cursor clean transformation complete! ${allCleanSessions.length} sessions processed`)
+      return Object.freeze(allCleanSessions)
+    } catch (error: unknown) {
+      console.error('❌ Error during transformation:', error instanceof Error ? error.message : 'Unknown error')
+      return Object.freeze([])
     }
   }
   /* eslint-enable no-await-in-loop */
