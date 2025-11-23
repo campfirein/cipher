@@ -8,7 +8,7 @@ import type {ICodingAgentLogWatcher} from '../../core/interfaces/cipher/i-coding
 import type {IFileWatcherService} from '../../core/interfaces/i-file-watcher-service.js'
 
 import {FileWatcherService} from '../watcher/file-watcher-service.js'
-import {FileBlobStorage} from './blob/file-blob-storage.js'
+import {createBlobStorage} from './blob/blob-storage-factory.js'
 import {AgentEventBus, SessionEventBus} from './events/event-emitter.js'
 import {FileSystemService} from './file-system/file-system-service.js'
 import {ByteRoverLlmGrpcService} from './grpc/internal-llm-grpc-service.js'
@@ -103,7 +103,8 @@ export async function createCipherAgentServices(
   await processService.initialize()
 
   // 4. Blob storage (no dependencies)
-  const blobStorage = new FileBlobStorage({
+  // Always uses SQLite for performance and ACID transactions
+  const blobStorage = createBlobStorage({
     maxBlobSize: 100 * 1024 * 1024, // 100MB
     maxTotalSize: 1024 * 1024 * 1024, // 1GB
     storageDir: join(workingDirectory, '.brv', 'blobs'),
