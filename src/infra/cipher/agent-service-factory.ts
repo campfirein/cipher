@@ -1,13 +1,8 @@
 import {join} from 'node:path'
 
 import type {FileSystemConfig} from '../../core/domain/cipher/file-system/types.js'
-import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
 import type {CipherAgentServices, SessionServices} from '../../core/interfaces/cipher/cipher-services.js'
-import type {ICodingAgentLogParser} from '../../core/interfaces/cipher/i-coding-agent-log-parser.js'
-import type {ICodingAgentLogWatcher} from '../../core/interfaces/cipher/i-coding-agent-log-watcher.js'
-import type {IFileWatcherService} from '../../core/interfaces/i-file-watcher-service.js'
 
-import {FileWatcherService} from '../watcher/file-watcher-service.js'
 import {createBlobStorage} from './blob/blob-storage-factory.js'
 import {AgentEventBus, SessionEventBus} from './events/event-emitter.js'
 import {FileSystemService} from './file-system/file-system-service.js'
@@ -15,13 +10,11 @@ import {ByteRoverLlmGrpcService} from './grpc/internal-llm-grpc-service.js'
 import {ByteRoverLLMService} from './llm/internal-llm-service.js'
 import {OpenRouterLLMService} from './llm/openrouter-llm-service.js'
 import {MemoryManager} from './memory/memory-manager.js'
-import {CodingAgentLogParser} from './parsers/coding-agent-log-parser.js'
 import {ProcessService} from './process/process-service.js'
 import {BlobHistoryStorage} from './storage/blob-history-storage.js'
 import {SimplePromptFactory} from './system-prompt/simple-prompt-factory.js'
 import {ToolManager} from './tools/tool-manager.js'
 import {ToolProvider} from './tools/tool-provider.js'
-import {CodingAgentLogWatcher} from './watcher/coding-agent-log-watcher.js'
 
 /**
  * LLM configuration for CipherAgent
@@ -73,13 +66,9 @@ export type {
  * while session-specific services (LLM, EventBus) are created per session.
  *
  * @param llmConfig - LLM configuration
- * @param brvConfig - Optional ByteRover config (for coding agent parser and custom system prompt)
  * @returns Initialized shared services
  */
-export async function createCipherAgentServices(
-  llmConfig: CipherLLMConfig,
-  brvConfig?: BrvConfig,
-): Promise<CipherAgentServices> {
+export async function createCipherAgentServices(llmConfig: CipherLLMConfig): Promise<CipherAgentServices> {
   // 1. Agent event bus (global)
   const agentEventBus = new AgentEventBus()
 
@@ -135,18 +124,9 @@ export async function createCipherAgentServices(
   // 9. History storage (depends on BlobStorage) - SHARED across sessions
   const historyStorage = new BlobHistoryStorage(blobStorage)
 
-  // 9. Coding agent log watcher
-  let codingAgentLogWatcher: ICodingAgentLogWatcher | undefined
-  if (brvConfig) {
-    const fileWatcherService: IFileWatcherService = new FileWatcherService()
-    const parser: ICodingAgentLogParser = new CodingAgentLogParser(brvConfig.chatLogPath, brvConfig.ide)
-    codingAgentLogWatcher = new CodingAgentLogWatcher(fileWatcherService, parser)
-  }
-
   return {
     agentEventBus,
     blobStorage,
-    codingAgentLogWatcher,
     fileSystemService,
     historyStorage,
     memoryManager,

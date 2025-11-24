@@ -222,7 +222,7 @@ export default class CipherAgentRun extends Command {
           this.log(`\n[Agent State: ${state.currentIteration} iterations]`)
         }
       } finally {
-        await agent.stop()
+        // await agent.stop()
       }
     } catch (error) {
       // Handle workspace not initialized error with friendly message
@@ -452,22 +452,6 @@ export default class CipherAgentRun extends Command {
 
       eventBus.on('cipher:conversationReset', () => {
         displayInfo('Conversation history cleared')
-      })
-
-      eventBus.on('cipher:cleanExternalSessionProcessing', (payload) => {
-        displayInfo(`Processing external session from ${payload.codingAgent}:\n\n${payload.externalSessionTitle}`)
-      })
-
-      eventBus.on('cipher:cleanExternalSessionProcessed', (payload) => {
-        displayInfo(
-          `Context tree updated with external session from ${payload.codingAgent}:\n\n${payload.externalSessionTitle}`,
-        )
-      })
-
-      eventBus.on('cipher:cleanExternalSessionProcessingError', (payload) => {
-        displayInfo(
-          `Error processing external session from ${payload.codingAgent}:\n\n${payload.externalSessionTitle}\n\n${payload.error.message}`,
-        )
       })
 
       return
