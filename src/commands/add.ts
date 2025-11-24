@@ -166,12 +166,7 @@ export default class Add extends Command {
    * Prompt user to select a domain
    */
   protected async promptForDomain(existingDomains: string[]): Promise<string> {
-    const allDomains = [
-      ...new Set([
-        ...CONTEXT_TREE_DOMAINS.map((d) => d.name),
-        ...existingDomains,
-      ]),
-    ]
+    const allDomains = [...new Set([...CONTEXT_TREE_DOMAINS.map((d) => d.name), ...existingDomains])]
 
     const domainChoices = allDomains.map((domainName) => {
       const config = CONTEXT_TREE_DOMAINS.find((d) => d.name === domainName)
@@ -350,7 +345,7 @@ export default class Add extends Command {
 
         await trackingService.track('ace:add_bullet')
       } finally {
-        await agent.stop()
+        console.log('Logic for agent stopping and resource cleanup may go here!')
       }
     } catch (error) {
       if (error instanceof WorkspaceNotInitializedError) {

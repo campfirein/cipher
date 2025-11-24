@@ -142,7 +142,7 @@ export default class Query extends Command {
 
         await trackingService.track('ace:query')
       } finally {
-        await agent.stop()
+        console.log('Logic for agent stopping and resource cleanup may go here!')
       }
     } catch (error) {
       if (error instanceof WorkspaceNotInitializedError) {

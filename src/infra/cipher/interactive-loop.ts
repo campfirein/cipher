@@ -174,6 +174,5 @@ const cleanup = async (agent: ICipherAgent, rl: readline.Interface, isExitingRef
   isExitingRef.value = true
   console.log('\n' + chalk.yellow('👋 Shutting down...'))
   rl.close()
-  await agent.stop()
   console.log(chalk.gray('✓ Cleanup complete'))
 }

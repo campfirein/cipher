@@ -1,17 +1,8 @@
-import type {SessionType} from '../../entities/parser.js'
-
 /**
  * Agent-level event names for CipherAgent.
  * These events are emitted at the agent level and include sessionId in payloads.
  */
-export const AGENT_EVENT_NAMES = [
-  'cipher:cleanExternalSessionProcessing',
-  'cipher:cleanExternalSessionProcessed',
-  'cipher:cleanExternalSessionProcessingError',
-  'cipher:conversationReset',
-  'cipher:stateChanged',
-  'cipher:stateReset',
-] as const
+export const AGENT_EVENT_NAMES = ['cipher:conversationReset', 'cipher:stateChanged', 'cipher:stateReset'] as const
 
 /**
  * Session-level event names for LLM service operations.
@@ -62,31 +53,6 @@ export interface TokenUsage {
  * All agent events include sessionId for tracking which session triggered the event.
  */
 export interface AgentEventMap {
-  /**
-   * Emitted when a clean external session has been successfully processed.
-   */
-  'cipher:cleanExternalSessionProcessed': {
-    codingAgent: SessionType
-    externalSessionTitle: string
-  }
-
-  /**
-   * Emitted when processing a clean external session starts.
-   */
-  'cipher:cleanExternalSessionProcessing': {
-    codingAgent: SessionType
-    externalSessionTitle: string
-  }
-
-  /**
-   * Emitted when processing a clean external session fails.
-   */
-  'cipher:cleanExternalSessionProcessingError': {
-    codingAgent: SessionType
-    error: Error
-    externalSessionTitle: string
-  }
-
   /**
    * Emitted when a conversation is reset.
    * @property {string} sessionId - ID of the session being reset
