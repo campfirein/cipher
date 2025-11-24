@@ -88,6 +88,9 @@
   "scripts": {
     "build": "shx rm -rf dist && shx rm -f tsconfig.tsbuildinfo && tsc && shx cp -r src/templates dist/templates && shx cp -r src/resources dist/resources && shx cp src/infra/cipher/grpc/internal-llm-grpc.proto dist/infra/cipher/grpc/",
     "lint": "eslint",
+    "lint:fix": "eslint --fix",
+    "lint:fix:current-file": "eslint --fix",
+    "lint:fix:changed": "sh -c 'base=$(git merge-base HEAD origin/$(git branch --show-current) 2>/dev/null || echo HEAD~1); files=$(git diff --name-only --diff-filter=ACMR $base | grep -E \"\\\\.(ts|js)$\"); if [ -n \"$files\" ]; then echo \"$files\" | xargs eslint --fix; else echo \"No changed files to lint\"; fi'",
     "postpack": "shx rm -f oclif.manifest.json",
     "posttest": "npm run lint",
     "prepack": "npm run build && oclif manifest",
