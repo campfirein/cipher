@@ -200,8 +200,9 @@ export default class CipherAgentRun extends Command {
         this.setupEventListeners(agent, isInteractive)
 
         if (isInteractive) {
-          // Interactive mode: start the loop
+          // Interactive mode: start the loop with event bus for spinner
           await startInteractiveLoop(agent, {
+            eventBus: agent.agentEventBus,
             model: llmConfig.model,
             sessionId: resolvedSessionId,
           })
@@ -322,22 +323,102 @@ export default class CipherAgentRun extends Command {
    * @returns Formatted string for display
    */
   private formatToolForInteractive(toolName: string, args: Record<string, unknown>): string {
-    // Special case for bash_exec - just show the command
-    if (toolName === 'bash_exec' && args.command) {
-      const cmd = String(args.command)
-      // Truncate long commands but keep readable
-      return cmd.length > 100 ? cmd.slice(0, 97) + '...' : cmd
+    // Provide user-friendly action descriptions
+    switch (toolName) {
+      case 'bash_exec': {
+        const cmd = String(args.command ?? '')
+        // Truncate long commands but keep readable
+        return cmd.length > 60 ? `Running command...` : `Running: ${cmd}`
+      }
+
+      case 'create_knowledge_topic': {
+        return 'Creating knowledge topic...'
+      }
+
+      case 'find_knowledge_topics': {
+        return 'Querying knowledge base...'
+      }
+
+      case 'grep_content': {
+        return 'Searching codebase...'
+      }
+
+      case 'list_directory': {
+        return 'Listing directory...'
+      }
+
+      case 'read_file': {
+        return `Reading file...`
+      }
+
+      case 'update_knowledge_topic': {
+        return 'Updating knowledge topic...'
+      }
+
+      case 'write_file': {
+        return 'Writing file...'
+      }
+
+      default: {
+        // For other tools, use a generic format
+        return 'Processing...'
+      }
     }
+  }
 
-    // For other tools, use the existing formatter
-    const formatted = formatToolCall(toolName, args)
+  /**
+   * Format tool result summary for display
+   *
+   * @param toolName - Name of the tool
+   * @param result - Tool result data
+   * @returns Formatted summary string or empty if no summary needed
+   */
+  private formatToolResultSummary(toolName: string, result: unknown): string {
+    try {
+      switch (toolName) {
+        case 'find_knowledge_topics': {
+          // Parse result to count topics
+          if (typeof result === 'string') {
+            try {
+              const parsed = JSON.parse(result)
+              const count = Array.isArray(parsed) ? parsed.length : Object.keys(parsed).length
+              return `${count} topics retrieved`
+            } catch {
+              return ''
+            }
+          }
 
-    // Remove the tool name prefix since we show it separately
-    // formatToolCall returns: "tool_name(arg1: val1, ...)"
-    // We want: "(arg1: val1, ...)" or just the args portion
-    const argsOnly = formatted.replace(new RegExp(`^${toolName}\\s*`), '')
+          return ''
+        }
 
-    return argsOnly
+        case 'grep_content': {
+          // Parse result to count matches
+          if (typeof result === 'string') {
+            const lines = result.split('\n').filter((line) => line.trim())
+            return `${lines.length} matches found`
+          }
+
+          return ''
+        }
+
+        case 'list_directory': {
+          // Parse result to count items
+          if (typeof result === 'string') {
+            const lines = result.split('\n').filter((line) => line.trim())
+            return `${lines.length} items`
+          }
+
+          return ''
+        }
+
+        default: {
+          return ''
+        }
+      }
+    } catch {
+      // If parsing fails, just return empty
+      return ''
+    }
   }
 
   /**
@@ -435,39 +516,39 @@ export default class CipherAgentRun extends Command {
       // In interactive mode, show concise tool events for transparency
       eventBus.on('llmservice:toolCall', (payload) => {
         const details = this.formatToolForInteractive(payload.toolName, payload.args)
-        displayInfo(`🔧 [Tool] ${payload.toolName}: ${details}`)
+        // Clean format: 🔧 tool_name → Action description...
+        displayInfo(`🔧 ${payload.toolName} → ${details}`)
       })
 
       eventBus.on('llmservice:toolResult', (payload) => {
         if (payload.success) {
-          displayInfo(`✓ [Done] ${payload.toolName}`)
+          // Clean format: ✅ tool_name → Complete (with optional summary)
+          const summary = this.formatToolResultSummary(payload.toolName, payload.result)
+          displayInfo(summary ? `✅ ${payload.toolName} → Complete (${summary})` : `✅ ${payload.toolName} → Complete`)
         } else {
-          displayInfo(`✗ [Error] ${payload.toolName}: ${payload.error}`)
+          // Clean format: ❌ tool_name → Failed: error message
+          displayInfo(`❌ ${payload.toolName} → Failed: ${payload.error}`)
         }
       })
 
       eventBus.on('llmservice:error', (payload) => {
-        displayInfo(`Error: ${payload.error}`)
+        displayInfo(`❌ Error: ${payload.error}`)
       })
 
       eventBus.on('cipher:conversationReset', () => {
-        displayInfo('Conversation history cleared')
+        displayInfo('🔄 Conversation history cleared')
       })
 
       eventBus.on('cipher:cleanExternalSessionProcessing', (payload) => {
-        displayInfo(`Processing external session from ${payload.codingAgent}:\n\n${payload.externalSessionTitle}`)
+        displayInfo(`📦 Loading context from ${payload.codingAgent}...`)
       })
 
       eventBus.on('cipher:cleanExternalSessionProcessed', (payload) => {
-        displayInfo(
-          `Context tree updated with external session from ${payload.codingAgent}:\n\n${payload.externalSessionTitle}`,
-        )
+        displayInfo(`✅ Context loaded from ${payload.codingAgent}: ${payload.externalSessionTitle}`)
       })
 
       eventBus.on('cipher:cleanExternalSessionProcessingError', (payload) => {
-        displayInfo(
-          `Error processing external session from ${payload.codingAgent}:\n\n${payload.externalSessionTitle}\n\n${payload.error.message}`,
-        )
+        displayInfo(`❌ Failed to load context from ${payload.codingAgent}: ${payload.error.message}`)
       })
 
       return

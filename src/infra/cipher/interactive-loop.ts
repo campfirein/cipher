@@ -4,7 +4,9 @@ import chalk from 'chalk'
 import readline from 'node:readline'
 
 import type {ICipherAgent} from '../../core/interfaces/cipher/i-cipher-agent.js'
+import type {AgentEventBus} from './events/event-emitter.js'
 
+import {Spinner} from '../../utils/spinner.js'
 import {parseInput} from './command-parser.js'
 import {executeCommand} from './interactive-commands.js'
 
@@ -77,10 +79,12 @@ export function displayInfo(message: string): void {
  * @param options - Optional configuration
  * @param options.model - LLM model name
  * @param options.sessionId - Session identifier
+ * @param options.eventBus - Optional event bus for listening to agent events
  */
 export async function startInteractiveLoop(
   agent: ICipherAgent,
   options?: {
+    eventBus?: AgentEventBus
     model?: string
     sessionId?: string
   },
@@ -95,11 +99,40 @@ export async function startInteractiveLoop(
   })
 
   // Resume stdin
-  // TODO: consider removing this since rl already handles stdin resuming.
   process.stdin.resume()
+
+  // Create spinner for thinking animation
+  // Use object wrapper to avoid TypeScript narrowing issues in event handlers
+  const spinnerRef: {current: null | Spinner} = {current: null}
+
+  // Setup thinking event listener for spinner
+  if (options?.eventBus) {
+    options.eventBus.on('llmservice:thinking', () => {
+      spinnerRef.current = new Spinner('Agent thinking')
+      spinnerRef.current.start()
+    })
+
+    options.eventBus.on('llmservice:response', () => {
+      if (spinnerRef.current) {
+        spinnerRef.current.stop()
+        spinnerRef.current = null
+      }
+    })
+
+    options.eventBus.on('llmservice:error', () => {
+      if (spinnerRef.current) {
+        spinnerRef.current.stop()
+        spinnerRef.current = null
+      }
+    })
+  }
 
   const isExitingRef = {value: false}
   const exitEventHandler = async () => {
+    if (spinnerRef.current) {
+      spinnerRef.current.stop()
+    }
+
     await cleanup(agent, rl, isExitingRef)
     process.exit(0)
   }
@@ -149,6 +182,12 @@ export async function startInteractiveLoop(
         // Display response
         displayResponse(response)
       } catch (error) {
+        // Stop spinner on error
+        if (spinnerRef.current) {
+          spinnerRef.current.stop()
+          spinnerRef.current = null
+        }
+
         // Handle execution error
         console.error('\n' + chalk.red('❌ Error executing prompt:'))
         console.error(chalk.red(error instanceof Error ? error.message : String(error)))
@@ -156,6 +195,10 @@ export async function startInteractiveLoop(
       }
     }
   } finally {
+    if (spinnerRef.current) {
+      spinnerRef.current.stop()
+    }
+
     await cleanup(agent, rl, isExitingRef)
     process.off('SIGINT', exitEventHandler)
     process.off('SIGTERM', exitEventHandler)
