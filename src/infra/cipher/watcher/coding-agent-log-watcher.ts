@@ -6,6 +6,8 @@ import type {
 } from '../../../core/interfaces/cipher/i-coding-agent-log-watcher.js'
 import type {FileEvent, IFileWatcherService} from '../../../core/interfaces/i-file-watcher-service.js'
 
+import {Agent} from '../../../core/domain/entities/agent.js'
+
 type OnSessionCallback = (session: CleanSession) => Promise<void>
 
 export class CodingAgentLogWatcher implements ICodingAgentLogWatcher {
@@ -29,12 +31,12 @@ export class CodingAgentLogWatcher implements ICodingAgentLogWatcher {
       throw new Error('Already watching. Stop the watcher before starting again.')
     }
 
-    this.callback = options.onSession
+    this.callback = options.onCleanSession
     this.watching = true
     this.fileWatcher.setFileEventHandler(async (event: FileEvent) => {
-      await this.handleFileEvent(event)
+      await this.handleFileEvent(event, options.codingAgentInfo.name)
     })
-    await this.fileWatcher.start(options.paths)
+    await this.fileWatcher.start([options.codingAgentInfo.chatLogPath])
   }
 
   public async stop(): Promise<void> {
@@ -47,13 +49,13 @@ export class CodingAgentLogWatcher implements ICodingAgentLogWatcher {
     this.watching = false
   }
 
-  private async handleFileEvent(event: FileEvent): Promise<void> {
+  private async handleFileEvent(event: FileEvent, codingAgent: Agent): Promise<void> {
     try {
       if (event.type !== 'add' && event.type !== 'change') {
         return
       }
 
-      const sessions = await this.parser.parseLogFile()
+      const sessions = await this.parser.parse(event.path, codingAgent)
 
       if (this.callback !== undefined) {
         for (const session of sessions) {
