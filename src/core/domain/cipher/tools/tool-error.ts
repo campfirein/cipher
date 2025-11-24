@@ -32,10 +32,10 @@ export enum ToolErrorType {
  */
 export interface ToolExecutionResult {
   /**
-   * Tool output content (string representation)
+   * Tool output content (any type - will be stringified by ToolOutputProcessor)
    * For errors, contains error message formatted for LLM
    */
-  content: string
+  content: unknown
 
   /**
    * Detailed error message (only present on failure)
@@ -268,13 +268,16 @@ export class ToolErrorUtils {
   /**
    * Create a success result
    *
+   * Note: Content is passed through as-is (not stringified here).
+   * ToolOutputProcessor.stringify() handles proper JSON serialization later.
+   *
    * @param content - Tool output content
    * @param metadata - Optional metadata
    * @returns Success result
    */
   static createSuccess(content: unknown, metadata?: ToolExecutionResult['metadata']): ToolExecutionResult {
     return {
-      content: String(content),
+      content,
       metadata,
       success: true,
     }
