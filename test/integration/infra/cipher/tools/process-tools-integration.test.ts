@@ -4,44 +4,19 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {setTimeout} from 'node:timers/promises'
 
+import type {
+  BashExecBackgroundResult,
+  BashExecForegroundResult,
+  BashOutputResult,
+  KillProcessResult,
+} from '../../../../shared/tool-result-types.js'
+
 import {ProcessService} from '../../../../../src/infra/cipher/process/process-service.js'
 import {createBashExecTool} from '../../../../../src/infra/cipher/tools/implementations/bash-exec-tool.js'
 import {createBashOutputTool} from '../../../../../src/infra/cipher/tools/implementations/bash-output-tool.js'
 import {createKillProcessTool} from '../../../../../src/infra/cipher/tools/implementations/kill-process-tool.js'
 
 const TEST_TIMEOUT_MS = 35
-
-// Type definitions for tool results
-type BashExecForegroundResult = {
-  duration: number
-  exitCode: number
-  stderr: string
-  stdout: string
-}
-
-type BashExecBackgroundResult = {
-  command: string
-  description?: string
-  message: string
-  pid: number
-  processId: string
-  startedAt: string
-}
-
-type BashOutputResult = {
-  duration?: number
-  exitCode?: number
-  processId: string
-  status: 'completed' | 'failed' | 'running'
-  stderr: string
-  stdout: string
-}
-
-type KillProcessResult = {
-  message: string
-  processId: string
-  success: boolean
-}
 
 describe('Process Tools Integration', () => {
   let testDir: string

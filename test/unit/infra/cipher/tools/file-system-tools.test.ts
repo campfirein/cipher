@@ -1,8 +1,8 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import {expect} from 'chai'
-import {createSandbox} from 'sinon'
+import {createSandbox, SinonStub} from 'sinon'
 
 import type {IFileSystem} from '../../../../../src/core/interfaces/cipher/i-file-system.js'
+import type {GlobFilesResult, GrepContentResult} from '../../../../shared/tool-result-types.js'
 
 import {createEditFileTool} from '../../../../../src/infra/cipher/tools/implementations/edit-file-tool.js'
 import {createGlobFilesTool} from '../../../../../src/infra/cipher/tools/implementations/glob-files-tool.js'
@@ -12,16 +12,27 @@ import {createWriteFileTool} from '../../../../../src/infra/cipher/tools/impleme
 
 describe('File System Tools', () => {
   const sandbox = createSandbox()
-  let fileSystemMock: any
+  let fileSystemMock: IFileSystem
+  let editFileStub: SinonStub
+  let globFilesStub: SinonStub
+  let readFileStub: SinonStub
+  let searchContentStub: SinonStub
+  let writeFileStub: SinonStub
 
   beforeEach(() => {
+    editFileStub = sandbox.stub()
+    globFilesStub = sandbox.stub()
+    readFileStub = sandbox.stub()
+    searchContentStub = sandbox.stub()
+    writeFileStub = sandbox.stub()
+
     fileSystemMock = {
-      editFile: sandbox.stub(),
-      globFiles: sandbox.stub(),
-      readFile: sandbox.stub(),
-      searchContent: sandbox.stub(),
-      writeFile: sandbox.stub(),
-    }
+      editFile: editFileStub,
+      globFiles: globFilesStub,
+      readFile: readFileStub,
+      searchContent: searchContentStub,
+      writeFile: writeFileStub,
+    } as unknown as IFileSystem
   })
 
   afterEach(() => {
@@ -38,12 +49,12 @@ describe('File System Tools', () => {
         size: 12,
         truncated: false,
       }
-      fileSystemMock.readFile.resolves(mockResult)
+      readFileStub.resolves(mockResult)
 
       const result = await tool.execute({filePath: '/path/to/file'})
 
       sandbox.assert.calledWith(
-        fileSystemMock.readFile,
+        readFileStub,
         '/path/to/file',
         sandbox.match({limit: undefined, offset: undefined}),
       )
@@ -52,24 +63,24 @@ describe('File System Tools', () => {
 
     it('should handle pagination parameters', async () => {
       const tool = createReadFileTool(fileSystemMock as IFileSystem)
-      fileSystemMock.readFile.resolves({content: 'content'})
+      readFileStub.resolves({content: 'content'})
 
       await tool.execute({filePath: '/path/to/file', limit: 10, offset: 5})
 
-      sandbox.assert.calledWith(fileSystemMock.readFile, '/path/to/file', sandbox.match({limit: 10, offset: 5}))
+      sandbox.assert.calledWith(readFileStub, '/path/to/file', sandbox.match({limit: 10, offset: 5}))
     })
 
     it('should propagate file not found error', async () => {
       const tool = createReadFileTool(fileSystemMock as IFileSystem)
       const error = new Error('File not found')
       error.name = 'FileNotFoundError'
-      fileSystemMock.readFile.rejects(error)
+      readFileStub.rejects(error)
 
       try {
         await tool.execute({filePath: '/missing/file'})
         expect.fail('Should have thrown an error')
-      } catch (error: any) {
-        expect(error.message).to.include('File not found')
+      } catch (error: unknown) {
+        expect((error as Error).message).to.include('File not found')
       }
     })
 
@@ -77,13 +88,13 @@ describe('File System Tools', () => {
       const tool = createReadFileTool(fileSystemMock as IFileSystem)
       const error = new Error('File too large')
       error.name = 'FileTooLargeError'
-      fileSystemMock.readFile.rejects(error)
+      readFileStub.rejects(error)
 
       try {
         await tool.execute({filePath: '/large/file'})
         expect.fail('Should have thrown an error')
-      } catch (error: any) {
-        expect(error.message).to.include('File too large')
+      } catch (error: unknown) {
+        expect((error as Error).message).to.include('File too large')
       }
     })
 
@@ -91,13 +102,13 @@ describe('File System Tools', () => {
       const tool = createReadFileTool(fileSystemMock as IFileSystem)
       const error = new Error('Path not allowed')
       error.name = 'PathNotAllowedError'
-      fileSystemMock.readFile.rejects(error)
+      readFileStub.rejects(error)
 
       try {
         await tool.execute({filePath: '/forbidden/path'})
         expect.fail('Should have thrown an error')
-      } catch (error: any) {
-        expect(error.message).to.include('Path not allowed')
+      } catch (error: unknown) {
+        expect((error as Error).message).to.include('Path not allowed')
       }
     })
   })
@@ -110,7 +121,7 @@ describe('File System Tools', () => {
         path: '/path/to/file',
         success: true,
       }
-      fileSystemMock.writeFile.resolves(mockResult)
+      writeFileStub.resolves(mockResult)
 
       const result = await tool.execute({
         content: 'new content',
@@ -118,7 +129,7 @@ describe('File System Tools', () => {
       })
 
       sandbox.assert.calledWith(
-        fileSystemMock.writeFile,
+        writeFileStub,
         '/path/to/file',
         'new content',
         sandbox.match({createDirs: undefined, encoding: undefined}),
@@ -128,7 +139,7 @@ describe('File System Tools', () => {
 
     it('should handle createDirs option', async () => {
       const tool = createWriteFileTool(fileSystemMock as IFileSystem)
-      fileSystemMock.writeFile.resolves({})
+      writeFileStub.resolves({})
 
       await tool.execute({
         content: 'content',
@@ -136,20 +147,20 @@ describe('File System Tools', () => {
         filePath: '/path/to/file',
       })
 
-      expect(fileSystemMock.writeFile.args[0][2]).to.include({createDirs: true})
+      expect(writeFileStub.args[0][2]).to.include({createDirs: true})
     })
 
     it('should propagate invalid extension error', async () => {
       const tool = createWriteFileTool(fileSystemMock as IFileSystem)
       const error = new Error('Invalid extension')
       error.name = 'InvalidExtensionError'
-      fileSystemMock.writeFile.rejects(error)
+      writeFileStub.rejects(error)
 
       try {
         await tool.execute({content: 'data', filePath: '/path/file.exe'})
         expect.fail('Should have thrown an error')
-      } catch (error: any) {
-        expect(error.message).to.include('Invalid extension')
+      } catch (error: unknown) {
+        expect((error as Error).message).to.include('Invalid extension')
       }
     })
 
@@ -157,13 +168,13 @@ describe('File System Tools', () => {
       const tool = createWriteFileTool(fileSystemMock as IFileSystem)
       const error = new Error('Path blocked')
       error.name = 'PathBlockedError'
-      fileSystemMock.writeFile.rejects(error)
+      writeFileStub.rejects(error)
 
       try {
         await tool.execute({content: 'data', filePath: '.env'})
         expect.fail('Should have thrown an error')
-      } catch (error: any) {
-        expect(error.message).to.include('Path blocked')
+      } catch (error: unknown) {
+        expect((error as Error).message).to.include('Path blocked')
       }
     })
   })
@@ -177,7 +188,7 @@ describe('File System Tools', () => {
         replacements: 1,
         success: true,
       }
-      fileSystemMock.editFile.resolves(mockResult)
+      editFileStub.resolves(mockResult)
 
       const result = await tool.execute({
         filePath: '/path/to/file',
@@ -186,7 +197,7 @@ describe('File System Tools', () => {
       })
 
       sandbox.assert.calledWith(
-        fileSystemMock.editFile,
+        editFileStub,
         '/path/to/file',
         sandbox.match({newString: 'new', oldString: 'old', replaceAll: undefined}),
         sandbox.match({}),
@@ -196,7 +207,7 @@ describe('File System Tools', () => {
 
     it('should handle replaceAll option', async () => {
       const tool = createEditFileTool(fileSystemMock as IFileSystem)
-      fileSystemMock.editFile.resolves({})
+      editFileStub.resolves({})
 
       await tool.execute({
         filePath: '/path/to/file',
@@ -205,14 +216,14 @@ describe('File System Tools', () => {
         replaceAll: true,
       })
 
-      expect(fileSystemMock.editFile.args[0][1]).to.include({replaceAll: true})
+      expect(editFileStub.args[0][1]).to.include({replaceAll: true})
     })
 
     it('should propagate string not found error', async () => {
       const tool = createEditFileTool(fileSystemMock as IFileSystem)
       const error = new Error('String not found')
       error.name = 'StringNotFoundError'
-      fileSystemMock.editFile.rejects(error)
+      editFileStub.rejects(error)
 
       try {
         await tool.execute({
@@ -221,8 +232,8 @@ describe('File System Tools', () => {
           oldString: 'missing',
         })
         expect.fail('Should have thrown an error')
-      } catch (error: any) {
-        expect(error.message).to.include('String not found')
+      } catch (error: unknown) {
+        expect((error as Error).message).to.include('String not found')
       }
     })
 
@@ -230,7 +241,7 @@ describe('File System Tools', () => {
       const tool = createEditFileTool(fileSystemMock as IFileSystem)
       const error = new Error('String not unique')
       error.name = 'StringNotUniqueError'
-      fileSystemMock.editFile.rejects(error)
+      editFileStub.rejects(error)
 
       try {
         await tool.execute({
@@ -239,8 +250,8 @@ describe('File System Tools', () => {
           oldString: 'duplicate',
         })
         expect.fail('Should have thrown an error')
-      } catch (error: any) {
-        expect(error.message).to.include('String not unique')
+      } catch (error: unknown) {
+        expect((error as Error).message).to.include('String not unique')
       }
     })
   })
@@ -257,12 +268,12 @@ describe('File System Tools', () => {
         totalFound: 2,
         truncated: false,
       }
-      fileSystemMock.globFiles.resolves(mockResult)
+      globFilesStub.resolves(mockResult)
 
-      const result = (await tool.execute({pattern: '*.ts'})) as any
+      const result = (await tool.execute({pattern: '*.ts'})) as GlobFilesResult
 
       sandbox.assert.calledWith(
-        fileSystemMock.globFiles,
+        globFilesStub,
         '*.ts',
         sandbox.match({cwd: undefined, includeMetadata: true, maxResults: undefined}),
       )
@@ -273,12 +284,12 @@ describe('File System Tools', () => {
 
     it('should handle path and maxResults parameters', async () => {
       const tool = createGlobFilesTool(fileSystemMock as IFileSystem)
-      fileSystemMock.globFiles.resolves({files: []})
+      globFilesStub.resolves({files: []})
 
       await tool.execute({maxResults: 50, path: '/base/path', pattern: '*.ts'})
 
       sandbox.assert.calledWith(
-        fileSystemMock.globFiles,
+        globFilesStub,
         '*.ts',
         sandbox.match({cwd: '/base/path', includeMetadata: true, maxResults: 50}),
       )
@@ -288,13 +299,13 @@ describe('File System Tools', () => {
       const tool = createGlobFilesTool(fileSystemMock as IFileSystem)
       const error = new Error('Invalid pattern')
       error.name = 'InvalidPatternError'
-      fileSystemMock.globFiles.rejects(error)
+      globFilesStub.rejects(error)
 
       try {
         await tool.execute({pattern: '[invalid'})
         expect.fail('Should have thrown an error')
-      } catch (error: any) {
-        expect(error.message).to.include('Invalid pattern')
+      } catch (error: unknown) {
+        expect((error as Error).message).to.include('Invalid pattern')
       }
     })
 
@@ -305,9 +316,9 @@ describe('File System Tools', () => {
         totalFound: 1500,
         truncated: true,
       }
-      fileSystemMock.globFiles.resolves(mockResult)
+      globFilesStub.resolves(mockResult)
 
-      const result = (await tool.execute({maxResults: 100, pattern: '**/*'})) as any
+      const result = (await tool.execute({maxResults: 100, pattern: '**/*'})) as GlobFilesResult
 
       expect(result.truncated).to.be.true
       expect(result.totalFound).to.equal(1500)
@@ -330,12 +341,12 @@ describe('File System Tools', () => {
         totalMatches: 1,
         truncated: false,
       }
-      fileSystemMock.searchContent.resolves(mockResult)
+      searchContentStub.resolves(mockResult)
 
-      const result = (await tool.execute({pattern: 'const x'})) as any
+      const result = (await tool.execute({pattern: 'const x'})) as GrepContentResult
 
       sandbox.assert.calledWith(
-        fileSystemMock.searchContent,
+        searchContentStub,
         'const x',
         sandbox.match({
           caseInsensitive: undefined,
@@ -351,7 +362,7 @@ describe('File System Tools', () => {
 
     it('should handle all options', async () => {
       const tool = createGrepContentTool(fileSystemMock as IFileSystem)
-      fileSystemMock.searchContent.resolves({matches: []})
+      searchContentStub.resolves({matches: []})
 
       await tool.execute({
         caseInsensitive: true,
@@ -363,7 +374,7 @@ describe('File System Tools', () => {
       })
 
       sandbox.assert.calledWith(
-        fileSystemMock.searchContent,
+        searchContentStub,
         'test',
         sandbox.match({
           caseInsensitive: true,
@@ -379,13 +390,13 @@ describe('File System Tools', () => {
       const tool = createGrepContentTool(fileSystemMock as IFileSystem)
       const error = new Error('Invalid pattern')
       error.name = 'InvalidPatternError'
-      fileSystemMock.searchContent.rejects(error)
+      searchContentStub.rejects(error)
 
       try {
         await tool.execute({pattern: '(unclosed'})
         expect.fail('Should have thrown an error')
-      } catch (error: any) {
-        expect(error.message).to.include('Invalid pattern')
+      } catch (error: unknown) {
+        expect((error as Error).message).to.include('Invalid pattern')
       }
     })
 
@@ -397,9 +408,9 @@ describe('File System Tools', () => {
         totalMatches: 250,
         truncated: true,
       }
-      fileSystemMock.searchContent.resolves(mockResult)
+      searchContentStub.resolves(mockResult)
 
-      const result = (await tool.execute({maxResults: 50, pattern: 'test'})) as any
+      const result = (await tool.execute({maxResults: 50, pattern: 'test'})) as GrepContentResult
 
       expect(result.truncated).to.be.true
       expect(result.totalMatches).to.equal(250)

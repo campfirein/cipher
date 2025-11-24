@@ -2,6 +2,8 @@ import {expect} from 'chai'
 import {setTimeout} from 'node:timers/promises'
 import * as sinon from 'sinon'
 
+const TEST_TIMEOUT_MS = 35
+
 import {CleanSession} from '../../../../src/core/domain/entities/parser.js'
 import {CipherLLMConfig} from '../../../../src/infra/cipher/agent-service-factory.js'
 import {CipherAgent} from '../../../../src/infra/cipher/cipher-agent.js'
@@ -268,7 +270,7 @@ describe('CipherAgent - processCleanExternalSession', () => {
 
       // Process same session twice
       await agent.processCleanExternalSession(session)
-      await setTimeout(1)
+      await setTimeout(TEST_TIMEOUT_MS)
       await agent.processCleanExternalSession(session)
 
       expect(executeStub.calledTwice).to.be.true

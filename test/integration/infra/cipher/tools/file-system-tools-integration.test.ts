@@ -1,8 +1,15 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import {expect} from 'chai'
 import {mkdir, realpath, rm, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
+
+import type {
+  EditFileResult,
+  GlobFilesResult,
+  GrepContentResult,
+  ReadFileResult,
+  WriteFileResult,
+} from '../../../../shared/tool-result-types.js'
 
 import {FileSystemService} from '../../../../../src/infra/cipher/file-system/file-system-service.js'
 import {createEditFileTool} from '../../../../../src/infra/cipher/tools/implementations/edit-file-tool.js'
@@ -40,7 +47,7 @@ describe('File System Tools Integration', () => {
       await writeFile(filePath, 'Hello World')
 
       const tool = createReadFileTool(fileSystemService)
-      const result = (await tool.execute({filePath})) as any
+      const result = (await tool.execute({filePath})) as ReadFileResult
 
       expect(result.content).to.equal('Hello World')
       expect(result.size).to.equal(11)
@@ -55,13 +62,13 @@ describe('File System Tools Integration', () => {
       const result = (await tool.execute({
         content: 'New Content',
         filePath,
-      })) as any
+      })) as WriteFileResult
 
       expect(result.success).to.be.true
 
       // Verify with tool
       const readTool = createReadFileTool(fileSystemService)
-      const readResult = (await readTool.execute({filePath})) as any
+      const readResult = (await readTool.execute({filePath})) as ReadFileResult
       expect(readResult.content).to.equal('New Content')
     })
   })
@@ -76,14 +83,14 @@ describe('File System Tools Integration', () => {
         filePath,
         newString: 'New',
         oldString: 'Old',
-      })) as any
+      })) as EditFileResult
 
       expect(result.success).to.be.true
       expect(result.replacements).to.equal(1)
 
       // Verify content
       const readTool = createReadFileTool(fileSystemService)
-      const readResult = (await readTool.execute({filePath})) as any
+      const readResult = (await readTool.execute({filePath})) as ReadFileResult
       expect(readResult.content).to.equal('Hello New World')
     })
   })
@@ -99,11 +106,11 @@ describe('File System Tools Integration', () => {
       const result = (await tool.execute({
         path: testDir,
         pattern: '**/*.ts',
-      })) as any
+      })) as GlobFilesResult
 
       expect(result.totalFound).to.equal(2)
       expect(result.files).to.have.length(2)
-      const paths = (result.files as Array<{path: string}>).map((f) => f.path).sort()
+      const paths = result.files.map((f) => f.path).sort()
       expect(paths[0]).to.include('a.ts')
       expect(paths[1]).to.include('c.ts')
     })
@@ -119,11 +126,11 @@ describe('File System Tools Integration', () => {
       const result = (await tool.execute({
         path: testDir,
         pattern: 'foo',
-      })) as any
+      })) as GrepContentResult
 
       expect(result.totalMatches).to.equal(2)
       expect(result.matches).to.have.length(2)
-      const files = (result.matches as Array<{file: string}>).map((m) => m.file).sort()
+      const files = result.matches.map((m) => m.file).sort()
       expect(files[0]).to.include('file1.txt')
       expect(files[1]).to.include('file3.txt')
     })
