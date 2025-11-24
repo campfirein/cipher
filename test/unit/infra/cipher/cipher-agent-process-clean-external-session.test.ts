@@ -2,7 +2,7 @@ import {expect} from 'chai'
 import {setTimeout} from 'node:timers/promises'
 import * as sinon from 'sinon'
 
-import {CleanSession} from '../../../../src/core/domain/entities/parser.js'
+import {CleanSession, SessionType} from '../../../../src/core/domain/entities/parser.js'
 import {CipherLLMConfig} from '../../../../src/infra/cipher/agent-service-factory.js'
 import {CipherAgent} from '../../../../src/infra/cipher/cipher-agent.js'
 
@@ -153,19 +153,18 @@ describe('CipherAgent - processCleanExternalSession', () => {
       sinon.stub(agent, 'deleteSession').resolves(true)
 
       const eventPayloads: unknown[] = []
-      agent.agentEventBus?.on('cipher:cleanExternalSessionProcessed', (payload) => {
+      const eventHandler = (payload: unknown) => {
         eventPayloads.push(payload)
-      })
+      }
+
+      agent.agentEventBus?.on('cipher:cleanExternalSessionProcessed', eventHandler)
 
       await agent.processCleanExternalSession(session)
 
       expect(eventPayloads).to.have.lengthOf(1)
       expect(eventPayloads[0]).to.deep.equal({
-        externalSessionId: 'session-456',
-        ideType: 'Claude',
-        messageCount: 3,
-        timestamp: 1_234_567_890,
-        title: 'My Session',
+        codingAgent: 'Claude',
+        externalSessionTitle: 'My Session',
       })
     })
 
@@ -194,16 +193,19 @@ describe('CipherAgent - processCleanExternalSession', () => {
       sinon.stub(agent, 'deleteSession').resolves(true)
 
       const errorEventPayloads: unknown[] = []
-      agent.agentEventBus?.on('cipher:cleanExternalSessionProcessingError', (payload) => {
+      const errorHandler = (payload: unknown) => {
         errorEventPayloads.push(payload)
-      })
+      }
+
+      agent.agentEventBus?.on('cipher:cleanExternalSessionProcessingError', errorHandler)
 
       await agent.processCleanExternalSession(session)
 
       expect(errorEventPayloads).to.have.lengthOf(1)
       expect(errorEventPayloads[0]).to.deep.equal({
+        codingAgent: 'Claude',
         error: testError,
-        externalSessionId: 'error-session',
+        externalSessionTitle: 'Test Session',
       })
     })
 
@@ -298,15 +300,17 @@ describe('CipherAgent - processCleanExternalSession', () => {
         sinon.stub(agent, 'execute').resolves('Success')
         sinon.stub(agent, 'deleteSession').resolves(true)
 
-        const successEventPayloads: {ideType: string}[] = []
-        agent.agentEventBus?.on('cipher:cleanExternalSessionProcessed', (payload) => {
+        const successEventPayloads: {codingAgent: SessionType; externalSessionTitle: string}[] = []
+        const eventHandler = (payload: {codingAgent: SessionType; externalSessionTitle: string}) => {
           successEventPayloads.push(payload)
-        })
+        }
+
+        agent.agentEventBus?.on('cipher:cleanExternalSessionProcessed', eventHandler)
 
         await agent.processCleanExternalSession(session)
 
         expect(successEventPayloads).to.have.lengthOf(1)
-        expect(successEventPayloads[0].ideType).to.equal(sessionType)
+        expect(successEventPayloads[0].codingAgent).to.equal(sessionType)
       })
     }
   })
@@ -324,3 +328,5 @@ describe('CipherAgent - processCleanExternalSession', () => {
     })
   })
 })
+
+
