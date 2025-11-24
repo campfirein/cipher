@@ -1,13 +1,47 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import {expect} from 'chai'
 import {mkdir, realpath, rm} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
+import {setTimeout} from 'node:timers/promises'
 
 import {ProcessService} from '../../../../../src/infra/cipher/process/process-service.js'
 import {createBashExecTool} from '../../../../../src/infra/cipher/tools/implementations/bash-exec-tool.js'
 import {createBashOutputTool} from '../../../../../src/infra/cipher/tools/implementations/bash-output-tool.js'
 import {createKillProcessTool} from '../../../../../src/infra/cipher/tools/implementations/kill-process-tool.js'
+
+const TEST_TIMEOUT_MS = 35
+
+// Type definitions for tool results
+type BashExecForegroundResult = {
+  duration: number
+  exitCode: number
+  stderr: string
+  stdout: string
+}
+
+type BashExecBackgroundResult = {
+  command: string
+  description?: string
+  message: string
+  pid: number
+  processId: string
+  startedAt: string
+}
+
+type BashOutputResult = {
+  duration?: number
+  exitCode?: number
+  processId: string
+  status: 'completed' | 'failed' | 'running'
+  stderr: string
+  stdout: string
+}
+
+type KillProcessResult = {
+  message: string
+  processId: string
+  success: boolean
+}
 
 describe('Process Tools Integration', () => {
   let testDir: string
@@ -38,7 +72,7 @@ describe('Process Tools Integration', () => {
       const tool = createBashExecTool(processService)
       const result = (await tool.execute({
         command: 'echo "hello world"',
-      })) as any
+      })) as BashExecForegroundResult
 
       expect(result.stdout).to.include('hello world')
       expect(result.exitCode).to.equal(0)
@@ -49,7 +83,7 @@ describe('Process Tools Integration', () => {
       const result = (await tool.execute({
         command: 'sleep 1',
         runInBackground: true,
-      })) as any
+      })) as BashExecBackgroundResult
 
       expect(result.processId).to.exist
       expect(result.message).to.include('background')
@@ -65,17 +99,15 @@ describe('Process Tools Integration', () => {
       const startResult = (await execTool.execute({
         command: 'echo "background output" && sleep 1',
         runInBackground: true,
-      })) as any
+      })) as BashExecBackgroundResult
 
       // Wait a bit for output
-      await new Promise((resolve) => {
-        setTimeout(resolve, 500)
-      })
+      await setTimeout(TEST_TIMEOUT_MS)
 
       // Get output
       const outputResult = (await outputTool.execute({
         processId: startResult.processId,
-      })) as any
+      })) as BashOutputResult
 
       expect(outputResult.stdout).to.include('background output')
       expect(outputResult.status).to.be.oneOf(['running', 'completed'])
@@ -92,24 +124,22 @@ describe('Process Tools Integration', () => {
       const startResult = (await execTool.execute({
         command: 'sleep 10',
         runInBackground: true,
-      })) as any
+      })) as BashExecBackgroundResult
 
       // Kill it
       const killResult = (await killTool.execute({
         processId: startResult.processId,
-      })) as any
+      })) as KillProcessResult
 
       expect(killResult.success).to.be.true
 
       // Wait for process to actually terminate (SIGTERM takes a moment)
-      await new Promise((resolve) => {
-        setTimeout(resolve, 1500)
-      })
+      await setTimeout(TEST_TIMEOUT_MS)
 
       // Verify status after waiting
       const outputResult = (await outputTool.execute({
         processId: startResult.processId,
-      })) as any
+      })) as BashOutputResult
 
       // Process should no longer be running
       expect(outputResult.status).to.not.equal('running')
