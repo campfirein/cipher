@@ -198,7 +198,7 @@ export const ThinkingConfigManager = {
     if (lowerModel.startsWith('gemini-3') || lowerModel.includes('gemini-3')) {
       return {
         includeThoughts: true,
-        thinkingLevel: ThinkingLevel.LOW,
+        thinkingLevel: ThinkingLevel.HIGH,
       }
     }
 
