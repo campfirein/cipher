@@ -1,14 +1,14 @@
-import { expect } from 'chai'
-import { createSandbox, SinonSandbox, SinonStub } from 'sinon'
+import {expect} from 'chai'
+import {createSandbox, SinonSandbox, SinonStub} from 'sinon'
 
-import type { CipherAgentServices, SessionServices } from '../../../../../src/core/interfaces/cipher/cipher-services.js'
-import type { ILLMService } from '../../../../../src/core/interfaces/cipher/i-llm-service.js'
-import type { InternalMessage } from '../../../../../src/core/interfaces/cipher/message-types.js'
+import type {CipherAgentServices, SessionServices} from '../../../../../src/core/interfaces/cipher/cipher-services.js'
+import type {ILLMService} from '../../../../../src/core/interfaces/cipher/i-llm-service.js'
+import type {InternalMessage} from '../../../../../src/core/interfaces/cipher/message-types.js'
 
-import { LLMError, SessionCancelledError } from '../../../../../src/core/domain/cipher/errors/session-error.js'
-import { AgentEventBus, SessionEventBus } from '../../../../../src/infra/cipher/events/event-emitter.js'
-import { ContextManager } from '../../../../../src/infra/cipher/llm/context/context-manager.js'
-import { ChatSession } from '../../../../../src/infra/cipher/session/chat-session.js'
+import {LLMError, SessionCancelledError} from '../../../../../src/core/domain/cipher/errors/session-error.js'
+import {AgentEventBus, SessionEventBus} from '../../../../../src/infra/cipher/events/event-emitter.js'
+import {ContextManager} from '../../../../../src/infra/cipher/llm/context/context-manager.js'
+import {ChatSession} from '../../../../../src/infra/cipher/session/chat-session.js'
 
 describe('ChatSession', () => {
   let sandbox: SinonSandbox
@@ -85,7 +85,7 @@ describe('ChatSession', () => {
       // Emit each event on session bus
       for (const eventName of eventNames) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        sessionEventBus.emit(eventName as any, { test: 'data' })
+        sessionEventBus.emit(eventName as any, {test: 'data'})
       }
 
       // Verify all events were forwarded to agent bus with sessionId
@@ -93,7 +93,7 @@ describe('ChatSession', () => {
       for (const [index, eventName] of eventNames.entries()) {
         const call = agentEmitStub.getCall(index)
         expect(call.args[0]).to.equal(eventName)
-        expect(call.args[1]).to.deep.include({ sessionId })
+        expect(call.args[1]).to.deep.include({sessionId})
       }
     })
   })
@@ -152,7 +152,7 @@ describe('ChatSession', () => {
       })
       expect(history[1].toolCalls).to.deep.equal([
         {
-          arguments: { key: 'value' },
+          arguments: {key: 'value'},
           id: 'call-123',
           name: 'testTool',
         },
@@ -193,8 +193,8 @@ describe('ChatSession', () => {
 
     it('should return correct message count', () => {
       const internalMessages: InternalMessage[] = [
-        { content: 'msg1', role: 'user' },
-        { content: 'msg2', role: 'assistant' },
+        {content: 'msg1', role: 'user'},
+        {content: 'msg2', role: 'assistant'},
       ]
 
         ; (mockContextManager.getMessages as SinonStub).returns(internalMessages)
@@ -206,9 +206,9 @@ describe('ChatSession', () => {
 
     it('should match getHistory().length', () => {
       const internalMessages: InternalMessage[] = [
-        { content: 'msg1', role: 'user' },
-        { content: 'msg2', role: 'assistant' },
-        { content: 'msg3', role: 'user' },
+        {content: 'msg1', role: 'user'},
+        {content: 'msg2', role: 'assistant'},
+        {content: 'msg3', role: 'user'},
       ]
 
         ; (mockContextManager.getMessages as SinonStub).returns(internalMessages)
@@ -249,7 +249,7 @@ describe('ChatSession', () => {
     })
 
     it('should support mode query', async () => {
-      await session.run('input', { mode: 'query' })
+      await session.run('input', {mode: 'query'})
 
       expect((mockLLMService.completeTask as SinonStub).calledOnce).to.be.true
       expect((mockLLMService.completeTask as SinonStub).firstCall.args[0]).to.equal('input')
@@ -264,7 +264,7 @@ describe('ChatSession', () => {
         ; (mockLLMService.completeTask as SinonStub).callsFake(async () => {
           abortController.abort()
           await new Promise((resolve) => {
-            setTimeout(resolve, 10)
+            setTimeout(resolve, 1)
           })
           throw new Error('Cancelled')
         })
@@ -336,7 +336,7 @@ describe('ChatSession', () => {
           const signal = options?.signal as AbortSignal
           signal.addEventListener('abort', abortSpy)
           await new Promise((resolve) => {
-            setTimeout(resolve, 100)
+            setTimeout(resolve, 1)
           })
           return 'response'
         })
