@@ -1,20 +1,38 @@
 import { z } from 'zod';
+import { MIN_TIMEOUT_MS, MAX_TIMEOUT_MS } from './constants.js';
 
 /**
  * Get the default MCP timeout from environment variables or use hardcoded default.
  * Priority: CIPHER_MCP_TIMEOUT > MCP_TIMEOUT > 30000ms
+ * Values outside the valid range (5s-5min) are rejected with a warning.
  */
 function getDefaultMcpTimeout(): number {
   const cipherTimeout = process.env.CIPHER_MCP_TIMEOUT;
   if (cipherTimeout !== undefined && cipherTimeout !== '') {
     const parsed = parseInt(cipherTimeout, 10);
-    if (!isNaN(parsed) && parsed > 0) return parsed;
+    if (!isNaN(parsed) && parsed >= MIN_TIMEOUT_MS && parsed <= MAX_TIMEOUT_MS) {
+      return parsed;
+    }
+    if (!isNaN(parsed)) {
+      console.warn(
+        `[MCP] CIPHER_MCP_TIMEOUT=${cipherTimeout}ms outside valid range ` +
+        `(${MIN_TIMEOUT_MS}-${MAX_TIMEOUT_MS}ms). Trying MCP_TIMEOUT or using default.`
+      );
+    }
   }
 
   const mcpTimeout = process.env.MCP_TIMEOUT;
   if (mcpTimeout !== undefined && mcpTimeout !== '') {
     const parsed = parseInt(mcpTimeout, 10);
-    if (!isNaN(parsed) && parsed > 0) return parsed;
+    if (!isNaN(parsed) && parsed >= MIN_TIMEOUT_MS && parsed <= MAX_TIMEOUT_MS) {
+      return parsed;
+    }
+    if (!isNaN(parsed)) {
+      console.warn(
+        `[MCP] MCP_TIMEOUT=${mcpTimeout}ms outside valid range ` +
+        `(${MIN_TIMEOUT_MS}-${MAX_TIMEOUT_MS}ms). Using default 30000ms.`
+      );
+    }
   }
 
   return 30000; // Default: 30 seconds
