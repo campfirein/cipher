@@ -2,6 +2,8 @@ import type {ToolSet} from '../../../core/domain/cipher/tools/types.js'
 import type {IToolProvider} from '../../../core/interfaces/cipher/i-tool-provider.js'
 import type {ToolMarker} from './tool-markers.js'
 
+import {ToolError, ToolErrorType, ToolErrorUtils, type ToolExecutionResult} from '../../../core/domain/cipher/tools/tool-error.js'
+
 /**
  * Tool Manager for memAgent
  *
@@ -29,17 +31,45 @@ export class ToolManager {
   }
 
   /**
-   * Execute a tool by name.
+   * Execute a tool by name with structured error handling.
+   *
+   * Returns a structured result that includes success status, content,
+   * error classification, and metadata. This enables better error handling
+   * and provides actionable feedback to the LLM.
    *
    * @param toolName - Name of the tool to execute
    * @param args - Tool arguments (validated by provider)
-   * @returns Tool execution result
-   * @throws ToolNotFoundError if tool doesn't exist
-   * @throws ToolValidationError if input validation fails
-   * @throws ToolExecutionError if execution fails
+   * @returns Structured tool execution result
    */
-  public async executeTool(toolName: string, args: Record<string, unknown>): Promise<unknown> {
-    return this.toolProvider.executeTool(toolName, args)
+  public async executeTool(toolName: string, args: Record<string, unknown>): Promise<ToolExecutionResult> {
+    const startTime = Date.now()
+
+    try {
+      // Check if tool exists before execution
+      if (!this.hasTool(toolName)) {
+        throw new ToolError(
+          `Tool '${toolName}' not found`,
+          ToolErrorType.TOOL_NOT_FOUND,
+          toolName,
+          {context: {availableTools: this.getToolNames()}}
+        )
+      }
+
+      // Execute tool via provider
+      const result = await this.toolProvider.executeTool(toolName, args)
+      const durationMs = Date.now() - startTime
+
+      // Return success result
+      return ToolErrorUtils.createSuccess(result, { durationMs })
+    } catch (error) {
+      const durationMs = Date.now() - startTime
+
+      // Classify error
+      const toolError = ToolErrorUtils.classify(error, toolName)
+
+      // Return error result
+      return ToolErrorUtils.createErrorResult(toolError, { durationMs })
+    }
   }
 
   /**
