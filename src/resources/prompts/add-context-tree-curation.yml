@@ -10,7 +10,7 @@ prompt: |
   - the code snippets of the context
   - the content of the context
 
-  For doing that, you will need to acquire information from the chat history with the corresponding tools. use the `detect_domains` tool to get the overview of the domains and the related segments of text that are relevant to the domain in the current user's inputs.
+  For doing that, you will need to acquire information from the chat history with the corresponding tools. Use the `detect_domains` tool to get the overview of the domains and the related segments of text that are relevant to the domain in the current user's inputs.
 
   After collecting all the information, follow these steps to understand and update the context tree:
 
@@ -26,3 +26,22 @@ prompt: |
      - There is no duplication with existing context
      - The information is clear and easy to understand
      
+  4. **Snippet quality requirements**: Each snippet in the `snippets` array must:
+       - Explain HOW to use or apply, not just WHAT exists
+       - Minimum 2-4 sentences per snippet
+       - A developer should understand the concept without reading source code
+       - Include names of functions, classes, patterns, or key concepts
+
+       AVOID vague snippets like:
+       - "Hook system" 
+       - "Error handling" 
+
+       WRITE detailed snippets like:
+       - "The hook system allows registering callbacks for lifecycle events. Register hooks using 
+        `HookRegistry.register(hookName, callback)` and trigger them with `HookRegistry.trigger(hookName, context)`. Hooks are used to: 
+        support async callbacks and are commonly used for: pre/post tool execution, agent lifecycle events, and custom 
+        integrations." 
+
+       - "Error handling follows a custom error class pattern. All custom errors extend `BaseError` and include: error 
+        code, message, context object, and optional cause. Use `ErrorHandler.wrap(fn)` for consistent error boundaries across 
+        async operations." 
