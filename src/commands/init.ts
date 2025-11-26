@@ -51,7 +51,7 @@ export default class Init extends Command {
       ux.action.stop('✓')
     } catch (error) {
       ux.action.stop('✗')
-      this.error(`Failed to remove ${BRV_DIR}/: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      throw new Error(`Failed to remove ${BRV_DIR}/: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
 
@@ -120,6 +120,20 @@ export default class Init extends Command {
     }
 
     return token
+  }
+
+  protected async getExistingConfig(projectConfigStore: IProjectConfigStore): Promise<BrvConfig | undefined> {
+    const exists = await projectConfigStore.exists()
+    if (exists) {
+      const config = await projectConfigStore.read()
+      if (config === undefined) {
+        throw new Error('Configuration file exists but cannot be read. Please check .brv/config.json')
+      }
+
+      return config
+    }
+
+    return undefined
   }
 
   /**
@@ -198,28 +212,17 @@ export default class Init extends Command {
 
       const authToken = await this.ensureAuthenticated(tokenStore)
 
-      const alreadyInitialized = await projectConfigStore.exists()
-      if (alreadyInitialized) {
-        const currentConfig = await projectConfigStore.read()
-        if (currentConfig === undefined) {
-          this.error('Configuration file exists but cannot be read. Please check .brv/config.json')
-        }
+      const existingConfig = await this.getExistingConfig(projectConfigStore)
+      if (existingConfig) {
+        const shouldCleanup = flags.force ? true : await this.confirmReInitialization(existingConfig)
 
-        if (!flags.force) {
-          const confirmed = await this.confirmReInitialization(currentConfig)
-          if (!confirmed) {
-            this.log('\nCancelled. Project configuration unchanged.')
-            return
-          }
-        }
-
-        try {
+        if (shouldCleanup) {
           await this.cleanupBeforeReInitialization()
-        } catch (error) {
-          this.error(`Failed to clean up existing data: ${error instanceof Error ? error.message : 'Unknown error'}`)
+          this.log('\n')
+        } else {
+          this.log('\nCancelled. Project configuration unchanged.')
+          return
         }
-
-        this.log('\n') // Spacing before continuing with init flow
       }
 
       this.log('Initializing ByteRover project...\n')

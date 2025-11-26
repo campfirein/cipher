@@ -738,7 +738,6 @@ describe('Init Command', () => {
         expect.fail('Should have thrown error')
       } catch (error) {
         expect(error).to.be.an('error')
-        expect((error as Error).message).to.include('Failed to clean up existing data')
         expect((error as Error).message).to.include('Permission denied')
       }
     })
