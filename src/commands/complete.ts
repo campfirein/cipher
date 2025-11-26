@@ -67,6 +67,24 @@ export default class Complete extends Command {
     }),
   }
 
+  // Override catch to prevent oclif from logging errors that were already displayed
+  public async catch(error: Error & {oclif?: {exit: number}}): Promise<void> {
+    // Check if error came from exitWithCode (has oclif.exit property)
+    // If so, message was already printed by exitWithCode - just exit with that code
+    const oclifError = error as Error & {oclif?: {exit?: number}}
+    if (oclifError.oclif && oclifError.oclif.exit !== undefined) {
+      // Error already displayed by exitWithCode, silently exit
+      return
+    }
+
+    // For other errors, hide stack trace and re-throw to let oclif handle them
+    if (error.stack) {
+      error.stack = error.message
+    }
+
+    throw error
+  }
+
   protected createServices(): {
     deltaStore: IDeltaStore
     executorOutputStore: IExecutorOutputStore

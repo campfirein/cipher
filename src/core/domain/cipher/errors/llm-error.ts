@@ -38,7 +38,9 @@ export class LlmGenerationError extends LlmError {
    * @param model - Model name that was being used
    */
   public constructor(error: string, provider: string, model: string) {
-    super(`Generation failed: ${error}`, 'LLM_GENERATION_FAILED', provider, model)
+    // Don't add "Generation failed:" prefix if error already has emoji prefix (user-friendly message)
+    const message = error.startsWith('❌') ? error : `Generation failed: ${error}`
+    super(message, 'LLM_GENERATION_FAILED', provider, model)
     this.name = 'LlmGenerationError'
     this.originalError = error
   }

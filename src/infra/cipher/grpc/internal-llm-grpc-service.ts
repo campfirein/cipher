@@ -56,7 +56,7 @@ type GenerateRequest = {
  */
 export interface ByteRoverGrpcConfig {
   accessToken: string
-  grpcEndpoint: string,
+  grpcEndpoint: string
   projectId?: string
   region?: string
   sessionKey: string
@@ -167,12 +167,7 @@ export class ByteRoverLlmGrpcService {
       teamId: this.config.teamId,
     }
 
-    try {
-      return await this.callGrpcGenerate(request)
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error)
-      throw new Error(`ByteRover gRPC LLM error: ${errorMessage}`)
-    }
+    return this.callGrpcGenerate(request)
   }
 
   /**
@@ -261,8 +256,10 @@ export class ByteRoverLlmGrpcService {
 
         settled = true
         cleanup()
-        console.error(`[gRPC Provider] Stream error:`, error)
-        reject(new Error(`gRPC call error: ${error.message}`))
+
+        // Parse gRPC error to extract user-friendly message
+        const userMessage = this.parseGrpcError(error)
+        reject(new Error(userMessage))
       })
 
       // Handle gRPC status codes (server-sent errors)
@@ -270,12 +267,20 @@ export class ByteRoverLlmGrpcService {
         if (status.code !== grpc.status.OK && !settled) {
           settled = true
           cleanup()
-          const errorMsg = `gRPC error [${grpc.status[status.code]}]: ${status.details}`
-          console.error(`[gRPC Provider] Status error:`, errorMsg)
-          reject(new Error(errorMsg))
+
+          // Parse status error to extract user-friendly message
+          const userMessage = this.parseGrpcStatusError(status)
+          reject(new Error(userMessage))
         }
       })
     })
+  }
+
+  /**
+   * Check if error message contains any of the given keywords
+   */
+  private containsAny(message: string, keywords: string[]): boolean {
+    return keywords.some((keyword) => message.includes(keyword))
   }
 
   /**
@@ -349,4 +354,137 @@ export class ByteRoverLlmGrpcService {
     this.client = new LLMService(this.config.grpcEndpoint, this.credentials)
   }
 
+  /**
+   * Parse gRPC error to extract user-friendly error message.
+   *
+   * Handles common gRPC error patterns and extracts meaningful messages:
+   * - RESOURCE_EXHAUSTED: Billing/quota issues
+   * - UNAUTHENTICATED: Authentication failures
+   * - PERMISSION_DENIED: Authorization issues
+   * - UNAVAILABLE: Service unavailability
+   * - Other errors: Generic failure message
+   *
+   * @param error - gRPC error object
+   * @returns User-friendly error message
+   */
+  private parseGrpcError(error: NodeJS.ErrnoException): string {
+    const errorMessage = error.message || String(error)
+
+    // Check resource exhausted errors
+    const resourceError = this.parseResourceExhaustedError(errorMessage)
+    if (resourceError) return resourceError
+
+    // Check authentication errors
+    if (this.containsAny(errorMessage, ['UNAUTHENTICATED', 'authentication'])) {
+      return '❌ Authentication failed: Your session may have expired. Please run "brv login" to re-authenticate.'
+    }
+
+    // Check permission errors
+    if (this.containsAny(errorMessage, ['PERMISSION_DENIED', 'permission'])) {
+      return '❌ Permission denied: You do not have access to this resource. Please check your team/space permissions.'
+    }
+
+    // Check network/connection errors
+    if (
+      this.containsAny(errorMessage, [
+        'ECONNREFUSED',
+        'ENOTFOUND',
+        'ETIMEDOUT',
+        'connection refused',
+        'network',
+        'dns',
+        'getaddrinfo',
+      ])
+    ) {
+      return '❌ Network error: Unable to connect to ByteRover servers. Please check your internet connection and try again.'
+    }
+
+    // Check service availability errors
+    if (this.containsAny(errorMessage, ['UNAVAILABLE', 'unavailable'])) {
+      return '❌ Service unavailable: ByteRover API is temporarily unavailable. Please try again later.'
+    }
+
+    // Generic error with cleaned message
+    return `❌ API error: ${errorMessage.split(':').pop()?.trim() || 'Unknown error occurred'}`
+  }
+
+  /**
+   * Parse gRPC status error to extract user-friendly error message.
+   *
+   * @param status - gRPC status object
+   * @returns User-friendly error message
+   */
+  private parseGrpcStatusError(status: grpc.StatusObject): string {
+    const statusName = grpc.status[status.code]
+    const details = status.details || 'No details provided'
+
+    // Map common status codes to user-friendly messages
+    switch (status.code) {
+      case grpc.status.DEADLINE_EXCEEDED: {
+        return '❌ Request timeout: The API request took too long. Please try again.'
+      }
+
+      case grpc.status.INVALID_ARGUMENT: {
+        return `❌ Invalid request: ${details}`
+      }
+
+      case grpc.status.NOT_FOUND: {
+        return '❌ Resource not found: The requested resource does not exist.'
+      }
+
+      case grpc.status.PERMISSION_DENIED: {
+        return '❌ Permission denied: You do not have access to this resource.'
+      }
+
+      case grpc.status.RESOURCE_EXHAUSTED: {
+        if (details.includes('Billing') || details.includes('credentials')) {
+          return '❌ Billing error: Your ByteRover account may not have sufficient credits or valid payment method.'
+        }
+
+        return '❌ Resource exhausted: API quota or billing limit reached.'
+      }
+
+      case grpc.status.UNAUTHENTICATED: {
+        return '❌ Authentication failed: Your session may have expired. Please run "brv login" to re-authenticate.'
+      }
+
+      case grpc.status.UNAVAILABLE: {
+        // Check if it's a network error (user's connection) vs server unavailable
+        const detailsLower = details.toLowerCase()
+        if (
+          detailsLower.includes('enotfound') ||
+          detailsLower.includes('econnrefused') ||
+          detailsLower.includes('etimedout') ||
+          detailsLower.includes('network') ||
+          detailsLower.includes('dns') ||
+          detailsLower.includes('getaddrinfo')
+        ) {
+          return '❌ Network error: Unable to connect to ByteRover servers. Please check your internet connection and try again.'
+        }
+
+        return '❌ Service unavailable: ByteRover API is temporarily unavailable. Please try again later.'
+      }
+
+      default: {
+        return `❌ API error [${statusName}]: ${details}`
+      }
+    }
+  }
+
+  /**
+   * Parse resource exhausted errors (billing/quota)
+   */
+  private parseResourceExhaustedError(errorMessage: string): null | string {
+    if (!errorMessage.includes('RESOURCE_EXHAUSTED')) return null
+
+    if (this.containsAny(errorMessage, ['Billing service error', 'Invalid credentials'])) {
+      return '❌ Billing error: Your ByteRover account may not have sufficient credits or valid payment method. Please check your account settings.'
+    }
+
+    if (this.containsAny(errorMessage, ['quota', 'rate limit'])) {
+      return '❌ Rate limit exceeded: You have reached your API quota. Please wait or upgrade your plan.'
+    }
+
+    return '❌ Resource exhausted: API quota or billing limit reached. Please check your ByteRover account.'
+  }
 }

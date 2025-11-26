@@ -69,4 +69,46 @@ export class CodingAgentLogWatcher implements ICodingAgentLogWatcher {
       console.error(`[CodingAgentLogWatcher] Error processing file ${event.path}: ${error}`)
     }
   }
+
+  // TODO: This method is moved from CipherAgent to here as a point of reference for the logic. Will handle it later.
+  /**
+   * Processes a clean external session between user and coding agent into context tree by calling LLM service.
+   * @param cleanExternalSession The clean external session to process.
+   */
+  // public async processCleanExternalSession(cleanExternalSession: CleanSession): Promise<void> {
+  //   // Cipher agent must be started because the log watcher starts with it.
+  //   this.ensureStarted()
+  //   const internalSessionId = `${cleanExternalSession.id}-process-${Date.now()}`
+  //   try {
+  //     const cleanExternalSessionJsonStr = JSON.stringify(cleanExternalSession, null, 2)
+  //     const llmPrompt = `Process the following external coding session into the context tree:\n\n${cleanExternalSessionJsonStr}`
+  //     this.getAgentEventBus().emit('cipher:cleanExternalSessionProcessing', {
+  //       codingAgent: cleanExternalSession.type,
+  //       externalSessionTitle: cleanExternalSession.title,
+  //     })
+  //     await this.execute(llmPrompt, internalSessionId, {
+  //       executionContext: {
+  //         commandType: 'add',
+  //       },
+  //       mode: 'autonomous',
+  //     })
+  //     this.getAgentEventBus().emit('cipher:cleanExternalSessionProcessed', {
+  //       codingAgent: cleanExternalSession.type,
+  //       externalSessionTitle: cleanExternalSession.title,
+  //     })
+  //   } catch (error) {
+  //     this.getAgentEventBus().emit('cipher:cleanExternalSessionProcessingError', {
+  //       codingAgent: cleanExternalSession.type,
+  //       error: error instanceof Error ? error : new Error('Unknown error'),
+  //       externalSessionTitle: cleanExternalSession.title,
+  //     })
+  //     console.error(`Error processing external session ${cleanExternalSession.id}:`, error)
+  //   } finally {
+  //     try {
+  //       await this.deleteSession(internalSessionId)
+  //     } catch (cleanupError) {
+  //       console.error(`Error cleaning up processing session ${internalSessionId}:`, cleanupError)
+  //     }
+  //   }
+  // }
 }

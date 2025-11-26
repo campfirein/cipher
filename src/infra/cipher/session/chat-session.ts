@@ -165,8 +165,9 @@ export class ChatSession implements IChatSession {
         throw new SessionCancelledError(this.id)
       }
 
-      // Wrap other errors
-      throw new LLMError((error as Error).message, this.id)
+      // Wrap other errors - pass message as-is since it's already formatted
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      throw new LLMError(errorMessage, this.id)
     } finally {
       this.currentController = undefined
     }

@@ -60,6 +60,14 @@ export type StoredBlob = {
 }
 
 /**
+ * Simple logger interface for blob storage operations
+ */
+export interface BlobLogger {
+  error: (message: string) => void
+  info: (message: string) => void
+}
+
+/**
  * Configuration options for blob storage
  * SQLite is always used as the backend
  */
@@ -70,6 +78,12 @@ export type BlobStorageConfig = {
    * @default false
    */
   inMemory?: boolean
+
+  /**
+   * Logger for blob storage operations
+   * If not provided, console will be used as fallback
+   */
+  logger?: BlobLogger
 
   /**
    * Maximum size for a single blob in bytes

@@ -223,7 +223,7 @@ export default class CipherAgentRun extends Command {
           this.log(`\n[Agent State: ${state.currentIteration} iterations]`)
         }
       } finally {
-        await agent.stop()
+        // await agent.stop()
       }
     } catch (error) {
       // Handle workspace not initialized error with friendly message
@@ -540,15 +540,18 @@ export default class CipherAgentRun extends Command {
       })
 
       eventBus.on('cipher:cleanExternalSessionProcessing', (payload) => {
-        displayInfo(`📦 Loading context from ${payload.codingAgent}...`)
+        const p = payload as {codingAgent: string}
+        displayInfo(`📦 Loading context from ${p.codingAgent}...`)
       })
 
       eventBus.on('cipher:cleanExternalSessionProcessed', (payload) => {
-        displayInfo(`✅ Context loaded from ${payload.codingAgent}: ${payload.externalSessionTitle}`)
+        const p = payload as {codingAgent: string; externalSessionTitle: string}
+        displayInfo(`✅ Context loaded from ${p.codingAgent}: ${p.externalSessionTitle}`)
       })
 
       eventBus.on('cipher:cleanExternalSessionProcessingError', (payload) => {
-        displayInfo(`❌ Failed to load context from ${payload.codingAgent}: ${payload.error.message}`)
+        const p = payload as {codingAgent: string; error: {message: string}}
+        displayInfo(`❌ Failed to load context from ${p.codingAgent}: ${p.error.message}`)
       })
 
       return

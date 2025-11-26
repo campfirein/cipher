@@ -6,6 +6,7 @@ import type {JSONSchema7, ToolSet} from '../../../core/domain/cipher/tools/types
 import type {ExecutionContext} from '../../../core/interfaces/cipher/i-cipher-agent.js'
 import type {IHistoryStorage} from '../../../core/interfaces/cipher/i-history-storage.js'
 import type {ILLMService} from '../../../core/interfaces/cipher/i-llm-service.js'
+import type {ILogger} from '../../../core/interfaces/cipher/i-logger.js'
 import type {InternalMessage, ToolCall} from '../../../core/interfaces/cipher/message-types.js'
 import type {MemoryManager} from '../memory/memory-manager.js'
 import type {SimplePromptFactory} from '../system-prompt/simple-prompt-factory.js'
@@ -16,6 +17,7 @@ import {
   LlmMaxIterationsError,
   LlmResponseParsingError,
 } from '../../../core/domain/cipher/errors/llm-error.js'
+import {NoOpLogger} from '../../../core/interfaces/cipher/i-logger.js'
 import {SessionEventBus} from '../events/event-emitter.js'
 import {ContextManager, type FileData, type ImageData} from './context/context-manager.js'
 import {OpenRouterMessageFormatter} from './formatters/openrouter-formatter.js'
@@ -80,7 +82,9 @@ interface OpenAIToolDefinition {
  */
 export class OpenRouterLLMService implements ILLMService {
   private readonly client: OpenAI
-  private readonly config: Required<Omit<OpenRouterServiceConfig, 'httpReferer' | 'siteName' | 'timeout' | 'verbose'>> & {
+  private readonly config: Required<
+    Omit<OpenRouterServiceConfig, 'httpReferer' | 'siteName' | 'timeout' | 'verbose'>
+  > & {
     httpReferer?: string
     siteName?: string
     timeout?: number
@@ -88,6 +92,7 @@ export class OpenRouterLLMService implements ILLMService {
   }
   private readonly contextManager: ContextManager<ChatCompletionMessageParam>
   private readonly formatter: OpenRouterMessageFormatter
+  private readonly logger: ILogger
   private readonly memoryManager?: MemoryManager
   private readonly promptFactory: SimplePromptFactory
   private readonly sessionEventBus: SessionEventBus
@@ -105,12 +110,14 @@ export class OpenRouterLLMService implements ILLMService {
    * @param options.sessionEventBus - Session event bus for emitting events
    * @param options.memoryManager - Optional memory manager for agent memories
    * @param options.historyStorage - Optional history storage for persistence
+   * @param options.logger - Optional logger for structured logging
    */
   public constructor(
     sessionId: string,
     config: OpenRouterServiceConfig,
     options: {
       historyStorage?: IHistoryStorage
+      logger?: ILogger
       memoryManager?: MemoryManager
       sessionEventBus: SessionEventBus
       systemPromptManager: SimplePromptFactory
@@ -121,6 +128,7 @@ export class OpenRouterLLMService implements ILLMService {
     this.promptFactory = options.systemPromptManager
     this.memoryManager = options.memoryManager
     this.sessionEventBus = options.sessionEventBus
+    this.logger = options.logger ?? new NoOpLogger()
     this.config = {
       apiKey: config.apiKey,
       baseUrl: config.baseUrl ?? 'https://openrouter.ai/api/v1',
@@ -181,7 +189,14 @@ export class OpenRouterLLMService implements ILLMService {
    */
   public async completeTask(
     textInput: string,
-    options?: {executionContext?: ExecutionContext; fileData?: FileData; imageData?: ImageData; mode?: 'autonomous' | 'default' | 'query'; signal?: AbortSignal; stream?: boolean},
+    options?: {
+      executionContext?: ExecutionContext
+      fileData?: FileData
+      imageData?: ImageData
+      mode?: 'autonomous' | 'default' | 'query'
+      signal?: AbortSignal
+      stream?: boolean
+    },
   ): Promise<string> {
     // Extract options with defaults
     const {executionContext, fileData, imageData, mode, signal} = options ?? {}
@@ -335,30 +350,27 @@ export class OpenRouterLLMService implements ILLMService {
 
     // Verbose debug: Show complete system prompt
     if (this.config.verbose) {
-      console.log(`\n${'='.repeat(80)}`)
-      console.log(`[PromptDebug:OpenRouterLLMService] SYSTEM PROMPT (Iteration ${iterationCount + 1})`)
-      console.log(`${'='.repeat(80)}`)
-      console.log(`Length: ${systemPrompt.length} characters`)
-      console.log(`Lines: ${systemPrompt.split('\n').length}`)
-      console.log(`\n--- FIRST 500 CHARACTERS ---`)
-      console.log(systemPrompt.slice(0, 500))
-      console.log(`\n--- LAST 500 CHARACTERS ---`)
-      console.log(systemPrompt.slice(-500))
-      console.log(`${'='.repeat(80)}\n`)
+      this.logger.debug('System prompt details', {
+        first500Chars: systemPrompt.slice(0, 500),
+        iteration: iterationCount + 1,
+        last500Chars: systemPrompt.slice(-500),
+        length: systemPrompt.length,
+        lines: systemPrompt.split('\n').length,
+      })
     }
 
     // Get formatted messages from context with compression (passing system prompt for token accounting)
     const {formattedMessages, tokensUsed} = await this.contextManager.getFormattedMessagesWithCompression(systemPrompt)
 
-    // Verbose: Log formatted messages that will be sent to LLM
+    // Verbose: Log formatted messages and token usage
     if (this.config.verbose) {
-      console.log('\n========== FORMATTED MESSAGES (Sent to LLM) ==========')
-      console.log(JSON.stringify(formattedMessages, null, 2))
-      console.log('========== END FORMATTED MESSAGES ==========\n')
+      this.logger.debug('Formatted messages for LLM', {
+        formattedMessages,
+        iteration: `${iterationCount + 1}/${this.config.maxIterations}`,
+        maxInputTokens: this.config.maxInputTokens,
+        tokensUsed,
+      })
     }
-
-    // Log token usage for monitoring compression behavior
-    console.log(`[OpenRouterLLMService] [Iter ${iterationCount + 1}/${this.config.maxIterations}] Sending to LLM: ${tokensUsed} tokens (max: ${this.config.maxInputTokens})`)
 
     // Emit thinking event
     this.sessionEventBus.emit('llmservice:thinking')
@@ -419,7 +431,9 @@ export class OpenRouterLLMService implements ILLMService {
         toolName: toolCall.function.name,
       })
 
-      await this.contextManager.addToolResult(toolCall.id, toolCall.function.name, `Error: ${errorMessage}`, {success: false})
+      await this.contextManager.addToolResult(toolCall.id, toolCall.function.name, `Error: ${errorMessage}`, {
+        success: false,
+      })
     }
   }
 

@@ -1,16 +1,13 @@
-import type {SessionType} from '../../entities/parser.js'
-
 /**
  * Agent-level event names for CipherAgent.
  * These events are emitted at the agent level and include sessionId in payloads.
  */
 export const AGENT_EVENT_NAMES = [
-  'cipher:cleanExternalSessionProcessing',
-  'cipher:cleanExternalSessionProcessed',
-  'cipher:cleanExternalSessionProcessingError',
   'cipher:conversationReset',
+  'cipher:log',
   'cipher:stateChanged',
   'cipher:stateReset',
+  'cipher:ui',
 ] as const
 
 /**
@@ -58,41 +55,42 @@ export interface TokenUsage {
 }
 
 /**
+ * Log level for structured logging events.
+ */
+export type LogLevel = 'debug' | 'error' | 'info' | 'warn'
+
+/**
+ * UI event type for user interface actions.
+ */
+export type UIEventType = 'banner' | 'help' | 'prompt' | 'response' | 'separator' | 'shutdown'
+
+/**
  * Agent-level event payloads.
  * All agent events include sessionId for tracking which session triggered the event.
  */
 export interface AgentEventMap {
-  /**
-   * Emitted when a clean external session has been successfully processed.
-   */
-  'cipher:cleanExternalSessionProcessed': {
-    codingAgent: SessionType
-    externalSessionTitle: string
-  }
-
-  /**
-   * Emitted when processing a clean external session starts.
-   */
-  'cipher:cleanExternalSessionProcessing': {
-    codingAgent: SessionType
-    externalSessionTitle: string
-  }
-
-  /**
-   * Emitted when processing a clean external session fails.
-   */
-  'cipher:cleanExternalSessionProcessingError': {
-    codingAgent: SessionType
-    error: Error
-    externalSessionTitle: string
-  }
-
   /**
    * Emitted when a conversation is reset.
    * @property {string} sessionId - ID of the session being reset
    */
   'cipher:conversationReset': {
     sessionId: string
+  }
+
+  /**
+   * Emitted for structured logging from any layer.
+   * @property {Record<string, unknown>} [context] - Optional structured context data
+   * @property {LogLevel} level - Log level (debug, info, warn, error)
+   * @property {string} message - Human-readable log message
+   * @property {string} [sessionId] - Optional session ID (if log is session-specific)
+   * @property {string} [source] - Optional source identifier (e.g., class name, module)
+   */
+  'cipher:log': {
+    context?: Record<string, unknown>
+    level: LogLevel
+    message: string
+    sessionId?: string
+    source?: string
   }
 
   /**
@@ -115,6 +113,21 @@ export interface AgentEventMap {
    */
   'cipher:stateReset': {
     sessionId?: string
+  }
+
+  /**
+   * Emitted for UI-related actions (banners, prompts, responses, etc.).
+   * This separates UI concerns from business logic logging.
+   * @property {Record<string, unknown>} [context] - Optional context (e.g., colors, formatting data)
+   * @property {string} [message] - Optional human-readable message
+   * @property {string} [sessionId] - Optional session ID
+   * @property {UIEventType} type - Type of UI event
+   */
+  'cipher:ui': {
+    context?: Record<string, unknown>
+    message?: string
+    sessionId?: string
+    type: UIEventType
   }
 
   /**

@@ -24,7 +24,7 @@ export const ExitCode = {
    * Validation error - Invalid input, workspace not initialized, file not found
    */
   VALIDATION_ERROR: 2,
-} as const;
+} as const
 
 export type ExitCode = (typeof ExitCode)[keyof typeof ExitCode]
 
@@ -33,11 +33,18 @@ export type ExitCode = (typeof ExitCode)[keyof typeof ExitCode]
  *
  * @param code - Exit code to use
  * @param message - Optional error message to write to stderr
- * @throws {Error} Always throws with the code attached for oclif to handle
+ * @throws {Error} Throws with the code attached for oclif to handle (except for silent success exits)
  */
 export function exitWithCode(code: ExitCode, message?: string): never {
   if (message) {
     process.stderr.write(`${message}\n`)
+  }
+
+  // For successful exits without message, exit silently via process.exit
+  // This prevents oclif from showing "Error: Exit" or similar messages
+  if (code === ExitCode.SUCCESS && !message) {
+    // eslint-disable-next-line n/no-process-exit, unicorn/no-process-exit
+    process.exit(code)
   }
 
   // Create an error with exit code for oclif

@@ -15,6 +15,7 @@ import {WorkspaceNotInitializedError} from '../infra/cipher/validation/workspace
 import {ProjectConfigStore} from '../infra/config/file-config-store.js'
 import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
 import {MixpanelTrackingService} from '../infra/tracking/mixpanel-tracking-service.js'
+import {addErrorPrefix} from '../utils/emoji-helpers.js'
 import {formatToolCall, formatToolResult} from '../utils/tool-display-formatter.js'
 
 // Constants
@@ -166,12 +167,7 @@ export default class Add extends Command {
    * Prompt user to select a domain
    */
   protected async promptForDomain(existingDomains: string[]): Promise<string> {
-    const allDomains = [
-      ...new Set([
-        ...CONTEXT_TREE_DOMAINS.map((d) => d.name),
-        ...existingDomains,
-      ]),
-    ]
+    const allDomains = [...new Set([...CONTEXT_TREE_DOMAINS.map((d) => d.name), ...existingDomains])]
 
     const domainChoices = allDomains.map((domainName) => {
       const config = CONTEXT_TREE_DOMAINS.find((d) => d.name === domainName)
@@ -350,7 +346,7 @@ export default class Add extends Command {
 
         await trackingService.track('ace:add_bullet')
       } finally {
-        await agent.stop()
+        // await agent.stop()
       }
     } catch (error) {
       if (error instanceof WorkspaceNotInitializedError) {
@@ -358,7 +354,8 @@ export default class Add extends Command {
         return
       }
 
-      exitWithCode(ExitCode.RUNTIME_ERROR, `Failed to add content: ${(error as Error).message}`)
+      // Error already logged by eventBus listener, just exit with code
+      exitWithCode(ExitCode.RUNTIME_ERROR)
     }
   }
 
@@ -456,7 +453,7 @@ export default class Add extends Command {
       })
 
       eventBus.on('llmservice:error', (payload) => {
-        this.log(`❌ Error: ${payload.error}`)
+        this.log(addErrorPrefix(payload.error))
       })
     }
   }
