@@ -77,7 +77,7 @@ export default class CipherAgentRun extends Command {
     }),
     temperature: Flags.string({
       char: 'T',
-      description: 'Temperature for randomness 0-1 (default: 0.7)',
+      description: 'Temperature for randomness 0-1 (default: 0.2)',
     }),
     verbose: Flags.boolean({
       char: 'v',
@@ -309,7 +309,7 @@ export default class CipherAgentRun extends Command {
       sessionKey: token.sessionKey,
       spaceId: token.spaceId,
       teamId: token.teamId,
-      temperature: flags.temperature ? Number.parseFloat(flags.temperature) : 0.7, // Default: 0.7
+      temperature: flags.temperature ? Number.parseFloat(flags.temperature) : 0.2, // Default: 0.2
       verbose: flags.verbose ?? false,
     }
   }
