@@ -122,6 +122,40 @@ export default class Init extends Command {
     return token
   }
 
+  protected async fetchAndSelectSpace(
+    spaceService: ISpaceService,
+    token: AuthToken,
+    team: Team,
+  ): Promise<Space | undefined> {
+    ux.action.start('Fetching all spaces')
+    const {spaces} = await spaceService.getSpaces(token.accessToken, token.sessionKey, team.id, {fetchAll: true})
+    ux.action.stop()
+
+    if (spaces.length === 0) {
+      this.log(`No spaces found in team "${team.getDisplayName()}"`)
+      this.log(`Please visit ${getCurrentConfig().webAppUrl} to create your first space for ${team.getDisplayName()}.`)
+      return undefined
+    }
+
+    this.log()
+    return this.promptForSpaceSelection(spaces)
+  }
+
+  protected async fetchAndSelectTeam(teamService: ITeamService, token: AuthToken): Promise<Team | undefined> {
+    ux.action.start('Fetching all teams')
+    const {teams} = await teamService.getTeams(token.accessToken, token.sessionKey, {fetchAll: true})
+    ux.action.stop()
+
+    if (teams.length === 0) {
+      this.log('No teams found.')
+      this.log(`Please visit ${getCurrentConfig().webAppUrl} to create your first team.`)
+      return undefined
+    }
+
+    this.log()
+    return this.promptForTeamSelection(teams)
+  }
+
   protected async getExistingConfig(projectConfigStore: IProjectConfigStore): Promise<BrvConfig | undefined> {
     const exists = await projectConfigStore.exists()
     if (exists) {
@@ -237,41 +271,11 @@ export default class Init extends Command {
 
       this.log('Initializing ByteRover project...\n')
 
-      ux.action.start('Fetching all teams')
-      const teamResult = await teamService.getTeams(authToken.accessToken, authToken.sessionKey, {fetchAll: true})
-      ux.action.stop()
+      const selectedTeam = await this.fetchAndSelectTeam(teamService, authToken)
+      if (!selectedTeam) return
 
-      const {teams} = teamResult
-
-      if (teams.length === 0) {
-        this.log('No teams found.')
-        this.log(`Please visit ${getCurrentConfig().webAppUrl} to create your first team.`)
-        return
-      }
-
-      this.log()
-      const selectedTeam = await this.promptForTeamSelection(teams)
-
-      ux.action.start('Fetching all spaces')
-      const spaceResult = await spaceService.getSpaces(authToken.accessToken, authToken.sessionKey, selectedTeam.id, {
-        fetchAll: true,
-      })
-      ux.action.stop()
-
-      const {spaces} = spaceResult
-
-      if (spaces.length === 0) {
-        this.log(`No spaces found in team "${selectedTeam.getDisplayName()}"`)
-        this.log(
-          `Please visit ${
-            getCurrentConfig().webAppUrl
-          } to create your first space for ${selectedTeam.getDisplayName()}.`,
-        )
-        return
-      }
-
-      this.log()
-      const selectedSpace = await this.promptForSpaceSelection(spaces)
+      const selectedSpace = await this.fetchAndSelectSpace(spaceService, authToken, selectedTeam)
+      if (!selectedSpace) return
 
       await this.initializeMemoryContextDir('ACE context', () => playbookService.initialize())
       await this.initializeMemoryContextDir('context tree', () => contextTreeService.initialize())
