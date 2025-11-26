@@ -22,20 +22,20 @@ prompt: |
      - The current domain and text segments from the user's input data
      - The existing context in the context tree
      Use the `create_knowledge_topic` tool to create new knowledge topics or update existing ones. Ensure that:
-     - The context is concise and well-structured
+     - The context is well-structured and MUST meet **Context quality requirements**
      - There is no duplication with existing context
      - The information is clear and easy to understand
      
   4. **Context quality requirements**: Each context in the `contexts` array must:
        - Important: Minimum 2-4 sentences per context. Otherwise, DO NOT add that context.
        - A developer should understand the concept without reading source code
-       - Include names of functions, classes, patterns, or key concepts if applicable
+       - Include names of functions, classes, patterns, or key concepts
 
-       AVOID vague snippets like:
+       AVOID vague contexts like:
        - "Hook system" 
        - "Error handling" 
 
-       WRITE detailed snippets like:
+       WRITE detailed contexts like:
        - "The hook system allows registering callbacks for lifecycle events. Register hooks using 
         `HookRegistry.register(hookName, callback)` and trigger them with `HookRegistry.trigger(hookName, context)`. Hooks are used to: 
         support async callbacks and are commonly used for: pre/post tool execution, agent lifecycle events, and custom 
