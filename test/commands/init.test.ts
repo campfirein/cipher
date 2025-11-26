@@ -197,6 +197,7 @@ describe('Init Command', () => {
 
   describe('execute()', () => {
     it('should exit early if project is already initialized', async () => {
+      tokenStore.load.resolves(validToken)
       configStore.exists.resolves(true)
       configStore.read.resolves(BrvConfig.fromSpace(testSpaces[0], 'chat.log', 'Claude Code', '/test/cwd'))
 
@@ -215,9 +216,10 @@ describe('Init Command', () => {
 
       await command.run()
 
+      expect(tokenStore.load.calledOnce).to.be.true // Auth happens first
       expect(configStore.exists.calledOnce).to.be.true
       expect(configStore.read.calledOnce).to.be.true
-      expect(tokenStore.load.called).to.be.false // Should not proceed
+      expect(teamService.getTeams.called).to.be.false // Should not proceed to fetch teams
     })
 
     it('should throw error when not authenticated', async () => {
@@ -649,9 +651,9 @@ describe('Init Command', () => {
     })
 
     it('should not proceed when user cancels re-initialization', async () => {
+      tokenStore.load.resolves(validToken)
       configStore.exists.resolves(true)
       configStore.read.resolves(BrvConfig.fromSpace(testSpaces[0], 'chat.log', 'Claude Code', '/test/cwd'))
-      tokenStore.load.resolves(validToken)
 
       const command = new TestableInit(
         configStore,
@@ -670,10 +672,10 @@ describe('Init Command', () => {
 
       await command.run()
 
+      expect(tokenStore.load.calledOnce).to.be.true // Auth happens first
       expect(configStore.exists.calledOnce).to.be.true
       expect(configStore.read.calledOnce).to.be.true
-      expect(tokenStore.load.called).to.be.false // Should not proceed
-      expect(teamService.getTeams.called).to.be.false
+      expect(teamService.getTeams.called).to.be.false // Should not proceed
       expect(spaceService.getSpaces.called).to.be.false
     })
 
@@ -711,6 +713,7 @@ describe('Init Command', () => {
     })
 
     it('should handle cleanup failure during re-initialization', async () => {
+      tokenStore.load.resolves(validToken)
       configStore.exists.resolves(true)
       configStore.read.resolves(BrvConfig.fromSpace(testSpaces[0], 'chat.log', 'Claude Code', '/test/cwd'))
 
@@ -741,6 +744,7 @@ describe('Init Command', () => {
     })
 
     it('should handle corrupted config file', async () => {
+      tokenStore.load.resolves(validToken)
       configStore.exists.resolves(true)
       configStore.read.resolves() // Corrupted/unreadable - returns undefined
 
@@ -765,9 +769,9 @@ describe('Init Command', () => {
         expect((error as Error).message).to.include('Configuration file exists but cannot be read')
       }
 
+      expect(tokenStore.load.calledOnce).to.be.true // Auth happens first
       expect(configStore.exists.calledOnce).to.be.true
       expect(configStore.read.calledOnce).to.be.true
-      expect(tokenStore.load.called).to.be.false // Should not proceed
     })
   })
 })

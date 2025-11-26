@@ -3,6 +3,7 @@ import {Command, Flags, ux} from '@oclif/core'
 import {rm} from 'node:fs/promises'
 import {join} from 'node:path'
 
+import type {AuthToken} from '../core/domain/entities/auth-token.js'
 import type {Space} from '../core/domain/entities/space.js'
 import type {Team} from '../core/domain/entities/team.js'
 import type {IContextTreeService} from '../core/interfaces/i-context-tree-service.js'
@@ -40,7 +41,6 @@ export default class Init extends Command {
       description: 'Force re-initialization without confirmation prompt',
     }),
   }
-
 
   protected async cleanupBeforeReInitialization(): Promise<void> {
     const brvDir = join(process.cwd(), BRV_DIR)
@@ -99,13 +99,27 @@ export default class Init extends Command {
     }
   }
 
-  protected detectWorkspacesForAgent(agent: Agent): {chatLogPath: string; cwd: string;} {
+  protected detectWorkspacesForAgent(agent: Agent): {chatLogPath: string; cwd: string} {
     const detector = new WorkspaceDetectorService()
     const result = detector.detectWorkspaces(agent)
     return {
       chatLogPath: result.chatLogPath,
       cwd: result.cwd,
     }
+  }
+
+  protected async ensureAuthenticated(tokenStore: ITokenStore): Promise<AuthToken> {
+    const token = await tokenStore.load()
+
+    if (token === undefined) {
+      this.error('Not authenticated. Please run "brv login" first.')
+    }
+
+    if (!token.isValid()) {
+      this.error('Authentication token expired. Please run "brv login" again.')
+    }
+
+    return token
   }
 
   /**
@@ -168,13 +182,21 @@ export default class Init extends Command {
     return selectedTeam
   }
 
-
   public async run(): Promise<void> {
     const {flags} = await this.parse(Init)
 
     try {
-      const {contextTreeService, playbookService, projectConfigStore, spaceService, teamService, tokenStore, trackingService} =
-        this.createServices()
+      const {
+        contextTreeService,
+        playbookService,
+        projectConfigStore,
+        spaceService,
+        teamService,
+        tokenStore,
+        trackingService,
+      } = this.createServices()
+
+      const authToken = await this.ensureAuthenticated(tokenStore)
 
       const alreadyInitialized = await projectConfigStore.exists()
       if (alreadyInitialized) {
@@ -202,17 +224,8 @@ export default class Init extends Command {
 
       this.log('Initializing ByteRover project...\n')
 
-      const token = await tokenStore.load()
-      if (token === undefined) {
-        this.error('Not authenticated. Please run "brv login" first.')
-      }
-
-      if (!token.isValid()) {
-        this.error('Authentication token expired. Please run "brv login" again.')
-      }
-
       ux.action.start('Fetching all teams')
-      const teamResult = await teamService.getTeams(token.accessToken, token.sessionKey, {fetchAll: true})
+      const teamResult = await teamService.getTeams(authToken.accessToken, authToken.sessionKey, {fetchAll: true})
       ux.action.stop()
 
       const {teams} = teamResult
@@ -227,7 +240,7 @@ export default class Init extends Command {
       const selectedTeam = await this.promptForTeamSelection(teams)
 
       ux.action.start('Fetching all spaces')
-      const spaceResult = await spaceService.getSpaces(token.accessToken, token.sessionKey, selectedTeam.id, {
+      const spaceResult = await spaceService.getSpaces(authToken.accessToken, authToken.sessionKey, selectedTeam.id, {
         fetchAll: true,
       })
       ux.action.stop()
