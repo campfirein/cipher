@@ -136,6 +136,16 @@ export default class Init extends Command {
     return undefined
   }
 
+  protected async initializeMemoryContextDir(name: string, initFn: () => Promise<string>): Promise<void> {
+    this.log(`\nInitializing ${name}...`)
+    try {
+      const path = await initFn()
+      this.log(`✓ ${name} initialized in ${path}`)
+    } catch (error) {
+      this.warn(`${name} initialization skipped: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
   /**
    * Prompts the user to select an agent.
    * This method is protected to allow test overrides.
@@ -263,28 +273,13 @@ export default class Init extends Command {
       this.log()
       const selectedSpace = await this.promptForSpaceSelection(spaces)
 
-      this.log('\nInitializing ACE context...')
-      try {
-        const playbookPath = await playbookService.initialize()
-        this.log(`✓ ACE playbook initialized in ${playbookPath}`)
-      } catch (error) {
-        // Warn but don't fail if ACE init fails
-        this.warn(`ACE initialization skipped: ${error instanceof Error ? error.message : 'Unknown error'}`)
-      }
-
-      this.log('\nInitializing context tree...')
-      try {
-        const contextTreePath = await contextTreeService.initialize()
-        this.log(`✓ Context tree initialized in ${contextTreePath}`)
-      } catch (error) {
-        // Warn but don't fail if context tree init fails
-        this.warn(`Context tree initialization skipped: ${error instanceof Error ? error.message : 'Unknown error'}`)
-      }
+      await this.initializeMemoryContextDir('ACE context', () => playbookService.initialize())
+      await this.initializeMemoryContextDir('context tree', () => contextTreeService.initialize())
 
       this.log()
       const selectedAgent = await this.promptForAgentSelection()
 
-      const {chatLogPath, cwd} = await this.detectWorkspacesForAgent(selectedAgent)
+      const {chatLogPath, cwd} = this.detectWorkspacesForAgent(selectedAgent)
       this.log(`Detecting workspaces for agent "${cwd}"...`)
 
       const config = BrvConfig.fromSpace(selectedSpace, chatLogPath, selectedAgent, cwd)
