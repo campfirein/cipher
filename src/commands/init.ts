@@ -241,9 +241,9 @@ export default class Init extends Command {
   }
 
   public async run(): Promise<void> {
-    const {flags} = await this.parse(Init)
-
     try {
+      const {flags} = await this.parse(Init)
+
       const {
         contextTreeService,
         playbookService,
@@ -283,23 +283,29 @@ export default class Init extends Command {
       this.log()
       const selectedAgent = await this.promptForAgentSelection()
 
+      this.log('Detecting workspaces...')
       const {chatLogPath, cwd} = this.detectWorkspacesForAgent(selectedAgent)
-      this.log(`Detecting workspaces for agent "${cwd}"...`)
+      this.log(`✓ Detected workspace: ${cwd}`)
 
       const config = BrvConfig.fromSpace(selectedSpace, chatLogPath, selectedAgent, cwd)
       await projectConfigStore.write(config)
 
+      // TODO: Need to decouple this direct command calling logic when we update brv gen-rules
       this.log(`\nGenerate rule instructions for coding agents to work with ByteRover correctly`)
       this.log()
       await this.config.runCommand('gen-rules', ['--agent', selectedAgent])
 
       await trackingService.track('space:init')
 
-      this.log(`\n✓ Project initialized successfully!`)
-      this.log(`✓ Connected to space: ${selectedSpace.getDisplayName()}`)
-      this.log(`✓ Configuration saved to: ${BRV_DIR}/${PROJECT_CONFIG_FILE}`)
+      this.logSuccess(selectedSpace)
     } catch (error) {
-      this.error(error instanceof Error ? error.message : 'Initialization failed')
+      this.error(`Initialization failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
+  }
+
+  private logSuccess(space: Space): void {
+    this.log(`\n✓ Project initialized successfully!`)
+    this.log(`✓ Connected to space: ${space.getDisplayName()}`)
+    this.log(`✓ Configuration saved to: ${BRV_DIR}/${PROJECT_CONFIG_FILE}`)
   }
 }
