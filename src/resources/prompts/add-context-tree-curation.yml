@@ -26,11 +26,10 @@ prompt: |
      - There is no duplication with existing context
      - The information is clear and easy to understand
      
-  4. **Snippet quality requirements**: Each snippet in the `snippets` array must:
-       - Explain HOW to use or apply, not just WHAT exists
-       - Minimum 2-4 sentences per snippet
+  4. **Context quality requirements**: Each context in the `contexts` array must:
+       - Important: Minimum 2-4 sentences per context. Otherwise, DO NOT add that context.
        - A developer should understand the concept without reading source code
-       - Include names of functions, classes, patterns, or key concepts
+       - Include names of functions, classes, patterns, or key concepts if applicable
 
        AVOID vague snippets like:
        - "Hook system" 
