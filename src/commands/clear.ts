@@ -61,7 +61,21 @@ export default class Clear extends Command {
 
       this.log('✓ Playbook cleared successfully.')
     } catch (error) {
-      this.error(error instanceof Error ? error.message : 'Failed to clear playbook')
+      // Handle user cancelling the prompt (Ctrl+C or closing stdin)
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      if (errorMessage.includes('User force closed') || errorMessage.includes('force closed')) {
+        this.log('Cancelled. Playbook was not cleared.')
+        return
+      }
+
+      // For other errors, show clean error without stack trace
+      process.stderr.write('\n')
+      process.stderr.write(
+        error instanceof Error ? error.message : 'Failed to clear playbook',
+      )
+      process.stderr.write('\n\n')
+      // eslint-disable-next-line n/no-process-exit, unicorn/no-process-exit
+      process.exit(1)
     }
   }
 }

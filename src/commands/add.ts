@@ -346,7 +346,7 @@ export default class Add extends Command {
 
         await trackingService.track('ace:add_bullet')
       } finally {
-        console.log('Logic for agent stopping and resource cleanup may go here!')
+        // console.log('Logic for agent stopping and resource cleanup may go here!')
       }
     } catch (error) {
       if (error instanceof WorkspaceNotInitializedError) {
@@ -354,8 +354,9 @@ export default class Add extends Command {
         return
       }
 
-      // Error already logged by eventBus listener, just exit with code
-      exitWithCode(ExitCode.RUNTIME_ERROR)
+      // Error already logged, exit silently without throwing
+      // eslint-disable-next-line n/no-process-exit, unicorn/no-process-exit
+      process.exit(ExitCode.RUNTIME_ERROR)
     }
   }
 
@@ -441,14 +442,14 @@ export default class Add extends Command {
     } else {
       // Non-verbose mode: show concise tool progress
       eventBus.on('llmservice:toolCall', (payload) => {
-        this.log(`🔧 Using tool: ${payload.toolName}`)
+        this.log(`🔧 ${payload.toolName} → Executing...`)
       })
 
       eventBus.on('llmservice:toolResult', (payload) => {
         if (payload.success) {
-          this.log(`✓ ${payload.toolName} completed`)
+          this.log(`✅ ${payload.toolName} → Complete`)
         } else {
-          this.log(`✗ ${payload.toolName} failed: ${payload.error}`)
+          this.log(`❌ ${payload.toolName} → Failed: ${payload.error ?? 'Unknown error'}`)
         }
       })
 

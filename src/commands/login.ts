@@ -117,17 +117,24 @@ export default class Login extends Command {
 
         this.log('Successfully authenticated!')
       } catch (error) {
-        this.error(error instanceof Error ? error.message : 'Authentication failed')
+        // Show clean error without stack trace
+        const errorMessage = error instanceof Error ? error.message : 'Authentication failed'
+        process.stderr.write('\n' + errorMessage + '\n\n')
+        process.exit(1)
       }
     } catch (error) {
       if (error instanceof DiscoveryError) {
-        this.error(
+        const errorMessage =
           `Failed to configure authentication: ${error.message}\n` +
-            'Please check your network connection and try again.',
-        )
+          'Please check your network connection and try again.'
+        process.stderr.write('\n' + errorMessage + '\n\n')
+        process.exit(1)
       }
 
-      this.error(error instanceof Error ? error.message : 'Authentication failed')
+      // Show clean error without stack trace
+      const errorMessage = error instanceof Error ? error.message : 'Authentication failed'
+      process.stderr.write('\n' + errorMessage + '\n\n')
+      process.exit(1)
     } finally {
       // Always cleanup server
       await callbackHandler.stop()

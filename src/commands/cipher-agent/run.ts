@@ -232,8 +232,15 @@ export default class CipherAgentRun extends Command {
         return
       }
 
+      // Handle graceful exit (Ctrl+C) - exit silently without error
+      const errorMessage = (error as Error).message
+      if (errorMessage.includes('Readline closed')) {
+        // Silent exit - cleanup already happened
+        return
+      }
+
       // Generic error handling with proper exit code
-      exitWithCode(ExitCode.RUNTIME_ERROR, `Failed to execute CipherAgent: ${(error as Error).message}`)
+      exitWithCode(ExitCode.RUNTIME_ERROR, `Failed to execute CipherAgent: ${errorMessage}`)
     }
   }
 

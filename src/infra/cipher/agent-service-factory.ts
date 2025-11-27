@@ -129,6 +129,13 @@ export async function createCipherAgentServices(llmConfig: CipherLLMConfig): Pro
   // 9. History storage (depends on BlobStorage) - SHARED across sessions
   const historyStorage = new BlobHistoryStorage(blobStorage)
 
+  // Log successful initialization
+  logger.info('CipherAgent services initialized successfully', {
+    model: llmConfig.model,
+    verbose: llmConfig.verbose,
+    workingDirectory,
+  })
+
   return {
     agentEventBus,
     blobStorage,

@@ -83,7 +83,9 @@ function displayResponse(response: string, eventBus?: AgentEventBus): void {
  */
 function clearTerminalLine(): void {
   // Clear line by overwriting with spaces, then return to start
-  process.stdout.write('\r' + ' '.repeat(100) + '\r')
+  // Use terminal width or 200 chars (enough for long error messages)
+  const width = process.stdout.columns || 200
+  process.stdout.write('\r' + ' '.repeat(width) + '\r')
 }
 
 /**
@@ -98,9 +100,10 @@ export function displayInfo(message: string, clear = false): void {
     // Clear the current line completely
     clearTerminalLine()
   } else {
-    // Write message on same line with carriage return
+    // Clear current line (spinner), write message, then newline to persist it
     clearTerminalLine()
-    process.stdout.write(chalk.gray(`ℹ️  ${message}`))
+    // Don't use gray - use default color for better visibility
+    process.stdout.write(message + '\n')
   }
 }
 
@@ -160,6 +163,85 @@ function setupEventListeners(
 
     // Display error message (already formatted with ❌ from gRPC layer)
     process.stdout.write('\n' + chalk.red(payload.error) + '\n\n')
+  })
+
+  // cipher:ui event - handle UI events (welcome banner, responses, etc.)
+  eventBus.on('cipher:ui', (payload) => {
+    switch (payload.type) {
+      case 'banner': {
+        // Welcome banner
+        const {model, sessionId} = payload.context as {model: string; sessionId: string}
+        console.log('\n' + chalk.cyan('═'.repeat(60)))
+        console.log(chalk.bold.cyan('🤖 CipherAgent Interactive Mode'))
+        console.log(chalk.cyan('═'.repeat(60)))
+        console.log(chalk.gray(`Model: ${model}`))
+        console.log(chalk.gray(`Session: ${sessionId}`))
+        console.log(chalk.yellow('\nType /help for available commands'))
+        console.log(chalk.cyan('─'.repeat(60)) + '\n')
+        break
+      }
+
+      case 'help': {
+        // Help message
+        if (payload.message) {
+          console.log(chalk.yellow(`ℹ ${payload.message}`))
+        }
+
+        break
+      }
+
+      case 'response': {
+        // AI response
+        if (payload.message) {
+          console.log('\n' + chalk.rgb(255, 165, 0)('─'.repeat(60)))
+          console.log(chalk.bold.rgb(255, 165, 0)('🤖 AI Response:'))
+          console.log(chalk.rgb(255, 165, 0)('─'.repeat(60)))
+          console.log(chalk.white(payload.message))
+          console.log(chalk.rgb(255, 165, 0)('─'.repeat(60)) + '\n')
+        }
+
+        break
+      }
+
+      case 'shutdown': {
+        // Shutdown message
+        if (payload.message) {
+          console.log(chalk.gray(`✓ ${payload.message}`))
+        }
+
+        break
+      }
+      // No default case needed - other UI types can be ignored
+    }
+  })
+
+  // cipher:log event - handle structured logging
+  // NOTE: Skip 'error' level - those are handled by llmservice:error to avoid duplicates
+  eventBus.on('cipher:log', (payload) => {
+    const prefix = payload.source ? `[${payload.source}] ` : ''
+    const message = `${prefix}${payload.message}`
+
+    switch (payload.level) {
+      case 'debug': {
+        console.log(chalk.gray(`🔍 ${message}`))
+        break
+      }
+
+      case 'error': {
+        // Skip - llmservice:error handler displays errors to avoid duplicates
+        break
+      }
+
+      case 'info': {
+        console.log(chalk.blue(`ℹ ${message}`))
+        break
+      }
+
+      case 'warn': {
+        console.warn(chalk.yellow(`⚠ ${message}`))
+        break
+      }
+    }
   })
 }
 
@@ -257,7 +339,7 @@ export async function startInteractiveLoop(
   },
 ): Promise<void> {
   // Display welcome message
-  displayWelcome(options?.sessionId ?? 'cipher-agent-session', options?.model ?? 'gemini-2.5-pro')
+  displayWelcome(options?.sessionId ?? 'cipher-agent-session', options?.model ?? 'gemini-2.5-pro', options?.eventBus)
 
   // Create readline interface
   const rl = readline.createInterface({
