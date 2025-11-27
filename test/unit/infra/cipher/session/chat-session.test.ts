@@ -336,7 +336,7 @@ describe('ChatSession', () => {
         const signal = options?.signal as AbortSignal
         signal.addEventListener('abort', abortSpy)
         await new Promise((resolve) => {
-          setTimeout(resolve, 100)
+          setTimeout(resolve, 10)
         })
         return 'response'
       })
