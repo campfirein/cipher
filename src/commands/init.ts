@@ -333,7 +333,12 @@ export default class Init extends Command {
       const {chatLogPath, cwd} = this.detectWorkspacesForAgent(selectedAgent)
       this.log(`✓ Detected workspace: ${cwd}`)
 
-      const config = BrvConfig.fromSpace(selectedSpace, chatLogPath, selectedAgent, cwd)
+      const config = BrvConfig.fromSpace({
+        chatLogPath,
+        cwd,
+        ide: selectedAgent,
+        space: selectedSpace,
+      })
       await projectConfigStore.write(config)
 
       this.log(`\nGenerate rule instructions for coding agents to work with ByteRover correctly`)

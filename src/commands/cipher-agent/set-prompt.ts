@@ -44,17 +44,10 @@ export default class CipherAgentSetPrompt extends Command {
       }
 
       // Create updated config with new system prompt
-      const updatedConfig = new BrvConfig(
-        existingConfig.createdAt,
-        existingConfig.spaceId,
-        existingConfig.spaceName,
-        existingConfig.teamId,
-        existingConfig.teamName,
-        existingConfig.ide,
-        existingConfig.chatLogPath, 
-        existingConfig.cwd,
-        args.prompt,
-      )
+      const updatedConfig = new BrvConfig({
+        ...existingConfig,
+        cipherAgentSystemPrompt: args.prompt,
+      })
 
       // Write updated config
       await projectConfigStore.write(updatedConfig)

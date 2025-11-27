@@ -165,16 +165,16 @@ describe('space:switch', () => {
       }),
     ]
 
-    currentConfig = new BrvConfig(
-      '2024-01-01T00:00:00.000Z',
-      'space-1',
-      'frontend-app',
-      'team-1',
-      'acme-corp',
-      'Claude Code' as Agent,
-      'chat.log',
-      '/test/cwd',
-    )
+    currentConfig = new BrvConfig({
+      chatLogPath: 'chat.log',
+      createdAt: '2024-01-01T00:00:00.000Z',
+      cwd: '/test/cwd',
+      ide: 'Claude Code',
+      spaceId: 'space-1',
+      spaceName: 'frontend-app',
+      teamId: 'team-1',
+      teamName: 'acme-corp',
+    })
   })
 
   afterEach(() => {

@@ -208,7 +208,7 @@ describe('Init Command', () => {
     it('should exit early if project is already initialized', async () => {
       tokenStore.load.resolves(validToken)
       configStore.exists.resolves(true)
-      configStore.read.resolves(BrvConfig.fromSpace(testSpaces[0], 'chat.log', 'Claude Code', '/test/cwd'))
+      configStore.read.resolves(BrvConfig.fromSpace({chatLogPath: 'chat.log', cwd: '/test/cwd', ide: 'Claude Code', space: testSpaces[0]}))
 
       const command = new TestableInit(
         configStore,
@@ -643,7 +643,7 @@ describe('Init Command', () => {
   describe('re-initialization', () => {
     it('should re-initialize when user confirms', async () => {
       configStore.exists.resolves(true)
-      configStore.read.resolves(BrvConfig.fromSpace(testSpaces[0], 'chat.log', 'Claude Code', '/test/cwd'))
+      configStore.read.resolves(BrvConfig.fromSpace({chatLogPath: 'chat.log', cwd: '/test/cwd', ide: 'Claude Code', space: testSpaces[0]}))
       configStore.write.resolves()
       tokenStore.load.resolves(validToken)
       teamService.getTeams.resolves({teams: testTeams, total: testTeams.length})
@@ -678,7 +678,7 @@ describe('Init Command', () => {
     it('should not proceed when user cancels re-initialization', async () => {
       tokenStore.load.resolves(validToken)
       configStore.exists.resolves(true)
-      configStore.read.resolves(BrvConfig.fromSpace(testSpaces[0], 'chat.log', 'Claude Code', '/test/cwd'))
+      configStore.read.resolves(BrvConfig.fromSpace({chatLogPath: 'chat.log', cwd: '/test/cwd', ide: 'Claude Code', space: testSpaces[0]}))
 
       const command = new TestableInit(
         configStore,
@@ -707,7 +707,7 @@ describe('Init Command', () => {
 
     it('should skip confirmation with --force flag', async () => {
       configStore.exists.resolves(true)
-      configStore.read.resolves(BrvConfig.fromSpace(testSpaces[0], 'chat.log', 'Claude Code', '/test/cwd'))
+      configStore.read.resolves(BrvConfig.fromSpace({chatLogPath: 'chat.log', cwd: '/test/cwd', ide: 'Claude Code', space: testSpaces[0]}))
       configStore.write.resolves()
       tokenStore.load.resolves(validToken)
       teamService.getTeams.resolves({teams: testTeams, total: testTeams.length})
@@ -742,7 +742,7 @@ describe('Init Command', () => {
     it('should handle cleanup failure during re-initialization', async () => {
       tokenStore.load.resolves(validToken)
       configStore.exists.resolves(true)
-      configStore.read.resolves(BrvConfig.fromSpace(testSpaces[0], 'chat.log', 'Claude Code', '/test/cwd'))
+      configStore.read.resolves(BrvConfig.fromSpace({chatLogPath: 'chat.log', cwd: '/test/cwd', ide: 'Claude Code', space: testSpaces[0]}))
 
       const command = new TestableInit(
         configStore,

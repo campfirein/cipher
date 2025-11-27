@@ -177,7 +177,12 @@ export default class SpaceSwitch extends Command {
       const {chatLogPath, cwd} = await this.detectWorkspacesForAgent(selectedAgent)
 
       // Update configuration
-      const newConfig = BrvConfig.fromSpace(selectedSpace, chatLogPath, selectedAgent, cwd)
+      const newConfig = BrvConfig.fromSpace({
+        chatLogPath,
+        cwd,
+        ide: selectedAgent,
+        space: selectedSpace,
+      })
       await projectConfigStore.write(newConfig)
 
       // Display success

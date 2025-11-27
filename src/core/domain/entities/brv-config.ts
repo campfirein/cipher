@@ -1,5 +1,79 @@
-import {Agent} from './agent.js'
+import {Agent, AGENT_VALUES} from './agent.js'
 import {Space} from './space.js'
+
+/**
+ * Parameters for creating a BrvConfig instance.
+ */
+export type BrvConfigParams = {
+  chatLogPath: string
+  cipherAgentContext?: string
+  cipherAgentModes?: string[]
+  cipherAgentSystemPrompt?: string
+  createdAt: string
+  cwd: string
+  ide: Agent
+  spaceId: string
+  spaceName: string
+  teamId: string
+  teamName: string
+}
+
+/**
+ * Parameters for creating a BrvConfig from a Space entity.
+ */
+export type FromSpaceParams = {
+  chatLogPath: string
+  cwd: string
+  ide: Agent
+  space: Space
+}
+
+/**
+ * Type guard for Agent validation
+ */
+const isCodingAgent = (value: unknown): value is Agent => {
+  if (typeof value !== 'string') return false
+  for (const agent of AGENT_VALUES) {
+    if (agent === value) return true
+  }
+
+  return false
+}
+
+/**
+ * Type guard for BrvConfigParams - validates JSON structure at runtime.
+ */
+const isBrvConfigJson = (json: unknown): json is BrvConfigParams => {
+  if (typeof json !== 'object' || json === null) return false
+
+  const requiredInputJsonKeys = [
+    'chatLogPath',
+    'createdAt',
+    'cwd',
+    'spaceId',
+    'spaceName',
+    'teamId',
+    'teamName',
+  ] as const satisfies readonly (keyof BrvConfigParams)[]
+
+  for (const key of requiredInputJsonKeys) {
+    if (!(key in json) || typeof (json as Record<string, unknown>)[key] !== 'string') {
+      return false
+    }
+  }
+
+  if (!('ide' in json) || !isCodingAgent((json as Record<string, unknown>).ide)) {
+    return false
+  }
+
+  // Check optional fields if present
+  const obj = json as Record<string, unknown>
+  if (obj.cipherAgentContext !== undefined && typeof obj.cipherAgentContext !== 'string') return false
+  if (obj.cipherAgentSystemPrompt !== undefined && typeof obj.cipherAgentSystemPrompt !== 'string') return false
+  if (obj.cipherAgentModes !== undefined && !Array.isArray(obj.cipherAgentModes)) return false
+
+  return true
+}
 
 /**
  * Represents the configuration stored in .brv/config.json
@@ -18,89 +92,66 @@ export class BrvConfig {
   public readonly teamId: string
   public readonly teamName: string
 
-  // eslint-disable-next-line max-params
-  public constructor(
-    createdAt: string,
-    spaceId: string,
-    spaceName: string,
-    teamId: string,
-    teamName: string,
-    ide: Agent,
-    chatLogPath: string,
-    cwd: string,
-    cipherAgentSystemPrompt?: string,
-    cipherAgentContext?: string,
-    cipherAgentModes?: string[],
-  ) {
-    if (createdAt.trim().length === 0) {
+  public constructor(params: BrvConfigParams) {
+    if (params.createdAt.trim().length === 0) {
       throw new Error('Created at cannot be empty')
     }
 
-    if (spaceId.trim().length === 0) {
+    if (params.spaceId.trim().length === 0) {
       throw new Error('Space ID cannot be empty')
     }
 
-    if (spaceName.trim().length === 0) {
+    if (params.spaceName.trim().length === 0) {
       throw new Error('Space name cannot be empty')
     }
 
-    if (teamId.trim().length === 0) {
+    if (params.teamId.trim().length === 0) {
       throw new Error('Team ID cannot be empty')
     }
 
-    if (teamName.trim().length === 0) {
+    if (params.teamName.trim().length === 0) {
       throw new Error('Team name cannot be empty')
     }
 
-    this.cipherAgentContext = cipherAgentContext
-    this.cipherAgentModes = cipherAgentModes
-    this.cipherAgentSystemPrompt = cipherAgentSystemPrompt
-    this.createdAt = createdAt
-    this.spaceId = spaceId
-    this.spaceName = spaceName
-    this.teamId = teamId
-    this.teamName = teamName
-    this.ide = ide
-    this.chatLogPath = chatLogPath
-    this.cwd = cwd
+    this.chatLogPath = params.chatLogPath
+    this.cipherAgentContext = params.cipherAgentContext
+    this.cipherAgentModes = params.cipherAgentModes
+    this.cipherAgentSystemPrompt = params.cipherAgentSystemPrompt
+    this.createdAt = params.createdAt
+    this.cwd = params.cwd
+    this.ide = params.ide
+    this.spaceId = params.spaceId
+    this.spaceName = params.spaceName
+    this.teamId = params.teamId
+    this.teamName = params.teamName
   }
 
   /**
-   * Deserializes config from JSON format
+   * Deserializes config from JSON format.
+   * @throws Error if the JSON structure is invalid.
    */
-  public static fromJson(json: Record<string, unknown>): BrvConfig {
-    return new BrvConfig(
-      json.createdAt as string,
-      json.spaceId as string,
-      json.spaceName as string,
-      json.teamId as string,
-      json.teamName as string,
-      json.ide as Agent,
-      json.chatLogPath as string,
-      json.cwd as string,
-      json.cipherAgentSystemPrompt as string | undefined,
-      json.cipherAgentContext as string | undefined,
-      json.cipherAgentModes as string[] | undefined,
-    )
+  public static fromJson(json: unknown): BrvConfig {
+    if (!isBrvConfigJson(json)) {
+      throw new Error('Invalid BrvConfig JSON structure')
+    }
+
+    return new BrvConfig(json)
   }
 
   /**
-   * Creates a BrvConfig from a Space entity
+   * Creates a BrvConfig from a Space entity.
    */
-  public static fromSpace(space: Space, chatLogPath: string, ide: Agent, cwd: string): BrvConfig {
-    return new BrvConfig(
-      new Date().toISOString(),
-      space.id,
-      space.name,
-      space.teamId,
-      space.teamName,
-      ide,
-      chatLogPath,
-      cwd,
-      undefined, // cipherAgentSystemPrompt
-      undefined, // cipherAgentContext
-      undefined, // cipherAgentModes
-    )
+  public static fromSpace(params: FromSpaceParams): BrvConfig {
+    return new BrvConfig({
+      chatLogPath: params.chatLogPath,
+      createdAt: new Date().toISOString(),
+      cwd: params.cwd,
+      ide: params.ide,
+      spaceId: params.space.id,
+      spaceName: params.space.name,
+      teamId: params.space.teamId,
+      teamName: params.space.teamName,
+    })
   }
 
   /**

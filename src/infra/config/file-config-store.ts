@@ -26,7 +26,7 @@ export class ProjectConfigStore implements IProjectConfigStore {
 
     try {
       const content = await readFile(configPath, 'utf8')
-      const json: Record<string, string> = JSON.parse(content)
+      const json: unknown = JSON.parse(content)
       return BrvConfig.fromJson(json)
     } catch (error) {
       throw new Error(`Failed to read config from ${configPath}: ${(error as Error).message}`)
