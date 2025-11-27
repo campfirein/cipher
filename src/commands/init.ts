@@ -32,7 +32,7 @@ import {MixpanelTrackingService} from '../infra/tracking/mixpanel-tracking-servi
 import {WorkspaceDetectorService} from '../infra/workspace/workspace-detector-service.js'
 
 export default class Init extends Command {
-  public static description = `Initialize a project with ByteRover (creates ${BRV_DIR}/${PROJECT_CONFIG_FILE} with team/space selection and initializes ACE playbook)`
+  public static description = `Initialize a project with ByteRover (creates ${BRV_DIR}/${PROJECT_CONFIG_FILE} with team/space selection and initializes Context Tree)`
   public static examples = [
     '<%= config.bin %> <%= command.id %>',
     '# Re-initialize if config exists (will show current config and exit):\n<%= config.bin %> <%= command.id %>',
@@ -78,7 +78,7 @@ export default class Init extends Command {
     this.log('\n Re-initializing will:')
     this.log(`  - Remove the entire ${BRV_DIR}/ directory and all its contents`)
     this.log('  - Allow you to select a new team/space')
-    this.log('  - Create a fresh configuration and ACE playbook')
+    this.log('  - Create a fresh configuration and Context Tree')
     this.log('  - Regenerate rule instructions\n')
     return confirm({
       default: false,
