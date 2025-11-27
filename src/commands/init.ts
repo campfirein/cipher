@@ -348,6 +348,11 @@ export default class Init extends Command {
       await trackingService.track('rule:generate')
       await trackingService.track('space:init')
 
+      this.log('\nInitialization complete!')
+      this.log(
+        "Note: It's recommended to add .brv/ to your .gitignore file since ByteRover already takes care of memory/context versioning for you.",
+      )
+
       this.logSuccess(selectedSpace)
     } catch (error) {
       this.error(`Initialization failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
