@@ -1,13 +1,12 @@
 import {confirm, search, select} from '@inquirer/prompts'
 import {Command, Flags, ux} from '@oclif/core'
-import {rm} from 'node:fs/promises'
+import {access, rm} from 'node:fs/promises'
 import {join} from 'node:path'
 
 import type {AuthToken} from '../core/domain/entities/auth-token.js'
 import type {Space} from '../core/domain/entities/space.js'
 import type {Team} from '../core/domain/entities/team.js'
 import type {IContextTreeService} from '../core/interfaces/i-context-tree-service.js'
-import type {IPlaybookService} from '../core/interfaces/i-playbook-service.js'
 import type {IProjectConfigStore} from '../core/interfaces/i-project-config-store.js'
 import type {IRuleWriterService} from '../core/interfaces/i-rule-writer-service.js'
 import type {ISpaceService} from '../core/interfaces/i-space-service.js'
@@ -15,7 +14,7 @@ import type {ITeamService} from '../core/interfaces/i-team-service.js'
 import type {ITokenStore} from '../core/interfaces/i-token-store.js'
 
 import {getCurrentConfig} from '../config/environment.js'
-import {BRV_DIR, PROJECT_CONFIG_FILE} from '../constants.js'
+import {ACE_DIR, BRV_DIR, PROJECT_CONFIG_FILE} from '../constants.js'
 import {type Agent, AGENT_VALUES} from '../core/domain/entities/agent.js'
 import {BrvConfig} from '../core/domain/entities/brv-config.js'
 import {RuleExistsError} from '../core/domain/errors/rule-error.js'
@@ -23,7 +22,6 @@ import {ITrackingService} from '../core/interfaces/i-tracking-service.js'
 import {ProjectConfigStore} from '../infra/config/file-config-store.js'
 import {FileContextTreeService} from '../infra/context-tree/file-context-tree-service.js'
 import {FsFileService} from '../infra/file/fs-file-service.js'
-import {FilePlaybookService} from '../infra/playbook/file-playbook-service.js'
 import {RuleTemplateService} from '../infra/rule/rule-template-service.js'
 import {RuleWriterService} from '../infra/rule/rule-writer-service.js'
 import {HttpSpaceService} from '../infra/space/http-space-service.js'
@@ -46,6 +44,17 @@ export default class Init extends Command {
       default: false,
       description: 'Force re-initialization without confirmation prompt',
     }),
+  }
+
+  protected async aceDirectoryExists(baseDir?: string): Promise<boolean> {
+    const dir = baseDir ?? process.cwd()
+    const acePath = join(dir, BRV_DIR, ACE_DIR)
+    try {
+      await access(acePath)
+      return true
+    } catch {
+      return false
+    }
   }
 
   protected async cleanupBeforeReInitialization(): Promise<void> {
@@ -79,7 +88,6 @@ export default class Init extends Command {
 
   protected createServices(): {
     contextTreeService: IContextTreeService
-    playbookService: IPlaybookService
     projectConfigStore: IProjectConfigStore
     ruleWriterService: IRuleWriterService
     spaceService: ISpaceService
@@ -97,7 +105,6 @@ export default class Init extends Command {
 
     return {
       contextTreeService: new FileContextTreeService(),
-      playbookService: new FilePlaybookService(),
       projectConfigStore: new ProjectConfigStore(),
       ruleWriterService: new RuleWriterService(fileService, ruleTemplateService),
       spaceService: new HttpSpaceService({
@@ -214,6 +221,20 @@ export default class Init extends Command {
     }
   }
 
+  protected async promptAceDeprecationRemoval(): Promise<boolean> {
+    this.log('\n The ACE system is being deprecated.')
+    this.log(' ByteRover is migrating to the new Context Tree system for improved')
+    this.log(' memory organization and retrieval.')
+    this.log('')
+    this.log(' We detected an existing ACE folder at .brv/ace/')
+    this.log(' This folder and all its contents can be safely removed.\n')
+
+    return confirm({
+      default: true,
+      message: 'Remove the ACE folder and its contents?',
+    })
+  }
+
   /**
    * Prompts the user to select an agent.
    * This method is protected to allow test overrides.
@@ -285,13 +306,18 @@ export default class Init extends Command {
     return selectedTeam
   }
 
+  protected async removeAceDirectory(baseDir?: string): Promise<void> {
+    const dir = baseDir ?? process.cwd()
+    const acePath = join(dir, BRV_DIR, ACE_DIR)
+    await rm(acePath, {force: true, recursive: true})
+  }
+
   public async run(): Promise<void> {
     try {
       const {flags} = await this.parse(Init)
 
       const {
         contextTreeService,
-        playbookService,
         projectConfigStore,
         ruleWriterService,
         spaceService,
@@ -323,7 +349,17 @@ export default class Init extends Command {
       const selectedSpace = await this.fetchAndSelectSpace(spaceService, authToken, selectedTeam)
       if (!selectedSpace) return
 
-      await this.initializeMemoryContextDir('ACE context', () => playbookService.initialize())
+      // Handle ACE deprecation - check for existing ACE folder and offer removal
+      const aceExists = await this.aceDirectoryExists()
+      if (aceExists) {
+        const shouldRemoveAce = await this.promptAceDeprecationRemoval()
+        if (shouldRemoveAce) {
+          await this.removeAceDirectory()
+          this.log('✓ ACE folder removed')
+        }
+      }
+
+      // ACE is deprecated - only initialize context tree
       await this.initializeMemoryContextDir('context tree', () => contextTreeService.initialize())
 
       this.log()

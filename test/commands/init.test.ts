@@ -26,8 +26,11 @@ import {Team as TeamImpl} from '../../src/core/domain/entities/team.js'
  * Testable Init command that accepts mocked services
  */
 class TestableInit extends Init {
+  public mockAceDirectoryExists = false
+  public mockAceRemovalConfirmResult = true
   public mockCleanupError: Error | undefined = undefined
   public mockConfirmResult = false
+  public removeAceDirectoryCalled = false
 
   // eslint-disable-next-line max-params
   constructor(
@@ -44,6 +47,10 @@ class TestableInit extends Init {
     config: Config,
   ) {
     super([], config)
+  }
+
+  protected async aceDirectoryExists(): Promise<boolean> {
+    return this.mockAceDirectoryExists
   }
 
   protected async cleanupBeforeReInitialization(): Promise<void> {
@@ -82,6 +89,10 @@ class TestableInit extends Init {
     // Do nothing - suppress output
   }
 
+  protected async promptAceDeprecationRemoval(): Promise<boolean> {
+    return this.mockAceRemovalConfirmResult
+  }
+
   protected async promptForAgentSelection(): Promise<Agent> {
     return 'Claude Code' // Default mock agent
   }
@@ -96,6 +107,10 @@ class TestableInit extends Init {
 
   protected async promptForTeamSelection(_teams: Team[]): Promise<Team> {
     return this.mockSelectedTeam
+  }
+
+  protected async removeAceDirectory(): Promise<void> {
+    this.removeAceDirectoryCalled = true
   }
 
   public warn(input: Error | string): Error | string {
@@ -552,7 +567,7 @@ describe('Init Command', () => {
       expect(configStore.write.calledBefore(ruleWriterService.writeRule)).to.be.true
     })
 
-    it('should call ruleWriterService after ACE playbook initialization', async () => {
+    it('should call ruleWriterService after context tree initialization (ACE deprecated)', async () => {
       configStore.exists.resolves(false)
       tokenStore.load.resolves(validToken)
       teamService.getTeams.resolves({teams: testTeams, total: testTeams.length})
@@ -575,17 +590,19 @@ describe('Init Command', () => {
 
       await command.run()
 
-      // Verify order: playbook initialization happens before ruleWriterService
-      expect(playbookService.initialize.calledBefore(ruleWriterService.writeRule)).to.be.true
+      // Verify: ACE playbook is NOT initialized (deprecated)
+      expect(playbookService.initialize.called).to.be.false
+      // Verify order: context tree initialization happens before ruleWriterService
+      expect(contextTreeService.initialize.calledBefore(ruleWriterService.writeRule)).to.be.true
     })
 
-    it('should continue with rule generation even if ACE initialization fails', async () => {
+    it('should continue with rule generation even if context tree initialization fails', async () => {
       configStore.exists.resolves(false)
       tokenStore.load.resolves(validToken)
       teamService.getTeams.resolves({teams: testTeams, total: testTeams.length})
       spaceService.getSpaces.resolves({spaces: testSpaces, total: testSpaces.length})
       configStore.write.resolves()
-      playbookService.initialize.rejects(new Error('Playbook already exists'))
+      contextTreeService.initialize.rejects(new Error('Context tree already exists'))
 
       const command = new TestableInit(
         configStore,
@@ -603,7 +620,7 @@ describe('Init Command', () => {
 
       await command.run()
 
-      // Should still call ruleWriterService even though ACE init failed
+      // Should still call ruleWriterService even though context tree init failed
       expect(ruleWriterService.writeRule.calledOnce).to.be.true
       expect(ruleWriterService.writeRule.calledWith('Claude Code', false)).to.be.true
     })
@@ -800,6 +817,151 @@ describe('Init Command', () => {
       expect(tokenStore.load.calledOnce).to.be.true // Auth happens first
       expect(configStore.exists.calledOnce).to.be.true
       expect(configStore.read.calledOnce).to.be.true
+    })
+  })
+
+  describe('ACE deprecation', () => {
+    it('should skip ACE deprecation prompt and not initialize ACE on fresh install', async () => {
+      configStore.exists.resolves(false)
+      tokenStore.load.resolves(validToken)
+      teamService.getTeams.resolves({teams: testTeams, total: testTeams.length})
+      spaceService.getSpaces.resolves({spaces: testSpaces, total: testSpaces.length})
+      configStore.write.resolves()
+
+      const command = new TestableInit(
+        configStore,
+        contextTreeService,
+        playbookService,
+        ruleWriterService,
+        spaceService,
+        teamService,
+        tokenStore,
+        trackingService,
+        testTeams[0],
+        testSpaces[0],
+        config,
+      )
+
+      command.mockAceDirectoryExists = false // No existing ACE folder
+
+      await command.run()
+
+      // Should not call removeAceDirectory since no ACE folder exists
+      expect(command.removeAceDirectoryCalled).to.be.false
+      // Should not initialize ACE playbook (deprecated)
+      expect(playbookService.initialize.called).to.be.false
+      // Should still initialize context tree
+      expect(contextTreeService.initialize.calledOnce).to.be.true
+      // Should complete initialization
+      expect(configStore.write.calledOnce).to.be.true
+    })
+
+    it('should remove ACE folder when user confirms removal', async () => {
+      configStore.exists.resolves(false)
+      tokenStore.load.resolves(validToken)
+      teamService.getTeams.resolves({teams: testTeams, total: testTeams.length})
+      spaceService.getSpaces.resolves({spaces: testSpaces, total: testSpaces.length})
+      configStore.write.resolves()
+
+      const command = new TestableInit(
+        configStore,
+        contextTreeService,
+        playbookService,
+        ruleWriterService,
+        spaceService,
+        teamService,
+        tokenStore,
+        trackingService,
+        testTeams[0],
+        testSpaces[0],
+        config,
+      )
+
+      command.mockAceDirectoryExists = true // Existing ACE folder
+      command.mockAceRemovalConfirmResult = true // User confirms removal
+
+      await command.run()
+
+      // Should call removeAceDirectory
+      expect(command.removeAceDirectoryCalled).to.be.true
+      // Should not initialize ACE playbook (deprecated)
+      expect(playbookService.initialize.called).to.be.false
+      // Should still initialize context tree
+      expect(contextTreeService.initialize.calledOnce).to.be.true
+      // Should complete initialization
+      expect(configStore.write.calledOnce).to.be.true
+    })
+
+    it('should leave ACE folder intact when user declines removal', async () => {
+      configStore.exists.resolves(false)
+      tokenStore.load.resolves(validToken)
+      teamService.getTeams.resolves({teams: testTeams, total: testTeams.length})
+      spaceService.getSpaces.resolves({spaces: testSpaces, total: testSpaces.length})
+      configStore.write.resolves()
+
+      const command = new TestableInit(
+        configStore,
+        contextTreeService,
+        playbookService,
+        ruleWriterService,
+        spaceService,
+        teamService,
+        tokenStore,
+        trackingService,
+        testTeams[0],
+        testSpaces[0],
+        config,
+      )
+
+      command.mockAceDirectoryExists = true // Existing ACE folder
+      command.mockAceRemovalConfirmResult = false // User declines removal
+
+      await command.run()
+
+      // Should NOT call removeAceDirectory
+      expect(command.removeAceDirectoryCalled).to.be.false
+      // Should not initialize ACE playbook (deprecated)
+      expect(playbookService.initialize.called).to.be.false
+      // Should still initialize context tree
+      expect(contextTreeService.initialize.calledOnce).to.be.true
+      // Should complete initialization
+      expect(configStore.write.calledOnce).to.be.true
+    })
+
+    it('should handle ACE deprecation during re-initialization with --force flag', async () => {
+      configStore.exists.resolves(true)
+      configStore.read.resolves(BrvConfig.fromSpace({chatLogPath: 'chat.log', cwd: '/test/cwd', ide: 'Claude Code', space: testSpaces[0]}))
+      configStore.write.resolves()
+      tokenStore.load.resolves(validToken)
+      teamService.getTeams.resolves({teams: testTeams, total: testTeams.length})
+      spaceService.getSpaces.resolves({spaces: testSpaces, total: testSpaces.length})
+
+      const command = new TestableInit(
+        configStore,
+        contextTreeService,
+        playbookService,
+        ruleWriterService,
+        spaceService,
+        teamService,
+        tokenStore,
+        trackingService,
+        testTeams[0],
+        testSpaces[0],
+        config,
+      )
+
+      command.mockAceDirectoryExists = true // Existing ACE folder
+      command.mockAceRemovalConfirmResult = true // User confirms removal
+      ;(command as never as {argv: string[]}).argv = ['--force']
+
+      await command.run()
+
+      // Should call removeAceDirectory (ACE folder existed and user confirmed)
+      expect(command.removeAceDirectoryCalled).to.be.true
+      // Should not initialize ACE playbook (deprecated)
+      expect(playbookService.initialize.called).to.be.false
+      // Should complete initialization
+      expect(configStore.write.calledOnce).to.be.true
     })
   })
 })
