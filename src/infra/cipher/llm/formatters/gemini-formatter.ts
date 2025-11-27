@@ -153,16 +153,42 @@ export class GeminiMessageFormatter implements IMessageFormatter<Content> {
   /**
    * Formats tool result message to Gemini's Content format.
    * Tool results are sent as user messages with functionResponse parts.
+   *
+   * Note: msg.content is a JSON string from ToolOutputProcessor.
+   * We need to parse it back to an object for Gemini's API.
    */
   private formatToolResult(msg: InternalMessage): Content {
+    // msg.content is a JSON string from ToolOutputProcessor
+    // Parse it back to object for Gemini's API
+    let responseObject: Record<string, unknown>
+
+    try {
+      // Try to parse as JSON
+      if (typeof msg.content === 'string') {
+        responseObject = JSON.parse(msg.content) as Record<string, unknown>
+      } else if (msg.content === null) {
+        responseObject = {result: null}
+      } else if (Array.isArray(msg.content)) {
+        // Array content (e.g., MessagePart[]) - wrap in result
+        responseObject = {result: msg.content}
+      } else if (typeof msg.content === 'object') {
+        // Already an object (shouldn't happen with current implementation, but handle it)
+        responseObject = msg.content as Record<string, unknown>
+      } else {
+        // Primitive types - wrap them
+        responseObject = {result: msg.content}
+      }
+    } catch {
+      // If parsing fails, wrap the string as-is
+      responseObject = {result: msg.content}
+    }
+
     return {
       parts: [
         {
           functionResponse: {
             name: msg.name ?? '',
-            response: {
-              result: msg.content,
-            },
+            response: responseObject, // Now an actual object, not wrapped string
           },
         },
       ],
