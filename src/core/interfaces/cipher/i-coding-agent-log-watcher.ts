@@ -1,12 +1,16 @@
 import type {CleanSession} from '../../domain/entities/parser.js'
 
+import {Agent} from '../../domain/entities/agent.js'
+
 /** Options for starting the coding agent log watcher. */
 export type CodingAgentLogWatcherOptions = {
-  /** Callback invoked when sessions are parsed from log files */
-  onSession: (session: CleanSession) => Promise<void>
+  codingAgentInfo: {
+    chatLogPath: string
+    name: Agent
+  }
 
-  /** Paths to watch for coding agent log files */
-  paths: string[]
+  /** Callback invoked when sessions are parsed from log files */
+  onCleanSession: (cleanSession: CleanSession) => Promise<void>
 }
 
 /**

@@ -3,6 +3,7 @@ import {Command, Flags, ux} from '@oclif/core'
 import {rm} from 'node:fs/promises'
 import {join} from 'node:path'
 
+import type {AuthToken} from '../core/domain/entities/auth-token.js'
 import type {Space} from '../core/domain/entities/space.js'
 import type {Team} from '../core/domain/entities/team.js'
 import type {IContextTreeService} from '../core/interfaces/i-context-tree-service.js'
@@ -41,7 +42,6 @@ export default class Init extends Command {
     }),
   }
 
-
   protected async cleanupBeforeReInitialization(): Promise<void> {
     const brvDir = join(process.cwd(), BRV_DIR)
     this.log('\n Cleaning up existing ByteRover directory...')
@@ -51,7 +51,7 @@ export default class Init extends Command {
       ux.action.stop('✓')
     } catch (error) {
       ux.action.stop('✗')
-      this.error(`Failed to remove ${BRV_DIR}/: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      throw new Error(`Failed to remove ${BRV_DIR}/: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
 
@@ -99,13 +99,41 @@ export default class Init extends Command {
     }
   }
 
-  protected detectWorkspacesForAgent(agent: Agent): {chatLogPath: string; cwd: string;} {
+  protected detectWorkspacesForAgent(agent: Agent): {chatLogPath: string; cwd: string} {
     const detector = new WorkspaceDetectorService()
     const result = detector.detectWorkspaces(agent)
     return {
       chatLogPath: result.chatLogPath,
       cwd: result.cwd,
     }
+  }
+
+  protected async ensureAuthenticated(tokenStore: ITokenStore): Promise<AuthToken> {
+    const token = await tokenStore.load()
+
+    if (token === undefined) {
+      this.error('Not authenticated. Please run "brv login" first.')
+    }
+
+    if (!token.isValid()) {
+      this.error('Authentication token expired. Please run "brv login" again.')
+    }
+
+    return token
+  }
+
+  protected async getExistingConfig(projectConfigStore: IProjectConfigStore): Promise<BrvConfig | undefined> {
+    const exists = await projectConfigStore.exists()
+    if (exists) {
+      const config = await projectConfigStore.read()
+      if (config === undefined) {
+        throw new Error('Configuration file exists but cannot be read. Please check .brv/config.json')
+      }
+
+      return config
+    }
+
+    return undefined
   }
 
   /**
@@ -168,51 +196,39 @@ export default class Init extends Command {
     return selectedTeam
   }
 
-
   public async run(): Promise<void> {
     const {flags} = await this.parse(Init)
 
     try {
-      const {contextTreeService, playbookService, projectConfigStore, spaceService, teamService, tokenStore, trackingService} =
-        this.createServices()
+      const {
+        contextTreeService,
+        playbookService,
+        projectConfigStore,
+        spaceService,
+        teamService,
+        tokenStore,
+        trackingService,
+      } = this.createServices()
 
-      const alreadyInitialized = await projectConfigStore.exists()
-      if (alreadyInitialized) {
-        const currentConfig = await projectConfigStore.read()
-        if (currentConfig === undefined) {
-          this.error('Configuration file exists but cannot be read. Please check .brv/config.json')
-        }
+      const authToken = await this.ensureAuthenticated(tokenStore)
 
-        if (!flags.force) {
-          const confirmed = await this.confirmReInitialization(currentConfig)
-          if (!confirmed) {
-            this.log('\nCancelled. Project configuration unchanged.')
-            return
-          }
-        }
+      const existingConfig = await this.getExistingConfig(projectConfigStore)
+      if (existingConfig) {
+        const shouldCleanup = flags.force ? true : await this.confirmReInitialization(existingConfig)
 
-        try {
+        if (shouldCleanup) {
           await this.cleanupBeforeReInitialization()
-        } catch (error) {
-          this.error(`Failed to clean up existing data: ${error instanceof Error ? error.message : 'Unknown error'}`)
+          this.log('\n')
+        } else {
+          this.log('\nCancelled. Project configuration unchanged.')
+          return
         }
-
-        this.log('\n') // Spacing before continuing with init flow
       }
 
       this.log('Initializing ByteRover project...\n')
 
-      const token = await tokenStore.load()
-      if (token === undefined) {
-        this.error('Not authenticated. Please run "brv login" first.')
-      }
-
-      if (!token.isValid()) {
-        this.error('Authentication token expired. Please run "brv login" again.')
-      }
-
       ux.action.start('Fetching all teams')
-      const teamResult = await teamService.getTeams(token.accessToken, token.sessionKey, {fetchAll: true})
+      const teamResult = await teamService.getTeams(authToken.accessToken, authToken.sessionKey, {fetchAll: true})
       ux.action.stop()
 
       const {teams} = teamResult
@@ -227,7 +243,7 @@ export default class Init extends Command {
       const selectedTeam = await this.promptForTeamSelection(teams)
 
       ux.action.start('Fetching all spaces')
-      const spaceResult = await spaceService.getSpaces(token.accessToken, token.sessionKey, selectedTeam.id, {
+      const spaceResult = await spaceService.getSpaces(authToken.accessToken, authToken.sessionKey, selectedTeam.id, {
         fetchAll: true,
       })
       ux.action.stop()

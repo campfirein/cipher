@@ -86,7 +86,7 @@ export async function startInteractiveLoop(
   },
 ): Promise<void> {
   // Display welcome message
-  displayWelcome(options?.sessionId ?? 'cipher-agent-session', options?.model ?? 'gemini-2.5-flash')
+  displayWelcome(options?.sessionId ?? 'cipher-agent-session', options?.model ?? 'gemini-2.5-pro')
 
   // Create readline interface
   const rl = readline.createInterface({
@@ -174,6 +174,5 @@ const cleanup = async (agent: ICipherAgent, rl: readline.Interface, isExitingRef
   isExitingRef.value = true
   console.log('\n' + chalk.yellow('👋 Shutting down...'))
   rl.close()
-  await agent.stop()
   console.log(chalk.gray('✓ Cleanup complete'))
 }
