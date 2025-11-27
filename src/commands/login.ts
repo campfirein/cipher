@@ -117,24 +117,21 @@ export default class Login extends Command {
 
         this.log('Successfully authenticated!')
       } catch (error) {
-        // Show clean error without stack trace
+        // Throw error to let oclif handle display
         const errorMessage = error instanceof Error ? error.message : 'Authentication failed'
-        process.stderr.write('\n' + errorMessage + '\n\n')
-        process.exit(1)
+        this.error(errorMessage)
       }
     } catch (error) {
       if (error instanceof DiscoveryError) {
         const errorMessage =
           `Failed to configure authentication: ${error.message}\n` +
           'Please check your network connection and try again.'
-        process.stderr.write('\n' + errorMessage + '\n\n')
-        process.exit(1)
+        this.error(errorMessage)
       }
 
-      // Show clean error without stack trace
+      // Throw error to let oclif handle display
       const errorMessage = error instanceof Error ? error.message : 'Authentication failed'
-      process.stderr.write('\n' + errorMessage + '\n\n')
-      process.exit(1)
+      this.error(errorMessage)
     } finally {
       // Always cleanup server
       await callbackHandler.stop()

@@ -368,9 +368,8 @@ export default class Add extends Command {
         return
       }
 
-      // Error already logged, exit silently without throwing
-      // eslint-disable-next-line n/no-process-exit, unicorn/no-process-exit
-      process.exit(ExitCode.RUNTIME_ERROR)
+      // Throw error to let oclif handle exit code
+      this.error(error instanceof Error ? error.message : 'Runtime error occurred', {exit: ExitCode.RUNTIME_ERROR})
     }
   }
 

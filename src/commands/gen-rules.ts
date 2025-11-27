@@ -109,14 +109,10 @@ export default class GenRules extends Command {
             this.log(`Skipping rule file generation for ${answer}`)
           }
         } else {
-          // Non-recoverable error - show clean message
-          process.stderr.write('\n')
-          process.stderr.write(
+          // Non-recoverable error - throw to let oclif handle display
+          this.error(
             `Failed to generate rule file: ${error instanceof Error ? error.message : String(error)}`,
           )
-          process.stderr.write('\n\n')
-          // eslint-disable-next-line n/no-process-exit, unicorn/no-process-exit
-          process.exit(1)
         }
       }
     } catch (error) {
@@ -127,12 +123,8 @@ export default class GenRules extends Command {
         return
       }
 
-      // For other errors, show clean error without stack trace
-      process.stderr.write('\n')
-      process.stderr.write(error instanceof Error ? error.message : 'An error occurred')
-      process.stderr.write('\n\n')
-      // eslint-disable-next-line n/no-process-exit, unicorn/no-process-exit
-      process.exit(1)
+      // For other errors, throw to let oclif handle display
+      this.error(error instanceof Error ? error.message : 'An error occurred')
     }
   }
 }

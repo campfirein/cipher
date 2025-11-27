@@ -68,14 +68,8 @@ export default class Clear extends Command {
         return
       }
 
-      // For other errors, show clean error without stack trace
-      process.stderr.write('\n')
-      process.stderr.write(
-        error instanceof Error ? error.message : 'Failed to clear playbook',
-      )
-      process.stderr.write('\n\n')
-      // eslint-disable-next-line n/no-process-exit, unicorn/no-process-exit
-      process.exit(1)
+      // For other errors, throw to let oclif handle display
+      this.error(error instanceof Error ? error.message : 'Failed to clear playbook')
     }
   }
 }
