@@ -9,6 +9,7 @@ import type {Team} from '../core/domain/entities/team.js'
 import type {IContextTreeService} from '../core/interfaces/i-context-tree-service.js'
 import type {IPlaybookService} from '../core/interfaces/i-playbook-service.js'
 import type {IProjectConfigStore} from '../core/interfaces/i-project-config-store.js'
+import type {IRuleWriterService} from '../core/interfaces/i-rule-writer-service.js'
 import type {ISpaceService} from '../core/interfaces/i-space-service.js'
 import type {ITeamService} from '../core/interfaces/i-team-service.js'
 import type {ITokenStore} from '../core/interfaces/i-token-store.js'
@@ -17,13 +18,18 @@ import {getCurrentConfig} from '../config/environment.js'
 import {BRV_DIR, PROJECT_CONFIG_FILE} from '../constants.js'
 import {type Agent, AGENT_VALUES} from '../core/domain/entities/agent.js'
 import {BrvConfig} from '../core/domain/entities/brv-config.js'
+import {RuleExistsError} from '../core/domain/errors/rule-error.js'
 import {ITrackingService} from '../core/interfaces/i-tracking-service.js'
 import {ProjectConfigStore} from '../infra/config/file-config-store.js'
 import {FileContextTreeService} from '../infra/context-tree/file-context-tree-service.js'
+import {FsFileService} from '../infra/file/fs-file-service.js'
 import {FilePlaybookService} from '../infra/playbook/file-playbook-service.js'
+import {RuleTemplateService} from '../infra/rule/rule-template-service.js'
+import {RuleWriterService} from '../infra/rule/rule-writer-service.js'
 import {HttpSpaceService} from '../infra/space/http-space-service.js'
 import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
 import {HttpTeamService} from '../infra/team/http-team-service.js'
+import {FsTemplateLoader} from '../infra/template/fs-template-loader.js'
 import {MixpanelTrackingService} from '../infra/tracking/mixpanel-tracking-service.js'
 import {WorkspaceDetectorService} from '../infra/workspace/workspace-detector-service.js'
 
@@ -75,6 +81,7 @@ export default class Init extends Command {
     contextTreeService: IContextTreeService
     playbookService: IPlaybookService
     projectConfigStore: IProjectConfigStore
+    ruleWriterService: IRuleWriterService
     spaceService: ISpaceService
     teamService: ITeamService
     tokenStore: ITokenStore
@@ -84,10 +91,15 @@ export default class Init extends Command {
     const tokenStore = new KeychainTokenStore()
     const trackingService = new MixpanelTrackingService(tokenStore)
 
+    const fileService = new FsFileService()
+    const templateLoader = new FsTemplateLoader(fileService)
+    const ruleTemplateService = new RuleTemplateService(templateLoader)
+
     return {
       contextTreeService: new FileContextTreeService(),
       playbookService: new FilePlaybookService(),
       projectConfigStore: new ProjectConfigStore(),
+      ruleWriterService: new RuleWriterService(fileService, ruleTemplateService),
       spaceService: new HttpSpaceService({
         apiBaseUrl: envConfig.apiBaseUrl,
       }),
@@ -156,6 +168,28 @@ export default class Init extends Command {
     return this.promptForTeamSelection(teams)
   }
 
+  protected async generateRulesForAgent(ruleWriterService: IRuleWriterService, agent: Agent): Promise<void> {
+    this.log(`Generating rules for: ${agent}`)
+
+    try {
+      await ruleWriterService.writeRule(agent, false)
+      this.log(`✅ Successfully generated rule file for ${agent}`)
+    } catch (error) {
+      if (error instanceof RuleExistsError) {
+        const overwrite = await this.promptForOverwriteConfirmation(agent)
+
+        if (overwrite) {
+          await ruleWriterService.writeRule(agent, true)
+          this.log(`✅ Successfully generated rule file for ${agent}`)
+        } else {
+          this.log(`Skipping rule file generation for ${agent}`)
+        }
+      } else {
+        throw error
+      }
+    }
+  }
+
   protected async getExistingConfig(projectConfigStore: IProjectConfigStore): Promise<BrvConfig | undefined> {
     const exists = await projectConfigStore.exists()
     if (exists) {
@@ -206,6 +240,17 @@ export default class Init extends Command {
     return answer
   }
 
+  /**
+   * Prompts the user to confirm overwriting an existing rule file.
+   * This method is protected to allow test overrides.
+   */
+  protected async promptForOverwriteConfirmation(agent: Agent): Promise<boolean> {
+    return confirm({
+      default: true,
+      message: `Rule file already exists for ${agent}. Overwrite?`,
+    })
+  }
+
   protected async promptForSpaceSelection(spaces: Space[]): Promise<Space> {
     const selectedSpaceId = await select({
       choices: spaces.map((space) => ({
@@ -248,6 +293,7 @@ export default class Init extends Command {
         contextTreeService,
         playbookService,
         projectConfigStore,
+        ruleWriterService,
         spaceService,
         teamService,
         tokenStore,
@@ -290,11 +336,11 @@ export default class Init extends Command {
       const config = BrvConfig.fromSpace(selectedSpace, chatLogPath, selectedAgent, cwd)
       await projectConfigStore.write(config)
 
-      // TODO: Need to decouple this direct command calling logic when we update brv gen-rules
       this.log(`\nGenerate rule instructions for coding agents to work with ByteRover correctly`)
       this.log()
-      await this.config.runCommand('gen-rules', ['--agent', selectedAgent])
+      await this.generateRulesForAgent(ruleWriterService, selectedAgent)
 
+      await trackingService.track('rule:generate')
       await trackingService.track('space:init')
 
       this.logSuccess(selectedSpace)

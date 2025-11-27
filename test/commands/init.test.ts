@@ -9,12 +9,14 @@ import type {Team} from '../../src/core/domain/entities/team.js'
 import type {IContextTreeService} from '../../src/core/interfaces/i-context-tree-service.js'
 import type {IPlaybookService} from '../../src/core/interfaces/i-playbook-service.js'
 import type {IProjectConfigStore} from '../../src/core/interfaces/i-project-config-store.js'
+import type {IRuleWriterService} from '../../src/core/interfaces/i-rule-writer-service.js'
 import type {ISpaceService} from '../../src/core/interfaces/i-space-service.js'
 import type {ITeamService} from '../../src/core/interfaces/i-team-service.js'
 import type {ITokenStore} from '../../src/core/interfaces/i-token-store.js'
 import type {ITrackingService} from '../../src/core/interfaces/i-tracking-service.js'
 
 import Init from '../../src/commands/init.js'
+import {Agent} from '../../src/core/domain/entities/agent.js'
 import {AuthToken} from '../../src/core/domain/entities/auth-token.js'
 import {BrvConfig} from '../../src/core/domain/entities/brv-config.js'
 import {Space as SpaceImpl} from '../../src/core/domain/entities/space.js'
@@ -32,6 +34,7 @@ class TestableInit extends Init {
     private readonly mockConfigStore: IProjectConfigStore,
     private readonly mockContextTreeService: IContextTreeService,
     private readonly mockPlaybookService: IPlaybookService,
+    private readonly mockRuleWriterService: IRuleWriterService,
     private readonly mockSpaceService: ISpaceService,
     private readonly mockTeamService: ITeamService,
     private readonly mockTokenStore: ITokenStore,
@@ -51,7 +54,7 @@ class TestableInit extends Init {
     // Otherwise, do nothing in tests (don't actually delete files)
   }
 
-  protected async confirmReInitialization(_config: import('../../src/core/domain/entities/brv-config.js').BrvConfig): Promise<boolean> {
+  protected async confirmReInitialization(_config: BrvConfig): Promise<boolean> {
     return this.mockConfirmResult
   }
 
@@ -60,6 +63,7 @@ class TestableInit extends Init {
       contextTreeService: this.mockContextTreeService,
       playbookService: this.mockPlaybookService,
       projectConfigStore: this.mockConfigStore,
+      ruleWriterService: this.mockRuleWriterService,
       spaceService: this.mockSpaceService,
       teamService: this.mockTeamService,
       tokenStore: this.mockTokenStore,
@@ -78,8 +82,12 @@ class TestableInit extends Init {
     // Do nothing - suppress output
   }
 
-  protected async promptForAgentSelection(): Promise<import('../../src/core/domain/entities/agent.js').Agent> {
+  protected async promptForAgentSelection(): Promise<Agent> {
     return 'Claude Code' // Default mock agent
+  }
+
+  protected async promptForOverwriteConfirmation(_agent: Agent): Promise<boolean> {
+    return true // Default to true for tests
   }
 
   protected async promptForSpaceSelection(_spaces: Space[]): Promise<Space> {
@@ -101,7 +109,7 @@ describe('Init Command', () => {
   let configStore: sinon.SinonStubbedInstance<IProjectConfigStore>
   let contextTreeService: sinon.SinonStubbedInstance<IContextTreeService>
   let playbookService: sinon.SinonStubbedInstance<IPlaybookService>
-  let runCommandStub: sinon.SinonStub
+  let ruleWriterService: sinon.SinonStubbedInstance<IRuleWriterService>
   let spaceService: sinon.SinonStubbedInstance<ISpaceService>
   let teamService: sinon.SinonStubbedInstance<ITeamService>
   let testSpaces: Space[]
@@ -152,12 +160,13 @@ describe('Init Command', () => {
       initialize: stub<[directory?: string], Promise<string>>().resolves('/test/.brv/ace/playbook.json'),
     }
 
+    ruleWriterService = {
+      writeRule: stub<Parameters<IRuleWriterService['writeRule']>, ReturnType<IRuleWriterService['writeRule']>>().resolves(),
+    }
+
     trackingService = {
       track: stub<Parameters<ITrackingService['track']>, ReturnType<ITrackingService['track']>>().resolves(),
     }
-
-    // Mock config.runCommand to prevent actual gen-rules execution
-    runCommandStub = stub(config, 'runCommand').resolves()
 
     validToken = new AuthToken({
       accessToken: 'access-token',
@@ -205,6 +214,7 @@ describe('Init Command', () => {
         configStore,
         contextTreeService,
         playbookService,
+        ruleWriterService,
         spaceService,
         teamService,
         tokenStore,
@@ -230,6 +240,7 @@ describe('Init Command', () => {
         configStore,
         contextTreeService,
         playbookService,
+        ruleWriterService,
         spaceService,
         teamService,
         tokenStore,
@@ -266,6 +277,7 @@ describe('Init Command', () => {
         configStore,
         contextTreeService,
         playbookService,
+        ruleWriterService,
         spaceService,
         teamService,
         tokenStore,
@@ -293,6 +305,7 @@ describe('Init Command', () => {
         configStore,
         contextTreeService,
         playbookService,
+        ruleWriterService,
         spaceService,
         teamService,
         tokenStore,
@@ -319,6 +332,7 @@ describe('Init Command', () => {
         configStore,
         contextTreeService,
         playbookService,
+        ruleWriterService,
         spaceService,
         teamService,
         tokenStore,
@@ -346,6 +360,7 @@ describe('Init Command', () => {
         configStore,
         contextTreeService,
         playbookService,
+        ruleWriterService,
         spaceService,
         teamService,
         tokenStore,
@@ -379,6 +394,7 @@ describe('Init Command', () => {
         configStore,
         contextTreeService,
         playbookService,
+        ruleWriterService,
         spaceService,
         teamService,
         tokenStore,
@@ -404,6 +420,7 @@ describe('Init Command', () => {
         configStore,
         contextTreeService,
         playbookService,
+        ruleWriterService,
         spaceService,
         teamService,
         tokenStore,
@@ -432,6 +449,7 @@ describe('Init Command', () => {
         configStore,
         contextTreeService,
         playbookService,
+        ruleWriterService,
         spaceService,
         teamService,
         tokenStore,
@@ -461,6 +479,7 @@ describe('Init Command', () => {
         configStore,
         contextTreeService,
         playbookService,
+        ruleWriterService,
         spaceService,
         teamService,
         tokenStore,
@@ -490,6 +509,7 @@ describe('Init Command', () => {
         configStore,
         contextTreeService,
         playbookService,
+        ruleWriterService,
         spaceService,
         teamService,
         tokenStore,
@@ -501,11 +521,11 @@ describe('Init Command', () => {
 
       await command.run()
 
-      expect(runCommandStub.calledOnce).to.be.true
-      expect(runCommandStub.calledWith('gen-rules', ['--agent', 'Claude Code'])).to.be.true
+      expect(ruleWriterService.writeRule.calledOnce).to.be.true
+      expect(ruleWriterService.writeRule.calledWith('Claude Code', false)).to.be.true
     })
 
-    it('should call gen-rules after config write but before success message', async () => {
+    it('should call ruleWriterService after config write', async () => {
       configStore.exists.resolves(false)
       tokenStore.load.resolves(validToken)
       teamService.getTeams.resolves({teams: testTeams, total: testTeams.length})
@@ -516,6 +536,7 @@ describe('Init Command', () => {
         configStore,
         contextTreeService,
         playbookService,
+        ruleWriterService,
         spaceService,
         teamService,
         tokenStore,
@@ -527,11 +548,11 @@ describe('Init Command', () => {
 
       await command.run()
 
-      // Verify order: config write happens before gen-rules
-      expect(configStore.write.calledBefore(runCommandStub)).to.be.true
+      // Verify order: config write happens before ruleWriterService
+      expect(configStore.write.calledBefore(ruleWriterService.writeRule)).to.be.true
     })
 
-    it('should call gen-rules after ACE playbook initialization', async () => {
+    it('should call ruleWriterService after ACE playbook initialization', async () => {
       configStore.exists.resolves(false)
       tokenStore.load.resolves(validToken)
       teamService.getTeams.resolves({teams: testTeams, total: testTeams.length})
@@ -542,6 +563,7 @@ describe('Init Command', () => {
         configStore,
         contextTreeService,
         playbookService,
+        ruleWriterService,
         spaceService,
         teamService,
         tokenStore,
@@ -553,11 +575,11 @@ describe('Init Command', () => {
 
       await command.run()
 
-      // Verify order: playbook initialization happens before gen-rules
-      expect(playbookService.initialize.calledBefore(runCommandStub)).to.be.true
+      // Verify order: playbook initialization happens before ruleWriterService
+      expect(playbookService.initialize.calledBefore(ruleWriterService.writeRule)).to.be.true
     })
 
-    it('should continue with gen-rules even if ACE initialization fails', async () => {
+    it('should continue with rule generation even if ACE initialization fails', async () => {
       configStore.exists.resolves(false)
       tokenStore.load.resolves(validToken)
       teamService.getTeams.resolves({teams: testTeams, total: testTeams.length})
@@ -569,6 +591,7 @@ describe('Init Command', () => {
         configStore,
         contextTreeService,
         playbookService,
+        ruleWriterService,
         spaceService,
         teamService,
         tokenStore,
@@ -580,23 +603,24 @@ describe('Init Command', () => {
 
       await command.run()
 
-      // Should still call gen-rules even though ACE init failed
-      expect(runCommandStub.calledOnce).to.be.true
-      expect(runCommandStub.calledWith('gen-rules', ['--agent', 'Claude Code'])).to.be.true
+      // Should still call ruleWriterService even though ACE init failed
+      expect(ruleWriterService.writeRule.calledOnce).to.be.true
+      expect(ruleWriterService.writeRule.calledWith('Claude Code', false)).to.be.true
     })
 
-    it('should propagate errors from gen-rules command', async () => {
+    it('should propagate errors from ruleWriterService', async () => {
       configStore.exists.resolves(false)
       tokenStore.load.resolves(validToken)
       teamService.getTeams.resolves({teams: testTeams, total: testTeams.length})
       spaceService.getSpaces.resolves({spaces: testSpaces, total: testSpaces.length})
       configStore.write.resolves()
-      runCommandStub.rejects(new Error('gen-rules failed'))
+      ruleWriterService.writeRule.rejects(new Error('Template not found'))
 
       const command = new TestableInit(
         configStore,
         contextTreeService,
         playbookService,
+        ruleWriterService,
         spaceService,
         teamService,
         tokenStore,
@@ -611,7 +635,7 @@ describe('Init Command', () => {
         expect.fail('Should have thrown error')
       } catch (error) {
         expect(error).to.be.an('error')
-        expect((error as Error).message).to.include('gen-rules failed')
+        expect((error as Error).message).to.include('Template not found')
       }
     })
   })
@@ -629,6 +653,7 @@ describe('Init Command', () => {
         configStore,
         contextTreeService,
         playbookService,
+        ruleWriterService,
         spaceService,
         teamService,
         tokenStore,
@@ -659,6 +684,7 @@ describe('Init Command', () => {
         configStore,
         contextTreeService,
         playbookService,
+        ruleWriterService,
         spaceService,
         teamService,
         tokenStore,
@@ -691,6 +717,7 @@ describe('Init Command', () => {
         configStore,
         contextTreeService,
         playbookService,
+        ruleWriterService,
         spaceService,
         teamService,
         tokenStore,
@@ -721,6 +748,7 @@ describe('Init Command', () => {
         configStore,
         contextTreeService,
         playbookService,
+        ruleWriterService,
         spaceService,
         teamService,
         tokenStore,
@@ -751,6 +779,7 @@ describe('Init Command', () => {
         configStore,
         contextTreeService,
         playbookService,
+        ruleWriterService,
         spaceService,
         teamService,
         tokenStore,
