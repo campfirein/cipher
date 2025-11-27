@@ -88,7 +88,7 @@ export interface InternalMessage {
    * Optional model reasoning text associated with an assistant response.
    * Present when the provider supports reasoning and returns a final reasoning trace.
    */
-  reasoning?: string;
+  reasoning?: string
 
   /**
    * The role of the entity sending the message.
@@ -98,6 +98,28 @@ export interface InternalMessage {
    * - 'tool': Result from a tool execution
    */
   role: 'assistant' | 'system' | 'tool' | 'user'
+
+  /**
+   * Raw thought text from the model (Gemini only).
+   * Contains the model's thinking process before generating a response.
+   */
+  thought?: string
+
+  /**
+   * Parsed thought summary with subject and description (Gemini only).
+   * Extracted from the thought text for easier display.
+   */
+  thoughtSummary?: {
+    /**
+     * Detailed description of the thought
+     */
+    description: string
+
+    /**
+     * Brief subject of the thought
+     */
+    subject: string
+  }
 
   /**
    * ID of the tool call this message is responding to.

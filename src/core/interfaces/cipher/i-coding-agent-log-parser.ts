@@ -1,5 +1,7 @@
 import type {CleanSession} from '../../domain/entities/parser.js'
 
+import {Agent} from '../../domain/entities/agent.js'
+
 /**
  * Interface for parsing coding agent log files.
  * Implementations use the raw/clean parser pipeline to process log files
@@ -16,5 +18,5 @@ export interface ICodingAgentLogParser {
    * @returns A promise that resolves to a frozen array of CleanSession objects
    * @throws Error if parsing fails at any phase
    */
-  parseLogFile: () => Promise<readonly CleanSession[]>
+  parse: (chatLogPath: string, ide: Agent) => Promise<readonly CleanSession[]>
 }

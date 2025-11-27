@@ -301,7 +301,8 @@ export class ByteRoverLlmGrpcService {
    * @returns GCP region identifier ('us-east5' or 'us-east1')
    */
   private detectRegionFromModel(model: string): string {
-    return model.toLowerCase().startsWith('claude') ? 'us-east5' : 'us-central1'
+    // return model.toLowerCase().startsWith('claude') ? 'us-east5' : 'us-central1'
+    return model.toLowerCase().startsWith('claude') ? 'us-east5' : 'global'
   }
 
   /**

@@ -510,7 +510,7 @@ describe('ByteRoverLlmGrpcService', () => {
 
       expect(capturedRequest).to.be.an('object')
       expect((capturedRequest as {provider: string}).provider).to.equal('gemini')
-      expect((capturedRequest as {region: string}).region).to.equal('us-central1')
+      expect((capturedRequest as {region: string}).region).to.equal('global')
 
       provider.close()
     })
