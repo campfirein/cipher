@@ -10,6 +10,7 @@ import type {ITeamService} from '../../../src/core/interfaces/i-team-service.js'
 import type {ITokenStore} from '../../../src/core/interfaces/i-token-store.js'
 
 import SpaceSwitch from '../../../src/commands/space/switch.js'
+import {BRV_CONFIG_VERSION} from '../../../src/constants.js'
 import {AuthToken} from '../../../src/core/domain/entities/auth-token.js'
 import {BrvConfig} from '../../../src/core/domain/entities/brv-config.js'
 import {Space} from '../../../src/core/domain/entities/space.js'
@@ -174,6 +175,7 @@ describe('space:switch', () => {
       spaceName: 'frontend-app',
       teamId: 'team-1',
       teamName: 'acme-corp',
+      version: BRV_CONFIG_VERSION,
     })
   })
 

@@ -3,6 +3,7 @@ import {restore, stub} from 'sinon'
 
 import type {CipherLLMConfig} from '../../../../src/infra/cipher/agent-service-factory.js'
 
+import {BRV_CONFIG_VERSION} from '../../../../src/constants.js'
 import {BrvConfig} from '../../../../src/core/domain/entities/brv-config.js'
 import {CipherAgent} from '../../../../src/infra/cipher/cipher-agent.js'
 
@@ -45,6 +46,7 @@ describe('CipherAgent', () => {
         spaceName: 'Space Name',
         teamId: 'team-id',
         teamName: 'Team Name',
+        version: BRV_CONFIG_VERSION,
       })
 
       const agent = new CipherAgent(llmConfig, brvConfig)

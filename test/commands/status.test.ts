@@ -10,6 +10,7 @@ import type {ITokenStore} from '../../src/core/interfaces/i-token-store.js'
 import type {ITrackingService} from '../../src/core/interfaces/i-tracking-service.js'
 
 import Status from '../../src/commands/status.js'
+import {BRV_CONFIG_VERSION} from '../../src/constants.js'
 import {AuthToken} from '../../src/core/domain/entities/auth-token.js'
 import {BrvConfig} from '../../src/core/domain/entities/brv-config.js'
 import {Playbook} from '../../src/core/domain/entities/playbook.js'
@@ -112,6 +113,7 @@ describe('Status Command', () => {
       spaceName: 'backend-api',
       teamId: 'team-1',
       teamName: 'acme-corp',
+      version: BRV_CONFIG_VERSION,
     })
   })
 

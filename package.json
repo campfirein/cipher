@@ -72,7 +72,8 @@
     "dirname": "brv",
     "commands": "./dist/commands",
     "hooks": {
-      "init": "./dist/hooks/init/welcome"
+      "init": "./dist/hooks/init/welcome",
+      "prerun": "./dist/hooks/prerun/validate-brv-config-version"
     },
     "plugins": [
       "@oclif/plugin-help"

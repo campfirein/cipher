@@ -1,3 +1,5 @@
+import {BRV_CONFIG_VERSION} from '../../../constants.js'
+import {BrvConfigVersionError} from '../errors/brv-config-version-error.js'
 import {Agent, AGENT_VALUES} from './agent.js'
 import {Space} from './space.js'
 
@@ -16,6 +18,7 @@ export type BrvConfigParams = {
   spaceName: string
   teamId: string
   teamName: string
+  version: string
 }
 
 /**
@@ -26,6 +29,13 @@ export type FromSpaceParams = {
   cwd: string
   ide: Agent
   space: Space
+}
+
+/**
+ * Shape of JSON read from .brv/config.json (version may be missing in old configs).
+ */
+type BrvConfigFromJson = Omit<BrvConfigParams, 'version'> & {
+  version?: string
 }
 
 /**
@@ -41,9 +51,10 @@ const isCodingAgent = (value: unknown): value is Agent => {
 }
 
 /**
- * Type guard for BrvConfigParams - validates JSON structure at runtime.
+ * Type guard for BrvConfigFromJson - validates JSON structure at runtime.
+ * Note: version is optional in this check (old configs may not have it).
  */
-const isBrvConfigJson = (json: unknown): json is BrvConfigParams => {
+const isBrvConfigJson = (json: unknown): json is BrvConfigFromJson => {
   if (typeof json !== 'object' || json === null) return false
 
   const requiredInputJsonKeys = [
@@ -54,7 +65,7 @@ const isBrvConfigJson = (json: unknown): json is BrvConfigParams => {
     'spaceName',
     'teamId',
     'teamName',
-  ] as const satisfies readonly (keyof BrvConfigParams)[]
+  ] as const satisfies readonly (keyof BrvConfigFromJson)[]
 
   for (const key of requiredInputJsonKeys) {
     if (!(key in json) || typeof (json as Record<string, unknown>)[key] !== 'string') {
@@ -71,6 +82,7 @@ const isBrvConfigJson = (json: unknown): json is BrvConfigParams => {
   if (obj.cipherAgentContext !== undefined && typeof obj.cipherAgentContext !== 'string') return false
   if (obj.cipherAgentSystemPrompt !== undefined && typeof obj.cipherAgentSystemPrompt !== 'string') return false
   if (obj.cipherAgentModes !== undefined && !Array.isArray(obj.cipherAgentModes)) return false
+  if (obj.version !== undefined && typeof obj.version !== 'string') return false
 
   return true
 }
@@ -91,6 +103,7 @@ export class BrvConfig {
   public readonly spaceName: string
   public readonly teamId: string
   public readonly teamName: string
+  public readonly version: string
 
   public constructor(params: BrvConfigParams) {
     if (params.createdAt.trim().length === 0) {
@@ -124,18 +137,34 @@ export class BrvConfig {
     this.spaceName = params.spaceName
     this.teamId = params.teamId
     this.teamName = params.teamName
+    this.version = params.version
   }
 
   /**
    * Deserializes config from JSON format.
    * @throws Error if the JSON structure is invalid.
+   * @throws BrvConfigVersionError if version is missing or mismatched.
    */
   public static fromJson(json: unknown): BrvConfig {
     if (!isBrvConfigJson(json)) {
       throw new Error('Invalid BrvConfig JSON structure')
     }
 
-    return new BrvConfig(json)
+    if (json.version === undefined) {
+      throw new BrvConfigVersionError({
+        currentVersion: undefined,
+        expectedVersion: BRV_CONFIG_VERSION,
+      })
+    }
+
+    if (json.version !== BRV_CONFIG_VERSION) {
+      throw new BrvConfigVersionError({
+        currentVersion: json.version,
+        expectedVersion: BRV_CONFIG_VERSION,
+      })
+    }
+
+    return new BrvConfig({...json, version: json.version})
   }
 
   /**
@@ -151,6 +180,7 @@ export class BrvConfig {
       spaceName: params.space.name,
       teamId: params.space.teamId,
       teamName: params.space.teamName,
+      version: BRV_CONFIG_VERSION,
     })
   }
 
@@ -158,7 +188,7 @@ export class BrvConfig {
    * Serializes the config to JSON format
    */
   public toJson(): Record<string, unknown> {
-    const base = {
+    return {
       chatLogPath: this.chatLogPath,
       cipherAgentContext: this.cipherAgentContext,
       cipherAgentModes: this.cipherAgentModes,
@@ -170,7 +200,7 @@ export class BrvConfig {
       spaceName: this.spaceName,
       teamId: this.teamId,
       teamName: this.teamName,
+      version: this.version,
     }
-    return base
   }
 }

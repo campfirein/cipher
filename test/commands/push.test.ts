@@ -11,6 +11,7 @@ import type {ITokenStore} from '../../src/core/interfaces/i-token-store.js'
 import type {ITrackingService} from '../../src/core/interfaces/i-tracking-service.js'
 
 import Push from '../../src/commands/push.js'
+import {BRV_CONFIG_VERSION} from '../../src/constants.js'
 import {AuthToken} from '../../src/core/domain/entities/auth-token.js'
 import {BrvConfig} from '../../src/core/domain/entities/brv-config.js'
 import {Playbook} from '../../src/core/domain/entities/playbook.js'
@@ -107,6 +108,7 @@ describe('Push Command', () => {
       spaceName: 'my-space',
       teamId: 'team-456',
       teamName: 'my-team',
+      version: BRV_CONFIG_VERSION,
     })
   })
 
