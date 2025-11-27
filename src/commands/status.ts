@@ -35,6 +35,13 @@ export default class Status extends Command {
     }),
   }
 
+  // Override catch to prevent oclif from displaying errors again
+  async catch(error: Error): Promise<void> {
+    // Status command should always succeed and just show status
+    // Any errors are already handled and logged in run()
+    throw error
+  }
+
   protected createServices(): {
     playbookStore: IPlaybookStore
     projectConfigStore: IProjectConfigStore
@@ -98,7 +105,8 @@ export default class Status extends Command {
       const playbook = await playbookStore.load(args.directory)
 
       if (!playbook) {
-        this.error('Playbook not found. Run `brv init` to initialize.')
+        this.log('Playbook Status: Not initialized (run `brv init` to initialize)')
+        return
       }
 
       // Display based on format
@@ -134,7 +142,8 @@ export default class Status extends Command {
 
       this.log(`\nUse "brv push" to push playbook to ByteRover memory storage.`)
     } catch (error) {
-      this.error(error instanceof Error ? error.message : 'Failed to load playbook statistics')
+      this.log('Playbook Status: Unable to read playbook')
+      this.warn(`Warning: ${error instanceof Error ? error.message : 'Failed to load playbook statistics'}`)
     }
   }
 }

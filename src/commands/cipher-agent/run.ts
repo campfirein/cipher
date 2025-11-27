@@ -90,6 +90,20 @@ export default class CipherAgentRun extends Command {
     }),
   }
 
+  // Override catch to prevent oclif from logging errors that were already displayed
+  async catch(error: Error & {oclif?: {exit: number}}): Promise<void> {
+    // Check if error came from exitWithCode (has oclif.exit property)
+    // If so, message was already printed by exitWithCode - just exit with that code
+    const oclifError = error as Error & {oclif?: {exit?: number}}
+    if (oclifError.oclif && oclifError.oclif.exit !== undefined) {
+      // Error already displayed by exitWithCode, silently exit
+      return
+    }
+
+    // For other errors, re-throw to let oclif handle them
+    throw error
+  }
+
   protected createServices(): {
     projectConfigStore: IProjectConfigStore
   } {
@@ -179,6 +193,14 @@ export default class CipherAgentRun extends Command {
       // Load ByteRover config to get custom system prompt (if configured)
       const {projectConfigStore} = this.createServices()
       const brvConfig = await projectConfigStore.read()
+
+      // Validate workspace is initialized
+      if (!brvConfig) {
+        throw new WorkspaceNotInitializedError(
+          'Project not initialized. Please run "brv init" to select your team and workspace.',
+          '.brv',
+        )
+      }
 
       // Create LLM configuration
       const llmConfig = this.createLLMConfig(
@@ -433,16 +455,8 @@ export default class CipherAgentRun extends Command {
    *
    * @param error - WorkspaceNotInitializedError instance
    */
-  private handleWorkspaceError(error: WorkspaceNotInitializedError): void {
-    const message = [
-      '\n⚠️  ByteRover workspace not found!\n',
-      "It looks like you haven't initialized ByteRover in this directory yet.",
-      'To get started, please run:\n',
-      '  $ brv init\n',
-      'This will create the necessary workspace structure in:',
-      `  ${error.expectedPath}\n`,
-      'After initialization, you can run cipher-agent again.',
-    ].join('\n')
+  private handleWorkspaceError(_error: WorkspaceNotInitializedError): void {
+    const message = 'Project not initialized. Please run "brv init" to select your team and workspace.'
 
     exitWithCode(ExitCode.VALIDATION_ERROR, message)
   }
@@ -499,7 +513,7 @@ export default class CipherAgentRun extends Command {
 
     // No continuation flags: generate new unique session ID
     const newSessionId = this.generateSessionId()
-    this.log(`🆕 Starting new session: ${newSessionId}\n`)
+    this.log(`🚀 Starting new session: ${newSessionId}\n`)
     return newSessionId
   }
 
@@ -534,12 +548,14 @@ export default class CipherAgentRun extends Command {
           displayInfo(summary ? `✅ ${payload.toolName} → Complete (${summary})` : `✅ ${payload.toolName} → Complete`)
         } else {
           // Clean format: ❌ tool_name → Failed: error message
-          displayInfo(`❌ ${payload.toolName} → Failed: ${payload.error}`)
+          const errorMessage = payload.error || 'Unknown error'
+          displayInfo(`❌ ${payload.toolName} → Failed: ${errorMessage}`)
         }
       })
 
       eventBus.on('llmservice:error', (payload) => {
-        displayInfo(`❌ Error: ${payload.error}`)
+        const errorMessage = payload.error || 'Unknown error occurred'
+        displayInfo(`❌ Error: ${errorMessage}`)
       })
 
       eventBus.on('cipher:conversationReset', () => {
@@ -574,7 +590,8 @@ export default class CipherAgentRun extends Command {
     })
 
     eventBus.on('llmservice:error', (payload) => {
-      this.log(`❌ [Event] LLM Error: ${payload.error}`)
+      const errorMessage = payload.error || 'Unknown error occurred'
+      this.log(`❌ [Event] LLM Error: ${errorMessage}`)
     })
 
     eventBus.on('cipher:conversationReset', () => {

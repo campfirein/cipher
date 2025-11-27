@@ -112,6 +112,14 @@ export default class Query extends Command {
       // Load project config
       const brvConfig = await projectConfigStore.read()
 
+      // Validate workspace is initialized
+      if (!brvConfig) {
+        throw new WorkspaceNotInitializedError(
+          'Project not initialized. Please run "brv init" to select your team and workspace.',
+          '.brv',
+        )
+      }
+
       // Create LLM config
       const model = flags.model ?? (flags.apiKey ? 'google/gemini-2.5-pro' : 'gemini-2.5-pro')
       const envConfig = getCurrentConfig()
@@ -323,16 +331,8 @@ export default class Query extends Command {
   /**
    * Handle workspace not initialized error
    */
-  private handleWorkspaceError(error: WorkspaceNotInitializedError): void {
-    const message = [
-      '\n⚠️  ByteRover workspace not found!\n',
-      "It looks like you haven't initialized ByteRover in this directory yet.",
-      'To get started, please run:\n',
-      '  $ brv init\n',
-      'This will create the necessary workspace structure in:',
-      `  ${error.expectedPath}\n`,
-      'After initialization, you can run query again.',
-    ].join('\n')
+  private handleWorkspaceError(_error: WorkspaceNotInitializedError): void {
+    const message = 'Project not initialized. Please run "brv init" to select your team and workspace.'
 
     exitWithCode(ExitCode.VALIDATION_ERROR, message)
   }

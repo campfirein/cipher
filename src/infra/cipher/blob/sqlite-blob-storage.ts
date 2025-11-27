@@ -208,7 +208,7 @@ export class SqliteBlobStorage implements IBlobStorage {
       const appliedCount = runMigrations(this.db, this.logger)
 
       if (appliedCount > 0) {
-        this.logger.info(`🔄 Initializing storage...`)
+        this.logger.info(`💾 Initializing storage...`)
       }
 
       this.initialized = true

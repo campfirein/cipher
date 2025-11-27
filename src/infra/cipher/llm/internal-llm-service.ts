@@ -528,7 +528,9 @@ export class ByteRoverLLMService implements ILLMService {
             throw error
           }
 
-          throw new LlmResponseParsingError(String(error), 'byterover', this.config.model)
+          // Use .message to avoid "Error: Error: ..." nesting
+          const errorMessage = error instanceof Error ? error.message : String(error)
+          throw new LlmResponseParsingError(errorMessage, 'byterover', this.config.model)
         }
 
         // Don't retry on last attempt
