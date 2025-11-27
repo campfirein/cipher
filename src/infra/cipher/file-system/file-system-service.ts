@@ -93,10 +93,7 @@ export class FileSystemService implements IFileSystem {
       let {content} = fileContent
 
       // Escape regex special characters for literal string matching
-      const escapedOldString = operation.oldString.replaceAll(
-        /[$()*+.?[\u005C\]^{|}]/g,
-        String.raw`\$&`,
-      )
+      const escapedOldString = operation.oldString.replaceAll(/[$()*+.?[\u005C\]^{|}]/g, String.raw`\$&`)
 
       // Count occurrences
       const occurrences = (content.match(new RegExp(escapedOldString, 'g')) || []).length
@@ -292,8 +289,7 @@ export class FileSystemService implements IFileSystem {
       const {limit, offset: offset1} = options
 
       if (offset1 !== undefined || limit !== undefined) {
-        const start =
-          offset1 !== undefined && offset1 > 0 ? Math.max(0, offset1 - 1) : 0
+        const start = offset1 !== undefined && offset1 > 0 ? Math.max(0, offset1 - 1) : 0
         const end = limit === undefined ? lines.length : start + limit
 
         selectedLines = lines.slice(start, end)
@@ -331,10 +327,7 @@ export class FileSystemService implements IFileSystem {
   /**
    * Search file contents for a pattern.
    */
-  public async searchContent(
-    pattern: string,
-    options: SearchOptions = {},
-  ): Promise<SearchResult> {
+  public async searchContent(pattern: string, options: SearchOptions = {}): Promise<SearchResult> {
     this.ensureInitialized()
 
     const globPattern = options.globPattern ?? '**/*'
@@ -368,11 +361,7 @@ export class FileSystemService implements IFileSystem {
   /**
    * Write content to a file.
    */
-  public async writeFile(
-    filePath: string,
-    content: string,
-    options: WriteFileOptions = {},
-  ): Promise<WriteResult> {
+  public async writeFile(filePath: string, content: string, options: WriteFileOptions = {}): Promise<WriteResult> {
     this.ensureInitialized()
 
     // Validate path
