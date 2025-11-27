@@ -15,12 +15,14 @@ export const AGENT_EVENT_NAMES = [
  * These events are emitted at the session level and do not include sessionId in payloads.
  */
 export const SESSION_EVENT_NAMES = [
-  'llmservice:thinking',
   'llmservice:chunk',
+  'llmservice:error',
+  'llmservice:outputTruncated',
   'llmservice:response',
+  'llmservice:thinking',
+  'llmservice:thought',
   'llmservice:toolCall',
   'llmservice:toolResult',
-  'llmservice:error',
   'llmservice:unsupportedInput',
   'llmservice:warning',
 ] as const
@@ -63,6 +65,25 @@ export type LogLevel = 'debug' | 'error' | 'info' | 'warn'
  * UI event type for user interface actions.
  */
 export type UIEventType = 'banner' | 'help' | 'prompt' | 'response' | 'separator' | 'shutdown'
+
+/**
+ * Tool error type classification.
+ * Used for structured error reporting in tool execution.
+ */
+export type ToolErrorType =
+  | 'CANCELLED'
+  | 'CONFIRMATION_REJECTED'
+  | 'EXECUTION_FAILED'
+  | 'INTERNAL_ERROR'
+  | 'INVALID_PARAM_TYPE'
+  | 'INVALID_PARAMS'
+  | 'MISSING_REQUIRED_PARAM'
+  | 'PARAM_VALIDATION_FAILED'
+  | 'PERMISSION_DENIED'
+  | 'PROVIDER_ERROR'
+  | 'TIMEOUT'
+  | 'TOOL_DISABLED'
+  | 'TOOL_NOT_FOUND'
 
 /**
  * Agent-level event payloads.
@@ -161,6 +182,20 @@ export interface AgentEventMap {
   }
 
   /**
+   * Emitted when tool output is truncated due to size.
+   * @property {number} originalLength - Original output length before truncation
+   * @property {string} savedToFile - Path to file where full output was saved
+   * @property {string} sessionId - ID of the session
+   * @property {string} toolName - Name of the tool that produced the output
+   */
+  'llmservice:outputTruncated': {
+    originalLength: number
+    savedToFile: string
+    sessionId: string
+    toolName: string
+  }
+
+  /**
    * Emitted when LLM completes a response.
    * @property {string} content - Full response content
    * @property {string} [model] - Model identifier
@@ -189,6 +224,18 @@ export interface AgentEventMap {
   }
 
   /**
+   * Emitted when LLM generates a thought (Gemini models only).
+   * @property {string} description - Detailed thought description
+   * @property {string} sessionId - ID of the session
+   * @property {string} subject - Brief thought subject
+   */
+  'llmservice:thought': {
+    description: string
+    sessionId: string
+    subject: string
+  }
+
+  /**
    * Emitted when LLM requests a tool call.
    * @property {Record<string, unknown>} args - Arguments for the tool
    * @property {string} [callId] - Unique identifier for this tool call
@@ -206,6 +253,8 @@ export interface AgentEventMap {
    * Emitted when a tool execution completes.
    * @property {string} [callId] - Tool call identifier
    * @property {string} [error] - Error message (if failed)
+   * @property {ToolErrorType} [errorType] - Classified error type (if failed)
+   * @property {Record<string, unknown>} [metadata] - Execution metadata (duration, tokens, etc.)
    * @property {unknown} [result] - Tool execution result
    * @property {string} sessionId - ID of the session
    * @property {boolean} success - Whether execution succeeded
@@ -214,6 +263,8 @@ export interface AgentEventMap {
   'llmservice:toolResult': {
     callId?: string
     error?: string
+    errorType?: ToolErrorType
+    metadata?: Record<string, unknown>
     result?: unknown
     sessionId: string
     success: boolean
@@ -273,6 +324,18 @@ export interface SessionEventMap {
   }
 
   /**
+   * Emitted when tool output is truncated due to size.
+   * @property {number} originalLength - Original output length before truncation
+   * @property {string} savedToFile - Path to file where full output was saved
+   * @property {string} toolName - Name of the tool that produced the output
+   */
+  'llmservice:outputTruncated': {
+    originalLength: number
+    savedToFile: string
+    toolName: string
+  }
+
+  /**
    * Emitted when LLM completes a response.
    * @property {string} content - Full response content
    * @property {string} [model] - Model identifier
@@ -296,6 +359,16 @@ export interface SessionEventMap {
   'llmservice:thinking': void
 
   /**
+   * Emitted when LLM generates a thought (Gemini models only).
+   * @property {string} description - Detailed thought description
+   * @property {string} subject - Brief thought subject
+   */
+  'llmservice:thought': {
+    description: string
+    subject: string
+  }
+
+  /**
    * Emitted when LLM requests a tool call.
    * @property {Record<string, unknown>} args - Arguments for the tool
    * @property {string} [callId] - Unique identifier for this tool call
@@ -311,6 +384,8 @@ export interface SessionEventMap {
    * Emitted when a tool execution completes.
    * @property {string} [callId] - Tool call identifier
    * @property {string} [error] - Error message (if failed)
+   * @property {ToolErrorType} [errorType] - Classified error type (if failed)
+   * @property {Record<string, unknown>} [metadata] - Execution metadata (duration, tokens, etc.)
    * @property {unknown} [result] - Tool execution result
    * @property {boolean} success - Whether execution succeeded
    * @property {string} toolName - Name of the executed tool
@@ -318,6 +393,8 @@ export interface SessionEventMap {
   'llmservice:toolResult': {
     callId?: string
     error?: string
+    errorType?: ToolErrorType
+    metadata?: Record<string, unknown>
     result?: unknown
     success: boolean
     toolName: string

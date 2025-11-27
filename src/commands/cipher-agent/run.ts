@@ -69,7 +69,7 @@ export default class CipherAgentRun extends Command {
     }),
     model: Flags.string({
       char: 'm',
-      description: 'Model to use (default: anthropic/claude-haiku-4.5 for OpenRouter, gemini-2.5-flash for gRPC)',
+      description: 'Model to use (default: google/gemini-2.5-pro for OpenRouter, gemini-2.5-pro for gRPC)',
     }),
     resume: Flags.string({
       char: 'r',
@@ -77,7 +77,7 @@ export default class CipherAgentRun extends Command {
     }),
     temperature: Flags.string({
       char: 'T',
-      description: 'Temperature for randomness 0-1 (default: 0.7)',
+      description: 'Temperature for randomness 0-1 (default: 0.2)',
     }),
     verbose: Flags.boolean({
       char: 'v',
@@ -294,8 +294,8 @@ export default class CipherAgentRun extends Command {
     temperature: number
     verbose?: boolean
   } {
-    // Default model: anthropic/anthropic/claude-haiku-4.5 for OpenRouter, gemini-2.5-flash for gRPC
-    const model = flags.model ?? (flags.apiKey ? 'anthropic/claude-haiku-4.5' : 'claude-haiku-4-5@20251001') // change it to claude-haiku-4-5@20251001 | gemini-2.5-flash for internal llm service model
+    // Default model: google/gemini-2.5-pro for OpenRouter, gemini-2.5-pro for gRPC
+    const model = flags.model ?? (flags.apiKey ? 'google/gemini-2.5-pro' : 'gemini-2.5-pro')
     const envConfig = getCurrentConfig()
 
     return {
@@ -310,7 +310,7 @@ export default class CipherAgentRun extends Command {
       sessionKey: token.sessionKey,
       spaceId: token.spaceId,
       teamId: token.teamId,
-      temperature: flags.temperature ? Number.parseFloat(flags.temperature) : 0.7, // Default: 0.7
+      temperature: flags.temperature ? Number.parseFloat(flags.temperature) : 0.2, // Default: 0.2
       verbose: flags.verbose ?? false,
     }
   }
@@ -537,21 +537,6 @@ export default class CipherAgentRun extends Command {
 
       eventBus.on('cipher:conversationReset', () => {
         displayInfo('🔄 Conversation history cleared')
-      })
-
-      eventBus.on('cipher:cleanExternalSessionProcessing', (payload) => {
-        const p = payload as {codingAgent: string}
-        displayInfo(`📦 Loading context from ${p.codingAgent}...`)
-      })
-
-      eventBus.on('cipher:cleanExternalSessionProcessed', (payload) => {
-        const p = payload as {codingAgent: string; externalSessionTitle: string}
-        displayInfo(`✅ Context loaded from ${p.codingAgent}: ${p.externalSessionTitle}`)
-      })
-
-      eventBus.on('cipher:cleanExternalSessionProcessingError', (payload) => {
-        const p = payload as {codingAgent: string; error: {message: string}}
-        displayInfo(`❌ Failed to load context from ${p.codingAgent}: ${p.error.message}`)
       })
 
       return

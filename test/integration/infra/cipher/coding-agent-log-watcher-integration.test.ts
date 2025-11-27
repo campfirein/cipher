@@ -5,10 +5,41 @@ import {join} from 'node:path'
 import {setTimeout} from 'node:timers/promises'
 import {restore, stub} from 'sinon'
 
-import {CleanSession} from '../../../../src/core/domain/entities/parser.js'
-import {StubCodingAgentLogParser} from '../../../../src/infra/cipher/parsers/stub-coding-agent-log-parser.js'
+import type {Agent} from '../../../../src/core/domain/entities/agent.js'
+import type {CleanSession} from '../../../../src/core/domain/entities/parser.js'
+import type {ICodingAgentLogParser} from '../../../../src/core/interfaces/cipher/i-coding-agent-log-parser.js'
+
 import {CodingAgentLogWatcher} from '../../../../src/infra/cipher/watcher/coding-agent-log-watcher.js'
 import {FileWatcherService} from '../../../../src/infra/watcher/file-watcher-service.js'
+
+/**
+ * Test parser that returns mock sessions for integration testing.
+ * This allows the integration test to focus on the watcher's file detection behavior
+ * without depending on the real parser's implementation details.
+ */
+class TestCodingAgentLogParser implements ICodingAgentLogParser {
+  async parse(chatLogPath: string, ide: Agent): Promise<readonly CleanSession[]> {
+    const mockSession: CleanSession = {
+      id: `test-session-${Date.now()}`,
+      messages: [
+        {
+          content: [{text: 'Test message', type: 'text'}],
+          timestamp: new Date().toISOString(),
+          type: 'user',
+        },
+      ],
+      metadata: {
+        originalFile: chatLogPath,
+        source: ide,
+      },
+      timestamp: Date.now(),
+      title: 'Test Session',
+      type: 'Claude',
+      workspacePaths: [],
+    }
+    return [mockSession]
+  }
+}
 
 describe('CodingAgentLogWatcher Integration Test', () => {
   let testDir: string
@@ -22,7 +53,7 @@ describe('CodingAgentLogWatcher Integration Test', () => {
 
     testDir = await mkdtemp(join(tmpdir(), 'brv-test-'))
     const fileWatcherService = new FileWatcherService()
-    const parser = new StubCodingAgentLogParser()
+    const parser = new TestCodingAgentLogParser()
     watcher = new CodingAgentLogWatcher(fileWatcherService, parser)
   })
 
@@ -47,10 +78,13 @@ describe('CodingAgentLogWatcher Integration Test', () => {
     const sessions: CleanSession[] = []
     // Start watcher with empty directory
     await watcher.start({
-      async onSession(session) {
+      codingAgentInfo: {
+        chatLogPath: testDir,
+        name: 'Github Copilot',
+      },
+      async onCleanSession(session) {
         sessions.push(session)
       },
-      paths: [testDir],
     })
     const initialCount = sessions.length
 
@@ -65,10 +99,13 @@ describe('CodingAgentLogWatcher Integration Test', () => {
   it('should stop watching when stop() is called', async () => {
     // Start watcher
     await watcher.start({
-      async onSession() {
+      codingAgentInfo: {
+        chatLogPath: testDir,
+        name: 'Github Copilot',
+      },
+      async onCleanSession() {
         // No-op
       },
-      paths: [testDir],
     })
 
     expect(watcher.isWatching()).to.be.true
@@ -79,37 +116,6 @@ describe('CodingAgentLogWatcher Integration Test', () => {
     expect(watcher.isWatching()).to.be.false
   })
 
-  it('should handle multiple directories', async () => {
-    // Create second test directory
-    const testDir2 = await mkdtemp(join(tmpdir(), 'brv-test-'))
-
-    try {
-      // Create files in both directories
-      await writeFile(join(testDir, 'file1.log'), 'content 1')
-      await writeFile(join(testDir2, 'file2.log'), 'content 2')
-
-      // Track sessions
-      const sessions: CleanSession[] = []
-
-      // Start watcher with multiple paths
-      await watcher.start({
-        async onSession(session) {
-          sessions.push(session)
-        },
-        paths: [testDir, testDir2],
-      })
-
-      // Wait for events
-      await setTimeout(30)
-
-      // Verify: files from both directories should be processed
-      expect(sessions).to.have.length.greaterThan(0)
-    } finally {
-      // Cleanup second directory
-      await rm(testDir2, {force: true, recursive: true})
-    }
-  })
-
   it('should handle errors in session handler gracefully', async () => {
     // Create test file
     await writeFile(join(testDir, 'test.log'), 'content')
@@ -118,11 +124,14 @@ describe('CodingAgentLogWatcher Integration Test', () => {
 
     // Start watcher with handler that throws
     await watcher.start({
-      async onSession() {
+      codingAgentInfo: {
+        chatLogPath: testDir,
+        name: 'Github Copilot',
+      },
+      async onCleanSession() {
         errorThrown = true
         throw new Error('Handler error')
       },
-      paths: [testDir],
     })
 
     // Wait for events

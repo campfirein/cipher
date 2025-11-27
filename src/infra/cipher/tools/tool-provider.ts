@@ -11,6 +11,7 @@ import {
   ToolProviderNotInitializedError,
   ToolValidationError,
 } from '../../../core/domain/cipher/errors/tool-error.js'
+import {ToolInvocationBuilder} from './tool-invocation.js'
 import { ToolMarker } from './tool-markers.js'
 import { TOOL_REGISTRY } from './tool-registry.js'
 import { convertZodToJsonSchema } from './utils/schema-converter.js'
@@ -18,9 +19,14 @@ import { convertZodToJsonSchema } from './utils/schema-converter.js'
 /**
  * Tool provider implementation.
  * Manages tool lifecycle: registration, validation, and execution.
+ *
+ * Uses builder/invocation pattern for two-phase tool execution:
+ * 1. Validation phase (via builder)
+ * 2. Execution phase (via invocation)
  */
 export class ToolProvider implements IToolProvider {
   private initialized: boolean = false
+  private invocationBuilder?: ToolInvocationBuilder
   private readonly promptFactory?: SimplePromptFactory
   private readonly services: ToolServices
   private readonly toolMarkers: Set<string> = new Set()
@@ -37,7 +43,19 @@ export class ToolProvider implements IToolProvider {
   }
 
   /**
-   * Execute a tool with the given arguments.
+   * Execute a tool with the given arguments using builder/invocation pattern.
+   *
+   * Two-phase execution:
+   * 1. Build Phase: Validate and create invocation
+   * 2. Execute Phase: Run the validated invocation
+   *
+   * @param toolName - Name of the tool to execute
+   * @param args - Tool arguments
+   * @param sessionId - Optional session ID for context
+   * @returns Tool execution result
+   * @throws ToolNotFoundError if tool doesn't exist
+   * @throws ToolValidationError if input validation fails
+   * @throws ToolExecutionError if execution fails
    */
   public async executeTool(
     toolName: string,
@@ -46,23 +64,36 @@ export class ToolProvider implements IToolProvider {
   ): Promise<unknown> {
     this.ensureInitialized()
 
-    // Get tool
-    const tool = this.tools.get(toolName)
-    if (!tool) {
-      throw new ToolNotFoundError(toolName)
+    if (!this.invocationBuilder) {
+      throw new ToolProviderNotInitializedError()
     }
 
-    // Validate input against schema
     try {
-      const validatedInput = tool.inputSchema.parse(args)
+      // Phase 1: Build and validate invocation
+      const context: ToolExecutionContext = {sessionId}
+      const invocation = this.invocationBuilder.build(
+        `tool_call_${Date.now()}`, // Generate unique ID
+        toolName,
+        args,
+        context
+      )
 
-      // Create execution context
-      const context: ToolExecutionContext = {
-        sessionId,
+      // Phase 2: Execute validated invocation
+      const executionResult = await invocation.execute()
+
+      // Handle execution result
+      if (!executionResult.result) {
+        // Execution failed
+        if (executionResult.error) {
+          throw new ToolExecutionError(
+            toolName,
+            executionResult.error.message,
+            sessionId
+          )
+        }
+
+        throw new ToolExecutionError(toolName, 'Unknown execution error', sessionId)
       }
-
-      // Execute tool
-      const result = await tool.execute(validatedInput, context)
 
       // Check if this tool has output guidance configured
       const registryEntry = TOOL_REGISTRY[toolName as keyof typeof TOOL_REGISTRY]
@@ -70,21 +101,30 @@ export class ToolProvider implements IToolProvider {
         const guidance = this.promptFactory.getToolOutputGuidance(registryEntry.outputGuidance)
 
         if (guidance) {
-          // Return structured result with guidance (Option A)
+          // Return structured result with guidance
           return {
             guidance,
-            result,
+            result: executionResult.result,
           }
         }
       }
 
       // Return result without guidance
-      return result
+      return executionResult.result
     } catch (error) {
-      // Handle Zod validation errors
+      // Handle validation errors from builder
       if (error instanceof ZodError) {
         const errorMessages = error.errors.map((err) => `${err.path.join('.')}: ${err.message}`).join('; ')
         throw new ToolValidationError(toolName, errorMessages)
+      }
+
+      // Re-throw known errors
+      if (
+        error instanceof ToolNotFoundError ||
+        error instanceof ToolValidationError ||
+        error instanceof ToolExecutionError
+      ) {
+        throw error
       }
 
       // Handle other execution errors
@@ -196,6 +236,9 @@ export class ToolProvider implements IToolProvider {
         }
       }
     }
+
+    // Initialize invocation builder with registered tools
+    this.invocationBuilder = new ToolInvocationBuilder(this.tools)
 
     this.initialized = true
   }

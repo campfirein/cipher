@@ -129,13 +129,6 @@ export async function createCipherAgentServices(llmConfig: CipherLLMConfig): Pro
   // 9. History storage (depends on BlobStorage) - SHARED across sessions
   const historyStorage = new BlobHistoryStorage(blobStorage)
 
-  // Log successful initialization
-  logger.info('CipherAgent services initialized successfully', {
-    model: llmConfig.model,
-    verbose: llmConfig.verbose,
-    workingDirectory,
-  })
-
   return {
     agentEventBus,
     blobStorage,
@@ -203,7 +196,7 @@ export function createSessionServices(
         httpReferer: llmConfig.httpReferer,
         maxIterations: llmConfig.maxIterations ?? 50,
         maxTokens: llmConfig.maxTokens ?? 8192,
-        model: llmConfig.model ?? 'anthropic/claude-haiku-4.5',
+        model: llmConfig.model ?? 'google/gemini-2.5-pro',
         siteName: llmConfig.siteName,
         temperature: llmConfig.temperature ?? 0.7,
         verbose: llmConfig.verbose ?? false,
@@ -235,7 +228,7 @@ export function createSessionServices(
       {
         maxIterations: llmConfig.maxIterations ?? 50,
         maxTokens: llmConfig.maxTokens ?? 8192,
-        model: llmConfig.model ?? 'claude-haiku-4-5@20251001',
+        model: llmConfig.model ?? 'gemini-2.5-pro',
         temperature: llmConfig.temperature ?? 0.7,
         verbose: llmConfig.verbose ?? false,
       },

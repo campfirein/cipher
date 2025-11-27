@@ -25,10 +25,7 @@ import {RawParserServiceFactory} from '../../parsers/raw/raw-parser-service-fact
  * directory will be re-parsed. This is inefficient but safe, and can be optimized later.
  */
 export class CodingAgentLogParser implements ICodingAgentLogParser {
-  private readonly chatLogPath: string
-  private readonly ide: Agent
-
-  public constructor(chatLogPath: string, ide: Agent) {
+  public async parse(chatLogPath: string, ide: Agent): Promise<readonly CleanSession[]> {
     if (!RawParserServiceFactory.isSupported(ide)) {
       throw new Error(`Unsupported IDE: ${ide}`)
     }
@@ -37,22 +34,17 @@ export class CodingAgentLogParser implements ICodingAgentLogParser {
       throw new Error('Chat log path cannot be empty')
     }
 
-    this.chatLogPath = chatLogPath
-    this.ide = ide
-  }
-
-  public async parseLogFile(): Promise<readonly CleanSession[]> {
     let isRawSuccess = false
     try {
-      isRawSuccess = await RawParserServiceFactory.parseConversations(this.ide, this.chatLogPath)
+      isRawSuccess = await RawParserServiceFactory.parseConversations(ide, chatLogPath)
     } catch (error) {
       throw new Error(`Raw parsing error: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
 
     if (isRawSuccess) {
       try {
-        const rawOutputDir = `${process.cwd()}/.brv/logs/${this.ide}/raw`
-        const cleanSessions = await CleanParserServiceFactory.parseConversations(this.ide, rawOutputDir)
+        const rawOutputDir = `${process.cwd()}/.brv/logs/${ide}/raw`
+        const cleanSessions = await CleanParserServiceFactory.parseConversations(ide, rawOutputDir)
 
         if (cleanSessions.length > 0) {
           return Object.freeze(cleanSessions)

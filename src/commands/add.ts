@@ -60,7 +60,7 @@ export default class Add extends Command {
           model: Flags.string({
             char: 'm',
             description:
-              'Model to use (default: anthropic/claude-haiku-4.5 for OpenRouter, claude-haiku-4-5@20251001 for gRPC) [Development only]',
+              'Model to use (default: google/gemini-2.5-pro for OpenRouter, gemini-2.5-pro for gRPC) [Development only]',
           }),
         }
       : {}),
@@ -304,7 +304,7 @@ export default class Add extends Command {
       const brvConfig = await projectConfigStore.read()
 
       // Create LLM config
-      const model = flags.model ?? (flags.apiKey ? 'anthropic/claude-haiku-4.5' : 'claude-haiku-4-5@20251001') // change it to claude-haiku-4-5@20251001 | gemini-2.5-flash for internal llm service model
+      const model = flags.model ?? (flags.apiKey ? 'google/gemini-2.5-pro' : 'gemini-2.5-pro')
       const envConfig = getCurrentConfig()
 
       const llmConfig = {
@@ -346,7 +346,7 @@ export default class Add extends Command {
 
         await trackingService.track('ace:add_bullet')
       } finally {
-        // await agent.stop()
+        console.log('Logic for agent stopping and resource cleanup may go here!')
       }
     } catch (error) {
       if (error instanceof WorkspaceNotInitializedError) {

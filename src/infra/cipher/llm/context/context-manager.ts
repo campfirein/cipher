@@ -143,15 +143,17 @@ export class ContextManager<T> {
    * @param toolCallId - ID of the tool call this result responds to
    * @param toolName - Name of the tool that was executed
    * @param result - Result from tool execution
-   * @param _metadata - Additional metadata with success status (currently unused)
+   * @param _metadata - Additional metadata (success status, error type, execution metadata)
    * @param _metadata.success - Whether the tool execution succeeded
+   * @param _metadata.errorType - Classified error type (if failed)
+   * @param _metadata.metadata - Execution metadata (duration, tokens, etc.)
    * @returns The content that was added
    */
   public async addToolResult(
     toolCallId: string,
     toolName: string,
     result: unknown,
-    _metadata: {success: boolean},
+    _metadata: {errorType?: string; metadata?: Record<string, unknown>; success: boolean},
   ): Promise<string> {
     // Sanitize result - convert to string representation
     const sanitized = this.sanitizeToolResult(result)
