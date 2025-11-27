@@ -1,0 +1,152 @@
+import {createHash} from 'node:crypto'
+import {readdir, readFile, stat, writeFile} from 'node:fs/promises'
+import {join, relative} from 'node:path'
+
+import type {IContextTreeSnapshotService} from '../../core/interfaces/i-context-tree-snapshot-service.js'
+
+import {BRV_DIR, CONTEXT_FILE, CONTEXT_TREE_DIR, SNAPSHOT_FILE} from '../../constants.js'
+import {
+  ContextTreeChanges,
+  ContextTreeSnapshot,
+  ContextTreeSnapshotJson,
+  FileState,
+} from '../../core/domain/entities/context-tree-snapshot.js'
+
+export type ContextTreeSnapshotServiceConfig = {
+  baseDirectory?: string
+}
+
+/**
+ * File-based implementation of IContextTreeSnapshotService.
+ * Tracks context tree changes using content hashing.
+ */
+export class FileContextTreeSnapshotService implements IContextTreeSnapshotService {
+  private readonly config: ContextTreeSnapshotServiceConfig
+
+  public constructor(config: ContextTreeSnapshotServiceConfig = {}) {
+    this.config = config
+  }
+
+  public async getChanges(directory?: string): Promise<ContextTreeChanges> {
+    const baseDir = directory ?? this.config.baseDirectory ?? process.cwd()
+    const contextTreeDir = join(baseDir, BRV_DIR, CONTEXT_TREE_DIR)
+
+    const snapshot = await this.loadSnapshot(contextTreeDir)
+    if (!snapshot) {
+      // No snapshot means everything is "new" but we return empty for clean status
+      return {added: [], deleted: [], modified: []}
+    }
+
+    const currentState = await this.getCurrentState(directory)
+    return snapshot.compare(currentState)
+  }
+
+  public async getCurrentState(directory?: string): Promise<Map<string, FileState>> {
+    const baseDir = directory ?? this.config.baseDirectory ?? process.cwd()
+    const contextTreeDir = join(baseDir, BRV_DIR, CONTEXT_TREE_DIR)
+
+    const files = new Map<string, FileState>()
+
+    try {
+      await this.scanDirectory(contextTreeDir, contextTreeDir, files)
+    } catch {
+      // Directory doesn't exist or can't be read
+      return files
+    }
+
+    return files
+  }
+
+  public async hasSnapshot(directory?: string): Promise<boolean> {
+    const baseDir = directory ?? this.config.baseDirectory ?? process.cwd()
+    const snapshotPath = join(baseDir, BRV_DIR, CONTEXT_TREE_DIR, SNAPSHOT_FILE)
+
+    try {
+      await stat(snapshotPath)
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  public async initEmptySnapshot(directory?: string): Promise<void> {
+    const baseDir = directory ?? this.config.baseDirectory ?? process.cwd()
+    const contextTreeDir = join(baseDir, BRV_DIR, CONTEXT_TREE_DIR)
+    const snapshotPath = join(contextTreeDir, SNAPSHOT_FILE)
+
+    const emptySnapshot = ContextTreeSnapshot.create(new Map())
+    await writeFile(snapshotPath, JSON.stringify(emptySnapshot.toJson(), null, 2), 'utf8')
+  }
+
+  public async saveSnapshot(directory?: string): Promise<void> {
+    const baseDir = directory ?? this.config.baseDirectory ?? process.cwd()
+    const contextTreeDir = join(baseDir, BRV_DIR, CONTEXT_TREE_DIR)
+    const snapshotPath = join(contextTreeDir, SNAPSHOT_FILE)
+
+    const currentState = await this.getCurrentState(directory)
+    const snapshot = ContextTreeSnapshot.create(currentState)
+
+    await writeFile(snapshotPath, JSON.stringify(snapshot.toJson(), null, 2), 'utf8')
+  }
+
+  /**
+   * Computes SHA-256 hash of file content.
+   */
+  private computeHash(content: Buffer): string {
+    return createHash('sha256').update(content).digest('hex')
+  }
+
+  /**
+   * Loads snapshot from file.
+   */
+  private async loadSnapshot(contextTreeDir: string): Promise<ContextTreeSnapshot | null> {
+    const snapshotPath = join(contextTreeDir, SNAPSHOT_FILE)
+
+    try {
+      const content = await readFile(snapshotPath, 'utf8')
+      const json = JSON.parse(content) as ContextTreeSnapshotJson
+      return ContextTreeSnapshot.fromJson(json) ?? null
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * Processes a single file and adds it to the files map.
+   */
+  private async processFile(fullPath: string, rootDir: string, files: Map<string, FileState>): Promise<void> {
+    const relativePath = relative(rootDir, fullPath)
+    const [content, fileStat] = await Promise.all([readFile(fullPath), stat(fullPath)])
+
+    files.set(relativePath, {
+      hash: this.computeHash(content),
+      size: fileStat.size,
+    })
+  }
+
+  /**
+   * Recursively scans directory for files, excluding snapshot file.
+   */
+  private async scanDirectory(currentDir: string, rootDir: string, files: Map<string, FileState>): Promise<void> {
+    const entries = await readdir(currentDir, {withFileTypes: true})
+
+    const tasks: Promise<void>[] = []
+
+    for (const entry of entries) {
+      const fullPath = join(currentDir, entry.name)
+
+      // Skip snapshot file
+      if (entry.name === SNAPSHOT_FILE) {
+        continue
+      }
+
+      if (entry.isDirectory()) {
+        tasks.push(this.scanDirectory(fullPath, rootDir, files))
+      } else if (entry.isFile() && entry.name === CONTEXT_FILE) {
+        tasks.push(this.processFile(fullPath, rootDir, files))
+      }
+    }
+
+    await Promise.all(tasks)
+  }
+}
