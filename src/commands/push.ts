@@ -127,7 +127,7 @@ export default class Push extends Command {
 
       await trackingService.track('mem:push')
 
-      const token = await this.validateAuth(tokenStore)
+      await this.validateAuth(tokenStore)
       const projectConfig = await this.checkProjectInit(projectConfigStore)
 
       // Prompt for confirmation unless --yes flag is provided
