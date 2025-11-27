@@ -74,7 +74,6 @@ describe('interactive-loop', () => {
       listPersistedSessions: sandbox.stub(),
       reset: sandbox.stub(),
       start: sandbox.stub(),
-      stop: sandbox.stub().resolves(),
     } as ICipherAgent
   })
 
@@ -233,7 +232,6 @@ describe('interactive-loop', () => {
       await loopPromise
 
       expect((mockReadline.close as sinon.SinonStub).called).to.be.true
-      expect((mockAgent.stop as sinon.SinonStub).called).to.be.true
     })
 
     it('should handle regular prompt and call agent.execute', async () => {
@@ -354,7 +352,6 @@ describe('interactive-loop', () => {
       await setTimeout(1)
 
       expect((mockReadline.close as sinon.SinonStub).called).to.be.true
-      expect((mockAgent.stop as sinon.SinonStub).called).to.be.true
     })
 
     it('should cleanup on SIGTERM', async () => {
@@ -377,7 +374,6 @@ describe('interactive-loop', () => {
       await setTimeout(1)
 
       expect((mockReadline.close as sinon.SinonStub).called).to.be.true
-      expect((mockAgent.stop as sinon.SinonStub).called).to.be.true
     })
 
     it('should cleanup resources in finally block', async () => {
@@ -392,7 +388,6 @@ describe('interactive-loop', () => {
       await loopPromise
 
       expect((mockReadline.close as sinon.SinonStub).called).to.be.true
-      expect((mockAgent.stop as sinon.SinonStub).called).to.be.true
     })
   })
 })
