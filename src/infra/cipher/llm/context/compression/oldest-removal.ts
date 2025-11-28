@@ -39,10 +39,7 @@ export class OldestRemovalStrategy implements ICompressionStrategy {
 
   public constructor(options: OldestRemovalOptions = {}) {
     this.minMessagesToKeep = options.minMessagesToKeep ?? 4
-
-    console.log(
-      `OldestRemovalStrategy initialized: minMessagesToKeep=${this.minMessagesToKeep}`,
-    )
+    // Debug logging removed for cleaner user experience
   }
 
   public async compress(
@@ -53,7 +50,6 @@ export class OldestRemovalStrategy implements ICompressionStrategy {
     // Work with a copy to avoid mutating input
     const currentHistory = [...history]
     let currentTokenCount = countMessagesTokens(currentHistory, tokenizer)
-    const initialCount = currentHistory.length
 
     // Remove oldest messages until token limit met or minimum reached
     while (
@@ -69,22 +65,13 @@ export class OldestRemovalStrategy implements ICompressionStrategy {
 
     // Warn if still over limit after reaching minimum
     if (currentTokenCount > maxHistoryTokens) {
+      // Keep warning as it's important
       console.warn(
         `OldestRemovalStrategy: Cannot compress further - at minimum ${this.minMessagesToKeep} messages (${currentTokenCount} tokens > ${maxHistoryTokens} limit)`,
       )
     }
 
-    const removed = initialCount - currentHistory.length
-
-    if (removed > 0) {
-      console.log(
-        `OldestRemovalStrategy: Removed ${removed} oldest messages (${initialCount} → ${currentHistory.length} messages, ${currentTokenCount} tokens)`,
-      )
-    } else {
-      console.log(
-        `OldestRemovalStrategy: No compression needed or possible (${currentTokenCount} tokens)`,
-      )
-    }
+    // Debug logging removed for cleaner user experience
 
     return currentHistory
   }

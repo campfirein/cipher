@@ -22,6 +22,7 @@
     "chokidar": "^4.0.3",
     "express": "^5.1.0",
     "glob": "^11.0.3",
+    "inquirer-file-selector": "^1.0.1",
     "js-yaml": "^4.1.1",
     "keytar": "^7.9.0",
     "mixpanel": "^0.18.1",
@@ -40,7 +41,7 @@
     "@types/express": "^5.0.3",
     "@types/js-yaml": "^4.0.9",
     "@types/mocha": "^10",
-    "@types/node": "^18",
+    "@types/node": "^20",
     "@types/sinon": "^17.0.4",
     "chai": "^4",
     "eslint": "^9",
@@ -55,7 +56,7 @@
     "typescript": "^5"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=20.0.0"
   },
   "files": [
     "./bin",
@@ -72,6 +73,8 @@
     "dirname": "brv",
     "commands": "./dist/commands",
     "hooks": {
+      "command_not_found": "./dist/hooks/command_not_found/handle-invalid-commands",
+      "error": "./dist/hooks/error/clean-errors",
       "init": "./dist/hooks/init/welcome"
     },
     "plugins": [

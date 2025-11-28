@@ -1,5 +1,15 @@
 import type Database from 'better-sqlite3'
 
+import type {BlobLogger} from '../../../core/domain/cipher/blob/types.js'
+
+/**
+ * Default logger that uses console (fallback when no logger provided)
+ */
+const defaultLogger: BlobLogger = {
+  error: (message: string) => console.error(message),
+  info: (message: string) => console.log(message),
+}
+
 /**
  * Migration definition type
  */
@@ -116,10 +126,11 @@ export function setVersion(db: Database.Database, version: number): void {
  * Run all pending migrations
  *
  * @param db - SQLite database instance
+ * @param logger - Optional logger for migration output (defaults to console)
  * @returns Number of migrations applied
  * @throws Error if migration fails
  */
-export function runMigrations(db: Database.Database): number {
+export function runMigrations(db: Database.Database, logger: BlobLogger = defaultLogger): number {
   const currentVersion = getCurrentVersion(db)
   const pendingMigrations = MIGRATIONS.filter((m) => m.version > currentVersion)
 
@@ -133,21 +144,18 @@ export function runMigrations(db: Database.Database): number {
   const runMigrationsInTransaction = db.transaction(() => {
     for (const migration of pendingMigrations) {
       try {
-        console.log(`[Migration] Applying v${migration.version}: ${migration.description}`)
-
-        // Run the migration
+        // Run the migration (no verbose logging during execution)
         migration.up(db)
 
         // Update version
         setVersion(db, migration.version)
 
         appliedCount++
-        console.log(`[Migration] ✓ Applied v${migration.version}`)
       } catch (error) {
-        const errorMsg = `Migration v${migration.version} failed: ${
+        const errorMsg = `Database migration failed: ${
           error instanceof Error ? error.message : String(error)
         }`
-        console.error(`[Migration] ✗ ${errorMsg}`)
+        logger.error(errorMsg)
         throw new Error(errorMsg)
       }
     }
@@ -164,9 +172,14 @@ export function runMigrations(db: Database.Database): number {
  *
  * @param db - SQLite database instance
  * @param targetVersion - Version to rollback to
+ * @param logger - Optional logger for rollback output (defaults to console)
  * @throws Error if rollback fails or migrations don't have 'down' methods
  */
-export function rollbackToVersion(db: Database.Database, targetVersion: number): void {
+export function rollbackToVersion(
+  db: Database.Database,
+  targetVersion: number,
+  logger: BlobLogger = defaultLogger,
+): void {
   const currentVersion = getCurrentVersion(db)
 
   if (targetVersion >= currentVersion) {
@@ -183,7 +196,7 @@ export function rollbackToVersion(db: Database.Database, targetVersion: number):
         throw new Error(`Migration v${migration.version} does not support rollback (no 'down' method)`)
       }
 
-      console.log(`[Migration] Rolling back v${migration.version}: ${migration.description}`)
+      logger.info(`[Migration] Rolling back v${migration.version}: ${migration.description}`)
       migration.down(db)
     }
 
@@ -191,5 +204,5 @@ export function rollbackToVersion(db: Database.Database, targetVersion: number):
   })
 
   rollbackInTransaction()
-  console.log(`[Migration] Rolled back to v${targetVersion}`)
+  logger.info(`[Migration] Rolled back to v${targetVersion}`)
 }

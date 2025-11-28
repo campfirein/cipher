@@ -165,8 +165,9 @@ export class ChatSession implements IChatSession {
         throw new SessionCancelledError(this.id)
       }
 
-      // Wrap other errors
-      throw new LLMError((error as Error).message, this.id)
+      // Wrap other errors - pass message as-is since it's already formatted
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      throw new LLMError(errorMessage, this.id)
     } finally {
       this.currentController = undefined
     }
@@ -185,17 +186,15 @@ export class ChatSession implements IChatSession {
         const payloadWithSession =
           payload && typeof payload === 'object' ? {...(payload as object), sessionId: this.id} : {sessionId: this.id}
 
-        // Forward to agent bus (type assertion needed due to EventEmitter complexity)
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        this.sharedServices.agentEventBus.emit(eventName as any, payloadWithSession)
+        // Forward to agent bus - eventName is properly typed from SESSION_EVENT_NAMES
+        this.sharedServices.agentEventBus.emit(eventName, payloadWithSession)
       }
 
       // Track forwarder for cleanup
       this.forwarders.set(eventName, forwarder)
 
-      // Register listener on session bus
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      this.eventBus.on(eventName as any, forwarder)
+      // Register listener on session bus - eventName is properly typed from SESSION_EVENT_NAMES
+      this.eventBus.on(eventName, forwarder)
     }
   }
 }
