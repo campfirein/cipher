@@ -11,10 +11,13 @@ import { createSessionServices } from '../../../../../src/infra/cipher/agent-ser
 import { AgentEventBus, SessionEventBus } from '../../../../../src/infra/cipher/events/event-emitter.js'
 import { ChatSession } from '../../../../../src/infra/cipher/session/chat-session.js'
 import { SessionManager } from '../../../../../src/infra/cipher/session/session-manager.js'
+import { createMockCipherAgentServices, createMockLLMService } from '../../../../helpers/mock-factories.js'
 
 type InitializableLLMService = ILLMService & { initialize?: SinonStub }
 
-// Create a testable SessionManager that allows injecting createSessionServices
+/**
+ * Testable SessionManager that allows injecting createSessionServices for testing
+ */
 class TestableSessionManager extends SessionManager {
   public mockCreateSessionServices?: typeof createSessionServices
 
@@ -76,26 +79,14 @@ class TestableSessionManager extends SessionManager {
   }
 }
 
-// Helper function to create mock LLM service
-function createMockLLMService(sandbox: SinonSandbox): ILLMService {
-  return {
+/**
+ * Helper function to create mock LLM service for session manager tests
+ * Note: Uses the centralized factory from mock-factories.ts
+ */
+function createMockLLMServiceForSessionManager(sandbox: SinonSandbox): ILLMService {
+  return createMockLLMService(sandbox, {
     completeTask: sandbox.stub().resolves('response'),
-    getAllTools: sandbox.stub().resolves({}),
-    getConfig: () =>
-      ({
-        configuredMaxInputTokens: 1000,
-        maxInputTokens: 1000,
-        maxOutputTokens: 1000,
-        model: 'test-model',
-        modelMaxInputTokens: 1000,
-        provider: 'test',
-        router: 'test',
-      }) as ReturnType<ILLMService['getConfig']>,
-    getContextManager: sandbox.stub().returns({
-      clearHistory: sandbox.stub().resolves(),
-      getMessages: sandbox.stub().returns([]),
-    }),
-  } as unknown as ILLMService
+  })
 }
 
 describe('SessionManager', () => {
@@ -117,18 +108,9 @@ describe('SessionManager', () => {
   beforeEach(() => {
     sandbox = createSandbox()
 
-    // Mock shared services
-    mockSharedServices = {
-      agentEventBus: new AgentEventBus(),
-      blobStorage: {} as CipherAgentServices['blobStorage'],
-      fileSystemService: {} as CipherAgentServices['fileSystemService'],
-      historyStorage: {} as CipherAgentServices['historyStorage'],
-      memoryManager: {} as CipherAgentServices['memoryManager'],
-      processService: {} as CipherAgentServices['processService'],
-      promptFactory: {} as CipherAgentServices['promptFactory'],
-      toolManager: {} as CipherAgentServices['toolManager'],
-      toolProvider: {} as CipherAgentServices['toolProvider'],
-    }
+    // ✅ GOOD: Use factory for full service mocking
+    const agentEventBus = new AgentEventBus()
+    mockSharedServices = createMockCipherAgentServices(agentEventBus, sandbox)
 
     // Mock gRPC config
     mockGrpcConfig = {
@@ -147,7 +129,7 @@ describe('SessionManager', () => {
 
     // Create mock function
     mockCreateSessionServices = sandbox.stub().callsFake(() => ({
-      llmService: createMockLLMService(sandbox),
+      llmService: createMockLLMServiceForSessionManager(sandbox),
       sessionEventBus: new SessionEventBus(),
     })) as SinonStub & typeof createSessionServices
   })
