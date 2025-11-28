@@ -8,6 +8,19 @@ import {createBashExecTool} from '../../../../../src/infra/cipher/tools/implemen
 import {createBashOutputTool} from '../../../../../src/infra/cipher/tools/implementations/bash-output-tool.js'
 import {createKillProcessTool} from '../../../../../src/infra/cipher/tools/implementations/kill-process-tool.js'
 
+// Type assertion functions
+function assertBashExecBackgroundResult(result: unknown): asserts result is BashExecBackgroundResult {
+  if (typeof result !== 'object' || result === null || !('processId' in result)) {
+    throw new Error('Expected BashExecBackgroundResult')
+  }
+}
+
+function assertKillProcessResult(result: unknown): asserts result is KillProcessResult {
+  if (typeof result !== 'object' || result === null || !('success' in result)) {
+    throw new Error('Expected KillProcessResult')
+  }
+}
+
 describe('Process Tools', () => {
   const sandbox = createSandbox()
   let processServiceMock: IProcessService
@@ -33,7 +46,7 @@ describe('Process Tools', () => {
 
   describe('bash_exec', () => {
     it('should execute foreground command successfully', async () => {
-      const tool = createBashExecTool(processServiceMock as IProcessService)
+      const tool = createBashExecTool(processServiceMock)
       const mockResult = {
         duration: 100,
         exitCode: 0,
@@ -58,7 +71,7 @@ describe('Process Tools', () => {
     })
 
     it('should execute background command successfully', async () => {
-      const tool = createBashExecTool(processServiceMock as IProcessService)
+      const tool = createBashExecTool(processServiceMock)
       const date = new Date()
       const mockResult = {
         command: 'sleep 10',
@@ -69,11 +82,12 @@ describe('Process Tools', () => {
       }
       executeCommandStub.resolves(mockResult)
 
-      const result = (await tool.execute({
+      const result = await tool.execute({
         command: 'sleep 10',
         description: 'sleeping',
         runInBackground: true,
-      })) as BashExecBackgroundResult
+      })
+      assertBashExecBackgroundResult(result)
 
       sandbox.assert.calledWith(
         executeCommandStub,
@@ -90,7 +104,7 @@ describe('Process Tools', () => {
     })
 
     it('should handle timeout and cwd options', async () => {
-      const tool = createBashExecTool(processServiceMock as IProcessService)
+      const tool = createBashExecTool(processServiceMock)
       executeCommandStub.resolves({
         duration: 100,
         exitCode: 0,
@@ -111,7 +125,7 @@ describe('Process Tools', () => {
     })
 
     it('should propagate timeout error', async () => {
-      const tool = createBashExecTool(processServiceMock as IProcessService)
+      const tool = createBashExecTool(processServiceMock)
       const error = new Error('Command timed out')
       error.name = 'ProcessError'
       executeCommandStub.rejects(error)
@@ -119,13 +133,16 @@ describe('Process Tools', () => {
       try {
         await tool.execute({command: 'sleep 1000', timeout: 100})
         expect.fail('Should have thrown an error')
-      } catch (error_: unknown) {
-        expect((error_ as Error).message).to.include('timed out')
+      } catch (error: unknown) {
+        expect(error instanceof Error).to.be.true
+        if (error instanceof Error) {
+          expect(error.message).to.include('timed out')
+        }
       }
     })
 
     it('should propagate command not found error', async () => {
-      const tool = createBashExecTool(processServiceMock as IProcessService)
+      const tool = createBashExecTool(processServiceMock)
       const error = new Error('Command not found')
       error.name = 'ProcessError'
       executeCommandStub.rejects(error)
@@ -133,13 +150,16 @@ describe('Process Tools', () => {
       try {
         await tool.execute({command: 'nonexistentcommand'})
         expect.fail('Should have thrown an error')
-      } catch (error_: unknown) {
-        expect((error_ as Error).message).to.include('not found')
+      } catch (error: unknown) {
+        expect(error instanceof Error).to.be.true
+        if (error instanceof Error) {
+          expect(error.message).to.include('not found')
+        }
       }
     })
 
     it('should propagate permission denied error', async () => {
-      const tool = createBashExecTool(processServiceMock as IProcessService)
+      const tool = createBashExecTool(processServiceMock)
       const error = new Error('Permission denied')
       error.name = 'ProcessError'
       executeCommandStub.rejects(error)
@@ -147,13 +167,16 @@ describe('Process Tools', () => {
       try {
         await tool.execute({command: '/restricted/command'})
         expect.fail('Should have thrown an error')
-      } catch (error_: unknown) {
-        expect((error_ as Error).message).to.include('Permission denied')
+      } catch (error: unknown) {
+        expect(error instanceof Error).to.be.true
+        if (error instanceof Error) {
+          expect(error.message).to.include('Permission denied')
+        }
       }
     })
 
     it('should propagate invalid command error', async () => {
-      const tool = createBashExecTool(processServiceMock as IProcessService)
+      const tool = createBashExecTool(processServiceMock)
       const error = new Error('Invalid command')
       error.name = 'ProcessError'
       executeCommandStub.rejects(error)
@@ -161,15 +184,18 @@ describe('Process Tools', () => {
       try {
         await tool.execute({command: ''})
         expect.fail('Should have thrown an error')
-      } catch (error_: unknown) {
-        expect((error_ as Error).message).to.include('Invalid command')
+      } catch (error: unknown) {
+        expect(error instanceof Error).to.be.true
+        if (error instanceof Error) {
+          expect(error.message).to.include('Invalid command')
+        }
       }
     })
   })
 
   describe('bash_output', () => {
     it('should retrieve process output successfully', async () => {
-      const tool = createBashOutputTool(processServiceMock as IProcessService)
+      const tool = createBashOutputTool(processServiceMock)
       const mockResult = {
         duration: 1000,
         exitCode: 0,
@@ -190,7 +216,7 @@ describe('Process Tools', () => {
     })
 
     it('should propagate process not found error', async () => {
-      const tool = createBashOutputTool(processServiceMock as IProcessService)
+      const tool = createBashOutputTool(processServiceMock)
       const error = new Error('Process not found')
       error.name = 'ProcessError'
       getProcessOutputStub.rejects(error)
@@ -198,18 +224,22 @@ describe('Process Tools', () => {
       try {
         await tool.execute({processId: 'invalid-proc'})
         expect.fail('Should have thrown an error')
-      } catch (error_: unknown) {
-        expect((error_ as Error).message).to.include('not found')
+      } catch (error: unknown) {
+        expect(error instanceof Error).to.be.true
+        if (error instanceof Error) {
+          expect(error.message).to.include('not found')
+        }
       }
     })
   })
 
   describe('kill_process', () => {
     it('should kill process successfully', async () => {
-      const tool = createKillProcessTool(processServiceMock as IProcessService)
+      const tool = createKillProcessTool(processServiceMock)
       killProcessStub.resolves()
 
-      const result = (await tool.execute({processId: 'proc-123'})) as KillProcessResult
+      const result = await tool.execute({processId: 'proc-123'})
+      assertKillProcessResult(result)
 
       sandbox.assert.calledWith(killProcessStub, 'proc-123')
       expect(result.success).to.be.true
@@ -217,7 +247,7 @@ describe('Process Tools', () => {
     })
 
     it('should propagate process not found error', async () => {
-      const tool = createKillProcessTool(processServiceMock as IProcessService)
+      const tool = createKillProcessTool(processServiceMock)
       const error = new Error('Process not found')
       error.name = 'ProcessError'
       killProcessStub.rejects(error)
@@ -225,13 +255,16 @@ describe('Process Tools', () => {
       try {
         await tool.execute({processId: 'invalid-proc'})
         expect.fail('Should have thrown an error')
-      } catch (error_: unknown) {
-        expect((error_ as Error).message).to.include('not found')
+      } catch (error: unknown) {
+        expect(error instanceof Error).to.be.true
+        if (error instanceof Error) {
+          expect(error.message).to.include('not found')
+        }
       }
     })
 
     it('should handle kill failure gracefully', async () => {
-      const tool = createKillProcessTool(processServiceMock as IProcessService)
+      const tool = createKillProcessTool(processServiceMock)
       const error = new Error('Failed to kill process')
       error.name = 'ProcessError'
       killProcessStub.rejects(error)
@@ -239,8 +272,11 @@ describe('Process Tools', () => {
       try {
         await tool.execute({processId: 'proc-123'})
         expect.fail('Should have thrown an error')
-      } catch (error_: unknown) {
-        expect((error_ as Error).message).to.include('kill')
+      } catch (error: unknown) {
+        expect(error instanceof Error).to.be.true
+        if (error instanceof Error) {
+          expect(error.message).to.include('kill')
+        }
       }
     })
   })

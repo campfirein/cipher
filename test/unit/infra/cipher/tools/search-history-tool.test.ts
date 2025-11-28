@@ -13,7 +13,10 @@ describe('Search History Tool', () => {
       })
       expect.fail('Should have thrown an error')
     } catch (error: unknown) {
-      expect((error as Error).message).to.include('not yet implemented')
+      expect(error instanceof Error).to.be.true
+      if (error instanceof Error) {
+        expect(error.message).to.include('not yet implemented')
+      }
     }
   })
 

@@ -18,6 +18,37 @@ import {createGrepContentTool} from '../../../../../src/infra/cipher/tools/imple
 import {createReadFileTool} from '../../../../../src/infra/cipher/tools/implementations/read-file-tool.js'
 import {createWriteFileTool} from '../../../../../src/infra/cipher/tools/implementations/write-file-tool.js'
 
+// Type assertion functions
+function assertReadFileResult(result: unknown): asserts result is ReadFileResult {
+  if (typeof result !== 'object' || result === null || !('content' in result)) {
+    throw new Error('Expected ReadFileResult')
+  }
+}
+
+function assertWriteFileResult(result: unknown): asserts result is WriteFileResult {
+  if (typeof result !== 'object' || result === null || !('success' in result)) {
+    throw new Error('Expected WriteFileResult')
+  }
+}
+
+function assertEditFileResult(result: unknown): asserts result is EditFileResult {
+  if (typeof result !== 'object' || result === null || !('success' in result) || !('replacements' in result)) {
+    throw new Error('Expected EditFileResult')
+  }
+}
+
+function assertGlobFilesResult(result: unknown): asserts result is GlobFilesResult {
+  if (typeof result !== 'object' || result === null || !('files' in result)) {
+    throw new Error('Expected GlobFilesResult')
+  }
+}
+
+function assertGrepContentResult(result: unknown): asserts result is GrepContentResult {
+  if (typeof result !== 'object' || result === null || !('matches' in result)) {
+    throw new Error('Expected GrepContentResult')
+  }
+}
+
 describe('File System Tools Integration', () => {
   let testDir: string
   let fileSystemService: FileSystemService
@@ -47,7 +78,8 @@ describe('File System Tools Integration', () => {
       await writeFile(filePath, 'Hello World')
 
       const tool = createReadFileTool(fileSystemService)
-      const result = (await tool.execute({filePath})) as ReadFileResult
+      const result = await tool.execute({filePath})
+      assertReadFileResult(result)
 
       expect(result.content).to.equal('Hello World')
       expect(result.size).to.equal(11)
@@ -59,16 +91,18 @@ describe('File System Tools Integration', () => {
       const filePath = join(testDir, 'output.txt')
       const tool = createWriteFileTool(fileSystemService)
 
-      const result = (await tool.execute({
+      const result = await tool.execute({
         content: 'New Content',
         filePath,
-      })) as WriteFileResult
+      })
+      assertWriteFileResult(result)
 
       expect(result.success).to.be.true
 
       // Verify with tool
       const readTool = createReadFileTool(fileSystemService)
-      const readResult = (await readTool.execute({filePath})) as ReadFileResult
+      const readResult = await readTool.execute({filePath})
+      assertReadFileResult(readResult)
       expect(readResult.content).to.equal('New Content')
     })
   })
@@ -79,18 +113,20 @@ describe('File System Tools Integration', () => {
       await writeFile(filePath, 'Hello Old World')
 
       const tool = createEditFileTool(fileSystemService)
-      const result = (await tool.execute({
+      const result = await tool.execute({
         filePath,
         newString: 'New',
         oldString: 'Old',
-      })) as EditFileResult
+      })
+      assertEditFileResult(result)
 
       expect(result.success).to.be.true
       expect(result.replacements).to.equal(1)
 
       // Verify content
       const readTool = createReadFileTool(fileSystemService)
-      const readResult = (await readTool.execute({filePath})) as ReadFileResult
+      const readResult = await readTool.execute({filePath})
+      assertReadFileResult(readResult)
       expect(readResult.content).to.equal('Hello New World')
     })
   })
@@ -103,10 +139,11 @@ describe('File System Tools Integration', () => {
       await writeFile(join(testDir, 'subdir/c.ts'), '')
 
       const tool = createGlobFilesTool(fileSystemService)
-      const result = (await tool.execute({
+      const result = await tool.execute({
         path: testDir,
         pattern: '**/*.ts',
-      })) as GlobFilesResult
+      })
+      assertGlobFilesResult(result)
 
       expect(result.totalFound).to.equal(2)
       expect(result.files).to.have.length(2)
@@ -123,10 +160,11 @@ describe('File System Tools Integration', () => {
       await writeFile(join(testDir, 'file3.txt'), 'another foo here')
 
       const tool = createGrepContentTool(fileSystemService)
-      const result = (await tool.execute({
+      const result = await tool.execute({
         path: testDir,
         pattern: 'foo',
-      })) as GrepContentResult
+      })
+      assertGrepContentResult(result)
 
       expect(result.totalMatches).to.equal(2)
       expect(result.matches).to.have.length(2)

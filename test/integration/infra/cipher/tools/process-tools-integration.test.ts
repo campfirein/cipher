@@ -16,6 +16,31 @@ import {createBashExecTool} from '../../../../../src/infra/cipher/tools/implemen
 import {createBashOutputTool} from '../../../../../src/infra/cipher/tools/implementations/bash-output-tool.js'
 import {createKillProcessTool} from '../../../../../src/infra/cipher/tools/implementations/kill-process-tool.js'
 
+// Type assertion functions
+function assertBashExecForegroundResult(result: unknown): asserts result is BashExecForegroundResult {
+  if (typeof result !== 'object' || result === null || !('stdout' in result) || !('exitCode' in result)) {
+    throw new Error('Expected BashExecForegroundResult')
+  }
+}
+
+function assertBashExecBackgroundResult(result: unknown): asserts result is BashExecBackgroundResult {
+  if (typeof result !== 'object' || result === null || !('processId' in result)) {
+    throw new Error('Expected BashExecBackgroundResult')
+  }
+}
+
+function assertBashOutputResult(result: unknown): asserts result is BashOutputResult {
+  if (typeof result !== 'object' || result === null || !('status' in result)) {
+    throw new Error('Expected BashOutputResult')
+  }
+}
+
+function assertKillProcessResult(result: unknown): asserts result is KillProcessResult {
+  if (typeof result !== 'object' || result === null || !('success' in result)) {
+    throw new Error('Expected KillProcessResult')
+  }
+}
+
 const TEST_TIMEOUT_MS = 35
 
 describe('Process Tools Integration', () => {
@@ -45,9 +70,10 @@ describe('Process Tools Integration', () => {
   describe('bash_exec', () => {
     it('should execute foreground command', async () => {
       const tool = createBashExecTool(processService)
-      const result = (await tool.execute({
+      const result = await tool.execute({
         command: 'echo "hello world"',
-      })) as BashExecForegroundResult
+      })
+      assertBashExecForegroundResult(result)
 
       expect(result.stdout).to.include('hello world')
       expect(result.exitCode).to.equal(0)
@@ -55,10 +81,11 @@ describe('Process Tools Integration', () => {
 
     it('should execute background command', async () => {
       const tool = createBashExecTool(processService)
-      const result = (await tool.execute({
+      const result = await tool.execute({
         command: 'sleep 1',
         runInBackground: true,
-      })) as BashExecBackgroundResult
+      })
+      assertBashExecBackgroundResult(result)
 
       expect(result.processId).to.exist
       expect(result.message).to.include('background')
@@ -71,18 +98,20 @@ describe('Process Tools Integration', () => {
       const outputTool = createBashOutputTool(processService)
 
       // Start background process
-      const startResult = (await execTool.execute({
+      const startResult = await execTool.execute({
         command: 'echo "background output" && sleep 1',
         runInBackground: true,
-      })) as BashExecBackgroundResult
+      })
+      assertBashExecBackgroundResult(startResult)
 
       // Wait a bit for output
       await setTimeout(TEST_TIMEOUT_MS)
 
       // Get output
-      const outputResult = (await outputTool.execute({
+      const outputResult = await outputTool.execute({
         processId: startResult.processId,
-      })) as BashOutputResult
+      })
+      assertBashOutputResult(outputResult)
 
       expect(outputResult.stdout).to.include('background output')
       expect(outputResult.status).to.be.oneOf(['running', 'completed'])
@@ -96,15 +125,17 @@ describe('Process Tools Integration', () => {
       const outputTool = createBashOutputTool(processService)
 
       // Start long running process
-      const startResult = (await execTool.execute({
+      const startResult = await execTool.execute({
         command: 'sleep 10',
         runInBackground: true,
-      })) as BashExecBackgroundResult
+      })
+      assertBashExecBackgroundResult(startResult)
 
       // Kill it
-      const killResult = (await killTool.execute({
+      const killResult = await killTool.execute({
         processId: startResult.processId,
-      })) as KillProcessResult
+      })
+      assertKillProcessResult(killResult)
 
       expect(killResult.success).to.be.true
 
@@ -112,9 +143,10 @@ describe('Process Tools Integration', () => {
       await setTimeout(TEST_TIMEOUT_MS)
 
       // Verify status after waiting
-      const outputResult = (await outputTool.execute({
+      const outputResult = await outputTool.execute({
         processId: startResult.processId,
-      })) as BashOutputResult
+      })
+      assertBashOutputResult(outputResult)
 
       // Process should no longer be running
       expect(outputResult.status).to.not.equal('running')
