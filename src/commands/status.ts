@@ -11,6 +11,7 @@ import {FilePlaybookStore} from '../infra/ace/file-playbook-store.js'
 import {ProjectConfigStore} from '../infra/config/file-config-store.js'
 import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
 import {MixpanelTrackingService} from '../infra/tracking/mixpanel-tracking-service.js'
+import {getErrorMessage} from '../utils/error-helpers.js'
 
 export default class Status extends Command {
   public static args = {
@@ -77,7 +78,7 @@ export default class Status extends Command {
       }
     } catch (error) {
       this.log('Status: Unable to check authentication status')
-      this.warn(`Warning: ${(error as Error).message}`)
+      this.warn(`Warning: ${getErrorMessage(error)}`)
     }
 
     const cwd = process.cwd()
@@ -98,7 +99,7 @@ export default class Status extends Command {
       }
     } catch (error) {
       this.log('Project Status: Unable to read project configuration')
-      this.warn(`Warning: ${(error as Error).message}`)
+      this.warn(`Warning: ${getErrorMessage(error)}`)
     }
 
     try {

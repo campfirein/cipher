@@ -10,7 +10,7 @@ import {CONTEXT_TREE_DOMAINS} from '../config/context-tree-domains.js'
 import {getCurrentConfig, isDevelopment} from '../config/environment.js'
 import {PROJECT} from '../constants.js'
 import {CipherAgent} from '../infra/cipher/cipher-agent.js'
-import {ExitCode, exitWithCode} from '../infra/cipher/exit-codes.js'
+import {ExitCode, ExitError, exitWithCode} from '../infra/cipher/exit-codes.js'
 import {WorkspaceNotInitializedError} from '../infra/cipher/validation/workspace-validator.js'
 import {ProjectConfigStore} from '../infra/config/file-config-store.js'
 import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
@@ -73,11 +73,13 @@ export default class Add extends Command {
 
   // Override catch to prevent oclif from logging errors that were already displayed
   async catch(error: Error & {oclif?: {exit: number}}): Promise<void> {
-    // Check if error came from exitWithCode (has oclif.exit property)
-    // If so, message was already printed by exitWithCode - just exit with that code
-    const oclifError = error as Error & {oclif?: {exit?: number}}
-    if (oclifError.oclif && oclifError.oclif.exit !== undefined) {
-      // Error already displayed by exitWithCode, silently exit
+    // Check if error is ExitError (message already displayed by exitWithCode)
+    if (error instanceof ExitError) {
+      return
+    }
+
+    // Backwards compatibility: also check oclif.exit property
+    if (error.oclif?.exit !== undefined) {
       return
     }
 

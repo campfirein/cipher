@@ -5,7 +5,7 @@ import type {ISpaceService} from '../../core/interfaces/i-space-service.js'
 import type {ITokenStore} from '../../core/interfaces/i-token-store.js'
 
 import {getCurrentConfig} from '../../config/environment.js'
-import {ExitCode, exitWithCode} from '../../infra/cipher/exit-codes.js'
+import {ExitCode, ExitError, exitWithCode} from '../../infra/cipher/exit-codes.js'
 import {ProjectConfigStore} from '../../infra/config/file-config-store.js'
 import {HttpSpaceService} from '../../infra/space/http-space-service.js'
 import {KeychainTokenStore} from '../../infra/storage/keychain-token-store.js'
@@ -46,9 +46,13 @@ export default class SpaceList extends Command {
   }
 
   async catch(error: Error & {oclif?: {exit: number}}): Promise<void> {
-    const oclifError = error as Error & {oclif?: {exit?: number}}
-    if (oclifError.oclif && oclifError.oclif.exit !== undefined) {
-      // Error already displayed by exitWithCode, silently exit
+    // Check if error is ExitError (message already displayed)
+    if (error instanceof ExitError) {
+      return
+    }
+
+    // Backwards compatibility: also check oclif.exit property
+    if (error.oclif?.exit !== undefined) {
       return
     }
 

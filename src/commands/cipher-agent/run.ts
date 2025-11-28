@@ -5,7 +5,7 @@ import type {IProjectConfigStore} from '../../core/interfaces/i-project-config-s
 import {getCurrentConfig} from '../../config/environment.js'
 import {PROJECT} from '../../constants.js'
 import {CipherAgent} from '../../infra/cipher/cipher-agent.js'
-import {ExitCode, exitWithCode} from '../../infra/cipher/exit-codes.js'
+import {ExitCode, ExitError, exitWithCode} from '../../infra/cipher/exit-codes.js'
 import {displayInfo, startInteractiveLoop} from '../../infra/cipher/interactive-loop.js'
 import {WorkspaceNotInitializedError} from '../../infra/cipher/validation/workspace-validator.js'
 import {ProjectConfigStore} from '../../infra/config/file-config-store.js'
@@ -92,10 +92,13 @@ export default class CipherAgentRun extends Command {
 
   // Override catch to prevent oclif from logging errors that were already displayed
   async catch(error: Error & {oclif?: {exit: number}}): Promise<void> {
-    // Check if error came from exitWithCode (has oclif.exit property)
-    // If so, message was already printed by exitWithCode - just exit with that code
-    const oclifError = error as Error & {oclif?: {exit?: number}}
-    if (oclifError.oclif && oclifError.oclif.exit !== undefined) {
+    // Check if error is ExitError (message already displayed by exitWithCode)
+    if (error instanceof ExitError) {
+      return
+    }
+
+    // Backwards compatibility: also check oclif.exit property
+    if (error.oclif?.exit !== undefined) {
       // Error already displayed by exitWithCode, silently exit
       return
     }
@@ -159,6 +162,7 @@ export default class CipherAgentRun extends Command {
     return mostRecentId
   }
 
+  // eslint-disable-next-line complexity
   public async run(): Promise<void> {
     const {args, flags} = await this.parse(CipherAgentRun)
 
@@ -255,7 +259,7 @@ export default class CipherAgentRun extends Command {
       }
 
       // Handle graceful exit (Ctrl+C) - exit silently without error
-      const errorMessage = (error as Error).message
+      const errorMessage = error instanceof Error ? error.message : String(error)
       if (errorMessage.includes('Readline closed')) {
         // Silent exit - cleanup already happened
         return
@@ -453,7 +457,7 @@ export default class CipherAgentRun extends Command {
   /**
    * Handle workspace not initialized error with friendly message
    *
-   * @param error - WorkspaceNotInitializedError instance
+   * @param _error - WorkspaceNotInitializedError instance (unused, kept for type safety)
    */
   private handleWorkspaceError(_error: WorkspaceNotInitializedError): void {
     const message = 'Project not initialized. Please run "brv init" to select your team and workspace.'

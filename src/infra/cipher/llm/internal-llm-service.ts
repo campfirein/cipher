@@ -26,6 +26,7 @@ import {
   LlmResponseParsingError,
 } from '../../../core/domain/cipher/errors/llm-error.js'
 import {NoOpLogger} from '../../../core/interfaces/cipher/i-logger.js'
+import {getErrorMessage} from '../../../utils/error-helpers.js'
 import {SessionEventBus} from '../events/event-emitter.js'
 import {ByteRoverLlmGrpcService} from '../grpc/internal-llm-grpc-service.js'
 import {ContextManager, type FileData, type ImageData} from './context/context-manager.js'
@@ -835,7 +836,7 @@ export class ByteRoverLLMService implements ILLMService {
 
     // Wrap other errors
     if (error && typeof error === 'object' && 'message' in error) {
-      throw new LlmGenerationError((error as Error).message, 'byterover', this.config.model)
+      throw new LlmGenerationError(getErrorMessage(error), 'byterover', this.config.model)
     }
 
     throw new LlmGenerationError(String(error), 'byterover', this.config.model)

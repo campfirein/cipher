@@ -18,6 +18,7 @@ import {
   LlmResponseParsingError,
 } from '../../../core/domain/cipher/errors/llm-error.js'
 import {NoOpLogger} from '../../../core/interfaces/cipher/i-logger.js'
+import {getErrorMessage} from '../../../utils/error-helpers.js'
 import {SessionEventBus} from '../events/event-emitter.js'
 import {ContextManager, type FileData, type ImageData} from './context/context-manager.js'
 import {OpenRouterMessageFormatter} from './formatters/openrouter-formatter.js'
@@ -503,7 +504,7 @@ export class OpenRouterLLMService implements ILLMService {
 
     // Wrap other errors
     if (error && typeof error === 'object' && 'message' in error) {
-      throw new LlmGenerationError((error as Error).message, 'openrouter', this.config.model)
+      throw new LlmGenerationError(getErrorMessage(error), 'openrouter', this.config.model)
     }
 
     throw new LlmGenerationError(String(error), 'openrouter', this.config.model)

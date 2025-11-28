@@ -24,7 +24,7 @@ import {
 } from '../constants.js'
 import {ITrackingService} from '../core/interfaces/i-tracking-service.js'
 import {FilePlaybookStore} from '../infra/ace/file-playbook-store.js'
-import {ExitCode, exitWithCode} from '../infra/cipher/exit-codes.js'
+import {ExitCode, ExitError, exitWithCode} from '../infra/cipher/exit-codes.js'
 import {WorkspaceNotInitializedError} from '../infra/cipher/validation/workspace-validator.js'
 import {ProjectConfigStore} from '../infra/config/file-config-store.js'
 import {HttpMemoryStorageService} from '../infra/memory/http-memory-storage-service.js'
@@ -54,11 +54,13 @@ export default class Push extends Command {
   }
 
   // Override catch to prevent oclif from logging errors that were already displayed
-  async catch(error: Error & {oclif?: {exit: number}}): Promise<void> {
-    // Check if error came from exitWithCode (has oclif.exit property)
-    // If so, message was already printed by exitWithCode - just exit with that code
-    const oclifError = error as Error & {oclif?: {exit?: number}}
-    if (oclifError.oclif && oclifError.oclif.exit !== undefined) {
+  async catch(error: Error & {oclif?: {exit: number}}): Promise<void> {    // Check if error is ExitError (message already displayed by exitWithCode)
+    if (error instanceof ExitError) {
+      return
+    }
+
+    // Backwards compatibility: also check oclif.exit property
+    if (error.oclif?.exit !== undefined) {
       // Error already displayed by exitWithCode, silently exit
       return
     }

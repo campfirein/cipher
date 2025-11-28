@@ -12,7 +12,7 @@ import {getCurrentConfig} from '../../config/environment.js'
 import {BRV_DIR, PROJECT_CONFIG_FILE} from '../../constants.js'
 import {Agent, AGENT_VALUES} from '../../core/domain/entities/agent.js'
 import {BrvConfig} from '../../core/domain/entities/brv-config.js'
-import {ExitCode, exitWithCode} from '../../infra/cipher/exit-codes.js'
+import {ExitCode, ExitError, exitWithCode} from '../../infra/cipher/exit-codes.js'
 import {ProjectConfigStore} from '../../infra/config/file-config-store.js'
 import {HttpSpaceService} from '../../infra/space/http-space-service.js'
 import {KeychainTokenStore} from '../../infra/storage/keychain-token-store.js'
@@ -27,9 +27,13 @@ export default class SpaceSwitch extends Command {
   ]
 
   async catch(error: Error & {oclif?: {exit: number}}): Promise<void> {
-    const oclifError = error as Error & {oclif?: {exit?: number}}
-    if (oclifError.oclif && oclifError.oclif.exit !== undefined) {
-      // Error already displayed by exitWithCode, silently exit
+    // Check if error is ExitError (message already displayed)
+    if (error instanceof ExitError) {
+      return
+    }
+
+    // Backwards compatibility: also check oclif.exit property
+    if (error.oclif?.exit !== undefined) {
       return
     }
 

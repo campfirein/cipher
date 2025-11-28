@@ -29,11 +29,27 @@ export const ExitCode = {
 export type ExitCode = (typeof ExitCode)[keyof typeof ExitCode]
 
 /**
+ * Custom error class for exit codes with oclif integration.
+ * Extends Error to add code and oclif properties without type assertions.
+ */
+export class ExitError extends Error {
+  public readonly code: number
+  public readonly oclif: {exit: number}
+
+  constructor(code: ExitCode, message?: string) {
+    super(message ?? 'Exit')
+    this.name = 'ExitError'
+    this.code = code
+    this.oclif = {exit: code}
+  }
+}
+
+/**
  * Exit the process with the given code and optional error message
  *
  * @param code - Exit code to use
  * @param message - Optional error message to write to stderr
- * @throws {Error} Throws with the code attached for oclif to handle (except for silent success exits)
+ * @throws {ExitError} Throws ExitError for oclif to handle (except for silent success exits)
  */
 export function exitWithCode(code: ExitCode, message?: string): never {
   if (message) {
@@ -47,9 +63,6 @@ export function exitWithCode(code: ExitCode, message?: string): never {
     process.exit(code)
   }
 
-  // Create an error with exit code for oclif
-  const error = new Error(message ?? 'Exit')
-  ;(error as Error & {code: number; oclif: {exit: number}}).code = code
-  ;(error as Error & {code: number; oclif: {exit: number}}).oclif = {exit: code}
-  throw error
+  // Throw ExitError - no type assertions needed!
+  throw new ExitError(code, message)
 }

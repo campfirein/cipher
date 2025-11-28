@@ -6,6 +6,7 @@ import type {InternalMessage} from '../../../../core/interfaces/cipher/message-t
 import type {ICompressionStrategy} from './compression/types.js'
 
 import {NoOpLogger} from '../../../../core/interfaces/cipher/i-logger.js'
+import {getErrorMessage} from '../../../../utils/error-helpers.js'
 import {MiddleRemovalStrategy, OldestRemovalStrategy} from './compression/index.js'
 import {countMessagesTokens} from './utils.js'
 
@@ -439,7 +440,7 @@ export class ContextManager<T> {
       return jsonString
     } catch (error) {
       // Handle circular references or other serialization errors
-      return `[Tool result serialization failed: ${(error as Error).message}]`
+      return `[Tool result serialization failed: ${getErrorMessage(error)}]`
     }
   }
 }

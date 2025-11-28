@@ -13,8 +13,8 @@ const hook: Hook<'error'> = async function (options): Promise<void> {
   }
 
   // Suppress oclif's default error output (stack traces)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  delete (error as any).oclif
+  // Type assertion needed to delete dynamic property
+  delete (error as Error & {oclif?: unknown}).oclif
 
   // Handle validation errors (missing args, invalid flags, etc.)
   if (error.message.includes('Missing') && error.message.includes('required arg')) {

@@ -40,6 +40,7 @@ import {
   StringNotUniqueError,
   WriteOperationError,
 } from '../../../core/domain/cipher/errors/file-system-error.js'
+import {getErrorMessage} from '../../../utils/error-helpers.js'
 import {PathValidator} from './path-validator.js'
 
 /**
@@ -136,7 +137,7 @@ export class FileSystemService implements IFileSystem {
       }
 
       // Wrap other errors
-      throw new EditOperationError(normalizedPath, (error as Error).message)
+      throw new EditOperationError(normalizedPath, getErrorMessage(error))
     }
   }
 
@@ -210,11 +211,11 @@ export class FileSystemService implements IFileSystem {
       }
     } catch (error) {
       // Check for pattern errors
-      if ((error as Error).message.includes('Invalid glob pattern')) {
-        throw new InvalidPatternError(pattern, (error as Error).message)
+      if (getErrorMessage(error).includes('Invalid glob pattern')) {
+        throw new InvalidPatternError(pattern, getErrorMessage(error))
       }
 
-      throw new GlobOperationError(pattern, (error as Error).message)
+      throw new GlobOperationError(pattern, getErrorMessage(error))
     }
   }
 
@@ -320,7 +321,7 @@ export class FileSystemService implements IFileSystem {
       }
 
       // Wrap other errors
-      throw new ReadOperationError(normalizedPath, (error as Error).message)
+      throw new ReadOperationError(normalizedPath, getErrorMessage(error))
     }
   }
 
@@ -354,7 +355,7 @@ export class FileSystemService implements IFileSystem {
         throw error
       }
 
-      throw new SearchOperationError(pattern, (error as Error).message)
+      throw new SearchOperationError(pattern, getErrorMessage(error))
     }
   }
 
@@ -403,7 +404,7 @@ export class FileSystemService implements IFileSystem {
       }
 
       // Wrap other errors
-      throw new WriteOperationError(normalizedPath, (error as Error).message)
+      throw new WriteOperationError(normalizedPath, getErrorMessage(error))
     }
   }
 
@@ -441,7 +442,7 @@ export class FileSystemService implements IFileSystem {
     try {
       return new RegExp(pattern, flags)
     } catch (error) {
-      throw new InvalidPatternError(pattern, (error as Error).message)
+      throw new InvalidPatternError(pattern, getErrorMessage(error))
     }
   }
 
