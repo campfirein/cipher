@@ -10,6 +10,7 @@ import type {ICipherAgent} from '../../../../src/core/interfaces/cipher/i-cipher
 
 import {AgentEventBus} from '../../../../src/infra/cipher/events/event-emitter.js'
 import {displayInfo, startInteractiveLoop} from '../../../../src/infra/cipher/interactive-loop.js'
+import {createMockCipherAgent} from '../../../helpers/mock-factories.js'
 
 describe('interactive-loop', () => {
   let sandbox: SinonSandbox
@@ -94,17 +95,8 @@ describe('interactive-loop', () => {
     // Mock process.exit to prevent test from being killed
     sandbox.stub(process, 'exit')
 
-    // Create mock agent
-    mockAgent = {
-      deleteSession: sandbox.stub(),
-      execute: sandbox.stub(),
-      getSessionMetadata: sandbox.stub(),
-      getState: sandbox.stub(),
-      getSystemPrompt: sandbox.stub(),
-      listPersistedSessions: sandbox.stub(),
-      reset: sandbox.stub(),
-      start: sandbox.stub(),
-    } as ICipherAgent
+    // Use factory function instead of `as ICipherAgent`
+    mockAgent = createMockCipherAgent(sandbox)
   })
 
   afterEach(() => {

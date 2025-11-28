@@ -108,7 +108,7 @@ describe('SessionManager', () => {
   beforeEach(() => {
     sandbox = createSandbox()
 
-    // ✅ GOOD: Use factory for full service mocking
+    // Use factory for full service mocking
     const agentEventBus = new AgentEventBus()
     mockSharedServices = createMockCipherAgentServices(agentEventBus, sandbox)
 
