@@ -125,13 +125,10 @@ export class CipherAgent implements ICipherAgent {
       this.defaultSession = session
     }
 
-    // Increment iteration counter (agent-level state)
-    const iteration = this.stateManager.incrementIteration()
+    // Increment iteration counter (agent-level state) - kept for internal tracking only
+    this.stateManager.incrementIteration()
 
-    // Add execution record to history
-    this.stateManager.addExecutionRecord(
-      `[${new Date().toISOString()}] Iteration ${iteration}: ${input.slice(0, 100)}${input.length > 100 ? '...' : ''}`,
-    )
+    // Note: Execution records removed to reduce log noise
 
     // DELEGATE TO SESSION
     // The ChatSession will:

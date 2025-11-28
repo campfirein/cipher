@@ -2,7 +2,7 @@
  * Response Validation Layer
  *
  * Validates LLM responses before processing to catch malformed content.
- * Implements retry logic with exponential backoff for validation failures.
+ * Pure validation only - retry logic is handled by RetryableContentGenerator.
  */
 
 import type {InternalMessage} from '../../../core/interfaces/cipher/message-types.js'
@@ -62,7 +62,10 @@ export class ResponseValidationError extends Error {
 }
 
 /**
- * Response validator with validation rules and helper methods
+ * Response validator with validation rules and helper methods.
+ *
+ * Pure validation only - no retry logic.
+ * Retry behavior is handled by RetryableContentGenerator decorator.
  */
 export const ResponseValidator = {
   /**
@@ -205,113 +208,5 @@ export const ResponseValidator = {
     this.validateMessage(lastMessage)
 
     return lastMessage
-  },
-} as const
-
-/**
- * Configuration for retry behavior
- */
-export interface RetryConfig {
-  /**
-   * Whether to increase temperature on retry
-   * @default true
-   */
-  adjustTemperature?: boolean
-
-  /**
-   * Initial delay in milliseconds before first retry
-   * @default 1000
-   */
-  initialDelayMs?: number
-
-  /**
-   * Maximum number of retry attempts
-   * @default 2
-   */
-  maxAttempts?: number
-
-  /**
-   * Maximum temperature value
-   * @default 1
-   */
-  maxTemperature?: number
-
-  /**
-   * Temperature increment for each retry
-   * @default 0.2
-   */
-  temperatureIncrement?: number
-}
-
-/**
- * Default retry configuration
- */
-export const DEFAULT_RETRY_CONFIG: Required<RetryConfig> = {
-  adjustTemperature: true,
-  initialDelayMs: 1000,
-  maxAttempts: 2,
-  maxTemperature: 1,
-  temperatureIncrement: 0.2,
-}
-
-/**
- * Helper object for retry logic with exponential backoff
- */
-export const RetryHelper = {
-  /**
-   * Adjust temperature for retry attempt
-   *
-   * Increases temperature to encourage different responses on retry.
-   *
-   * @param currentTemperature - Current temperature value
-   * @param config - Retry configuration
-   * @returns Adjusted temperature
-   */
-  adjustTemperature(currentTemperature: number, config: Required<RetryConfig>): number {
-    if (!config.adjustTemperature) {
-      return currentTemperature
-    }
-
-    const newTemperature = currentTemperature + config.temperatureIncrement
-    return Math.min(newTemperature, config.maxTemperature)
-  },
-
-  /**
-   * Calculate delay for a given retry attempt
-   *
-   * Uses exponential backoff: delay * 2^attempt
-   *
-   * @param attempt - Current attempt number (0-indexed)
-   * @param initialDelay - Initial delay in milliseconds
-   * @returns Delay in milliseconds
-   */
-  calculateDelay(attempt: number, initialDelay: number): number {
-    return initialDelay * (2 ** attempt)
-  },
-
-  /**
-   * Check if error is retryable
-   *
-   * Only retry validation errors, not other types of errors.
-   *
-   * @param error - Error to check
-   * @returns True if error should be retried
-   */
-  isRetryableError(error: unknown): boolean {
-    return error instanceof ResponseValidationError
-  },
-
-  /**
-   * Sleep for specified milliseconds
-   *
-   * @param ms - Milliseconds to sleep
-   * @returns Promise that resolves after delay
-   */
-  async sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        resolve()
-      }, ms)
-    })
   },
 } as const

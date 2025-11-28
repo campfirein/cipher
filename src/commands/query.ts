@@ -6,11 +6,12 @@ import type {ITrackingService} from '../core/interfaces/i-tracking-service.js'
 import {getCurrentConfig, isDevelopment} from '../config/environment.js'
 import {PROJECT} from '../constants.js'
 import {CipherAgent} from '../infra/cipher/cipher-agent.js'
-import {ExitCode, exitWithCode} from '../infra/cipher/exit-codes.js'
+import {ExitCode, ExitError, exitWithCode} from '../infra/cipher/exit-codes.js'
 import {WorkspaceNotInitializedError} from '../infra/cipher/validation/workspace-validator.js'
 import {ProjectConfigStore} from '../infra/config/file-config-store.js'
 import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
 import {MixpanelTrackingService} from '../infra/tracking/mixpanel-tracking-service.js'
+import {formatError} from '../utils/error-handler.js'
 import {formatToolCall, formatToolResult} from '../utils/tool-display-formatter.js'
 
 export default class Query extends Command {
@@ -62,6 +63,22 @@ export default class Query extends Command {
   }
   public static strict = false
 
+  // Override catch to prevent oclif from logging errors that were already displayed
+  public async catch(error: Error & {oclif?: {exit: number}}): Promise<void> {    // Check if error is ExitError (message already displayed by exitWithCode)
+    if (error instanceof ExitError) {
+      return
+    }
+
+    // Backwards compatibility: also check oclif.exit property
+    if (error.oclif?.exit !== undefined) {
+      // Error already displayed by exitWithCode, silently exit
+      return
+    }
+
+    // For other errors, re-throw to let oclif handle them
+    throw error
+  }
+
   protected createServices(): {
     projectConfigStore: IProjectConfigStore
     trackingService: ITrackingService
@@ -96,6 +113,14 @@ export default class Query extends Command {
 
       // Load project config
       const brvConfig = await projectConfigStore.read()
+
+      // Validate workspace is initialized
+      if (!brvConfig) {
+        throw new WorkspaceNotInitializedError(
+          'Project not initialized. Please run "brv init" to select your team and workspace.',
+          '.brv',
+        )
+      }
 
       // Create LLM config
       const model = flags.model ?? (flags.apiKey ? 'google/gemini-2.5-pro' : 'gemini-2.5-pro')
@@ -142,7 +167,7 @@ export default class Query extends Command {
 
         await trackingService.track('ace:query')
       } finally {
-        console.log('Logic for agent stopping and resource cleanup may go here!')
+        // console.log('Logic for agent stopping and resource cleanup may go here!')
       }
     } catch (error) {
       if (error instanceof WorkspaceNotInitializedError) {
@@ -150,23 +175,166 @@ export default class Query extends Command {
         return
       }
 
-      exitWithCode(ExitCode.RUNTIME_ERROR, `Failed to query context tree: ${(error as Error).message}`)
+      // Display context on one line, error on separate line
+      process.stderr.write('Failed to query context tree:\n')
+      exitWithCode(ExitCode.RUNTIME_ERROR, formatError(error))
+    }
+  }
+
+  /**
+   * Format items count from list_directory result
+   */
+  private formatItemsCount(result: unknown): string {
+    if (typeof result === 'string') {
+      const lines = result.split('\n').filter((line) => line.trim())
+      return `${lines.length} items`
+    }
+
+    if (Array.isArray(result)) {
+      return `${result.length} items`
+    }
+
+    return ''
+  }
+
+  /**
+   * Format matches count from grep_content result
+   */
+  private formatMatchesCount(result: unknown): string {
+    if (typeof result === 'string') {
+      const lines = result.split('\n').filter((line) => line.trim())
+      return `${lines.length} matches found`
+    }
+
+    if (Array.isArray(result)) {
+      return `${result.length} matches found`
+    }
+
+    return ''
+  }
+
+  /**
+   * Format tool result summary for display
+   */
+  private formatToolResultSummary(toolName: string, result: unknown): string {
+    try {
+      switch (toolName) {
+        case 'bash_exec':
+        case 'create_knowledge_topic':
+        case 'delete_knowledge_topic':
+        case 'detect_domains':
+        case 'read_file':
+        case 'update_knowledge_topic':
+        case 'write_file': {
+          return ''
+        }
+
+        case 'find_knowledge_topics': {
+          return this.formatTopicsCount(result)
+        }
+
+        case 'grep_content': {
+          return this.formatMatchesCount(result)
+        }
+
+        case 'list_directory': {
+          return this.formatItemsCount(result)
+        }
+
+        default: {
+          return ''
+        }
+      }
+    } catch {
+      return ''
+    }
+  }
+
+  /**
+   * Format topics count from find_knowledge_topics result
+   */
+  private formatTopicsCount(result: unknown): string {
+    if (typeof result === 'string') {
+      try {
+        const parsed = JSON.parse(result)
+        const count = Array.isArray(parsed) ? parsed.length : Object.keys(parsed).length
+        return `${count} topics retrieved`
+      } catch {
+        return ''
+      }
+    }
+
+    if (typeof result === 'object' && result !== null) {
+      const resultObj = result as {results?: unknown[]; total?: number}
+      if (Array.isArray(resultObj.results)) {
+        return `${resultObj.results.length} topics retrieved`
+      }
+
+      if (typeof resultObj.total === 'number') {
+        return `${resultObj.total} topics retrieved`
+      }
+
+      if (Array.isArray(result)) {
+        return `${result.length} topics retrieved`
+      }
+    }
+
+    return ''
+  }
+
+  /**
+   * Get user-friendly description for a tool
+   *
+   * @param toolName - Name of the tool
+   * @param args - Tool arguments
+   * @returns User-friendly description
+   */
+  private getToolDescription(toolName: string, args: Record<string, unknown>): string {
+    switch (toolName) {
+      case 'bash_exec': {
+        const cmd = String(args.command ?? '')
+        return cmd.length > 60 ? `Running command...` : `Running: ${cmd}`
+      }
+
+      case 'create_knowledge_topic': {
+        return 'Creating knowledge topic...'
+      }
+
+      case 'find_knowledge_topics': {
+        return 'Querying knowledge base...'
+      }
+
+      case 'grep_content': {
+        return 'Searching codebase...'
+      }
+
+      case 'list_directory': {
+        return 'Listing directory...'
+      }
+
+      case 'read_file': {
+        return `Reading file...`
+      }
+
+      case 'update_knowledge_topic': {
+        return 'Updating knowledge topic...'
+      }
+
+      case 'write_file': {
+        return 'Writing file...'
+      }
+
+      default: {
+        return 'Processing...'
+      }
     }
   }
 
   /**
    * Handle workspace not initialized error
    */
-  private handleWorkspaceError(error: WorkspaceNotInitializedError): void {
-    const message = [
-      '\n⚠️  ByteRover workspace not found!\n',
-      "It looks like you haven't initialized ByteRover in this directory yet.",
-      'To get started, please run:\n',
-      '  $ brv init\n',
-      'This will create the necessary workspace structure in:',
-      `  ${error.expectedPath}\n`,
-      'After initialization, you can run query again.',
-    ].join('\n')
+  private handleWorkspaceError(_error: WorkspaceNotInitializedError): void {
+    const message = 'Project not initialized. Please run "brv init" to select your team and workspace.'
 
     exitWithCode(ExitCode.VALIDATION_ERROR, message)
   }
@@ -192,6 +360,8 @@ export default class Query extends Command {
       })
 
       eventBus.on('llmservice:toolCall', (payload) => {
+        // Clear any spinner on current line before printing (use spaces instead of ANSI codes)
+
         const formattedCall = formatToolCall(payload.toolName, payload.args)
         this.log(`🔧 [Event] Tool Call: ${formattedCall}`)
       })
@@ -206,26 +376,30 @@ export default class Query extends Command {
         }
       })
 
-      eventBus.on('llmservice:error', (payload) => {
-        this.log(`❌ [Event] LLM Error: ${payload.error}`)
-      })
+      // NOTE: llmservice:error is handled by catch block in the run method
+      // which displays error via this.error(). DO NOT display here to avoid duplicate.
     } else {
-      // Non-verbose mode: show concise tool progress
+      // Non-verbose mode: show concise tool progress with descriptions
       eventBus.on('llmservice:toolCall', (payload) => {
-        this.log(`🔧 Using tool: ${payload.toolName}`)
+        // Clear any spinner on current line before printing (use spaces instead of ANSI codes)
+
+        const description = this.getToolDescription(payload.toolName, payload.args)
+        this.log(`🔧 ${payload.toolName} → ${description}`)
       })
 
       eventBus.on('llmservice:toolResult', (payload) => {
         if (payload.success) {
-          this.log(`✓ ${payload.toolName} completed`)
+          // Show brief success summary for tool completion
+          const summary = this.formatToolResultSummary(payload.toolName, payload.result)
+          const completionText = summary ? `Complete (${summary})` : 'Complete'
+          this.log(`✅ ${payload.toolName} → ${completionText}`)
         } else {
-          this.log(`✗ ${payload.toolName} failed: ${payload.error}`)
+          this.log(`✗ ${payload.toolName} → Failed: ${payload.error}`)
         }
       })
 
-      eventBus.on('llmservice:error', (payload) => {
-        this.log(`❌ Error: ${payload.error}`)
-      })
+      // NOTE: llmservice:error is handled by catch block in the run method
+      // which displays error via this.error(). DO NOT display here to avoid duplicate.
     }
   }
 }

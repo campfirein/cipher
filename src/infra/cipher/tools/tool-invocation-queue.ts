@@ -202,42 +202,17 @@ export class ToolInvocationQueue {
   }
 
   /**
-   * Cancel a queued invocation
-   *
-   * @param invocationId - ID of invocation to cancel
-   * @returns True if cancelled, false if not found
-   */
-  cancel(invocationId: string): boolean {
-    // Find in queue
-    const index = this.queue.findIndex((q) => q.invocation.id === invocationId)
-
-    if (index === -1) {
-      return false
-    }
-
-    // Cancel and remove from queue
-    const queued = this.queue[index]
-    queued.invocation.cancel()
-    this.queue.splice(index, 1)
-
-    return true
-  }
-
-  /**
    * Clear all queued invocations
    *
    * Does not affect currently executing invocations.
+   * For autonomous mode, invocations are simply removed without status change.
    *
    * @returns Number of invocations cleared
    */
   clear(): number {
     const count = this.queue.length
 
-    // Cancel all queued invocations
-    for (const {invocation} of this.queue) {
-      invocation.cancel()
-    }
-
+    // Simply clear the queue (no status change needed for autonomous mode)
     this.queue.length = 0
 
     return count
@@ -297,15 +272,11 @@ export class ToolInvocationQueue {
       }
     }
 
-    // Count skipped invocations
+    // Count skipped invocations (remaining in queue when stopOnError triggered)
     if (shouldStop) {
       skipped = this.queue.length
 
-      // Cancel remaining invocations
-      for (const {invocation} of this.queue) {
-        invocation.cancel()
-      }
-
+      // Simply clear remaining (no status change needed for autonomous mode)
       this.queue.length = 0
     }
 
@@ -349,6 +320,29 @@ export class ToolInvocationQueue {
    */
   peek(): ToolInvocation | undefined {
     return this.queue[0]?.invocation
+  }
+
+  /**
+   * Remove a queued invocation from the queue.
+   *
+   * For autonomous mode, invocations are simply removed without status change.
+   * The invocation remains in SCHEDULED state but will not be executed.
+   *
+   * @param invocationId - ID of invocation to remove
+   * @returns True if removed, false if not found
+   */
+  remove(invocationId: string): boolean {
+    // Find in queue
+    const index = this.queue.findIndex((q) => q.invocation.id === invocationId)
+
+    if (index === -1) {
+      return false
+    }
+
+    // Remove from queue (no status change needed for autonomous mode)
+    this.queue.splice(index, 1)
+
+    return true
   }
 
   /**

@@ -7,6 +7,7 @@ import type {AuthToken} from '../core/domain/entities/auth-token.js'
 import type {Space} from '../core/domain/entities/space.js'
 import type {Team} from '../core/domain/entities/team.js'
 import type {IContextTreeService} from '../core/interfaces/i-context-tree-service.js'
+import type {IContextTreeSnapshotService} from '../core/interfaces/i-context-tree-snapshot-service.js'
 import type {IPlaybookService} from '../core/interfaces/i-playbook-service.js'
 import type {IProjectConfigStore} from '../core/interfaces/i-project-config-store.js'
 import type {ISpaceService} from '../core/interfaces/i-space-service.js'
@@ -20,6 +21,7 @@ import {BrvConfig} from '../core/domain/entities/brv-config.js'
 import {ITrackingService} from '../core/interfaces/i-tracking-service.js'
 import {ProjectConfigStore} from '../infra/config/file-config-store.js'
 import {FileContextTreeService} from '../infra/context-tree/file-context-tree-service.js'
+import {FileContextTreeSnapshotService} from '../infra/context-tree/file-context-tree-snapshot-service.js'
 import {FilePlaybookService} from '../infra/playbook/file-playbook-service.js'
 import {HttpSpaceService} from '../infra/space/http-space-service.js'
 import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
@@ -73,6 +75,7 @@ export default class Init extends Command {
 
   protected createServices(): {
     contextTreeService: IContextTreeService
+    contextTreeSnapshotService: IContextTreeSnapshotService
     playbookService: IPlaybookService
     projectConfigStore: IProjectConfigStore
     spaceService: ISpaceService
@@ -86,6 +89,7 @@ export default class Init extends Command {
 
     return {
       contextTreeService: new FileContextTreeService(),
+      contextTreeSnapshotService: new FileContextTreeSnapshotService(),
       playbookService: new FilePlaybookService(),
       projectConfigStore: new ProjectConfigStore(),
       spaceService: new HttpSpaceService({
@@ -202,6 +206,7 @@ export default class Init extends Command {
     try {
       const {
         contextTreeService,
+        contextTreeSnapshotService,
         playbookService,
         projectConfigStore,
         spaceService,
@@ -276,6 +281,10 @@ export default class Init extends Command {
       try {
         const contextTreePath = await contextTreeService.initialize()
         this.log(`✓ Context tree initialized in ${contextTreePath}`)
+
+        // Create initial snapshot for change tracking
+        await contextTreeSnapshotService.initEmptySnapshot()
+        this.log('✓ Context tree snapshot created')
       } catch (error) {
         // Warn but don't fail if context tree init fails
         this.warn(`Context tree initialization skipped: ${error instanceof Error ? error.message : 'Unknown error'}`)

@@ -18,6 +18,7 @@ import {FileDeltaStore} from '../infra/ace/file-delta-store.js'
 import {FileExecutorOutputStore} from '../infra/ace/file-executor-output-store.js'
 import {FilePlaybookStore} from '../infra/ace/file-playbook-store.js'
 import {FileReflectionStore} from '../infra/ace/file-reflection-store.js'
+import {ExitError} from '../infra/cipher/exit-codes.js'
 import {FilePlaybookService} from '../infra/playbook/file-playbook-service.js'
 
 export default class Complete extends Command {
@@ -65,6 +66,27 @@ export default class Complete extends Command {
       char: 'u',
       description: 'Bullet ID to update with new knowledge (if not provided, adds new bullet)',
     }),
+  }
+
+  // Override catch to prevent oclif from logging errors that were already displayed
+  public async catch(error: Error & {oclif?: {exit: number}}): Promise<void> {
+    // Check if error is ExitError (message already displayed by exitWithCode)
+    if (error instanceof ExitError) {
+      return
+    }
+
+    // Backwards compatibility: also check oclif.exit property
+    if (error.oclif?.exit !== undefined) {
+      // Error already displayed by exitWithCode, silently exit
+      return
+    }
+
+    // For other errors, hide stack trace and re-throw to let oclif handle them
+    if (error.stack) {
+      error.stack = error.message
+    }
+
+    throw error
   }
 
   protected createServices(): {
