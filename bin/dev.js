@@ -1,4 +1,4 @@
-#!/usr/bin/env -S node --loader ts-node/esm --disable-warning=ExperimentalWarning
+#!/usr/bin/env -S node --loader ts-node/esm --no-warnings=ExperimentalWarning
 
 process.env.BRV_ENV = 'development'
 

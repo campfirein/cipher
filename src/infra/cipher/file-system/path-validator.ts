@@ -3,6 +3,8 @@ import path from 'node:path'
 
 import type {FileSystemConfig, ValidationResult} from '../../../core/domain/cipher/file-system/types.js'
 
+import {getErrorMessage} from '../../../utils/error-helpers.js'
+
 /**
  * Validates file paths against security policies.
  * Implements defense-in-depth with multiple layers of validation:
@@ -60,7 +62,7 @@ export class PathValidator {
       normalizedPath = this.normalizeAndResolve(filePath)
     } catch (error) {
       return {
-        error: `Failed to resolve path: ${(error as Error).message}`,
+        error: `Failed to resolve path: ${getErrorMessage(error)}`,
         valid: false,
       }
     }
@@ -144,19 +146,13 @@ export class PathValidator {
         // If blocked path is absolute, check directly
         if (path.isAbsolute(blocked)) {
           const blockedFull = path.normalize(blocked)
-          if (
-            normalizedPath === blockedFull ||
-            normalizedPath.startsWith(blockedFull + path.sep)
-          ) {
+          if (normalizedPath === blockedFull || normalizedPath.startsWith(blockedFull + path.sep)) {
             return `Within blocked directory: ${blocked}`
           }
         } else {
           // If blocked path is relative, check against all allowed roots
           const blockedFull = path.resolve(allowedRoot, blocked)
-          if (
-            normalizedPath === blockedFull ||
-            normalizedPath.startsWith(blockedFull + path.sep)
-          ) {
+          if (normalizedPath === blockedFull || normalizedPath.startsWith(blockedFull + path.sep)) {
             return `Within blocked directory: ${blocked}`
           }
         }
@@ -209,5 +205,4 @@ export class PathValidator {
 
     return normalizedPath
   }
-
 }

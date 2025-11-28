@@ -4,7 +4,8 @@ import {Config as OclifConfig} from '@oclif/core'
 import {expect} from 'chai'
 import sinon, {restore, stub} from 'sinon'
 
-import type {IPlaybookStore} from '../../src/core/interfaces/i-playbook-store.js'
+import type {IContextTreeService} from '../../src/core/interfaces/i-context-tree-service.js'
+import type {IContextTreeSnapshotService} from '../../src/core/interfaces/i-context-tree-snapshot-service.js'
 import type {IProjectConfigStore} from '../../src/core/interfaces/i-project-config-store.js'
 import type {ITokenStore} from '../../src/core/interfaces/i-token-store.js'
 import type {ITrackingService} from '../../src/core/interfaces/i-tracking-service.js'
@@ -13,18 +14,20 @@ import Status from '../../src/commands/status.js'
 import {BRV_CONFIG_VERSION} from '../../src/constants.js'
 import {AuthToken} from '../../src/core/domain/entities/auth-token.js'
 import {BrvConfig} from '../../src/core/domain/entities/brv-config.js'
-import {Playbook} from '../../src/core/domain/entities/playbook.js'
 
 /**
  * Testable Status command that accepts mocked services
  */
 class TestableStatus extends Status {
+  public loggedMessages: string[] = []
+
   // eslint-disable-next-line max-params
   public constructor(
-    private readonly mockPlaybookStore: IPlaybookStore,
     private readonly mockConfigStore: IProjectConfigStore,
     private readonly mockTokenStore: ITokenStore,
     private readonly mockTrackingService: ITrackingService,
+    private readonly mockContextTreeService: IContextTreeService,
+    private readonly mockContextTreeSnapshotService: IContextTreeSnapshotService,
     config: Config,
   ) {
     super([], config)
@@ -32,7 +35,8 @@ class TestableStatus extends Status {
 
   protected createServices() {
     return {
-      playbookStore: this.mockPlaybookStore,
+      contextTreeService: this.mockContextTreeService,
+      contextTreeSnapshotService: this.mockContextTreeSnapshotService,
       projectConfigStore: this.mockConfigStore,
       tokenStore: this.mockTokenStore,
       trackingService: this.mockTrackingService,
@@ -46,8 +50,10 @@ class TestableStatus extends Status {
     throw new Error(errorMessage)
   }
 
-  public log(): void {
-    // Do nothing - suppress output
+  public log(message?: string): void {
+    if (message) {
+      this.loggedMessages.push(message)
+    }
   }
 
   public warn(input: Error | string): Error | string {
@@ -58,8 +64,9 @@ class TestableStatus extends Status {
 
 describe('Status Command', () => {
   let config: Config
-  let playbookStore: sinon.SinonStubbedInstance<IPlaybookStore>
   let configStore: sinon.SinonStubbedInstance<IProjectConfigStore>
+  let contextTreeService: sinon.SinonStubbedInstance<IContextTreeService>
+  let contextTreeSnapshotService: sinon.SinonStubbedInstance<IContextTreeSnapshotService>
   let tokenStore: sinon.SinonStubbedInstance<ITokenStore>
   let trackingService: sinon.SinonStubbedInstance<ITrackingService>
   let validToken: AuthToken
@@ -70,14 +77,6 @@ describe('Status Command', () => {
   })
 
   beforeEach(() => {
-    playbookStore = {
-      clear: stub(),
-      delete: stub(),
-      exists: stub(),
-      load: stub(),
-      save: stub(),
-    }
-
     tokenStore = {
       clear: stub(),
       load: stub(),
@@ -92,6 +91,19 @@ describe('Status Command', () => {
       exists: stub(),
       read: stub(),
       write: stub(),
+    }
+
+    contextTreeService = {
+      exists: stub(),
+      initialize: stub(),
+    }
+
+    contextTreeSnapshotService = {
+      getChanges: stub(),
+      getCurrentState: stub(),
+      hasSnapshot: stub(),
+      initEmptySnapshot: stub(),
+      saveSnapshot: stub(),
     }
 
     validToken = new AuthToken({
@@ -121,20 +133,28 @@ describe('Status Command', () => {
     restore()
   })
 
-  describe('run()', () => {
-    it('should display status when not logged in', async () => {
-      playbookStore.load.resolves(new Playbook())
+  describe('authentication status', () => {
+    it('should display "Not logged in" when token is undefined', async () => {
       tokenStore.load.resolves()
       configStore.exists.resolves(false)
+      contextTreeService.exists.resolves(false)
 
-      const command = new TestableStatus(playbookStore, configStore, tokenStore, trackingService, config)
+      const command = new TestableStatus(
+        configStore,
+        tokenStore,
+        trackingService,
+        contextTreeService,
+        contextTreeSnapshotService,
+        config,
+      )
 
       await command.run()
 
       expect(tokenStore.load.calledOnce).to.be.true
+      expect(command.loggedMessages.some((m) => m.includes('Not logged in'))).to.be.true
     })
 
-    it('should display status when token is expired', async () => {
+    it('should display "Session expired" when token is expired', async () => {
       const expiredToken = new AuthToken({
         accessToken: 'access-token',
         expiresAt: new Date(Date.now() - 1000),
@@ -145,155 +165,375 @@ describe('Status Command', () => {
         userId: 'user-expired',
       })
 
-      playbookStore.load.resolves(new Playbook())
       tokenStore.load.resolves(expiredToken)
       configStore.exists.resolves(false)
+      contextTreeService.exists.resolves(false)
 
-      const command = new TestableStatus(playbookStore, configStore, tokenStore, trackingService, config)
+      const command = new TestableStatus(
+        configStore,
+        tokenStore,
+        trackingService,
+        contextTreeService,
+        contextTreeSnapshotService,
+        config,
+      )
 
+      await command.run()
+
+      expect(command.loggedMessages.some((m) => m.includes('Session expired'))).to.be.true
+    })
+
+    it('should display user email when logged in with valid token', async () => {
+      tokenStore.load.resolves(validToken)
+      configStore.exists.resolves(false)
+      contextTreeService.exists.resolves(false)
+
+      const command = new TestableStatus(
+        configStore,
+        tokenStore,
+        trackingService,
+        contextTreeService,
+        contextTreeSnapshotService,
+        config,
+      )
+
+      await command.run()
+
+      expect(command.loggedMessages.some((m) => m.includes('user@example.com'))).to.be.true
+    })
+
+    it('should handle token store errors gracefully', async () => {
+      tokenStore.load.rejects(new Error('Keychain access denied'))
+      configStore.exists.resolves(false)
+      contextTreeService.exists.resolves(false)
+
+      const command = new TestableStatus(
+        configStore,
+        tokenStore,
+        trackingService,
+        contextTreeService,
+        contextTreeSnapshotService,
+        config,
+      )
+
+      // Should not throw
       await command.run()
 
       expect(tokenStore.load.calledOnce).to.be.true
     })
+  })
 
-    it('should display user email from token when logged in with valid token', async () => {
-      playbookStore.load.resolves(new Playbook())
+  describe('project status', () => {
+    it('should display "Not initialized" when project is not initialized', async () => {
       tokenStore.load.resolves(validToken)
       configStore.exists.resolves(false)
+      contextTreeService.exists.resolves(false)
 
-      const command = new TestableStatus(playbookStore, configStore, tokenStore, trackingService, config)
-
-      await command.run()
-
-      // Verify token was loaded (main behavior check)
-      expect(tokenStore.load.calledOnce).to.be.true
-    })
-
-    it('should display not initialized when project is not initialized', async () => {
-      playbookStore.load.resolves(new Playbook())
-      tokenStore.load.resolves(validToken)
-      configStore.exists.resolves(false)
-
-      const command = new TestableStatus(playbookStore, configStore, tokenStore, trackingService, config)
+      const command = new TestableStatus(
+        configStore,
+        tokenStore,
+        trackingService,
+        contextTreeService,
+        contextTreeSnapshotService,
+        config,
+      )
 
       await command.run()
 
       expect(configStore.exists.calledOnce).to.be.true
       expect(configStore.read.called).to.be.false
+      expect(command.loggedMessages.some((m) => m.includes('Not initialized'))).to.be.true
     })
 
-    it('should display connected space when project is initialized', async () => {
-      playbookStore.load.resolves(new Playbook())
+    it('should display connected team/space when project is initialized', async () => {
       tokenStore.load.resolves(validToken)
       configStore.exists.resolves(true)
       configStore.read.resolves(testConfig)
+      contextTreeService.exists.resolves(false)
 
-      const command = new TestableStatus(playbookStore, configStore, tokenStore, trackingService, config)
+      const command = new TestableStatus(
+        configStore,
+        tokenStore,
+        trackingService,
+        contextTreeService,
+        contextTreeSnapshotService,
+        config,
+      )
 
       await command.run()
 
       expect(configStore.exists.calledOnce).to.be.true
       expect(configStore.read.calledOnce).to.be.true
-    })
-
-    it('should handle token store errors gracefully', async () => {
-      playbookStore.load.resolves(new Playbook())
-      tokenStore.load.rejects(new Error('Keychain access denied'))
-      configStore.exists.resolves(false)
-
-      const command = new TestableStatus(playbookStore, configStore, tokenStore, trackingService, config)
-
-      // Should not throw
-      await command.run()
-
-      expect(tokenStore.load.calledOnce).to.be.true
-    })
-
-    it('should handle config store errors gracefully', async () => {
-      playbookStore.load.resolves(new Playbook())
-      tokenStore.load.resolves(validToken)
-      configStore.exists.rejects(new Error('File system error'))
-
-      const command = new TestableStatus(playbookStore, configStore, tokenStore, trackingService, config)
-
-      // Should not throw
-      await command.run()
-
-      expect(configStore.exists.calledOnce).to.be.true
-    })
-
-    it('should show all sections even if config section fails', async () => {
-      playbookStore.load.resolves(new Playbook())
-      tokenStore.load.resolves(validToken)
-      configStore.exists.resolves(true)
-      configStore.read.rejects(new Error('File read error'))
-
-      const command = new TestableStatus(playbookStore, configStore, tokenStore, trackingService, config)
-
-      // Should not throw and should show auth section
-      await command.run()
-
-      expect(tokenStore.load.calledOnce).to.be.true
-      expect(configStore.exists.calledOnce).to.be.true
+      expect(command.loggedMessages.some((m) => m.includes('acme-corp/backend-api'))).to.be.true
     })
 
     it('should handle invalid config file gracefully', async () => {
-      playbookStore.load.resolves(new Playbook())
       tokenStore.load.resolves(validToken)
       configStore.exists.resolves(true)
       configStore.read.resolves()
+      contextTreeService.exists.resolves(false)
 
-      const command = new TestableStatus(playbookStore, configStore, tokenStore, trackingService, config)
+      const command = new TestableStatus(
+        configStore,
+        tokenStore,
+        trackingService,
+        contextTreeService,
+        contextTreeSnapshotService,
+        config,
+      )
+
+      await command.run()
+
+      expect(command.loggedMessages.some((m) => m.includes('invalid'))).to.be.true
+    })
+
+    it('should handle config store errors gracefully', async () => {
+      tokenStore.load.resolves(validToken)
+      configStore.exists.rejects(new Error('File system error'))
+      contextTreeService.exists.resolves(false)
+
+      const command = new TestableStatus(
+        configStore,
+        tokenStore,
+        trackingService,
+        contextTreeService,
+        contextTreeSnapshotService,
+        config,
+      )
 
       // Should not throw
       await command.run()
 
       expect(configStore.exists.calledOnce).to.be.true
-      expect(configStore.read.calledOnce).to.be.true
     })
+  })
 
-    it('should handle all success states correctly', async () => {
-      playbookStore.load.resolves(new Playbook())
+  describe('context tree status', () => {
+    it('should display "Not initialized" when context tree does not exist', async () => {
       tokenStore.load.resolves(validToken)
       configStore.exists.resolves(true)
       configStore.read.resolves(testConfig)
+      contextTreeService.exists.resolves(false)
 
-      const command = new TestableStatus(playbookStore, configStore, tokenStore, trackingService, config)
+      const command = new TestableStatus(
+        configStore,
+        tokenStore,
+        trackingService,
+        contextTreeService,
+        contextTreeSnapshotService,
+        config,
+      )
 
       await command.run()
 
-      // Verify all services were called correctly
-      expect(tokenStore.load.calledOnce).to.be.true
-      expect(configStore.exists.calledOnce).to.be.true
-      expect(configStore.read.calledOnce).to.be.true
+      expect(contextTreeService.exists.calledOnce).to.be.true
+      expect(command.loggedMessages.some((m) => m.includes('Context Tree: Not initialized'))).to.be.true
     })
 
-    it('should not throw when logged in but project not initialized', async () => {
-      playbookStore.load.resolves(new Playbook())
+    it('should create empty snapshot when none exists', async () => {
       tokenStore.load.resolves(validToken)
-      configStore.exists.resolves(false)
-
-      const command = new TestableStatus(playbookStore, configStore, tokenStore, trackingService, config)
-
-      await command.run()
-
-      expect(tokenStore.load.calledOnce).to.be.true
-      expect(configStore.exists.calledOnce).to.be.true
-    })
-
-    it('should not throw when not logged in but project initialized', async () => {
-      playbookStore.load.resolves(new Playbook())
-      tokenStore.load.resolves()
       configStore.exists.resolves(true)
       configStore.read.resolves(testConfig)
+      contextTreeService.exists.resolves(true)
+      contextTreeSnapshotService.hasSnapshot.resolves(false)
+      contextTreeSnapshotService.initEmptySnapshot.resolves()
+      contextTreeSnapshotService.getChanges.resolves({added: [], deleted: [], modified: []})
 
-      const command = new TestableStatus(playbookStore, configStore, tokenStore, trackingService, config)
+      const command = new TestableStatus(
+        configStore,
+        tokenStore,
+        trackingService,
+        contextTreeService,
+        contextTreeSnapshotService,
+        config,
+      )
 
       await command.run()
 
-      expect(tokenStore.load.calledOnce).to.be.true
-      expect(configStore.exists.calledOnce).to.be.true
-      expect(configStore.read.calledOnce).to.be.true
+      expect(contextTreeSnapshotService.hasSnapshot.calledOnce).to.be.true
+      expect(contextTreeSnapshotService.initEmptySnapshot.calledOnce).to.be.true
+    })
+
+    it('should display "No changes" when snapshot exists and no changes', async () => {
+      tokenStore.load.resolves(validToken)
+      configStore.exists.resolves(true)
+      configStore.read.resolves(testConfig)
+      contextTreeService.exists.resolves(true)
+      contextTreeSnapshotService.hasSnapshot.resolves(true)
+      contextTreeSnapshotService.getChanges.resolves({added: [], deleted: [], modified: []})
+
+      const command = new TestableStatus(
+        configStore,
+        tokenStore,
+        trackingService,
+        contextTreeService,
+        contextTreeSnapshotService,
+        config,
+      )
+
+      await command.run()
+
+      expect(contextTreeSnapshotService.initEmptySnapshot.called).to.be.false
+      expect(command.loggedMessages.some((m) => m.includes('No changes'))).to.be.true
+    })
+
+    it('should display added files', async () => {
+      tokenStore.load.resolves(validToken)
+      configStore.exists.resolves(true)
+      configStore.read.resolves(testConfig)
+      contextTreeService.exists.resolves(true)
+      contextTreeSnapshotService.hasSnapshot.resolves(true)
+      contextTreeSnapshotService.getChanges.resolves({
+        added: ['design/context.md', 'testing/context.md'],
+        deleted: [],
+        modified: [],
+      })
+
+      const command = new TestableStatus(
+        configStore,
+        tokenStore,
+        trackingService,
+        contextTreeService,
+        contextTreeSnapshotService,
+        config,
+      )
+
+      await command.run()
+
+      expect(command.loggedMessages.some((m) => m.includes('Context Tree Changes'))).to.be.true
+      expect(command.loggedMessages.some((m) => m.includes('new file:') && m.includes('design/context.md'))).to.be.true
+      expect(command.loggedMessages.some((m) => m.includes('new file:') && m.includes('testing/context.md'))).to.be.true
+    })
+
+    it('should display modified files', async () => {
+      tokenStore.load.resolves(validToken)
+      configStore.exists.resolves(true)
+      configStore.read.resolves(testConfig)
+      contextTreeService.exists.resolves(true)
+      contextTreeSnapshotService.hasSnapshot.resolves(true)
+      contextTreeSnapshotService.getChanges.resolves({
+        added: [],
+        deleted: [],
+        modified: ['structure/context.md'],
+      })
+
+      const command = new TestableStatus(
+        configStore,
+        tokenStore,
+        trackingService,
+        contextTreeService,
+        contextTreeSnapshotService,
+        config,
+      )
+
+      await command.run()
+
+      expect(command.loggedMessages.some((m) => m.includes('modified:') && m.includes('structure/context.md'))).to.be
+        .true
+    })
+
+    it('should display deleted files', async () => {
+      tokenStore.load.resolves(validToken)
+      configStore.exists.resolves(true)
+      configStore.read.resolves(testConfig)
+      contextTreeService.exists.resolves(true)
+      contextTreeSnapshotService.hasSnapshot.resolves(true)
+      contextTreeSnapshotService.getChanges.resolves({
+        added: [],
+        deleted: ['old/context.md'],
+        modified: [],
+      })
+
+      const command = new TestableStatus(
+        configStore,
+        tokenStore,
+        trackingService,
+        contextTreeService,
+        contextTreeSnapshotService,
+        config,
+      )
+
+      await command.run()
+
+      expect(command.loggedMessages.some((m) => m.includes('deleted:') && m.includes('old/context.md'))).to.be.true
+    })
+
+    it('should display all change types sorted by path', async () => {
+      tokenStore.load.resolves(validToken)
+      configStore.exists.resolves(true)
+      configStore.read.resolves(testConfig)
+      contextTreeService.exists.resolves(true)
+      contextTreeSnapshotService.hasSnapshot.resolves(true)
+      contextTreeSnapshotService.getChanges.resolves({
+        added: ['z-new/context.md'],
+        deleted: ['a-deleted/context.md'],
+        modified: ['m-modified/context.md'],
+      })
+
+      const command = new TestableStatus(
+        configStore,
+        tokenStore,
+        trackingService,
+        contextTreeService,
+        contextTreeSnapshotService,
+        config,
+      )
+
+      await command.run()
+
+      // Find the indices of each change in logged messages
+      const changeMessages = command.loggedMessages.filter(
+        (m) => m.includes('new file:') || m.includes('modified:') || m.includes('deleted:'),
+      )
+
+      expect(changeMessages.length).to.equal(3)
+      // Should be sorted by path: a-deleted, m-modified, z-new
+      expect(changeMessages[0]).to.include('a-deleted')
+      expect(changeMessages[1]).to.include('m-modified')
+      expect(changeMessages[2]).to.include('z-new')
+    })
+
+    it('should handle context tree service errors gracefully', async () => {
+      tokenStore.load.resolves(validToken)
+      configStore.exists.resolves(true)
+      configStore.read.resolves(testConfig)
+      contextTreeService.exists.rejects(new Error('Permission denied'))
+
+      const command = new TestableStatus(
+        configStore,
+        tokenStore,
+        trackingService,
+        contextTreeService,
+        contextTreeSnapshotService,
+        config,
+      )
+
+      // Should not throw
+      await command.run()
+
+      expect(contextTreeService.exists.calledOnce).to.be.true
+    })
+
+    it('should handle snapshot service errors gracefully', async () => {
+      tokenStore.load.resolves(validToken)
+      configStore.exists.resolves(true)
+      configStore.read.resolves(testConfig)
+      contextTreeService.exists.resolves(true)
+      contextTreeSnapshotService.hasSnapshot.rejects(new Error('IO error'))
+
+      const command = new TestableStatus(
+        configStore,
+        tokenStore,
+        trackingService,
+        contextTreeService,
+        contextTreeSnapshotService,
+        config,
+      )
+
+      // Should not throw
+      await command.run()
+
+      expect(contextTreeSnapshotService.hasSnapshot.calledOnce).to.be.true
     })
   })
 })

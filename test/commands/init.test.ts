@@ -21,6 +21,7 @@ import {AuthToken} from '../../src/core/domain/entities/auth-token.js'
 import {BrvConfig} from '../../src/core/domain/entities/brv-config.js'
 import {Space as SpaceImpl} from '../../src/core/domain/entities/space.js'
 import {Team as TeamImpl} from '../../src/core/domain/entities/team.js'
+import {IContextTreeSnapshotService} from '../../src/core/interfaces/i-context-tree-snapshot-service.js'
 
 /**
  * Testable Init command that accepts mocked services
@@ -37,6 +38,7 @@ class TestableInit extends Init {
   constructor(
     private readonly mockConfigStore: IProjectConfigStore,
     private readonly mockContextTreeService: IContextTreeService,
+    private readonly mockContextTreeSnapshotService: IContextTreeSnapshotService,
     private readonly mockPlaybookService: IPlaybookService,
     private readonly mockRuleWriterService: IRuleWriterService,
     private readonly mockSpaceService: ISpaceService,
@@ -69,6 +71,7 @@ class TestableInit extends Init {
   protected createServices() {
     return {
       contextTreeService: this.mockContextTreeService,
+      contextTreeSnapshotService: this.mockContextTreeSnapshotService,
       playbookService: this.mockPlaybookService,
       projectConfigStore: this.mockConfigStore,
       ruleWriterService: this.mockRuleWriterService,
@@ -142,6 +145,7 @@ describe('Init Command', () => {
   let config: Config
   let configStore: sinon.SinonStubbedInstance<IProjectConfigStore>
   let contextTreeService: sinon.SinonStubbedInstance<IContextTreeService>
+  let contextTreeSnapshotService: sinon.SinonStubbedInstance<IContextTreeSnapshotService>
   let playbookService: sinon.SinonStubbedInstance<IPlaybookService>
   let ruleWriterService: sinon.SinonStubbedInstance<IRuleWriterService>
   let spaceService: sinon.SinonStubbedInstance<ISpaceService>
@@ -187,6 +191,14 @@ describe('Init Command', () => {
       initialize: stub<[directory?: string], Promise<string>>().resolves('/test/.brv/context-tree'),
     }
 
+    contextTreeSnapshotService = {
+      getChanges: stub(),
+      getCurrentState: stub(),
+      hasSnapshot: stub(),
+      initEmptySnapshot: stub(),
+      saveSnapshot: stub(),
+    }
+
     playbookService = {
       addOrUpdateBullet: stub(),
       applyDelta: stub(),
@@ -195,7 +207,10 @@ describe('Init Command', () => {
     }
 
     ruleWriterService = {
-      writeRule: stub<Parameters<IRuleWriterService['writeRule']>, ReturnType<IRuleWriterService['writeRule']>>().resolves(),
+      writeRule: stub<
+        Parameters<IRuleWriterService['writeRule']>,
+        ReturnType<IRuleWriterService['writeRule']>
+      >().resolves(),
     }
 
     trackingService = {
@@ -242,11 +257,14 @@ describe('Init Command', () => {
     it('should exit early if project is already initialized', async () => {
       tokenStore.load.resolves(validToken)
       configStore.exists.resolves(true)
-      configStore.read.resolves(BrvConfig.fromSpace({chatLogPath: 'chat.log', cwd: '/test/cwd', ide: 'Claude Code', space: testSpaces[0]}))
+      configStore.read.resolves(
+        BrvConfig.fromSpace({chatLogPath: 'chat.log', cwd: '/test/cwd', ide: 'Claude Code', space: testSpaces[0]}),
+      )
 
       const command = new TestableInit(
         configStore,
         contextTreeService,
+        contextTreeSnapshotService,
         playbookService,
         ruleWriterService,
         spaceService,
@@ -273,6 +291,7 @@ describe('Init Command', () => {
       const command = new TestableInit(
         configStore,
         contextTreeService,
+        contextTreeSnapshotService,
         playbookService,
         ruleWriterService,
         spaceService,
@@ -310,6 +329,7 @@ describe('Init Command', () => {
       const command = new TestableInit(
         configStore,
         contextTreeService,
+        contextTreeSnapshotService,
         playbookService,
         ruleWriterService,
         spaceService,
@@ -338,6 +358,7 @@ describe('Init Command', () => {
       const command = new TestableInit(
         configStore,
         contextTreeService,
+        contextTreeSnapshotService,
         playbookService,
         ruleWriterService,
         spaceService,
@@ -365,6 +386,7 @@ describe('Init Command', () => {
       const command = new TestableInit(
         configStore,
         contextTreeService,
+        contextTreeSnapshotService,
         playbookService,
         ruleWriterService,
         spaceService,
@@ -393,6 +415,7 @@ describe('Init Command', () => {
       const command = new TestableInit(
         configStore,
         contextTreeService,
+        contextTreeSnapshotService,
         playbookService,
         ruleWriterService,
         spaceService,
@@ -427,6 +450,7 @@ describe('Init Command', () => {
       const command = new TestableInit(
         configStore,
         contextTreeService,
+        contextTreeSnapshotService,
         playbookService,
         ruleWriterService,
         spaceService,
@@ -453,6 +477,7 @@ describe('Init Command', () => {
       const command = new TestableInit(
         configStore,
         contextTreeService,
+        contextTreeSnapshotService,
         playbookService,
         ruleWriterService,
         spaceService,
@@ -482,6 +507,7 @@ describe('Init Command', () => {
       const command = new TestableInit(
         configStore,
         contextTreeService,
+        contextTreeSnapshotService,
         playbookService,
         ruleWriterService,
         spaceService,
@@ -512,6 +538,7 @@ describe('Init Command', () => {
       const command = new TestableInit(
         configStore,
         contextTreeService,
+        contextTreeSnapshotService,
         playbookService,
         ruleWriterService,
         spaceService,
@@ -542,6 +569,7 @@ describe('Init Command', () => {
       const command = new TestableInit(
         configStore,
         contextTreeService,
+        contextTreeSnapshotService,
         playbookService,
         ruleWriterService,
         spaceService,
@@ -569,6 +597,7 @@ describe('Init Command', () => {
       const command = new TestableInit(
         configStore,
         contextTreeService,
+        contextTreeSnapshotService,
         playbookService,
         ruleWriterService,
         spaceService,
@@ -596,6 +625,7 @@ describe('Init Command', () => {
       const command = new TestableInit(
         configStore,
         contextTreeService,
+        contextTreeSnapshotService,
         playbookService,
         ruleWriterService,
         spaceService,
@@ -626,6 +656,7 @@ describe('Init Command', () => {
       const command = new TestableInit(
         configStore,
         contextTreeService,
+        contextTreeSnapshotService,
         playbookService,
         ruleWriterService,
         spaceService,
@@ -655,6 +686,7 @@ describe('Init Command', () => {
       const command = new TestableInit(
         configStore,
         contextTreeService,
+        contextTreeSnapshotService,
         playbookService,
         ruleWriterService,
         spaceService,
@@ -679,7 +711,9 @@ describe('Init Command', () => {
   describe('re-initialization', () => {
     it('should re-initialize when user confirms', async () => {
       configStore.exists.resolves(true)
-      configStore.read.resolves(BrvConfig.fromSpace({chatLogPath: 'chat.log', cwd: '/test/cwd', ide: 'Claude Code', space: testSpaces[0]}))
+      configStore.read.resolves(
+        BrvConfig.fromSpace({chatLogPath: 'chat.log', cwd: '/test/cwd', ide: 'Claude Code', space: testSpaces[0]}),
+      )
       configStore.write.resolves()
       tokenStore.load.resolves(validToken)
       teamService.getTeams.resolves({teams: testTeams, total: testTeams.length})
@@ -688,6 +722,7 @@ describe('Init Command', () => {
       const command = new TestableInit(
         configStore,
         contextTreeService,
+        contextTreeSnapshotService,
         playbookService,
         ruleWriterService,
         spaceService,
@@ -714,11 +749,14 @@ describe('Init Command', () => {
     it('should not proceed when user cancels re-initialization', async () => {
       tokenStore.load.resolves(validToken)
       configStore.exists.resolves(true)
-      configStore.read.resolves(BrvConfig.fromSpace({chatLogPath: 'chat.log', cwd: '/test/cwd', ide: 'Claude Code', space: testSpaces[0]}))
+      configStore.read.resolves(
+        BrvConfig.fromSpace({chatLogPath: 'chat.log', cwd: '/test/cwd', ide: 'Claude Code', space: testSpaces[0]}),
+      )
 
       const command = new TestableInit(
         configStore,
         contextTreeService,
+        contextTreeSnapshotService,
         playbookService,
         ruleWriterService,
         spaceService,
@@ -743,7 +781,9 @@ describe('Init Command', () => {
 
     it('should skip confirmation with --force flag', async () => {
       configStore.exists.resolves(true)
-      configStore.read.resolves(BrvConfig.fromSpace({chatLogPath: 'chat.log', cwd: '/test/cwd', ide: 'Claude Code', space: testSpaces[0]}))
+      configStore.read.resolves(
+        BrvConfig.fromSpace({chatLogPath: 'chat.log', cwd: '/test/cwd', ide: 'Claude Code', space: testSpaces[0]}),
+      )
       configStore.write.resolves()
       tokenStore.load.resolves(validToken)
       teamService.getTeams.resolves({teams: testTeams, total: testTeams.length})
@@ -752,6 +792,7 @@ describe('Init Command', () => {
       const command = new TestableInit(
         configStore,
         contextTreeService,
+        contextTreeSnapshotService,
         playbookService,
         ruleWriterService,
         spaceService,
@@ -778,11 +819,14 @@ describe('Init Command', () => {
     it('should handle cleanup failure during re-initialization', async () => {
       tokenStore.load.resolves(validToken)
       configStore.exists.resolves(true)
-      configStore.read.resolves(BrvConfig.fromSpace({chatLogPath: 'chat.log', cwd: '/test/cwd', ide: 'Claude Code', space: testSpaces[0]}))
+      configStore.read.resolves(
+        BrvConfig.fromSpace({chatLogPath: 'chat.log', cwd: '/test/cwd', ide: 'Claude Code', space: testSpaces[0]}),
+      )
 
       const command = new TestableInit(
         configStore,
         contextTreeService,
+        contextTreeSnapshotService,
         playbookService,
         ruleWriterService,
         spaceService,
@@ -814,6 +858,7 @@ describe('Init Command', () => {
       const command = new TestableInit(
         configStore,
         contextTreeService,
+        contextTreeSnapshotService,
         playbookService,
         ruleWriterService,
         spaceService,
@@ -847,6 +892,7 @@ describe('Init Command', () => {
       const command = new TestableInit(
         configStore,
         contextTreeService,
+        contextTreeSnapshotService,
         playbookService,
         ruleWriterService,
         spaceService,
@@ -884,6 +930,7 @@ describe('Init Command', () => {
       const command = new TestableInit(
         configStore,
         contextTreeService,
+        contextTreeSnapshotService,
         playbookService,
         ruleWriterService,
         spaceService,
@@ -923,6 +970,7 @@ describe('Init Command', () => {
       const command = new TestableInit(
         configStore,
         contextTreeService,
+        contextTreeSnapshotService,
         playbookService,
         ruleWriterService,
         spaceService,
@@ -958,6 +1006,7 @@ describe('Init Command', () => {
       const command = new TestableInit(
         configStore,
         contextTreeService,
+        contextTreeSnapshotService,
         playbookService,
         ruleWriterService,
         spaceService,
@@ -994,6 +1043,7 @@ describe('Init Command', () => {
       const command = new TestableInit(
         configStore,
         contextTreeService,
+        contextTreeSnapshotService,
         playbookService,
         ruleWriterService,
         spaceService,
@@ -1022,7 +1072,9 @@ describe('Init Command', () => {
 
     it('should handle ACE deprecation during re-initialization with --force flag', async () => {
       configStore.exists.resolves(true)
-      configStore.read.resolves(BrvConfig.fromSpace({chatLogPath: 'chat.log', cwd: '/test/cwd', ide: 'Claude Code', space: testSpaces[0]}))
+      configStore.read.resolves(
+        BrvConfig.fromSpace({chatLogPath: 'chat.log', cwd: '/test/cwd', ide: 'Claude Code', space: testSpaces[0]}),
+      )
       configStore.write.resolves()
       tokenStore.load.resolves(validToken)
       teamService.getTeams.resolves({teams: testTeams, total: testTeams.length})
@@ -1031,6 +1083,7 @@ describe('Init Command', () => {
       const command = new TestableInit(
         configStore,
         contextTreeService,
+        contextTreeSnapshotService,
         playbookService,
         ruleWriterService,
         spaceService,

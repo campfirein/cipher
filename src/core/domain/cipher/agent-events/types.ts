@@ -2,7 +2,15 @@
  * Agent-level event names for CipherAgent.
  * These events are emitted at the agent level and include sessionId in payloads.
  */
-export const AGENT_EVENT_NAMES = ['cipher:conversationReset', 'cipher:stateChanged', 'cipher:stateReset'] as const
+export const AGENT_EVENT_NAMES = [
+  'cipher:conversationReset',
+  'cipher:executionStarted',
+  'cipher:executionTerminated',
+  'cipher:log',
+  'cipher:stateChanged',
+  'cipher:stateReset',
+  'cipher:ui',
+] as const
 
 /**
  * Session-level event names for LLM service operations.
@@ -51,6 +59,16 @@ export interface TokenUsage {
 }
 
 /**
+ * Log level for structured logging events.
+ */
+export type LogLevel = 'debug' | 'error' | 'info' | 'warn'
+
+/**
+ * UI event type for user interface actions.
+ */
+export type UIEventType = 'banner' | 'help' | 'prompt' | 'response' | 'separator' | 'shutdown'
+
+/**
  * Tool error type classification.
  * Used for structured error reporting in tool execution.
  */
@@ -70,6 +88,18 @@ export type ToolErrorType =
   | 'TOOL_NOT_FOUND'
 
 /**
+ * Termination reason type for agent execution.
+ * Matches TerminationReason enum values as strings.
+ */
+export type AgentTerminationReason = 'ABORTED' | 'ERROR' | 'GOAL' | 'MAX_TURNS' | 'PROTOCOL_VIOLATION' | 'TIMEOUT'
+
+/**
+ * Agent execution state type.
+ * Matches AgentState enum values as strings.
+ */
+export type AgentExecutionStateType = 'ABORTED' | 'COMPLETE' | 'ERROR' | 'EXECUTING' | 'IDLE' | 'TOOL_CALLING'
+
+/**
  * Agent-level event payloads.
  * All agent events include sessionId for tracking which session triggered the event.
  */
@@ -80,6 +110,56 @@ export interface AgentEventMap {
    */
   'cipher:conversationReset': {
     sessionId: string
+  }
+
+  /**
+   * Emitted when agent execution starts.
+   * @property {number} maxIterations - Maximum iterations allowed
+   * @property {number} [maxTimeMs] - Maximum execution time in milliseconds
+   * @property {string} sessionId - ID of the session
+   * @property {Date} startTime - When execution started
+   */
+  'cipher:executionStarted': {
+    maxIterations: number
+    maxTimeMs?: number
+    sessionId: string
+    startTime: Date
+  }
+
+  /**
+   * Emitted when agent execution terminates.
+   * @property {number} [durationMs] - Execution duration in milliseconds
+   * @property {Date} endTime - When execution ended
+   * @property {Error} [error] - Error if terminated due to error
+   * @property {AgentTerminationReason} reason - Why execution terminated
+   * @property {string} sessionId - ID of the session
+   * @property {number} toolCallsExecuted - Number of tool calls made
+   * @property {number} turnCount - Number of turns completed
+   */
+  'cipher:executionTerminated': {
+    durationMs?: number
+    endTime: Date
+    error?: Error
+    reason: AgentTerminationReason
+    sessionId: string
+    toolCallsExecuted: number
+    turnCount: number
+  }
+
+  /**
+   * Emitted for structured logging from any layer.
+   * @property {Record<string, unknown>} [context] - Optional structured context data
+   * @property {LogLevel} level - Log level (debug, info, warn, error)
+   * @property {string} message - Human-readable log message
+   * @property {string} [sessionId] - Optional session ID (if log is session-specific)
+   * @property {string} [source] - Optional source identifier (e.g., class name, module)
+   */
+  'cipher:log': {
+    context?: Record<string, unknown>
+    level: LogLevel
+    message: string
+    sessionId?: string
+    source?: string
   }
 
   /**
@@ -102,6 +182,21 @@ export interface AgentEventMap {
    */
   'cipher:stateReset': {
     sessionId?: string
+  }
+
+  /**
+   * Emitted for UI-related actions (banners, prompts, responses, etc.).
+   * This separates UI concerns from business logic logging.
+   * @property {Record<string, unknown>} [context] - Optional context (e.g., colors, formatting data)
+   * @property {string} [message] - Optional human-readable message
+   * @property {string} [sessionId] - Optional session ID
+   * @property {UIEventType} type - Type of UI event
+   */
+  'cipher:ui': {
+    context?: Record<string, unknown>
+    message?: string
+    sessionId?: string
+    type: UIEventType
   }
 
   /**

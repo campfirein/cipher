@@ -7,6 +7,7 @@ import type {AuthToken} from '../core/domain/entities/auth-token.js'
 import type {Space} from '../core/domain/entities/space.js'
 import type {Team} from '../core/domain/entities/team.js'
 import type {IContextTreeService} from '../core/interfaces/i-context-tree-service.js'
+import type {IContextTreeSnapshotService} from '../core/interfaces/i-context-tree-snapshot-service.js'
 import type {IProjectConfigStore} from '../core/interfaces/i-project-config-store.js'
 import type {IRuleWriterService} from '../core/interfaces/i-rule-writer-service.js'
 import type {ISpaceService} from '../core/interfaces/i-space-service.js'
@@ -22,6 +23,7 @@ import {RuleExistsError} from '../core/domain/errors/rule-error.js'
 import {ITrackingService} from '../core/interfaces/i-tracking-service.js'
 import {ProjectConfigStore} from '../infra/config/file-config-store.js'
 import {FileContextTreeService} from '../infra/context-tree/file-context-tree-service.js'
+import {FileContextTreeSnapshotService} from '../infra/context-tree/file-context-tree-snapshot-service.js'
 import {FsFileService} from '../infra/file/fs-file-service.js'
 import {RuleTemplateService} from '../infra/rule/rule-template-service.js'
 import {RuleWriterService} from '../infra/rule/rule-writer-service.js'
@@ -110,6 +112,7 @@ export default class Init extends Command {
 
   protected createServices(): {
     contextTreeService: IContextTreeService
+    contextTreeSnapshotService: IContextTreeSnapshotService
     projectConfigStore: IProjectConfigStore
     ruleWriterService: IRuleWriterService
     spaceService: ISpaceService
@@ -127,6 +130,7 @@ export default class Init extends Command {
 
     return {
       contextTreeService: new FileContextTreeService(),
+      contextTreeSnapshotService: new FileContextTreeSnapshotService(),
       projectConfigStore: new ProjectConfigStore(),
       ruleWriterService: new RuleWriterService(fileService, ruleTemplateService),
       spaceService: new HttpSpaceService({
@@ -363,6 +367,7 @@ export default class Init extends Command {
 
       const {
         contextTreeService,
+        contextTreeSnapshotService,
         projectConfigStore,
         ruleWriterService,
         spaceService,
@@ -407,6 +412,10 @@ export default class Init extends Command {
       // ACE is deprecated - only initialize context tree
       await this.initializeMemoryContextDir('context tree', () => contextTreeService.initialize())
 
+      // Create initial snapshot for change tracking
+      await contextTreeSnapshotService.initEmptySnapshot()
+      this.log('✓ Context tree snapshot created')
+
       this.log()
       const selectedAgent = await this.promptForAgentSelection()
 
@@ -428,10 +437,6 @@ export default class Init extends Command {
 
       await trackingService.track('rule:generate')
       await trackingService.track('space:init')
-
-      this.log(
-        "Note: It's recommended to add .brv/ to your .gitignore file since ByteRover already takes care of memory/context versioning for you.",
-      )
 
       this.logSuccess(selectedSpace)
     } catch (error) {

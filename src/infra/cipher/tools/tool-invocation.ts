@@ -17,23 +17,21 @@ import type {Tool, ToolExecutionContext} from '../../../core/domain/cipher/tools
 import {ToolError, ToolErrorType} from '../../../core/domain/cipher/tools/tool-error.js'
 
 /**
- * Status of a tool invocation
+ * Status of a tool invocation.
+ *
+ * Simplified for autonomous execution - no AWAITING_APPROVAL or CANCELLED states.
+ * Added DENIED for policy rejections.
  */
 export enum ToolInvocationStatus {
-  /**
-   * Invocation is awaiting approval (future: user confirmation)
-   */
-  AWAITING_APPROVAL = 'AWAITING_APPROVAL',
-
-  /**
-   * Invocation was cancelled
-   */
-  CANCELLED = 'CANCELLED',
-
   /**
    * Invocation completed successfully
    */
   COMPLETED = 'COMPLETED',
+
+  /**
+   * Invocation was denied by policy
+   */
+  DENIED = 'DENIED',
 
   /**
    * Invocation failed with error
@@ -172,23 +170,23 @@ export class ToolInvocation {
   }
 
   /**
-   * Cancel this invocation
+   * Mark this invocation as denied by policy.
    *
-   * Can only cancel if not yet executing or completed.
+   * Can only deny if not yet executing or completed.
    *
-   * @returns True if cancelled, false if already executing/completed
+   * @returns True if denied, false if already executing/completed
    */
-  cancel(): boolean {
+  deny(): boolean {
     if (
       this._status === ToolInvocationStatus.EXECUTING ||
       this._status === ToolInvocationStatus.COMPLETED ||
       this._status === ToolInvocationStatus.ERROR ||
-      this._status === ToolInvocationStatus.CANCELLED
+      this._status === ToolInvocationStatus.DENIED
     ) {
       return false
     }
 
-    this._status = ToolInvocationStatus.CANCELLED
+    this._status = ToolInvocationStatus.DENIED
     return true
   }
 
@@ -201,20 +199,18 @@ export class ToolInvocation {
    * @returns Execution result
    */
   async execute(): Promise<ToolInvocationResult> {
-    // Check if invocation is executable
-    if (this._status === ToolInvocationStatus.CANCELLED) {
+    // Check if invocation was denied by policy
+    if (this._status === ToolInvocationStatus.DENIED) {
       return {
         durationMs: 0,
-        error: new ToolError('Tool invocation was cancelled', ToolErrorType.CANCELLED, this.toolName),
-        status: ToolInvocationStatus.CANCELLED,
+        error: new ToolError('Tool invocation was denied by policy', ToolErrorType.PERMISSION_DENIED, this.toolName),
+        status: ToolInvocationStatus.DENIED,
         timestamp: Date.now(),
       }
     }
 
-    if (
-      this._status !== ToolInvocationStatus.SCHEDULED &&
-      this._status !== ToolInvocationStatus.AWAITING_APPROVAL
-    ) {
+    // Check if invocation is in executable state
+    if (this._status !== ToolInvocationStatus.SCHEDULED) {
       return {
         durationMs: 0,
         error: new ToolError(
@@ -281,10 +277,7 @@ export class ToolInvocation {
    * Check if invocation can be executed
    */
   isExecutable(): boolean {
-    return (
-      this._status === ToolInvocationStatus.SCHEDULED ||
-      this._status === ToolInvocationStatus.AWAITING_APPROVAL
-    )
+    return this._status === ToolInvocationStatus.SCHEDULED
   }
 }
 

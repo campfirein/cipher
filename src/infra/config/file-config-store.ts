@@ -7,6 +7,7 @@ import type {IProjectConfigStore} from '../../core/interfaces/i-project-config-s
 import {BRV_DIR, PROJECT_CONFIG_FILE} from '../../constants.js'
 import {BrvConfig} from '../../core/domain/entities/brv-config.js'
 import {BrvConfigVersionError} from '../../core/domain/errors/brv-config-version-error.js'
+import {getErrorMessage} from '../../utils/error-helpers.js'
 
 /**
  * File-based implementation of IProjectConfigStore.
@@ -34,7 +35,7 @@ export class ProjectConfigStore implements IProjectConfigStore {
         throw error
       }
 
-      throw new Error(`Failed to read config from ${configPath}: ${(error as Error).message}`)
+      throw new Error(`Failed to read config from ${configPath}: ${getErrorMessage(error)}`)
     }
   }
 
@@ -51,7 +52,7 @@ export class ProjectConfigStore implements IProjectConfigStore {
       const content = JSON.stringify(config.toJson(), undefined, 2)
       await writeFile(configPath, content, 'utf8')
     } catch (error) {
-      throw new Error(`Failed to write config to ${configPath}: ${(error as Error).message}`)
+      throw new Error(`Failed to write config to ${configPath}: ${getErrorMessage(error)}`)
     }
   }
 
