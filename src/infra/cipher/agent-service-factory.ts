@@ -253,15 +253,13 @@ export function createSessionServices(
       policy: DEFAULT_RETRY_POLICY,
     })
 
-    // Step 4: Wrap with logging decorator (if verbose)
-    if (llmConfig.verbose) {
-      generator = new LoggingContentGenerator(generator, sessionEventBus, {
-        logChunks: true,
-        logRequests: true,
-        logResponses: true,
-        verbose: true,
-      })
-    }
+    // Step 4: Wrap with logging decorator (always, for spinner events)
+    generator = new LoggingContentGenerator(generator, sessionEventBus, {
+      logChunks: llmConfig.verbose,
+      logRequests: llmConfig.verbose,
+      logResponses: llmConfig.verbose,
+      verbose: llmConfig.verbose,
+    })
 
     // Step 5: Create LLM service with composed generator
     llmService = new ByteRoverLLMService(

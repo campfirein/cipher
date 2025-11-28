@@ -17,11 +17,6 @@ import {executeCommand} from './interactive-commands.js'
  */
 function promptUser(rl: readline.Interface): Promise<string> {
   return new Promise((resolve, reject) => {
-    // Ensure stdin is not paused
-    if (process.stdin.isPaused()) {
-      process.stdin.resume()
-    }
-
     // Set the prompt and display it immediately
     const prompt = chalk.cyan('💬 You: ')
     rl.setPrompt(prompt)
@@ -347,9 +342,6 @@ export async function startInteractiveLoop(
     output: process.stdout,
   })
 
-  // Resume stdin
-  process.stdin.resume()
-
   // Create custom spinner using carriage return for clean output
   const spinnerRef: {current: NodeJS.Timeout | null} = {current: null}
   const spinnerFrames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
@@ -373,7 +365,7 @@ export async function startInteractiveLoop(
     process.exit(0)
   }
 
-  process.on('SIGINT', exitEventHandler)
+  rl.on('SIGINT', exitEventHandler)
   process.on('SIGTERM', exitEventHandler)
 
   try {
@@ -382,10 +374,6 @@ export async function startInteractiveLoop(
       // Get user input
       // eslint-disable-next-line no-await-in-loop -- Sequential user input required for interactive loop
       const userInput = await promptUser(rl)
-
-      // Immediately pause stdin after getting input to prevent readline artifacts
-      // promptUser will resume it on next iteration
-      process.stdin.pause()
 
       // Parse input
       const parsed = parseInput(userInput)
@@ -416,7 +404,7 @@ export async function startInteractiveLoop(
   } finally {
     stopSpinner(spinnerRef)
     await cleanup(agent, rl, isExitingRef, options?.eventBus)
-    process.off('SIGINT', exitEventHandler)
+    rl.off('SIGINT', exitEventHandler)
     process.off('SIGTERM', exitEventHandler)
   }
 }

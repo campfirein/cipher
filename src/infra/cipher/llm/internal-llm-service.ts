@@ -493,14 +493,13 @@ export class ByteRoverLLMService implements ILLMService {
       console.log('\n========== MESSAGES (Sent to LLM) ==========')
       console.log(JSON.stringify(this.contextManager.getMessages(), null, 2))
       console.log('========== END MESSAGES ==========\n')
+      // Log token usage for monitoring compression behavior
+      console.log(
+        `[ByteRoverLLMService] [Iter ${iterationCount + 1}/${
+          this.config.maxIterations
+        }] Sending to LLM: ${tokensUsed} tokens (max: ${this.config.maxInputTokens})`,
+      )
     }
-
-    // Log token usage for monitoring compression behavior
-    console.log(
-      `[ByteRoverLLMService] [Iter ${iterationCount + 1}/${
-        this.config.maxIterations
-      }] Sending to LLM: ${tokensUsed} tokens (max: ${this.config.maxInputTokens})`,
-    )
 
     // Build generation request
     const request = this.buildGenerateContentRequest(systemPrompt, tools)
