@@ -8,14 +8,11 @@ import {createBlobStorage} from './blob/blob-storage-factory.js'
 import {AgentEventBus, SessionEventBus} from './events/event-emitter.js'
 import {FileSystemService} from './file-system/file-system-service.js'
 import {ByteRoverLlmGrpcService} from './grpc/internal-llm-grpc-service.js'
-import {
-  ByteRoverContentGenerator,
-  LoggingContentGenerator,
-  RetryableContentGenerator,
-} from './llm/generators/index.js'
+import {ByteRoverContentGenerator, LoggingContentGenerator, RetryableContentGenerator} from './llm/generators/index.js'
 import {ByteRoverLLMService} from './llm/internal-llm-service.js'
 import {OpenRouterLLMService} from './llm/openrouter-llm-service.js'
 import {DEFAULT_RETRY_POLICY} from './llm/retry/retry-policy.js'
+import {EventBasedLogger} from './logger/event-based-logger.js'
 import {MemoryManager} from './memory/memory-manager.js'
 import {ProcessService} from './process/process-service.js'
 import {BlobHistoryStorage} from './storage/blob-history-storage.js'
@@ -79,11 +76,14 @@ export async function createCipherAgentServices(llmConfig: CipherLLMConfig): Pro
   // 1. Agent event bus (global)
   const agentEventBus = new AgentEventBus()
 
-  // 2. File system service (no dependencies)
+  // 2. Logger (depends on event bus)
+  const logger = new EventBasedLogger(agentEventBus, 'CipherAgent')
+
+  // 3. File system service (no dependencies)
   const fileSystemService = new FileSystemService(llmConfig.fileSystemConfig)
   await fileSystemService.initialize()
 
-  // 3. Process service (no dependencies)
+  // 4. Process service (no dependencies)
   // Use the same working directory as FileSystemService to ensure consistency
   const workingDirectory = llmConfig.fileSystemConfig?.workingDirectory ?? process.cwd()
   const processService = new ProcessService({
@@ -98,7 +98,7 @@ export async function createCipherAgentServices(llmConfig: CipherLLMConfig): Pro
   })
   await processService.initialize()
 
-  // 4. Blob storage (no dependencies)
+  // 5. Blob storage (no dependencies)
   // Always uses SQLite for performance and ACID transactions
   const blobStorage = createBlobStorage({
     maxBlobSize: 100 * 1024 * 1024, // 100MB
@@ -107,15 +107,16 @@ export async function createCipherAgentServices(llmConfig: CipherLLMConfig): Pro
   })
   await blobStorage.initialize()
 
-  // 5. Memory system (depends on BlobStorage)
-  const memoryManager = new MemoryManager(blobStorage)
+  // 6. Memory system (depends on BlobStorage, Logger)
+  const memoryLogger = logger.withSource('MemoryManager')
+  const memoryManager = new MemoryManager(blobStorage, memoryLogger)
 
-  // 6. Simple prompt factory - SHARED across sessions
+  // 7. Simple prompt factory - SHARED across sessions
   // Created early so it can be used by ToolProvider
   const verbose = llmConfig.verbose ?? false
   const promptFactory = new SimplePromptFactory(undefined, verbose)
 
-  // 7. Tool system (depends on FileSystemService, ProcessService, MemoryManager, PromptFactory)
+  // 8. Tool system (depends on FileSystemService, ProcessService, MemoryManager, PromptFactory)
   const toolProvider = new ToolProvider(
     {
       fileSystemService,
@@ -130,6 +131,13 @@ export async function createCipherAgentServices(llmConfig: CipherLLMConfig): Pro
 
   // 9. History storage (depends on BlobStorage) - SHARED across sessions
   const historyStorage = new BlobHistoryStorage(blobStorage)
+
+  // Log successful initialization
+  logger.info('CipherAgent services initialized successfully', {
+    model: llmConfig.model,
+    verbose: llmConfig.verbose,
+    workingDirectory,
+  })
 
   return {
     agentEventBus,
@@ -187,7 +195,10 @@ export function createSessionServices(
   // 1. Create session-specific event bus
   const sessionEventBus = new SessionEventBus()
 
-  // 2. Create LLM service based on configuration
+  // 2. Create session-scoped logger
+  const sessionLogger = new EventBasedLogger(sharedServices.agentEventBus, 'LLMService', sessionId)
+
+  // 3. Create LLM service based on configuration
   // Priority: OpenRouter > ByteRover gRPC
   let llmService
 
@@ -207,6 +218,7 @@ export function createSessionServices(
         verbose: llmConfig.verbose ?? false,
       },
       {
+        logger: sessionLogger,
         memoryManager: sharedServices.memoryManager, // SHARED
         sessionEventBus,
         systemPromptManager: sharedServices.promptFactory, // SHARED
@@ -241,15 +253,13 @@ export function createSessionServices(
       policy: DEFAULT_RETRY_POLICY,
     })
 
-    // Step 4: Wrap with logging decorator (if verbose)
-    if (llmConfig.verbose) {
-      generator = new LoggingContentGenerator(generator, sessionEventBus, {
-        logChunks: true,
-        logRequests: true,
-        logResponses: true,
-        verbose: true,
-      })
-    }
+    // Step 4: Wrap with logging decorator (always, for spinner events)
+    generator = new LoggingContentGenerator(generator, sessionEventBus, {
+      logChunks: llmConfig.verbose,
+      logRequests: llmConfig.verbose,
+      logResponses: llmConfig.verbose,
+      verbose: llmConfig.verbose,
+    })
 
     // Step 5: Create LLM service with composed generator
     llmService = new ByteRoverLLMService(
@@ -264,6 +274,7 @@ export function createSessionServices(
       },
       {
         historyStorage: sharedServices.historyStorage, // SHARED
+        logger: sessionLogger,
         memoryManager: sharedServices.memoryManager, // SHARED
         promptFactory: sharedServices.promptFactory, // SHARED
         sessionEventBus,

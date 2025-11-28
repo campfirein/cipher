@@ -79,7 +79,6 @@ export class GeminiMessageFormatter implements IMessageFormatter<Content> {
     }
 
     const candidate = typedResponse.candidates[0]
-    console.log('Gemini candidate:', JSON.stringify(candidate, null, 2).slice(0, 500)) // Log first 500 chars
     if (!candidate?.content?.parts) {
       return []
     }

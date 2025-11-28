@@ -13,6 +13,8 @@ import {getCurrentConfig} from '../config/environment.js'
 import {DEFAULT_BRANCH, PLAYBOOK_FILE} from '../constants.js'
 import {IContextTreeSnapshotService} from '../core/interfaces/i-context-tree-snapshot-service.js'
 import {ITrackingService} from '../core/interfaces/i-tracking-service.js'
+import {ExitCode, ExitError, exitWithCode} from '../infra/cipher/exit-codes.js'
+import {WorkspaceNotInitializedError} from '../infra/cipher/validation/workspace-validator.js'
 import {ProjectConfigStore} from '../infra/config/file-config-store.js'
 import {FileContextTreeSnapshotService} from '../infra/context-tree/file-context-tree-snapshot-service.js'
 import {HttpMemoryStorageService} from '../infra/memory/http-memory-storage-service.js'
@@ -40,10 +42,30 @@ export default class Push extends Command {
     }),
   }
 
+  // Override catch to prevent oclif from logging errors that were already displayed
+  async catch(error: Error & {oclif?: {exit: number}}): Promise<void> {
+    // Check if error is ExitError (message already displayed by exitWithCode)
+    if (error instanceof ExitError) {
+      return
+    }
+
+    // Backwards compatibility: also check oclif.exit property
+    if (error.oclif?.exit !== undefined) {
+      // Error already displayed by exitWithCode, silently exit
+      return
+    }
+
+    // For other errors, re-throw to let oclif handle them
+    throw error
+  }
+
   protected async checkProjectInit(projectConfigStore: IProjectConfigStore): Promise<BrvConfig> {
     const projectConfig = await projectConfigStore.read()
     if (projectConfig === undefined) {
-      this.error('Project not initialized. Run "brv init" first.')
+      throw new WorkspaceNotInitializedError(
+        'Project not initialized. Please run "brv init" to select your team and workspace.',
+        '.brv',
+      )
     }
 
     return projectConfig
@@ -149,6 +171,15 @@ export default class Push extends Command {
       this.log('\n✓ Successfully pushed playbook to ByteRover memory storage!')
       this.log(`  Branch: ${flags.branch}`)
     } catch (error) {
+      if (error instanceof WorkspaceNotInitializedError) {
+        exitWithCode(
+          ExitCode.VALIDATION_ERROR,
+          'Project not initialized. Please run "brv init" to select your team and workspace.',
+        )
+      }
+
+      // For other errors, log context and exit
+      process.stderr.write('Failed to push:\n')
       this.error(error instanceof Error ? error.message : 'Push failed')
     }
   }

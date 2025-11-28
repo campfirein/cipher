@@ -4,12 +4,10 @@ import type {Content} from '@google/genai'
 import type {ToolExecutionResult} from '../../../core/domain/cipher/tools/tool-error.js'
 import type {ToolSet} from '../../../core/domain/cipher/tools/types.js'
 import type {ExecutionContext} from '../../../core/interfaces/cipher/i-cipher-agent.js'
-import type {
-  GenerateContentRequest,
-  IContentGenerator,
-} from '../../../core/interfaces/cipher/i-content-generator.js'
+import type {GenerateContentRequest, IContentGenerator} from '../../../core/interfaces/cipher/i-content-generator.js'
 import type {IHistoryStorage} from '../../../core/interfaces/cipher/i-history-storage.js'
 import type {ILLMService} from '../../../core/interfaces/cipher/i-llm-service.js'
+import type {ILogger} from '../../../core/interfaces/cipher/i-logger.js'
 import type {IMessageFormatter} from '../../../core/interfaces/cipher/i-message-formatter.js'
 import type {ITokenizer} from '../../../core/interfaces/cipher/i-tokenizer.js'
 import type {InternalMessage, ToolCall} from '../../../core/interfaces/cipher/message-types.js'
@@ -22,6 +20,8 @@ import {
   LlmMaxIterationsError,
   LlmResponseParsingError,
 } from '../../../core/domain/cipher/errors/llm-error.js'
+import {NoOpLogger} from '../../../core/interfaces/cipher/i-logger.js'
+import {getErrorMessage} from '../../../utils/error-helpers.js'
 import {SessionEventBus} from '../events/event-emitter.js'
 import {ContextManager, type FileData, type ImageData} from './context/context-manager.js'
 import {ClaudeMessageFormatter} from './formatters/claude-formatter.js'
@@ -30,7 +30,6 @@ import {type ThinkingConfig, ThoughtParser} from './thought-parser.js'
 import {ClaudeTokenizer} from './tokenizers/claude-tokenizer.js'
 import {GeminiTokenizer} from './tokenizers/gemini-tokenizer.js'
 import {ToolOutputProcessor, type TruncationConfig} from './tool-output-processor.js'
-
 
 /**
  * Configuration for ByteRover LLM service
@@ -97,6 +96,7 @@ export class ByteRoverLLMService implements ILLMService {
   private readonly contextManager: ContextManager<Content | MessageParam>
   private readonly formatter: IMessageFormatter<Content | MessageParam>
   private readonly generator: IContentGenerator
+  private readonly logger: ILogger
   private readonly memoryManager?: MemoryManager
   private readonly outputProcessor: ToolOutputProcessor
   private readonly promptFactory: SimplePromptFactory
@@ -126,6 +126,7 @@ export class ByteRoverLLMService implements ILLMService {
    * @param options.memoryManager - Memory manager for agent memories
    * @param options.sessionEventBus - Event bus for session lifecycle events
    * @param options.historyStorage - Optional history storage for persistence
+   * @param options.logger - Optional logger for structured logging
    */
   public constructor(
     sessionId: string,
@@ -133,6 +134,7 @@ export class ByteRoverLLMService implements ILLMService {
     config: ByteRoverLLMServiceConfig,
     options: {
       historyStorage?: IHistoryStorage
+      logger?: ILogger
       memoryManager?: MemoryManager
       promptFactory: SimplePromptFactory
       sessionEventBus: SessionEventBus
@@ -144,6 +146,7 @@ export class ByteRoverLLMService implements ILLMService {
     this.promptFactory = options.promptFactory
     this.memoryManager = options.memoryManager
     this.sessionEventBus = options.sessionEventBus
+    this.logger = options.logger ?? new NoOpLogger()
     this.outputProcessor = new ToolOutputProcessor(config.truncationConfig)
     this.config = {
       maxInputTokens: config.maxInputTokens ?? 1_000_000,
@@ -199,7 +202,14 @@ export class ByteRoverLLMService implements ILLMService {
    */
   public async completeTask(
     textInput: string,
-    options?: {executionContext?: ExecutionContext; fileData?: FileData; imageData?: ImageData; mode?: 'autonomous' | 'default' | 'query'; signal?: AbortSignal; stream?: boolean},
+    options?: {
+      executionContext?: ExecutionContext
+      fileData?: FileData
+      imageData?: ImageData
+      mode?: 'autonomous' | 'default' | 'query'
+      signal?: AbortSignal
+      stream?: boolean
+    },
   ): Promise<string> {
     // Extract options with defaults
     const {executionContext, fileData, imageData, mode, signal} = options ?? {}
@@ -234,12 +244,14 @@ export class ByteRoverLLMService implements ILLMService {
     }
 
     // Max iterations exceeded - emit warning and return partial response
-    console.warn(`[ByteRoverLLMService] WARNING: Reached maximum iterations (${this.config.maxIterations}) without completion`)
+    this.logger.warn('Reached maximum iterations without completion', {
+      maxIterations: this.config.maxIterations,
+    })
 
     this.sessionEventBus.emit('llmservice:warning', {
       message: `Maximum iterations (${this.config.maxIterations}) reached without completion`,
       model: this.config.model,
-      provider: 'byterover'
+      provider: 'byterover',
     })
 
     // Get accumulated response from context
@@ -249,10 +261,13 @@ export class ByteRoverLLMService implements ILLMService {
       content: partialResponse,
       model: this.config.model,
       partial: true,
-      provider: 'byterover'
+      provider: 'byterover',
     })
 
-    return partialResponse || 'Maximum iterations reached without completing the task. Please try breaking down the task into smaller steps.'
+    return (
+      partialResponse ||
+      'Maximum iterations reached without completing the task. Please try breaking down the task into smaller steps.'
+    )
   }
 
   /**
@@ -329,10 +344,7 @@ export class ByteRoverLLMService implements ILLMService {
    * @param tools - Available tools for function calling
    * @returns GenerateContentRequest for the generator
    */
-  private buildGenerateContentRequest(
-    systemPrompt: string,
-    tools: ToolSet,
-  ): GenerateContentRequest {
+  private buildGenerateContentRequest(systemPrompt: string, tools: ToolSet): GenerateContentRequest {
     // Get internal messages from context manager
     const messages = this.contextManager.getMessages()
 
@@ -371,11 +383,7 @@ export class ByteRoverLLMService implements ILLMService {
 
       // Validate the message has content or tool calls
       if (!message.content && (!message.toolCalls || message.toolCalls.length === 0)) {
-        throw new LlmResponseParsingError(
-          'Response has neither content nor tool calls',
-          'byterover',
-          this.config.model
-        )
+        throw new LlmResponseParsingError('Response has neither content nor tool calls', 'byterover', this.config.model)
       }
 
       return message
@@ -389,7 +397,7 @@ export class ByteRoverLLMService implements ILLMService {
       throw new LlmGenerationError(
         error instanceof Error ? error.message : String(error),
         'byterover',
-        this.config.model
+        this.config.model,
       )
     }
   }
@@ -443,40 +451,41 @@ export class ByteRoverLLMService implements ILLMService {
       const reflectionPrompt = this.promptFactory.buildReflectionPrompt({
         currentIteration: iterationCount + 1,
         maxIterations: this.config.maxIterations,
-        type: 'near_max_iterations'
+        type: 'near_max_iterations',
       })
       systemPrompt = systemPrompt + '\n\n' + reflectionPrompt
     }
     // Add periodic completion check every 3 iterations (after iteration 3)
     else if (iterationCount > 0 && iterationCount % 3 === 0) {
       const reflectionPrompt = this.promptFactory.buildReflectionPrompt({
-        type: 'completion_check'
+        type: 'completion_check',
       })
       systemPrompt = systemPrompt + '\n\n' + reflectionPrompt
     }
 
     // Verbose debug: Show complete system prompt
     if (this.config.verbose) {
-      console.log(`\n${'='.repeat(80)}`)
-      console.log(`[PromptDebug:LLMService] SYSTEM PROMPT (Iteration ${iterationCount + 1})`)
-      console.log(`${'='.repeat(80)}`)
-      console.log(`Length: ${systemPrompt.length} characters`)
-      console.log(`Lines: ${systemPrompt.split('\n').length}`)
-      console.log(`\n--- FIRST 500 CHARACTERS ---`)
-      console.log(systemPrompt.slice(0, 500))
-      console.log(`\n--- LAST 500 CHARACTERS ---`)
-      console.log(systemPrompt.slice(-500))
-      console.log(`${'='.repeat(80)}\n`)
+      this.logger.debug('System prompt details', {
+        first500Chars: systemPrompt.slice(0, 500),
+        iteration: iterationCount + 1,
+        last500Chars: systemPrompt.slice(-500),
+        length: systemPrompt.length,
+        lines: systemPrompt.split('\n').length,
+      })
     }
 
     // Get token count for logging (using system prompt for token accounting)
     const systemPromptTokens = this.generator.estimateTokensSync(systemPrompt)
-    const messagesTokens = this.contextManager.getMessages().reduce(
-      (total, msg) => total + this.generator.estimateTokensSync(
-        typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
-      ),
-      0
-    )
+    const messagesTokens = this.contextManager
+      .getMessages()
+      .reduce(
+        (total, msg) =>
+          total +
+          this.generator.estimateTokensSync(
+            typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content),
+          ),
+        0,
+      )
     const tokensUsed = systemPromptTokens + messagesTokens
 
     // Verbose: Log messages that will be sent to LLM
@@ -484,10 +493,13 @@ export class ByteRoverLLMService implements ILLMService {
       console.log('\n========== MESSAGES (Sent to LLM) ==========')
       console.log(JSON.stringify(this.contextManager.getMessages(), null, 2))
       console.log('========== END MESSAGES ==========\n')
+      // Log token usage for monitoring compression behavior
+      console.log(
+        `[ByteRoverLLMService] [Iter ${iterationCount + 1}/${
+          this.config.maxIterations
+        }] Sending to LLM: ${tokensUsed} tokens (max: ${this.config.maxInputTokens})`,
+      )
     }
-
-    // Log token usage for monitoring compression behavior
-    console.log(`[ByteRoverLLMService] [Iter ${iterationCount + 1}/${this.config.maxIterations}] Sending to LLM: ${tokensUsed} tokens (max: ${this.config.maxInputTokens})`)
 
     // Build generation request
     const request = this.buildGenerateContentRequest(systemPrompt, tools)
@@ -556,19 +568,14 @@ export class ByteRoverLLMService implements ILLMService {
     })
 
     // Add tool result to context with full metadata (using processed output)
-    await this.contextManager.addToolResult(
-      toolCall.id,
-      toolName,
-      processedOutput.content,
-      {
-        errorType: result.errorType,
-        metadata: {
-          ...result.metadata,
-          ...processedOutput.metadata,
-        },
-        success: result.success,
-      }
-    )
+    await this.contextManager.addToolResult(toolCall.id, toolName, processedOutput.content, {
+      errorType: result.errorType,
+      metadata: {
+        ...result.metadata,
+        ...processedOutput.metadata,
+      },
+      success: result.success,
+    })
   }
 
   /**
@@ -657,7 +664,7 @@ export class ByteRoverLLMService implements ILLMService {
 
     // Wrap other errors
     if (error && typeof error === 'object' && 'message' in error) {
-      throw new LlmGenerationError((error as Error).message, 'byterover', this.config.model)
+      throw new LlmGenerationError(getErrorMessage(error), 'byterover', this.config.model)
     }
 
     throw new LlmGenerationError(String(error), 'byterover', this.config.model)

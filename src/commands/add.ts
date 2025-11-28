@@ -13,11 +13,12 @@ import {CONTEXT_TREE_DOMAINS} from '../config/context-tree-domains.js'
 import {getCurrentConfig, isDevelopment} from '../config/environment.js'
 import {BRV_DIR, CONTEXT_FILE, CONTEXT_TREE_DIR, PROJECT} from '../constants.js'
 import {CipherAgent} from '../infra/cipher/cipher-agent.js'
-import {ExitCode, exitWithCode} from '../infra/cipher/exit-codes.js'
+import {ExitCode, ExitError, exitWithCode} from '../infra/cipher/exit-codes.js'
 import {WorkspaceNotInitializedError} from '../infra/cipher/validation/workspace-validator.js'
 import {ProjectConfigStore} from '../infra/config/file-config-store.js'
 import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
 import {MixpanelTrackingService} from '../infra/tracking/mixpanel-tracking-service.js'
+import {addErrorPrefix} from '../utils/emoji-helpers.js'
 import {formatToolCall, formatToolResult} from '../utils/tool-display-formatter.js'
 
 // Full path to context tree
@@ -68,6 +69,22 @@ export default class Add extends Command {
       default: false,
       description: 'Enable verbose debug output',
     }),
+  }
+
+  // Override catch to prevent oclif from logging errors that were already displayed
+  async catch(error: Error & {oclif?: {exit: number}}): Promise<void> {
+    // Check if error is ExitError (message already displayed by exitWithCode)
+    if (error instanceof ExitError) {
+      return
+    }
+
+    // Backwards compatibility: also check oclif.exit property
+    if (error.oclif?.exit !== undefined) {
+      return
+    }
+
+    // For other errors, re-throw to let oclif handle them
+    throw error
   }
 
   protected createServices(): {
@@ -238,16 +255,8 @@ export default class Add extends Command {
   /**
    * Handle workspace not initialized error
    */
-  private handleWorkspaceError(error: WorkspaceNotInitializedError): void {
-    const message = [
-      '\n⚠️  ByteRover workspace not found!\n',
-      "It looks like you haven't initialized ByteRover in this directory yet.",
-      'To get started, please run:\n',
-      '  $ brv init\n',
-      'This will create the necessary workspace structure in:',
-      `  ${error.expectedPath}\n`,
-      'After initialization, you can run add again.',
-    ].join('\n')
+  private handleWorkspaceError(_error: WorkspaceNotInitializedError): void {
+    const message = 'Project not initialized. Please run "brv init" to select your team and workspace.'
 
     exitWithCode(ExitCode.VALIDATION_ERROR, message)
   }
@@ -275,6 +284,14 @@ export default class Add extends Command {
 
       // Load project config
       const brvConfig = await projectConfigStore.read()
+
+      // Validate workspace is initialized
+      if (!brvConfig) {
+        throw new WorkspaceNotInitializedError(
+          'Project not initialized. Please run "brv init" to select your team and workspace.',
+          '.brv',
+        )
+      }
 
       // Create LLM config
       const model = flags.model ?? (flags.apiKey ? 'google/gemini-2.5-pro' : 'gemini-2.5-pro')
@@ -319,7 +336,7 @@ export default class Add extends Command {
 
         await trackingService.track('mem:add')
       } finally {
-        console.log('Logic for agent stopping and resource cleanup may go here!')
+        // console.log('Logic for agent stopping and resource cleanup may go here!')
       }
     } catch (error) {
       if (error instanceof WorkspaceNotInitializedError) {
@@ -327,7 +344,8 @@ export default class Add extends Command {
         return
       }
 
-      exitWithCode(ExitCode.RUNTIME_ERROR, `Failed to add content: ${(error as Error).message}`)
+      // Throw error to let oclif handle exit code
+      this.error(error instanceof Error ? error.message : 'Runtime error occurred', {exit: ExitCode.RUNTIME_ERROR})
     }
   }
 
@@ -409,19 +427,19 @@ export default class Add extends Command {
     } else {
       // Non-verbose mode: show concise tool progress
       eventBus.on('llmservice:toolCall', (payload) => {
-        this.log(`🔧 Using tool: ${payload.toolName}`)
+        this.log(`🔧 ${payload.toolName} → Executing...`)
       })
 
       eventBus.on('llmservice:toolResult', (payload) => {
         if (payload.success) {
-          this.log(`✓ ${payload.toolName} completed`)
+          this.log(`✅ ${payload.toolName} → Complete`)
         } else {
-          this.log(`✗ ${payload.toolName} failed: ${payload.error}`)
+          this.log(`❌ ${payload.toolName} → Failed: ${payload.error ?? 'Unknown error'}`)
         }
       })
 
       eventBus.on('llmservice:error', (payload) => {
-        this.log(`❌ Error: ${payload.error}`)
+        this.log(addErrorPrefix(payload.error))
       })
     }
   }

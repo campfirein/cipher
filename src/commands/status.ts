@@ -14,6 +14,7 @@ import {FileContextTreeService} from '../infra/context-tree/file-context-tree-se
 import {FileContextTreeSnapshotService} from '../infra/context-tree/file-context-tree-snapshot-service.js'
 import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
 import {MixpanelTrackingService} from '../infra/tracking/mixpanel-tracking-service.js'
+import {getErrorMessage} from '../utils/error-helpers.js'
 
 export default class Status extends Command {
   public static args = {
@@ -36,6 +37,13 @@ export default class Status extends Command {
       description: 'Output format',
       options: ['table', 'json'],
     }),
+  }
+
+  // Override catch to prevent oclif from displaying errors again
+  async catch(error: Error): Promise<void> {
+    // Status command should always succeed and just show status
+    // Any errors are already handled and logged in run()
+    throw error
   }
 
   protected createServices(): {
@@ -74,7 +82,7 @@ export default class Status extends Command {
       }
     } catch (error) {
       this.log('Status: Unable to check authentication status')
-      this.warn(`Warning: ${(error as Error).message}`)
+      this.warn(`Warning: ${getErrorMessage(error)}`)
     }
 
     const cwd = process.cwd()
@@ -95,7 +103,7 @@ export default class Status extends Command {
       }
     } catch (error) {
       this.log('Project Status: Unable to read project configuration')
-      this.warn(`Warning: ${(error as Error).message}`)
+      this.warn(`Warning: ${getErrorMessage(error)}`)
     }
 
     // Context tree status
@@ -138,7 +146,7 @@ export default class Status extends Command {
       }
     } catch (error) {
       this.log('Context Tree: Unable to check status')
-      this.warn(`Warning: ${(error as Error).message}`)
+      this.warn(`Warning: ${error instanceof Error ? error.message : 'Context Tree unable to check status'}`)
     }
   }
 }

@@ -73,6 +73,8 @@
     "dirname": "brv",
     "commands": "./dist/commands",
     "hooks": {
+      "command_not_found": "./dist/hooks/command_not_found/handle-invalid-commands",
+      "error": "./dist/hooks/error/clean-errors",
       "init": "./dist/hooks/init/welcome"
     },
     "plugins": [

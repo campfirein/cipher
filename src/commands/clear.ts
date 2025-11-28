@@ -61,6 +61,14 @@ export default class Clear extends Command {
 
       this.log('✓ Playbook cleared successfully.')
     } catch (error) {
+      // Handle user cancelling the prompt (Ctrl+C or closing stdin)
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      if (errorMessage.includes('User force closed') || errorMessage.includes('force closed')) {
+        this.log('Cancelled. Playbook was not cleared.')
+        return
+      }
+
+      // For other errors, throw to let oclif handle display
       this.error(error instanceof Error ? error.message : 'Failed to clear playbook')
     }
   }

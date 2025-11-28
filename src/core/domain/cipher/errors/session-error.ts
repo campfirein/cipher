@@ -59,11 +59,12 @@ export class SessionCancelledError extends SessionError {
 export class LLMError extends SessionError {
   /**
    * Creates a new LLM error
-   * @param reason - Reason for the failure
+   * @param reason - Reason for the failure (already formatted, user-friendly message)
    * @param sessionId - Session ID where error occurred
    */
   public constructor(reason: string, sessionId: string) {
-    super(`LLM service call failed: ${reason}`, 'LLM_ERROR', {reason, sessionId})
+    // Pass reason as-is since it's already formatted with user-friendly message
+    super(reason, 'LLM_ERROR', {reason, sessionId})
     this.name = 'LLMError'
   }
 }

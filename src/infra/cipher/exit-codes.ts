@@ -24,25 +24,45 @@ export const ExitCode = {
    * Validation error - Invalid input, workspace not initialized, file not found
    */
   VALIDATION_ERROR: 2,
-} as const;
+} as const
 
 export type ExitCode = (typeof ExitCode)[keyof typeof ExitCode]
+
+/**
+ * Custom error class for exit codes with oclif integration.
+ * Extends Error to add code and oclif properties without type assertions.
+ */
+export class ExitError extends Error {
+  public readonly code: number
+  public readonly oclif: {exit: number}
+
+  constructor(code: ExitCode, message?: string) {
+    super(message ?? 'Exit')
+    this.name = 'ExitError'
+    this.code = code
+    this.oclif = {exit: code}
+  }
+}
 
 /**
  * Exit the process with the given code and optional error message
  *
  * @param code - Exit code to use
  * @param message - Optional error message to write to stderr
- * @throws {Error} Always throws with the code attached for oclif to handle
+ * @throws {ExitError} Throws ExitError for oclif to handle (except for silent success exits)
  */
 export function exitWithCode(code: ExitCode, message?: string): never {
   if (message) {
     process.stderr.write(`${message}\n`)
   }
 
-  // Create an error with exit code for oclif
-  const error = new Error(message ?? 'Exit')
-  ;(error as Error & {code: number; oclif: {exit: number}}).code = code
-  ;(error as Error & {code: number; oclif: {exit: number}}).oclif = {exit: code}
-  throw error
+  // For successful exits without message, exit silently via process.exit
+  // This prevents oclif from showing "Error: Exit" or similar messages
+  if (code === ExitCode.SUCCESS && !message) {
+    // eslint-disable-next-line n/no-process-exit, unicorn/no-process-exit
+    process.exit(code)
+  }
+
+  // Throw ExitError - no type assertions needed!
+  throw new ExitError(code, message)
 }
