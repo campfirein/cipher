@@ -1,27 +1,28 @@
-import {confirm, input, search} from '@inquirer/prompts'
+import {input} from '@inquirer/prompts'
 import {Args, Command, Flags} from '@oclif/core'
+import chalk from 'chalk'
+import {fileSelector, Item, ItemType} from 'inquirer-file-selector'
 import fs from 'node:fs'
 import path from 'node:path'
+import open from 'open'
 
 import type {IProjectConfigStore} from '../core/interfaces/i-project-config-store.js'
 import type {ITrackingService} from '../core/interfaces/i-tracking-service.js'
 
 import {CONTEXT_TREE_DOMAINS} from '../config/context-tree-domains.js'
 import {getCurrentConfig, isDevelopment} from '../config/environment.js'
-import {PROJECT} from '../constants.js'
+import {BRV_DIR, CONTEXT_FILE, CONTEXT_TREE_DIR, PROJECT} from '../constants.js'
 import {CipherAgent} from '../infra/cipher/cipher-agent.js'
-import {ExitCode, exitWithCode} from '../infra/cipher/exit-codes.js'
+import {ExitCode, ExitError, exitWithCode} from '../infra/cipher/exit-codes.js'
 import {WorkspaceNotInitializedError} from '../infra/cipher/validation/workspace-validator.js'
 import {ProjectConfigStore} from '../infra/config/file-config-store.js'
 import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
 import {MixpanelTrackingService} from '../infra/tracking/mixpanel-tracking-service.js'
+import {addErrorPrefix} from '../utils/emoji-helpers.js'
 import {formatToolCall, formatToolResult} from '../utils/tool-display-formatter.js'
 
-// Constants
-const CONTEXT_TREE_PATH = '.brv/context-tree'
-
-// Validation
-const validateContent = (content: string): boolean => content.trim().length > 0
+// Full path to context tree
+const CONTEXT_TREE_PATH = path.join(BRV_DIR, CONTEXT_TREE_DIR)
 
 export default class Add extends Command {
   public static args = {
@@ -70,6 +71,22 @@ export default class Add extends Command {
     }),
   }
 
+  // Override catch to prevent oclif from logging errors that were already displayed
+  async catch(error: Error & {oclif?: {exit: number}}): Promise<void> {
+    // Check if error is ExitError (message already displayed by exitWithCode)
+    if (error instanceof ExitError) {
+      return
+    }
+
+    // Backwards compatibility: also check oclif.exit property
+    if (error.oclif?.exit !== undefined) {
+      return
+    }
+
+    // For other errors, re-throw to let oclif handle them
+    throw error
+  }
+
   protected createServices(): {
     projectConfigStore: IProjectConfigStore
     trackingService: ITrackingService
@@ -78,6 +95,26 @@ export default class Add extends Command {
       projectConfigStore: new ProjectConfigStore(),
       trackingService: new MixpanelTrackingService(new KeychainTokenStore()),
     }
+  }
+
+  /**
+   * Create topic folder with context.md file
+   * @param targetPath - The parent path where the topic folder will be created
+   * @param topicName - The name of the topic folder to create
+   * @returns The path to the created context.md file
+   */
+  protected createTopicWithContextFile(targetPath: string, topicName: string): string {
+    const topicPath = path.join(targetPath, topicName)
+    const contextFilePath = path.join(topicPath, CONTEXT_FILE)
+
+    // Create the topic directory
+    fs.mkdirSync(topicPath, {recursive: true})
+
+    // Create the context.md file with initial content
+    const initialContent = `# ${topicName}\n\n<!-- Add your context here -->\n`
+    fs.writeFileSync(contextFilePath, initialContent, 'utf8')
+
+    return contextFilePath
   }
 
   /**
@@ -90,141 +127,92 @@ export default class Add extends Command {
   }
 
   /**
-   * Get existing domains from the context tree
+   * Navigate through the context tree using file selector
+   * Returns the selected path relative to context-tree root
    */
-  protected getExistingDomains(): string[] {
-    try {
-      if (!fs.existsSync(CONTEXT_TREE_PATH)) {
-        return []
-      }
+  protected async navigateContextTree(): Promise<null | string> {
+    const contextTreePath = path.resolve(process.cwd(), CONTEXT_TREE_PATH)
 
-      const entries = fs.readdirSync(CONTEXT_TREE_PATH, {withFileTypes: true})
-      return entries.filter((e) => e.isDirectory()).map((e) => e.name)
-    } catch {
-      return []
+    // Ensure context tree directory exists
+    if (!fs.existsSync(contextTreePath)) {
+      fs.mkdirSync(contextTreePath, {recursive: true})
     }
-  }
 
-  /**
-   * Get existing topics for a domain
-   */
-  protected getExistingTopics(domain: string): string[] {
-    try {
-      const domainPath = path.join(CONTEXT_TREE_PATH, domain)
+    // Ensure predefined domains exist as directories
+    for (const domain of CONTEXT_TREE_DOMAINS) {
+      const domainPath = path.join(contextTreePath, domain.name)
       if (!fs.existsSync(domainPath)) {
-        return []
+        fs.mkdirSync(domainPath, {recursive: true})
       }
+    }
 
-      const entries = fs.readdirSync(domainPath, {withFileTypes: true})
-      return entries.filter((e) => e.isDirectory()).map((e) => e.name)
-    } catch {
-      return []
+    while (true) {
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        const selectedItem = await fileSelector({
+          allowCancel: true,
+          basePath: contextTreePath,
+          filter: (item: Readonly<Item>) => item.isDirectory,
+          message: 'Target context location:',
+          pageSize: 15,
+          theme: {
+            labels: {
+              messages: {
+                cancel: 'Selection cancelled.',
+                empty: 'No sub-folders. Press Enter to add content here.',
+              },
+            },
+          },
+          type: ItemType.Directory,
+        })
+
+        // User cancelled
+        if (!selectedItem) {
+          return null
+        }
+
+        // Restrict navigation to stay within the context tree
+        const normalizedItemPath = path.resolve(selectedItem.path)
+        const isValid = normalizedItemPath.startsWith(contextTreePath)
+
+        if (isValid) {
+          // Valid selection - proceed
+          return selectedItem.path
+        }
+
+        // Invalid selection - retry
+        this.log(chalk.red('Invalid selection. Please choose a valid location within the context tree.'))
+      } catch {
+        // Error occurred
+        return null
+      }
     }
   }
 
   /**
-   * Prompt user to confirm adding content
+   * Open a file in the default editor
+   * @param filePath - The path to the file to open
    */
-  protected async promptForConfirmation(domain: string, topic: string, content: string): Promise<boolean> {
-    this.log('\nReview your content:')
-    this.log(`  Domain: ${domain}`)
-    this.log(`  Topic: ${topic}`)
-
-    const contentDisplay = content.length > 200 ? `${content.slice(0, 200)}...` : content
-    this.log(`  Content: ${contentDisplay}`)
-
-    const confirmed = await confirm({
-      default: true,
-      message: 'Add this content to the context tree?',
-    })
-
-    return confirmed
+  protected async openFile(filePath: string): Promise<void> {
+    await open(filePath)
   }
 
   /**
-   * Prompt user to enter content
+   * Prompt user to enter topic name with validation
+   * @param targetPath - The path where the topic folder will be created
+   * @returns The topic name or null if cancelled
    */
-  protected async promptForContent(prefilled?: string): Promise<string> {
-    const message = 'Enter content to add to the context tree:'
+  protected async promptForTopicName(targetPath: string): Promise<null | string> {
+    try {
+      const topicName = await input({
+        message: 'New topic name:',
+        validate: (value) => this.validateTopicName(value, targetPath),
+      })
 
-    const content = await input({
-      default: prefilled,
-      message,
-      validate(value) {
-        if (!validateContent(value)) {
-          return 'Content cannot be empty'
-        }
-
-        return true
-      },
-    })
-
-    return content
-  }
-
-  /**
-   * Prompt user to select a domain
-   */
-  protected async promptForDomain(existingDomains: string[]): Promise<string> {
-    const allDomains = [...new Set([...CONTEXT_TREE_DOMAINS.map((d) => d.name), ...existingDomains])]
-
-    const domainChoices = allDomains.map((domainName) => {
-      const config = CONTEXT_TREE_DOMAINS.find((d) => d.name === domainName)
-      return {
-        description: config?.description,
-        name: domainName,
-        value: domainName,
-      }
-    })
-
-    const domain = await search({
-      message: 'Select or type a domain:',
-      async source(input) {
-        if (!input) {
-          return domainChoices
-        }
-
-        const filtered = domainChoices.filter(
-          (d) =>
-            d.name.toLowerCase().includes(input.toLowerCase()) ||
-            d.description?.toLowerCase().includes(input.toLowerCase()),
-        )
-
-        // Allow creating new domain
-        if (filtered.length === 0 || !filtered.some((d) => d.name === input)) {
-          filtered.unshift({description: undefined, name: input, value: input})
-        }
-
-        return filtered
-      },
-    })
-
-    return domain
-  }
-
-  /**
-   * Prompt user to enter topic name
-   */
-  protected async promptForTopic(domain: string, existingTopics: string[]): Promise<string> {
-    const topic = await search({
-      message: `Enter topic name for domain "${domain}":`,
-      async source(input) {
-        if (!input) {
-          return existingTopics.map((t) => ({name: t, value: t}))
-        }
-
-        const filtered = existingTopics.filter((t) => t.toLowerCase().includes(input.toLowerCase()))
-
-        // Allow creating new topic
-        if (filtered.length === 0 || !filtered.includes(input)) {
-          filtered.unshift(input)
-        }
-
-        return filtered.map((t) => ({name: t, value: t}))
-      },
-    })
-
-    return topic
+      return topicName.trim()
+    } catch {
+      return null
+    }
   }
 
   public async run(): Promise<void> {
@@ -239,41 +227,36 @@ export default class Add extends Command {
   }
 
   /**
-   * Write content to context tree manually
+   * Write content to context tree at given path
    */
-  protected async writeToContextTree(domain: string, topic: string, content: string): Promise<void> {
-    const topicPath = path.join(CONTEXT_TREE_PATH, domain, topic)
-    const contextFilePath = path.join(topicPath, 'context.md')
+  protected async writeToContextTree(selectedPath: string, content: string): Promise<void> {
+    const targetPath = path.join(CONTEXT_TREE_PATH, selectedPath)
+    const contextFilePath = path.join(targetPath, CONTEXT_FILE)
 
     // Create directories if they don't exist
-    fs.mkdirSync(topicPath, {recursive: true})
+    fs.mkdirSync(targetPath, {recursive: true})
 
     // Append or create context file
     const timestamp = new Date().toISOString()
     const entry = `\n## Added on ${timestamp}\n\n${content}\n`
 
-    if (fs.existsSync(contextFilePath)) {
-      fs.appendFileSync(contextFilePath, entry, 'utf8')
+    const isNewFile = !fs.existsSync(contextFilePath)
+    const title = path.basename(selectedPath) // Use last segment as title
+    if (isNewFile) {
+      fs.writeFileSync(contextFilePath, `# ${title}\n${entry}`, 'utf8')
     } else {
-      fs.writeFileSync(contextFilePath, `# ${topic}\n${entry}`, 'utf8')
+      fs.appendFileSync(contextFilePath, entry, 'utf8')
     }
 
-    this.log(`\n✓ Content added successfully to ${domain}/${topic}`)
+    const action = isNewFile ? 'Created' : 'Updated'
+    this.log(`\n✓ ${action}: ${contextFilePath}`)
   }
 
   /**
    * Handle workspace not initialized error
    */
-  private handleWorkspaceError(error: WorkspaceNotInitializedError): void {
-    const message = [
-      '\n⚠️  ByteRover workspace not found!\n',
-      "It looks like you haven't initialized ByteRover in this directory yet.",
-      'To get started, please run:\n',
-      '  $ brv init\n',
-      'This will create the necessary workspace structure in:',
-      `  ${error.expectedPath}\n`,
-      'After initialization, you can run add again.',
-    ].join('\n')
+  private handleWorkspaceError(_error: WorkspaceNotInitializedError): void {
+    const message = 'Project not initialized. Please run "brv init" to select your team and workspace.'
 
     exitWithCode(ExitCode.VALIDATION_ERROR, message)
   }
@@ -301,6 +284,14 @@ export default class Add extends Command {
 
       // Load project config
       const brvConfig = await projectConfigStore.read()
+
+      // Validate workspace is initialized
+      if (!brvConfig) {
+        throw new WorkspaceNotInitializedError(
+          'Project not initialized. Please run "brv init" to select your team and workspace.',
+          '.brv',
+        )
+      }
 
       // Create LLM config
       const model = flags.model ?? (flags.apiKey ? 'google/gemini-2.5-pro' : 'gemini-2.5-pro')
@@ -343,9 +334,9 @@ export default class Add extends Command {
         this.log('\nCipherAgent Response:')
         this.log(response)
 
-        await trackingService.track('ace:add_bullet')
+        await trackingService.track('mem:add')
       } finally {
-        console.log('Logic for agent stopping and resource cleanup may go here!')
+        // console.log('Logic for agent stopping and resource cleanup may go here!')
       }
     } catch (error) {
       if (error instanceof WorkspaceNotInitializedError) {
@@ -353,7 +344,8 @@ export default class Add extends Command {
         return
       }
 
-      exitWithCode(ExitCode.RUNTIME_ERROR, `Failed to add content: ${(error as Error).message}`)
+      // Throw error to let oclif handle exit code
+      this.error(error instanceof Error ? error.message : 'Runtime error occurred', {exit: ExitCode.RUNTIME_ERROR})
     }
   }
 
@@ -362,37 +354,33 @@ export default class Add extends Command {
    */
   private async runInteractive(): Promise<void> {
     const {trackingService} = this.createServices()
-
     try {
-      this.log('Press Ctrl+C at any time to cancel\n')
+      // Navigate to target location in context tree
+      const targetPath = await this.navigateContextTree()
 
-      // Get existing domains and topics
-      const existingDomains = this.getExistingDomains()
-
-      // Prompt for domain
-      const domain = await this.promptForDomain(existingDomains)
-
-      // Get existing topics for the domain
-      const existingTopics = this.getExistingTopics(domain)
-
-      // Prompt for topic
-      const topic = await this.promptForTopic(domain, existingTopics)
-
-      // Prompt for content
-      const content = await this.promptForContent()
-
-      // Prompt for confirmation
-      const confirmed = await this.promptForConfirmation(domain, topic, content)
-
-      if (!confirmed) {
-        this.log('\nContent not added. Operation cancelled.')
+      if (!targetPath) {
+        this.log('\nOperation cancelled.')
         return
       }
 
-      // Write to context tree
-      await this.writeToContextTree(domain, topic, content)
+      // Prompt for topic name with validation
+      const topicName = await this.promptForTopicName(targetPath)
 
-      await trackingService.track('ace:add_bullet')
+      if (!topicName) {
+        this.log('\nOperation cancelled.')
+        return
+      }
+
+      // Create the topic folder with context.md
+      const contextFilePath = this.createTopicWithContextFile(targetPath, topicName)
+      this.log(`\nCreated: ${contextFilePath}`)
+
+      // Track the event
+      trackingService.track('mem:add')
+
+      // Auto-open context.md in default editor
+      this.log('Opening context.md for editing...')
+      await this.openFile(contextFilePath)
     } catch (error) {
       this.error(error instanceof Error ? error.message : 'Unexpected error occurred')
     }
@@ -439,20 +427,40 @@ export default class Add extends Command {
     } else {
       // Non-verbose mode: show concise tool progress
       eventBus.on('llmservice:toolCall', (payload) => {
-        this.log(`🔧 Using tool: ${payload.toolName}`)
+        this.log(`🔧 ${payload.toolName} → Executing...`)
       })
 
       eventBus.on('llmservice:toolResult', (payload) => {
         if (payload.success) {
-          this.log(`✓ ${payload.toolName} completed`)
+          this.log(`✅ ${payload.toolName} → Complete`)
         } else {
-          this.log(`✗ ${payload.toolName} failed: ${payload.error}`)
+          this.log(`❌ ${payload.toolName} → Failed: ${payload.error ?? 'Unknown error'}`)
         }
       })
 
       eventBus.on('llmservice:error', (payload) => {
-        this.log(`❌ Error: ${payload.error}`)
+        this.log(addErrorPrefix(payload.error))
       })
     }
+  }
+
+  private validateTopicName(value: string, targetPath: string): boolean | string {
+    const trimmed = value.trim()
+    if (!trimmed) {
+      return 'Topic name cannot be empty'
+    }
+
+    // Check for invalid characters in folder names (filesystem restrictions)
+    if (/[/\0]/.test(trimmed)) {
+      return 'Topic name cannot contain "/" or null characters'
+    }
+
+    // Check if folder already exists
+    const topicPath = path.join(targetPath, trimmed)
+    if (fs.existsSync(topicPath)) {
+      return `Topic "${trimmed}" already exists at this location`
+    }
+
+    return true
   }
 }

@@ -4,6 +4,7 @@ import type {IProjectConfigStore} from '../../core/interfaces/i-project-config-s
 
 import {BrvConfig} from '../../core/domain/entities/brv-config.js'
 import {ProjectConfigStore} from '../../infra/config/file-config-store.js'
+import {getErrorMessage} from '../../utils/error-helpers.js'
 
 export default class CipherAgentSetPrompt extends Command {
   static override args = {
@@ -32,9 +33,7 @@ export default class CipherAgentSetPrompt extends Command {
       // Check if config exists
       const configExists = await projectConfigStore.exists()
       if (!configExists) {
-        this.error(
-          'No ByteRover config found. Please run "byterover init" first to initialize the project.',
-        )
+        this.error('No ByteRover config found. Please run "byterover init" first to initialize the project.')
       }
 
       // Read existing config
@@ -51,7 +50,7 @@ export default class CipherAgentSetPrompt extends Command {
         existingConfig.teamId,
         existingConfig.teamName,
         existingConfig.ide,
-        existingConfig.chatLogPath, 
+        existingConfig.chatLogPath,
         existingConfig.cwd,
         args.prompt,
       )
@@ -63,7 +62,7 @@ export default class CipherAgentSetPrompt extends Command {
       this.log('\nNew prompt:')
       this.log(args.prompt)
     } catch (error) {
-      this.error(`Failed to set system prompt: ${(error as Error).message}`)
+      this.error(`Failed to set system prompt: ${getErrorMessage(error)}`)
     }
   }
 }

@@ -4,6 +4,8 @@ import {zodToJsonSchema} from 'zod-to-json-schema'
 
 import type {JSONSchema7} from '../../../../core/domain/cipher/tools/types.js'
 
+import {getErrorMessage} from '../../../../utils/error-helpers.js'
+
 /**
  * Convert a Zod schema to JSON Schema v7.
  * Used to expose tool schemas to the LLM.
@@ -23,7 +25,7 @@ export function convertZodToJsonSchema(zodSchema: ZodSchema): JSONSchema7 {
     return jsonSchema as JSONSchema7
   } catch (error) {
     // Fallback to basic object schema if conversion fails
-    console.warn(`Failed to convert Zod schema to JSON Schema: ${(error as Error).message}`)
+    console.warn(`Failed to convert Zod schema to JSON Schema: ${getErrorMessage(error)}`)
 
     return {
       additionalProperties: false,

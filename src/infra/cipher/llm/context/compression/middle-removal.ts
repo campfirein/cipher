@@ -42,10 +42,7 @@ export class MiddleRemovalStrategy implements ICompressionStrategy {
   public constructor(options: MiddleRemovalOptions = {}) {
     this.preserveEnd = options.preserveEnd ?? 5
     this.preserveStart = options.preserveStart ?? 4
-
-    console.log(
-      `MiddleRemovalStrategy initialized: preserveStart=${this.preserveStart}, preserveEnd=${this.preserveEnd}`,
-    )
+    // Debug logging removed for cleaner user experience
   }
 
   public async compress(
@@ -58,9 +55,7 @@ export class MiddleRemovalStrategy implements ICompressionStrategy {
 
     // No compression needed - return unchanged
     if (initialTokenCount <= maxHistoryTokens) {
-      console.log(
-        `MiddleRemovalStrategy: No compression needed (${initialTokenCount} / ${maxHistoryTokens} tokens)`,
-      )
+      // Debug logging removed for cleaner user experience
       return history
     }
 
@@ -104,9 +99,7 @@ export class MiddleRemovalStrategy implements ICompressionStrategy {
     // Build final compressed history
     const compressed = history.filter((_, i) => !removedIndices.has(i))
 
-    console.log(
-      `MiddleRemovalStrategy: Removed ${removedIndices.size} messages from middle section (${initialTokenCount} → ${currentTokenCount} tokens)`,
-    )
+    // Debug logging removed for cleaner user experience
 
     return compressed
   }

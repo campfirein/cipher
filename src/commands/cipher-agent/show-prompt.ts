@@ -3,6 +3,7 @@ import {Command} from '@oclif/core'
 import type {IProjectConfigStore} from '../../core/interfaces/i-project-config-store.js'
 
 import {ProjectConfigStore} from '../../infra/config/file-config-store.js'
+import {getErrorMessage} from '../../utils/error-helpers.js'
 
 export default class CipherAgentShowPrompt extends Command {
   static override description = 'Show the current CipherAgent system prompt'
@@ -45,7 +46,7 @@ export default class CipherAgentShowPrompt extends Command {
         this.log('CipherAgent is using the default system prompt.')
       }
     } catch (error) {
-      this.error(`Failed to show system prompt: ${(error as Error).message}`)
+      this.error(`Failed to show system prompt: ${getErrorMessage(error)}`)
     }
   }
 }

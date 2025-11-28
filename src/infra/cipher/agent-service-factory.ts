@@ -2,13 +2,17 @@ import {join} from 'node:path'
 
 import type {FileSystemConfig} from '../../core/domain/cipher/file-system/types.js'
 import type {CipherAgentServices, SessionServices} from '../../core/interfaces/cipher/cipher-services.js'
+import type {IContentGenerator} from '../../core/interfaces/cipher/i-content-generator.js'
 
 import {createBlobStorage} from './blob/blob-storage-factory.js'
 import {AgentEventBus, SessionEventBus} from './events/event-emitter.js'
 import {FileSystemService} from './file-system/file-system-service.js'
 import {ByteRoverLlmGrpcService} from './grpc/internal-llm-grpc-service.js'
+import {ByteRoverContentGenerator, LoggingContentGenerator, RetryableContentGenerator} from './llm/generators/index.js'
 import {ByteRoverLLMService} from './llm/internal-llm-service.js'
 import {OpenRouterLLMService} from './llm/openrouter-llm-service.js'
+import {DEFAULT_RETRY_POLICY} from './llm/retry/retry-policy.js'
+import {EventBasedLogger} from './logger/event-based-logger.js'
 import {MemoryManager} from './memory/memory-manager.js'
 import {ProcessService} from './process/process-service.js'
 import {BlobHistoryStorage} from './storage/blob-history-storage.js'
@@ -72,11 +76,14 @@ export async function createCipherAgentServices(llmConfig: CipherLLMConfig): Pro
   // 1. Agent event bus (global)
   const agentEventBus = new AgentEventBus()
 
-  // 2. File system service (no dependencies)
+  // 2. Logger (depends on event bus)
+  const logger = new EventBasedLogger(agentEventBus, 'CipherAgent')
+
+  // 3. File system service (no dependencies)
   const fileSystemService = new FileSystemService(llmConfig.fileSystemConfig)
   await fileSystemService.initialize()
 
-  // 3. Process service (no dependencies)
+  // 4. Process service (no dependencies)
   // Use the same working directory as FileSystemService to ensure consistency
   const workingDirectory = llmConfig.fileSystemConfig?.workingDirectory ?? process.cwd()
   const processService = new ProcessService({
@@ -91,7 +98,7 @@ export async function createCipherAgentServices(llmConfig: CipherLLMConfig): Pro
   })
   await processService.initialize()
 
-  // 4. Blob storage (no dependencies)
+  // 5. Blob storage (no dependencies)
   // Always uses SQLite for performance and ACID transactions
   const blobStorage = createBlobStorage({
     maxBlobSize: 100 * 1024 * 1024, // 100MB
@@ -100,15 +107,16 @@ export async function createCipherAgentServices(llmConfig: CipherLLMConfig): Pro
   })
   await blobStorage.initialize()
 
-  // 5. Memory system (depends on BlobStorage)
-  const memoryManager = new MemoryManager(blobStorage)
+  // 6. Memory system (depends on BlobStorage, Logger)
+  const memoryLogger = logger.withSource('MemoryManager')
+  const memoryManager = new MemoryManager(blobStorage, memoryLogger)
 
-  // 6. Simple prompt factory - SHARED across sessions
+  // 7. Simple prompt factory - SHARED across sessions
   // Created early so it can be used by ToolProvider
   const verbose = llmConfig.verbose ?? false
   const promptFactory = new SimplePromptFactory(undefined, verbose)
 
-  // 7. Tool system (depends on FileSystemService, ProcessService, MemoryManager, PromptFactory)
+  // 8. Tool system (depends on FileSystemService, ProcessService, MemoryManager, PromptFactory)
   const toolProvider = new ToolProvider(
     {
       fileSystemService,
@@ -123,6 +131,13 @@ export async function createCipherAgentServices(llmConfig: CipherLLMConfig): Pro
 
   // 9. History storage (depends on BlobStorage) - SHARED across sessions
   const historyStorage = new BlobHistoryStorage(blobStorage)
+
+  // Log successful initialization
+  logger.info('CipherAgent services initialized successfully', {
+    model: llmConfig.model,
+    verbose: llmConfig.verbose,
+    workingDirectory,
+  })
 
   return {
     agentEventBus,
@@ -142,6 +157,11 @@ export async function createCipherAgentServices(llmConfig: CipherLLMConfig): Pro
  *
  * Following Dexto's pattern: each session gets its own LLM service and event bus
  * for conversation isolation, while using shared services for tools/prompts.
+ *
+ * Generator composition order (innermost to outermost):
+ * 1. Base generator (ByteRoverContentGenerator or OpenRouterContentGenerator)
+ * 2. RetryableContentGenerator - handles transient errors with backoff
+ * 3. LoggingContentGenerator - debug logging (if verbose enabled)
  *
  * @param sessionId - Unique session identifier
  * @param sharedServices - Shared services from agent
@@ -175,12 +195,16 @@ export function createSessionServices(
   // 1. Create session-specific event bus
   const sessionEventBus = new SessionEventBus()
 
-  // 2. Create LLM service based on configuration
+  // 2. Create session-scoped logger
+  const sessionLogger = new EventBasedLogger(sharedServices.agentEventBus, 'LLMService', sessionId)
+
+  // 3. Create LLM service based on configuration
   // Priority: OpenRouter > ByteRover gRPC
   let llmService
 
   if (llmConfig.openRouterApiKey) {
     // Use OpenRouter service when OpenRouter API key is provided
+    // OpenRouterLLMService still uses old pattern (to be migrated later)
     llmService = new OpenRouterLLMService(
       sessionId,
       {
@@ -194,6 +218,7 @@ export function createSessionServices(
         verbose: llmConfig.verbose ?? false,
       },
       {
+        logger: sessionLogger,
         memoryManager: sharedServices.memoryManager, // SHARED
         sessionEventBus,
         systemPromptManager: sharedServices.promptFactory, // SHARED
@@ -201,7 +226,9 @@ export function createSessionServices(
       },
     )
   } else {
-    // Use gRPC backend service (default)
+    // Use gRPC backend service (default) with new generator pattern
+
+    // Step 1: Create gRPC service
     const grpcService = new ByteRoverLlmGrpcService({
       accessToken: grpcConfig.accessToken,
       grpcEndpoint: grpcConfig.grpcEndpoint,
@@ -213,9 +240,31 @@ export function createSessionServices(
       timeout: grpcConfig.timeout,
     })
 
+    // Step 2: Create base content generator
+    let generator: IContentGenerator = new ByteRoverContentGenerator(grpcService, {
+      maxTokens: llmConfig.maxTokens ?? 8192,
+      model: llmConfig.model ?? 'gemini-2.5-pro',
+      temperature: llmConfig.temperature ?? 0.7,
+    })
+
+    // Step 3: Wrap with retry decorator
+    generator = new RetryableContentGenerator(generator, {
+      eventBus: sessionEventBus,
+      policy: DEFAULT_RETRY_POLICY,
+    })
+
+    // Step 4: Wrap with logging decorator (always, for spinner events)
+    generator = new LoggingContentGenerator(generator, sessionEventBus, {
+      logChunks: llmConfig.verbose,
+      logRequests: llmConfig.verbose,
+      logResponses: llmConfig.verbose,
+      verbose: llmConfig.verbose,
+    })
+
+    // Step 5: Create LLM service with composed generator
     llmService = new ByteRoverLLMService(
       sessionId,
-      grpcService,
+      generator,
       {
         maxIterations: llmConfig.maxIterations ?? 50,
         maxTokens: llmConfig.maxTokens ?? 8192,
@@ -225,6 +274,7 @@ export function createSessionServices(
       },
       {
         historyStorage: sharedServices.historyStorage, // SHARED
+        logger: sessionLogger,
         memoryManager: sharedServices.memoryManager, // SHARED
         promptFactory: sharedServices.promptFactory, // SHARED
         sessionEventBus,

@@ -1,9 +1,9 @@
-import { load as loadYaml } from 'js-yaml'
+import {load as loadYaml} from 'js-yaml'
 import fs from 'node:fs'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
+import {fileURLToPath} from 'node:url'
 
-import type { MemoryManager } from '../memory/memory-manager.js'
+import type {MemoryManager} from '../memory/memory-manager.js'
 
 /**
  * Simple prompt configuration loaded from YAML
@@ -22,7 +22,7 @@ export interface BuildContext {
   availableMarkers?: Record<string, string>
   availableTools?: string[]
   commandType?: 'add' | 'query'
-  conversationMetadata?: { conversationId?: string; title?: string }
+  conversationMetadata?: {conversationId?: string; title?: string}
   memoryManager?: MemoryManager
   mode?: 'autonomous' | 'default' | 'query'
 }
@@ -86,7 +86,7 @@ export class SimplePromptFactory {
       /* eslint-disable camelcase */
       return this.renderTemplate(template, {
         current_iteration: context.currentIteration.toString(),
-        max_iterations: context.maxIterations.toString()
+        max_iterations: context.maxIterations.toString(),
       })
       /* eslint-enable camelcase */
     }
@@ -103,20 +103,25 @@ export class SimplePromptFactory {
   public async buildSystemPrompt(context: BuildContext = {}): Promise<string> {
     if (this.verbose) {
       console.log('[PromptDebug:SimpleFactory] Building system prompt')
-      console.log('[PromptDebug:SimpleFactory] Context:', JSON.stringify({
-        availableMarkers: Object.keys(context.availableMarkers ?? {}).length,
-        availableTools: context.availableTools?.length,
-        mode: context.mode,
-      }, null, 2))
+      console.log(
+        '[PromptDebug:SimpleFactory] Context:',
+        JSON.stringify(
+          {
+            availableMarkers: Object.keys(context.availableMarkers ?? {}).length,
+            availableTools: context.availableTools?.length,
+            mode: context.mode,
+          },
+          null,
+          2,
+        ),
+      )
     }
 
     // 1. Load base prompt
     const basePrompt = this.loadPrompt('system-prompt.yml')
 
     // 2. Get memories if available
-    const memories = context.memoryManager
-      ? await this.formatMemories(context.memoryManager)
-      : ''
+    const memories = context.memoryManager ? await this.formatMemories(context.memoryManager) : ''
 
     // 3. Prepare template variables
     // Note: Variable names use snake_case to match template placeholders ({{available_tools}}, etc.)
@@ -246,7 +251,10 @@ export class SimplePromptFactory {
       }
 
       if (this.verbose && companionPrompts.length > 0) {
-        console.log(`[PromptDebug:SimpleFactory] Found ${companionPrompts.length} companion prompts for mode '${mode}':`, companionPrompts)
+        console.log(
+          `[PromptDebug:SimpleFactory] Found ${companionPrompts.length} companion prompts for mode '${mode}':`,
+          companionPrompts,
+        )
       }
     } catch (error) {
       if (this.verbose) {
@@ -265,15 +273,13 @@ export class SimplePromptFactory {
    */
   private async formatMemories(memoryManager: MemoryManager): Promise<string> {
     try {
-      const memories = await memoryManager.list({ limit: 20 })
+      const memories = await memoryManager.list({limit: 20})
       if (!memories || memories.length === 0) {
         return ''
       }
 
       const items = memories.map((memory) => {
-        const tags = memory.tags && memory.tags.length > 0
-          ? ` [${memory.tags.join(', ')}]`
-          : ''
+        const tags = memory.tags && memory.tags.length > 0 ? ` [${memory.tags.join(', ')}]` : ''
         return `- ${memory.content}${tags}`
       })
 

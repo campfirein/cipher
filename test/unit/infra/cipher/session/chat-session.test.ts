@@ -9,6 +9,11 @@ import {LLMError, SessionCancelledError} from '../../../../../src/core/domain/ci
 import {AgentEventBus, SessionEventBus} from '../../../../../src/infra/cipher/events/event-emitter.js'
 import {ContextManager} from '../../../../../src/infra/cipher/llm/context/context-manager.js'
 import {ChatSession} from '../../../../../src/infra/cipher/session/chat-session.js'
+import {
+  createMockCipherAgentServices,
+  createMockContextManager,
+  createMockLLMService,
+} from '../../../../helpers/mock-factories.js'
 
 describe('ChatSession', () => {
   let sandbox: SinonSandbox
@@ -29,30 +34,16 @@ describe('ChatSession', () => {
     sessionEventBus = new SessionEventBus()
     agentEventBus = new AgentEventBus()
 
-    // Mock ContextManager
-    mockContextManager = {
-      clearHistory: sandbox.stub().resolves(),
-      getMessages: sandbox.stub().returns([]),
-    } as unknown as ContextManager<unknown>
+    // ✅ GOOD: Use factory functions instead of `as unknown as Type`
+    mockContextManager = createMockContextManager(sandbox)
 
-    // Mock ILLMService
-    mockLLMService = {
-      completeTask: sandbox.stub().resolves('test response'),
+    // ✅ GOOD: Use factory with override for custom behavior
+    mockLLMService = createMockLLMService(sandbox, {
       getContextManager: sandbox.stub().returns(mockContextManager),
-    } as unknown as ILLMService
+    })
 
-    // Mock shared services
-    mockSharedServices = {
-      agentEventBus,
-      blobStorage: {} as CipherAgentServices['blobStorage'],
-      fileSystemService: {} as CipherAgentServices['fileSystemService'],
-      historyStorage: {} as CipherAgentServices['historyStorage'],
-      memoryManager: {} as CipherAgentServices['memoryManager'],
-      processService: {} as CipherAgentServices['processService'],
-      promptFactory: {} as CipherAgentServices['promptFactory'],
-      toolManager: {} as CipherAgentServices['toolManager'],
-      toolProvider: {} as CipherAgentServices['toolProvider'],
-    }
+    // ✅ GOOD: Use factory for full service mocking
+    mockSharedServices = createMockCipherAgentServices(agentEventBus, sandbox)
 
     // Mock session services
     mockSessionServices = {
@@ -135,7 +126,7 @@ describe('ChatSession', () => {
         },
       ]
 
-        ; (mockContextManager.getMessages as SinonStub).returns(internalMessages)
+      ;(mockContextManager.getMessages as SinonStub).returns(internalMessages)
 
       const history = session.getHistory()
 
@@ -174,7 +165,7 @@ describe('ChatSession', () => {
         },
       ]
 
-        ; (mockContextManager.getMessages as SinonStub).returns(internalMessages)
+      ;(mockContextManager.getMessages as SinonStub).returns(internalMessages)
 
       const history = session.getHistory()
 
@@ -197,7 +188,7 @@ describe('ChatSession', () => {
         {content: 'msg2', role: 'assistant'},
       ]
 
-        ; (mockContextManager.getMessages as SinonStub).returns(internalMessages)
+      ;(mockContextManager.getMessages as SinonStub).returns(internalMessages)
 
       const count = session.getMessageCount()
 
@@ -211,7 +202,7 @@ describe('ChatSession', () => {
         {content: 'msg3', role: 'user'},
       ]
 
-        ; (mockContextManager.getMessages as SinonStub).returns(internalMessages)
+      ;(mockContextManager.getMessages as SinonStub).returns(internalMessages)
 
       const count = session.getMessageCount()
       const history = session.getHistory()
@@ -222,7 +213,7 @@ describe('ChatSession', () => {
 
   describe('run()', () => {
     it('should return response from llmService', async () => {
-      ; (mockLLMService.completeTask as SinonStub).resolves('test response')
+      ;(mockLLMService.completeTask as SinonStub).resolves('test response')
 
       const result = await session.run('test input')
 
@@ -237,10 +228,10 @@ describe('ChatSession', () => {
 
     it('should pass signal to completeTask', async () => {
       const signalSpy = sandbox.spy()
-        ; (mockLLMService.completeTask as SinonStub).callsFake((_input, options) => {
-          signalSpy(options?.signal)
-          return Promise.resolve('response')
-        })
+      ;(mockLLMService.completeTask as SinonStub).callsFake((_input, options) => {
+        signalSpy(options?.signal)
+        return Promise.resolve('response')
+      })
 
       await session.run('input')
 
@@ -261,13 +252,13 @@ describe('ChatSession', () => {
 
     it('should throw SessionCancelledError when cancelled', async () => {
       const abortController = new AbortController()
-        ; (mockLLMService.completeTask as SinonStub).callsFake(async () => {
-          abortController.abort()
-          await new Promise((resolve) => {
-            setTimeout(resolve, 1)
-          })
-          throw new Error('Cancelled')
+      ;(mockLLMService.completeTask as SinonStub).callsFake(async () => {
+        abortController.abort()
+        await new Promise((resolve) => {
+          setTimeout(resolve, 10)
         })
+        throw new Error('Cancelled')
+      })
 
       // Start run and cancel immediately
       const runPromise = session.run('input')
@@ -284,7 +275,7 @@ describe('ChatSession', () => {
 
     it('should throw LLMError when llmService throws error', async () => {
       const llmError = new Error('LLM service error')
-        ; (mockLLMService.completeTask as SinonStub).rejects(llmError)
+      ;(mockLLMService.completeTask as SinonStub).rejects(llmError)
 
       try {
         await session.run('input')
@@ -332,14 +323,14 @@ describe('ChatSession', () => {
   describe('cancel()', () => {
     it('should abort currentController when it exists', async () => {
       const abortSpy = sandbox.spy()
-        ; (mockLLMService.completeTask as SinonStub).callsFake(async (_input, options) => {
-          const signal = options?.signal as AbortSignal
-          signal.addEventListener('abort', abortSpy)
-          await new Promise((resolve) => {
-            setTimeout(resolve, 1)
-          })
-          return 'response'
+      ;(mockLLMService.completeTask as SinonStub).callsFake(async (_input, options) => {
+        const signal = options?.signal as AbortSignal
+        signal.addEventListener('abort', abortSpy)
+        await new Promise((resolve) => {
+          setTimeout(resolve, 10)
         })
+        return 'response'
+      })
 
       const runPromise = session.run('input')
       session.cancel()
