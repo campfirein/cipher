@@ -4,7 +4,7 @@ import {mkdir, rm, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
-import {clearDirectory} from '../../../src/utils/file-helpers.js'
+import {clearDirectory, sanitizeFilePath} from '../../../src/utils/file-helpers.js'
 
 describe('file-helpers', () => {
   describe('clearDirectory()', () => {
@@ -118,6 +118,13 @@ describe('file-helpers', () => {
       expect(count).to.equal(2)
       expect(existsSync(join(testDir, '.hidden'))).to.be.false
       expect(existsSync(join(testDir, 'visible.txt'))).to.be.false
+    })
+  })
+
+  describe('sanitizeFilePath()', () => {
+    it('should sanitize file path with spaces', () => {
+      expect(sanitizeFilePath('Use Case Analysis')).to.equal('Use-Case-Analysis')
+      expect(sanitizeFilePath('Use Case Analysis_txt')).to.equal('Use-Case-Analysis_txt')
     })
   })
 })
