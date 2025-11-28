@@ -15,7 +15,7 @@ import type {ITeamService} from '../../src/core/interfaces/i-team-service.js'
 import type {ITokenStore} from '../../src/core/interfaces/i-token-store.js'
 import type {ITrackingService} from '../../src/core/interfaces/i-tracking-service.js'
 
-import Init from '../../src/commands/init.js'
+import Init, {type LegacyProjectConfigInfo} from '../../src/commands/init.js'
 import {Agent} from '../../src/core/domain/entities/agent.js'
 import {AuthToken} from '../../src/core/domain/entities/auth-token.js'
 import {BrvConfig} from '../../src/core/domain/entities/brv-config.js'
@@ -30,6 +30,7 @@ class TestableInit extends Init {
   public mockAceRemovalConfirmResult = true
   public mockCleanupError: Error | undefined = undefined
   public mockConfirmResult = false
+  public mockLegacyConfig: LegacyProjectConfigInfo | undefined = undefined
   public removeAceDirectoryCalled = false
 
   // eslint-disable-next-line max-params
@@ -61,7 +62,7 @@ class TestableInit extends Init {
     // Otherwise, do nothing in tests (don't actually delete files)
   }
 
-  protected async confirmReInitialization(_config: BrvConfig): Promise<boolean> {
+  protected async confirmReInitialization(_config: BrvConfig | LegacyProjectConfigInfo): Promise<boolean> {
     return this.mockConfirmResult
   }
 
@@ -83,6 +84,24 @@ class TestableInit extends Init {
     // Throw error to maintain behavior but suppress output
     const errorMessage = typeof input === 'string' ? input : input.message
     throw new Error(errorMessage)
+  }
+
+  protected async getExistingConfig(): Promise<BrvConfig | LegacyProjectConfigInfo | undefined> {
+    // If legacy config is mocked, return it directly
+    if (this.mockLegacyConfig) {
+      return this.mockLegacyConfig
+    }
+
+    // Otherwise, use the mock config store
+    const exists = await this.mockConfigStore.exists()
+    if (!exists) return undefined
+
+    const config = await this.mockConfigStore.read()
+    if (config === undefined) {
+      throw new Error('Configuration file exists but cannot be read. Please check .brv/config.json')
+    }
+
+    return config
   }
 
   public log(): void {
@@ -817,6 +836,79 @@ describe('Init Command', () => {
       expect(tokenStore.load.calledOnce).to.be.true // Auth happens first
       expect(configStore.exists.calledOnce).to.be.true
       expect(configStore.read.calledOnce).to.be.true
+    })
+
+    it('should handle legacy config without version field', async () => {
+      tokenStore.load.resolves(validToken)
+      configStore.write.resolves()
+      teamService.getTeams.resolves({teams: testTeams, total: testTeams.length})
+      spaceService.getSpaces.resolves({spaces: testSpaces, total: testSpaces.length})
+
+      const command = new TestableInit(
+        configStore,
+        contextTreeService,
+        playbookService,
+        ruleWriterService,
+        spaceService,
+        teamService,
+        tokenStore,
+        trackingService,
+        testTeams[0],
+        testSpaces[0],
+        config,
+      )
+      // Mock legacy config with missing version
+      command.mockLegacyConfig = {
+        currentVersion: undefined,
+        spaceName: 'frontend-app',
+        teamName: 'acme-corp',
+        type: 'legacy',
+      }
+      command.mockConfirmResult = true
+
+      await command.run()
+
+      // Should proceed with re-initialization
+      expect(tokenStore.load.calledOnce).to.be.true
+      expect(teamService.getTeams.calledOnce).to.be.true
+      expect(spaceService.getSpaces.calledOnce).to.be.true
+      expect(configStore.write.calledOnce).to.be.true
+    })
+
+    it('should handle config with version mismatch', async () => {
+      tokenStore.load.resolves(validToken)
+      configStore.write.resolves()
+      teamService.getTeams.resolves({teams: testTeams, total: testTeams.length})
+      spaceService.getSpaces.resolves({spaces: testSpaces, total: testSpaces.length})
+
+      const command = new TestableInit(
+        configStore,
+        contextTreeService,
+        playbookService,
+        ruleWriterService,
+        spaceService,
+        teamService,
+        tokenStore,
+        trackingService,
+        testTeams[0],
+        testSpaces[0],
+        config,
+      )
+      // Mock legacy config with version mismatch
+      command.mockLegacyConfig = {
+        currentVersion: '0.0.0',
+        spaceName: 'frontend-app',
+        teamName: 'acme-corp',
+        type: 'legacy',
+      }
+      command.mockConfirmResult = true
+
+      await command.run()
+
+      // Should proceed with re-initialization
+      expect(tokenStore.load.calledOnce).to.be.true
+      expect(teamService.getTeams.calledOnce).to.be.true
+      expect(configStore.write.calledOnce).to.be.true
     })
   })
 

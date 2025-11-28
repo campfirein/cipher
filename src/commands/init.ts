@@ -1,6 +1,6 @@
 import {confirm, search, select} from '@inquirer/prompts'
 import {Command, Flags, ux} from '@oclif/core'
-import {access, rm} from 'node:fs/promises'
+import {access, readFile, rm} from 'node:fs/promises'
 import {join} from 'node:path'
 
 import type {AuthToken} from '../core/domain/entities/auth-token.js'
@@ -14,9 +14,10 @@ import type {ITeamService} from '../core/interfaces/i-team-service.js'
 import type {ITokenStore} from '../core/interfaces/i-token-store.js'
 
 import {getCurrentConfig} from '../config/environment.js'
-import {ACE_DIR, BRV_DIR, PROJECT_CONFIG_FILE} from '../constants.js'
+import {ACE_DIR, BRV_CONFIG_VERSION, BRV_DIR, PROJECT_CONFIG_FILE} from '../constants.js'
 import {type Agent, AGENT_VALUES} from '../core/domain/entities/agent.js'
 import {BrvConfig} from '../core/domain/entities/brv-config.js'
+import {BrvConfigVersionError} from '../core/domain/errors/brv-config-version-error.js'
 import {RuleExistsError} from '../core/domain/errors/rule-error.js'
 import {ITrackingService} from '../core/interfaces/i-tracking-service.js'
 import {ProjectConfigStore} from '../infra/config/file-config-store.js'
@@ -30,6 +31,20 @@ import {HttpTeamService} from '../infra/team/http-team-service.js'
 import {FsTemplateLoader} from '../infra/template/fs-template-loader.js'
 import {MixpanelTrackingService} from '../infra/tracking/mixpanel-tracking-service.js'
 import {WorkspaceDetectorService} from '../infra/workspace/workspace-detector-service.js'
+
+/**
+ * Represents a legacy config that exists but has version issues.
+ * Used to display config info during re-initialization prompt.
+ */
+export type LegacyProjectConfigInfo = {
+  /**
+   * undefined = missing, string = mismatched
+   */
+  currentVersion: string | undefined
+  spaceName: string
+  teamName: string
+  type: 'legacy'
+}
 
 export default class Init extends Command {
   public static description = `Initialize a project with ByteRover (creates ${BRV_DIR}/${PROJECT_CONFIG_FILE} with team/space selection and initializes Context Tree)`
@@ -70,8 +85,15 @@ export default class Init extends Command {
     }
   }
 
-  protected async confirmReInitialization(config: BrvConfig): Promise<boolean> {
-    this.log('\n Project is already initialized')
+  protected async confirmReInitialization(config: BrvConfig | LegacyProjectConfigInfo): Promise<boolean> {
+    if (this.isLegacyProjectConfig(config)) {
+      const versionStatus =
+        config.currentVersion === undefined ? 'missing' : `${config.currentVersion} → ${BRV_CONFIG_VERSION}`
+      this.log(`\n⚠️  Project has an outdated configuration (version: ${versionStatus})`)
+    } else {
+      this.log('\n Project is already initialized')
+    }
+
     this.log(`  Team: ${config.teamName}`)
     this.log(`  Space: ${config.spaceName}`)
     this.log(`  Config: ${join(process.cwd(), BRV_DIR, PROJECT_CONFIG_FILE)}`)
@@ -146,7 +168,7 @@ export default class Init extends Command {
     token: AuthToken,
     team: Team,
   ): Promise<Space | undefined> {
-    ux.action.start('Fetching all spaces')
+    ux.action.start('\nFetching all spaces')
     const {spaces} = await spaceService.getSpaces(token.accessToken, token.sessionKey, team.id, {fetchAll: true})
     ux.action.stop()
 
@@ -197,18 +219,37 @@ export default class Init extends Command {
     }
   }
 
-  protected async getExistingConfig(projectConfigStore: IProjectConfigStore): Promise<BrvConfig | undefined> {
+  protected async getExistingConfig(
+    projectConfigStore: IProjectConfigStore,
+  ): Promise<BrvConfig | LegacyProjectConfigInfo | undefined> {
     const exists = await projectConfigStore.exists()
-    if (exists) {
-      const config = await projectConfigStore.read()
-      if (config === undefined) {
+    if (!exists) return undefined
+
+    try {
+      const projectConfig = await projectConfigStore.read()
+      if (projectConfig === undefined) {
         throw new Error('Configuration file exists but cannot be read. Please check .brv/config.json')
       }
 
-      return config
-    }
+      return projectConfig
+    } catch (error) {
+      if (error instanceof BrvConfigVersionError) {
+        // Legacy/outdated config - read raw JSON for display info
+        const configPath = join(process.cwd(), BRV_DIR, PROJECT_CONFIG_FILE)
+        const content = await readFile(configPath, 'utf8')
+        // As type assertion here since rawJson is default to any/unknown anyway
+        const rawJson = JSON.parse(content) as Record<string, unknown>
+        return {
+          currentVersion: error.currentVersion,
+          spaceName: typeof rawJson.spaceName === 'string' ? rawJson.spaceName : 'Unknown',
+          teamName: typeof rawJson.teamName === 'string' ? rawJson.teamName : 'Unknown',
+          type: 'legacy',
+        }
+      }
 
-    return undefined
+      // Re-throw other errors
+      throw error
+    }
   }
 
   protected async initializeMemoryContextDir(name: string, initFn: () => Promise<string>): Promise<void> {
@@ -219,6 +260,10 @@ export default class Init extends Command {
     } catch (error) {
       this.warn(`${name} initialization skipped: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
+  }
+
+  protected isLegacyProjectConfig(config: BrvConfig | LegacyProjectConfigInfo): config is LegacyProjectConfigInfo {
+    return 'type' in config && config.type === 'legacy'
   }
 
   protected async promptAceDeprecationRemoval(): Promise<boolean> {
@@ -384,7 +429,6 @@ export default class Init extends Command {
       await trackingService.track('rule:generate')
       await trackingService.track('space:init')
 
-      this.log('\nInitialization complete!')
       this.log(
         "Note: It's recommended to add .brv/ to your .gitignore file since ByteRover already takes care of memory/context versioning for you.",
       )
@@ -399,5 +443,8 @@ export default class Init extends Command {
     this.log(`\n✓ Project initialized successfully!`)
     this.log(`✓ Connected to space: ${space.getDisplayName()}`)
     this.log(`✓ Configuration saved to: ${BRV_DIR}/${PROJECT_CONFIG_FILE}`)
+    this.log(
+      "NOTE: It's recommended to add .brv/ to your .gitignore file since ByteRover already takes care of memory/context versioning for you.",
+    )
   }
 }
