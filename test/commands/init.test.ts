@@ -19,6 +19,7 @@ import {AuthToken} from '../../src/core/domain/entities/auth-token.js'
 import {BrvConfig} from '../../src/core/domain/entities/brv-config.js'
 import {Space as SpaceImpl} from '../../src/core/domain/entities/space.js'
 import {Team as TeamImpl} from '../../src/core/domain/entities/team.js'
+import {IContextTreeSnapshotService} from '../../src/core/interfaces/i-context-tree-snapshot-service.js'
 
 /**
  * Testable Init command that accepts mocked services
@@ -31,6 +32,7 @@ class TestableInit extends Init {
   constructor(
     private readonly mockConfigStore: IProjectConfigStore,
     private readonly mockContextTreeService: IContextTreeService,
+    private readonly mockContextTreeSnapshotService: IContextTreeSnapshotService,
     private readonly mockPlaybookService: IPlaybookService,
     private readonly mockSpaceService: ISpaceService,
     private readonly mockTeamService: ITeamService,
@@ -51,13 +53,16 @@ class TestableInit extends Init {
     // Otherwise, do nothing in tests (don't actually delete files)
   }
 
-  protected async confirmReInitialization(_config: import('../../src/core/domain/entities/brv-config.js').BrvConfig): Promise<boolean> {
+  protected async confirmReInitialization(
+    _config: import('../../src/core/domain/entities/brv-config.js').BrvConfig,
+  ): Promise<boolean> {
     return this.mockConfirmResult
   }
 
   protected createServices() {
     return {
       contextTreeService: this.mockContextTreeService,
+      contextTreeSnapshotService: this.mockContextTreeSnapshotService,
       playbookService: this.mockPlaybookService,
       projectConfigStore: this.mockConfigStore,
       spaceService: this.mockSpaceService,
@@ -100,6 +105,7 @@ describe('Init Command', () => {
   let config: Config
   let configStore: sinon.SinonStubbedInstance<IProjectConfigStore>
   let contextTreeService: sinon.SinonStubbedInstance<IContextTreeService>
+  let contextTreeSnapshotService: sinon.SinonStubbedInstance<IContextTreeSnapshotService>
   let playbookService: sinon.SinonStubbedInstance<IPlaybookService>
   let runCommandStub: sinon.SinonStub
   let spaceService: sinon.SinonStubbedInstance<ISpaceService>
@@ -143,6 +149,14 @@ describe('Init Command', () => {
     contextTreeService = {
       exists: stub(),
       initialize: stub<[directory?: string], Promise<string>>().resolves('/test/.brv/context-tree'),
+    }
+
+    contextTreeSnapshotService = {
+      getChanges: stub(),
+      getCurrentState: stub(),
+      hasSnapshot: stub(),
+      initEmptySnapshot: stub(),
+      saveSnapshot: stub(),
     }
 
     playbookService = {
@@ -204,6 +218,7 @@ describe('Init Command', () => {
       const command = new TestableInit(
         configStore,
         contextTreeService,
+        contextTreeSnapshotService,
         playbookService,
         spaceService,
         teamService,
@@ -229,6 +244,7 @@ describe('Init Command', () => {
       const command = new TestableInit(
         configStore,
         contextTreeService,
+        contextTreeSnapshotService,
         playbookService,
         spaceService,
         teamService,
@@ -265,6 +281,7 @@ describe('Init Command', () => {
       const command = new TestableInit(
         configStore,
         contextTreeService,
+        contextTreeSnapshotService,
         playbookService,
         spaceService,
         teamService,
@@ -292,6 +309,7 @@ describe('Init Command', () => {
       const command = new TestableInit(
         configStore,
         contextTreeService,
+        contextTreeSnapshotService,
         playbookService,
         spaceService,
         teamService,
@@ -318,6 +336,7 @@ describe('Init Command', () => {
       const command = new TestableInit(
         configStore,
         contextTreeService,
+        contextTreeSnapshotService,
         playbookService,
         spaceService,
         teamService,
@@ -345,6 +364,7 @@ describe('Init Command', () => {
       const command = new TestableInit(
         configStore,
         contextTreeService,
+        contextTreeSnapshotService,
         playbookService,
         spaceService,
         teamService,
@@ -378,6 +398,7 @@ describe('Init Command', () => {
       const command = new TestableInit(
         configStore,
         contextTreeService,
+        contextTreeSnapshotService,
         playbookService,
         spaceService,
         teamService,
@@ -403,6 +424,7 @@ describe('Init Command', () => {
       const command = new TestableInit(
         configStore,
         contextTreeService,
+        contextTreeSnapshotService,
         playbookService,
         spaceService,
         teamService,
@@ -431,6 +453,7 @@ describe('Init Command', () => {
       const command = new TestableInit(
         configStore,
         contextTreeService,
+        contextTreeSnapshotService,
         playbookService,
         spaceService,
         teamService,
@@ -460,6 +483,7 @@ describe('Init Command', () => {
       const command = new TestableInit(
         configStore,
         contextTreeService,
+        contextTreeSnapshotService,
         playbookService,
         spaceService,
         teamService,
@@ -489,6 +513,7 @@ describe('Init Command', () => {
       const command = new TestableInit(
         configStore,
         contextTreeService,
+        contextTreeSnapshotService,
         playbookService,
         spaceService,
         teamService,
@@ -515,6 +540,7 @@ describe('Init Command', () => {
       const command = new TestableInit(
         configStore,
         contextTreeService,
+        contextTreeSnapshotService,
         playbookService,
         spaceService,
         teamService,
@@ -541,6 +567,7 @@ describe('Init Command', () => {
       const command = new TestableInit(
         configStore,
         contextTreeService,
+        contextTreeSnapshotService,
         playbookService,
         spaceService,
         teamService,
@@ -568,6 +595,7 @@ describe('Init Command', () => {
       const command = new TestableInit(
         configStore,
         contextTreeService,
+        contextTreeSnapshotService,
         playbookService,
         spaceService,
         teamService,
@@ -596,6 +624,7 @@ describe('Init Command', () => {
       const command = new TestableInit(
         configStore,
         contextTreeService,
+        contextTreeSnapshotService,
         playbookService,
         spaceService,
         teamService,
@@ -628,6 +657,7 @@ describe('Init Command', () => {
       const command = new TestableInit(
         configStore,
         contextTreeService,
+        contextTreeSnapshotService,
         playbookService,
         spaceService,
         teamService,
@@ -658,6 +688,7 @@ describe('Init Command', () => {
       const command = new TestableInit(
         configStore,
         contextTreeService,
+        contextTreeSnapshotService,
         playbookService,
         spaceService,
         teamService,
@@ -690,6 +721,7 @@ describe('Init Command', () => {
       const command = new TestableInit(
         configStore,
         contextTreeService,
+        contextTreeSnapshotService,
         playbookService,
         spaceService,
         teamService,
@@ -720,6 +752,7 @@ describe('Init Command', () => {
       const command = new TestableInit(
         configStore,
         contextTreeService,
+        contextTreeSnapshotService,
         playbookService,
         spaceService,
         teamService,
@@ -750,6 +783,7 @@ describe('Init Command', () => {
       const command = new TestableInit(
         configStore,
         contextTreeService,
+        contextTreeSnapshotService,
         playbookService,
         spaceService,
         teamService,
