@@ -9,6 +9,11 @@ import {LLMError, SessionCancelledError} from '../../../../../src/core/domain/ci
 import {AgentEventBus, SessionEventBus} from '../../../../../src/infra/cipher/events/event-emitter.js'
 import {ContextManager} from '../../../../../src/infra/cipher/llm/context/context-manager.js'
 import {ChatSession} from '../../../../../src/infra/cipher/session/chat-session.js'
+import {
+  createMockCipherAgentServices,
+  createMockContextManager,
+  createMockLLMService,
+} from '../../../../helpers/mock-factories.js'
 
 describe('ChatSession', () => {
   let sandbox: SinonSandbox
@@ -29,30 +34,16 @@ describe('ChatSession', () => {
     sessionEventBus = new SessionEventBus()
     agentEventBus = new AgentEventBus()
 
-    // Mock ContextManager
-    mockContextManager = {
-      clearHistory: sandbox.stub().resolves(),
-      getMessages: sandbox.stub().returns([]),
-    } as unknown as ContextManager<unknown>
+    // ✅ GOOD: Use factory functions instead of `as unknown as Type`
+    mockContextManager = createMockContextManager(sandbox)
 
-    // Mock ILLMService
-    mockLLMService = {
-      completeTask: sandbox.stub().resolves('test response'),
+    // ✅ GOOD: Use factory with override for custom behavior
+    mockLLMService = createMockLLMService(sandbox, {
       getContextManager: sandbox.stub().returns(mockContextManager),
-    } as unknown as ILLMService
+    })
 
-    // Mock shared services
-    mockSharedServices = {
-      agentEventBus,
-      blobStorage: {} as CipherAgentServices['blobStorage'],
-      fileSystemService: {} as CipherAgentServices['fileSystemService'],
-      historyStorage: {} as CipherAgentServices['historyStorage'],
-      memoryManager: {} as CipherAgentServices['memoryManager'],
-      processService: {} as CipherAgentServices['processService'],
-      promptFactory: {} as CipherAgentServices['promptFactory'],
-      toolManager: {} as CipherAgentServices['toolManager'],
-      toolProvider: {} as CipherAgentServices['toolProvider'],
-    }
+    // ✅ GOOD: Use factory for full service mocking
+    mockSharedServices = createMockCipherAgentServices(agentEventBus, sandbox)
 
     // Mock session services
     mockSessionServices = {
