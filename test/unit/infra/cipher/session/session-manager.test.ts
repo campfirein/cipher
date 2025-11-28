@@ -1,19 +1,19 @@
-import { expect } from 'chai'
-import { randomUUID } from 'node:crypto'
-import { createSandbox, SinonSandbox, SinonStub } from 'sinon'
+import {expect} from 'chai'
+import {randomUUID} from 'node:crypto'
+import {createSandbox, SinonSandbox, SinonStub} from 'sinon'
 
-import type { CipherAgentServices } from '../../../../../src/core/interfaces/cipher/cipher-services.js'
-import type { IChatSession } from '../../../../../src/core/interfaces/cipher/i-chat-session.js'
-import type { ILLMService } from '../../../../../src/core/interfaces/cipher/i-llm-service.js'
-import type { ByteRoverGrpcConfig } from '../../../../../src/infra/cipher/agent-service-factory.js'
+import type {CipherAgentServices} from '../../../../../src/core/interfaces/cipher/cipher-services.js'
+import type {IChatSession} from '../../../../../src/core/interfaces/cipher/i-chat-session.js'
+import type {ILLMService} from '../../../../../src/core/interfaces/cipher/i-llm-service.js'
+import type {ByteRoverGrpcConfig} from '../../../../../src/infra/cipher/agent-service-factory.js'
 
-import { createSessionServices } from '../../../../../src/infra/cipher/agent-service-factory.js'
-import { AgentEventBus, SessionEventBus } from '../../../../../src/infra/cipher/events/event-emitter.js'
-import { ChatSession } from '../../../../../src/infra/cipher/session/chat-session.js'
-import { SessionManager } from '../../../../../src/infra/cipher/session/session-manager.js'
-import { createMockCipherAgentServices, createMockLLMService } from '../../../../helpers/mock-factories.js'
+import {createSessionServices} from '../../../../../src/infra/cipher/agent-service-factory.js'
+import {AgentEventBus, SessionEventBus} from '../../../../../src/infra/cipher/events/event-emitter.js'
+import {ChatSession} from '../../../../../src/infra/cipher/session/chat-session.js'
+import {SessionManager} from '../../../../../src/infra/cipher/session/session-manager.js'
+import {createMockCipherAgentServices, createMockLLMService} from '../../../../helpers/mock-factories.js'
 
-type InitializableLLMService = ILLMService & { initialize?: SinonStub }
+type InitializableLLMService = ILLMService & {initialize?: SinonStub}
 
 /**
  * Testable SessionManager that allows injecting createSessionServices for testing
@@ -108,7 +108,7 @@ describe('SessionManager', () => {
   beforeEach(() => {
     sandbox = createSandbox()
 
-    // ✅ GOOD: Use factory for full service mocking
+    // Use factory for full service mocking
     const agentEventBus = new AgentEventBus()
     mockSharedServices = createMockCipherAgentServices(agentEventBus, sandbox)
 
@@ -146,7 +146,7 @@ describe('SessionManager', () => {
       // Create sessions up to default max (100)
 
       // Create 99 sessions
-      const initialSessionIds = Array.from({ length: 99 }, (_, index) => `session-${index}`)
+      const initialSessionIds = Array.from({length: 99}, (_, index) => `session-${index}`)
       await Promise.all(initialSessionIds.map((id) => manager.createSession(id)))
 
       // 100th should succeed
@@ -163,7 +163,7 @@ describe('SessionManager', () => {
 
     it('should use custom maxSessions from config', async () => {
       manager = new TestableSessionManager(mockSharedServices, mockGrpcConfig, llmConfig, {
-        config: { maxSessions: 5 },
+        config: {maxSessions: 5},
       })
       manager.mockCreateSessionServices = mockCreateSessionServices as typeof createSessionServices
 
@@ -199,7 +199,7 @@ describe('SessionManager', () => {
 
     it('should use custom sessionTTL from config', () => {
       manager = new TestableSessionManager(mockSharedServices, mockGrpcConfig, llmConfig, {
-        config: { sessionTTL: 7_200_000 },
+        config: {sessionTTL: 7_200_000},
       })
 
       expect(manager).to.exist
@@ -283,7 +283,7 @@ describe('SessionManager', () => {
 
     it('should throw error when maxSessions limit reached', async () => {
       manager = new TestableSessionManager(mockSharedServices, mockGrpcConfig, llmConfig, {
-        config: { maxSessions: 2 },
+        config: {maxSessions: 2},
       })
       manager.mockCreateSessionServices = mockCreateSessionServices as typeof createSessionServices
 
@@ -526,6 +526,4 @@ describe('SessionManager', () => {
       expect(result).to.be.false
     })
   })
-
 })
-

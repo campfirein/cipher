@@ -34,15 +34,15 @@ describe('ChatSession', () => {
     sessionEventBus = new SessionEventBus()
     agentEventBus = new AgentEventBus()
 
-    // ✅ GOOD: Use factory functions instead of `as unknown as Type`
+    // Use factory functions instead of `as unknown as Type`
     mockContextManager = createMockContextManager(sandbox)
 
-    // ✅ GOOD: Use factory with override for custom behavior
+    // Use factory with override for custom behavior
     mockLLMService = createMockLLMService(sandbox, {
       getContextManager: sandbox.stub().returns(mockContextManager),
     })
 
-    // ✅ GOOD: Use factory for full service mocking
+    // Use factory for full service mocking
     mockSharedServices = createMockCipherAgentServices(agentEventBus, sandbox)
 
     // Mock session services
