@@ -1,22 +1,27 @@
 import {expect} from 'chai'
 import * as sinon from 'sinon'
 
+import type {GenerateContentResponse} from '../../../../src/core/interfaces/cipher/i-content-generator.js'
 import type {InternalMessage} from '../../../../src/core/interfaces/cipher/message-types.js'
 
 import {SessionEventBus} from '../../../../src/infra/cipher/events/event-emitter.js'
 import {ByteRoverLlmGrpcService} from '../../../../src/infra/cipher/grpc/internal-llm-grpc-service.js'
+import {ByteRoverContentGenerator} from '../../../../src/infra/cipher/llm/generators/byterover-content-generator.js'
 import {ByteRoverLLMService} from '../../../../src/infra/cipher/llm/internal-llm-service.js'
 import {SimplePromptFactory} from '../../../../src/infra/cipher/system-prompt/simple-prompt-factory.js'
 import {ToolManager} from '../../../../src/infra/cipher/tools/tool-manager.js'
 
-// Helper function to create a ByteRover gRPC provider with test config
-function createGrpcProvider() {
-  return new ByteRoverLlmGrpcService({
+// Helper function to create a ByteRover content generator with test config
+function createContentGenerator(model = 'gemini-2.5-flash') {
+  const grpcService = new ByteRoverLlmGrpcService({
     accessToken: 'test-token',
     grpcEndpoint: 'localhost:50051',
     sessionKey: 'test-session-key',
     spaceId: 'test-space-id',
     teamId: 'test-team-id',
+  })
+  return new ByteRoverContentGenerator(grpcService, {
+    model,
   })
 }
 
@@ -50,10 +55,10 @@ describe('ByteRoverLLMService', () => {
 
   describe('initialization', () => {
     it('should initialize with default configuration', () => {
-      const provider = createGrpcProvider()
+      const generator = createContentGenerator()
       const service = new ByteRoverLLMService(
         'test-session',
-        provider,
+        generator,
         {
           model: 'gemini-2.5-flash',
         },
@@ -69,10 +74,10 @@ describe('ByteRoverLLMService', () => {
     })
 
     it('should support custom model configuration', () => {
-      const provider = createGrpcProvider()
+      const generator = createContentGenerator('claude-3-5-sonnet')
       const service = new ByteRoverLLMService(
         'test-session',
-        provider,
+        generator,
         {
           model: 'claude-3-5-sonnet',
         },
@@ -87,10 +92,10 @@ describe('ByteRoverLLMService', () => {
     })
 
     it('should support custom maxTokens configuration', () => {
-      const provider = createGrpcProvider()
+      const generator = createContentGenerator()
       const service = new ByteRoverLLMService(
         'test-session',
-        provider,
+        generator,
         {
           maxTokens: 4096,
           model: 'gemini-2.5-flash',
@@ -106,10 +111,10 @@ describe('ByteRoverLLMService', () => {
     })
 
     it('should support custom maxIterations configuration', () => {
-      const provider = createGrpcProvider()
+      const generator = createContentGenerator()
       const service = new ByteRoverLLMService(
         'test-session',
-        provider,
+        generator,
         {
           maxIterations: 100,
           model: 'gemini-2.5-flash',
@@ -125,10 +130,10 @@ describe('ByteRoverLLMService', () => {
     })
 
     it('should support custom temperature configuration', () => {
-      const provider = createGrpcProvider()
+      const generator = createContentGenerator()
       const service = new ByteRoverLLMService(
         'test-session',
-        provider,
+        generator,
         {
           model: 'gemini-2.5-flash',
           temperature: 0.5,
@@ -144,10 +149,10 @@ describe('ByteRoverLLMService', () => {
     })
 
     it('should support projectId configuration', () => {
-      const provider = createGrpcProvider()
+      const generator = createContentGenerator()
       const service = new ByteRoverLLMService(
         'test-session',
-        provider,
+        generator,
         {
           model: 'gemini-2.5-flash',
         },
@@ -162,10 +167,10 @@ describe('ByteRoverLLMService', () => {
     })
 
     it('should support region configuration', () => {
-      const provider = createGrpcProvider()
+      const generator = createContentGenerator()
       const service = new ByteRoverLLMService(
         'test-session',
-        provider,
+        generator,
         {
           model: 'gemini-2.5-flash',
         },
@@ -182,10 +187,10 @@ describe('ByteRoverLLMService', () => {
 
   describe('getConfig', () => {
     it('should return service configuration', () => {
-      const provider = createGrpcProvider()
+      const generator = createContentGenerator()
       const service = new ByteRoverLLMService(
         'test-session',
-        provider,
+        generator,
         {
           model: 'gemini-2.5-flash',
         },
@@ -203,10 +208,10 @@ describe('ByteRoverLLMService', () => {
     })
 
     it('should include max input tokens in config', () => {
-      const provider = createGrpcProvider()
+      const generator = createContentGenerator()
       const service = new ByteRoverLLMService(
         'test-session',
-        provider,
+        generator,
         {
           maxInputTokens: 500_000,
           model: 'gemini-2.5-flash',
@@ -223,10 +228,10 @@ describe('ByteRoverLLMService', () => {
     })
 
     it('should default provider to byterover', () => {
-      const provider = createGrpcProvider()
+      const generator = createContentGenerator()
       const service = new ByteRoverLLMService(
         'test-session',
-        provider,
+        generator,
         {
           model: 'gemini-2.5-flash',
         },
@@ -244,10 +249,10 @@ describe('ByteRoverLLMService', () => {
 
   describe('getContextManager', () => {
     it('should return context manager', () => {
-      const provider = createGrpcProvider()
+      const generator = createContentGenerator()
       const service = new ByteRoverLLMService(
         'test-session',
-        provider,
+        generator,
         {
           model: 'gemini-2.5-flash',
         },
@@ -275,10 +280,10 @@ describe('ByteRoverLLMService', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       sandbox.stub(toolManager, 'getAllTools').returns(mockTools as any)
 
-      const provider = createGrpcProvider()
+      const generator = createContentGenerator()
       const service = new ByteRoverLLMService(
         'test-session',
-        provider,
+        generator,
         {
           model: 'gemini-2.5-flash',
         },
@@ -297,10 +302,10 @@ describe('ByteRoverLLMService', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       sandbox.stub(toolManager, 'getAllTools').returns({} as any)
 
-      const provider = createGrpcProvider()
+      const generator = createContentGenerator()
       const service = new ByteRoverLLMService(
         'test-session',
-        provider,
+        generator,
         {
           model: 'gemini-2.5-flash',
         },
@@ -318,10 +323,10 @@ describe('ByteRoverLLMService', () => {
 
   describe('event emission', () => {
     it('should have sessionEventBus for event management', () => {
-      const provider = createGrpcProvider()
+      const generator = createContentGenerator()
       const service = new ByteRoverLLMService(
         'test-session',
-        provider,
+        generator,
         {
           model: 'gemini-2.5-flash',
         },
@@ -338,10 +343,10 @@ describe('ByteRoverLLMService', () => {
     })
 
     it('should have promptFactory for building prompts', () => {
-      const provider = createGrpcProvider()
+      const generator = createContentGenerator()
       const service = new ByteRoverLLMService(
         'test-session',
-        provider,
+        generator,
         {
           model: 'gemini-2.5-flash',
         },
@@ -360,10 +365,10 @@ describe('ByteRoverLLMService', () => {
 
   describe('text content extraction', () => {
     it('should extract string content', () => {
-      const provider = createGrpcProvider()
+      const generator = createContentGenerator()
       const service = new ByteRoverLLMService(
         'test-session',
-        provider,
+        generator,
         {
           model: 'gemini-2.5-flash',
         },
@@ -385,10 +390,10 @@ describe('ByteRoverLLMService', () => {
     })
 
     it('should extract array content with text parts', () => {
-      const provider = createGrpcProvider()
+      const generator = createContentGenerator()
       const service = new ByteRoverLLMService(
         'test-session',
-        provider,
+        generator,
         {
           model: 'gemini-2.5-flash',
         },
@@ -414,10 +419,10 @@ describe('ByteRoverLLMService', () => {
     })
 
     it('should filter out non-text parts', () => {
-      const provider = createGrpcProvider()
+      const generator = createContentGenerator()
       const service = new ByteRoverLLMService(
         'test-session',
-        provider,
+        generator,
         {
           model: 'gemini-2.5-flash',
         },
@@ -443,10 +448,10 @@ describe('ByteRoverLLMService', () => {
     })
 
     it('should handle empty content', () => {
-      const provider = createGrpcProvider()
+      const generator = createContentGenerator()
       const service = new ByteRoverLLMService(
         'test-session',
-        provider,
+        generator,
         {
           model: 'gemini-2.5-flash',
         },
@@ -468,10 +473,10 @@ describe('ByteRoverLLMService', () => {
     })
 
     it('should handle null/undefined content', () => {
-      const provider = createGrpcProvider()
+      const generator = createContentGenerator()
       const service = new ByteRoverLLMService(
         'test-session',
-        provider,
+        generator,
         {
           model: 'gemini-2.5-flash',
         },
@@ -494,127 +499,13 @@ describe('ByteRoverLLMService', () => {
     })
   })
 
-  describe('generation config building', () => {
-    it('should build generation config with system prompt', () => {
-      const provider = createGrpcProvider()
-      const service = new ByteRoverLLMService(
-        'test-session',
-        provider,
-        {
-          maxTokens: 4096,
-          model: 'gemini-2.5-flash',
-          temperature: 0.8,
-        },
-        {
-          promptFactory,
-          sessionEventBus,
-          toolManager,
-        },
-      )
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const config = (service as any).buildGenerationConfig([], 'Test system prompt')
-      expect(config.maxOutputTokens).to.equal(4096)
-      expect(config.temperature).to.equal(0.8)
-      expect(config.systemInstruction).to.exist
-    })
-
-    it('should build generation config with tools', () => {
-      const provider = createGrpcProvider()
-      const service = new ByteRoverLLMService(
-        'test-session',
-        provider,
-        {
-          model: 'gemini-2.5-flash',
-        },
-        {
-          promptFactory,
-          sessionEventBus,
-          toolManager,
-        },
-      )
-
-      const tools = [
-        {
-          description: 'A test tool',
-          name: 'testTool',
-          parameters: {properties: {}, type: 'object'},
-        },
-      ]
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const config = (service as any).buildGenerationConfig(tools, '')
-      expect(config.tools).to.exist
-      expect(config.tools[0].functionDeclarations).to.have.lengthOf(1)
-    })
-
-    it('should not include tools when empty array provided', () => {
-      const provider = createGrpcProvider()
-      const service = new ByteRoverLLMService(
-        'test-session',
-        provider,
-        {
-          model: 'gemini-2.5-flash',
-        },
-        {
-          promptFactory,
-          sessionEventBus,
-          toolManager,
-        },
-      )
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const config = (service as any).buildGenerationConfig([], '')
-      expect(config.tools).to.be.undefined
-    })
-
-    it('should not include system instruction when empty string', () => {
-      const provider = createGrpcProvider()
-      const service = new ByteRoverLLMService(
-        'test-session',
-        provider,
-        {
-          model: 'gemini-2.5-flash',
-        },
-        {
-          promptFactory,
-          sessionEventBus,
-          toolManager,
-        },
-      )
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const config = (service as any).buildGenerationConfig([], '')
-      expect(config.systemInstruction).to.be.undefined
-    })
-
-    it('should set topP to 1', () => {
-      const provider = createGrpcProvider()
-      const service = new ByteRoverLLMService(
-        'test-session',
-        provider,
-        {
-          model: 'gemini-2.5-flash',
-        },
-        {
-          promptFactory,
-          sessionEventBus,
-          toolManager,
-        },
-      )
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const config = (service as any).buildGenerationConfig([], '')
-      expect(config.topP).to.equal(1)
-    })
-  })
 
   describe('configuration defaults', () => {
     it('should default maxIterations to 50', () => {
-      const provider = createGrpcProvider()
+      const generator = createContentGenerator()
       const service = new ByteRoverLLMService(
         'test-session',
-        provider,
+        generator,
         {
           model: 'gemini-2.5-flash',
         },
@@ -630,10 +521,10 @@ describe('ByteRoverLLMService', () => {
     })
 
     it('should default maxTokens to 8192', () => {
-      const provider = createGrpcProvider()
+      const generator = createContentGenerator()
       const service = new ByteRoverLLMService(
         'test-session',
-        provider,
+        generator,
         {
           model: 'gemini-2.5-flash',
         },
@@ -648,10 +539,10 @@ describe('ByteRoverLLMService', () => {
     })
 
     it('should default temperature to 0.7', () => {
-      const provider = createGrpcProvider()
+      const generator = createContentGenerator()
       const service = new ByteRoverLLMService(
         'test-session',
-        provider,
+        generator,
         {
           model: 'gemini-2.5-flash',
         },
@@ -666,10 +557,10 @@ describe('ByteRoverLLMService', () => {
     })
 
     it('should default projectId to byterover', () => {
-      const provider = createGrpcProvider()
+      const generator = createContentGenerator()
       const service = new ByteRoverLLMService(
         'test-session',
-        provider,
+        generator,
         {
           model: 'gemini-2.5-flash',
         },
@@ -684,10 +575,10 @@ describe('ByteRoverLLMService', () => {
     })
 
     it('should default region to us-central1', () => {
-      const provider = createGrpcProvider()
+      const generator = createContentGenerator()
       const service = new ByteRoverLLMService(
         'test-session',
-        provider,
+        generator,
         {
           model: 'gemini-2.5-flash',
         },
@@ -704,10 +595,10 @@ describe('ByteRoverLLMService', () => {
 
   describe('completeTask', () => {
     it('should complete task successfully without tool calls', async () => {
-      const provider = createGrpcProvider()
+      const generator = createContentGenerator()
       const service = new ByteRoverLLMService(
         'test-session',
-        provider,
+        generator,
         {
           model: 'gemini-2.5-flash',
         },
@@ -733,17 +624,12 @@ describe('ByteRoverLLMService', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       sandbox.stub(service.getContextManager() as any, 'addAssistantMessage').resolves()
 
-      // Mock provider.generateContent to return response without tool calls
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      sandbox.stub(service as any, 'provider').value({
-        async generateContent() {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const response: any = {
-            candidates: [{content: {parts: [{text: 'Final response'}]}}],
-          }
-          return response
-        },
-      })
+      // Mock generator.generateContent to return response without tool calls
+      sandbox.stub(generator, 'generateContent').resolves({
+        content: 'Final response',
+        finishReason: 'stop',
+        toolCalls: [],
+      } as GenerateContentResponse)
 
       // The default stub already returns empty tools from beforeEach
 
@@ -752,10 +638,10 @@ describe('ByteRoverLLMService', () => {
     })
 
     it('should require AbortSignal to be checked at iteration start', async () => {
-      const provider = createGrpcProvider()
+      const generator = createContentGenerator()
       const service = new ByteRoverLLMService(
         'test-session',
-        provider,
+        generator,
         {
           model: 'gemini-2.5-flash',
         },
@@ -785,10 +671,10 @@ describe('ByteRoverLLMService', () => {
     })
 
     it('should support custom model in configuration', () => {
-      const provider = createGrpcProvider()
+      const generator = createContentGenerator('claude-3-5-sonnet')
       const service = new ByteRoverLLMService(
         'test-session',
-        provider,
+        generator,
         {
           model: 'claude-3-5-sonnet',
         },
@@ -804,10 +690,10 @@ describe('ByteRoverLLMService', () => {
     })
 
     it('should verify context manager is available', () => {
-      const provider = createGrpcProvider()
+      const generator = createContentGenerator()
       const service = new ByteRoverLLMService(
         'test-session',
-        provider,
+        generator,
         {
           model: 'gemini-2.5-flash',
         },
@@ -824,10 +710,10 @@ describe('ByteRoverLLMService', () => {
     })
 
     it('should provide session event bus for event emission', () => {
-      const provider = createGrpcProvider()
+      const generator = createContentGenerator()
       const service = new ByteRoverLLMService(
         'test-session',
-        provider,
+        generator,
         {
           model: 'gemini-2.5-flash',
         },
@@ -844,10 +730,10 @@ describe('ByteRoverLLMService', () => {
     })
 
     it('should support temperature configuration', () => {
-      const provider = createGrpcProvider()
+      const generator = createContentGenerator()
       const service = new ByteRoverLLMService(
         'test-session',
-        provider,
+        generator,
         {
           model: 'gemini-2.5-flash',
           temperature: 0.9,
@@ -864,10 +750,10 @@ describe('ByteRoverLLMService', () => {
     })
 
     it('should support image data in completeTask', async () => {
-      const provider = createGrpcProvider()
+      const generator = createContentGenerator()
       const service = new ByteRoverLLMService(
         'test-session',
-        provider,
+        generator,
         {
           model: 'gemini-2.5-flash',
         },
@@ -894,16 +780,11 @@ describe('ByteRoverLLMService', () => {
       })
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       sandbox.stub(service.getContextManager() as any, 'addAssistantMessage').resolves()
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      sandbox.stub(service as any, 'provider').value({
-        async generateContent() {
-          const result = {
-            candidates: [{content: {parts: [{text: 'Image analysis result'}]}}],
-          }
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          return result as any
-        },
-      })
+      sandbox.stub(generator, 'generateContent').resolves({
+        content: 'Image analysis result',
+        finishReason: 'stop',
+        toolCalls: [],
+      } as GenerateContentResponse)
       // Use default stub from beforeEach
 
       await service.completeTask('Analyze this image', {imageData})
