@@ -130,6 +130,10 @@ export function createMockHistoryStorage(
   overrides?: Partial<IHistoryStorage>,
 ): IHistoryStorage {
   const mock: Partial<IHistoryStorage> = {
+    deleteHistory: sandbox.stub().resolves(),
+    exists: sandbox.stub().resolves(false),
+    getSessionMetadata: sandbox.stub().resolves(),
+    listSessions: sandbox.stub().resolves([]),
     loadHistory: sandbox.stub().resolves([]),
     saveHistory: sandbox.stub().resolves(),
     ...overrides,
