@@ -15,6 +15,8 @@ import type {MemoryManager} from '../memory/memory-manager.js'
 import type {SimplePromptFactory} from '../system-prompt/simple-prompt-factory.js'
 import type {ToolManager} from '../tools/tool-manager.js'
 
+import {AgentStateMachine} from '../../../core/domain/cipher/agent/agent-state-machine.js'
+import {AgentState, TerminationReason} from '../../../core/domain/cipher/agent/agent-state.js'
 import {
   LlmGenerationError,
   LlmMaxIterationsError,
@@ -220,54 +222,50 @@ export class ByteRoverLLMService implements ILLMService {
     // Get all available tools
     const toolSet = this.toolManager.getAllTools()
 
-    let iterationCount = 0
+    // Create state machine with configured limits
+    const maxTimeMs = this.config.timeout ?? 600_000 // 10 min default
+    const stateMachine = new AgentStateMachine(this.config.maxIterations, maxTimeMs)
+    stateMachine.transition(AgentState.EXECUTING)
 
-    // Agentic loop
-    while (iterationCount < this.config.maxIterations) {
-      // Check if aborted
+    // Agentic loop with state machine
+    while (!stateMachine.isTerminal()) {
+      // Check termination conditions (timeout, max turns)
+      const terminationReason = stateMachine.shouldTerminate()
+      if (terminationReason) {
+        return this.handleTermination(terminationReason, stateMachine)
+      }
+
+      // Check if aborted via signal
       if (signal?.aborted) {
+        stateMachine.abort()
         throw new Error('Operation aborted')
       }
 
       try {
         // eslint-disable-next-line no-await-in-loop -- Sequential iterations required for agentic loop
-        const result = await this.executeAgenticIteration(iterationCount, toolSet, mode, executionContext)
+        const result = await this.executeAgenticIteration(
+          stateMachine.getContext().turnCount,
+          toolSet,
+          mode,
+          executionContext,
+        )
 
         if (result !== null) {
+          // Task complete - no tool calls
+          stateMachine.complete()
           return result
         }
 
-        iterationCount++
+        // Tool calls were executed, continue loop
+        stateMachine.incrementTurn()
       } catch (error) {
+        stateMachine.fail(error as Error)
         this.handleLLMError(error)
       }
     }
 
-    // Max iterations exceeded - emit warning and return partial response
-    this.logger.warn('Reached maximum iterations without completion', {
-      maxIterations: this.config.maxIterations,
-    })
-
-    this.sessionEventBus.emit('llmservice:warning', {
-      message: `Maximum iterations (${this.config.maxIterations}) reached without completion`,
-      model: this.config.model,
-      provider: 'byterover',
-    })
-
-    // Get accumulated response from context
-    const partialResponse = await this.getPartialResponse()
-
-    this.sessionEventBus.emit('llmservice:response', {
-      content: partialResponse,
-      model: this.config.model,
-      partial: true,
-      provider: 'byterover',
-    })
-
-    return (
-      partialResponse ||
-      'Maximum iterations reached without completing the task. Please try breaking down the task into smaller steps.'
-    )
+    // Should not reach here - state machine should exit via terminal states
+    throw new Error('Agent loop terminated unexpectedly')
   }
 
   /**
@@ -668,6 +666,57 @@ export class ByteRoverLLMService implements ILLMService {
     }
 
     throw new LlmGenerationError(String(error), 'byterover', this.config.model)
+  }
+
+  /**
+   * Handle agent termination due to timeout or max turns.
+   *
+   * Emits appropriate events and returns a partial response.
+   *
+   * @param reason - Why the agent is terminating
+   * @param stateMachine - The state machine for context
+   * @returns Partial response or fallback message
+   */
+  private async handleTermination(reason: TerminationReason, stateMachine: AgentStateMachine): Promise<string> {
+    const context = stateMachine.getContext()
+    const durationMs = Date.now() - context.startTime.getTime()
+
+    this.logger.warn('Agent execution terminated', {
+      durationMs,
+      reason,
+      toolCallsExecuted: context.toolCallsExecuted,
+      turnCount: context.turnCount,
+    })
+
+    // Emit termination event
+    this.sessionEventBus.emit('llmservice:warning', {
+      message: `Agent terminated: ${reason} after ${context.turnCount} turns`,
+      model: this.config.model,
+      provider: 'byterover',
+    })
+
+    // Get accumulated response from context
+    const partialResponse = await this.getPartialResponse()
+
+    this.sessionEventBus.emit('llmservice:response', {
+      content: partialResponse,
+      model: this.config.model,
+      partial: true,
+      provider: 'byterover',
+    })
+
+    if (reason === TerminationReason.MAX_TURNS) {
+      return (
+        partialResponse ||
+        'Maximum iterations reached without completing the task. Please try breaking down the task into smaller steps.'
+      )
+    }
+
+    if (reason === TerminationReason.TIMEOUT) {
+      return partialResponse || 'Execution timed out. Please try a simpler task or increase the timeout.'
+    }
+
+    return partialResponse || 'Agent execution terminated unexpectedly.'
   }
 
   /**

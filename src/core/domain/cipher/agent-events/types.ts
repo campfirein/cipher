@@ -4,6 +4,8 @@
  */
 export const AGENT_EVENT_NAMES = [
   'cipher:conversationReset',
+  'cipher:executionStarted',
+  'cipher:executionTerminated',
   'cipher:log',
   'cipher:stateChanged',
   'cipher:stateReset',
@@ -86,6 +88,18 @@ export type ToolErrorType =
   | 'TOOL_NOT_FOUND'
 
 /**
+ * Termination reason type for agent execution.
+ * Matches TerminationReason enum values as strings.
+ */
+export type AgentTerminationReason = 'ABORTED' | 'ERROR' | 'GOAL' | 'MAX_TURNS' | 'PROTOCOL_VIOLATION' | 'TIMEOUT'
+
+/**
+ * Agent execution state type.
+ * Matches AgentState enum values as strings.
+ */
+export type AgentExecutionStateType = 'ABORTED' | 'COMPLETE' | 'ERROR' | 'EXECUTING' | 'IDLE' | 'TOOL_CALLING'
+
+/**
  * Agent-level event payloads.
  * All agent events include sessionId for tracking which session triggered the event.
  */
@@ -96,6 +110,40 @@ export interface AgentEventMap {
    */
   'cipher:conversationReset': {
     sessionId: string
+  }
+
+  /**
+   * Emitted when agent execution starts.
+   * @property {number} maxIterations - Maximum iterations allowed
+   * @property {number} [maxTimeMs] - Maximum execution time in milliseconds
+   * @property {string} sessionId - ID of the session
+   * @property {Date} startTime - When execution started
+   */
+  'cipher:executionStarted': {
+    maxIterations: number
+    maxTimeMs?: number
+    sessionId: string
+    startTime: Date
+  }
+
+  /**
+   * Emitted when agent execution terminates.
+   * @property {number} [durationMs] - Execution duration in milliseconds
+   * @property {Date} endTime - When execution ended
+   * @property {Error} [error] - Error if terminated due to error
+   * @property {AgentTerminationReason} reason - Why execution terminated
+   * @property {string} sessionId - ID of the session
+   * @property {number} toolCallsExecuted - Number of tool calls made
+   * @property {number} turnCount - Number of turns completed
+   */
+  'cipher:executionTerminated': {
+    durationMs?: number
+    endTime: Date
+    error?: Error
+    reason: AgentTerminationReason
+    sessionId: string
+    toolCallsExecuted: number
+    turnCount: number
   }
 
   /**
