@@ -1,6 +1,41 @@
 import type {ZodSchema} from 'zod'
 
 /**
+ * Risk level for tool execution.
+ * Used for logging, auditing, and policy decisions.
+ */
+export type RiskLevel = 'critical' | 'high' | 'low' | 'medium'
+
+/**
+ * Semantic category for tools.
+ * Helps classify tools by their primary function.
+ */
+export type ToolCategory = 'discovery' | 'execute' | 'memory' | 'read' | 'write'
+
+/**
+ * Metadata about a tool execution.
+ * Computed dynamically based on tool arguments.
+ */
+export interface ToolMetadata {
+  /**
+   * Files or directories that may be affected.
+   * Computed from tool arguments.
+   */
+  affectedLocations?: string[]
+
+  /**
+   * Semantic category of this tool.
+   */
+  category?: ToolCategory
+
+  /**
+   * Risk level for this execution.
+   * Useful for logging and auditing.
+   */
+  riskLevel: RiskLevel
+}
+
+/**
  * Represents a tool that can be executed by the LLM.
  * Tools are the primary way for the LLM to interact with the system.
  */
@@ -17,6 +52,15 @@ export interface Tool {
    * @returns Tool execution result
    */
   execute: (input: unknown, context?: ToolExecutionContext) => Promise<unknown> | unknown
+
+  /**
+   * Optional: Get metadata about this tool execution.
+   * Used for logging, auditing, and policy decisions.
+   *
+   * @param args - The arguments being passed to the tool
+   * @returns Metadata about this execution
+   */
+  getMetadata?: (args: Record<string, unknown>) => ToolMetadata
 
   /** Unique identifier for the tool */
   id: string

@@ -8,6 +8,7 @@ import {createSessionServices} from '../../../../src/infra/cipher/agent-service-
 import {AgentEventBus, SessionEventBus} from '../../../../src/infra/cipher/events/event-emitter.js'
 import {setupEventForwarding} from '../../../../src/infra/cipher/session/session-event-forwarder.js'
 import {SessionManager} from '../../../../src/infra/cipher/session/session-manager.js'
+import {createMockCipherAgentServices, createMockHistoryStorage} from '../../../helpers/mock-factories.js'
 
 /**
  * Integration Tests for Event System
@@ -37,22 +38,14 @@ describe('Event System Integration', () => {
     // Create real AgentEventBus
     agentEventBus = new AgentEventBus()
 
-    // Mock shared services with real agentEventBus
-    mockSharedServices = {
-      agentEventBus,
-      blobStorage: {} as CipherAgentServices['blobStorage'],
-      fileSystemService: {} as CipherAgentServices['fileSystemService'],
-      historyStorage: {
+    // Mock shared services with real agentEventBus and custom historyStorage
+    mockSharedServices = createMockCipherAgentServices(agentEventBus, sandbox, {
+      historyStorage: createMockHistoryStorage(sandbox, {
         deleteHistory: sandbox.stub().resolves(),
         loadHistory: sandbox.stub().resolves([]),
         saveHistory: sandbox.stub().resolves(),
-      } as unknown as CipherAgentServices['historyStorage'],
-      memoryManager: {} as CipherAgentServices['memoryManager'],
-      processService: {} as CipherAgentServices['processService'],
-      promptFactory: {} as CipherAgentServices['promptFactory'],
-      toolManager: {} as CipherAgentServices['toolManager'],
-      toolProvider: {} as CipherAgentServices['toolProvider'],
-    }
+      }),
+    })
 
     mockGrpcConfig = {
       accessToken: 'test-token',

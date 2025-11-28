@@ -23,6 +23,8 @@ import type {IBlobStorage} from '../../src/core/interfaces/cipher/i-blob-storage
 import type {ICipherAgent} from '../../src/core/interfaces/cipher/i-cipher-agent.js'
 import type {IHistoryStorage} from '../../src/core/interfaces/cipher/i-history-storage.js'
 import type {ILLMService} from '../../src/core/interfaces/cipher/i-llm-service.js'
+import type {PolicyEvaluationResult, PolicyRule} from '../../src/core/interfaces/cipher/i-policy-engine.js'
+import type {ScheduledToolExecution, ToolSchedulerContext} from '../../src/core/interfaces/cipher/i-tool-scheduler.js'
 import type {AgentEventBus} from '../../src/infra/cipher/events/event-emitter.js'
 import type {FileSystemService} from '../../src/infra/cipher/file-system/file-system-service.js'
 import type {ContextManager} from '../../src/infra/cipher/llm/context/context-manager.js'
@@ -31,6 +33,13 @@ import type {ProcessService} from '../../src/infra/cipher/process/process-servic
 import type {SimplePromptFactory} from '../../src/infra/cipher/system-prompt/simple-prompt-factory.js'
 import type {ToolManager} from '../../src/infra/cipher/tools/tool-manager.js'
 import type {ToolProvider} from '../../src/infra/cipher/tools/tool-provider.js'
+
+/**
+ * Type aliases for service mocks - balances type safety with readability.
+ * These types auto-sync with CipherAgentServices interface changes.
+ */
+type MockPolicyEngine = CipherAgentServices['policyEngine']
+type MockToolScheduler = CipherAgentServices['toolScheduler']
 
 /**
  * Creates a mock ContextManager with commonly-used methods stubbed.
@@ -122,6 +131,10 @@ export function createMockBlobStorage(sandbox: SinonSandbox, overrides?: Partial
  */
 export function createMockHistoryStorage(sandbox: SinonSandbox, overrides?: Partial<IHistoryStorage>): IHistoryStorage {
   const mock: Partial<IHistoryStorage> = {
+    deleteHistory: sandbox.stub().resolves(),
+    exists: sandbox.stub().resolves(false),
+    getSessionMetadata: sandbox.stub().resolves(),
+    listSessions: sandbox.stub().resolves([]),
     loadHistory: sandbox.stub().resolves([]),
     saveHistory: sandbox.stub().resolves(),
     ...overrides,
@@ -258,6 +271,48 @@ export function createMockCipherAgent(sandbox: SinonSandbox, overrides?: Partial
 }
 
 /**
+ * Creates a mock IPolicyEngine with commonly-used methods stubbed.
+ *
+ * @param sandbox - Sinon sandbox for creating stubs
+ * @param overrides - Optional overrides for specific methods
+ * @returns Mock IPolicyEngine (cast to full type for test usage)
+ */
+export function createMockPolicyEngine(sandbox: SinonSandbox, overrides?: Partial<MockPolicyEngine>): MockPolicyEngine {
+  const mock: Partial<MockPolicyEngine> = {
+    addRule: sandbox.stub<[PolicyRule], void>(),
+    evaluate: sandbox
+      .stub<[string, Record<string, unknown>], PolicyEvaluationResult>()
+      .returns({decision: 'ALLOW', reason: 'mock allow'}),
+    getRules: sandbox.stub<[], readonly PolicyRule[]>().returns([]),
+    removeRule: sandbox.stub<[string], void>(),
+    ...overrides,
+  }
+
+  return mock as MockPolicyEngine
+}
+
+/**
+ * Creates a mock IToolScheduler with commonly-used methods stubbed.
+ *
+ * @param sandbox - Sinon sandbox for creating stubs
+ * @param overrides - Optional overrides for specific methods
+ * @returns Mock IToolScheduler (cast to full type for test usage)
+ */
+export function createMockToolScheduler(
+  sandbox: SinonSandbox,
+  overrides?: Partial<MockToolScheduler>,
+): MockToolScheduler {
+  const mock: Partial<MockToolScheduler> = {
+    clearHistory: sandbox.stub<[], void>(),
+    execute: sandbox.stub<[string, Record<string, unknown>, ToolSchedulerContext], Promise<unknown>>().resolves(),
+    getHistory: sandbox.stub<[], readonly ScheduledToolExecution[]>().returns([]),
+    ...overrides,
+  }
+
+  return mock as MockToolScheduler
+}
+
+/**
  * Creates a properly-typed mock CipherAgentServices
  *
  * @param agentEventBus - Real or mock AgentEventBus instance
@@ -276,10 +331,12 @@ export function createMockCipherAgentServices(
     fileSystemService: createMockFileSystemService(sandbox),
     historyStorage: createMockHistoryStorage(sandbox),
     memoryManager: createMockMemoryManager(sandbox),
+    policyEngine: createMockPolicyEngine(sandbox),
     processService: createMockProcessService(sandbox),
     promptFactory: createMockPromptFactory(sandbox),
     toolManager: createMockToolManager(sandbox),
     toolProvider: createMockToolProvider(sandbox),
+    toolScheduler: createMockToolScheduler(sandbox),
     ...overrides,
   }
 }

@@ -9,6 +9,8 @@ import type {IBlobStorage} from './i-blob-storage.js'
 import type {ICodingAgentLogWatcher} from './i-coding-agent-log-watcher.js'
 import type {IHistoryStorage} from './i-history-storage.js'
 import type {ILLMService} from './i-llm-service.js'
+import type {IPolicyEngine} from './i-policy-engine.js'
+import type {IToolScheduler} from './i-tool-scheduler.js'
 
 /**
  * Shared services created at agent level and shared across all sessions.
@@ -16,6 +18,8 @@ import type {ILLMService} from './i-llm-service.js'
  * These services are singletons that provide global functionality:
  * - AgentEventBus: Global event bus for agent-level events
  * - ToolManager: Manages tool registration and execution (stateless)
+ * - ToolScheduler: Orchestrates tool execution with policy checks
+ * - PolicyEngine: Rule-based ALLOW/DENY decisions for tools
  * - SimplePromptFactory: Builds system prompts from simple YAML templates
  * - FileSystemService: File system operations
  * - ProcessService: Command execution
@@ -32,10 +36,12 @@ export interface CipherAgentServices {
   fileSystemService: FileSystemService
   historyStorage: IHistoryStorage
   memoryManager: MemoryManager
+  policyEngine: IPolicyEngine
   processService: ProcessService
   promptFactory: SimplePromptFactory
   toolManager: ToolManager
   toolProvider: ToolProvider
+  toolScheduler: IToolScheduler
 }
 
 /**
