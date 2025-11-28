@@ -160,10 +160,7 @@ export default class SpaceSwitch extends Command {
     ux.action.stop()
 
     if (teamResult.teams.length === 0) {
-      exitWithCode(
-        ExitCode.VALIDATION_ERROR,
-        'No teams found. Please create a team in the ByteRover dashboard first.',
-      )
+      exitWithCode(ExitCode.VALIDATION_ERROR, 'No teams found. Please create a team in the ByteRover dashboard first.')
     }
 
     // Prompt for team selection
@@ -193,10 +190,15 @@ export default class SpaceSwitch extends Command {
     const selectedAgent = await this.promptForAgentSelection()
 
     this.log()
-    const {chatLogPath, cwd} = await this.detectWorkspacesForAgent(selectedAgent)
+    const {chatLogPath, cwd} = this.detectWorkspacesForAgent(selectedAgent)
 
     // Update configuration
-    const newConfig = BrvConfig.fromSpace(selectedSpace, chatLogPath, selectedAgent, cwd)
+    const newConfig = BrvConfig.fromSpace({
+      chatLogPath,
+      cwd,
+      ide: selectedAgent,
+      space: selectedSpace,
+    })
     await projectConfigStore.write(newConfig)
 
     // Display success

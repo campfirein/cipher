@@ -1,3 +1,5 @@
+// TODO: Will deprecate. Replaced by Context Tree
+
 import {readdir, readFile, writeFile} from 'node:fs/promises'
 import {join} from 'node:path'
 

@@ -4,7 +4,6 @@ import {Config as OclifConfig} from '@oclif/core'
 import {expect} from 'chai'
 import sinon, {restore, stub} from 'sinon'
 
-import type {Agent} from '../../src/core/domain/entities/agent.js'
 import type {IContextTreeService} from '../../src/core/interfaces/i-context-tree-service.js'
 import type {IContextTreeSnapshotService} from '../../src/core/interfaces/i-context-tree-snapshot-service.js'
 import type {IProjectConfigStore} from '../../src/core/interfaces/i-project-config-store.js'
@@ -12,6 +11,7 @@ import type {ITokenStore} from '../../src/core/interfaces/i-token-store.js'
 import type {ITrackingService} from '../../src/core/interfaces/i-tracking-service.js'
 
 import Status from '../../src/commands/status.js'
+import {BRV_CONFIG_VERSION} from '../../src/constants.js'
 import {AuthToken} from '../../src/core/domain/entities/auth-token.js'
 import {BrvConfig} from '../../src/core/domain/entities/brv-config.js'
 
@@ -116,16 +116,17 @@ describe('Status Command', () => {
       userId: 'user-123',
     })
 
-    testConfig = new BrvConfig(
-      new Date().toISOString(),
-      'space-1',
-      'backend-api',
-      'team-1',
-      'acme-corp',
-      'Claude Code' as Agent,
-      'chat.log',
-      '/test/cwd',
-    )
+    testConfig = new BrvConfig({
+      chatLogPath: 'chat.log',
+      createdAt: new Date().toISOString(),
+      cwd: '/test/cwd',
+      ide: 'Claude Code',
+      spaceId: 'space-1',
+      spaceName: 'backend-api',
+      teamId: 'team-1',
+      teamName: 'acme-corp',
+      version: BRV_CONFIG_VERSION,
+    })
   })
 
   afterEach(() => {
