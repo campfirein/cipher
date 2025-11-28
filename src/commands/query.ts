@@ -1,4 +1,5 @@
 import {Args, Command, Flags} from '@oclif/core'
+import {randomUUID} from 'node:crypto'
 
 import type {IProjectConfigStore} from '../core/interfaces/i-project-config-store.js'
 import type {ITrackingService} from '../core/interfaces/i-tracking-service.js'
@@ -70,7 +71,8 @@ Bad:
   public static strict = false
 
   // Override catch to prevent oclif from logging errors that were already displayed
-  public async catch(error: Error & {oclif?: {exit: number}}): Promise<void> {    // Check if error is ExitError (message already displayed by exitWithCode)
+  public async catch(error: Error & {oclif?: {exit: number}}): Promise<void> {
+    // Check if error is ExitError (message already displayed by exitWithCode)
     if (error instanceof ExitError) {
       return
     }
@@ -96,12 +98,11 @@ Bad:
   }
 
   /**
-   * Generate a unique session ID for the query agent
+   * Generate a unique session ID for the query agent.
+   * Uses crypto.randomUUID() for guaranteed uniqueness (122 bits of entropy).
    */
   protected generateSessionId(): string {
-    const timestamp = Date.now()
-    const random = Math.random().toString(36).slice(2, 8)
-    return `${timestamp}-${random}`
+    return randomUUID()
   }
 
   public async run(): Promise<void> {

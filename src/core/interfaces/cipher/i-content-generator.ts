@@ -42,6 +42,8 @@ export interface GenerateContentRequest {
   mode?: 'autonomous' | 'default' | 'query'
   /** Model identifier */
   model: string
+  /** Session identifier */
+  sessionId: string
   /** Optional system prompt */
   systemPrompt?: string
   /** Available tools for function calling */
