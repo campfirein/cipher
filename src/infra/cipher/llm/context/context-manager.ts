@@ -32,8 +32,25 @@ export interface FileData {
  */
 export interface FormattedMessagesResult<T> {
   formattedMessages: T[]
+  /** Number of messages filtered out as invalid */
+  messagesFiltered: number
   systemPrompt?: string
   tokensUsed: number
+}
+
+/**
+ * Reason why a message was considered invalid for API inclusion.
+ */
+export type MessageInvalidReason = 'empty_content' | 'incomplete_tool_call' | 'system_noise'
+
+/**
+ * Result of message validation check.
+ */
+export interface MessageValidation {
+  /** Whether the message is valid for API inclusion */
+  isValid: boolean
+  /** Reason if invalid */
+  reason?: MessageInvalidReason
 }
 
 /**
@@ -218,17 +235,42 @@ export class ContextManager<T> {
   }
 
   /**
+   * Get comprehensive messages (all messages, for persistence/debugging).
+   * This includes all messages including invalid ones.
+   *
+   * @returns All messages in the conversation history
+   */
+  public getComprehensiveMessages(): InternalMessage[] {
+    return [...this.messages]
+  }
+
+  /**
+   * Get curated messages (valid messages only, for API calls).
+   * Filters out invalid messages that would waste tokens or confuse the LLM.
+   *
+   * @returns Only valid messages suitable for API calls
+   */
+  public getCuratedMessages(): InternalMessage[] {
+    return this.messages.filter((msg) => this.validateMessage(msg).isValid)
+  }
+
+  /**
    * Get formatted messages with compression applied.
+   * Uses curated (valid-only) messages for better LLM context quality.
    *
    * @param systemPrompt - Optional system prompt (for token accounting)
-   * @returns Formatted messages, system prompt, and token count
+   * @returns Formatted messages, system prompt, token count, and filter stats
    */
   public async getFormattedMessagesWithCompression(systemPrompt?: string): Promise<FormattedMessagesResult<T>> {
+    // Get curated messages (filter invalid ones)
+    const curatedMessages = this.getCuratedMessages()
+    const messagesFiltered = this.messages.length - curatedMessages.length
+
     // Calculate system prompt tokens
     const systemPromptTokens = systemPrompt ? this.tokenizer.countTokens(systemPrompt) : 0
 
-    // Compress history if needed
-    const compressedHistory = await this.compressHistoryIfNeeded(systemPromptTokens)
+    // Compress curated history if needed
+    const compressedHistory = await this.compressHistoryIfNeeded(systemPromptTokens, curatedMessages)
 
     // Format compressed messages
     const formattedMessages = this.formatter.format(compressedHistory)
@@ -239,6 +281,7 @@ export class ContextManager<T> {
 
     return {
       formattedMessages,
+      messagesFiltered,
       systemPrompt,
       tokensUsed,
     }
@@ -309,17 +352,23 @@ export class ContextManager<T> {
    * fits within the available token budget (maxInputTokens - systemPromptTokens).
    *
    * @param systemPromptTokens - Tokens used by system prompt (reserved, not compressible)
+   * @param messagesToCompress - Messages to compress (defaults to all messages)
    * @returns Compressed message history
    */
-  private async compressHistoryIfNeeded(systemPromptTokens: number): Promise<InternalMessage[]> {
+  private async compressHistoryIfNeeded(
+    systemPromptTokens: number,
+    messagesToCompress?: InternalMessage[],
+  ): Promise<InternalMessage[]> {
+    const messages = messagesToCompress ?? this.messages
+
     // Calculate current token usage
-    const currentHistoryTokens = countMessagesTokens(this.messages, this.tokenizer)
+    const currentHistoryTokens = countMessagesTokens(messages, this.tokenizer)
     const totalTokens = systemPromptTokens + currentHistoryTokens
 
     // No compression needed
     if (totalTokens <= this.maxInputTokens) {
       // Debug logging removed for cleaner user experience
-      return this.messages
+      return messages
     }
 
     // Debug logging removed for cleaner user experience
@@ -329,7 +378,7 @@ export class ContextManager<T> {
     const maxHistoryTokens = this.maxInputTokens - systemPromptTokens
 
     // Apply compression strategies sequentially
-    let compressedHistory = this.messages
+    let compressedHistory = messages
     for (const strategy of this.compressionStrategies) {
       // Debug logging removed for cleaner user experience
 
@@ -400,6 +449,17 @@ export class ContextManager<T> {
   }
 
   /**
+   * Check if a system message is noise (empty or whitespace only).
+   *
+   * @param message - Message to check
+   * @returns True if the message is noise
+   */
+  private isSystemNoise(message: InternalMessage): boolean {
+    const content = typeof message.content === 'string' ? message.content : ''
+    return content.trim().length === 0
+  }
+
+  /**
    * Persist current conversation history to storage.
    * This is called automatically after each message is added.
    *
@@ -442,5 +502,36 @@ export class ContextManager<T> {
       // Handle circular references or other serialization errors
       return `[Tool result serialization failed: ${getErrorMessage(error)}]`
     }
+  }
+
+  /**
+   * Validate a message for API inclusion.
+   * Filters out invalid messages that would waste tokens or confuse the LLM.
+   *
+   * Rules:
+   * 1. Empty content (non-tool messages without content or tool calls)
+   * 2. Tool result without corresponding tool call ID
+   * 3. System messages with only noise (empty or whitespace)
+   *
+   * @param message - Message to validate
+   * @returns Validation result indicating if message is valid for API
+   */
+  private validateMessage(message: InternalMessage): MessageValidation {
+    // Rule 1: Empty content check (skip for tool messages which always have content)
+    if (message.role !== 'tool' && !message.content && (!message.toolCalls || message.toolCalls.length === 0)) {
+      return {isValid: false, reason: 'empty_content'}
+    }
+
+    // Rule 2: Tool result without corresponding call ID
+    if (message.role === 'tool' && !message.toolCallId) {
+      return {isValid: false, reason: 'incomplete_tool_call'}
+    }
+
+    // Rule 3: System messages with only noise (empty or whitespace)
+    if (message.role === 'system' && this.isSystemNoise(message)) {
+      return {isValid: false, reason: 'system_noise'}
+    }
+
+    return {isValid: true}
   }
 }

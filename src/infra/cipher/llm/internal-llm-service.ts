@@ -26,6 +26,7 @@ import {NoOpLogger} from '../../../core/interfaces/cipher/i-logger.js'
 import {getErrorMessage} from '../../../utils/error-helpers.js'
 import {SessionEventBus} from '../events/event-emitter.js'
 import {ContextManager, type FileData, type ImageData} from './context/context-manager.js'
+import {LoopDetector} from './context/loop-detector.js'
 import {ClaudeMessageFormatter} from './formatters/claude-formatter.js'
 import {GeminiMessageFormatter} from './formatters/gemini-formatter.js'
 import {type ThinkingConfig, ThoughtParser} from './thought-parser.js'
@@ -99,6 +100,7 @@ export class ByteRoverLLMService implements ILLMService {
   private readonly formatter: IMessageFormatter<Content | MessageParam>
   private readonly generator: IContentGenerator
   private readonly logger: ILogger
+  private readonly loopDetector: LoopDetector
   private readonly memoryManager?: MemoryManager
   private readonly outputProcessor: ToolOutputProcessor
   private readonly promptFactory: SimplePromptFactory
@@ -150,6 +152,7 @@ export class ByteRoverLLMService implements ILLMService {
     this.sessionEventBus = options.sessionEventBus
     this.logger = options.logger ?? new NoOpLogger()
     this.outputProcessor = new ToolOutputProcessor(config.truncationConfig)
+    this.loopDetector = new LoopDetector()
     this.config = {
       maxInputTokens: config.maxInputTokens ?? 1_000_000,
       maxIterations: config.maxIterations ?? 50,
@@ -524,11 +527,33 @@ export class ByteRoverLLMService implements ILLMService {
    * - classified error types
    * - execution metadata (duration, tokens, etc.)
    *
+   * Includes loop detection to prevent repetitive tool call patterns.
+   *
    * @param toolCall - Tool call to execute
    */
   private async executeToolCall(toolCall: ToolCall): Promise<void> {
     const toolName = toolCall.function.name
     const toolArgs = JSON.parse(toolCall.function.arguments)
+
+    // Check for loops before execution
+    const loopResult = this.loopDetector.recordAndCheck(toolName, toolArgs)
+
+    if (loopResult.isLoop) {
+      // Emit warning event
+      this.sessionEventBus.emit('llmservice:warning', {
+        message: `Loop detected: ${loopResult.loopType} - tool "${toolName}" repeated ${loopResult.repeatCount} times`,
+      })
+
+      // Add tool result with loop warning instead of executing
+      await this.contextManager.addToolResult(
+        toolCall.id,
+        toolName,
+        `⚠️ LOOP DETECTED: ${loopResult.suggestion}\n\nPlease try a different approach to accomplish your goal.`,
+        {errorType: 'LOOP_DETECTED', success: false},
+      )
+
+      return // Skip actual tool execution
+    }
 
     // Emit tool call event
     this.sessionEventBus.emit('llmservice:toolCall', {
