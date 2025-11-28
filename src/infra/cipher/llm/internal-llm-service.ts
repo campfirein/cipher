@@ -388,9 +388,16 @@ export class ByteRoverLLMService implements ILLMService {
    *
    * @param systemPrompt - System prompt text
    * @param tools - Available tools for function calling
+   * @param mode - Optional mode for system prompt
+   * @param executionContext - Optional execution context
    * @returns GenerateContentRequest for the generator
    */
-  private buildGenerateContentRequest(systemPrompt: string, tools: ToolSet): GenerateContentRequest {
+  private buildGenerateContentRequest(
+    systemPrompt: string,
+    tools: ToolSet,
+    mode?: 'autonomous' | 'default' | 'query',
+    executionContext?: ExecutionContext,
+  ): GenerateContentRequest {
     // Get internal messages from context manager
     const messages = this.contextManager.getMessages()
 
@@ -400,6 +407,8 @@ export class ByteRoverLLMService implements ILLMService {
         temperature: this.config.temperature,
       },
       contents: messages,
+      executionContext,
+      mode,
       model: this.config.model,
       systemPrompt,
       tools,
@@ -548,7 +557,7 @@ export class ByteRoverLLMService implements ILLMService {
     }
 
     // Build generation request
-    const request = this.buildGenerateContentRequest(systemPrompt, tools)
+    const request = this.buildGenerateContentRequest(systemPrompt, tools, mode, executionContext)
 
     // Call LLM via generator (retry + logging handled by decorators)
     const lastMessage = await this.callLLMAndParseResponse(request)

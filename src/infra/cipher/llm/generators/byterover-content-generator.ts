@@ -7,7 +7,11 @@
 
 // @ts-expect-error - Internal SDK path not exported in package.json, but exists and works at runtime
 import type {RequestOptions} from '@anthropic-ai/sdk/internal/request-options'
-import type {Tool as ClaudeTool, MessageCreateParamsNonStreaming, MessageParam} from '@anthropic-ai/sdk/resources/messages'
+import type {
+  Tool as ClaudeTool,
+  MessageCreateParamsNonStreaming,
+  MessageParam,
+} from '@anthropic-ai/sdk/resources/messages'
 import type {Content, GenerateContentConfig} from '@google/genai'
 
 import type {ToolSet} from '../../../../core/domain/cipher/tools/types.js'
@@ -113,20 +117,23 @@ export class ByteRoverContentGenerator implements IContentGenerator {
     const formattedMessages = this.formatter.format(request.contents)
 
     // Build generation config
-    const genConfig = this.buildGenerationConfig(
-      request.tools ?? {},
-      request.systemPrompt ?? '',
-      formattedMessages,
-    )
+    const genConfig = this.buildGenerationConfig(request.tools ?? {}, request.systemPrompt ?? '', formattedMessages)
 
     // Call gRPC service
     const contents = this.providerType === 'claude' ? genConfig : formattedMessages
-    const config = this.providerType === 'claude' ? {} as RequestOptions : genConfig
+    const config = this.providerType === 'claude' ? ({} as RequestOptions) : genConfig
+
+    // Build execution metadata from request
+    const executionMetadata = {
+      ...(request.mode && {mode: request.mode}),
+      ...(request.executionContext && {executionContext: request.executionContext}),
+    }
 
     const rawResponse = await this.grpcService.generateContent(
       contents as Content[] | MessageCreateParamsNonStreaming,
       config as GenerateContentConfig | RequestOptions,
       this.config.model,
+      executionMetadata,
     )
 
     // Parse response to internal format
@@ -171,9 +178,7 @@ export class ByteRoverContentGenerator implements IContentGenerator {
    * @yields Content chunks as they are generated
    * @returns Async generator yielding content chunks
    */
-  public async *generateContentStream(
-    request: GenerateContentRequest,
-  ): AsyncGenerator<GenerateContentChunk> {
+  public async *generateContentStream(request: GenerateContentRequest): AsyncGenerator<GenerateContentChunk> {
     // For now, use non-streaming and yield complete response
     // True streaming can be added when gRPC service exposes the stream
     const response = await this.generateContent(request)
@@ -237,10 +242,7 @@ export class ByteRoverContentGenerator implements IContentGenerator {
     }
 
     // Add thinking configuration for Gemini models
-    const thinkingConfig = ThinkingConfigManager.mergeConfig(
-      this.config.model,
-      this.config.thinkingConfig,
-    )
+    const thinkingConfig = ThinkingConfigManager.mergeConfig(this.config.model, this.config.thinkingConfig)
 
     if (thinkingConfig) {
       baseConfig.thinkingConfig = thinkingConfig as Record<string, unknown>
