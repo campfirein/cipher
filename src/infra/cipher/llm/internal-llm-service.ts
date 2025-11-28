@@ -1,15 +1,10 @@
-// @ts-expect-error - Internal SDK path not exported in package.json, but exists and works at runtime
-import type {RequestOptions} from '@anthropic-ai/sdk/internal/request-options'
-import type {
-  Tool as ClaudeTool,
-  MessageCreateParamsNonStreaming,
-  MessageParam,
-} from '@anthropic-ai/sdk/resources/messages'
-import type {Content, GenerateContentConfig} from '@google/genai'
+import type {MessageParam} from '@anthropic-ai/sdk/resources/messages'
+import type {Content} from '@google/genai'
 
 import type {ToolExecutionResult} from '../../../core/domain/cipher/tools/tool-error.js'
-import type {JSONSchema7, ToolSet} from '../../../core/domain/cipher/tools/types.js'
+import type {ToolSet} from '../../../core/domain/cipher/tools/types.js'
 import type {ExecutionContext} from '../../../core/interfaces/cipher/i-cipher-agent.js'
+import type {GenerateContentRequest, IContentGenerator} from '../../../core/interfaces/cipher/i-content-generator.js'
 import type {IHistoryStorage} from '../../../core/interfaces/cipher/i-history-storage.js'
 import type {ILLMService} from '../../../core/interfaces/cipher/i-llm-service.js'
 import type {ILogger} from '../../../core/interfaces/cipher/i-logger.js'
@@ -28,24 +23,16 @@ import {
 import {NoOpLogger} from '../../../core/interfaces/cipher/i-logger.js'
 import {getErrorMessage} from '../../../utils/error-helpers.js'
 import {SessionEventBus} from '../events/event-emitter.js'
-import {ByteRoverLlmGrpcService} from '../grpc/internal-llm-grpc-service.js'
 import {ContextManager, type FileData, type ImageData} from './context/context-manager.js'
 import {ClaudeMessageFormatter} from './formatters/claude-formatter.js'
 import {GeminiMessageFormatter} from './formatters/gemini-formatter.js'
-import {
-  DEFAULT_RETRY_CONFIG,
-  type ResponseValidationError,
-  ResponseValidator,
-  type RetryConfig,
-  RetryHelper,
-} from './response-validator.js'
-import {type ThinkingConfig, ThinkingConfigManager, ThoughtParser} from './thought-parser.js'
+import {type ThinkingConfig, ThoughtParser} from './thought-parser.js'
 import {ClaudeTokenizer} from './tokenizers/claude-tokenizer.js'
 import {GeminiTokenizer} from './tokenizers/gemini-tokenizer.js'
 import {ToolOutputProcessor, type TruncationConfig} from './tool-output-processor.js'
 
 /**
- * Configuration for ByteRover LLM service (using gRPC)
+ * Configuration for ByteRover LLM service
  */
 export interface ByteRoverLLMServiceConfig {
   maxInputTokens?: number
@@ -79,29 +66,21 @@ export interface LLMServiceConfig {
 }
 
 /**
- * Simplified tool definition for function declarations
- */
-interface ToolDefinition {
-  description: string
-  name: string
-  parameters: JSONSchema7
-}
-
-/**
  * ByteRover LLM Service.
  *
- * Orchestrates the agentic loop using ByteRover gRPC provider.
+ * Orchestrates the agentic loop using IContentGenerator for LLM calls.
  * Responsibilities:
  * - Manage conversation context via ContextManager
  * - Execute agentic loop (call LLM → execute tools → repeat)
  * - Delegate tool execution to ToolManager
- * - Format messages for ByteRover gRPC API via formatter (Gemini or Claude)
+ * - Delegate LLM calls to IContentGenerator
  * - Handle errors and iteration limits
  *
  * Does NOT:
  * - Execute tools directly (uses ToolManager)
  * - Store persistent history (uses in-memory ContextManager)
- * - Initialize the gRPC provider (injected as dependency)
+ * - Format messages for specific providers (handled by generators)
+ * - Handle retry logic (handled by RetryableContentGenerator decorator)
  */
 export class ByteRoverLLMService implements ILLMService {
   private readonly config: {
@@ -116,11 +95,11 @@ export class ByteRoverLLMService implements ILLMService {
   }
   private readonly contextManager: ContextManager<Content | MessageParam>
   private readonly formatter: IMessageFormatter<Content | MessageParam>
+  private readonly generator: IContentGenerator
   private readonly logger: ILogger
   private readonly memoryManager?: MemoryManager
   private readonly outputProcessor: ToolOutputProcessor
   private readonly promptFactory: SimplePromptFactory
-  private readonly provider: ByteRoverLlmGrpcService
   private readonly providerType: 'claude' | 'gemini'
   private readonly sessionEventBus: SessionEventBus
   private readonly tokenizer: ITokenizer
@@ -139,7 +118,7 @@ export class ByteRoverLLMService implements ILLMService {
    * allowing multiple concurrent sessions with separate histories.
    *
    * @param sessionId - Unique identifier for this session
-   * @param provider - Configured gRPC provider for LLM API calls
+   * @param generator - Content generator for LLM calls (with decorators pre-applied)
    * @param config - LLM service configuration (model, tokens, temperature)
    * @param options - Service dependencies
    * @param options.toolManager - Tool manager for executing agent tools
@@ -151,7 +130,7 @@ export class ByteRoverLLMService implements ILLMService {
    */
   public constructor(
     sessionId: string,
-    provider: ByteRoverLlmGrpcService,
+    generator: IContentGenerator,
     config: ByteRoverLLMServiceConfig,
     options: {
       historyStorage?: IHistoryStorage
@@ -162,7 +141,7 @@ export class ByteRoverLLMService implements ILLMService {
       toolManager: ToolManager
     },
   ) {
-    this.provider = provider
+    this.generator = generator
     this.toolManager = options.toolManager
     this.promptFactory = options.promptFactory
     this.memoryManager = options.memoryManager
@@ -240,11 +219,6 @@ export class ByteRoverLLMService implements ILLMService {
 
     // Get all available tools
     const toolSet = this.toolManager.getAllTools()
-    const tools = Object.entries(toolSet).map(([name, schema]) => ({
-      description: schema.description ?? '',
-      name,
-      parameters: schema.parameters,
-    }))
 
     let iterationCount = 0
 
@@ -257,7 +231,7 @@ export class ByteRoverLLMService implements ILLMService {
 
       try {
         // eslint-disable-next-line no-await-in-loop -- Sequential iterations required for agentic loop
-        const result = await this.executeAgenticIteration(iterationCount, tools, mode, executionContext)
+        const result = await this.executeAgenticIteration(iterationCount, toolSet, mode, executionContext)
 
         if (result !== null) {
           return result
@@ -362,225 +336,70 @@ export class ByteRoverLLMService implements ILLMService {
   }
 
   /**
-   * Build Claude-specific generation configuration.
+   * Build generation request for the IContentGenerator.
    *
-   * For Claude, the config includes BOTH messages and generation parameters
-   * since Claude's SDK expects everything in the first parameter (MessageCreateParams).
+   * Converts internal context to the standardized GenerateContentRequest format.
    *
-   * @param tools - Available tool definitions
-   * @param systemPrompt - System prompt (passed in config.system)
-   * @param messages - Formatted messages (included in config for Claude)
-   * @returns Complete Claude API request body (MessageCreateParamsNonStreaming)
+   * @param systemPrompt - System prompt text
+   * @param tools - Available tools for function calling
+   * @returns GenerateContentRequest for the generator
    */
-  private buildClaudeConfig(
-    tools: ToolDefinition[],
-    systemPrompt: string,
-    messages: MessageParam[],
-  ): MessageCreateParamsNonStreaming {
-    /* eslint-disable camelcase */
-    const claudeTools: ClaudeTool[] = tools.map((tool) => ({
-      input_schema: tool.parameters as ClaudeTool.InputSchema,
-      name: tool.name,
-      ...(tool.description && {description: tool.description}),
-    }))
+  private buildGenerateContentRequest(systemPrompt: string, tools: ToolSet): GenerateContentRequest {
+    // Get internal messages from context manager
+    const messages = this.contextManager.getMessages()
 
     return {
-      max_tokens: this.config.maxTokens,
-      messages, // Messages array is part of the config for Claude
-      model: this.config.model, // Model is also part of the body
-      system: systemPrompt,
-      temperature: this.config.temperature,
-      ...(claudeTools.length > 0 && {tools: claudeTools}),
+      config: {
+        maxTokens: this.config.maxTokens,
+        temperature: this.config.temperature,
+      },
+      contents: messages,
+      model: this.config.model,
+      systemPrompt,
+      tools,
     }
-    /* eslint-enable camelcase */
   }
 
   /**
-   * Build Gemini-specific generation configuration with thinking support.
+   * Call LLM via generator and process the response.
    *
-   * @param tools - Available tool definitions
-   * @param systemPrompt - System prompt (passed in systemInstruction)
-   * @returns Gemini API configuration object
+   * Uses the IContentGenerator interface which already has:
+   * - Retry logic (via RetryableContentGenerator decorator)
+   * - Logging (via LoggingContentGenerator decorator)
+   *
+   * @param request - Generation request
+   * @returns Parsed internal message from response
    */
-  private buildGeminiConfig(tools: ToolDefinition[], systemPrompt: string): GenerateContentConfig {
-    const baseConfig: GenerateContentConfig = {
-      maxOutputTokens: this.config.maxTokens,
-      temperature: this.config.temperature,
-      topP: 1,
-      ...(systemPrompt && {systemInstruction: {parts: [{text: systemPrompt}]}}),
-      ...(tools.length > 0 && {
-        tools: [
-          {
-            functionDeclarations: tools.map((tool) => ({
-              description: tool.description,
-              name: tool.name,
-              parameters: tool.parameters as Record<string, unknown>,
-            })),
-          },
-        ],
-      }),
-    }
+  private async callLLMAndParseResponse(request: GenerateContentRequest): Promise<InternalMessage> {
+    try {
+      const response = await this.generator.generateContent(request)
 
-    // Add thinking configuration for Gemini models
-    if (this.providerType === 'gemini') {
-      // Get thinking config (user-provided or auto-configured based on model)
-      const thinkingConfig = ThinkingConfigManager.mergeConfig(this.config.model, this.config.thinkingConfig)
-
-      if (thinkingConfig) {
-        baseConfig.thinkingConfig = thinkingConfig as Record<string, unknown>
+      // Convert response to InternalMessage format
+      const message: InternalMessage = {
+        content: response.content,
+        role: 'assistant',
+        toolCalls: response.toolCalls,
       }
-    }
 
-    return baseConfig
-  }
-
-  /**
-   * Build the generation configuration for the ByteRover gRPC API call.
-   *
-   * Constructs the complete generation parameters including:
-   * - Output token limit (from config)
-   * - Temperature/sampling parameters
-   * - System instruction from the prompt manager
-   * - Available tools for function calling
-   *
-   * For Claude: messages are included in the config (merged into body)
-   * For Gemini: messages are passed separately
-   *
-   * This configuration is passed to the provider and controls how the LLM
-   * generates responses. It bridges between service configuration and
-   * the provider's expected format.
-   *
-   * @param tools - List of tool definitions available to the LLM
-   * @param systemPrompt - System prompt text to guide LLM behavior
-   * @param messages - Formatted messages (for Claude, these are merged into config)
-   * @returns Complete generation configuration for gRPC API (Gemini or Claude format)
-   */
-  private buildGenerationConfig(
-    tools: ToolDefinition[],
-    systemPrompt: string,
-    messages: Content[] | MessageParam[],
-  ): GenerateContentConfig | MessageCreateParamsNonStreaming {
-    if (this.providerType === 'claude') {
-      return this.buildClaudeConfig(tools, systemPrompt, messages as MessageParam[])
-    }
-
-    return this.buildGeminiConfig(tools, systemPrompt)
-  }
-
-  /**
-   * Call LLM and parse the response with validation and retry logic.
-   *
-   * Implements:
-   * - Response validation (checks structure, content, tool calls)
-   * - Automatic retry on validation failures
-   * - Exponential backoff between retries
-   * - Temperature adjustment for retries
-   *
-   * Parameter structure differs by provider:
-   * - Gemini: contents = formattedMessages, config = genConfig
-   * - Claude: contents = genConfig (complete body), config = {} (empty RequestOptions)
-   *
-   * @param genConfig - For Gemini: GenerateContentConfig. For Claude: MessageCreateParamsNonStreaming (complete body)
-   * @param formattedMessages - Formatted messages (only used for Gemini; Claude has messages in genConfig)
-   * @returns Last validated message from parsed response
-   */
-  private async callLLMAndParseResponse(
-    genConfig: GenerateContentConfig | MessageCreateParamsNonStreaming,
-    formattedMessages: Content[] | MessageParam[],
-  ): Promise<InternalMessage> {
-    const retryConfig: RetryConfig = {
-      ...DEFAULT_RETRY_CONFIG,
-      maxAttempts: 2, // Try once, retry once
-    }
-
-    let lastError: Error | null = null
-    let currentConfig = genConfig
-
-    for (let attempt = 0; attempt < retryConfig.maxAttempts!; attempt++) {
-      try {
-        // Call ByteRover gRPC API via provider
-        // For Claude: pass genConfig as contents (complete body), config = {} (empty RequestOptions)
-        // For Gemini: pass formattedMessages as contents, genConfig as config
-        const contents = this.providerType === 'claude' ? currentConfig : formattedMessages
-        const config = this.providerType === 'claude' ? ({} as RequestOptions) : currentConfig
-
-        // eslint-disable-next-line no-await-in-loop -- Sequential retries required for error recovery
-        const response = await this.provider.generateContent(
-          contents as Content[] | MessageCreateParamsNonStreaming,
-          config as GenerateContentConfig | RequestOptions,
-          this.config.model,
-        )
-
-        // Parse response to internal format
-        const messages = this.formatter.parseResponse(response)
-
-        // Validate response structure
-        const lastMessage = ResponseValidator.validateResponse(response, messages)
-
-        // Success - return validated message
-        return lastMessage
-      } catch (error) {
-        lastError = error as Error
-
-        // Check if error is retryable
-        if (!RetryHelper.isRetryableError(error)) {
-          // Non-validation error - throw immediately
-          if (error instanceof LlmResponseParsingError || error instanceof LlmGenerationError) {
-            throw error
-          }
-
-          // Use .message to avoid "Error: Error: ..." nesting
-          const errorMessage = error instanceof Error ? error.message : String(error)
-          throw new LlmResponseParsingError(errorMessage, 'byterover', this.config.model)
-        }
-
-        // Don't retry on last attempt
-        if (attempt === retryConfig.maxAttempts! - 1) {
-          break
-        }
-
-        // Emit retry event
-        const validationError = error as ResponseValidationError
-        this.sessionEventBus.emit('llmservice:warning', {
-          message: `Response validation failed (${validationError.validationType}), retrying... (attempt ${
-            attempt + 1
-          }/${retryConfig.maxAttempts})`,
-          model: this.config.model,
-          provider: 'byterover',
-        })
-
-        // Calculate delay and sleep
-        const delay = RetryHelper.calculateDelay(attempt, retryConfig.initialDelayMs!)
-        // eslint-disable-next-line no-await-in-loop -- Sequential delay required between retries
-        await RetryHelper.sleep(delay)
-
-        // Adjust temperature for retry (if applicable)
-        if ('temperature' in currentConfig && typeof currentConfig.temperature === 'number') {
-          const newTemperature = RetryHelper.adjustTemperature(
-            currentConfig.temperature,
-            retryConfig as Required<RetryConfig>,
-          )
-          currentConfig = {
-            ...currentConfig,
-            temperature: newTemperature,
-          }
-        }
-
-        // Continue to next attempt
-        continue
+      // Validate the message has content or tool calls
+      if (!message.content && (!message.toolCalls || message.toolCalls.length === 0)) {
+        throw new LlmResponseParsingError('Response has neither content nor tool calls', 'byterover', this.config.model)
       }
-    }
 
-    // All retries failed - throw last error
-    if (lastError instanceof LlmResponseParsingError) {
-      throw lastError
-    }
+      return message
+    } catch (error) {
+      // Re-throw LLM errors as-is
+      if (error instanceof LlmResponseParsingError || error instanceof LlmGenerationError) {
+        throw error
+      }
 
-    throw new LlmResponseParsingError(
-      `Response validation failed after ${retryConfig.maxAttempts} attempts: ${lastError?.message ?? 'Unknown error'}`,
-      'byterover',
-      this.config.model,
-    )
+      // Wrap other errors
+      throw new LlmGenerationError(
+        error instanceof Error ? error.message : String(error),
+        'byterover',
+        this.config.model,
+      )
+    }
   }
 
   /**
@@ -604,7 +423,7 @@ export class ByteRoverLLMService implements ILLMService {
    */
   private async executeAgenticIteration(
     iterationCount: number,
-    tools: ToolDefinition[],
+    tools: ToolSet,
     mode?: 'autonomous' | 'default' | 'query',
     executionContext?: ExecutionContext,
   ): Promise<null | string> {
@@ -655,29 +474,39 @@ export class ByteRoverLLMService implements ILLMService {
       })
     }
 
-    // Get formatted messages from context with compression (passing system prompt for token accounting)
-    const {formattedMessages, tokensUsed} = await this.contextManager.getFormattedMessagesWithCompression(systemPrompt)
+    // Get token count for logging (using system prompt for token accounting)
+    const systemPromptTokens = this.generator.estimateTokensSync(systemPrompt)
+    const messagesTokens = this.contextManager
+      .getMessages()
+      .reduce(
+        (total, msg) =>
+          total +
+          this.generator.estimateTokensSync(
+            typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content),
+          ),
+        0,
+      )
+    const tokensUsed = systemPromptTokens + messagesTokens
 
-    // Verbose: Log formatted messages and token usage
+    // Verbose: Log messages that will be sent to LLM
     if (this.config.verbose) {
-      this.logger.debug('Formatted messages for LLM', {
-        formattedMessages,
-        iteration: `${iterationCount + 1}/${this.config.maxIterations}`,
-        maxInputTokens: this.config.maxInputTokens,
-        tokensUsed,
-      })
+      console.log('\n========== MESSAGES (Sent to LLM) ==========')
+      console.log(JSON.stringify(this.contextManager.getMessages(), null, 2))
+      console.log('========== END MESSAGES ==========\n')
     }
 
-    // Build generation config with system prompt and messages
-    // For Claude: messages are included in the config
-    // For Gemini: messages are passed separately to the API call
-    const genConfig = this.buildGenerationConfig(tools, systemPrompt, formattedMessages)
+    // Log token usage for monitoring compression behavior
+    console.log(
+      `[ByteRoverLLMService] [Iter ${iterationCount + 1}/${
+        this.config.maxIterations
+      }] Sending to LLM: ${tokensUsed} tokens (max: ${this.config.maxInputTokens})`,
+    )
 
-    // Emit thinking event
-    this.sessionEventBus.emit('llmservice:thinking')
+    // Build generation request
+    const request = this.buildGenerateContentRequest(systemPrompt, tools)
 
-    // Call LLM and parse response
-    const lastMessage = await this.callLLMAndParseResponse(genConfig, formattedMessages)
+    // Call LLM via generator (retry + logging handled by decorators)
+    const lastMessage = await this.callLLMAndParseResponse(request)
 
     // Check if there are tool calls
     if (!lastMessage.toolCalls || lastMessage.toolCalls.length === 0) {

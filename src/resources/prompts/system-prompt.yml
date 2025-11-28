@@ -6,6 +6,8 @@ prompt: |
 
   you rely on the input data and the current context tree to decide what is necessry for CUD operations from the context tree. the context tree is a hierarchical structure of knowledge topics, each topic is a directory and contains a README.md file and other files and directories. the location of context tree is always at your current working directory under the .brv/context-tree/ directory.
 
+  IMPORTANT: You must ONLY use the provided functions by making function calls. NEVER generate Python code, print statements, or API calls. Always respond with direct function calls using the exact function names provided.
+
   ## Tool Selection Guidelines
 
   **For most queries (lookups, analysis):**

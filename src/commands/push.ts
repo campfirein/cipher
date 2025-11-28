@@ -1,36 +1,25 @@
 import {confirm} from '@inquirer/prompts'
 import {Command, Flags, ux} from '@oclif/core'
-import {join} from 'node:path'
 
 import type {AuthToken} from '../core/domain/entities/auth-token.js'
 import type {BrvConfig} from '../core/domain/entities/brv-config.js'
 import type {PresignedUrl} from '../core/domain/entities/presigned-url.js'
 import type {PresignedUrlsResponse} from '../core/domain/entities/presigned-urls-response.js'
 import type {IMemoryStorageService} from '../core/interfaces/i-memory-storage-service.js'
-import type {IPlaybookStore} from '../core/interfaces/i-playbook-store.js'
 import type {IProjectConfigStore} from '../core/interfaces/i-project-config-store.js'
 import type {ITokenStore} from '../core/interfaces/i-token-store.js'
 
 import {getCurrentConfig} from '../config/environment.js'
-import {
-  ACE_DIR,
-  BRV_DIR,
-  BULLETS_DIR,
-  DEFAULT_BRANCH,
-  DELTAS_DIR,
-  EXECUTOR_OUTPUTS_DIR,
-  PLAYBOOK_FILE,
-  REFLECTIONS_DIR,
-} from '../constants.js'
+import {DEFAULT_BRANCH, PLAYBOOK_FILE} from '../constants.js'
+import {IContextTreeSnapshotService} from '../core/interfaces/i-context-tree-snapshot-service.js'
 import {ITrackingService} from '../core/interfaces/i-tracking-service.js'
-import {FilePlaybookStore} from '../infra/ace/file-playbook-store.js'
 import {ExitCode, ExitError, exitWithCode} from '../infra/cipher/exit-codes.js'
 import {WorkspaceNotInitializedError} from '../infra/cipher/validation/workspace-validator.js'
 import {ProjectConfigStore} from '../infra/config/file-config-store.js'
+import {FileContextTreeSnapshotService} from '../infra/context-tree/file-context-tree-snapshot-service.js'
 import {HttpMemoryStorageService} from '../infra/memory/http-memory-storage-service.js'
 import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
 import {MixpanelTrackingService} from '../infra/tracking/mixpanel-tracking-service.js'
-import {clearDirectory} from '../utils/file-helpers.js'
 
 export default class Push extends Command {
   public static description = 'Push playbook to ByteRover memory storage and clean up local ACE files'
@@ -54,7 +43,8 @@ export default class Push extends Command {
   }
 
   // Override catch to prevent oclif from logging errors that were already displayed
-  async catch(error: Error & {oclif?: {exit: number}}): Promise<void> {    // Check if error is ExitError (message already displayed by exitWithCode)
+  async catch(error: Error & {oclif?: {exit: number}}): Promise<void> {
+    // Check if error is ExitError (message already displayed by exitWithCode)
     if (error instanceof ExitError) {
       return
     }
@@ -81,47 +71,11 @@ export default class Push extends Command {
     return projectConfig
   }
 
-  protected async cleanUpLocalFiles(playbookStore: IPlaybookStore): Promise<void> {
-    this.log('\nCleaning up local files...')
-
-    // Clear playbook content and bullet files
-    ux.action.start('  Clearing playbook and bullet files')
-    await playbookStore.clear()
-    ux.action.stop('✓')
-
-    // Clean executor outputs
-    const baseDir = process.cwd()
-    const aceDir = join(baseDir, BRV_DIR, ACE_DIR)
-    const executorOutputsDir = join(aceDir, EXECUTOR_OUTPUTS_DIR)
-    const reflectionsDir = join(aceDir, REFLECTIONS_DIR)
-    const deltasDir = join(aceDir, DELTAS_DIR)
-
-    ux.action.start('  Cleaning executor outputs')
-    const executorCount = await clearDirectory(executorOutputsDir)
-    ux.action.stop(`✓ (${executorCount} files removed)`)
-
-    // Clean reflections
-    ux.action.start('  Cleaning reflections')
-    const reflectionCount = await clearDirectory(reflectionsDir)
-    ux.action.stop(`✓ (${reflectionCount} files removed)`)
-
-    // Clean deltas
-    ux.action.start('  Cleaning deltas')
-    const deltaCount = await clearDirectory(deltasDir)
-    ux.action.stop(`✓ (${deltaCount} files removed)`)
-  }
-
   protected async confirmPush(projectConfig: BrvConfig, branch: string, fileCount: number): Promise<boolean> {
     this.log('\nYou are about to push to ByteRover memory storage:')
     this.log(`  Space: ${projectConfig.spaceName}`)
     this.log(`  Branch: ${branch}`)
     this.log(`  Files to upload: ${fileCount}`)
-    this.log('\nAfter successful push, these local files will be cleaned up:')
-    this.log('  - Playbook content')
-    this.log(`  - Bullet files (${BRV_DIR}/${ACE_DIR}/${BULLETS_DIR}/)`)
-    this.log(`  - Executor outputs (${BRV_DIR}/${ACE_DIR}/${EXECUTOR_OUTPUTS_DIR}/)`)
-    this.log(`  - Reflections (${BRV_DIR}/${ACE_DIR}/${REFLECTIONS_DIR}/)`)
-    this.log(`  - Deltas (${BRV_DIR}/${ACE_DIR}/${DELTAS_DIR}/)`)
 
     return confirm({
       default: false,
@@ -147,8 +101,8 @@ export default class Push extends Command {
   }
 
   protected createServices(): {
+    contextTreeSnapshotService: IContextTreeSnapshotService
     memoryService: IMemoryStorageService
-    playbookStore: IPlaybookStore
     projectConfigStore: IProjectConfigStore
     tokenStore: ITokenStore
     trackingService: ITrackingService
@@ -158,10 +112,10 @@ export default class Push extends Command {
     const trackingService = new MixpanelTrackingService(tokenStore)
 
     return {
+      contextTreeSnapshotService: new FileContextTreeSnapshotService(),
       memoryService: new HttpMemoryStorageService({
         apiBaseUrl: envConfig.cogitApiBaseUrl,
       }),
-      playbookStore: new FilePlaybookStore(),
       projectConfigStore: new ProjectConfigStore(),
       tokenStore,
       trackingService,
@@ -187,29 +141,16 @@ export default class Push extends Command {
     return response
   }
 
-  protected async loadPlaybookContent(playbookStore: IPlaybookStore): Promise<string> {
-    ux.action.start('Loading playbook')
-    const playbook = await playbookStore.load()
-    if (playbook === undefined) {
-      this.error('Failed to load playbook')
-    }
-
-    const playbookContent = playbook.dumps()
-    ux.action.stop()
-    return playbookContent
-  }
-
   public async run(): Promise<void> {
     const {flags} = await this.parse(Push)
 
     try {
-      const {memoryService, playbookStore, projectConfigStore, tokenStore, trackingService} = this.createServices()
+      const {contextTreeSnapshotService, projectConfigStore, tokenStore, trackingService} = this.createServices()
 
       await trackingService.track('mem:push')
 
-      const token = await this.validateAuth(tokenStore)
+      await this.validateAuth(tokenStore)
       const projectConfig = await this.checkProjectInit(projectConfigStore)
-      await this.verifyPlaybookExists(playbookStore)
 
       // Prompt for confirmation unless --yes flag is provided
       if (!flags.yes) {
@@ -220,16 +161,15 @@ export default class Push extends Command {
         }
       }
 
-      const response = await this.getPresignedUrls(memoryService, token, projectConfig)
-      const playbookContent = await this.loadPlaybookContent(playbookStore)
-      await this.uploadFiles(memoryService, response.presignedUrls, playbookContent)
-      await this.confirmUpload(memoryService, token, projectConfig, response.requestId)
-      await this.cleanUpLocalFiles(playbookStore)
+      // eslint-disable-next-line no-warning-comments
+      // TODO: Implement push functionality with Cogit
+
+      // Snapshot context tree
+      await contextTreeSnapshotService.saveSnapshot()
 
       // Success message
       this.log('\n✓ Successfully pushed playbook to ByteRover memory storage!')
       this.log(`  Branch: ${flags.branch}`)
-      this.log(`  Files uploaded: ${response.presignedUrls.length}`)
     } catch (error) {
       if (error instanceof WorkspaceNotInitializedError) {
         exitWithCode(
@@ -269,12 +209,5 @@ export default class Push extends Command {
     }
 
     return token
-  }
-
-  protected async verifyPlaybookExists(playbookStore: IPlaybookStore): Promise<void> {
-    const playbookExists = await playbookStore.exists()
-    if (!playbookExists) {
-      this.error('Playbook not found. Run "brv init" to create one.')
-    }
   }
 }
