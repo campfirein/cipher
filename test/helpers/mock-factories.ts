@@ -253,6 +253,49 @@ export function createMockToolProvider(
 }
 
 /**
+ * Creates a mock IPolicyEngine with commonly-used methods stubbed.
+ *
+ * @param sandbox - Sinon sandbox for creating stubs
+ * @param overrides - Optional overrides for specific methods
+ * @returns Mock IPolicyEngine (cast to full type for test usage)
+ */
+export function createMockPolicyEngine(
+  sandbox: SinonSandbox,
+  overrides?: Partial<CipherAgentServices['policyEngine']>,
+): CipherAgentServices['policyEngine'] {
+  const mock: Partial<CipherAgentServices['policyEngine']> = {
+    addRule: sandbox.stub(),
+    evaluate: sandbox.stub().returns({decision: 'ALLOW', reason: 'mock allow'}),
+    getRules: sandbox.stub().returns([]),
+    removeRule: sandbox.stub(),
+    ...overrides,
+  }
+
+  return mock as CipherAgentServices['policyEngine']
+}
+
+/**
+ * Creates a mock IToolScheduler with commonly-used methods stubbed.
+ *
+ * @param sandbox - Sinon sandbox for creating stubs
+ * @param overrides - Optional overrides for specific methods
+ * @returns Mock IToolScheduler (cast to full type for test usage)
+ */
+export function createMockToolScheduler(
+  sandbox: SinonSandbox,
+  overrides?: Partial<CipherAgentServices['toolScheduler']>,
+): CipherAgentServices['toolScheduler'] {
+  const mock: Partial<CipherAgentServices['toolScheduler']> = {
+    clearHistory: sandbox.stub(),
+    execute: sandbox.stub().resolves(),
+    getHistory: sandbox.stub().returns([]),
+    ...overrides,
+  }
+
+  return mock as CipherAgentServices['toolScheduler']
+}
+
+/**
  * Creates a properly-typed mock CipherAgentServices
  *
  * @param agentEventBus - Real or mock AgentEventBus instance
@@ -271,10 +314,12 @@ export function createMockCipherAgentServices(
     fileSystemService: createMockFileSystemService(sandbox),
     historyStorage: createMockHistoryStorage(sandbox),
     memoryManager: createMockMemoryManager(sandbox),
+    policyEngine: createMockPolicyEngine(sandbox),
     processService: createMockProcessService(sandbox),
     promptFactory: createMockPromptFactory(sandbox),
     toolManager: createMockToolManager(sandbox),
     toolProvider: createMockToolProvider(sandbox),
+    toolScheduler: createMockToolScheduler(sandbox),
     ...overrides,
   }
 }

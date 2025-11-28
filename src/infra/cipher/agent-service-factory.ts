@@ -17,6 +17,9 @@ import {MemoryManager} from './memory/memory-manager.js'
 import {ProcessService} from './process/process-service.js'
 import {BlobHistoryStorage} from './storage/blob-history-storage.js'
 import {SimplePromptFactory} from './system-prompt/simple-prompt-factory.js'
+import {CoreToolScheduler} from './tools/core-tool-scheduler.js'
+import {DEFAULT_POLICY_RULES} from './tools/default-policy-rules.js'
+import {PolicyEngine} from './tools/policy-engine.js'
 import {ToolManager} from './tools/tool-manager.js'
 import {ToolProvider} from './tools/tool-provider.js'
 
@@ -126,10 +129,21 @@ export async function createCipherAgentServices(llmConfig: CipherLLMConfig): Pro
     promptFactory,
   )
   await toolProvider.initialize()
-  const toolManager = new ToolManager(toolProvider)
+
+  // 8. Policy engine with default rules for autonomous execution
+  const policyEngine = new PolicyEngine({defaultDecision: 'ALLOW'})
+  policyEngine.addRules(DEFAULT_POLICY_RULES)
+
+  // 9. Tool scheduler (orchestrates policy check → execution)
+  const toolScheduler = new CoreToolScheduler(toolProvider, policyEngine, undefined, {
+    verbose,
+  })
+
+  // 10. Tool manager (with scheduler for policy-based execution)
+  const toolManager = new ToolManager(toolProvider, toolScheduler)
   await toolManager.initialize()
 
-  // 9. History storage (depends on BlobStorage) - SHARED across sessions
+  // 11. History storage (depends on BlobStorage) - SHARED across sessions
   const historyStorage = new BlobHistoryStorage(blobStorage)
 
   // Log successful initialization
@@ -145,10 +159,12 @@ export async function createCipherAgentServices(llmConfig: CipherLLMConfig): Pro
     fileSystemService,
     historyStorage,
     memoryManager,
+    policyEngine,
     processService,
     promptFactory,
     toolManager,
     toolProvider,
+    toolScheduler,
   }
 }
 
