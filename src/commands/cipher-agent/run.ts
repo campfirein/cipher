@@ -2,7 +2,7 @@ import {Args, Command, Flags} from '@oclif/core'
 
 import type {IProjectConfigStore} from '../../core/interfaces/i-project-config-store.js'
 
-import {getCurrentConfig} from '../../config/environment.js'
+import {getCurrentConfig, isDevelopment} from '../../config/environment.js'
 import {PROJECT} from '../../constants.js'
 import {CipherAgent} from '../../infra/cipher/cipher-agent.js'
 import {ExitCode, ExitError, exitWithCode} from '../../infra/cipher/exit-codes.js'
@@ -49,11 +49,25 @@ export default class CipherAgentRun extends Command {
     '<%= config.bin %> <%= command.id %> --working-directory ~/myproject',
   ]
   static override flags = {
-    apiKey: Flags.string({
-      char: 'k',
-      description: 'OpenRouter API key (use OpenRouter instead of gRPC backend)',
-      env: 'OPENROUTER_API_KEY',
-    }),
+    ...(isDevelopment()
+      ? {
+          apiKey: Flags.string({
+            char: 'k',
+            description: 'OpenRouter API key (use OpenRouter instead of gRPC backend) [Development only]',
+            env: 'OPENROUTER_API_KEY',
+          }),
+          model: Flags.string({
+            char: 'm',
+            description:
+              'Model to use (default: google/gemini-2.5-pro for OpenRouter, gemini-2.5-pro for gRPC) [Development only]',
+          }),
+          verbose: Flags.boolean({
+            char: 'v',
+            default: false,
+            description: 'Enable verbose debug output for prompt loading and agent operations [Development only]',
+          }),
+        }
+      : {}),
     continue: Flags.boolean({
       char: 'c',
       description: 'Continue most recent session (requires prompt in headless mode)',
@@ -67,10 +81,6 @@ export default class CipherAgentRun extends Command {
       char: 't',
       description: 'Maximum tokens in response (default: 8192)',
     }),
-    model: Flags.string({
-      char: 'm',
-      description: 'Model to use (default: google/gemini-2.5-pro for OpenRouter, gemini-2.5-pro for gRPC)',
-    }),
     resume: Flags.string({
       char: 'r',
       description: 'Resume specific session by ID (requires prompt in headless mode)',
@@ -78,11 +88,6 @@ export default class CipherAgentRun extends Command {
     temperature: Flags.string({
       char: 'T',
       description: 'Temperature for randomness 0-1 (default: 0.2)',
-    }),
-    verbose: Flags.boolean({
-      char: 'v',
-      default: false,
-      description: 'Enable verbose debug output for prompt loading and agent operations',
     }),
     workingDirectory: Flags.string({
       char: 'w',

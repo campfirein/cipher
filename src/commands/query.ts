@@ -42,10 +42,10 @@ Bad:
           '# Query with custom model (development only)',
           '<%= config.bin %> <%= command.id %> -k YOUR_API_KEY -m anthropic/claude-sonnet-4 Explain the database schema',
           '',
+          '# Query with verbose output (development only)',
+          '<%= config.bin %> <%= command.id %> -v What testing strategies are used?',
         ]
       : []),
-    '# Query with verbose output',
-    '<%= config.bin %> <%= command.id %> -v What testing strategies are used?',
   ]
   public static flags = {
     ...(isDevelopment()
@@ -60,13 +60,13 @@ Bad:
             description:
               'Model to use (default: google/gemini-2.5-pro for OpenRouter, gemini-2.5-pro for gRPC) [Development only]',
           }),
+          verbose: Flags.boolean({
+            char: 'v',
+            default: false,
+            description: 'Enable verbose debug output [Development only]',
+          }),
         }
       : {}),
-    verbose: Flags.boolean({
-      char: 'v',
-      default: false,
-      description: 'Enable verbose debug output',
-    }),
   }
   public static strict = false
 

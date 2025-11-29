@@ -69,13 +69,13 @@ Bad:
             description:
               'Model to use (default: google/gemini-2.5-pro for OpenRouter, gemini-2.5-pro for gRPC) [Development only]',
           }),
+          verbose: Flags.boolean({
+            char: 'v',
+            default: false,
+            description: 'Enable verbose debug output [Development only]',
+          }),
         }
       : {}),
-    verbose: Flags.boolean({
-      char: 'v',
-      default: false,
-      description: 'Enable verbose debug output',
-    }),
   }
 
   // Override catch to prevent oclif from logging errors that were already displayed
