@@ -373,7 +373,7 @@ export default class CipherAgentRun extends Command {
       }
 
       case 'grep_content': {
-        return 'Searching codebase...'
+        return 'Searching context tree...'
       }
 
       case 'list_directory': {
