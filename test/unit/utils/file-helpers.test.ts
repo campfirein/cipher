@@ -4,7 +4,7 @@ import {mkdir, rm, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
-import {clearDirectory, sanitizeFolderName} from '../../../src/utils/file-helpers.js'
+import {clearDirectory, listDirectoryChildren, sanitizeFolderName} from '../../../src/utils/file-helpers.js'
 
 describe('file-helpers', () => {
   describe('clearDirectory()', () => {
@@ -121,7 +121,7 @@ describe('file-helpers', () => {
     })
   })
 
-  describe('santizeFolderName()', () => {
+  describe('sanitizeFolderName()', () => {
     it('should sanitize folder name with spaces', () => {
       expect(sanitizeFolderName('Use Case Analysis')).to.equal('Use-Case-Analysis')
       expect(sanitizeFolderName('Use Case Analysis_txt')).to.equal('Use-Case-Analysis_txt')
@@ -202,6 +202,117 @@ describe('file-helpers', () => {
       expect(sanitizeFolderName('valid-folder_name')).to.equal('valid-folder_name')
       expect(sanitizeFolderName('path/to/valid.folder')).to.equal('path/to/valid.folder')
       expect(sanitizeFolderName('123_folder-456')).to.equal('123_folder-456')
+    })
+  })
+
+  describe('listDirectoryChildren()', () => {
+    let testDir: string
+
+    beforeEach(async () => {
+      testDir = join(tmpdir(), `test-list-dir-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`)
+      await mkdir(testDir, {recursive: true})
+    })
+
+    afterEach(async () => {
+      if (existsSync(testDir)) {
+        await rm(testDir, {force: true, recursive: true})
+      }
+    })
+
+    it('should return empty object for empty directory', () => {
+      const result = listDirectoryChildren(testDir)
+
+      expect(result).to.deep.equal({})
+    })
+
+    it('should return null for files', async () => {
+      await writeFile(join(testDir, 'file1.txt'), 'content', 'utf8')
+      await writeFile(join(testDir, 'file2.json'), '{}', 'utf8')
+
+      const result = listDirectoryChildren(testDir)
+
+      expect(result).to.deep.equal({
+        'file1.txt': null,
+        'file2.json': null,
+      })
+    })
+
+    it('should return children array for directories', async () => {
+      await mkdir(join(testDir, 'subdir1'), {recursive: true})
+      await mkdir(join(testDir, 'subdir2'), {recursive: true})
+      await writeFile(join(testDir, 'subdir1', 'file1.txt'), 'content', 'utf8')
+      await writeFile(join(testDir, 'subdir2', 'file2.json'), '{}', 'utf8')
+
+      const result = listDirectoryChildren(testDir)
+
+      expect(result).to.have.keys(['subdir1', 'subdir2'])
+      expect(result.subdir1).to.deep.equal(['file1.txt'])
+      expect(result.subdir2).to.deep.equal(['file2.json'])
+    })
+
+    it('should handle mixed files and directories', async () => {
+      await writeFile(join(testDir, 'file.txt'), 'content', 'utf8')
+      await mkdir(join(testDir, 'subdir'), {recursive: true})
+      await writeFile(join(testDir, 'subdir', 'nested.txt'), 'nested', 'utf8')
+
+      const result = listDirectoryChildren(testDir)
+
+      expect(result).to.have.keys(['file.txt', 'subdir'])
+      expect(result['file.txt']).to.be.null
+      expect(result.subdir).to.deep.equal(['nested.txt'])
+    })
+
+    it('should return empty array for empty subdirectory', async () => {
+      await mkdir(join(testDir, 'empty-dir'), {recursive: true})
+
+      const result = listDirectoryChildren(testDir)
+
+      expect(result).to.deep.equal({
+        'empty-dir': [],
+      })
+    })
+
+    it('should handle multiple children in subdirectory', async () => {
+      await mkdir(join(testDir, 'subdir'), {recursive: true})
+      await writeFile(join(testDir, 'subdir', 'file1.txt'), 'content1', 'utf8')
+      await writeFile(join(testDir, 'subdir', 'file2.json'), '{}', 'utf8')
+      await writeFile(join(testDir, 'subdir', 'file3.md'), '# test', 'utf8')
+
+      const result = listDirectoryChildren(testDir)
+
+      expect(result.subdir).to.have.length(3)
+      expect(result.subdir).to.include.members(['file1.txt', 'file2.json', 'file3.md'])
+    })
+
+    it('should handle nested subdirectories (only immediate children)', async () => {
+      await mkdir(join(testDir, 'subdir'), {recursive: true})
+      await mkdir(join(testDir, 'subdir', 'nested'), {recursive: true})
+      await writeFile(join(testDir, 'subdir', 'nested', 'deep.txt'), 'deep', 'utf8')
+
+      const result = listDirectoryChildren(testDir)
+
+      expect(result.subdir).to.deep.equal(['nested'])
+    })
+
+    it('should use default path when no argument provided', async () => {
+      const defaultPath = '.brv/context-tree'
+      await mkdir(defaultPath, {recursive: true})
+      await writeFile(join(defaultPath, 'test.txt'), 'content', 'utf8')
+
+      try {
+        const result = listDirectoryChildren()
+
+        expect(result).to.have.key('test.txt')
+        expect(result['test.txt']).to.be.null
+      } finally {
+        await rm(defaultPath, {force: true, recursive: true}).catch(() => {})
+      }
+    })
+
+    it('should throw when directory does not exist', () => {
+      const nonExistentDir = join(testDir, 'does-not-exist')
+
+      expect(() => listDirectoryChildren(nonExistentDir)).to.throw()
     })
   })
 })
