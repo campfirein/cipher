@@ -27,25 +27,33 @@ const CONTEXT_TREE_PATH = path.join(BRV_DIR, CONTEXT_TREE_DIR)
 export default class Add extends Command {
   public static args = {
     content: Args.string({
-      description: 'Content to add to the context tree (triggers autonomous mode)',
+      description: 'Knowledge content: patterns, decisions, errors, or insights (triggers autonomous mode)',
       required: false,
     }),
   }
-  public static description = 'Add content to the context tree (interactive or autonomous mode)'
+  public static description = `Add content to the context tree (interactive or autonomous mode)
+
+Good:
+- "Auth uses JWT with 24h expiry. Tokens stored in httpOnly cookies via authMiddleware.ts"
+- "API rate limit is 100 req/min per user. Implemented using Redis with sliding window in rateLimiter.ts"
+
+Bad:
+- "Authentication" or "JWT tokens" (too vague, lacks context)
+- "Rate limiting" (no implementation details or file references)`
   public static examples = [
     '# Interactive mode (manually choose domain/topic)',
     '<%= config.bin %> <%= command.id %>',
     '',
-    '# Autonomous mode with internal LLM (default)',
-    '<%= config.bin %> <%= command.id %> "User authentication uses JWT tokens with 24h expiry"',
+    '# Autonomous mode - LLM auto-categorizes your content',
+    '<%= config.bin %> <%= command.id %> "Auth uses JWT with 24h expiry. Tokens stored in httpOnly cookies via authMiddleware.ts"',
     '',
     ...(isDevelopment()
       ? [
           '# Autonomous mode with OpenRouter (development only)',
-          '<%= config.bin %> <%= command.id %> -k YOUR_API_KEY "React components follow atomic design pattern"',
+          '<%= config.bin %> <%= command.id %> -k YOUR_API_KEY "React components follow atomic design in src/components/. Atoms in atoms/, molecules in molecules/, organisms in organisms/"',
           '',
           '# Autonomous mode with custom model (development only)',
-          '<%= config.bin %> <%= command.id %> -k YOUR_API_KEY -m anthropic/claude-sonnet-4 "API rate limit is 100 req/min"',
+          '<%= config.bin %> <%= command.id %> -k YOUR_API_KEY -m anthropic/claude-sonnet-4 "API rate limit is 100 req/min per user. Implemented using Redis with sliding window in rateLimiter.ts"',
         ]
       : []),
   ]

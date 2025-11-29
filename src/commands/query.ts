@@ -17,13 +17,21 @@ import {formatToolCall, formatToolResult} from '../utils/tool-display-formatter.
 export default class Query extends Command {
   public static args = {
     query: Args.string({
-      description: 'Query terms to search in the context tree',
+      description: 'Natural language question about your codebase or project knowledge',
       required: true,
     }),
   }
-  public static description = 'Query and retrieve information from the context tree'
+  public static description = `Query and retrieve information from the context tree
+
+Good:
+- "How is user authentication implemented?"
+- "What are the API rate limits and where are they enforced?"
+
+Bad:
+- "auth" or "authentication" (too vague, not a question)
+- "show me code" (not specific about what information is needed)`
   public static examples = [
-    '# Query with internal LLM (default)',
+    '# Ask questions about patterns, decisions, or implementation details',
     '<%= config.bin %> <%= command.id %> What are the coding standards?',
     '<%= config.bin %> <%= command.id %> How is authentication implemented?',
     '',
