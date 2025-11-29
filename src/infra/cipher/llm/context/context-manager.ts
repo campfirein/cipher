@@ -7,6 +7,7 @@ import type {ICompressionStrategy} from './compression/types.js'
 
 import {NoOpLogger} from '../../../../core/interfaces/cipher/i-logger.js'
 import {getErrorMessage} from '../../../../utils/error-helpers.js'
+import {AsyncMutex} from './async-mutex.js'
 import {MiddleRemovalStrategy, OldestRemovalStrategy} from './compression/index.js'
 import {countMessagesTokens} from './utils.js'
 
@@ -86,6 +87,11 @@ export class ContextManager<T> {
   private readonly logger: ILogger
   private readonly maxInputTokens: number
   private messages: InternalMessage[] = []
+  /**
+   * Mutex for thread-safe operations on messages array.
+   * Used during parallel tool execution to prevent race conditions.
+   */
+  private readonly mutex = new AsyncMutex()
   private readonly sessionId: string
   private readonly tokenizer: ITokenizer
 
@@ -157,6 +163,7 @@ export class ContextManager<T> {
 
   /**
    * Add a tool result message to the conversation.
+   * Thread-safe: Uses mutex to protect shared state during parallel tool execution.
    *
    * @param toolCallId - ID of the tool call this result responds to
    * @param toolName - Name of the tool that was executed
@@ -173,7 +180,7 @@ export class ContextManager<T> {
     result: unknown,
     _metadata: {errorType?: string; metadata?: Record<string, unknown>; success: boolean},
   ): Promise<string> {
-    // Sanitize result - convert to string representation
+    // Sanitize result - convert to string representation (can be done outside lock)
     const sanitized = this.sanitizeToolResult(result)
 
     const message: InternalMessage = {
@@ -183,11 +190,16 @@ export class ContextManager<T> {
       toolCallId,
     }
 
-    this.messages.push(message)
+    // Use mutex to protect message array modification and persistence
+    await this.mutex.withLock(async () => {
+      this.messages.push(message)
 
-    // Auto-save to persistent storage (non-blocking)
-    this.persistHistory().catch((error: Error) => {
-      this.logger.error('Failed to persist history after tool result', {error, sessionId: this.sessionId})
+      // Persist within the lock to ensure ordering consistency
+      try {
+        await this.persistHistory()
+      } catch (error) {
+        this.logger.error('Failed to persist history after tool result', {error, sessionId: this.sessionId})
+      }
     })
 
     return sanitized

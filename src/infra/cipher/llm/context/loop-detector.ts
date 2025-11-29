@@ -7,7 +7,11 @@
  *
  * When a loop is detected, the caller should skip tool execution
  * and inject a warning message to guide the LLM to try a different approach.
+ *
+ * Thread-safe: Uses AsyncMutex to protect shared state during parallel tool execution.
  */
+
+import {AsyncMutex} from './async-mutex.js'
 
 /**
  * Signature of a tool call for comparison.
@@ -63,12 +67,15 @@ const DEFAULT_CONFIG: LoopDetectorConfig = {
  * This helps prevent the agent from wasting tokens and time
  * on repeated unsuccessful attempts.
  *
+ * Thread-safe: All mutating operations use AsyncMutex to ensure
+ * safe concurrent access during parallel tool execution.
+ *
  * @example
  * ```typescript
  * const detector = new LoopDetector()
  *
- * // Before executing each tool call
- * const result = detector.recordAndCheck('read_file', { path: '/foo.ts' })
+ * // Before executing each tool call (async for thread safety)
+ * const result = await detector.recordAndCheck('read_file', { path: '/foo.ts' })
  * if (result.isLoop) {
  *   // Skip execution, inject warning to LLM
  *   console.log(result.suggestion)
@@ -79,6 +86,7 @@ const DEFAULT_CONFIG: LoopDetectorConfig = {
  */
 export class LoopDetector {
   private readonly config: LoopDetectorConfig
+  private readonly mutex = new AsyncMutex()
   private recentCalls: ToolCallSignature[] = []
 
   constructor(config: Partial<LoopDetectorConfig> = {}) {
@@ -101,29 +109,35 @@ export class LoopDetector {
 
   /**
    * Record a tool call and check for loop patterns.
+   * Thread-safe: Uses mutex to protect shared state during parallel execution.
    *
    * @param toolName - Name of the tool being called
    * @param args - Arguments passed to the tool
    * @returns Detection result indicating if a loop was found
    */
-  recordAndCheck(toolName: string, args: Record<string, unknown>): LoopDetectionResult {
-    const signature = this.createSignature(toolName, args)
-    this.recentCalls.push(signature)
+  async recordAndCheck(toolName: string, args: Record<string, unknown>): Promise<LoopDetectionResult> {
+    return this.mutex.withLock(async () => {
+      const signature = this.createSignature(toolName, args)
+      this.recentCalls.push(signature)
 
-    // Trim to window size
-    if (this.recentCalls.length > this.config.windowSize) {
-      this.recentCalls.shift()
-    }
+      // Trim to window size
+      if (this.recentCalls.length > this.config.windowSize) {
+        this.recentCalls.shift()
+      }
 
-    return this.detectLoop()
+      return this.detectLoop()
+    })
   }
 
   /**
    * Reset the detector state.
    * Should be called when starting a new conversation or task.
+   * Thread-safe: Uses mutex to protect shared state.
    */
-  reset(): void {
-    this.recentCalls = []
+  async reset(): Promise<void> {
+    return this.mutex.withLock(async () => {
+      this.recentCalls = []
+    })
   }
 
   /**

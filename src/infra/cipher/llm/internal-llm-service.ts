@@ -32,7 +32,25 @@ import {GeminiMessageFormatter} from './formatters/gemini-formatter.js'
 import {type ThinkingConfig, ThoughtParser} from './thought-parser.js'
 import {ClaudeTokenizer} from './tokenizers/claude-tokenizer.js'
 import {GeminiTokenizer} from './tokenizers/gemini-tokenizer.js'
-import {ToolOutputProcessor, type TruncationConfig} from './tool-output-processor.js'
+import {type ProcessedOutput, ToolOutputProcessor, type TruncationConfig} from './tool-output-processor.js'
+
+/**
+ * Result of parallel tool execution (before adding to context).
+ * Contains all information needed to add the result to context in order.
+ */
+interface ParallelToolResult {
+  /** Error message if tool execution failed */
+  error?: string
+  /** Original tool call for reference */
+  toolCall: ToolCall
+  /** Tool result data (only present if success) */
+  toolResult?: {
+    errorType?: string
+    metadata: Record<string, unknown>
+    processedOutput: ProcessedOutput
+    success: boolean
+  }
+}
 
 /**
  * Configuration for ByteRover LLM service
@@ -337,6 +355,33 @@ export class ByteRoverLLMService implements ILLMService {
   }
 
   /**
+   * Add a parallel tool result to the context.
+   * Called sequentially after parallel execution to preserve message order.
+   *
+   * @param result - Parallel tool result to add
+   */
+  private async addParallelToolResultToContext(result: ParallelToolResult): Promise<void> {
+    const {toolCall, toolResult} = result
+
+    if (!toolResult) {
+      // This shouldn't happen, but handle gracefully
+      await this.contextManager.addToolResult(
+        toolCall.id,
+        toolCall.function.name,
+        'Error: No tool result available',
+        {errorType: 'NO_RESULT', success: false},
+      )
+      return
+    }
+
+    await this.contextManager.addToolResult(toolCall.id, toolCall.function.name, toolResult.processedOutput.content, {
+      errorType: toolResult.errorType,
+      metadata: toolResult.metadata,
+      success: toolResult.success,
+    })
+  }
+
+  /**
    * Build generation request for the IContentGenerator.
    *
    * Converts internal context to the standardized GenerateContentRequest format.
@@ -520,85 +565,102 @@ export class ByteRoverLLMService implements ILLMService {
   }
 
   /**
-   * Execute a single tool call with structured error handling.
-   *
-   * Uses ToolManager which returns ToolExecutionResult with:
-   * - success/failure status
-   * - classified error types
-   * - execution metadata (duration, tokens, etc.)
-   *
-   * Includes loop detection to prevent repetitive tool call patterns.
+   * Execute a single tool call in parallel (without adding to context).
+   * Returns all information needed to add the result to context later.
    *
    * @param toolCall - Tool call to execute
+   * @returns Parallel tool result with all execution data
    */
-  private async executeToolCall(toolCall: ToolCall): Promise<void> {
+  private async executeToolCallParallel(toolCall: ToolCall): Promise<ParallelToolResult> {
     const toolName = toolCall.function.name
     const toolArgs = JSON.parse(toolCall.function.arguments)
 
-    // Check for loops before execution
-    const loopResult = this.loopDetector.recordAndCheck(toolName, toolArgs)
+    try {
+      // Check for loops before execution (mutex-protected)
+      const loopResult = await this.loopDetector.recordAndCheck(toolName, toolArgs)
 
-    if (loopResult.isLoop) {
-      // Emit warning event
-      this.sessionEventBus.emit('llmservice:warning', {
-        message: `Loop detected: ${loopResult.loopType} - tool "${toolName}" repeated ${loopResult.repeatCount} times`,
-      })
+      if (loopResult.isLoop) {
+        // Emit warning event
+        this.sessionEventBus.emit('llmservice:warning', {
+          message: `Loop detected: ${loopResult.loopType} - tool "${toolName}" repeated ${loopResult.repeatCount} times`,
+        })
 
-      // Add tool result with loop warning instead of executing
-      await this.contextManager.addToolResult(
-        toolCall.id,
-        toolName,
-        `⚠️ LOOP DETECTED: ${loopResult.suggestion}\n\nPlease try a different approach to accomplish your goal.`,
-        {errorType: 'LOOP_DETECTED', success: false},
-      )
+        return {
+          toolCall,
+          toolResult: {
+            errorType: 'LOOP_DETECTED',
+            metadata: {},
+            processedOutput: {
+              content: `⚠️ LOOP DETECTED: ${loopResult.suggestion}\n\nPlease try a different approach to accomplish your goal.`,
+            },
+            success: false,
+          },
+        }
+      }
 
-      return // Skip actual tool execution
-    }
-
-    // Emit tool call event
-    this.sessionEventBus.emit('llmservice:toolCall', {
-      args: toolArgs,
-      callId: toolCall.id,
-      toolName,
-    })
-
-    // Execute tool via ToolManager (returns structured result)
-    const result: ToolExecutionResult = await this.toolManager.executeTool(toolName, toolArgs)
-
-    // Process output (truncation and file saving if needed)
-    const processedOutput = await this.outputProcessor.processOutput(toolName, result.content)
-
-    // Emit truncation event if output was truncated
-    if (processedOutput.metadata?.truncated) {
-      this.sessionEventBus.emit('llmservice:outputTruncated', {
-        originalLength: processedOutput.metadata.originalLength!,
-        savedToFile: processedOutput.metadata.savedToFile!,
+      // Emit tool call event
+      this.sessionEventBus.emit('llmservice:toolCall', {
+        args: toolArgs,
+        callId: toolCall.id,
         toolName,
       })
+
+      // Execute tool via ToolManager (returns structured result)
+      const result: ToolExecutionResult = await this.toolManager.executeTool(toolName, toolArgs)
+
+      // Process output (truncation and file saving if needed)
+      const processedOutput = await this.outputProcessor.processOutput(toolName, result.content)
+
+      // Emit truncation event if output was truncated
+      if (processedOutput.metadata?.truncated) {
+        this.sessionEventBus.emit('llmservice:outputTruncated', {
+          originalLength: processedOutput.metadata.originalLength!,
+          savedToFile: processedOutput.metadata.savedToFile!,
+          toolName,
+        })
+      }
+
+      // Emit tool result event with success/error info
+      this.sessionEventBus.emit('llmservice:toolResult', {
+        callId: toolCall.id,
+        errorType: result.errorType,
+        metadata: {
+          ...result.metadata,
+          ...processedOutput.metadata,
+        },
+        result: processedOutput.content,
+        success: result.success,
+        toolName,
+      })
+
+      return {
+        toolCall,
+        toolResult: {
+          errorType: result.errorType,
+          metadata: {
+            ...result.metadata,
+            ...processedOutput.metadata,
+          },
+          processedOutput,
+          success: result.success,
+        },
+      }
+    } catch (error) {
+      // Catch any unexpected errors during execution
+      const errorMessage = getErrorMessage(error)
+      this.logger.error('Error executing tool in parallel', {error, toolCallId: toolCall.id, toolName})
+
+      return {
+        error: errorMessage,
+        toolCall,
+        toolResult: {
+          errorType: 'EXECUTION_ERROR',
+          metadata: {},
+          processedOutput: {content: `Error executing tool: ${errorMessage}`},
+          success: false,
+        },
+      }
     }
-
-    // Emit tool result event with success/error info
-    this.sessionEventBus.emit('llmservice:toolResult', {
-      callId: toolCall.id,
-      errorType: result.errorType,
-      metadata: {
-        ...result.metadata,
-        ...processedOutput.metadata,
-      },
-      result: processedOutput.content,
-      success: result.success,
-      toolName,
-    })
-
-    // Add tool result to context with full metadata (using processed output)
-    await this.contextManager.addToolResult(toolCall.id, toolName, processedOutput.content, {
-      errorType: result.errorType,
-      metadata: {
-        ...result.metadata,
-        ...processedOutput.metadata,
-      },
-      success: result.success,
-    })
   }
 
   /**
@@ -774,6 +836,7 @@ export class ByteRoverLLMService implements ILLMService {
 
   /**
    * Handle tool calls from LLM response.
+   * Executes tools in parallel for performance, but adds results to context in order.
    *
    * @param lastMessage - Last message containing tool calls
    */
@@ -789,10 +852,35 @@ export class ByteRoverLLMService implements ILLMService {
     const assistantContent = this.extractTextContent(lastMessage)
     await this.contextManager.addAssistantMessage(assistantContent, lastMessage.toolCalls)
 
-    // Execute tool calls via ToolManager
-    for (const toolCall of lastMessage.toolCalls) {
-      // eslint-disable-next-line no-await-in-loop -- Sequential tool execution required
-      await this.executeToolCall(toolCall)
+    // Execute all tool calls in parallel
+    const parallelResults = await Promise.allSettled(
+      lastMessage.toolCalls.map((toolCall) => this.executeToolCallParallel(toolCall)),
+    )
+
+    // Add results to context IN ORDER (preserves conversation flow)
+    // eslint-disable-next-line unicorn/no-for-loop -- Need index to access both parallelResults and toolCalls in parallel
+    for (let i = 0; i < parallelResults.length; i++) {
+      const settledResult = parallelResults[i]
+      const toolCall = lastMessage.toolCalls[i]
+
+      if (settledResult.status === 'fulfilled') {
+        const result = settledResult.value
+        // eslint-disable-next-line no-await-in-loop -- Must add results in order
+        await this.addParallelToolResultToContext(result)
+      } else {
+        // Handle unexpected Promise rejection (should be rare since executeToolCallParallel catches errors)
+        const errorMessage = getErrorMessage(settledResult.reason)
+        this.logger.error('Unexpected error in parallel tool execution', {
+          error: settledResult.reason,
+          toolCallId: toolCall.id,
+          toolName: toolCall.function.name,
+        })
+        // eslint-disable-next-line no-await-in-loop -- Must add results in order
+        await this.contextManager.addToolResult(toolCall.id, toolCall.function.name, `Error: ${errorMessage}`, {
+          errorType: 'UNEXPECTED_ERROR',
+          success: false,
+        })
+      }
     }
   }
 }
