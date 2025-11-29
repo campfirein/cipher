@@ -4,38 +4,38 @@
 
 ### `brv add`
 
-**Description:** Add or update a bullet in the playbook (bypasses ACE workflow for direct agent usage)
+**Description:** Add content to the context tree (interactive or autonomous mode)
+
+**Arguments:**
+
+- `CONTENT`: Content to add to the context tree (triggers autonomous mode, optional)
 
 **Flags:**
 
-- `-s, --section <string>`: Section name for the bullet (required)
-- `-c, --content <string>`: Content of the bullet (required)
-- `-b, --bullet-id <string>`: Bullet ID to update (optional, creates new if omitted)
+- `-v, --verbose`: Enable verbose debug output
 
 **Examples:**
 
 ```bash
-brv add --section "Common Errors" --content "Authentication fails when token expires"
-brv add --section "Common Errors" --bullet-id "common-00001" --content "Updated: Auth fails when token expires"
-brv add -s "Best Practices" -c "Always validate user input before processing"
-```
+# Interactive mode (manually choose domain/topic)
+brv add
 
-**Suggested Sections:** Common Errors, Best Practices, Strategies, Lessons Learned, Project Structure and Dependencies, Testing, Code Style and Quality, Styling and Design
+# Autonomous mode with internal LLM (default)
+brv add "User authentication uses JWT tokens with 24h expiry"
+```
 
 **Behavior:**
 
-- Warns if using non-standard section name
-- Creates new bullet with auto-generated ID if `--bullet-id` not provided
-- Updates existing bullet if `--bullet-id` matches existing bullet
-- Displays bullet ID, section, content, and tags after operation
+- Interactive mode: Navigate context tree, create topic folder, edit context.md
+- Autonomous mode: LLM automatically places content in appropriate location
 
-**Requirements:** Playbook must exist (run `brv init` first)
+**Requirements:** Project must be initialized (run `brv init` first)
 
 ---
 
 ### `brv push`
 
-**Description:** Push playbook to ByteRover memory storage and clean up local ACE files
+**Description:** Push context tree to ByteRover memory storage
 
 **Flags:**
 
@@ -53,7 +53,7 @@ brv push --branch develop
 
 ### `brv status`
 
-**Description**: Show CLI status and project information. Display local ACE context (ACE playbook) managed by ByteRover CLI.
+**Description**: Show CLI status and project information. Display local context tree managed by ByteRover CLI.
 
 **Arguments:**
 
@@ -74,10 +74,10 @@ brv status --format json
 
 ### Efficient Workflow
 
-1. **Read only what's needed:** Check playbook with `brv status` to see statistics before reading full content
-2. **Update precisely:** Use `brv add` to add/update specific bullets
+1. **Read only what's needed:** Check context tree with `brv status` to see changes before reading full content
+2. **Update precisely:** Use `brv add` to add/update specific context in context tree
 3. **Push when appropriate:** Prompt user to run `brv push` after completing significant work
 
 ### Memory Management
 
-- Use `brv add` to directly add/update bullets
+- Use `brv add` to directly add/update context in the context tree
