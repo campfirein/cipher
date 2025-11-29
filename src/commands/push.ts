@@ -3,21 +3,22 @@ import {Command, Flags, ux} from '@oclif/core'
 
 import type {AuthToken} from '../core/domain/entities/auth-token.js'
 import type {BrvConfig} from '../core/domain/entities/brv-config.js'
-import type {PresignedUrl} from '../core/domain/entities/presigned-url.js'
-import type {PresignedUrlsResponse} from '../core/domain/entities/presigned-urls-response.js'
-import type {IMemoryStorageService} from '../core/interfaces/i-memory-storage-service.js'
+import type {ICogitPushService} from '../core/interfaces/i-cogit-push-service.js'
+import type {IContextFileReader} from '../core/interfaces/i-context-file-reader.js'
 import type {IProjectConfigStore} from '../core/interfaces/i-project-config-store.js'
 import type {ITokenStore} from '../core/interfaces/i-token-store.js'
 
-// import {getCurrentConfig} from '../config/environment.js'
-import {DEFAULT_BRANCH, PLAYBOOK_FILE} from '../constants.js'
+import {getCurrentConfig} from '../config/environment.js'
+import {DEFAULT_BRANCH} from '../constants.js'
 import {IContextTreeSnapshotService} from '../core/interfaces/i-context-tree-snapshot-service.js'
 import {ITrackingService} from '../core/interfaces/i-tracking-service.js'
 import {ExitCode, ExitError, exitWithCode} from '../infra/cipher/exit-codes.js'
 import {WorkspaceNotInitializedError} from '../infra/cipher/validation/workspace-validator.js'
+import {mapToPushContexts} from '../infra/cogit/context-tree-to-push-context-mapper.js'
+import {HttpCogitPushService} from '../infra/cogit/http-cogit-push-service.js'
 import {ProjectConfigStore} from '../infra/config/file-config-store.js'
+import {FileContextFileReader} from '../infra/context-tree/file-context-file-reader.js'
 import {FileContextTreeSnapshotService} from '../infra/context-tree/file-context-tree-snapshot-service.js'
-// import {HttpMemoryStorageService} from '../infra/memory/http-memory-storage-service.js'
 import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
 import {MixpanelTrackingService} from '../infra/tracking/mixpanel-tracking-service.js'
 
@@ -75,7 +76,6 @@ export default class Push extends Command {
     this.log('\nYou are about to push to ByteRover memory storage:')
     this.log(`  Space: ${projectConfig.spaceName}`)
     this.log(`  Branch: ${branch}`)
-    // this.log(`  Files to upload: ${fileCount}`)
 
     return confirm({
       default: false,
@@ -83,92 +83,102 @@ export default class Push extends Command {
     })
   }
 
-  // protected async confirmUpload(
-  //   memoryService: IMemoryStorageService,
-  //   token: AuthToken,
-  //   projectConfig: BrvConfig,
-  //   requestId: string,
-  // ): Promise<void> {
-  //   ux.action.start('Confirming upload')
-  //   await memoryService.confirmUpload({
-  //     accessToken: token.accessToken,
-  //     requestId,
-  //     sessionKey: token.sessionKey,
-  //     spaceId: projectConfig.spaceId,
-  //     teamId: projectConfig.teamId,
-  //   })
-  //   ux.action.stop('✓')
-  // }
-
   protected createServices(): {
+    cogitPushService: ICogitPushService
+    contextFileReader: IContextFileReader
     contextTreeSnapshotService: IContextTreeSnapshotService
-    // memoryService: IMemoryStorageService
     projectConfigStore: IProjectConfigStore
     tokenStore: ITokenStore
     trackingService: ITrackingService
   } {
-    // const envConfig = getCurrentConfig()
+    const envConfig = getCurrentConfig()
     const tokenStore = new KeychainTokenStore()
     const trackingService = new MixpanelTrackingService(tokenStore)
 
     return {
+      cogitPushService: new HttpCogitPushService({
+        apiBaseUrl: envConfig.cogitApiBaseUrl,
+      }),
+      contextFileReader: new FileContextFileReader(),
       contextTreeSnapshotService: new FileContextTreeSnapshotService(),
-      // memoryService: new HttpMemoryStorageService({
-      //   apiBaseUrl: envConfig.cogitApiBaseUrl,
-      // }),
       projectConfigStore: new ProjectConfigStore(),
       tokenStore,
       trackingService,
     }
   }
 
-  protected async getPresignedUrls(
-    memoryService: IMemoryStorageService,
-    token: AuthToken,
-    projectConfig: BrvConfig,
-  ): Promise<PresignedUrlsResponse> {
-    const {flags} = await this.parse(Push)
-    ux.action.start('Requesting upload URLs')
-    const response = await memoryService.getPresignedUrls({
-      accessToken: token.accessToken,
-      branch: flags.branch,
-      fileNames: [`${PLAYBOOK_FILE}`],
-      sessionKey: token.sessionKey,
-      spaceId: projectConfig.spaceId,
-      teamId: projectConfig.teamId,
-    })
-    ux.action.stop()
-    return response
-  }
-
   public async run(): Promise<void> {
     const {flags} = await this.parse(Push)
 
     try {
-      const {contextTreeSnapshotService, projectConfigStore, tokenStore, trackingService} = this.createServices()
+      const {
+        cogitPushService,
+        contextFileReader,
+        contextTreeSnapshotService,
+        projectConfigStore,
+        tokenStore,
+        trackingService,
+      } = this.createServices()
 
       await trackingService.track('mem:push')
 
-      await this.validateAuth(tokenStore)
+      const token = await this.validateAuth(tokenStore)
       const projectConfig = await this.checkProjectInit(projectConfigStore)
 
       // Prompt for confirmation unless --yes flag is provided
       if (!flags.yes) {
         const confirmed = await this.confirmPush(projectConfig, flags.branch)
         if (!confirmed) {
-          this.log('Push cancelled. No files were uploaded or cleaned.')
+          this.log('Push cancelled.')
           return
         }
       }
 
-      // Snapshot context tree so CoGit realizes correct file's states
+      // Check for changes
+      ux.action.start('Checking for Context Tree changes')
+      const contextTreeChanges = await contextTreeSnapshotService.getChanges()
+      ux.action.stop()
+
+      if (
+        contextTreeChanges.added.length === 0 &&
+        contextTreeChanges.modified.length === 0 &&
+        contextTreeChanges.deleted.length === 0
+      ) {
+        this.log('\nNo context changes to push.')
+        return
+      }
+
+      // Read and prepare files
+      ux.action.start('Reading context files')
+      const addedFiles = await contextFileReader.readMany(contextTreeChanges.added)
+      ux.action.stop()
+
+      const pushContexts = mapToPushContexts({addedFiles})
+
+      if (pushContexts.length === 0) {
+        this.log('\nNo valid context files to push.')
+        return
+      }
+
+      // Push to CoGit (with two-request SHA flow)
+      ux.action.start('Pushing to ByteRover')
+      await cogitPushService.push({
+        accessToken: token.accessToken,
+        branch: flags.branch,
+        contexts: pushContexts,
+        sessionKey: token.sessionKey,
+        spaceId: projectConfig.spaceId,
+        teamId: projectConfig.teamId,
+      })
+      ux.action.stop()
+
+      // Update snapshot ONLY after successful push
       await contextTreeSnapshotService.saveSnapshot()
 
-      // TODO: logic to push to CoGit goes here.
-
       // Success message
-      this.log('\n✓ Successfully pushed playbook to ByteRover memory storage!')
+      this.log('\n✓ Successfully pushed contexts to ByteRover!')
       this.log(`  Branch: ${flags.branch}`)
+      this.log(`  Files pushed: ${pushContexts.length}`)
     } catch (error) {
       if (error instanceof WorkspaceNotInitializedError) {
         exitWithCode(
@@ -181,19 +191,6 @@ export default class Push extends Command {
       process.stderr.write('Failed to push:\n')
       this.error(error instanceof Error ? error.message : 'Push failed')
     }
-  }
-
-  protected async uploadFiles(
-    memoryService: IMemoryStorageService,
-    presignedUrls: ReadonlyArray<PresignedUrl>,
-    playbookContent: string,
-  ): Promise<void> {
-    this.log('\nUploading files...')
-    ux.action.start('  Uploading files')
-    await Promise.all(
-      presignedUrls.map((presignedUrl) => memoryService.uploadFile(presignedUrl.uploadUrl, playbookContent)),
-    )
-    ux.action.stop('✓')
   }
 
   protected async validateAuth(tokenStore: ITokenStore): Promise<AuthToken> {
