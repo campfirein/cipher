@@ -4,7 +4,7 @@ import {mkdir, rm, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
-import {clearDirectory} from '../../../src/utils/file-helpers.js'
+import {clearDirectory, sanitizeFolderName} from '../../../src/utils/file-helpers.js'
 
 describe('file-helpers', () => {
   describe('clearDirectory()', () => {
@@ -118,6 +118,90 @@ describe('file-helpers', () => {
       expect(count).to.equal(2)
       expect(existsSync(join(testDir, '.hidden'))).to.be.false
       expect(existsSync(join(testDir, 'visible.txt'))).to.be.false
+    })
+  })
+
+  describe('santizeFolderName()', () => {
+    it('should sanitize folder name with spaces', () => {
+      expect(sanitizeFolderName('Use Case Analysis')).to.equal('Use-Case-Analysis')
+      expect(sanitizeFolderName('Use Case Analysis_txt')).to.equal('Use-Case-Analysis_txt')
+    })
+
+    it('should preserve allowed characters (letters, numbers, underscore, hyphen, dot, slash)', () => {
+      expect(sanitizeFolderName('folder_name-123')).to.equal('folder_name-123')
+      expect(sanitizeFolderName('test.folder')).to.equal('test.folder')
+      expect(sanitizeFolderName('path/to/folder')).to.equal('path/to/folder')
+      expect(sanitizeFolderName('my-folder_123.txt')).to.equal('my-folder_123.txt')
+    })
+
+    it('should replace special characters with hyphen', () => {
+      expect(sanitizeFolderName('folder@name')).to.equal('folder-name')
+      expect(sanitizeFolderName('folder#name')).to.equal('folder-name')
+      expect(sanitizeFolderName('folder$name')).to.equal('folder-name')
+      expect(sanitizeFolderName('folder%name')).to.equal('folder-name')
+      expect(sanitizeFolderName('folder&name')).to.equal('folder-name')
+      expect(sanitizeFolderName('folder*name')).to.equal('folder-name')
+      expect(sanitizeFolderName('folder+name')).to.equal('folder-name')
+      expect(sanitizeFolderName('folder=name')).to.equal('folder-name')
+    })
+
+    it('should handle multiple consecutive special characters', () => {
+      expect(sanitizeFolderName('folder@@@name')).to.equal('folder---name')
+      expect(sanitizeFolderName('folder   name')).to.equal('folder---name')
+      expect(sanitizeFolderName('folder!!!name')).to.equal('folder---name')
+    })
+
+    it('should handle leading and trailing special characters', () => {
+      expect(sanitizeFolderName('@folder')).to.equal('-folder')
+      expect(sanitizeFolderName('folder@')).to.equal('folder-')
+      expect(sanitizeFolderName('@folder@')).to.equal('-folder-')
+      expect(sanitizeFolderName('  folder  ')).to.equal('--folder--')
+    })
+
+    it('should preserve forward slashes in paths', () => {
+      expect(sanitizeFolderName('path/to/folder')).to.equal('path/to/folder')
+      expect(sanitizeFolderName('path/to/my folder')).to.equal('path/to/my-folder')
+      expect(sanitizeFolderName('path/to/folder@name')).to.equal('path/to/folder-name')
+    })
+
+    it('should preserve dots in filenames', () => {
+      expect(sanitizeFolderName('folder.name')).to.equal('folder.name')
+      expect(sanitizeFolderName('my.folder.name')).to.equal('my.folder.name')
+      expect(sanitizeFolderName('folder.name@test')).to.equal('folder.name-test')
+    })
+
+    it('should handle empty string', () => {
+      expect(sanitizeFolderName('')).to.equal('')
+    })
+
+    it('should handle string with only special characters', () => {
+      expect(sanitizeFolderName('@@@')).to.equal('---')
+      expect(sanitizeFolderName('   ')).to.equal('---')
+      expect(sanitizeFolderName('!!!')).to.equal('---')
+    })
+
+    it('should handle unicode and emoji characters', () => {
+      expect(sanitizeFolderName('folder🚀name')).to.equal('folder--name')
+      expect(sanitizeFolderName('folder中文name')).to.equal('folder--name')
+      expect(sanitizeFolderName('café-folder')).to.equal('caf--folder')
+    })
+
+    it('should handle brackets and parentheses', () => {
+      expect(sanitizeFolderName('folder(name)')).to.equal('folder-name-')
+      expect(sanitizeFolderName('folder[name]')).to.equal('folder-name-')
+      expect(sanitizeFolderName('folder{name}')).to.equal('folder-name-')
+    })
+
+    it('should handle complex mixed scenarios', () => {
+      expect(sanitizeFolderName('My Project (v1.0) - Final!')).to.equal('My-Project--v1.0----Final-')
+      expect(sanitizeFolderName('path/to/my project@2024')).to.equal('path/to/my-project-2024')
+      expect(sanitizeFolderName('test.folder_name-123')).to.equal('test.folder_name-123')
+    })
+
+    it('should not modify already sanitized names', () => {
+      expect(sanitizeFolderName('valid-folder_name')).to.equal('valid-folder_name')
+      expect(sanitizeFolderName('path/to/valid.folder')).to.equal('path/to/valid.folder')
+      expect(sanitizeFolderName('123_folder-456')).to.equal('123_folder-456')
     })
   })
 })
