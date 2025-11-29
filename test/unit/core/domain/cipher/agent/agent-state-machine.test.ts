@@ -3,6 +3,11 @@ import {expect} from 'chai'
 import {AgentStateMachine} from '../../../../../../src/core/domain/cipher/agent/agent-state-machine.js'
 import {AgentState, TerminationReason} from '../../../../../../src/core/domain/cipher/agent/agent-state.js'
 
+// Helper function for testing invalid transitions
+function expectTransitionToThrow(stateMachine: AgentStateMachine, targetState: AgentState, expectedMessage: string): void {
+  expect(() => stateMachine.transition(targetState)).to.throw(expectedMessage)
+}
+
 describe('AgentStateMachine', () => {
   let stateMachine: AgentStateMachine
 
@@ -105,39 +110,33 @@ describe('AgentStateMachine', () => {
 
     describe('invalid transitions', () => {
       it('should throw on transition from IDLE to TOOL_CALLING', () => {
-        expect(() => stateMachine.transition(AgentState.TOOL_CALLING)).to.throw(
-          'Invalid state transition: IDLE → TOOL_CALLING',
-        )
+        expectTransitionToThrow(stateMachine, AgentState.TOOL_CALLING, 'Invalid state transition: IDLE → TOOL_CALLING')
       })
 
       it('should throw on transition from IDLE to COMPLETE', () => {
-        expect(() => stateMachine.transition(AgentState.COMPLETE)).to.throw(
-          'Invalid state transition: IDLE → COMPLETE',
-        )
+        expectTransitionToThrow(stateMachine, AgentState.COMPLETE, 'Invalid state transition: IDLE → COMPLETE')
       })
 
       it('should throw on transition from COMPLETE to any state', () => {
         stateMachine.transition(AgentState.EXECUTING)
         stateMachine.transition(AgentState.COMPLETE)
 
-        expect(() => stateMachine.transition(AgentState.IDLE)).to.throw('Invalid state transition: COMPLETE → IDLE')
-        expect(() => stateMachine.transition(AgentState.EXECUTING)).to.throw(
-          'Invalid state transition: COMPLETE → EXECUTING',
-        )
+        expectTransitionToThrow(stateMachine, AgentState.IDLE, 'Invalid state transition: COMPLETE → IDLE')
+        expectTransitionToThrow(stateMachine, AgentState.EXECUTING, 'Invalid state transition: COMPLETE → EXECUTING')
       })
 
       it('should throw on transition from ERROR to any state', () => {
         stateMachine.transition(AgentState.EXECUTING)
         stateMachine.transition(AgentState.ERROR)
 
-        expect(() => stateMachine.transition(AgentState.IDLE)).to.throw('Invalid state transition: ERROR → IDLE')
+        expectTransitionToThrow(stateMachine, AgentState.IDLE, 'Invalid state transition: ERROR → IDLE')
       })
 
       it('should throw on transition from ABORTED to any state', () => {
         stateMachine.transition(AgentState.EXECUTING)
         stateMachine.transition(AgentState.ABORTED)
 
-        expect(() => stateMachine.transition(AgentState.IDLE)).to.throw('Invalid state transition: ABORTED → IDLE')
+        expectTransitionToThrow(stateMachine, AgentState.IDLE, 'Invalid state transition: ABORTED → IDLE')
       })
     })
   })
