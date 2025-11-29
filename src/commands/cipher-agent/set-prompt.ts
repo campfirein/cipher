@@ -2,6 +2,7 @@ import {Args, Command} from '@oclif/core'
 
 import type {IProjectConfigStore} from '../../core/interfaces/i-project-config-store.js'
 
+import {isDevelopment} from '../../config/environment.js'
 import {BrvConfig} from '../../core/domain/entities/brv-config.js'
 import {ProjectConfigStore} from '../../infra/config/file-config-store.js'
 import {getErrorMessage} from '../../utils/error-helpers.js'
@@ -10,11 +11,12 @@ export default class CipherAgentSetPrompt extends Command {
   static override args = {
     prompt: Args.string({description: 'The system prompt for CipherAgent', required: true}),
   }
-  static override description = 'Set custom system prompt for CipherAgent'
+  static override description = 'Set custom system prompt for CipherAgent [Development only]'
   static override examples = [
     '<%= config.bin %> <%= command.id %> "You are a helpful coding assistant specialized in TypeScript"',
     '<%= config.bin %> <%= command.id %> "You are an expert in refactoring and code quality improvements"',
   ]
+  static override hidden = !isDevelopment()
 
   protected createServices(): {
     projectConfigStore: IProjectConfigStore
@@ -25,6 +27,10 @@ export default class CipherAgentSetPrompt extends Command {
   }
 
   public async run(): Promise<void> {
+    if (!isDevelopment()) {
+      this.error('This command is only available in development environment')
+    }
+
     const {args} = await this.parse(CipherAgentSetPrompt)
 
     try {

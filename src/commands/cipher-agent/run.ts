@@ -19,7 +19,7 @@ export default class CipherAgentRun extends Command {
       required: false,
     }),
   }
-  static override description = 'Run CipherAgent in interactive or single-execution mode'
+  static override description = 'Run CipherAgent in interactive or single-execution mode [Development only]'
   static override examples = [
     '# Interactive mode (creates new unique session each time)',
     '<%= config.bin %> <%= command.id %>',
@@ -94,6 +94,7 @@ export default class CipherAgentRun extends Command {
       description: 'Working directory for file operations (default: current directory)',
     }),
   }
+  static override hidden = !isDevelopment()
 
   // Override catch to prevent oclif from logging errors that were already displayed
   async catch(error: Error & {oclif?: {exit: number}}): Promise<void> {
@@ -169,6 +170,10 @@ export default class CipherAgentRun extends Command {
 
   // eslint-disable-next-line complexity
   public async run(): Promise<void> {
+    if (!isDevelopment()) {
+      this.error('This command is only available in development environment')
+    }
+
     const {args, flags} = await this.parse(CipherAgentRun)
 
     try {
