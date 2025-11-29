@@ -9,7 +9,7 @@ import type {IMemoryStorageService} from '../core/interfaces/i-memory-storage-se
 import type {IProjectConfigStore} from '../core/interfaces/i-project-config-store.js'
 import type {ITokenStore} from '../core/interfaces/i-token-store.js'
 
-import {getCurrentConfig} from '../config/environment.js'
+// import {getCurrentConfig} from '../config/environment.js'
 import {DEFAULT_BRANCH, PLAYBOOK_FILE} from '../constants.js'
 import {IContextTreeSnapshotService} from '../core/interfaces/i-context-tree-snapshot-service.js'
 import {ITrackingService} from '../core/interfaces/i-tracking-service.js'
@@ -17,7 +17,7 @@ import {ExitCode, ExitError, exitWithCode} from '../infra/cipher/exit-codes.js'
 import {WorkspaceNotInitializedError} from '../infra/cipher/validation/workspace-validator.js'
 import {ProjectConfigStore} from '../infra/config/file-config-store.js'
 import {FileContextTreeSnapshotService} from '../infra/context-tree/file-context-tree-snapshot-service.js'
-import {HttpMemoryStorageService} from '../infra/memory/http-memory-storage-service.js'
+// import {HttpMemoryStorageService} from '../infra/memory/http-memory-storage-service.js'
 import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
 import {MixpanelTrackingService} from '../infra/tracking/mixpanel-tracking-service.js'
 
@@ -71,11 +71,11 @@ export default class Push extends Command {
     return projectConfig
   }
 
-  protected async confirmPush(projectConfig: BrvConfig, branch: string, fileCount: number): Promise<boolean> {
+  protected async confirmPush(projectConfig: BrvConfig, branch: string): Promise<boolean> {
     this.log('\nYou are about to push to ByteRover memory storage:')
     this.log(`  Space: ${projectConfig.spaceName}`)
     this.log(`  Branch: ${branch}`)
-    this.log(`  Files to upload: ${fileCount}`)
+    // this.log(`  Files to upload: ${fileCount}`)
 
     return confirm({
       default: false,
@@ -83,39 +83,39 @@ export default class Push extends Command {
     })
   }
 
-  protected async confirmUpload(
-    memoryService: IMemoryStorageService,
-    token: AuthToken,
-    projectConfig: BrvConfig,
-    requestId: string,
-  ): Promise<void> {
-    ux.action.start('Confirming upload')
-    await memoryService.confirmUpload({
-      accessToken: token.accessToken,
-      requestId,
-      sessionKey: token.sessionKey,
-      spaceId: projectConfig.spaceId,
-      teamId: projectConfig.teamId,
-    })
-    ux.action.stop('✓')
-  }
+  // protected async confirmUpload(
+  //   memoryService: IMemoryStorageService,
+  //   token: AuthToken,
+  //   projectConfig: BrvConfig,
+  //   requestId: string,
+  // ): Promise<void> {
+  //   ux.action.start('Confirming upload')
+  //   await memoryService.confirmUpload({
+  //     accessToken: token.accessToken,
+  //     requestId,
+  //     sessionKey: token.sessionKey,
+  //     spaceId: projectConfig.spaceId,
+  //     teamId: projectConfig.teamId,
+  //   })
+  //   ux.action.stop('✓')
+  // }
 
   protected createServices(): {
     contextTreeSnapshotService: IContextTreeSnapshotService
-    memoryService: IMemoryStorageService
+    // memoryService: IMemoryStorageService
     projectConfigStore: IProjectConfigStore
     tokenStore: ITokenStore
     trackingService: ITrackingService
   } {
-    const envConfig = getCurrentConfig()
+    // const envConfig = getCurrentConfig()
     const tokenStore = new KeychainTokenStore()
     const trackingService = new MixpanelTrackingService(tokenStore)
 
     return {
       contextTreeSnapshotService: new FileContextTreeSnapshotService(),
-      memoryService: new HttpMemoryStorageService({
-        apiBaseUrl: envConfig.cogitApiBaseUrl,
-      }),
+      // memoryService: new HttpMemoryStorageService({
+      //   apiBaseUrl: envConfig.cogitApiBaseUrl,
+      // }),
       projectConfigStore: new ProjectConfigStore(),
       tokenStore,
       trackingService,
@@ -154,18 +154,17 @@ export default class Push extends Command {
 
       // Prompt for confirmation unless --yes flag is provided
       if (!flags.yes) {
-        const confirmed = await this.confirmPush(projectConfig, flags.branch, 1)
+        const confirmed = await this.confirmPush(projectConfig, flags.branch)
         if (!confirmed) {
           this.log('Push cancelled. No files were uploaded or cleaned.')
           return
         }
       }
 
-      // eslint-disable-next-line no-warning-comments
-      // TODO: Implement push functionality with Cogit
-
-      // Snapshot context tree
+      // Snapshot context tree so CoGit realizes correct file's states
       await contextTreeSnapshotService.saveSnapshot()
+
+      // TODO: logic to push to CoGit goes here.
 
       // Success message
       this.log('\n✓ Successfully pushed playbook to ByteRover memory storage!')
