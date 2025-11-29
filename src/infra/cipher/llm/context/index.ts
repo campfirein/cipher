@@ -1,3 +1,4 @@
+export {AsyncMutex} from './async-mutex.js'
 export {
   ContextManager,
   type FileData,

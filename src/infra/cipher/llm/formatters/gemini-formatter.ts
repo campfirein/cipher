@@ -35,32 +35,28 @@ export class GeminiMessageFormatter implements IMessageFormatter<Content> {
       })
     }
 
+    // Accumulator for consecutive tool results
+    let toolGroup: InternalMessage[] = []
+
     for (const msg of history) {
-      switch (msg.role) {
-        case 'assistant': {
-          contents.push(this.formatAssistantMessage(msg))
-          break
+      if (msg.role === 'tool') {
+        // Accumulate tool results
+        toolGroup.push(msg)
+      } else {
+        // Flush accumulated tool results before processing non-tool message
+        if (toolGroup.length > 0) {
+          contents.push(this.combineToolResults(toolGroup))
+          toolGroup = []
         }
 
-        case 'system': {
-          // Additional system messages in history
-          contents.push({
-            parts: [{text: `System: ${String(msg.content || '')}`}],
-            role: 'user',
-          })
-          break
-        }
-
-        case 'tool': {
-          contents.push(this.formatToolResult(msg))
-          break
-        }
-
-        case 'user': {
-          contents.push(this.formatUserMessage(msg))
-          break
-        }
+        // Format non-tool message
+        contents.push(this.formatNonToolMessage(msg))
       }
+    }
+
+    // Flush any remaining tool results
+    if (toolGroup.length > 0) {
+      contents.push(this.combineToolResults(toolGroup))
     }
 
     return contents
@@ -79,7 +75,6 @@ export class GeminiMessageFormatter implements IMessageFormatter<Content> {
     }
 
     const candidate = typedResponse.candidates[0]
-    console.log('Gemini candidate:', JSON.stringify(candidate, null, 2).slice(0, 500)) // Log first 500 chars
     if (!candidate?.content?.parts) {
       return []
     }
@@ -121,6 +116,17 @@ export class GeminiMessageFormatter implements IMessageFormatter<Content> {
   }
 
   /**
+   * Combines multiple tool results into a single Gemini user message.
+   * Required by Gemini API when assistant made multiple tool calls.
+   */
+  private combineToolResults(toolMessages: InternalMessage[]): Content {
+    return {
+      parts: toolMessages.map((msg) => this.formatToolResultPart(msg)),
+      role: 'user',
+    }
+  }
+
+  /**
    * Formats assistant message to Gemini's Content format.
    * Maps 'assistant' role to 'model' and includes both text and tool calls.
    */
@@ -151,22 +157,72 @@ export class GeminiMessageFormatter implements IMessageFormatter<Content> {
   }
 
   /**
-   * Formats tool result message to Gemini's Content format.
-   * Tool results are sent as user messages with functionResponse parts.
+   * Formats a single non-tool message to Gemini Content.
    */
-  private formatToolResult(msg: InternalMessage): Content {
+  private formatNonToolMessage(msg: InternalMessage): Content {
+    switch (msg.role) {
+      case 'assistant': {
+        return this.formatAssistantMessage(msg)
+      }
+
+      case 'system': {
+        return {
+          parts: [{text: `System: ${String(msg.content || '')}`}],
+          role: 'user',
+        }
+      }
+
+      case 'user': {
+        return this.formatUserMessage(msg)
+      }
+
+      default: {
+        return {
+          parts: [{text: String(msg.content || '')}],
+          role: 'user',
+        }
+      }
+    }
+  }
+
+  /**
+   * Formats a single tool result message to a Gemini functionResponse Part.
+   * Multiple tool results are combined into a single user message by format().
+   *
+   * Note: msg.content is a JSON string from ToolOutputProcessor.
+   * We need to parse it back to an object for Gemini's API.
+   */
+  private formatToolResultPart(msg: InternalMessage): Part {
+    // msg.content is a JSON string from ToolOutputProcessor
+    // Parse it back to object for Gemini's API
+    let responseObject: Record<string, unknown>
+
+    try {
+      // Try to parse as JSON
+      if (typeof msg.content === 'string') {
+        responseObject = JSON.parse(msg.content) as Record<string, unknown>
+      } else if (msg.content === null) {
+        responseObject = {result: null}
+      } else if (Array.isArray(msg.content)) {
+        // Array content (e.g., MessagePart[]) - wrap in result
+        responseObject = {result: msg.content}
+      } else if (typeof msg.content === 'object') {
+        // Already an object (shouldn't happen with current implementation, but handle it)
+        responseObject = msg.content as Record<string, unknown>
+      } else {
+        // Primitive types - wrap them
+        responseObject = {result: msg.content}
+      }
+    } catch {
+      // If parsing fails, wrap the string as-is
+      responseObject = {result: msg.content}
+    }
+
     return {
-      parts: [
-        {
-          functionResponse: {
-            name: msg.name ?? '',
-            response: {
-              result: msg.content,
-            },
-          },
-        },
-      ],
-      role: 'user', // Tool results are sent as user messages in Gemini
+      functionResponse: {
+        name: msg.name ?? '',
+        response: responseObject,
+      },
     }
   }
 

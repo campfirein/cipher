@@ -1,6 +1,7 @@
 import {expect} from 'chai'
 import sinon, {stub} from 'sinon'
 
+import type {Agent} from '../../../../../src/core/domain/entities/agent.js'
 import type {CleanSession} from '../../../../../src/core/domain/entities/parser.js'
 import type {ICodingAgentLogParser} from '../../../../../src/core/interfaces/cipher/i-coding-agent-log-parser.js'
 import type {FileEvent, IFileWatcherService} from '../../../../../src/core/interfaces/i-file-watcher-service.js'
@@ -52,7 +53,7 @@ describe('CodingAgentLogWatcher', () => {
 
     // Create mock parser
     mockParser = {
-      parseLogFile: stub<[], Promise<readonly CleanSession[]>>(),
+      parse: stub<[string, Agent], Promise<readonly CleanSession[]>>(),
     }
 
     watcher = new CodingAgentLogWatcher(mockFileWatcher, mockParser)
@@ -69,8 +70,11 @@ describe('CodingAgentLogWatcher', () => {
 
     it('should return true after start', async () => {
       await watcher.start({
-        onSession: stub(),
-        paths: ['/test/path'],
+        codingAgentInfo: {
+          chatLogPath: '/test/path',
+          name: 'Github Copilot',
+        },
+        onCleanSession: stub(),
       })
 
       expect(watcher.isWatching()).to.be.true
@@ -78,8 +82,11 @@ describe('CodingAgentLogWatcher', () => {
 
     it('should return false after stop', async () => {
       await watcher.start({
-        onSession: stub(),
-        paths: ['/test/path'],
+        codingAgentInfo: {
+          chatLogPath: '/test/path',
+          name: 'Github Copilot',
+        },
+        onCleanSession: stub(),
       })
       await watcher.stop()
 
@@ -90,34 +97,46 @@ describe('CodingAgentLogWatcher', () => {
   describe('start', () => {
     it('should register file event handler', async () => {
       await watcher.start({
-        onSession: stub(),
-        paths: ['/test/path'],
+        codingAgentInfo: {
+          chatLogPath: '/test/path',
+          name: 'Github Copilot',
+        },
+        onCleanSession: stub(),
       })
 
       expect(mockFileWatcher.setFileEventHandler.calledOnce).to.be.true
     })
 
-    it('should start file watcher with provided paths', async () => {
-      const paths = ['/path1', '/path2']
+    it('should start file watcher with provided path', async () => {
+      const chatLogPath = '/test/path'
       await watcher.start({
-        onSession: stub(),
-        paths,
+        codingAgentInfo: {
+          chatLogPath,
+          name: 'Github Copilot',
+        },
+        onCleanSession: stub(),
       })
 
       expect(mockFileWatcher.start.calledOnce).to.be.true
-      expect(mockFileWatcher.start.calledWith(paths)).to.be.true
+      expect(mockFileWatcher.start.calledWith([chatLogPath])).to.be.true
     })
 
     it('should throw error if already watching', async () => {
       await watcher.start({
-        onSession: stub(),
-        paths: ['/test/path'],
+        codingAgentInfo: {
+          chatLogPath: '/test/path',
+          name: 'Github Copilot',
+        },
+        onCleanSession: stub(),
       })
 
       try {
         await watcher.start({
-          onSession: stub(),
-          paths: ['/test/path'],
+          codingAgentInfo: {
+            chatLogPath: '/test/path',
+            name: 'Github Copilot',
+          },
+          onCleanSession: stub(),
         })
         expect.fail('Should have thrown an error')
       } catch (error) {
@@ -130,8 +149,11 @@ describe('CodingAgentLogWatcher', () => {
   describe('stop', () => {
     it('should stop file watcher', async () => {
       await watcher.start({
-        onSession: stub(),
-        paths: ['/test/path'],
+        codingAgentInfo: {
+          chatLogPath: '/test/path',
+          name: 'Github Copilot',
+        },
+        onCleanSession: stub(),
       })
       await watcher.stop()
 
@@ -149,11 +171,14 @@ describe('CodingAgentLogWatcher', () => {
       const onSession = stub().resolves()
       const mockSession = createMockSession('/test/file.log')
 
-      mockParser.parseLogFile.resolves([mockSession])
+      mockParser.parse.resolves([mockSession])
 
       await watcher.start({
-        onSession,
-        paths: ['/test/path'],
+        codingAgentInfo: {
+          chatLogPath: '/test/path',
+          name: 'Github Copilot',
+        },
+        onCleanSession: onSession,
       })
 
       // Simulate file add event
@@ -163,7 +188,7 @@ describe('CodingAgentLogWatcher', () => {
       }
       await fileEventHandler?.(fileEvent)
 
-      expect(mockParser.parseLogFile.calledOnce).to.be.true
+      expect(mockParser.parse.calledOnce).to.be.true
       expect(onSession.calledOnce).to.be.true
       expect(onSession.calledWith(mockSession)).to.be.true
     })
@@ -172,11 +197,14 @@ describe('CodingAgentLogWatcher', () => {
       const onSession = stub().resolves()
       const mockSession = createMockSession('/test/file.log')
 
-      mockParser.parseLogFile.resolves([mockSession])
+      mockParser.parse.resolves([mockSession])
 
       await watcher.start({
-        onSession,
-        paths: ['/test/path'],
+        codingAgentInfo: {
+          chatLogPath: '/test/path',
+          name: 'Github Copilot',
+        },
+        onCleanSession: onSession,
       })
 
       const fileEvent: FileEvent = {
@@ -192,8 +220,11 @@ describe('CodingAgentLogWatcher', () => {
       const onSession = stub().resolves()
 
       await watcher.start({
-        onSession,
-        paths: ['/test/path'],
+        codingAgentInfo: {
+          chatLogPath: '/test/path',
+          name: 'Github Copilot',
+        },
+        onCleanSession: onSession,
       })
 
       const fileEvent: FileEvent = {
@@ -202,7 +233,7 @@ describe('CodingAgentLogWatcher', () => {
       }
       await fileEventHandler?.(fileEvent)
 
-      expect(mockParser.parseLogFile.called).to.be.false
+      expect(mockParser.parse.called).to.be.false
       expect(onSession.called).to.be.false
     })
 
@@ -210,8 +241,11 @@ describe('CodingAgentLogWatcher', () => {
       const onSession = stub().resolves()
 
       await watcher.start({
-        onSession,
-        paths: ['/test/path'],
+        codingAgentInfo: {
+          chatLogPath: '/test/path',
+          name: 'Github Copilot',
+        },
+        onCleanSession: onSession,
       })
 
       const fileEvent: FileEvent = {
@@ -220,7 +254,7 @@ describe('CodingAgentLogWatcher', () => {
       }
       await fileEventHandler?.(fileEvent)
 
-      expect(mockParser.parseLogFile.called).to.be.false
+      expect(mockParser.parse.called).to.be.false
       expect(onSession.called).to.be.false
     })
 
@@ -228,11 +262,14 @@ describe('CodingAgentLogWatcher', () => {
       const onSession = stub().resolves()
       const sessions = [createMockSession('/test/file.log'), createMockSession('/test/file.log')]
 
-      mockParser.parseLogFile.resolves(sessions)
+      mockParser.parse.resolves(sessions)
 
       await watcher.start({
-        onSession,
-        paths: ['/test/path'],
+        codingAgentInfo: {
+          chatLogPath: '/test/path',
+          name: 'Github Copilot',
+        },
+        onCleanSession: onSession,
       })
 
       const fileEvent: FileEvent = {
@@ -251,11 +288,14 @@ describe('CodingAgentLogWatcher', () => {
     it('should handle parser errors gracefully', async () => {
       const onSession = stub().resolves()
 
-      mockParser.parseLogFile.rejects(new Error('Parse error'))
+      mockParser.parse.rejects(new Error('Parse error'))
 
       await watcher.start({
-        onSession,
-        paths: ['/test/path'],
+        codingAgentInfo: {
+          chatLogPath: '/test/path',
+          name: 'Github Copilot',
+        },
+        onCleanSession: onSession,
       })
 
       const fileEvent: FileEvent = {
@@ -273,11 +313,14 @@ describe('CodingAgentLogWatcher', () => {
       const onSession = stub().rejects(new Error('Callback error'))
       const mockSession = createMockSession('/test/file.log')
 
-      mockParser.parseLogFile.resolves([mockSession])
+      mockParser.parse.resolves([mockSession])
 
       await watcher.start({
-        onSession,
-        paths: ['/test/path'],
+        codingAgentInfo: {
+          chatLogPath: '/test/path',
+          name: 'Github Copilot',
+        },
+        onCleanSession: onSession,
       })
 
       const fileEvent: FileEvent = {
@@ -297,11 +340,14 @@ describe('CodingAgentLogWatcher', () => {
       const onSession = stub().resolves()
       const mockSession = createMockSession('/test/file.log')
 
-      mockParser.parseLogFile.resolves([mockSession])
+      mockParser.parse.resolves([mockSession])
 
       await watcher.start({
-        onSession,
-        paths: ['/test/path'],
+        codingAgentInfo: {
+          chatLogPath: '/test/path',
+          name: 'Github Copilot',
+        },
+        onCleanSession: onSession,
       })
 
       const fileEvent: FileEvent = {
@@ -317,11 +363,14 @@ describe('CodingAgentLogWatcher', () => {
       const onSession = stub().resolves()
       const mockSession = createMockSession('/test/file.log')
 
-      mockParser.parseLogFile.resolves([mockSession])
+      mockParser.parse.resolves([mockSession])
 
       await watcher.start({
-        onSession,
-        paths: ['/test/path'],
+        codingAgentInfo: {
+          chatLogPath: '/test/path',
+          name: 'Github Copilot',
+        },
+        onCleanSession: onSession,
       })
 
       // First: add event
@@ -334,8 +383,11 @@ describe('CodingAgentLogWatcher', () => {
       // Stop and restart
       await watcher.stop()
       await watcher.start({
-        onSession,
-        paths: ['/test/path'],
+        codingAgentInfo: {
+          chatLogPath: '/test/path',
+          name: 'Github Copilot',
+        },
+        onCleanSession: onSession,
       })
 
       // Second: change event for same file

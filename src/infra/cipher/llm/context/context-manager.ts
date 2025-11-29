@@ -1,9 +1,13 @@
 import type {IHistoryStorage} from '../../../../core/interfaces/cipher/i-history-storage.js'
+import type {ILogger} from '../../../../core/interfaces/cipher/i-logger.js'
 import type {IMessageFormatter} from '../../../../core/interfaces/cipher/i-message-formatter.js'
 import type {ITokenizer} from '../../../../core/interfaces/cipher/i-tokenizer.js'
 import type {InternalMessage} from '../../../../core/interfaces/cipher/message-types.js'
 import type {ICompressionStrategy} from './compression/types.js'
 
+import {NoOpLogger} from '../../../../core/interfaces/cipher/i-logger.js'
+import {getErrorMessage} from '../../../../utils/error-helpers.js'
+import {AsyncMutex} from './async-mutex.js'
 import {MiddleRemovalStrategy, OldestRemovalStrategy} from './compression/index.js'
 import {countMessagesTokens} from './utils.js'
 
@@ -29,8 +33,25 @@ export interface FileData {
  */
 export interface FormattedMessagesResult<T> {
   formattedMessages: T[]
+  /** Number of messages filtered out as invalid */
+  messagesFiltered: number
   systemPrompt?: string
   tokensUsed: number
+}
+
+/**
+ * Reason why a message was considered invalid for API inclusion.
+ */
+export type MessageInvalidReason = 'empty_content' | 'incomplete_tool_call' | 'system_noise'
+
+/**
+ * Result of message validation check.
+ */
+export interface MessageValidation {
+  /** Whether the message is valid for API inclusion */
+  isValid: boolean
+  /** Reason if invalid */
+  reason?: MessageInvalidReason
 }
 
 /**
@@ -40,6 +61,7 @@ export interface ContextManagerOptions<T> {
   compressionStrategies?: ICompressionStrategy[]
   formatter: IMessageFormatter<T>
   historyStorage?: IHistoryStorage
+  logger?: ILogger
   maxInputTokens: number
   sessionId: string
   tokenizer: ITokenizer
@@ -62,8 +84,14 @@ export class ContextManager<T> {
   private readonly formatter: IMessageFormatter<T>
   private readonly historyStorage?: IHistoryStorage
   private isInitialized: boolean = false
+  private readonly logger: ILogger
   private readonly maxInputTokens: number
   private messages: InternalMessage[] = []
+  /**
+   * Mutex for thread-safe operations on messages array.
+   * Used during parallel tool execution to prevent race conditions.
+   */
+  private readonly mutex = new AsyncMutex()
   private readonly sessionId: string
   private readonly tokenizer: ITokenizer
 
@@ -84,6 +112,7 @@ export class ContextManager<T> {
     this.tokenizer = options.tokenizer
     this.maxInputTokens = options.maxInputTokens
     this.historyStorage = options.historyStorage
+    this.logger = options.logger ?? new NoOpLogger()
 
     // Initialize compression strategies with defaults
     this.compressionStrategies = options.compressionStrategies ?? [
@@ -109,7 +138,7 @@ export class ContextManager<T> {
 
     // Auto-save to persistent storage (non-blocking)
     this.persistHistory().catch((error: Error) => {
-      console.error(`[ContextManager] Failed to persist history after assistant message:`, error)
+      this.logger.error('Failed to persist history after assistant message', {error, sessionId: this.sessionId})
     })
   }
 
@@ -128,27 +157,30 @@ export class ContextManager<T> {
 
     // Auto-save to persistent storage (non-blocking)
     this.persistHistory().catch((error: Error) => {
-      console.error(`[ContextManager] Failed to persist history after system message:`, error)
+      this.logger.error('Failed to persist history after system message', {error, sessionId: this.sessionId})
     })
   }
 
   /**
    * Add a tool result message to the conversation.
+   * Thread-safe: Uses mutex to protect shared state during parallel tool execution.
    *
    * @param toolCallId - ID of the tool call this result responds to
    * @param toolName - Name of the tool that was executed
    * @param result - Result from tool execution
-   * @param _metadata - Additional metadata with success status (currently unused)
+   * @param _metadata - Additional metadata (success status, error type, execution metadata)
    * @param _metadata.success - Whether the tool execution succeeded
+   * @param _metadata.errorType - Classified error type (if failed)
+   * @param _metadata.metadata - Execution metadata (duration, tokens, etc.)
    * @returns The content that was added
    */
   public async addToolResult(
     toolCallId: string,
     toolName: string,
     result: unknown,
-    _metadata: {success: boolean},
+    _metadata: {errorType?: string; metadata?: Record<string, unknown>; success: boolean},
   ): Promise<string> {
-    // Sanitize result - convert to string representation
+    // Sanitize result - convert to string representation (can be done outside lock)
     const sanitized = this.sanitizeToolResult(result)
 
     const message: InternalMessage = {
@@ -158,11 +190,16 @@ export class ContextManager<T> {
       toolCallId,
     }
 
-    this.messages.push(message)
+    // Use mutex to protect message array modification and persistence
+    await this.mutex.withLock(async () => {
+      this.messages.push(message)
 
-    // Auto-save to persistent storage (non-blocking)
-    this.persistHistory().catch((error: Error) => {
-      console.error(`[ContextManager] Failed to persist history after tool result:`, error)
+      // Persist within the lock to ensure ordering consistency
+      try {
+        await this.persistHistory()
+      } catch (error) {
+        this.logger.error('Failed to persist history after tool result', {error, sessionId: this.sessionId})
+      }
     })
 
     return sanitized
@@ -175,11 +212,7 @@ export class ContextManager<T> {
    * @param _imageData - Optional image data (not yet implemented)
    * @param _fileData - Optional file data (not yet implemented)
    */
-  public async addUserMessage(
-    content: string,
-    _imageData?: ImageData,
-    _fileData?: FileData,
-  ): Promise<void> {
+  public async addUserMessage(content: string, _imageData?: ImageData, _fileData?: FileData): Promise<void> {
     // Simple implementation: just use text content
     // Image and file support can be added later
     const message: InternalMessage = {
@@ -191,7 +224,7 @@ export class ContextManager<T> {
 
     // Auto-save to persistent storage (non-blocking)
     this.persistHistory().catch((error: Error) => {
-      console.error(`[ContextManager] Failed to persist history after user message:`, error)
+      this.logger.error('Failed to persist history after user message', {error, sessionId: this.sessionId})
     })
   }
 
@@ -206,27 +239,50 @@ export class ContextManager<T> {
     if (this.historyStorage) {
       try {
         await this.historyStorage.deleteHistory(this.sessionId)
-        console.log(`[ContextManager] Cleared persisted history for session ${this.sessionId}`)
+        // Debug logging removed for cleaner user experience
       } catch (error) {
-        console.error(`[ContextManager] Failed to clear persisted history:`, error)
+        this.logger.error('Failed to clear persisted history', {error, sessionId: this.sessionId})
       }
     }
   }
 
   /**
+   * Get comprehensive messages (all messages, for persistence/debugging).
+   * This includes all messages including invalid ones.
+   *
+   * @returns All messages in the conversation history
+   */
+  public getComprehensiveMessages(): InternalMessage[] {
+    return [...this.messages]
+  }
+
+  /**
+   * Get curated messages (valid messages only, for API calls).
+   * Filters out invalid messages that would waste tokens or confuse the LLM.
+   *
+   * @returns Only valid messages suitable for API calls
+   */
+  public getCuratedMessages(): InternalMessage[] {
+    return this.messages.filter((msg) => this.validateMessage(msg).isValid)
+  }
+
+  /**
    * Get formatted messages with compression applied.
+   * Uses curated (valid-only) messages for better LLM context quality.
    *
    * @param systemPrompt - Optional system prompt (for token accounting)
-   * @returns Formatted messages, system prompt, and token count
+   * @returns Formatted messages, system prompt, token count, and filter stats
    */
-  public async getFormattedMessagesWithCompression(
-    systemPrompt?: string
-  ): Promise<FormattedMessagesResult<T>> {
+  public async getFormattedMessagesWithCompression(systemPrompt?: string): Promise<FormattedMessagesResult<T>> {
+    // Get curated messages (filter invalid ones)
+    const curatedMessages = this.getCuratedMessages()
+    const messagesFiltered = this.messages.length - curatedMessages.length
+
     // Calculate system prompt tokens
     const systemPromptTokens = systemPrompt ? this.tokenizer.countTokens(systemPrompt) : 0
 
-    // Compress history if needed
-    const compressedHistory = await this.compressHistoryIfNeeded(systemPromptTokens)
+    // Compress curated history if needed
+    const compressedHistory = await this.compressHistoryIfNeeded(systemPromptTokens, curatedMessages)
 
     // Format compressed messages
     const formattedMessages = this.formatter.format(compressedHistory)
@@ -237,6 +293,7 @@ export class ContextManager<T> {
 
     return {
       formattedMessages,
+      messagesFiltered,
       systemPrompt,
       tokensUsed,
     }
@@ -271,7 +328,7 @@ export class ContextManager<T> {
    */
   public async initialize(): Promise<boolean> {
     if (this.isInitialized) {
-      console.warn(`[ContextManager] Already initialized for session ${this.sessionId}`)
+      this.logger.warn('ContextManager already initialized', {sessionId: this.sessionId})
       return false
     }
 
@@ -286,15 +343,15 @@ export class ContextManager<T> {
       if (history && history.length > 0) {
         this.messages = history
         this.isInitialized = true
-        console.log(`[ContextManager] Loaded ${history.length} messages for session ${this.sessionId}`)
+        // Debug logging removed for cleaner user experience
         return true
       }
 
       this.isInitialized = true
-      console.log(`[ContextManager] No persisted history found for session ${this.sessionId}`)
+      // Debug logging removed for cleaner user experience
       return false
     } catch (error) {
-      console.error(`[ContextManager] Failed to load history for session ${this.sessionId}:`, error)
+      this.logger.error('Failed to load history for session', {error, sessionId: this.sessionId})
       this.isInitialized = true
       return false
     }
@@ -307,48 +364,45 @@ export class ContextManager<T> {
    * fits within the available token budget (maxInputTokens - systemPromptTokens).
    *
    * @param systemPromptTokens - Tokens used by system prompt (reserved, not compressible)
+   * @param messagesToCompress - Messages to compress (defaults to all messages)
    * @returns Compressed message history
    */
-  private async compressHistoryIfNeeded(systemPromptTokens: number): Promise<InternalMessage[]> {
+  private async compressHistoryIfNeeded(
+    systemPromptTokens: number,
+    messagesToCompress?: InternalMessage[],
+  ): Promise<InternalMessage[]> {
+    const messages = messagesToCompress ?? this.messages
+
     // Calculate current token usage
-    const currentHistoryTokens = countMessagesTokens(this.messages, this.tokenizer)
+    const currentHistoryTokens = countMessagesTokens(messages, this.tokenizer)
     const totalTokens = systemPromptTokens + currentHistoryTokens
 
     // No compression needed
     if (totalTokens <= this.maxInputTokens) {
-      console.log(`[ContextManager] ${totalTokens}/${this.maxInputTokens} tokens (sys: ${systemPromptTokens}, hist: ${currentHistoryTokens})`)
-      return this.messages
+      // Debug logging removed for cleaner user experience
+      return messages
     }
 
-    console.log(`[ContextManager] Compressing: ${totalTokens}/${this.maxInputTokens} tokens (sys: ${systemPromptTokens}, hist: ${currentHistoryTokens})`)
+    // Debug logging removed for cleaner user experience
 
     // Calculate target token budget for history
     // Reserve space for system prompt
     const maxHistoryTokens = this.maxInputTokens - systemPromptTokens
 
     // Apply compression strategies sequentially
-    let compressedHistory = this.messages
+    let compressedHistory = messages
     for (const strategy of this.compressionStrategies) {
-      const strategyName = strategy.getName()
-      console.log(`[ContextManager] Applying compression strategy: ${strategyName}`)
+      // Debug logging removed for cleaner user experience
 
       // eslint-disable-next-line no-await-in-loop
-      compressedHistory = await strategy.compress(
-        compressedHistory,
-        maxHistoryTokens,
-        this.tokenizer
-      )
+      compressedHistory = await strategy.compress(compressedHistory, maxHistoryTokens, this.tokenizer)
 
       // Check if we've met the token limit
       const compressedTokens = countMessagesTokens(compressedHistory, this.tokenizer)
       const newTotal = systemPromptTokens + compressedTokens
 
       if (newTotal <= this.maxInputTokens) {
-        console.log(
-          `[ContextManager] Compression successful with ${strategyName}: ` +
-          `${newTotal} / ${this.maxInputTokens} tokens ` +
-          `(system: ${systemPromptTokens}, history: ${compressedTokens})`
-        )
+        // Debug logging removed for cleaner user experience
         break
       }
     }
@@ -358,11 +412,14 @@ export class ContextManager<T> {
     const finalTotal = systemPromptTokens + finalTokens
 
     if (finalTotal > this.maxInputTokens) {
-      console.warn(
-        `[ContextManager] Warning: Unable to compress below token limit. ` +
-        `Final: ${finalTotal} / ${this.maxInputTokens} tokens ` +
-        `(system: ${systemPromptTokens}, history: ${finalTokens})`
-      )
+      // Keep warning as it's important for users to know
+      this.logger.warn('Unable to compress below token limit', {
+        finalTokens,
+        finalTotal,
+        maxInputTokens: this.maxInputTokens,
+        sessionId: this.sessionId,
+        systemPromptTokens,
+      })
     }
 
     return compressedHistory
@@ -401,6 +458,17 @@ export class ContextManager<T> {
       .join('\n')
 
     return this.tokenizer.countTokens(text)
+  }
+
+  /**
+   * Check if a system message is noise (empty or whitespace only).
+   *
+   * @param message - Message to check
+   * @returns True if the message is noise
+   */
+  private isSystemNoise(message: InternalMessage): boolean {
+    const content = typeof message.content === 'string' ? message.content : ''
+    return content.trim().length === 0
   }
 
   /**
@@ -444,7 +512,38 @@ export class ContextManager<T> {
       return jsonString
     } catch (error) {
       // Handle circular references or other serialization errors
-      return `[Tool result serialization failed: ${(error as Error).message}]`
+      return `[Tool result serialization failed: ${getErrorMessage(error)}]`
     }
+  }
+
+  /**
+   * Validate a message for API inclusion.
+   * Filters out invalid messages that would waste tokens or confuse the LLM.
+   *
+   * Rules:
+   * 1. Empty content (non-tool messages without content or tool calls)
+   * 2. Tool result without corresponding tool call ID
+   * 3. System messages with only noise (empty or whitespace)
+   *
+   * @param message - Message to validate
+   * @returns Validation result indicating if message is valid for API
+   */
+  private validateMessage(message: InternalMessage): MessageValidation {
+    // Rule 1: Empty content check (skip for tool messages which always have content)
+    if (message.role !== 'tool' && !message.content && (!message.toolCalls || message.toolCalls.length === 0)) {
+      return {isValid: false, reason: 'empty_content'}
+    }
+
+    // Rule 2: Tool result without corresponding call ID
+    if (message.role === 'tool' && !message.toolCallId) {
+      return {isValid: false, reason: 'incomplete_tool_call'}
+    }
+
+    // Rule 3: System messages with only noise (empty or whitespace)
+    if (message.role === 'system' && this.isSystemNoise(message)) {
+      return {isValid: false, reason: 'system_noise'}
+    }
+
+    return {isValid: true}
   }
 }

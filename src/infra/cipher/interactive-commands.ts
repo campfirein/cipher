@@ -90,9 +90,7 @@ const INTERACTIVE_COMMANDS: InteractiveCommand[] = [
       console.log('\n' + chalk.bold.cyan('📊 Agent State:'))
       console.log(chalk.cyan('─'.repeat(60)))
       console.log(chalk.white(`  Iterations: ${chalk.bold(state.currentIteration.toString())}`))
-      console.log(
-        chalk.white(`  Execution history entries: ${chalk.bold(state.executionHistory.length.toString())}`),
-      )
+      console.log(chalk.white(`  Execution history entries: ${chalk.bold(state.executionHistory.length.toString())}`))
 
       if (state.executionHistory.length > 0) {
         console.log(chalk.white('\n  Recent executions:'))
@@ -194,6 +192,27 @@ const INTERACTIVE_COMMANDS: InteractiveCommand[] = [
 ]
 
 /**
+ * Get all available command names (including aliases) for autocomplete
+ *
+ * @returns Array of command names with '/' prefix
+ */
+export function getCommandNames(): string[] {
+  const names: string[] = []
+
+  for (const cmd of INTERACTIVE_COMMANDS) {
+    names.push(`/${cmd.name}`)
+
+    if (cmd.aliases) {
+      for (const alias of cmd.aliases) {
+        names.push(`/${alias}`)
+      }
+    }
+  }
+
+  return names
+}
+
+/**
  * Execute an interactive command
  *
  * @param command - Command name
@@ -201,15 +220,9 @@ const INTERACTIVE_COMMANDS: InteractiveCommand[] = [
  * @param agent - CipherAgent instance
  * @returns Promise<boolean> - true to continue loop, false to exit
  */
-export async function executeCommand(
-  command: string,
-  args: string[],
-  agent: ICipherAgent,
-): Promise<boolean> {
+export async function executeCommand(command: string, args: string[], agent: ICipherAgent): Promise<boolean> {
   // Find the command (including aliases)
-  const cmd = INTERACTIVE_COMMANDS.find(
-    (c) => c.name === command || (c.aliases && c.aliases.includes(command)),
-  )
+  const cmd = INTERACTIVE_COMMANDS.find((c) => c.name === command || (c.aliases && c.aliases.includes(command)))
 
   if (!cmd) {
     console.log('\n' + chalk.red(`❌ Unknown command: /${command}`))

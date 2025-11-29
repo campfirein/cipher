@@ -1,3 +1,4 @@
+import type {TerminationReason} from '../../domain/cipher/agent/agent-state.js'
 import type {SessionMetadata} from '../../domain/cipher/storage/history-types.js'
 import type {ConversationMetadata} from '../../domain/cipher/system-prompt/types.js'
 
@@ -17,11 +18,40 @@ export interface ExecutionContext {
 }
 
 /**
- * Agent state information
+ * Agent execution state (string union for external consumers).
+ */
+export type AgentExecutionState = 'aborted' | 'complete' | 'error' | 'executing' | 'idle' | 'tool_calling'
+
+/**
+ * Agent state information.
+ *
+ * Enhanced to include execution state, termination reason, timing,
+ * and tool metrics. Maintains backward compatibility with legacy fields.
  */
 export interface AgentState {
+  /** Current iteration/turn count */
   currentIteration: number
+
+  /** Execution duration in milliseconds (if available) */
+  durationMs?: number
+
+  /** End time of execution (if complete) */
+  endTime?: Date
+
+  /** Legacy: execution history records */
   executionHistory: string[]
+
+  /** Current execution state */
+  executionState: AgentExecutionState
+
+  /** Start time of execution (if started) */
+  startTime?: Date
+
+  /** Why the execution terminated (if complete) */
+  terminationReason?: TerminationReason
+
+  /** Number of tool calls executed */
+  toolCallsExecuted: number
 }
 
 /**
@@ -74,9 +104,4 @@ export interface ICipherAgent {
    * Must be called before execute()
    */
   start(): Promise<void>
-
-  /**
-   * Stops the agent and clean up resources.
-   */
-  stop: () => Promise<void>
 }

@@ -1,16 +1,15 @@
-import type {SessionType} from '../../entities/parser.js'
-
 /**
  * Agent-level event names for CipherAgent.
  * These events are emitted at the agent level and include sessionId in payloads.
  */
 export const AGENT_EVENT_NAMES = [
-  'cipher:cleanExternalSessionProcessing',
-  'cipher:cleanExternalSessionProcessed',
-  'cipher:cleanExternalSessionProcessingError',
   'cipher:conversationReset',
+  'cipher:executionStarted',
+  'cipher:executionTerminated',
+  'cipher:log',
   'cipher:stateChanged',
   'cipher:stateReset',
+  'cipher:ui',
 ] as const
 
 /**
@@ -18,12 +17,14 @@ export const AGENT_EVENT_NAMES = [
  * These events are emitted at the session level and do not include sessionId in payloads.
  */
 export const SESSION_EVENT_NAMES = [
-  'llmservice:thinking',
   'llmservice:chunk',
+  'llmservice:error',
+  'llmservice:outputTruncated',
   'llmservice:response',
+  'llmservice:thinking',
+  'llmservice:thought',
   'llmservice:toolCall',
   'llmservice:toolResult',
-  'llmservice:error',
   'llmservice:unsupportedInput',
   'llmservice:warning',
 ] as const
@@ -58,41 +59,107 @@ export interface TokenUsage {
 }
 
 /**
+ * Log level for structured logging events.
+ */
+export type LogLevel = 'debug' | 'error' | 'info' | 'warn'
+
+/**
+ * UI event type for user interface actions.
+ */
+export type UIEventType = 'banner' | 'help' | 'prompt' | 'response' | 'separator' | 'shutdown'
+
+/**
+ * Tool error type classification.
+ * Used for structured error reporting in tool execution.
+ */
+export type ToolErrorType =
+  | 'CANCELLED'
+  | 'CONFIRMATION_REJECTED'
+  | 'EXECUTION_FAILED'
+  | 'INTERNAL_ERROR'
+  | 'INVALID_PARAM_TYPE'
+  | 'INVALID_PARAMS'
+  | 'MISSING_REQUIRED_PARAM'
+  | 'PARAM_VALIDATION_FAILED'
+  | 'PERMISSION_DENIED'
+  | 'PROVIDER_ERROR'
+  | 'TIMEOUT'
+  | 'TOOL_DISABLED'
+  | 'TOOL_NOT_FOUND'
+
+/**
+ * Termination reason type for agent execution.
+ * Matches TerminationReason enum values as strings.
+ */
+export type AgentTerminationReason = 'ABORTED' | 'ERROR' | 'GOAL' | 'MAX_TURNS' | 'PROTOCOL_VIOLATION' | 'TIMEOUT'
+
+/**
+ * Agent execution state type.
+ * Matches AgentState enum values as strings.
+ */
+export type AgentExecutionStateType = 'ABORTED' | 'COMPLETE' | 'ERROR' | 'EXECUTING' | 'IDLE' | 'TOOL_CALLING'
+
+/**
  * Agent-level event payloads.
  * All agent events include sessionId for tracking which session triggered the event.
  */
 export interface AgentEventMap {
-  /**
-   * Emitted when a clean external session has been successfully processed.
-   */
-  'cipher:cleanExternalSessionProcessed': {
-    codingAgent: SessionType
-    externalSessionTitle: string
-  }
-
-  /**
-   * Emitted when processing a clean external session starts.
-   */
-  'cipher:cleanExternalSessionProcessing': {
-    codingAgent: SessionType
-    externalSessionTitle: string
-  }
-
-  /**
-   * Emitted when processing a clean external session fails.
-   */
-  'cipher:cleanExternalSessionProcessingError': {
-    codingAgent: SessionType
-    error: Error
-    externalSessionTitle: string
-  }
-
   /**
    * Emitted when a conversation is reset.
    * @property {string} sessionId - ID of the session being reset
    */
   'cipher:conversationReset': {
     sessionId: string
+  }
+
+  /**
+   * Emitted when agent execution starts.
+   * @property {number} maxIterations - Maximum iterations allowed
+   * @property {number} [maxTimeMs] - Maximum execution time in milliseconds
+   * @property {string} sessionId - ID of the session
+   * @property {Date} startTime - When execution started
+   */
+  'cipher:executionStarted': {
+    maxIterations: number
+    maxTimeMs?: number
+    sessionId: string
+    startTime: Date
+  }
+
+  /**
+   * Emitted when agent execution terminates.
+   * @property {number} [durationMs] - Execution duration in milliseconds
+   * @property {Date} endTime - When execution ended
+   * @property {Error} [error] - Error if terminated due to error
+   * @property {AgentTerminationReason} reason - Why execution terminated
+   * @property {string} sessionId - ID of the session
+   * @property {number} toolCallsExecuted - Number of tool calls made
+   * @property {number} turnCount - Number of turns completed
+   */
+  'cipher:executionTerminated': {
+    durationMs?: number
+    endTime: Date
+    error?: Error
+    reason: AgentTerminationReason
+    sessionId: string
+    toolCallsExecuted: number
+    turnCount: number
+  }
+
+  /**
+   * Emitted for structured logging from any layer.
+   * @property {Record<string, unknown>} [context] - Optional structured context data
+   * @property {LogLevel} level - Log level (debug, info, warn, error)
+   * @property {string} message - Human-readable log message
+   * @property {string} [sessionId] - Optional session ID (if log is session-specific)
+   * @property {string} [source] - Optional source identifier (e.g., class name, module)
+   */
+  'cipher:log': {
+    context?: Record<string, unknown>
+    level: LogLevel
+    message: string
+    sessionId?: string
+    source?: string
   }
 
   /**
@@ -115,6 +182,21 @@ export interface AgentEventMap {
    */
   'cipher:stateReset': {
     sessionId?: string
+  }
+
+  /**
+   * Emitted for UI-related actions (banners, prompts, responses, etc.).
+   * This separates UI concerns from business logic logging.
+   * @property {Record<string, unknown>} [context] - Optional context (e.g., colors, formatting data)
+   * @property {string} [message] - Optional human-readable message
+   * @property {string} [sessionId] - Optional session ID
+   * @property {UIEventType} type - Type of UI event
+   */
+  'cipher:ui': {
+    context?: Record<string, unknown>
+    message?: string
+    sessionId?: string
+    type: UIEventType
   }
 
   /**
@@ -148,6 +230,20 @@ export interface AgentEventMap {
   }
 
   /**
+   * Emitted when tool output is truncated due to size.
+   * @property {number} originalLength - Original output length before truncation
+   * @property {string} savedToFile - Path to file where full output was saved
+   * @property {string} sessionId - ID of the session
+   * @property {string} toolName - Name of the tool that produced the output
+   */
+  'llmservice:outputTruncated': {
+    originalLength: number
+    savedToFile: string
+    sessionId: string
+    toolName: string
+  }
+
+  /**
    * Emitted when LLM completes a response.
    * @property {string} content - Full response content
    * @property {string} [model] - Model identifier
@@ -176,6 +272,18 @@ export interface AgentEventMap {
   }
 
   /**
+   * Emitted when LLM generates a thought (Gemini models only).
+   * @property {string} description - Detailed thought description
+   * @property {string} sessionId - ID of the session
+   * @property {string} subject - Brief thought subject
+   */
+  'llmservice:thought': {
+    description: string
+    sessionId: string
+    subject: string
+  }
+
+  /**
    * Emitted when LLM requests a tool call.
    * @property {Record<string, unknown>} args - Arguments for the tool
    * @property {string} [callId] - Unique identifier for this tool call
@@ -193,6 +301,8 @@ export interface AgentEventMap {
    * Emitted when a tool execution completes.
    * @property {string} [callId] - Tool call identifier
    * @property {string} [error] - Error message (if failed)
+   * @property {ToolErrorType} [errorType] - Classified error type (if failed)
+   * @property {Record<string, unknown>} [metadata] - Execution metadata (duration, tokens, etc.)
    * @property {unknown} [result] - Tool execution result
    * @property {string} sessionId - ID of the session
    * @property {boolean} success - Whether execution succeeded
@@ -201,6 +311,8 @@ export interface AgentEventMap {
   'llmservice:toolResult': {
     callId?: string
     error?: string
+    errorType?: ToolErrorType
+    metadata?: Record<string, unknown>
     result?: unknown
     sessionId: string
     success: boolean
@@ -260,6 +372,18 @@ export interface SessionEventMap {
   }
 
   /**
+   * Emitted when tool output is truncated due to size.
+   * @property {number} originalLength - Original output length before truncation
+   * @property {string} savedToFile - Path to file where full output was saved
+   * @property {string} toolName - Name of the tool that produced the output
+   */
+  'llmservice:outputTruncated': {
+    originalLength: number
+    savedToFile: string
+    toolName: string
+  }
+
+  /**
    * Emitted when LLM completes a response.
    * @property {string} content - Full response content
    * @property {string} [model] - Model identifier
@@ -283,6 +407,16 @@ export interface SessionEventMap {
   'llmservice:thinking': void
 
   /**
+   * Emitted when LLM generates a thought (Gemini models only).
+   * @property {string} description - Detailed thought description
+   * @property {string} subject - Brief thought subject
+   */
+  'llmservice:thought': {
+    description: string
+    subject: string
+  }
+
+  /**
    * Emitted when LLM requests a tool call.
    * @property {Record<string, unknown>} args - Arguments for the tool
    * @property {string} [callId] - Unique identifier for this tool call
@@ -298,6 +432,8 @@ export interface SessionEventMap {
    * Emitted when a tool execution completes.
    * @property {string} [callId] - Tool call identifier
    * @property {string} [error] - Error message (if failed)
+   * @property {ToolErrorType} [errorType] - Classified error type (if failed)
+   * @property {Record<string, unknown>} [metadata] - Execution metadata (duration, tokens, etc.)
    * @property {unknown} [result] - Tool execution result
    * @property {boolean} success - Whether execution succeeded
    * @property {string} toolName - Name of the executed tool
@@ -305,6 +441,8 @@ export interface SessionEventMap {
   'llmservice:toolResult': {
     callId?: string
     error?: string
+    errorType?: ToolErrorType
+    metadata?: Record<string, unknown>
     result?: unknown
     success: boolean
     toolName: string

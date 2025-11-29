@@ -1,6 +1,7 @@
 import type {IUserService} from '../../core/interfaces/i-user-service.js'
 
 import {User} from '../../core/domain/entities/user.js'
+import {getErrorMessage} from '../../utils/error-helpers.js'
 import {AuthenticatedHttpClient} from '../http/authenticated-http-client.js'
 
 export type UserServiceConfig = {
@@ -37,7 +38,7 @@ export class HttpUserService implements IUserService {
 
       return this.mapToUser(response.data)
     } catch (error) {
-      throw new Error(`Failed to fetch user information: ${(error as Error).message}`)
+      throw new Error(`Failed to fetch user information: ${getErrorMessage(error)}`)
     }
   }
 

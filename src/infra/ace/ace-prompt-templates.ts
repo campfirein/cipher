@@ -1,3 +1,5 @@
+// TODO: Will deprecate. Replaced by Context Tree
+
 import type {Playbook} from '../../core/domain/entities/playbook.js'
 import type {ReflectorOutput} from '../../core/domain/entities/reflector-output.js'
 import type {IAcePromptBuilder, ReflectorPromptParams} from '../../core/interfaces/i-ace-prompt-builder.js'
@@ -8,11 +10,7 @@ import type {IAcePromptBuilder, ReflectorPromptParams} from '../../core/interfac
  * and LLMs that understand structured JSON output.
  */
 export class AcePromptTemplates implements IAcePromptBuilder {
-  public buildCuratorPrompt(
-    reflection: ReflectorOutput,
-    playbook: Playbook,
-    questionContext: string,
-  ): string {
+  public buildCuratorPrompt(reflection: ReflectorOutput, playbook: Playbook, questionContext: string): string {
     const playbookText = playbook.asPrompt()
     const stats = playbook.stats()
 
@@ -99,12 +97,7 @@ Output as a JSON object:
 If no changes are needed, return an empty operations array.`
   }
 
-  public buildExecutorPrompt(
-    task: string,
-    context: string,
-    playbook: Playbook,
-    recentReflections: string[],
-  ): string {
+  public buildExecutorPrompt(task: string, context: string, playbook: Playbook, recentReflections: string[]): string {
     const playbookText = playbook.asPrompt()
     const reflectionsText =
       recentReflections.length > 0 ? recentReflections.join('\n\n---\n\n') : 'No recent reflections.'

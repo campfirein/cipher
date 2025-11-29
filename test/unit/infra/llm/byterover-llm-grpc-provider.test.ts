@@ -277,7 +277,7 @@ describe('ByteRoverLlmGrpcService', () => {
         expect.fail('Should have thrown an error')
       } catch (error) {
         expect(error).to.be.instanceOf(Error)
-        expect((error as Error).message).to.include('ByteRover gRPC LLM error')
+        expect((error as Error).message).to.include('API error')
         expect((error as Error).message).to.include('Connection failed')
       }
 
@@ -510,7 +510,7 @@ describe('ByteRoverLlmGrpcService', () => {
 
       expect(capturedRequest).to.be.an('object')
       expect((capturedRequest as {provider: string}).provider).to.equal('gemini')
-      expect((capturedRequest as {region: string}).region).to.equal('us-central1')
+      expect((capturedRequest as {region: string}).region).to.equal('global')
 
       provider.close()
     })

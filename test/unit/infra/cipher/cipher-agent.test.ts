@@ -1,9 +1,9 @@
 import {expect} from 'chai'
 import {restore, stub} from 'sinon'
 
-import type {Agent} from '../../../../src/core/domain/entities/agent.js'
 import type {CipherLLMConfig} from '../../../../src/infra/cipher/agent-service-factory.js'
 
+import {BRV_CONFIG_VERSION} from '../../../../src/constants.js'
 import {BrvConfig} from '../../../../src/core/domain/entities/brv-config.js'
 import {CipherAgent} from '../../../../src/infra/cipher/cipher-agent.js'
 
@@ -36,17 +36,18 @@ describe('CipherAgent', () => {
     })
 
     it('should create instance with LLM config and BRV config', () => {
-      const brvConfig = new BrvConfig(
-        new Date().toISOString(),
-        'space-id',
-        'Space Name',
-        'team-id',
-        'Team Name',
-        'Claude Code' as Agent,
-        'chat.log',
-        '/test/cwd',
-        'Custom system prompt',
-      )
+      const brvConfig = new BrvConfig({
+        chatLogPath: 'chat.log',
+        cipherAgentSystemPrompt: 'Custom system prompt',
+        createdAt: new Date().toISOString(),
+        cwd: '/test/cwd',
+        ide: 'Claude Code',
+        spaceId: 'space-id',
+        spaceName: 'Space Name',
+        teamId: 'team-id',
+        teamName: 'Team Name',
+        version: BRV_CONFIG_VERSION,
+      })
 
       const agent = new CipherAgent(llmConfig, brvConfig)
 

@@ -1,12 +1,13 @@
-// @ts-expect-error - Internal SDK path not exported in package.json, but exists and works at runtime
-import type {RequestOptions} from '@anthropic-ai/sdk/internal/request-options'
-import type {Tool as ClaudeTool, MessageCreateParamsNonStreaming, MessageParam} from '@anthropic-ai/sdk/resources/messages'
-import type {Content, GenerateContentConfig} from '@google/genai'
+import type {MessageParam} from '@anthropic-ai/sdk/resources/messages'
+import type {Content} from '@google/genai'
 
-import type {JSONSchema7, ToolSet} from '../../../core/domain/cipher/tools/types.js'
+import type {ToolExecutionResult} from '../../../core/domain/cipher/tools/tool-error.js'
+import type {ToolSet} from '../../../core/domain/cipher/tools/types.js'
 import type {ExecutionContext} from '../../../core/interfaces/cipher/i-cipher-agent.js'
+import type {GenerateContentRequest, IContentGenerator} from '../../../core/interfaces/cipher/i-content-generator.js'
 import type {IHistoryStorage} from '../../../core/interfaces/cipher/i-history-storage.js'
 import type {ILLMService} from '../../../core/interfaces/cipher/i-llm-service.js'
+import type {ILogger} from '../../../core/interfaces/cipher/i-logger.js'
 import type {IMessageFormatter} from '../../../core/interfaces/cipher/i-message-formatter.js'
 import type {ITokenizer} from '../../../core/interfaces/cipher/i-tokenizer.js'
 import type {InternalMessage, ToolCall} from '../../../core/interfaces/cipher/message-types.js'
@@ -14,22 +15,45 @@ import type {MemoryManager} from '../memory/memory-manager.js'
 import type {SimplePromptFactory} from '../system-prompt/simple-prompt-factory.js'
 import type {ToolManager} from '../tools/tool-manager.js'
 
+import {AgentStateMachine} from '../../../core/domain/cipher/agent/agent-state-machine.js'
+import {AgentState, TerminationReason} from '../../../core/domain/cipher/agent/agent-state.js'
 import {
   LlmGenerationError,
   LlmMaxIterationsError,
   LlmResponseParsingError,
 } from '../../../core/domain/cipher/errors/llm-error.js'
+import {NoOpLogger} from '../../../core/interfaces/cipher/i-logger.js'
+import {getErrorMessage} from '../../../utils/error-helpers.js'
 import {SessionEventBus} from '../events/event-emitter.js'
-import {ByteRoverLlmGrpcService} from '../grpc/internal-llm-grpc-service.js'
 import {ContextManager, type FileData, type ImageData} from './context/context-manager.js'
+import {LoopDetector} from './context/loop-detector.js'
 import {ClaudeMessageFormatter} from './formatters/claude-formatter.js'
 import {GeminiMessageFormatter} from './formatters/gemini-formatter.js'
+import {type ThinkingConfig, ThoughtParser} from './thought-parser.js'
 import {ClaudeTokenizer} from './tokenizers/claude-tokenizer.js'
 import {GeminiTokenizer} from './tokenizers/gemini-tokenizer.js'
-
+import {type ProcessedOutput, ToolOutputProcessor, type TruncationConfig} from './tool-output-processor.js'
 
 /**
- * Configuration for ByteRover LLM service (using gRPC)
+ * Result of parallel tool execution (before adding to context).
+ * Contains all information needed to add the result to context in order.
+ */
+interface ParallelToolResult {
+  /** Error message if tool execution failed */
+  error?: string
+  /** Original tool call for reference */
+  toolCall: ToolCall
+  /** Tool result data (only present if success) */
+  toolResult?: {
+    errorType?: string
+    metadata: Record<string, unknown>
+    processedOutput: ProcessedOutput
+    success: boolean
+  }
+}
+
+/**
+ * Configuration for ByteRover LLM service
  */
 export interface ByteRoverLLMServiceConfig {
   maxInputTokens?: number
@@ -37,7 +61,17 @@ export interface ByteRoverLLMServiceConfig {
   maxTokens?: number
   model: string
   temperature?: number
+  /**
+   * Thinking configuration for Gemini models (optional).
+   * If not provided, will be auto-configured based on model version.
+   */
+  thinkingConfig?: ThinkingConfig
   timeout?: number
+  /**
+   * Truncation configuration for tool outputs (optional).
+   * If not provided, will use default truncation settings.
+   */
+  truncationConfig?: TruncationConfig
   verbose?: boolean
 }
 
@@ -53,29 +87,21 @@ export interface LLMServiceConfig {
 }
 
 /**
- * Simplified tool definition for function declarations
- */
-interface ToolDefinition {
-  description: string
-  name: string
-  parameters: JSONSchema7
-}
-
-/**
  * ByteRover LLM Service.
  *
- * Orchestrates the agentic loop using ByteRover gRPC provider.
+ * Orchestrates the agentic loop using IContentGenerator for LLM calls.
  * Responsibilities:
  * - Manage conversation context via ContextManager
  * - Execute agentic loop (call LLM → execute tools → repeat)
  * - Delegate tool execution to ToolManager
- * - Format messages for ByteRover gRPC API via formatter (Gemini or Claude)
+ * - Delegate LLM calls to IContentGenerator
  * - Handle errors and iteration limits
  *
  * Does NOT:
  * - Execute tools directly (uses ToolManager)
  * - Store persistent history (uses in-memory ContextManager)
- * - Initialize the gRPC provider (injected as dependency)
+ * - Format messages for specific providers (handled by generators)
+ * - Handle retry logic (handled by RetryableContentGenerator decorator)
  */
 export class ByteRoverLLMService implements ILLMService {
   private readonly config: {
@@ -84,14 +110,18 @@ export class ByteRoverLLMService implements ILLMService {
     maxTokens: number
     model: string
     temperature: number
+    thinkingConfig?: ThinkingConfig
     timeout?: number
     verbose: boolean
   }
   private readonly contextManager: ContextManager<Content | MessageParam>
   private readonly formatter: IMessageFormatter<Content | MessageParam>
+  private readonly generator: IContentGenerator
+  private readonly logger: ILogger
+  private readonly loopDetector: LoopDetector
   private readonly memoryManager?: MemoryManager
+  private readonly outputProcessor: ToolOutputProcessor
   private readonly promptFactory: SimplePromptFactory
-  private readonly provider: ByteRoverLlmGrpcService
   private readonly providerType: 'claude' | 'gemini'
   private readonly sessionEventBus: SessionEventBus
   private readonly tokenizer: ITokenizer
@@ -110,7 +140,7 @@ export class ByteRoverLLMService implements ILLMService {
    * allowing multiple concurrent sessions with separate histories.
    *
    * @param sessionId - Unique identifier for this session
-   * @param provider - Configured gRPC provider for LLM API calls
+   * @param generator - Content generator for LLM calls (with decorators pre-applied)
    * @param config - LLM service configuration (model, tokens, temperature)
    * @param options - Service dependencies
    * @param options.toolManager - Tool manager for executing agent tools
@@ -118,30 +148,36 @@ export class ByteRoverLLMService implements ILLMService {
    * @param options.memoryManager - Memory manager for agent memories
    * @param options.sessionEventBus - Event bus for session lifecycle events
    * @param options.historyStorage - Optional history storage for persistence
+   * @param options.logger - Optional logger for structured logging
    */
   public constructor(
     sessionId: string,
-    provider: ByteRoverLlmGrpcService,
+    generator: IContentGenerator,
     config: ByteRoverLLMServiceConfig,
     options: {
       historyStorage?: IHistoryStorage
+      logger?: ILogger
       memoryManager?: MemoryManager
       promptFactory: SimplePromptFactory
       sessionEventBus: SessionEventBus
       toolManager: ToolManager
     },
   ) {
-    this.provider = provider
+    this.generator = generator
     this.toolManager = options.toolManager
     this.promptFactory = options.promptFactory
     this.memoryManager = options.memoryManager
     this.sessionEventBus = options.sessionEventBus
+    this.logger = options.logger ?? new NoOpLogger()
+    this.outputProcessor = new ToolOutputProcessor(config.truncationConfig)
+    this.loopDetector = new LoopDetector()
     this.config = {
       maxInputTokens: config.maxInputTokens ?? 1_000_000,
       maxIterations: config.maxIterations ?? 50,
       maxTokens: config.maxTokens ?? 8192,
       model: config.model ?? 'claude-haiku-4-5@20251001',
       temperature: config.temperature ?? 0.7,
+      thinkingConfig: config.thinkingConfig,
       timeout: config.timeout,
       verbose: config.verbose ?? false,
     }
@@ -189,7 +225,14 @@ export class ByteRoverLLMService implements ILLMService {
    */
   public async completeTask(
     textInput: string,
-    options?: {executionContext?: ExecutionContext; fileData?: FileData; imageData?: ImageData; mode?: 'autonomous' | 'default' | 'query'; signal?: AbortSignal; stream?: boolean},
+    options?: {
+      executionContext?: ExecutionContext
+      fileData?: FileData
+      imageData?: ImageData
+      mode?: 'autonomous' | 'default' | 'query'
+      signal?: AbortSignal
+      stream?: boolean
+    },
   ): Promise<string> {
     // Extract options with defaults
     const {executionContext, fileData, imageData, mode, signal} = options ?? {}
@@ -199,55 +242,51 @@ export class ByteRoverLLMService implements ILLMService {
 
     // Get all available tools
     const toolSet = this.toolManager.getAllTools()
-    const tools = Object.entries(toolSet).map(([name, schema]) => ({
-      description: schema.description ?? '',
-      name,
-      parameters: schema.parameters,
-    }))
 
-    let iterationCount = 0
+    // Create state machine with configured limits
+    const maxTimeMs = this.config.timeout ?? 600_000 // 10 min default
+    const stateMachine = new AgentStateMachine(this.config.maxIterations, maxTimeMs)
+    stateMachine.transition(AgentState.EXECUTING)
 
-    // Agentic loop
-    while (iterationCount < this.config.maxIterations) {
-      // Check if aborted
+    // Agentic loop with state machine
+    while (!stateMachine.isTerminal()) {
+      // Check termination conditions (timeout, max turns)
+      const terminationReason = stateMachine.shouldTerminate()
+      if (terminationReason) {
+        return this.handleTermination(terminationReason, stateMachine)
+      }
+
+      // Check if aborted via signal
       if (signal?.aborted) {
+        stateMachine.abort()
         throw new Error('Operation aborted')
       }
 
       try {
         // eslint-disable-next-line no-await-in-loop -- Sequential iterations required for agentic loop
-        const result = await this.executeAgenticIteration(iterationCount, tools, mode, executionContext)
+        const result = await this.executeAgenticIteration(
+          stateMachine.getContext().turnCount,
+          toolSet,
+          mode,
+          executionContext,
+        )
 
         if (result !== null) {
+          // Task complete - no tool calls
+          stateMachine.complete()
           return result
         }
 
-        iterationCount++
+        // Tool calls were executed, continue loop
+        stateMachine.incrementTurn()
       } catch (error) {
+        stateMachine.fail(error as Error)
         this.handleLLMError(error)
       }
     }
 
-    // Max iterations exceeded - emit warning and return partial response
-    console.warn(`[ByteRoverLLMService] WARNING: Reached maximum iterations (${this.config.maxIterations}) without completion`)
-
-    this.sessionEventBus.emit('llmservice:warning', {
-      message: `Maximum iterations (${this.config.maxIterations}) reached without completion`,
-      model: this.config.model,
-      provider: 'byterover'
-    })
-
-    // Get accumulated response from context
-    const partialResponse = await this.getPartialResponse()
-
-    this.sessionEventBus.emit('llmservice:response', {
-      content: partialResponse,
-      model: this.config.model,
-      partial: true,
-      provider: 'byterover'
-    })
-
-    return partialResponse || 'Maximum iterations reached without completing the task. Please try breaking down the task into smaller steps.'
+    // Should not reach here - state machine should exit via terminal states
+    throw new Error('Agent loop terminated unexpectedly')
   }
 
   /**
@@ -316,134 +355,97 @@ export class ByteRoverLLMService implements ILLMService {
   }
 
   /**
-   * Build Claude-specific generation configuration.
+   * Add a parallel tool result to the context.
+   * Called sequentially after parallel execution to preserve message order.
    *
-   * For Claude, the config includes BOTH messages and generation parameters
-   * since Claude's SDK expects everything in the first parameter (MessageCreateParams).
-   *
-   * @param tools - Available tool definitions
-   * @param systemPrompt - System prompt (passed in config.system)
-   * @param messages - Formatted messages (included in config for Claude)
-   * @returns Complete Claude API request body (MessageCreateParamsNonStreaming)
+   * @param result - Parallel tool result to add
    */
-  private buildClaudeConfig(tools: ToolDefinition[], systemPrompt: string, messages: MessageParam[]): MessageCreateParamsNonStreaming {
-    /* eslint-disable camelcase */
-    const claudeTools: ClaudeTool[] = tools.map((tool) => ({
-      input_schema: tool.parameters as ClaudeTool.InputSchema,
-      name: tool.name,
-      ...(tool.description && {description: tool.description}),
-    }))
+  private async addParallelToolResultToContext(result: ParallelToolResult): Promise<void> {
+    const {toolCall, toolResult} = result
+
+    if (!toolResult) {
+      // This shouldn't happen, but handle gracefully
+      await this.contextManager.addToolResult(
+        toolCall.id,
+        toolCall.function.name,
+        'Error: No tool result available',
+        {errorType: 'NO_RESULT', success: false},
+      )
+      return
+    }
+
+    await this.contextManager.addToolResult(toolCall.id, toolCall.function.name, toolResult.processedOutput.content, {
+      errorType: toolResult.errorType,
+      metadata: toolResult.metadata,
+      success: toolResult.success,
+    })
+  }
+
+  /**
+   * Build generation request for the IContentGenerator.
+   *
+   * Converts internal context to the standardized GenerateContentRequest format.
+   *
+   * @param systemPrompt - System prompt text
+   * @param tools - Available tools for function calling
+   * @returns GenerateContentRequest for the generator
+   */
+  private buildGenerateContentRequest(systemPrompt: string, tools: ToolSet): GenerateContentRequest {
+    // Get internal messages from context manager
+    const messages = this.contextManager.getMessages()
 
     return {
-      max_tokens: this.config.maxTokens,
-      messages,  // Messages array is part of the config for Claude
-      model: this.config.model,  // Model is also part of the body
-      system: systemPrompt,
-      temperature: this.config.temperature,
-      ...(claudeTools.length > 0 && {tools: claudeTools}),
-    }
-    /* eslint-enable camelcase */
-  }
-
-  /**
-   * Build Gemini-specific generation configuration.
-   *
-   * @param tools - Available tool definitions
-   * @param systemPrompt - System prompt (passed in systemInstruction)
-   * @returns Gemini API configuration object
-   */
-  private buildGeminiConfig(tools: ToolDefinition[], systemPrompt: string): GenerateContentConfig {
-    return {
-      maxOutputTokens: this.config.maxTokens,
-      temperature: this.config.temperature,
-      topP: 1,
-      ...(systemPrompt && {systemInstruction: {parts: [{text: systemPrompt}]}}),
-      ...(tools.length > 0 && {
-        tools: [
-          {
-            functionDeclarations: tools.map((tool) => ({
-              description: tool.description,
-              name: tool.name,
-              parameters: tool.parameters as Record<string, unknown>,
-            })),
-          },
-        ],
-      }),
+      config: {
+        maxTokens: this.config.maxTokens,
+        temperature: this.config.temperature,
+      },
+      contents: messages,
+      model: this.config.model,
+      systemPrompt,
+      tools,
     }
   }
 
   /**
-   * Build the generation configuration for the ByteRover gRPC API call.
+   * Call LLM via generator and process the response.
    *
-   * Constructs the complete generation parameters including:
-   * - Output token limit (from config)
-   * - Temperature/sampling parameters
-   * - System instruction from the prompt manager
-   * - Available tools for function calling
+   * Uses the IContentGenerator interface which already has:
+   * - Retry logic (via RetryableContentGenerator decorator)
+   * - Logging (via LoggingContentGenerator decorator)
    *
-   * For Claude: messages are included in the config (merged into body)
-   * For Gemini: messages are passed separately
-   *
-   * This configuration is passed to the provider and controls how the LLM
-   * generates responses. It bridges between service configuration and
-   * the provider's expected format.
-   *
-   * @param tools - List of tool definitions available to the LLM
-   * @param systemPrompt - System prompt text to guide LLM behavior
-   * @param messages - Formatted messages (for Claude, these are merged into config)
-   * @returns Complete generation configuration for gRPC API (Gemini or Claude format)
+   * @param request - Generation request
+   * @returns Parsed internal message from response
    */
-  private buildGenerationConfig(
-    tools: ToolDefinition[],
-    systemPrompt: string,
-    messages: Content[] | MessageParam[]
-  ): GenerateContentConfig | MessageCreateParamsNonStreaming {
-    if (this.providerType === 'claude') {
-      return this.buildClaudeConfig(tools, systemPrompt, messages as MessageParam[])
+  private async callLLMAndParseResponse(request: GenerateContentRequest): Promise<InternalMessage> {
+    try {
+      const response = await this.generator.generateContent(request)
+
+      // Convert response to InternalMessage format
+      const message: InternalMessage = {
+        content: response.content,
+        role: 'assistant',
+        toolCalls: response.toolCalls,
+      }
+
+      // Validate the message has content or tool calls
+      if (!message.content && (!message.toolCalls || message.toolCalls.length === 0)) {
+        throw new LlmResponseParsingError('Response has neither content nor tool calls', 'byterover', this.config.model)
+      }
+
+      return message
+    } catch (error) {
+      // Re-throw LLM errors as-is
+      if (error instanceof LlmResponseParsingError || error instanceof LlmGenerationError) {
+        throw error
+      }
+
+      // Wrap other errors
+      throw new LlmGenerationError(
+        error instanceof Error ? error.message : String(error),
+        'byterover',
+        this.config.model,
+      )
     }
-
-    return this.buildGeminiConfig(tools, systemPrompt)
-  }
-
-  /**
-   * Call LLM and parse the response.
-   *
-   * Parameter structure differs by provider:
-   * - Gemini: contents = formattedMessages, config = genConfig
-   * - Claude: contents = genConfig (complete body), config = {} (empty RequestOptions)
-   *
-   * @param genConfig - For Gemini: GenerateContentConfig. For Claude: MessageCreateParamsNonStreaming (complete body)
-   * @param formattedMessages - Formatted messages (only used for Gemini; Claude has messages in genConfig)
-   * @returns Last message from parsed response
-   */
-  private async callLLMAndParseResponse(
-    genConfig: GenerateContentConfig | MessageCreateParamsNonStreaming,
-    formattedMessages: Content[] | MessageParam[],
-  ): Promise<InternalMessage> {
-    // Call ByteRover gRPC API via provider
-    // For Claude: pass genConfig as contents (complete body), config = {} (empty RequestOptions)
-    // For Gemini: pass formattedMessages as contents, genConfig as config
-    const contents = this.providerType === 'claude' ? genConfig : formattedMessages
-    const config = this.providerType === 'claude' ? {} as RequestOptions : genConfig
-
-    const response = await this.provider.generateContent(
-      contents as Content[] | MessageCreateParamsNonStreaming,
-      config as GenerateContentConfig | RequestOptions,
-      this.config.model,
-    )
-
-    // Parse response to internal format
-    const messages = this.formatter.parseResponse(response)
-    if (messages.length === 0) {
-      throw new LlmResponseParsingError('No messages returned from formatter', 'byterover', this.config.model)
-    }
-
-    const lastMessage = messages.at(-1)
-    if (!lastMessage) {
-      throw new LlmResponseParsingError('Failed to get last message from response', 'byterover', this.config.model)
-    }
-
-    return lastMessage
   }
 
   /**
@@ -467,7 +469,7 @@ export class ByteRoverLLMService implements ILLMService {
    */
   private async executeAgenticIteration(
     iterationCount: number,
-    tools: ToolDefinition[],
+    tools: ToolSet,
     mode?: 'autonomous' | 'default' | 'query',
     executionContext?: ExecutionContext,
   ): Promise<null | string> {
@@ -495,55 +497,61 @@ export class ByteRoverLLMService implements ILLMService {
       const reflectionPrompt = this.promptFactory.buildReflectionPrompt({
         currentIteration: iterationCount + 1,
         maxIterations: this.config.maxIterations,
-        type: 'near_max_iterations'
+        type: 'near_max_iterations',
       })
       systemPrompt = systemPrompt + '\n\n' + reflectionPrompt
     }
     // Add periodic completion check every 3 iterations (after iteration 3)
     else if (iterationCount > 0 && iterationCount % 3 === 0) {
       const reflectionPrompt = this.promptFactory.buildReflectionPrompt({
-        type: 'completion_check'
+        type: 'completion_check',
       })
       systemPrompt = systemPrompt + '\n\n' + reflectionPrompt
     }
 
     // Verbose debug: Show complete system prompt
     if (this.config.verbose) {
-      console.log(`\n${'='.repeat(80)}`)
-      console.log(`[PromptDebug:LLMService] SYSTEM PROMPT (Iteration ${iterationCount + 1})`)
-      console.log(`${'='.repeat(80)}`)
-      console.log(`Length: ${systemPrompt.length} characters`)
-      console.log(`Lines: ${systemPrompt.split('\n').length}`)
-      console.log(`\n--- FIRST 500 CHARACTERS ---`)
-      console.log(systemPrompt.slice(0, 500))
-      console.log(`\n--- LAST 500 CHARACTERS ---`)
-      console.log(systemPrompt.slice(-500))
-      console.log(`${'='.repeat(80)}\n`)
+      this.logger.debug('System prompt details', {
+        first500Chars: systemPrompt.slice(0, 500),
+        iteration: iterationCount + 1,
+        last500Chars: systemPrompt.slice(-500),
+        length: systemPrompt.length,
+        lines: systemPrompt.split('\n').length,
+      })
     }
 
-    // Get formatted messages from context with compression (passing system prompt for token accounting)
-    const {formattedMessages, tokensUsed} = await this.contextManager.getFormattedMessagesWithCompression(systemPrompt)
+    // Get token count for logging (using system prompt for token accounting)
+    const systemPromptTokens = this.generator.estimateTokensSync(systemPrompt)
+    const messagesTokens = this.contextManager
+      .getMessages()
+      .reduce(
+        (total, msg) =>
+          total +
+          this.generator.estimateTokensSync(
+            typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content),
+          ),
+        0,
+      )
+    const tokensUsed = systemPromptTokens + messagesTokens
 
-    // Verbose: Log formatted messages that will be sent to LLM
+    // Verbose: Log messages that will be sent to LLM
     if (this.config.verbose) {
-      console.log('\n========== FORMATTED MESSAGES (Sent to LLM) ==========')
-      console.log(JSON.stringify(formattedMessages, null, 2))
-      console.log('========== END FORMATTED MESSAGES ==========\n')
+      console.log('\n========== MESSAGES (Sent to LLM) ==========')
+      console.log(JSON.stringify(this.contextManager.getMessages(), null, 2))
+      console.log('========== END MESSAGES ==========\n')
+      // Log token usage for monitoring compression behavior
+      console.log(
+        `[ByteRoverLLMService] [Iter ${iterationCount + 1}/${
+          this.config.maxIterations
+        }] Sending to LLM: ${tokensUsed} tokens (max: ${this.config.maxInputTokens})`,
+      )
     }
 
-    // Log token usage for monitoring compression behavior
-    console.log(`[ByteRoverLLMService] [Iter ${iterationCount + 1}/${this.config.maxIterations}] Sending to LLM: ${tokensUsed} tokens (max: ${this.config.maxInputTokens})`)
+    // Build generation request
+    const request = this.buildGenerateContentRequest(systemPrompt, tools)
 
-    // Build generation config with system prompt and messages
-    // For Claude: messages are included in the config
-    // For Gemini: messages are passed separately to the API call
-    const genConfig = this.buildGenerationConfig(tools, systemPrompt, formattedMessages)
-
-    // Emit thinking event
-    this.sessionEventBus.emit('llmservice:thinking')
-
-    // Call LLM and parse response
-    const lastMessage = await this.callLLMAndParseResponse(genConfig, formattedMessages)
+    // Call LLM via generator (retry + logging handled by decorators)
+    const lastMessage = await this.callLLMAndParseResponse(request)
 
     // Check if there are tool calls
     if (!lastMessage.toolCalls || lastMessage.toolCalls.length === 0) {
@@ -557,14 +565,38 @@ export class ByteRoverLLMService implements ILLMService {
   }
 
   /**
-   * Execute a single tool call.
+   * Execute a single tool call in parallel (without adding to context).
+   * Returns all information needed to add the result to context later.
    *
    * @param toolCall - Tool call to execute
+   * @returns Parallel tool result with all execution data
    */
-  private async executeToolCall(toolCall: ToolCall): Promise<void> {
+  private async executeToolCallParallel(toolCall: ToolCall): Promise<ParallelToolResult> {
+    const toolName = toolCall.function.name
+    const toolArgs = JSON.parse(toolCall.function.arguments)
+
     try {
-      const toolName = toolCall.function.name
-      const toolArgs = JSON.parse(toolCall.function.arguments)
+      // Check for loops before execution (mutex-protected)
+      const loopResult = await this.loopDetector.recordAndCheck(toolName, toolArgs)
+
+      if (loopResult.isLoop) {
+        // Emit warning event
+        this.sessionEventBus.emit('llmservice:warning', {
+          message: `Loop detected: ${loopResult.loopType} - tool "${toolName}" repeated ${loopResult.repeatCount} times`,
+        })
+
+        return {
+          toolCall,
+          toolResult: {
+            errorType: 'LOOP_DETECTED',
+            metadata: {},
+            processedOutput: {
+              content: `⚠️ LOOP DETECTED: ${loopResult.suggestion}\n\nPlease try a different approach to accomplish your goal.`,
+            },
+            success: false,
+          },
+        }
+      }
 
       // Emit tool call event
       this.sessionEventBus.emit('llmservice:toolCall', {
@@ -573,32 +605,61 @@ export class ByteRoverLLMService implements ILLMService {
         toolName,
       })
 
-      // Execute tool via ToolManager (handles approval, routing, etc.)
-      const result = await this.toolManager.executeTool(toolName, toolArgs)
+      // Execute tool via ToolManager (returns structured result)
+      const result: ToolExecutionResult = await this.toolManager.executeTool(toolName, toolArgs)
 
-      // Emit tool result event (success)
+      // Process output (truncation and file saving if needed)
+      const processedOutput = await this.outputProcessor.processOutput(toolName, result.content)
+
+      // Emit truncation event if output was truncated
+      if (processedOutput.metadata?.truncated) {
+        this.sessionEventBus.emit('llmservice:outputTruncated', {
+          originalLength: processedOutput.metadata.originalLength!,
+          savedToFile: processedOutput.metadata.savedToFile!,
+          toolName,
+        })
+      }
+
+      // Emit tool result event with success/error info
       this.sessionEventBus.emit('llmservice:toolResult', {
         callId: toolCall.id,
-        result,
-        success: true,
+        errorType: result.errorType,
+        metadata: {
+          ...result.metadata,
+          ...processedOutput.metadata,
+        },
+        result: processedOutput.content,
+        success: result.success,
         toolName,
       })
 
-      // Add tool result to context
-      await this.contextManager.addToolResult(toolCall.id, toolName, result, {success: true})
+      return {
+        toolCall,
+        toolResult: {
+          errorType: result.errorType,
+          metadata: {
+            ...result.metadata,
+            ...processedOutput.metadata,
+          },
+          processedOutput,
+          success: result.success,
+        },
+      }
     } catch (error) {
-      // Add error result to context
-      const errorMessage = error instanceof Error ? error.message : String(error)
+      // Catch any unexpected errors during execution
+      const errorMessage = getErrorMessage(error)
+      this.logger.error('Error executing tool in parallel', {error, toolCallId: toolCall.id, toolName})
 
-      // Emit tool result event (error)
-      this.sessionEventBus.emit('llmservice:toolResult', {
-        callId: toolCall.id,
+      return {
         error: errorMessage,
-        success: false,
-        toolName: toolCall.function.name,
-      })
-
-      await this.contextManager.addToolResult(toolCall.id, toolCall.function.name, `Error: ${errorMessage}`, {success: false})
+        toolCall,
+        toolResult: {
+          errorType: 'EXECUTION_ERROR',
+          metadata: {},
+          processedOutput: {content: `Error executing tool: ${errorMessage}`},
+          success: false,
+        },
+      }
     }
   }
 
@@ -688,14 +749,94 @@ export class ByteRoverLLMService implements ILLMService {
 
     // Wrap other errors
     if (error && typeof error === 'object' && 'message' in error) {
-      throw new LlmGenerationError((error as Error).message, 'byterover', this.config.model)
+      throw new LlmGenerationError(getErrorMessage(error), 'byterover', this.config.model)
     }
 
     throw new LlmGenerationError(String(error), 'byterover', this.config.model)
   }
 
   /**
+   * Handle agent termination due to timeout or max turns.
+   *
+   * Emits appropriate events and returns a partial response.
+   *
+   * @param reason - Why the agent is terminating
+   * @param stateMachine - The state machine for context
+   * @returns Partial response or fallback message
+   */
+  private async handleTermination(reason: TerminationReason, stateMachine: AgentStateMachine): Promise<string> {
+    const context = stateMachine.getContext()
+    const durationMs = Date.now() - context.startTime.getTime()
+
+    this.logger.warn('Agent execution terminated', {
+      durationMs,
+      reason,
+      toolCallsExecuted: context.toolCallsExecuted,
+      turnCount: context.turnCount,
+    })
+
+    // Emit termination event
+    this.sessionEventBus.emit('llmservice:warning', {
+      message: `Agent terminated: ${reason} after ${context.turnCount} turns`,
+      model: this.config.model,
+      provider: 'byterover',
+    })
+
+    // Get accumulated response from context
+    const partialResponse = await this.getPartialResponse()
+
+    this.sessionEventBus.emit('llmservice:response', {
+      content: partialResponse,
+      model: this.config.model,
+      partial: true,
+      provider: 'byterover',
+    })
+
+    if (reason === TerminationReason.MAX_TURNS) {
+      return (
+        partialResponse ||
+        'Maximum iterations reached without completing the task. Please try breaking down the task into smaller steps.'
+      )
+    }
+
+    if (reason === TerminationReason.TIMEOUT) {
+      return partialResponse || 'Execution timed out. Please try a simpler task or increase the timeout.'
+    }
+
+    return partialResponse || 'Agent execution terminated unexpectedly.'
+  }
+
+  /**
+   * Handle thoughts from LLM response (Gemini only).
+   *
+   * Extracts and emits thought events if present.
+   *
+   * @param message - Message potentially containing thoughts
+   */
+  private handleThoughts(message: InternalMessage): void {
+    // Only process thoughts for Gemini models
+    if (this.providerType !== 'gemini') {
+      return
+    }
+
+    // Check if message has thought content
+    if (message.thought) {
+      // Parse thought if not already parsed
+      if (!message.thoughtSummary) {
+        message.thoughtSummary = ThoughtParser.parse(message.thought)
+      }
+
+      // Emit thought event
+      this.sessionEventBus.emit('llmservice:thought', {
+        description: message.thoughtSummary.description,
+        subject: message.thoughtSummary.subject,
+      })
+    }
+  }
+
+  /**
    * Handle tool calls from LLM response.
+   * Executes tools in parallel for performance, but adds results to context in order.
    *
    * @param lastMessage - Last message containing tool calls
    */
@@ -704,14 +845,42 @@ export class ByteRoverLLMService implements ILLMService {
       return
     }
 
+    // Emit thought events if present
+    this.handleThoughts(lastMessage)
+
     // Has tool calls - add assistant message with tool calls
     const assistantContent = this.extractTextContent(lastMessage)
     await this.contextManager.addAssistantMessage(assistantContent, lastMessage.toolCalls)
 
-    // Execute tool calls via ToolManager
-    for (const toolCall of lastMessage.toolCalls) {
-      // eslint-disable-next-line no-await-in-loop -- Sequential tool execution required
-      await this.executeToolCall(toolCall)
+    // Execute all tool calls in parallel
+    const parallelResults = await Promise.allSettled(
+      lastMessage.toolCalls.map((toolCall) => this.executeToolCallParallel(toolCall)),
+    )
+
+    // Add results to context IN ORDER (preserves conversation flow)
+    // eslint-disable-next-line unicorn/no-for-loop -- Need index to access both parallelResults and toolCalls in parallel
+    for (let i = 0; i < parallelResults.length; i++) {
+      const settledResult = parallelResults[i]
+      const toolCall = lastMessage.toolCalls[i]
+
+      if (settledResult.status === 'fulfilled') {
+        const result = settledResult.value
+        // eslint-disable-next-line no-await-in-loop -- Must add results in order
+        await this.addParallelToolResultToContext(result)
+      } else {
+        // Handle unexpected Promise rejection (should be rare since executeToolCallParallel catches errors)
+        const errorMessage = getErrorMessage(settledResult.reason)
+        this.logger.error('Unexpected error in parallel tool execution', {
+          error: settledResult.reason,
+          toolCallId: toolCall.id,
+          toolName: toolCall.function.name,
+        })
+        // eslint-disable-next-line no-await-in-loop -- Must add results in order
+        await this.contextManager.addToolResult(toolCall.id, toolCall.function.name, `Error: ${errorMessage}`, {
+          errorType: 'UNEXPECTED_ERROR',
+          success: false,
+        })
+      }
     }
   }
 }

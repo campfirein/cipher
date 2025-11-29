@@ -1,3 +1,5 @@
+// TODO: Will deprecate. Replaced by Context Tree
+
 import {existsSync} from 'node:fs'
 import {mkdir, readFile, unlink, writeFile} from 'node:fs/promises'
 import {join} from 'node:path'
@@ -5,6 +7,7 @@ import {join} from 'node:path'
 import type {IBulletContentStore} from '../../core/interfaces/i-bullet-content-store.js'
 
 import {ACE_DIR, BRV_DIR, BULLETS_DIR} from '../../constants.js'
+import {getErrorMessage} from '../../utils/error-helpers.js'
 
 /**
  * File-based implementation of IBulletContentStore.
@@ -21,7 +24,7 @@ export class FileBulletContentStore implements IBulletContentStore {
     try {
       await unlink(contentPath)
     } catch (error) {
-      throw new Error(`Failed to delete bullet content at ${contentPath}: ${(error as Error).message}`)
+      throw new Error(`Failed to delete bullet content at ${contentPath}: ${getErrorMessage(error)}`)
     }
   }
 
@@ -46,7 +49,7 @@ export class FileBulletContentStore implements IBulletContentStore {
 
       return content
     } catch (error) {
-      throw new Error(`Failed to load bullet content from ${contentPath}: ${(error as Error).message}`)
+      throw new Error(`Failed to load bullet content from ${contentPath}: ${getErrorMessage(error)}`)
     }
   }
 
@@ -73,7 +76,7 @@ Renaming this file will break the link to the playbook metadata.
 
       return contentPath
     } catch (error) {
-      throw new Error(`Failed to save bullet content to ${contentPath}: ${(error as Error).message}`)
+      throw new Error(`Failed to save bullet content to ${contentPath}: ${getErrorMessage(error)}`)
     }
   }
 

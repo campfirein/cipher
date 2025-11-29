@@ -5,7 +5,7 @@ import type {IProjectConfigStore} from '../../core/interfaces/i-project-config-s
 import {getCurrentConfig} from '../../config/environment.js'
 import {PROJECT} from '../../constants.js'
 import {CipherAgent} from '../../infra/cipher/cipher-agent.js'
-import {ExitCode, exitWithCode} from '../../infra/cipher/exit-codes.js'
+import {ExitCode, ExitError, exitWithCode} from '../../infra/cipher/exit-codes.js'
 import {displayInfo, startInteractiveLoop} from '../../infra/cipher/interactive-loop.js'
 import {WorkspaceNotInitializedError} from '../../infra/cipher/validation/workspace-validator.js'
 import {ProjectConfigStore} from '../../infra/config/file-config-store.js'
@@ -69,7 +69,7 @@ export default class CipherAgentRun extends Command {
     }),
     model: Flags.string({
       char: 'm',
-      description: 'Model to use (default: anthropic/claude-haiku-4.5 for OpenRouter, gemini-2.5-flash for gRPC)',
+      description: 'Model to use (default: google/gemini-2.5-pro for OpenRouter, gemini-2.5-pro for gRPC)',
     }),
     resume: Flags.string({
       char: 'r',
@@ -77,7 +77,7 @@ export default class CipherAgentRun extends Command {
     }),
     temperature: Flags.string({
       char: 'T',
-      description: 'Temperature for randomness 0-1 (default: 0.7)',
+      description: 'Temperature for randomness 0-1 (default: 0.2)',
     }),
     verbose: Flags.boolean({
       char: 'v',
@@ -88,6 +88,23 @@ export default class CipherAgentRun extends Command {
       char: 'w',
       description: 'Working directory for file operations (default: current directory)',
     }),
+  }
+
+  // Override catch to prevent oclif from logging errors that were already displayed
+  async catch(error: Error & {oclif?: {exit: number}}): Promise<void> {
+    // Check if error is ExitError (message already displayed by exitWithCode)
+    if (error instanceof ExitError) {
+      return
+    }
+
+    // Backwards compatibility: also check oclif.exit property
+    if (error.oclif?.exit !== undefined) {
+      // Error already displayed by exitWithCode, silently exit
+      return
+    }
+
+    // For other errors, re-throw to let oclif handle them
+    throw error
   }
 
   protected createServices(): {
@@ -145,6 +162,7 @@ export default class CipherAgentRun extends Command {
     return mostRecentId
   }
 
+  // eslint-disable-next-line complexity
   public async run(): Promise<void> {
     const {args, flags} = await this.parse(CipherAgentRun)
 
@@ -180,6 +198,14 @@ export default class CipherAgentRun extends Command {
       const {projectConfigStore} = this.createServices()
       const brvConfig = await projectConfigStore.read()
 
+      // Validate workspace is initialized
+      if (!brvConfig) {
+        throw new WorkspaceNotInitializedError(
+          'Project not initialized. Please run "brv init" to select your team and workspace.',
+          '.brv',
+        )
+      }
+
       // Create LLM configuration
       const llmConfig = this.createLLMConfig(
         {...token, spaceId: brvConfig?.spaceId ?? '', teamId: brvConfig?.teamId ?? ''},
@@ -200,8 +226,9 @@ export default class CipherAgentRun extends Command {
         this.setupEventListeners(agent, isInteractive)
 
         if (isInteractive) {
-          // Interactive mode: start the loop
+          // Interactive mode: start the loop with event bus for spinner
           await startInteractiveLoop(agent, {
+            eventBus: agent.agentEventBus,
             model: llmConfig.model,
             sessionId: resolvedSessionId,
           })
@@ -222,7 +249,7 @@ export default class CipherAgentRun extends Command {
           this.log(`\n[Agent State: ${state.currentIteration} iterations]`)
         }
       } finally {
-        await agent.stop()
+        // await agent.stop()
       }
     } catch (error) {
       // Handle workspace not initialized error with friendly message
@@ -231,8 +258,15 @@ export default class CipherAgentRun extends Command {
         return
       }
 
+      // Handle graceful exit (Ctrl+C) - exit silently without error
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      if (errorMessage.includes('Readline closed')) {
+        // Silent exit - cleanup already happened
+        return
+      }
+
       // Generic error handling with proper exit code
-      exitWithCode(ExitCode.RUNTIME_ERROR, `Failed to execute CipherAgent: ${(error as Error).message}`)
+      exitWithCode(ExitCode.RUNTIME_ERROR, `Failed to execute CipherAgent: ${errorMessage}`)
     }
   }
 
@@ -293,8 +327,8 @@ export default class CipherAgentRun extends Command {
     temperature: number
     verbose?: boolean
   } {
-    // Default model: anthropic/anthropic/claude-haiku-4.5 for OpenRouter, gemini-2.5-flash for gRPC
-    const model = flags.model ?? (flags.apiKey ? 'anthropic/claude-haiku-4.5' : 'claude-haiku-4-5@20251001') // change it to claude-haiku-4-5@20251001 | gemini-2.5-flash for internal llm service model
+    // Default model: google/gemini-2.5-pro for OpenRouter, gemini-2.5-pro for gRPC
+    const model = flags.model ?? (flags.apiKey ? 'google/gemini-2.5-pro' : 'gemini-2.5-pro')
     const envConfig = getCurrentConfig()
 
     return {
@@ -309,7 +343,7 @@ export default class CipherAgentRun extends Command {
       sessionKey: token.sessionKey,
       spaceId: token.spaceId,
       teamId: token.teamId,
-      temperature: flags.temperature ? Number.parseFloat(flags.temperature) : 0.7, // Default: 0.7
+      temperature: flags.temperature ? Number.parseFloat(flags.temperature) : 0.2, // Default: 0.2
       verbose: flags.verbose ?? false,
     }
   }
@@ -322,39 +356,111 @@ export default class CipherAgentRun extends Command {
    * @returns Formatted string for display
    */
   private formatToolForInteractive(toolName: string, args: Record<string, unknown>): string {
-    // Special case for bash_exec - just show the command
-    if (toolName === 'bash_exec' && args.command) {
-      const cmd = String(args.command)
-      // Truncate long commands but keep readable
-      return cmd.length > 100 ? cmd.slice(0, 97) + '...' : cmd
+    // Provide user-friendly action descriptions
+    switch (toolName) {
+      case 'bash_exec': {
+        const cmd = String(args.command ?? '')
+        // Truncate long commands but keep readable
+        return cmd.length > 60 ? `Running command...` : `Running: ${cmd}`
+      }
+
+      case 'create_knowledge_topic': {
+        return 'Creating knowledge topic...'
+      }
+
+      case 'find_knowledge_topics': {
+        return 'Querying knowledge base...'
+      }
+
+      case 'grep_content': {
+        return 'Searching codebase...'
+      }
+
+      case 'list_directory': {
+        return 'Listing directory...'
+      }
+
+      case 'read_file': {
+        return `Reading file...`
+      }
+
+      case 'update_knowledge_topic': {
+        return 'Updating knowledge topic...'
+      }
+
+      case 'write_file': {
+        return 'Writing file...'
+      }
+
+      default: {
+        // For other tools, use a generic format
+        return 'Processing...'
+      }
     }
+  }
 
-    // For other tools, use the existing formatter
-    const formatted = formatToolCall(toolName, args)
+  /**
+   * Format tool result summary for display
+   *
+   * @param toolName - Name of the tool
+   * @param result - Tool result data
+   * @returns Formatted summary string or empty if no summary needed
+   */
+  private formatToolResultSummary(toolName: string, result: unknown): string {
+    try {
+      switch (toolName) {
+        case 'find_knowledge_topics': {
+          // Parse result to count topics
+          if (typeof result === 'string') {
+            try {
+              const parsed = JSON.parse(result)
+              const count = Array.isArray(parsed) ? parsed.length : Object.keys(parsed).length
+              return `${count} topics retrieved`
+            } catch {
+              return ''
+            }
+          }
 
-    // Remove the tool name prefix since we show it separately
-    // formatToolCall returns: "tool_name(arg1: val1, ...)"
-    // We want: "(arg1: val1, ...)" or just the args portion
-    const argsOnly = formatted.replace(new RegExp(`^${toolName}\\s*`), '')
+          return ''
+        }
 
-    return argsOnly
+        case 'grep_content': {
+          // Parse result to count matches
+          if (typeof result === 'string') {
+            const lines = result.split('\n').filter((line) => line.trim())
+            return `${lines.length} matches found`
+          }
+
+          return ''
+        }
+
+        case 'list_directory': {
+          // Parse result to count items
+          if (typeof result === 'string') {
+            const lines = result.split('\n').filter((line) => line.trim())
+            return `${lines.length} items`
+          }
+
+          return ''
+        }
+
+        default: {
+          return ''
+        }
+      }
+    } catch {
+      // If parsing fails, just return empty
+      return ''
+    }
   }
 
   /**
    * Handle workspace not initialized error with friendly message
    *
-   * @param error - WorkspaceNotInitializedError instance
+   * @param _error - WorkspaceNotInitializedError instance (unused, kept for type safety)
    */
-  private handleWorkspaceError(error: WorkspaceNotInitializedError): void {
-    const message = [
-      '\n⚠️  ByteRover workspace not found!\n',
-      "It looks like you haven't initialized ByteRover in this directory yet.",
-      'To get started, please run:\n',
-      '  $ brv init\n',
-      'This will create the necessary workspace structure in:',
-      `  ${error.expectedPath}\n`,
-      'After initialization, you can run cipher-agent again.',
-    ].join('\n')
+  private handleWorkspaceError(_error: WorkspaceNotInitializedError): void {
+    const message = 'Project not initialized. Please run "brv init" to select your team and workspace.'
 
     exitWithCode(ExitCode.VALIDATION_ERROR, message)
   }
@@ -411,7 +517,7 @@ export default class CipherAgentRun extends Command {
 
     // No continuation flags: generate new unique session ID
     const newSessionId = this.generateSessionId()
-    this.log(`🆕 Starting new session: ${newSessionId}\n`)
+    this.log(`🚀 Starting new session: ${newSessionId}\n`)
     return newSessionId
   }
 
@@ -435,39 +541,29 @@ export default class CipherAgentRun extends Command {
       // In interactive mode, show concise tool events for transparency
       eventBus.on('llmservice:toolCall', (payload) => {
         const details = this.formatToolForInteractive(payload.toolName, payload.args)
-        displayInfo(`🔧 [Tool] ${payload.toolName}: ${details}`)
+        // Clean format: 🔧 tool_name → Action description...
+        displayInfo(`🔧 ${payload.toolName} → ${details}`)
       })
 
       eventBus.on('llmservice:toolResult', (payload) => {
         if (payload.success) {
-          displayInfo(`✓ [Done] ${payload.toolName}`)
+          // Clean format: ✅ tool_name → Complete (with optional summary)
+          const summary = this.formatToolResultSummary(payload.toolName, payload.result)
+          displayInfo(summary ? `✅ ${payload.toolName} → Complete (${summary})` : `✅ ${payload.toolName} → Complete`)
         } else {
-          displayInfo(`✗ [Error] ${payload.toolName}: ${payload.error}`)
+          // Clean format: ❌ tool_name → Failed: error message
+          const errorMessage = payload.error || 'Unknown error'
+          displayInfo(`❌ ${payload.toolName} → Failed: ${errorMessage}`)
         }
       })
 
       eventBus.on('llmservice:error', (payload) => {
-        displayInfo(`Error: ${payload.error}`)
+        const errorMessage = payload.error || 'Unknown error occurred'
+        displayInfo(`❌ Error: ${errorMessage}`)
       })
 
       eventBus.on('cipher:conversationReset', () => {
-        displayInfo('Conversation history cleared')
-      })
-
-      eventBus.on('cipher:cleanExternalSessionProcessing', (payload) => {
-        displayInfo(`Processing external session from ${payload.codingAgent}:\n\n${payload.externalSessionTitle}`)
-      })
-
-      eventBus.on('cipher:cleanExternalSessionProcessed', (payload) => {
-        displayInfo(
-          `Context tree updated with external session from ${payload.codingAgent}:\n\n${payload.externalSessionTitle}`,
-        )
-      })
-
-      eventBus.on('cipher:cleanExternalSessionProcessingError', (payload) => {
-        displayInfo(
-          `Error processing external session from ${payload.codingAgent}:\n\n${payload.externalSessionTitle}\n\n${payload.error.message}`,
-        )
+        displayInfo('🔄 Conversation history cleared')
       })
 
       return
@@ -498,7 +594,8 @@ export default class CipherAgentRun extends Command {
     })
 
     eventBus.on('llmservice:error', (payload) => {
-      this.log(`❌ [Event] LLM Error: ${payload.error}`)
+      const errorMessage = payload.error || 'Unknown error occurred'
+      this.log(`❌ [Event] LLM Error: ${errorMessage}`)
     })
 
     eventBus.on('cipher:conversationReset', () => {

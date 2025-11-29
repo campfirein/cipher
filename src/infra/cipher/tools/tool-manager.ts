@@ -1,45 +1,98 @@
 import type {ToolSet} from '../../../core/domain/cipher/tools/types.js'
 import type {IToolProvider} from '../../../core/interfaces/cipher/i-tool-provider.js'
+import type {IToolScheduler} from '../../../core/interfaces/cipher/i-tool-scheduler.js'
 import type {ToolMarker} from './tool-markers.js'
 
+import {ToolError, ToolErrorType, ToolErrorUtils, type ToolExecutionResult} from '../../../core/domain/cipher/tools/tool-error.js'
+
 /**
- * Tool Manager for memAgent
+ * Tool Manager for CipherAgent
  *
  * Provides a clean interface for tool discovery and execution.
  * Wraps ToolProvider with caching for improved performance.
  *
- * Simplified version without:
- * - MCP integration (future)
- * - Approval/confirmation system (future)
- * - Plugin hooks (future)
- * - Event emission (future)
- * - Session management (future)
+ * Features:
+ * - Optional scheduler integration for policy-based execution
+ * - Tool caching for performance
+ * - Structured error handling with classification
+ *
+ * When a scheduler is provided, tool execution flows through:
+ * 1. Policy check (ALLOW/DENY)
+ * 2. Execution (if allowed)
+ *
+ * Without a scheduler, tools execute directly via the provider.
  */
 export class ToolManager {
   private cacheValid: boolean = false
+  private readonly scheduler?: IToolScheduler
   private readonly toolProvider: IToolProvider
   private toolsCache: ToolSet = {}
 
   /**
    * Creates a new tool manager
+   *
    * @param toolProvider - Tool provider instance
+   * @param scheduler - Optional tool scheduler for policy-based execution
    */
-  public constructor(toolProvider: IToolProvider) {
+  public constructor(toolProvider: IToolProvider, scheduler?: IToolScheduler) {
     this.toolProvider = toolProvider
+    this.scheduler = scheduler
   }
 
   /**
-   * Execute a tool by name.
+   * Execute a tool by name with structured error handling.
+   *
+   * Returns a structured result that includes success status, content,
+   * error classification, and metadata. This enables better error handling
+   * and provides actionable feedback to the LLM.
+   *
+   * When a scheduler is configured, execution flows through:
+   * 1. Policy check (ALLOW/DENY)
+   * 2. Execution (if allowed)
+   *
+   * Without a scheduler, tools execute directly via the provider.
    *
    * @param toolName - Name of the tool to execute
    * @param args - Tool arguments (validated by provider)
-   * @returns Tool execution result
-   * @throws ToolNotFoundError if tool doesn't exist
-   * @throws ToolValidationError if input validation fails
-   * @throws ToolExecutionError if execution fails
+   * @param sessionId - Optional session ID for context
+   * @returns Structured tool execution result
    */
-  public async executeTool(toolName: string, args: Record<string, unknown>): Promise<unknown> {
-    return this.toolProvider.executeTool(toolName, args)
+  public async executeTool(
+    toolName: string,
+    args: Record<string, unknown>,
+    sessionId?: string,
+  ): Promise<ToolExecutionResult> {
+    const startTime = Date.now()
+
+    try {
+      // Check if tool exists before execution
+      if (!this.hasTool(toolName)) {
+        throw new ToolError(
+          `Tool '${toolName}' not found`,
+          ToolErrorType.TOOL_NOT_FOUND,
+          toolName,
+          {context: {availableTools: this.getToolNames()}}
+        )
+      }
+
+      // Execute tool via scheduler (with policy check) or directly via provider
+      const result = this.scheduler
+        ? await this.scheduler.execute(toolName, args, {sessionId: sessionId ?? 'default'})
+        : await this.toolProvider.executeTool(toolName, args, sessionId)
+
+      const durationMs = Date.now() - startTime
+
+      // Return success result
+      return ToolErrorUtils.createSuccess(result, {durationMs})
+    } catch (error) {
+      const durationMs = Date.now() - startTime
+
+      // Classify error
+      const toolError = ToolErrorUtils.classify(error, toolName)
+
+      // Return error result
+      return ToolErrorUtils.createErrorResult(toolError, {durationMs})
+    }
   }
 
   /**

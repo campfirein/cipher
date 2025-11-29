@@ -1,3 +1,5 @@
+// TODO: Will deprecate. Replaced by Context Tree
+
 import {writeFile} from 'node:fs/promises'
 import {join} from 'node:path'
 
@@ -5,6 +7,7 @@ import type {DeltaBatch} from '../../core/domain/entities/delta-batch.js'
 import type {IDeltaStore} from '../../core/interfaces/i-delta-store.js'
 
 import {DELTAS_DIR} from '../../constants.js'
+import {getErrorMessage} from '../../utils/error-helpers.js'
 import {ensureAceDirectory, generateTimestampedFilename} from './ace-file-utils.js'
 
 /**
@@ -27,7 +30,7 @@ export class FileDeltaStore implements IDeltaStore {
 
       return filePath
     } catch (error) {
-      throw new Error(`Failed to save delta batch: ${(error as Error).message}`)
+      throw new Error(`Failed to save delta batch: ${getErrorMessage(error)}`)
     }
   }
 }

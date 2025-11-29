@@ -2,7 +2,13 @@ import Database from 'better-sqlite3'
 import * as fs from 'node:fs/promises'
 import {join} from 'node:path'
 
-import type {BlobMetadata, BlobStats, BlobStorageConfig, StoredBlob} from '../../../core/domain/cipher/blob/types.js'
+import type {
+  BlobLogger,
+  BlobMetadata,
+  BlobStats,
+  BlobStorageConfig,
+  StoredBlob,
+} from '../../../core/domain/cipher/blob/types.js'
 import type {IBlobStorage} from '../../../core/interfaces/cipher/i-blob-storage.js'
 
 import {BlobError} from '../../../core/domain/cipher/errors/blob-error.js'
@@ -41,6 +47,7 @@ export class SqliteBlobStorage implements IBlobStorage {
   private readonly dbPath: string
   private initialized = false
   private readonly inMemory: boolean
+  private readonly logger: BlobLogger
   private readonly maxBlobSize: number
   private readonly maxTotalSize: number
   private readonly storageDir: string
@@ -51,6 +58,10 @@ export class SqliteBlobStorage implements IBlobStorage {
     this.dbPath = this.inMemory ? ':memory:' : join(this.storageDir, 'storage.db')
     this.maxBlobSize = config?.maxBlobSize ?? 100 * 1024 * 1024 // 100MB default
     this.maxTotalSize = config?.maxTotalSize ?? 1024 * 1024 * 1024 // 1GB default
+    this.logger = config?.logger ?? {
+      error: (message: string) => console.error(message),
+      info: (message: string) => console.log(message),
+    }
   }
 
   /**
@@ -194,10 +205,10 @@ export class SqliteBlobStorage implements IBlobStorage {
 
       // Run migrations to ensure schema is up-to-date
       const {runMigrations} = await import('./migrations.js')
-      const appliedCount = runMigrations(this.db)
+      const appliedCount = runMigrations(this.db, this.logger)
 
       if (appliedCount > 0) {
-        console.log(`[SqliteBlobStorage] Applied ${appliedCount} migration(s)`)
+        this.logger.info(`💾 Initializing storage...`)
       }
 
       this.initialized = true

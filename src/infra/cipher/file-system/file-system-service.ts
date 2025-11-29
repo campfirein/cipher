@@ -40,6 +40,7 @@ import {
   StringNotUniqueError,
   WriteOperationError,
 } from '../../../core/domain/cipher/errors/file-system-error.js'
+import {getErrorMessage} from '../../../utils/error-helpers.js'
 import {PathValidator} from './path-validator.js'
 
 /**
@@ -93,10 +94,7 @@ export class FileSystemService implements IFileSystem {
       let {content} = fileContent
 
       // Escape regex special characters for literal string matching
-      const escapedOldString = operation.oldString.replaceAll(
-        /[$()*+.?[\u005C\]^{|}]/g,
-        String.raw`\$&`,
-      )
+      const escapedOldString = operation.oldString.replaceAll(/[$()*+.?[\u005C\]^{|}]/g, String.raw`\$&`)
 
       // Count occurrences
       const occurrences = (content.match(new RegExp(escapedOldString, 'g')) || []).length
@@ -139,7 +137,7 @@ export class FileSystemService implements IFileSystem {
       }
 
       // Wrap other errors
-      throw new EditOperationError(normalizedPath, (error as Error).message)
+      throw new EditOperationError(normalizedPath, getErrorMessage(error))
     }
   }
 
@@ -213,11 +211,11 @@ export class FileSystemService implements IFileSystem {
       }
     } catch (error) {
       // Check for pattern errors
-      if ((error as Error).message.includes('Invalid glob pattern')) {
-        throw new InvalidPatternError(pattern, (error as Error).message)
+      if (getErrorMessage(error).includes('Invalid glob pattern')) {
+        throw new InvalidPatternError(pattern, getErrorMessage(error))
       }
 
-      throw new GlobOperationError(pattern, (error as Error).message)
+      throw new GlobOperationError(pattern, getErrorMessage(error))
     }
   }
 
@@ -292,8 +290,7 @@ export class FileSystemService implements IFileSystem {
       const {limit, offset: offset1} = options
 
       if (offset1 !== undefined || limit !== undefined) {
-        const start =
-          offset1 !== undefined && offset1 > 0 ? Math.max(0, offset1 - 1) : 0
+        const start = offset1 !== undefined && offset1 > 0 ? Math.max(0, offset1 - 1) : 0
         const end = limit === undefined ? lines.length : start + limit
 
         selectedLines = lines.slice(start, end)
@@ -324,17 +321,14 @@ export class FileSystemService implements IFileSystem {
       }
 
       // Wrap other errors
-      throw new ReadOperationError(normalizedPath, (error as Error).message)
+      throw new ReadOperationError(normalizedPath, getErrorMessage(error))
     }
   }
 
   /**
    * Search file contents for a pattern.
    */
-  public async searchContent(
-    pattern: string,
-    options: SearchOptions = {},
-  ): Promise<SearchResult> {
+  public async searchContent(pattern: string, options: SearchOptions = {}): Promise<SearchResult> {
     this.ensureInitialized()
 
     const globPattern = options.globPattern ?? '**/*'
@@ -361,18 +355,14 @@ export class FileSystemService implements IFileSystem {
         throw error
       }
 
-      throw new SearchOperationError(pattern, (error as Error).message)
+      throw new SearchOperationError(pattern, getErrorMessage(error))
     }
   }
 
   /**
    * Write content to a file.
    */
-  public async writeFile(
-    filePath: string,
-    content: string,
-    options: WriteFileOptions = {},
-  ): Promise<WriteResult> {
+  public async writeFile(filePath: string, content: string, options: WriteFileOptions = {}): Promise<WriteResult> {
     this.ensureInitialized()
 
     // Validate path
@@ -414,7 +404,7 @@ export class FileSystemService implements IFileSystem {
       }
 
       // Wrap other errors
-      throw new WriteOperationError(normalizedPath, (error as Error).message)
+      throw new WriteOperationError(normalizedPath, getErrorMessage(error))
     }
   }
 
@@ -452,7 +442,7 @@ export class FileSystemService implements IFileSystem {
     try {
       return new RegExp(pattern, flags)
     } catch (error) {
-      throw new InvalidPatternError(pattern, (error as Error).message)
+      throw new InvalidPatternError(pattern, getErrorMessage(error))
     }
   }
 
