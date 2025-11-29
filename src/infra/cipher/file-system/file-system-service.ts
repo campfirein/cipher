@@ -1,5 +1,7 @@
 import {glob} from 'glob'
+import {spawn} from 'node:child_process'
 import fs from 'node:fs/promises'
+import {EOL} from 'node:os'
 import path from 'node:path'
 
 import type {
@@ -359,28 +361,43 @@ export class FileSystemService implements IFileSystem {
 
   /**
    * Search file contents for a pattern.
+   * Uses native grep commands (ripgrep, system grep) when available for better performance,
+   * falling back to JavaScript implementation when needed.
    */
   public async searchContent(pattern: string, options: SearchOptions = {}): Promise<SearchResult> {
     this.ensureInitialized()
 
-    const globPattern = options.globPattern ?? '**/*'
     const cwd = options.cwd ?? this.config.workingDirectory
     const maxResults = options.maxResults ?? 100
     const contextLines = options.contextLines ?? 0
-    const caseInsensitive = options.caseInsensitive ?? false
+
+    // If context lines requested, use JS fallback directly (native grep context parsing is complex)
+    if (contextLines > 0) {
+      return this.searchContentJS(pattern, options)
+    }
 
     try {
-      // Create regex
-      const regex = this.createSearchRegex(pattern, caseInsensitive)
+      // Try native strategies in order: ripgrep → system grep → JS fallback
+      let matches: null | SearchMatch[] = null
 
-      // Find files to search
-      const globResult = await this.globFiles(globPattern, {
-        cwd,
-        includeMetadata: false,
-        maxResults: 10_000, // Search more files, but limit results
-      })
+      matches = await this.executeRipgrep(pattern, cwd, options)
+      if (matches === null) {
+        matches = await this.executeSystemGrep(pattern, cwd, options)
+      }
 
-      return await this.searchFiles(globResult.files, regex, maxResults, contextLines)
+      if (matches === null) {
+        return this.searchContentJS(pattern, options)
+      }
+
+      // Apply maxResults limit
+      const truncated = matches.length > maxResults
+
+      return {
+        filesSearched: new Set(matches.map((m) => m.file)).size,
+        matches: matches.slice(0, maxResults),
+        totalMatches: matches.length,
+        truncated,
+      }
     } catch (error) {
       // Re-throw known errors
       if (error instanceof InvalidPatternError || error instanceof GlobOperationError) {
@@ -513,6 +530,149 @@ export class FileSystemService implements IFileSystem {
   }
 
   /**
+   * Executes ripgrep (rg) for content search.
+   * Returns null if rg is not available or fails.
+   */
+  private async executeRipgrep(
+    pattern: string,
+    cwd: string,
+    options: SearchOptions,
+  ): Promise<null | SearchMatch[]> {
+    if (!(await this.isCommandAvailable('rg'))) return null
+
+    const args = ['-n', '--no-heading', '--with-filename']
+    if (options.caseInsensitive) args.push('-i')
+
+    // Add exclusions for blocked paths
+    for (const blocked of this.config.blockedPaths) {
+      args.push('--glob', `!${blocked}`)
+    }
+
+    if (options.globPattern) args.push('--glob', options.globPattern)
+    args.push(pattern, '.') // Add search path to prevent reading from stdin
+
+    try {
+      const output = await this.spawnCommand('rg', args, cwd, options.abortSignal)
+      return this.parseGrepOutput(output, cwd)
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * Executes system grep for content search.
+   * Returns null if grep is not available or fails.
+   */
+  private async executeSystemGrep(
+    pattern: string,
+    cwd: string,
+    options: SearchOptions,
+  ): Promise<null | SearchMatch[]> {
+    if (!(await this.isCommandAvailable('grep'))) return null
+
+    const args = ['-r', '-n', '-H', '-E', '-I']
+    if (options.caseInsensitive) args.push('-i')
+
+    // Add exclusions for blocked paths
+    for (const blocked of this.config.blockedPaths) {
+      args.push(`--exclude-dir=${blocked}`)
+    }
+
+    if (options.globPattern) args.push(`--include=${options.globPattern}`)
+    args.push(pattern, '.')
+
+    try {
+      const output = await this.spawnCommand('grep', args, cwd, options.abortSignal)
+      return this.parseGrepOutput(output, cwd)
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * Checks if a command is available in the system's PATH.
+   */
+  private isCommandAvailable(command: string): Promise<boolean> {
+    return new Promise((resolve) => {
+      const checkCmd = process.platform === 'win32' ? 'where' : 'command'
+      const checkArgs = process.platform === 'win32' ? [command] : ['-v', command]
+      try {
+        const child = spawn(checkCmd, checkArgs, {shell: true, stdio: 'ignore'})
+        child.on('close', (code) => resolve(code === 0))
+        child.on('error', () => resolve(false))
+      } catch {
+        resolve(false)
+      }
+    })
+  }
+
+  /**
+   * Parses output from grep-like commands (filepath:lineNumber:content format).
+   */
+  private parseGrepOutput(output: string, basePath: string): SearchMatch[] {
+    const results: SearchMatch[] = []
+    if (!output) return results
+
+    for (const line of output.split(EOL)) {
+      if (!line.trim()) continue
+
+      // Format: filepath:lineNumber:content
+      const firstColon = line.indexOf(':')
+      if (firstColon === -1) continue
+
+      const secondColon = line.indexOf(':', firstColon + 1)
+      if (secondColon === -1) continue
+
+      const filePath = line.slice(0, firstColon)
+      const lineNumber = Number.parseInt(line.slice(firstColon + 1, secondColon), 10)
+      const content = line.slice(secondColon + 1)
+
+      if (!Number.isNaN(lineNumber)) {
+        results.push({
+          file: path.resolve(basePath, filePath),
+          line: content,
+          lineNumber,
+        })
+      }
+    }
+
+    return results
+  }
+
+  /**
+   * JavaScript-based content search implementation.
+   * Used as fallback when native grep commands are unavailable or when context lines are needed.
+   */
+  private async searchContentJS(pattern: string, options: SearchOptions = {}): Promise<SearchResult> {
+    const globPattern = options.globPattern ?? '**/*'
+    const cwd = options.cwd ?? this.config.workingDirectory
+    const maxResults = options.maxResults ?? 100
+    const contextLines = options.contextLines ?? 0
+    const caseInsensitive = options.caseInsensitive ?? false
+
+    try {
+      // Create regex
+      const regex = this.createSearchRegex(pattern, caseInsensitive)
+
+      // Find files to search
+      const globResult = await this.globFiles(globPattern, {
+        cwd,
+        includeMetadata: false,
+        maxResults: 10_000, // Search more files, but limit results
+      })
+
+      return await this.searchFiles(globResult.files, regex, maxResults, contextLines)
+    } catch (error) {
+      // Re-throw known errors
+      if (error instanceof InvalidPatternError || error instanceof GlobOperationError) {
+        throw error
+      }
+
+      throw new SearchOperationError(pattern, getErrorMessage(error))
+    }
+  }
+
+  /**
    * Searches a single file for a regex pattern.
    */
   private async searchFile(
@@ -594,6 +754,31 @@ export class FileSystemService implements IFileSystem {
       totalMatches,
       truncated: false,
     }
+  }
+
+  /**
+   * Spawns a command and returns its stdout.
+   */
+  private spawnCommand(cmd: string, args: string[], cwd: string, signal?: AbortSignal): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const child = spawn(cmd, args, {cwd, windowsHide: true})
+      const chunks: Buffer[] = []
+
+      if (signal) {
+        signal.addEventListener('abort', () => child.kill())
+      }
+
+      child.stdout.on('data', (chunk: Buffer) => chunks.push(chunk))
+      child.on('error', reject)
+      child.on('close', (code) => {
+        if (code === 0 || code === 1) {
+          // 1 = no matches found (not an error)
+          resolve(Buffer.concat(chunks).toString('utf8'))
+        } else {
+          reject(new Error(`Command exited with code ${code}`))
+        }
+      })
+    })
   }
 
   /**

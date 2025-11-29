@@ -91,6 +91,9 @@ export interface GlobOptions {
  * Options for content search.
  */
 export interface SearchOptions {
+  /** Abort signal for cancellation */
+  abortSignal?: AbortSignal
+
   /** Case-insensitive search */
   caseInsensitive?: boolean
 
