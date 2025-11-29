@@ -34,7 +34,6 @@ Authentication uses OAuth 2.0 with PKCE flow. Your credentials are securely stor
 | `brv push`                                      | Push playbook to ByteRover memory storage    | `brv push`                                         |
 | `brv add`                                       | Add or update a bullet in the playbook       | `brv add --interactive`                            |
 | `brv clear [DIRECTORY]`                         | Clear local ACE playbook                     | `brv clear`                                        |
-| `brv complete <hint> <reasoning> <finalAnswer>` | Complete ACE workflow in one command         | `brv complete "fix" "..." "..." -t "..." -f "..."` |
 | `brv gen-rules`                                 | Generate rule instructions for coding agents | `brv gen-rules`                                    |
 
 ## Command Details
@@ -402,79 +401,6 @@ brv clear /path/to/project
 
 ---
 
-### `brv complete`
-
-Complete ACE workflow: save executor output, generate reflection, and update playbook in one command. This is the primary command for coding agents to complete the ACE workflow efficiently.
-
-**Arguments**
-
-| Argument      | Type   | Required | Description                                                       |
-| ------------- | ------ | -------- | ----------------------------------------------------------------- |
-| `HINT`        | string | Yes      | Short hint for naming output files (e.g., "user-auth", "bug-fix") |
-| `REASONING`   | string | Yes      | Detailed reasoning and approach for completing the task           |
-| `FINALANSWER` | string | Yes      | The final answer/solution to the task                             |
-
-**Flags**
-
-| Flag                          | Description                                                                     | Required |
-| ----------------------------- | ------------------------------------------------------------------------------- | -------- |
-| `-t, --tool-usage <value>`    | Comma-separated list of tool calls with arguments (format: "ToolName:argument") | Yes      |
-| `-f, --feedback <value>`      | Environment feedback about task execution                                       | Yes      |
-| `-b, --bullet-ids <value>`    | Comma-separated list of playbook bullet IDs referenced                          | No       |
-| `-u, --update-bullet <value>` | Bullet ID to update with new knowledge (creates new if not provided)            | No       |
-
-**Examples**
-
-```bash
-# Complete workflow after implementing OAuth
-brv complete "user-auth" "Implemented OAuth2 flow with PKCE" "Authentication works correctly" \
-  --tool-usage "Read:src/auth.ts,Edit:src/auth.ts,Bash:npm test" \
-  --feedback "All tests passed"
-
-# Complete with referenced bullets
-brv complete "validation-fix" "Analyzed validator and fixed edge case" "Bug fixed" \
-  --tool-usage "Grep:pattern:\"validate\",Read:src/validator.ts,Edit:src/validator.ts" \
-  --bullet-ids "bullet-123,bullet-456" \
-  --feedback "Tests passed, no regressions"
-
-# Update existing bullet
-brv complete "auth-update" "Improved error handling in auth flow" "Better error messages" \
-  --tool-usage "Edit:src/auth.ts,Bash:npm test" \
-  --feedback "Tests passed" \
-  --update-bullet "bullet-5"
-
-# Short form flags
-brv complete "fix" "Fixed bug" "Works now" -t "Edit:file.ts" -f "Tests pass"
-```
-
-**Tool Usage Format**
-
-The `--tool-usage` flag accepts comma-separated tool calls:
-
-- `ToolName:argument` - e.g., `Read:src/file.ts`
-- `ToolName:pattern:"search"` - e.g., `Grep:pattern:"validate"`
-- Multiple tools: `Read:file1.ts,Edit:file1.ts,Bash:npm test`
-
-**Output**
-
-The command executes in three phases:
-
-1. **Phase 1**: Saves executor output to `.brv/ace/executor-outputs/`
-2. **Phase 2**: Generates reflection with tags and saves to `.brv/ace/reflections/`
-3. **Phase 3**: Generates delta and applies to playbook
-
-Displays summary of operations and file paths.
-
-**Notes**
-
-- Playbook must exist (run `brv init` first)
-- This is the primary command for coding agents to complete the ACE workflow
-- Combines three separate operations (executor output, reflection, delta) into one
-- If `--update-bullet` is not provided, adds new bullet to playbook
-- Use `--bullet-ids` to reference bullets that informed your approach
-
----
-
 ### `brv gen-rules`
 
 Generate rule instructions for coding agents to work with ByteRover correctly. Creates agent-specific rule files with instructions for using ByteRover CLI in their workflow.
@@ -533,6 +459,6 @@ ByteRover CLI creates the following directory structure in your project:
 - **config.json**: Stores your team ID, space ID, and project metadata
 - **playbook.json**: Your living knowledge base containing accumulated learnings organized by sections
 - **bullets/**: Individual bullet content referenced by the playbook
-- **executor-outputs/**: Records of task executions (created by `brv complete`)
+- **executor-outputs/**: Records of task executions
 - **reflections/**: Generated reflections on completed tasks
 - **deltas/**: Operations that modify the playbook structure

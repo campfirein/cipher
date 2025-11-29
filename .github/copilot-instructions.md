@@ -18,7 +18,6 @@ oclif v4 TypeScript CLI. Clean Architecture: Commands → Services (infra) → C
 | `brv space switch` | Updates config. **Does NOT** init ACE structure |
 | `brv retrieve` | **Clears playbook first**. Combines memories+relatedMemories. Uses `transformRetrieveResultToPlaybook()` |
 | `brv push` | GCS upload: PUT with `application/json`, **NO auth headers**. Must call confirm POST. Cleanup: playbook + ACE dirs |
-| `brv complete` | 3-phase: Executor→`executor-outputs/`→Reflector→`reflections/`+tags→Curator→`deltas/`+apply. Use `--update-bullet <id>` to UPDATE vs ADD |
 | `brv add` | Direct playbook edit. Bypasses ACE workflow |
 
 ## Testing

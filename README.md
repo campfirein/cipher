@@ -104,19 +104,6 @@ Agent analyzes results and provides honest feedback on what worked and what didn
 ### 3. Curator
 Agent transforms insights into playbook updates that are automatically applied to improve future work.
 
-### Quick Example
-
-If you're using a coding agent like Claude Code:
-
-```bash
-# Complete ACE workflow in a single command
-brv complete "auth-feature" \
-  "Implemented JWT authentication with secure token handling" \
-  "Successfully added OAuth2 authentication" \
-  --tool-usage "Read:src/auth.ts,Edit:src/auth.ts,Bash:npm test" \
-  --feedback "All tests passed, auth works correctly"
-```
-
 For comprehensive ACE instructions for coding agents, check the corresponding coding agents' instruction files after `brv init` or `brv gen-rules`.
 
 ## Essential Commands
@@ -154,11 +141,6 @@ brv push
 ### For Coding Agents
 
 ```bash
-# Complete ACE workflow (recommended for agents)
-brv complete <hint> <reasoning> <answer> \
-  --tool-usage <tools> \
-  --feedback <feedback>
-
 # Generate agent rules (sets up ACE workflow for your coding agent)
 brv gen-rules
 ```
