@@ -24,7 +24,7 @@ export const mapToPushContexts = (params: MapToPushContextsParams): CogitPushCon
       new CogitPushContext({
         content: file.content,
         operation: 'add',
-        path: file.path,
+        path: `/${file.path}`,
         tags: [],
         title: file.title,
       }),

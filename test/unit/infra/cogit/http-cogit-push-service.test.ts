@@ -56,7 +56,6 @@ describe('HttpCogitPushService', () => {
         const result = await service.push(basePushParams)
 
         expect(result.success).to.equal(true)
-        expect(result.commitSha).to.equal('abc123def456')
         expect(result.message).to.equal('Commit successful')
       })
 
@@ -109,7 +108,6 @@ describe('HttpCogitPushService', () => {
         const result = await service.push(basePushParams)
 
         expect(result.success).to.equal(true)
-        expect(result.commitSha).to.equal('newsha789')
 
         // Verify first request had empty SHA
         expect((requestBodies[0] as Record<string, unknown>).current_sha).to.equal('')

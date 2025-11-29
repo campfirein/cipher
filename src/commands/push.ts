@@ -125,15 +125,6 @@ export default class Push extends Command {
       const token = await this.validateAuth(tokenStore)
       const projectConfig = await this.checkProjectInit(projectConfigStore)
 
-      // Prompt for confirmation unless --yes flag is provided
-      if (!flags.yes) {
-        const confirmed = await this.confirmPush(projectConfig, flags.branch)
-        if (!confirmed) {
-          this.log('Push cancelled.')
-          return
-        }
-      }
-
       // Check for changes
       ux.action.start('Checking for Context Tree changes')
       const contextTreeChanges = await contextTreeSnapshotService.getChanges()
@@ -144,8 +135,17 @@ export default class Push extends Command {
         contextTreeChanges.modified.length === 0 &&
         contextTreeChanges.deleted.length === 0
       ) {
-        this.log('\nNo context changes to push.')
+        this.log('No context changes to push.')
         return
+      }
+
+      // Prompt for confirmation unless --yes flag is provided
+      if (!flags.yes) {
+        const confirmed = await this.confirmPush(projectConfig, flags.branch)
+        if (!confirmed) {
+          this.log('Push cancelled.')
+          return
+        }
       }
 
       // Read and prepare files
@@ -161,7 +161,7 @@ export default class Push extends Command {
       }
 
       // Push to CoGit (with two-request SHA flow)
-      ux.action.start('Pushing to ByteRover')
+      this.log('Pushing to ByteRover...')
       await cogitPushService.push({
         accessToken: token.accessToken,
         branch: flags.branch,
@@ -170,7 +170,6 @@ export default class Push extends Command {
         spaceId: projectConfig.spaceId,
         teamId: projectConfig.teamId,
       })
-      ux.action.stop()
 
       // Update snapshot ONLY after successful push
       await contextTreeSnapshotService.saveSnapshot()
@@ -187,9 +186,9 @@ export default class Push extends Command {
         )
       }
 
-      // For other errors, log context and exit
-      process.stderr.write('Failed to push:\n')
-      this.error(error instanceof Error ? error.message : 'Push failed')
+      // For other errors, use exitWithCode to properly display error before exit
+      const message = error instanceof Error ? error.message : 'Push failed'
+      exitWithCode(ExitCode.RUNTIME_ERROR, `Failed to push: ${message}`)
     }
   }
 

@@ -243,7 +243,7 @@ describe('Push Command', () => {
 
       await command.run()
 
-      expect(logStub.calledWith('\nNo context changes to push.')).to.be.true
+      expect(logStub.calledWith('No context changes to push.')).to.be.true
       expect(cogitPushService.push.called).to.be.false
     })
   })
@@ -262,7 +262,6 @@ describe('Push Command', () => {
       ])
       cogitPushService.push.resolves(
         new CogitPushResponse({
-          commitSha: 'abc123',
           message: 'Commit successful',
           success: true,
         }),
@@ -299,7 +298,6 @@ describe('Push Command', () => {
       ])
       cogitPushService.push.resolves(
         new CogitPushResponse({
-          commitSha: 'def456',
           message: 'Success',
           success: true,
         }),
@@ -325,7 +323,7 @@ describe('Push Command', () => {
       expect(pushCall.args[0].teamId).to.equal('team-456')
       expect(pushCall.args[0].spaceId).to.equal('space-123')
       expect(pushCall.args[0].contexts).to.have.lengthOf(1)
-      expect(pushCall.args[0].contexts[0].path).to.equal('test/context.md')
+      expect(pushCall.args[0].contexts[0].path).to.equal('/test/context.md')
       expect(pushCall.args[0].contexts[0].title).to.equal('My Title')
       expect(pushCall.args[0].contexts[0].operation).to.equal('add')
     })
@@ -343,7 +341,6 @@ describe('Push Command', () => {
       ])
       cogitPushService.push.resolves(
         new CogitPushResponse({
-          commitSha: 'ghi789',
           message: 'Success',
           success: true,
         }),
@@ -380,7 +377,6 @@ describe('Push Command', () => {
       ])
       cogitPushService.push.resolves(
         new CogitPushResponse({
-          commitSha: 'jkl012',
           message: 'Success',
           success: true,
         }),
@@ -512,7 +508,6 @@ describe('Push Command', () => {
       ])
       cogitPushService.push.resolves(
         new CogitPushResponse({
-          commitSha: 'mno345',
           message: 'Success',
           success: true,
         }),
@@ -580,7 +575,6 @@ describe('Push Command', () => {
       ])
       cogitPushService.push.resolves(
         new CogitPushResponse({
-          commitSha: 'pqr678',
           message: 'Success',
           success: true,
         }),
@@ -625,7 +619,6 @@ describe('Push Command', () => {
       ])
       cogitPushService.push.resolves(
         new CogitPushResponse({
-          commitSha: 'stu901',
           message: 'Success',
           success: true,
         }),
@@ -646,9 +639,9 @@ describe('Push Command', () => {
 
       const pushCall = cogitPushService.push.getCall(0)
       expect(pushCall.args[0].contexts).to.have.lengthOf(3)
-      expect(pushCall.args[0].contexts[0].path).to.equal('first/context.md')
-      expect(pushCall.args[0].contexts[1].path).to.equal('second/context.md')
-      expect(pushCall.args[0].contexts[2].path).to.equal('third/context.md')
+      expect(pushCall.args[0].contexts[0].path).to.equal('/first/context.md')
+      expect(pushCall.args[0].contexts[1].path).to.equal('/second/context.md')
+      expect(pushCall.args[0].contexts[2].path).to.equal('/third/context.md')
     })
   })
 

@@ -53,7 +53,7 @@ type MakeRequestParams = {
  * @returns The extracted SHA or undefined if not found
  */
 const extractShaFromErrorDetails = (details: string): string | undefined => {
-  const shaMatch = /current SHA is '([a-f0-9]+)'/i.exec(details)
+  const shaMatch = /SHA is '([a-f0-9]+)'/i.exec(details)
   return shaMatch?.[1]
 }
 
