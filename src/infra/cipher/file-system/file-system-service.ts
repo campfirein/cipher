@@ -41,6 +41,8 @@ import {
   WriteOperationError,
 } from '../../../core/domain/cipher/errors/file-system-error.js'
 import {getErrorMessage} from '../../../utils/error-helpers.js'
+import {createGitignoreFilter} from './gitignore-filter.js'
+import {collectFileMetadata, escapeIfExactMatch, extractPaths, sortFilesByRecency} from './glob-utils.js'
 import {PathValidator} from './path-validator.js'
 
 /**
@@ -143,6 +145,12 @@ export class FileSystemService implements IFileSystem {
 
   /**
    * Find files matching a glob pattern.
+   *
+   * Features:
+   * - Case sensitivity control via `caseSensitive` option
+   * - Gitignore filtering via `respectGitignore` option
+   * - Smart sorting: recent files (within 24h) first, then alphabetical
+   * - Special character handling for paths with glob syntax
    */
   public async globFiles(pattern: string, options: GlobOptions = {}): Promise<GlobResult> {
     this.ensureInitialized()
@@ -150,23 +158,33 @@ export class FileSystemService implements IFileSystem {
     const cwd = options.cwd ?? this.config.workingDirectory
     const maxResults = options.maxResults ?? 1000
     const includeMetadata = options.includeMetadata ?? true
+    const caseSensitive = options.caseSensitive ?? true
+    const respectGitignore = options.respectGitignore ?? true
 
     try {
-      // Execute glob
-      const files = await glob(pattern, {
+      // Handle special characters - escape pattern if it matches an existing file
+      const escapedPattern = await escapeIfExactMatch(pattern, cwd)
+
+      // Execute glob with case sensitivity option
+      const files = await glob(escapedPattern, {
         absolute: true,
         cwd,
         follow: false, // Don't follow symlinks
+        nocase: !caseSensitive, // Case insensitive if caseSensitive is false
         nodir: true, // Only files
       })
 
-      // Validate and collect file metadata
-      const validFiles: FileMetadata[] = []
-      let totalFound = 0
+      // Initialize gitignore filter if requested
+      let gitignoreFilter = null
+      if (respectGitignore) {
+        gitignoreFilter = await createGitignoreFilter(cwd)
+      }
+
+      // Validate paths and apply gitignore filtering
+      const validPaths: string[] = []
+      let ignoredCount = 0
 
       for (const file of files) {
-        totalFound++
-
         // Validate path
         const validation = this.pathValidator.validate(file, 'read')
         if (!validation.valid || !validation.normalizedPath) {
@@ -174,40 +192,54 @@ export class FileSystemService implements IFileSystem {
           continue
         }
 
-        // Check if we've reached the limit
-        if (validFiles.length >= maxResults) {
-          break
-        }
-
-        // Collect metadata if requested
-        if (includeMetadata) {
-          try {
-            // eslint-disable-next-line no-await-in-loop
-            const stats = await fs.stat(validation.normalizedPath)
-            validFiles.push({
-              isDirectory: stats.isDirectory(),
-              modified: stats.mtime,
-              path: validation.normalizedPath,
-              size: stats.size,
-            })
-          } catch {
-            // Skip files that can't be stat'd
+        // Apply gitignore filter if enabled
+        if (gitignoreFilter) {
+          const relativePath = path.relative(cwd, validation.normalizedPath)
+          if (gitignoreFilter.isIgnored(relativePath)) {
+            ignoredCount++
             continue
           }
-        } else {
-          validFiles.push({
-            isDirectory: false,
-            modified: new Date(),
-            path: validation.normalizedPath,
-            size: 0,
-          })
         }
+
+        validPaths.push(validation.normalizedPath)
       }
 
+      const totalFound = validPaths.length
+
+      // Collect metadata for all valid paths
+      const filesWithMetadata = await collectFileMetadata(validPaths, cwd)
+
+      // Sort files: recent files first (within 24h), then alphabetical
+      const sortedFiles = sortFilesByRecency(filesWithMetadata)
+
+      // Apply maxResults limit after sorting
+      const truncated = sortedFiles.length > maxResults
+      const limitedFiles = sortedFiles.slice(0, maxResults)
+
+      // Convert to FileMetadata format
+      const resultFiles: FileMetadata[] = includeMetadata
+        ? limitedFiles.map((f) => ({
+            isDirectory: false,
+            modified: f.modifiedTime,
+            path: f.path,
+            size: f.size,
+          }))
+        : extractPaths(limitedFiles).map((p) => ({
+            isDirectory: false,
+            modified: new Date(),
+            path: p,
+            size: 0,
+          }))
+
+      // Build result message
+      const message = this.buildGlobMessage(resultFiles.length, totalFound, ignoredCount, truncated)
+
       return {
-        files: validFiles,
+        files: resultFiles,
+        ignoredCount,
+        message,
         totalFound,
-        truncated: totalFound > maxResults,
+        truncated,
       }
     } catch (error) {
       // Check for pattern errors
@@ -406,6 +438,30 @@ export class FileSystemService implements IFileSystem {
       // Wrap other errors
       throw new WriteOperationError(normalizedPath, getErrorMessage(error))
     }
+  }
+
+  /**
+   * Builds a human-readable message for glob results.
+   */
+  private buildGlobMessage(
+    returned: number,
+    total: number,
+    ignored: number,
+    truncated: boolean,
+  ): string {
+    const parts: string[] = []
+
+    if (truncated) {
+      parts.push(`Found ${total} files, showing first ${returned}`)
+    } else {
+      parts.push(`Found ${returned} file${returned === 1 ? '' : 's'}`)
+    }
+
+    if (ignored > 0) {
+      parts.push(`(${ignored} ignored by .gitignore)`)
+    }
+
+    return parts.join(' ')
   }
 
   /**
