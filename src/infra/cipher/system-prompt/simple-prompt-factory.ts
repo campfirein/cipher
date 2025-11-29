@@ -5,6 +5,8 @@ import {fileURLToPath} from 'node:url'
 
 import type {MemoryManager} from '../memory/memory-manager.js'
 
+import { listDirectoryChildren } from '../../../utils/file-helpers.js'
+
 /**
  * Simple prompt configuration loaded from YAML
  */
@@ -157,7 +159,10 @@ export class SimplePromptFactory {
       // Priority: commandType > mode for companion discovery
       const discoveryKey = context.commandType || context.mode
       const companionPrompts = this.discoverCompanionPrompts(discoveryKey)
+      const contextTree = listDirectoryChildren('.brv/context-tree')
 
+      const contextTreeString = JSON.stringify(contextTree, null, 2)
+      finalPrompt = finalPrompt + '\n\n' + contextTreeString
       if (this.verbose) {
         console.log(`[PromptDebug:SimpleFactory] Discovering companion prompts with key: ${discoveryKey}`)
       }
