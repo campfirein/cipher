@@ -23,6 +23,15 @@ import {ToolError, ToolErrorType, ToolErrorUtils, type ToolExecutionResult} from
  * Without a scheduler, tools execute directly via the provider.
  */
 export class ToolManager {
+  /**
+   * Read-only tools allowed for query operations
+   */
+  private static readonly QUERY_TOOL_NAMES = [
+    'find_knowledge_topics',
+    'read_file',
+    'grep_content',
+    'glob_files',
+  ] as const
   private cacheValid: boolean = false
   private readonly scheduler?: IToolScheduler
   private readonly toolProvider: IToolProvider
@@ -142,6 +151,24 @@ export class ToolManager {
   }
 
   /**
+   * Get filtered tool names based on command type.
+   * For 'query' command, returns only read-only discovery tools.
+   * For other commands, returns all tools.
+   *
+   * @param commandType - The command type ('add', 'query', etc.)
+   * @returns Array of filtered tool names
+   */
+  public getToolNamesForCommand(commandType?: string): string[] {
+    if (commandType === 'query') {
+      // For query: only allow read-only tools
+      return [...ToolManager.QUERY_TOOL_NAMES].filter((name) => this.hasTool(name))
+    }
+
+    // For all other commands: return all tools
+    return this.getToolNames()
+  }
+
+  /**
    * Get tool names that have a specific marker.
    *
    * @param marker - The tool marker to filter by
@@ -149,6 +176,33 @@ export class ToolManager {
    */
   public getToolsByMarker(marker: ToolMarker): string[] {
     return this.toolProvider.getToolsByMarker(marker)
+  }
+
+  /**
+   * Get filtered tools based on command type.
+   * For 'query' command, returns only read-only discovery tools.
+   * For other commands, returns all tools.
+   *
+   * @param commandType - The command type ('add', 'query', etc.)
+   * @returns Filtered tool set with JSON Schema definitions
+   */
+  public getToolsForCommand(commandType?: string): ToolSet {
+    const allTools = this.getAllTools()
+
+    if (commandType === 'query') {
+      // For query: only allow read-only tools
+      const filteredTools: ToolSet = {}
+      for (const toolName of ToolManager.QUERY_TOOL_NAMES) {
+        if (allTools[toolName]) {
+          filteredTools[toolName] = allTools[toolName]
+        }
+      }
+
+      return filteredTools
+    }
+
+    // For all other commands: return all tools
+    return allTools
   }
 
   /**

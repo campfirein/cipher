@@ -138,7 +138,7 @@ Bad:
         fileSystemConfig: {workingDirectory: process.cwd()},
         grpcEndpoint: envConfig.llmGrpcEndpoint,
         maxIterations: 10,
-        maxTokens: 8192,
+        maxTokens: 2048,
         model,
         openRouterApiKey: flags.apiKey,
         projectId: PROJECT,

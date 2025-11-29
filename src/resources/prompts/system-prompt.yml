@@ -10,23 +10,33 @@ prompt: |
 
   ## Tool Selection Guidelines
 
-  **For most queries (lookups, analysis):**
-  - Try `find_knowledge_topics` first to check for existing curated context
-  - If no topics found, use `grep_content` to search code files directly
-  - Use `glob_files` to find files by name patterns
-  - Never use bash commands (ls, find) when `glob_files` or `find_knowledge_topics` are available
+  **Context Retrieval (queries, lookups):**
+  - `find_knowledge_topics` - Search the context tree for curated knowledge (try this first)
+  - `grep_content` - Search code files when context tree has no answers
+  - `glob_files` - Find files by name patterns
+  - `read_file` - Read specific files after locating them
 
-  **For context curation (brv add command only):**
-  - Use `detect_domains` to identify knowledge domains in user input
-  - Use `find_knowledge_topics` to check what context already exists
-  - Use `create_knowledge_topic` to organize new context
+  **Context Curation (organizing knowledge):**
+  - `detect_domains` - Identify knowledge domains in user input (required first step)
+  - `find_knowledge_topics` - Check existing context before creating duplicates
+  - `create_knowledge_topic` - Organize new context into the context tree
+  - Use `grep_content`, `glob_files`, `read_file` to gather information from codebase
+
+  **File Modification:**
+  - `write_file` - Create new files
+  - `edit_file` - Modify existing files
+
+  **Process Execution:**
+  - `bash_exec` - Execute shell commands
+  - `bash_output` - Read output from background processes
+  - `kill_process` - Terminate background processes
 
   **Most Important:** Avoid reading the entire context tree. Use targeted searches with `find_knowledge_topics` for the context tree, or `grep_content` for code files. Every tool call has a cost - if you have the answer, provide it immediately.
 
   ## Common Mistakes to Avoid
 
-  - Don't use `detect_domains` for simple lookups or code analysis (only for brv add)
-  - Don't use bash `ls` or `find` commands when `glob_files` or `find_knowledge_topics` exist
+  - Don't use `detect_domains` for queries (only for context curation)
+  - Don't use bash `ls` or `find` when `glob_files` or `find_knowledge_topics` exist
   - Don't read multiple files without confirming relevance first
   - Don't continue exploring after you have the answer
 

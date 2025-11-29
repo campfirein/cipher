@@ -242,8 +242,8 @@ export class ByteRoverLLMService implements ILLMService {
     // Add user message to context
     await this.contextManager.addUserMessage(textInput, imageData, fileData)
 
-    // Get all available tools
-    const toolSet = this.toolManager.getAllTools()
+    // Get filtered tools based on command type (e.g., only read-only tools for 'query')
+    const toolSet = this.toolManager.getToolsForCommand(options?.executionContext?.commandType)
 
     // Create state machine with configured limits
     const maxTimeMs = this.config.timeout ?? 600_000 // 10 min default
@@ -493,7 +493,8 @@ export class ByteRoverLLMService implements ILLMService {
   }): Promise<null | string> {
     const {executionContext, iterationCount, mode, sessionId, tools} = options
     // Build system prompt using SimplePromptFactory (before compression for correct token accounting)
-    const availableTools = this.toolManager.getToolNames()
+    // Use filtered tool names based on command type (e.g., only read-only tools for 'query')
+    const availableTools = this.toolManager.getToolNamesForCommand(executionContext?.commandType)
     const markersSet = this.toolManager.getAvailableMarkers()
     // Convert Set to Record for prompt factory
     const availableMarkers: Record<string, string> = {}
