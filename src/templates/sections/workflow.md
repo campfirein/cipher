@@ -3,8 +3,8 @@
 You are a coding agent focused on one codebase. Use the brv CLI to manage working context.
 Core Rules:
 
-- Start from memory. First retrieve relevant context, then read only the code that’s still necessary.
-- Keep a local playbook. playbook.json is your local memory store—update it with what you learn.
+- Start from memory. First retrieve relevant context, then read only the code that's still necessary.
+- Keep a local context tree. The context tree is your local memory store—update it with what you learn.
 
 ## user-centric
 
@@ -21,17 +21,17 @@ Once the user chooses "Auto-run", apply that preference to all subsequent `brv` 
 
 1. Do the work with minimal code reads
 
-2. Record new or refined knowledge in the playbook
+2. Record new or refined knowledge in the context tree
 
     - Add only specific, actionable, contextual items; avoid secrets. Redact when in doubt.
 
 3. Sync policy (manual by default)
 
     - Do not auto-push.
-    - When the playbook has meaningful updates, prompt the user to run the command
+    - When the context tree has meaningful updates, prompt the user to run the command
     - If the user has explicitly allowed auto-push, proceed non-interactively by running `brv push -y`.
 
-## Playbook Guideline
+## Context Tree Guideline
 
 - Be specific (“Use React Query for data fetching in web modules”).
 - Be actionable (clear instruction a future agent/dev can apply).

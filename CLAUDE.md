@@ -42,7 +42,9 @@ npm run pack:dev / pack:prod                     # Tarballs
 
 **Storage**:
 
-- `IPlaybookStore` - `clear()`, `delete()`, `exists()`, `load()`, `save()`
+- `IContextTreeService` - Context tree operations
+- `IContextTreeSnapshotService` - Snapshot and change tracking
+- `IPlaybookStore` - **DEPRECATED** - Legacy playbook interface
 - `IProjectConfigStore` - `.brv/config.json` persistence
 
 **Pagination**: `{fetchAll: true}` auto-paginates (100/page) or `{limit, offset}` manual
@@ -54,23 +56,21 @@ All have `toJSON()`/`fromJSON()`, immutable readonly properties
 - `AuthToken` - `accessToken`, `refreshToken`, `sessionKey`, `userId`, `userEmail`. `fromJson()` returns `undefined` for old tokens (forces re-login)
 - `OAuthTokenData` - OAuth response, no user info. Used before user fetch in login
 - `User`, `Team`, `Space` - `getDisplayName()` methods
-- `Memory` - Required: `bulletId`, `section`, `tags`, `metadataType`, `timestamp`, `nodeKeys`. Optional: `score`, `parentIds`, `childrenIds` (present in primary, absent in related)
-- `RetrieveResult` - `memories` (with scores), `relatedMemories` (without scores)
+- `Memory` - **DEPRECATED** - Legacy memory entity with `bulletId`, `section`, `tags`
+- `RetrieveResult` - **DEPRECATED** - Legacy retrieval result
 
 ### Infrastructure (`src/infra/`)
 
 - `OAuthService` - Manages `code_verifier` internally
 - `CallbackServer` - Force-closes keep-alive connections
 - `AuthenticatedHttpClient` - Auto-injects both auth headers
-- `HttpMemoryRetrievalService` - Maps snake_case to domain entities
-- **Memory Mapper** (`infra/memory/memory-to-playbook-mapper.ts`):
-  - `transformMemoryToBullet(memory)`: `Memory` → `Bullet`
-  - `transformRetrieveResultToPlaybook(result)`: Combines memories + relatedMemories, sets `nextId = bulletsMap.size + 1`
-  - Mapping: `bulletId` → `id`, `tags` → `metadata.tags`, `nodeKeys` → `metadata.relatedFiles`, `timestamp` → `metadata.timestamp`
+- `FileContextTreeService` - File-based context tree operations
+- `FileContextTreeSnapshotService` - Git-style snapshot and diff tracking
+- **Legacy Memory Mapper** (`infra/memory/memory-to-playbook-mapper.ts`) - **DEPRECATED**
 
 ### Utilities
 
-- `clearDirectory(dirPath)` (`src/utils/ace-file-helpers.ts`) - **Files only**, preserves dirs, handles ENOENT
+- `clearDirectory(dirPath)` (`src/utils/ace-file-helpers.ts`) - **DEPRECATED** - Legacy ACE helper
 
 ### Config
 
@@ -90,10 +90,11 @@ protected createServices(): {myService: IMyService} {
 **Behaviors**:
 
 - `brv login` - OAuth: code → user → AuthToken. `fromJson()` forces re-login for old tokens
-- `brv status` - Reads `userEmail` from AuthToken (no API). Shows: version, auth, directory, config
-- `brv init` - `{fetchAll: true}` for teams/spaces, initializes ACE playbook
-- `brv space switch` - **No playbook init**
-- `brv push [--branch <name>]` - Default: `main` (ByteRover, not git). Flow: presigned URLs → PUT → **confirm**. Cleanup (after confirm): clear playbook, remove executor-outputs/, reflections/, deltas/
+- `brv status` - Reads `userEmail` from AuthToken (no API). Shows: version, auth, directory, config, context tree changes
+- `brv init` - `{fetchAll: true}` for teams/spaces, initializes context tree
+- `brv add` - Interactive or autonomous mode to add context to context tree
+- `brv space switch` - **No context tree init**
+- `brv push [--branch <name>]` - Default: `main` (ByteRover, not git). Snapshots context tree and pushes to cloud
 - `brv space list` - Default 50, needs `--all` or manual pagination
 
 **OAuth Flow**:
@@ -120,7 +121,8 @@ protected createServices(): {myService: IMyService} {
 **Services**:
 
 - Verify all params: `expect(service.method.calledWith('token', 'session', 'id', {fetchAll: true})).to.be.true`
-- `PlaybookStore`: stub with `.resolves()`, verify order with `calledBefore()`
+- `ContextTreeService`: stub with `.resolves()`, verify file operations
+- `PlaybookStore`: **DEPRECATED** - Legacy testing patterns
 
 **Mappers**:
 

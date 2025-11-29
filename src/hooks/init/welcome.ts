@@ -103,7 +103,7 @@ const hook: Hook<'init'> = async function (options): Promise<void> {
       '  2. Link your workspace:',
       '     brv init',
       '',
-      'After setup, run `brv status` to confirm connection and explore commands like `brv complete` or `brv push`.',
+      'After setup, run `brv status` to confirm connection and explore commands like `brv push` or `brv add`.',
     ].join('\n')
 
     const docsLink = `For more information, run 'brv --help', 'brv [command] --help' or visit ${DOCS_URL}`
