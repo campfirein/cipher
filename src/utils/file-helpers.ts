@@ -55,10 +55,10 @@ export async function clearDirectory(dirPath: string): Promise<number> {
 }
 
 /**
- * Sanitizes a file path by replacing all special characters with a hyphen.
- * @param filePath - The file path to sanitize
- * @returns The sanitized file path
+ * Sanitizes a folder path by replacing all special characters with a hyphen.
+ * @param folderName - The folder path need to santiize
+ * @returns The sanitized folder path
  */
-export function sanitizeFilePath(filePath: string): string {
-  return filePath.replaceAll(/[^\w\-./]/g, '-')
+export function sanitizeFolderName(folderName: string): string {
+  return folderName.replaceAll(/[^\w\-./]/g, '-');
 }

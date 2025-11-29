@@ -6,7 +6,7 @@ import type {Tool, ToolExecutionContext} from '../../../../core/domain/cipher/to
 import {ToolName} from '../../../../core/domain/cipher/tools/constants.js'
 import {DirectoryManager} from '../../../../core/domain/knowledge/directory-manager.js'
 import {MarkdownWriter} from '../../../../core/domain/knowledge/markdown-writer.js'
-import {sanitizeFilePath} from '../../../../utils/file-helpers.js'
+import {sanitizeFolderName} from '../../../../utils/file-helpers.js'
 
 const CreateKnowledgeTopicInputSchema = z.object({
   // Base path for knowledge storage
@@ -79,11 +79,11 @@ async function executeCreateKnowledgeTopic(
     const {domain, name: topicName, relations, snippets, subtopics: subtopicData} = topicData
 
     // Create or update domain folder
-    const domainPath = join(basePath, sanitizeFilePath(domain))
+    const domainPath = join(basePath, sanitizeFolderName(domain))
     const domainResult = await DirectoryManager.createOrUpdateDomain(domainPath)
 
     // Create or update topic folder
-    const topicPath = join(domainPath, sanitizeFilePath(topicName))
+    const topicPath = join(domainPath, sanitizeFolderName(topicName))
     const topicResult = await DirectoryManager.createOrUpdateTopic(topicPath)
 
     // Generate and write topic context.md
@@ -99,7 +99,7 @@ async function executeCreateKnowledgeTopic(
     const subtopicResults = await Promise.all(
       subtopicData.map(async (subtopic) => {
         // Create subtopic folder
-        const subtopicPath = join(topicPath, sanitizeFilePath(subtopic.name))
+        const subtopicPath = join(topicPath, sanitizeFolderName(subtopic.name))
         const subtopicResult = await DirectoryManager.createOrUpdateTopic(subtopicPath)
 
         // Generate and write subtopic context.md
