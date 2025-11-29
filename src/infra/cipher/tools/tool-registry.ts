@@ -22,6 +22,7 @@ import {createReadMemoryTool} from './implementations/read-memory-tool.js'
 import {createSearchHistoryTool} from './implementations/search-history-tool.js'
 import {createWriteFileTool} from './implementations/write-file-tool.js'
 import {createWriteMemoryTool} from './implementations/write-memory-tool.js'
+import {createWriteTodosTool} from './implementations/write-todos-tool.js'
 import {ToolMarker} from './tool-markers.js'
 
 /**
@@ -204,5 +205,11 @@ export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
     markers: [ToolMarker.ContextBuilding],
     outputGuidance: 'write_memory',
     requiredServices: ['memoryManager'],
+  },
+
+  [ToolName.WRITE_TODOS]: {
+    factory: () => createWriteTodosTool(),
+    markers: [ToolMarker.Planning, ToolMarker.Core],
+    requiredServices: [], // No services required (stateless tool)
   },
 }
