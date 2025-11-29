@@ -47,6 +47,7 @@
     "eslint": "^9",
     "eslint-config-oclif": "^6",
     "eslint-config-prettier": "^10",
+    "expect-type": "^1.2.2",
     "mocha": "^10",
     "nock": "^14.0.10",
     "oclif": "^4",

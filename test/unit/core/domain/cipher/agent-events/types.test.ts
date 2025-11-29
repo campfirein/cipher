@@ -28,23 +28,26 @@ describe('cipher/agent-events', () => {
   describe('Runtime Constants', () => {
     it('should have correct AGENT_EVENT_NAMES array', () => {
       expect(AGENT_EVENT_NAMES).to.deep.equal([
-        'cipher:cleanExternalSessionProcessing',
-        'cipher:cleanExternalSessionProcessed',
-        'cipher:cleanExternalSessionProcessingError',
         'cipher:conversationReset',
+        'cipher:executionStarted',
+        'cipher:executionTerminated',
+        'cipher:log',
         'cipher:stateChanged',
         'cipher:stateReset',
+        'cipher:ui',
       ])
     })
 
     it('should have correct SESSION_EVENT_NAMES array', () => {
       expect(SESSION_EVENT_NAMES).to.deep.equal([
-        'llmservice:thinking',
         'llmservice:chunk',
+        'llmservice:error',
+        'llmservice:outputTruncated',
         'llmservice:response',
+        'llmservice:thinking',
+        'llmservice:thought',
         'llmservice:toolCall',
         'llmservice:toolResult',
-        'llmservice:error',
         'llmservice:unsupportedInput',
         'llmservice:warning',
       ])
@@ -52,18 +55,21 @@ describe('cipher/agent-events', () => {
 
     it('should combine agent and session events in EVENT_NAMES', () => {
       expect(EVENT_NAMES).to.deep.equal([
-        'cipher:cleanExternalSessionProcessing',
-        'cipher:cleanExternalSessionProcessed',
-        'cipher:cleanExternalSessionProcessingError',
         'cipher:conversationReset',
+        'cipher:executionStarted',
+        'cipher:executionTerminated',
+        'cipher:log',
         'cipher:stateChanged',
         'cipher:stateReset',
-        'llmservice:thinking',
+        'cipher:ui',
         'llmservice:chunk',
+        'llmservice:error',
+        'llmservice:outputTruncated',
         'llmservice:response',
+        'llmservice:thinking',
+        'llmservice:thought',
         'llmservice:toolCall',
         'llmservice:toolResult',
-        'llmservice:error',
         'llmservice:unsupportedInput',
         'llmservice:warning',
       ])
@@ -253,16 +259,19 @@ describe('cipher/agent-events', () => {
     it('should have matching keys between constants and event maps', () => {
       // Verify all AGENT_EVENT_NAMES are keys in AgentEventMap
       const agentKeys: (keyof AgentEventMap)[] = [
-        'cipher:cleanExternalSessionProcessing',
-        'cipher:cleanExternalSessionProcessed',
-        'cipher:cleanExternalSessionProcessingError',
         'cipher:conversationReset',
+        'cipher:executionStarted',
+        'cipher:executionTerminated',
+        'cipher:log',
         'cipher:stateChanged',
         'cipher:stateReset',
+        'cipher:ui',
         'llmservice:chunk',
         'llmservice:error',
+        'llmservice:outputTruncated',
         'llmservice:response',
         'llmservice:thinking',
+        'llmservice:thought',
         'llmservice:toolCall',
         'llmservice:toolResult',
         'llmservice:unsupportedInput',
@@ -275,12 +284,14 @@ describe('cipher/agent-events', () => {
 
       // Verify all SESSION_EVENT_NAMES are keys in SessionEventMap
       const sessionKeys: (keyof SessionEventMap)[] = [
-        'llmservice:thinking',
         'llmservice:chunk',
+        'llmservice:error',
+        'llmservice:outputTruncated',
         'llmservice:response',
+        'llmservice:thinking',
+        'llmservice:thought',
         'llmservice:toolCall',
         'llmservice:toolResult',
-        'llmservice:error',
         'llmservice:unsupportedInput',
         'llmservice:warning',
       ]
@@ -288,40 +299,6 @@ describe('cipher/agent-events', () => {
       for (const key of sessionKeys) {
         expectTypeOf<keyof SessionEventMap>(key)
       }
-    })
-  })
-
-  describe('Type Safety - New Agent Events', () => {
-    it('should enforce cleanExternalSessionProcessing payload structure', () => {
-      const payload: AgentEventMap['cipher:cleanExternalSessionProcessing'] = {
-        codingAgent: 'Claude',
-        externalSessionTitle: 'Session Title',
-      }
-
-      expectTypeOf<string>(payload.codingAgent)
-      expectTypeOf<string>(payload.externalSessionTitle)
-    })
-
-    it('should enforce cleanExternalSessionProcessed payload structure', () => {
-      const payload: AgentEventMap['cipher:cleanExternalSessionProcessed'] = {
-        codingAgent: 'Cursor',
-        externalSessionTitle: 'Session Title',
-      }
-
-      expectTypeOf<string>(payload.codingAgent)
-      expectTypeOf<string>(payload.externalSessionTitle)
-    })
-
-    it('should enforce cleanExternalSessionProcessingError payload structure', () => {
-      const payload: AgentEventMap['cipher:cleanExternalSessionProcessingError'] = {
-        codingAgent: 'Copilot',
-        error: new Error('Test error'),
-        externalSessionTitle: 'Session Title',
-      }
-
-      expectTypeOf<string>(payload.codingAgent)
-      expectTypeOf<Error>(payload.error)
-      expectTypeOf<string>(payload.externalSessionTitle)
     })
   })
 
