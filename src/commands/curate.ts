@@ -2,6 +2,7 @@ import {input} from '@inquirer/prompts'
 import {Args, Command, Flags} from '@oclif/core'
 import chalk from 'chalk'
 import {fileSelector, Item, ItemType} from 'inquirer-file-selector'
+import {randomUUID} from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import open from 'open'
@@ -124,12 +125,11 @@ Bad:
   }
 
   /**
-   * Generate a unique session ID for the autonomous agent
+   * Generate a unique session ID for the autonomous agent.
+   * Uses crypto.randomUUID() for guaranteed uniqueness (122 bits of entropy).
    */
   protected generateSessionId(): string {
-    const timestamp = Date.now()
-    const random = Math.random().toString(36).slice(2, 8)
-    return `${timestamp}-${random}`
+    return randomUUID()
   }
 
   /**

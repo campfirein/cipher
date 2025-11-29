@@ -92,7 +92,7 @@ describe('Session index exports', () => {
     it('should export IChatSession interface', () => {
       // Type check - if this compiles, the interface is exported
       const session: IChatSession = {
-        cancel() { },
+        cancel() {},
         getHistory() {
           return []
         },
@@ -103,7 +103,7 @@ describe('Session index exports', () => {
           return 0
         },
         id: 'test',
-        reset() { },
+        reset() {},
         async run() {
           return 'response'
         },
@@ -115,7 +115,7 @@ describe('Session index exports', () => {
       // Type check
       // Type check - if this compiles, the interface is exported
       const service: ILLMService = {
-        async completeTask() {
+        async completeTask(_textInput, _sessionId, _options) {
           return 'response'
         },
         async getAllTools() {
@@ -130,7 +130,7 @@ describe('Session index exports', () => {
           provider: 'test',
           router: 'test',
         }),
-        getContextManager: () => ({} as ReturnType<ILLMService['getContextManager']>),
+        getContextManager: () => ({}) as ReturnType<ILLMService['getContextManager']>,
       }
       expect(service).to.exist
     })
@@ -179,7 +179,7 @@ describe('Session index exports', () => {
       // Interfaces are checked above via type annotations
       // Cannot test interfaces as values, but compilation ensures they exist
       const session: IChatSession = {
-        cancel() { },
+        cancel() {},
         getHistory() {
           return []
         },
@@ -190,13 +190,13 @@ describe('Session index exports', () => {
           return 0
         },
         id: 'test',
-        reset() { },
+        reset() {},
         async run() {
           return 'response'
         },
       }
       const service: ILLMService = {
-        async completeTask() {
+        async completeTask(_textInput, _sessionId, _options) {
           return 'response'
         },
         async getAllTools() {
@@ -211,7 +211,7 @@ describe('Session index exports', () => {
           provider: 'test',
           router: 'test',
         }),
-        getContextManager: () => ({} as ReturnType<ILLMService['getContextManager']>),
+        getContextManager: () => ({}) as ReturnType<ILLMService['getContextManager']>,
       }
       expect(session).to.exist
       expect(service).to.exist

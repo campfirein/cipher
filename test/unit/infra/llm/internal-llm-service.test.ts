@@ -499,7 +499,6 @@ describe('ByteRoverLLMService', () => {
     })
   })
 
-
   describe('configuration defaults', () => {
     it('should default maxIterations to 50', () => {
       const generator = createContentGenerator()
@@ -633,7 +632,7 @@ describe('ByteRoverLLMService', () => {
 
       // The default stub already returns empty tools from beforeEach
 
-      const result = await service.completeTask('What is 2+2?')
+      const result = await service.completeTask('What is 2+2?', 'test-session')
       expect(result).to.equal('Final response')
     })
 
@@ -661,7 +660,7 @@ describe('ByteRoverLLMService', () => {
       sandbox.stub(service.getContextManager() as any, 'addUserMessage').resolves()
 
       try {
-        await service.completeTask('Test', {signal: controller.signal})
+        await service.completeTask('Test', 'test-session', {signal: controller.signal})
         expect.fail('Should have thrown abort error')
       } catch (error) {
         expect(error).to.be.instanceOf(Error)
@@ -787,7 +786,7 @@ describe('ByteRoverLLMService', () => {
       } as GenerateContentResponse)
       // Use default stub from beforeEach
 
-      await service.completeTask('Analyze this image', {imageData})
+      await service.completeTask('Analyze this image', 'test-session', {imageData})
 
       // Verify imageData was passed to addUserMessage
       expect(addUserMessageStub.calledWith('Analyze this image', imageData)).to.be.true

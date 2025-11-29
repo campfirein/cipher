@@ -179,6 +179,7 @@ export class OpenRouterLLMService implements ILLMService {
    * 3. Returning final response when no more tool calls
    *
    * @param textInput - User input text
+   * @param sessionId - Session ID for tracking the conversation
    * @param options - Execution options
    * @param options.signal - Optional abort signal for cancellation
    * @param options.imageData - Optional image data
@@ -190,6 +191,7 @@ export class OpenRouterLLMService implements ILLMService {
    */
   public async completeTask(
     textInput: string,
+    sessionId: string,
     options?: {
       executionContext?: ExecutionContext
       fileData?: FileData

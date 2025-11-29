@@ -220,15 +220,16 @@ describe('ChatSession', () => {
       expect(result).to.equal('test response')
       expect((mockLLMService.completeTask as SinonStub).calledOnce).to.be.true
       expect((mockLLMService.completeTask as SinonStub).firstCall.args[0]).to.equal('test input')
-      expect((mockLLMService.completeTask as SinonStub).firstCall.args[1]).to.deep.include({
+      expect((mockLLMService.completeTask as SinonStub).firstCall.args[1]).to.equal(sessionId)
+      expect((mockLLMService.completeTask as SinonStub).firstCall.args[2]).to.deep.include({
         mode: undefined,
       })
-      expect((mockLLMService.completeTask as SinonStub).firstCall.args[1].signal).to.be.instanceOf(AbortSignal)
+      expect((mockLLMService.completeTask as SinonStub).firstCall.args[2].signal).to.be.instanceOf(AbortSignal)
     })
 
     it('should pass signal to completeTask', async () => {
       const signalSpy = sandbox.spy()
-      ;(mockLLMService.completeTask as SinonStub).callsFake((_input, options) => {
+      ;(mockLLMService.completeTask as SinonStub).callsFake((_input, _sessionId, options) => {
         signalSpy(options?.signal)
         return Promise.resolve('response')
       })
@@ -244,10 +245,11 @@ describe('ChatSession', () => {
 
       expect((mockLLMService.completeTask as SinonStub).calledOnce).to.be.true
       expect((mockLLMService.completeTask as SinonStub).firstCall.args[0]).to.equal('input')
-      expect((mockLLMService.completeTask as SinonStub).firstCall.args[1]).to.deep.include({
+      expect((mockLLMService.completeTask as SinonStub).firstCall.args[1]).to.equal(sessionId)
+      expect((mockLLMService.completeTask as SinonStub).firstCall.args[2]).to.deep.include({
         mode: 'query',
       })
-      expect((mockLLMService.completeTask as SinonStub).firstCall.args[1].signal).to.be.instanceOf(AbortSignal)
+      expect((mockLLMService.completeTask as SinonStub).firstCall.args[2].signal).to.be.instanceOf(AbortSignal)
     })
 
     it('should throw SessionCancelledError when cancelled', async () => {
@@ -323,7 +325,7 @@ describe('ChatSession', () => {
   describe('cancel()', () => {
     it('should abort currentController when it exists', async () => {
       const abortSpy = sandbox.spy()
-      ;(mockLLMService.completeTask as SinonStub).callsFake(async (_input, options) => {
+      ;(mockLLMService.completeTask as SinonStub).callsFake(async (_input, _sessionId, options) => {
         const signal = options?.signal as AbortSignal
         signal.addEventListener('abort', abortSpy)
         await new Promise((resolve) => {

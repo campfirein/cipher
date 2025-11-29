@@ -22,6 +22,7 @@ export interface ILLMService {
    * - Returning final response
    *
    * @param textInput - User input text
+   * @param sessionId - Session ID for tracking the conversation
    * @param options - Execution options
    * @param options.signal - Optional abort signal for cancellation
    * @param options.imageData - Optional image data
@@ -33,7 +34,15 @@ export interface ILLMService {
    */
   completeTask(
     textInput: string,
-    options?: {executionContext?: ExecutionContext; fileData?: FileData; imageData?: ImageData; mode?: 'autonomous' | 'default' | 'query'; signal?: AbortSignal; stream?: boolean},
+    sessionId: string,
+    options?: {
+      executionContext?: ExecutionContext
+      fileData?: FileData
+      imageData?: ImageData
+      mode?: 'autonomous' | 'default' | 'query'
+      signal?: AbortSignal
+      stream?: boolean
+    },
   ): Promise<string>
 
   /**
