@@ -18,18 +18,12 @@ export const MarkdownWriter = {
    * Used for both topics and subtopics in the knowledge hierarchy.
    */
   generateContext(data: ContextData): string {
-    const timestamp = new Date().toISOString()
     const snippets = data.snippets || []
     const relations = data.relations || []
 
     const relationsSection = generateRelationsSection(relations)
 
-    return `# ${data.name}
-
-**Last Updated**: ${timestamp}
-${relationsSection}
-## Context
-
+    return `${relationsSection}
 ${snippets.length > 0 ? snippets.map(s => `${s}`).join('\n\n---\n\n') : 'No context available.'}
 `
   },
