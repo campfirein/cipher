@@ -62,3 +62,4 @@ export async function clearDirectory(dirPath: string): Promise<number> {
 export function sanitizeFilePath(filePath: string): string {
   return filePath.replaceAll(/[^\w\-./]/g, '-')
 }
+// TODO: Need to validate with windows System.
