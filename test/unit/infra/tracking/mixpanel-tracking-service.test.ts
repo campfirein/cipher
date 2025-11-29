@@ -143,7 +143,7 @@ describe('MixpanelTrackingService', () => {
 
       const service = new MixpanelTrackingService(mockTokenStore, mockMixpanel as Mixpanel)
 
-      await service.track('mem:add')
+      await service.track('mem:curate')
 
       expect(trackStub.firstCall.args[1]).to.have.property('beta', true)
     })
@@ -189,7 +189,7 @@ describe('MixpanelTrackingService', () => {
         'ace:update_bullet',
         'ace:remove_bullet',
         'ace:view_status',
-        'mem:add',
+        'mem:curate',
         'mem:push',
         'mem:retrieve',
       ]
@@ -242,7 +242,7 @@ describe('MixpanelTrackingService', () => {
 
       const service = new MixpanelTrackingService(mockTokenStore, mockMixpanel as Mixpanel)
 
-      await service.track('mem:add', {
+      await service.track('mem:curate', {
         beta: false,
       })
 

@@ -32,7 +32,7 @@ Authentication uses OAuth 2.0 with PKCE flow. Your credentials are securely stor
 | `brv space list`                                | List all spaces for the current team         | `brv space list --all`                             |
 | `brv space switch`                              | Switch to a different team or space          | `brv space switch`                                 |
 | `brv push`                                      | Push playbook to ByteRover memory storage    | `brv push`                                         |
-| `brv add`                                       | Add or update a bullet in the playbook       | `brv add --interactive`                            |
+| `brv curate`                                    | Add or update a bullet in the playbook       | `brv curate --interactive`                         |
 | `brv clear [DIRECTORY]`                         | Reset context tree to default domains        | `brv clear`                                        |
 | `brv complete <hint> <reasoning> <finalAnswer>` | Complete ACE workflow in one command         | `brv complete "fix" "..." "..." -t "..." -f "..."` |
 | `brv gen-rules`                                 | Generate rule instructions for coding agents | `brv gen-rules`                                    |
@@ -316,7 +316,7 @@ brv push -y
 
 ---
 
-### `brv add`
+### `brv curate`
 
 Add or update a bullet in the playbook. Provides direct access to modify playbook content, bypassing the full ACE workflow.
 
@@ -330,7 +330,7 @@ None
 | ------------------------- | ------------------------------------------------- | -------- |
 | `-i, --interactive`       | Run in interactive mode                           | No       |
 | `-s, --section <value>`   | Section name for the bullet                       | No\*     |
-| `-c, --content <value>`   | Content of the bullet                             | No\*     |
+| `-c, --context <value>`   | Context of the bullet                             | No\*     |
 | `-b, --bullet-id <value>` | Bullet ID to update (creates new if not provided) | No       |
 
 \*Required in non-interactive mode
@@ -339,24 +339,24 @@ None
 
 ```bash
 # Interactive mode (recommended)
-brv add --interactive
-brv add -i
+brv curate --interactive
+brv curate -i
 
 # Add new bullet directly
-brv add --section "Common Errors" --content "Auth fails when token expires"
+brv curate --section "Common Errors" --context "Auth fails when token expires"
 
 # Update existing bullet
-brv add --section "Common Errors" --bullet-id "common-00001" --content "Updated: Auth fails when token expires"
+brv curate --section "Common Errors" --bullet-id "common-00001" --context "Updated: Auth fails when token expires"
 
 # Short form
-brv add -s "Best Practices" -c "Always validate user input before processing"
+brv curate -s "Best Practices" -c "Always validate user input before processing"
 ```
 
 **Notes**
 
 - Playbook must exist (run `brv init` first)
-- Interactive mode: prompts for section (with search), content, and confirmation
-- Non-interactive mode: requires both `--section` and `--content` flags
+- Interactive mode: prompts for section (with search), context, and confirmation
+- Non-interactive mode: requires both `--section` and `--context` flags
 - Suggested sections: Common Errors, Best Practices, Strategies, Lessons Learned, Architecture, Testing
 - If `--bullet-id` is not provided, creates a new bullet with auto-generated ID
 
