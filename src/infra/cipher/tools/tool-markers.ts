@@ -46,4 +46,10 @@ export enum ToolMarker {
    * Examples: bash_output, kill_process, segment_conversation
    */
   Optional = 'ToolMarkerOptional',
+
+  /**
+   * Tools for planning and task management
+   * Examples: write_todos
+   */
+  Planning = 'ToolMarkerPlanning',
 }

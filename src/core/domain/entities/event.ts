@@ -11,7 +11,7 @@ export const EVENT_VALUES = [
   'ace:remove_bullet',
   'ace:view_status',
   'ace:query',
-  'mem:add',
+  'mem:curate',
   'mem:push',
   'mem:retrieve',
 ] as const

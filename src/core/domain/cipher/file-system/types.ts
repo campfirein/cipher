@@ -71,6 +71,9 @@ export interface EditFileOptions {
  * Options for glob file discovery.
  */
 export interface GlobOptions {
+  /** Case-sensitive pattern matching (default: true) */
+  caseSensitive?: boolean
+
   /** Working directory for glob pattern */
   cwd?: string
 
@@ -79,12 +82,18 @@ export interface GlobOptions {
 
   /** Maximum number of results to return */
   maxResults?: number
+
+  /** Respect .gitignore rules when matching files (default: true) */
+  respectGitignore?: boolean
 }
 
 /**
  * Options for content search.
  */
 export interface SearchOptions {
+  /** Abort signal for cancellation */
+  abortSignal?: AbortSignal
+
   /** Case-insensitive search */
   caseInsensitive?: boolean
 
@@ -175,6 +184,12 @@ export interface FileMetadata {
 export interface GlobResult {
   /** Array of matching files with metadata */
   files: FileMetadata[]
+
+  /** Number of files ignored due to .gitignore rules */
+  ignoredCount: number
+
+  /** Human-readable message describing the results */
+  message?: string
 
   /** Total number of files found (before truncation) */
   totalFound: number

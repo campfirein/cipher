@@ -315,7 +315,7 @@ brv push -y
 
 ---
 
-### `brv add`
+### `brv curate`
 
 Add or update a bullet in the playbook. Provides direct access to modify playbook content, bypassing the full ACE workflow.
 
@@ -329,7 +329,7 @@ None
 | ------------------------- | ------------------------------------------------- | -------- |
 | `-i, --interactive`       | Run in interactive mode                           | No       |
 | `-s, --section <value>`   | Section name for the bullet                       | No\*     |
-| `-c, --content <value>`   | Content of the bullet                             | No\*     |
+| `-c, --context <value>`   | Context of the bullet                             | No\*     |
 | `-b, --bullet-id <value>` | Bullet ID to update (creates new if not provided) | No       |
 
 \*Required in non-interactive mode
@@ -338,24 +338,24 @@ None
 
 ```bash
 # Interactive mode (recommended)
-brv add --interactive
-brv add -i
+brv curate --interactive
+brv curate -i
 
 # Add new bullet directly
-brv add --section "Common Errors" --content "Auth fails when token expires"
+brv curate --section "Common Errors" --context "Auth fails when token expires"
 
 # Update existing bullet
-brv add --section "Common Errors" --bullet-id "common-00001" --content "Updated: Auth fails when token expires"
+brv curate --section "Common Errors" --bullet-id "common-00001" --context "Updated: Auth fails when token expires"
 
 # Short form
-brv add -s "Best Practices" -c "Always validate user input before processing"
+brv curate -s "Best Practices" -c "Always validate user input before processing"
 ```
 
 **Notes**
 
 - Playbook must exist (run `brv init` first)
-- Interactive mode: prompts for section (with search), content, and confirmation
-- Non-interactive mode: requires both `--section` and `--content` flags
+- Interactive mode: prompts for section (with search), context, and confirmation
+- Non-interactive mode: requires both `--section` and `--context` flags
 - Suggested sections: Common Errors, Best Practices, Strategies, Lessons Learned, Architecture, Testing
 - If `--bullet-id` is not provided, creates a new bullet with auto-generated ID
 
@@ -363,7 +363,16 @@ brv add -s "Best Practices" -c "Always validate user input before processing"
 
 ### `brv clear`
 
-Clear local ACE context (playbook) managed by ByteRover CLI. Resets playbook to empty structure.
+Reset the context tree to its original state with 6 default domains. Removes all custom domains and content, restoring the initial configuration created by `brv init`.
+
+**Default Domains Restored**
+
+- `code_style` - Style guidelines and quality standards
+- `design` - UI libraries, themes, and design guidelines
+- `structure` - Project structure, components, and context
+- `compliance` - Security and compliance information
+- `testing` - Testing implementation context
+- `bug_fixes` - Bug fixing logic and procedures
 
 **Arguments**
 
@@ -380,23 +389,23 @@ Clear local ACE context (playbook) managed by ByteRover CLI. Resets playbook to 
 **Examples**
 
 ```bash
-# Clear playbook (with confirmation)
+# Reset context tree (with confirmation)
 brv clear
 
-# Clear without confirmation
+# Reset without confirmation
 brv clear --yes
 brv clear -y
 
-# Clear playbook in specific directory
+# Reset context tree in specific directory
 brv clear /path/to/project
 ```
 
 **Notes**
 
-- Playbook must exist
+- Context tree must exist (created by `brv init`)
 - Shows confirmation prompt unless `--yes` flag is used
-- This action cannot be undone
-- Resets playbook to empty structure with no bullets
+- This action removes all custom domains and content
+- Cannot be undone - all custom context will be lost
 - Does not affect `.brv/config.json` or project initialization
 
 ---
