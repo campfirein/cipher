@@ -225,15 +225,15 @@ describe('file-helpers', () => {
       expect(result).to.deep.equal({})
     })
 
-    it('should return null for files', async () => {
+    it('should return undefined for files', async () => {
       await writeFile(join(testDir, 'file1.txt'), 'content', 'utf8')
       await writeFile(join(testDir, 'file2.json'), '{}', 'utf8')
 
       const result = listDirectoryChildren(testDir)
 
       expect(result).to.deep.equal({
-        'file1.txt': null,
-        'file2.json': null,
+        'file1.txt': undefined,
+        'file2.json': undefined,
       })
     })
 
@@ -258,7 +258,7 @@ describe('file-helpers', () => {
       const result = listDirectoryChildren(testDir)
 
       expect(result).to.have.keys(['file.txt', 'subdir'])
-      expect(result['file.txt']).to.be.null
+      expect(result['file.txt']).to.be.undefined
       expect(result.subdir).to.deep.equal(['nested.txt'])
     })
 
@@ -303,7 +303,7 @@ describe('file-helpers', () => {
         const result = listDirectoryChildren()
 
         expect(result).to.have.key('test.txt')
-        expect(result['test.txt']).to.be.null
+        expect(result['test.txt']).to.be.undefined
       } finally {
         await rm(defaultPath, {force: true, recursive: true}).catch(() => {})
       }

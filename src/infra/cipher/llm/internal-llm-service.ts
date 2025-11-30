@@ -485,12 +485,12 @@ export class ByteRoverLLMService implements ILLMService {
    *
    * @param iterationCount - Current iteration count (0-indexed)
    * @param commandType - Command type ('query' or 'curate')
-   * @returns Reflection type to add, or null if none eligible
+   * @returns Reflection type to add, or undefined if none eligible
    */
   private determineReflectionType(
     iterationCount: number,
     commandType?: 'curate' | 'query',
-  ): 'completion_check' | 'final_iteration' | 'mid_point_check' | 'near_max_iterations' | null {
+  ): 'completion_check' | 'final_iteration' | 'mid_point_check' | 'near_max_iterations' | undefined {
     const isQuery = commandType === 'query'
     const isLastIteration = iterationCount === this.config.maxIterations - 1
     const midPoint = Math.floor(this.config.maxIterations / 2)
@@ -518,7 +518,7 @@ export class ByteRoverLLMService implements ILLMService {
       return 'completion_check'
     }
 
-    return null
+    return undefined
   }
 
   /**

@@ -69,13 +69,13 @@ export function sanitizeFolderName(folderName: string): string {
  * and, for each child folder, shows its own immediate children.
  * @param dirPath The directory path whose children to list.
  * @returns An object where keys are child names, and values are:
- *   - for files: null
+ *   - for files: undefined
  *   - for directories: an array of their immediate children
  */
 export function listDirectoryChildren(
   dirPath: string = '.brv/context-tree',
-): Record<string, null | string[]> {
-  const result: Record<string, null | string[]> = {};
+): Record<string, string[] | undefined> {
+  const result: Record<string, string[] | undefined> = {};
   const children = fs.readdirSync(dirPath);
   for (const child of children) {
     const childPath = `${dirPath}/${child}`;
@@ -83,7 +83,7 @@ export function listDirectoryChildren(
     try {
       stat = fs.statSync(childPath);
     } catch {
-      result[child] = null;
+      result[child] = undefined;
       continue;
     }
 
@@ -91,10 +91,10 @@ export function listDirectoryChildren(
       try {
         result[child] = fs.readdirSync(childPath);
       } catch {
-        result[child] = null;
+        result[child] = undefined;
       }
     } else {
-      result[child] = null;
+      result[child] = undefined;
     }
   }
   

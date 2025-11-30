@@ -171,7 +171,7 @@ export class SimplePromptFactory {
       const companionPrompts = this.discoverCompanionPrompts(discoveryKey)
       const contextTree = listDirectoryChildren('.brv/context-tree')
 
-      const contextTreeString = JSON.stringify(contextTree, null, 2)
+      const contextTreeString = JSON.stringify(contextTree, undefined, 2)
       finalPrompt = finalPrompt + '\n\n' + contextTreeString
       if (this.verbose) {
         console.log(`[PromptDebug:SimpleFactory] Discovering companion prompts with key: ${discoveryKey}`)
