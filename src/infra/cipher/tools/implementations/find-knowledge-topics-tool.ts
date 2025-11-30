@@ -152,8 +152,8 @@ async function processSubtopicFile(params: {
 
   const subtopicName = subtopicParts[0]
 
-  // Apply subtopic pattern filter if specified
-  if (subtopicPattern && !subtopicName.includes(subtopicPattern)) {
+  // Apply subtopic pattern filter if specified (case-insensitive)
+  if (subtopicPattern && !subtopicName.toLowerCase().includes(subtopicPattern.toLowerCase())) {
     return null
   }
 
@@ -223,12 +223,16 @@ function matchesFilters(params: {
 }): boolean {
   const {domain, domainName, domainPattern, topicName, topicPattern} = params
 
-  // Apply domain scoping filter (exact match)
-  if (domain && domainName !== domain) return false
+  // Normalize all strings to lowercase for case-insensitive matching
+  const normalizedDomainName = domainName.toLowerCase()
+  const normalizedTopicName = topicName.toLowerCase()
 
-  // Apply pattern filters (substring matching)
-  if (domainPattern && !domainName.includes(domainPattern)) return false
-  if (topicPattern && !topicName.includes(topicPattern)) return false
+  // Apply domain scoping filter (exact match, case-insensitive)
+  if (domain && normalizedDomainName !== domain.toLowerCase()) return false
+
+  // Apply pattern filters (substring matching, case-insensitive)
+  if (domainPattern && !normalizedDomainName.includes(domainPattern.toLowerCase())) return false
+  if (topicPattern && !normalizedTopicName.includes(topicPattern.toLowerCase())) return false
 
   return true
 }
@@ -396,10 +400,10 @@ async function executeFindKnowledgeTopics(
       const fileName = parts.at(-1)
       if (fileName !== 'context.md') continue
 
-      // Handle subtopic pattern filtering
+      // Handle subtopic pattern filtering (case-insensitive)
       if (isSubtopic) {
         const subtopicName = rest[0]
-        if (subtopicPattern && !subtopicName.includes(subtopicPattern)) continue
+        if (subtopicPattern && !subtopicName.toLowerCase().includes(subtopicPattern.toLowerCase())) continue
 
         // Skip subtopics for now - we'll collect them when processing their parent topic
         continue

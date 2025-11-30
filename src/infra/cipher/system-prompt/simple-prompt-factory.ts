@@ -63,14 +63,14 @@ export class SimplePromptFactory {
    *
    * @param context - Context with iteration information
    * @param context.type - Type of reflection prompt to build
-   * @param context.currentIteration - Current iteration number (required for near_max_iterations)
-   * @param context.maxIterations - Maximum iterations allowed (required for near_max_iterations)
+   * @param context.currentIteration - Current iteration number (required for near_max_iterations and mid_point_check)
+   * @param context.maxIterations - Maximum iterations allowed (required for near_max_iterations and mid_point_check)
    * @returns Formatted reflection prompt
    */
   public buildReflectionPrompt(context: {
     currentIteration?: number
     maxIterations?: number
-    type: 'completion_check' | 'near_max_iterations'
+    type: 'completion_check' | 'final_iteration' | 'mid_point_check' | 'near_max_iterations'
   }): string {
     const reflectionConfig = this.loadPrompt('reflection.yml')
 
@@ -89,6 +89,16 @@ export class SimplePromptFactory {
       return this.renderTemplate(template, {
         current_iteration: context.currentIteration.toString(),
         max_iterations: context.maxIterations.toString(),
+      })
+      /* eslint-enable camelcase */
+    }
+
+    if (context.type === 'mid_point_check' && context.currentIteration && context.maxIterations) {
+      const remaining = context.maxIterations - context.currentIteration
+      /* eslint-disable camelcase */
+      return this.renderTemplate(template, {
+        current_iteration: context.currentIteration.toString(),
+        remaining_iterations: remaining.toString(),
       })
       /* eslint-enable camelcase */
     }
@@ -324,8 +334,9 @@ export class SimplePromptFactory {
     const yamlContent = fs.readFileSync(fullPath, 'utf8')
     const config = loadYaml(yamlContent) as PromptConfig
 
-    if (!config.prompt) {
-      throw new Error(`Invalid prompt file (missing 'prompt' field): ${filepath}`)
+    // Allow files with either 'prompt' (for regular prompts) or 'prompts' (for tool-outputs.yml)
+    if (!config.prompt && !config.prompts) {
+      throw new Error(`Invalid prompt file (missing 'prompt' or 'prompts' field): ${filepath}`)
     }
 
     if (this.verbose) {
