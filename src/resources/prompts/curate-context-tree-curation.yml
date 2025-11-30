@@ -3,7 +3,7 @@ prompt: |
 
   Your task is to assemble relevant high-level information (context) from the input data which will be saved to the context tree in the following steps.
 
-  The information should be sufficient to understand what the user has provided to the coding assistant as the important context so that the coding assistant can use it completed the task at hand. When organizing the context, keep in mind the hierarchical structure with a maximum of 2 levels: domain → topic → subtopic. If subtopics contain complex information, break them into separate topics rather than creating deeper nesting.
+  The information should be sufficient to understand what the user has provided to the coding assistant as the important context so that the coding assistant can use it to complete the task at hand. When organizing the context, keep in mind the hierarchical structure with a maximum of 2 levels: domain → topic → subtopic. If subtopics contain complex information, break them into separate topics rather than creating deeper nesting.
 
   The context tree captures:
   - the domains of the context
