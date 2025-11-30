@@ -32,7 +32,7 @@ export interface ThinkingConfig {
 
   /**
    * Thinking token budget for Gemini 2.x models
-   * @default -1 (dynamic budget)
+   * @default 512
    */
   thinkingBudget?: number
 
@@ -56,7 +56,7 @@ export enum ThinkingLevel {
 /**
  * Default thinking mode token budget
  */
-export const DEFAULT_THINKING_BUDGET = -1
+export const DEFAULT_THINKING_BUDGET = 512
 
 /**
  * Synthetic thought signature used for Preview models

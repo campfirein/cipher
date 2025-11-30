@@ -41,6 +41,8 @@ export interface CipherLLMConfig {
   sessionKey: string
   siteName?: string
   temperature?: number
+  topK?: number
+  topP?: number
   verbose?: boolean
 }
 

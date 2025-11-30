@@ -5,10 +5,23 @@ prompt: "Reflection prompts for task completion"
 
 prompts:
   completion_check: |
-    IMPORTANT: when you come close to the iteration limit, evaluate if you collected  all the information you need to complete the task by using the tools available to you.
+    For every iteration, consider whether you have gathered sufficient information to answer the users' question.
 
+  mid_point_check: |
+    You've used {{current_iteration}} iterations ({{remaining_iterations}} remaining). Review your progress:
+    - Do you have enough information to answer all parts of the question?
+    -   If yes, provide your answer now. If it is a multi-part question, provide your answer for each part. Stop exploring or running more tools.
+    -   If no, please continue exploring or running more tools for missing parts of the question.
+    - However, DO NOT declare you can't answer the question and keep searching if you have at least one iteration left.
 
   near_max_iterations: |
     NOTICE: You are approaching the iteration limit ({{current_iteration}}/{{max_iterations}}).
+    To ensure task completion: 
+    - If this is the last iteration, don't running any more tools. Try to answer all parts of the question using the information you already have.
+    - Answer the question immediately if possible. Run tools ONLY IF you still have at least one iteration left.
+    - However, DO NOT declare you can't answer the question and keep searching if you have at least one iteration left.
 
-    To ensure task completion: Think about it step by step and give a summary of the missing information and how it could be acquired.
+  final_iteration: |
+    FINAL ITERATION: This is your last opportunity to respond.
+    Review what you've learned from your previous tool calls and provide your answer now.
+    Summarize your findings and give the best answer you can with the information gathered.

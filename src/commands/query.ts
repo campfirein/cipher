@@ -137,13 +137,15 @@ Bad:
         accessToken: token.accessToken,
         fileSystemConfig: {workingDirectory: process.cwd()},
         grpcEndpoint: envConfig.llmGrpcEndpoint,
-        maxIterations: 10,
-        maxTokens: 8192,
+        maxIterations: 5,
+        maxTokens: 2048,
         model,
         openRouterApiKey: flags.apiKey,
         projectId: PROJECT,
         sessionKey: token.sessionKey,
         temperature: 0.7,
+        topK: 10,
+        topP: 0.95,
         verbose: flags.verbose ?? false,
       }
 

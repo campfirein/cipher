@@ -242,8 +242,8 @@ export class ByteRoverLLMService implements ILLMService {
     // Add user message to context
     await this.contextManager.addUserMessage(textInput, imageData, fileData)
 
-    // Get all available tools
-    const toolSet = this.toolManager.getAllTools()
+    // Get filtered tools based on command type (e.g., only read-only tools for 'query')
+    const toolSet = this.toolManager.getToolsForCommand(options?.executionContext?.commandType)
 
     // Create state machine with configured limits
     const maxTimeMs = this.config.timeout ?? 600_000 // 10 min default
@@ -474,6 +474,54 @@ export class ByteRoverLLMService implements ILLMService {
   }
 
   /**
+   * Determine which reflection prompt to add based on hierarchical priority.
+   * Only the highest priority eligible reflection is returned.
+   *
+   * Priority (highest to lowest):
+   * 1. final_iteration - query only, at the last iteration
+   * 2. near_max_iterations - general, at 80% threshold
+   * 3. mid_point_check - query only, at 50% threshold
+   * 4. completion_check - general, periodic every 3 iterations
+   *
+   * @param iterationCount - Current iteration count (0-indexed)
+   * @param commandType - Command type ('query' or 'curate')
+   * @returns Reflection type to add, or undefined if none eligible
+   */
+  private determineReflectionType(
+    iterationCount: number,
+    commandType?: 'curate' | 'query',
+  ): 'completion_check' | 'final_iteration' | 'mid_point_check' | 'near_max_iterations' | undefined {
+    const isQuery = commandType === 'query'
+    const isLastIteration = iterationCount === this.config.maxIterations - 1
+    const midPoint = Math.floor(this.config.maxIterations / 2)
+    const isAtMidPoint = iterationCount === midPoint
+    const isNearMax = iterationCount >= Math.floor(this.config.maxIterations * 0.8)
+    const isPeriodicCheck = iterationCount > 0 && iterationCount % 3 === 0
+
+    // Priority 1: final_iteration (query only, last iteration) - highest priority
+    if (isQuery && isLastIteration) {
+      return 'final_iteration'
+    }
+
+    // Priority 2: near_max_iterations (general, 80% threshold)
+    if (isNearMax) {
+      return 'near_max_iterations'
+    }
+
+    // Priority 3: mid_point_check (query only, 50% threshold)
+    if (isQuery && isAtMidPoint) {
+      return 'mid_point_check'
+    }
+
+    // Priority 4: completion_check (general, periodic every 3 iterations) - lowest priority
+    if (isPeriodicCheck) {
+      return 'completion_check'
+    }
+
+    return undefined
+  }
+
+  /**
    * Execute a single iteration of the agentic loop.
    *
    * @param options - Iteration options
@@ -493,7 +541,8 @@ export class ByteRoverLLMService implements ILLMService {
   }): Promise<null | string> {
     const {executionContext, iterationCount, mode, sessionId, tools} = options
     // Build system prompt using SimplePromptFactory (before compression for correct token accounting)
-    const availableTools = this.toolManager.getToolNames()
+    // Use filtered tool names based on command type (e.g., only read-only tools for 'query')
+    const availableTools = this.toolManager.getToolNamesForCommand(executionContext?.commandType)
     const markersSet = this.toolManager.getAvailableMarkers()
     // Convert Set to Record for prompt factory
     const availableMarkers: Record<string, string> = {}
@@ -510,20 +559,15 @@ export class ByteRoverLLMService implements ILLMService {
       mode,
     })
 
-    // Add reflection prompt when approaching max iterations (80% threshold)
-    const iterationThreshold = Math.floor(this.config.maxIterations * 0.8)
-    if (iterationCount >= iterationThreshold) {
+    // Determine which reflection prompt to add (only highest priority is chosen)
+    const reflectionType = this.determineReflectionType(iterationCount, executionContext?.commandType)
+
+    // Add reflection prompt if eligible (hierarchical: only one reflection per iteration)
+    if (reflectionType) {
       const reflectionPrompt = this.promptFactory.buildReflectionPrompt({
         currentIteration: iterationCount + 1,
         maxIterations: this.config.maxIterations,
-        type: 'near_max_iterations',
-      })
-      systemPrompt = systemPrompt + '\n\n' + reflectionPrompt
-    }
-    // Add periodic completion check every 3 iterations (after iteration 3)
-    else if (iterationCount > 0 && iterationCount % 3 === 0) {
-      const reflectionPrompt = this.promptFactory.buildReflectionPrompt({
-        type: 'completion_check',
+        type: reflectionType,
       })
       systemPrompt = systemPrompt + '\n\n' + reflectionPrompt
     }
@@ -536,6 +580,7 @@ export class ByteRoverLLMService implements ILLMService {
         last500Chars: systemPrompt.slice(-500),
         length: systemPrompt.length,
         lines: systemPrompt.split('\n').length,
+        reflectionType,
       })
     }
 
@@ -566,8 +611,14 @@ export class ByteRoverLLMService implements ILLMService {
       )
     }
 
+    // Final iteration optimization for query: strip tools (reflection already added above)
+    let toolsForThisIteration = tools
+    if (executionContext?.commandType === 'query' && iterationCount === this.config.maxIterations - 1) {
+      toolsForThisIteration = {} // Empty toolset forces text response
+    }
+
     // Build generation request
-    const request = this.buildGenerateContentRequest(sessionId, systemPrompt, tools, mode, executionContext)
+    const request = this.buildGenerateContentRequest(sessionId, systemPrompt, toolsForThisIteration, mode, executionContext)
 
     // Call LLM via generator (retry + logging handled by decorators)
     const lastMessage = await this.callLLMAndParseResponse(request)
