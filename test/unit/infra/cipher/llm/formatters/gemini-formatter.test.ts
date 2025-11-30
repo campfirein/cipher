@@ -1,6 +1,5 @@
-/* eslint-disable camelcase */
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import type {Content, GenerateContentResponse} from '@google/genai'
+import type {Content} from '@google/genai'
 
 import {expect} from 'chai'
 
