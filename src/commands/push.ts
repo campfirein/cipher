@@ -150,10 +150,13 @@ export default class Push extends Command {
 
       // Read and prepare files
       ux.action.start('Reading context files')
-      const addedFiles = await contextFileReader.readMany(contextTreeChanges.added)
+      const [addedFiles, modifiedFiles] = await Promise.all([
+        contextFileReader.readMany(contextTreeChanges.added),
+        contextFileReader.readMany(contextTreeChanges.modified),
+      ])
       ux.action.stop()
 
-      const pushContexts = mapToPushContexts({addedFiles})
+      const pushContexts = mapToPushContexts({addedFiles, modifiedFiles})
 
       if (pushContexts.length === 0) {
         this.log('\nNo valid context files to push.')
@@ -177,7 +180,7 @@ export default class Push extends Command {
       // Success message
       this.log('\n✓ Successfully pushed context tree to ByteRover memory storage!')
       this.log(`  Branch: ${flags.branch}`)
-      this.log(`  Files pushed: ${pushContexts.length}`)
+      this.log(`  Added: ${addedFiles.length}, Edited: ${modifiedFiles.length}`)
     } catch (error) {
       if (error instanceof WorkspaceNotInitializedError) {
         exitWithCode(

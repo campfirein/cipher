@@ -15,7 +15,7 @@ describe('mapToPushContexts', () => {
         },
       ]
 
-      const result = mapToPushContexts({addedFiles})
+      const result = mapToPushContexts({addedFiles, modifiedFiles: []})
 
       expect(result).to.have.lengthOf(1)
       expect(result[0].operation).to.equal('add')
@@ -30,7 +30,7 @@ describe('mapToPushContexts', () => {
         },
       ]
 
-      const result = mapToPushContexts({addedFiles})
+      const result = mapToPushContexts({addedFiles, modifiedFiles: []})
 
       expect(result[0].path).to.equal('/design/patterns/context.md')
       expect(result[0].title).to.equal('My Title')
@@ -46,27 +46,27 @@ describe('mapToPushContexts', () => {
         },
       ]
 
-      const result = mapToPushContexts({addedFiles})
+      const result = mapToPushContexts({addedFiles, modifiedFiles: []})
 
       expect(result[0].tags).to.deep.equal([])
     })
   })
 
   describe('edge cases', () => {
-    it('should return empty array when addedFiles is empty', () => {
-      const result = mapToPushContexts({addedFiles: []})
+    it('should return empty array when both addedFiles and modifiedFiles are empty', () => {
+      const result = mapToPushContexts({addedFiles: [], modifiedFiles: []})
 
       expect(result).to.deep.equal([])
     })
 
-    it('should preserve order of files', () => {
+    it('should preserve order of added files', () => {
       const addedFiles: ContextFileContent[] = [
         {content: 'First', path: 'first/context.md', title: 'First'},
         {content: 'Second', path: 'second/context.md', title: 'Second'},
         {content: 'Third', path: 'third/context.md', title: 'Third'},
       ]
 
-      const result = mapToPushContexts({addedFiles})
+      const result = mapToPushContexts({addedFiles, modifiedFiles: []})
 
       expect(result).to.have.lengthOf(3)
       expect(result[0].path).to.equal('/first/context.md')
@@ -76,13 +76,13 @@ describe('mapToPushContexts', () => {
   })
 
   describe('multiple files', () => {
-    it('should map all files correctly', () => {
+    it('should map all added files correctly', () => {
       const addedFiles: ContextFileContent[] = [
         {content: 'Content A', path: 'a/context.md', title: 'Title A'},
         {content: 'Content B', path: 'b/context.md', title: 'Title B'},
       ]
 
-      const result = mapToPushContexts({addedFiles})
+      const result = mapToPushContexts({addedFiles, modifiedFiles: []})
 
       expect(result).to.have.lengthOf(2)
 
@@ -97,6 +97,90 @@ describe('mapToPushContexts', () => {
       expect(result[1].title).to.equal('Title B')
       expect(result[1].operation).to.equal('add')
       expect(result[1].tags).to.deep.equal([])
+    })
+  })
+
+  describe('mapping modified files', () => {
+    it('should map modified files to push contexts with operation "edit"', () => {
+      const modifiedFiles: ContextFileContent[] = [
+        {
+          content: 'Updated content',
+          path: 'structure/context.md',
+          title: 'Updated Title',
+        },
+      ]
+
+      const result = mapToPushContexts({addedFiles: [], modifiedFiles})
+
+      expect(result).to.have.lengthOf(1)
+      expect(result[0].operation).to.equal('edit')
+      expect(result[0].path).to.equal('/structure/context.md')
+      expect(result[0].title).to.equal('Updated Title')
+      expect(result[0].content).to.equal('Updated content')
+      expect(result[0].tags).to.deep.equal([])
+    })
+
+    it('should map multiple modified files correctly', () => {
+      const modifiedFiles: ContextFileContent[] = [
+        {content: 'Updated A', path: 'a/context.md', title: 'Title A'},
+        {content: 'Updated B', path: 'b/context.md', title: 'Title B'},
+      ]
+
+      const result = mapToPushContexts({addedFiles: [], modifiedFiles})
+
+      expect(result).to.have.lengthOf(2)
+      expect(result[0].operation).to.equal('edit')
+      expect(result[1].operation).to.equal('edit')
+    })
+  })
+
+  describe('mixing added and modified files', () => {
+    it('should process both added and modified files', () => {
+      const addedFiles: ContextFileContent[] = [
+        {content: 'New content', path: 'new/context.md', title: 'New File'},
+      ]
+      const modifiedFiles: ContextFileContent[] = [
+        {content: 'Updated content', path: 'existing/context.md', title: 'Updated File'},
+      ]
+
+      const result = mapToPushContexts({addedFiles, modifiedFiles})
+
+      expect(result).to.have.lengthOf(2)
+    })
+
+    it('should place added files before modified files', () => {
+      const addedFiles: ContextFileContent[] = [
+        {content: 'New', path: 'new/context.md', title: 'New'},
+      ]
+      const modifiedFiles: ContextFileContent[] = [
+        {content: 'Updated', path: 'existing/context.md', title: 'Updated'},
+      ]
+
+      const result = mapToPushContexts({addedFiles, modifiedFiles})
+
+      expect(result[0].operation).to.equal('add')
+      expect(result[0].path).to.equal('/new/context.md')
+      expect(result[1].operation).to.equal('edit')
+      expect(result[1].path).to.equal('/existing/context.md')
+    })
+
+    it('should handle multiple added and modified files', () => {
+      const addedFiles: ContextFileContent[] = [
+        {content: 'New 1', path: 'new1/context.md', title: 'New 1'},
+        {content: 'New 2', path: 'new2/context.md', title: 'New 2'},
+      ]
+      const modifiedFiles: ContextFileContent[] = [
+        {content: 'Updated 1', path: 'existing1/context.md', title: 'Updated 1'},
+        {content: 'Updated 2', path: 'existing2/context.md', title: 'Updated 2'},
+      ]
+
+      const result = mapToPushContexts({addedFiles, modifiedFiles})
+
+      expect(result).to.have.lengthOf(4)
+      expect(result[0].operation).to.equal('add')
+      expect(result[1].operation).to.equal('add')
+      expect(result[2].operation).to.equal('edit')
+      expect(result[3].operation).to.equal('edit')
     })
   })
 })

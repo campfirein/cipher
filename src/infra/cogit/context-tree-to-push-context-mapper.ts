@@ -8,7 +8,8 @@ import {CogitPushContext} from '../../core/domain/entities/cogit-push-context.js
 export type MapToPushContextsParams = {
   /** Files to be added (new files) */
   addedFiles: ContextFileContent[]
-  // Future: modifiedFiles, deletedPaths for edit/delete operations
+  /** Files to be edited (modified files) */
+  modifiedFiles: ContextFileContent[]
 }
 
 /**
@@ -18,8 +19,8 @@ export type MapToPushContextsParams = {
  * @param params - The mapping parameters containing files to process
  * @returns Array of CogitPushContext instances ready for the push API
  */
-export const mapToPushContexts = (params: MapToPushContextsParams): CogitPushContext[] =>
-  params.addedFiles.map(
+export const mapToPushContexts = (params: MapToPushContextsParams): CogitPushContext[] => {
+  const addedContextFiles = params.addedFiles.map(
     (file) =>
       new CogitPushContext({
         content: file.content,
@@ -29,3 +30,17 @@ export const mapToPushContexts = (params: MapToPushContextsParams): CogitPushCon
         title: file.title,
       }),
   )
+
+  const editedContextFiles = params.modifiedFiles.map(
+    (file) =>
+      new CogitPushContext({
+        content: file.content,
+        operation: 'edit',
+        path: `/${file.path}`,
+        tags: [],
+        title: file.title,
+      }),
+  )
+
+  return [...addedContextFiles, ...editedContextFiles]
+}

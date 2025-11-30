@@ -257,9 +257,11 @@ describe('Push Command', () => {
         deleted: [],
         modified: [],
       })
-      contextFileReader.readMany.resolves([
-        {content: '# Test\n\nContent', path: 'structure/context.md', title: 'Test'},
-      ])
+      contextFileReader.readMany
+        .onFirstCall()
+        .resolves([{content: '# Test\n\nContent', path: 'structure/context.md', title: 'Test'}])
+        .onSecondCall()
+        .resolves([])
       cogitPushService.push.resolves(
         new CogitPushResponse({
           message: 'Commit successful',
@@ -280,8 +282,9 @@ describe('Push Command', () => {
 
       await command.run()
 
-      expect(contextFileReader.readMany.calledOnce).to.be.true
-      expect(contextFileReader.readMany.calledWith(['structure/context.md'])).to.be.true
+      expect(contextFileReader.readMany.calledTwice).to.be.true
+      expect(contextFileReader.readMany.firstCall.calledWith(['structure/context.md'])).to.be.true
+      expect(contextFileReader.readMany.secondCall.calledWith([])).to.be.true
       expect(cogitPushService.push.calledOnce).to.be.true
     })
 
@@ -293,9 +296,11 @@ describe('Push Command', () => {
         deleted: [],
         modified: [],
       })
-      contextFileReader.readMany.resolves([
-        {content: '# My Title\n\nMy content', path: 'test/context.md', title: 'My Title'},
-      ])
+      contextFileReader.readMany
+        .onFirstCall()
+        .resolves([{content: '# My Title\n\nMy content', path: 'test/context.md', title: 'My Title'}])
+        .onSecondCall()
+        .resolves([])
       cogitPushService.push.resolves(
         new CogitPushResponse({
           message: 'Success',
@@ -336,9 +341,11 @@ describe('Push Command', () => {
         deleted: [],
         modified: [],
       })
-      contextFileReader.readMany.resolves([
-        {content: '# Test\n\nContent', path: 'test/context.md', title: 'Test'},
-      ])
+      contextFileReader.readMany
+        .onFirstCall()
+        .resolves([{content: '# Test\n\nContent', path: 'test/context.md', title: 'Test'}])
+        .onSecondCall()
+        .resolves([])
       cogitPushService.push.resolves(
         new CogitPushResponse({
           message: 'Success',
@@ -372,9 +379,11 @@ describe('Push Command', () => {
         deleted: [],
         modified: [],
       })
-      contextFileReader.readMany.resolves([
-        {content: '# Test\n\nContent', path: 'test/context.md', title: 'Test'},
-      ])
+      contextFileReader.readMany
+        .onFirstCall()
+        .resolves([{content: '# Test\n\nContent', path: 'test/context.md', title: 'Test'}])
+        .onSecondCall()
+        .resolves([])
       cogitPushService.push.resolves(
         new CogitPushResponse({
           message: 'Success',
@@ -409,9 +418,11 @@ describe('Push Command', () => {
         deleted: [],
         modified: [],
       })
-      contextFileReader.readMany.resolves([
-        {content: '# Test\n\nContent', path: 'test/context.md', title: 'Test'},
-      ])
+      contextFileReader.readMany
+        .onFirstCall()
+        .resolves([{content: '# Test\n\nContent', path: 'test/context.md', title: 'Test'}])
+        .onSecondCall()
+        .resolves([])
       cogitPushService.push.rejects(new Error('Push failed: Network error'))
 
       const command = new TestablePush(
@@ -442,9 +453,11 @@ describe('Push Command', () => {
         deleted: [],
         modified: [],
       })
-      contextFileReader.readMany.resolves([
-        {content: '# Test\n\nContent', path: 'test/context.md', title: 'Test'},
-      ])
+      contextFileReader.readMany
+        .onFirstCall()
+        .resolves([{content: '# Test\n\nContent', path: 'test/context.md', title: 'Test'}])
+        .onSecondCall()
+        .resolves([])
       cogitPushService.push.rejects(new Error('Failed to push to CoGit: Network timeout'))
 
       const command = new TestablePush(
@@ -503,9 +516,11 @@ describe('Push Command', () => {
         deleted: [],
         modified: [],
       })
-      contextFileReader.readMany.resolves([
-        {content: '# Test\n\nContent', path: 'test/context.md', title: 'Test'},
-      ])
+      contextFileReader.readMany
+        .onFirstCall()
+        .resolves([{content: '# Test\n\nContent', path: 'test/context.md', title: 'Test'}])
+        .onSecondCall()
+        .resolves([])
       cogitPushService.push.resolves(
         new CogitPushResponse({
           message: 'Success',
@@ -570,9 +585,11 @@ describe('Push Command', () => {
         deleted: [],
         modified: [],
       })
-      contextFileReader.readMany.resolves([
-        {content: '# Test\n\nContent', path: 'test/context.md', title: 'Test'},
-      ])
+      contextFileReader.readMany
+        .onFirstCall()
+        .resolves([{content: '# Test\n\nContent', path: 'test/context.md', title: 'Test'}])
+        .onSecondCall()
+        .resolves([])
       cogitPushService.push.resolves(
         new CogitPushResponse({
           message: 'Success',
@@ -612,11 +629,15 @@ describe('Push Command', () => {
         deleted: [],
         modified: [],
       })
-      contextFileReader.readMany.resolves([
-        {content: '# First\n\nContent', path: 'first/context.md', title: 'First'},
-        {content: '# Second\n\nContent', path: 'second/context.md', title: 'Second'},
-        {content: '# Third\n\nContent', path: 'third/context.md', title: 'Third'},
-      ])
+      contextFileReader.readMany
+        .onFirstCall()
+        .resolves([
+          {content: '# First\n\nContent', path: 'first/context.md', title: 'First'},
+          {content: '# Second\n\nContent', path: 'second/context.md', title: 'Second'},
+          {content: '# Third\n\nContent', path: 'third/context.md', title: 'Third'},
+        ])
+        .onSecondCall()
+        .resolves([])
       cogitPushService.push.resolves(
         new CogitPushResponse({
           message: 'Success',
@@ -672,6 +693,133 @@ describe('Push Command', () => {
 
       expect(logStub.calledWith('\nNo valid context files to push.')).to.be.true
       expect(cogitPushService.push.called).to.be.false
+    })
+  })
+
+  describe('modified files (edit operation)', () => {
+    it('should read modified files and push with edit operation', async () => {
+      tokenStore.load.resolves(validToken)
+      configStore.read.resolves(projectConfig)
+      contextTreeSnapshotService.getChanges.resolves({
+        added: [],
+        deleted: [],
+        modified: ['existing/context.md'],
+      })
+      contextFileReader.readMany
+        .onFirstCall()
+        .resolves([])
+        .onSecondCall()
+        .resolves([{content: '# Updated\n\nUpdated content', path: 'existing/context.md', title: 'Updated'}])
+      cogitPushService.push.resolves(
+        new CogitPushResponse({
+          message: 'Success',
+          success: true,
+        }),
+      )
+      contextTreeSnapshotService.saveSnapshot.resolves()
+
+      const command = new TestablePush(
+        cogitPushService,
+        contextFileReader,
+        contextTreeSnapshotService,
+        configStore,
+        tokenStore,
+        trackingService,
+        config,
+      )
+
+      await command.run()
+
+      expect(contextFileReader.readMany.calledTwice).to.be.true
+      expect(contextFileReader.readMany.secondCall.calledWith(['existing/context.md'])).to.be.true
+      const pushCall = cogitPushService.push.getCall(0)
+      expect(pushCall.args[0].contexts).to.have.lengthOf(1)
+      expect(pushCall.args[0].contexts[0].operation).to.equal('edit')
+      expect(pushCall.args[0].contexts[0].path).to.equal('/existing/context.md')
+    })
+
+    it('should handle both added and modified files together', async () => {
+      tokenStore.load.resolves(validToken)
+      configStore.read.resolves(projectConfig)
+      contextTreeSnapshotService.getChanges.resolves({
+        added: ['new/context.md'],
+        deleted: [],
+        modified: ['existing/context.md'],
+      })
+      contextFileReader.readMany
+        .onFirstCall()
+        .resolves([{content: '# New\n\nNew content', path: 'new/context.md', title: 'New'}])
+        .onSecondCall()
+        .resolves([{content: '# Updated\n\nUpdated content', path: 'existing/context.md', title: 'Updated'}])
+      cogitPushService.push.resolves(
+        new CogitPushResponse({
+          message: 'Success',
+          success: true,
+        }),
+      )
+      contextTreeSnapshotService.saveSnapshot.resolves()
+
+      const command = new TestablePush(
+        cogitPushService,
+        contextFileReader,
+        contextTreeSnapshotService,
+        configStore,
+        tokenStore,
+        trackingService,
+        config,
+      )
+
+      await command.run()
+
+      const pushCall = cogitPushService.push.getCall(0)
+      expect(pushCall.args[0].contexts).to.have.lengthOf(2)
+      expect(pushCall.args[0].contexts[0].operation).to.equal('add')
+      expect(pushCall.args[0].contexts[0].path).to.equal('/new/context.md')
+      expect(pushCall.args[0].contexts[1].operation).to.equal('edit')
+      expect(pushCall.args[0].contexts[1].path).to.equal('/existing/context.md')
+    })
+
+    it('should trigger push when only modified files exist', async () => {
+      tokenStore.load.resolves(validToken)
+      configStore.read.resolves(projectConfig)
+      contextTreeSnapshotService.getChanges.resolves({
+        added: [],
+        deleted: [],
+        modified: ['file1/context.md', 'file2/context.md'],
+      })
+      contextFileReader.readMany
+        .onFirstCall()
+        .resolves([])
+        .onSecondCall()
+        .resolves([
+          {content: '# File1\n\nContent', path: 'file1/context.md', title: 'File1'},
+          {content: '# File2\n\nContent', path: 'file2/context.md', title: 'File2'},
+        ])
+      cogitPushService.push.resolves(
+        new CogitPushResponse({
+          message: 'Success',
+          success: true,
+        }),
+      )
+      contextTreeSnapshotService.saveSnapshot.resolves()
+
+      const command = new TestablePush(
+        cogitPushService,
+        contextFileReader,
+        contextTreeSnapshotService,
+        configStore,
+        tokenStore,
+        trackingService,
+        config,
+      )
+
+      await command.run()
+
+      expect(cogitPushService.push.calledOnce).to.be.true
+      const pushCall = cogitPushService.push.getCall(0)
+      expect(pushCall.args[0].contexts).to.have.lengthOf(2)
+      expect(pushCall.args[0].contexts[0].operation).to.equal('edit')
+      expect(pushCall.args[0].contexts[1].operation).to.equal('edit')
     })
   })
 })
