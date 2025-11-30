@@ -5,11 +5,12 @@ import type {Tool, ToolExecutionContext} from '../../../../core/domain/cipher/to
 import type {IFileSystem} from '../../../../core/interfaces/cipher/i-file-system.js'
 
 import {ToolName} from '../../../../core/domain/cipher/tools/constants.js'
+import {sanitizeFolderName} from '../../../../utils/file-helpers.js'
 
 /**
  * Input schema for write file tool.
  */
-const WriteFileInputSchema = z
+const WriteFileInputSchema = z  
   .object({
     content: z.string().describe('Content to write to the file'),
     createDirs: z
@@ -48,7 +49,7 @@ export function createWriteFileTool(fileSystemService: IFileSystem): Tool {
       const {content, createDirs, encoding, filePath} = input as WriteFileInput
 
       // Call file system service
-      const result = await fileSystemService.writeFile(filePath, content, {
+      const result = await fileSystemService.writeFile(sanitizeFolderName(filePath), content, {
         createDirs,
         encoding: encoding as BufferEncoding,
       })

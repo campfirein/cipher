@@ -10,12 +10,12 @@ import sinon, {restore, stub} from 'sinon'
 import type {IProjectConfigStore} from '../../src/core/interfaces/i-project-config-store.js'
 import type {ITrackingService} from '../../src/core/interfaces/i-tracking-service.js'
 
-import Add from '../../src/commands/add.js'
+import Curate from '../../src/commands/curate.js'
 
 /**
- * Testable Add command for runInteractive tests
+ * Testable Curate command for runInteractive tests
  */
-class TestableAdd extends Add {
+class TestableCurate extends Curate {
   public openCalledWith: null | string = null
   private logMessages: string[] = []
   private mockNavigateResult: null | string = null
@@ -78,9 +78,9 @@ class TestableAdd extends Add {
 }
 
 /**
- * Testable Add command for createTopicWithContextFile tests
+ * Testable Curate command for createTopicWithContextFile tests
  */
-class TestableAddForMethods extends Add {
+class TestableCurateForMethods extends Curate {
   private logMessages: string[] = []
 
   public constructor(
@@ -130,9 +130,9 @@ class TestableAddForMethods extends Add {
 }
 
 /**
- * Testable Add command for promptForTopicName tests
+ * Testable Curate command for promptForTopicName tests
  */
-class TestableAddForPrompt extends Add {
+class TestableCurateForPrompt extends Curate {
   public inputCalledWithMessage: null | string = null
   private logMessages: string[] = []
   private mockInputResult: null | string = null
@@ -208,7 +208,7 @@ class TestableAddForPrompt extends Add {
   }
 }
 
-describe('Add Command - Interactive Mode', () => {
+describe('Curate Command - Interactive Mode', () => {
   let config: Config
   let projectConfigStore: sinon.SinonStubbedInstance<IProjectConfigStore>
   let trackingService: sinon.SinonStubbedInstance<ITrackingService>
@@ -234,7 +234,7 @@ describe('Add Command - Interactive Mode', () => {
     } as unknown as sinon.SinonStubbedInstance<ITrackingService>
 
     // Create temp directory for tests
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'add-test-'))
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'curate-test-'))
   })
 
   afterEach(() => {
@@ -249,7 +249,7 @@ describe('Add Command - Interactive Mode', () => {
 
   describe('runInteractive', () => {
     it('should cancel when navigation returns null', async () => {
-      const cmd = new TestableAdd(projectConfigStore, trackingService, config)
+      const cmd = new TestableCurate(projectConfigStore, trackingService, config)
       cmd.setMockNavigateResult(null)
       cmd.setMockTopicName('test-topic')
 
@@ -260,7 +260,7 @@ describe('Add Command - Interactive Mode', () => {
     })
 
     it('should cancel when topic name prompt returns null', async () => {
-      const cmd = new TestableAdd(projectConfigStore, trackingService, config)
+      const cmd = new TestableCurate(projectConfigStore, trackingService, config)
       cmd.setMockNavigateResult(tempDir)
       cmd.setMockTopicName(null)
 
@@ -271,7 +271,7 @@ describe('Add Command - Interactive Mode', () => {
     })
 
     it('should create topic folder and open context.md file', async () => {
-      const cmd = new TestableAdd(projectConfigStore, trackingService, config)
+      const cmd = new TestableCurate(projectConfigStore, trackingService, config)
       cmd.setMockNavigateResult(tempDir)
       cmd.setMockTopicName('my-new-topic')
 
@@ -301,7 +301,7 @@ describe('Add Command - Interactive Mode', () => {
 
   describe('createTopicWithContextFile', () => {
     it('should create topic folder with context.md file', () => {
-      const cmd = new TestableAddForMethods(projectConfigStore, trackingService, config)
+      const cmd = new TestableCurateForMethods(projectConfigStore, trackingService, config)
 
       const contextFilePath = cmd.testCreateTopicWithContextFile(tempDir, 'test-topic')
 
@@ -312,7 +312,7 @@ describe('Add Command - Interactive Mode', () => {
     })
 
     it('should create context.md with correct initial content', () => {
-      const cmd = new TestableAddForMethods(projectConfigStore, trackingService, config)
+      const cmd = new TestableCurateForMethods(projectConfigStore, trackingService, config)
 
       const contextFilePath = cmd.testCreateTopicWithContextFile(tempDir, 'My Topic')
 
@@ -321,7 +321,7 @@ describe('Add Command - Interactive Mode', () => {
     })
 
     it('should create nested directories if needed', () => {
-      const cmd = new TestableAddForMethods(projectConfigStore, trackingService, config)
+      const cmd = new TestableCurateForMethods(projectConfigStore, trackingService, config)
       const nestedPath = path.join(tempDir, 'nested', 'path')
 
       const contextFilePath = cmd.testCreateTopicWithContextFile(nestedPath, 'deep-topic')
@@ -331,7 +331,7 @@ describe('Add Command - Interactive Mode', () => {
     })
 
     it('should return the path to context.md file', () => {
-      const cmd = new TestableAddForMethods(projectConfigStore, trackingService, config)
+      const cmd = new TestableCurateForMethods(projectConfigStore, trackingService, config)
 
       const result = cmd.testCreateTopicWithContextFile(tempDir, 'result-topic')
 
@@ -341,7 +341,7 @@ describe('Add Command - Interactive Mode', () => {
 
   describe('promptForTopicName', () => {
     it('should return null when input is cancelled', async () => {
-      const cmd = new TestableAddForPrompt(projectConfigStore, trackingService, config)
+      const cmd = new TestableCurateForPrompt(projectConfigStore, trackingService, config)
       cmd.setMockInputShouldThrow(true)
 
       const result = await cmd.testPromptForTopicName(tempDir)
@@ -350,7 +350,7 @@ describe('Add Command - Interactive Mode', () => {
     })
 
     it('should return trimmed topic name on valid input', async () => {
-      const cmd = new TestableAddForPrompt(projectConfigStore, trackingService, config)
+      const cmd = new TestableCurateForPrompt(projectConfigStore, trackingService, config)
       cmd.setMockInputResult('  valid-topic  ')
 
       const result = await cmd.testPromptForTopicName(tempDir)
@@ -359,7 +359,7 @@ describe('Add Command - Interactive Mode', () => {
     })
 
     it('should use correct prompt message', async () => {
-      const cmd = new TestableAddForPrompt(projectConfigStore, trackingService, config)
+      const cmd = new TestableCurateForPrompt(projectConfigStore, trackingService, config)
       cmd.setMockInputResult('topic')
 
       await cmd.testPromptForTopicName(tempDir)
@@ -370,21 +370,21 @@ describe('Add Command - Interactive Mode', () => {
 
   describe('validateTopicName', () => {
     it('should reject empty topic name', () => {
-      const cmd = new TestableAddForMethods(projectConfigStore, trackingService, config)
+      const cmd = new TestableCurateForMethods(projectConfigStore, trackingService, config)
 
       const result = cmd.testValidateTopicName('', tempDir)
       expect(result).to.equal('Topic name cannot be empty')
     })
 
     it('should reject topic name with only whitespace', () => {
-      const cmd = new TestableAddForMethods(projectConfigStore, trackingService, config)
+      const cmd = new TestableCurateForMethods(projectConfigStore, trackingService, config)
 
       const result = cmd.testValidateTopicName('   ', tempDir)
       expect(result).to.equal('Topic name cannot be empty')
     })
 
     it('should reject topic name containing slash', () => {
-      const cmd = new TestableAddForMethods(projectConfigStore, trackingService, config)
+      const cmd = new TestableCurateForMethods(projectConfigStore, trackingService, config)
 
       const result = cmd.testValidateTopicName('invalid/name', tempDir)
       expect(result).to.equal('Topic name cannot contain "/" or null characters')
@@ -395,28 +395,28 @@ describe('Add Command - Interactive Mode', () => {
       const existingFolder = path.join(tempDir, 'existing-topic')
       fs.mkdirSync(existingFolder, {recursive: true})
 
-      const cmd = new TestableAddForMethods(projectConfigStore, trackingService, config)
+      const cmd = new TestableCurateForMethods(projectConfigStore, trackingService, config)
 
       const result = cmd.testValidateTopicName('existing-topic', tempDir)
       expect(result).to.equal('Topic "existing-topic" already exists at this location')
     })
 
     it('should accept valid topic name', () => {
-      const cmd = new TestableAddForMethods(projectConfigStore, trackingService, config)
+      const cmd = new TestableCurateForMethods(projectConfigStore, trackingService, config)
 
       const result = cmd.testValidateTopicName('valid-topic-name', tempDir)
       expect(result).to.be.true
     })
 
     it('should accept topic name with spaces', () => {
-      const cmd = new TestableAddForMethods(projectConfigStore, trackingService, config)
+      const cmd = new TestableCurateForMethods(projectConfigStore, trackingService, config)
 
       const result = cmd.testValidateTopicName('Topic With Spaces', tempDir)
       expect(result).to.be.true
     })
 
     it('should accept topic name with special characters', () => {
-      const cmd = new TestableAddForMethods(projectConfigStore, trackingService, config)
+      const cmd = new TestableCurateForMethods(projectConfigStore, trackingService, config)
 
       const result = cmd.testValidateTopicName('topic-with_special.chars', tempDir)
       expect(result).to.be.true

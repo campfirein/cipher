@@ -2,6 +2,7 @@ import {input} from '@inquirer/prompts'
 import {Args, Command, Flags} from '@oclif/core'
 import chalk from 'chalk'
 import {fileSelector, Item, ItemType} from 'inquirer-file-selector'
+import {randomUUID} from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import open from 'open'
@@ -24,28 +25,34 @@ import {formatToolCall, formatToolResult} from '../utils/tool-display-formatter.
 // Full path to context tree
 const CONTEXT_TREE_PATH = path.join(BRV_DIR, CONTEXT_TREE_DIR)
 
-export default class Add extends Command {
+export default class Curate extends Command {
   public static args = {
-    content: Args.string({
-      description: 'Content to add to the context tree (triggers autonomous mode)',
+    context: Args.string({
+      description: 'Knowledge context: patterns, decisions, errors, or insights (triggers autonomous mode)',
       required: false,
     }),
   }
-  public static description = 'Add content to the context tree (interactive or autonomous mode)'
+  public static description = `Curate context to the context tree (interactive or autonomous mode)
+Good:
+- "Auth uses JWT with 24h expiry. Tokens stored in httpOnly cookies via authMiddleware.ts"
+- "API rate limit is 100 req/min per user. Implemented using Redis with sliding window in rateLimiter.ts"
+Bad:
+- "Authentication" or "JWT tokens" (too vague, lacks context)
+- "Rate limiting" (no implementation details or file references)`
   public static examples = [
     '# Interactive mode (manually choose domain/topic)',
     '<%= config.bin %> <%= command.id %>',
     '',
-    '# Autonomous mode with internal LLM (default)',
-    '<%= config.bin %> <%= command.id %> "User authentication uses JWT tokens with 24h expiry"',
+    '# Autonomous mode - LLM auto-categorizes your context',
+    '<%= config.bin %> <%= command.id %> "Auth uses JWT with 24h expiry. Tokens stored in httpOnly cookies via authMiddleware.ts"',
     '',
     ...(isDevelopment()
       ? [
           '# Autonomous mode with OpenRouter (development only)',
-          '<%= config.bin %> <%= command.id %> -k YOUR_API_KEY "React components follow atomic design pattern"',
+          '<%= config.bin %> <%= command.id %> -k YOUR_API_KEY "React components follow atomic design in src/components/. Atoms in atoms/, molecules in molecules/, organisms in organisms/"',
           '',
           '# Autonomous mode with custom model (development only)',
-          '<%= config.bin %> <%= command.id %> -k YOUR_API_KEY -m anthropic/claude-sonnet-4 "API rate limit is 100 req/min"',
+          '<%= config.bin %> <%= command.id %> -k YOUR_API_KEY -m anthropic/claude-sonnet-4 "API rate limit is 100 req/min per user. Implemented using Redis with sliding window in rateLimiter.ts"',
         ]
       : []),
   ]
@@ -62,13 +69,13 @@ export default class Add extends Command {
             description:
               'Model to use (default: google/gemini-2.5-pro for OpenRouter, gemini-2.5-pro for gRPC) [Development only]',
           }),
+          verbose: Flags.boolean({
+            char: 'v',
+            default: false,
+            description: 'Enable verbose debug output [Development only]',
+          }),
         }
       : {}),
-    verbose: Flags.boolean({
-      char: 'v',
-      default: false,
-      description: 'Enable verbose debug output',
-    }),
   }
 
   // Override catch to prevent oclif from logging errors that were already displayed
@@ -118,12 +125,11 @@ export default class Add extends Command {
   }
 
   /**
-   * Generate a unique session ID for the autonomous agent
+   * Generate a unique session ID for the autonomous agent.
+   * Uses crypto.randomUUID() for guaranteed uniqueness (122 bits of entropy).
    */
   protected generateSessionId(): string {
-    const timestamp = Date.now()
-    const random = Math.random().toString(36).slice(2, 8)
-    return `${timestamp}-${random}`
+    return randomUUID()
   }
 
   /**
@@ -216,14 +222,14 @@ export default class Add extends Command {
   }
 
   public async run(): Promise<void> {
-    const {args, flags} = await this.parse(Add)
+    const {args, flags} = await this.parse(Curate)
 
-    // Determine mode: autonomous if content is provided via args
-    const contentInput = args.content
+    // Determine mode: autonomous if context is provided via args
+    const contextInput = args.context
 
-    // Autonomous mode: use CipherAgent to process content
-    // Interactive mode: manually prompt for domain/topic/content
-    return contentInput ? this.runAutonomous(contentInput, flags) : this.runInteractive()
+    // Autonomous mode: use CipherAgent to process context
+    // Interactive mode: manually prompt for domain/topic/context
+    return contextInput ? this.runAutonomous(contextInput, flags) : this.runInteractive()
   }
 
   /**
@@ -325,16 +331,16 @@ export default class Add extends Command {
         this.setupEventListeners(agent, flags.verbose ?? false)
 
         // Execute with autonomous mode and add commandType
-        const prompt = `Add the following content to the context tree:\n\n${content}`
+        const prompt = `Add the following context to the context tree:\n\n${content}`
         const response = await agent.execute(prompt, sessionId, {
-          executionContext: {commandType: 'add'},
+          executionContext: {commandType: 'curate'},
           mode: 'autonomous',
         })
 
         this.log('\nCipherAgent Response:')
         this.log(response)
 
-        await trackingService.track('mem:add')
+        await trackingService.track('mem:curate')
       } finally {
         // console.log('Logic for agent stopping and resource cleanup may go here!')
       }
@@ -376,7 +382,7 @@ export default class Add extends Command {
       this.log(`\nCreated: ${contextFilePath}`)
 
       // Track the event
-      trackingService.track('mem:add')
+      trackingService.track('mem:curate')
 
       // Auto-open context.md in default editor
       this.log('Opening context.md for editing...')

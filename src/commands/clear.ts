@@ -1,14 +1,20 @@
 import {confirm} from '@inquirer/prompts'
 import {Args, Command, Flags} from '@oclif/core'
+import {rm} from 'node:fs/promises'
+import {join} from 'node:path'
 
-import {Playbook} from '../core/domain/entities/playbook.js'
-import {FilePlaybookStore} from '../infra/ace/file-playbook-store.js'
+import type {IContextTreeService} from '../core/interfaces/i-context-tree-service.js'
+import type {IContextTreeSnapshotService} from '../core/interfaces/i-context-tree-snapshot-service.js'
+
+import {BRV_DIR, CONTEXT_TREE_DIR} from '../constants.js'
+import {FileContextTreeService} from '../infra/context-tree/file-context-tree-service.js'
+import {FileContextTreeSnapshotService} from '../infra/context-tree/file-context-tree-snapshot-service.js'
 
 export default class Clear extends Command {
   public static args = {
     directory: Args.string({description: 'Project directory (defaults to current directory)', required: false}),
   }
-  public static description = 'Clear local ACE context (playbook) managed by ByteRover CLI'
+  public static description = 'Reset the context tree to its original state (6 default domains)'
   public static examples = [
     '<%= config.bin %> <%= command.id %>',
     '<%= config.bin %> <%= command.id %> --yes',
@@ -26,22 +32,32 @@ export default class Clear extends Command {
   protected async confirmClear(): Promise<boolean> {
     return confirm({
       default: false,
-      message: 'Are you sure you want to clear the playbook? This action cannot be undone.',
+      message:
+        'Are you sure you want to reset the context tree? This will remove all existing context and restore default domains.',
     })
+  }
+
+  protected createServices(): {
+    contextTreeService: IContextTreeService
+    contextTreeSnapshotService: IContextTreeSnapshotService
+  } {
+    return {
+      contextTreeService: new FileContextTreeService(),
+      contextTreeSnapshotService: new FileContextTreeSnapshotService(),
+    }
   }
 
   public async run(): Promise<void> {
     const {args, flags} = await this.parse(Clear)
 
     try {
-      // Setup dependencies
-      const playbookStore = new FilePlaybookStore()
+      const {contextTreeService, contextTreeSnapshotService} = this.createServices()
 
-      // Check if playbook exists
-      const exists = await playbookStore.exists(args.directory)
+      // Check if context tree exists
+      const exists = await contextTreeService.exists(args.directory)
 
       if (!exists) {
-        this.log('No playbook found. Nothing to clear.')
+        this.log('No context tree found. Nothing to clear.')
         return
       }
 
@@ -50,26 +66,34 @@ export default class Clear extends Command {
         const confirmed = await this.confirmClear()
 
         if (!confirmed) {
-          this.log('Cancelled. Playbook was not cleared.')
+          this.log('Cancelled. Context tree was not reset.')
           return
         }
       }
 
-      // Reset the playbook to empty structure
-      const emptyPlaybook = new Playbook()
-      await playbookStore.save(emptyPlaybook, args.directory)
+      // Remove existing context tree directory
+      const baseDir = args.directory ?? process.cwd()
+      const contextTreeDir = join(baseDir, BRV_DIR, CONTEXT_TREE_DIR)
+      await rm(contextTreeDir, {force: true, recursive: true})
 
-      this.log('✓ Playbook cleared successfully.')
+      // Re-initialize context tree with default domains
+      await contextTreeService.initialize(args.directory)
+
+      // Re-initialize empty snapshot
+      await contextTreeSnapshotService.initEmptySnapshot(args.directory)
+
+      this.log('✓ Context tree reset successfully.')
+      this.log('  6 default domains restored: code_style, design, structure, compliance, testing, bug_fixes')
     } catch (error) {
       // Handle user cancelling the prompt (Ctrl+C or closing stdin)
       const errorMessage = error instanceof Error ? error.message : String(error)
       if (errorMessage.includes('User force closed') || errorMessage.includes('force closed')) {
-        this.log('Cancelled. Playbook was not cleared.')
+        this.log('Cancelled. Context tree was not reset.')
         return
       }
 
       // For other errors, throw to let oclif handle display
-      this.error(error instanceof Error ? error.message : 'Failed to clear playbook')
+      this.error(error instanceof Error ? error.message : 'Failed to reset context tree')
     }
   }
 }

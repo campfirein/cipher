@@ -146,13 +146,16 @@ export class ChatSession implements IChatSession {
    * Send a message and get a response.
    * Delegates to the LLM service which handles the agentic loop.
    */
-  public async run(input: string, options?: {executionContext?: ExecutionContext; mode?: 'autonomous' | 'default' | 'query'}): Promise<string> {
+  public async run(
+    input: string,
+    options?: {executionContext?: ExecutionContext; mode?: 'autonomous' | 'default' | 'query'},
+  ): Promise<string> {
     // Create abort controller for cancellation
     this.currentController = new AbortController()
 
     try {
       // Delegate to service - it handles everything
-      const response = await this.llmService.completeTask(input, {
+      const response = await this.llmService.completeTask(input, this.id, {
         executionContext: options?.executionContext,
         mode: options?.mode,
         signal: this.currentController.signal,
