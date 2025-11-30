@@ -79,7 +79,7 @@ export default class Push extends Command {
 
     return confirm({
       default: false,
-      message: 'Push to ByteRover and clean up local files?',
+      message: 'Push to ByteRover?',
     })
   }
 
@@ -157,6 +157,8 @@ export default class Push extends Command {
       ux.action.stop()
 
       const pushContexts = mapToPushContexts({addedFiles, modifiedFiles})
+
+      console.log('pushContexts', pushContexts)
 
       if (pushContexts.length === 0) {
         this.log('\nNo valid context files to push.')
