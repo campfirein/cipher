@@ -352,7 +352,7 @@ describe('ByteRoverLLMService - Gemini Integration', () => {
         toolCalls: [],
       } as GenerateContentResponse)
 
-      const result = await service.completeTask('Search for TypeScript files')
+      const result = await service.completeTask('Search for TypeScript files', 'test-session')
       expect(result).to.equal('I found 5 TypeScript files')
     })
 
@@ -418,7 +418,7 @@ describe('ByteRoverLLMService - Gemini Integration', () => {
         toolCalls: [],
       } as GenerateContentResponse)
 
-      const result = await service.completeTask('Read a.ts and b.ts')
+      const result = await service.completeTask('Read a.ts and b.ts', 'test-session')
       expect(result).to.equal('Read both files successfully')
 
       // Verify tool was called twice (once for each file)
@@ -455,7 +455,7 @@ describe('ByteRoverLLMService - Gemini Integration', () => {
       sandbox.stub(generator, 'generateContent').rejects(new Error('Gemini API error'))
 
       try {
-        await service.completeTask('Test query')
+        await service.completeTask('Test query', 'test-session')
         expect.fail('Should have thrown error')
       } catch (error) {
         expect(error).to.be.instanceOf(Error)
@@ -521,7 +521,7 @@ describe('ByteRoverLLMService - Gemini Integration', () => {
         toolCalls: [],
       } as GenerateContentResponse)
 
-      const result = await service.completeTask('Search for something')
+      const result = await service.completeTask('Search for something', 'test-session')
       expect(result).to.be.a('string')
     })
   })
