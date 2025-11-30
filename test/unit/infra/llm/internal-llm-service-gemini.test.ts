@@ -10,6 +10,7 @@ import {ByteRoverContentGenerator} from '../../../../src/infra/cipher/llm/genera
 import {ByteRoverLLMService} from '../../../../src/infra/cipher/llm/internal-llm-service.js'
 import {SimplePromptFactory} from '../../../../src/infra/cipher/system-prompt/simple-prompt-factory.js'
 import {ToolManager} from '../../../../src/infra/cipher/tools/tool-manager.js'
+import {createMockToolProvider} from '../../../helpers/mock-factories.js'
 
 /**
  * Helper function to create a ByteRover content generator with test config
@@ -37,19 +38,17 @@ describe('ByteRoverLLMService - Gemini Integration', () => {
   let promptFactory: SimplePromptFactory
   let toolManager: ToolManager
   let sandbox: sinon.SinonSandbox
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let mockToolProvider: any
 
   beforeEach(() => {
     sinon.stub(console, 'log')
     sandbox = sinon.createSandbox()
     sessionEventBus = new SessionEventBus()
     promptFactory = new SimplePromptFactory()
-    mockToolProvider = {
+    const mockToolProvider = createMockToolProvider(sandbox, {
       getAllTools: sandbox.stub().returns({}),
       getAvailableMarkers: sandbox.stub().returns(new Set<string>()),
       getToolNames: sandbox.stub().returns([]),
-    }
+    })
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     toolManager = new ToolManager(mockToolProvider as any)
   })
