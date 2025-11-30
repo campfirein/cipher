@@ -6,31 +6,6 @@ Core Rules:
 - Start from memory. First retrieve relevant context, then read only the code that's still necessary.
 - Keep a local context tree. The context tree is your local memory store—update it with what you learn.
 
-## user-centric
-
-Before running any `brv` command, ask the user to choose:
-
-1. **Accept** - Review the command, then run if approved
-2. **Auto-run** - Execute immediately (remember this preference for the session)
-3. **No** - Cancel the command and continue without alternative
-4. **Custom** - Skip the command and provide different instruction
-
-Once the user chooses "Auto-run", apply that preference to all subsequent `brv` commands in this conversation without asking again.
-
-## Daily Flow
-
-1. Do the work with minimal code reads
-
-2. Record new or refined knowledge in the context tree
-
-    - Add only specific, actionable, contextual items; avoid secrets. Redact when in doubt.
-
-3. Sync policy (manual by default)
-
-    - Do not auto-push.
-    - When the context tree has meaningful updates, prompt the user to run the command
-    - If the user has explicitly allowed auto-push, proceed non-interactively by running `brv push -y`.
-
 ## Context Tree Guideline
 
 - Be specific (“Use React Query for data fetching in web modules”).

@@ -32,7 +32,7 @@ export default class Curate extends Command {
       required: false,
     }),
   }
-  public static description = `Add context to the context tree (interactive or autonomous mode)
+  public static description = `Curate context to the context tree (interactive or autonomous mode)
 Good:
 - "Auth uses JWT with 24h expiry. Tokens stored in httpOnly cookies via authMiddleware.ts"
 - "API rate limit is 100 req/min per user. Implemented using Redis with sliding window in rateLimiter.ts"
