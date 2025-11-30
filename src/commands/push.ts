@@ -3,21 +3,22 @@ import {Command, Flags, ux} from '@oclif/core'
 
 import type {AuthToken} from '../core/domain/entities/auth-token.js'
 import type {BrvConfig} from '../core/domain/entities/brv-config.js'
-import type {PresignedUrl} from '../core/domain/entities/presigned-url.js'
-import type {PresignedUrlsResponse} from '../core/domain/entities/presigned-urls-response.js'
-import type {IMemoryStorageService} from '../core/interfaces/i-memory-storage-service.js'
+import type {ICogitPushService} from '../core/interfaces/i-cogit-push-service.js'
+import type {IContextFileReader} from '../core/interfaces/i-context-file-reader.js'
 import type {IProjectConfigStore} from '../core/interfaces/i-project-config-store.js'
 import type {ITokenStore} from '../core/interfaces/i-token-store.js'
 
 import {getCurrentConfig} from '../config/environment.js'
-import {DEFAULT_BRANCH, PLAYBOOK_FILE} from '../constants.js'
+import {DEFAULT_BRANCH} from '../constants.js'
 import {IContextTreeSnapshotService} from '../core/interfaces/i-context-tree-snapshot-service.js'
 import {ITrackingService} from '../core/interfaces/i-tracking-service.js'
 import {ExitCode, ExitError, exitWithCode} from '../infra/cipher/exit-codes.js'
 import {WorkspaceNotInitializedError} from '../infra/cipher/validation/workspace-validator.js'
+import {mapToPushContexts} from '../infra/cogit/context-tree-to-push-context-mapper.js'
+import {HttpCogitPushService} from '../infra/cogit/http-cogit-push-service.js'
 import {ProjectConfigStore} from '../infra/config/file-config-store.js'
+import {FileContextFileReader} from '../infra/context-tree/file-context-file-reader.js'
 import {FileContextTreeSnapshotService} from '../infra/context-tree/file-context-tree-snapshot-service.js'
-import {HttpMemoryStorageService} from '../infra/memory/http-memory-storage-service.js'
 import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
 import {MixpanelTrackingService} from '../infra/tracking/mixpanel-tracking-service.js'
 
@@ -71,38 +72,21 @@ export default class Push extends Command {
     return projectConfig
   }
 
-  protected async confirmPush(projectConfig: BrvConfig, branch: string, fileCount: number): Promise<boolean> {
+  protected async confirmPush(projectConfig: BrvConfig, branch: string): Promise<boolean> {
     this.log('\nYou are about to push to ByteRover memory storage:')
     this.log(`  Space: ${projectConfig.spaceName}`)
     this.log(`  Branch: ${branch}`)
-    this.log(`  Files to upload: ${fileCount}`)
 
     return confirm({
       default: false,
-      message: 'Push to ByteRover and clean up local files?',
+      message: 'Push to ByteRover?',
     })
-  }
-
-  protected async confirmUpload(
-    memoryService: IMemoryStorageService,
-    token: AuthToken,
-    projectConfig: BrvConfig,
-    requestId: string,
-  ): Promise<void> {
-    ux.action.start('Confirming upload')
-    await memoryService.confirmUpload({
-      accessToken: token.accessToken,
-      requestId,
-      sessionKey: token.sessionKey,
-      spaceId: projectConfig.spaceId,
-      teamId: projectConfig.teamId,
-    })
-    ux.action.stop('✓')
   }
 
   protected createServices(): {
+    cogitPushService: ICogitPushService
+    contextFileReader: IContextFileReader
     contextTreeSnapshotService: IContextTreeSnapshotService
-    memoryService: IMemoryStorageService
     projectConfigStore: IProjectConfigStore
     tokenStore: ITokenStore
     trackingService: ITrackingService
@@ -112,64 +96,95 @@ export default class Push extends Command {
     const trackingService = new MixpanelTrackingService(tokenStore)
 
     return {
-      contextTreeSnapshotService: new FileContextTreeSnapshotService(),
-      memoryService: new HttpMemoryStorageService({
+      cogitPushService: new HttpCogitPushService({
         apiBaseUrl: envConfig.cogitApiBaseUrl,
       }),
+      contextFileReader: new FileContextFileReader(),
+      contextTreeSnapshotService: new FileContextTreeSnapshotService(),
       projectConfigStore: new ProjectConfigStore(),
       tokenStore,
       trackingService,
     }
   }
 
-  protected async getPresignedUrls(
-    memoryService: IMemoryStorageService,
-    token: AuthToken,
-    projectConfig: BrvConfig,
-  ): Promise<PresignedUrlsResponse> {
-    const {flags} = await this.parse(Push)
-    ux.action.start('Requesting upload URLs')
-    const response = await memoryService.getPresignedUrls({
-      accessToken: token.accessToken,
-      branch: flags.branch,
-      fileNames: [`${PLAYBOOK_FILE}`],
-      sessionKey: token.sessionKey,
-      spaceId: projectConfig.spaceId,
-      teamId: projectConfig.teamId,
-    })
-    ux.action.stop()
-    return response
-  }
-
   public async run(): Promise<void> {
     const {flags} = await this.parse(Push)
 
     try {
-      const {contextTreeSnapshotService, projectConfigStore, tokenStore, trackingService} = this.createServices()
+      const {
+        cogitPushService,
+        contextFileReader,
+        contextTreeSnapshotService,
+        projectConfigStore,
+        tokenStore,
+        trackingService,
+      } = this.createServices()
 
       await trackingService.track('mem:push')
 
-      await this.validateAuth(tokenStore)
+      const token = await this.validateAuth(tokenStore)
       const projectConfig = await this.checkProjectInit(projectConfigStore)
+
+      // Check for changes
+      ux.action.start('Checking for Context Tree changes')
+      const contextTreeChanges = await contextTreeSnapshotService.getChanges()
+      ux.action.stop()
+
+      if (
+        contextTreeChanges.added.length === 0 &&
+        contextTreeChanges.modified.length === 0 &&
+        contextTreeChanges.deleted.length === 0
+      ) {
+        this.log('No context changes to push.')
+        return
+      }
 
       // Prompt for confirmation unless --yes flag is provided
       if (!flags.yes) {
-        const confirmed = await this.confirmPush(projectConfig, flags.branch, 1)
+        const confirmed = await this.confirmPush(projectConfig, flags.branch)
         if (!confirmed) {
-          this.log('Push cancelled. No files were uploaded or cleaned.')
+          this.log('Push cancelled.')
           return
         }
       }
 
-      // eslint-disable-next-line no-warning-comments
-      // TODO: Implement push functionality with Cogit
+      // Read and prepare files
+      ux.action.start('Reading context files')
+      const [addedFiles, modifiedFiles] = await Promise.all([
+        contextFileReader.readMany(contextTreeChanges.added),
+        contextFileReader.readMany(contextTreeChanges.modified),
+      ])
+      ux.action.stop()
 
-      // Snapshot context tree
+      const pushContexts = mapToPushContexts({
+        addedFiles,
+        deletedPaths: contextTreeChanges.deleted,
+        modifiedFiles,
+      })
+
+      if (pushContexts.length === 0) {
+        this.log('\nNo valid context files to push.')
+        return
+      }
+
+      // Push to CoGit (with two-request SHA flow)
+      this.log('Pushing to ByteRover...')
+      await cogitPushService.push({
+        accessToken: token.accessToken,
+        branch: flags.branch,
+        contexts: pushContexts,
+        sessionKey: token.sessionKey,
+        spaceId: projectConfig.spaceId,
+        teamId: projectConfig.teamId,
+      })
+
+      // Update snapshot ONLY after successful push
       await contextTreeSnapshotService.saveSnapshot()
 
       // Success message
       this.log('\n✓ Successfully pushed context tree to ByteRover memory storage!')
       this.log(`  Branch: ${flags.branch}`)
+      this.log(`  Added: ${addedFiles.length}, Edited: ${modifiedFiles.length}, Deleted: ${contextTreeChanges.deleted.length}`)
     } catch (error) {
       if (error instanceof WorkspaceNotInitializedError) {
         exitWithCode(
@@ -178,23 +193,10 @@ export default class Push extends Command {
         )
       }
 
-      // For other errors, log context and exit
-      process.stderr.write('Failed to push:\n')
-      this.error(error instanceof Error ? error.message : 'Push failed')
+      // For other errors, use exitWithCode to properly display error before exit
+      const message = error instanceof Error ? error.message : 'Push failed'
+      exitWithCode(ExitCode.RUNTIME_ERROR, `Failed to push: ${message}`)
     }
-  }
-
-  protected async uploadFiles(
-    memoryService: IMemoryStorageService,
-    presignedUrls: ReadonlyArray<PresignedUrl>,
-    playbookContent: string,
-  ): Promise<void> {
-    this.log('\nUploading files...')
-    ux.action.start('  Uploading files')
-    await Promise.all(
-      presignedUrls.map((presignedUrl) => memoryService.uploadFile(presignedUrl.uploadUrl, playbookContent)),
-    )
-    ux.action.stop('✓')
   }
 
   protected async validateAuth(tokenStore: ITokenStore): Promise<AuthToken> {
