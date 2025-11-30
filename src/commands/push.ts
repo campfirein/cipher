@@ -156,9 +156,11 @@ export default class Push extends Command {
       ])
       ux.action.stop()
 
-      const pushContexts = mapToPushContexts({addedFiles, modifiedFiles})
-
-      console.log('pushContexts', pushContexts)
+      const pushContexts = mapToPushContexts({
+        addedFiles,
+        deletedPaths: contextTreeChanges.deleted,
+        modifiedFiles,
+      })
 
       if (pushContexts.length === 0) {
         this.log('\nNo valid context files to push.')
@@ -182,7 +184,7 @@ export default class Push extends Command {
       // Success message
       this.log('\n✓ Successfully pushed context tree to ByteRover memory storage!')
       this.log(`  Branch: ${flags.branch}`)
-      this.log(`  Added: ${addedFiles.length}, Edited: ${modifiedFiles.length}`)
+      this.log(`  Added: ${addedFiles.length}, Edited: ${modifiedFiles.length}, Deleted: ${contextTreeChanges.deleted.length}`)
     } catch (error) {
       if (error instanceof WorkspaceNotInitializedError) {
         exitWithCode(

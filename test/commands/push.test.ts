@@ -822,4 +822,173 @@ describe('Push Command', () => {
       expect(pushCall.args[0].contexts[1].operation).to.equal('edit')
     })
   })
+
+  describe('deleted files (delete operation)', () => {
+    it('should push deleted files with delete operation', async () => {
+      tokenStore.load.resolves(validToken)
+      configStore.read.resolves(projectConfig)
+      contextTreeSnapshotService.getChanges.resolves({
+        added: [],
+        deleted: ['obsolete/context.md'],
+        modified: [],
+      })
+      contextFileReader.readMany
+        .onFirstCall()
+        .resolves([])
+        .onSecondCall()
+        .resolves([])
+      cogitPushService.push.resolves(
+        new CogitPushResponse({
+          message: 'Success',
+          success: true,
+        }),
+      )
+      contextTreeSnapshotService.saveSnapshot.resolves()
+
+      const command = new TestablePush(
+        cogitPushService,
+        contextFileReader,
+        contextTreeSnapshotService,
+        configStore,
+        tokenStore,
+        trackingService,
+        config,
+      )
+
+      await command.run()
+
+      expect(cogitPushService.push.calledOnce).to.be.true
+      const pushCall = cogitPushService.push.getCall(0)
+      expect(pushCall.args[0].contexts).to.have.lengthOf(1)
+      expect(pushCall.args[0].contexts[0].operation).to.equal('delete')
+      expect(pushCall.args[0].contexts[0].path).to.equal('/obsolete/context.md')
+      expect(pushCall.args[0].contexts[0].content).to.equal('')
+      expect(pushCall.args[0].contexts[0].title).to.equal('')
+    })
+
+    it('should handle added, modified, and deleted files together', async () => {
+      tokenStore.load.resolves(validToken)
+      configStore.read.resolves(projectConfig)
+      contextTreeSnapshotService.getChanges.resolves({
+        added: ['new/context.md'],
+        deleted: ['obsolete/context.md'],
+        modified: ['existing/context.md'],
+      })
+      contextFileReader.readMany
+        .onFirstCall()
+        .resolves([{content: '# New\n\nNew content', path: 'new/context.md', title: 'New'}])
+        .onSecondCall()
+        .resolves([{content: '# Updated\n\nUpdated content', path: 'existing/context.md', title: 'Updated'}])
+      cogitPushService.push.resolves(
+        new CogitPushResponse({
+          message: 'Success',
+          success: true,
+        }),
+      )
+      contextTreeSnapshotService.saveSnapshot.resolves()
+
+      const command = new TestablePush(
+        cogitPushService,
+        contextFileReader,
+        contextTreeSnapshotService,
+        configStore,
+        tokenStore,
+        trackingService,
+        config,
+      )
+
+      await command.run()
+
+      const pushCall = cogitPushService.push.getCall(0)
+      expect(pushCall.args[0].contexts).to.have.lengthOf(3)
+      expect(pushCall.args[0].contexts[0].operation).to.equal('add')
+      expect(pushCall.args[0].contexts[0].path).to.equal('/new/context.md')
+      expect(pushCall.args[0].contexts[1].operation).to.equal('edit')
+      expect(pushCall.args[0].contexts[1].path).to.equal('/existing/context.md')
+      expect(pushCall.args[0].contexts[2].operation).to.equal('delete')
+      expect(pushCall.args[0].contexts[2].path).to.equal('/obsolete/context.md')
+    })
+
+    it('should trigger push when only deleted files exist', async () => {
+      tokenStore.load.resolves(validToken)
+      configStore.read.resolves(projectConfig)
+      contextTreeSnapshotService.getChanges.resolves({
+        added: [],
+        deleted: ['file1/context.md', 'file2/context.md'],
+        modified: [],
+      })
+      contextFileReader.readMany
+        .onFirstCall()
+        .resolves([])
+        .onSecondCall()
+        .resolves([])
+      cogitPushService.push.resolves(
+        new CogitPushResponse({
+          message: 'Success',
+          success: true,
+        }),
+      )
+      contextTreeSnapshotService.saveSnapshot.resolves()
+
+      const command = new TestablePush(
+        cogitPushService,
+        contextFileReader,
+        contextTreeSnapshotService,
+        configStore,
+        tokenStore,
+        trackingService,
+        config,
+      )
+
+      await command.run()
+
+      expect(cogitPushService.push.calledOnce).to.be.true
+      const pushCall = cogitPushService.push.getCall(0)
+      expect(pushCall.args[0].contexts).to.have.lengthOf(2)
+      expect(pushCall.args[0].contexts[0].operation).to.equal('delete')
+      expect(pushCall.args[0].contexts[0].path).to.equal('/file1/context.md')
+      expect(pushCall.args[0].contexts[1].operation).to.equal('delete')
+      expect(pushCall.args[0].contexts[1].path).to.equal('/file2/context.md')
+    })
+
+    it('should not read deleted files from disk (only path needed)', async () => {
+      tokenStore.load.resolves(validToken)
+      configStore.read.resolves(projectConfig)
+      contextTreeSnapshotService.getChanges.resolves({
+        added: [],
+        deleted: ['deleted/context.md'],
+        modified: [],
+      })
+      contextFileReader.readMany
+        .onFirstCall()
+        .resolves([])
+        .onSecondCall()
+        .resolves([])
+      cogitPushService.push.resolves(
+        new CogitPushResponse({
+          message: 'Success',
+          success: true,
+        }),
+      )
+      contextTreeSnapshotService.saveSnapshot.resolves()
+
+      const command = new TestablePush(
+        cogitPushService,
+        contextFileReader,
+        contextTreeSnapshotService,
+        configStore,
+        tokenStore,
+        trackingService,
+        config,
+      )
+
+      await command.run()
+
+      // contextFileReader.readMany is called only twice (for added and modified)
+      // Deleted paths are passed directly to mapper without reading
+      expect(contextFileReader.readMany.calledTwice).to.be.true
+      expect(contextFileReader.readMany.firstCall.calledWith([])).to.be.true
+      expect(contextFileReader.readMany.secondCall.calledWith([])).to.be.true
+    })
+  })
 })

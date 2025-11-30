@@ -8,6 +8,8 @@ import {CogitPushContext} from '../../core/domain/entities/cogit-push-context.js
 export type MapToPushContextsParams = {
   /** Files to be added (new files) */
   addedFiles: ContextFileContent[]
+  /** Paths of files to be deleted (only path needed, files no longer exist) */
+  deletedPaths: string[]
   /** Files to be edited (modified files) */
   modifiedFiles: ContextFileContent[]
 }
@@ -42,5 +44,16 @@ export const mapToPushContexts = (params: MapToPushContextsParams): CogitPushCon
       }),
   )
 
-  return [...addedContextFiles, ...editedContextFiles]
+  const deletedContextFiles = params.deletedPaths.map(
+    (path) =>
+      new CogitPushContext({
+        content: '',
+        operation: 'delete',
+        path: `/${path}`,
+        tags: [],
+        title: '',
+      }),
+  )
+
+  return [...addedContextFiles, ...editedContextFiles, ...deletedContextFiles]
 }
