@@ -1,5 +1,6 @@
 import {Command} from '@oclif/core'
 
+import {isDevelopment} from '../config/environment.js'
 import {ICodingAgentLogParser} from '../core/interfaces/cipher/i-coding-agent-log-parser.js'
 import {ICodingAgentLogWatcher} from '../core/interfaces/cipher/i-coding-agent-log-watcher.js'
 import {IFileWatcherService} from '../core/interfaces/i-file-watcher-service.js'
@@ -10,7 +11,8 @@ import {ProjectConfigStore} from '../infra/config/file-config-store.js'
 import {FileWatcherService} from '../infra/watcher/file-watcher-service.js'
 
 export default class Foo extends Command {
-  public static description = 'Purely for testing CodingAgentLogWatcher'
+  public static description = 'Purely for testing CodingAgentLogWatcher [Development only]'
+  public static hidden = !isDevelopment()
 
   protected async createServices(): Promise<{
     codingAgentLogWatcher: ICodingAgentLogWatcher
@@ -30,6 +32,10 @@ export default class Foo extends Command {
   }
 
   public async run(): Promise<void> {
+    if (!isDevelopment()) {
+      this.error('This command is only available in development environment')
+    }
+
     const {codingAgentLogWatcher, projectConfigStore} = await this.createServices()
     const projectConfig = await projectConfigStore.read()
     if (projectConfig === undefined) {

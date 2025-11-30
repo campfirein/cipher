@@ -32,7 +32,8 @@ export default class Clear extends Command {
   protected async confirmClear(): Promise<boolean> {
     return confirm({
       default: false,
-      message: 'Are you sure you want to reset the context tree? This will remove all existing context and restore default domains.',
+      message:
+        'Are you sure you want to reset the context tree? This will remove all existing context and restore default domains.',
     })
   }
 

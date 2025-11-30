@@ -21,7 +21,7 @@ export interface PromptConfig {
 export interface BuildContext {
   availableMarkers?: Record<string, string>
   availableTools?: string[]
-  commandType?: 'add' | 'query'
+  commandType?: 'curate' | 'query'
   conversationMetadata?: {conversationId?: string; title?: string}
   memoryManager?: MemoryManager
   mode?: 'autonomous' | 'default' | 'query'

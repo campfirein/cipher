@@ -3,7 +3,7 @@ title: CLI reference
 description: Complete reference for ByteRover CLI commands, flags, and usage
 ---
 
-ByteRover CLI (`brv`) is a command-line tool for managing your AI development workflow with ByteRover. Use it to authenticate, retrieve memories from your knowledge base, manage projects and spaces, and maintain your ACE playbook.
+ByteRover CLI (`brv`) is a command-line tool for managing your AI development workflow with ByteRover. Use it to authenticate, retrieve memories from your knowledge base, manage projects and spaces, and maintain your context tree.
 
 For help with any command, run `brv --help` or `brv <command> --help`.
 
@@ -19,7 +19,7 @@ brv login
 brv init
 ```
 
-Authentication uses OAuth 2.0 with PKCE flow. Your credentials are securely stored in your system's keychain. The `brv init` command creates a `.brv/` directory in your project with configuration and ACE playbook structure.
+Authentication uses OAuth 2.0 with PKCE flow. Your credentials are securely stored in your system's keychain. The `brv init` command creates a `.brv/` directory in your project with configuration and context tree structure.
 
 ## CLI Commands
 
@@ -31,10 +31,9 @@ Authentication uses OAuth 2.0 with PKCE flow. Your credentials are securely stor
 | `brv init`                                      | Initialize a project with ByteRover          | `brv init`                                         |
 | `brv space list`                                | List all spaces for the current team         | `brv space list --all`                             |
 | `brv space switch`                              | Switch to a different team or space          | `brv space switch`                                 |
-| `brv push`                                      | Push playbook to ByteRover memory storage    | `brv push`                                         |
-| `brv add`                                       | Add or update a bullet in the playbook       | `brv add --interactive`                            |
+| `brv push`                                      | Push context tree to ByteRover memory storage | `brv push`                                         |
+| `brv add [CONTENT]`                             | Add content to context tree                  | `brv add "JWT tokens expire in 24h"`               |
 | `brv clear [DIRECTORY]`                         | Reset context tree to default domains        | `brv clear`                                        |
-| `brv complete <hint> <reasoning> <finalAnswer>` | Complete ACE workflow in one command         | `brv complete "fix" "..." "..." -t "..." -f "..."` |
 | `brv gen-rules`                                 | Generate rule instructions for coding agents | `brv gen-rules`                                    |
 
 ## Command Details
@@ -106,7 +105,7 @@ brv logout -y
 
 ### `brv status`
 
-Show CLI status and project information. Displays local ACE context (playbook) managed by ByteRover CLI.
+Show CLI status and project information. Displays local context tree managed by ByteRover CLI.
 
 **Arguments**
 
@@ -141,13 +140,13 @@ The status command displays:
 - Authentication status (logged in user or "Not logged in")
 - Current directory
 - Project initialization status (team and space info if initialized)
-- Playbook contents (sections and bullets) or empty state
+- Context tree changes (git-style diff showing modified/added/deleted files)
 
 ---
 
 ### `brv init`
 
-Initialize a project with ByteRover. Creates `.brv/config.json` with team and space selection, and initializes the ACE playbook structure.
+Initialize a project with ByteRover. Creates `.brv/config.json` with team and space selection, and initializes the context tree structure.
 
 **Arguments**
 
@@ -180,7 +179,7 @@ If the project is already initialized, `brv init` will prompt you to confirm re-
 **Re-initializing will:**
 - Remove the entire `.brv/` directory and all its contents
 - Allow you to select a new team/space
-- Create a fresh configuration and ACE playbook
+- Create a fresh configuration and context tree
 - Regenerate rule instructions
 
 **To re-initialize:**
@@ -193,9 +192,9 @@ If the project is already initialized, `brv init` will prompt you to confirm re-
 
 - Requires `brv login` first
 - Interactive prompts guide you through team and space selection
-- Creates `.brv/` directory with configuration and playbook structure
+- Creates `.brv/` directory with configuration and context tree structure
 - Automatically runs `brv gen-rules` after initialization
-- **Warning:** Re-initialization deletes all local playbook data, reflections, and executor outputs
+- **Warning:** Re-initialization deletes all local context tree data
 - To switch spaces without clearing data, use `brv space switch` instead
 
 ---
@@ -267,13 +266,13 @@ brv space switch
 - Requires `brv init` first (project must be initialized)
 - Displays current team and space configuration
 - Interactive prompts guide you through new team and space selection
-- Updates configuration but does NOT initialize playbook
+- Updates configuration but does NOT initialize context tree
 
 ---
 
 ### `brv push`
 
-Push playbook to ByteRover memory storage and clean up local ACE files. Uploads your accumulated knowledge to the cloud.
+Push context tree to ByteRover memory storage. Uploads your accumulated knowledge to the cloud.
 
 **Arguments**
 
@@ -304,61 +303,46 @@ brv push -y
 **Notes**
 
 - Requires `brv login` and `brv init` first
-- Playbook must exist with content to push
+- Context tree must exist to push
 - Branch concept is ByteRover-internal, NOT related to Git branches
 - Shows confirmation dialog unless `--yes` flag is used
-- After successful push, automatically cleans up:
-  - Playbook content (resets to empty)
-  - Bullet files (`.brv/ace/bullets/`)
-  - Executor outputs (`.brv/ace/executor-outputs/`)
-  - Reflections (`.brv/ace/reflections/`)
-  - Deltas (`.brv/ace/deltas/`)
+- Snapshots the current context tree state for version tracking
 
 ---
 
 ### `brv add`
 
-Add or update a bullet in the playbook. Provides direct access to modify playbook content, bypassing the full ACE workflow.
+Add content to the context tree using interactive or autonomous mode.
 
 **Arguments**
 
-None
+| Argument  | Type   | Required | Description                                            |
+| --------- | ------ | -------- | ------------------------------------------------------ |
+| `CONTENT` | string | No       | Content to add (triggers autonomous mode if provided) |
 
 **Flags**
 
-| Flag                      | Description                                       | Required |
-| ------------------------- | ------------------------------------------------- | -------- |
-| `-i, --interactive`       | Run in interactive mode                           | No       |
-| `-s, --section <value>`   | Section name for the bullet                       | No\*     |
-| `-c, --content <value>`   | Content of the bullet                             | No\*     |
-| `-b, --bullet-id <value>` | Bullet ID to update (creates new if not provided) | No       |
-
-\*Required in non-interactive mode
+| Flag           | Description               | Default |
+| -------------- | ------------------------- | ------- |
+| `-v, --verbose` | Enable verbose debug output | `false` |
 
 **Examples**
 
 ```bash
-# Interactive mode (recommended)
-brv add --interactive
-brv add -i
+# Interactive mode (manually choose domain/topic)
+brv add
 
-# Add new bullet directly
-brv add --section "Common Errors" --content "Auth fails when token expires"
-
-# Update existing bullet
-brv add --section "Common Errors" --bullet-id "common-00001" --content "Updated: Auth fails when token expires"
-
-# Short form
-brv add -s "Best Practices" -c "Always validate user input before processing"
+# Autonomous mode with internal LLM (default)
+brv add "User authentication uses JWT tokens with 24h expiry"
+brv add "React components follow atomic design pattern"
 ```
 
 **Notes**
 
-- Playbook must exist (run `brv init` first)
-- Interactive mode: prompts for section (with search), content, and confirmation
-- Non-interactive mode: requires both `--section` and `--content` flags
-- Suggested sections: Common Errors, Best Practices, Strategies, Lessons Learned, Architecture, Testing
-- If `--bullet-id` is not provided, creates a new bullet with auto-generated ID
+- Context tree must exist (run `brv init` first)
+- **Interactive mode**: Navigate context tree, select domain/topic, creates context.md file
+- **Autonomous mode**: AI agent automatically determines best location and adds content
+- Use `--verbose` flag to see detailed LLM execution steps
 
 ---
 
@@ -411,79 +395,6 @@ brv clear /path/to/project
 
 ---
 
-### `brv complete`
-
-Complete ACE workflow: save executor output, generate reflection, and update playbook in one command. This is the primary command for coding agents to complete the ACE workflow efficiently.
-
-**Arguments**
-
-| Argument      | Type   | Required | Description                                                       |
-| ------------- | ------ | -------- | ----------------------------------------------------------------- |
-| `HINT`        | string | Yes      | Short hint for naming output files (e.g., "user-auth", "bug-fix") |
-| `REASONING`   | string | Yes      | Detailed reasoning and approach for completing the task           |
-| `FINALANSWER` | string | Yes      | The final answer/solution to the task                             |
-
-**Flags**
-
-| Flag                          | Description                                                                     | Required |
-| ----------------------------- | ------------------------------------------------------------------------------- | -------- |
-| `-t, --tool-usage <value>`    | Comma-separated list of tool calls with arguments (format: "ToolName:argument") | Yes      |
-| `-f, --feedback <value>`      | Environment feedback about task execution                                       | Yes      |
-| `-b, --bullet-ids <value>`    | Comma-separated list of playbook bullet IDs referenced                          | No       |
-| `-u, --update-bullet <value>` | Bullet ID to update with new knowledge (creates new if not provided)            | No       |
-
-**Examples**
-
-```bash
-# Complete workflow after implementing OAuth
-brv complete "user-auth" "Implemented OAuth2 flow with PKCE" "Authentication works correctly" \
-  --tool-usage "Read:src/auth.ts,Edit:src/auth.ts,Bash:npm test" \
-  --feedback "All tests passed"
-
-# Complete with referenced bullets
-brv complete "validation-fix" "Analyzed validator and fixed edge case" "Bug fixed" \
-  --tool-usage "Grep:pattern:\"validate\",Read:src/validator.ts,Edit:src/validator.ts" \
-  --bullet-ids "bullet-123,bullet-456" \
-  --feedback "Tests passed, no regressions"
-
-# Update existing bullet
-brv complete "auth-update" "Improved error handling in auth flow" "Better error messages" \
-  --tool-usage "Edit:src/auth.ts,Bash:npm test" \
-  --feedback "Tests passed" \
-  --update-bullet "bullet-5"
-
-# Short form flags
-brv complete "fix" "Fixed bug" "Works now" -t "Edit:file.ts" -f "Tests pass"
-```
-
-**Tool Usage Format**
-
-The `--tool-usage` flag accepts comma-separated tool calls:
-
-- `ToolName:argument` - e.g., `Read:src/file.ts`
-- `ToolName:pattern:"search"` - e.g., `Grep:pattern:"validate"`
-- Multiple tools: `Read:file1.ts,Edit:file1.ts,Bash:npm test`
-
-**Output**
-
-The command executes in three phases:
-
-1. **Phase 1**: Saves executor output to `.brv/ace/executor-outputs/`
-2. **Phase 2**: Generates reflection with tags and saves to `.brv/ace/reflections/`
-3. **Phase 3**: Generates delta and applies to playbook
-
-Displays summary of operations and file paths.
-
-**Notes**
-
-- Playbook must exist (run `brv init` first)
-- This is the primary command for coding agents to complete the ACE workflow
-- Combines three separate operations (executor output, reflection, delta) into one
-- If `--update-bullet` is not provided, adds new bullet to playbook
-- Use `--bullet-ids` to reference bullets that informed your approach
-
----
-
 ### `brv gen-rules`
 
 Generate rule instructions for coding agents to work with ByteRover correctly. Creates agent-specific rule files with instructions for using ByteRover CLI in their workflow.
@@ -528,20 +439,21 @@ ByteRover CLI creates the following directory structure in your project:
 
 ```
 .brv/
-├── config.json              # Project configuration (team/space)
-└── ace/
-    ├── playbook.json        # Living knowledge base
-    ├── bullets/             # Individual bullet content
-    ├── executor-outputs/    # Task execution records
-    ├── reflections/         # Task reflections
-    └── deltas/              # Playbook update operations
+├── config.json                # Project configuration (team/space)
+├── context-tree/              # Your knowledge base
+│   ├── code_style/            # Style guidelines and quality standards
+│   ├── design/                # UI libraries and design guidelines
+│   ├── structure/             # Project structure and components
+│   ├── compliance/            # Security and compliance
+│   ├── testing/               # Testing implementation context
+│   └── bug_fixes/             # Bug fixing logic and procedures
+└── snapshots/                 # Version snapshots (git-style)
+    └── latest.json            # Latest context tree snapshot
 ```
 
-**Key Files**
+**Key Files and Directories**
 
 - **config.json**: Stores your team ID, space ID, and project metadata
-- **playbook.json**: Your living knowledge base containing accumulated learnings organized by sections
-- **bullets/**: Individual bullet content referenced by the playbook
-- **executor-outputs/**: Records of task executions (created by `brv complete`)
-- **reflections/**: Generated reflections on completed tasks
-- **deltas/**: Operations that modify the playbook structure
+- **context-tree/**: Hierarchical structure organizing project knowledge by domains and topics
+- **snapshots/**: Version control snapshots tracking context tree changes over time
+- Each domain can contain multiple topics, and each topic has a `context.md` file with actual content

@@ -22,7 +22,7 @@ import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
 import {MixpanelTrackingService} from '../infra/tracking/mixpanel-tracking-service.js'
 
 export default class Push extends Command {
-  public static description = 'Push playbook to ByteRover memory storage and clean up local ACE files'
+  public static description = 'Push context tree to ByteRover memory storage'
   public static examples = [
     '<%= config.bin %> <%= command.id %>',
     '<%= config.bin %> <%= command.id %> --branch develop',
@@ -168,7 +168,7 @@ export default class Push extends Command {
       await contextTreeSnapshotService.saveSnapshot()
 
       // Success message
-      this.log('\n✓ Successfully pushed playbook to ByteRover memory storage!')
+      this.log('\n✓ Successfully pushed context tree to ByteRover memory storage!')
       this.log(`  Branch: ${flags.branch}`)
     } catch (error) {
       if (error instanceof WorkspaceNotInitializedError) {

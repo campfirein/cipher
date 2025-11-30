@@ -11,6 +11,7 @@
  */
 
 import type {ToolSet} from '../../domain/cipher/tools/types.js'
+import type {ExecutionContext} from './i-cipher-agent.js'
 import type {InternalMessage, ToolCall} from './message-types.js'
 
 /**
@@ -35,8 +36,14 @@ export interface GenerateContentRequest {
   config: GenerationConfig
   /** Conversation history */
   contents: InternalMessage[]
+  /** Optional execution context (for autonomous mode, etc.) */
+  executionContext?: ExecutionContext
+  /** Optional mode for system prompt ('autonomous' enables autonomous mode) */
+  mode?: 'autonomous' | 'default' | 'query'
   /** Model identifier */
   model: string
+  /** Session identifier */
+  sessionId: string
   /** Optional system prompt */
   systemPrompt?: string
   /** Available tools for function calling */

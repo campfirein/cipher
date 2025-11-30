@@ -1,4 +1,5 @@
 import {Args, Command, Flags} from '@oclif/core'
+import {randomUUID} from 'node:crypto'
 
 import type {IProjectConfigStore} from '../core/interfaces/i-project-config-store.js'
 import type {ITrackingService} from '../core/interfaces/i-tracking-service.js'
@@ -22,11 +23,9 @@ export default class Query extends Command {
     }),
   }
   public static description = `Query and retrieve information from the context tree
-
 Good:
 - "How is user authentication implemented?"
 - "What are the API rate limits and where are they enforced?"
-
 Bad:
 - "auth" or "authentication" (too vague, not a question)
 - "show me code" (not specific about what information is needed)`
@@ -43,10 +42,10 @@ Bad:
           '# Query with custom model (development only)',
           '<%= config.bin %> <%= command.id %> -k YOUR_API_KEY -m anthropic/claude-sonnet-4 Explain the database schema',
           '',
+          '# Query with verbose output (development only)',
+          '<%= config.bin %> <%= command.id %> -v What testing strategies are used?',
         ]
       : []),
-    '# Query with verbose output',
-    '<%= config.bin %> <%= command.id %> -v What testing strategies are used?',
   ]
   public static flags = {
     ...(isDevelopment()
@@ -61,18 +60,19 @@ Bad:
             description:
               'Model to use (default: google/gemini-2.5-pro for OpenRouter, gemini-2.5-pro for gRPC) [Development only]',
           }),
+          verbose: Flags.boolean({
+            char: 'v',
+            default: false,
+            description: 'Enable verbose debug output [Development only]',
+          }),
         }
       : {}),
-    verbose: Flags.boolean({
-      char: 'v',
-      default: false,
-      description: 'Enable verbose debug output',
-    }),
   }
   public static strict = false
 
   // Override catch to prevent oclif from logging errors that were already displayed
-  public async catch(error: Error & {oclif?: {exit: number}}): Promise<void> {    // Check if error is ExitError (message already displayed by exitWithCode)
+  public async catch(error: Error & {oclif?: {exit: number}}): Promise<void> {
+    // Check if error is ExitError (message already displayed by exitWithCode)
     if (error instanceof ExitError) {
       return
     }
@@ -98,12 +98,11 @@ Bad:
   }
 
   /**
-   * Generate a unique session ID for the query agent
+   * Generate a unique session ID for the query agent.
+   * Uses crypto.randomUUID() for guaranteed uniqueness (122 bits of entropy).
    */
   protected generateSessionId(): string {
-    const timestamp = Date.now()
-    const random = Math.random().toString(36).slice(2, 8)
-    return `${timestamp}-${random}`
+    return randomUUID()
   }
 
   public async run(): Promise<void> {
@@ -313,7 +312,7 @@ Bad:
       }
 
       case 'grep_content': {
-        return 'Searching codebase...'
+        return 'Searching context tree...'
       }
 
       case 'list_directory': {
