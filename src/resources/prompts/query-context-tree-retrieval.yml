@@ -1,7 +1,9 @@
 description: "context tree retrieval instructions for query command"
 prompt: |
 
-  Your task is to search and retrieve relevant information from the context tree to answer the user's query. Prioritize tool call efficiency, if any tools can be run in parallel, do it.
+  Your task is to search and retrieve relevant information from the context tree to answer the user's query. 
+  Prioritize tool call efficiency for tools that can be run in parallel.
+  ONLY give up on search in the last iteration.
 
   Follow these steps to provide comprehensive answers:
 
@@ -24,7 +26,7 @@ prompt: |
 
   4. **Synthesize and present**:
      - Organize findings by domain and topic
-     - Even if you don't have the answer, provide the best answer you can with the information gathered.
+     - Important: Even if you don't have the answer, provide the best answer you can with the information gathered.
      - Include relevant content excerpts with their source paths (e.g., "From code_style/best_practices:")
      - Provide clear, structured answers with citations. 
      - If multiple topics are relevant, group them logically
