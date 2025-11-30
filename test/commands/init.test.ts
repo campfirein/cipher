@@ -7,8 +7,15 @@ import sinon, {restore, stub} from 'sinon'
 import type {Space} from '../../src/core/domain/entities/space.js'
 import type {Team} from '../../src/core/domain/entities/team.js'
 import type {IContextTreeService} from '../../src/core/interfaces/i-context-tree-service.js'
-import type {IPlaybookService} from '../../src/core/interfaces/i-playbook-service.js'
 import type {IProjectConfigStore} from '../../src/core/interfaces/i-project-config-store.js'
+
+// Legacy IPlaybookService interface (ACE deprecated, kept for test compatibility)
+interface IPlaybookService {
+  addOrUpdateBullet: () => Promise<void>
+  applyDelta: () => Promise<void>
+  applyReflectionTags: () => Promise<void>
+  initialize: (directory?: string) => Promise<string>
+}
 import type {IRuleWriterService} from '../../src/core/interfaces/i-rule-writer-service.js'
 import type {ISpaceService} from '../../src/core/interfaces/i-space-service.js'
 import type {ITeamService} from '../../src/core/interfaces/i-team-service.js'

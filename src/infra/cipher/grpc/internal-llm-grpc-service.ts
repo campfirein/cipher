@@ -43,6 +43,7 @@ type GenerateParams = {
  * Generate request sent to ByteRover gRPC service.
  */
 type GenerateRequest = {
+  executionMetadata?: string
   params: GenerateParams
   project_id: string
   provider: 'claude' | 'gemini'
@@ -145,16 +146,19 @@ export class ByteRoverLlmGrpcService {
    * @param contents - For Gemini: Content[]. For Claude: MessageCreateParamsNonStreaming (complete body)
    * @param config - For Gemini: GenerateContentConfig. For Claude: RequestOptions (optional HTTP options)
    * @param model - Model to use (detects provider from model name)
+   * @param executionMetadata - Optional execution metadata (mode, executionContext)
    * @returns Response in GenerateContentResponse format
    */
   public async generateContent(
     contents: Content[] | MessageCreateParamsNonStreaming,
     config: GenerateContentConfig | RequestOptions,
     model: string,
+    executionMetadata?: Record<string, unknown>,
   ): Promise<GenerateContentResponse> {
     await this.initializeClient()
 
     const request: GenerateRequest = {
+      executionMetadata: JSON.stringify(executionMetadata ?? {}),
       params: {
         config: JSON.stringify(config),
         contents: JSON.stringify(contents),
@@ -187,6 +191,9 @@ export class ByteRoverLlmGrpcService {
         reject(new Error('gRPC client not initialized'))
         return
       }
+
+      // Log gRPC request
+      // console.log('[gRPC] Request:', request)
 
       // Create metadata with authentication headers
       const metadata = new grpc.Metadata()

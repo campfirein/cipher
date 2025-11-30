@@ -21,7 +21,7 @@ export default class Status extends Command {
     directory: Args.string({description: 'Project directory (defaults to current directory)', required: false}),
   }
   public static description =
-    'Show CLI status and project information. Display local ACE context (ACE playbook) managed by ByteRover CLI'
+    'Show CLI status and project information. Display local context tree managed by ByteRover CLI'
   public static examples = [
     '<%= config.bin %> <%= command.id %>',
     '# Check status after login:\n<%= config.bin %> login\n<%= config.bin %> <%= command.id %>',

@@ -214,6 +214,7 @@ export class ByteRoverLLMService implements ILLMService {
    * 3. Returning final response when no more tool calls
    *
    * @param textInput - User input text
+   * @param sessionId - Session ID for tracking the llm request in a command session
    * @param options - Execution options
    * @param options.executionContext - Optional execution context
    * @param options.signal - Optional abort signal for cancellation
@@ -225,6 +226,7 @@ export class ByteRoverLLMService implements ILLMService {
    */
   public async completeTask(
     textInput: string,
+    sessionId: string,
     options?: {
       executionContext?: ExecutionContext
       fileData?: FileData
@@ -264,12 +266,13 @@ export class ByteRoverLLMService implements ILLMService {
 
       try {
         // eslint-disable-next-line no-await-in-loop -- Sequential iterations required for agentic loop
-        const result = await this.executeAgenticIteration(
-          stateMachine.getContext().turnCount,
-          toolSet,
-          mode,
+        const result = await this.executeAgenticIteration({
           executionContext,
-        )
+          iterationCount: stateMachine.getContext().turnCount,
+          mode,
+          sessionId,
+          tools: toolSet,
+        })
 
         if (result !== null) {
           // Task complete - no tool calls
@@ -386,11 +389,20 @@ export class ByteRoverLLMService implements ILLMService {
    *
    * Converts internal context to the standardized GenerateContentRequest format.
    *
+   * @param sessionId - Session ID for tracking the llm request in a command session
    * @param systemPrompt - System prompt text
    * @param tools - Available tools for function calling
+   * @param mode - Optional mode for system prompt
+   * @param executionContext - Optional execution context
    * @returns GenerateContentRequest for the generator
    */
-  private buildGenerateContentRequest(systemPrompt: string, tools: ToolSet): GenerateContentRequest {
+  private buildGenerateContentRequest(
+    sessionId: string,
+    systemPrompt: string,
+    tools: ToolSet,
+    mode?: 'autonomous' | 'default' | 'query',
+    executionContext?: ExecutionContext,
+  ): GenerateContentRequest {
     // Get internal messages from context manager
     const messages = this.contextManager.getMessages()
 
@@ -400,7 +412,10 @@ export class ByteRoverLLMService implements ILLMService {
         temperature: this.config.temperature,
       },
       contents: messages,
+      executionContext,
+      mode,
       model: this.config.model,
+      sessionId,
       systemPrompt,
       tools,
     }
@@ -461,18 +476,22 @@ export class ByteRoverLLMService implements ILLMService {
   /**
    * Execute a single iteration of the agentic loop.
    *
-   * @param iterationCount - Current iteration number
-   * @param tools - Available tools for this iteration
-   * @param mode - Optional mode for system prompt
-   * @param executionContext - Optional execution context
+   * @param options - Iteration options
+   * @param options.iterationCount - Current iteration number
+   * @param options.sessionId - Session ID for tracking the llm request in a command session
+   * @param options.tools - Available tools for this iteration
+   * @param options.mode - Optional mode for system prompt
+   * @param options.executionContext - Optional execution context
    * @returns Final response string if complete, null if more iterations needed
    */
-  private async executeAgenticIteration(
-    iterationCount: number,
-    tools: ToolSet,
-    mode?: 'autonomous' | 'default' | 'query',
-    executionContext?: ExecutionContext,
-  ): Promise<null | string> {
+  private async executeAgenticIteration(options: {
+    executionContext?: ExecutionContext
+    iterationCount: number
+    mode?: 'autonomous' | 'default' | 'query'
+    sessionId: string
+    tools: ToolSet
+  }): Promise<null | string> {
+    const {executionContext, iterationCount, mode, sessionId, tools} = options
     // Build system prompt using SimplePromptFactory (before compression for correct token accounting)
     const availableTools = this.toolManager.getToolNames()
     const markersSet = this.toolManager.getAvailableMarkers()
@@ -548,7 +567,7 @@ export class ByteRoverLLMService implements ILLMService {
     }
 
     // Build generation request
-    const request = this.buildGenerateContentRequest(systemPrompt, tools)
+    const request = this.buildGenerateContentRequest(sessionId, systemPrompt, tools, mode, executionContext)
 
     // Call LLM via generator (retry + logging handled by decorators)
     const lastMessage = await this.callLLMAndParseResponse(request)

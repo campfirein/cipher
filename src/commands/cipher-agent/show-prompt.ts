@@ -2,12 +2,14 @@ import {Command} from '@oclif/core'
 
 import type {IProjectConfigStore} from '../../core/interfaces/i-project-config-store.js'
 
+import {isDevelopment} from '../../config/environment.js'
 import {ProjectConfigStore} from '../../infra/config/file-config-store.js'
 import {getErrorMessage} from '../../utils/error-helpers.js'
 
 export default class CipherAgentShowPrompt extends Command {
-  static override description = 'Show the current CipherAgent system prompt'
+  static override description = 'Show the current CipherAgent system prompt [Development only]'
   static override examples = ['<%= config.bin %> <%= command.id %>']
+  static override hidden = !isDevelopment()
 
   protected createServices(): {
     projectConfigStore: IProjectConfigStore
@@ -18,6 +20,10 @@ export default class CipherAgentShowPrompt extends Command {
   }
 
   public async run(): Promise<void> {
+    if (!isDevelopment()) {
+      this.error('This command is only available in development environment')
+    }
+
     try {
       const {projectConfigStore} = this.createServices()
 

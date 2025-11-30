@@ -20,6 +20,7 @@ export const ToolName: {
   readonly SEARCH_HISTORY: 'search_history'
   readonly WRITE_FILE: 'write_file'
   readonly WRITE_MEMORY: 'write_memory'
+  readonly WRITE_TODOS: 'write_todos'
 } = {
   BASH_EXEC: 'bash_exec',
   BASH_OUTPUT: 'bash_output',
@@ -38,6 +39,7 @@ export const ToolName: {
   SEARCH_HISTORY: 'search_history',
   WRITE_FILE: 'write_file',
   WRITE_MEMORY: 'write_memory',
+  WRITE_TODOS: 'write_todos',
 }
 
 /**

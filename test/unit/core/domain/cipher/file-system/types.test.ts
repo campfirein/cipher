@@ -253,6 +253,7 @@ describe('cipher/file-system', () => {
             size: 100,
           },
         ],
+        ignoredCount: 0,
         totalFound: 10,
         truncated: true,
       }
@@ -260,6 +261,7 @@ describe('cipher/file-system', () => {
       expectTypeOf<FileMetadata[]>(result.files)
       expectTypeOf<number>(result.totalFound)
       expectTypeOf<boolean>(result.truncated)
+      expectTypeOf<number>(result.ignoredCount)
     })
   })
 
@@ -524,6 +526,7 @@ describe('cipher/file-system', () => {
             size: 100,
           },
         ],
+        ignoredCount: 5,
         totalFound: 150,
         truncated: true,
       }

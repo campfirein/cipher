@@ -284,6 +284,20 @@ export interface AgentEventMap {
   }
 
   /**
+   * Emitted when the todo list is updated via write_todos tool.
+   * @property {string} sessionId - ID of the session
+   * @property {Array<{content: string, status: string, activeForm: string}>} todos - Updated todo list
+   */
+  'llmservice:todoUpdated': {
+    sessionId: string
+    todos: Array<{
+      activeForm: string
+      content: string
+      status: 'cancelled' | 'completed' | 'in_progress' | 'pending'
+    }>
+  }
+
+  /**
    * Emitted when LLM requests a tool call.
    * @property {Record<string, unknown>} args - Arguments for the tool
    * @property {string} [callId] - Unique identifier for this tool call

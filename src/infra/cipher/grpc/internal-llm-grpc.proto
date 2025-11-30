@@ -59,6 +59,9 @@ message GenerateRequest {
 
   // Current user spaceID for the request
   string spaceId = 6;
+
+  // Current user executionMetadata for the request
+  string executionMetadata = 7;
 }
 
 message GenerateParams {

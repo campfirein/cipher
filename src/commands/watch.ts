@@ -3,6 +3,7 @@ import {Command, Flags} from '@oclif/core'
 import type {IFileWatcherService} from '../core/interfaces/i-file-watcher-service.js'
 import type {IProjectConfigStore} from '../core/interfaces/i-project-config-store.js'
 
+import {isDevelopment} from '../config/environment.js'
 import {Agent} from '../core/domain/entities/agent.js'
 import {ProjectConfigStore} from '../infra/config/file-config-store.js'
 import {CleanParserServiceFactory} from '../infra/parsers/clean/clean-parser-service-factory.js'
@@ -10,7 +11,7 @@ import {RawParserServiceFactory} from '../infra/parsers/raw/raw-parser-service-f
 import {FileWatcherService} from '../infra/watcher/file-watcher-service.js'
 
 export default class Watch extends Command {
-  public static description = 'Watch file system directories for changes and trigger parsing pipeline'
+  public static description = 'Watch file system directories for changes and trigger parsing pipeline [Development only]'
   public static examples = [
     '<%= config.bin %> <%= command.id %> --paths ./agent-logs',
     '<%= config.bin %> <%= command.id %> --paths ./logs,./outputs,./workspace',
@@ -34,6 +35,7 @@ export default class Watch extends Command {
       required: false,
     }),
   }
+  public static hidden = !isDevelopment()
   private lastParseTime = 0
   private parsingInProgress = false
   private pendingParse = false
@@ -49,6 +51,10 @@ export default class Watch extends Command {
   }
 
   public async run(): Promise<void> {
+    if (!isDevelopment()) {
+      this.error('This command is only available in development environment')
+    }
+
     const {flags} = await this.parse(Watch)
     const {fileWatcherService, projectConfigStore} = this.createServices()
 
