@@ -304,6 +304,8 @@ describe('file-helpers', () => {
 
       expect(result).to.have.key('test.txt')
       expect(result['test.txt']).to.be.undefined
+
+      await rm(contextTreeDir, {force: true, recursive: true})
     })
 
     it('should throw when directory does not exist', () => {
