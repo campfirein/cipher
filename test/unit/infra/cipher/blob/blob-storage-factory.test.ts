@@ -29,8 +29,8 @@ describe('createBlobStorage (Factory)', () => {
     expect(storage).to.be.instanceOf(SqliteBlobStorage)
   })
 
-  it('should always create SqliteBlobStorage (no config)', () => {
-    const storage = createBlobStorage()
+  it('should always create SqliteBlobStorage (default config with inMemory)', () => {
+    const storage = createBlobStorage({inMemory: true})
 
     expect(storage).to.be.instanceOf(SqliteBlobStorage)
   })
