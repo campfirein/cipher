@@ -4,7 +4,7 @@ Command-line interface for ByteRover, enabling seamless team/space management, a
 
 [![Version](https://img.shields.io/npm/v/byterover-cli.svg)](https://npmjs.org/package/byterover-cli)
 [![Downloads/week](https://img.shields.io/npm/dw/byterover-cli.svg)](https://npmjs.org/package/byterover-cli)
-[![Node](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen.svg)](https://nodejs.org)
+[![Node](https://img.shields.io/badge/node-%3E%3D20.0.0-brightgreen.svg)](https://nodejs.org)
 
 ## Important
 
@@ -28,7 +28,7 @@ Please check the migration guide [here](https://docs.byterover.dev/beta/migratio
 
 ### Requirements
 
-- **Node.js**: >= 18.0.0
+- **Node.js**: >= 20.0.0
 - **Operating System**:
   - macOS
   - Windows
@@ -106,6 +106,9 @@ For comprehensive instructions for coding agents, check the generated rule files
 # Log in to ByteRover
 brv login
 
+# Log out and clear credentials
+brv logout
+
 # Check your authentication and project status
 brv status
 ```
@@ -127,11 +130,20 @@ brv space switch
 
 ```bash
 # Add content to context tree (interactive or autonomous)
-brv add
-brv add "User authentication uses JWT tokens"
+brv curate
+brv curate "User authentication uses JWT tokens"
 
 # Push your context tree to ByteRover's memory storage
 brv push
+
+# Pull context tree from ByteRover cloud
+brv pull
+
+# Query the context tree
+brv query "How is authentication implemented?"
+
+# Reset context tree to default state
+brv clear
 ```
 
 ### For Coding Agents
@@ -206,6 +218,9 @@ brv --help
 brv login --help
 brv init --help
 brv push --help
+brv pull --help
+brv query --help
+brv clear --help
 ```
 
 ### Support
