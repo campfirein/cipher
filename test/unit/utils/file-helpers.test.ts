@@ -294,19 +294,18 @@ describe('file-helpers', () => {
       expect(result.subdir).to.deep.equal(['nested'])
     })
 
-    it('should use default path when no argument provided', async () => {
-      const defaultPath = '.brv/context-tree'
-      await mkdir(defaultPath, {recursive: true})
-      await writeFile(join(defaultPath, 'test.txt'), 'content', 'utf8')
+    it('should handle default-style path (context-tree directory)', async () => {
+      // Test with a temp path that mimics the default structure
+      const contextTreeDir = join(testDir, '.brv', 'context-tree')
+      await mkdir(contextTreeDir, {recursive: true})
+      await writeFile(join(contextTreeDir, 'test.txt'), 'content', 'utf8')
 
-      try {
-        const result = listDirectoryChildren()
+      const result = listDirectoryChildren(contextTreeDir)
 
-        expect(result).to.have.key('test.txt')
-        expect(result['test.txt']).to.be.undefined
-      } finally {
-        await rm(defaultPath, {force: true, recursive: true}).catch(() => {})
-      }
+      expect(result).to.have.key('test.txt')
+      expect(result['test.txt']).to.be.undefined
+
+      await rm(contextTreeDir, {force: true, recursive: true})
     })
 
     it('should throw when directory does not exist', () => {

@@ -1,5 +1,6 @@
 import {join} from 'node:path'
 
+import type {BlobStorageConfig} from '../../core/domain/cipher/blob/types.js'
 import type {FileSystemConfig} from '../../core/domain/cipher/file-system/types.js'
 import type {CipherAgentServices, SessionServices} from '../../core/interfaces/cipher/cipher-services.js'
 import type {IContentGenerator} from '../../core/interfaces/cipher/i-content-generator.js'
@@ -29,6 +30,7 @@ import {ToolProvider} from './tools/tool-provider.js'
 export interface CipherLLMConfig {
   accessToken: string
   apiKey?: string
+  blobStorageConfig?: Partial<BlobStorageConfig>
   fileSystemConfig?: Partial<FileSystemConfig>
   grpcEndpoint: string
   httpReferer?: string
@@ -105,11 +107,13 @@ export async function createCipherAgentServices(llmConfig: CipherLLMConfig): Pro
 
   // 5. Blob storage (no dependencies)
   // Always uses SQLite for performance and ACID transactions
-  const blobStorage = createBlobStorage({
-    maxBlobSize: 100 * 1024 * 1024, // 100MB
-    maxTotalSize: 1024 * 1024 * 1024, // 1GB
-    storageDir: join(workingDirectory, '.brv', 'blobs'),
-  })
+  const blobStorage = createBlobStorage(
+    llmConfig.blobStorageConfig ?? {
+      maxBlobSize: 100 * 1024 * 1024, // 100MB
+      maxTotalSize: 1024 * 1024 * 1024, // 1GB
+      storageDir: join(workingDirectory, '.brv', 'blobs'),
+    },
+  )
   await blobStorage.initialize()
 
   // 6. Memory system (depends on BlobStorage, Logger)

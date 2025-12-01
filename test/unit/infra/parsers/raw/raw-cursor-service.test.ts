@@ -423,6 +423,7 @@ describe('CursorRawService', () => {
     it('should parse conversations from workspace', async () => {
       const customDir = join(tempDir, 'workspace')
       const workspaceDbPath = join(customDir, 'state.vscdb')
+      const outputDir = join(tempDir, 'output')
 
       fs.mkdirSync(customDir, { recursive: true })
       fs.writeFileSync(workspaceDbPath, '')
@@ -430,15 +431,16 @@ describe('CursorRawService', () => {
       // Mock database operations
       sinon.stub(service as any, 'loadWorkspaceComposers').returns(new Set())
 
-      const result = await service.parseFromDirectory(customDir)
+      const result = await service.parseFromDirectory(customDir, outputDir)
       expect(result).to.be.a('boolean')
     })
 
     it('should handle missing database gracefully', async () => {
       const customDir = join(tempDir, 'workspace')
+      const outputDir = join(tempDir, 'output')
       fs.mkdirSync(customDir, { recursive: true })
 
-      const result = await service.parseFromDirectory(customDir)
+      const result = await service.parseFromDirectory(customDir, outputDir)
       expect(result).to.be.false
     })
   })

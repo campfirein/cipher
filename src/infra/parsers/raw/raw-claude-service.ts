@@ -75,10 +75,11 @@ export class ClaudeRawService implements IRawParserService {
    * Organizes output by Claude project folder name. Returns success status.
    *
    * @param customDir - Path to directory containing Claude Code session files
+   * @param outputDir - Optional output directory (defaults to process.cwd()/.brv/logs/{ide}/raw)
    * @returns Promise resolving to true if parsing succeeded, false otherwise
    */
-  async parse(customDir: string): Promise<boolean> {
-    const outputDir = this.getOutputDir(this.ide)
+  async parse(customDir: string, outputDir?: string): Promise<boolean> {
+    const baseOutputDir = this.getOutputDir(this.ide, outputDir)
 
     console.log(MESSAGES.PARSING_START)
     console.log(`${MESSAGES.CUSTOM_DIRECTORY} ${customDir}`)
@@ -90,8 +91,8 @@ export class ClaudeRawService implements IRawParserService {
     console.log(`${MESSAGES.CLAUDE_FOLDER_NAME} ${claudeFolderName}`)
 
     // Create output directory
-    if (!existsSync(outputDir)) {
-      mkdirSync(outputDir, { recursive: true })
+    if (!existsSync(baseOutputDir)) {
+      mkdirSync(baseOutputDir, { recursive: true })
     }
 
     try {
@@ -109,7 +110,7 @@ export class ClaudeRawService implements IRawParserService {
       console.log(`\n${MESSAGES.EXPORTING}`)
 
       // Create project-specific directory using Claude folder name
-      const projectDir = this.createSubdirectory(outputDir, claudeFolderName)
+      const projectDir = this.createSubdirectory(baseOutputDir, claudeFolderName)
 
       for (const session of sessions) {
         const filename = `${session.id}.json`
@@ -479,10 +480,11 @@ export class ClaudeRawService implements IRawParserService {
    * Directory is relative to current working directory under .brv/logs/{ide}/raw
    *
    * @param ide - IDE agent type (used as directory component)
+   * @param override - Optional custom output directory (overrides default)
    * @returns Full path to raw output directory
    */
-  private getOutputDir(ide: Agent): string {
-    return path.join(process.cwd(), `.brv/logs/${ide}/raw`)
+  private getOutputDir(ide: Agent, override?: string): string {
+    return override || path.join(process.cwd(), `.brv/logs/${ide}/raw`)
   }
 
   // ============================================================================

@@ -85,10 +85,11 @@ export class RawParserServiceFactory {
    *
    * @param ide - The IDE type (Claude Code, Cursor, Github Copilot, Codex)
    * @param customDir - Path to custom directory containing IDE session data
+   * @param outputDir - Optional output directory (defaults to process.cwd()/.brv/logs/{ide}/raw)
    * @returns Promise resolving to true if parsing succeeded, false otherwise
    */
-  static async parseConversations(ide: Agent, customDir: string): Promise<boolean> {
+  static async parseConversations(ide: Agent, customDir: string, outputDir?: string): Promise<boolean> {
     const service = this.createRawParserService(ide)
-    return service.parse(customDir)
+    return service.parse(customDir, outputDir)
   }
 }

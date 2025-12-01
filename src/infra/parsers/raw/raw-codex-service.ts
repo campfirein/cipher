@@ -57,10 +57,11 @@ export class CodexRawService implements IRawParserService {
    * Returns success status.
    *
    * @param customDir - Path to directory containing Codex session files
+   * @param outputDir - Optional output directory (defaults to process.cwd()/.brv/logs/{ide}/raw)
    * @returns Promise resolving to true if parsing succeeded, false otherwise
    */
-  async parse(customDir: string): Promise<boolean> {
-    const outputDir = path.join(process.cwd(), `.brv/logs/${this.ide}/raw`)
+  async parse(customDir: string, outputDir?: string): Promise<boolean> {
+    const baseOutputDir = outputDir || path.join(process.cwd(), `.brv/logs/${this.ide}/raw`)
 
     console.log('🔍 Starting Codex conversation parsing...')
     console.log(`📁 Custom directory: ${customDir}`)
@@ -106,7 +107,7 @@ export class CodexRawService implements IRawParserService {
       console.log('\n💾 Exporting sessions by date...')
 
       for (const [datePrefix, dateSessions] of Object.entries(sessionsByDate).sort()) {
-        const dateDir = path.join(outputDir, datePrefix)
+        const dateDir = path.join(baseOutputDir, datePrefix)
         if (!existsSync(dateDir)) {
           mkdirSync(dateDir, { recursive: true })
         }
