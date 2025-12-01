@@ -84,10 +84,11 @@ export class CopilotRawService implements IRawParserService {
    * aggregate statistics across all sessions. Returns success status.
    *
    * @param customDir - Path to directory containing GitHub Copilot session data
+   * @param outputDir - Optional output directory (defaults to process.cwd()/.brv/logs/{ide}/raw)
    * @returns Promise resolving to true if parsing succeeded, false otherwise
    */
-  async parse(customDir: string): Promise<boolean> {
-    const outputDir = join(process.cwd(), `.brv/logs/${this.ide}/raw`)
+  async parse(customDir: string, outputDir?: string): Promise<boolean> {
+    const baseOutputDir = outputDir || join(process.cwd(), `.brv/logs/${this.ide}/raw`)
 
     console.log('🔍 Starting GitHub Copilot conversation parsing...')
 
@@ -127,7 +128,7 @@ export class CopilotRawService implements IRawParserService {
       console.log('\n💾 Exporting sessions by workspace...')
 
       for (const [workspaceHash, workspaceSessions] of Object.entries(sessionsByWorkspace)) {
-        const workspaceDir = join(outputDir, workspaceHash)
+        const workspaceDir = join(baseOutputDir, workspaceHash)
 
         if (!fs.existsSync(workspaceDir)) {
           fs.mkdirSync(workspaceDir, { recursive: true })
@@ -155,7 +156,7 @@ export class CopilotRawService implements IRawParserService {
         }
       }
 
-      console.log(`\n🎉 Copilot export complete! Sessions exported to: ${outputDir}`)
+      console.log(`\n🎉 Copilot export complete! Sessions exported to: ${baseOutputDir}`)
       return true
     } catch (error) {
       console.error('❌ Error during parsing:', error)

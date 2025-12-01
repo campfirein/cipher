@@ -5,6 +5,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { expect } from 'chai'
+import {tmpdir} from 'node:os'
+import {join} from 'node:path'
 
 import { Agent } from '../../../../../src/core/domain/entities/agent.js'
 import { ClaudeRawService } from '../../../../../src/infra/parsers/raw/raw-claude-service.js'
@@ -125,11 +127,12 @@ describe('RawParserServiceFactory', () => {
     it('should call parse method on created service', async () => {
       const ide = 'Claude Code' as Agent
       const customDir = '/path/to/conversations'
+      const testOutputDir = join(tmpdir(), `test-parser-${Date.now()}`)
 
       // This would normally call the actual service's parse method
       // For testing purposes, we're verifying the factory creates the right service
       try {
-        await RawParserServiceFactory.parseConversations(ide, customDir)
+        await RawParserServiceFactory.parseConversations(ide, customDir, testOutputDir)
       } catch {
         // Expected to fail since directory doesn't exist
         // The important part is that it tried to use the right service
@@ -137,8 +140,9 @@ describe('RawParserServiceFactory', () => {
     })
 
     it('should throw error for unsupported IDE', async () => {
+      const testOutputDir = join(tmpdir(), `test-parser-${Date.now()}`)
       try {
-        await RawParserServiceFactory.parseConversations('Unknown' as Agent, '/path')
+        await RawParserServiceFactory.parseConversations('Unknown' as Agent, '/path', testOutputDir)
         expect.fail('Should throw error')
       } catch (error) {
         expect((error as Error).message).to.include('Unsupported IDE')

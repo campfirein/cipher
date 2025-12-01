@@ -106,11 +106,12 @@ export class CursorRawService implements IRawParserService {
    * Handles extraction from database files and raw workspace data structures.
    *
    * @param customDir - Path to directory containing Cursor session data
+   * @param outputDir - Optional output directory (defaults to process.cwd()/.brv/logs/{ide}/raw)
    * @returns Promise resolving to true if parsing succeeded, false otherwise
    */
-  async parse(customDir: string): Promise<boolean> {
+  async parse(customDir: string, outputDir?: string): Promise<boolean> {
     try {
-      return this.parseFromDirectory(customDir)
+      return this.parseFromDirectory(customDir, outputDir)
     } catch (error) {
       console.error('❌ Error during parsing:', error)
       throw error
@@ -129,17 +130,18 @@ export class CursorRawService implements IRawParserService {
    * session files. Exports results to workspace-specific output directory.
    *
    * @param customDir - Path to workspace directory containing Cursor session data
+   * @param outputDir - Optional output directory (defaults to process.cwd()/.brv/logs/{ide}/raw)
    * @returns Promise resolving to true if parsing succeeded, false otherwise
    */
-  async parseFromDirectory(customDir: string): Promise<boolean> {
-    const outputDir = join(process.cwd(), `.brv/logs/${this.ide}/raw`)
+  async parseFromDirectory(customDir: string, outputDir?: string): Promise<boolean> {
+    const baseOutputDir = outputDir || join(process.cwd(), `.brv/logs/${this.ide}/raw`)
 
     console.log('🔍 Starting Cursor conversation parsing...')
     console.log(`📁 Custom directory: ${customDir}`)
 
     const workspacePath = customDir
     const workspaceHash = basename(customDir)
-    const workspaceDir = join(outputDir, workspaceHash)
+    const workspaceDir = join(baseOutputDir, workspaceHash)
 
     if (!existsSync(workspaceDir)) {
       mkdirSync(workspaceDir, { recursive: true })
@@ -186,9 +188,9 @@ export class CursorRawService implements IRawParserService {
       )
 
       // Export conversations to files
-      this.exportConversations(allConversations, workspaceDir, workspaceHash, outputDir)
+      this.exportConversations(allConversations, workspaceDir, workspaceHash, baseOutputDir)
 
-      console.log(`\n🎉 Complete! Conversations exported to: ${outputDir}`)
+      console.log(`\n🎉 Complete! Conversations exported to: ${baseOutputDir}`)
       return true
     } catch (error) {
       const err = error as Error
