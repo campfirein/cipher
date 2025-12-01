@@ -149,6 +149,12 @@ describe('FileContextTreeWriterService', () => {
         localState.set('code/context.md', {hash: 'hash2', size: 10})
         mockSnapshotService.getCurrentState.resolves(localState)
 
+        // Create the actual files
+        await mkdir(join(contextTreeDir, 'design'), {recursive: true})
+        await mkdir(join(contextTreeDir, 'code'), {recursive: true})
+        await writeFile(join(contextTreeDir, 'design/context.md'), '# Old Design')
+        await writeFile(join(contextTreeDir, 'code/context.md'), '# Old Code')
+
         const files = [createFile('design/context.md', '# New Design'), createFile('code/context.md', '# New Code')]
 
         const result = await service.sync({files})
@@ -163,11 +169,33 @@ describe('FileContextTreeWriterService', () => {
         localState.set('design/context.md', {hash: 'oldhash', size: 10})
         mockSnapshotService.getCurrentState.resolves(localState)
 
+        // Create the actual file
+        await mkdir(join(contextTreeDir, 'design'), {recursive: true})
+        await writeFile(join(contextTreeDir, 'design/context.md'), '# Old')
+
         const files = [createFile('/design/context.md', '# Updated')]
 
         const result = await service.sync({files})
 
         expect(result.edited).to.deep.equal(['design/context.md'])
+      })
+
+      it('should not count as edited when content is unchanged', async () => {
+        const localState = new Map<string, FileState>()
+        localState.set('design/context.md', {hash: 'hash', size: 10})
+        mockSnapshotService.getCurrentState.resolves(localState)
+
+        // Create the actual file with same content as remote
+        await mkdir(join(contextTreeDir, 'design'), {recursive: true})
+        await writeFile(join(contextTreeDir, 'design/context.md'), '# Same content')
+
+        const files = [createFile('design/context.md', '# Same content')]
+
+        const result = await service.sync({files})
+
+        expect(result.added).to.be.empty
+        expect(result.edited).to.be.empty
+        expect(result.deleted).to.be.empty
       })
     })
 

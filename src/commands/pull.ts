@@ -120,7 +120,7 @@ export default class Pull extends Command {
       }
 
       // Pull from CoGit
-      ux.action.start('Pulling from ByteRover')
+      this.log('Pulling from ByteRover...')
       const snapshot = await cogitPullService.pull({
         accessToken: token.accessToken,
         branch: flags.branch,
@@ -128,7 +128,7 @@ export default class Pull extends Command {
         spaceId: projectConfig.spaceId,
         teamId: projectConfig.teamId,
       })
-      ux.action.stop()
+      console.log(snapshot)
 
       // Sync files to local context tree
       ux.action.start('Syncing context files')

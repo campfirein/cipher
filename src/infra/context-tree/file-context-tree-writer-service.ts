@@ -1,4 +1,5 @@
-import {mkdir, unlink, writeFile} from 'node:fs/promises'
+/* eslint-disable no-await-in-loop */
+import {mkdir, readFile, unlink, writeFile} from 'node:fs/promises'
 import {dirname, join} from 'node:path'
 
 import type {IContextTreeSnapshotService} from '../../core/interfaces/i-context-tree-snapshot-service.js'
@@ -46,21 +47,22 @@ export class FileContextTreeWriterService implements IContextTreeWriterService {
     const deleted: string[] = []
 
     // Process remote files: add or edit
-    for (const [relativePath, file] of remoteFiles) {
-      const fullPath = join(contextTreeDir, relativePath)
+    for (const [remoteRelativePath, remoteFile] of remoteFiles) {
+      const fullPath = join(contextTreeDir, remoteRelativePath)
+      const decodedContent = remoteFile.decodeContent()
 
-      // Create parent directories if needed
-      // eslint-disable-next-line no-await-in-loop
-      await mkdir(dirname(fullPath), {recursive: true})
-
-      // Write decoded content
-      // eslint-disable-next-line no-await-in-loop
-      await writeFile(fullPath, file.decodeContent(), 'utf8')
-
-      if (localState.has(relativePath)) {
-        edited.push(relativePath)
+      if (localState.has(remoteRelativePath)) {
+        // File exists locally - check if content differs
+        const localContent = await readFile(fullPath, 'utf8')
+        if (localContent !== decodedContent) {
+          await writeFile(fullPath, decodedContent, 'utf8')
+          edited.push(remoteRelativePath)
+        }
       } else {
-        added.push(relativePath)
+        // New file - create parent directories and write
+        await mkdir(dirname(fullPath), {recursive: true})
+        await writeFile(fullPath, decodedContent, 'utf8')
+        added.push(remoteRelativePath)
       }
     }
 
@@ -68,7 +70,6 @@ export class FileContextTreeWriterService implements IContextTreeWriterService {
     for (const localPath of localState.keys()) {
       if (!remoteFiles.has(localPath)) {
         const fullPath = join(contextTreeDir, localPath)
-        // eslint-disable-next-line no-await-in-loop
         await unlink(fullPath)
         deleted.push(localPath)
       }
