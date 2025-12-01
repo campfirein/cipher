@@ -6,10 +6,11 @@
     "rootDir": "src",
     "strict": true,
     "target": "es2022",
-    "moduleResolution": "node16"
+    "moduleResolution": "node16",
+    "skipLibCheck": true,
   },
   "include": ["./src/**/*"],
   "ts-node": {
-    "esm": true
+    "esm": true,
   }
 }

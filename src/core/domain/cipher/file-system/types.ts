@@ -1,0 +1,271 @@
+/**
+ * Buffer encoding type from Node.js
+ */
+export type BufferEncoding =
+  | 'ascii'
+  | 'base64'
+  | 'base64url'
+  | 'binary'
+  | 'hex'
+  | 'latin1'
+  | 'ucs2'
+  | 'ucs-2'
+  | 'utf8'
+  | 'utf16le'
+
+/**
+ * Configuration for the file system service.
+ * Defines security policies and operational limits.
+ */
+export interface FileSystemConfig {
+  /** Whitelist of allowed base paths (relative to working directory) */
+  allowedPaths: string[]
+
+  /** Blacklist of forbidden file extensions (e.g., .exe, .dll) */
+  blockedExtensions: string[]
+
+  /** Blacklist of forbidden paths (e.g., .git, node_modules/.bin) */
+  blockedPaths: string[]
+
+  /** Maximum file size in bytes for read operations */
+  maxFileSize: number
+
+  /** Working directory for relative path resolution */
+  workingDirectory: string
+}
+
+/**
+ * Options for reading files.
+ */
+export interface ReadFileOptions {
+  /** Character encoding */
+  encoding?: BufferEncoding
+
+  /** Maximum number of lines to read */
+  limit?: number
+
+  /** Starting line number (1-based, like text editors) */
+  offset?: number
+}
+
+/**
+ * Options for writing files.
+ */
+export interface WriteFileOptions {
+  /** Create parent directories if they don't exist */
+  createDirs?: boolean
+
+  /** Character encoding */
+  encoding?: BufferEncoding
+}
+
+/**
+ * Options for editing files.
+ */
+export interface EditFileOptions {
+  /** Character encoding */
+  encoding?: BufferEncoding
+}
+
+/**
+ * Options for glob file discovery.
+ */
+export interface GlobOptions {
+  /** Case-sensitive pattern matching (default: true) */
+  caseSensitive?: boolean
+
+  /** Working directory for glob pattern */
+  cwd?: string
+
+  /** Include file metadata (size, modified date) */
+  includeMetadata?: boolean
+
+  /** Maximum number of results to return */
+  maxResults?: number
+
+  /** Respect .gitignore rules when matching files (default: true) */
+  respectGitignore?: boolean
+}
+
+/**
+ * Options for content search.
+ */
+export interface SearchOptions {
+  /** Abort signal for cancellation */
+  abortSignal?: AbortSignal
+
+  /** Case-insensitive search */
+  caseInsensitive?: boolean
+
+  /** Number of context lines before/after match */
+  contextLines?: number
+
+  /** Working directory for search */
+  cwd?: string
+
+  /** Glob pattern to filter files (default: all files) */
+  globPattern?: string
+
+  /** Maximum number of matches to return */
+  maxResults?: number
+}
+
+/**
+ * Result of a file read operation.
+ */
+export interface FileContent {
+  /** File content as string */
+  content: string
+
+  /** Character encoding used */
+  encoding: string
+
+  /** Total number of lines in the returned content */
+  lines: number
+
+  /** File size in bytes */
+  size: number
+
+  /** Whether content was truncated due to size/line limits */
+  truncated: boolean
+}
+
+/**
+ * Result of a file write operation.
+ */
+export interface WriteResult {
+  /** Number of bytes written */
+  bytesWritten: number
+
+  /** Absolute path to the written file */
+  path: string
+
+  /** Whether the write was successful */
+  success: boolean
+}
+
+/**
+ * Result of a file edit operation.
+ */
+export interface EditResult {
+  /** Number of bytes written */
+  bytesWritten: number
+
+  /** Absolute path to the edited file */
+  path: string
+
+  /** Number of replacements made */
+  replacements: number
+
+  /** Whether the edit was successful */
+  success: boolean
+}
+
+/**
+ * Metadata about a file.
+ */
+export interface FileMetadata {
+  /** Whether this is a directory */
+  isDirectory: boolean
+
+  /** Last modified date */
+  modified: Date
+
+  /** Absolute path to the file */
+  path: string
+
+  /** File size in bytes */
+  size: number
+}
+
+/**
+ * Result of a glob file discovery operation.
+ */
+export interface GlobResult {
+  /** Array of matching files with metadata */
+  files: FileMetadata[]
+
+  /** Number of files ignored due to .gitignore rules */
+  ignoredCount: number
+
+  /** Human-readable message describing the results */
+  message?: string
+
+  /** Total number of files found (before truncation) */
+  totalFound: number
+
+  /** Whether results were truncated due to maxResults limit */
+  truncated: boolean
+}
+
+/**
+ * A single search match with context.
+ */
+export interface SearchMatch {
+  /** Context lines before and after the match */
+  context?: {
+    /** Lines after the match */
+    after: string[]
+
+    /** Lines before the match */
+    before: string[]
+  }
+
+  /** File path where match was found */
+  file: string
+
+  /** Matching line content */
+  line: string
+
+  /** Line number (1-based) */
+  lineNumber: number
+}
+
+/**
+ * Result of a content search operation.
+ */
+export interface SearchResult {
+  /** Number of files searched */
+  filesSearched: number
+
+  /** Array of matches */
+  matches: SearchMatch[]
+
+  /** Total number of matches found */
+  totalMatches: number
+
+  /** Whether results were truncated due to maxResults limit */
+  truncated: boolean
+}
+
+/**
+ * Edit operation definition.
+ */
+export interface EditOperation {
+  /** String to replace with */
+  newString: string
+
+  /** String to search for */
+  oldString: string
+
+  /** Replace all occurrences (default: false, requires unique match) */
+  replaceAll?: boolean
+}
+
+/**
+ * Result of path validation.
+ * Uses discriminated union for type safety.
+ */
+export type ValidationResult =
+  | {
+      /** Error message explaining why path is invalid */
+      error: string
+      /** Path is invalid */
+      valid: false
+    }
+  | {
+      /** Normalized absolute path */
+      normalizedPath: string
+      /** Path is valid */
+      valid: true
+    }

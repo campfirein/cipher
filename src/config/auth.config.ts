@@ -51,11 +51,23 @@ export const getAuthConfig = async (discoveryService: IOidcDiscoveryService): Pr
     authorizationUrl = envConfig.authorizationUrl
     tokenUrl = envConfig.tokenUrl
 
-    // Warn user about fallback
-    console.warn(
-      `Warning: OIDC discovery failed, using fallback URLs for ${ENVIRONMENT} environment.`,
-      error instanceof Error ? error.message : 'Unknown error',
-    )
+    // Warn user about fallback with user-friendly error message
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+    const isNetworkError =
+      errorMessage.includes('ENOTFOUND') ||
+      errorMessage.includes('ECONNREFUSED') ||
+      errorMessage.includes('ETIMEDOUT') ||
+      errorMessage.includes('getaddrinfo') ||
+      errorMessage.includes('network')
+
+    if (isNetworkError) {
+      // Throw error and let command handle exit
+      throw new Error(
+        '❌ Network error: Unable to connect to ByteRover servers. Please check your internet connection and try again.',
+      )
+    } else {
+      console.warn(`Warning: OIDC discovery failed, using fallback URLs for ${ENVIRONMENT} environment.`, errorMessage)
+    }
   }
 
   return {

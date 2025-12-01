@@ -9,6 +9,7 @@ import type {
 
 import {PresignedUrl} from '../../core/domain/entities/presigned-url.js'
 import {PresignedUrlsResponse} from '../../core/domain/entities/presigned-urls-response.js'
+import {getErrorMessage} from '../../utils/error-helpers.js'
 import {AuthenticatedHttpClient} from '../http/authenticated-http-client.js'
 
 export type MemoryStorageServiceConfig = {
@@ -78,7 +79,7 @@ export class HttpMemoryStorageService implements IMemoryStorageService {
         timeout: this.config.timeout,
       })
     } catch (error) {
-      throw new Error(`Failed to confirm upload: ${(error as Error).message}`)
+      throw new Error(`Failed to confirm upload: ${getErrorMessage(error)}`)
     }
   }
 
@@ -101,7 +102,7 @@ export class HttpMemoryStorageService implements IMemoryStorageService {
       )
       return new PresignedUrlsResponse(presignedUrls, response.data.request_id)
     } catch (error) {
-      throw new Error(`Failed to get presigned URLs: ${(error as Error).message}`)
+      throw new Error(`Failed to get presigned URLs: ${getErrorMessage(error)}`)
     }
   }
 
@@ -114,7 +115,7 @@ export class HttpMemoryStorageService implements IMemoryStorageService {
         timeout: this.config.timeout,
       })
     } catch (error) {
-      throw new Error(`Failed to upload file: ${(error as Error).message}`)
+      throw new Error(`Failed to upload file: ${getErrorMessage(error)}`)
     }
   }
 

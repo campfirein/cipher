@@ -1,0 +1,30 @@
+description: "Tool-specific output guidance prompts for Cipher agent"
+prompts:
+  write_memory_output: |
+    Memory saved successfully. You can reference this memory later using its ID.
+    Make sure all context has been saved to context tree.
+
+  read_memory_output: |
+    Memory retrieved. Use this information to complete your task.
+    Make sure all context has been gathered for the task.
+
+  list_memories_output: |
+    Memories listed. Use read_memory for full details if truly needed, or proceed with your task.
+
+  edit_memory_output: |
+    Memory updated successfully.
+
+  delete_memory_output: |
+    Memory deleted successfully.
+
+  detect_domains_output: |
+    Domains detected. Now use create_knowledge_topic to organize them into the context tree.
+
+  create_knowledge_topic_output: |
+    Knowledge topic created successfully.
+    If you detected multiple domains, create topics for the remaining ones.
+    Once all domains are organized, your curation task is complete.
+
+  find_knowledge_topics_output: |
+    Search complete. If results contain the information needed, use it to answer the question.
+    Use includeContent or followRelations if the current results are insufficient.

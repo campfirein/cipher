@@ -18,8 +18,7 @@ Please check the migration guide [here](https://docs.byterover.dev/beta/migratio
 
 * [Installation](#installation)
 * [Quick Start](#quick-start)
-* [What is ACE?](#what-is-ace)
-* [Core Workflow](#core-workflow)
+* [What is Context Tree?](#what-is-context-tree)
 * [Essential Commands](#essential-commands)
 * [Authentication](#authentication)
 * [Configuration](#configuration)
@@ -78,46 +77,26 @@ Select a space from your available spaces and configure your project.
 
 You're ready to use ByteRover commands in your project!
 
-## What is ACE?
+## What is Context Tree?
 
-**Agentic Context Engineering (ACE)** is a systematic workflow that helps coding agents (like Claude Code, Cursor, etc.) capture their work, learn from feedback, and build cumulative knowledge in a living playbook.
+The **Context Tree** is ByteRover's structured memory system that helps you and your coding agents organize, store, and retrieve project knowledge efficiently.
 
-Based on the research paper [**Agentic Context Engineering: Evolving Contexts for Self-Improving Language Models**](https://arxiv.org/abs/2510.04618) by Dang et al., ACE enables language models to iteratively improve their performance through structured context evolution.
+### Why Use Context Tree?
 
-### Why Use ACE?
+- **Organized Knowledge**: Structure your project knowledge by domain and topic
+- **Easy Retrieval**: Find relevant context quickly when you need it
+- **Persistent Memory**: Maintain project-specific knowledge across sessions
+- **Agent-Friendly**: Works seamlessly with coding agents like Claude Code, Cursor, and others
+- **Version Control**: Push and sync your context to ByteRover's cloud storage
 
-- **Build Knowledge**: Each task completed by an agent teaches the system
-- **Learn from Experience**: Capture both successes and failures as insights
-- **Context Persistence**: Maintain project-specific best practices that improve over time
-- **Traceability**: Track what worked, what didn't, and why
+### How It Works
 
-## Core Workflow
+The context tree organizes knowledge into:
+- **Domains**: High-level categories (e.g., Architecture, API, Frontend)
+- **Topics**: Specific subjects within domains (e.g., Authentication, Components)
+- **Context Files**: Markdown files containing your actual knowledge
 
-ACE follows a simple 3-phase cycle that coding agents can use to improve over time:
-
-### 1. Executor
-Agent performs coding task and saves detailed output with context.
-
-### 2. Reflector
-Agent analyzes results and provides honest feedback on what worked and what didn't.
-
-### 3. Curator
-Agent transforms insights into playbook updates that are automatically applied to improve future work.
-
-### Quick Example
-
-If you're using a coding agent like Claude Code:
-
-```bash
-# Complete ACE workflow in a single command
-brv complete "auth-feature" \
-  "Implemented JWT authentication with secure token handling" \
-  "Successfully added OAuth2 authentication" \
-  --tool-usage "Read:src/auth.ts,Edit:src/auth.ts,Bash:npm test" \
-  --feedback "All tests passed, auth works correctly"
-```
-
-For comprehensive ACE instructions for coding agents, check the corresponding coding agents' instruction files after `brv init` or `brv gen-rules`.
+For comprehensive instructions for coding agents, check the generated rule files after running `brv gen-rules`.
 
 ## Essential Commands
 
@@ -147,23 +126,18 @@ brv space switch
 ### Memory Operations
 
 ```bash
-# Retrieve memories from ByteRover (outputs to stdout for agent context)
-brv retrieve --query "authentication best practices"
-brv retrieve -q "error handling" -n "src/auth/login.ts,src/auth/oauth.ts"
+# Add content to context tree (interactive or autonomous)
+brv add
+brv add "User authentication uses JWT tokens"
 
-# Push your playbook to ByteRover's memory storage
+# Push your context tree to ByteRover's memory storage
 brv push
 ```
 
 ### For Coding Agents
 
 ```bash
-# Complete ACE workflow (recommended for agents)
-brv complete <hint> <reasoning> <answer> \
-  --tool-usage <tools> \
-  --feedback <feedback>
-
-# Generate agent rules (sets up ACE workflow for your coding agent)
+# Generate agent rules (sets up context tree workflow for your coding agent)
 brv gen-rules
 ```
 
@@ -195,19 +169,30 @@ When you run `brv init`, a configuration file is created at `.brv/config.json` i
 - **User information**: Your user ID and email
 - **Project settings**: Project-specific configuration
 
-### ACE File Structure
+### Context Tree Structure
 
-ACE stores all outputs in `.brv/ace/`:
+The context tree is stored in `.brv/context-tree/`:
 
 ```
-.brv/ace/
-├── playbook.json                # Your living knowledge base
-├── executor-outputs/            # Coding task outputs
-├── reflections/                 # Task analysis and feedback
-└── deltas/                      # Playbook updates
+.brv/context-tree/
+├── Architecture/
+│   ├── System Design/
+│   │   └── context.md
+│   └── Database Schema/
+│       └── context.md
+├── API/
+│   ├── Authentication/
+│   │   └── context.md
+│   └── Endpoints/
+│       └── context.md
+└── Frontend/
+    ├── Components/
+    │   └── context.md
+    └── State Management/
+        └── context.md
 ```
 
-**Note**: When you run `brv push`, the playbook is uploaded to ByteRover's memory storage, and local ACE files are automatically cleaned up to keep your workspace organized.
+**Note**: When you run `brv push`, your context tree is uploaded to ByteRover's memory storage for version control and team collaboration.
 
 ## Getting Help
 

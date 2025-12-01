@@ -2,6 +2,7 @@
 import type {ISpaceService} from '../../core/interfaces/i-space-service.js'
 
 import {Space} from '../../core/domain/entities/space.js'
+import {getErrorMessage} from '../../utils/error-helpers.js'
 import {AuthenticatedHttpClient} from '../http/authenticated-http-client.js'
 
 export type SpaceServiceConfig = {
@@ -86,11 +87,14 @@ export class HttpSpaceService implements ISpaceService {
         total: response.data.total,
       }
     } catch (error) {
-      throw new Error(`Failed to fetch spaces: ${(error as Error).message}`)
+      throw new Error(`Failed to fetch spaces: ${getErrorMessage(error)}`)
     }
   }
 
-  private async fetchAllSpaces(httpClient: AuthenticatedHttpClient, teamId: string): Promise<{spaces: Space[]; total: number}> {
+  private async fetchAllSpaces(
+    httpClient: AuthenticatedHttpClient,
+    teamId: string,
+  ): Promise<{spaces: Space[]; total: number}> {
     const pageSize = 100 // Larger pages for fewer requests
     let offset = 0
     let allSpaces: Space[] = []
