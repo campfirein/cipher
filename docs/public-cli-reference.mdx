@@ -513,20 +513,19 @@ ByteRover CLI creates the following directory structure in your project:
 ```
 .brv/
 ├── config.json                # Project configuration (team/space)
-├── context-tree/              # Your knowledge base
-│   ├── code_style/            # Style guidelines and quality standards
-│   ├── design/                # UI libraries and design guidelines
-│   ├── structure/             # Project structure and components
-│   ├── compliance/            # Security and compliance
-│   ├── testing/               # Testing implementation context
-│   └── bug_fixes/             # Bug fixing logic and procedures
-└── snapshots/                 # Version snapshots (git-style)
-    └── latest.json            # Latest context tree snapshot
+└── context-tree/              # Your knowledge base
+    ├── .snapshot.json         # Latest context tree snapshot
+    ├── code_style/            # Style guidelines and quality standards
+    ├── design/                # UI libraries and design guidelines
+    ├── structure/             # Project structure and components
+    ├── compliance/            # Security and compliance
+    ├── testing/               # Testing implementation context
+    └── bug_fixes/             # Bug fixing logic and procedures
 ```
 
 **Key Files and Directories**
 
 - **config.json**: Stores your team ID, space ID, and project metadata
 - **context-tree/**: Hierarchical structure organizing project knowledge by domains and topics
-- **snapshots/**: Version control snapshots tracking context tree changes over time
+- **.snapshot.json**: Version control snapshot tracking context tree changes over time
 - Each domain can contain multiple topics, and each topic has a `context.md` file with actual content
