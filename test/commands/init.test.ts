@@ -445,6 +445,10 @@ describe('Init Command', () => {
       expect(writtenConfig.spaceName).to.equal('frontend-app')
       expect(writtenConfig.teamId).to.equal('team-1')
       expect(writtenConfig.teamName).to.equal('acme-corp')
+
+      // Verify saveSnapshot is called (not initEmptySnapshot) to include template files in snapshot
+      expect(contextTreeSnapshotService.saveSnapshot.calledOnce).to.be.true
+      expect(contextTreeSnapshotService.initEmptySnapshot.called).to.be.false
     })
 
     it('should successfully initialize with second space', async () => {
@@ -650,6 +654,8 @@ describe('Init Command', () => {
       expect(playbookService.initialize.called).to.be.false
       // Verify order: context tree initialization happens before ruleWriterService
       expect(contextTreeService.initialize.calledBefore(ruleWriterService.writeRule)).to.be.true
+      // Verify: saveSnapshot is called after context tree initialization
+      expect(contextTreeService.initialize.calledBefore(contextTreeSnapshotService.saveSnapshot)).to.be.true
     })
 
     it('should continue with rule generation even if context tree initialization fails', async () => {
