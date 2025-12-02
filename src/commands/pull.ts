@@ -128,7 +128,6 @@ export default class Pull extends Command {
         spaceId: projectConfig.spaceId,
         teamId: projectConfig.teamId,
       })
-      console.log(snapshot)
 
       // Sync files to local context tree
       ux.action.start('Syncing context files')

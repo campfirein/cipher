@@ -32,9 +32,11 @@ Authentication uses OAuth 2.0 with PKCE flow. Your credentials are securely stor
 | `brv space list`                                | List all spaces for the current team         | `brv space list --all`                             |
 | `brv space switch`                              | Switch to a different team or space          | `brv space switch`                                 |
 | `brv push`                                      | Push context tree to ByteRover memory storage | `brv push`                                         |
-| `brv add [CONTENT]`                             | Add content to context tree                  | `brv add "JWT tokens expire in 24h"`               |
+| `brv pull`                                      | Pull context tree from ByteRover memory storage | `brv pull`                                       |
+| `brv query <QUERY>`                             | Query information from the context tree      | `brv query "How is auth implemented?"`             |
+| `brv curate [CONTEXT]`                          | Add content to context tree                  | `brv curate "JWT tokens expire in 24h"`            |
 | `brv clear [DIRECTORY]`                         | Reset context tree to default domains        | `brv clear`                                        |
-| `brv gen-rules`                                 | Generate rule instructions for coding agents | `brv gen-rules`                                    |
+| `brv gen-rules`                                 | Generate rule instructions for coding agents | `brv gen-rules --agent Claude`                     |
 
 ## Command Details
 
@@ -310,7 +312,75 @@ brv push -y
 
 ---
 
-### `brv add`
+### `brv pull`
+
+Pull context tree from ByteRover memory storage. Downloads the latest knowledge from the cloud to your local context tree.
+
+**Arguments**
+
+None
+
+**Flags**
+
+| Flag                   | Description                            | Default |
+| ---------------------- | -------------------------------------- | ------- |
+| `-b, --branch <value>` | ByteRover branch name (not Git branch) | `main`  |
+
+**Examples**
+
+```bash
+# Pull from default branch
+brv pull
+
+# Pull from a specific branch
+brv pull --branch develop
+brv pull -b feature-auth
+```
+
+**Notes**
+
+- Requires `brv login` and `brv init` first
+- Checks for local changes before pulling (push local changes first if any)
+- Syncs files to local context tree
+- Branch concept is ByteRover-internal, NOT related to Git branches
+
+---
+
+### `brv query`
+
+Query and retrieve information from the context tree using natural language.
+
+**Arguments**
+
+| Argument | Type   | Required | Description                                       |
+| -------- | ------ | -------- | ------------------------------------------------- |
+| `QUERY`  | string | Yes      | Natural language question about your project      |
+
+**Flags**
+
+None
+
+**Examples**
+
+```bash
+# Query about implementation details
+brv query "How is user authentication implemented?"
+brv query "What are the API rate limits and where are they enforced?"
+
+# Query about project structure
+brv query "What testing strategies are used?"
+```
+
+**Notes**
+
+- Context tree must exist (run `brv init` first)
+- Uses AI to search and analyze your context tree
+- Best results with specific, detailed questions
+- Avoid vague queries like "auth" or "show me code"
+
+---
+
+### `brv curate`
 
 Add content to the context tree using interactive or autonomous mode.
 
@@ -318,23 +388,21 @@ Add content to the context tree using interactive or autonomous mode.
 
 | Argument  | Type   | Required | Description                                            |
 | --------- | ------ | -------- | ------------------------------------------------------ |
-| `CONTENT` | string | No       | Content to add (triggers autonomous mode if provided) |
+| `CONTEXT` | string | No       | Content to add (triggers autonomous mode if provided) |
 
 **Flags**
 
-| Flag           | Description               | Default |
-| -------------- | ------------------------- | ------- |
-| `-v, --verbose` | Enable verbose debug output | `false` |
+None
 
 **Examples**
 
 ```bash
 # Interactive mode (manually choose domain/topic)
-brv add
+brv curate
 
 # Autonomous mode with internal LLM (default)
-brv add "User authentication uses JWT tokens with 24h expiry"
-brv add "React components follow atomic design pattern"
+brv curate "User authentication uses JWT tokens with 24h expiry"
+brv curate "React components follow atomic design pattern"
 ```
 
 **Notes**
@@ -342,7 +410,6 @@ brv add "React components follow atomic design pattern"
 - Context tree must exist (run `brv init` first)
 - **Interactive mode**: Navigate context tree, select domain/topic, creates context.md file
 - **Autonomous mode**: AI agent automatically determines best location and adds content
-- Use `--verbose` flag to see detailed LLM execution steps
 
 ---
 
@@ -405,18 +472,24 @@ None
 
 **Flags**
 
-None
+| Flag                  | Description                                      | Default |
+| --------------------- | ------------------------------------------------ | ------- |
+| `-a, --agent <value>` | Agent to generate rules for (skips interactive prompt) | None    |
 
 **Examples**
 
 ```bash
 # Generate rules (interactive agent selection)
 brv gen-rules
+
+# Generate rules for a specific agent
+brv gen-rules --agent Claude
+brv gen-rules -a Cursor
 ```
 
 **Notes**
 
-- Interactive search prompt for agent selection
+- Interactive search prompt for agent selection (if `--agent` flag not provided)
 - Prompts for overwrite confirmation if rule file already exists
 - Automatically called by `brv init` command
 - Generated rules help coding agents understand ByteRover workflow
@@ -440,20 +513,19 @@ ByteRover CLI creates the following directory structure in your project:
 ```
 .brv/
 ├── config.json                # Project configuration (team/space)
-├── context-tree/              # Your knowledge base
-│   ├── code_style/            # Style guidelines and quality standards
-│   ├── design/                # UI libraries and design guidelines
-│   ├── structure/             # Project structure and components
-│   ├── compliance/            # Security and compliance
-│   ├── testing/               # Testing implementation context
-│   └── bug_fixes/             # Bug fixing logic and procedures
-└── snapshots/                 # Version snapshots (git-style)
-    └── latest.json            # Latest context tree snapshot
+└── context-tree/              # Your knowledge base
+    ├── .snapshot.json         # Latest context tree snapshot
+    ├── code_style/            # Style guidelines and quality standards
+    ├── design/                # UI libraries and design guidelines
+    ├── structure/             # Project structure and components
+    ├── compliance/            # Security and compliance
+    ├── testing/               # Testing implementation context
+    └── bug_fixes/             # Bug fixing logic and procedures
 ```
 
 **Key Files and Directories**
 
 - **config.json**: Stores your team ID, space ID, and project metadata
 - **context-tree/**: Hierarchical structure organizing project knowledge by domains and topics
-- **snapshots/**: Version control snapshots tracking context tree changes over time
+- **.snapshot.json**: Version control snapshot tracking context tree changes over time
 - Each domain can contain multiple topics, and each topic has a `context.md` file with actual content

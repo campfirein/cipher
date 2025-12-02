@@ -34,17 +34,18 @@ npm run pack:dev / pack:prod                     # Tarballs
 - `ITeamService.getTeams(accessToken, sessionKey, {fetchAll?, isActive?, limit?, offset?})` → `{teams, total}`
 - `ISpaceService.getSpaces(accessToken, sessionKey, teamId, {fetchAll?, limit?, offset?})` → `{spaces, total}`
 - `IUserService.getCurrentUser(accessToken, sessionKey)` → `User`
-- `IMemoryRetrievalService.retrieve({query, spaceId, accessToken, sessionKey, nodeKeys?})` → `RetrieveResult`
-- `IMemoryStorageService`:
-  - `getPresignedUrls(...)` → `PresignedUrlsResponse`
-  - `uploadFile(uploadUrl, content)` - Plain HTTP PUT, **no auth headers**
-  - `confirmUpload(...)` - **Must call after upload**
 
-**Storage**:
+**CoGit Services** (context sync):
 
-- `IContextTreeService` - Context tree operations
+- `ICogitPushService.pushContexts(...)` - Push context tree to ByteRover cloud
+- `ICogitPullService.pullSnapshot(...)` - Pull snapshot from cloud
+
+**Context Tree**:
+
+- `IContextTreeService` - Initialize/check context tree existence
 - `IContextTreeSnapshotService` - Snapshot and change tracking
-- `IPlaybookStore` - **DEPRECATED** - Legacy playbook interface
+- `IContextTreeWriterService` - Write/sync context files from pull
+- `IContextFileReader` - Read context files with metadata extraction
 - `IProjectConfigStore` - `.brv/config.json` persistence
 
 **Pagination**: `{fetchAll: true}` auto-paginates (100/page) or `{limit, offset}` manual
@@ -53,29 +54,44 @@ npm run pack:dev / pack:prod                     # Tarballs
 
 All have `toJSON()`/`fromJSON()`, immutable readonly properties
 
-- `AuthToken` - `accessToken`, `refreshToken`, `sessionKey`, `userId`, `userEmail`. `fromJson()` returns `undefined` for old tokens (forces re-login)
+- `AuthToken` - `accessToken`, `refreshToken`, `sessionKey`, `userId`, `userEmail`, `expiresAt`. `fromJson()` returns `undefined` for old tokens (forces re-login)
 - `OAuthTokenData` - OAuth response, no user info. Used before user fetch in login
 - `User`, `Team`, `Space` - `getDisplayName()` methods
-- `Memory` - **DEPRECATED** - Legacy memory entity with `bulletId`, `section`, `tags`
-- `RetrieveResult` - **DEPRECATED** - Legacy retrieval result
+- `Agent` - 18 supported agents (Claude Code, Cursor, Windsurf, Copilot, etc.)
+- `BrvConfig` - `.brv/config.json` with version validation (`BRV_CONFIG_VERSION = '0.0.1'`)
+- `CogitSnapshot`, `CogitPushContext` - CoGit sync entities
 
 ### Infrastructure (`src/infra/`)
+
+**Auth/HTTP**:
 
 - `OAuthService` - Manages `code_verifier` internally
 - `CallbackServer` - Force-closes keep-alive connections
 - `AuthenticatedHttpClient` - Auto-injects both auth headers
+
+**Context Tree**:
+
 - `FileContextTreeService` - File-based context tree operations
 - `FileContextTreeSnapshotService` - Git-style snapshot and diff tracking
-- **Legacy Memory Mapper** (`infra/memory/memory-to-playbook-mapper.ts`) - **DEPRECATED**
+- `FileContextTreeWriterService` - Sync files from CoGit pull
 
-### Utilities
+**CoGit**:
 
-- `clearDirectory(dirPath)` (`src/utils/ace-file-helpers.ts`) - **DEPRECATED** - Legacy ACE helper
+- `HttpCogitPushService` - Push contexts to cloud
+- `HttpCogitPullService` - Pull snapshots from cloud
+- `context-tree-to-push-context-mapper.ts` - Maps context tree to push format
+
+**Rules**:
+
+- `RuleTemplateService` - Load rule templates
+- `RuleWriterService` - Write rules to agent-specific locations
+- `agent-rule-config.ts` - Agent-specific rule file paths
 
 ### Config
 
-- `environment.ts` - Dev: `https://dev-beta-*.byterover.dev/api/*`, Prod: `https://prod-beta-*.byterover.dev/api/*`. Exports: `issuerUrl`, `clientId`, `scopes`, `apiBaseUrl`, `cogitApiBaseUrl`, `memoraApiBaseUrl`
+- `environment.ts` - Dev/Prod URLs. Exports: `issuerUrl`, `clientId`, `scopes`, `apiBaseUrl`, `cogitApiBaseUrl`, `llmGrpcEndpoint`
 - `auth.config.ts` - OIDC discovery (1h cache, 3 retries, 5s timeout, hardcoded fallback)
+- `context-tree-domains.ts` - Context tree domain definitions
 
 ### Commands
 
@@ -87,22 +103,37 @@ protected createServices(): {myService: IMyService} {
 }
 ```
 
-**Behaviors**:
+**Core Commands**:
 
 - `brv login` - OAuth: code → user → AuthToken. `fromJson()` forces re-login for old tokens
+- `brv logout` - Clear stored credentials
 - `brv status` - Reads `userEmail` from AuthToken (no API). Shows: version, auth, directory, config, context tree changes
 - `brv init` - `{fetchAll: true}` for teams/spaces, initializes context tree
-- `brv add` - Interactive or autonomous mode to add context to context tree
-- `brv space switch` - **No context tree init**
-- `brv push [--branch <name>]` - Default: `main` (ByteRover, not git). Snapshots context tree and pushes to cloud
+
+**Context Operations**:
+
+- `brv curate` - Interactive or autonomous mode to add context to context tree
+- `brv push [--branch <name>] [--yes]` - Default: `main` (ByteRover, not git). Snapshots and pushes to cloud
+- `brv pull [--branch <name>]` - Pull snapshot from cloud and sync to local context tree
+- `brv gen-rules` - Generate agent-specific rule files from context tree
+
+**Space Management**:
+
 - `brv space list` - Default 50, needs `--all` or manual pagination
+- `brv space switch` - Switch space (**no context tree init**)
+
+**Dev-Only Commands** (require `BR_ENV=development`):
+
+- `brv query` - Query context tree
+- `brv watch` - Watch filesystem for changes, trigger parsing pipeline
+- `brv cipher-agent run` - Interactive CipherAgent session
+- `brv cipher-agent set-prompt` / `show-prompt` - Manage CipherAgent system prompts
 
 **OAuth Flow**:
 
 - `redirectUri`: `http://localhost:{port}/callback` (built after server starts)
 - Login: `OAuthTokenData` → fetch User → `AuthToken` with `userId`/`userEmail`
-- `session_key` → `AuthToken.sessionKey`
-- Authenticated requests: AuthToken → `accessToken` + `sessionKey` → service → `AuthenticatedHttpClient` injects headers
+- Authenticated requests: AuthToken → `accessToken` + `sessionKey` → `AuthenticatedHttpClient` injects headers
 
 ## Testing
 
@@ -116,18 +147,11 @@ protected createServices(): {myService: IMyService} {
 
 - Verify headers: `.matchHeader('authorization', ...)` + `.matchHeader('x-byterover-session-id', ...)`
 - `HttpSpaceService`: verify `team_id` query param
-- `HttpMemoryRetrievalService`: `memories` have all fields, `related_memories` omit `score`, `parent_ids`, `children_ids`
 
 **Services**:
 
 - Verify all params: `expect(service.method.calledWith('token', 'session', 'id', {fetchAll: true})).to.be.true`
 - `ContextTreeService`: stub with `.resolves()`, verify file operations
-- `PlaybookStore`: **DEPRECATED** - Legacy testing patterns
-
-**Mappers**:
-
-- Test pure functions directly
-- Verify defensive copying (returned !== input)
 
 **ES Modules**:
 
@@ -144,9 +168,9 @@ protected createServices(): {myService: IMyService} {
 
 ## Environment
 
-- `BR_ENV` - `development` | `production`
+- `BR_ENV` - `development` | `production` (dev-only commands require `development`)
 - `BR_NPM_LOG_LEVEL`, `BR_NPM_REGISTRY`
 
 ## Stack
 
-oclif v4, TypeScript (ES2022, Node16 modules, strict), axios, express, @inquirer/prompts, Mocha + Chai + Sinon + Nock
+oclif v4, TypeScript (ES2022, Node16 modules, strict), axios, express, @inquirer/prompts, better-sqlite3, @grpc/grpc-js, Mocha + Chai + Sinon + Nock
