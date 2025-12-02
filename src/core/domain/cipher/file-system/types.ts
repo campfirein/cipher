@@ -123,11 +123,29 @@ export interface FileContent {
   /** Total number of lines in the returned content */
   lines: number
 
+  /** Pagination metadata for truncated files */
+  pagination?: {
+    /** Hint message for LLM on how to continue reading */
+    hint: string
+    
+    /** Line range being displayed [start, end] (1-based) */
+    linesShown: [number, number]
+    
+    /** Offset to use for reading next chunk */
+    nextOffset: number
+    
+    /** Total number of lines in the file */
+    totalLines: number
+  }
+
   /** File size in bytes */
   size: number
 
   /** Whether content was truncated due to size/line limits */
   truncated: boolean
+
+  /** Number of lines that were truncated due to excessive length */
+  truncatedLineCount?: number
 }
 
 /**
