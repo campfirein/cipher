@@ -49,7 +49,7 @@ export const ENV_CONFIG: Record<Environment, EnvironmentConfig> = {
     apiBaseUrl: 'https://beta-iam.byterover.dev/api/v1',
     authorizationUrl: 'https://beta-iam.byterover.dev/api/v1/oidc/authorize',
     clientId: 'byterover-cli',
-    cogitApiBaseUrl: 'https://beta-cogit.byterover.dev/api/v1',
+    cogitApiBaseUrl: 'https://beta-cgit.byterover.dev/api/v1',
     issuerUrl: 'https://beta-iam.byterover.dev/api/v1/oidc',
     llmGrpcEndpoint: 'beta-llm-grpc.byterover.dev',
     memoraApiBaseUrl: 'https://beta-memora-retrieve.byterover.dev/api/v3',
