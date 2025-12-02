@@ -58,8 +58,10 @@ export function createReadFileTool(fileSystemService: IFileSystem): Tool {
         content: result.content,
         encoding: result.encoding,
         lines: result.lines,
+        pagination: result.pagination,
         size: result.size,
         truncated: result.truncated,
+        truncatedLineCount: result.truncatedLineCount,
       }
     },
     id: ToolName.READ_FILE,

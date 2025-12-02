@@ -53,6 +53,10 @@ import {PathValidator} from './path-validator.js'
  * path validation, size limits, and allow/block list enforcement.
  */
 export class FileSystemService implements IFileSystem {
+  /**
+   * Maximum line length before truncation (2000 characters).
+   */
+  private static readonly MAX_LINE_LENGTH = 2000
   private readonly config: Required<FileSystemConfig>
   private initialized: boolean = false
   private readonly pathValidator: PathValidator
@@ -316,31 +320,59 @@ export class FileSystemService implements IFileSystem {
 
       // Handle pagination
       const lines = content.split('\n')
+      const totalLines = lines.length
 
       let selectedLines: string[]
       let truncated = false
+      let pagination: FileContent['pagination']
 
       // Apply offset (1-based, like text editors)
       const {limit, offset: offset1} = options
 
       if (offset1 !== undefined || limit !== undefined) {
         const start = offset1 !== undefined && offset1 > 0 ? Math.max(0, offset1 - 1) : 0
-        const end = limit === undefined ? lines.length : start + limit
+        const end = limit === undefined ? totalLines : Math.min(start + limit, totalLines)
 
         selectedLines = lines.slice(start, end)
-        truncated = end < lines.length
+        truncated = end < totalLines
+
+        // Create pagination metadata when content is truncated or offset is used
+        if (truncated || start > 0) {
+          pagination = {
+            hint: truncated 
+              ? `File truncated. To continue reading, use offset: ${end + 1}` 
+              : `Showing lines ${start + 1}-${end} of ${totalLines}`,
+            linesShown: [start + 1, end] as [number, number], // Convert to 1-based
+            nextOffset: end + 1,
+            totalLines,
+          }
+        }
       } else {
         selectedLines = lines
       }
 
-      const selectedContent = selectedLines.join('\n')
+      
+      // Apply line length truncation
+      let truncatedLineCount = 0
+      const processedLines = selectedLines.map(line => {
+        if (line.length > FileSystemService.MAX_LINE_LENGTH) {
+          truncatedLineCount++
+          return line.slice(0, FileSystemService.MAX_LINE_LENGTH) + '... [line truncated]'
+        }
+
+        return line
+      })
+
+      const selectedContent = processedLines.join('\n')
 
       return {
         content: selectedContent,
         encoding,
-        lines: selectedLines.length,
+        lines: processedLines.length,
+        pagination,
         size: stats.size,
         truncated,
+        truncatedLineCount: truncatedLineCount > 0 ? truncatedLineCount : undefined,
       }
     } catch (error) {
       // Re-throw known errors
