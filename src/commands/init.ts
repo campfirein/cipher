@@ -412,8 +412,8 @@ export default class Init extends Command {
       // ACE is deprecated - only initialize context tree
       await this.initializeMemoryContextDir('context tree', () => contextTreeService.initialize())
 
-      // Create initial snapshot for change tracking
-      await contextTreeSnapshotService.initEmptySnapshot()
+      // Create initial snapshot for change tracking (includes the template files just created)
+      await contextTreeSnapshotService.saveSnapshot()
       this.log('✓ Context tree snapshot created')
 
       this.log()
