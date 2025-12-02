@@ -43,6 +43,10 @@ export default class Push extends Command {
     }),
   }
 
+  protected buildSpaceUrl(webAppUrl: string, teamName: string, spaceName: string): string {
+    return `${webAppUrl}/${teamName}/${spaceName}`
+  }
+
   // Override catch to prevent oclif from logging errors that were already displayed
   async catch(error: Error & {oclif?: {exit: number}}): Promise<void> {
     // Check if error is ExitError (message already displayed by exitWithCode)
@@ -184,7 +188,12 @@ export default class Push extends Command {
       // Success message
       this.log('\n✓ Successfully pushed context tree to ByteRover memory storage!')
       this.log(`  Branch: ${flags.branch}`)
-      this.log(`  Added: ${addedFiles.length}, Edited: ${modifiedFiles.length}, Deleted: ${contextTreeChanges.deleted.length}`)
+      this.log(
+        `  Added: ${addedFiles.length}, Edited: ${modifiedFiles.length}, Deleted: ${contextTreeChanges.deleted.length}`,
+      )
+      this.log(
+        `  View: ${this.buildSpaceUrl(getCurrentConfig().webAppUrl, projectConfig.teamName, projectConfig.spaceName)}`,
+      )
     } catch (error) {
       if (error instanceof WorkspaceNotInitializedError) {
         exitWithCode(
