@@ -6,7 +6,9 @@ import sinon, {restore, stub} from 'sinon'
 
 import type {Space} from '../../src/core/domain/entities/space.js'
 import type {Team} from '../../src/core/domain/entities/team.js'
+import type {ICogitPullService} from '../../src/core/interfaces/i-cogit-pull-service.js'
 import type {IContextTreeService} from '../../src/core/interfaces/i-context-tree-service.js'
+import type {IContextTreeWriterService} from '../../src/core/interfaces/i-context-tree-writer-service.js'
 import type {IProjectConfigStore} from '../../src/core/interfaces/i-project-config-store.js'
 
 // Legacy IPlaybookService interface (ACE deprecated, kept for test compatibility)
@@ -43,9 +45,11 @@ class TestableInit extends Init {
 
   // eslint-disable-next-line max-params
   constructor(
+    private readonly mockCogitPullService: ICogitPullService,
     private readonly mockConfigStore: IProjectConfigStore,
     private readonly mockContextTreeService: IContextTreeService,
     private readonly mockContextTreeSnapshotService: IContextTreeSnapshotService,
+    private readonly mockContextTreeWriterService: IContextTreeWriterService,
     private readonly mockPlaybookService: IPlaybookService,
     private readonly mockRuleWriterService: IRuleWriterService,
     private readonly mockSpaceService: ISpaceService,
@@ -77,9 +81,10 @@ class TestableInit extends Init {
 
   protected createServices() {
     return {
+      cogitPullService: this.mockCogitPullService,
       contextTreeService: this.mockContextTreeService,
       contextTreeSnapshotService: this.mockContextTreeSnapshotService,
-      playbookService: this.mockPlaybookService,
+      contextTreeWriterService: this.mockContextTreeWriterService,
       projectConfigStore: this.mockConfigStore,
       ruleWriterService: this.mockRuleWriterService,
       spaceService: this.mockSpaceService,
@@ -142,17 +147,120 @@ class TestableInit extends Init {
     this.removeAceDirectoryCalled = true
   }
 
+  // Mock syncFromRemoteOrInitialize to avoid testing remote sync in unit tests
+  protected async syncFromRemoteOrInitialize(): Promise<void> {
+    // Simulate new space behavior: create templates with empty snapshot
+    // Use initializeMemoryContextDir to handle errors gracefully (like real implementation)
+    await this.initializeMemoryContextDir('context tree', () => this.mockContextTreeService.initialize())
+    await this.mockContextTreeSnapshotService.initEmptySnapshot()
+  }
+
   public warn(input: Error | string): Error | string {
     // Do nothing - suppress output, but return input to match base signature
     return input
   }
 }
 
+/**
+ * TestableInit variant that tests the actual syncFromRemoteOrInitialize implementation
+ * Extends Init directly to avoid TestableInit's override
+ */
+class SyncTestableInit extends Init {
+  public mockContextTreeInitializeCalled = false
+
+  // eslint-disable-next-line max-params
+  constructor(
+    private readonly mockCogitPullService: ICogitPullService,
+    private readonly mockConfigStore: IProjectConfigStore,
+    private readonly mockContextTreeService: IContextTreeService,
+    private readonly mockContextTreeSnapshotService: IContextTreeSnapshotService,
+    private readonly mockContextTreeWriterService: IContextTreeWriterService,
+    private readonly mockRuleWriterService: IRuleWriterService,
+    private readonly mockSpaceService: ISpaceService,
+    private readonly mockTeamService: ITeamService,
+    private readonly mockTokenStore: ITokenStore,
+    private readonly mockTrackingService: ITrackingService,
+    private readonly mockSelectedTeam: Team,
+    private readonly mockSelectedSpace: Space,
+    config: Config,
+  ) {
+    super([], config)
+  }
+
+  protected createServices() {
+    return {
+      cogitPullService: this.mockCogitPullService,
+      contextTreeService: this.mockContextTreeService,
+      contextTreeSnapshotService: this.mockContextTreeSnapshotService,
+      contextTreeWriterService: this.mockContextTreeWriterService,
+      projectConfigStore: this.mockConfigStore,
+      ruleWriterService: this.mockRuleWriterService,
+      spaceService: this.mockSpaceService,
+      teamService: this.mockTeamService,
+      tokenStore: this.mockTokenStore,
+      trackingService: this.mockTrackingService,
+    }
+  }
+
+  public error(input: Error | string): never {
+    const errorMessage = typeof input === 'string' ? input : input.message
+    throw new Error(errorMessage)
+  }
+
+  protected async getExistingConfig(): Promise<BrvConfig | LegacyProjectConfigInfo | undefined> {
+    return undefined // No existing config for sync tests
+  }
+
+  // Track when initializeMemoryContextDir is called
+  protected async initializeMemoryContextDir(_label: string, initFn: () => Promise<string>): Promise<void> {
+    this.mockContextTreeInitializeCalled = true
+    await initFn()
+  }
+
+  public log(): void {
+    // Suppress output
+  }
+
+  protected async promptForAgentSelection(): Promise<Agent> {
+    return 'Claude Code'
+  }
+
+  protected async promptForOverwriteConfirmation(_agent: Agent): Promise<boolean> {
+    return true
+  }
+
+  protected async promptForSpaceSelection(_spaces: Space[]): Promise<Space> {
+    return this.mockSelectedSpace
+  }
+
+  protected async promptForTeamSelection(_teams: Team[]): Promise<Team> {
+    return this.mockSelectedTeam
+  }
+
+  // Expose syncFromRemoteOrInitialize for direct testing
+  public async testSyncFromRemoteOrInitialize(token: AuthToken): Promise<void> {
+    return this.syncFromRemoteOrInitialize({
+      cogitPullService: this.mockCogitPullService,
+      contextTreeService: this.mockContextTreeService,
+      contextTreeSnapshotService: this.mockContextTreeSnapshotService,
+      contextTreeWriterService: this.mockContextTreeWriterService,
+      projectConfig: {spaceId: this.mockSelectedSpace.id, teamId: this.mockSelectedTeam.id},
+      token,
+    })
+  }
+
+  public warn(input: Error | string): Error | string {
+    return input
+  }
+}
+
 describe('Init Command', () => {
+  let cogitPullService: sinon.SinonStubbedInstance<ICogitPullService>
   let config: Config
   let configStore: sinon.SinonStubbedInstance<IProjectConfigStore>
   let contextTreeService: sinon.SinonStubbedInstance<IContextTreeService>
   let contextTreeSnapshotService: sinon.SinonStubbedInstance<IContextTreeSnapshotService>
+  let contextTreeWriterService: sinon.SinonStubbedInstance<IContextTreeWriterService>
   let playbookService: sinon.SinonStubbedInstance<IPlaybookService>
   let ruleWriterService: sinon.SinonStubbedInstance<IRuleWriterService>
   let spaceService: sinon.SinonStubbedInstance<ISpaceService>
@@ -204,6 +312,23 @@ describe('Init Command', () => {
       hasSnapshot: stub(),
       initEmptySnapshot: stub(),
       saveSnapshot: stub(),
+    }
+
+    contextTreeWriterService = {
+      sync: stub<
+        Parameters<IContextTreeWriterService['sync']>,
+        ReturnType<IContextTreeWriterService['sync']>
+      >().resolves({added: [], deleted: [], edited: []}),
+    }
+
+    cogitPullService = {
+      pull: stub<Parameters<ICogitPullService['pull']>, ReturnType<ICogitPullService['pull']>>().resolves({
+        author: {email: 'test@example.com', name: 'Test', when: new Date()},
+        branch: 'main',
+        commitSha: 'abc123',
+        files: [],
+        message: 'Test commit',
+      }),
     }
 
     playbookService = {
@@ -269,9 +394,11 @@ describe('Init Command', () => {
       )
 
       const command = new TestableInit(
+        cogitPullService,
         configStore,
         contextTreeService,
         contextTreeSnapshotService,
+        contextTreeWriterService,
         playbookService,
         ruleWriterService,
         spaceService,
@@ -296,9 +423,11 @@ describe('Init Command', () => {
       tokenStore.load.resolves()
 
       const command = new TestableInit(
+        cogitPullService,
         configStore,
         contextTreeService,
         contextTreeSnapshotService,
+        contextTreeWriterService,
         playbookService,
         ruleWriterService,
         spaceService,
@@ -334,9 +463,11 @@ describe('Init Command', () => {
       tokenStore.load.resolves(expiredToken)
 
       const command = new TestableInit(
+        cogitPullService,
         configStore,
         contextTreeService,
         contextTreeSnapshotService,
+        contextTreeWriterService,
         playbookService,
         ruleWriterService,
         spaceService,
@@ -363,9 +494,11 @@ describe('Init Command', () => {
       teamService.getTeams.resolves({teams: [], total: 0})
 
       const command = new TestableInit(
+        cogitPullService,
         configStore,
         contextTreeService,
         contextTreeSnapshotService,
+        contextTreeWriterService,
         playbookService,
         ruleWriterService,
         spaceService,
@@ -391,9 +524,11 @@ describe('Init Command', () => {
       spaceService.getSpaces.resolves({spaces: [], total: 0})
 
       const command = new TestableInit(
+        cogitPullService,
         configStore,
         contextTreeService,
         contextTreeSnapshotService,
+        contextTreeWriterService,
         playbookService,
         ruleWriterService,
         spaceService,
@@ -420,9 +555,11 @@ describe('Init Command', () => {
       configStore.write.resolves()
 
       const command = new TestableInit(
+        cogitPullService,
         configStore,
         contextTreeService,
         contextTreeSnapshotService,
+        contextTreeWriterService,
         playbookService,
         ruleWriterService,
         spaceService,
@@ -446,9 +583,8 @@ describe('Init Command', () => {
       expect(writtenConfig.teamId).to.equal('team-1')
       expect(writtenConfig.teamName).to.equal('acme-corp')
 
-      // Verify saveSnapshot is called (not initEmptySnapshot) to include template files in snapshot
-      expect(contextTreeSnapshotService.saveSnapshot.calledOnce).to.be.true
-      expect(contextTreeSnapshotService.initEmptySnapshot.called).to.be.false
+      // Verify initEmptySnapshot is called for new space (so first push treats templates as "added")
+      expect(contextTreeSnapshotService.initEmptySnapshot.calledOnce).to.be.true
     })
 
     it('should successfully initialize with second space', async () => {
@@ -459,9 +595,11 @@ describe('Init Command', () => {
       configStore.write.resolves()
 
       const command = new TestableInit(
+        cogitPullService,
         configStore,
         contextTreeService,
         contextTreeSnapshotService,
+        contextTreeWriterService,
         playbookService,
         ruleWriterService,
         spaceService,
@@ -486,9 +624,11 @@ describe('Init Command', () => {
       teamService.getTeams.rejects(new Error('Network timeout'))
 
       const command = new TestableInit(
+        cogitPullService,
         configStore,
         contextTreeService,
         contextTreeSnapshotService,
+        contextTreeWriterService,
         playbookService,
         ruleWriterService,
         spaceService,
@@ -516,9 +656,11 @@ describe('Init Command', () => {
       spaceService.getSpaces.rejects(new Error('Network timeout'))
 
       const command = new TestableInit(
+        cogitPullService,
         configStore,
         contextTreeService,
         contextTreeSnapshotService,
+        contextTreeWriterService,
         playbookService,
         ruleWriterService,
         spaceService,
@@ -547,9 +689,11 @@ describe('Init Command', () => {
       configStore.write.rejects(new Error('Permission denied'))
 
       const command = new TestableInit(
+        cogitPullService,
         configStore,
         contextTreeService,
         contextTreeSnapshotService,
+        contextTreeWriterService,
         playbookService,
         ruleWriterService,
         spaceService,
@@ -578,9 +722,11 @@ describe('Init Command', () => {
       configStore.write.resolves()
 
       const command = new TestableInit(
+        cogitPullService,
         configStore,
         contextTreeService,
         contextTreeSnapshotService,
+        contextTreeWriterService,
         playbookService,
         ruleWriterService,
         spaceService,
@@ -606,9 +752,11 @@ describe('Init Command', () => {
       configStore.write.resolves()
 
       const command = new TestableInit(
+        cogitPullService,
         configStore,
         contextTreeService,
         contextTreeSnapshotService,
+        contextTreeWriterService,
         playbookService,
         ruleWriterService,
         spaceService,
@@ -634,9 +782,11 @@ describe('Init Command', () => {
       configStore.write.resolves()
 
       const command = new TestableInit(
+        cogitPullService,
         configStore,
         contextTreeService,
         contextTreeSnapshotService,
+        contextTreeWriterService,
         playbookService,
         ruleWriterService,
         spaceService,
@@ -667,9 +817,11 @@ describe('Init Command', () => {
       contextTreeService.initialize.rejects(new Error('Context tree already exists'))
 
       const command = new TestableInit(
+        cogitPullService,
         configStore,
         contextTreeService,
         contextTreeSnapshotService,
+        contextTreeWriterService,
         playbookService,
         ruleWriterService,
         spaceService,
@@ -697,9 +849,11 @@ describe('Init Command', () => {
       ruleWriterService.writeRule.rejects(new Error('Template not found'))
 
       const command = new TestableInit(
+        cogitPullService,
         configStore,
         contextTreeService,
         contextTreeSnapshotService,
+        contextTreeWriterService,
         playbookService,
         ruleWriterService,
         spaceService,
@@ -733,9 +887,11 @@ describe('Init Command', () => {
       spaceService.getSpaces.resolves({spaces: testSpaces, total: testSpaces.length})
 
       const command = new TestableInit(
+        cogitPullService,
         configStore,
         contextTreeService,
         contextTreeSnapshotService,
+        contextTreeWriterService,
         playbookService,
         ruleWriterService,
         spaceService,
@@ -767,9 +923,11 @@ describe('Init Command', () => {
       )
 
       const command = new TestableInit(
+        cogitPullService,
         configStore,
         contextTreeService,
         contextTreeSnapshotService,
+        contextTreeWriterService,
         playbookService,
         ruleWriterService,
         spaceService,
@@ -803,9 +961,11 @@ describe('Init Command', () => {
       spaceService.getSpaces.resolves({spaces: testSpaces, total: testSpaces.length})
 
       const command = new TestableInit(
+        cogitPullService,
         configStore,
         contextTreeService,
         contextTreeSnapshotService,
+        contextTreeWriterService,
         playbookService,
         ruleWriterService,
         spaceService,
@@ -837,9 +997,11 @@ describe('Init Command', () => {
       )
 
       const command = new TestableInit(
+        cogitPullService,
         configStore,
         contextTreeService,
         contextTreeSnapshotService,
+        contextTreeWriterService,
         playbookService,
         ruleWriterService,
         spaceService,
@@ -869,9 +1031,11 @@ describe('Init Command', () => {
       configStore.read.resolves() // Corrupted/unreadable - returns undefined
 
       const command = new TestableInit(
+        cogitPullService,
         configStore,
         contextTreeService,
         contextTreeSnapshotService,
+        contextTreeWriterService,
         playbookService,
         ruleWriterService,
         spaceService,
@@ -903,9 +1067,11 @@ describe('Init Command', () => {
       spaceService.getSpaces.resolves({spaces: testSpaces, total: testSpaces.length})
 
       const command = new TestableInit(
+        cogitPullService,
         configStore,
         contextTreeService,
         contextTreeSnapshotService,
+        contextTreeWriterService,
         playbookService,
         ruleWriterService,
         spaceService,
@@ -941,9 +1107,11 @@ describe('Init Command', () => {
       spaceService.getSpaces.resolves({spaces: testSpaces, total: testSpaces.length})
 
       const command = new TestableInit(
+        cogitPullService,
         configStore,
         contextTreeService,
         contextTreeSnapshotService,
+        contextTreeWriterService,
         playbookService,
         ruleWriterService,
         spaceService,
@@ -981,9 +1149,11 @@ describe('Init Command', () => {
       configStore.write.resolves()
 
       const command = new TestableInit(
+        cogitPullService,
         configStore,
         contextTreeService,
         contextTreeSnapshotService,
+        contextTreeWriterService,
         playbookService,
         ruleWriterService,
         spaceService,
@@ -1017,9 +1187,11 @@ describe('Init Command', () => {
       configStore.write.resolves()
 
       const command = new TestableInit(
+        cogitPullService,
         configStore,
         contextTreeService,
         contextTreeSnapshotService,
+        contextTreeWriterService,
         playbookService,
         ruleWriterService,
         spaceService,
@@ -1054,9 +1226,11 @@ describe('Init Command', () => {
       configStore.write.resolves()
 
       const command = new TestableInit(
+        cogitPullService,
         configStore,
         contextTreeService,
         contextTreeSnapshotService,
+        contextTreeWriterService,
         playbookService,
         ruleWriterService,
         spaceService,
@@ -1094,9 +1268,11 @@ describe('Init Command', () => {
       spaceService.getSpaces.resolves({spaces: testSpaces, total: testSpaces.length})
 
       const command = new TestableInit(
+        cogitPullService,
         configStore,
         contextTreeService,
         contextTreeSnapshotService,
+        contextTreeWriterService,
         playbookService,
         ruleWriterService,
         spaceService,
@@ -1120,6 +1296,219 @@ describe('Init Command', () => {
       expect(playbookService.initialize.called).to.be.false
       // Should complete initialization
       expect(configStore.write.calledOnce).to.be.true
+    })
+  })
+
+  describe('syncFromRemoteOrInitialize', () => {
+    it('should call initEmptySnapshot when remote has only README.md placeholder', async () => {
+      // Set up pull to return only README.md placeholder
+      cogitPullService.pull.resolves({
+        author: {email: 'test@example.com', name: 'Test', when: new Date()},
+        branch: 'main',
+        commitSha: 'abc123',
+        files: [
+          {
+            content: Buffer.from('# README').toString('base64'),
+            decodeContent: () => '# README',
+            mode: '100644',
+            path: '/README.md',
+            sha: 'readme-sha',
+            size: 8,
+          },
+        ],
+        message: 'Initial commit',
+      })
+
+      const command = new SyncTestableInit(
+        cogitPullService,
+        configStore,
+        contextTreeService,
+        contextTreeSnapshotService,
+        contextTreeWriterService,
+        ruleWriterService,
+        spaceService,
+        teamService,
+        tokenStore,
+        trackingService,
+        testTeams[0],
+        testSpaces[0],
+        config,
+      )
+
+      await command.testSyncFromRemoteOrInitialize(validToken)
+
+      // Should detect README.md as placeholder and treat as empty space
+      expect(command.mockContextTreeInitializeCalled).to.be.true
+      expect(contextTreeSnapshotService.initEmptySnapshot.calledOnce).to.be.true
+      expect(contextTreeSnapshotService.saveSnapshot.called).to.be.false
+      expect(contextTreeWriterService.sync.called).to.be.false
+    })
+
+    it('should call initEmptySnapshot when remote is truly empty', async () => {
+      // Set up pull to return empty files array
+      cogitPullService.pull.resolves({
+        author: {email: 'test@example.com', name: 'Test', when: new Date()},
+        branch: 'main',
+        commitSha: 'abc123',
+        files: [],
+        message: 'Initial commit',
+      })
+
+      const command = new SyncTestableInit(
+        cogitPullService,
+        configStore,
+        contextTreeService,
+        contextTreeSnapshotService,
+        contextTreeWriterService,
+        ruleWriterService,
+        spaceService,
+        teamService,
+        tokenStore,
+        trackingService,
+        testTeams[0],
+        testSpaces[0],
+        config,
+      )
+
+      await command.testSyncFromRemoteOrInitialize(validToken)
+
+      // Should treat as empty space
+      expect(command.mockContextTreeInitializeCalled).to.be.true
+      expect(contextTreeSnapshotService.initEmptySnapshot.calledOnce).to.be.true
+      expect(contextTreeSnapshotService.saveSnapshot.called).to.be.false
+      expect(contextTreeWriterService.sync.called).to.be.false
+    })
+
+    it('should sync and saveSnapshot when remote has real content', async () => {
+      // Set up pull to return real content files
+      cogitPullService.pull.resolves({
+        author: {email: 'test@example.com', name: 'Test', when: new Date()},
+        branch: 'main',
+        commitSha: 'abc123',
+        files: [
+          {
+            content: Buffer.from('# Context').toString('base64'),
+            decodeContent: () => '# Context',
+            mode: '100644',
+            path: '/context.md',
+            sha: 'context-sha',
+            size: 9,
+          },
+          {
+            content: Buffer.from('# Domain').toString('base64'),
+            decodeContent: () => '# Domain',
+            mode: '100644',
+            path: '/domain.md',
+            sha: 'domain-sha',
+            size: 8,
+          },
+        ],
+        message: 'Add context files',
+      })
+
+      const command = new SyncTestableInit(
+        cogitPullService,
+        configStore,
+        contextTreeService,
+        contextTreeSnapshotService,
+        contextTreeWriterService,
+        ruleWriterService,
+        spaceService,
+        teamService,
+        tokenStore,
+        trackingService,
+        testTeams[0],
+        testSpaces[0],
+        config,
+      )
+
+      await command.testSyncFromRemoteOrInitialize(validToken)
+
+      // Should sync from remote and save snapshot
+      expect(command.mockContextTreeInitializeCalled).to.be.false
+      expect(contextTreeWriterService.sync.calledOnce).to.be.true
+      expect(contextTreeSnapshotService.saveSnapshot.calledOnce).to.be.true
+      expect(contextTreeSnapshotService.initEmptySnapshot.called).to.be.false
+    })
+
+    it('should sync when remote has README.md plus other files', async () => {
+      // Set up pull to return README.md + other content
+      cogitPullService.pull.resolves({
+        author: {email: 'test@example.com', name: 'Test', when: new Date()},
+        branch: 'main',
+        commitSha: 'abc123',
+        files: [
+          {
+            content: Buffer.from('# README').toString('base64'),
+            decodeContent: () => '# README',
+            mode: '100644',
+            path: '/README.md',
+            sha: 'readme-sha',
+            size: 8,
+          },
+          {
+            content: Buffer.from('# Context').toString('base64'),
+            decodeContent: () => '# Context',
+            mode: '100644',
+            path: '/context.md',
+            sha: 'context-sha',
+            size: 9,
+          },
+        ],
+        message: 'Add files',
+      })
+
+      const command = new SyncTestableInit(
+        cogitPullService,
+        configStore,
+        contextTreeService,
+        contextTreeSnapshotService,
+        contextTreeWriterService,
+        ruleWriterService,
+        spaceService,
+        teamService,
+        tokenStore,
+        trackingService,
+        testTeams[0],
+        testSpaces[0],
+        config,
+      )
+
+      await command.testSyncFromRemoteOrInitialize(validToken)
+
+      // README.md + other files = real content, should sync
+      expect(command.mockContextTreeInitializeCalled).to.be.false
+      expect(contextTreeWriterService.sync.calledOnce).to.be.true
+      expect(contextTreeSnapshotService.saveSnapshot.calledOnce).to.be.true
+      expect(contextTreeSnapshotService.initEmptySnapshot.called).to.be.false
+    })
+
+    it('should throw error when pull fails', async () => {
+      cogitPullService.pull.rejects(new Error('Network error'))
+
+      const command = new SyncTestableInit(
+        cogitPullService,
+        configStore,
+        contextTreeService,
+        contextTreeSnapshotService,
+        contextTreeWriterService,
+        ruleWriterService,
+        spaceService,
+        teamService,
+        tokenStore,
+        trackingService,
+        testTeams[0],
+        testSpaces[0],
+        config,
+      )
+
+      try {
+        await command.testSyncFromRemoteOrInitialize(validToken)
+        expect.fail('Should have thrown an error')
+      } catch (error) {
+        expect((error as Error).message).to.include('Failed to sync from ByteRover')
+        expect((error as Error).message).to.include('Network error')
+      }
     })
   })
 })
