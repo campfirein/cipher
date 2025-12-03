@@ -6,8 +6,10 @@ import {join} from 'node:path'
 import type {AuthToken} from '../core/domain/entities/auth-token.js'
 import type {Space} from '../core/domain/entities/space.js'
 import type {Team} from '../core/domain/entities/team.js'
+import type {ICogitPullService} from '../core/interfaces/i-cogit-pull-service.js'
 import type {IContextTreeService} from '../core/interfaces/i-context-tree-service.js'
 import type {IContextTreeSnapshotService} from '../core/interfaces/i-context-tree-snapshot-service.js'
+import type {IContextTreeWriterService} from '../core/interfaces/i-context-tree-writer-service.js'
 import type {IProjectConfigStore} from '../core/interfaces/i-project-config-store.js'
 import type {IRuleWriterService} from '../core/interfaces/i-rule-writer-service.js'
 import type {ISpaceService} from '../core/interfaces/i-space-service.js'
@@ -15,15 +17,17 @@ import type {ITeamService} from '../core/interfaces/i-team-service.js'
 import type {ITokenStore} from '../core/interfaces/i-token-store.js'
 
 import {getCurrentConfig} from '../config/environment.js'
-import {ACE_DIR, BRV_CONFIG_VERSION, BRV_DIR, PROJECT_CONFIG_FILE} from '../constants.js'
+import {ACE_DIR, BRV_CONFIG_VERSION, BRV_DIR, DEFAULT_BRANCH, PROJECT_CONFIG_FILE} from '../constants.js'
 import {type Agent, AGENT_VALUES} from '../core/domain/entities/agent.js'
 import {BrvConfig} from '../core/domain/entities/brv-config.js'
 import {BrvConfigVersionError} from '../core/domain/errors/brv-config-version-error.js'
 import {RuleExistsError} from '../core/domain/errors/rule-error.js'
 import {ITrackingService} from '../core/interfaces/i-tracking-service.js'
+import {HttpCogitPullService} from '../infra/cogit/http-cogit-pull-service.js'
 import {ProjectConfigStore} from '../infra/config/file-config-store.js'
 import {FileContextTreeService} from '../infra/context-tree/file-context-tree-service.js'
 import {FileContextTreeSnapshotService} from '../infra/context-tree/file-context-tree-snapshot-service.js'
+import {FileContextTreeWriterService} from '../infra/context-tree/file-context-tree-writer-service.js'
 import {FsFileService} from '../infra/file/fs-file-service.js'
 import {RuleTemplateService} from '../infra/rule/rule-template-service.js'
 import {RuleWriterService} from '../infra/rule/rule-writer-service.js'
@@ -111,8 +115,10 @@ export default class Init extends Command {
   }
 
   protected createServices(): {
+    cogitPullService: ICogitPullService
     contextTreeService: IContextTreeService
     contextTreeSnapshotService: IContextTreeSnapshotService
+    contextTreeWriterService: IContextTreeWriterService
     projectConfigStore: IProjectConfigStore
     ruleWriterService: IRuleWriterService
     spaceService: ISpaceService
@@ -127,10 +133,15 @@ export default class Init extends Command {
     const fileService = new FsFileService()
     const templateLoader = new FsTemplateLoader(fileService)
     const ruleTemplateService = new RuleTemplateService(templateLoader)
+    const contextTreeSnapshotService = new FileContextTreeSnapshotService()
 
     return {
+      cogitPullService: new HttpCogitPullService({
+        apiBaseUrl: envConfig.cogitApiBaseUrl,
+      }),
       contextTreeService: new FileContextTreeService(),
-      contextTreeSnapshotService: new FileContextTreeSnapshotService(),
+      contextTreeSnapshotService,
+      contextTreeWriterService: new FileContextTreeWriterService({snapshotService: contextTreeSnapshotService}),
       projectConfigStore: new ProjectConfigStore(),
       ruleWriterService: new RuleWriterService(fileService, ruleTemplateService),
       spaceService: new HttpSpaceService({
@@ -366,8 +377,10 @@ export default class Init extends Command {
       const {flags} = await this.parse(Init)
 
       const {
+        cogitPullService,
         contextTreeService,
         contextTreeSnapshotService,
+        contextTreeWriterService,
         projectConfigStore,
         ruleWriterService,
         spaceService,
@@ -409,12 +422,15 @@ export default class Init extends Command {
         }
       }
 
-      // ACE is deprecated - only initialize context tree
-      await this.initializeMemoryContextDir('context tree', () => contextTreeService.initialize())
-
-      // Create initial snapshot for change tracking (includes the template files just created)
-      await contextTreeSnapshotService.saveSnapshot()
-      this.log('✓ Context tree snapshot created')
+      // Sync from remote or initialize context tree with templates
+      await this.syncFromRemoteOrInitialize({
+        cogitPullService,
+        contextTreeService,
+        contextTreeSnapshotService,
+        contextTreeWriterService,
+        projectConfig: {spaceId: selectedSpace.id, teamId: selectedTeam.id},
+        token: authToken,
+      })
 
       this.log()
       const selectedAgent = await this.promptForAgentSelection()
@@ -441,6 +457,49 @@ export default class Init extends Command {
       this.logSuccess(selectedSpace)
     } catch (error) {
       this.error(`Initialization failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  protected async syncFromRemoteOrInitialize(params: {
+    cogitPullService: ICogitPullService
+    contextTreeService: IContextTreeService
+    contextTreeSnapshotService: IContextTreeSnapshotService
+    contextTreeWriterService: IContextTreeWriterService
+    projectConfig: {spaceId: string; teamId: string}
+    token: AuthToken
+  }): Promise<void> {
+    // Pull from remote - fail if network/API error
+    this.log('\nSyncing from ByteRover...')
+    try {
+      const coGitSnapshot = await params.cogitPullService.pull({
+        accessToken: params.token.accessToken,
+        branch: DEFAULT_BRANCH,
+        sessionKey: params.token.sessionKey,
+        spaceId: params.projectConfig.spaceId,
+        teamId: params.projectConfig.teamId,
+      })
+
+      // Check if space is "empty" (no files, or only README.md placeholder)
+      // CoGit follows Git semantics - empty repos have a README.md placeholder
+      const isEmptySpace =
+        coGitSnapshot.files.length === 0 ||
+        (coGitSnapshot.files.length === 1 && coGitSnapshot.files[0].path === '/README.md')
+
+      if (isEmptySpace) {
+        // Remote is empty - ignore placeholder, create templates with empty snapshot
+        await this.initializeMemoryContextDir('context tree', () => params.contextTreeService.initialize())
+        await params.contextTreeSnapshotService.initEmptySnapshot()
+        this.log('✓ Context tree initialized')
+      } else {
+        // Remote has real data - sync it to local
+        await params.contextTreeWriterService.sync({files: [...coGitSnapshot.files]})
+        await params.contextTreeSnapshotService.saveSnapshot()
+        this.log(`✓ Synced ${coGitSnapshot.files.length} context files from remote`)
+      }
+    } catch (error) {
+      throw new Error(
+        `Failed to sync from ByteRover: ${error instanceof Error ? error.message : 'Unknown error'}. Please try again.`,
+      )
     }
   }
 
