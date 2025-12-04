@@ -1,6 +1,6 @@
 import type {Config} from '@oclif/core'
 
-import {Config as OclifConfig} from '@oclif/core'
+import {Config as OclifConfig, ux} from '@oclif/core'
 import {expect} from 'chai'
 import sinon, {restore, type SinonStub, stub} from 'sinon'
 
@@ -72,7 +72,6 @@ describe('SpaceList Command', () => {
 
   beforeEach(async () => {
     // Stub ux.action methods to suppress output
-    const {ux} = await import('@oclif/core')
     uxActionStartStub = stub(ux.action, 'start')
     uxActionStopStub = stub(ux.action, 'stop')
 

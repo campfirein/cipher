@@ -1,4 +1,4 @@
-import {mkdir, writeFile} from 'node:fs/promises'
+import {access, mkdir, writeFile} from 'node:fs/promises'
 import {join} from 'node:path'
 
 import type {IContextTreeService} from '../../core/interfaces/i-context-tree-service.js'
@@ -27,7 +27,6 @@ export class FileContextTreeService implements IContextTreeService {
 
     try {
       // Check if context tree directory exists
-      const {access} = await import('node:fs/promises')
       await access(contextTreeDir)
       return true
     } catch {
@@ -51,7 +50,9 @@ export class FileContextTreeService implements IContextTreeService {
 
         // Write context.md with domain description
         const contextMdPath = join(domainPath, CONTEXT_FILE)
-        const contextContent = `# ${domain.name.replaceAll('_', ' ').replaceAll(/\b\w/g, (c) => c.toUpperCase())}\n\n${domain.description}\n`
+        const contextContent = `# ${domain.name.replaceAll('_', ' ').replaceAll(/\b\w/g, (c) => c.toUpperCase())}\n\n${
+          domain.description
+        }\n`
         await writeFile(contextMdPath, contextContent, 'utf8')
       }),
     )
