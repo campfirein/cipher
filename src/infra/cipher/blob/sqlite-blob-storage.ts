@@ -12,6 +12,7 @@ import type {
 import type {IBlobStorage} from '../../../core/interfaces/cipher/i-blob-storage.js'
 
 import {BlobError} from '../../../core/domain/cipher/errors/blob-error.js'
+import {runMigrations} from './migrations.js'
 
 /**
  * Database row type for blobs table
@@ -204,7 +205,6 @@ export class SqliteBlobStorage implements IBlobStorage {
       this.db.pragma('journal_mode = WAL')
 
       // Run migrations to ensure schema is up-to-date
-      const {runMigrations} = await import('./migrations.js')
       const appliedCount = runMigrations(this.db, this.logger)
 
       if (appliedCount > 0) {

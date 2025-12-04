@@ -1,4 +1,5 @@
 import type {Message} from '../../domain/cipher/session/types.js'
+import type {ExecutionContext} from './i-cipher-agent.js'
 import type {ILLMService} from './i-llm-service.js'
 
 /**
@@ -63,5 +64,11 @@ export interface IChatSession {
    * @throws MaxIterationsExceededError if tool loop exceeds maximum iterations
    * @throws LLMError if LLM call fails
    */
-  run(input: string, options?: {executionContext?: import('./i-cipher-agent.js').ExecutionContext; mode?: 'autonomous' | 'default' | 'query'}): Promise<string>
+  run(
+    input: string,
+    options?: {
+      executionContext?: ExecutionContext
+      mode?: 'autonomous' | 'default' | 'query'
+    },
+  ): Promise<string>
 }
