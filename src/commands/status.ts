@@ -66,7 +66,8 @@ export default class Status extends Command {
   }
 
   public async run(): Promise<void> {
-    const {contextTreeService, contextTreeSnapshotService, projectConfigStore, tokenStore} = this.createServices()
+    const {contextTreeService, contextTreeSnapshotService, projectConfigStore, tokenStore, trackingService} =
+      this.createServices()
 
     this.log(`CLI Version: ${this.config.version}`)
 
@@ -144,6 +145,9 @@ export default class Status extends Command {
       for (const change of allChanges) {
         this.log(`\t${change.color(`${change.status.padEnd(10)} ${formatPath(change.path)}`)}`)
       }
+
+      // Track status
+      await trackingService.track('mem:status')
     } catch (error) {
       this.log('Context Tree: Unable to check status')
       this.warn(`Warning: ${error instanceof Error ? error.message : 'Context Tree unable to check status'}`)
