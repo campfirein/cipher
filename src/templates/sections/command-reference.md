@@ -34,8 +34,11 @@ brv curate
 brv curate "Auth uses JWT with 24h expiry. Tokens stored in httpOnly cookies via authMiddleware.ts"
 
 # Include files (CONTEXT must come before --files)
-brv curate "JWT authentication implementation with refresh token rotation" --files src/auth/jwt.ts --files docs/auth.md
+# Single file
 brv curate "Authentication middleware validates JWT tokens" -f src/middleware/auth.ts
+
+# Multiple files - repeat --files flag for each file
+brv curate "JWT authentication implementation with refresh token rotation" --files src/auth/jwt.ts --files docs/auth.md
 ```
 
 **Behavior:**

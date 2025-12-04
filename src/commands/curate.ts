@@ -48,10 +48,16 @@ Bad:
     '',
     '# IMPORTANT: Include relevant files for comprehensive context (use sparingly, max 5 files)',
     '# NOTE: CONTEXT argument must come BEFORE --files flag',
+    '# NOTE: For multiple files, repeat --files (or -f) flag for each file',
+    '',
+    '# Single file with short form',
+    '<%= config.bin %> <%= command.id %> "Authentication middleware validates JWT tokens and attaches user context" -f src/middleware/auth.ts',
+    '',
+    '# Multiple files - repeat --files flag for each file',
     '<%= config.bin %> <%= command.id %> "JWT authentication implementation with refresh token rotation" --files src/auth/jwt.ts --files docs/auth.md',
     '',
-    '# Short form with relative paths (MUST use relative paths)',
-    '<%= config.bin %> <%= command.id %> "Authentication middleware validates JWT tokens and attaches user context" -f src/middleware/auth.ts',
+    '# Multiple files using short form -f (repeat flag for each file)',
+    '<%= config.bin %> <%= command.id %> "REST API design patterns and error handling" -f src/api/routes.ts -f src/api/middleware.ts -f docs/api.md',
     '',
     ...(isDevelopment()
       ? [

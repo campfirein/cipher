@@ -15,11 +15,12 @@ Core Rules:
 
 ## Using `brv curate` with Files
 
-When adding complex implementations, use `--files` to include relevant source files (max 5, relative paths only). **CONTEXT argument must come BEFORE --files flag.**
+When adding complex implementations, use `--files` to include relevant source files (max 5, relative paths only). **CONTEXT argument must come BEFORE --files flag.** For multiple files, repeat the `--files` (or `-f`) flag for each file.
 
 Examples:
-- `brv curate "JWT authentication with refresh token rotation" -f src/auth.ts`
-- `brv curate "REST API design patterns" -f docs/api.md -f src/api/routes.ts`
+
+- Single file: `brv curate "JWT authentication with refresh token rotation" -f src/auth.ts`
+- Multiple files: `brv curate "Authentication system" --files src/auth/jwt.ts --files src/auth/middleware.ts --files docs/auth.md`
 
 ## CLI Usage Notes
 
