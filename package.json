@@ -96,7 +96,7 @@
     "lint": "eslint",
     "postpack": "shx rm -f oclif.manifest.json",
     "posttest": "npm run lint",
-    "prepack": "npm run build && oclif manifest",
+    "prepack": "npm run build && BRV_ENV=production oclif manifest",
     "test": "mocha --forbid-only \"test/**/*.test.ts\"",
     "version": "git add README.md"
   },
