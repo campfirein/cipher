@@ -174,7 +174,8 @@ Bad:
         this.log('\nQuery Results:')
         this.log(response)
 
-        await trackingService.track('ace:query')
+        // Track query
+        await trackingService.track('mem:query')
       } finally {
         // console.log('Logic for agent stopping and resource cleanup may go here!')
       }
