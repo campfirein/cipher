@@ -1,7 +1,3 @@
-import type {IBulletContentStore} from '../../interfaces/i-bullet-content-store.js'
-import type {DeltaBatch} from './delta-batch.js'
-import type {DeltaOperation} from './delta-operation.js'
-
 import {Bullet, type BulletJson, type BulletMetadata} from './bullet.js'
 
 export interface PlaybookJson {
@@ -18,8 +14,8 @@ export interface PlaybookStats {
 
 /**
  * The central knowledge repository that stores and manages bullets.
- * Playbooks are organized into sections and support delta operations.
- * Playbooks are used as an temporary notes then will be pushed to byterover for usage
+ * Playbooks are organized into sections.
+ * Playbooks are used as temporary notes then will be pushed to byterover for usage.
  */
 export class Playbook {
   private readonly bullets: Map<string, Bullet>
@@ -34,60 +30,6 @@ export class Playbook {
     this.bullets = new Map(bullets)
     this.sections = new Map(sections)
     this.nextId = nextId
-  }
-
-  // ===== Static Factory Methods =====
-
-  /**
-   * Creates a Playbook instance from a JSON object
-   * @param json The playbook JSON data
-   * @param contentStore Optional content store for loading bullet content from files
-   * @param directory Optional directory for loading content files
-   */
-  public static async fromJson(
-    json: PlaybookJson,
-    contentStore: IBulletContentStore,
-    directory?: string,
-  ): Promise<Playbook> {
-    const bullets = new Map<string, Bullet>()
-    const sections = new Map<string, string[]>()
-
-    // Deserialize bullets
-    const bulletEntries = Object.entries(json.bullets ?? {})
-
-    // Load all content in parallel if needed
-    const contentPromises = bulletEntries.map(async ([id, bulletData]) => {
-      if (bulletData.content) {
-        return bulletData.content
-      }
-
-      return contentStore.load(id, directory)
-    })
-
-    const contents = await Promise.all(contentPromises)
-
-    // Create bullets with loaded content
-    for (const [index, [id, bulletData]] of bulletEntries.entries()) {
-      bullets.set(id, Bullet.fromJson(bulletData, contents[index]))
-    }
-
-    // Deserialize sections
-    for (const [section, bulletIds] of Object.entries(json.sections ?? {})) {
-      sections.set(section, bulletIds)
-    }
-
-    return new Playbook(bullets, sections, json.nextId ?? 1)
-  }
-
-  /**
-   * Deserializes from JSON string
-   * @param data The JSON string
-   * @param contentStore Optional content store for loading bullet content from files
-   * @param directory Optional directory for loading content files
-   */
-  public static async loads(data: string, contentStore: IBulletContentStore, directory?: string): Promise<Playbook> {
-    const json = JSON.parse(data) as PlaybookJson
-    return Playbook.fromJson(json, contentStore, directory)
   }
 
   // ===== CRUD Operations =====
@@ -143,15 +85,6 @@ export class Playbook {
 
     this.bullets.set(bulletId, updatedBullet)
     return updatedBullet
-  }
-
-  /**
-   * Applies a batch of delta operations to the playbook
-   */
-  public applyDelta(delta: DeltaBatch): void {
-    for (const operation of delta.operations) {
-      this._applyOperation(operation)
-    }
   }
 
   /**
@@ -223,8 +156,6 @@ export class Playbook {
   public getSections(): string[] {
     return [...this.sections.keys()].sort()
   }
-
-  // ===== Delta Operations =====
 
   /**
    * Removes a bullet from the playbook
@@ -339,28 +270,6 @@ export class Playbook {
 
     this.bullets.set(bulletId, updatedBullet)
     return updatedBullet
-  }
-
-  private _applyOperation(operation: DeltaOperation): void {
-    switch (operation.type) {
-      case 'ADD': {
-        this.addBullet(operation.section, operation.content!, operation.bulletId, operation.metadata)
-        break
-      }
-
-      case 'REMOVE': {
-        this.removeBullet(operation.bulletId!)
-        break
-      }
-
-      case 'UPDATE': {
-        this.updateBullet(operation.bulletId!, {
-          content: operation.content,
-          metadata: operation.metadata,
-        })
-        break
-      }
-    }
   }
 
   // ===== Private Helpers =====

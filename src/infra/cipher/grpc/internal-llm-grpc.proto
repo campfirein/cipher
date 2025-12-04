@@ -1,0 +1,94 @@
+syntax = "proto3";
+
+package byterover.llm.v1;
+
+/**
+ * LLM Service for ByteRover unified LLM operations
+ *
+ * Provides a unified, type-safe interface for multiple LLM providers:
+ * - Gemini: Google Cloud Vertex AI Gemini models
+ * - Claude: Anthropic Claude models via Vertex AI
+ *
+ * Architecture: Type-safe pass-through wrapper
+ * - Accepts provider-specific typed parameters
+ * - Forwards all parameters directly to the provider SDK
+ * - SDK validates and calls the LLM API
+ * - Responses are streamed incrementally for better performance
+ *
+ * All parameters are forwarded directly to the provider SDKs without modification.
+ * Parameter validation occurs at the SDK level.
+ */
+service LLMService {
+  /**
+   * Generate content with streaming support
+   *
+   * Makes a single API call to the chosen LLM provider and streams response chunks.
+   * All parameters in the request are forwarded directly to the provider SDK.
+   *
+   * Request:
+   * - provider: "gemini" or "claude"
+   * - project_id: GCP Project ID
+   * - region: GCP Region (default: us-central1)
+   * - params: Provider-specific parameters (all forwarded as-is to SDK)
+   *
+   * Response: Server streams response chunks incrementally
+   * - Each chunk contains either text content or tool calls
+   * - Final chunk includes finish_reason and token counts
+   */
+  rpc Generate(GenerateRequest) returns (stream GenerateResponse);
+}
+
+/**
+ * Request for content generation
+ */
+message GenerateRequest {
+  // Generation parameters
+  GenerateParams params = 1;
+
+  // Project ID for the request
+  string project_id = 2;
+
+  // LLM provider (e.g., "claude", "gemini")
+  string provider = 3;
+
+  // Region for the request (e.g., "us-east1", "us-east5")
+  string region = 4;
+
+  // Current user teamID for the request
+  string teamId = 5;
+
+  // Current user spaceID for the request
+  string spaceId = 6;
+
+  // Current user executionMetadata for the request
+  string executionMetadata = 7;
+}
+
+message GenerateParams {
+  // Required: Content messages as JSON string
+  // Parse on server: const contents = JSON.parse(params.contents)
+  // Gemini: JSON array of Content[] from @google-cloud/vertexai
+  // Claude: JSON array of MessageParam[] from @anthropic-ai/sdk
+  string contents = 1;
+
+  // Required: Generation configuration as JSON string
+  // Parse on server: const config = JSON.parse(params.config)
+  // Gemini: JSON object with generationConfig, systemInstruction, tools, etc.
+  // Claude: JSON object with system, temperature, max_tokens, tools, etc.
+  string config = 2;
+
+  // Required: Model identifier
+  // Examples: 'gemini-2.5-flash', 'claude-3-5-sonnet-20241022'
+  string model = 3;
+}
+
+/**
+ * Response chunk from the LLM
+ *
+ * Streamed incrementally for better performance.
+ * Each chunk contains either text content or a tool call.
+ */
+message GenerateResponse {
+  // Complete response as JSON string (for full response in single chunk)
+  string data = 1;
+}

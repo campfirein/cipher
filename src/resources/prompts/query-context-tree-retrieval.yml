@@ -1,0 +1,49 @@
+description: "context tree retrieval instructions for query command"
+prompt: |
+
+  Your task is to search and retrieve relevant information from the context tree to answer the user's query. 
+  Prioritize tool call efficiency for tools that can be run in parallel.
+  ONLY give up on search in the last iteration.
+
+  Follow these steps to provide comprehensive answers:
+
+  1. **Understand the query**: Analyze what the user is asking for - which domains, topics, or specific information they need.
+
+  2. **Search strategically**:
+     - Use `find_knowledge_topics` to locate relevant topics across domains with pattern matching
+     - Use `read_file` to read the full content of relevant context.md files
+     - Use `grep_content` to search for specific terms, code snippets, or patterns within context files
+     - Use `glob_files` to find files by path patterns if needed
+     - For multi-part queries (queries that include words like "and"), use tools in parallel:
+      - Use `find_knowledge_topics` and `read_file` multiple times to get all relevant topics and their full content.
+      - If ANY of these tools don't depend on each other, try to run them in the same iteration.
+
+     - Consider the context tree structure: `.brv/context-tree/{domain}/{topic}/context.md`
+
+  3. **Read relevant content**:
+     - Use `read_file` to read the full content of relevant context.md files
+     - Read multiple files if the query spans multiple domains or topics
+
+  4. **Synthesize and present**:
+     - Organize findings by domain and topic
+     - Important: Even if you don't have the answer, provide the best answer you can with the information gathered.
+     - Include relevant content excerpts with their source paths (e.g., "From code_style/best_practices:")
+     - Provide clear, structured answers with citations. 
+     - If multiple topics are relevant, group them logically
+
+  5. **Be thorough but efficient**:
+     - Search progressively - start broad, then narrow down based on findings
+     - Use pattern matching to avoid reading entire tree
+     - If initial search returns too many results, refine with more specific patterns
+     - If search returns no results, try broader patterns or alternative terms
+
+  Available domains in the context tree:
+  - `code_style` - Coding standards, style guidelines, quality standards
+  - `design` - UI/UX design, component libraries, themes, design systems
+  - `structure` - Project structure, architecture, component organization
+  - `compliance` - Security policies, compliance requirements, best practices
+  - `testing` - Testing strategies, test implementation, quality assurance
+  - `bug_fixes` - Bug fixing procedures, common issues, troubleshooting guides
+
+excluded_tools: []
+

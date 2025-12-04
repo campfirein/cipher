@@ -6,6 +6,8 @@ import type {IProjectConfigStore} from '../../core/interfaces/i-project-config-s
 
 import {BRV_DIR, PROJECT_CONFIG_FILE} from '../../constants.js'
 import {BrvConfig} from '../../core/domain/entities/brv-config.js'
+import {BrvConfigVersionError} from '../../core/domain/errors/brv-config-version-error.js'
+import {getErrorMessage} from '../../utils/error-helpers.js'
 
 /**
  * File-based implementation of IProjectConfigStore.
@@ -26,10 +28,14 @@ export class ProjectConfigStore implements IProjectConfigStore {
 
     try {
       const content = await readFile(configPath, 'utf8')
-      const json: Record<string, string> = JSON.parse(content)
+      const json: unknown = JSON.parse(content)
       return BrvConfig.fromJson(json)
     } catch (error) {
-      throw new Error(`Failed to read config from ${configPath}: ${(error as Error).message}`)
+      if (error instanceof BrvConfigVersionError) {
+        throw error
+      }
+
+      throw new Error(`Failed to read config from ${configPath}: ${getErrorMessage(error)}`)
     }
   }
 
@@ -38,14 +44,15 @@ export class ProjectConfigStore implements IProjectConfigStore {
     const configPath = this.getConfigPath(directory)
 
     try {
-      // Create .brv directory if it doesn't exist
+      // Create .brv directory and blobs subdirectory if they don't exist
       await mkdir(brDirPath, {recursive: true})
+      await mkdir(join(brDirPath, 'blobs'), {recursive: true})
 
       // Write config.json
       const content = JSON.stringify(config.toJson(), undefined, 2)
       await writeFile(configPath, content, 'utf8')
     } catch (error) {
-      throw new Error(`Failed to write config to ${configPath}: ${(error as Error).message}`)
+      throw new Error(`Failed to write config to ${configPath}: ${getErrorMessage(error)}`)
     }
   }
 

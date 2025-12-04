@@ -6,30 +6,52 @@ import sinon, {restore, stub} from 'sinon'
 
 import type {Space} from '../../src/core/domain/entities/space.js'
 import type {Team} from '../../src/core/domain/entities/team.js'
-import type {IPlaybookService} from '../../src/core/interfaces/i-playbook-service.js'
+import type {ICogitPullService} from '../../src/core/interfaces/i-cogit-pull-service.js'
+import type {IContextTreeService} from '../../src/core/interfaces/i-context-tree-service.js'
+import type {IContextTreeWriterService} from '../../src/core/interfaces/i-context-tree-writer-service.js'
 import type {IProjectConfigStore} from '../../src/core/interfaces/i-project-config-store.js'
+
+// Legacy IPlaybookService interface (ACE deprecated, kept for test compatibility)
+interface IPlaybookService {
+  addOrUpdateBullet: () => Promise<void>
+  applyDelta: () => Promise<void>
+  applyReflectionTags: () => Promise<void>
+  initialize: (directory?: string) => Promise<string>
+}
+import type {IRuleWriterService} from '../../src/core/interfaces/i-rule-writer-service.js'
 import type {ISpaceService} from '../../src/core/interfaces/i-space-service.js'
 import type {ITeamService} from '../../src/core/interfaces/i-team-service.js'
 import type {ITokenStore} from '../../src/core/interfaces/i-token-store.js'
 import type {ITrackingService} from '../../src/core/interfaces/i-tracking-service.js'
 
-import Init from '../../src/commands/init.js'
+import Init, {type LegacyProjectConfigInfo} from '../../src/commands/init.js'
+import {Agent} from '../../src/core/domain/entities/agent.js'
 import {AuthToken} from '../../src/core/domain/entities/auth-token.js'
 import {BrvConfig} from '../../src/core/domain/entities/brv-config.js'
 import {Space as SpaceImpl} from '../../src/core/domain/entities/space.js'
 import {Team as TeamImpl} from '../../src/core/domain/entities/team.js'
+import {IContextTreeSnapshotService} from '../../src/core/interfaces/i-context-tree-snapshot-service.js'
 
 /**
  * Testable Init command that accepts mocked services
  */
 class TestableInit extends Init {
+  public mockAceDirectoryExists = false
+  public mockAceRemovalConfirmResult = true
   public mockCleanupError: Error | undefined = undefined
   public mockConfirmResult = false
+  public mockLegacyConfig: LegacyProjectConfigInfo | undefined = undefined
+  public removeAceDirectoryCalled = false
 
   // eslint-disable-next-line max-params
   constructor(
+    private readonly mockCogitPullService: ICogitPullService,
     private readonly mockConfigStore: IProjectConfigStore,
+    private readonly mockContextTreeService: IContextTreeService,
+    private readonly mockContextTreeSnapshotService: IContextTreeSnapshotService,
+    private readonly mockContextTreeWriterService: IContextTreeWriterService,
     private readonly mockPlaybookService: IPlaybookService,
+    private readonly mockRuleWriterService: IRuleWriterService,
     private readonly mockSpaceService: ISpaceService,
     private readonly mockTeamService: ITeamService,
     private readonly mockTokenStore: ITokenStore,
@@ -41,6 +63,10 @@ class TestableInit extends Init {
     super([], config)
   }
 
+  protected async aceDirectoryExists(): Promise<boolean> {
+    return this.mockAceDirectoryExists
+  }
+
   protected async cleanupBeforeReInitialization(): Promise<void> {
     if (this.mockCleanupError) {
       throw this.mockCleanupError
@@ -49,14 +75,18 @@ class TestableInit extends Init {
     // Otherwise, do nothing in tests (don't actually delete files)
   }
 
-  protected async confirmReInitialization(_config: import('../../src/core/domain/entities/brv-config.js').BrvConfig): Promise<boolean> {
+  protected async confirmReInitialization(_config: BrvConfig | LegacyProjectConfigInfo): Promise<boolean> {
     return this.mockConfirmResult
   }
 
   protected createServices() {
     return {
-      playbookService: this.mockPlaybookService,
+      cogitPullService: this.mockCogitPullService,
+      contextTreeService: this.mockContextTreeService,
+      contextTreeSnapshotService: this.mockContextTreeSnapshotService,
+      contextTreeWriterService: this.mockContextTreeWriterService,
       projectConfigStore: this.mockConfigStore,
+      ruleWriterService: this.mockRuleWriterService,
       spaceService: this.mockSpaceService,
       teamService: this.mockTeamService,
       tokenStore: this.mockTokenStore,
@@ -71,8 +101,38 @@ class TestableInit extends Init {
     throw new Error(errorMessage)
   }
 
+  protected async getExistingConfig(): Promise<BrvConfig | LegacyProjectConfigInfo | undefined> {
+    // If legacy config is mocked, return it directly
+    if (this.mockLegacyConfig) {
+      return this.mockLegacyConfig
+    }
+
+    // Otherwise, use the mock config store
+    const exists = await this.mockConfigStore.exists()
+    if (!exists) return undefined
+
+    const config = await this.mockConfigStore.read()
+    if (config === undefined) {
+      throw new Error('Configuration file exists but cannot be read. Please check .brv/config.json')
+    }
+
+    return config
+  }
+
   public log(): void {
     // Do nothing - suppress output
+  }
+
+  protected async promptAceDeprecationRemoval(): Promise<boolean> {
+    return this.mockAceRemovalConfirmResult
+  }
+
+  protected async promptForAgentSelection(): Promise<Agent> {
+    return 'Claude Code' // Default mock agent
+  }
+
+  protected async promptForOverwriteConfirmation(_agent: Agent): Promise<boolean> {
+    return true // Default to true for tests
   }
 
   protected async promptForSpaceSelection(_spaces: Space[]): Promise<Space> {
@@ -83,17 +143,126 @@ class TestableInit extends Init {
     return this.mockSelectedTeam
   }
 
+  protected async removeAceDirectory(): Promise<void> {
+    this.removeAceDirectoryCalled = true
+  }
+
+  // Mock syncFromRemoteOrInitialize to avoid testing remote sync in unit tests
+  protected async syncFromRemoteOrInitialize(): Promise<void> {
+    // Simulate new space behavior: create templates with empty snapshot
+    // Use initializeMemoryContextDir to handle errors gracefully (like real implementation)
+    await this.initializeMemoryContextDir('context tree', () => this.mockContextTreeService.initialize())
+    await this.mockContextTreeSnapshotService.initEmptySnapshot()
+  }
+
   public warn(input: Error | string): Error | string {
     // Do nothing - suppress output, but return input to match base signature
     return input
   }
 }
 
+/**
+ * TestableInit variant that tests the actual syncFromRemoteOrInitialize implementation
+ * Extends Init directly to avoid TestableInit's override
+ */
+class SyncTestableInit extends Init {
+  public mockContextTreeInitializeCalled = false
+
+  // eslint-disable-next-line max-params
+  constructor(
+    private readonly mockCogitPullService: ICogitPullService,
+    private readonly mockConfigStore: IProjectConfigStore,
+    private readonly mockContextTreeService: IContextTreeService,
+    private readonly mockContextTreeSnapshotService: IContextTreeSnapshotService,
+    private readonly mockContextTreeWriterService: IContextTreeWriterService,
+    private readonly mockRuleWriterService: IRuleWriterService,
+    private readonly mockSpaceService: ISpaceService,
+    private readonly mockTeamService: ITeamService,
+    private readonly mockTokenStore: ITokenStore,
+    private readonly mockTrackingService: ITrackingService,
+    private readonly mockSelectedTeam: Team,
+    private readonly mockSelectedSpace: Space,
+    config: Config,
+  ) {
+    super([], config)
+  }
+
+  protected createServices() {
+    return {
+      cogitPullService: this.mockCogitPullService,
+      contextTreeService: this.mockContextTreeService,
+      contextTreeSnapshotService: this.mockContextTreeSnapshotService,
+      contextTreeWriterService: this.mockContextTreeWriterService,
+      projectConfigStore: this.mockConfigStore,
+      ruleWriterService: this.mockRuleWriterService,
+      spaceService: this.mockSpaceService,
+      teamService: this.mockTeamService,
+      tokenStore: this.mockTokenStore,
+      trackingService: this.mockTrackingService,
+    }
+  }
+
+  public error(input: Error | string): never {
+    const errorMessage = typeof input === 'string' ? input : input.message
+    throw new Error(errorMessage)
+  }
+
+  protected async getExistingConfig(): Promise<BrvConfig | LegacyProjectConfigInfo | undefined> {
+    return undefined // No existing config for sync tests
+  }
+
+  // Track when initializeMemoryContextDir is called
+  protected async initializeMemoryContextDir(_label: string, initFn: () => Promise<string>): Promise<void> {
+    this.mockContextTreeInitializeCalled = true
+    await initFn()
+  }
+
+  public log(): void {
+    // Suppress output
+  }
+
+  protected async promptForAgentSelection(): Promise<Agent> {
+    return 'Claude Code'
+  }
+
+  protected async promptForOverwriteConfirmation(_agent: Agent): Promise<boolean> {
+    return true
+  }
+
+  protected async promptForSpaceSelection(_spaces: Space[]): Promise<Space> {
+    return this.mockSelectedSpace
+  }
+
+  protected async promptForTeamSelection(_teams: Team[]): Promise<Team> {
+    return this.mockSelectedTeam
+  }
+
+  // Expose syncFromRemoteOrInitialize for direct testing
+  public async testSyncFromRemoteOrInitialize(token: AuthToken): Promise<void> {
+    return this.syncFromRemoteOrInitialize({
+      cogitPullService: this.mockCogitPullService,
+      contextTreeService: this.mockContextTreeService,
+      contextTreeSnapshotService: this.mockContextTreeSnapshotService,
+      contextTreeWriterService: this.mockContextTreeWriterService,
+      projectConfig: {spaceId: this.mockSelectedSpace.id, teamId: this.mockSelectedTeam.id},
+      token,
+    })
+  }
+
+  public warn(input: Error | string): Error | string {
+    return input
+  }
+}
+
 describe('Init Command', () => {
+  let cogitPullService: sinon.SinonStubbedInstance<ICogitPullService>
   let config: Config
   let configStore: sinon.SinonStubbedInstance<IProjectConfigStore>
+  let contextTreeService: sinon.SinonStubbedInstance<IContextTreeService>
+  let contextTreeSnapshotService: sinon.SinonStubbedInstance<IContextTreeSnapshotService>
+  let contextTreeWriterService: sinon.SinonStubbedInstance<IContextTreeWriterService>
   let playbookService: sinon.SinonStubbedInstance<IPlaybookService>
-  let runCommandStub: sinon.SinonStub
+  let ruleWriterService: sinon.SinonStubbedInstance<IRuleWriterService>
   let spaceService: sinon.SinonStubbedInstance<ISpaceService>
   let teamService: sinon.SinonStubbedInstance<ITeamService>
   let testSpaces: Space[]
@@ -132,6 +301,36 @@ describe('Init Command', () => {
       write: stub(),
     }
 
+    contextTreeService = {
+      exists: stub(),
+      initialize: stub<[directory?: string], Promise<string>>().resolves('/test/.brv/context-tree'),
+    }
+
+    contextTreeSnapshotService = {
+      getChanges: stub(),
+      getCurrentState: stub(),
+      hasSnapshot: stub(),
+      initEmptySnapshot: stub(),
+      saveSnapshot: stub(),
+    }
+
+    contextTreeWriterService = {
+      sync: stub<
+        Parameters<IContextTreeWriterService['sync']>,
+        ReturnType<IContextTreeWriterService['sync']>
+      >().resolves({added: [], deleted: [], edited: []}),
+    }
+
+    cogitPullService = {
+      pull: stub<Parameters<ICogitPullService['pull']>, ReturnType<ICogitPullService['pull']>>().resolves({
+        author: {email: 'test@example.com', name: 'Test', when: new Date()},
+        branch: 'main',
+        commitSha: 'abc123',
+        files: [],
+        message: 'Test commit',
+      }),
+    }
+
     playbookService = {
       addOrUpdateBullet: stub(),
       applyDelta: stub(),
@@ -139,12 +338,16 @@ describe('Init Command', () => {
       initialize: stub<[directory?: string], Promise<string>>().resolves('/test/.brv/ace/playbook.json'),
     }
 
+    ruleWriterService = {
+      writeRule: stub<
+        Parameters<IRuleWriterService['writeRule']>,
+        ReturnType<IRuleWriterService['writeRule']>
+      >().resolves(),
+    }
+
     trackingService = {
       track: stub<Parameters<ITrackingService['track']>, ReturnType<ITrackingService['track']>>().resolves(),
     }
-
-    // Mock config.runCommand to prevent actual gen-rules execution
-    runCommandStub = stub(config, 'runCommand').resolves()
 
     validToken = new AuthToken({
       accessToken: 'access-token',
@@ -184,12 +387,20 @@ describe('Init Command', () => {
 
   describe('execute()', () => {
     it('should exit early if project is already initialized', async () => {
+      tokenStore.load.resolves(validToken)
       configStore.exists.resolves(true)
-      configStore.read.resolves(BrvConfig.fromSpace(testSpaces[0]))
+      configStore.read.resolves(
+        BrvConfig.fromSpace({chatLogPath: 'chat.log', cwd: '/test/cwd', ide: 'Claude Code', space: testSpaces[0]}),
+      )
 
       const command = new TestableInit(
+        cogitPullService,
         configStore,
+        contextTreeService,
+        contextTreeSnapshotService,
+        contextTreeWriterService,
         playbookService,
+        ruleWriterService,
         spaceService,
         teamService,
         tokenStore,
@@ -201,9 +412,10 @@ describe('Init Command', () => {
 
       await command.run()
 
+      expect(tokenStore.load.calledOnce).to.be.true // Auth happens first
       expect(configStore.exists.calledOnce).to.be.true
       expect(configStore.read.calledOnce).to.be.true
-      expect(tokenStore.load.called).to.be.false // Should not proceed
+      expect(teamService.getTeams.called).to.be.false // Should not proceed to fetch teams
     })
 
     it('should throw error when not authenticated', async () => {
@@ -211,8 +423,13 @@ describe('Init Command', () => {
       tokenStore.load.resolves()
 
       const command = new TestableInit(
+        cogitPullService,
         configStore,
+        contextTreeService,
+        contextTreeSnapshotService,
+        contextTreeWriterService,
         playbookService,
+        ruleWriterService,
         spaceService,
         teamService,
         tokenStore,
@@ -246,8 +463,13 @@ describe('Init Command', () => {
       tokenStore.load.resolves(expiredToken)
 
       const command = new TestableInit(
+        cogitPullService,
         configStore,
+        contextTreeService,
+        contextTreeSnapshotService,
+        contextTreeWriterService,
         playbookService,
+        ruleWriterService,
         spaceService,
         teamService,
         tokenStore,
@@ -272,8 +494,13 @@ describe('Init Command', () => {
       teamService.getTeams.resolves({teams: [], total: 0})
 
       const command = new TestableInit(
+        cogitPullService,
         configStore,
+        contextTreeService,
+        contextTreeSnapshotService,
+        contextTreeWriterService,
         playbookService,
+        ruleWriterService,
         spaceService,
         teamService,
         tokenStore,
@@ -297,8 +524,13 @@ describe('Init Command', () => {
       spaceService.getSpaces.resolves({spaces: [], total: 0})
 
       const command = new TestableInit(
+        cogitPullService,
         configStore,
+        contextTreeService,
+        contextTreeSnapshotService,
+        contextTreeWriterService,
         playbookService,
+        ruleWriterService,
         spaceService,
         teamService,
         tokenStore,
@@ -323,8 +555,13 @@ describe('Init Command', () => {
       configStore.write.resolves()
 
       const command = new TestableInit(
+        cogitPullService,
         configStore,
+        contextTreeService,
+        contextTreeSnapshotService,
+        contextTreeWriterService,
         playbookService,
+        ruleWriterService,
         spaceService,
         teamService,
         tokenStore,
@@ -345,6 +582,9 @@ describe('Init Command', () => {
       expect(writtenConfig.spaceName).to.equal('frontend-app')
       expect(writtenConfig.teamId).to.equal('team-1')
       expect(writtenConfig.teamName).to.equal('acme-corp')
+
+      // Verify initEmptySnapshot is called for new space (so first push treats templates as "added")
+      expect(contextTreeSnapshotService.initEmptySnapshot.calledOnce).to.be.true
     })
 
     it('should successfully initialize with second space', async () => {
@@ -355,8 +595,13 @@ describe('Init Command', () => {
       configStore.write.resolves()
 
       const command = new TestableInit(
+        cogitPullService,
         configStore,
+        contextTreeService,
+        contextTreeSnapshotService,
+        contextTreeWriterService,
         playbookService,
+        ruleWriterService,
         spaceService,
         teamService,
         tokenStore,
@@ -379,8 +624,13 @@ describe('Init Command', () => {
       teamService.getTeams.rejects(new Error('Network timeout'))
 
       const command = new TestableInit(
+        cogitPullService,
         configStore,
+        contextTreeService,
+        contextTreeSnapshotService,
+        contextTreeWriterService,
         playbookService,
+        ruleWriterService,
         spaceService,
         teamService,
         tokenStore,
@@ -406,8 +656,13 @@ describe('Init Command', () => {
       spaceService.getSpaces.rejects(new Error('Network timeout'))
 
       const command = new TestableInit(
+        cogitPullService,
         configStore,
+        contextTreeService,
+        contextTreeSnapshotService,
+        contextTreeWriterService,
         playbookService,
+        ruleWriterService,
         spaceService,
         teamService,
         tokenStore,
@@ -434,8 +689,13 @@ describe('Init Command', () => {
       configStore.write.rejects(new Error('Permission denied'))
 
       const command = new TestableInit(
+        cogitPullService,
         configStore,
+        contextTreeService,
+        contextTreeSnapshotService,
+        contextTreeWriterService,
         playbookService,
+        ruleWriterService,
         spaceService,
         teamService,
         tokenStore,
@@ -462,8 +722,13 @@ describe('Init Command', () => {
       configStore.write.resolves()
 
       const command = new TestableInit(
+        cogitPullService,
         configStore,
+        contextTreeService,
+        contextTreeSnapshotService,
+        contextTreeWriterService,
         playbookService,
+        ruleWriterService,
         spaceService,
         teamService,
         tokenStore,
@@ -475,11 +740,11 @@ describe('Init Command', () => {
 
       await command.run()
 
-      expect(runCommandStub.calledOnce).to.be.true
-      expect(runCommandStub.calledWith('gen-rules')).to.be.true
+      expect(ruleWriterService.writeRule.calledOnce).to.be.true
+      expect(ruleWriterService.writeRule.calledWith('Claude Code', false)).to.be.true
     })
 
-    it('should call gen-rules after config write but before success message', async () => {
+    it('should call ruleWriterService after config write', async () => {
       configStore.exists.resolves(false)
       tokenStore.load.resolves(validToken)
       teamService.getTeams.resolves({teams: testTeams, total: testTeams.length})
@@ -487,8 +752,13 @@ describe('Init Command', () => {
       configStore.write.resolves()
 
       const command = new TestableInit(
+        cogitPullService,
         configStore,
+        contextTreeService,
+        contextTreeSnapshotService,
+        contextTreeWriterService,
         playbookService,
+        ruleWriterService,
         spaceService,
         teamService,
         tokenStore,
@@ -500,11 +770,11 @@ describe('Init Command', () => {
 
       await command.run()
 
-      // Verify order: config write happens before gen-rules
-      expect(configStore.write.calledBefore(runCommandStub)).to.be.true
+      // Verify order: config write happens before ruleWriterService
+      expect(configStore.write.calledBefore(ruleWriterService.writeRule)).to.be.true
     })
 
-    it('should call gen-rules after ACE playbook initialization', async () => {
+    it('should call ruleWriterService after context tree initialization (ACE deprecated)', async () => {
       configStore.exists.resolves(false)
       tokenStore.load.resolves(validToken)
       teamService.getTeams.resolves({teams: testTeams, total: testTeams.length})
@@ -512,8 +782,13 @@ describe('Init Command', () => {
       configStore.write.resolves()
 
       const command = new TestableInit(
+        cogitPullService,
         configStore,
+        contextTreeService,
+        contextTreeSnapshotService,
+        contextTreeWriterService,
         playbookService,
+        ruleWriterService,
         spaceService,
         teamService,
         tokenStore,
@@ -525,21 +800,30 @@ describe('Init Command', () => {
 
       await command.run()
 
-      // Verify order: playbook initialization happens before gen-rules
-      expect(playbookService.initialize.calledBefore(runCommandStub)).to.be.true
+      // Verify: ACE playbook is NOT initialized (deprecated)
+      expect(playbookService.initialize.called).to.be.false
+      // Verify order: context tree initialization happens before ruleWriterService
+      expect(contextTreeService.initialize.calledBefore(ruleWriterService.writeRule)).to.be.true
+      // Verify: saveSnapshot is called after context tree initialization
+      expect(contextTreeService.initialize.calledBefore(contextTreeSnapshotService.saveSnapshot)).to.be.true
     })
 
-    it('should continue with gen-rules even if ACE initialization fails', async () => {
+    it('should continue with rule generation even if context tree initialization fails', async () => {
       configStore.exists.resolves(false)
       tokenStore.load.resolves(validToken)
       teamService.getTeams.resolves({teams: testTeams, total: testTeams.length})
       spaceService.getSpaces.resolves({spaces: testSpaces, total: testSpaces.length})
       configStore.write.resolves()
-      playbookService.initialize.rejects(new Error('Playbook already exists'))
+      contextTreeService.initialize.rejects(new Error('Context tree already exists'))
 
       const command = new TestableInit(
+        cogitPullService,
         configStore,
+        contextTreeService,
+        contextTreeSnapshotService,
+        contextTreeWriterService,
         playbookService,
+        ruleWriterService,
         spaceService,
         teamService,
         tokenStore,
@@ -551,22 +835,27 @@ describe('Init Command', () => {
 
       await command.run()
 
-      // Should still call gen-rules even though ACE init failed
-      expect(runCommandStub.calledOnce).to.be.true
-      expect(runCommandStub.calledWith('gen-rules')).to.be.true
+      // Should still call ruleWriterService even though context tree init failed
+      expect(ruleWriterService.writeRule.calledOnce).to.be.true
+      expect(ruleWriterService.writeRule.calledWith('Claude Code', false)).to.be.true
     })
 
-    it('should propagate errors from gen-rules command', async () => {
+    it('should propagate errors from ruleWriterService', async () => {
       configStore.exists.resolves(false)
       tokenStore.load.resolves(validToken)
       teamService.getTeams.resolves({teams: testTeams, total: testTeams.length})
       spaceService.getSpaces.resolves({spaces: testSpaces, total: testSpaces.length})
       configStore.write.resolves()
-      runCommandStub.rejects(new Error('gen-rules failed'))
+      ruleWriterService.writeRule.rejects(new Error('Template not found'))
 
       const command = new TestableInit(
+        cogitPullService,
         configStore,
+        contextTreeService,
+        contextTreeSnapshotService,
+        contextTreeWriterService,
         playbookService,
+        ruleWriterService,
         spaceService,
         teamService,
         tokenStore,
@@ -581,7 +870,7 @@ describe('Init Command', () => {
         expect.fail('Should have thrown error')
       } catch (error) {
         expect(error).to.be.an('error')
-        expect((error as Error).message).to.include('gen-rules failed')
+        expect((error as Error).message).to.include('Template not found')
       }
     })
   })
@@ -589,15 +878,22 @@ describe('Init Command', () => {
   describe('re-initialization', () => {
     it('should re-initialize when user confirms', async () => {
       configStore.exists.resolves(true)
-      configStore.read.resolves(BrvConfig.fromSpace(testSpaces[0]))
+      configStore.read.resolves(
+        BrvConfig.fromSpace({chatLogPath: 'chat.log', cwd: '/test/cwd', ide: 'Claude Code', space: testSpaces[0]}),
+      )
       configStore.write.resolves()
       tokenStore.load.resolves(validToken)
       teamService.getTeams.resolves({teams: testTeams, total: testTeams.length})
       spaceService.getSpaces.resolves({spaces: testSpaces, total: testSpaces.length})
 
       const command = new TestableInit(
+        cogitPullService,
         configStore,
+        contextTreeService,
+        contextTreeSnapshotService,
+        contextTreeWriterService,
         playbookService,
+        ruleWriterService,
         spaceService,
         teamService,
         tokenStore,
@@ -620,13 +916,20 @@ describe('Init Command', () => {
     })
 
     it('should not proceed when user cancels re-initialization', async () => {
-      configStore.exists.resolves(true)
-      configStore.read.resolves(BrvConfig.fromSpace(testSpaces[0]))
       tokenStore.load.resolves(validToken)
+      configStore.exists.resolves(true)
+      configStore.read.resolves(
+        BrvConfig.fromSpace({chatLogPath: 'chat.log', cwd: '/test/cwd', ide: 'Claude Code', space: testSpaces[0]}),
+      )
 
       const command = new TestableInit(
+        cogitPullService,
         configStore,
+        contextTreeService,
+        contextTreeSnapshotService,
+        contextTreeWriterService,
         playbookService,
+        ruleWriterService,
         spaceService,
         teamService,
         tokenStore,
@@ -640,24 +943,31 @@ describe('Init Command', () => {
 
       await command.run()
 
+      expect(tokenStore.load.calledOnce).to.be.true // Auth happens first
       expect(configStore.exists.calledOnce).to.be.true
       expect(configStore.read.calledOnce).to.be.true
-      expect(tokenStore.load.called).to.be.false // Should not proceed
-      expect(teamService.getTeams.called).to.be.false
+      expect(teamService.getTeams.called).to.be.false // Should not proceed
       expect(spaceService.getSpaces.called).to.be.false
     })
 
     it('should skip confirmation with --force flag', async () => {
       configStore.exists.resolves(true)
-      configStore.read.resolves(BrvConfig.fromSpace(testSpaces[0]))
+      configStore.read.resolves(
+        BrvConfig.fromSpace({chatLogPath: 'chat.log', cwd: '/test/cwd', ide: 'Claude Code', space: testSpaces[0]}),
+      )
       configStore.write.resolves()
       tokenStore.load.resolves(validToken)
       teamService.getTeams.resolves({teams: testTeams, total: testTeams.length})
       spaceService.getSpaces.resolves({spaces: testSpaces, total: testSpaces.length})
 
       const command = new TestableInit(
+        cogitPullService,
         configStore,
+        contextTreeService,
+        contextTreeSnapshotService,
+        contextTreeWriterService,
         playbookService,
+        ruleWriterService,
         spaceService,
         teamService,
         tokenStore,
@@ -680,12 +990,20 @@ describe('Init Command', () => {
     })
 
     it('should handle cleanup failure during re-initialization', async () => {
+      tokenStore.load.resolves(validToken)
       configStore.exists.resolves(true)
-      configStore.read.resolves(BrvConfig.fromSpace(testSpaces[0]))
+      configStore.read.resolves(
+        BrvConfig.fromSpace({chatLogPath: 'chat.log', cwd: '/test/cwd', ide: 'Claude Code', space: testSpaces[0]}),
+      )
 
       const command = new TestableInit(
+        cogitPullService,
         configStore,
+        contextTreeService,
+        contextTreeSnapshotService,
+        contextTreeWriterService,
         playbookService,
+        ruleWriterService,
         spaceService,
         teamService,
         tokenStore,
@@ -703,18 +1021,23 @@ describe('Init Command', () => {
         expect.fail('Should have thrown error')
       } catch (error) {
         expect(error).to.be.an('error')
-        expect((error as Error).message).to.include('Failed to clean up existing data')
         expect((error as Error).message).to.include('Permission denied')
       }
     })
 
     it('should handle corrupted config file', async () => {
+      tokenStore.load.resolves(validToken)
       configStore.exists.resolves(true)
       configStore.read.resolves() // Corrupted/unreadable - returns undefined
 
       const command = new TestableInit(
+        cogitPullService,
         configStore,
+        contextTreeService,
+        contextTreeSnapshotService,
+        contextTreeWriterService,
         playbookService,
+        ruleWriterService,
         spaceService,
         teamService,
         tokenStore,
@@ -732,9 +1055,460 @@ describe('Init Command', () => {
         expect((error as Error).message).to.include('Configuration file exists but cannot be read')
       }
 
+      expect(tokenStore.load.calledOnce).to.be.true // Auth happens first
       expect(configStore.exists.calledOnce).to.be.true
       expect(configStore.read.calledOnce).to.be.true
-      expect(tokenStore.load.called).to.be.false // Should not proceed
+    })
+
+    it('should handle legacy config without version field', async () => {
+      tokenStore.load.resolves(validToken)
+      configStore.write.resolves()
+      teamService.getTeams.resolves({teams: testTeams, total: testTeams.length})
+      spaceService.getSpaces.resolves({spaces: testSpaces, total: testSpaces.length})
+
+      const command = new TestableInit(
+        cogitPullService,
+        configStore,
+        contextTreeService,
+        contextTreeSnapshotService,
+        contextTreeWriterService,
+        playbookService,
+        ruleWriterService,
+        spaceService,
+        teamService,
+        tokenStore,
+        trackingService,
+        testTeams[0],
+        testSpaces[0],
+        config,
+      )
+      // Mock legacy config with missing version
+      command.mockLegacyConfig = {
+        currentVersion: undefined,
+        spaceName: 'frontend-app',
+        teamName: 'acme-corp',
+        type: 'legacy',
+      }
+      command.mockConfirmResult = true
+
+      await command.run()
+
+      // Should proceed with re-initialization
+      expect(tokenStore.load.calledOnce).to.be.true
+      expect(teamService.getTeams.calledOnce).to.be.true
+      expect(spaceService.getSpaces.calledOnce).to.be.true
+      expect(configStore.write.calledOnce).to.be.true
+    })
+
+    it('should handle config with version mismatch', async () => {
+      tokenStore.load.resolves(validToken)
+      configStore.write.resolves()
+      teamService.getTeams.resolves({teams: testTeams, total: testTeams.length})
+      spaceService.getSpaces.resolves({spaces: testSpaces, total: testSpaces.length})
+
+      const command = new TestableInit(
+        cogitPullService,
+        configStore,
+        contextTreeService,
+        contextTreeSnapshotService,
+        contextTreeWriterService,
+        playbookService,
+        ruleWriterService,
+        spaceService,
+        teamService,
+        tokenStore,
+        trackingService,
+        testTeams[0],
+        testSpaces[0],
+        config,
+      )
+      // Mock legacy config with version mismatch
+      command.mockLegacyConfig = {
+        currentVersion: '0.0.0',
+        spaceName: 'frontend-app',
+        teamName: 'acme-corp',
+        type: 'legacy',
+      }
+      command.mockConfirmResult = true
+
+      await command.run()
+
+      // Should proceed with re-initialization
+      expect(tokenStore.load.calledOnce).to.be.true
+      expect(teamService.getTeams.calledOnce).to.be.true
+      expect(configStore.write.calledOnce).to.be.true
+    })
+  })
+
+  describe('ACE deprecation', () => {
+    it('should skip ACE deprecation prompt and not initialize ACE on fresh install', async () => {
+      configStore.exists.resolves(false)
+      tokenStore.load.resolves(validToken)
+      teamService.getTeams.resolves({teams: testTeams, total: testTeams.length})
+      spaceService.getSpaces.resolves({spaces: testSpaces, total: testSpaces.length})
+      configStore.write.resolves()
+
+      const command = new TestableInit(
+        cogitPullService,
+        configStore,
+        contextTreeService,
+        contextTreeSnapshotService,
+        contextTreeWriterService,
+        playbookService,
+        ruleWriterService,
+        spaceService,
+        teamService,
+        tokenStore,
+        trackingService,
+        testTeams[0],
+        testSpaces[0],
+        config,
+      )
+
+      command.mockAceDirectoryExists = false // No existing ACE folder
+
+      await command.run()
+
+      // Should not call removeAceDirectory since no ACE folder exists
+      expect(command.removeAceDirectoryCalled).to.be.false
+      // Should not initialize ACE playbook (deprecated)
+      expect(playbookService.initialize.called).to.be.false
+      // Should still initialize context tree
+      expect(contextTreeService.initialize.calledOnce).to.be.true
+      // Should complete initialization
+      expect(configStore.write.calledOnce).to.be.true
+    })
+
+    it('should remove ACE folder when user confirms removal', async () => {
+      configStore.exists.resolves(false)
+      tokenStore.load.resolves(validToken)
+      teamService.getTeams.resolves({teams: testTeams, total: testTeams.length})
+      spaceService.getSpaces.resolves({spaces: testSpaces, total: testSpaces.length})
+      configStore.write.resolves()
+
+      const command = new TestableInit(
+        cogitPullService,
+        configStore,
+        contextTreeService,
+        contextTreeSnapshotService,
+        contextTreeWriterService,
+        playbookService,
+        ruleWriterService,
+        spaceService,
+        teamService,
+        tokenStore,
+        trackingService,
+        testTeams[0],
+        testSpaces[0],
+        config,
+      )
+
+      command.mockAceDirectoryExists = true // Existing ACE folder
+      command.mockAceRemovalConfirmResult = true // User confirms removal
+
+      await command.run()
+
+      // Should call removeAceDirectory
+      expect(command.removeAceDirectoryCalled).to.be.true
+      // Should not initialize ACE playbook (deprecated)
+      expect(playbookService.initialize.called).to.be.false
+      // Should still initialize context tree
+      expect(contextTreeService.initialize.calledOnce).to.be.true
+      // Should complete initialization
+      expect(configStore.write.calledOnce).to.be.true
+    })
+
+    it('should leave ACE folder intact when user declines removal', async () => {
+      configStore.exists.resolves(false)
+      tokenStore.load.resolves(validToken)
+      teamService.getTeams.resolves({teams: testTeams, total: testTeams.length})
+      spaceService.getSpaces.resolves({spaces: testSpaces, total: testSpaces.length})
+      configStore.write.resolves()
+
+      const command = new TestableInit(
+        cogitPullService,
+        configStore,
+        contextTreeService,
+        contextTreeSnapshotService,
+        contextTreeWriterService,
+        playbookService,
+        ruleWriterService,
+        spaceService,
+        teamService,
+        tokenStore,
+        trackingService,
+        testTeams[0],
+        testSpaces[0],
+        config,
+      )
+
+      command.mockAceDirectoryExists = true // Existing ACE folder
+      command.mockAceRemovalConfirmResult = false // User declines removal
+
+      await command.run()
+
+      // Should NOT call removeAceDirectory
+      expect(command.removeAceDirectoryCalled).to.be.false
+      // Should not initialize ACE playbook (deprecated)
+      expect(playbookService.initialize.called).to.be.false
+      // Should still initialize context tree
+      expect(contextTreeService.initialize.calledOnce).to.be.true
+      // Should complete initialization
+      expect(configStore.write.calledOnce).to.be.true
+    })
+
+    it('should handle ACE deprecation during re-initialization with --force flag', async () => {
+      configStore.exists.resolves(true)
+      configStore.read.resolves(
+        BrvConfig.fromSpace({chatLogPath: 'chat.log', cwd: '/test/cwd', ide: 'Claude Code', space: testSpaces[0]}),
+      )
+      configStore.write.resolves()
+      tokenStore.load.resolves(validToken)
+      teamService.getTeams.resolves({teams: testTeams, total: testTeams.length})
+      spaceService.getSpaces.resolves({spaces: testSpaces, total: testSpaces.length})
+
+      const command = new TestableInit(
+        cogitPullService,
+        configStore,
+        contextTreeService,
+        contextTreeSnapshotService,
+        contextTreeWriterService,
+        playbookService,
+        ruleWriterService,
+        spaceService,
+        teamService,
+        tokenStore,
+        trackingService,
+        testTeams[0],
+        testSpaces[0],
+        config,
+      )
+
+      command.mockAceDirectoryExists = true // Existing ACE folder
+      command.mockAceRemovalConfirmResult = true // User confirms removal
+      ;(command as never as {argv: string[]}).argv = ['--force']
+
+      await command.run()
+
+      // Should call removeAceDirectory (ACE folder existed and user confirmed)
+      expect(command.removeAceDirectoryCalled).to.be.true
+      // Should not initialize ACE playbook (deprecated)
+      expect(playbookService.initialize.called).to.be.false
+      // Should complete initialization
+      expect(configStore.write.calledOnce).to.be.true
+    })
+  })
+
+  describe('syncFromRemoteOrInitialize', () => {
+    it('should call initEmptySnapshot when remote has only README.md placeholder', async () => {
+      // Set up pull to return only README.md placeholder
+      cogitPullService.pull.resolves({
+        author: {email: 'test@example.com', name: 'Test', when: new Date()},
+        branch: 'main',
+        commitSha: 'abc123',
+        files: [
+          {
+            content: Buffer.from('# README').toString('base64'),
+            decodeContent: () => '# README',
+            mode: '100644',
+            path: '/README.md',
+            sha: 'readme-sha',
+            size: 8,
+          },
+        ],
+        message: 'Initial commit',
+      })
+
+      const command = new SyncTestableInit(
+        cogitPullService,
+        configStore,
+        contextTreeService,
+        contextTreeSnapshotService,
+        contextTreeWriterService,
+        ruleWriterService,
+        spaceService,
+        teamService,
+        tokenStore,
+        trackingService,
+        testTeams[0],
+        testSpaces[0],
+        config,
+      )
+
+      await command.testSyncFromRemoteOrInitialize(validToken)
+
+      // Should detect README.md as placeholder and treat as empty space
+      expect(command.mockContextTreeInitializeCalled).to.be.true
+      expect(contextTreeSnapshotService.initEmptySnapshot.calledOnce).to.be.true
+      expect(contextTreeSnapshotService.saveSnapshot.called).to.be.false
+      expect(contextTreeWriterService.sync.called).to.be.false
+    })
+
+    it('should call initEmptySnapshot when remote is truly empty', async () => {
+      // Set up pull to return empty files array
+      cogitPullService.pull.resolves({
+        author: {email: 'test@example.com', name: 'Test', when: new Date()},
+        branch: 'main',
+        commitSha: 'abc123',
+        files: [],
+        message: 'Initial commit',
+      })
+
+      const command = new SyncTestableInit(
+        cogitPullService,
+        configStore,
+        contextTreeService,
+        contextTreeSnapshotService,
+        contextTreeWriterService,
+        ruleWriterService,
+        spaceService,
+        teamService,
+        tokenStore,
+        trackingService,
+        testTeams[0],
+        testSpaces[0],
+        config,
+      )
+
+      await command.testSyncFromRemoteOrInitialize(validToken)
+
+      // Should treat as empty space
+      expect(command.mockContextTreeInitializeCalled).to.be.true
+      expect(contextTreeSnapshotService.initEmptySnapshot.calledOnce).to.be.true
+      expect(contextTreeSnapshotService.saveSnapshot.called).to.be.false
+      expect(contextTreeWriterService.sync.called).to.be.false
+    })
+
+    it('should sync and saveSnapshot when remote has real content', async () => {
+      // Set up pull to return real content files
+      cogitPullService.pull.resolves({
+        author: {email: 'test@example.com', name: 'Test', when: new Date()},
+        branch: 'main',
+        commitSha: 'abc123',
+        files: [
+          {
+            content: Buffer.from('# Context').toString('base64'),
+            decodeContent: () => '# Context',
+            mode: '100644',
+            path: '/context.md',
+            sha: 'context-sha',
+            size: 9,
+          },
+          {
+            content: Buffer.from('# Domain').toString('base64'),
+            decodeContent: () => '# Domain',
+            mode: '100644',
+            path: '/domain.md',
+            sha: 'domain-sha',
+            size: 8,
+          },
+        ],
+        message: 'Add context files',
+      })
+
+      const command = new SyncTestableInit(
+        cogitPullService,
+        configStore,
+        contextTreeService,
+        contextTreeSnapshotService,
+        contextTreeWriterService,
+        ruleWriterService,
+        spaceService,
+        teamService,
+        tokenStore,
+        trackingService,
+        testTeams[0],
+        testSpaces[0],
+        config,
+      )
+
+      await command.testSyncFromRemoteOrInitialize(validToken)
+
+      // Should sync from remote and save snapshot
+      expect(command.mockContextTreeInitializeCalled).to.be.false
+      expect(contextTreeWriterService.sync.calledOnce).to.be.true
+      expect(contextTreeSnapshotService.saveSnapshot.calledOnce).to.be.true
+      expect(contextTreeSnapshotService.initEmptySnapshot.called).to.be.false
+    })
+
+    it('should sync when remote has README.md plus other files', async () => {
+      // Set up pull to return README.md + other content
+      cogitPullService.pull.resolves({
+        author: {email: 'test@example.com', name: 'Test', when: new Date()},
+        branch: 'main',
+        commitSha: 'abc123',
+        files: [
+          {
+            content: Buffer.from('# README').toString('base64'),
+            decodeContent: () => '# README',
+            mode: '100644',
+            path: '/README.md',
+            sha: 'readme-sha',
+            size: 8,
+          },
+          {
+            content: Buffer.from('# Context').toString('base64'),
+            decodeContent: () => '# Context',
+            mode: '100644',
+            path: '/context.md',
+            sha: 'context-sha',
+            size: 9,
+          },
+        ],
+        message: 'Add files',
+      })
+
+      const command = new SyncTestableInit(
+        cogitPullService,
+        configStore,
+        contextTreeService,
+        contextTreeSnapshotService,
+        contextTreeWriterService,
+        ruleWriterService,
+        spaceService,
+        teamService,
+        tokenStore,
+        trackingService,
+        testTeams[0],
+        testSpaces[0],
+        config,
+      )
+
+      await command.testSyncFromRemoteOrInitialize(validToken)
+
+      // README.md + other files = real content, should sync
+      expect(command.mockContextTreeInitializeCalled).to.be.false
+      expect(contextTreeWriterService.sync.calledOnce).to.be.true
+      expect(contextTreeSnapshotService.saveSnapshot.calledOnce).to.be.true
+      expect(contextTreeSnapshotService.initEmptySnapshot.called).to.be.false
+    })
+
+    it('should throw error when pull fails', async () => {
+      cogitPullService.pull.rejects(new Error('Network error'))
+
+      const command = new SyncTestableInit(
+        cogitPullService,
+        configStore,
+        contextTreeService,
+        contextTreeSnapshotService,
+        contextTreeWriterService,
+        ruleWriterService,
+        spaceService,
+        teamService,
+        tokenStore,
+        trackingService,
+        testTeams[0],
+        testSpaces[0],
+        config,
+      )
+
+      try {
+        await command.testSyncFromRemoteOrInitialize(validToken)
+        expect.fail('Should have thrown an error')
+      } catch (error) {
+        expect((error as Error).message).to.include('Failed to sync from ByteRover')
+        expect((error as Error).message).to.include('Network error')
+      }
     })
   })
 })

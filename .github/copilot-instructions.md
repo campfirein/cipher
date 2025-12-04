@@ -14,12 +14,24 @@ oclif v4 TypeScript CLI. Clean Architecture: Commands → Services (infra) → C
 | Command | Critical Behavior |
 |---------|-------------------|
 | `brv login` | `fromJson()` returns `undefined` for old tokens (forces re-login) |
-| `brv init` | `fetchAll: true` for teams/spaces. Creates `.brv/config.json` + ACE structure |
-| `brv space switch` | Updates config. **Does NOT** init ACE structure |
-| `brv retrieve` | **Clears playbook first**. Combines memories+relatedMemories. Uses `transformRetrieveResultToPlaybook()` |
-| `brv push` | GCS upload: PUT with `application/json`, **NO auth headers**. Must call confirm POST. Cleanup: playbook + ACE dirs |
-| `brv complete` | 3-phase: Executor→`executor-outputs/`→Reflector→`reflections/`+tags→Curator→`deltas/`+apply. Use `--update-bullet <id>` to UPDATE vs ADD |
-| `brv add` | Direct playbook edit. Bypasses ACE workflow |
+| `brv init` | `fetchAll: true` for teams/spaces. Creates `.brv/config.json` + context tree |
+| `brv curate` | Interactive or autonomous mode. Adds context to context tree. Uses CipherAgent in autonomous mode |
+| `brv query` | Autonomous agent that searches context tree. Returns retrieved information |
+| `brv clear` | Resets context tree to 6 default domains. Requires confirmation unless `--yes` |
+| `brv status` | Shows auth, config, context tree changes (git-style diff) |
+| `brv space switch` | Updates config. **Does NOT** init context tree |
+| `brv push` | Snapshots context tree and pushes to cloud storage |
+| `brv gen-rules` | Generates agent-specific rule files. Prompts for agent selection. Templates in `src/templates/` |
+| `brv watch` | [Dev only] Watches directories for file changes. Triggers parsing pipeline for IDE logs |
+| `brv cipher-agent run` | [Dev only] Interactive/headless agent with session management. Supports `-c`/`-r` flags |
+
+## CipherAgent
+
+- **Autonomous mode**: Set `mode: 'autonomous'` in execute options
+- **Event Bus**: All commands must setup listeners via `setupEventListeners()` for tool call progress
+- **Sessions**: Use `randomUUID()` for session IDs. Format: `{timestamp}-{random}`
+- **Exit Codes**: Use `exitWithCode()` from `exit-codes.ts`. Throws `ExitError` to suppress oclif error display
+- **Tool Display**: Use `formatToolCall()` and `formatToolResult()` from `tool-display-formatter.ts`
 
 ## Testing
 
@@ -34,12 +46,13 @@ class TestableCmd extends MyCmd {
   public warn(e) { return e } // no console
 }
 ```
-**HTTP**: Nock must verify `authorization` + `x-byterover-session-id`  
-**Services**: Stub `PlaybookStore` with `.resolves()`. Verify defensive array copies
+**HTTP**: Nock must verify `authorization` + `x-byterover-session-id`
+**Services**: Stub `ContextTreeService` with `.resolves()`. Verify file operations
 
 ## Quick Ref
 
 - **Env**: `BR_ENV=development|production`. URLs: `{dev|prod}-beta-*.byterover.dev/api/*`
 - **OIDC**: 1h cache, 3 retries, 5s timeout, hardcoded fallback
-- **Mapper**: `transformRetrieveResultToPlaybook()` in `infra/memory/memory-to-playbook-mapper.ts`
-- **Utils**: `clearDirectory()` - files only, preserves dirs, handles ENOENT
+- **Context Tree**: Stored in `.brv/context-tree/` with git-style snapshots
+- **Default Domains**: `code_style`, `design`, `structure`, `compliance`, `testing`, `bug_fixes`
+- **Dev-only**: Commands with `hidden: !isDevelopment()` only show in development

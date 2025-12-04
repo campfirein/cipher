@@ -1,0 +1,288 @@
+import type {Content, FunctionCall, GenerateContentResponse, Part} from '@google/genai'
+
+import type {IMessageFormatter} from '../../../../core/interfaces/cipher/i-message-formatter.js'
+import type {InternalMessage, MessagePart, ToolCall} from '../../../../core/interfaces/cipher/message-types.js'
+
+/**
+ * Message formatter for Google Gemini API.
+ *
+ * Converts the internal message format to Gemini's specific structure:
+ * - Maps 'assistant' role to 'model' (Gemini's terminology)
+ * - System prompts are injected as user messages (Gemini doesn't have system role)
+ * - Tool calls use functionCall parts
+ * - Tool results use functionResponse parts in user messages
+ */
+export class GeminiMessageFormatter implements IMessageFormatter<Content> {
+  /**
+   * Formats internal messages into Gemini's API format.
+   *
+   * @param history Array of internal messages to format
+   * @param systemPrompt Optional system prompt to include at the beginning
+   * @returns Array of Content objects formatted for Gemini's API
+   */
+  public format(
+    history: Readonly<InternalMessage[]>,
+    systemPrompt?: null | string,
+  ): Content[] {
+    const contents: Content[] = []
+
+    // Add system prompt as a user message if provided
+    // Gemini doesn't have a separate system role
+    if (systemPrompt) {
+      contents.push({
+        parts: [{text: `System: ${systemPrompt}`}],
+        role: 'user',
+      })
+    }
+
+    // Accumulator for consecutive tool results
+    let toolGroup: InternalMessage[] = []
+
+    for (const msg of history) {
+      if (msg.role === 'tool') {
+        // Accumulate tool results
+        toolGroup.push(msg)
+      } else {
+        // Flush accumulated tool results before processing non-tool message
+        if (toolGroup.length > 0) {
+          contents.push(this.combineToolResults(toolGroup))
+          toolGroup = []
+        }
+
+        // Format non-tool message
+        contents.push(this.formatNonToolMessage(msg))
+      }
+    }
+
+    // Flush any remaining tool results
+    if (toolGroup.length > 0) {
+      contents.push(this.combineToolResults(toolGroup))
+    }
+
+    return contents
+  }
+
+  /**
+   * Parses Gemini API response into internal message objects.
+   *
+   * @param response The raw response from Gemini API
+   * @returns Array of internal messages (typically one assistant message)
+   */
+  public parseResponse(response: unknown): InternalMessage[] {
+    const typedResponse = response as GenerateContentResponse
+    if (!typedResponse.candidates || typedResponse.candidates.length === 0) {
+      return []
+    }
+
+    const candidate = typedResponse.candidates[0]
+    if (!candidate?.content?.parts) {
+      return []
+    }
+
+    const textParts: string[] = []
+    const functionCalls: FunctionCall[] = []
+
+    // Extract text and function calls from response parts
+    for (const part of candidate.content.parts) {
+      if ('text' in part && part.text) {
+        textParts.push(part.text)
+      }
+
+      if ('functionCall' in part && part.functionCall) {
+        functionCalls.push(part.functionCall)
+      }
+    }
+
+    // Convert to internal message format
+    const toolCalls: ToolCall[] | undefined =
+      functionCalls.length > 0
+        ? functionCalls.map((fc) => ({
+            function: {
+              arguments: JSON.stringify(fc.args ?? {}),
+              name: fc.name ?? '',
+            },
+            id: this.generateToolCallId(fc.name ?? ''),
+            type: 'function',
+          }))
+        : undefined
+
+    return [
+      {
+        content: textParts.join('') || null,
+        role: 'assistant',
+        toolCalls,
+      },
+    ]
+  }
+
+  /**
+   * Combines multiple tool results into a single Gemini user message.
+   * Required by Gemini API when assistant made multiple tool calls.
+   */
+  private combineToolResults(toolMessages: InternalMessage[]): Content {
+    return {
+      parts: toolMessages.map((msg) => this.formatToolResultPart(msg)),
+      role: 'user',
+    }
+  }
+
+  /**
+   * Formats assistant message to Gemini's Content format.
+   * Maps 'assistant' role to 'model' and includes both text and tool calls.
+   */
+  private formatAssistantMessage(msg: InternalMessage): Content {
+    const parts: Part[] = []
+
+    // Add text content if present
+    if (msg.content) {
+      parts.push({text: String(msg.content)})
+    }
+
+    // Add tool calls if present
+    if (msg.toolCalls) {
+      for (const tc of msg.toolCalls) {
+        parts.push({
+          functionCall: {
+            args: JSON.parse(tc.function.arguments),
+            name: tc.function.name,
+          },
+        })
+      }
+    }
+
+    return {
+      parts,
+      role: 'model', // Gemini uses 'model' instead of 'assistant'
+    }
+  }
+
+  /**
+   * Formats a single non-tool message to Gemini Content.
+   */
+  private formatNonToolMessage(msg: InternalMessage): Content {
+    switch (msg.role) {
+      case 'assistant': {
+        return this.formatAssistantMessage(msg)
+      }
+
+      case 'system': {
+        return {
+          parts: [{text: `System: ${String(msg.content || '')}`}],
+          role: 'user',
+        }
+      }
+
+      case 'user': {
+        return this.formatUserMessage(msg)
+      }
+
+      default: {
+        return {
+          parts: [{text: String(msg.content || '')}],
+          role: 'user',
+        }
+      }
+    }
+  }
+
+  /**
+   * Formats a single tool result message to a Gemini functionResponse Part.
+   * Multiple tool results are combined into a single user message by format().
+   *
+   * Note: msg.content is a JSON string from ToolOutputProcessor.
+   * We need to parse it back to an object for Gemini's API.
+   */
+  private formatToolResultPart(msg: InternalMessage): Part {
+    // msg.content is a JSON string from ToolOutputProcessor
+    // Parse it back to object for Gemini's API
+    let responseObject: Record<string, unknown>
+
+    try {
+      // Try to parse as JSON
+      if (typeof msg.content === 'string') {
+        responseObject = JSON.parse(msg.content) as Record<string, unknown>
+      } else if (msg.content === null) {
+        responseObject = {result: null}
+      } else if (Array.isArray(msg.content)) {
+        // Array content (e.g., MessagePart[]) - wrap in result
+        responseObject = {result: msg.content}
+      } else if (typeof msg.content === 'object') {
+        // Already an object (shouldn't happen with current implementation, but handle it)
+        responseObject = msg.content as Record<string, unknown>
+      } else {
+        // Primitive types - wrap them
+        responseObject = {result: msg.content}
+      }
+    } catch {
+      // If parsing fails, wrap the string as-is
+      responseObject = {result: msg.content}
+    }
+
+    return {
+      functionResponse: {
+        name: msg.name ?? '',
+        response: responseObject,
+      },
+    }
+  }
+
+  /**
+   * Formats a single user content part.
+   * Currently supports text parts, with placeholders for image/file support.
+   */
+  private formatUserContentPart(part: MessagePart): Part {
+    if (part.type === 'text') {
+      return {text: part.text}
+    }
+
+    if (part.type === 'image') {
+      // Image support not yet implemented for Gemini
+      // Gemini supports inline images via inlineData or fileData
+      return {text: '[Image not yet supported]'}
+    }
+
+    if (part.type === 'file') {
+      // File support not yet implemented for Gemini
+      return {text: '[File not yet supported]'}
+    }
+
+    return {text: '[Unknown content type]'}
+  }
+
+  /**
+   * Formats user message to Gemini's Content format.
+   * Handles both simple string content and multimodal content parts.
+   */
+  private formatUserMessage(msg: InternalMessage): Content {
+    const parts: Part[] = []
+
+    if (typeof msg.content === 'string') {
+      // Simple text message
+      parts.push({text: msg.content})
+    } else if (Array.isArray(msg.content)) {
+      // Multimodal content (text, images, files)
+      for (const part of msg.content) {
+        parts.push(this.formatUserContentPart(part))
+      }
+    }
+
+    return {
+      parts,
+      role: 'user',
+    }
+  }
+
+  /**
+   * Generates a unique tool call ID.
+   * Gemini doesn't provide tool call IDs, so we generate them.
+   *
+   * @param toolName The name of the tool being called
+   * @returns A unique identifier for the tool call
+   */
+  private generateToolCallId(toolName: string): string {
+    // Simple ID generation: timestamp + random + tool name
+    const timestamp = Date.now()
+    const random = Math.random().toString(36).slice(2, 9)
+    return `call_${timestamp}_${random}_${toolName}`
+  }
+}

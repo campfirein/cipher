@@ -1,3 +1,4 @@
+import fs from 'node:fs'
 import {readdir, unlink} from 'node:fs/promises'
 import {join} from 'node:path'
 
@@ -52,4 +53,50 @@ export async function clearDirectory(dirPath: string): Promise<number> {
     // Re-throw other errors
     throw error
   }
+}
+
+/**
+ * Sanitizes a folder path by replacing all special characters with a hyphen.
+ * @param folderName - The folder path need to sanitize
+ * @returns The sanitized folder path
+ */
+export function sanitizeFolderName(folderName: string): string {
+  return folderName.replaceAll(/[^\w\-./]/g, '-');
+}
+
+/**
+ * Lists all immediate children (files and directories) of the given directory,
+ * and, for each child folder, shows its own immediate children.
+ * @param dirPath The directory path whose children to list.
+ * @returns An object where keys are child names, and values are:
+ *   - for files: undefined
+ *   - for directories: an array of their immediate children
+ */
+export function listDirectoryChildren(
+  dirPath: string = '.brv/context-tree',
+): Record<string, string[] | undefined> {
+  const result: Record<string, string[] | undefined> = {};
+  const children = fs.readdirSync(dirPath);
+  for (const child of children) {
+    const childPath = `${dirPath}/${child}`;
+    let stat;
+    try {
+      stat = fs.statSync(childPath);
+    } catch {
+      result[child] = undefined;
+      continue;
+    }
+
+    if (stat.isDirectory()) {
+      try {
+        result[child] = fs.readdirSync(childPath);
+      } catch {
+        result[child] = undefined;
+      }
+    } else {
+      result[child] = undefined;
+    }
+  }
+  
+  return result;
 }

@@ -1,115 +1,155 @@
-import {Config} from '@oclif/core'
-import {expect} from 'chai'
-import sinon, {createSandbox} from 'sinon'
+import type {Config} from '@oclif/core'
 
-import Clear from '../../src/commands/clear'
-import {FilePlaybookStore} from '../../src/infra/ace/file-playbook-store'
+import {Config as OclifConfig} from '@oclif/core'
+import {expect} from 'chai'
+import sinon, {createSandbox, stub} from 'sinon'
+
+import type {IContextTreeService} from '../../src/core/interfaces/i-context-tree-service.js'
+import type {IContextTreeSnapshotService} from '../../src/core/interfaces/i-context-tree-snapshot-service.js'
+
+import Clear from '../../src/commands/clear.js'
+
+/**
+ * Testable Clear command that accepts mocked services
+ */
+class TestableClear extends Clear {
+  public mockConfirmError: Error | undefined = undefined
+  public mockConfirmResult = false
+
+  constructor(
+    private readonly mockContextTreeService: IContextTreeService,
+    private readonly mockContextTreeSnapshotService: IContextTreeSnapshotService,
+    args: string[],
+    config: Config,
+  ) {
+    super(args, config)
+  }
+
+  protected async confirmClear(): Promise<boolean> {
+    if (this.mockConfirmError) {
+      throw this.mockConfirmError
+    }
+
+    return this.mockConfirmResult
+  }
+
+  protected createServices() {
+    return {
+      contextTreeService: this.mockContextTreeService,
+      contextTreeSnapshotService: this.mockContextTreeSnapshotService,
+    }
+  }
+
+  // Suppress output to prevent noisy test runs
+  public error(input: Error | string): never {
+    const errorMessage = typeof input === 'string' ? input : input.message
+    throw new Error(errorMessage)
+  }
+
+  public log(): void {
+    // Do nothing - suppress output
+  }
+}
 
 describe('clear command', () => {
   let sandbox: sinon.SinonSandbox
   let config: Config
+  let contextTreeService: sinon.SinonStubbedInstance<IContextTreeService>
+  let contextTreeSnapshotService: sinon.SinonStubbedInstance<IContextTreeSnapshotService>
+
+  before(async () => {
+    config = await OclifConfig.load(import.meta.url)
+  })
 
   beforeEach(async () => {
     sandbox = createSandbox()
-    config = await Config.load()
+
+    contextTreeService = {
+      exists: stub(),
+      initialize: stub<[directory?: string], Promise<string>>().resolves('/test/.brv/context-tree'),
+    }
+
+    contextTreeSnapshotService = {
+      getChanges: stub(),
+      getCurrentState: stub(),
+      hasSnapshot: stub(),
+      initEmptySnapshot: stub(),
+      saveSnapshot: stub(),
+    }
   })
 
   afterEach(() => {
     sandbox.restore()
   })
 
-  it('should clear playbook when user confirms', async () => {
-    const existsStub = sandbox.stub(FilePlaybookStore.prototype, 'exists').resolves(true)
-    const saveStub = sandbox.stub(FilePlaybookStore.prototype, 'save').resolves()
+  it('should reset context tree when user confirms', async () => {
+    contextTreeService.exists.resolves(true)
 
-    const command = new Clear([], config)
-    const logStub = sandbox.stub(command, 'log')
-    // Note: not very happy with this cast, but needed to stub protected method.
-    // Maybe create a TestableClear class is better in the future.
-    sandbox.stub(command as unknown as {confirmClear: () => Promise<boolean>}, 'confirmClear').resolves(true)
+    const command = new TestableClear(contextTreeService, contextTreeSnapshotService, [], config)
+    command.mockConfirmResult = true
 
     await command.run()
 
-    expect(existsStub.called).to.be.true
-    expect(saveStub.called).to.be.true
-    expect(logStub.calledWith('✓ Playbook cleared successfully.')).to.be.true
+    expect(contextTreeService.exists.calledOnce).to.be.true
+    expect(contextTreeService.initialize.calledOnce).to.be.true
+    expect(contextTreeSnapshotService.initEmptySnapshot.calledOnce).to.be.true
   })
 
-  it('should not clear playbook when user cancels', async () => {
-    sandbox.stub(FilePlaybookStore.prototype, 'exists').resolves(true)
-    const saveStub = sandbox.stub(FilePlaybookStore.prototype, 'save').resolves()
+  it('should not reset context tree when user cancels', async () => {
+    contextTreeService.exists.resolves(true)
 
-    const command = new Clear([], config)
-    const logStub = sandbox.stub(command, 'log')
-
-    // User cancels confirmation
-    sandbox.stub(command as unknown as {confirmClear: () => Promise<boolean>}, 'confirmClear').resolves(false)
+    const command = new TestableClear(contextTreeService, contextTreeSnapshotService, [], config)
+    command.mockConfirmResult = false
 
     await command.run()
 
-    // Verify playbook was NOT reset
-    expect(saveStub.called).to.be.false
-    expect(logStub.calledWith('Cancelled. Playbook was not cleared.')).to.be.true
+    // Verify context tree was NOT reset
+    expect(contextTreeService.initialize.called).to.be.false
+    expect(contextTreeSnapshotService.initEmptySnapshot.called).to.be.false
   })
 
-  it('should skip confirmation and clear when --yes flag is used', async () => {
-    sandbox.stub(FilePlaybookStore.prototype, 'exists').resolves(true)
-    const saveStub = sandbox.stub(FilePlaybookStore.prototype, 'save').resolves()
+  it('should skip confirmation and reset when --yes flag is used', async () => {
+    contextTreeService.exists.resolves(true)
 
-    // Pass --yes flag
-    const command = new Clear(['--yes'], config)
-    const logStub = sandbox.stub(command, 'log')
-
-    const confirmStub = sandbox
-      .stub(command as unknown as {confirmClear: () => Promise<boolean>}, 'confirmClear')
-      // Resolved value of stubbed confirmClear should not matter here
-      .resolves(true)
+    const command = new TestableClear(contextTreeService, contextTreeSnapshotService, ['--yes'], config)
 
     await command.run()
 
-    // Verify confirmation was NOT prompted
-    expect(confirmStub.called).to.be.false
-    // Verify playbook was reset
-    expect(saveStub.called).to.be.true
-    expect(logStub.calledWith('✓ Playbook cleared successfully.')).to.be.true
+    // Verify context tree was reset without calling confirmClear
+    expect(contextTreeService.initialize.calledOnce).to.be.true
+    expect(contextTreeSnapshotService.initEmptySnapshot.calledOnce).to.be.true
   })
 
-  it('should display message when no playbook exists', async () => {
-    sandbox.stub(FilePlaybookStore.prototype, 'exists').resolves(false)
-    const saveStub = sandbox.stub(FilePlaybookStore.prototype, 'save').resolves()
+  it('should display message when no context tree exists', async () => {
+    contextTreeService.exists.resolves(false)
 
-    const command = new Clear([], config)
-    const logStub = sandbox.stub(command, 'log')
+    const command = new TestableClear(contextTreeService, contextTreeSnapshotService, [], config)
 
     await command.run()
 
-    // Verify save was not attempted
-    expect(saveStub.called).to.be.false
-    expect(logStub.calledWith('No playbook found. Nothing to clear.')).to.be.true
+    // Verify initialize was not attempted
+    expect(contextTreeService.initialize.called).to.be.false
+    expect(contextTreeSnapshotService.initEmptySnapshot.called).to.be.false
   })
 
   it('should accept custom directory parameter', async () => {
-    const existsStub = sandbox.stub(FilePlaybookStore.prototype, 'exists').resolves(true)
-    const saveStub = sandbox.stub(FilePlaybookStore.prototype, 'save').resolves()
+    contextTreeService.exists.resolves(true)
 
-    const command = new Clear(['/custom/path'], config)
-    sandbox.stub(command, 'log')
-    sandbox.stub(command as unknown as {confirmClear: () => Promise<boolean>}, 'confirmClear').resolves(true)
+    const command = new TestableClear(contextTreeService, contextTreeSnapshotService, ['/custom/path'], config)
+    command.mockConfirmResult = true
 
     await command.run()
 
-    // Verify custom directory was passed to both exists and save
-    expect(existsStub.calledWith('/custom/path')).to.be.true
-    expect(saveStub.called).to.be.true
-    // Verify save was called with empty playbook and custom directory
-    const saveCall = saveStub.getCall(0)
-    expect(saveCall.args[1]).to.equal('/custom/path')
+    // Verify custom directory was passed to exists, initialize, and initEmptySnapshot
+    expect(contextTreeService.exists.calledWith('/custom/path')).to.be.true
+    expect(contextTreeService.initialize.calledWith('/custom/path')).to.be.true
+    expect(contextTreeSnapshotService.initEmptySnapshot.calledWith('/custom/path')).to.be.true
   })
 
   it('should handle errors gracefully', async () => {
-    sandbox.stub(FilePlaybookStore.prototype, 'exists').rejects(new Error('Disk error'))
+    contextTreeService.exists.rejects(new Error('Disk error'))
 
-    const command = new Clear(['--yes'], config)
+    const command = new TestableClear(contextTreeService, contextTreeSnapshotService, ['--yes'], config)
 
     try {
       await command.run()
@@ -121,19 +161,27 @@ describe('clear command', () => {
   })
 
   it('should use short flag -y for yes', async () => {
-    sandbox.stub(FilePlaybookStore.prototype, 'exists').resolves(true)
-    const saveStub = sandbox.stub(FilePlaybookStore.prototype, 'save').resolves()
+    contextTreeService.exists.resolves(true)
 
-    const command = new Clear(['-y'], config)
-    sandbox.stub(command, 'log')
-    const confirmStub = sandbox
-      .stub(command as unknown as {confirmClear: () => Promise<boolean>}, 'confirmClear')
-      .resolves(true)
+    const command = new TestableClear(contextTreeService, contextTreeSnapshotService, ['-y'], config)
 
     await command.run()
 
-    // Verify confirmation was NOT prompted with short flag
-    expect(confirmStub.called).to.be.false
-    expect(saveStub.called).to.be.true
+    // Verify context tree was reset without confirmation
+    expect(contextTreeService.initialize.calledOnce).to.be.true
+    expect(contextTreeSnapshotService.initEmptySnapshot.calledOnce).to.be.true
+  })
+
+  it('should handle user force closing the prompt (Ctrl+C)', async () => {
+    contextTreeService.exists.resolves(true)
+
+    const command = new TestableClear(contextTreeService, contextTreeSnapshotService, [], config)
+    command.mockConfirmError = new Error('User force closed the prompt')
+
+    await command.run()
+
+    // Verify context tree was NOT reset
+    expect(contextTreeService.initialize.called).to.be.false
+    expect(contextTreeSnapshotService.initEmptySnapshot.called).to.be.false
   })
 })
