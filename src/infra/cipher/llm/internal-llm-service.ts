@@ -555,6 +555,7 @@ export class ByteRoverLLMService implements ILLMService {
       availableTools,
       commandType: executionContext?.commandType,
       conversationMetadata: executionContext?.conversationMetadata,
+      fileReferenceInstructions: executionContext?.fileReferenceInstructions,
       memoryManager: this.memoryManager,
       mode,
     })

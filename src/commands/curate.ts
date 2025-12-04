@@ -46,6 +46,13 @@ Bad:
     '# Autonomous mode - LLM auto-categorizes your context',
     '<%= config.bin %> <%= command.id %> "Auth uses JWT with 24h expiry. Tokens stored in httpOnly cookies via authMiddleware.ts"',
     '',
+    '# IMPORTANT: Include relevant files for comprehensive context (use sparingly, max 5 files)',
+    '# NOTE: CONTEXT argument must come BEFORE --files flag',
+    '<%= config.bin %> <%= command.id %> "JWT authentication implementation with refresh token rotation" --files src/auth/jwt.ts --files docs/auth.md',
+    '',
+    '# Short form with relative paths (MUST use relative paths)',
+    '<%= config.bin %> <%= command.id %> "Authentication middleware validates JWT tokens and attaches user context" -f src/middleware/auth.ts',
+    '',
     ...(isDevelopment()
       ? [
           '# Autonomous mode with OpenRouter (development only)',
@@ -57,6 +64,12 @@ Bad:
       : []),
   ]
   public static flags = {
+    files: Flags.string({
+      char: 'f',
+      description:
+        'IMPORTANT: Include specific file paths for critical context (max 5 files). MUST use relative paths (e.g., src/auth.ts). Use sparingly - only for truly relevant files like docs or key implementation details. NOTE: CONTEXT argument must come BEFORE this flag.',
+      multiple: true,
+    }),
     ...(isDevelopment()
       ? {
           apiKey: Flags.string({
@@ -204,6 +217,69 @@ Bad:
   }
 
   /**
+   * Process file paths from --files flag
+   * @param filePaths - Array of file paths (relative or absolute)
+   * @returns Formatted instructions for the agent to read the specified files
+   */
+  protected processFileReferences(filePaths: string[]): string {
+    const MAX_FILES = 5
+
+    if (!filePaths || filePaths.length === 0) {
+      return ''
+    }
+
+    // Warn if more than 5 files
+    if (filePaths.length > MAX_FILES) {
+      const ignored = filePaths.slice(MAX_FILES)
+      this.warn(`Only using first ${MAX_FILES} files. Ignoring: ${ignored.join(', ')}`)
+      filePaths = filePaths.slice(0, MAX_FILES)
+    }
+
+    // Validate files exist and collect valid paths
+    const validPaths: string[] = []
+    for (const filePath of filePaths) {
+      try {
+        // Resolve path (support both relative and absolute)
+        const resolvedPath = path.isAbsolute(filePath) ? filePath : path.join(process.cwd(), filePath)
+
+        // Check if file exists
+        if (!fs.existsSync(resolvedPath)) {
+          this.warn(`File not found, skipping: ${filePath}`)
+          continue
+        }
+
+        validPaths.push(filePath)
+      } catch (error) {
+        this.warn(
+          `Failed to validate file ${filePath}: ${error instanceof Error ? error.message : String(error)}`,
+        )
+      }
+    }
+
+    if (validPaths.length === 0) {
+      return ''
+    }
+
+    // Format instructions for the agent
+    const instructions = [
+      '\n## IMPORTANT: Critical Files to Read (--files flag)',
+      '',
+      'The user has explicitly specified these files as critical context that MUST be read before creating knowledge topics:',
+      '',
+      ...validPaths.map((p) => `- ${p}`),
+      '',
+      '**MANDATORY INSTRUCTIONS:**',
+      '- You MUST use the `read_file` tool to read ALL of these files IN PARALLEL (in a single iteration) before proceeding to create knowledge topics',
+      '- These files contain essential context that will help you create comprehensive and accurate knowledge topics',
+      '- Read them in parallel to maximize efficiency - they do not depend on each other',
+      '- After reading all files, proceed with the normal workflow: detect domains, find existing knowledge, and create/update topics',
+      '',
+    ]
+
+    return instructions.join('\n')
+  }
+
+  /**
    * Prompt user to enter topic name with validation
    * @param targetPath - The path where the topic folder will be created
    * @returns The topic name or null if cancelled
@@ -274,6 +350,7 @@ Bad:
     content: string,
     flags: {
       apiKey?: string
+      files?: string[]
       model?: string
       verbose?: boolean
     },
@@ -330,10 +407,15 @@ Bad:
         // Setup event listeners
         this.setupEventListeners(agent, flags.verbose ?? false)
 
+        // Process file references if provided
+        const fileReferenceInstructions = flags.files
+          ? this.processFileReferences(flags.files)
+          : ''
+
         // Execute with autonomous mode and add commandType
         const prompt = `Add the following context to the context tree:\n\n${content}`
         const response = await agent.execute(prompt, sessionId, {
-          executionContext: {commandType: 'curate'},
+          executionContext: {commandType: 'curate', fileReferenceInstructions},
           mode: 'autonomous',
         })
 
