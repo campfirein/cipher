@@ -111,13 +111,13 @@ describe('MixpanelTrackingService', () => {
 
       const service = new MixpanelTrackingService(mockTokenStore, mockMixpanel as Mixpanel)
 
-      await service.track('mem:retrieve', {
+      await service.track('mem:query', {
         query: 'search term',
         resultsCount: 10,
       })
 
       expect(trackStub.calledOnce).to.be.true
-      expect(trackStub.firstCall.args[0]).to.equal('cli:mem:retrieve')
+      expect(trackStub.firstCall.args[0]).to.equal('cli:mem:query')
       expect(trackStub.firstCall.args[1]).to.deep.equal({
         $user_id: 'user_id', // eslint-disable-line camelcase
         beta: true,
@@ -186,12 +186,9 @@ describe('MixpanelTrackingService', () => {
         'space:init',
         'space:changed',
         'rule:generate',
-        'ace:update_bullet',
-        'ace:remove_bullet',
-        'ace:view_status',
         'mem:curate',
         'mem:push',
-        'mem:retrieve',
+        'mem:query',
       ]
 
       for (const eventName of events) {
@@ -209,7 +206,7 @@ describe('MixpanelTrackingService', () => {
 
       const service = new MixpanelTrackingService(mockTokenStore, mockMixpanel as Mixpanel)
 
-      await service.track('ace:view_status', {})
+      await service.track('mem:status', {})
 
       expect(trackStub.calledOnce).to.be.true
       expect(trackStub.firstCall.args[1]).to.deep.equal({
@@ -357,7 +354,7 @@ describe('MixpanelTrackingService', () => {
 
       const service = new MixpanelTrackingService(mockTokenStore, mockMixpanel as Mixpanel)
 
-      await service.track('ace:update_bullet')
+      await service.track('mem:curate')
 
       expect(trackStub.calledOnce).to.be.true
       expect(trackStub.firstCall.args[1]).to.have.property('$user_id', 'user_id')
@@ -377,7 +374,7 @@ describe('MixpanelTrackingService', () => {
 
       const service = new MixpanelTrackingService(mockTokenStore, mockMixpanel as Mixpanel)
 
-      await service.track('ace:remove_bullet')
+      await service.track('mem:curate')
 
       // Should still include user_id even for expired tokens
       expect(trackStub.calledOnce).to.be.true
