@@ -1,5 +1,4 @@
-import type {Config} from '@oclif/core'
-
+import {Config, ux} from '@oclif/core'
 import {expect} from 'chai'
 import {restore, type SinonStub, stub} from 'sinon'
 
@@ -100,11 +99,9 @@ describe('space:switch', () => {
   let uxActionStopStub: SinonStub
 
   beforeEach(async () => {
-    const {Config} = await import('@oclif/core')
     oclifConfig = await Config.load(import.meta.url)
 
     // Stub ux.action methods to suppress output
-    const {ux} = await import('@oclif/core')
     uxActionStartStub = stub(ux.action, 'start')
     uxActionStopStub = stub(ux.action, 'stop')
 

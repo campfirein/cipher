@@ -141,9 +141,7 @@ export default class CipherAgentRun extends Command {
    * @param agent - CipherAgent instance
    * @returns Most recent session ID or undefined if no sessions found
    */
-  protected async getMostRecentSessionId(
-    agent: import('../../infra/cipher/cipher-agent.js').CipherAgent,
-  ): Promise<string | undefined> {
+  protected async getMostRecentSessionId(agent: CipherAgent): Promise<string | undefined> {
     // Get all session IDs from persisted storage
     const sessionIds = await agent.listPersistedSessions()
 
@@ -287,10 +285,7 @@ export default class CipherAgentRun extends Command {
    * @param sessionId - Session ID to validate
    * @returns True if session exists
    */
-  protected async validateSessionExists(
-    agent: import('../../infra/cipher/cipher-agent.js').CipherAgent,
-    sessionId: string,
-  ): Promise<boolean> {
+  protected async validateSessionExists(agent: CipherAgent, sessionId: string): Promise<boolean> {
     const metadata = await agent.getSessionMetadata(sessionId)
     return metadata !== undefined
   }
@@ -484,10 +479,7 @@ export default class CipherAgentRun extends Command {
    * @param flags.resume - Resume specific session flag
    * @returns Resolved session ID
    */
-  private async resolveSessionId(
-    agent: import('../../infra/cipher/cipher-agent.js').CipherAgent,
-    flags: {continue?: boolean; resume?: string},
-  ): Promise<string> {
+  private async resolveSessionId(agent: CipherAgent, flags: {continue?: boolean; resume?: string}): Promise<string> {
     // Validate flags: -c and -r are mutually exclusive
     if (flags.continue && flags.resume) {
       exitWithCode(
@@ -537,10 +529,7 @@ export default class CipherAgentRun extends Command {
    * @param agent - CipherAgent instance
    * @param isInteractive - Whether in interactive mode
    */
-  private setupEventListeners(
-    agent: import('../../infra/cipher/cipher-agent.js').CipherAgent,
-    isInteractive: boolean,
-  ): void {
+  private setupEventListeners(agent: CipherAgent, isInteractive: boolean): void {
     if (!agent.agentEventBus) {
       throw new Error('Agent event bus not initialized')
     }
