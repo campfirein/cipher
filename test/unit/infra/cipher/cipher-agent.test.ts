@@ -13,8 +13,8 @@ describe('CipherAgent', () => {
   beforeEach(() => {
     llmConfig = {
       accessToken: 'test-access-token',
+      apiBaseUrl: 'http://localhost:3333',
       blobStorageConfig: {inMemory: true}, // Use in-memory storage for tests
-      grpcEndpoint: 'localhost:50051',
       maxIterations: 10,
       maxTokens: 1000,
       model: 'gemini-2.5-flash',

@@ -2,7 +2,7 @@ import {expect} from 'chai'
 import {createSandbox, type SinonSandbox} from 'sinon'
 
 import type {CipherAgentServices} from '../../../../src/core/interfaces/cipher/cipher-services.js'
-import type {ByteRoverGrpcConfig} from '../../../../src/infra/cipher/agent-service-factory.js'
+import type {ByteRoverHttpConfig} from '../../../../src/infra/cipher/agent-service-factory.js'
 
 import {createSessionServices} from '../../../../src/infra/cipher/agent-service-factory.js'
 import {AgentEventBus, SessionEventBus} from '../../../../src/infra/cipher/events/event-emitter.js'
@@ -24,7 +24,7 @@ describe('Event System Integration', () => {
   let sandbox: SinonSandbox
   let agentEventBus: AgentEventBus
   let mockSharedServices: CipherAgentServices
-  let mockGrpcConfig: ByteRoverGrpcConfig
+  let mockHttpConfig: ByteRoverHttpConfig
   let llmConfig: {
     model: string
   }
@@ -47,9 +47,9 @@ describe('Event System Integration', () => {
       }),
     })
 
-    mockGrpcConfig = {
+    mockHttpConfig = {
       accessToken: 'test-token',
-      grpcEndpoint: 'localhost:50051',
+      apiBaseUrl: 'http://localhost:3333',
       projectId: 'test-project',
       sessionKey: 'test-session-key',
       spaceId: 'test-space-id',
@@ -67,7 +67,7 @@ describe('Event System Integration', () => {
 
   describe('SessionManager + EventForwarding Integration', () => {
     it('should setup event forwarding when creating a session', async () => {
-      const sessionManager = new SessionManager(mockSharedServices, mockGrpcConfig, llmConfig)
+      const sessionManager = new SessionManager(mockSharedServices, mockHttpConfig, llmConfig)
 
       // Spy on agent bus to verify forwarding works
       const agentListener = sandbox.spy()
@@ -77,7 +77,7 @@ describe('Event System Integration', () => {
       await sessionManager.createSession('test-session-id')
 
       // Get session's event bus and emit event
-      const sessionServices = createSessionServices('test-session-id', mockSharedServices, mockGrpcConfig, llmConfig)
+      const sessionServices = createSessionServices('test-session-id', mockSharedServices, mockHttpConfig, llmConfig)
       sessionServices.sessionEventBus.emit('llmservice:thinking')
 
       // Note: In real integration, forwarding is setup in ChatSession constructor

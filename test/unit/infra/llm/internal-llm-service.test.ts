@@ -5,7 +5,7 @@ import type {GenerateContentResponse} from '../../../../src/core/interfaces/ciph
 import type {InternalMessage} from '../../../../src/core/interfaces/cipher/message-types.js'
 
 import {SessionEventBus} from '../../../../src/infra/cipher/events/event-emitter.js'
-import {ByteRoverLlmGrpcService} from '../../../../src/infra/cipher/grpc/internal-llm-grpc-service.js'
+import {ByteRoverLlmHttpService} from '../../../../src/infra/cipher/http/internal-llm-http-service.js'
 import {ByteRoverContentGenerator} from '../../../../src/infra/cipher/llm/generators/byterover-content-generator.js'
 import {ByteRoverLLMService} from '../../../../src/infra/cipher/llm/internal-llm-service.js'
 import {SimplePromptFactory} from '../../../../src/infra/cipher/system-prompt/simple-prompt-factory.js'
@@ -13,14 +13,14 @@ import {ToolManager} from '../../../../src/infra/cipher/tools/tool-manager.js'
 
 // Helper function to create a ByteRover content generator with test config
 function createContentGenerator(model = 'gemini-2.5-flash') {
-  const grpcService = new ByteRoverLlmGrpcService({
+  const httpService = new ByteRoverLlmHttpService({
     accessToken: 'test-token',
-    grpcEndpoint: 'localhost:50051',
+    apiBaseUrl: 'http://localhost:3000',
     sessionKey: 'test-session-key',
     spaceId: 'test-space-id',
     teamId: 'test-team-id',
   })
-  return new ByteRoverContentGenerator(grpcService, {
+  return new ByteRoverContentGenerator(httpService, {
     model,
   })
 }

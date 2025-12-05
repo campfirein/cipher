@@ -319,8 +319,8 @@ export default class CipherAgentRun extends Command {
     },
   ): {
     accessToken: string
+    apiBaseUrl: string
     fileSystemConfig?: {workingDirectory: string}
-    grpcEndpoint: string
     maxIterations: number
     maxTokens: number
     model: string
@@ -332,14 +332,14 @@ export default class CipherAgentRun extends Command {
     temperature: number
     verbose?: boolean
   } {
-    // Default model: google/gemini-2.5-pro for OpenRouter, gemini-2.5-pro for gRPC
+    // Default model: google/gemini-2.5-pro for OpenRouter, gemini-2.5-pro for HTTP
     const model = flags.model ?? (flags.apiKey ? 'google/gemini-2.5-pro' : 'gemini-2.5-pro')
     const envConfig = getCurrentConfig()
 
     return {
       accessToken: token.accessToken,
+      apiBaseUrl: envConfig.llmApiBaseUrl,
       fileSystemConfig: flags.workingDirectory ? {workingDirectory: flags.workingDirectory} : undefined,
-      grpcEndpoint: envConfig.llmGrpcEndpoint,
       maxIterations: 10, // Hardcoded default
       maxTokens: flags.maxTokens ?? 8192, // Default: 8192
       model,
