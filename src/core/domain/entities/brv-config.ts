@@ -146,25 +146,36 @@ export class BrvConfig {
    * @throws BrvConfigVersionError if version is missing or mismatched.
    */
   public static fromJson(json: unknown): BrvConfig {
-    if (!isBrvConfigJson(json)) {
-      throw new Error('Invalid BrvConfig JSON structure')
+    // Minimal check if json is an object
+    if (typeof json !== 'object' || json === null || json === undefined) {
+      throw new Error('BrvConfig JSON must be an object')
     }
 
-    if (json.version === undefined) {
+    // Check version FIRST (before full structure validation)
+    // This ensures outdated configs get a helpful version error
+    // instead of a generic structure error
+    const jsonObj = json as Record<string, unknown>
+    const version = typeof jsonObj.version === 'string' ? jsonObj.version : undefined
+
+    if (version === undefined) {
       throw new BrvConfigVersionError({
         currentVersion: undefined,
         expectedVersion: BRV_CONFIG_VERSION,
       })
     }
 
-    if (json.version !== BRV_CONFIG_VERSION) {
+    if (version !== BRV_CONFIG_VERSION) {
       throw new BrvConfigVersionError({
-        currentVersion: json.version,
+        currentVersion: version,
         expectedVersion: BRV_CONFIG_VERSION,
       })
     }
 
-    return new BrvConfig({...json, version: json.version})
+    if (!isBrvConfigJson(json)) {
+      throw new Error('Invalid BrvConfig JSON structure')
+    }
+
+    return new BrvConfig({...json, version})
   }
 
   /**

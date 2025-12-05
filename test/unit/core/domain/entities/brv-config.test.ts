@@ -103,10 +103,25 @@ describe('BrvConfig', () => {
       }
     })
 
-    it('should throw Error when JSON structure is invalid', () => {
+    it('should throw BrvConfigVersionError when JSON has no version (even if structure is invalid)', () => {
+      // Old configs without version should get a helpful version error
+      // instead of a generic structure error
       const invalidJson = {spaceId: 'space-123'}
 
-      expect(() => BrvConfig.fromJson(invalidJson)).to.throw('Invalid BrvConfig JSON structure')
+      expect(() => BrvConfig.fromJson(invalidJson)).to.throw(BrvConfigVersionError)
+    })
+
+    it('should throw Error when JSON has current version but invalid structure', () => {
+      // Only configs with current version should be validated for structure
+      const invalidJsonWithCurrentVersion = {spaceId: 'space-123', version: BRV_CONFIG_VERSION}
+
+      expect(() => BrvConfig.fromJson(invalidJsonWithCurrentVersion)).to.throw('Invalid BrvConfig JSON structure')
+    })
+
+    it('should throw Error when JSON is not an object', () => {
+      expect(() => BrvConfig.fromJson(null)).to.throw('BrvConfig JSON must be an object')
+      expect(() => BrvConfig.fromJson('string')).to.throw('BrvConfig JSON must be an object')
+      expect(() => BrvConfig.fromJson(123)).to.throw('BrvConfig JSON must be an object')
     })
 
     it('should round-trip serialize and deserialize correctly', () => {
