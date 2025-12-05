@@ -46,18 +46,15 @@ Bad:
     '# Autonomous mode - LLM auto-categorizes your context',
     '<%= config.bin %> <%= command.id %> "Auth uses JWT with 24h expiry. Tokens stored in httpOnly cookies via authMiddleware.ts"',
     '',
-    '# IMPORTANT: Include relevant files for comprehensive context (use sparingly, max 5 files)',
-    '# NOTE: CONTEXT argument must come BEFORE --files flag',
-    '# NOTE: For multiple files, repeat --files (or -f) flag for each file',
+    '# Include relevant files for comprehensive context (use sparingly, max 5 files)',
+    '- NOTE: CONTEXT argument must come BEFORE --files flag',
+    '- NOTE: For multiple files, repeat --files (or -f) flag for each file',
     '',
-    '# Single file with short form',
+    '## Single file',
     '<%= config.bin %> <%= command.id %> "Authentication middleware validates JWT tokens and attaches user context" -f src/middleware/auth.ts',
     '',
-    '# Multiple files - repeat --files flag for each file',
+    '## Multiple files',
     '<%= config.bin %> <%= command.id %> "JWT authentication implementation with refresh token rotation" --files src/auth/jwt.ts --files docs/auth.md',
-    '',
-    '# Multiple files using short form -f (repeat flag for each file)',
-    '<%= config.bin %> <%= command.id %> "REST API design patterns and error handling" -f src/api/routes.ts -f src/api/middleware.ts -f docs/api.md',
     '',
     ...(isDevelopment()
       ? [
@@ -73,7 +70,7 @@ Bad:
     files: Flags.string({
       char: 'f',
       description:
-        'IMPORTANT: Include specific file paths for critical context (max 5 files). MUST use relative paths (e.g., src/auth.ts). Use sparingly - only for truly relevant files like docs or key implementation details. NOTE: CONTEXT argument must come BEFORE this flag.',
+        'Include specific file paths for critical context (max 5 files). MUST use relative paths (e.g., src/auth.ts). Use sparingly - only for truly relevant files like docs or key implementation details. NOTE: CONTEXT argument must come BEFORE this flag.',
       multiple: true,
     }),
     ...(isDevelopment()
