@@ -5,7 +5,7 @@ import {createSandbox, SinonSandbox, SinonStub} from 'sinon'
 import type {CipherAgentServices} from '../../../../../src/core/interfaces/cipher/cipher-services.js'
 import type {IChatSession} from '../../../../../src/core/interfaces/cipher/i-chat-session.js'
 import type {ILLMService} from '../../../../../src/core/interfaces/cipher/i-llm-service.js'
-import type {ByteRoverGrpcConfig} from '../../../../../src/infra/cipher/agent-service-factory.js'
+import type {ByteRoverHttpConfig} from '../../../../../src/infra/cipher/agent-service-factory.js'
 
 import {createSessionServices} from '../../../../../src/infra/cipher/agent-service-factory.js'
 import {AgentEventBus, SessionEventBus} from '../../../../../src/infra/cipher/events/event-emitter.js'
@@ -61,7 +61,7 @@ class TestableSessionManager extends SessionManager {
     // Use mock if provided
     if (this.mockCreateSessionServices) {
       // @ts-expect-error - accessing private property for testing
-      const sessionServices = this.mockCreateSessionServices(id, this.sharedServices, this.grpcConfig, this.llmConfig)
+      const sessionServices = this.mockCreateSessionServices(id, this.sharedServices, this.httpConfig, this.llmConfig)
       // @ts-expect-error - accessing private property for testing
       const session = new ChatSession(id, this.sharedServices, sessionServices)
 
@@ -92,7 +92,7 @@ function createMockLLMServiceForSessionManager(sandbox: SinonSandbox): ILLMServi
 describe('SessionManager', () => {
   let sandbox: SinonSandbox
   let mockSharedServices: CipherAgentServices
-  let mockGrpcConfig: ByteRoverGrpcConfig
+  let mockHttpConfig: ByteRoverHttpConfig
   let llmConfig: {
     httpReferer?: string
     maxIterations?: number
@@ -112,10 +112,10 @@ describe('SessionManager', () => {
     const agentEventBus = new AgentEventBus()
     mockSharedServices = createMockCipherAgentServices(agentEventBus, sandbox)
 
-    // Mock gRPC config
-    mockGrpcConfig = {
+    // Mock HTTP config
+    mockHttpConfig = {
       accessToken: 'test-token',
-      grpcEndpoint: 'localhost:50051',
+      apiBaseUrl: 'http://localhost:3333',
       projectId: 'test-project',
       sessionKey: 'test-session-key',
       spaceId: 'test-space-id',
@@ -140,7 +140,7 @@ describe('SessionManager', () => {
 
   describe('constructor', () => {
     it('should use default maxSessions when not provided', async () => {
-      manager = new TestableSessionManager(mockSharedServices, mockGrpcConfig, llmConfig)
+      manager = new TestableSessionManager(mockSharedServices, mockHttpConfig, llmConfig)
       manager.mockCreateSessionServices = mockCreateSessionServices
 
       // Create sessions up to default max (100)
@@ -162,7 +162,7 @@ describe('SessionManager', () => {
     })
 
     it('should use custom maxSessions from config', async () => {
-      manager = new TestableSessionManager(mockSharedServices, mockGrpcConfig, llmConfig, {
+      manager = new TestableSessionManager(mockSharedServices, mockHttpConfig, llmConfig, {
         config: {maxSessions: 5},
       })
       manager.mockCreateSessionServices = mockCreateSessionServices as typeof createSessionServices
@@ -189,7 +189,7 @@ describe('SessionManager', () => {
     })
 
     it('should use default sessionTTL when not provided', () => {
-      manager = new TestableSessionManager(mockSharedServices, mockGrpcConfig, llmConfig)
+      manager = new TestableSessionManager(mockSharedServices, mockHttpConfig, llmConfig)
       manager.mockCreateSessionServices = mockCreateSessionServices
 
       // Default should be 3600000 (1 hour)
@@ -198,7 +198,7 @@ describe('SessionManager', () => {
     })
 
     it('should use custom sessionTTL from config', () => {
-      manager = new TestableSessionManager(mockSharedServices, mockGrpcConfig, llmConfig, {
+      manager = new TestableSessionManager(mockSharedServices, mockHttpConfig, llmConfig, {
         config: {sessionTTL: 7_200_000},
       })
 
@@ -208,7 +208,7 @@ describe('SessionManager', () => {
 
   describe('createSession()', () => {
     beforeEach(() => {
-      manager = new TestableSessionManager(mockSharedServices, mockGrpcConfig, llmConfig)
+      manager = new TestableSessionManager(mockSharedServices, mockHttpConfig, llmConfig)
       manager.mockCreateSessionServices = mockCreateSessionServices
     })
 
@@ -240,7 +240,7 @@ describe('SessionManager', () => {
       expect(mockCreateSessionServices.calledOnce).to.be.true
       expect(mockCreateSessionServices.firstCall.args[0]).to.equal(testSessionId)
       expect(mockCreateSessionServices.firstCall.args[1]).to.equal(mockSharedServices)
-      expect(mockCreateSessionServices.firstCall.args[2]).to.equal(mockGrpcConfig)
+      expect(mockCreateSessionServices.firstCall.args[2]).to.equal(mockHttpConfig)
       expect(mockCreateSessionServices.firstCall.args[3]).to.equal(llmConfig)
     })
 
@@ -282,7 +282,7 @@ describe('SessionManager', () => {
     })
 
     it('should throw error when maxSessions limit reached', async () => {
-      manager = new TestableSessionManager(mockSharedServices, mockGrpcConfig, llmConfig, {
+      manager = new TestableSessionManager(mockSharedServices, mockHttpConfig, llmConfig, {
         config: {maxSessions: 2},
       })
       manager.mockCreateSessionServices = mockCreateSessionServices as typeof createSessionServices
@@ -350,7 +350,7 @@ describe('SessionManager', () => {
 
   describe('getSession()', () => {
     beforeEach(() => {
-      manager = new TestableSessionManager(mockSharedServices, mockGrpcConfig, llmConfig)
+      manager = new TestableSessionManager(mockSharedServices, mockHttpConfig, llmConfig)
       manager.mockCreateSessionServices = mockCreateSessionServices
     })
 
@@ -376,7 +376,7 @@ describe('SessionManager', () => {
 
   describe('hasSession()', () => {
     beforeEach(() => {
-      manager = new TestableSessionManager(mockSharedServices, mockGrpcConfig, llmConfig)
+      manager = new TestableSessionManager(mockSharedServices, mockHttpConfig, llmConfig)
       manager.mockCreateSessionServices = mockCreateSessionServices
     })
 
@@ -399,7 +399,7 @@ describe('SessionManager', () => {
 
   describe('listSessions()', () => {
     beforeEach(() => {
-      manager = new TestableSessionManager(mockSharedServices, mockGrpcConfig, llmConfig)
+      manager = new TestableSessionManager(mockSharedServices, mockHttpConfig, llmConfig)
       manager.mockCreateSessionServices = mockCreateSessionServices
     })
 
@@ -431,7 +431,7 @@ describe('SessionManager', () => {
 
   describe('getSessionCount()', () => {
     beforeEach(() => {
-      manager = new TestableSessionManager(mockSharedServices, mockGrpcConfig, llmConfig)
+      manager = new TestableSessionManager(mockSharedServices, mockHttpConfig, llmConfig)
       manager.mockCreateSessionServices = mockCreateSessionServices
     })
 
@@ -456,7 +456,7 @@ describe('SessionManager', () => {
 
   describe('deleteSession()', () => {
     beforeEach(() => {
-      manager = new TestableSessionManager(mockSharedServices, mockGrpcConfig, llmConfig)
+      manager = new TestableSessionManager(mockSharedServices, mockHttpConfig, llmConfig)
       manager.mockCreateSessionServices = mockCreateSessionServices
     })
 
@@ -501,7 +501,7 @@ describe('SessionManager', () => {
 
   describe('endSession()', () => {
     beforeEach(() => {
-      manager = new TestableSessionManager(mockSharedServices, mockGrpcConfig, llmConfig)
+      manager = new TestableSessionManager(mockSharedServices, mockHttpConfig, llmConfig)
       manager.mockCreateSessionServices = mockCreateSessionServices
     })
 

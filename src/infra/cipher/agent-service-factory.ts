@@ -8,7 +8,7 @@ import type {IContentGenerator} from '../../core/interfaces/cipher/i-content-gen
 import {createBlobStorage} from './blob/blob-storage-factory.js'
 import {AgentEventBus, SessionEventBus} from './events/event-emitter.js'
 import {FileSystemService} from './file-system/file-system-service.js'
-import {ByteRoverLlmGrpcService} from './grpc/internal-llm-grpc-service.js'
+import {ByteRoverLlmHttpService} from './http/internal-llm-http-service.js'
 import {ByteRoverContentGenerator, LoggingContentGenerator, RetryableContentGenerator} from './llm/generators/index.js'
 import {ByteRoverLLMService} from './llm/internal-llm-service.js'
 import {OpenRouterLLMService} from './llm/openrouter-llm-service.js'
@@ -29,10 +29,10 @@ import {ToolProvider} from './tools/tool-provider.js'
  */
 export interface CipherLLMConfig {
   accessToken: string
+  apiBaseUrl: string
   apiKey?: string
   blobStorageConfig?: Partial<BlobStorageConfig>
   fileSystemConfig?: Partial<FileSystemConfig>
-  grpcEndpoint: string
   httpReferer?: string
   maxIterations?: number
   maxTokens?: number
@@ -49,11 +49,11 @@ export interface CipherLLMConfig {
 }
 
 /**
- * gRPC configuration for ByteRover LLM service
+ * HTTP configuration for ByteRover LLM service
  */
-export interface ByteRoverGrpcConfig {
+export interface ByteRoverHttpConfig {
   accessToken: string
-  grpcEndpoint: string
+  apiBaseUrl: string
   projectId: string
   region?: string
   sessionKey: string
@@ -187,7 +187,7 @@ export async function createCipherAgentServices(llmConfig: CipherLLMConfig): Pro
  *
  * @param sessionId - Unique session identifier
  * @param sharedServices - Shared services from agent
- * @param grpcConfig - gRPC configuration
+ * @param httpConfig - HTTP configuration
  * @param llmConfig - LLM service configuration
  * @param llmConfig.openRouterApiKey - Optional OpenRouter API key for OpenRouter service
  * @param llmConfig.httpReferer - Optional HTTP Referer for OpenRouter rankings
@@ -202,7 +202,7 @@ export async function createCipherAgentServices(llmConfig: CipherLLMConfig): Pro
 export function createSessionServices(
   sessionId: string,
   sharedServices: CipherAgentServices,
-  grpcConfig: ByteRoverGrpcConfig,
+  httpConfig: ByteRoverHttpConfig,
   llmConfig: {
     httpReferer?: string
     maxIterations?: number
@@ -248,22 +248,22 @@ export function createSessionServices(
       },
     )
   } else {
-    // Use gRPC backend service (default) with new generator pattern
+    // Use HTTP backend service (default) with new generator pattern
 
-    // Step 1: Create gRPC service
-    const grpcService = new ByteRoverLlmGrpcService({
-      accessToken: grpcConfig.accessToken,
-      grpcEndpoint: grpcConfig.grpcEndpoint,
-      projectId: grpcConfig.projectId,
-      region: grpcConfig.region,
-      sessionKey: grpcConfig.sessionKey,
-      spaceId: grpcConfig.spaceId,
-      teamId: grpcConfig.teamId,
-      timeout: grpcConfig.timeout,
+    // Step 1: Create HTTP service
+    const httpService = new ByteRoverLlmHttpService({
+      accessToken: httpConfig.accessToken,
+      apiBaseUrl: httpConfig.apiBaseUrl,
+      projectId: httpConfig.projectId,
+      region: httpConfig.region,
+      sessionKey: httpConfig.sessionKey,
+      spaceId: httpConfig.spaceId,
+      teamId: httpConfig.teamId,
+      timeout: httpConfig.timeout,
     })
 
     // Step 2: Create base content generator
-    let generator: IContentGenerator = new ByteRoverContentGenerator(grpcService, {
+    let generator: IContentGenerator = new ByteRoverContentGenerator(httpService, {
       maxTokens: llmConfig.maxTokens ?? 8192,
       model: llmConfig.model ?? 'gemini-2.5-pro',
       temperature: llmConfig.temperature ?? 0.7,

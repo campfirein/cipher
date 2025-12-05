@@ -2,7 +2,7 @@ import {randomUUID} from 'node:crypto'
 
 import type {CipherAgentServices, SessionManagerConfig} from '../../../core/interfaces/cipher/cipher-services.js'
 import type {IChatSession} from '../../../core/interfaces/cipher/i-chat-session.js'
-import type {ByteRoverGrpcConfig} from '../agent-service-factory.js'
+import type {ByteRoverHttpConfig} from '../agent-service-factory.js'
 
 import {createSessionServices} from '../agent-service-factory.js'
 import {ChatSession} from './chat-session.js'
@@ -25,7 +25,7 @@ export interface SessionManagerOptions {
  */
 export class SessionManager {
   private readonly config: Required<SessionManagerConfig>
-  private readonly grpcConfig: ByteRoverGrpcConfig
+  private readonly httpConfig: ByteRoverHttpConfig
   private readonly llmConfig: {
     httpReferer?: string
     maxIterations?: number
@@ -43,7 +43,7 @@ export class SessionManager {
    * Creates a new session manager
    *
    * @param sharedServices - Shared services from CipherAgent (ToolManager, SystemPromptManager, etc.)
-   * @param grpcConfig - gRPC client configuration
+   * @param httpConfig - HTTP client configuration
    * @param llmConfig - LLM service configuration
    * @param llmConfig.openRouterApiKey - Optional OpenRouter API key for direct service
    * @param llmConfig.httpReferer - Optional HTTP Referer for OpenRouter rankings
@@ -57,7 +57,7 @@ export class SessionManager {
    */
   public constructor(
     sharedServices: CipherAgentServices,
-    grpcConfig: ByteRoverGrpcConfig,
+    httpConfig: ByteRoverHttpConfig,
     llmConfig: {
       httpReferer?: string
       maxIterations?: number
@@ -70,7 +70,7 @@ export class SessionManager {
     options?: SessionManagerOptions,
   ) {
     this.sharedServices = sharedServices
-    this.grpcConfig = grpcConfig
+    this.httpConfig = httpConfig
     this.llmConfig = llmConfig
     this.config = {
       maxSessions: options?.config?.maxSessions ?? 100,
@@ -213,7 +213,7 @@ export class SessionManager {
    */
   private async createSessionInternal(id: string): Promise<IChatSession> {
     // Create session-specific services using factory
-    const sessionServices = createSessionServices(id, this.sharedServices, this.grpcConfig, this.llmConfig)
+    const sessionServices = createSessionServices(id, this.sharedServices, this.httpConfig, this.llmConfig)
 
     // Create session with both shared and session services
     const session = new ChatSession(id, this.sharedServices, sessionServices)

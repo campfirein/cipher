@@ -1,8 +1,8 @@
 /**
  * ByteRover Content Generator.
  *
- * Implements IContentGenerator using ByteRover gRPC service.
- * Supports both Claude and Gemini models through the unified gRPC interface.
+ * Implements IContentGenerator using ByteRover HTTP service.
+ * Supports both Claude and Gemini models through the unified HTTP interface.
  */
 
 // @ts-expect-error - Internal SDK path not exported in package.json, but exists and works at runtime
@@ -24,7 +24,7 @@ import type {
 import type {IMessageFormatter} from '../../../../core/interfaces/cipher/i-message-formatter.js'
 import type {ITokenizer} from '../../../../core/interfaces/cipher/i-tokenizer.js'
 import type {InternalMessage} from '../../../../core/interfaces/cipher/message-types.js'
-import type {ByteRoverLlmGrpcService} from '../../grpc/internal-llm-grpc-service.js'
+import type {ByteRoverLlmHttpService} from '../../http/internal-llm-http-service.js'
 
 import {ClaudeMessageFormatter} from '../formatters/claude-formatter.js'
 import {GeminiMessageFormatter} from '../formatters/gemini-formatter.js'
@@ -49,7 +49,7 @@ export interface ByteRoverContentGeneratorConfig {
 /**
  * ByteRover Content Generator.
  *
- * Wraps ByteRoverLlmGrpcService and implements IContentGenerator.
+ * Wraps ByteRoverLlmHttpService and implements IContentGenerator.
  * Handles:
  * - Provider detection (Claude vs Gemini)
  * - Message formatting via provider-specific formatters
@@ -64,18 +64,18 @@ export class ByteRoverContentGenerator implements IContentGenerator {
     thinkingConfig?: ThinkingConfig
   }
   private readonly formatter: IMessageFormatter<Content | MessageParam>
-  private readonly grpcService: ByteRoverLlmGrpcService
+  private readonly httpService: ByteRoverLlmHttpService
   private readonly providerType: 'claude' | 'gemini'
   private readonly tokenizer: ITokenizer
 
   /**
    * Create a new ByteRover Content Generator.
    *
-   * @param grpcService - Configured gRPC service for LLM API calls
+   * @param httpService - Configured HTTP service for LLM API calls
    * @param config - Generator configuration
    */
-  constructor(grpcService: ByteRoverLlmGrpcService, config: ByteRoverContentGeneratorConfig) {
-    this.grpcService = grpcService
+  constructor(httpService: ByteRoverLlmHttpService, config: ByteRoverContentGeneratorConfig) {
+    this.httpService = httpService
     this.config = {
       maxTokens: config.maxTokens ?? 8192,
       model: config.model,
@@ -130,7 +130,7 @@ export class ByteRoverContentGenerator implements IContentGenerator {
       ...(request.executionContext && {executionContext: request.executionContext}),
     }
 
-    const rawResponse = await this.grpcService.generateContent(
+    const rawResponse = await this.httpService.generateContent(
       contents as Content[] | MessageCreateParamsNonStreaming,
       config as GenerateContentConfig | RequestOptions,
       this.config.model,
