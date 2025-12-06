@@ -16,6 +16,7 @@
     "@inquirer/prompts": "^7.9.0",
     "@oclif/core": "^4",
     "@oclif/plugin-help": "^6",
+    "@types/update-notifier": "^6.0.8",
     "axios": "^1.12.2",
     "better-sqlite3": "^11.5.0",
     "chalk": "^5.6.2",
@@ -30,6 +31,7 @@
     "nanoid": "^5.1.6",
     "open": "^10.2.0",
     "openai": "^6.9.1",
+    "update-notifier": "^7.3.1",
     "zod": "^3.25.76",
     "zod-to-json-schema": "^3.24.6"
   },
@@ -75,7 +77,10 @@
     "dirname": "brv",
     "commands": "./dist/commands",
     "hooks": {
-      "init": "./dist/hooks/init/welcome",
+      "init": [
+        "./dist/hooks/init/welcome",
+        "./dist/hooks/init/update-notifier"
+      ],
       "command_not_found": "./dist/hooks/command_not_found/handle-invalid-commands",
       "error": "./dist/hooks/error/clean-errors",
       "prerun": "./dist/hooks/prerun/validate-brv-config-version"
