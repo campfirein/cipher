@@ -163,6 +163,8 @@ export const DirectoryManager = {
    * @param content - Content to write
    */
   async writeFileAtomic(filePath: string, content: string): Promise<void> {
+    // Ensure parent directory exists before writing
+    await this.ensureParentDirectory(filePath)
     const tempPath = `${filePath}.tmp`
     await fs.writeFile(tempPath, content, 'utf8')
     await fs.rename(tempPath, filePath)
