@@ -1,6 +1,6 @@
 import {expect} from 'chai'
 
-import {CallbackServer} from '../../../../src/infra/http/callback-server'
+import {CallbackServer} from '../../../../src/infra/http/callback-server.js'
 
 describe('CallbackServer', () => {
   let server: CallbackServer | undefined
@@ -65,7 +65,7 @@ describe('CallbackServer', () => {
       const internalState = 'expected-state'
       const receivedState = 'wrong-state'
 
-      const callbackPromise = server.waitForCallback(internalState, 5000).catch((error) => error)
+      const callbackPromise = server.waitForCallback(internalState, 5000).catch((error: Error) => error)
       // eslint-disable-next-line n/no-unsupported-features/node-builtins
       await fetch(`http://localhost:${port}/callback?code=auth-code&state=${receivedState}`)
 

@@ -1,6 +1,6 @@
 import type {Config} from '@oclif/core'
 
-import {Config as OclifConfig} from '@oclif/core'
+import {Config as OclifConfig, ux} from '@oclif/core'
 import {expect} from 'chai'
 import sinon, {restore, type SinonStub, stub} from 'sinon'
 
@@ -10,6 +10,7 @@ import type {ISpaceService} from '../../../src/core/interfaces/i-space-service.j
 import type {ITokenStore} from '../../../src/core/interfaces/i-token-store.js'
 
 import SpaceList from '../../../src/commands/space/list.js'
+import {BRV_CONFIG_VERSION} from '../../../src/constants.js'
 import {AuthToken} from '../../../src/core/domain/entities/auth-token.js'
 import {BrvConfig} from '../../../src/core/domain/entities/brv-config.js'
 import {Space as SpaceImpl} from '../../../src/core/domain/entities/space.js'
@@ -71,7 +72,6 @@ describe('SpaceList Command', () => {
 
   beforeEach(async () => {
     // Stub ux.action methods to suppress output
-    const {ux} = await import('@oclif/core')
     uxActionStartStub = stub(ux.action, 'start')
     uxActionStopStub = stub(ux.action, 'stop')
 
@@ -101,7 +101,17 @@ describe('SpaceList Command', () => {
       userId: 'user-list',
     })
 
-    testBrConfig = new BrvConfig(new Date().toISOString(), 'space-1', 'frontend-app', 'team-1', 'acme-corp')
+    testBrConfig = new BrvConfig({
+      chatLogPath: 'chat.log',
+      createdAt: new Date().toISOString(),
+      cwd: '/test/cwd',
+      ide: 'Claude Code',
+      spaceId: 'space-1',
+      spaceName: 'frontend-app',
+      teamId: 'team-1',
+      teamName: 'acme-corp',
+      version: BRV_CONFIG_VERSION,
+    })
 
     testSpaces = [
       new SpaceImpl('space-1', 'frontend-app', 'team-1', 'acme-corp'),

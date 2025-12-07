@@ -1,36 +1,54 @@
 {
   "name": "byterover-cli",
   "description": "ByteRover's CLI",
-  "version": "0.2.1",
+  "version": "0.3.3",
   "author": "ByteRover",
   "bin": {
     "brv": "./bin/run.js"
   },
   "bugs": "https://github.com/campfirein/byterover-cli/issues",
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.70.1",
+    "@anthropic-ai/vertex-sdk": "^0.14.0",
+    "@google/genai": "^1.29.0",
+    "@grpc/grpc-js": "^1.10.0",
+    "@grpc/proto-loader": "^0.7.13",
     "@inquirer/prompts": "^7.9.0",
     "@oclif/core": "^4",
     "@oclif/plugin-help": "^6",
     "axios": "^1.12.2",
+    "better-sqlite3": "^11.5.0",
     "chalk": "^5.6.2",
+    "chokidar": "^4.0.3",
     "express": "^5.1.0",
+    "glob": "^11.0.3",
+    "ignore": "^7.0.5",
+    "inquirer-file-selector": "^1.0.1",
+    "js-yaml": "^4.1.1",
     "keytar": "^7.9.0",
     "mixpanel": "^0.18.1",
-    "open": "^10.2.0"
+    "nanoid": "^5.1.6",
+    "open": "^10.2.0",
+    "openai": "^6.9.1",
+    "zod": "^3.25.76",
+    "zod-to-json-schema": "^3.24.6"
   },
   "devDependencies": {
     "@eslint/compat": "^1",
     "@oclif/prettier-config": "^0.2.1",
     "@oclif/test": "^4",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/chai": "^4",
     "@types/express": "^5.0.3",
+    "@types/js-yaml": "^4.0.9",
     "@types/mocha": "^10",
-    "@types/node": "^18",
+    "@types/node": "^20",
     "@types/sinon": "^17.0.4",
     "chai": "^4",
     "eslint": "^9",
     "eslint-config-oclif": "^6",
     "eslint-config-prettier": "^10",
+    "expect-type": "^1.2.2",
     "mocha": "^10",
     "nock": "^14.0.10",
     "oclif": "^4",
@@ -40,7 +58,7 @@
     "typescript": "^5"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=20.0.0"
   },
   "files": [
     "./bin",
@@ -57,7 +75,10 @@
     "dirname": "brv",
     "commands": "./dist/commands",
     "hooks": {
-      "init": "./dist/hooks/init/welcome"
+      "init": "./dist/hooks/init/welcome",
+      "command_not_found": "./dist/hooks/command_not_found/handle-invalid-commands",
+      "error": "./dist/hooks/error/clean-errors",
+      "prerun": "./dist/hooks/prerun/validate-brv-config-version"
     },
     "plugins": [
       "@oclif/plugin-help"
@@ -71,11 +92,11 @@
   },
   "repository": "campfirein/byterover-cli",
   "scripts": {
-    "build": "shx rm -rf dist && tsc -b && shx cp -r src/templates dist/templates",
+    "build": "shx rm -rf dist && tsc -b && shx cp -r src/templates dist/templates && shx cp -r src/resources dist/resources && shx cp src/infra/cipher/grpc/internal-llm-grpc.proto dist/infra/cipher/grpc/",
     "lint": "eslint",
     "postpack": "shx rm -f oclif.manifest.json",
     "posttest": "npm run lint",
-    "prepack": "npm run build && oclif manifest",
+    "prepack": "npm run build && BRV_ENV=production oclif manifest",
     "test": "mocha --forbid-only \"test/**/*.test.ts\"",
     "version": "git add README.md"
   },

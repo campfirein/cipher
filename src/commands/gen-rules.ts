@@ -1,5 +1,5 @@
 import {confirm, search, select} from '@inquirer/prompts'
-import {Command} from '@oclif/core'
+import {Command, Flags} from '@oclif/core'
 
 import type {Agent} from '../core/domain/entities/agent.js'
 import type {IFileService, WriteMode} from '../core/interfaces/i-file-service.js'
@@ -31,6 +31,12 @@ const AGENTS = AGENT_VALUES.map((agent) => ({
 export default class GenRules extends Command {
   static override description = 'Generate rule instructions for coding agents to work with ByteRover correctly'
   static override examples = ['<%= config.bin %> <%= command.id %>']
+  static override flags = {
+    agent: Flags.string({
+      char: 'a',
+      description: 'Agent to generate rules for (optional, will prompt if not provided)',
+    }),
+  }
 
   protected createServices(): {
     fileService: IFileService

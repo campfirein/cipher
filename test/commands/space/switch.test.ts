@@ -1,14 +1,15 @@
-import type {Config} from '@oclif/core'
-
+import {Config, ux} from '@oclif/core'
 import {expect} from 'chai'
-import {type SinonStub, stub} from 'sinon'
+import {restore, type SinonStub, stub} from 'sinon'
 
+import type {Agent} from '../../../src/core/domain/entities/agent.js'
 import type {IProjectConfigStore} from '../../../src/core/interfaces/i-project-config-store.js'
 import type {ISpaceService} from '../../../src/core/interfaces/i-space-service.js'
 import type {ITeamService} from '../../../src/core/interfaces/i-team-service.js'
 import type {ITokenStore} from '../../../src/core/interfaces/i-token-store.js'
 
 import SpaceSwitch from '../../../src/commands/space/switch.js'
+import {BRV_CONFIG_VERSION} from '../../../src/constants.js'
 import {AuthToken} from '../../../src/core/domain/entities/auth-token.js'
 import {BrvConfig} from '../../../src/core/domain/entities/brv-config.js'
 import {Space} from '../../../src/core/domain/entities/space.js'
@@ -50,6 +51,10 @@ class TestableSpaceSwitch extends SpaceSwitch {
 
   public log(): void {
     // Do nothing - suppress output
+  }
+
+  protected async promptForAgentSelection(): Promise<Agent> {
+    return 'Claude Code'
   }
 
   protected async promptForSpaceSelection(_spaces: Space[]): Promise<Space> {
@@ -94,11 +99,9 @@ describe('space:switch', () => {
   let uxActionStopStub: SinonStub
 
   beforeEach(async () => {
-    const {Config} = await import('@oclif/core')
     oclifConfig = await Config.load(import.meta.url)
 
     // Stub ux.action methods to suppress output
-    const {ux} = await import('@oclif/core')
     uxActionStartStub = stub(ux.action, 'start')
     uxActionStopStub = stub(ux.action, 'stop')
 
@@ -160,13 +163,24 @@ describe('space:switch', () => {
       }),
     ]
 
-    currentConfig = new BrvConfig('2024-01-01T00:00:00.000Z', 'space-1', 'frontend-app', 'team-1', 'acme-corp')
+    currentConfig = new BrvConfig({
+      chatLogPath: 'chat.log',
+      createdAt: '2024-01-01T00:00:00.000Z',
+      cwd: '/test/cwd',
+      ide: 'Claude Code',
+      spaceId: 'space-1',
+      spaceName: 'frontend-app',
+      teamId: 'team-1',
+      teamName: 'acme-corp',
+      version: BRV_CONFIG_VERSION,
+    })
   })
 
   afterEach(() => {
-    // Restore ux.action stubs
+    // Restore all stubs
     uxActionStartStub.restore()
     uxActionStopStub.restore()
+    restore()
   })
 
   it('should error if project not initialized', async () => {

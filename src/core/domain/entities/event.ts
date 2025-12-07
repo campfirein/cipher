@@ -7,12 +7,11 @@ export const EVENT_VALUES = [
   'space:init',
   'space:changed',
   'rule:generate',
-  'ace:add_bullet',
-  'ace:update_bullet',
-  'ace:remove_bullet',
-  'ace:view_status',
+  'mem:status',
+  'mem:curate',
+  'mem:pull',
   'mem:push',
-  'mem:retrieve',
+  'mem:query',
 ] as const
 
 export type EventName = (typeof EVENT_VALUES)[number]

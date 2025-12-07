@@ -13,3 +13,6 @@ yarn.lock
 pnpm-lock.yaml
 
 .npmrc
+
+# ByteRover workspace (local development only)
+.brv/

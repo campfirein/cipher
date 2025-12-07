@@ -5,6 +5,8 @@ import {Config as OclifConfig} from '@oclif/core'
 import {expect} from 'chai'
 import {restore, stub} from 'sinon'
 
+import hook from '../../../src/hooks/init/welcome.js'
+
 describe('welcome init hook', () => {
   let config: Config
   let logStub: SinonStub
@@ -40,9 +42,6 @@ describe('welcome init hook', () => {
 
   describe('should show banner for root help', () => {
     it('shows banner for bare command (brv)', async () => {
-      // Dynamic import to ensure fresh module
-      const {default: hook} = await import('../../../src/hooks/init/welcome.js')
-
       const context = createContext()
       await hook.call(context, {
         argv: [],
@@ -55,8 +54,6 @@ describe('welcome init hook', () => {
     })
 
     it('shows banner for --help flag (brv --help)', async () => {
-      const {default: hook} = await import('../../../src/hooks/init/welcome.js')
-
       const context = createContext()
       await hook.call(context, {
         argv: [],
@@ -69,8 +66,6 @@ describe('welcome init hook', () => {
     })
 
     it('shows banner for help command (brv help)', async () => {
-      const {default: hook} = await import('../../../src/hooks/init/welcome.js')
-
       const context = createContext()
       await hook.call(context, {
         argv: [],
@@ -85,8 +80,6 @@ describe('welcome init hook', () => {
 
   describe('should NOT show banner for non-root-help commands', () => {
     it('does not show banner for regular command (brv login)', async () => {
-      const {default: hook} = await import('../../../src/hooks/init/welcome.js')
-
       const context = createContext()
       await hook.call(context, {
         argv: ['login'],
@@ -99,8 +92,6 @@ describe('welcome init hook', () => {
     })
 
     it('does not show banner for another regular command (brv status)', async () => {
-      const {default: hook} = await import('../../../src/hooks/init/welcome.js')
-
       const context = createContext()
       await hook.call(context, {
         argv: ['status'],
@@ -113,8 +104,6 @@ describe('welcome init hook', () => {
     })
 
     it('does not show banner for command-specific help (brv help login)', async () => {
-      const {default: hook} = await import('../../../src/hooks/init/welcome.js')
-
       const context = createContext()
       await hook.call(context, {
         argv: ['help', 'login'],
@@ -127,8 +116,6 @@ describe('welcome init hook', () => {
     })
 
     it('does not show banner for command with --help flag (brv login --help)', async () => {
-      const {default: hook} = await import('../../../src/hooks/init/welcome.js')
-
       const context = createContext()
       await hook.call(context, {
         argv: ['login', '--help'],

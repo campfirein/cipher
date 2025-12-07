@@ -24,16 +24,15 @@ The main template structure that combines all sections into the final output.
 - `{{command_reference}}` - Content from `sections/command-reference.md`
 
 ### `sections/workflow.md`
-Complete guide to the ACE (Agentic Context Engineering) workflow:
+Complete guide to the context tree workflow:
 - Quick start examples
-- Command reference for ACE commands
-- ADD vs UPDATE modes explanation
-- Best practices for using ACE
+- Command reference for context management
+- Best practices for using context tree
 - Examples with real use cases
 
 ### `sections/command-reference.md`
 Comprehensive documentation of all BR CLI commands:
-- Root commands (login, init, status, add, gen-rules, ace, push, retrieve, show, clear)
+- Root commands (login, init, status, add, gen-rules, push, watch, cipher-agent)
 - Space commands (list, switch)
 
 Each command includes:
@@ -64,7 +63,7 @@ The template system supports simple variable substitution using `{{variable_name
 ### To Update Command Documentation:
 Edit `sections/command-reference.md` - changes will be reflected next time `brv gen-rules` runs.
 
-### To Update ACE Workflow Guide:
+### To Update Context Tree Workflow Guide:
 Edit `sections/workflow.md` - changes will be reflected next time `brv gen-rules` runs.
 
 ### To Change Output Structure:
@@ -83,7 +82,7 @@ This template system is designed to support future improvements:
 - Context-aware content (show different sections based on project state)
 - Agent-specific customizations (per-agent template overrides)
 - Conditional sections (e.g., show memory commands only if authenticated)
-- Dynamic variable injection (project status, playbook stats, etc.)
+- Dynamic variable injection (project status, context tree stats, etc.)
 
 ## Technical Details
 
