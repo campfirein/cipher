@@ -27,7 +27,7 @@ export const mapToPushContexts = (params: MapToPushContextsParams): CogitPushCon
       new CogitPushContext({
         content: file.content,
         operation: 'add',
-        path: `/${file.path}`,
+        path: file.path,
         tags: [],
         title: file.title,
       }),
@@ -38,18 +38,18 @@ export const mapToPushContexts = (params: MapToPushContextsParams): CogitPushCon
       new CogitPushContext({
         content: file.content,
         operation: 'edit',
-        path: `/${file.path}`,
+        path: file.path,
         tags: [],
         title: file.title,
       }),
   )
 
   const deletedContextFiles = params.deletedPaths.map(
-    (path) =>
+    (deletedPath) =>
       new CogitPushContext({
         content: '',
         operation: 'delete',
-        path: `/${path}`,
+        path: deletedPath,
         tags: [],
         title: '',
       }),

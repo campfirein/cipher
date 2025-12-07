@@ -75,7 +75,7 @@ describe('HttpCogitPushService', () => {
 
         await service.push(basePushParams)
 
-        expect((capturedBody as Record<string, unknown>).current_sha).to.equal('')
+        expect((capturedBody as Record<string, unknown>).current_sha).to.equal('sha_placeholder')
       })
 
       it('should retry with extracted SHA when first request fails with SHA error', async () => {
@@ -87,7 +87,7 @@ describe('HttpCogitPushService', () => {
           .reply(400, (_uri, body) => {
             requestBodies.push(body)
             return {
-              details: "Expected SHA 'abc123' but current SHA is 'def456789abcdef'",
+              error: "Expected SHA 'abc123' but current SHA is 'def456789abcdef'",
               message: 'SHA mismatch',
               success: false,
             }
@@ -109,8 +109,8 @@ describe('HttpCogitPushService', () => {
 
         expect(result.success).to.equal(true)
 
-        // Verify first request had empty SHA
-        expect((requestBodies[0] as Record<string, unknown>).current_sha).to.equal('')
+        // Verify first request had placeholder SHA
+        expect((requestBodies[0] as Record<string, unknown>).current_sha).to.equal('sha_placeholder')
 
         // Verify second request used extracted SHA
         expect((requestBodies[1] as Record<string, unknown>).current_sha).to.equal('def456789abcdef')
@@ -138,7 +138,7 @@ describe('HttpCogitPushService', () => {
         nock('https://dev-beta-cogit.byterover.dev')
           .post('/api/v1/organizations/team-123/projects/space-456/commits')
           .reply(400, {
-            details: "Expected SHA 'xxx' but current SHA is 'abc123'",
+            error: "Expected SHA 'xxx' but current SHA is 'abc123'",
             message: 'SHA mismatch',
             success: false,
           })
@@ -191,7 +191,7 @@ describe('HttpCogitPushService', () => {
 
         expect(capturedBody).to.deep.equal({
           branch: 'develop',
-          current_sha: '',
+          current_sha: 'sha_placeholder',
           memories: [
             {
               content: 'My content here',
@@ -333,7 +333,7 @@ describe('HttpCogitPushService', () => {
           .reply(400, (_uri, body) => {
             requestBodies.push(body)
             return {
-              details: "Expected SHA '' but current SHA is 'a1b2c3d4e5f6'",
+              error: "Expected SHA '' but current SHA is 'a1b2c3d4e5f6'",
               message: 'SHA mismatch',
               success: false,
             }
@@ -363,7 +363,7 @@ describe('HttpCogitPushService', () => {
           .reply(400, (_uri, body) => {
             requestBodies.push(body)
             return {
-              details: "Current SHA IS 'ABCDEF123456'",
+              error: "Current SHA IS 'ABCDEF123456'",
               message: 'SHA mismatch',
               success: false,
             }

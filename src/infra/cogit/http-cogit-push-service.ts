@@ -32,8 +32,8 @@ type PushApiResponse = {
 }
 
 type PushApiErrorResponse = {
-  details?: string
-  message: string
+  code: string
+  error?: string
   success: boolean
 }
 
@@ -82,6 +82,8 @@ export class HttpCogitPushService implements ICogitPushService {
       title: context.title,
     }))
 
+    console.log('memories', memories)
+
     // First request: Send with empty current_sha
     // This is a temporary workaround to let CoGit determine the current SHA.
     // In the future, we need to generate the SHA from the CLI.
@@ -89,13 +91,14 @@ export class HttpCogitPushService implements ICogitPushService {
       const response = await this.makeRequest({
         accessToken: params.accessToken,
         branch: params.branch,
-        currentSha: '',
+        currentSha: 'sha_placeholder',
         memories,
         sessionKey: params.sessionKey,
         url,
       })
       return response
     } catch (error) {
+      console.log(error)
       // Try to extract SHA from error response
       const sha = this.extractShaFromError(error)
       if (!sha) {
@@ -130,8 +133,8 @@ export class HttpCogitPushService implements ICogitPushService {
       'data' in error.response
     ) {
       const errorResponse = error.response.data as PushApiErrorResponse
-      if (errorResponse.details) {
-        return extractShaFromErrorDetails(errorResponse.details)
+      if (errorResponse.error) {
+        return extractShaFromErrorDetails(errorResponse.error)
       }
     }
 
