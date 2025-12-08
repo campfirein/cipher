@@ -12,7 +12,8 @@ import type {
   MessageCreateParamsNonStreaming,
   MessageParam,
 } from '@anthropic-ai/sdk/resources/messages'
-import type {Content, GenerateContentConfig} from '@google/genai'
+
+import {type Content, FunctionCallingConfigMode, type GenerateContentConfig} from '@google/genai'
 
 import type {ToolSet} from '../../../../core/domain/cipher/tools/types.js'
 import type {
@@ -234,6 +235,11 @@ export class ByteRoverContentGenerator implements IContentGenerator {
       topP: 1,
       ...(systemPrompt && {systemInstruction: {parts: [{text: systemPrompt}]}}),
       ...(toolDefinitions.length > 0 && {
+        toolConfig: {
+          functionCallingConfig: {
+            mode: FunctionCallingConfigMode.VALIDATED,
+          },
+        },
         tools: [
           {
             functionDeclarations: toolDefinitions,
