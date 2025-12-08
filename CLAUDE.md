@@ -85,13 +85,18 @@ All have `toJSON()`/`fromJSON()`, immutable readonly properties
 
 - `RuleTemplateService` - Load rule templates
 - `RuleWriterService` - Write rules to agent-specific locations
+- `LegacyRuleDetector` - Detect legacy ByteRover rules (without boundary markers) for migration
 - `agent-rule-config.ts` - Agent-specific rule file paths
 
 ### Config
 
-- `environment.ts` - Dev/Prod URLs. Exports: `issuerUrl`, `clientId`, `scopes`, `apiBaseUrl`, `cogitApiBaseUrl`, `llmGrpcEndpoint`
+- `environment.ts` - Dev/Prod config. Exports: `getCurrentConfig()` (returns all URLs/tokens), `isDevelopment()`, `ENV_CONFIG`
 - `auth.config.ts` - OIDC discovery (1h cache, 3 retries, 5s timeout, hardcoded fallback)
 - `context-tree-domains.ts` - Context tree domain definitions
+
+### Hooks (`src/hooks/`)
+
+- `init/update-notifier.ts` - Auto-update notification on CLI start (24h check interval), optional npm update prompt
 
 ### Commands
 
@@ -116,13 +121,14 @@ protected createServices(): {myService: IMyService} {
 - `brv push [--branch <name>] [--yes]` - Default: `main` (ByteRover, not git). Snapshots and pushes to cloud
 - `brv pull [--branch <name>]` - Pull snapshot from cloud and sync to local context tree
 - `brv gen-rules` - Generate agent-specific rule files from context tree
+- `brv clear [--yes]` - Reset context tree to default 6 domains (destructive)
 
 **Space Management**:
 
 - `brv space list` - Default 50, needs `--all` or manual pagination
 - `brv space switch` - Switch space (**no context tree init**)
 
-**Dev-Only Commands** (require `BR_ENV=development`):
+**Dev-Only Commands** (require `BRV_ENV=development`):
 
 - `brv query` - Query context tree
 - `brv watch` - Watch filesystem for changes, trigger parsing pipeline
@@ -168,7 +174,7 @@ protected createServices(): {myService: IMyService} {
 
 ## Environment
 
-- `BR_ENV` - `development` | `production` (dev-only commands require `development`)
+- `BRV_ENV` - `development` | `production` (dev-only commands require `development`, set by bin/dev.js and bin/run.js)
 - `BR_NPM_LOG_LEVEL`, `BR_NPM_REGISTRY`
 
 ## Stack
