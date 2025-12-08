@@ -82,8 +82,6 @@ export class HttpCogitPushService implements ICogitPushService {
       title: context.title,
     }))
 
-    console.log('memories', memories)
-
     // First request: Send with empty current_sha
     // This is a temporary workaround to let CoGit determine the current SHA.
     // In the future, we need to generate the SHA from the CLI.
@@ -98,7 +96,6 @@ export class HttpCogitPushService implements ICogitPushService {
       })
       return response
     } catch (error) {
-      console.log(error)
       // Try to extract SHA from error response
       const sha = this.extractShaFromError(error)
       if (!sha) {
