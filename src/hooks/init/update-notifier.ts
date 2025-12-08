@@ -40,14 +40,9 @@ export async function handleUpdateNotification(deps: UpdateNotifierDeps): Promis
 
   const {current, latest} = notifier.update
 
-  notifier.notify({
-    defer: false,
-    message: `Update available: ${current} → ${latest}`,
-  })
-
   const shouldUpdate = await confirmPrompt({
     default: true,
-    message: 'Would you like to update now?',
+    message: `Update available: ${current} → ${latest}. Would you like to update now?`,
   })
 
   if (shouldUpdate) {
