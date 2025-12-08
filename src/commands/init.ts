@@ -371,6 +371,15 @@ export default class Init extends Command {
     return 'type' in config && config.type === 'legacy'
   }
 
+  /**
+   * Checks if the given path represents a README.md placeholder file.
+   * Handles both legacy paths with leading slash and new paths without.
+   */
+  protected isReadmePlaceholder(path: string): boolean {
+    const normalizedPath = path.replace(/^\/+/, '')
+    return normalizedPath === 'README.md'
+  }
+
   protected async promptAceDeprecationRemoval(): Promise<boolean> {
     this.log('\n The ACE system is being deprecated.')
     this.log(' ByteRover is migrating to the new Context Tree system for improved')
@@ -615,7 +624,7 @@ export default class Init extends Command {
       // CoGit follows Git semantics - empty repos have a README.md placeholder
       const isEmptySpace =
         coGitSnapshot.files.length === 0 ||
-        (coGitSnapshot.files.length === 1 && coGitSnapshot.files[0].path === '/README.md')
+        (coGitSnapshot.files.length === 1 && this.isReadmePlaceholder(coGitSnapshot.files[0].path))
 
       if (isEmptySpace) {
         // Remote is empty - ignore placeholder, create templates with empty snapshot

@@ -328,7 +328,7 @@ describe('Push Command', () => {
       expect(pushCall.args[0].teamId).to.equal('team-456')
       expect(pushCall.args[0].spaceId).to.equal('space-123')
       expect(pushCall.args[0].contexts).to.have.lengthOf(1)
-      expect(pushCall.args[0].contexts[0].path).to.equal('/test/context.md')
+      expect(pushCall.args[0].contexts[0].path).to.equal('test/context.md')
       expect(pushCall.args[0].contexts[0].title).to.equal('My Title')
       expect(pushCall.args[0].contexts[0].operation).to.equal('add')
     })
@@ -660,9 +660,9 @@ describe('Push Command', () => {
 
       const pushCall = cogitPushService.push.getCall(0)
       expect(pushCall.args[0].contexts).to.have.lengthOf(3)
-      expect(pushCall.args[0].contexts[0].path).to.equal('/first/context.md')
-      expect(pushCall.args[0].contexts[1].path).to.equal('/second/context.md')
-      expect(pushCall.args[0].contexts[2].path).to.equal('/third/context.md')
+      expect(pushCall.args[0].contexts[0].path).to.equal('first/context.md')
+      expect(pushCall.args[0].contexts[1].path).to.equal('second/context.md')
+      expect(pushCall.args[0].contexts[2].path).to.equal('third/context.md')
     })
   })
 
@@ -735,7 +735,7 @@ describe('Push Command', () => {
       const pushCall = cogitPushService.push.getCall(0)
       expect(pushCall.args[0].contexts).to.have.lengthOf(1)
       expect(pushCall.args[0].contexts[0].operation).to.equal('edit')
-      expect(pushCall.args[0].contexts[0].path).to.equal('/existing/context.md')
+      expect(pushCall.args[0].contexts[0].path).to.equal('existing/context.md')
     })
 
     it('should handle both added and modified files together', async () => {
@@ -774,9 +774,9 @@ describe('Push Command', () => {
       const pushCall = cogitPushService.push.getCall(0)
       expect(pushCall.args[0].contexts).to.have.lengthOf(2)
       expect(pushCall.args[0].contexts[0].operation).to.equal('add')
-      expect(pushCall.args[0].contexts[0].path).to.equal('/new/context.md')
+      expect(pushCall.args[0].contexts[0].path).to.equal('new/context.md')
       expect(pushCall.args[0].contexts[1].operation).to.equal('edit')
-      expect(pushCall.args[0].contexts[1].path).to.equal('/existing/context.md')
+      expect(pushCall.args[0].contexts[1].path).to.equal('existing/context.md')
     })
 
     it('should trigger push when only modified files exist', async () => {
@@ -861,7 +861,7 @@ describe('Push Command', () => {
       const pushCall = cogitPushService.push.getCall(0)
       expect(pushCall.args[0].contexts).to.have.lengthOf(1)
       expect(pushCall.args[0].contexts[0].operation).to.equal('delete')
-      expect(pushCall.args[0].contexts[0].path).to.equal('/obsolete/context.md')
+      expect(pushCall.args[0].contexts[0].path).to.equal('obsolete/context.md')
       expect(pushCall.args[0].contexts[0].content).to.equal('')
       expect(pushCall.args[0].contexts[0].title).to.equal('')
     })
@@ -902,11 +902,11 @@ describe('Push Command', () => {
       const pushCall = cogitPushService.push.getCall(0)
       expect(pushCall.args[0].contexts).to.have.lengthOf(3)
       expect(pushCall.args[0].contexts[0].operation).to.equal('add')
-      expect(pushCall.args[0].contexts[0].path).to.equal('/new/context.md')
+      expect(pushCall.args[0].contexts[0].path).to.equal('new/context.md')
       expect(pushCall.args[0].contexts[1].operation).to.equal('edit')
-      expect(pushCall.args[0].contexts[1].path).to.equal('/existing/context.md')
+      expect(pushCall.args[0].contexts[1].path).to.equal('existing/context.md')
       expect(pushCall.args[0].contexts[2].operation).to.equal('delete')
-      expect(pushCall.args[0].contexts[2].path).to.equal('/obsolete/context.md')
+      expect(pushCall.args[0].contexts[2].path).to.equal('obsolete/context.md')
     })
 
     it('should trigger push when only deleted files exist', async () => {
@@ -946,9 +946,9 @@ describe('Push Command', () => {
       const pushCall = cogitPushService.push.getCall(0)
       expect(pushCall.args[0].contexts).to.have.lengthOf(2)
       expect(pushCall.args[0].contexts[0].operation).to.equal('delete')
-      expect(pushCall.args[0].contexts[0].path).to.equal('/file1/context.md')
+      expect(pushCall.args[0].contexts[0].path).to.equal('file1/context.md')
       expect(pushCall.args[0].contexts[1].operation).to.equal('delete')
-      expect(pushCall.args[0].contexts[1].path).to.equal('/file2/context.md')
+      expect(pushCall.args[0].contexts[1].path).to.equal('file2/context.md')
     })
 
     it('should not read deleted files from disk (only path needed)', async () => {
