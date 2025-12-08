@@ -50,12 +50,12 @@ describe('update-notifier hook', () => {
 
       await handleUpdateNotification(createDeps({notify: notifyStub, update: {current: '1.0.0', latest: '2.0.0'}}))
 
-      expect(notifyStub.calledOnce).to.be.true
-      expect(notifyStub.firstCall.args[0]).to.deep.equal({
-        defer: false,
-        message: 'Update available: 1.0.0 → 2.0.0',
-      })
+      expect(notifyStub.called).to.be.false
       expect(confirmStub.calledOnce).to.be.true
+      expect(confirmStub.firstCall.args[0]).to.deep.equal({
+        default: true,
+        message: 'Update available: 1.0.0 → 2.0.0. Would you like to update now?',
+      })
       expect(execSyncStub.called).to.be.false
     })
 
