@@ -80,6 +80,8 @@ export class FileContextTreeWriterService implements IContextTreeWriterService {
 
   /**
    * Normalizes a file path by removing leading slashes.
+   * Retained for backwards compatibility with legacy API responses
+   * that may still include leading slashes in paths.
    */
   private normalizePath(path: string): string {
     return path.replace(/^\/+/, '')

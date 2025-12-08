@@ -395,6 +395,190 @@ describe('FsFileService', () => {
     })
   })
 
+  describe('createBackup()', () => {
+    it('should create timestamped backup of existing file', async () => {
+      // Create source file
+      await mkdir(testDir, {recursive: true})
+      const sourceFile = join(testDir, 'source.txt')
+      const content = 'Original content'
+      await writeFile(sourceFile, content, 'utf8')
+
+      const backupPath = await service.createBackup(sourceFile)
+
+      // Verify backup was created
+      expect(await service.exists(backupPath)).to.be.true
+      // Verify backup has correct content
+      const backupContent = await service.read(backupPath)
+      expect(backupContent).to.equal(content)
+      // Verify original file still exists and unchanged
+      const originalContent = await service.read(sourceFile)
+      expect(originalContent).to.equal(content)
+    })
+
+    it('should create backup with timestamp in filename', async () => {
+      await mkdir(testDir, {recursive: true})
+      const sourceFile = join(testDir, 'file.txt')
+      await writeFile(sourceFile, 'content', 'utf8')
+
+      const backupPath = await service.createBackup(sourceFile)
+
+      // Verify backup path includes .backup- and timestamp pattern
+      expect(backupPath).to.include('.backup-')
+      expect(backupPath).to.include(sourceFile)
+      // Timestamp format should be YYYY-MM-DD-HH-MM-SS
+      expect(backupPath).to.match(/\.backup-\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}$/)
+    })
+
+    it('should preserve file content exactly in backup', async () => {
+      await mkdir(testDir, {recursive: true})
+      const sourceFile = join(testDir, 'complex.txt')
+      const complexContent = [
+        'Line 1 with special chars: ñ, é, 中文, 🚀',
+        'Line 2 with tabs:\t\t\ttab',
+        'Line 3 with quotes: "double" and \'single\'',
+        '',
+        'Line 5 after blank',
+        JSON.stringify({key: 'value'}),
+      ].join('\n')
+      await writeFile(sourceFile, complexContent, 'utf8')
+
+      const backupPath = await service.createBackup(sourceFile)
+
+      const backupContent = await service.read(backupPath)
+      expect(backupContent).to.equal(complexContent)
+    })
+
+    it('should throw error when source file does not exist', async () => {
+      const nonExistentFile = join(testDir, 'non-existent.txt')
+
+      try {
+        await service.createBackup(nonExistentFile)
+        expect.fail('Should have thrown error')
+      } catch (error) {
+        expect(error).to.be.an('error')
+        expect((error as Error).message).to.include(`Failed to create backup file '${nonExistentFile}'`)
+      }
+    })
+  })
+
+  describe('replaceContent()', () => {
+    it('should replace matching content in file', async () => {
+      await mkdir(testDir, {recursive: true})
+      const testFile = join(testDir, 'replace.txt')
+      const initialContent = 'Hello World, this is a test'
+      await writeFile(testFile, initialContent, 'utf8')
+
+      await service.replaceContent(testFile, 'World', 'Universe')
+
+      const updatedContent = await service.read(testFile)
+      expect(updatedContent).to.equal('Hello Universe, this is a test')
+    })
+
+    it('should replace multiline content', async () => {
+      await mkdir(testDir, {recursive: true})
+      const testFile = join(testDir, 'multiline-replace.txt')
+      const initialContent = ['Section A:', 'Line 1', 'Line 2', '', 'Section B:', 'Line 3'].join('\n')
+      await writeFile(testFile, initialContent, 'utf8')
+
+      const oldSection = ['Section A:', 'Line 1', 'Line 2'].join('\n')
+      const newSection = ['Section A (Updated):', 'New Line 1', 'New Line 2', 'New Line 3'].join('\n')
+
+      await service.replaceContent(testFile, oldSection, newSection)
+
+      const updatedContent = await service.read(testFile)
+      expect(updatedContent).to.include('Section A (Updated)')
+      expect(updatedContent).to.include('New Line 3')
+      expect(updatedContent).to.include('Section B')
+      expect(updatedContent).to.not.include(/^Line 1$/)
+    })
+
+    it('should replace first occurrence only', async () => {
+      await mkdir(testDir, {recursive: true})
+      const testFile = join(testDir, 'first-only.txt')
+      const initialContent = 'foo bar foo bar foo'
+      await writeFile(testFile, initialContent, 'utf8')
+
+      await service.replaceContent(testFile, 'foo', 'baz')
+
+      const updatedContent = await service.read(testFile)
+      // String.replace() only replaces first occurrence
+      expect(updatedContent).to.equal('baz bar foo bar foo')
+    })
+
+    it('should handle content with special regex characters', async () => {
+      await mkdir(testDir, {recursive: true})
+      const testFile = join(testDir, 'regex.txt')
+      const initialContent = 'Price: $100.00 (10% off)'
+      await writeFile(testFile, initialContent, 'utf8')
+
+      await service.replaceContent(testFile, '$100.00', '$90.00')
+
+      const updatedContent = await service.read(testFile)
+      expect(updatedContent).to.equal('Price: $90.00 (10% off)')
+    })
+
+    it('should preserve file structure when no match found', async () => {
+      await mkdir(testDir, {recursive: true})
+      const testFile = join(testDir, 'no-match.txt')
+      const initialContent = 'This content has no matches'
+      await writeFile(testFile, initialContent, 'utf8')
+
+      await service.replaceContent(testFile, 'non-existent', 'replacement')
+
+      const updatedContent = await service.read(testFile)
+      expect(updatedContent).to.equal(initialContent)
+    })
+
+    it('should handle empty new content (deletion)', async () => {
+      await mkdir(testDir, {recursive: true})
+      const testFile = join(testDir, 'delete.txt')
+      const initialContent = 'Keep this, delete that, keep this'
+      await writeFile(testFile, initialContent, 'utf8')
+
+      await service.replaceContent(testFile, 'delete that, ', '')
+
+      const updatedContent = await service.read(testFile)
+      expect(updatedContent).to.equal('Keep this, keep this')
+      expect(updatedContent).to.not.include('delete that')
+    })
+
+    it('should handle content with boundary markers (ByteRover use case)', async () => {
+      await mkdir(testDir, {recursive: true})
+      const testFile = join(testDir, 'markers.txt')
+      const initialContent = [
+        'User content',
+        '<!-- BEGIN BYTEROVER RULES -->',
+        'Old rules',
+        '<!-- END BYTEROVER RULES -->',
+        'More user content',
+      ].join('\n')
+      await writeFile(testFile, initialContent, 'utf8')
+
+      const oldSection = ['<!-- BEGIN BYTEROVER RULES -->', 'Old rules', '<!-- END BYTEROVER RULES -->'].join('\n')
+      const newSection = ['<!-- BEGIN BYTEROVER RULES -->', 'New rules', '<!-- END BYTEROVER RULES -->'].join('\n')
+
+      await service.replaceContent(testFile, oldSection, newSection)
+
+      const updatedContent = await service.read(testFile)
+      expect(updatedContent).to.include('New rules')
+      expect(updatedContent).to.not.include('Old rules')
+      expect(updatedContent).to.include('User content')
+      expect(updatedContent).to.include('More user content')
+    })
+
+    it('should throw error when file does not exist', async () => {
+      const nonExistentFile = join(testDir, 'non-existent.txt')
+
+      try {
+        await service.replaceContent(nonExistentFile, 'old', 'new')
+        expect.fail('Should have thrown error')
+      } catch (error) {
+        expect(error).to.be.an('error')
+        expect((error as Error).message).to.include(`Failed to replace content in file '${nonExistentFile}'`)
+      }
+    })
+  })
+
   describe('integration scenarios', () => {
     it('should support exists -> write -> read cycle', async () => {
       const testFile = join(testDir, 'cycle.txt')

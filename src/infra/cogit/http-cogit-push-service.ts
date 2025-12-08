@@ -32,8 +32,8 @@ type PushApiResponse = {
 }
 
 type PushApiErrorResponse = {
-  details?: string
-  message: string
+  code: string
+  error?: string
   success: boolean
 }
 
@@ -89,7 +89,7 @@ export class HttpCogitPushService implements ICogitPushService {
       const response = await this.makeRequest({
         accessToken: params.accessToken,
         branch: params.branch,
-        currentSha: '',
+        currentSha: 'sha_placeholder',
         memories,
         sessionKey: params.sessionKey,
         url,
@@ -130,8 +130,8 @@ export class HttpCogitPushService implements ICogitPushService {
       'data' in error.response
     ) {
       const errorResponse = error.response.data as PushApiErrorResponse
-      if (errorResponse.details) {
-        return extractShaFromErrorDetails(errorResponse.details)
+      if (errorResponse.error) {
+        return extractShaFromErrorDetails(errorResponse.error)
       }
     }
 

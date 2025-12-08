@@ -9,16 +9,10 @@ import type {Team} from '../../src/core/domain/entities/team.js'
 import type {ICogitPullService} from '../../src/core/interfaces/i-cogit-pull-service.js'
 import type {IContextTreeService} from '../../src/core/interfaces/i-context-tree-service.js'
 import type {IContextTreeWriterService} from '../../src/core/interfaces/i-context-tree-writer-service.js'
+import type {IFileService} from '../../src/core/interfaces/i-file-service.js'
+import type {ILegacyRuleDetector} from '../../src/core/interfaces/i-legacy-rule-detector.js'
 import type {IProjectConfigStore} from '../../src/core/interfaces/i-project-config-store.js'
-
-// Legacy IPlaybookService interface (ACE deprecated, kept for test compatibility)
-interface IPlaybookService {
-  addOrUpdateBullet: () => Promise<void>
-  applyDelta: () => Promise<void>
-  applyReflectionTags: () => Promise<void>
-  initialize: (directory?: string) => Promise<string>
-}
-import type {IRuleWriterService} from '../../src/core/interfaces/i-rule-writer-service.js'
+import type {IRuleTemplateService} from '../../src/core/interfaces/i-rule-template-service.js'
 import type {ISpaceService} from '../../src/core/interfaces/i-space-service.js'
 import type {ITeamService} from '../../src/core/interfaces/i-team-service.js'
 import type {ITokenStore} from '../../src/core/interfaces/i-token-store.js'
@@ -50,10 +44,11 @@ class TestableInit extends Init {
     private readonly mockContextTreeService: IContextTreeService,
     private readonly mockContextTreeSnapshotService: IContextTreeSnapshotService,
     private readonly mockContextTreeWriterService: IContextTreeWriterService,
-    private readonly mockPlaybookService: IPlaybookService,
-    private readonly mockRuleWriterService: IRuleWriterService,
+    private readonly mockFileService: IFileService,
+    private readonly mockLegacyRuleDetector: ILegacyRuleDetector,
     private readonly mockSpaceService: ISpaceService,
     private readonly mockTeamService: ITeamService,
+    private readonly mockTemplateService: IRuleTemplateService,
     private readonly mockTokenStore: ITokenStore,
     private readonly mockTrackingService: ITrackingService,
     private readonly mockSelectedTeam: Team,
@@ -85,10 +80,12 @@ class TestableInit extends Init {
       contextTreeService: this.mockContextTreeService,
       contextTreeSnapshotService: this.mockContextTreeSnapshotService,
       contextTreeWriterService: this.mockContextTreeWriterService,
+      fileService: this.mockFileService,
+      legacyRuleDetector: this.mockLegacyRuleDetector,
       projectConfigStore: this.mockConfigStore,
-      ruleWriterService: this.mockRuleWriterService,
       spaceService: this.mockSpaceService,
       teamService: this.mockTeamService,
+      templateService: this.mockTemplateService,
       tokenStore: this.mockTokenStore,
       trackingService: this.mockTrackingService,
     }
@@ -129,6 +126,14 @@ class TestableInit extends Init {
 
   protected async promptForAgentSelection(): Promise<Agent> {
     return 'Claude Code' // Default mock agent
+  }
+
+  protected async promptForCleanupStrategy(): Promise<'manual'> {
+    return 'manual'
+  }
+
+  protected async promptForFileCreation(): Promise<boolean> {
+    return true
   }
 
   protected async promptForOverwriteConfirmation(_agent: Agent): Promise<boolean> {
@@ -175,9 +180,11 @@ class SyncTestableInit extends Init {
     private readonly mockContextTreeService: IContextTreeService,
     private readonly mockContextTreeSnapshotService: IContextTreeSnapshotService,
     private readonly mockContextTreeWriterService: IContextTreeWriterService,
-    private readonly mockRuleWriterService: IRuleWriterService,
+    private readonly mockFileService: IFileService,
+    private readonly mockLegacyRuleDetector: ILegacyRuleDetector,
     private readonly mockSpaceService: ISpaceService,
     private readonly mockTeamService: ITeamService,
+    private readonly mockTemplateService: IRuleTemplateService,
     private readonly mockTokenStore: ITokenStore,
     private readonly mockTrackingService: ITrackingService,
     private readonly mockSelectedTeam: Team,
@@ -193,10 +200,12 @@ class SyncTestableInit extends Init {
       contextTreeService: this.mockContextTreeService,
       contextTreeSnapshotService: this.mockContextTreeSnapshotService,
       contextTreeWriterService: this.mockContextTreeWriterService,
+      fileService: this.mockFileService,
+      legacyRuleDetector: this.mockLegacyRuleDetector,
       projectConfigStore: this.mockConfigStore,
-      ruleWriterService: this.mockRuleWriterService,
       spaceService: this.mockSpaceService,
       teamService: this.mockTeamService,
+      templateService: this.mockTemplateService,
       tokenStore: this.mockTokenStore,
       trackingService: this.mockTrackingService,
     }
@@ -223,6 +232,14 @@ class SyncTestableInit extends Init {
 
   protected async promptForAgentSelection(): Promise<Agent> {
     return 'Claude Code'
+  }
+
+  protected async promptForCleanupStrategy(): Promise<'manual'> {
+    return 'manual'
+  }
+
+  protected async promptForFileCreation(): Promise<boolean> {
+    return true
   }
 
   protected async promptForOverwriteConfirmation(_agent: Agent): Promise<boolean> {
@@ -261,10 +278,11 @@ describe('Init Command', () => {
   let contextTreeService: sinon.SinonStubbedInstance<IContextTreeService>
   let contextTreeSnapshotService: sinon.SinonStubbedInstance<IContextTreeSnapshotService>
   let contextTreeWriterService: sinon.SinonStubbedInstance<IContextTreeWriterService>
-  let playbookService: sinon.SinonStubbedInstance<IPlaybookService>
-  let ruleWriterService: sinon.SinonStubbedInstance<IRuleWriterService>
+  let fileService: sinon.SinonStubbedInstance<IFileService>
+  let legacyRuleDetector: sinon.SinonStubbedInstance<ILegacyRuleDetector>
   let spaceService: sinon.SinonStubbedInstance<ISpaceService>
   let teamService: sinon.SinonStubbedInstance<ITeamService>
+  let templateService: sinon.SinonStubbedInstance<IRuleTemplateService>
   let testSpaces: Space[]
   let testTeams: Team[]
   let tokenStore: sinon.SinonStubbedInstance<ITokenStore>
@@ -331,18 +349,31 @@ describe('Init Command', () => {
       }),
     }
 
-    playbookService = {
-      addOrUpdateBullet: stub(),
-      applyDelta: stub(),
-      applyReflectionTags: stub(),
-      initialize: stub<[directory?: string], Promise<string>>().resolves('/test/.brv/ace/playbook.json'),
+    fileService = {
+      createBackup: stub<Parameters<IFileService['createBackup']>, ReturnType<IFileService['createBackup']>>().resolves(
+        '/test/backup.md',
+      ),
+      exists: stub<Parameters<IFileService['exists']>, ReturnType<IFileService['exists']>>().resolves(false),
+      read: stub<Parameters<IFileService['read']>, ReturnType<IFileService['read']>>().resolves(''),
+      replaceContent: stub<
+        Parameters<IFileService['replaceContent']>,
+        ReturnType<IFileService['replaceContent']>
+      >().resolves(),
+      write: stub<Parameters<IFileService['write']>, ReturnType<IFileService['write']>>().resolves(),
     }
 
-    ruleWriterService = {
-      writeRule: stub<
-        Parameters<IRuleWriterService['writeRule']>,
-        ReturnType<IRuleWriterService['writeRule']>
-      >().resolves(),
+    legacyRuleDetector = {
+      detectLegacyRules: stub<
+        Parameters<ILegacyRuleDetector['detectLegacyRules']>,
+        ReturnType<ILegacyRuleDetector['detectLegacyRules']>
+      >().returns({reliableMatches: [], uncertainMatches: []}),
+    }
+
+    templateService = {
+      generateRuleContent: stub<
+        Parameters<IRuleTemplateService['generateRuleContent']>,
+        ReturnType<IRuleTemplateService['generateRuleContent']>
+      >().resolves('# Generated ByteRover rules'),
     }
 
     trackingService = {
@@ -399,10 +430,11 @@ describe('Init Command', () => {
         contextTreeService,
         contextTreeSnapshotService,
         contextTreeWriterService,
-        playbookService,
-        ruleWriterService,
+        fileService,
+        legacyRuleDetector,
         spaceService,
         teamService,
+        templateService,
         tokenStore,
         trackingService,
         testTeams[0],
@@ -428,10 +460,11 @@ describe('Init Command', () => {
         contextTreeService,
         contextTreeSnapshotService,
         contextTreeWriterService,
-        playbookService,
-        ruleWriterService,
+        fileService,
+        legacyRuleDetector,
         spaceService,
         teamService,
+        templateService,
         tokenStore,
         trackingService,
         testTeams[0],
@@ -468,10 +501,11 @@ describe('Init Command', () => {
         contextTreeService,
         contextTreeSnapshotService,
         contextTreeWriterService,
-        playbookService,
-        ruleWriterService,
+        fileService,
+        legacyRuleDetector,
         spaceService,
         teamService,
+        templateService,
         tokenStore,
         trackingService,
         testTeams[0],
@@ -499,10 +533,11 @@ describe('Init Command', () => {
         contextTreeService,
         contextTreeSnapshotService,
         contextTreeWriterService,
-        playbookService,
-        ruleWriterService,
+        fileService,
+        legacyRuleDetector,
         spaceService,
         teamService,
+        templateService,
         tokenStore,
         trackingService,
         testTeams[0],
@@ -514,7 +549,6 @@ describe('Init Command', () => {
 
       // Verify that initialization did not occur
       expect(configStore.write.called).to.be.false
-      expect(playbookService.initialize.called).to.be.false
     })
 
     it('should exit gracefully when no spaces are available in selected team', async () => {
@@ -529,10 +563,11 @@ describe('Init Command', () => {
         contextTreeService,
         contextTreeSnapshotService,
         contextTreeWriterService,
-        playbookService,
-        ruleWriterService,
+        fileService,
+        legacyRuleDetector,
         spaceService,
         teamService,
+        templateService,
         tokenStore,
         trackingService,
         testTeams[0],
@@ -544,7 +579,6 @@ describe('Init Command', () => {
 
       // Verify that initialization did not occur
       expect(configStore.write.called).to.be.false
-      expect(playbookService.initialize.called).to.be.false
     })
 
     it('should successfully initialize with first space', async () => {
@@ -560,10 +594,11 @@ describe('Init Command', () => {
         contextTreeService,
         contextTreeSnapshotService,
         contextTreeWriterService,
-        playbookService,
-        ruleWriterService,
+        fileService,
+        legacyRuleDetector,
         spaceService,
         teamService,
+        templateService,
         tokenStore,
         trackingService,
         testTeams[0],
@@ -600,10 +635,11 @@ describe('Init Command', () => {
         contextTreeService,
         contextTreeSnapshotService,
         contextTreeWriterService,
-        playbookService,
-        ruleWriterService,
+        fileService,
+        legacyRuleDetector,
         spaceService,
         teamService,
+        templateService,
         tokenStore,
         trackingService,
         testTeams[0],
@@ -629,10 +665,11 @@ describe('Init Command', () => {
         contextTreeService,
         contextTreeSnapshotService,
         contextTreeWriterService,
-        playbookService,
-        ruleWriterService,
+        fileService,
+        legacyRuleDetector,
         spaceService,
         teamService,
+        templateService,
         tokenStore,
         trackingService,
         testTeams[0],
@@ -661,10 +698,11 @@ describe('Init Command', () => {
         contextTreeService,
         contextTreeSnapshotService,
         contextTreeWriterService,
-        playbookService,
-        ruleWriterService,
+        fileService,
+        legacyRuleDetector,
         spaceService,
         teamService,
+        templateService,
         tokenStore,
         trackingService,
         testTeams[0],
@@ -694,10 +732,11 @@ describe('Init Command', () => {
         contextTreeService,
         contextTreeSnapshotService,
         contextTreeWriterService,
-        playbookService,
-        ruleWriterService,
+        fileService,
+        legacyRuleDetector,
         spaceService,
         teamService,
+        templateService,
         tokenStore,
         trackingService,
         testTeams[0],
@@ -727,10 +766,11 @@ describe('Init Command', () => {
         contextTreeService,
         contextTreeSnapshotService,
         contextTreeWriterService,
-        playbookService,
-        ruleWriterService,
+        fileService,
+        legacyRuleDetector,
         spaceService,
         teamService,
+        templateService,
         tokenStore,
         trackingService,
         testTeams[0],
@@ -740,11 +780,11 @@ describe('Init Command', () => {
 
       await command.run()
 
-      expect(ruleWriterService.writeRule.calledOnce).to.be.true
-      expect(ruleWriterService.writeRule.calledWith('Claude Code', false)).to.be.true
+      expect(templateService.generateRuleContent.calledOnce).to.be.true
+      expect(fileService.write.calledOnce).to.be.true
     })
 
-    it('should call ruleWriterService after config write', async () => {
+    it('should call templateService after config write', async () => {
       configStore.exists.resolves(false)
       tokenStore.load.resolves(validToken)
       teamService.getTeams.resolves({teams: testTeams, total: testTeams.length})
@@ -757,10 +797,11 @@ describe('Init Command', () => {
         contextTreeService,
         contextTreeSnapshotService,
         contextTreeWriterService,
-        playbookService,
-        ruleWriterService,
+        fileService,
+        legacyRuleDetector,
         spaceService,
         teamService,
+        templateService,
         tokenStore,
         trackingService,
         testTeams[0],
@@ -770,11 +811,11 @@ describe('Init Command', () => {
 
       await command.run()
 
-      // Verify order: config write happens before ruleWriterService
-      expect(configStore.write.calledBefore(ruleWriterService.writeRule)).to.be.true
+      // Verify order: config write happens before templateService
+      expect(configStore.write.calledBefore(templateService.generateRuleContent)).to.be.true
     })
 
-    it('should call ruleWriterService after context tree initialization (ACE deprecated)', async () => {
+    it('should call templateService after context tree initialization (ACE deprecated)', async () => {
       configStore.exists.resolves(false)
       tokenStore.load.resolves(validToken)
       teamService.getTeams.resolves({teams: testTeams, total: testTeams.length})
@@ -787,10 +828,11 @@ describe('Init Command', () => {
         contextTreeService,
         contextTreeSnapshotService,
         contextTreeWriterService,
-        playbookService,
-        ruleWriterService,
+        fileService,
+        legacyRuleDetector,
         spaceService,
         teamService,
+        templateService,
         tokenStore,
         trackingService,
         testTeams[0],
@@ -800,10 +842,8 @@ describe('Init Command', () => {
 
       await command.run()
 
-      // Verify: ACE playbook is NOT initialized (deprecated)
-      expect(playbookService.initialize.called).to.be.false
-      // Verify order: context tree initialization happens before ruleWriterService
-      expect(contextTreeService.initialize.calledBefore(ruleWriterService.writeRule)).to.be.true
+      // Verify order: context tree initialization happens before templateService
+      expect(contextTreeService.initialize.calledBefore(templateService.generateRuleContent)).to.be.true
       // Verify: saveSnapshot is called after context tree initialization
       expect(contextTreeService.initialize.calledBefore(contextTreeSnapshotService.saveSnapshot)).to.be.true
     })
@@ -822,10 +862,11 @@ describe('Init Command', () => {
         contextTreeService,
         contextTreeSnapshotService,
         contextTreeWriterService,
-        playbookService,
-        ruleWriterService,
+        fileService,
+        legacyRuleDetector,
         spaceService,
         teamService,
+        templateService,
         tokenStore,
         trackingService,
         testTeams[0],
@@ -835,18 +876,18 @@ describe('Init Command', () => {
 
       await command.run()
 
-      // Should still call ruleWriterService even though context tree init failed
-      expect(ruleWriterService.writeRule.calledOnce).to.be.true
-      expect(ruleWriterService.writeRule.calledWith('Claude Code', false)).to.be.true
+      // Should still call templateService even though context tree init failed
+      expect(templateService.generateRuleContent.calledOnce).to.be.true
+      expect(fileService.write.calledOnce).to.be.true
     })
 
-    it('should propagate errors from ruleWriterService', async () => {
+    it('should propagate errors from templateService', async () => {
       configStore.exists.resolves(false)
       tokenStore.load.resolves(validToken)
       teamService.getTeams.resolves({teams: testTeams, total: testTeams.length})
       spaceService.getSpaces.resolves({spaces: testSpaces, total: testSpaces.length})
       configStore.write.resolves()
-      ruleWriterService.writeRule.rejects(new Error('Template not found'))
+      templateService.generateRuleContent.rejects(new Error('Template not found'))
 
       const command = new TestableInit(
         cogitPullService,
@@ -854,10 +895,11 @@ describe('Init Command', () => {
         contextTreeService,
         contextTreeSnapshotService,
         contextTreeWriterService,
-        playbookService,
-        ruleWriterService,
+        fileService,
+        legacyRuleDetector,
         spaceService,
         teamService,
+        templateService,
         tokenStore,
         trackingService,
         testTeams[0],
@@ -892,10 +934,11 @@ describe('Init Command', () => {
         contextTreeService,
         contextTreeSnapshotService,
         contextTreeWriterService,
-        playbookService,
-        ruleWriterService,
+        fileService,
+        legacyRuleDetector,
         spaceService,
         teamService,
+        templateService,
         tokenStore,
         trackingService,
         testTeams[0],
@@ -928,10 +971,11 @@ describe('Init Command', () => {
         contextTreeService,
         contextTreeSnapshotService,
         contextTreeWriterService,
-        playbookService,
-        ruleWriterService,
+        fileService,
+        legacyRuleDetector,
         spaceService,
         teamService,
+        templateService,
         tokenStore,
         trackingService,
         testTeams[0],
@@ -966,10 +1010,11 @@ describe('Init Command', () => {
         contextTreeService,
         contextTreeSnapshotService,
         contextTreeWriterService,
-        playbookService,
-        ruleWriterService,
+        fileService,
+        legacyRuleDetector,
         spaceService,
         teamService,
+        templateService,
         tokenStore,
         trackingService,
         testTeams[0],
@@ -1002,10 +1047,11 @@ describe('Init Command', () => {
         contextTreeService,
         contextTreeSnapshotService,
         contextTreeWriterService,
-        playbookService,
-        ruleWriterService,
+        fileService,
+        legacyRuleDetector,
         spaceService,
         teamService,
+        templateService,
         tokenStore,
         trackingService,
         testTeams[0],
@@ -1036,10 +1082,11 @@ describe('Init Command', () => {
         contextTreeService,
         contextTreeSnapshotService,
         contextTreeWriterService,
-        playbookService,
-        ruleWriterService,
+        fileService,
+        legacyRuleDetector,
         spaceService,
         teamService,
+        templateService,
         tokenStore,
         trackingService,
         testTeams[0],
@@ -1072,10 +1119,11 @@ describe('Init Command', () => {
         contextTreeService,
         contextTreeSnapshotService,
         contextTreeWriterService,
-        playbookService,
-        ruleWriterService,
+        fileService,
+        legacyRuleDetector,
         spaceService,
         teamService,
+        templateService,
         tokenStore,
         trackingService,
         testTeams[0],
@@ -1112,10 +1160,11 @@ describe('Init Command', () => {
         contextTreeService,
         contextTreeSnapshotService,
         contextTreeWriterService,
-        playbookService,
-        ruleWriterService,
+        fileService,
+        legacyRuleDetector,
         spaceService,
         teamService,
+        templateService,
         tokenStore,
         trackingService,
         testTeams[0],
@@ -1154,10 +1203,11 @@ describe('Init Command', () => {
         contextTreeService,
         contextTreeSnapshotService,
         contextTreeWriterService,
-        playbookService,
-        ruleWriterService,
+        fileService,
+        legacyRuleDetector,
         spaceService,
         teamService,
+        templateService,
         tokenStore,
         trackingService,
         testTeams[0],
@@ -1171,8 +1221,6 @@ describe('Init Command', () => {
 
       // Should not call removeAceDirectory since no ACE folder exists
       expect(command.removeAceDirectoryCalled).to.be.false
-      // Should not initialize ACE playbook (deprecated)
-      expect(playbookService.initialize.called).to.be.false
       // Should still initialize context tree
       expect(contextTreeService.initialize.calledOnce).to.be.true
       // Should complete initialization
@@ -1192,10 +1240,11 @@ describe('Init Command', () => {
         contextTreeService,
         contextTreeSnapshotService,
         contextTreeWriterService,
-        playbookService,
-        ruleWriterService,
+        fileService,
+        legacyRuleDetector,
         spaceService,
         teamService,
+        templateService,
         tokenStore,
         trackingService,
         testTeams[0],
@@ -1210,8 +1259,6 @@ describe('Init Command', () => {
 
       // Should call removeAceDirectory
       expect(command.removeAceDirectoryCalled).to.be.true
-      // Should not initialize ACE playbook (deprecated)
-      expect(playbookService.initialize.called).to.be.false
       // Should still initialize context tree
       expect(contextTreeService.initialize.calledOnce).to.be.true
       // Should complete initialization
@@ -1231,10 +1278,11 @@ describe('Init Command', () => {
         contextTreeService,
         contextTreeSnapshotService,
         contextTreeWriterService,
-        playbookService,
-        ruleWriterService,
+        fileService,
+        legacyRuleDetector,
         spaceService,
         teamService,
+        templateService,
         tokenStore,
         trackingService,
         testTeams[0],
@@ -1249,8 +1297,6 @@ describe('Init Command', () => {
 
       // Should NOT call removeAceDirectory
       expect(command.removeAceDirectoryCalled).to.be.false
-      // Should not initialize ACE playbook (deprecated)
-      expect(playbookService.initialize.called).to.be.false
       // Should still initialize context tree
       expect(contextTreeService.initialize.calledOnce).to.be.true
       // Should complete initialization
@@ -1273,10 +1319,11 @@ describe('Init Command', () => {
         contextTreeService,
         contextTreeSnapshotService,
         contextTreeWriterService,
-        playbookService,
-        ruleWriterService,
+        fileService,
+        legacyRuleDetector,
         spaceService,
         teamService,
+        templateService,
         tokenStore,
         trackingService,
         testTeams[0],
@@ -1292,8 +1339,6 @@ describe('Init Command', () => {
 
       // Should call removeAceDirectory (ACE folder existed and user confirmed)
       expect(command.removeAceDirectoryCalled).to.be.true
-      // Should not initialize ACE playbook (deprecated)
-      expect(playbookService.initialize.called).to.be.false
       // Should complete initialization
       expect(configStore.write.calledOnce).to.be.true
     })
@@ -1311,7 +1356,7 @@ describe('Init Command', () => {
             content: Buffer.from('# README').toString('base64'),
             decodeContent: () => '# README',
             mode: '100644',
-            path: '/README.md',
+            path: 'README.md',
             sha: 'readme-sha',
             size: 8,
           },
@@ -1325,9 +1370,11 @@ describe('Init Command', () => {
         contextTreeService,
         contextTreeSnapshotService,
         contextTreeWriterService,
-        ruleWriterService,
+        fileService,
+        legacyRuleDetector,
         spaceService,
         teamService,
+        templateService,
         tokenStore,
         trackingService,
         testTeams[0],
@@ -1360,9 +1407,11 @@ describe('Init Command', () => {
         contextTreeService,
         contextTreeSnapshotService,
         contextTreeWriterService,
-        ruleWriterService,
+        fileService,
+        legacyRuleDetector,
         spaceService,
         teamService,
+        templateService,
         tokenStore,
         trackingService,
         testTeams[0],
@@ -1390,7 +1439,7 @@ describe('Init Command', () => {
             content: Buffer.from('# Context').toString('base64'),
             decodeContent: () => '# Context',
             mode: '100644',
-            path: '/context.md',
+            path: 'context.md',
             sha: 'context-sha',
             size: 9,
           },
@@ -1398,7 +1447,7 @@ describe('Init Command', () => {
             content: Buffer.from('# Domain').toString('base64'),
             decodeContent: () => '# Domain',
             mode: '100644',
-            path: '/domain.md',
+            path: 'domain.md',
             sha: 'domain-sha',
             size: 8,
           },
@@ -1412,9 +1461,11 @@ describe('Init Command', () => {
         contextTreeService,
         contextTreeSnapshotService,
         contextTreeWriterService,
-        ruleWriterService,
+        fileService,
+        legacyRuleDetector,
         spaceService,
         teamService,
+        templateService,
         tokenStore,
         trackingService,
         testTeams[0],
@@ -1442,7 +1493,7 @@ describe('Init Command', () => {
             content: Buffer.from('# README').toString('base64'),
             decodeContent: () => '# README',
             mode: '100644',
-            path: '/README.md',
+            path: 'README.md',
             sha: 'readme-sha',
             size: 8,
           },
@@ -1450,7 +1501,7 @@ describe('Init Command', () => {
             content: Buffer.from('# Context').toString('base64'),
             decodeContent: () => '# Context',
             mode: '100644',
-            path: '/context.md',
+            path: 'context.md',
             sha: 'context-sha',
             size: 9,
           },
@@ -1464,9 +1515,11 @@ describe('Init Command', () => {
         contextTreeService,
         contextTreeSnapshotService,
         contextTreeWriterService,
-        ruleWriterService,
+        fileService,
+        legacyRuleDetector,
         spaceService,
         teamService,
+        templateService,
         tokenStore,
         trackingService,
         testTeams[0],
@@ -1492,9 +1545,11 @@ describe('Init Command', () => {
         contextTreeService,
         contextTreeSnapshotService,
         contextTreeWriterService,
-        ruleWriterService,
+        fileService,
+        legacyRuleDetector,
         spaceService,
         teamService,
+        templateService,
         tokenStore,
         trackingService,
         testTeams[0],
