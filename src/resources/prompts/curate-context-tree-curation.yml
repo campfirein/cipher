@@ -19,7 +19,7 @@ prompt: |
 
   1. **Detect and read referenced files**:
      - IMPORTANT: Before proceeding, analyze the user's input content for any file path references (e.g., "implemented in auth.ts", "see config.json", "refer to src/utils/helper.ts")
-     - If you detect file references, use the `read_file` tool to read these files IN PARALLEL (in a single iteration) to gather comprehensive context
+     - If there are file references that you must read, use the `read_file` tool to read these files IN PARALLEL (in a single iteration) to gather comprehensive context
      - Multiple file reads can be done simultaneously - they don't depend on each other
      - This ensures you have complete information before creating knowledge topics
 

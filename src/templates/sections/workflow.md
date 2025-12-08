@@ -15,7 +15,7 @@ Core Rules:
 
 ## Using `brv curate` with Files
 
-When adding complex implementations, use `--files` to include relevant source files (max 5, relative paths only). **CONTEXT argument must come BEFORE --files flag.** For multiple files, repeat the `--files` (or `-f`) flag for each file.
+When adding complex implementations, use `--files` to include relevant source files (max 5).  Only text/code files from the current project directory are allowed. **CONTEXT argument must come BEFORE --files flag.** For multiple files, repeat the `--files` (or `-f`) flag for each file.
 
 Examples:
 

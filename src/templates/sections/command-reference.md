@@ -12,7 +12,7 @@
 
 **Flags:**
 
-- `--files`, `-f`: Include file paths for critical context (max 5 files, relative paths only). **CONTEXT argument must come BEFORE this flag.**
+- `--files`, `-f`: Include file paths for critical context (max 5 files). Only text/code files from the current project directory are allowed. **CONTEXT argument must come BEFORE this flag.**
 
 **Good examples of context:**
 

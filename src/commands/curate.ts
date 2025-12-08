@@ -20,6 +20,7 @@ import {ProjectConfigStore} from '../infra/config/file-config-store.js'
 import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
 import {MixpanelTrackingService} from '../infra/tracking/mixpanel-tracking-service.js'
 import {addErrorPrefix} from '../utils/emoji-helpers.js'
+import {validateFileForCurate} from '../utils/file-validator.js'
 import {formatToolCall, formatToolResult} from '../utils/tool-display-formatter.js'
 
 // Full path to context tree
@@ -49,6 +50,7 @@ Bad:
     '# Include relevant files for comprehensive context (use sparingly, max 5 files)',
     '- NOTE: CONTEXT argument must come BEFORE --files flag',
     '- NOTE: For multiple files, repeat --files (or -f) flag for each file',
+    '- NOTE: Only text/code files from current project directory.',
     '',
     '## Single file',
     '<%= config.bin %> <%= command.id %> "Authentication middleware validates JWT tokens and attaches user context" -f src/middleware/auth.ts',
@@ -70,7 +72,7 @@ Bad:
     files: Flags.string({
       char: 'f',
       description:
-        'Include specific file paths for critical context (max 5 files). MUST use relative paths (e.g., src/auth.ts). Use sparingly - only for truly relevant files like docs or key implementation details. NOTE: CONTEXT argument must come BEFORE this flag.',
+        'Include specific file paths for critical context (max 5 files). Only text/code files from the current project directory are allowed. Use sparingly - only for truly relevant files like docs or key implementation details. NOTE: CONTEXT argument must come BEFORE this flag.',
       multiple: true,
     }),
     ...(isDevelopment()
@@ -231,36 +233,36 @@ Bad:
       return ''
     }
 
-    // Warn if more than 5 files
+    // Validate max files and truncate if needed
     if (filePaths.length > MAX_FILES) {
       const ignored = filePaths.slice(MAX_FILES)
-      this.warn(`Only using first ${MAX_FILES} files. Ignoring: ${ignored.join(', ')}`)
+      this.log(`\n⚠️  Only the first ${MAX_FILES} files will be processed. Ignoring: ${ignored.join(', ')}\n`)
       filePaths = filePaths.slice(0, MAX_FILES)
     }
 
-    // Validate files exist and collect valid paths
+    // Get project root (current directory with .brv)
+    const projectRoot = process.cwd()
+
+    // Validate each file and collect errors
     const validPaths: string[] = []
+    const errors: string[] = []
+
     for (const filePath of filePaths) {
-      try {
-        // Resolve path (support both relative and absolute)
-        const resolvedPath = path.isAbsolute(filePath) ? filePath : path.join(process.cwd(), filePath)
+      const result = validateFileForCurate(filePath, projectRoot)
 
-        // Check if file exists
-        if (!fs.existsSync(resolvedPath)) {
-          this.warn(`File not found, skipping: ${filePath}`)
-          continue
-        }
-
-        validPaths.push(filePath)
-      } catch (error) {
-        this.warn(
-          `Failed to validate file ${filePath}: ${error instanceof Error ? error.message : String(error)}`,
-        )
+      if (result.valid && result.normalizedPath) {
+        validPaths.push(result.normalizedPath)
+      } else {
+        errors.push(`  ✗ ${result.error}`)
       }
     }
 
-    if (validPaths.length === 0) {
-      return ''
+    // If there are any validation errors, show them and exit
+    if (errors.length > 0) {
+      this.log('\n❌ File validation failed:\n')
+      this.log(errors.join('\n'))
+      this.log('')
+      exitWithCode(ExitCode.VALIDATION_ERROR, 'Invalid files provided. Please fix the errors above and try again.')
     }
 
     // Format instructions for the agent
