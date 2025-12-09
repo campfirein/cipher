@@ -4,6 +4,7 @@ import {Command, Flags} from '@oclif/core'
 import type {ITokenStore} from '../core/interfaces/i-token-store.js'
 import type {ITrackingService} from '../core/interfaces/i-tracking-service.js'
 
+import {FileGlobalConfigStore} from '../infra/storage/file-global-config-store.js'
 import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
 import {MixpanelTrackingService} from '../infra/tracking/mixpanel-tracking-service.js'
 
@@ -30,8 +31,12 @@ export default class Logout extends Command {
     tokenStore: ITokenStore
     trackingService: ITrackingService
   } {
+    const globalConfigStore = new FileGlobalConfigStore()
     const tokenStore: ITokenStore = new KeychainTokenStore()
-    const trackingService: ITrackingService = new MixpanelTrackingService(tokenStore)
+    const trackingService: ITrackingService = new MixpanelTrackingService({
+      globalConfigStore,
+      tokenStore,
+    })
     return {
       tokenStore,
       trackingService,

@@ -35,6 +35,7 @@ import {BRV_RULE_MARKERS, BRV_RULE_TAG} from '../infra/rule/constants.js'
 import {LegacyRuleDetector} from '../infra/rule/legacy-rule-detector.js'
 import {RuleTemplateService} from '../infra/rule/rule-template-service.js'
 import {HttpSpaceService} from '../infra/space/http-space-service.js'
+import {FileGlobalConfigStore} from '../infra/storage/file-global-config-store.js'
 import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
 import {HttpTeamService} from '../infra/team/http-team-service.js'
 import {FsTemplateLoader} from '../infra/template/fs-template-loader.js'
@@ -127,7 +128,6 @@ export default class Init extends Command {
     fileService: IFileService
     legacyRuleDetector: ILegacyRuleDetector
     projectConfigStore: IProjectConfigStore
-    // ruleWriterService: IRuleWriterService
     spaceService: ISpaceService
     teamService: ITeamService
     templateService: IRuleTemplateService
@@ -135,8 +135,12 @@ export default class Init extends Command {
     trackingService: ITrackingService
   } {
     const envConfig = getCurrentConfig()
+    const globalConfigStore = new FileGlobalConfigStore()
     const tokenStore = new KeychainTokenStore()
-    const trackingService = new MixpanelTrackingService(tokenStore)
+    const trackingService = new MixpanelTrackingService({
+      globalConfigStore,
+      tokenStore,
+    })
 
     const fileService = new FsFileService()
     const templateLoader = new FsTemplateLoader(fileService)
@@ -156,7 +160,6 @@ export default class Init extends Command {
       fileService,
       legacyRuleDetector,
       projectConfigStore: new ProjectConfigStore(),
-      // ruleWriterService: new RuleWriterService(fileService, ruleTemplateService),
       spaceService: new HttpSpaceService({
         apiBaseUrl: envConfig.apiBaseUrl,
       }),
@@ -234,23 +237,6 @@ export default class Init extends Command {
   ): Promise<void> {
     this.log(`Generating rules for: ${selectedAgent}`)
 
-    // try {
-    //   await ruleWriterService.writeRule(agent, false)
-    //   this.log(`✅ Successfully generated rule file for ${agent}`)
-    // } catch (error) {
-    //   if (error instanceof RuleExistsError) {
-    //     const overwrite = await this.promptForOverwriteConfirmation(agent)
-
-    //     if (overwrite) {
-    //       await ruleWriterService.writeRule(agent, true)
-    //       this.log(`✅ Successfully generated rule file for ${agent}`)
-    //     } else {
-    //       this.log(`Skipping rule file generation for ${agent}`)
-    //     }
-    //   } else {
-    //     throw error
-    //   }
-    // }
     const {filePath, writeMode} = AGENT_RULE_CONFIGS[selectedAgent]
 
     // STEP 1: Check if file exists
@@ -522,7 +508,6 @@ export default class Init extends Command {
         fileService,
         legacyRuleDetector,
         projectConfigStore,
-        // ruleWriterService,
         spaceService,
         teamService,
         templateService,

@@ -17,6 +17,7 @@ import {HttpCogitPullService} from '../infra/cogit/http-cogit-pull-service.js'
 import {ProjectConfigStore} from '../infra/config/file-config-store.js'
 import {FileContextTreeSnapshotService} from '../infra/context-tree/file-context-tree-snapshot-service.js'
 import {FileContextTreeWriterService} from '../infra/context-tree/file-context-tree-writer-service.js'
+import {FileGlobalConfigStore} from '../infra/storage/file-global-config-store.js'
 import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
 import {MixpanelTrackingService} from '../infra/tracking/mixpanel-tracking-service.js'
 
@@ -73,8 +74,12 @@ export default class Pull extends Command {
     trackingService: ITrackingService
   } {
     const envConfig = getCurrentConfig()
+    const globalConfigStore = new FileGlobalConfigStore()
     const tokenStore = new KeychainTokenStore()
-    const trackingService = new MixpanelTrackingService(tokenStore)
+    const trackingService = new MixpanelTrackingService({
+      globalConfigStore,
+      tokenStore,
+    })
     const contextTreeSnapshotService = new FileContextTreeSnapshotService()
 
     return {

@@ -16,6 +16,7 @@ import {OAuthService} from '../infra/auth/oauth-service.js'
 import {OidcDiscoveryService} from '../infra/auth/oidc-discovery-service.js'
 import {SystemBrowserLauncher} from '../infra/browser/system-browser-launcher.js'
 import {CallbackHandler} from '../infra/http/callback-handler.js'
+import {FileGlobalConfigStore} from '../infra/storage/file-global-config-store.js'
 import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
 import {MixpanelTrackingService} from '../infra/tracking/mixpanel-tracking-service.js'
 import {HttpUserService} from '../infra/user/http-user-service.js'
@@ -43,8 +44,12 @@ export default class Login extends Command {
     userService: IUserService
   } {
     const config = getCurrentConfig()
+    const globalConfigStore = new FileGlobalConfigStore()
     const tokenStore = new KeychainTokenStore()
-    const trackingService = new MixpanelTrackingService(tokenStore)
+    const trackingService = new MixpanelTrackingService({
+      globalConfigStore,
+      tokenStore,
+    })
 
     return {
       browserLauncher: new SystemBrowserLauncher(),

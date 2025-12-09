@@ -19,6 +19,7 @@ import {HttpCogitPushService} from '../infra/cogit/http-cogit-push-service.js'
 import {ProjectConfigStore} from '../infra/config/file-config-store.js'
 import {FileContextFileReader} from '../infra/context-tree/file-context-file-reader.js'
 import {FileContextTreeSnapshotService} from '../infra/context-tree/file-context-tree-snapshot-service.js'
+import {FileGlobalConfigStore} from '../infra/storage/file-global-config-store.js'
 import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
 import {MixpanelTrackingService} from '../infra/tracking/mixpanel-tracking-service.js'
 
@@ -96,8 +97,12 @@ export default class Push extends Command {
     trackingService: ITrackingService
   } {
     const envConfig = getCurrentConfig()
+    const globalConfigStore = new FileGlobalConfigStore()
     const tokenStore = new KeychainTokenStore()
-    const trackingService = new MixpanelTrackingService(tokenStore)
+    const trackingService = new MixpanelTrackingService({
+      globalConfigStore,
+      tokenStore,
+    })
 
     return {
       cogitPushService: new HttpCogitPushService({

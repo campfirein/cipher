@@ -2,13 +2,13 @@ export const BRV_DIR = '.brv'
 export const PROJECT_CONFIG_FILE = 'config.json'
 export const BRV_CONFIG_VERSION = '0.0.1'
 
+// Global config constants (user-level, stored in XDG config directory)
+export const GLOBAL_CONFIG_DIR = 'brv'
+export const GLOBAL_CONFIG_FILE = 'config.json'
+export const GLOBAL_CONFIG_VERSION = '0.0.1'
+
 // ACE directory structure constants
 export const ACE_DIR = 'ace'
-export const EXECUTOR_OUTPUTS_DIR = 'executor-outputs'
-export const REFLECTIONS_DIR = 'reflections'
-export const DELTAS_DIR = 'deltas'
-export const BULLETS_DIR = 'bullets'
-export const PLAYBOOK_FILE = 'playbook.json'
 export const PROJECT = 'byterover'
 
 // Context Tree directory structure constants

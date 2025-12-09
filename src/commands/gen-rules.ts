@@ -13,6 +13,7 @@ import {AGENT_RULE_CONFIGS} from '../infra/rule/agent-rule-config.js'
 import {BRV_RULE_MARKERS, BRV_RULE_TAG} from '../infra/rule/constants.js'
 import {LegacyRuleDetector} from '../infra/rule/legacy-rule-detector.js'
 import {RuleTemplateService} from '../infra/rule/rule-template-service.js'
+import {FileGlobalConfigStore} from '../infra/storage/file-global-config-store.js'
 import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
 import {FsTemplateLoader} from '../infra/template/fs-template-loader.js'
 import {MixpanelTrackingService} from '../infra/tracking/mixpanel-tracking-service.js'
@@ -47,12 +48,17 @@ export default class GenRules extends Command {
     const fileService = new FsFileService()
     const templateLoader = new FsTemplateLoader(fileService)
     const templateService = new RuleTemplateService(templateLoader)
+    const globalConfigStore = new FileGlobalConfigStore()
+    const tokenStore = new KeychainTokenStore()
 
     return {
       fileService,
       legacyRuleDetector: new LegacyRuleDetector(),
       templateService,
-      trackingService: new MixpanelTrackingService(new KeychainTokenStore()),
+      trackingService: new MixpanelTrackingService({
+        globalConfigStore,
+        tokenStore,
+      }),
     }
   }
 
