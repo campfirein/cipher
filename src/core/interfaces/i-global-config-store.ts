@@ -21,6 +21,14 @@ export interface IGlobalConfigStore {
   read: () => Promise<GlobalConfig | undefined>
 
   /**
+   * Regenerates the device ID by creating a new UUID v4 and persisting it.
+   * Called when leaving authenticated state to break tracking continuity.
+   *
+   * @returns The newly generated device ID
+   */
+  regenerateDeviceId: () => Promise<string>
+
+  /**
    * Writes the global configuration to the user's config directory.
    * Creates the directory if it doesn't exist.
    *

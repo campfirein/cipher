@@ -3,6 +3,7 @@ import {Command} from '@oclif/core'
 import type {IAuthService} from '../core/interfaces/i-auth-service.js'
 import type {IBrowserLauncher} from '../core/interfaces/i-browser-launcher.js'
 import type {ICallbackHandler} from '../core/interfaces/i-callback-handler.js'
+import type {IGlobalConfigStore} from '../core/interfaces/i-global-config-store.js'
 import type {IOidcDiscoveryService} from '../core/interfaces/i-oidc-discovery-service.js'
 import type {ITokenStore} from '../core/interfaces/i-token-store.js'
 import type {IUserService} from '../core/interfaces/i-user-service.js'
@@ -39,12 +40,13 @@ export default class Login extends Command {
     browserLauncher: IBrowserLauncher
     callbackHandler: ICallbackHandler
     discoveryService: IOidcDiscoveryService
+    globalConfigStore: IGlobalConfigStore
     tokenStore: ITokenStore
     trackingService: ITrackingService
     userService: IUserService
   } {
     const config = getCurrentConfig()
-    const globalConfigStore = new FileGlobalConfigStore()
+    const globalConfigStore: IGlobalConfigStore = new FileGlobalConfigStore()
     const tokenStore = new KeychainTokenStore()
     const trackingService = new MixpanelTrackingService({
       globalConfigStore,
@@ -55,6 +57,7 @@ export default class Login extends Command {
       browserLauncher: new SystemBrowserLauncher(),
       callbackHandler: new CallbackHandler(),
       discoveryService: new OidcDiscoveryService(),
+      globalConfigStore,
       tokenStore,
       trackingService,
       userService: new HttpUserService({apiBaseUrl: config.apiBaseUrl}),
@@ -62,7 +65,13 @@ export default class Login extends Command {
   }
 
   public async run(): Promise<void> {
-    const {browserLauncher, callbackHandler, discoveryService, tokenStore, trackingService, userService} = this.createServices()
+    const {browserLauncher, callbackHandler, discoveryService, globalConfigStore, tokenStore, trackingService, userService} =
+      this.createServices()
+
+    // Regenerate device ID at start of login to ensure fresh tracking for new session (best effort)
+    try {
+      await globalConfigStore.regenerateDeviceId()
+    } catch {}
 
     try {
       this.log('Starting authentication process...')

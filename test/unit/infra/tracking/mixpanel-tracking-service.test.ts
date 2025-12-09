@@ -39,6 +39,7 @@ describe('MixpanelTrackingService', () => {
     mockGlobalConfigStore = {
       getOrCreateDeviceId: globalConfigStoreGetOrCreateDeviceIdStub,
       read: stub(),
+      regenerateDeviceId: stub().resolves('new-device-id'),
       write: stub(),
     }
 

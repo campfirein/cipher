@@ -69,6 +69,14 @@ export class FileGlobalConfigStore implements IGlobalConfigStore {
     }
   }
 
+  public async regenerateDeviceId(): Promise<string> {
+    const newDeviceId = randomUUID()
+    const newConfig = GlobalConfig.create(newDeviceId)
+    await this.write(newConfig)
+    return newDeviceId
+  }
+
+  
   public async write(config: GlobalConfig): Promise<void> {
     const configDir = this.deps.getConfigDir()
     const configPath = this.deps.getConfigPath()

@@ -1,6 +1,7 @@
 import {confirm} from '@inquirer/prompts'
 import {Command, Flags} from '@oclif/core'
 
+import type {IGlobalConfigStore} from '../core/interfaces/i-global-config-store.js'
 import type {ITokenStore} from '../core/interfaces/i-token-store.js'
 import type {ITrackingService} from '../core/interfaces/i-tracking-service.js'
 
@@ -28,16 +29,18 @@ export default class Logout extends Command {
   }
 
   protected createServices(): {
+    globalConfigStore: IGlobalConfigStore
     tokenStore: ITokenStore
     trackingService: ITrackingService
   } {
-    const globalConfigStore = new FileGlobalConfigStore()
+    const globalConfigStore: IGlobalConfigStore = new FileGlobalConfigStore()
     const tokenStore: ITokenStore = new KeychainTokenStore()
     const trackingService: ITrackingService = new MixpanelTrackingService({
       globalConfigStore,
       tokenStore,
     })
     return {
+      globalConfigStore,
       tokenStore,
       trackingService,
     }
@@ -45,7 +48,7 @@ export default class Logout extends Command {
 
   public async run(): Promise<void> {
     const {flags} = await this.parse(Logout)
-    const {tokenStore, trackingService} = this.createServices()
+    const {globalConfigStore, tokenStore, trackingService} = this.createServices()
 
     try {
       const token = await tokenStore.load()
@@ -62,11 +65,19 @@ export default class Logout extends Command {
         }
       }
 
+      // Track sign-out event with current device ID before regenerating
       try {
         await trackingService.track('auth:signed_out')
       } catch {}
 
+      // Clear auth token from keychain
       await tokenStore.clear()
+
+      // Regenerate device ID to break tracking continuity (best effort)
+      try {
+        await globalConfigStore.regenerateDeviceId()
+      } catch {}
+
       this.log('Successfully logged out.')
       this.log("Run 'brv login' to authenticate again.")
     } catch (error) {

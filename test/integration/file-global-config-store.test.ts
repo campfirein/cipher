@@ -171,4 +171,65 @@ describe('FileGlobalConfigStore', () => {
       expect(config?.deviceId).to.equal(result)
     })
   })
+
+  describe('regenerateDeviceId()', () => {
+    it('should generate a valid UUID v4', async () => {
+      const deviceId = await store.regenerateDeviceId()
+
+      // UUID v4 format: xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx
+      expect(deviceId).to.match(/^[\da-f]{8}-[\da-f]{4}-4[\da-f]{3}-[89ab][\da-f]{3}-[\da-f]{12}$/i)
+    })
+
+    it('should persist the new device ID', async () => {
+      const newDeviceId = await store.regenerateDeviceId()
+
+      const config = await store.read()
+      expect(config?.deviceId).to.equal(newDeviceId)
+    })
+
+    it('should return a different device ID than the previous one', async () => {
+      const oldDeviceId = await store.getOrCreateDeviceId()
+      const newDeviceId = await store.regenerateDeviceId()
+
+      expect(newDeviceId).to.not.equal(oldDeviceId)
+    })
+
+    it('should overwrite existing config with new device ID', async () => {
+      const existingDeviceId = '550e8400-e29b-41d4-a716-446655440000'
+      const config = GlobalConfig.create(existingDeviceId)
+
+      await mkdir(testDir, {recursive: true})
+      await writeFile(testConfigPath, JSON.stringify(config.toJson()), 'utf8')
+
+      const newDeviceId = await store.regenerateDeviceId()
+
+      expect(newDeviceId).to.not.equal(existingDeviceId)
+
+      const readConfig = await store.read()
+      expect(readConfig?.deviceId).to.equal(newDeviceId)
+    })
+
+    it('should create config file if it does not exist', async () => {
+      // No existing config
+      const newDeviceId = await store.regenerateDeviceId()
+
+      expect(existsSync(testConfigPath)).to.be.true
+
+      const config = await store.read()
+      expect(config?.deviceId).to.equal(newDeviceId)
+    })
+
+    it('should work when called multiple times in succession', async () => {
+      const firstDeviceId = await store.regenerateDeviceId()
+      const secondDeviceId = await store.regenerateDeviceId()
+      const thirdDeviceId = await store.regenerateDeviceId()
+
+      expect(firstDeviceId).to.not.equal(secondDeviceId)
+      expect(secondDeviceId).to.not.equal(thirdDeviceId)
+      expect(firstDeviceId).to.not.equal(thirdDeviceId)
+
+      const config = await store.read()
+      expect(config?.deviceId).to.equal(thirdDeviceId)
+    })
+  })
 })

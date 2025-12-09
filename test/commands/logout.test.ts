@@ -5,6 +5,7 @@ import {Config as OclifConfig} from '@oclif/core'
 import {expect} from 'chai'
 import {restore, stub} from 'sinon'
 
+import type {IGlobalConfigStore} from '../../src/core/interfaces/i-global-config-store.js'
 import type {ITokenStore} from '../../src/core/interfaces/i-token-store.js'
 import type {ITrackingService} from '../../src/core/interfaces/i-tracking-service.js'
 
@@ -13,6 +14,7 @@ import {AuthToken} from '../../src/core/domain/entities/auth-token.js'
 
 class TestableLogout extends Logout {
   private mockConfirmResult = true
+  private readonly mockGlobalConfigStore: IGlobalConfigStore
   private readonly mockTokenStore: ITokenStore
   private readonly mockTrackingService: ITrackingService
 
@@ -20,9 +22,11 @@ class TestableLogout extends Logout {
     args: string[],
     mockTokenStore: ITokenStore,
     mockTrackingService: ITrackingService,
+    mockGlobalConfigStore: IGlobalConfigStore,
     config: Config,
   ) {
     super(args, config)
+    this.mockGlobalConfigStore = mockGlobalConfigStore
     this.mockTokenStore = mockTokenStore
     this.mockTrackingService = mockTrackingService
   }
@@ -32,10 +36,12 @@ class TestableLogout extends Logout {
   }
 
   protected createServices(): {
+    globalConfigStore: IGlobalConfigStore
     tokenStore: ITokenStore
     trackingService: ITrackingService
   } {
     return {
+      globalConfigStore: this.mockGlobalConfigStore,
       tokenStore: this.mockTokenStore,
       trackingService: this.mockTrackingService,
     }
@@ -69,6 +75,7 @@ const createMockToken = (): AuthToken =>
   })
 
 describe('logout command', () => {
+  let globalConfigStore: SinonStubbedInstance<IGlobalConfigStore>
   let tokenStore: SinonStubbedInstance<ITokenStore>
   let trackingService: SinonStubbedInstance<ITrackingService>
   let config: Config
@@ -78,6 +85,13 @@ describe('logout command', () => {
   })
 
   beforeEach(() => {
+    globalConfigStore = {
+      getOrCreateDeviceId: stub<[], Promise<string>>().resolves('test-device-id'),
+      read: stub(),
+      regenerateDeviceId: stub<[], Promise<string>>().resolves('new-device-id'),
+      write: stub(),
+    }
+
     tokenStore = {
       clear: stub(),
       load: stub(),
@@ -100,7 +114,7 @@ describe('logout command', () => {
       tokenStore.clear.resolves()
       trackingService.track.resolves()
 
-      const command = new TestableLogout([], tokenStore, trackingService, config)
+      const command = new TestableLogout([], tokenStore, trackingService, globalConfigStore, config)
       command.setConfirmResult(true)
 
       await command.run()
@@ -118,7 +132,7 @@ describe('logout command', () => {
       tokenStore.clear.resolves()
       trackingService.track.resolves()
 
-      const command = new TestableLogout(['--yes'], tokenStore, trackingService, config)
+      const command = new TestableLogout(['--yes'], tokenStore, trackingService, globalConfigStore, config)
 
       // Confirmation should not be called, so we can't control it
       await command.run()
@@ -142,7 +156,7 @@ describe('logout command', () => {
         }
       }
 
-      const command = new SpyLogout([], tokenStore, trackingService, config)
+      const command = new SpyLogout([], tokenStore, trackingService, globalConfigStore, config)
       await command.run()
 
       // Verify confirmation was called with correct email
@@ -155,7 +169,7 @@ describe('logout command', () => {
     it('should display message when no token exists', async () => {
       tokenStore.load.resolves()
 
-      const command = new TestableLogout([], tokenStore, trackingService, config)
+      const command = new TestableLogout([], tokenStore, trackingService, globalConfigStore, config)
 
       await command.run()
 
@@ -170,7 +184,7 @@ describe('logout command', () => {
       const mockToken = createMockToken()
       tokenStore.load.resolves(mockToken)
 
-      const command = new TestableLogout([], tokenStore, trackingService, config)
+      const command = new TestableLogout([], tokenStore, trackingService, globalConfigStore, config)
       command.setConfirmResult(false)
 
       await command.run()
@@ -187,7 +201,7 @@ describe('logout command', () => {
       tokenStore.load.resolves(mockToken)
       tokenStore.clear.resolves()
 
-      const command = new TestableLogout([], tokenStore, trackingService, config)
+      const command = new TestableLogout([], tokenStore, trackingService, globalConfigStore, config)
       command.setConfirmResult(true)
 
       await command.run()
@@ -203,7 +217,7 @@ describe('logout command', () => {
       tokenStore.clear.resolves()
       trackingService.track.rejects(new Error('Tracking service unavailable'))
 
-      const command = new TestableLogout([], tokenStore, trackingService, config)
+      const command = new TestableLogout([], tokenStore, trackingService, globalConfigStore, config)
       command.setConfirmResult(true)
 
       // Should not throw error
@@ -220,7 +234,7 @@ describe('logout command', () => {
       tokenStore.load.resolves(mockToken)
       tokenStore.clear.rejects(new Error('Failed to access keychain'))
 
-      const command = new TestableLogout([], tokenStore, trackingService, config)
+      const command = new TestableLogout([], tokenStore, trackingService, globalConfigStore, config)
       command.setConfirmResult(true)
 
       try {
@@ -237,7 +251,7 @@ describe('logout command', () => {
       tokenStore.load.resolves(mockToken)
       tokenStore.clear.rejects(new Error('Unexpected error'))
 
-      const command = new TestableLogout([], tokenStore, trackingService, config)
+      const command = new TestableLogout([], tokenStore, trackingService, globalConfigStore, config)
       command.setConfirmResult(true)
 
       try {
@@ -252,7 +266,7 @@ describe('logout command', () => {
     it('should handle token load errors', async () => {
       tokenStore.load.rejects(new Error('Failed to load token'))
 
-      const command = new TestableLogout([], tokenStore, trackingService, config)
+      const command = new TestableLogout([], tokenStore, trackingService, globalConfigStore, config)
 
       try {
         await command.run()
@@ -274,11 +288,103 @@ describe('logout command', () => {
       tokenStore.clear.resolves()
 
       // Create command with -y flag
-      const command = new TestableLogout(['-y'], tokenStore, trackingService, config)
+      const command = new TestableLogout(['-y'], tokenStore, trackingService, globalConfigStore, config)
       await command.run()
 
       // Verify logout succeeded
       expect(tokenStore.clear.calledOnce).to.be.true
+    })
+  })
+
+  describe('Device ID regeneration', () => {
+    it('should regenerate device ID after successful logout', async () => {
+      const mockToken = createMockToken()
+      tokenStore.load.resolves(mockToken)
+      tokenStore.clear.resolves()
+      globalConfigStore.regenerateDeviceId.resolves('new-device-id')
+
+      const command = new TestableLogout([], tokenStore, trackingService, globalConfigStore, config)
+      command.setConfirmResult(true)
+
+      await command.run()
+
+      expect(globalConfigStore.regenerateDeviceId.calledOnce).to.be.true
+    })
+
+    it('should regenerate device ID AFTER tracking sign-out event', async () => {
+      const mockToken = createMockToken()
+      tokenStore.load.resolves(mockToken)
+      tokenStore.clear.resolves()
+
+      const command = new TestableLogout([], tokenStore, trackingService, globalConfigStore, config)
+      command.setConfirmResult(true)
+
+      await command.run()
+
+      expect(trackingService.track.calledBefore(globalConfigStore.regenerateDeviceId)).to.be.true
+    })
+
+    it('should regenerate device ID AFTER clearing token', async () => {
+      const mockToken = createMockToken()
+      tokenStore.load.resolves(mockToken)
+      tokenStore.clear.resolves()
+
+      const command = new TestableLogout([], tokenStore, trackingService, globalConfigStore, config)
+      command.setConfirmResult(true)
+
+      await command.run()
+
+      expect(tokenStore.clear.calledBefore(globalConfigStore.regenerateDeviceId)).to.be.true
+    })
+
+    it('should NOT regenerate device ID when user cancels logout', async () => {
+      const mockToken = createMockToken()
+      tokenStore.load.resolves(mockToken)
+
+      const command = new TestableLogout([], tokenStore, trackingService, globalConfigStore, config)
+      command.setConfirmResult(false)
+
+      await command.run()
+
+      expect(globalConfigStore.regenerateDeviceId.called).to.be.false
+    })
+
+    it('should NOT regenerate device ID when not logged in', async () => {
+      tokenStore.load.resolves()
+
+      const command = new TestableLogout([], tokenStore, trackingService, globalConfigStore, config)
+
+      await command.run()
+
+      expect(globalConfigStore.regenerateDeviceId.called).to.be.false
+    })
+
+    it('should continue logout even if device ID regeneration fails', async () => {
+      const mockToken = createMockToken()
+      tokenStore.load.resolves(mockToken)
+      tokenStore.clear.resolves()
+      globalConfigStore.regenerateDeviceId.rejects(new Error('Config store error'))
+
+      const command = new TestableLogout([], tokenStore, trackingService, globalConfigStore, config)
+      command.setConfirmResult(true)
+
+      // Should not throw
+      await command.run()
+
+      // Verify logout still completed
+      expect(tokenStore.clear.calledOnce).to.be.true
+    })
+
+    it('should regenerate device ID when using --yes flag', async () => {
+      const mockToken = createMockToken()
+      tokenStore.load.resolves(mockToken)
+      tokenStore.clear.resolves()
+
+      const command = new TestableLogout(['--yes'], tokenStore, trackingService, globalConfigStore, config)
+
+      await command.run()
+
+      expect(globalConfigStore.regenerateDeviceId.calledOnce).to.be.true
     })
   })
 })
