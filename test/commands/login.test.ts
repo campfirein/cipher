@@ -8,7 +8,6 @@ import {restore, stub} from 'sinon'
 import type {IAuthService} from '../../src/core/interfaces/i-auth-service.js'
 import type {IBrowserLauncher} from '../../src/core/interfaces/i-browser-launcher.js'
 import type {ICallbackHandler} from '../../src/core/interfaces/i-callback-handler.js'
-import type {IGlobalConfigStore} from '../../src/core/interfaces/i-global-config-store.js'
 import type {IOidcDiscoveryService} from '../../src/core/interfaces/i-oidc-discovery-service.js'
 import type {ITokenStore} from '../../src/core/interfaces/i-token-store.js'
 import type {ITrackingService} from '../../src/core/interfaces/i-tracking-service.js'
@@ -32,7 +31,6 @@ class TestableLogin extends Login {
     private readonly mockTrackingService: ITrackingService,
     private readonly mockDiscoveryService: IOidcDiscoveryService,
     private readonly mockUserService: IUserService,
-    private readonly mockGlobalConfigStore: IGlobalConfigStore,
     config: Config,
   ) {
     super([], config)
@@ -47,7 +45,6 @@ class TestableLogin extends Login {
       browserLauncher: this.mockBrowserLauncher,
       callbackHandler: this.mockCallbackHandler,
       discoveryService: this.mockDiscoveryService,
-      globalConfigStore: this.mockGlobalConfigStore,
       tokenStore: this.mockTokenStore,
       trackingService: this.mockTrackingService,
       userService: this.mockUserService,
@@ -77,7 +74,6 @@ describe('login command', () => {
   let callbackHandler: SinonStubbedInstance<ICallbackHandler>
   let config: Config
   let discoveryService: SinonStubbedInstance<IOidcDiscoveryService>
-  let globalConfigStore: SinonStubbedInstance<IGlobalConfigStore>
   let tokenStore: SinonStubbedInstance<ITokenStore>
   let trackingService: SinonStubbedInstance<ITrackingService>
   let userService: SinonStubbedInstance<IUserService>
@@ -95,13 +91,6 @@ describe('login command', () => {
 
     browserLauncher = {
       open: stub(),
-    }
-
-    globalConfigStore = {
-      getOrCreateDeviceId: stub<[], Promise<string>>().resolves('test-device-id'),
-      read: stub(),
-      regenerateDeviceId: stub<[], Promise<string>>().resolves('new-device-id'),
-      write: stub(),
     }
 
     tokenStore = {
@@ -168,7 +157,6 @@ describe('login command', () => {
         trackingService,
         discoveryService,
         userService,
-        globalConfigStore,
         config,
       )
 
@@ -228,7 +216,6 @@ describe('login command', () => {
         trackingService,
         discoveryService,
         userService,
-        globalConfigStore,
         config,
       )
 
@@ -279,7 +266,6 @@ describe('login command', () => {
         trackingService,
         discoveryService,
         userService,
-        globalConfigStore,
         config,
       )
 
@@ -319,7 +305,6 @@ describe('login command', () => {
         trackingService,
         discoveryService,
         userService,
-        globalConfigStore,
         config,
       )
 
@@ -361,7 +346,6 @@ describe('login command', () => {
         trackingService,
         discoveryService,
         userService,
-        globalConfigStore,
         config,
       )
 
@@ -393,7 +377,6 @@ describe('login command', () => {
         trackingService,
         discoveryService,
         userService,
-        globalConfigStore,
         config,
       )
 
@@ -445,7 +428,6 @@ describe('login command', () => {
         trackingService,
         discoveryService,
         userService,
-        globalConfigStore,
         config,
       )
 
@@ -495,7 +477,6 @@ describe('login command', () => {
         trackingService,
         discoveryService,
         userService,
-        globalConfigStore,
         config,
       )
 
@@ -505,230 +486,6 @@ describe('login command', () => {
       expect(callbackHandler.waitForCallback.calledOnce).to.be.true
       const callbackArgs = callbackHandler.waitForCallback.firstCall.args
       expect(callbackArgs[0]).to.equal(state)
-    })
-  })
-
-  describe('Device ID regeneration', () => {
-    it('should regenerate device ID at start of login flow', async () => {
-      const port = 3000
-      const authUrl = 'https://auth.example.com/authorize?state=abc123'
-      const state = 'state-123'
-      const authContext = {authUrl, state}
-      const tokenData = new OAuthTokenData(
-        'access-token',
-        new Date(Date.now() + 3600 * 1000),
-        'refresh-token',
-        'session-key',
-        'Bearer',
-      )
-      const user = new User('user@example.com', 'user-id-123', 'Test User')
-
-      // Mock OAuth flow
-      callbackHandler.start.resolves(port)
-      callbackHandler.getPort.returns(port)
-      authService.initiateAuthorization.returns(authContext)
-      browserLauncher.open.resolves()
-      callbackHandler.waitForCallback.resolves({code: 'auth-code', state})
-      authService.exchangeCodeForToken.resolves(tokenData)
-      userService.getCurrentUser.resolves(user)
-      tokenStore.save.resolves()
-      callbackHandler.stop.resolves()
-
-      const command = new TestableLogin(
-        authService,
-        browserLauncher,
-        tokenStore,
-        callbackHandler,
-        trackingService,
-        discoveryService,
-        userService,
-        globalConfigStore,
-        config,
-      )
-
-      await command.run()
-
-      expect(globalConfigStore.regenerateDeviceId.calledOnce).to.be.true
-    })
-
-    it('should regenerate device ID BEFORE authentication process', async () => {
-      const port = 3000
-      const authUrl = 'https://auth.example.com/authorize?state=abc123'
-      const state = 'state-123'
-      const authContext = {authUrl, state}
-      const tokenData = new OAuthTokenData(
-        'access-token',
-        new Date(Date.now() + 3600 * 1000),
-        'refresh-token',
-        'session-key',
-        'Bearer',
-      )
-      const user = new User('user@example.com', 'user-id-123', 'Test User')
-
-      // Mock OAuth flow
-      callbackHandler.start.resolves(port)
-      callbackHandler.getPort.returns(port)
-      authService.initiateAuthorization.returns(authContext)
-      browserLauncher.open.resolves()
-      callbackHandler.waitForCallback.resolves({code: 'auth-code', state})
-      authService.exchangeCodeForToken.resolves(tokenData)
-      userService.getCurrentUser.resolves(user)
-      tokenStore.save.resolves()
-      callbackHandler.stop.resolves()
-
-      const command = new TestableLogin(
-        authService,
-        browserLauncher,
-        tokenStore,
-        callbackHandler,
-        trackingService,
-        discoveryService,
-        userService,
-        globalConfigStore,
-        config,
-      )
-
-      await command.run()
-
-      // Verify regenerateDeviceId was called before callbackHandler.start (first auth step)
-      expect(globalConfigStore.regenerateDeviceId.calledBefore(callbackHandler.start)).to.be.true
-    })
-
-    it('should continue login even if device ID regeneration fails', async () => {
-      const port = 3000
-      const authUrl = 'https://auth.example.com/authorize?state=abc123'
-      const state = 'state-123'
-      const authContext = {authUrl, state}
-      const tokenData = new OAuthTokenData(
-        'access-token',
-        new Date(Date.now() + 3600 * 1000),
-        'refresh-token',
-        'session-key',
-        'Bearer',
-      )
-      const user = new User('user@example.com', 'user-id-123', 'Test User')
-
-      // Mock device ID regeneration failure
-      globalConfigStore.regenerateDeviceId.rejects(new Error('Config store error'))
-
-      // Mock OAuth flow
-      callbackHandler.start.resolves(port)
-      callbackHandler.getPort.returns(port)
-      authService.initiateAuthorization.returns(authContext)
-      browserLauncher.open.resolves()
-      callbackHandler.waitForCallback.resolves({code: 'auth-code', state})
-      authService.exchangeCodeForToken.resolves(tokenData)
-      userService.getCurrentUser.resolves(user)
-      tokenStore.save.resolves()
-      callbackHandler.stop.resolves()
-
-      const command = new TestableLogin(
-        authService,
-        browserLauncher,
-        tokenStore,
-        callbackHandler,
-        trackingService,
-        discoveryService,
-        userService,
-        globalConfigStore,
-        config,
-      )
-
-      // Should not throw
-      await command.run()
-
-      // Verify login still completed
-      expect(tokenStore.save.calledOnce).to.be.true
-    })
-
-    it('should regenerate device ID even when browser fails to open', async () => {
-      const port = 3000
-      const authUrl = 'https://auth.example.com/authorize?state=abc123'
-      const state = 'state-123'
-      const authContext = {authUrl, state}
-      const tokenData = new OAuthTokenData(
-        'access-token',
-        new Date(Date.now() + 3600 * 1000),
-        'refresh-token',
-        'session-key',
-        'Bearer',
-      )
-      const user = new User('user@example.com', 'user-id-456', 'Test User')
-
-      // Mock OAuth flow with browser failure
-      callbackHandler.start.resolves(port)
-      callbackHandler.getPort.returns(port)
-      authService.initiateAuthorization.returns(authContext)
-      browserLauncher.open.rejects(new Error('Browser not found'))
-      callbackHandler.waitForCallback.resolves({code: 'auth-code', state})
-      authService.exchangeCodeForToken.resolves(tokenData)
-      userService.getCurrentUser.resolves(user)
-      tokenStore.save.resolves()
-      callbackHandler.stop.resolves()
-
-      const command = new TestableLogin(
-        authService,
-        browserLauncher,
-        tokenStore,
-        callbackHandler,
-        trackingService,
-        discoveryService,
-        userService,
-        globalConfigStore,
-        config,
-      )
-
-      await command.run()
-
-      // Verify device ID was regenerated
-      expect(globalConfigStore.regenerateDeviceId.calledOnce).to.be.true
-      // Verify login still succeeded
-      expect(tokenStore.save.calledOnce).to.be.true
-    })
-
-    it('should track auth:signed_in with new device ID after regeneration', async () => {
-      const port = 3000
-      const authUrl = 'https://auth.example.com/authorize?state=abc123'
-      const state = 'state-123'
-      const authContext = {authUrl, state}
-      const tokenData = new OAuthTokenData(
-        'access-token',
-        new Date(Date.now() + 3600 * 1000),
-        'refresh-token',
-        'session-key',
-        'Bearer',
-      )
-      const user = new User('user@example.com', 'user-id-123', 'Test User')
-
-      // Mock OAuth flow
-      callbackHandler.start.resolves(port)
-      callbackHandler.getPort.returns(port)
-      authService.initiateAuthorization.returns(authContext)
-      browserLauncher.open.resolves()
-      callbackHandler.waitForCallback.resolves({code: 'auth-code', state})
-      authService.exchangeCodeForToken.resolves(tokenData)
-      userService.getCurrentUser.resolves(user)
-      tokenStore.save.resolves()
-      callbackHandler.stop.resolves()
-
-      const command = new TestableLogin(
-        authService,
-        browserLauncher,
-        tokenStore,
-        callbackHandler,
-        trackingService,
-        discoveryService,
-        userService,
-        globalConfigStore,
-        config,
-      )
-
-      await command.run()
-
-      // Verify regeneration happened before tracking
-      expect(globalConfigStore.regenerateDeviceId.calledBefore(trackingService.track)).to.be.true
-      // Verify auth:signed_in was tracked
-      expect(trackingService.track.calledWith('auth:signed_in')).to.be.true
     })
   })
 })

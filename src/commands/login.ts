@@ -40,7 +40,6 @@ export default class Login extends Command {
     browserLauncher: IBrowserLauncher
     callbackHandler: ICallbackHandler
     discoveryService: IOidcDiscoveryService
-    globalConfigStore: IGlobalConfigStore
     tokenStore: ITokenStore
     trackingService: ITrackingService
     userService: IUserService
@@ -57,7 +56,6 @@ export default class Login extends Command {
       browserLauncher: new SystemBrowserLauncher(),
       callbackHandler: new CallbackHandler(),
       discoveryService: new OidcDiscoveryService(),
-      globalConfigStore,
       tokenStore,
       trackingService,
       userService: new HttpUserService({apiBaseUrl: config.apiBaseUrl}),
@@ -65,13 +63,8 @@ export default class Login extends Command {
   }
 
   public async run(): Promise<void> {
-    const {browserLauncher, callbackHandler, discoveryService, globalConfigStore, tokenStore, trackingService, userService} =
+    const {browserLauncher, callbackHandler, discoveryService, tokenStore, trackingService, userService} =
       this.createServices()
-
-    // Regenerate device ID at start of login to ensure fresh tracking for new session (best effort)
-    try {
-      await globalConfigStore.regenerateDeviceId()
-    } catch {}
 
     try {
       this.log('Starting authentication process...')
