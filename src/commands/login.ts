@@ -3,6 +3,7 @@ import {Command} from '@oclif/core'
 import type {IAuthService} from '../core/interfaces/i-auth-service.js'
 import type {IBrowserLauncher} from '../core/interfaces/i-browser-launcher.js'
 import type {ICallbackHandler} from '../core/interfaces/i-callback-handler.js'
+import type {IGlobalConfigStore} from '../core/interfaces/i-global-config-store.js'
 import type {IOidcDiscoveryService} from '../core/interfaces/i-oidc-discovery-service.js'
 import type {ITokenStore} from '../core/interfaces/i-token-store.js'
 import type {IUserService} from '../core/interfaces/i-user-service.js'
@@ -16,6 +17,7 @@ import {OAuthService} from '../infra/auth/oauth-service.js'
 import {OidcDiscoveryService} from '../infra/auth/oidc-discovery-service.js'
 import {SystemBrowserLauncher} from '../infra/browser/system-browser-launcher.js'
 import {CallbackHandler} from '../infra/http/callback-handler.js'
+import {FileGlobalConfigStore} from '../infra/storage/file-global-config-store.js'
 import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
 import {MixpanelTrackingService} from '../infra/tracking/mixpanel-tracking-service.js'
 import {HttpUserService} from '../infra/user/http-user-service.js'
@@ -43,8 +45,12 @@ export default class Login extends Command {
     userService: IUserService
   } {
     const config = getCurrentConfig()
+    const globalConfigStore: IGlobalConfigStore = new FileGlobalConfigStore()
     const tokenStore = new KeychainTokenStore()
-    const trackingService = new MixpanelTrackingService(tokenStore)
+    const trackingService = new MixpanelTrackingService({
+      globalConfigStore,
+      tokenStore,
+    })
 
     return {
       browserLauncher: new SystemBrowserLauncher(),
@@ -57,7 +63,8 @@ export default class Login extends Command {
   }
 
   public async run(): Promise<void> {
-    const {browserLauncher, callbackHandler, discoveryService, tokenStore, trackingService, userService} = this.createServices()
+    const {browserLauncher, callbackHandler, discoveryService, tokenStore, trackingService, userService} =
+      this.createServices()
 
     try {
       this.log('Starting authentication process...')

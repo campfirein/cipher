@@ -10,6 +10,7 @@ import {CipherAgent} from '../infra/cipher/cipher-agent.js'
 import {ExitCode, ExitError, exitWithCode} from '../infra/cipher/exit-codes.js'
 import {WorkspaceNotInitializedError} from '../infra/cipher/validation/workspace-validator.js'
 import {ProjectConfigStore} from '../infra/config/file-config-store.js'
+import {FileGlobalConfigStore} from '../infra/storage/file-global-config-store.js'
 import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
 import {MixpanelTrackingService} from '../infra/tracking/mixpanel-tracking-service.js'
 import {formatError} from '../utils/error-handler.js'
@@ -91,9 +92,14 @@ Bad:
     projectConfigStore: IProjectConfigStore
     trackingService: ITrackingService
   } {
+    const globalConfigStore = new FileGlobalConfigStore()
+    const tokenStore = new KeychainTokenStore()
     return {
       projectConfigStore: new ProjectConfigStore(),
-      trackingService: new MixpanelTrackingService(new KeychainTokenStore()),
+      trackingService: new MixpanelTrackingService({
+        globalConfigStore,
+        tokenStore,
+      }),
     }
   }
 

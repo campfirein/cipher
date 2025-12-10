@@ -12,6 +12,7 @@ import {ITrackingService} from '../core/interfaces/i-tracking-service.js'
 import {ProjectConfigStore} from '../infra/config/file-config-store.js'
 import {FileContextTreeService} from '../infra/context-tree/file-context-tree-service.js'
 import {FileContextTreeSnapshotService} from '../infra/context-tree/file-context-tree-snapshot-service.js'
+import {FileGlobalConfigStore} from '../infra/storage/file-global-config-store.js'
 import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
 import {MixpanelTrackingService} from '../infra/tracking/mixpanel-tracking-service.js'
 import {getErrorMessage} from '../utils/error-helpers.js'
@@ -53,8 +54,12 @@ export default class Status extends Command {
     tokenStore: ITokenStore
     trackingService: ITrackingService
   } {
+    const globalConfigStore = new FileGlobalConfigStore()
     const tokenStore = new KeychainTokenStore()
-    const trackingService = new MixpanelTrackingService(tokenStore)
+    const trackingService = new MixpanelTrackingService({
+      globalConfigStore,
+      tokenStore,
+    })
 
     return {
       contextTreeService: new FileContextTreeService(),
