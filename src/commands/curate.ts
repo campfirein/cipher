@@ -314,32 +314,6 @@ Bad:
   }
 
   /**
-   * Write content to context tree at given path
-   */
-  protected async writeToContextTree(selectedPath: string, content: string): Promise<void> {
-    const targetPath = path.join(CONTEXT_TREE_PATH, selectedPath)
-    const contextFilePath = path.join(targetPath, CONTEXT_FILE)
-
-    // Create directories if they don't exist
-    fs.mkdirSync(targetPath, {recursive: true})
-
-    // Append or create context file
-    const timestamp = new Date().toISOString()
-    const entry = `\n## Added on ${timestamp}\n\n${content}\n`
-
-    const isNewFile = !fs.existsSync(contextFilePath)
-    const title = path.basename(selectedPath) // Use last segment as title
-    if (isNewFile) {
-      fs.writeFileSync(contextFilePath, `# ${title}\n${entry}`, 'utf8')
-    } else {
-      fs.appendFileSync(contextFilePath, entry, 'utf8')
-    }
-
-    const action = isNewFile ? 'Created' : 'Updated'
-    this.log(`\n✓ ${action}: ${contextFilePath}`)
-  }
-
-  /**
    * Handle workspace not initialized error
    */
   private handleWorkspaceError(_error: WorkspaceNotInitializedError): void {
