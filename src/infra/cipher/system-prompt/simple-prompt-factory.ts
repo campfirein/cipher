@@ -25,6 +25,7 @@ export interface BuildContext {
   availableTools?: string[]
   commandType?: 'curate' | 'query'
   conversationMetadata?: {conversationId?: string; title?: string}
+  fileReferenceInstructions?: string
   memoryManager?: MemoryManager
   mode?: 'autonomous' | 'default' | 'query'
 }
@@ -189,6 +190,17 @@ export class SimplePromptFactory {
           if (this.verbose) {
             console.log(`[PromptDebug:SimpleFactory] Failed to load companion prompt: ${companionPath}`)
           }
+        }
+      }
+
+      // Append file reference instructions after companion prompts (for curate command)
+      if (context.commandType === 'curate' && context.fileReferenceInstructions) {
+        finalPrompt = finalPrompt + '\n\n' + context.fileReferenceInstructions
+
+        if (this.verbose) {
+          console.log(
+            `[PromptDebug:SimpleFactory] Appended file reference instructions: ${context.fileReferenceInstructions.length} chars`,
+          )
         }
       }
     }

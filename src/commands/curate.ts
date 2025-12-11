@@ -20,6 +20,7 @@ import {ProjectConfigStore} from '../infra/config/file-config-store.js'
 import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
 import {MixpanelTrackingService} from '../infra/tracking/mixpanel-tracking-service.js'
 import {addErrorPrefix} from '../utils/emoji-helpers.js'
+import {validateFileForCurate} from '../utils/file-validator.js'
 import {formatToolCall, formatToolResult} from '../utils/tool-display-formatter.js'
 
 // Full path to context tree
@@ -46,6 +47,17 @@ Bad:
     '# Autonomous mode - LLM auto-categorizes your context',
     '<%= config.bin %> <%= command.id %> "Auth uses JWT with 24h expiry. Tokens stored in httpOnly cookies via authMiddleware.ts"',
     '',
+    '# Include relevant files for comprehensive context (use sparingly, max 5 files)',
+    '- NOTE: CONTEXT argument must come BEFORE --files flag',
+    '- NOTE: For multiple files, repeat --files (or -f) flag for each file',
+    '- NOTE: Only text/code files from current project directory.',
+    '',
+    '## Single file',
+    '<%= config.bin %> <%= command.id %> "Authentication middleware validates JWT tokens and attaches user context" -f src/middleware/auth.ts',
+    '',
+    '## Multiple files',
+    '<%= config.bin %> <%= command.id %> "JWT authentication implementation with refresh token rotation" --files src/auth/jwt.ts --files docs/auth.md',
+    '',
     ...(isDevelopment()
       ? [
           '# Autonomous mode with OpenRouter (development only)',
@@ -57,6 +69,12 @@ Bad:
       : []),
   ]
   public static flags = {
+    files: Flags.string({
+      char: 'f',
+      description:
+        'Include specific file paths for critical context (max 5 files). Only text/code files from the current project directory are allowed. Use sparingly - only for truly relevant files like docs or key implementation details. NOTE: CONTEXT argument must come BEFORE this flag.',
+      multiple: true,
+    }),
     ...(isDevelopment()
       ? {
           apiKey: Flags.string({
@@ -204,6 +222,69 @@ Bad:
   }
 
   /**
+   * Process file paths from --files flag
+   * @param filePaths - Array of file paths (relative or absolute)
+   * @returns Formatted instructions for the agent to read the specified files
+   */
+  protected processFileReferences(filePaths: string[]): string {
+    const MAX_FILES = 5
+
+    if (!filePaths || filePaths.length === 0) {
+      return ''
+    }
+
+    // Validate max files and truncate if needed
+    if (filePaths.length > MAX_FILES) {
+      const ignored = filePaths.slice(MAX_FILES)
+      this.log(`\n⚠️  Only the first ${MAX_FILES} files will be processed. Ignoring: ${ignored.join(', ')}\n`)
+      filePaths = filePaths.slice(0, MAX_FILES)
+    }
+
+    // Get project root (current directory with .brv)
+    const projectRoot = process.cwd()
+
+    // Validate each file and collect errors
+    const validPaths: string[] = []
+    const errors: string[] = []
+
+    for (const filePath of filePaths) {
+      const result = validateFileForCurate(filePath, projectRoot)
+
+      if (result.valid && result.normalizedPath) {
+        validPaths.push(result.normalizedPath)
+      } else {
+        errors.push(`  ✗ ${result.error}`)
+      }
+    }
+
+    // If there are any validation errors, show them and exit
+    if (errors.length > 0) {
+      this.log('\n❌ File validation failed:\n')
+      this.log(errors.join('\n'))
+      this.log('')
+      exitWithCode(ExitCode.VALIDATION_ERROR, 'Invalid files provided. Please fix the errors above and try again.')
+    }
+
+    // Format instructions for the agent
+    const instructions = [
+      '\n## IMPORTANT: Critical Files to Read (--files flag)',
+      '',
+      'The user has explicitly specified these files as critical context that MUST be read before creating knowledge topics:',
+      '',
+      ...validPaths.map((p) => `- ${p}`),
+      '',
+      '**MANDATORY INSTRUCTIONS:**',
+      '- You MUST use the `read_file` tool to read ALL of these files IN PARALLEL (in a single iteration) before proceeding to create knowledge topics',
+      '- These files contain essential context that will help you create comprehensive and accurate knowledge topics',
+      '- Read them in parallel to maximize efficiency - they do not depend on each other',
+      '- After reading all files, proceed with the normal workflow: detect domains, find existing knowledge, and create/update topics',
+      '',
+    ]
+
+    return instructions.join('\n')
+  }
+
+  /**
    * Prompt user to enter topic name with validation
    * @param targetPath - The path where the topic folder will be created
    * @returns The topic name or null if cancelled
@@ -233,32 +314,6 @@ Bad:
   }
 
   /**
-   * Write content to context tree at given path
-   */
-  protected async writeToContextTree(selectedPath: string, content: string): Promise<void> {
-    const targetPath = path.join(CONTEXT_TREE_PATH, selectedPath)
-    const contextFilePath = path.join(targetPath, CONTEXT_FILE)
-
-    // Create directories if they don't exist
-    fs.mkdirSync(targetPath, {recursive: true})
-
-    // Append or create context file
-    const timestamp = new Date().toISOString()
-    const entry = `\n## Added on ${timestamp}\n\n${content}\n`
-
-    const isNewFile = !fs.existsSync(contextFilePath)
-    const title = path.basename(selectedPath) // Use last segment as title
-    if (isNewFile) {
-      fs.writeFileSync(contextFilePath, `# ${title}\n${entry}`, 'utf8')
-    } else {
-      fs.appendFileSync(contextFilePath, entry, 'utf8')
-    }
-
-    const action = isNewFile ? 'Created' : 'Updated'
-    this.log(`\n✓ ${action}: ${contextFilePath}`)
-  }
-
-  /**
    * Handle workspace not initialized error
    */
   private handleWorkspaceError(_error: WorkspaceNotInitializedError): void {
@@ -274,6 +329,7 @@ Bad:
     content: string,
     flags: {
       apiKey?: string
+      files?: string[]
       model?: string
       verbose?: boolean
     },
@@ -330,10 +386,15 @@ Bad:
         // Setup event listeners
         this.setupEventListeners(agent, flags.verbose ?? false)
 
+        // Process file references if provided
+        const fileReferenceInstructions = flags.files
+          ? this.processFileReferences(flags.files)
+          : ''
+
         // Execute with autonomous mode and add commandType
         const prompt = `Add the following context to the context tree:\n\n${content}`
         const response = await agent.execute(prompt, sessionId, {
-          executionContext: {commandType: 'curate'},
+          executionContext: {commandType: 'curate', fileReferenceInstructions},
           mode: 'autonomous',
         })
 
