@@ -316,39 +316,68 @@ export class AgentStorage implements IAgentStorage {
 
     const now = Date.now()
     const cutoff = now - timeoutMs
+    let totalOrphaned = 0
 
-    // Find stale consumers
+    // Case 1: Find consumers with stale heartbeat
     const staleConsumers = this.db!.prepare(
       `
       SELECT id FROM consumer_locks WHERE last_heartbeat < ?
     `,
     ).all(cutoff) as Array<{id: string}>
 
-    if (staleConsumers.length === 0) {
-      return 0
+    if (staleConsumers.length > 0) {
+      // Orphan executions from stale consumers
+      const orphanStmt = this.db!.prepare(`
+        UPDATE executions
+        SET status = 'failed',
+            error = 'Consumer died unexpectedly',
+            consumer_id = NULL,
+            updated_at = ?
+        WHERE consumer_id = ? AND status = 'running'
+      `)
+
+      // Delete stale consumer locks
+      const deleteLockStmt = this.db!.prepare(`
+        DELETE FROM consumer_locks WHERE id = ?
+      `)
+
+      for (const consumer of staleConsumers) {
+        const result = orphanStmt.run(now, consumer.id)
+        totalOrphaned += result.changes
+        deleteLockStmt.run(consumer.id)
+      }
     }
 
-    // Orphan executions from stale consumers
-    const orphanStmt = this.db!.prepare(`
+    // Case 2: Find "running" executions whose consumer_id doesn't exist in consumer_locks
+    // This handles cases where consumer crashed without proper cleanup
+    const orphanedFromMissingConsumers = this.db!.prepare(`
       UPDATE executions
       SET status = 'failed',
-          error = 'Consumer died unexpectedly',
-          consumer_id = NULL,
+          error = 'Consumer no longer exists',
+          completed_at = ?,
           updated_at = ?
-      WHERE consumer_id = ? AND status = 'running'
-    `)
+      WHERE status = 'running'
+        AND consumer_id IS NOT NULL
+        AND consumer_id NOT IN (SELECT id FROM consumer_locks)
+    `).run(now, now)
 
-    // Delete stale consumer locks
-    const deleteLockStmt = this.db!.prepare(`
-      DELETE FROM consumer_locks WHERE id = ?
-    `)
+    totalOrphaned += orphanedFromMissingConsumers.changes
 
-    let totalOrphaned = 0
-    for (const consumer of staleConsumers) {
-      const result = orphanStmt.run(now, consumer.id)
-      totalOrphaned += result.changes
-      deleteLockStmt.run(consumer.id)
-    }
+    // Case 3: Find "running" CURATE executions with NULL consumer_id (orphaned from releaseConsumerLock)
+    // These are stuck executions where consumer stopped but didn't complete the job
+    // NOTE: Query runs inline (not via consumer), so consumer_id=NULL is normal for query
+    const orphanedNullConsumer = this.db!.prepare(`
+      UPDATE executions
+      SET status = 'failed',
+          error = 'Execution orphaned (no consumer)',
+          completed_at = ?,
+          updated_at = ?
+      WHERE status = 'running'
+        AND consumer_id IS NULL
+        AND type = 'curate'
+    `).run(now, now)
+
+    totalOrphaned += orphanedNullConsumer.changes
 
     return totalOrphaned
   }

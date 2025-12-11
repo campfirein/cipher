@@ -10,8 +10,11 @@ import {closeAgentStorage, getAgentStorage, getAgentStorageSync} from '../storag
 
 // Heartbeat interval for consumer liveness detection (10 seconds)
 const HEARTBEAT_INTERVAL_MS = 1000
-// Consumer is considered stale after 30 seconds without heartbeat
+// Consumer is considered stale after 5 seconds without heartbeat
 const STALE_TIMEOUT_MS = 5000
+
+// Check for orphaned executions every N poll cycles (10 seconds with 1s poll interval)
+const ORPHAN_CHECK_INTERVAL_CYCLES = 10
 
 /**
  * Sleep for specified milliseconds
@@ -347,6 +350,7 @@ export class ExecutionConsumer {
   private async poll(): Promise<void> {
     const storage = getAgentStorageSync()
     let cleanupCounter = 0
+    let orphanCheckCounter = 0
 
     while (this.running) {
       try {
@@ -366,6 +370,16 @@ export class ExecutionConsumer {
 
             // Process in background (fire and forget with completion tracking)
             this.processExecutionAsync(execution)
+          }
+        }
+
+        // Periodic orphan detection - check for dead consumers and fail their executions
+        orphanCheckCounter++
+        if (orphanCheckCounter >= ORPHAN_CHECK_INTERVAL_CYCLES) {
+          orphanCheckCounter = 0
+          const orphaned = storage.cleanupStaleConsumers(STALE_TIMEOUT_MS)
+          if (orphaned > 0) {
+            console.log(`[Consumer] Detected ${orphaned} orphaned executions from dead consumers`)
           }
         }
 
