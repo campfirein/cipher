@@ -1,7 +1,20 @@
 import {type Agent} from '../../core/domain/entities/agent.js'
 import {type IRuleTemplateService} from '../../core/interfaces/i-rule-template-service.js'
 import {type ITemplateLoader} from '../../core/interfaces/i-template-loader.js'
-import {BR_RULE_TAG} from './constants.js'
+import {BRV_RULE_MARKERS, BRV_RULE_TAG} from './constants.js'
+
+/**
+ * Wraps rule content with boundary markers for identification and replacement.
+ *
+ * @param content The rule content to wrap.
+ * @param agent The agent name for the footer tag.
+ * @param header Agent-specific header.
+ * @returns The wrapped content with boundary markers.
+ */
+const wrapContentWithBoundaryMarkers = (content: string, agent: Agent, header: string): string => {
+  const parts = [BRV_RULE_MARKERS.START, header, content, '---', `${BRV_RULE_TAG} ${agent}`, BRV_RULE_MARKERS.END]
+  return parts.join('\n')
+}
 
 const guideHeaders: {agent: Agent; value: string}[] = [
   {
@@ -75,11 +88,7 @@ export class RuleTemplateService implements IRuleTemplateService {
       // Add agent-specific header if available (from develop branch)
       const header = guideHeaders.find((h) => h.agent === agent)?.value || ''
 
-      return `${header}
-${content}
----
-${BR_RULE_TAG} ${agent}
-`
+      return wrapContentWithBoundaryMarkers(content, agent, header)
     } catch (error) {
       throw new Error(
         `Failed to generate rule content for agent '${agent}': ${

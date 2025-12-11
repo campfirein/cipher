@@ -32,7 +32,7 @@ describe('mapToPushContexts', () => {
 
       const result = mapToPushContexts({addedFiles, deletedPaths: [], modifiedFiles: []})
 
-      expect(result[0].path).to.equal('/design/patterns/context.md')
+      expect(result[0].path).to.equal('design/patterns/context.md')
       expect(result[0].title).to.equal('My Title')
       expect(result[0].content).to.equal('# My Title\n\nSome content here')
     })
@@ -69,9 +69,9 @@ describe('mapToPushContexts', () => {
       const result = mapToPushContexts({addedFiles, deletedPaths: [], modifiedFiles: []})
 
       expect(result).to.have.lengthOf(3)
-      expect(result[0].path).to.equal('/first/context.md')
-      expect(result[1].path).to.equal('/second/context.md')
-      expect(result[2].path).to.equal('/third/context.md')
+      expect(result[0].path).to.equal('first/context.md')
+      expect(result[1].path).to.equal('second/context.md')
+      expect(result[2].path).to.equal('third/context.md')
     })
   })
 
@@ -87,13 +87,13 @@ describe('mapToPushContexts', () => {
       expect(result).to.have.lengthOf(2)
 
       expect(result[0].content).to.equal('Content A')
-      expect(result[0].path).to.equal('/a/context.md')
+      expect(result[0].path).to.equal('a/context.md')
       expect(result[0].title).to.equal('Title A')
       expect(result[0].operation).to.equal('add')
       expect(result[0].tags).to.deep.equal([])
 
       expect(result[1].content).to.equal('Content B')
-      expect(result[1].path).to.equal('/b/context.md')
+      expect(result[1].path).to.equal('b/context.md')
       expect(result[1].title).to.equal('Title B')
       expect(result[1].operation).to.equal('add')
       expect(result[1].tags).to.deep.equal([])
@@ -114,7 +114,7 @@ describe('mapToPushContexts', () => {
 
       expect(result).to.have.lengthOf(1)
       expect(result[0].operation).to.equal('edit')
-      expect(result[0].path).to.equal('/structure/context.md')
+      expect(result[0].path).to.equal('structure/context.md')
       expect(result[0].title).to.equal('Updated Title')
       expect(result[0].content).to.equal('Updated content')
       expect(result[0].tags).to.deep.equal([])
@@ -159,9 +159,9 @@ describe('mapToPushContexts', () => {
       const result = mapToPushContexts({addedFiles, deletedPaths: [], modifiedFiles})
 
       expect(result[0].operation).to.equal('add')
-      expect(result[0].path).to.equal('/new/context.md')
+      expect(result[0].path).to.equal('new/context.md')
       expect(result[1].operation).to.equal('edit')
-      expect(result[1].path).to.equal('/existing/context.md')
+      expect(result[1].path).to.equal('existing/context.md')
     })
 
     it('should handle multiple added and modified files', () => {
@@ -194,12 +194,12 @@ describe('mapToPushContexts', () => {
       expect(result[0].operation).to.equal('delete')
     })
 
-    it('should set correct path with leading slash', () => {
+    it('should set correct path for deleted files', () => {
       const deletedPaths = ['structure/old/context.md']
 
       const result = mapToPushContexts({addedFiles: [], deletedPaths, modifiedFiles: []})
 
-      expect(result[0].path).to.equal('/structure/old/context.md')
+      expect(result[0].path).to.equal('structure/old/context.md')
     })
 
     it('should set empty content and title for delete operation', () => {
@@ -219,11 +219,11 @@ describe('mapToPushContexts', () => {
 
       expect(result).to.have.lengthOf(3)
       expect(result[0].operation).to.equal('delete')
-      expect(result[0].path).to.equal('/a/context.md')
+      expect(result[0].path).to.equal('a/context.md')
       expect(result[1].operation).to.equal('delete')
-      expect(result[1].path).to.equal('/b/context.md')
+      expect(result[1].path).to.equal('b/context.md')
       expect(result[2].operation).to.equal('delete')
-      expect(result[2].path).to.equal('/c/context.md')
+      expect(result[2].path).to.equal('c/context.md')
     })
   })
 
@@ -254,11 +254,11 @@ describe('mapToPushContexts', () => {
       const result = mapToPushContexts({addedFiles, deletedPaths, modifiedFiles})
 
       expect(result[0].operation).to.equal('add')
-      expect(result[0].path).to.equal('/new/context.md')
+      expect(result[0].path).to.equal('new/context.md')
       expect(result[1].operation).to.equal('edit')
-      expect(result[1].path).to.equal('/existing/context.md')
+      expect(result[1].path).to.equal('existing/context.md')
       expect(result[2].operation).to.equal('delete')
-      expect(result[2].path).to.equal('/obsolete/context.md')
+      expect(result[2].path).to.equal('obsolete/context.md')
     })
 
     it('should handle multiple files of each operation type', () => {

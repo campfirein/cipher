@@ -10,6 +10,14 @@ export type WriteMode = 'append' | 'overwrite'
  */
 export interface IFileService {
   /**
+   * Creates a timestamped backup copy of a file.
+   *
+   * @param filePath The path to the file to backup.
+   * @returns A promise that resolves with the path to the backup file.
+   */
+  createBackup: (filePath: string) => Promise<string>
+
+  /**
    * Checks if a file exists at the specified path.
    *
    * @param filePath The path to the file to check.
@@ -24,6 +32,16 @@ export interface IFileService {
    * @returns A promise that resolves with the content of the file.
    */
   read: (filePath: string) => Promise<string>
+
+  /**
+   * Replaces specific content within a file with new content.
+   *
+   * @param filePath The path to the file.
+   * @param oldContent The content to be replaced.
+   * @param newContent The new content to insert.
+   * @returns A promise that resolves when the replacement is complete.
+   */
+  replaceContent: (filePath: string, oldContent: string, newContent: string) => Promise<void>
 
   /**
    * Writes content to the specified file.

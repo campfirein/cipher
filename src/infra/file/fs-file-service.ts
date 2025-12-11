@@ -1,4 +1,4 @@
-import {access, appendFile, mkdir, readFile, writeFile} from 'node:fs/promises'
+import {access, appendFile, copyFile, mkdir, readFile, writeFile} from 'node:fs/promises'
 import {dirname} from 'node:path'
 
 import {type IFileService, type WriteMode} from '../../core/interfaces/i-file-service.js'
@@ -7,6 +7,20 @@ import {type IFileService, type WriteMode} from '../../core/interfaces/i-file-se
  * File service implementation using Node.js fs module.
  */
 export class FsFileService implements IFileService {
+  public async createBackup(filePath: string): Promise<string> {
+    try {
+      // Timestamp format: YYYY-MM-DD-HH-MM-SS
+      const timestamp = new Date().toISOString().replaceAll(/[:.]/g, '-').split('T').join('-').slice(0, -5)
+      const backupPath = `${filePath}.backup-${timestamp}`
+      await copyFile(filePath, backupPath)
+      return backupPath
+    } catch (error) {
+      throw new Error(
+        `Failed to create backup file '${filePath}': ${error instanceof Error ? error.message : 'Unknown error'}`,
+      )
+    }
+  }
+
   /**
    * Checks if a file exists at the specified path.
    *
@@ -34,6 +48,18 @@ export class FsFileService implements IFileService {
     } catch (error) {
       throw new Error(
         `Failed to read content from file '${filePath}': ${error instanceof Error ? error.message : String(error)}`,
+      )
+    }
+  }
+
+  public async replaceContent(filePath: string, oldContent: string, newContent: string): Promise<void> {
+    try {
+      const currentContent = await this.read(filePath)
+      const updatedContent = currentContent.replace(oldContent, newContent)
+      await this.write(updatedContent, filePath, 'overwrite')
+    } catch (error) {
+      throw new Error(
+        `Failed to replace content in file '${filePath}': ${error instanceof Error ? error.message : 'Unknown error'}`,
       )
     }
   }
