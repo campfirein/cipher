@@ -13,6 +13,9 @@ export interface ExecutionContext {
   /** Metadata about the conversation (for JSON input mode) */
   conversationMetadata?: ConversationMetadata
 
+  /** File reference instructions for agent to read files (for curate command with --files flag) */
+  fileReferenceInstructions?: string
+
   /** Whether running in JSON input mode (headless with conversation history) */
   isJsonInputMode?: boolean
 }
