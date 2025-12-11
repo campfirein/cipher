@@ -3,7 +3,7 @@ import type {CipherAgentServices} from '../../core/interfaces/cipher/cipher-serv
 import type {IChatSession} from '../../core/interfaces/cipher/i-chat-session.js'
 import type {AgentState, ExecutionContext, ICipherAgent} from '../../core/interfaces/cipher/i-cipher-agent.js'
 import type {IHistoryStorage} from '../../core/interfaces/cipher/i-history-storage.js'
-import type {ByteRoverGrpcConfig, CipherLLMConfig} from './agent-service-factory.js'
+import type {ByteRoverHttpConfig, CipherLLMConfig} from './agent-service-factory.js'
 import type {AgentEventBus} from './events/event-emitter.js'
 import type {FileSystemService} from './file-system/file-system-service.js'
 import type {MemoryManager} from './memory/memory-manager.js'
@@ -255,10 +255,10 @@ export class CipherAgent implements ICipherAgent {
     // Create SHARED services only (following Dexto's pattern)
     const sharedServices: CipherAgentServices = await createCipherAgentServices(this.llmConfig)
 
-    // Extract gRPC config from llmConfig
-    const grpcConfig: ByteRoverGrpcConfig = {
+    // Extract HTTP config from llmConfig
+    const httpConfig: ByteRoverHttpConfig = {
       accessToken: this.llmConfig.accessToken,
-      grpcEndpoint: this.llmConfig.grpcEndpoint,
+      apiBaseUrl: this.llmConfig.apiBaseUrl,
       projectId: this.llmConfig.projectId,
       region: this.llmConfig.region,
       sessionKey: this.llmConfig.sessionKey,
@@ -279,7 +279,7 @@ export class CipherAgent implements ICipherAgent {
     }
 
     // Create SessionManager with shared services
-    const sessionManager = new SessionManager(sharedServices, grpcConfig, sessionLLMConfig, {
+    const sessionManager = new SessionManager(sharedServices, httpConfig, sessionLLMConfig, {
       config: {
         maxSessions: 100,
         sessionTTL: 3_600_000, // 1 hour
