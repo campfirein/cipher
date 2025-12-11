@@ -11,8 +11,6 @@
     "@anthropic-ai/sdk": "^0.70.1",
     "@anthropic-ai/vertex-sdk": "^0.14.0",
     "@google/genai": "^1.29.0",
-    "@grpc/grpc-js": "^1.10.0",
-    "@grpc/proto-loader": "^0.7.13",
     "@inquirer/prompts": "^7.9.0",
     "@oclif/core": "^4",
     "@oclif/plugin-help": "^6",
@@ -97,7 +95,7 @@
   },
   "repository": "campfirein/byterover-cli",
   "scripts": {
-    "build": "shx rm -rf dist && tsc -b && shx cp -r src/templates dist/templates && shx cp -r src/resources dist/resources && shx cp src/infra/cipher/grpc/internal-llm-grpc.proto dist/infra/cipher/grpc/",
+    "build": "shx rm -rf dist && tsc -b && shx cp -r src/templates dist/templates && shx cp -r src/resources dist/resources",
     "lint": "eslint",
     "postpack": "shx rm -f oclif.manifest.json",
     "posttest": "npm run lint",

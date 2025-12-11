@@ -2,6 +2,33 @@ import axios, {type AxiosRequestConfig, isAxiosError} from 'axios'
 
 import type {HttpRequestConfig, IHttpClient} from '../../core/interfaces/i-http-client.js'
 
+
+/**
+ * Standardized API error response from server.
+ *
+ * Matches the server-side ApiErrorResponse format for consistent error handling.
+ */
+type ApiErrorResponse = {
+  /** Error code for programmatic handling (e.g., AUTH_INVALID_TOKEN, LLM_GENERATION_FAILED) */
+  code: string
+  /** Optional additional error details */
+  details?: Record<string, unknown>
+  /** Human-readable error message */
+  message: string
+  /** HTTP status code */
+  statusCode: number
+  /** ISO timestamp when error occurred */
+  timestamp: string
+}
+
+type LLMServerError = {
+  response: {
+    data: ApiErrorResponse | Record<string, unknown>
+    status: number
+    statusText: string
+  }
+}
+
 /**
  * HTTP client implementation that automatically adds authentication headers to all requests.
  *
@@ -88,6 +115,11 @@ export class AuthenticatedHttpClient implements IHttpClient {
    * Preserves error information while abstracting axios-specific details.
    */
   private handleError(error: unknown): Error {
+    if (this.isLLMServerError(error)) {
+      // Extract standardized API error message
+      return new Error(this.parseHttpError(error))
+    }
+
     if (isAxiosError(error)) {
       if (error.response) {
         // Server responded with error status
@@ -111,5 +143,45 @@ export class AuthenticatedHttpClient implements IHttpClient {
     }
 
     return new Error('Unknown error occurred')
+  }
+
+   /**
+    * Type guard to check if error is an axios error with response.
+    */
+  private isLLMServerError(error: unknown): error is LLMServerError {
+    return (
+      typeof error === 'object' &&
+      error !== null &&
+      'response' in error &&
+      typeof (error as LLMServerError).response === 'object'
+    )
+  }
+
+  /**
+   * Parse HTTP error to extract user-friendly error message.
+   *
+   * Handles standardized API error responses from the server:
+   * ```json
+   * {
+   *   "statusCode": 401,
+   *   "code": "AUTH_INVALID_TOKEN",
+   *   "message": "Your authentication token is invalid. Please login again.",
+   *   "timestamp": "2024-01-01T00:00:00.000Z"
+   * }
+   * ```
+   *
+   * @param error - HTTP error object (may contain response data)
+   * @returns User-friendly error message
+   */
+  private parseHttpError(error: LLMServerError): string {
+    const responseData = error.response.data
+
+    // If server returned standardized API error format, use the message
+    if ('message' in responseData && typeof responseData.message === 'string') {
+      return responseData.message
+    }
+
+    // Fallback to HTTP status error
+    return `HTTP ${error.response.status}: ${error.response.statusText}`
   }
 }
