@@ -25,6 +25,7 @@ import type {IHistoryStorage} from '../../src/core/interfaces/cipher/i-history-s
 import type {ILLMService} from '../../src/core/interfaces/cipher/i-llm-service.js'
 import type {PolicyEvaluationResult, PolicyRule} from '../../src/core/interfaces/cipher/i-policy-engine.js'
 import type {ScheduledToolExecution, ToolSchedulerContext} from '../../src/core/interfaces/cipher/i-tool-scheduler.js'
+import type {ITerminal} from '../../src/core/interfaces/i-terminal.js'
 import type {AgentEventBus} from '../../src/infra/cipher/events/event-emitter.js'
 import type {FileSystemService} from '../../src/infra/cipher/file-system/file-system-service.js'
 import type {ContextManager} from '../../src/infra/cipher/llm/context/context-manager.js'
@@ -337,6 +338,59 @@ export function createMockCipherAgentServices(
     toolManager: createMockToolManager(sandbox),
     toolProvider: createMockToolProvider(sandbox),
     toolScheduler: createMockToolScheduler(sandbox),
+    ...overrides,
+  }
+}
+
+/**
+ * Creates a mock ITerminal with sensible defaults.
+ * Users can override any method by passing a partial ITerminal.
+ *
+ * Default behavior:
+ * - error/log/warn: no-op (silently swallow messages)
+ * - confirm: returns false
+ * - search/select: throws error (must be overridden if used)
+ *
+ * @param overrides - Partial ITerminal to override default implementations
+ * @returns Mock ITerminal implementation
+ *
+ * @example
+ * ```ts
+ * // Simple usage with defaults
+ * const terminal = createMockTerminal()
+ *
+ * // Capture messages
+ * const errors: string[] = []
+ * const terminal = createMockTerminal({
+ *   error: (msg) => errors.push(msg),
+ *   confirm: async () => true,
+ * })
+ *
+ * // Mock search/select for prompts (options are typed objects)
+ * const terminal = createMockTerminal({
+ *   search: async () => 'selected-agent',
+ *   select: async () => 'selected-option',
+ * })
+ * ```
+ */
+export function createMockTerminal(overrides: Partial<ITerminal> = {}): ITerminal {
+  return {
+    confirm: async () => false,
+    error() {},
+    async fileSelector() {
+      throw new Error('fileSelector not mocked - provide fileSelector override')
+    },
+    async input(): Promise<string> {
+      throw new Error('input not mocked - provide input override')
+    },
+    log() {},
+    async search<T>(): Promise<T> {
+      throw new Error('search not mocked - provide search override')
+    },
+    async select<T>(): Promise<T> {
+      throw new Error('select not mocked - provide select override')
+    },
+    warn() {},
     ...overrides,
   }
 }

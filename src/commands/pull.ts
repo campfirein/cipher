@@ -6,6 +6,7 @@ import type {ICogitPullService} from '../core/interfaces/i-cogit-pull-service.js
 import type {IContextTreeSnapshotService} from '../core/interfaces/i-context-tree-snapshot-service.js'
 import type {IContextTreeWriterService} from '../core/interfaces/i-context-tree-writer-service.js'
 import type {IProjectConfigStore} from '../core/interfaces/i-project-config-store.js'
+import type {ITerminal} from '../core/interfaces/i-terminal.js'
 import type {ITokenStore} from '../core/interfaces/i-token-store.js'
 import type {ITrackingService} from '../core/interfaces/i-tracking-service.js'
 
@@ -18,6 +19,7 @@ import {ProjectConfigStore} from '../infra/config/file-config-store.js'
 import {FileContextTreeSnapshotService} from '../infra/context-tree/file-context-tree-snapshot-service.js'
 import {FileContextTreeWriterService} from '../infra/context-tree/file-context-tree-writer-service.js'
 import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
+import {OclifTerminal} from '../infra/terminal/oclif-terminal.js'
 import {MixpanelTrackingService} from '../infra/tracking/mixpanel-tracking-service.js'
 
 export default class Pull extends Command {
@@ -34,6 +36,7 @@ export default class Pull extends Command {
       description: 'ByteRover branch name (not Git branch)',
     }),
   }
+  protected terminal: ITerminal = {} as ITerminal
 
   public async catch(error: Error & {oclif?: {exit: number}}): Promise<void> {
     if (error instanceof ExitError) {
@@ -72,6 +75,7 @@ export default class Pull extends Command {
     tokenStore: ITokenStore
     trackingService: ITrackingService
   } {
+    this.terminal = new OclifTerminal(this)
     const envConfig = getCurrentConfig()
     const tokenStore = new KeychainTokenStore()
     const trackingService = new MixpanelTrackingService(tokenStore)
@@ -105,6 +109,7 @@ export default class Pull extends Command {
       await trackingService.track('mem:pull')
 
       const token = await this.validateAuth(tokenStore)
+      if (!token) return
       const projectConfig = await this.checkProjectInit(projectConfigStore)
 
       // Check for local changes
@@ -120,7 +125,7 @@ export default class Pull extends Command {
       }
 
       // Pull from CoGit
-      this.log('Pulling from ByteRover...')
+      this.terminal.log('Pulling from ByteRover...')
       const snapshot = await cogitPullService.pull({
         accessToken: token.accessToken,
         branch: flags.branch,
@@ -138,10 +143,10 @@ export default class Pull extends Command {
       await contextTreeSnapshotService.saveSnapshot()
 
       // Success message
-      this.log('\n✓ Successfully pulled context tree from ByteRover memory storage!')
-      this.log(`  Branch: ${flags.branch}`)
-      this.log(`  Commit: ${snapshot.commitSha.slice(0, 7)}`)
-      this.log(
+      this.terminal.log('\n✓ Successfully pulled context tree from ByteRover memory storage!')
+      this.terminal.log(`  Branch: ${flags.branch}`)
+      this.terminal.log(`  Commit: ${snapshot.commitSha.slice(0, 7)}`)
+      this.terminal.log(
         `  Added: ${syncResult.added.length}, Edited: ${syncResult.edited.length}, Deleted: ${syncResult.deleted.length}`,
       )
     } catch (error) {
@@ -157,15 +162,17 @@ export default class Pull extends Command {
     }
   }
 
-  protected async validateAuth(tokenStore: ITokenStore): Promise<AuthToken> {
+  protected async validateAuth(tokenStore: ITokenStore): Promise<AuthToken | undefined> {
     const token = await tokenStore.load()
 
     if (token === undefined) {
-      this.error('Not authenticated. Run "brv login" first.')
+      this.terminal.error('Not authenticated. Run "brv login" first.')
+      return undefined
     }
 
     if (!token.isValid()) {
-      this.error('Authentication token expired. Run "brv login" again.')
+      this.terminal.error('Authentication token expired. Run "brv login" again.')
+      return undefined
     }
 
     return token

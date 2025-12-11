@@ -1,13 +1,11 @@
-import {input} from '@inquirer/prompts'
 import {Args, Command, Flags} from '@oclif/core'
-import chalk from 'chalk'
-import {fileSelector, Item, ItemType} from 'inquirer-file-selector'
 import {randomUUID} from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import open from 'open'
 
 import type {IProjectConfigStore} from '../core/interfaces/i-project-config-store.js'
+import type {ITerminal} from '../core/interfaces/i-terminal.js'
 import type {ITrackingService} from '../core/interfaces/i-tracking-service.js'
 
 import {CONTEXT_TREE_DOMAINS} from '../config/context-tree-domains.js'
@@ -18,6 +16,7 @@ import {getAgentStorage} from '../infra/cipher/storage/agent-storage.js'
 import {WorkspaceNotInitializedError} from '../infra/cipher/validation/workspace-validator.js'
 import {ProjectConfigStore} from '../infra/config/file-config-store.js'
 import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
+import {OclifTerminal} from '../infra/terminal/oclif-terminal.js'
 import {MixpanelTrackingService} from '../infra/tracking/mixpanel-tracking-service.js'
 import {validateFileForCurate} from '../utils/file-validator.js'
 
@@ -93,6 +92,7 @@ Bad:
         }
       : {}),
   }
+  protected terminal: ITerminal = {} as ITerminal
 
   // Override catch to prevent oclif from logging errors that were already displayed
   async catch(error: Error & {oclif?: {exit: number}}): Promise<void> {
@@ -114,6 +114,7 @@ Bad:
     projectConfigStore: IProjectConfigStore
     trackingService: ITrackingService
   } {
+    this.terminal = new OclifTerminal(this)
     return {
       projectConfigStore: new ProjectConfigStore(),
       trackingService: new MixpanelTrackingService(new KeychainTokenStore()),
@@ -171,10 +172,10 @@ Bad:
     while (true) {
       try {
         // eslint-disable-next-line no-await-in-loop
-        const selectedItem = await fileSelector({
+        const selectedItem = await this.terminal.fileSelector({
           allowCancel: true,
           basePath: contextTreePath,
-          filter: (item: Readonly<Item>) => item.isDirectory,
+          filter: (item) => item.isDirectory,
           message: 'Target context location:',
           pageSize: 15,
           theme: {
@@ -185,7 +186,7 @@ Bad:
               },
             },
           },
-          type: ItemType.Directory,
+          type: 'directory',
         })
 
         // User cancelled
@@ -203,7 +204,7 @@ Bad:
         }
 
         // Invalid selection - retry
-        this.log(chalk.red('Invalid selection. Please choose a valid location within the context tree.'))
+        this.terminal.log('Invalid selection. Please choose a valid location within the context tree.')
       } catch {
         // Error occurred
         return null
@@ -289,7 +290,7 @@ Bad:
    */
   protected async promptForTopicName(targetPath: string): Promise<null | string> {
     try {
-      const topicName = await input({
+      const topicName = await this.terminal.input({
         message: 'New topic name:',
         validate: (value) => this.validateTopicName(value, targetPath),
       })
@@ -376,7 +377,7 @@ Bad:
       }
 
       // Throw error to let oclif handle exit code
-      this.error(error instanceof Error ? error.message : 'Runtime error occurred', {exit: ExitCode.RUNTIME_ERROR})
+      this.terminal.error(error instanceof Error ? error.message : 'Runtime error occurred')
     }
   }
 
@@ -390,7 +391,7 @@ Bad:
       const targetPath = await this.navigateContextTree()
 
       if (!targetPath) {
-        this.log('\nOperation cancelled.')
+        this.terminal.log('\nOperation cancelled.')
         return
       }
 
@@ -398,22 +399,22 @@ Bad:
       const topicName = await this.promptForTopicName(targetPath)
 
       if (!topicName) {
-        this.log('\nOperation cancelled.')
+        this.terminal.log('\nOperation cancelled.')
         return
       }
 
       // Create the topic folder with context.md
       const contextFilePath = this.createTopicWithContextFile(targetPath, topicName)
-      this.log(`\nCreated: ${contextFilePath}`)
+      this.terminal.log(`\nCreated: ${contextFilePath}`)
 
       // Track the event
       trackingService.track('mem:curate')
 
       // Auto-open context.md in default editor
-      this.log('Opening context.md for editing...')
+      this.terminal.log('Opening context.md for editing...')
       await this.openFile(contextFilePath)
     } catch (error) {
-      this.error(error instanceof Error ? error.message : 'Unexpected error occurred')
+      this.terminal.error(error instanceof Error ? error.message : 'Unexpected error occurred')
     }
   }
 

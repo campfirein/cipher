@@ -8,11 +8,14 @@ import type {IContextTreeService} from '../../src/core/interfaces/i-context-tree
 import type {IContextTreeSnapshotService} from '../../src/core/interfaces/i-context-tree-snapshot-service.js'
 
 import Clear from '../../src/commands/clear.js'
+import {createMockTerminal} from '../helpers/mock-factories.js'
 
 /**
  * Testable Clear command that accepts mocked services
  */
 class TestableClear extends Clear {
+  public errorMessages: string[] = []
+  public logMessages: string[] = []
   public mockConfirmError: Error | undefined = undefined
   public mockConfirmResult = false
 
@@ -34,20 +37,14 @@ class TestableClear extends Clear {
   }
 
   protected createServices() {
+    this.terminal = createMockTerminal({
+      error: (msg) => this.errorMessages.push(msg),
+      log: (msg) => msg !== undefined && this.logMessages.push(msg),
+    })
     return {
       contextTreeService: this.mockContextTreeService,
       contextTreeSnapshotService: this.mockContextTreeSnapshotService,
     }
-  }
-
-  // Suppress output to prevent noisy test runs
-  public error(input: Error | string): never {
-    const errorMessage = typeof input === 'string' ? input : input.message
-    throw new Error(errorMessage)
-  }
-
-  public log(): void {
-    // Do nothing - suppress output
   }
 }
 
@@ -151,13 +148,10 @@ describe('clear command', () => {
 
     const command = new TestableClear(contextTreeService, contextTreeSnapshotService, ['--yes'], config)
 
-    try {
-      await command.run()
-      expect.fail('Should have thrown error')
-    } catch (error) {
-      expect(error).to.be.an('error')
-      expect((error as Error).message).to.include('Disk error')
-    }
+    await command.run()
+
+    expect(command.errorMessages).to.have.lengthOf(1)
+    expect(command.errorMessages[0]).to.include('Disk error')
   })
 
   it('should use short flag -y for yes', async () => {

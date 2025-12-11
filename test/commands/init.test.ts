@@ -25,11 +25,14 @@ import {BrvConfig} from '../../src/core/domain/entities/brv-config.js'
 import {Space as SpaceImpl} from '../../src/core/domain/entities/space.js'
 import {Team as TeamImpl} from '../../src/core/domain/entities/team.js'
 import {IContextTreeSnapshotService} from '../../src/core/interfaces/i-context-tree-snapshot-service.js'
+import {createMockTerminal} from '../helpers/mock-factories.js'
 
 /**
  * Testable Init command that accepts mocked services
  */
 class TestableInit extends Init {
+  public errorMessages: string[] = []
+  public logMessages: string[] = []
   public mockAceDirectoryExists = false
   public mockAceRemovalConfirmResult = true
   public mockCleanupError: Error | undefined = undefined
@@ -75,6 +78,16 @@ class TestableInit extends Init {
   }
 
   protected createServices() {
+    this.terminal = createMockTerminal({
+      error: (message: string) => {
+        this.errorMessages.push(message)
+      },
+      log: (message?: string) => {
+        if (message !== undefined) {
+          this.logMessages.push(message)
+        }
+      },
+    })
     return {
       cogitPullService: this.mockCogitPullService,
       contextTreeService: this.mockContextTreeService,
@@ -89,13 +102,6 @@ class TestableInit extends Init {
       tokenStore: this.mockTokenStore,
       trackingService: this.mockTrackingService,
     }
-  }
-
-  // Suppress all output to prevent noisy test runs
-  public error(input: Error | string): never {
-    // Throw error to maintain behavior but suppress output
-    const errorMessage = typeof input === 'string' ? input : input.message
-    throw new Error(errorMessage)
   }
 
   protected async getExistingConfig(): Promise<BrvConfig | LegacyProjectConfigInfo | undefined> {
@@ -114,10 +120,6 @@ class TestableInit extends Init {
     }
 
     return config
-  }
-
-  public log(): void {
-    // Do nothing - suppress output
   }
 
   protected async promptAceDeprecationRemoval(): Promise<boolean> {
@@ -159,11 +161,6 @@ class TestableInit extends Init {
     await this.initializeMemoryContextDir('context tree', () => this.mockContextTreeService.initialize())
     await this.mockContextTreeSnapshotService.initEmptySnapshot()
   }
-
-  public warn(input: Error | string): Error | string {
-    // Do nothing - suppress output, but return input to match base signature
-    return input
-  }
 }
 
 /**
@@ -171,6 +168,8 @@ class TestableInit extends Init {
  * Extends Init directly to avoid TestableInit's override
  */
 class SyncTestableInit extends Init {
+  public errorMessages: string[] = []
+  public logMessages: string[] = []
   public mockContextTreeInitializeCalled = false
 
   // eslint-disable-next-line max-params
@@ -195,6 +194,16 @@ class SyncTestableInit extends Init {
   }
 
   protected createServices() {
+    this.terminal = createMockTerminal({
+      error: (message: string) => {
+        this.errorMessages.push(message)
+      },
+      log: (message?: string) => {
+        if (message !== undefined) {
+          this.logMessages.push(message)
+        }
+      },
+    })
     return {
       cogitPullService: this.mockCogitPullService,
       contextTreeService: this.mockContextTreeService,
@@ -211,11 +220,6 @@ class SyncTestableInit extends Init {
     }
   }
 
-  public error(input: Error | string): never {
-    const errorMessage = typeof input === 'string' ? input : input.message
-    throw new Error(errorMessage)
-  }
-
   protected async getExistingConfig(): Promise<BrvConfig | LegacyProjectConfigInfo | undefined> {
     return undefined // No existing config for sync tests
   }
@@ -224,10 +228,6 @@ class SyncTestableInit extends Init {
   protected async initializeMemoryContextDir(_label: string, initFn: () => Promise<string>): Promise<void> {
     this.mockContextTreeInitializeCalled = true
     await initFn()
-  }
-
-  public log(): void {
-    // Suppress output
   }
 
   protected async promptForAgentSelection(): Promise<Agent> {
@@ -256,6 +256,17 @@ class SyncTestableInit extends Init {
 
   // Expose syncFromRemoteOrInitialize for direct testing
   public async testSyncFromRemoteOrInitialize(token: AuthToken): Promise<void> {
+    // Initialize terminal before calling syncFromRemoteOrInitialize (normally done in createServices)
+    this.terminal = createMockTerminal({
+      error: (message: string) => {
+        this.errorMessages.push(message)
+      },
+      log: (message?: string) => {
+        if (message !== undefined) {
+          this.logMessages.push(message)
+        }
+      },
+    })
     return this.syncFromRemoteOrInitialize({
       cogitPullService: this.mockCogitPullService,
       contextTreeService: this.mockContextTreeService,
@@ -264,10 +275,6 @@ class SyncTestableInit extends Init {
       projectConfig: {spaceId: this.mockSelectedSpace.id, teamId: this.mockSelectedTeam.id},
       token,
     })
-  }
-
-  public warn(input: Error | string): Error | string {
-    return input
   }
 }
 
@@ -472,13 +479,10 @@ describe('Init Command', () => {
         config,
       )
 
-      try {
-        await command.run()
-        expect.fail('Should have thrown error')
-      } catch (error) {
-        expect(error).to.be.an('error')
-        expect((error as Error).message).to.include('Not authenticated')
-      }
+      await command.run()
+
+      expect(command.errorMessages).to.have.lengthOf(1)
+      expect(command.errorMessages[0]).to.include('Not authenticated')
     })
 
     it('should throw error when token is expired', async () => {
@@ -513,13 +517,10 @@ describe('Init Command', () => {
         config,
       )
 
-      try {
-        await command.run()
-        expect.fail('Should have thrown error')
-      } catch (error) {
-        expect(error).to.be.an('error')
-        expect((error as Error).message).to.include('expired')
-      }
+      await command.run()
+
+      expect(command.errorMessages).to.have.lengthOf(1)
+      expect(command.errorMessages[0]).to.include('expired')
     })
 
     it('should exit gracefully when no teams are available', async () => {
@@ -677,13 +678,10 @@ describe('Init Command', () => {
         config,
       )
 
-      try {
-        await command.run()
-        expect.fail('Should have thrown error')
-      } catch (error) {
-        expect(error).to.be.an('error')
-        expect((error as Error).message).to.include('Network timeout')
-      }
+      await command.run()
+
+      expect(command.errorMessages).to.have.lengthOf(1)
+      expect(command.errorMessages[0]).to.include('Network timeout')
     })
 
     it('should propagate errors from space service', async () => {
@@ -710,13 +708,10 @@ describe('Init Command', () => {
         config,
       )
 
-      try {
-        await command.run()
-        expect.fail('Should have thrown error')
-      } catch (error) {
-        expect(error).to.be.an('error')
-        expect((error as Error).message).to.include('Network timeout')
-      }
+      await command.run()
+
+      expect(command.errorMessages).to.have.lengthOf(1)
+      expect(command.errorMessages[0]).to.include('Network timeout')
     })
 
     it('should propagate errors from config store', async () => {
@@ -744,13 +739,10 @@ describe('Init Command', () => {
         config,
       )
 
-      try {
-        await command.run()
-        expect.fail('Should have thrown error')
-      } catch (error) {
-        expect(error).to.be.an('error')
-        expect((error as Error).message).to.include('Permission denied')
-      }
+      await command.run()
+
+      expect(command.errorMessages).to.have.lengthOf(1)
+      expect(command.errorMessages[0]).to.include('Permission denied')
     })
 
     it('should call gen-rules command after successful initialization', async () => {
@@ -907,13 +899,10 @@ describe('Init Command', () => {
         config,
       )
 
-      try {
-        await command.run()
-        expect.fail('Should have thrown error')
-      } catch (error) {
-        expect(error).to.be.an('error')
-        expect((error as Error).message).to.include('Template not found')
-      }
+      await command.run()
+
+      expect(command.errorMessages).to.have.lengthOf(1)
+      expect(command.errorMessages[0]).to.include('Template not found')
     })
   })
 
@@ -1062,13 +1051,10 @@ describe('Init Command', () => {
       command.mockConfirmResult = true
       command.mockCleanupError = new Error('Permission denied')
 
-      try {
-        await command.run()
-        expect.fail('Should have thrown error')
-      } catch (error) {
-        expect(error).to.be.an('error')
-        expect((error as Error).message).to.include('Permission denied')
-      }
+      await command.run()
+
+      expect(command.errorMessages).to.have.lengthOf(1)
+      expect(command.errorMessages[0]).to.include('Permission denied')
     })
 
     it('should handle corrupted config file', async () => {
@@ -1094,14 +1080,10 @@ describe('Init Command', () => {
         config,
       )
 
-      try {
-        await command.run()
-        expect.fail('Should have thrown error')
-      } catch (error) {
-        expect(error).to.be.an('error')
-        expect((error as Error).message).to.include('Configuration file exists but cannot be read')
-      }
+      await command.run()
 
+      expect(command.errorMessages).to.have.lengthOf(1)
+      expect(command.errorMessages[0]).to.include('Configuration file exists but cannot be read')
       expect(tokenStore.load.calledOnce).to.be.true // Auth happens first
       expect(configStore.exists.calledOnce).to.be.true
       expect(configStore.read.calledOnce).to.be.true

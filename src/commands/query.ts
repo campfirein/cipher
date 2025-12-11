@@ -2,6 +2,7 @@ import {Args, Command, Flags} from '@oclif/core'
 import {randomUUID} from 'node:crypto'
 
 import type {IProjectConfigStore} from '../core/interfaces/i-project-config-store.js'
+import type {ITerminal} from '../core/interfaces/i-terminal.js'
 import type {ITrackingService} from '../core/interfaces/i-tracking-service.js'
 
 import {getCurrentConfig, isDevelopment} from '../config/environment.js'
@@ -12,6 +13,7 @@ import {getAgentStorage, getAgentStorageSync} from '../infra/cipher/storage/agen
 import {WorkspaceNotInitializedError} from '../infra/cipher/validation/workspace-validator.js'
 import {ProjectConfigStore} from '../infra/config/file-config-store.js'
 import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
+import {OclifTerminal} from '../infra/terminal/oclif-terminal.js'
 import {MixpanelTrackingService} from '../infra/tracking/mixpanel-tracking-service.js'
 import {formatError} from '../utils/error-handler.js'
 import {formatToolCall, formatToolResult} from '../utils/tool-display-formatter.js'
@@ -70,6 +72,7 @@ Bad:
       : {}),
   }
   public static strict = false
+  protected terminal: ITerminal = {} as ITerminal
 
   // Override catch to prevent oclif from logging errors that were already displayed
   public async catch(error: Error & {oclif?: {exit: number}}): Promise<void> {
@@ -92,6 +95,7 @@ Bad:
     projectConfigStore: IProjectConfigStore
     trackingService: ITrackingService
   } {
+    this.terminal = new OclifTerminal(this)
     return {
       projectConfigStore: new ProjectConfigStore(),
       trackingService: new MixpanelTrackingService(new KeychainTokenStore()),
@@ -163,7 +167,7 @@ Bad:
       // Create and start CipherAgent
       const agent = new CipherAgent(llmConfig, brvConfig)
 
-      this.log('Querying context tree...')
+      this.terminal.log('Querying context tree...')
       await agent.start()
 
       try {
@@ -183,8 +187,8 @@ Bad:
         // Mark execution as completed
         storage.updateExecutionStatus(executionId, 'completed', response)
 
-        this.log('\nQuery Results:')
-        this.log(response)
+        this.terminal.log('\nQuery Results:')
+        this.terminal.log(response)
 
         // Track query
         await trackingService.track('mem:query')
@@ -390,27 +394,27 @@ Bad:
     if (verbose) {
       // Verbose mode: show detailed events
       eventBus.on('llmservice:thinking', () => {
-        this.log('🤔 [Event] LLM is thinking...')
+        this.terminal.log('🤔 [Event] LLM is thinking...')
       })
 
       eventBus.on('llmservice:response', (payload) => {
-        this.log(`✅ [Event] LLM Response (${payload.provider}/${payload.model})`)
+        this.terminal.log(`✅ [Event] LLM Response (${payload.provider}/${payload.model})`)
       })
 
       eventBus.on('llmservice:toolCall', (payload) => {
         // Clear any spinner on current line before printing (use spaces instead of ANSI codes)
 
         const formattedCall = formatToolCall(payload.toolName, payload.args)
-        this.log(`🔧 [Event] Tool Call: ${formattedCall}`)
+        this.terminal.log(`🔧 [Event] Tool Call: ${formattedCall}`)
       })
 
       eventBus.on('llmservice:toolResult', (payload) => {
         const resultSummary = formatToolResult(payload.toolName, payload.success, payload.result, payload.error)
 
         if (payload.success) {
-          this.log(`✓ [Event] Tool Success: ${payload.toolName} → ${resultSummary}`)
+          this.terminal.log(`✓ [Event] Tool Success: ${payload.toolName} → ${resultSummary}`)
         } else {
-          this.log(`✗ [Event] Tool Error: ${payload.toolName} → ${resultSummary}`)
+          this.terminal.log(`✗ [Event] Tool Error: ${payload.toolName} → ${resultSummary}`)
         }
       })
 
@@ -422,7 +426,7 @@ Bad:
         // Clear any spinner on current line before printing (use spaces instead of ANSI codes)
 
         const description = this.getToolDescription(payload.toolName, payload.args)
-        this.log(`🔧 ${payload.toolName} → ${description}`)
+        this.terminal.log(`🔧 ${payload.toolName} → ${description}`)
       })
 
       eventBus.on('llmservice:toolResult', (payload) => {
@@ -430,9 +434,9 @@ Bad:
           // Show brief success summary for tool completion
           const summary = this.formatToolResultSummary(payload.toolName, payload.result)
           const completionText = summary ? `Complete (${summary})` : 'Complete'
-          this.log(`✅ ${payload.toolName} → ${completionText}`)
+          this.terminal.log(`✅ ${payload.toolName} → ${completionText}`)
         } else {
-          this.log(`✗ ${payload.toolName} → Failed: ${payload.error}`)
+          this.terminal.log(`✗ ${payload.toolName} → Failed: ${payload.error}`)
         }
       })
 

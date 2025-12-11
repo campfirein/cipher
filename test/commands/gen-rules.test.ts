@@ -11,6 +11,7 @@ import type {ITrackingService} from '../../src/core/interfaces/i-tracking-servic
 
 import GenRules from '../../src/commands/gen-rules.js'
 import {LegacyRuleDetector} from '../../src/infra/rule/legacy-rule-detector.js'
+import {createMockTerminal} from '../helpers/mock-factories.js'
 
 /**
  * Testable GenRules command that accepts mocked services
@@ -31,22 +32,13 @@ class TestableGenRules extends GenRules {
   }
 
   protected createServices() {
+    this.terminal = createMockTerminal()
     return {
       fileService: this.mockFileService,
       legacyRuleDetector: this.mockLegacyRuleDetector,
       templateService: this.mockTemplateService,
       trackingService: this.mockTrackingService,
     }
-  }
-
-  // Suppress all output to prevent noisy test runs
-  public error(input: Error | string): never {
-    const errorMessage = typeof input === 'string' ? input : input.message
-    throw new Error(errorMessage)
-  }
-
-  public log(): void {
-    // Do nothing - suppress output
   }
 
   // Override the interactive search prompt

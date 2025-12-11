@@ -14,6 +14,7 @@ import Status from '../../src/commands/status.js'
 import {BRV_CONFIG_VERSION} from '../../src/constants.js'
 import {AuthToken} from '../../src/core/domain/entities/auth-token.js'
 import {BrvConfig} from '../../src/core/domain/entities/brv-config.js'
+import {createMockTerminal} from '../helpers/mock-factories.js'
 
 /**
  * Testable Status command that accepts mocked services
@@ -34,6 +35,9 @@ class TestableStatus extends Status {
   }
 
   protected createServices() {
+    this.terminal = createMockTerminal({
+      log: (msg) => msg && this.loggedMessages.push(msg),
+    })
     return {
       contextTreeService: this.mockContextTreeService,
       contextTreeSnapshotService: this.mockContextTreeSnapshotService,
@@ -41,24 +45,6 @@ class TestableStatus extends Status {
       tokenStore: this.mockTokenStore,
       trackingService: this.mockTrackingService,
     }
-  }
-
-  // Suppress all output to prevent noisy test runs
-  public error(input: Error | string): never {
-    // Throw error to maintain behavior but suppress output
-    const errorMessage = typeof input === 'string' ? input : input.message
-    throw new Error(errorMessage)
-  }
-
-  public log(message?: string): void {
-    if (message) {
-      this.loggedMessages.push(message)
-    }
-  }
-
-  public warn(input: Error | string): Error | string {
-    // Do nothing - suppress output, but return input to match base signature
-    return input
   }
 }
 

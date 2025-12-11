@@ -1,4 +1,3 @@
-import {confirm, search, select} from '@inquirer/prompts'
 import {Command, Flags, ux} from '@oclif/core'
 import {access, readFile, rm} from 'node:fs/promises'
 import {join} from 'node:path'
@@ -13,6 +12,7 @@ import type {IContextTreeWriterService} from '../core/interfaces/i-context-tree-
 import type {IProjectConfigStore} from '../core/interfaces/i-project-config-store.js'
 import type {ISpaceService} from '../core/interfaces/i-space-service.js'
 import type {ITeamService} from '../core/interfaces/i-team-service.js'
+import type {ITerminal} from '../core/interfaces/i-terminal.js'
 import type {ITokenStore} from '../core/interfaces/i-token-store.js'
 
 import {getCurrentConfig} from '../config/environment.js'
@@ -38,6 +38,7 @@ import {HttpSpaceService} from '../infra/space/http-space-service.js'
 import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
 import {HttpTeamService} from '../infra/team/http-team-service.js'
 import {FsTemplateLoader} from '../infra/template/fs-template-loader.js'
+import {OclifTerminal} from '../infra/terminal/oclif-terminal.js'
 import {MixpanelTrackingService} from '../infra/tracking/mixpanel-tracking-service.js'
 import {WorkspaceDetectorService} from '../infra/workspace/workspace-detector-service.js'
 
@@ -71,6 +72,7 @@ export default class Init extends Command {
       description: 'Force re-initialization without confirmation prompt',
     }),
   }
+  protected terminal: ITerminal = {} as ITerminal
 
   protected async aceDirectoryExists(baseDir?: string): Promise<boolean> {
     const dir = baseDir ?? process.cwd()
@@ -85,7 +87,7 @@ export default class Init extends Command {
 
   protected async cleanupBeforeReInitialization(): Promise<void> {
     const brvDir = join(process.cwd(), BRV_DIR)
-    this.log('\n Cleaning up existing ByteRover directory...')
+    this.terminal.log('\n Cleaning up existing ByteRover directory...')
     ux.action.start(`  Removing ${BRV_DIR}/`)
     try {
       await rm(brvDir, {force: true, recursive: true})
@@ -100,20 +102,20 @@ export default class Init extends Command {
     if (this.isLegacyProjectConfig(config)) {
       const versionStatus =
         config.currentVersion === undefined ? 'missing' : `${config.currentVersion} → ${BRV_CONFIG_VERSION}`
-      this.log(`\n⚠️  Project has an outdated configuration (version: ${versionStatus})`)
+      this.terminal.log(`\n⚠️  Project has an outdated configuration (version: ${versionStatus})`)
     } else {
-      this.log('\n Project is already initialized')
+      this.terminal.log('\n Project is already initialized')
     }
 
-    this.log(`  Team: ${config.teamName}`)
-    this.log(`  Space: ${config.spaceName}`)
-    this.log(`  Config: ${join(process.cwd(), BRV_DIR, PROJECT_CONFIG_FILE)}`)
-    this.log('\n Re-initializing will:')
-    this.log(`  - Remove the entire ${BRV_DIR}/ directory and all its contents`)
-    this.log('  - Allow you to select a new team/space')
-    this.log('  - Create a fresh configuration and Context Tree')
-    this.log('  - Regenerate rule instructions\n')
-    return confirm({
+    this.terminal.log(`  Team: ${config.teamName}`)
+    this.terminal.log(`  Space: ${config.spaceName}`)
+    this.terminal.log(`  Config: ${join(process.cwd(), BRV_DIR, PROJECT_CONFIG_FILE)}`)
+    this.terminal.log('\n Re-initializing will:')
+    this.terminal.log(`  - Remove the entire ${BRV_DIR}/ directory and all its contents`)
+    this.terminal.log('  - Allow you to select a new team/space')
+    this.terminal.log('  - Create a fresh configuration and Context Tree')
+    this.terminal.log('  - Regenerate rule instructions\n')
+    return this.terminal.confirm({
       default: false,
       message: 'Continue with re-initialization?',
     })
@@ -134,6 +136,7 @@ export default class Init extends Command {
     tokenStore: ITokenStore
     trackingService: ITrackingService
   } {
+    this.terminal = new OclifTerminal(this)
     const envConfig = getCurrentConfig()
     const tokenStore = new KeychainTokenStore()
     const trackingService = new MixpanelTrackingService(tokenStore)
@@ -178,15 +181,17 @@ export default class Init extends Command {
     }
   }
 
-  protected async ensureAuthenticated(tokenStore: ITokenStore): Promise<AuthToken> {
+  protected async ensureAuthenticated(tokenStore: ITokenStore): Promise<AuthToken | undefined> {
     const token = await tokenStore.load()
 
     if (token === undefined) {
-      this.error('Not authenticated. Please run "brv login" first.')
+      this.terminal.error('Not authenticated. Please run "brv login" first.')
+      return undefined
     }
 
     if (!token.isValid()) {
-      this.error('Authentication token expired. Please run "brv login" again.')
+      this.terminal.error('Authentication token expired. Please run "brv login" again.')
+      return undefined
     }
 
     return token
@@ -202,12 +207,14 @@ export default class Init extends Command {
     ux.action.stop()
 
     if (spaces.length === 0) {
-      this.log(`No spaces found in team "${team.getDisplayName()}"`)
-      this.log(`Please visit ${getCurrentConfig().webAppUrl} to create your first space for ${team.getDisplayName()}.`)
+      this.terminal.log(`No spaces found in team "${team.getDisplayName()}"`)
+      this.terminal.log(
+        `Please visit ${getCurrentConfig().webAppUrl} to create your first space for ${team.getDisplayName()}.`,
+      )
       return undefined
     }
 
-    this.log()
+    this.terminal.log()
     return this.promptForSpaceSelection(spaces)
   }
 
@@ -217,12 +224,12 @@ export default class Init extends Command {
     ux.action.stop()
 
     if (teams.length === 0) {
-      this.log('No teams found.')
-      this.log(`Please visit ${getCurrentConfig().webAppUrl} to create your first team.`)
+      this.terminal.log('No teams found.')
+      this.terminal.log(`Please visit ${getCurrentConfig().webAppUrl} to create your first team.`)
       return undefined
     }
 
-    this.log()
+    this.terminal.log()
     return this.promptForTeamSelection(teams)
   }
 
@@ -232,7 +239,7 @@ export default class Init extends Command {
     templateService: IRuleTemplateService,
     legacyRuleDetector: ILegacyRuleDetector,
   ): Promise<void> {
-    this.log(`Generating rules for: ${selectedAgent}`)
+    this.terminal.log(`Generating rules for: ${selectedAgent}`)
 
     // try {
     //   await ruleWriterService.writeRule(agent, false)
@@ -260,7 +267,7 @@ export default class Init extends Command {
       // Scenario A: File doesn't exist
       const shouldCreate = await this.promptForFileCreation(selectedAgent, filePath)
       if (!shouldCreate) {
-        this.log(`Skipped rule file creation for ${selectedAgent}`)
+        this.terminal.log(`Skipped rule file creation for ${selectedAgent}`)
         return
       }
 
@@ -299,7 +306,7 @@ export default class Init extends Command {
       // Scenario C: New rules exist - prompt for overwrite
       const shouldOverwrite = await this.promptForOverwriteConfirmation(selectedAgent)
       if (!shouldOverwrite) {
-        this.log(`Skipped rule file update for ${selectedAgent}`)
+        this.terminal.log(`Skipped rule file update for ${selectedAgent}`)
         return
       }
 
@@ -358,12 +365,12 @@ export default class Init extends Command {
   }
 
   protected async initializeMemoryContextDir(name: string, initFn: () => Promise<string>): Promise<void> {
-    this.log(`\nInitializing ${name}...`)
+    this.terminal.log(`\nInitializing ${name}...`)
     try {
       const path = await initFn()
-      this.log(`✓ ${name} initialized in ${path}`)
+      this.terminal.log(`✓ ${name} initialized in ${path}`)
     } catch (error) {
-      this.warn(`${name} initialization skipped: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      this.terminal.warn(`${name} initialization skipped: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
 
@@ -381,14 +388,14 @@ export default class Init extends Command {
   }
 
   protected async promptAceDeprecationRemoval(): Promise<boolean> {
-    this.log('\n The ACE system is being deprecated.')
-    this.log(' ByteRover is migrating to the new Context Tree system for improved')
-    this.log(' memory organization and retrieval.')
-    this.log('')
-    this.log(' We detected an existing ACE folder at .brv/ace/')
-    this.log(' This folder and all its contents can be safely removed.\n')
+    this.terminal.log('\n The ACE system is being deprecated.')
+    this.terminal.log(' ByteRover is migrating to the new Context Tree system for improved')
+    this.terminal.log(' memory organization and retrieval.')
+    this.terminal.log('')
+    this.terminal.log(' We detected an existing ACE folder at .brv/ace/')
+    this.terminal.log(' This folder and all its contents can be safely removed.\n')
 
-    return confirm({
+    return this.terminal.confirm({
       default: true,
       message: 'Remove the ACE folder and its contents?',
     })
@@ -404,9 +411,9 @@ export default class Init extends Command {
       name: agent,
       value: agent,
     }))
-    const answer = await search({
+    return this.terminal.search({
       message: 'Which agent you are using (type to search):',
-      async source(input) {
+      source(input) {
         if (!input) return AGENTS
 
         return AGENTS.filter(
@@ -416,8 +423,6 @@ export default class Init extends Command {
         )
       },
     })
-
-    return answer
   }
 
   /**
@@ -426,7 +431,7 @@ export default class Init extends Command {
    * @returns The chosen cleanup strategy
    */
   protected async promptForCleanupStrategy(): Promise<CleanupStrategy> {
-    return select({
+    return this.terminal.select({
       choices: [
         {
           description:
@@ -453,7 +458,7 @@ export default class Init extends Command {
    * @returns True if the user wants to create the file, false otherwise
    */
   protected async promptForFileCreation(agent: Agent, filePath: string): Promise<boolean> {
-    return confirm({
+    return this.terminal.confirm({
       default: true,
       message: `Rule file '${filePath}' doesn't exist. Create it with ByteRover rules?`,
     })
@@ -464,14 +469,14 @@ export default class Init extends Command {
    * This method is protected to allow test overrides.
    */
   protected async promptForOverwriteConfirmation(agent: Agent): Promise<boolean> {
-    return confirm({
+    return this.terminal.confirm({
       default: true,
       message: `Rule file already exists for ${agent}. Overwrite?`,
     })
   }
 
-  protected async promptForSpaceSelection(spaces: Space[]): Promise<Space> {
-    const selectedSpaceId = await select({
+  protected async promptForSpaceSelection(spaces: Space[]): Promise<Space | undefined> {
+    const selectedSpaceId = await this.terminal.select({
       choices: spaces.map((space) => ({
         name: space.getDisplayName(),
         value: space.id,
@@ -481,14 +486,15 @@ export default class Init extends Command {
 
     const selectedSpace = spaces.find((space) => space.id === selectedSpaceId)
     if (!selectedSpace) {
-      this.error('Space selection failed')
+      this.terminal.error('Space selection failed')
+      return undefined
     }
 
     return selectedSpace
   }
 
-  protected async promptForTeamSelection(teams: Team[]): Promise<Team> {
-    const selectedTeamId = await select({
+  protected async promptForTeamSelection(teams: Team[]): Promise<Team | undefined> {
+    const selectedTeamId = await this.terminal.select({
       choices: teams.map((team) => ({
         name: team.name,
         value: team.id,
@@ -498,7 +504,8 @@ export default class Init extends Command {
 
     const selectedTeam = teams.find((team) => team.id === selectedTeamId)
     if (!selectedTeam) {
-      this.error('Team selection failed')
+      this.terminal.error('Team selection failed')
+      return undefined
     }
 
     return selectedTeam
@@ -531,6 +538,7 @@ export default class Init extends Command {
       } = this.createServices()
 
       const authToken = await this.ensureAuthenticated(tokenStore)
+      if (!authToken) return
 
       const existingConfig = await this.getExistingConfig(projectConfigStore)
       if (existingConfig) {
@@ -538,14 +546,14 @@ export default class Init extends Command {
 
         if (shouldCleanup) {
           await this.cleanupBeforeReInitialization()
-          this.log('\n')
+          this.terminal.log('\n')
         } else {
-          this.log('\nCancelled. Project configuration unchanged.')
+          this.terminal.log('\nCancelled. Project configuration unchanged.')
           return
         }
       }
 
-      this.log('Initializing ByteRover project...\n')
+      this.terminal.log('Initializing ByteRover project...\n')
 
       const selectedTeam = await this.fetchAndSelectTeam(teamService, authToken)
       if (!selectedTeam) return
@@ -559,7 +567,7 @@ export default class Init extends Command {
         const shouldRemoveAce = await this.promptAceDeprecationRemoval()
         if (shouldRemoveAce) {
           await this.removeAceDirectory()
-          this.log('✓ ACE folder removed')
+          this.terminal.log('✓ ACE folder removed')
         }
       }
 
@@ -573,12 +581,12 @@ export default class Init extends Command {
         token: authToken,
       })
 
-      this.log()
+      this.terminal.log()
       const selectedAgent = await this.promptForAgentSelection()
 
-      this.log('Detecting workspaces...')
+      this.terminal.log('Detecting workspaces...')
       const {chatLogPath, cwd} = this.detectWorkspacesForAgent(selectedAgent)
-      this.log(`✓ Detected workspace: ${cwd}`)
+      this.terminal.log(`✓ Detected workspace: ${cwd}`)
 
       const config = BrvConfig.fromSpace({
         chatLogPath,
@@ -588,8 +596,8 @@ export default class Init extends Command {
       })
       await projectConfigStore.write(config)
 
-      this.log(`\nGenerate rule instructions for coding agents to work with ByteRover correctly`)
-      this.log()
+      this.terminal.log(`\nGenerate rule instructions for coding agents to work with ByteRover correctly`)
+      this.terminal.log()
       await this.generateRulesForAgent(selectedAgent, fileService, templateService, legacyRuleDetector)
 
       await trackingService.track('rule:generate')
@@ -597,7 +605,7 @@ export default class Init extends Command {
 
       this.logSuccess(selectedSpace)
     } catch (error) {
-      this.error(`Initialization failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      this.terminal.error(`Initialization failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
 
@@ -610,7 +618,7 @@ export default class Init extends Command {
     token: AuthToken
   }): Promise<void> {
     // Pull from remote - fail if network/API error
-    this.log('\nSyncing from ByteRover...')
+    this.terminal.log('\nSyncing from ByteRover...')
     try {
       const coGitSnapshot = await params.cogitPullService.pull({
         accessToken: params.token.accessToken,
@@ -630,12 +638,12 @@ export default class Init extends Command {
         // Remote is empty - ignore placeholder, create templates with empty snapshot
         await this.initializeMemoryContextDir('context tree', () => params.contextTreeService.initialize())
         await params.contextTreeSnapshotService.initEmptySnapshot()
-        this.log('✓ Context tree initialized')
+        this.terminal.log('✓ Context tree initialized')
       } else {
         // Remote has real data - sync it to local
         await params.contextTreeWriterService.sync({files: [...coGitSnapshot.files]})
         await params.contextTreeSnapshotService.saveSnapshot()
-        this.log(`✓ Synced ${coGitSnapshot.files.length} context files from remote`)
+        this.terminal.log(`✓ Synced ${coGitSnapshot.files.length} context files from remote`)
       }
     } catch (error) {
       throw new Error(
@@ -661,7 +669,7 @@ export default class Init extends Command {
     const mode = writeMode === 'overwrite' ? 'overwrite' : 'append'
     await fileService.write(ruleContent, filePath, mode)
 
-    this.log(`✅ Successfully added rule file for ${agent}`)
+    this.terminal.log(`✅ Successfully added rule file for ${agent}`)
   }
 
   /**
@@ -676,7 +684,7 @@ export default class Init extends Command {
     const {agent, filePath, fileService, templateService} = params
     const ruleContent = await templateService.generateRuleContent(agent)
     await fileService.write(ruleContent, filePath, 'overwrite')
-    this.log(`✅ Successfully created rule file for ${agent} at ${filePath}`)
+    this.terminal.log(`✅ Successfully created rule file for ${agent} at ${filePath}`)
   }
 
   private async handleLegacyRulesCleanup(params: {
@@ -691,30 +699,30 @@ export default class Init extends Command {
     const detectionResult = legacyRuleDetector.detectLegacyRules(content, agent)
     const {reliableMatches, uncertainMatches} = detectionResult
 
-    this.log(
+    this.terminal.log(
       `\n⚠️  Detected ${
         reliableMatches.length + uncertainMatches.length
       } old ByteRover rule section(s) in ${filePath}:\n`,
     )
 
     if (reliableMatches.length > 0) {
-      this.log('Reliable matches:')
+      this.terminal.log('Reliable matches:')
       for (const [index, match] of reliableMatches.entries()) {
-        this.log(`  Section ${index + 1}: lines ${match.startLine}-${match.endLine}`)
+        this.terminal.log(`  Section ${index + 1}: lines ${match.startLine}-${match.endLine}`)
       }
 
-      this.log()
+      this.terminal.log()
     }
 
     if (uncertainMatches.length > 0) {
-      this.log('  ⚠️  Uncertain matches (cannot determine start):')
+      this.terminal.log('  ⚠️  Uncertain matches (cannot determine start):')
       for (const match of uncertainMatches) {
-        this.log(`  Footer found at line ${match.footerLine}`)
-        this.log(`  Reason: ${match.reason}`)
+        this.terminal.log(`  Footer found at line ${match.footerLine}`)
+        this.terminal.log(`  Reason: ${match.reason}`)
       }
 
-      this.log()
-      this.log('⚠️  Due to uncertain matches, only manual cleanup is available.\n')
+      this.terminal.log()
+      this.terminal.log('⚠️  Due to uncertain matches, only manual cleanup is available.\n')
       await this.performManualCleanup({
         agent,
         filePath,
@@ -746,10 +754,10 @@ export default class Init extends Command {
   }
 
   private logSuccess(space: Space): void {
-    this.log(`\n✓ Project initialized successfully!`)
-    this.log(`✓ Connected to space: ${space.getDisplayName()}`)
-    this.log(`✓ Configuration saved to: ${BRV_DIR}/${PROJECT_CONFIG_FILE}`)
-    this.log(
+    this.terminal.log(`\n✓ Project initialized successfully!`)
+    this.terminal.log(`✓ Connected to space: ${space.getDisplayName()}`)
+    this.terminal.log(`✓ Configuration saved to: ${BRV_DIR}/${PROJECT_CONFIG_FILE}`)
+    this.terminal.log(
       "NOTE: It's recommended to add .brv/ to your .gitignore file since ByteRover already takes care of memory/context versioning for you.",
     )
   }
@@ -763,7 +771,7 @@ export default class Init extends Command {
   }): Promise<void> {
     const {agent, filePath, fileService, reliableMatches, templateService} = params
     const backupPath = await fileService.createBackup(filePath)
-    this.log(`📦 Backup created: ${backupPath}`)
+    this.terminal.log(`📦 Backup created: ${backupPath}`)
     let content = await fileService.read(filePath)
     // Remove all reliable matches (in reverse order to preserve line numbers)
     const sortedMatches = [...reliableMatches].sort((a, b) => b.startLine - a.startLine)
@@ -776,9 +784,9 @@ export default class Init extends Command {
     // Append new rules
     const ruleContent = await templateService.generateRuleContent(agent)
     await fileService.write(ruleContent, filePath, 'append')
-    this.log(`✅ Removed ${reliableMatches.length} old ByteRover section(s)`)
-    this.log(`✅ Added new rules with boundary markers`)
-    this.log(`\nYou can safely delete the backup file once verified.`)
+    this.terminal.log(`✅ Removed ${reliableMatches.length} old ByteRover section(s)`)
+    this.terminal.log(`✅ Added new rules with boundary markers`)
+    this.terminal.log(`\nYou can safely delete the backup file once verified.`)
   }
 
   private async performManualCleanup(params: {
@@ -792,19 +800,19 @@ export default class Init extends Command {
     const {agent, filePath, fileService, reliableMatches, templateService, uncertainMatches} = params
     const ruleContent = await templateService.generateRuleContent(agent)
     await fileService.write(ruleContent, filePath, 'append')
-    this.log(`✅ New ByteRover rules added with boundary markers\n`)
-    this.log('Please manually remove old sections:')
+    this.terminal.log(`✅ New ByteRover rules added with boundary markers\n`)
+    this.terminal.log('Please manually remove old sections:')
     for (const [index, match] of reliableMatches.entries()) {
-      this.log(`  - Section ${index + 1}: lines ${match.startLine}-${match.endLine} in ${filePath}`)
+      this.terminal.log(`  - Section ${index + 1}: lines ${match.startLine}-${match.endLine} in ${filePath}`)
     }
 
     for (const match of uncertainMatches) {
-      this.log(`  - Section ending at line ${match.footerLine} in ${filePath}`)
+      this.terminal.log(`  - Section ending at line ${match.footerLine} in ${filePath}`)
     }
 
-    this.log('\nKeep only the section between:')
-    this.log('  <!-- BEGIN BYTEROVER RULES -->')
-    this.log('  <!-- END BYTEROVER RULES -->')
+    this.terminal.log('\nKeep only the section between:')
+    this.terminal.log('  <!-- BEGIN BYTEROVER RULES -->')
+    this.terminal.log('  <!-- END BYTEROVER RULES -->')
   }
 
   /**
@@ -832,7 +840,7 @@ export default class Init extends Command {
       const endIndex = content.indexOf(endMarker, startIndex)
 
       if (startIndex === -1 || endIndex === -1) {
-        this.error('Could not find boundary markers in the file')
+        this.terminal.error('Could not find boundary markers in the file')
       }
 
       const before = content.slice(0, startIndex)
@@ -842,6 +850,6 @@ export default class Init extends Command {
       await fileService.write(newContent, filePath, 'overwrite')
     }
 
-    this.log(`✅ Successfully updated rule file for ${agent}`)
+    this.terminal.log(`✅ Successfully updated rule file for ${agent}`)
   }
 }

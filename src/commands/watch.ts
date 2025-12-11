@@ -2,16 +2,19 @@ import {Command, Flags} from '@oclif/core'
 
 import type {IFileWatcherService} from '../core/interfaces/i-file-watcher-service.js'
 import type {IProjectConfigStore} from '../core/interfaces/i-project-config-store.js'
+import type {ITerminal} from '../core/interfaces/i-terminal.js'
 
 import {isDevelopment} from '../config/environment.js'
 import {Agent} from '../core/domain/entities/agent.js'
 import {ProjectConfigStore} from '../infra/config/file-config-store.js'
 import {CleanParserServiceFactory} from '../infra/parsers/clean/clean-parser-service-factory.js'
 import {RawParserServiceFactory} from '../infra/parsers/raw/raw-parser-service-factory.js'
+import {OclifTerminal} from '../infra/terminal/oclif-terminal.js'
 import {FileWatcherService} from '../infra/watcher/file-watcher-service.js'
 
 export default class Watch extends Command {
-  public static description = 'Watch file system directories for changes and trigger parsing pipeline [Development only]'
+  public static description =
+    'Watch file system directories for changes and trigger parsing pipeline [Development only]'
   public static examples = [
     '<%= config.bin %> <%= command.id %> --paths ./agent-logs',
     '<%= config.bin %> <%= command.id %> --paths ./logs,./outputs,./workspace',
@@ -36,6 +39,7 @@ export default class Watch extends Command {
     }),
   }
   public static hidden = !isDevelopment()
+  protected terminal: ITerminal = {} as ITerminal
   private lastParseTime = 0
   private parsingInProgress = false
   private pendingParse = false
@@ -44,6 +48,7 @@ export default class Watch extends Command {
     fileWatcherService: IFileWatcherService
     projectConfigStore: IProjectConfigStore
   } {
+    this.terminal = new OclifTerminal(this)
     return {
       fileWatcherService: new FileWatcherService(),
       projectConfigStore: new ProjectConfigStore(),
@@ -51,12 +56,13 @@ export default class Watch extends Command {
   }
 
   public async run(): Promise<void> {
-    if (!isDevelopment()) {
-      this.error('This command is only available in development environment')
-    }
-
     const {flags} = await this.parse(Watch)
     const {fileWatcherService, projectConfigStore} = this.createServices()
+
+    if (!isDevelopment()) {
+      this.terminal.error('This command is only available in development environment')
+      return
+    }
 
     let paths: string[] = []
     let ideConfig: Agent | null = null
@@ -73,7 +79,7 @@ export default class Watch extends Command {
           if (config?.chatLogPath && config?.ide) {
             paths = [config.chatLogPath]
             ideConfig = config.ide
-            this.log(`ℹ Using chat log path from config (${config.ide})`)
+            this.terminal.log(`ℹ Using chat log path from config (${config.ide})`)
           }
         }
       } catch {
@@ -81,7 +87,7 @@ export default class Watch extends Command {
       }
 
       if (paths.length === 0) {
-        this.error(
+        this.terminal.error(
           'No paths specified. Either:\n' +
             '  1. Use --paths flag: brv watch --paths ./logs,./outputs\n' +
             '  2. Run "brv init" to configure IDE and detect workspaces',
@@ -92,7 +98,7 @@ export default class Watch extends Command {
     try {
       // Set up file event handler with parsing pipeline
       fileWatcherService.setFileEventHandler(async (event) => {
-        this.log(`[${event.type}] ${event.path}`)
+        this.terminal.log(`[${event.type}] ${event.path}`)
 
         // Only trigger parsing if IDE is configured
         if (ideConfig && (event.type === 'add' || event.type === 'change' || event.type === 'unlink')) {
@@ -101,22 +107,22 @@ export default class Watch extends Command {
           // Debounce parsing to avoid too frequent triggers
           if (!this.parsingInProgress && Date.now() - this.lastParseTime > flags.debounce) {
             this.triggerParsing(ideConfig, paths[0]).catch((error) => {
-              this.warn(`⚠️ Parsing error: ${error instanceof Error ? error.message : String(error)}`)
+              this.terminal.warn(`⚠️ Parsing error: ${error instanceof Error ? error.message : String(error)}`)
             })
           }
         }
       })
 
       await fileWatcherService.start(paths)
-      this.log(`\n🔍 Watching paths: ${paths.join(', ')}`)
+      this.terminal.log(`\n🔍 Watching paths: ${paths.join(', ')}`)
       if (ideConfig) {
-        this.log(`📊 Parsing pipeline enabled for: ${ideConfig}`)
+        this.terminal.log(`📊 Parsing pipeline enabled for: ${ideConfig}`)
       }
 
-      this.log('Press Ctrl+C to stop...\n')
+      this.terminal.log('Press Ctrl+C to stop...\n')
       await this.waitForShutdownSignal()
     } catch (error) {
-      this.error(error instanceof Error ? error.message : 'Unknown Error')
+      this.terminal.error(error instanceof Error ? error.message : 'Unknown Error')
     } finally {
       await fileWatcherService.stop()
     }
@@ -125,7 +131,7 @@ export default class Watch extends Command {
   protected async waitForShutdownSignal(): Promise<void> {
     return new Promise<void>((resolve) => {
       const handleSignal = (): void => {
-        this.log('\nShutting down watcher...')
+        this.terminal.log('\nShutting down watcher...')
         process.off('SIGINT', handleSignal)
         process.off('SIGTERM', handleSignal)
         resolve()
@@ -149,11 +155,11 @@ export default class Watch extends Command {
       // Normalize IDE name for factory
       // Validate IDE is supported
       if (!RawParserServiceFactory.isSupported(ide)) {
-        this.warn(`⚠️ Unsupported IDE: ${ide}`)
+        this.terminal.warn(`⚠️ Unsupported IDE: ${ide}`)
         return
       }
 
-      this.log('\n📥 Parsing triggered...')
+      this.terminal.log('\n📥 Parsing triggered...')
       // Raw parsing phase
       let isRawSuccess = false
       try {
@@ -161,7 +167,7 @@ export default class Watch extends Command {
 
         isRawSuccess = await RawParserServiceFactory.parseConversations(ide, chatLogPath)
       } catch (error) {
-        this.warn(`⚠️ Raw parsing error: ${error instanceof Error ? error.message : String(error)}`)
+        this.terminal.warn(`⚠️ Raw parsing error: ${error instanceof Error ? error.message : String(error)}`)
         return
       }
 
@@ -172,12 +178,12 @@ export default class Watch extends Command {
           const rawOutputDir = `${process.cwd()}/.brv/logs/${ide}/raw`
           const cleanSessions = await CleanParserServiceFactory.parseConversations(ide, rawOutputDir)
           if (cleanSessions.length > 0) {
-            this.log('✅ Clean parsing complete\n')
+            this.terminal.log('✅ Clean parsing complete\n')
           } else {
-            this.warn('⚠️ Clean parsing failed')
+            this.terminal.warn('⚠️ Clean parsing failed')
           }
         } catch (error) {
-          this.warn(`⚠️ Clean parsing error: ${error instanceof Error ? error.message : String(error)}`)
+          this.terminal.warn(`⚠️ Clean parsing error: ${error instanceof Error ? error.message : String(error)}`)
         }
       }
     } finally {
@@ -186,7 +192,7 @@ export default class Watch extends Command {
       // If more files were added while parsing, queue another parse
       if (this.pendingParse) {
         this.triggerParsing(ide, chatLogPath).catch((error) => {
-          this.warn(`⚠️ Parsing error: ${error instanceof Error ? error.message : String(error)}`)
+          this.terminal.warn(`⚠️ Parsing error: ${error instanceof Error ? error.message : String(error)}`)
         })
       }
     }

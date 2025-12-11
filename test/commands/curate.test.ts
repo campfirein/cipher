@@ -11,6 +11,7 @@ import type {IProjectConfigStore} from '../../src/core/interfaces/i-project-conf
 import type {ITrackingService} from '../../src/core/interfaces/i-tracking-service.js'
 
 import Curate from '../../src/commands/curate.js'
+import {createMockTerminal} from '../helpers/mock-factories.js'
 
 /**
  * Testable Curate command for runInteractive tests
@@ -30,25 +31,25 @@ class TestableCurate extends Curate {
   }
 
   protected createServices() {
+    this.terminal = this.createTerminal()
     return {
       projectConfigStore: this.mockProjectConfigStore,
       trackingService: this.mockTrackingService,
     }
   }
 
-  public error(input: Error | string): never {
-    const errorMessage = typeof input === 'string' ? input : input.message
-    throw new Error(errorMessage)
+  protected createTerminal() {
+    return createMockTerminal({
+      log: (message?: string) => {
+        if (message) {
+          this.logMessages.push(message)
+        }
+      },
+    })
   }
 
   public getLogMessages(): string[] {
     return this.logMessages
-  }
-
-  public log(message?: string): void {
-    if (message) {
-      this.logMessages.push(message)
-    }
   }
 
   protected async navigateContextTree(): Promise<null | string> {
@@ -71,10 +72,6 @@ class TestableCurate extends Curate {
   public setMockTopicName(name: null | string): void {
     this.mockTopicName = name
   }
-
-  public warn(input: Error | string): Error | string {
-    return input
-  }
 }
 
 /**
@@ -92,25 +89,25 @@ class TestableCurateForMethods extends Curate {
   }
 
   protected createServices() {
+    this.terminal = this.createTerminal()
     return {
       projectConfigStore: this.mockProjectConfigStore,
       trackingService: this.mockTrackingService,
     }
   }
 
-  public error(input: Error | string): never {
-    const errorMessage = typeof input === 'string' ? input : input.message
-    throw new Error(errorMessage)
+  protected createTerminal() {
+    return createMockTerminal({
+      log: (message?: string) => {
+        if (message) {
+          this.logMessages.push(message)
+        }
+      },
+    })
   }
 
   public getLogMessages(): string[] {
     return this.logMessages
-  }
-
-  public log(message?: string): void {
-    if (message) {
-      this.logMessages.push(message)
-    }
   }
 
   // Expose protected method for testing
@@ -122,10 +119,6 @@ class TestableCurateForMethods extends Curate {
   public testValidateTopicName(value: string, targetPath: string): boolean | string {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return (this as any).validateTopicName(value, targetPath)
-  }
-
-  public warn(input: Error | string): Error | string {
-    return input
   }
 }
 
@@ -147,25 +140,21 @@ class TestableCurateForPrompt extends Curate {
   }
 
   protected createServices() {
+    this.terminal = createMockTerminal({
+      log: (message?: string) => {
+        if (message) {
+          this.logMessages.push(message)
+        }
+      },
+    })
     return {
       projectConfigStore: this.mockProjectConfigStore,
       trackingService: this.mockTrackingService,
     }
   }
 
-  public error(input: Error | string): never {
-    const errorMessage = typeof input === 'string' ? input : input.message
-    throw new Error(errorMessage)
-  }
-
   public getLogMessages(): string[] {
     return this.logMessages
-  }
-
-  public log(message?: string): void {
-    if (message) {
-      this.logMessages.push(message)
-    }
   }
 
   // Override promptForTopicName to use mock input
@@ -201,10 +190,6 @@ class TestableCurateForPrompt extends Curate {
   // Expose for testing
   public async testPromptForTopicName(targetPath: string): Promise<null | string> {
     return this.promptForTopicName(targetPath)
-  }
-
-  public warn(input: Error | string): Error | string {
-    return input
   }
 }
 

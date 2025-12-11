@@ -14,6 +14,7 @@ import {AuthToken} from '../../../src/core/domain/entities/auth-token.js'
 import {BrvConfig} from '../../../src/core/domain/entities/brv-config.js'
 import {Space} from '../../../src/core/domain/entities/space.js'
 import {Team} from '../../../src/core/domain/entities/team.js'
+import {createMockTerminal} from '../../helpers/mock-factories.js'
 
 class TestableSpaceSwitch extends SpaceSwitch {
   // eslint-disable-next-line max-params
@@ -35,22 +36,13 @@ class TestableSpaceSwitch extends SpaceSwitch {
     teamService: ITeamService
     tokenStore: ITokenStore
   } {
+    this.terminal = createMockTerminal()
     return {
       projectConfigStore: this.mockConfigStore,
       spaceService: this.mockSpaceService,
       teamService: this.mockTeamService,
       tokenStore: this.mockTokenStore,
     }
-  }
-
-  // Suppress all output to prevent noisy test runs
-  public error(input: Error | string): never {
-    const errorMessage = typeof input === 'string' ? input : input.message
-    throw new Error(errorMessage)
-  }
-
-  public log(): void {
-    // Do nothing - suppress output
   }
 
   protected async promptForAgentSelection(): Promise<Agent> {
@@ -63,11 +55,6 @@ class TestableSpaceSwitch extends SpaceSwitch {
 
   protected async promptForTeamSelection(_teams: Team[]): Promise<Team> {
     return this.mockSelectedTeam
-  }
-
-  public warn(input: Error | string): Error | string {
-    // Do nothing - suppress output, but return input to match base signature
-    return input
   }
 }
 

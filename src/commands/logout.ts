@@ -1,10 +1,11 @@
-import {confirm} from '@inquirer/prompts'
 import {Command, Flags} from '@oclif/core'
 
+import type {ITerminal} from '../core/interfaces/i-terminal.js'
 import type {ITokenStore} from '../core/interfaces/i-token-store.js'
 import type {ITrackingService} from '../core/interfaces/i-tracking-service.js'
 
 import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
+import {OclifTerminal} from '../infra/terminal/oclif-terminal.js'
 import {MixpanelTrackingService} from '../infra/tracking/mixpanel-tracking-service.js'
 
 export default class Logout extends Command {
@@ -17,9 +18,10 @@ export default class Logout extends Command {
       description: 'Skip confirmation prompt',
     }),
   }
+  protected terminal: ITerminal = {} as ITerminal
 
   protected async confirmLogout(userEmail: string): Promise<boolean> {
-    return confirm({
+    return this.terminal.confirm({
       // Pressing 'Enter' = Yes
       default: true,
       message: `Logging out ${userEmail}. Are you sure?`,
@@ -30,6 +32,7 @@ export default class Logout extends Command {
     tokenStore: ITokenStore
     trackingService: ITrackingService
   } {
+    this.terminal = new OclifTerminal(this)
     const tokenStore: ITokenStore = new KeychainTokenStore()
     const trackingService: ITrackingService = new MixpanelTrackingService(tokenStore)
     return {
@@ -45,14 +48,14 @@ export default class Logout extends Command {
     try {
       const token = await tokenStore.load()
       if (token === undefined) {
-        this.log('You are not currently logged in.')
+        this.terminal.log('You are not currently logged in.')
         return
       }
 
       if (!flags.yes) {
         const confirmed = await this.confirmLogout(token.userEmail)
         if (!confirmed) {
-          this.log('Logout cancelled.')
+          this.terminal.log('Logout cancelled.')
           return
         }
       }
@@ -62,14 +65,15 @@ export default class Logout extends Command {
       } catch {}
 
       await tokenStore.clear()
-      this.log('Successfully logged out.')
-      this.log("Run 'brv login' to authenticate again.")
+      this.terminal.log('Successfully logged out.')
+      this.terminal.log("Run 'brv login' to authenticate again.")
     } catch (error) {
       if (error instanceof Error && error.message.includes('keychain')) {
-        this.error('Unable to access system keychain. Please check your system permissions and try again.')
+        this.terminal.error('Unable to access system keychain. Please check your system permissions and try again.')
+        return
       }
 
-      this.error(error instanceof Error ? error.message : 'Logout failed')
+      this.terminal.error(error instanceof Error ? error.message : 'Logout failed')
     }
   }
 }

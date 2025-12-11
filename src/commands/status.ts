@@ -5,6 +5,7 @@ import {join} from 'node:path'
 import type {IContextTreeService} from '../core/interfaces/i-context-tree-service.js'
 import type {IContextTreeSnapshotService} from '../core/interfaces/i-context-tree-snapshot-service.js'
 import type {IProjectConfigStore} from '../core/interfaces/i-project-config-store.js'
+import type {ITerminal} from '../core/interfaces/i-terminal.js'
 import type {ITokenStore} from '../core/interfaces/i-token-store.js'
 
 import {BRV_DIR, CONTEXT_TREE_DIR} from '../constants.js'
@@ -13,6 +14,7 @@ import {ProjectConfigStore} from '../infra/config/file-config-store.js'
 import {FileContextTreeService} from '../infra/context-tree/file-context-tree-service.js'
 import {FileContextTreeSnapshotService} from '../infra/context-tree/file-context-tree-snapshot-service.js'
 import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
+import {OclifTerminal} from '../infra/terminal/oclif-terminal.js'
 import {MixpanelTrackingService} from '../infra/tracking/mixpanel-tracking-service.js'
 import {getErrorMessage} from '../utils/error-helpers.js'
 
@@ -38,6 +40,7 @@ export default class Status extends Command {
       options: ['table', 'json'],
     }),
   }
+  protected terminal: ITerminal = {} as ITerminal
 
   // Override catch to prevent oclif from displaying errors again
   async catch(error: Error): Promise<void> {
@@ -53,6 +56,7 @@ export default class Status extends Command {
     tokenStore: ITokenStore
     trackingService: ITrackingService
   } {
+    this.terminal = new OclifTerminal(this)
     const tokenStore = new KeychainTokenStore()
     const trackingService = new MixpanelTrackingService(tokenStore)
 
@@ -69,25 +73,25 @@ export default class Status extends Command {
     const {contextTreeService, contextTreeSnapshotService, projectConfigStore, tokenStore, trackingService} =
       this.createServices()
 
-    this.log(`CLI Version: ${this.config.version}`)
+    this.terminal.log(`CLI Version: ${this.config.version}`)
 
     try {
       const token = await tokenStore.load()
 
       if (token !== undefined && token.isValid()) {
-        this.log(`Status: Logged in as ${token.userEmail}`)
+        this.terminal.log(`Status: Logged in as ${token.userEmail}`)
       } else if (token === undefined) {
-        this.log('Status: Not logged in')
+        this.terminal.log('Status: Not logged in')
       } else {
-        this.log('Status: Session expired (login required)')
+        this.terminal.log('Status: Session expired (login required)')
       }
     } catch (error) {
-      this.log('Status: Unable to check authentication status')
-      this.warn(`Warning: ${getErrorMessage(error)}`)
+      this.terminal.log('Status: Unable to check authentication status')
+      this.terminal.warn(`Warning: ${getErrorMessage(error)}`)
     }
 
     const cwd = process.cwd()
-    this.log(`Current Directory: ${cwd}`)
+    this.terminal.log(`Current Directory: ${cwd}`)
 
     try {
       const isInitialized = await projectConfigStore.exists()
@@ -95,16 +99,16 @@ export default class Status extends Command {
       if (isInitialized) {
         const config = await projectConfigStore.read()
         if (config) {
-          this.log(`Project Status: Connected to ${config.teamName}/${config.spaceName}`)
+          this.terminal.log(`Project Status: Connected to ${config.teamName}/${config.spaceName}`)
         } else {
-          this.log('Project Status: Configuration file exists but is invalid')
+          this.terminal.log('Project Status: Configuration file exists but is invalid')
         }
       } else {
-        this.log('Project Status: Not initialized')
+        this.terminal.log('Project Status: Not initialized')
       }
     } catch (error) {
-      this.log('Project Status: Unable to read project configuration')
-      this.warn(`Warning: ${getErrorMessage(error)}`)
+      this.terminal.log('Project Status: Unable to read project configuration')
+      this.terminal.warn(`Warning: ${getErrorMessage(error)}`)
     }
 
     // Context tree status
@@ -112,7 +116,7 @@ export default class Status extends Command {
       const contextTreeExists = await contextTreeService.exists()
 
       if (!contextTreeExists) {
-        this.log('Context Tree: Not initialized')
+        this.terminal.log('Context Tree: Not initialized')
         return
       }
 
@@ -127,7 +131,7 @@ export default class Status extends Command {
       const hasChanges = changes.added.length > 0 || changes.modified.length > 0 || changes.deleted.length > 0
 
       if (!hasChanges) {
-        this.log('Context Tree: No changes')
+        this.terminal.log('Context Tree: No changes')
         return
       }
 
@@ -141,16 +145,16 @@ export default class Status extends Command {
         ...changes.deleted.map((f) => ({color: chalk.red, path: f, status: 'deleted:'})),
       ].sort((a, b) => a.path.localeCompare(b.path))
 
-      this.log('Context Tree Changes:')
+      this.terminal.log('Context Tree Changes:')
       for (const change of allChanges) {
-        this.log(`\t${change.color(`${change.status.padEnd(10)} ${formatPath(change.path)}`)}`)
+        this.terminal.log(`\t${change.color(`${change.status.padEnd(10)} ${formatPath(change.path)}`)}`)
       }
 
       // Track status
       await trackingService.track('mem:status')
     } catch (error) {
-      this.log('Context Tree: Unable to check status')
-      this.warn(`Warning: ${error instanceof Error ? error.message : 'Context Tree unable to check status'}`)
+      this.terminal.log('Context Tree: Unable to check status')
+      this.terminal.warn(`Warning: ${error instanceof Error ? error.message : 'Context Tree unable to check status'}`)
     }
   }
 }

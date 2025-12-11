@@ -16,8 +16,12 @@ import {BRV_CONFIG_VERSION} from '../../src/constants.js'
 import {AuthToken} from '../../src/core/domain/entities/auth-token.js'
 import {BrvConfig} from '../../src/core/domain/entities/brv-config.js'
 import {CogitPushResponse} from '../../src/core/domain/entities/cogit-push-response.js'
+import {createMockTerminal} from '../helpers/mock-factories.js'
 
 class TestablePush extends Push {
+  public errorMessages: string[] = []
+  public logMessages: string[] = []
+
   // eslint-disable-next-line max-params
   public constructor(
     private readonly mockCogitPushService: ICogitPushService,
@@ -38,6 +42,10 @@ class TestablePush extends Push {
   }
 
   protected createServices() {
+    this.terminal = createMockTerminal({
+      error: (msg) => this.errorMessages.push(msg),
+      log: (msg) => msg !== undefined && this.logMessages.push(msg),
+    })
     return {
       cogitPushService: this.mockCogitPushService,
       contextFileReader: this.mockContextFileReader,
@@ -46,19 +54,6 @@ class TestablePush extends Push {
       tokenStore: this.mockTokenStore,
       trackingService: this.mockTrackingService,
     }
-  }
-
-  // Suppress output during tests
-  public error(input: Error | string): never {
-    throw input instanceof Error ? input : new Error(input)
-  }
-
-  public log(..._args: unknown[]): void {
-    // no-op
-  }
-
-  public warn(input: Error | string): Error | string {
-    return input
   }
 }
 
@@ -141,12 +136,10 @@ describe('Push Command', () => {
         config,
       )
 
-      try {
-        await command.run()
-        expect.fail('Should have thrown error')
-      } catch (error) {
-        expect((error as Error).message).to.include('Not authenticated')
-      }
+      await command.run()
+
+      expect(command.errorMessages).to.have.lengthOf(1)
+      expect(command.errorMessages[0]).to.include('Not authenticated')
     })
 
     it('should error when token is expired', async () => {
@@ -172,12 +165,10 @@ describe('Push Command', () => {
         config,
       )
 
-      try {
-        await command.run()
-        expect.fail('Should have thrown error')
-      } catch (error) {
-        expect((error as Error).message).to.include('expired')
-      }
+      await command.run()
+
+      expect(command.errorMessages).to.have.lengthOf(1)
+      expect(command.errorMessages[0]).to.include('expired')
     })
 
     it('should error when project not initialized', async () => {
@@ -239,11 +230,10 @@ describe('Push Command', () => {
         trackingService,
         config,
       )
-      const logStub = stub(command, 'log')
 
       await command.run()
 
-      expect(logStub.calledWith('No context changes to push.')).to.be.true
+      expect(command.logMessages).to.include('No context changes to push.')
       expect(cogitPushService.push.called).to.be.false
     })
   })
@@ -566,12 +556,11 @@ describe('Push Command', () => {
         trackingService,
         config,
       )
-      const logStub = stub(command, 'log')
       stub(command as unknown as {confirmPush: () => Promise<boolean>}, 'confirmPush').resolves(false)
 
       await command.run()
 
-      expect(logStub.calledWith('Push cancelled.')).to.be.true
+      expect(command.logMessages).to.include('Push cancelled.')
       expect(contextFileReader.readMany.called).to.be.false
       expect(cogitPushService.push.called).to.be.false
       expect(contextTreeSnapshotService.saveSnapshot.called).to.be.false
@@ -687,11 +676,10 @@ describe('Push Command', () => {
         trackingService,
         config,
       )
-      const logStub = stub(command, 'log')
 
       await command.run()
 
-      expect(logStub.calledWith('\nNo valid context files to push.')).to.be.true
+      expect(command.logMessages).to.include('\nNo valid context files to push.')
       expect(cogitPushService.push.called).to.be.false
     })
   })
@@ -832,11 +820,7 @@ describe('Push Command', () => {
         deleted: ['obsolete/context.md'],
         modified: [],
       })
-      contextFileReader.readMany
-        .onFirstCall()
-        .resolves([])
-        .onSecondCall()
-        .resolves([])
+      contextFileReader.readMany.onFirstCall().resolves([]).onSecondCall().resolves([])
       cogitPushService.push.resolves(
         new CogitPushResponse({
           message: 'Success',
@@ -917,11 +901,7 @@ describe('Push Command', () => {
         deleted: ['file1/context.md', 'file2/context.md'],
         modified: [],
       })
-      contextFileReader.readMany
-        .onFirstCall()
-        .resolves([])
-        .onSecondCall()
-        .resolves([])
+      contextFileReader.readMany.onFirstCall().resolves([]).onSecondCall().resolves([])
       cogitPushService.push.resolves(
         new CogitPushResponse({
           message: 'Success',
@@ -959,11 +939,7 @@ describe('Push Command', () => {
         deleted: ['deleted/context.md'],
         modified: [],
       })
-      contextFileReader.readMany
-        .onFirstCall()
-        .resolves([])
-        .onSecondCall()
-        .resolves([])
+      contextFileReader.readMany.onFirstCall().resolves([]).onSecondCall().resolves([])
       cogitPushService.push.resolves(
         new CogitPushResponse({
           message: 'Success',

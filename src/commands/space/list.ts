@@ -2,6 +2,7 @@ import {Command, Flags, ux} from '@oclif/core'
 
 import type {IProjectConfigStore} from '../../core/interfaces/i-project-config-store.js'
 import type {ISpaceService} from '../../core/interfaces/i-space-service.js'
+import type {ITerminal} from '../../core/interfaces/i-terminal.js'
 import type {ITokenStore} from '../../core/interfaces/i-token-store.js'
 
 import {getCurrentConfig} from '../../config/environment.js'
@@ -9,6 +10,7 @@ import {ExitCode, ExitError, exitWithCode} from '../../infra/cipher/exit-codes.j
 import {ProjectConfigStore} from '../../infra/config/file-config-store.js'
 import {HttpSpaceService} from '../../infra/space/http-space-service.js'
 import {KeychainTokenStore} from '../../infra/storage/keychain-token-store.js'
+import {OclifTerminal} from '../../infra/terminal/oclif-terminal.js'
 
 const DEFAULT_LIMIT = 50
 const DEFAULT_OFFSET = 0
@@ -44,6 +46,7 @@ export default class SpaceList extends Command {
       description: 'Number of spaces to skip',
     }),
   }
+  protected terminal: ITerminal = {} as ITerminal
 
   async catch(error: Error & {oclif?: {exit: number}}): Promise<void> {
     // Check if error is ExitError (message already displayed)
@@ -57,7 +60,7 @@ export default class SpaceList extends Command {
     }
 
     // For unexpected errors, show the message
-    this.error(error instanceof Error ? error.message : 'Failed to list spaces')
+    this.terminal.error(error instanceof Error ? error.message : 'Failed to list spaces')
   }
 
   protected createServices(): {
@@ -65,6 +68,7 @@ export default class SpaceList extends Command {
     spaceService: ISpaceService
     tokenStore: ITokenStore
   } {
+    this.terminal = new OclifTerminal(this)
     const envConfig = getCurrentConfig()
     return {
       projectConfigStore: new ProjectConfigStore(),
@@ -108,13 +112,13 @@ export default class SpaceList extends Command {
 
     // Handle empty results
     if (result.spaces.length === 0) {
-      this.log(`No spaces found in team "${projectConfig.teamName}".`)
+      this.terminal.log(`No spaces found in team "${projectConfig.teamName}".`)
       return
     }
 
     // Display results based on format
     if (flags.json) {
-      this.log(
+      this.terminal.log(
         JSON.stringify(
           {
             showing: result.spaces.length,
@@ -130,18 +134,18 @@ export default class SpaceList extends Command {
     }
 
     // Human-readable format
-    this.log(`\nSpaces in team "${projectConfig.teamName}":\n`)
-    this.log(`Found ${result.spaces.length} space(s):\n`)
+    this.terminal.log(`\nSpaces in team "${projectConfig.teamName}":\n`)
+    this.terminal.log(`Found ${result.spaces.length} space(s):\n`)
     for (const [index, space] of result.spaces.entries()) {
-      this.log(`  ${index + 1}. ${space.getDisplayName()}`)
+      this.terminal.log(`  ${index + 1}. ${space.getDisplayName()}`)
     }
 
     // Pagination warning
     if (!flags.all && result.spaces.length < result.total) {
       const remaining = result.total - result.spaces.length - flags.offset
-      this.log(`\nShowing ${result.spaces.length} of ${result.total} spaces.`)
+      this.terminal.log(`\nShowing ${result.spaces.length} of ${result.total} spaces.`)
       if (remaining > 0) {
-        this.log('Use --all to fetch all spaces, or use --limit and --offset for pagination.')
+        this.terminal.log('Use --all to fetch all spaces, or use --limit and --offset for pagination.')
       }
     }
   }

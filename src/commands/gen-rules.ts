@@ -1,10 +1,10 @@
-import {confirm, search, select} from '@inquirer/prompts'
 import {Command, Flags} from '@oclif/core'
 
 import type {Agent} from '../core/domain/entities/agent.js'
 import type {IFileService, WriteMode} from '../core/interfaces/i-file-service.js'
 import type {LegacyRuleMatch, UncertainMatch} from '../core/interfaces/i-legacy-rule-detector.js'
 import type {IRuleTemplateService} from '../core/interfaces/i-rule-template-service.js'
+import type {ITerminal} from '../core/interfaces/i-terminal.js'
 import type {ITrackingService} from '../core/interfaces/i-tracking-service.js'
 
 import {AGENT_VALUES} from '../core/domain/entities/agent.js'
@@ -15,6 +15,7 @@ import {LegacyRuleDetector} from '../infra/rule/legacy-rule-detector.js'
 import {RuleTemplateService} from '../infra/rule/rule-template-service.js'
 import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
 import {FsTemplateLoader} from '../infra/template/fs-template-loader.js'
+import {OclifTerminal} from '../infra/terminal/oclif-terminal.js'
 import {MixpanelTrackingService} from '../infra/tracking/mixpanel-tracking-service.js'
 
 type CleanupStrategy = 'automatic' | 'manual'
@@ -37,6 +38,7 @@ export default class GenRules extends Command {
       description: 'Agent to generate rules for (optional, will prompt if not provided)',
     }),
   }
+  protected terminal: ITerminal = {} as ITerminal
 
   protected createServices(): {
     fileService: IFileService
@@ -44,6 +46,7 @@ export default class GenRules extends Command {
     templateService: IRuleTemplateService
     trackingService: ITrackingService
   } {
+    this.terminal = new OclifTerminal(this)
     const fileService = new FsFileService()
     const templateLoader = new FsTemplateLoader(fileService)
     const templateService = new RuleTemplateService(templateLoader)
@@ -58,15 +61,13 @@ export default class GenRules extends Command {
 
   /**
    * Prompts the user to select an agent.
-   * This method is protected to allow test overrides.
    * @returns The selected agent
    */
   protected async promptForAgentSelection(): Promise<Agent> {
-    const answer = await search({
+    return this.terminal.search({
       message: 'Which agent you are using (type to search):',
-      async source(input) {
+      source(input) {
         if (!input) return AGENTS
-
         return AGENTS.filter(
           (agent) =>
             agent.name.toLowerCase().includes(input.toLowerCase()) ||
@@ -74,17 +75,14 @@ export default class GenRules extends Command {
         )
       },
     })
-
-    return answer
   }
 
   /**
    * Prompts the user to choose cleanup strategy for legacy rules.
-   * This method is protected to allow test overrides.
    * @returns The chosen cleanup strategy
    */
   protected async promptForCleanupStrategy(): Promise<CleanupStrategy> {
-    return select({
+    return this.terminal.select({
       choices: [
         {
           description:
@@ -111,7 +109,7 @@ export default class GenRules extends Command {
    * @returns True if the user wants to create the file, false otherwise
    */
   protected async promptForFileCreation(agent: Agent, filePath: string): Promise<boolean> {
-    return confirm({
+    return this.terminal.confirm({
       default: true,
       message: `Rule file '${filePath}' doesn't exist. Create it with ByteRover rules?`,
     })
@@ -124,7 +122,7 @@ export default class GenRules extends Command {
    * @returns True if the user confirms overwrite, false otherwise
    */
   protected async promptForOverwriteConfirmation(agent: Agent): Promise<boolean> {
-    return confirm({
+    return this.terminal.confirm({
       default: true,
       message: `Rule file already exists for ${agent}. Overwrite?`,
     })
@@ -137,7 +135,7 @@ export default class GenRules extends Command {
     const selectedAgent = await this.promptForAgentSelection()
     const {filePath, writeMode} = AGENT_RULE_CONFIGS[selectedAgent]
 
-    this.log(`Generating rules for: ${selectedAgent}`)
+    this.terminal.log(`Generating rules for: ${selectedAgent}`)
 
     // STEP 1: Check if file exists
     const fileExists = await fileService.exists(filePath)
@@ -146,7 +144,7 @@ export default class GenRules extends Command {
       // Scenario A: File doesn't exist
       const shouldCreate = await this.promptForFileCreation(selectedAgent, filePath)
       if (!shouldCreate) {
-        this.log(`Skipped rule file creation for ${selectedAgent}`)
+        this.terminal.log(`Skipped rule file creation for ${selectedAgent}`)
         return
       }
 
@@ -185,7 +183,7 @@ export default class GenRules extends Command {
       // Scenario C: New rules exist - prompt for overwrite
       const shouldOverwrite = await this.promptForOverwriteConfirmation(selectedAgent)
       if (!shouldOverwrite) {
-        this.log(`Skipped rule file update for ${selectedAgent}`)
+        this.terminal.log(`Skipped rule file update for ${selectedAgent}`)
         return
       }
 
@@ -227,7 +225,7 @@ export default class GenRules extends Command {
     const mode = writeMode === 'overwrite' ? 'overwrite' : 'append'
     await fileService.write(ruleContent, filePath, mode)
 
-    this.log(`✅ Successfully added rule file for ${agent}`)
+    this.terminal.log(`✅ Successfully added rule file for ${agent}`)
   }
 
   /**
@@ -242,7 +240,7 @@ export default class GenRules extends Command {
     const {agent, filePath, fileService, templateService} = params
     const ruleContent = await templateService.generateRuleContent(agent)
     await fileService.write(ruleContent, filePath, 'overwrite')
-    this.log(`✅ Successfully created rule file for ${agent} at ${filePath}`)
+    this.terminal.log(`✅ Successfully created rule file for ${agent} at ${filePath}`)
   }
 
   /**
@@ -260,30 +258,29 @@ export default class GenRules extends Command {
     const detectionResult = legacyRuleDetector.detectLegacyRules(content, agent)
     const {reliableMatches, uncertainMatches} = detectionResult
 
-    this.log(
+    this.terminal.log(
       `\n⚠️  Detected ${
         reliableMatches.length + uncertainMatches.length
       } old ByteRover rule section(s) in ${filePath}:\n`,
     )
 
     if (reliableMatches.length > 0) {
-      this.log('Reliable matches:')
+      this.terminal.log('Reliable matches:')
       for (const [index, match] of reliableMatches.entries()) {
-        this.log(`  Section ${index + 1}: lines ${match.startLine}-${match.endLine}`)
+        this.terminal.log(`  Section ${index + 1}: lines ${match.startLine}-${match.endLine}`)
       }
 
-      this.log()
+      this.terminal.log('')
     }
 
     if (uncertainMatches.length > 0) {
-      this.log('  ⚠️  Uncertain matches (cannot determine start):')
+      this.terminal.log('  ⚠️  Uncertain matches (cannot determine start):')
       for (const match of uncertainMatches) {
-        this.log(`  Footer found at line ${match.footerLine}`)
-        this.log(`  Reason: ${match.reason}`)
+        this.terminal.log(`  Footer found at line ${match.footerLine}`)
+        this.terminal.log(`  Reason: ${match.reason}`)
       }
 
-      this.log()
-      this.log('⚠️  Due to uncertain matches, only manual cleanup is available.\n')
+      this.terminal.log('\n⚠️  Due to uncertain matches, only manual cleanup is available.\n')
       await this.performManualCleanup({
         agent,
         filePath,
@@ -323,7 +320,7 @@ export default class GenRules extends Command {
   }): Promise<void> {
     const {agent, filePath, fileService, reliableMatches, templateService} = params
     const backupPath = await fileService.createBackup(filePath)
-    this.log(`📦 Backup created: ${backupPath}`)
+    this.terminal.log(`📦 Backup created: ${backupPath}`)
     let content = await fileService.read(filePath)
     // Remove all reliable matches (in reverse order to preserve line numbers)
     const sortedMatches = [...reliableMatches].sort((a, b) => b.startLine - a.startLine)
@@ -336,9 +333,9 @@ export default class GenRules extends Command {
     // Append new rules
     const ruleContent = await templateService.generateRuleContent(agent)
     await fileService.write(ruleContent, filePath, 'append')
-    this.log(`✅ Removed ${reliableMatches.length} old ByteRover section(s)`)
-    this.log(`✅ Added new rules with boundary markers`)
-    this.log(`\nYou can safely delete the backup file once verified.`)
+    this.terminal.log(`✅ Removed ${reliableMatches.length} old ByteRover section(s)`)
+    this.terminal.log(`✅ Added new rules with boundary markers`)
+    this.terminal.log(`\nYou can safely delete the backup file once verified.`)
   }
 
   private async performManualCleanup(params: {
@@ -352,19 +349,19 @@ export default class GenRules extends Command {
     const {agent, filePath, fileService, reliableMatches, templateService, uncertainMatches} = params
     const ruleContent = await templateService.generateRuleContent(agent)
     await fileService.write(ruleContent, filePath, 'append')
-    this.log(`✅ New ByteRover rules added with boundary markers\n`)
-    this.log('Please manually remove old sections:')
+    this.terminal.log(`✅ New ByteRover rules added with boundary markers\n`)
+    this.terminal.log('Please manually remove old sections:')
     for (const [index, match] of reliableMatches.entries()) {
-      this.log(`  - Section ${index + 1}: lines ${match.startLine}-${match.endLine} in ${filePath}`)
+      this.terminal.log(`  - Section ${index + 1}: lines ${match.startLine}-${match.endLine} in ${filePath}`)
     }
 
     for (const match of uncertainMatches) {
-      this.log(`  - Section ending at line ${match.footerLine} in ${filePath}`)
+      this.terminal.log(`  - Section ending at line ${match.footerLine} in ${filePath}`)
     }
 
-    this.log('\nKeep only the section between:')
-    this.log('  <!-- BEGIN BYTEROVER RULES -->')
-    this.log('  <!-- END BYTEROVER RULES -->')
+    this.terminal.log('\nKeep only the section between:')
+    this.terminal.log('  <!-- BEGIN BYTEROVER RULES -->')
+    this.terminal.log('  <!-- END BYTEROVER RULES -->')
   }
 
   /**
@@ -392,7 +389,7 @@ export default class GenRules extends Command {
       const endIndex = content.indexOf(endMarker, startIndex)
 
       if (startIndex === -1 || endIndex === -1) {
-        this.error('Could not find boundary markers in the file')
+        this.terminal.error('Could not find boundary markers in the file')
       }
 
       const before = content.slice(0, startIndex)
@@ -402,6 +399,6 @@ export default class GenRules extends Command {
       await fileService.write(newContent, filePath, 'overwrite')
     }
 
-    this.log(`✅ Successfully updated rule file for ${agent}`)
+    this.terminal.log(`✅ Successfully updated rule file for ${agent}`)
   }
 }

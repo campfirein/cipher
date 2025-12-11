@@ -14,6 +14,7 @@ import {BRV_CONFIG_VERSION} from '../../../src/constants.js'
 import {AuthToken} from '../../../src/core/domain/entities/auth-token.js'
 import {BrvConfig} from '../../../src/core/domain/entities/brv-config.js'
 import {Space as SpaceImpl} from '../../../src/core/domain/entities/space.js'
+import {createMockTerminal} from '../../helpers/mock-factories.js'
 
 /**
  * Testable SpaceList command that accepts mocked services
@@ -29,26 +30,12 @@ class TestableSpaceList extends SpaceList {
   }
 
   protected createServices() {
+    this.terminal = createMockTerminal()
     return {
       projectConfigStore: this.mockProjectConfigStore,
       spaceService: this.mockSpaceService,
       tokenStore: this.mockTokenStore,
     }
-  }
-
-  // Suppress all output to prevent noisy test runs
-  public error(input: Error | string): never {
-    const errorMessage = typeof input === 'string' ? input : input.message
-    throw new Error(errorMessage)
-  }
-
-  public log(): void {
-    // Do nothing - suppress output
-  }
-
-  public warn(input: Error | string): Error | string {
-    // Do nothing - suppress output, but return input to match base signature
-    return input
   }
 }
 

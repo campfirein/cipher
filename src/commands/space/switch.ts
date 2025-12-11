@@ -1,4 +1,3 @@
-import {search, select} from '@inquirer/prompts'
 import {Command, ux} from '@oclif/core'
 
 import type {Space} from '../../core/domain/entities/space.js'
@@ -6,6 +5,7 @@ import type {Team} from '../../core/domain/entities/team.js'
 import type {IProjectConfigStore} from '../../core/interfaces/i-project-config-store.js'
 import type {ISpaceService} from '../../core/interfaces/i-space-service.js'
 import type {ITeamService} from '../../core/interfaces/i-team-service.js'
+import type {ITerminal} from '../../core/interfaces/i-terminal.js'
 import type {ITokenStore} from '../../core/interfaces/i-token-store.js'
 
 import {getCurrentConfig} from '../../config/environment.js'
@@ -17,6 +17,7 @@ import {ProjectConfigStore} from '../../infra/config/file-config-store.js'
 import {HttpSpaceService} from '../../infra/space/http-space-service.js'
 import {KeychainTokenStore} from '../../infra/storage/keychain-token-store.js'
 import {HttpTeamService} from '../../infra/team/http-team-service.js'
+import {OclifTerminal} from '../../infra/terminal/oclif-terminal.js'
 import {WorkspaceDetectorService} from '../../infra/workspace/workspace-detector-service.js'
 
 export default class SpaceSwitch extends Command {
@@ -25,6 +26,7 @@ export default class SpaceSwitch extends Command {
     '<%= config.bin %> <%= command.id %>',
     '# Shows current configuration, then prompts for new team/space selection',
   ]
+  protected terminal: ITerminal = {} as ITerminal
 
   async catch(error: Error & {oclif?: {exit: number}}): Promise<void> {
     // Check if error is ExitError (message already displayed)
@@ -38,7 +40,7 @@ export default class SpaceSwitch extends Command {
     }
 
     // For unexpected errors, show the message
-    this.error(error instanceof Error ? error.message : 'Switch failed')
+    this.terminal.error(error instanceof Error ? error.message : 'Switch failed')
   }
 
   protected createServices(): {
@@ -47,6 +49,7 @@ export default class SpaceSwitch extends Command {
     teamService: ITeamService
     tokenStore: ITokenStore
   } {
+    this.terminal = new OclifTerminal(this)
     const envConfig = getCurrentConfig()
     return {
       projectConfigStore: new ProjectConfigStore(),
@@ -79,9 +82,9 @@ export default class SpaceSwitch extends Command {
       name: agent,
       value: agent,
     }))
-    const answer = await search({
+    return this.terminal.search({
       message: 'Which agent you are using (type to search):',
-      async source(input) {
+      source(input) {
         if (!input) return AGENTS
 
         return AGENTS.filter(
@@ -91,12 +94,10 @@ export default class SpaceSwitch extends Command {
         )
       },
     })
-
-    return answer
   }
 
   protected async promptForSpaceSelection(spaces: Space[]): Promise<Space> {
-    const selectedSpaceId = await select({
+    const selectedSpaceId = await this.terminal.select({
       choices: spaces.map((space) => ({
         name: space.getDisplayName(),
         value: space.id,
@@ -113,7 +114,7 @@ export default class SpaceSwitch extends Command {
   }
 
   protected async promptForTeamSelection(teams: Team[]): Promise<Team> {
-    const selectedTeamId = await select({
+    const selectedTeamId = await this.terminal.select({
       choices: teams.map((team) => ({
         name: team.name,
         value: team.id,
@@ -139,10 +140,10 @@ export default class SpaceSwitch extends Command {
     }
 
     // Show current configuration
-    this.log('Current configuration:')
-    this.log(`  Team: ${currentConfig.teamName}`)
-    this.log(`  Space: ${currentConfig.spaceName}`)
-    this.log()
+    this.terminal.log('Current configuration:')
+    this.terminal.log(`  Team: ${currentConfig.teamName}`)
+    this.terminal.log(`  Space: ${currentConfig.spaceName}`)
+    this.terminal.log()
 
     // Validate authentication
     const token = await tokenStore.load()
@@ -164,7 +165,7 @@ export default class SpaceSwitch extends Command {
     }
 
     // Prompt for team selection
-    this.log()
+    this.terminal.log()
     const selectedTeam = await this.promptForTeamSelection(teamResult.teams)
 
     // Fetch spaces for selected team
@@ -182,14 +183,14 @@ export default class SpaceSwitch extends Command {
     }
 
     // Prompt for space selection
-    this.log()
+    this.terminal.log()
     const selectedSpace = await this.promptForSpaceSelection(spaceResult.spaces)
 
     // Prompt for agent selection
-    this.log()
+    this.terminal.log()
     const selectedAgent = await this.promptForAgentSelection()
 
-    this.log()
+    this.terminal.log()
     const {chatLogPath, cwd} = this.detectWorkspacesForAgent(selectedAgent)
 
     // Update configuration
@@ -202,7 +203,7 @@ export default class SpaceSwitch extends Command {
     await projectConfigStore.write(newConfig)
 
     // Display success
-    this.log(`\n✓ Successfully switched to space: ${selectedSpace.getDisplayName()}`)
-    this.log(`✓ Configuration updated in: ${BRV_DIR}/${PROJECT_CONFIG_FILE}`)
+    this.terminal.log(`\n✓ Successfully switched to space: ${selectedSpace.getDisplayName()}`)
+    this.terminal.log(`✓ Configuration updated in: ${BRV_DIR}/${PROJECT_CONFIG_FILE}`)
   }
 }

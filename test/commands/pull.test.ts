@@ -16,6 +16,7 @@ import {BrvConfig} from '../../src/core/domain/entities/brv-config.js'
 import {CogitSnapshotAuthor} from '../../src/core/domain/entities/cogit-snapshot-author.js'
 import {CogitSnapshotFile} from '../../src/core/domain/entities/cogit-snapshot-file.js'
 import {CogitSnapshot} from '../../src/core/domain/entities/cogit-snapshot.js'
+import {createMockTerminal} from '../helpers/mock-factories.js'
 
 const createSnapshot = (): CogitSnapshot =>
   new CogitSnapshot({
@@ -35,6 +36,9 @@ const createSnapshot = (): CogitSnapshot =>
   })
 
 class TestablePull extends Pull {
+  public errorMessages: string[] = []
+  public logMessages: string[] = []
+
   // eslint-disable-next-line max-params
   public constructor(
     private readonly mockCogitPullService: ICogitPullService,
@@ -49,6 +53,10 @@ class TestablePull extends Pull {
   }
 
   protected createServices() {
+    this.terminal = createMockTerminal({
+      error: (msg) => this.errorMessages.push(msg),
+      log: (msg) => msg !== undefined && this.logMessages.push(msg),
+    })
     return {
       cogitPullService: this.mockCogitPullService,
       contextTreeSnapshotService: this.mockContextTreeSnapshotService,
@@ -57,18 +65,6 @@ class TestablePull extends Pull {
       tokenStore: this.mockTokenStore,
       trackingService: this.mockTrackingService,
     }
-  }
-
-  public error(input: Error | string): never {
-    throw input instanceof Error ? input : new Error(input)
-  }
-
-  public log(..._args: unknown[]): void {
-    // no-op
-  }
-
-  public warn(input: Error | string): Error | string {
-    return input
   }
 }
 
@@ -151,12 +147,10 @@ describe('Pull Command', () => {
         config,
       )
 
-      try {
-        await command.run()
-        expect.fail('Should have thrown error')
-      } catch (error) {
-        expect((error as Error).message).to.include('Not authenticated')
-      }
+      await command.run()
+
+      expect(command.errorMessages).to.have.lengthOf(1)
+      expect(command.errorMessages[0]).to.include('Not authenticated')
     })
 
     it('should error when token is expired', async () => {
@@ -182,12 +176,10 @@ describe('Pull Command', () => {
         config,
       )
 
-      try {
-        await command.run()
-        expect.fail('Should have thrown error')
-      } catch (error) {
-        expect((error as Error).message).to.include('expired')
-      }
+      await command.run()
+
+      expect(command.errorMessages).to.have.lengthOf(1)
+      expect(command.errorMessages[0]).to.include('expired')
     })
 
     it('should error when project not initialized', async () => {
