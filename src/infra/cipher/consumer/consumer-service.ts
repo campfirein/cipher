@@ -1,22 +1,9 @@
-import {EventEmitter} from 'node:events'
-
-import type {Execution} from '../storage/agent-storage.js'
-
 import {ProjectConfigStore} from '../../config/file-config-store.js'
 import {KeychainTokenStore} from '../../storage/keychain-token-store.js'
 import {closeAgentStorage} from '../storage/agent-storage.js'
 import {createExecutionConsumer, ExecutionConsumer} from './execution-consumer.js'
 
 // ==================== TYPES ====================
-
-export interface ConsumerServiceEvents {
-  error: (error: Error) => void
-  'job:completed': (execution: Execution) => void
-  'job:failed': (execution: Execution, error: string) => void
-  'job:started': (execution: Execution) => void
-  started: () => void
-  stopped: () => void
-}
 
 export interface ConsumerServiceOptions {
   /** Max concurrent jobs (default: 5) */
@@ -28,33 +15,55 @@ export interface ConsumerServiceOptions {
 // ==================== SERVICE ====================
 
 /**
- * ConsumerService - High-level API for UI/REPL integration
+ * ConsumerService - Singleton background worker that processes the execution queue
  *
- * Simple usage:
+ * Architecture:
+ * ```
+ * ┌─────────────────┐
+ * │ ConsumerService │  ← Singleton, start once in main
+ * │ (process jobs)  │
+ * └────────┬────────┘
+ *          │ writes
+ *          ▼
+ * ┌─────────────────┐
+ * │  AgentStorage   │  ← SQLite DB (source of truth)
+ * │   (agent.db)    │
+ * └────────┬────────┘
+ *          │ polls
+ *          ▼
+ * ┌─────────────────┐
+ * │QueuePollingServ │  ← UI subscribes here for updates
+ * └─────────────────┘
+ * ```
+ *
+ * Usage:
  * ```typescript
- * import { ConsumerService } from 'byterover-cli/consumer'
+ * // Main - start consumer singleton (once)
+ * const consumer = getConsumerService({ concurrency: 5 })
+ * await consumer.start()
  *
- * const consumer = new ConsumerService()
- * await consumer.start()   // Auto-loads auth & config
- * // ... consumer is running ...
- * consumer.dispose()       // Cleanup
+ * // UI components - use QueuePollingService for monitoring
+ * import { getQueuePollingService } from './queue-polling-service'
+ * const poller = getQueuePollingService({ pollInterval: 500 })
+ * poller.on('snapshot', (snapshot) => renderUI(snapshot))
+ * await poller.start()
+ *
+ * // Cleanup
+ * consumer.dispose()
  * ```
  *
  * Features:
  * - Auto-loads auth token from Keychain
  * - Auto-loads project config from .brv/config.json
  * - Handles lock acquisition/release
- * - Emits events for job lifecycle
  * - Single dispose() for full cleanup
  */
-// eslint-disable-next-line unicorn/prefer-event-target -- EventEmitter better for Node.js typed events
-export class ConsumerService extends EventEmitter {
+export class ConsumerService {
   private consumer: ExecutionConsumer | null = null
   private readonly options: ConsumerServiceOptions
   private running = false
 
   constructor(options?: ConsumerServiceOptions) {
-    super()
     this.options = options ?? {}
   }
 
@@ -72,8 +81,6 @@ export class ConsumerService extends EventEmitter {
     }
 
     closeAgentStorage()
-
-    this.emit('stopped')
   }
 
   /**
@@ -127,7 +134,6 @@ export class ConsumerService extends EventEmitter {
 
     this.running = true
     this.setupSignalHandlers()
-    this.emit('started')
   }
 
   // Alias for dispose

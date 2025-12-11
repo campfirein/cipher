@@ -33,6 +33,7 @@ export type QueueEventType =
   | 'execution:completed'
   | 'execution:failed'
   | 'execution:started'
+  | 'reconnected'
   | 'snapshot'
   | 'stats:updated'
   | 'stopped'
@@ -42,6 +43,7 @@ export interface QueueEvents {
   'execution:completed': (execution: Execution) => void
   'execution:failed': (execution: Execution) => void
   'execution:started': (execution: Execution) => void
+  reconnected: () => void
   snapshot: (snapshot: QueueSnapshot) => void
   'stats:updated': (stats: QueueStats) => void
   stopped: () => void
@@ -151,7 +153,6 @@ export class QueuePollingService extends EventEmitter {
   private buildSnapshot(): QueueSnapshot {
     const storage = getAgentStorageSync()
 
-    const queued = storage.getQueuedExecutions()
     const running = storage.getRunningExecutions()
     const recent = storage.getRecentExecutions(20)
 
@@ -161,14 +162,8 @@ export class QueuePollingService extends EventEmitter {
       toolCalls: storage.getToolCalls(exec.id),
     }))
 
-    // Calculate stats
-    const stats: QueueStats = {
-      completed: recent.filter((e) => e.status === 'completed').length,
-      failed: recent.filter((e) => e.status === 'failed').length,
-      queued: queued.length,
-      running: running.length,
-      total: recent.length,
-    }
+    // Get stats directly from DB (accurate counts)
+    const stats = storage.getStats()
 
     return {
       recentExecutions: recent,
@@ -227,11 +222,32 @@ export class QueuePollingService extends EventEmitter {
     if (!this.running || !this.initialized) return
 
     try {
+      // Check if DB file was replaced (e.g., by brv init in another terminal)
+      const storage = getAgentStorageSync()
+      if (storage.isDbFileChanged()) {
+        // DB file was replaced - reconnect
+        await storage.reconnect()
+        // Clear seen IDs since DB was reset
+        this.seenExecutionIds.clear()
+        this.lastSnapshot = null
+        this.emit('reconnected')
+      }
+
       const newSnapshot = this.buildSnapshot()
       this.detectChangesAndEmit(this.lastSnapshot, newSnapshot)
       this.lastSnapshot = newSnapshot
     } catch (error) {
-      this.emit('error', error instanceof Error ? error : new Error(String(error)))
+      // Try to recover from errors (connection lost, etc.)
+      try {
+        const storage = getAgentStorageSync()
+        await storage.reconnect()
+        this.seenExecutionIds.clear()
+        this.lastSnapshot = null
+        this.emit('reconnected')
+      } catch {
+        // Reconnect failed - emit original error
+        this.emit('error', error instanceof Error ? error : new Error(String(error)))
+      }
     }
   }
 

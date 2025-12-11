@@ -107,6 +107,11 @@ export interface IAgentStorage {
   getRunningExecutions(): Execution[]
 
   /**
+   * Get queue statistics (queries DB directly for accurate counts).
+   */
+  getStats(): {completed: number; failed: number; queued: number; running: number; total: number}
+
+  /**
    * Get all tool calls for an execution.
    */
   getToolCalls(executionId: string): ToolCall[]
@@ -118,12 +123,30 @@ export interface IAgentStorage {
   hasActiveConsumer(timeoutMs?: number): boolean
 
   /**
+   * Check if a specific consumer lock exists in the database.
+   * Used by Consumer to verify its lock is still valid after DB reconnection.
+   */
+  hasConsumerLock(consumerId: string): boolean
+
+  /**
    * Initialize storage.
    */
   initialize(options?: {cleanupOrphans?: boolean}): Promise<void>
 
   /** Whether the storage has been initialized */
   readonly initialized: boolean
+
+  /**
+   * Check if the DB file has been replaced (different inode).
+   * Returns true if DB needs reconnection.
+   */
+  isDbFileChanged(): boolean
+
+  /**
+   * Reconnect to the database (close and reinitialize).
+   * Use when DB file has been replaced by another process (e.g., brv init).
+   */
+  reconnect(): Promise<void>
 
   /**
    * Release consumer lock (unregister this consumer).

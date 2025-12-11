@@ -212,9 +212,13 @@ export class ExecutionConsumer {
     // Start heartbeat to keep lock alive
     this.heartbeatInterval = setInterval(() => {
       try {
-        storage.updateConsumerHeartbeat(this.consumerId)
-      } catch (error) {
-        console.error('[Consumer] Heartbeat error:', error)
+        // Note: DB reconnect is handled in poll() loop
+        // Heartbeat just updates if lock exists, poll() handles reconnection
+        const currentStorage = getAgentStorageSync()
+        currentStorage.updateConsumerHeartbeat(this.consumerId)
+      } catch {
+        // Ignore heartbeat errors - poll() will handle reconnection
+        // This prevents noisy errors when DB is being replaced
       }
     }, HEARTBEAT_INTERVAL_MS)
 
@@ -348,12 +352,35 @@ export class ExecutionConsumer {
    * Main poll loop - dequeues and processes jobs in parallel up to maxConcurrency
    */
   private async poll(): Promise<void> {
-    const storage = getAgentStorageSync()
+    let storage = getAgentStorageSync()
     let cleanupCounter = 0
     let orphanCheckCounter = 0
 
     while (this.running) {
       try {
+        // Check if our lock is still valid (handles race condition when QueuePollingService reconnects first)
+        // This covers both: DB file replaced AND another component already reconnected
+        if (!storage.hasConsumerLock(this.consumerId)) {
+          console.log('[Consumer] Lock lost, re-acquiring...')
+
+          // If DB file also changed, reconnect first
+          if (storage.isDbFileChanged()) {
+            console.log('[Consumer] DB file changed, reconnecting...')
+            // eslint-disable-next-line no-await-in-loop -- Must wait for reconnect before continuing
+            await storage.reconnect()
+            storage = getAgentStorageSync() // Get fresh reference after reconnect
+          }
+
+          // Re-acquire lock
+          if (!storage.acquireConsumerLock(this.consumerId)) {
+            console.error('[Consumer] Failed to re-acquire lock')
+            this.stop()
+            return
+          }
+
+          console.log(`[Consumer] Re-acquired lock (${this.consumerId.slice(0, 8)})`)
+        }
+
         // Calculate available slots
         const availableSlots = this.maxConcurrency - this.activeJobs.size
 
@@ -394,6 +421,22 @@ export class ExecutionConsumer {
         }
       } catch (error) {
         console.error('[Consumer] Poll error:', error)
+        // Try to recover - re-acquire lock if lost
+        try {
+          storage = getAgentStorageSync()
+          if (!storage.hasConsumerLock(this.consumerId)) {
+            if (storage.isDbFileChanged()) {
+              // eslint-disable-next-line no-await-in-loop -- Must wait for reconnect before continuing
+              await storage.reconnect()
+              storage = getAgentStorageSync()
+            }
+
+            storage.acquireConsumerLock(this.consumerId)
+            console.log('[Consumer] Recovered from error, re-acquired lock')
+          }
+        } catch {
+          // Ignore recovery errors, will retry on next poll
+        }
       }
 
       // eslint-disable-next-line no-await-in-loop

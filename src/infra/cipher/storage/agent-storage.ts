@@ -2,6 +2,7 @@ import type {Statement} from 'better-sqlite3'
 
 import Database from 'better-sqlite3'
 import {randomUUID} from 'node:crypto'
+import * as fsSync from 'node:fs'
 import * as fs from 'node:fs/promises'
 import {join} from 'node:path'
 
@@ -151,6 +152,8 @@ ALTER TABLE executions ADD COLUMN consumer_id TEXT;
 export class AgentStorage implements IAgentStorage {
   initialized = false
   private db: Database.Database | null = null
+  // Track DB file inode to detect if file was replaced
+  private dbFileInode: null | number = null
   private readonly dbPath: string
   private readonly inMemory: boolean
   private stmtAddToolCall: null | Statement = null
@@ -191,10 +194,10 @@ export class AgentStorage implements IAgentStorage {
     const {pid} = process
 
     // Use transaction to ensure atomic check-then-insert
-    const acquireLock = this.db!.transaction(() => {
+    const acquireLock = this.getDb().transaction(() => {
       // Check if any active consumer exists (with recent heartbeat)
       const cutoff = now - 30_000 // 30 second timeout
-      const existing = this.db!.prepare(`SELECT id FROM consumer_locks WHERE last_heartbeat >= ?`).get(cutoff) as
+      const existing = this.getDb().prepare(`SELECT id FROM consumer_locks WHERE last_heartbeat >= ?`).get(cutoff) as
         | undefined
         | {id: string}
 
@@ -204,7 +207,7 @@ export class AgentStorage implements IAgentStorage {
       }
 
       // No active consumer - acquire lock
-      this.db!.prepare(
+      this.getDb().prepare(
         `INSERT INTO consumer_locks (id, pid, started_at, last_heartbeat)
          VALUES (?, ?, ?, ?)`,
       ).run(consumerId, pid, now, now)
@@ -225,7 +228,7 @@ export class AgentStorage implements IAgentStorage {
     const now = Date.now()
 
     if (!this.stmtAddToolCall) {
-      this.stmtAddToolCall = this.db!.prepare(`
+      this.stmtAddToolCall = this.getDb().prepare(`
         INSERT INTO tool_calls (id, execution_id, name, description, args, args_summary, file_path, status, started_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, 'running', ?)
       `)
@@ -253,7 +256,7 @@ export class AgentStorage implements IAgentStorage {
 
     // Count completed/failed executions
     if (!this.stmtCountCompletedFailed) {
-      this.stmtCountCompletedFailed = this.db!.prepare(`
+      this.stmtCountCompletedFailed = this.getDb().prepare(`
         SELECT COUNT(*) as count FROM executions
         WHERE status IN ('completed', 'failed')
       `)
@@ -268,7 +271,7 @@ export class AgentStorage implements IAgentStorage {
 
     // Delete oldest executions (tool_calls auto-deleted via CASCADE)
     if (!this.stmtDeleteOldExecutions) {
-      this.stmtDeleteOldExecutions = this.db!.prepare(`
+      this.stmtDeleteOldExecutions = this.getDb().prepare(`
         DELETE FROM executions
         WHERE id IN (
           SELECT id FROM executions
@@ -291,7 +294,7 @@ export class AgentStorage implements IAgentStorage {
     this.ensureInitialized()
 
     if (!this.stmtCleanupOrphans) {
-      this.stmtCleanupOrphans = this.db!.prepare(`
+      this.stmtCleanupOrphans = this.getDb().prepare(`
         UPDATE executions
         SET status = 'failed',
             error = 'Orphaned from previous session',
@@ -319,7 +322,7 @@ export class AgentStorage implements IAgentStorage {
     let totalOrphaned = 0
 
     // Case 1: Find consumers with stale heartbeat
-    const staleConsumers = this.db!.prepare(
+    const staleConsumers = this.getDb().prepare(
       `
       SELECT id FROM consumer_locks WHERE last_heartbeat < ?
     `,
@@ -327,7 +330,7 @@ export class AgentStorage implements IAgentStorage {
 
     if (staleConsumers.length > 0) {
       // Orphan executions from stale consumers
-      const orphanStmt = this.db!.prepare(`
+      const orphanStmt = this.getDb().prepare(`
         UPDATE executions
         SET status = 'failed',
             error = 'Consumer died unexpectedly',
@@ -337,7 +340,7 @@ export class AgentStorage implements IAgentStorage {
       `)
 
       // Delete stale consumer locks
-      const deleteLockStmt = this.db!.prepare(`
+      const deleteLockStmt = this.getDb().prepare(`
         DELETE FROM consumer_locks WHERE id = ?
       `)
 
@@ -350,7 +353,7 @@ export class AgentStorage implements IAgentStorage {
 
     // Case 2: Find "running" executions whose consumer_id doesn't exist in consumer_locks
     // This handles cases where consumer crashed without proper cleanup
-    const orphanedFromMissingConsumers = this.db!.prepare(`
+    const orphanedFromMissingConsumers = this.getDb().prepare(`
       UPDATE executions
       SET status = 'failed',
           error = 'Consumer no longer exists',
@@ -366,7 +369,7 @@ export class AgentStorage implements IAgentStorage {
     // Case 3: Find "running" CURATE executions with NULL consumer_id (orphaned from releaseConsumerLock)
     // These are stuck executions where consumer stopped but didn't complete the job
     // NOTE: Query runs inline (not via consumer), so consumer_id=NULL is normal for query
-    const orphanedNullConsumer = this.db!.prepare(`
+    const orphanedNullConsumer = this.getDb().prepare(`
       UPDATE executions
       SET status = 'failed',
           error = 'Execution orphaned (no consumer)',
@@ -426,7 +429,7 @@ export class AgentStorage implements IAgentStorage {
     const startedAt = type === 'query' ? now : null
 
     if (!this.stmtCreateExecution) {
-      this.stmtCreateExecution = this.db!.prepare(`
+      this.stmtCreateExecution = this.getDb().prepare(`
         INSERT INTO executions (id, type, input, status, created_at, started_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?)
       `)
@@ -451,7 +454,7 @@ export class AgentStorage implements IAgentStorage {
 
     if (!this.stmtDequeueBatchSelect) {
       // Use a parameterized LIMIT - better-sqlite3 handles this correctly
-      this.stmtDequeueBatchSelect = this.db!.prepare(`
+      this.stmtDequeueBatchSelect = this.getDb().prepare(`
         SELECT * FROM executions
         WHERE status = 'queued'
         ORDER BY created_at ASC
@@ -459,21 +462,24 @@ export class AgentStorage implements IAgentStorage {
       `)
     }
 
+    // Capture for type safety inside transaction closure
+    const selectStmt = this.stmtDequeueBatchSelect
+
     // Use dynamic statement to handle optional consumer_id
     const updateSql = consumerId
       ? `UPDATE executions SET status = 'running', consumer_id = ?, started_at = ?, updated_at = ? WHERE id = ?`
       : `UPDATE executions SET status = 'running', started_at = ?, updated_at = ? WHERE id = ?`
 
     // Use transaction for atomicity - all SELECTs and UPDATEs in one snapshot
-    const dequeueBatch = this.db!.transaction((batchLimit: number) => {
-      const rows = this.stmtDequeueBatchSelect!.all(batchLimit) as ExecutionRow[]
+    const dequeueBatch = this.getDb().transaction((batchLimit: number) => {
+      const rows = selectStmt.all(batchLimit) as ExecutionRow[]
       if (rows.length === 0) {
         return []
       }
 
       const now = Date.now()
       const executions: Execution[] = []
-      const updateStmt = this.db!.prepare(updateSql)
+      const updateStmt = this.getDb().prepare(updateSql)
 
       for (const row of rows) {
         if (consumerId) {
@@ -501,7 +507,7 @@ export class AgentStorage implements IAgentStorage {
     this.ensureInitialized()
 
     if (!this.stmtDequeueSelect) {
-      this.stmtDequeueSelect = this.db!.prepare(`
+      this.stmtDequeueSelect = this.getDb().prepare(`
         SELECT * FROM executions
         WHERE status = 'queued'
         ORDER BY created_at ASC
@@ -509,20 +515,23 @@ export class AgentStorage implements IAgentStorage {
       `)
     }
 
+    // Capture for type safety inside transaction closure
+    const selectStmt = this.stmtDequeueSelect
+
     // Use dynamic statement to handle optional consumer_id
     const updateSql = consumerId
       ? `UPDATE executions SET status = 'running', consumer_id = ?, started_at = ?, updated_at = ? WHERE id = ?`
       : `UPDATE executions SET status = 'running', started_at = ?, updated_at = ? WHERE id = ?`
 
     // Use transaction for atomicity
-    const dequeue = this.db!.transaction(() => {
-      const row = this.stmtDequeueSelect!.get() as ExecutionRow | undefined
+    const dequeue = this.getDb().transaction(() => {
+      const row = selectStmt.get() as ExecutionRow | undefined
       if (!row) {
         return null
       }
 
       const now = Date.now()
-      const updateStmt = this.db!.prepare(updateSql)
+      const updateStmt = this.getDb().prepare(updateSql)
       if (consumerId) {
         updateStmt.run(consumerId, now, now, row.id)
       } else {
@@ -545,7 +554,7 @@ export class AgentStorage implements IAgentStorage {
     this.ensureInitialized()
 
     if (!this.stmtGetExecution) {
-      this.stmtGetExecution = this.db!.prepare(`
+      this.stmtGetExecution = this.getDb().prepare(`
         SELECT * FROM executions WHERE id = ?
       `)
     }
@@ -561,7 +570,7 @@ export class AgentStorage implements IAgentStorage {
     this.ensureInitialized()
 
     if (!this.stmtGetExecutionsSince) {
-      this.stmtGetExecutionsSince = this.db!.prepare(`
+      this.stmtGetExecutionsSince = this.getDb().prepare(`
         SELECT * FROM executions
         WHERE updated_at > ?
         ORDER BY updated_at ASC
@@ -593,7 +602,7 @@ export class AgentStorage implements IAgentStorage {
     this.ensureInitialized()
 
     if (!this.stmtGetQueuedExecutions) {
-      this.stmtGetQueuedExecutions = this.db!.prepare(`
+      this.stmtGetQueuedExecutions = this.getDb().prepare(`
         SELECT * FROM executions
         WHERE status = 'queued'
         ORDER BY created_at ASC
@@ -612,7 +621,7 @@ export class AgentStorage implements IAgentStorage {
     this.ensureInitialized()
 
     if (!this.stmtGetRecentExecutions) {
-      this.stmtGetRecentExecutions = this.db!.prepare(`
+      this.stmtGetRecentExecutions = this.getDb().prepare(`
         SELECT * FROM executions
         ORDER BY created_at DESC
         LIMIT ?
@@ -630,7 +639,7 @@ export class AgentStorage implements IAgentStorage {
     this.ensureInitialized()
 
     if (!this.stmtGetRunningExecutions) {
-      this.stmtGetRunningExecutions = this.db!.prepare(`
+      this.stmtGetRunningExecutions = this.getDb().prepare(`
         SELECT * FROM executions
         WHERE status = 'running'
         ORDER BY started_at ASC
@@ -643,13 +652,32 @@ export class AgentStorage implements IAgentStorage {
   }
 
   /**
+   * Get queue statistics (queries DB directly for accurate counts)
+   */
+  getStats(): {completed: number; failed: number; queued: number; running: number; total: number} {
+    this.ensureInitialized()
+
+    const result = this.getDb().prepare(`
+      SELECT
+        COUNT(*) as total,
+        SUM(CASE WHEN status = 'queued' THEN 1 ELSE 0 END) as queued,
+        SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END) as running,
+        SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
+        SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed
+      FROM executions
+    `).get() as {completed: number; failed: number; queued: number; running: number; total: number}
+
+    return result
+  }
+
+  /**
    * Get all tool calls for an execution
    */
   getToolCalls(executionId: string): ToolCall[] {
     this.ensureInitialized()
 
     if (!this.stmtGetToolCalls) {
-      this.stmtGetToolCalls = this.db!.prepare(`
+      this.stmtGetToolCalls = this.getDb().prepare(`
         SELECT * FROM tool_calls
         WHERE execution_id = ?
         ORDER BY started_at ASC
@@ -670,13 +698,24 @@ export class AgentStorage implements IAgentStorage {
     const now = Date.now()
     const cutoff = now - timeoutMs
 
-    const result = this.db!.prepare(
+    const result = this.getDb().prepare(
       `
       SELECT COUNT(*) as count FROM consumer_locks WHERE last_heartbeat >= ?
     `,
     ).get(cutoff) as {count: number}
 
     return result.count > 0
+  }
+
+  /**
+   * Check if a specific consumer lock exists in the database
+   * Used by Consumer to verify its lock is still valid after DB reconnection
+   */
+  hasConsumerLock(consumerId: string): boolean {
+    this.ensureInitialized()
+
+    const result = this.getDb().prepare(`SELECT 1 FROM consumer_locks WHERE id = ?`).get(consumerId) as undefined | {1: number}
+    return result !== undefined
   }
 
   /**
@@ -720,6 +759,16 @@ export class AgentStorage implements IAgentStorage {
       }
     }
 
+    // Capture inode to detect if file is replaced later
+    if (!this.inMemory) {
+      try {
+        const stat = fsSync.statSync(this.dbPath)
+        this.dbFileInode = stat.ino
+      } catch {
+        // File may not exist yet, ignore
+      }
+    }
+
     this.initialized = true
 
     // Cleanup orphaned executions from previous session (only if requested)
@@ -728,6 +777,36 @@ export class AgentStorage implements IAgentStorage {
     if (options?.cleanupOrphans) {
       this.cleanupOrphanedExecutions()
     }
+  }
+
+  /**
+   * Check if the DB file has been replaced (different inode)
+   * Returns true if DB needs reconnection
+   */
+  isDbFileChanged(): boolean {
+    if (this.inMemory || !this.dbFileInode) {
+      return false
+    }
+
+    try {
+      const stat = fsSync.statSync(this.dbPath)
+      return stat.ino !== this.dbFileInode
+    } catch {
+      // File doesn't exist - definitely changed
+      return true
+    }
+  }
+
+  /**
+   * Reconnect to the database (close and reinitialize)
+   * Use when DB file has been replaced by another process (e.g., brv init)
+   */
+  async reconnect(): Promise<void> {
+    // Close existing connection
+    this.close()
+
+    // Reinitialize (will create new connection and capture new inode)
+    await this.initialize()
   }
 
   // ==================== TOOL CALL METHODS ====================
@@ -740,7 +819,7 @@ export class AgentStorage implements IAgentStorage {
 
     // First, clear consumer_id from any running executions
     const now = Date.now()
-    this.db!.prepare(
+    this.getDb().prepare(
       `
       UPDATE executions
       SET consumer_id = NULL, updated_at = ?
@@ -749,7 +828,7 @@ export class AgentStorage implements IAgentStorage {
     ).run(now, consumerId)
 
     // Then delete the lock
-    this.db!.prepare(
+    this.getDb().prepare(
       `
       DELETE FROM consumer_locks WHERE id = ?
     `,
@@ -763,7 +842,7 @@ export class AgentStorage implements IAgentStorage {
     this.ensureInitialized()
 
     const now = Date.now()
-    this.db!.prepare(
+    this.getDb().prepare(
       `
       UPDATE consumer_locks SET last_heartbeat = ? WHERE id = ?
     `,
@@ -777,7 +856,7 @@ export class AgentStorage implements IAgentStorage {
     this.ensureInitialized()
 
     if (!this.stmtUpdateStatus) {
-      this.stmtUpdateStatus = this.db!.prepare(`
+      this.stmtUpdateStatus = this.getDb().prepare(`
         UPDATE executions
         SET status = ?, result = ?, error = ?, completed_at = ?, updated_at = ?
         WHERE id = ?
@@ -796,7 +875,7 @@ export class AgentStorage implements IAgentStorage {
     this.ensureInitialized()
 
     if (!this.stmtUpdateToolCall) {
-      this.stmtUpdateToolCall = this.db!.prepare(`
+      this.stmtUpdateToolCall = this.getDb().prepare(`
         UPDATE tool_calls
         SET status = ?, result = ?, result_summary = ?, error = ?, completed_at = ?,
             duration_ms = ?, lines_count = ?, chars_count = ?
@@ -808,7 +887,7 @@ export class AgentStorage implements IAgentStorage {
     const completedAt = status === 'completed' || status === 'failed' ? now : null
 
     // Get started_at to calculate duration
-    const getStarted = this.db!.prepare('SELECT started_at FROM tool_calls WHERE id = ?')
+    const getStarted = this.getDb().prepare('SELECT started_at FROM tool_calls WHERE id = ?')
     const row = getStarted.get(id) as undefined | {started_at: number}
     const durationMs = row && completedAt ? completedAt - row.started_at : null
 
@@ -834,6 +913,18 @@ export class AgentStorage implements IAgentStorage {
     if (!this.initialized || !this.db) {
       throw new Error('AgentStorage not initialized. Call initialize() first.')
     }
+  }
+
+  /**
+   * Get database instance with type safety (throws if not initialized)
+   * Use this instead of this.getDb() for proper type narrowing
+   */
+  private getDb(): Database.Database {
+    if (!this.db) {
+      throw new Error('AgentStorage not initialized. Call initialize() first.')
+    }
+
+    return this.db
   }
 
   /**

@@ -23,6 +23,7 @@ export function useQueuePolling(options?: {pollInterval?: number}): {
   error: Error | null
   isConnected: boolean
   recentExecutions: Execution[]
+  reconnectCount: number
   runningExecutions: Array<{execution: Execution; toolCalls: ToolCall[]}>
   stats: null | QueueStats
 } {
@@ -31,6 +32,7 @@ export function useQueuePolling(options?: {pollInterval?: number}): {
   const [recentExecutions, setRecentExecutions] = useState<Execution[]>([])
   const [error, setError] = useState<Error | null>(null)
   const [isConnected, setIsConnected] = useState(false)
+  const [reconnectCount, setReconnectCount] = useState(0)
 
   useEffect(() => {
     const service = getQueuePollingService({pollInterval: options?.pollInterval})
@@ -51,9 +53,16 @@ export function useQueuePolling(options?: {pollInterval?: number}): {
       setIsConnected(false)
     }
 
+    const handleReconnected = (): void => {
+      // Clear error on successful reconnect
+      setError(null)
+      setReconnectCount((prev) => prev + 1)
+    }
+
     service.on('snapshot', handleSnapshot)
     service.on('error', handleError)
     service.on('stopped', handleStopped)
+    service.on('reconnected', handleReconnected)
 
     // Start service if not running
     if (service.isRunning()) {
@@ -73,6 +82,7 @@ export function useQueuePolling(options?: {pollInterval?: number}): {
       service.off('snapshot', handleSnapshot)
       service.off('error', handleError)
       service.off('stopped', handleStopped)
+      service.off('reconnected', handleReconnected)
       // Note: Don't stop service here - other components may be using it
       // Service is stopped via stopQueuePollingService() when app exits
     }
@@ -82,6 +92,7 @@ export function useQueuePolling(options?: {pollInterval?: number}): {
     error,
     isConnected,
     recentExecutions,
+    reconnectCount,
     runningExecutions,
     stats,
   }
