@@ -211,37 +211,6 @@ Bad:
   }
 
   /**
-   * Create args summary for tool call display
-   */
-  private createArgsSummary(toolName: string, args: Record<string, unknown>): string {
-    switch (toolName) {
-      case 'Bash': {
-        return String(args.command ?? '').slice(0, 50)
-      }
-
-      case 'Edit': {
-        return String(args.file_path ?? '')
-      }
-
-      case 'Grep': {
-        return `"${args.pattern ?? ''}" in ${args.path ?? '.'}`
-      }
-
-      case 'Read': {
-        return String(args.file_path ?? '')
-      }
-
-      case 'Write': {
-        return String(args.file_path ?? '')
-      }
-
-      default: {
-        return JSON.stringify(args).slice(0, 50)
-      }
-    }
-  }
-
-  /**
    * Create result summary for tool call
    */
   private createResultSummary(result: string): string {
@@ -487,10 +456,8 @@ Bad:
     eventBus.on('llmservice:toolCall', (payload) => {
       try {
         if (!payload.callId) return
-        const argsSummary = this.createArgsSummary(payload.toolName, payload.args)
         const toolCallId = storage.addToolCall(executionId, {
           args: payload.args,
-          argsSummary,
           name: payload.toolName,
         })
         toolCallMap.set(payload.callId, toolCallId)

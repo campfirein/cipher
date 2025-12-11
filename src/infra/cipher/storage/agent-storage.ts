@@ -229,8 +229,8 @@ export class AgentStorage implements IAgentStorage {
 
     if (!this.stmtAddToolCall) {
       this.stmtAddToolCall = this.getDb().prepare(`
-        INSERT INTO tool_calls (id, execution_id, name, description, args, args_summary, file_path, status, started_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'running', ?)
+        INSERT INTO tool_calls (id, execution_id, name, description, args, file_path, status, started_at)
+        VALUES (?, ?, ?, ?, ?, ?, 'running', ?)
       `)
     }
 
@@ -240,7 +240,6 @@ export class AgentStorage implements IAgentStorage {
       info.name,
       info.description ?? null,
       JSON.stringify(info.args),
-      info.argsSummary ?? null,
       info.filePath ?? null,
       now,
     )
@@ -962,7 +961,6 @@ export class AgentStorage implements IAgentStorage {
     }
 
     if (row.description) toolCall.description = row.description
-    if (row.args_summary) toolCall.argsSummary = row.args_summary
     if (row.file_path) toolCall.filePath = row.file_path
     if (row.result) toolCall.result = row.result
     if (row.result_summary) toolCall.resultSummary = row.result_summary

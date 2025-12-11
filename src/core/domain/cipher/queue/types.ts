@@ -37,7 +37,6 @@ export type ToolCallStatus = 'completed' | 'failed' | 'running'
  */
 export interface ToolCall {
   args: string
-  argsSummary?: string
   charsCount?: number
   completedAt?: number
   description?: string
@@ -59,7 +58,6 @@ export interface ToolCall {
  */
 export interface ToolCallInfo {
   args: Record<string, unknown>
-  argsSummary?: string
   description?: string
   filePath?: string
   name: string

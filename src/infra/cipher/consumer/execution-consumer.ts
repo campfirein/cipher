@@ -26,37 +26,6 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
- * Create args summary for display
- */
-function createArgsSummary(toolName: string, args: Record<string, unknown>): string {
-  switch (toolName) {
-    case 'Bash': {
-      return String(args.command ?? '').slice(0, 50)
-    }
-
-    case 'Edit': {
-      return `${args.file_path ?? ''}`
-    }
-
-    case 'Grep': {
-      return `"${args.pattern ?? ''}" in ${args.path ?? '.'}`
-    }
-
-    case 'Read': {
-      return String(args.file_path ?? '')
-    }
-
-    case 'Write': {
-      return String(args.file_path ?? '')
-    }
-
-    default: {
-      return JSON.stringify(args).slice(0, 50)
-    }
-  }
-}
-
-/**
  * Create result summary for display
  */
 function createResultSummary(result: unknown): string {
@@ -532,7 +501,6 @@ export class ExecutionConsumer {
         if (!payload.callId) return
         const toolCallId = storage.addToolCall(executionId, {
           args: payload.args,
-          argsSummary: createArgsSummary(payload.toolName, payload.args),
           filePath: extractFilePath(payload.toolName, payload.args),
           name: payload.toolName,
         })
