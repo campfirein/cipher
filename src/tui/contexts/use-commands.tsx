@@ -20,6 +20,8 @@ import React, {createContext, useContext, useEffect, useMemo, useState} from 're
 
 import type {CommandContext, SlashCommand, SlashCommandActionReturn} from '../types.js'
 
+// eslint-disable-next-line import/no-unresolved
+import {load} from '../../infra/repl/commands/index.js'
 import {useSlashCommandProcessor} from '../hooks/index.js'
 
 interface CommandsContextValue {
@@ -40,8 +42,7 @@ export function CommandsProvider({children}: CommandsProviderProps): React.React
     const abortController = new AbortController()
 
     async function loadCommands() {
-      // TODO: Load actual commands from command service
-      setCommands([])
+      setCommands(load())
     }
 
     loadCommands()

@@ -15,7 +15,7 @@ export default class Clear extends Command {
   public static args = {
     directory: Args.string({description: 'Project directory (defaults to current directory)', required: false}),
   }
-public static description = 'Reset the context tree to its original state (6 default domains)'
+  public static description = 'Reset the context tree to its original state (6 default domains)'
   public static examples = [
     '<%= config.bin %> <%= command.id %>',
     '<%= config.bin %> <%= command.id %> --yes',

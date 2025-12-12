@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {useCallback, useEffect, useMemo, useRef, useState} from 'react'
 
-import type { CommandSuggestion, SlashCommand } from '../types.js'
+import type {CommandSuggestion, SlashCommand} from '../types.js'
 
-import { useCommands } from '../contexts/use-commands.js'
+import {useCommands} from '../contexts/use-commands.js'
 
 /**
  * Maximum number of suggestions to display
@@ -32,10 +32,7 @@ interface UseSlashCompletionReturn {
 /**
  * Generate command suggestions based on current input
  */
-function generateSuggestions(
-  input: string,
-  commands: readonly SlashCommand[],
-): CommandSuggestion[] {
+function generateSuggestions(input: string, commands: readonly SlashCommand[]): CommandSuggestion[] {
   const trimmed = input.trim()
 
   // Only suggest for slash command inputs
@@ -102,17 +99,12 @@ function generateSuggestions(
  * Hook for slash command auto-completion
  * Generates suggestions based on input and manages selection state
  */
-export function useSlashCompletion(
-  input: string,
-): UseSlashCompletionReturn {
-  const { commands } = useCommands()
+export function useSlashCompletion(input: string): UseSlashCompletionReturn {
+  const {commands} = useCommands()
   const [activeIndex, setActiveIndex] = useState(-1)
 
   // Generate suggestions based on current input
-  const suggestions = useMemo(
-    () => generateSuggestions(input, commands),
-    [commands, input],
-  )
+  const suggestions = useMemo(() => generateSuggestions(input, commands), [commands, input])
 
   // Use refs to avoid stale closures
   const activeIndexRef = useRef(activeIndex)
