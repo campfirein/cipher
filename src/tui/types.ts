@@ -24,11 +24,13 @@ export interface QueueStats {
 export interface Message {
   content: string
   timestamp?: Date
-  type: 'error' | 'info' | 'success' | 'system'
+  type: 'command' | 'error' | 'info' | 'success' | 'system'
 }
 
 export interface CommandMessage extends Message {
   fromCommand: string
+  /** Streaming output associated with this command */
+  output?: StreamingMessage[]
 }
 
 /**
@@ -180,15 +182,72 @@ export interface StreamingMessage {
   /** Tool name (for tool_start/tool_end types) */
   toolName?: string
   /** Type of streaming message */
-  type: 'error' | 'output' | 'tool_end' | 'tool_start'
+  type: 'error' | 'output' | 'tool_end' | 'tool_start' | 'warning'
 }
 
 /**
- * Command action return type for streaming output
+ * Choice option for prompt selections
+ */
+export interface PromptChoice<T = unknown> {
+  description?: string
+  name: string
+  value: T
+}
+
+/**
+ * Prompt request for searchable selection
+ */
+export interface SearchPromptRequest<T = unknown> {
+  /** The prompt message */
+  message: string
+  /** Callback when user selects a value */
+  onResponse: (value: T) => void
+  /** Function that returns choices based on search input */
+  source: (input: string | undefined) => Array<PromptChoice<T>> | Promise<Array<PromptChoice<T>>>
+  type: 'search'
+}
+
+/**
+ * Prompt request for yes/no confirmation
+ */
+export interface ConfirmPromptRequest {
+  /** Default value (default: true) */
+  default?: boolean
+  /** The prompt message */
+  message: string
+  /** Callback when user responds */
+  onResponse: (value: boolean) => void
+  type: 'confirm'
+}
+
+/**
+ * Prompt request for selection from choices
+ */
+export interface SelectPromptRequest<T = unknown> {
+  /** Available choices */
+  choices: Array<PromptChoice<T>>
+  /** The prompt message */
+  message: string
+  /** Callback when user selects a value */
+  onResponse: (value: T) => void
+  type: 'select'
+}
+
+/**
+ * Union of all prompt request types
+ */
+export type PromptRequest = ConfirmPromptRequest | SearchPromptRequest | SelectPromptRequest
+
+/**
+ * Command action return type for streaming output with interactive prompts
  */
 export interface StreamingActionReturn {
-  /** Async function that executes the command and streams output via callback */
-  execute: (onMessage: (msg: StreamingMessage) => void) => Promise<void>
+  /**
+   * Async function that executes the command
+   * @param onMessage - Callback for streaming output messages
+   * @param onPrompt - Callback for interactive prompts (search, confirm, select)
+   */
+  execute: (onMessage: (msg: StreamingMessage) => void, onPrompt: (prompt: PromptRequest) => void) => Promise<void>
   type: 'streaming'
 }
 

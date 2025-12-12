@@ -19,16 +19,16 @@
  * ```
  */
 
-import React, { createContext, useCallback, useContext, useMemo, useState } from 'react'
+import React, {createContext, useCallback, useContext, useMemo, useState} from 'react'
 
-type Mode = "activity" | "console" | "suggestions"
+type Mode = 'activity' | 'console' | 'suggestions'
 
 /**
  * Keyboard shortcut definition
  */
 export interface Shortcut {
-  description: string   // Human-readable description
-  key: string           // Key identifier (e.g., 'tab', '↑', 'escape')
+  description: string // Human-readable description
+  key: string // Key identifier (e.g., 'tab', '↑', 'escape')
 }
 
 /**
@@ -36,26 +36,28 @@ export interface Shortcut {
  */
 const SHORTCUTS_BY_MODE = {
   activity: [
-    { description: 'scroll logs', key: '↑↓' },
-    { description: 'switch view', key: 'tab' },
-    { description: 'copy command', key: 'ctrl+y' },
-    { description: 'quit', key: 'ctrl+c' }
+    {description: 'scroll logs', key: '↑↓'},
+    {description: 'switch view', key: 'tab'},
+    {description: 'copy command', key: 'ctrl+y'},
+    {description: 'quit', key: 'ctrl+c'},
   ],
   console: [
-    { description: 'scroll', key: '↑↓' },
-    { description: 'switch view', key: 'tab' },
-    { description: 'quit', key: 'ctrl+c' }
+    {description: 'scroll', key: '↑↓'},
+    {description: 'switch view', key: 'tab'},
+    {description: 'quit', key: 'ctrl+c'},
   ],
   suggestions: [
-    { description: 'navigate', key: '↑↓' },
-    { description: 'select', key: 'enter' },
-    { description: 'insert', key: 'tab' },
-    { description: 'close', key: 'esc' }
-  ]
+    {description: 'navigate', key: '↑↓'},
+    {description: 'select', key: 'enter'},
+    {description: 'insert', key: 'tab'},
+    {description: 'close', key: 'esc'},
+  ],
 } as const
 
 interface ModeContextValue {
+  appendShortcuts: (shortcuts: Shortcut[]) => void
   mode: Mode
+  removeShortcuts: (keys: string[]) => void
   setMode: (mode: Mode) => void
   shortcuts: readonly Shortcut[]
 }
@@ -67,20 +69,36 @@ interface ModeProviderProps {
   initialMode?: Mode
 }
 
-export function ModeProvider({ children, initialMode = 'activity' }: ModeProviderProps): React.ReactElement {
+export function ModeProvider({children, initialMode = 'activity'}: ModeProviderProps): React.ReactElement {
   const [mode, setModeState] = useState<Mode>(initialMode)
+  const [extraShortcuts, setExtraShortcuts] = useState<Shortcut[]>([])
 
   const setMode = useCallback((newMode: Mode) => {
     setModeState(newMode)
   }, [])
 
+  const appendShortcuts = useCallback((shortcuts: Shortcut[]) => {
+    setExtraShortcuts((prev) => [...prev, ...shortcuts])
+  }, [])
+
+  const removeShortcuts = useCallback((keys: string[]) => {
+    setExtraShortcuts((prev) => prev.filter((s) => !keys.includes(s.key)))
+  }, [])
+
+  const shortcuts = useMemo(() => {
+    const base = [...SHORTCUTS_BY_MODE[mode]]
+    return [...base, ...extraShortcuts]
+  }, [mode, extraShortcuts])
+
   const contextValue = useMemo(
     () => ({
+      appendShortcuts,
       mode,
+      removeShortcuts,
       setMode,
-      shortcuts: SHORTCUTS_BY_MODE[mode],
+      shortcuts,
     }),
-    [mode, setMode],
+    [appendShortcuts, mode, removeShortcuts, setMode, shortcuts],
   )
 
   return <ModeContext.Provider value={contextValue}>{children}</ModeContext.Provider>

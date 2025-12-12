@@ -14,10 +14,10 @@ import React, {useEffect, useMemo, useRef} from 'react'
 
 import {BRV_DIR, CONTEXT_TREE_DIR} from '../../constants.js'
 import {ToolCall} from '../../core/domain/cipher/queue/types.js'
+import {useConsumer} from '../../infra/cipher/ui/queue-dashboard.js'
 import {useQueuePolling} from '../../infra/cipher/ui/use-queue-polling.js'
 import {useMode, useTheme} from '../hooks/index.js'
 import {ActivityLog} from '../types.js'
-import {useConsumer} from '../../infra/cipher/ui/queue-dashboard.js'
 
 /**
  * Compose changes from completed create_knowledge_topic toolCalls
