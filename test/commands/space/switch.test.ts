@@ -190,7 +190,11 @@ describe('space:switch', () => {
     restore()
   })
 
-  function createTestCommand(selectedTeam: TeamEntity, selectedSpace: SpaceEntity): TestableSpaceSwitch {
+  function createTestCommand(
+    selectedTeam: TeamEntity,
+    selectedSpace: SpaceEntity,
+    logMessages?: string[],
+  ): TestableSpaceSwitch {
     const useCase = new TestableSpaceSwitchUseCase({
       mockSelectedAgent: 'Claude Code',
       mockSelectedSpace: selectedSpace,
@@ -202,6 +206,11 @@ describe('space:switch', () => {
         error(msg: string) {
           throw new Error(msg)
         },
+        log(msg?: string) {
+          if (logMessages && msg) {
+            logMessages.push(msg)
+          }
+        },
       }),
       tokenStore,
       workspaceDetector,
@@ -209,36 +218,37 @@ describe('space:switch', () => {
     return new TestableSpaceSwitch(useCase, oclifConfig)
   }
 
-  it('should error if project not initialized', async () => {
+  it('should exit early if project not initialized', async () => {
     configStore.read.resolves()
 
-    const command = createTestCommand(testTeams[0]!, testSpaces[0]!)
+    const logMessages: string[] = []
+    const command = createTestCommand(testTeams[0]!, testSpaces[0]!, logMessages)
 
-    try {
-      await command.run()
-      expect.fail('Should have thrown an error')
-    } catch (error) {
-      expect(error).to.be.an('error')
-      expect((error as Error).message).to.include('Project not initialized')
-    }
+    await command.run()
+
+    // Should display message to user
+    expect(logMessages.some((msg) => msg.includes('Project not initialized'))).to.be.true
+    // Should not attempt to load token or fetch teams
+    expect(tokenStore.load.called).to.be.false
+    expect(teamService.getTeams.called).to.be.false
   })
 
-  it('should error if not authenticated', async () => {
+  it('should exit early if not authenticated', async () => {
     configStore.read.resolves(currentConfig)
     tokenStore.load.resolves()
 
-    const command = createTestCommand(testTeams[0]!, testSpaces[0]!)
+    const logMessages: string[] = []
+    const command = createTestCommand(testTeams[0]!, testSpaces[0]!, logMessages)
 
-    try {
-      await command.run()
-      expect.fail('Should have thrown an error')
-    } catch (error) {
-      expect(error).to.be.an('error')
-      expect((error as Error).message).to.include('Not authenticated')
-    }
+    await command.run()
+
+    // Should display message to user
+    expect(logMessages.some((msg) => msg.includes('Not authenticated'))).to.be.true
+    // Should not attempt to fetch teams
+    expect(teamService.getTeams.called).to.be.false
   })
 
-  it('should error if token expired', async () => {
+  it('should exit early if token expired', async () => {
     const expiredToken = new AuthToken({
       accessToken: 'access-token',
       expiresAt: new Date(Date.now() - 3600 * 1000), // Expired 1 hour ago
@@ -252,48 +262,48 @@ describe('space:switch', () => {
     configStore.read.resolves(currentConfig)
     tokenStore.load.resolves(expiredToken)
 
-    const command = createTestCommand(testTeams[0]!, testSpaces[0]!)
+    const logMessages: string[] = []
+    const command = createTestCommand(testTeams[0]!, testSpaces[0]!, logMessages)
 
-    try {
-      await command.run()
-      expect.fail('Should have thrown an error')
-    } catch (error) {
-      expect(error).to.be.an('error')
-      expect((error as Error).message).to.include('Authentication token expired')
-    }
+    await command.run()
+
+    // Should display message to user
+    expect(logMessages.some((msg) => msg.includes('token expired'))).to.be.true
+    // Should not attempt to fetch teams
+    expect(teamService.getTeams.called).to.be.false
   })
 
-  it('should error if no teams available', async () => {
+  it('should exit early if no teams available', async () => {
     configStore.read.resolves(currentConfig)
     tokenStore.load.resolves(validToken)
     teamService.getTeams.resolves({teams: [], total: 0})
 
-    const command = createTestCommand(testTeams[0]!, testSpaces[0]!)
+    const logMessages: string[] = []
+    const command = createTestCommand(testTeams[0]!, testSpaces[0]!, logMessages)
 
-    try {
-      await command.run()
-      expect.fail('Should have thrown an error')
-    } catch (error) {
-      expect(error).to.be.an('error')
-      expect((error as Error).message).to.include('No teams found')
-    }
+    await command.run()
+
+    // Should display message to user
+    expect(logMessages.some((msg) => msg.includes('No teams found'))).to.be.true
+    // Should not attempt to fetch spaces
+    expect(spaceService.getSpaces.called).to.be.false
   })
 
-  it('should error if no spaces in selected team', async () => {
+  it('should exit early if no spaces in selected team', async () => {
     configStore.read.resolves(currentConfig)
     tokenStore.load.resolves(validToken)
     teamService.getTeams.resolves({teams: testTeams, total: testTeams.length})
     spaceService.getSpaces.resolves({spaces: [], total: 0})
 
-    const command = createTestCommand(testTeams[0]!, testSpaces[0]!)
+    const logMessages: string[] = []
+    const command = createTestCommand(testTeams[0]!, testSpaces[0]!, logMessages)
 
-    try {
-      await command.run()
-      expect.fail('Should have thrown an error')
-    } catch (error) {
-      expect(error).to.be.an('error')
-      expect((error as Error).message).to.include('No spaces found')
-    }
+    await command.run()
+
+    // Should display message to user
+    expect(logMessages.some((msg) => msg.includes('No spaces found'))).to.be.true
+    // Should not attempt to write config
+    expect(configStore.write.called).to.be.false
   })
 
   it('should successfully switch to new space', async () => {
