@@ -146,8 +146,8 @@ Bad:
 
       const llmConfig = {
         accessToken: token.accessToken,
+        apiBaseUrl: envConfig.llmApiBaseUrl,
         fileSystemConfig: {workingDirectory: process.cwd()},
-        grpcEndpoint: envConfig.llmGrpcEndpoint,
         maxIterations: 5,
         maxTokens: 2048,
         model,
