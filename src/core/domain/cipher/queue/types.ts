@@ -41,9 +41,7 @@ export interface ToolCall {
   completedAt?: number
   description?: string
   durationMs?: number
-  error?: string
   executionId: string
-  filePath?: string
   id: string
   linesCount?: number
   name: string
@@ -59,7 +57,6 @@ export interface ToolCall {
 export interface ToolCallInfo {
   args: Record<string, unknown>
   description?: string
-  filePath?: string
   name: string
 }
 
@@ -68,7 +65,6 @@ export interface ToolCallInfo {
  */
 export interface ToolCallUpdateOptions {
   charsCount?: number
-  error?: string
   linesCount?: number
   result?: string
   resultSummary?: string
