@@ -375,6 +375,8 @@ export function createMockCipherAgentServices(
  */
 export function createMockTerminal(overrides: Partial<ITerminal> = {}): ITerminal {
   return {
+    actionStart() {},
+    actionStop() {},
     confirm: async () => false,
     error() {},
     async fileSelector() {

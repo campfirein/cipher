@@ -102,6 +102,18 @@ export interface ITerminal {
   // ==================== Output ====================
 
   /**
+   * Start a spinner/action indicator with a message.
+   * @param message The message to display while action is in progress
+   */
+  actionStart(message: string): void
+
+  /**
+   * Stop the current spinner/action indicator.
+   * @param message Optional message to display when stopped
+   */
+  actionStop(message?: string): void
+
+  /**
    * Display a error message.
    * @param message The message to display
    */

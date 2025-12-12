@@ -1,5 +1,5 @@
 import {confirm, input, search, select} from '@inquirer/prompts'
-import {Command} from '@oclif/core'
+import {Command, ux} from '@oclif/core'
 import {fileSelector, ItemType} from 'inquirer-file-selector'
 
 import type {
@@ -17,6 +17,14 @@ import type {
  */
 export class OclifTerminal implements ITerminal {
   constructor(private readonly command: Command) {}
+
+  actionStart(message: string): void {
+    ux.action.start(message)
+  }
+
+  actionStop(message?: string): void {
+    ux.action.stop(message)
+  }
 
   confirm({default: defaultValue = true, message}: ConfirmOptions): Promise<boolean> {
     return confirm({default: defaultValue, message})
