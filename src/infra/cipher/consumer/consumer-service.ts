@@ -84,6 +84,14 @@ export class ConsumerService {
   }
 
   /**
+   * Get the consumer ID (unique per session)
+   * Returns null if consumer hasn't started yet
+   */
+  getConsumerId(): null | string {
+    return this.consumer?.getConsumerId() ?? null
+  }
+
+  /**
    * Check if consumer is running
    */
   isRunning(): boolean {

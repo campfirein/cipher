@@ -52,14 +52,11 @@ interface ExecutionRow {
  */
 interface ToolCallRow {
   args: null | string
-  args_summary: null | string
   chars_count: null | number
   completed_at: null | number
   description: null | string
   duration_ms: null | number
-  error: null | string
   execution_id: string
-  file_path: null | string
   id: string
   lines_count: null | number
   name: string
@@ -102,18 +99,15 @@ CREATE TABLE IF NOT EXISTS tool_calls (
   name TEXT NOT NULL,
   description TEXT,
   args TEXT,
-  args_summary TEXT,
   status TEXT NOT NULL,
   result TEXT,
   result_summary TEXT,
-  error TEXT,
   started_at INTEGER NOT NULL,
   completed_at INTEGER,
   -- Metrics for FE display (raw int values)
   duration_ms INTEGER,
   lines_count INTEGER,
   chars_count INTEGER,
-  file_path TEXT,
   FOREIGN KEY (execution_id) REFERENCES executions(id) ON DELETE CASCADE
 );
 
@@ -130,7 +124,6 @@ const MIGRATION_SQL = `
 ALTER TABLE tool_calls ADD COLUMN duration_ms INTEGER;
 ALTER TABLE tool_calls ADD COLUMN lines_count INTEGER;
 ALTER TABLE tool_calls ADD COLUMN chars_count INTEGER;
-ALTER TABLE tool_calls ADD COLUMN file_path TEXT;
 -- Add consumer_id to executions for orphan tracking
 ALTER TABLE executions ADD COLUMN consumer_id TEXT;
 `
@@ -229,20 +222,12 @@ export class AgentStorage implements IAgentStorage {
 
     if (!this.stmtAddToolCall) {
       this.stmtAddToolCall = this.getDb().prepare(`
-        INSERT INTO tool_calls (id, execution_id, name, description, args, file_path, status, started_at)
-        VALUES (?, ?, ?, ?, ?, ?, 'running', ?)
+        INSERT INTO tool_calls (id, execution_id, name, description, args, status, started_at)
+        VALUES (?, ?, ?, ?, ?, 'running', ?)
       `)
     }
 
-    this.stmtAddToolCall.run(
-      id,
-      executionId,
-      info.name,
-      info.description ?? null,
-      JSON.stringify(info.args),
-      info.filePath ?? null,
-      now,
-    )
+    this.stmtAddToolCall.run(id, executionId, info.name, info.description ?? null, JSON.stringify(info.args), now)
 
     return id
   }
@@ -651,6 +636,38 @@ export class AgentStorage implements IAgentStorage {
   }
 
   /**
+   * Get all executions belonging to a specific consumer session.
+   * Returns executions ordered by created_at ASC (oldest first, newest last).
+   * Includes:
+   * - Curate executions with matching consumer_id
+   * - Query executions created after consumer started (no consumer_id)
+   */
+  getSessionExecutions(consumerId: string): Execution[] {
+    this.ensureInitialized()
+
+    // Get the consumer's start time from locks table
+    const lockRow = this.getDb().prepare(`SELECT started_at FROM consumer_locks WHERE id = ?`).get(consumerId) as
+      | undefined
+      | {started_at: number}
+
+    if (!lockRow) {
+      // Consumer not found, return empty
+      return []
+    }
+
+    // Get all executions belonging to this session:
+    // 1. Curate executions with this consumer_id
+    // 2. Query executions created after consumer started (have NULL consumer_id)
+    const rows = this.getDb().prepare(`
+      SELECT * FROM executions
+      WHERE consumer_id = ? OR (consumer_id IS NULL AND created_at >= ?)
+      ORDER BY created_at ASC
+    `).all(consumerId, lockRow.started_at) as ExecutionRow[]
+
+    return rows.map((row) => this.rowToExecution(row))
+  }
+
+  /**
    * Get queue statistics (queries DB directly for accurate counts)
    */
   getStats(): {completed: number; failed: number; queued: number; running: number; total: number} {
@@ -877,7 +894,7 @@ export class AgentStorage implements IAgentStorage {
     if (!this.stmtUpdateToolCall) {
       this.stmtUpdateToolCall = this.getDb().prepare(`
         UPDATE tool_calls
-        SET status = ?, result = ?, result_summary = ?, error = ?, completed_at = ?,
+        SET status = ?, result = ?, result_summary = ?, completed_at = ?,
             duration_ms = ?, lines_count = ?, chars_count = ?
         WHERE id = ?
       `)
@@ -895,7 +912,6 @@ export class AgentStorage implements IAgentStorage {
       status,
       options?.result ?? null,
       options?.resultSummary ?? null,
-      options?.error ?? null,
       completedAt,
       durationMs,
       options?.linesCount ?? null,
@@ -962,10 +978,8 @@ export class AgentStorage implements IAgentStorage {
     }
 
     if (row.description) toolCall.description = row.description
-    if (row.file_path) toolCall.filePath = row.file_path
     if (row.result) toolCall.result = row.result
     if (row.result_summary) toolCall.resultSummary = row.result_summary
-    if (row.error) toolCall.error = row.error
     if (row.completed_at) toolCall.completedAt = row.completed_at
     if (row.duration_ms) toolCall.durationMs = row.duration_ms
     if (row.lines_count) toolCall.linesCount = row.lines_count

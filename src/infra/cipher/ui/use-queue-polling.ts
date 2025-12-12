@@ -1,7 +1,6 @@
 import {useEffect, useState} from 'react'
 
-import type {QueueSnapshot, QueueStats} from '../consumer/queue-polling-service.js'
-import type {Execution, ToolCall} from '../storage/agent-storage.js'
+import type {ExecutionWithToolCalls, QueueSnapshot, QueueStats} from '../consumer/queue-polling-service.js'
 
 import {getQueuePollingService, stopQueuePollingService} from '../consumer/queue-polling-service.js'
 
@@ -16,20 +15,18 @@ import {getQueuePollingService, stopQueuePollingService} from '../consumer/queue
  *
  * Usage in Ink component:
  * ```tsx
- * const { stats, runningExecutions, recentExecutions, error } = useQueuePolling()
+ * const { stats, sessionExecutions, error } = useQueuePolling({ consumerId })
  * ```
  */
-export function useQueuePolling(options?: {pollInterval?: number}): {
+export function useQueuePolling(options?: {consumerId?: string; pollInterval?: number}): {
   error: Error | null
   isConnected: boolean
-  recentExecutions: Execution[]
   reconnectCount: number
-  runningExecutions: Array<{execution: Execution; toolCalls: ToolCall[]}>
+  sessionExecutions: ExecutionWithToolCalls[]
   stats: null | QueueStats
 } {
   const [stats, setStats] = useState<null | QueueStats>(null)
-  const [runningExecutions, setRunningExecutions] = useState<Array<{execution: Execution; toolCalls: ToolCall[]}>>([])
-  const [recentExecutions, setRecentExecutions] = useState<Execution[]>([])
+  const [sessionExecutions, setSessionExecutions] = useState<ExecutionWithToolCalls[]>([])
   const [error, setError] = useState<Error | null>(null)
   const [isConnected, setIsConnected] = useState(false)
   const [reconnectCount, setReconnectCount] = useState(0)
@@ -37,11 +34,15 @@ export function useQueuePolling(options?: {pollInterval?: number}): {
   useEffect(() => {
     const service = getQueuePollingService({pollInterval: options?.pollInterval})
 
+    // Update consumerId when it changes (e.g., after consumer starts)
+    if (options?.consumerId) {
+      service.setConsumerId(options.consumerId)
+    }
+
     // Subscribe to events
     const handleSnapshot = (snapshot: QueueSnapshot): void => {
       setStats(snapshot.stats)
-      setRunningExecutions(snapshot.runningExecutions)
-      setRecentExecutions(snapshot.recentExecutions)
+      setSessionExecutions(snapshot.sessionExecutions)
       setIsConnected(true)
     }
 
@@ -86,14 +87,13 @@ export function useQueuePolling(options?: {pollInterval?: number}): {
       // Note: Don't stop service here - other components may be using it
       // Service is stopped via stopQueuePollingService() when app exits
     }
-  }, [options?.pollInterval])
+  }, [options?.consumerId, options?.pollInterval])
 
   return {
     error,
     isConnected,
-    recentExecutions,
     reconnectCount,
-    runningExecutions,
+    sessionExecutions,
     stats,
   }
 }

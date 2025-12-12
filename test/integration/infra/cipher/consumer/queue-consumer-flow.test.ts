@@ -216,7 +216,6 @@ describe('Queue + Consumer Flow (Integration)', () => {
       /* eslint-disable camelcase */
       const toolCallId = storage.addToolCall(execId, {
         args: {file_path: '/test/file.ts'},
-        filePath: '/test/file.ts',
         name: 'Read',
       })
       /* eslint-enable camelcase */

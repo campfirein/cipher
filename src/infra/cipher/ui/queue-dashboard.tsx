@@ -2,7 +2,7 @@ import {Box, Text, useApp, useInput} from 'ink'
 import Spinner from 'ink-spinner'
 import React, {useEffect, useState} from 'react'
 
-import type {QueueStats} from '../consumer/queue-polling-service.js'
+import type {ExecutionWithToolCalls, QueueStats} from '../consumer/queue-polling-service.js'
 import type {Execution, ToolCall} from '../storage/agent-storage.js'
 
 import {ConsumerService} from '../consumer/consumer-service.js'
@@ -96,93 +96,9 @@ function StatsPanel({stats}: {stats: null | QueueStats}): React.ReactElement {
 }
 
 /**
- * Single running execution item
+ * Single execution item with full details including tool calls
  */
-function RunningExecutionItem({
-  execution,
-  index,
-  toolCalls,
-}: {
-  execution: Execution
-  index: number
-  toolCalls: ToolCall[]
-}): React.ReactElement {
-  // Parse input to get content preview
-  let contentPreview = ''
-  try {
-    const input = JSON.parse(execution.input) as {content?: string}
-    contentPreview = truncate((input.content ?? '').replaceAll('\n', ' '), 50)
-  } catch {
-    contentPreview = truncate(execution.input, 50)
-  }
-
-  return (
-    <Box borderColor="blue" borderStyle="single" flexDirection="column" marginBottom={1} paddingX={1}>
-      <Box gap={2}>
-        <Text color="blue">
-          <Spinner type="dots" />
-        </Text>
-        <Text bold color="blue">#{index + 1}</Text>
-        <Text bold color={execution.type === 'query' ? 'cyan' : 'yellow'}>[{execution.type.toUpperCase()}]</Text>
-        <Text color="gray">{execution.id.slice(0, 8)}</Text>
-        <Text color="magenta">{execution.startedAt ? formatDuration(execution.startedAt) : ''}</Text>
-      </Box>
-      <Text>"{contentPreview}"</Text>
-      {toolCalls.length > 0 && (
-        <Box gap={1} marginTop={0}>
-          <Text color="gray">Tools:</Text>
-          {toolCalls.slice(-3).map((tc) => (
-            <Text color={tc.status === 'completed' ? 'green' : tc.status === 'failed' ? 'red' : 'yellow'} key={tc.id}>
-              {tc.status === 'completed' ? '✓' : tc.status === 'failed' ? '✗' : '●'}{tc.name}
-            </Text>
-          ))}
-        </Box>
-      )}
-    </Box>
-  )
-}
-
-/**
- * Running executions panel - shows ALL running executions
- */
-function RunningExecutionsPanel({
-  runningExecutions,
-}: {
-  runningExecutions: Array<{execution: Execution; toolCalls: ToolCall[]}>
-}): React.ReactElement {
-  return (
-    <Box borderStyle="single" flexDirection="column" paddingX={1}>
-      <Box gap={2}>
-        <Text bold>Running ({runningExecutions.length})</Text>
-        {runningExecutions.length > 0 && (
-          <Text color="blue">
-            <Spinner type="dots" />
-          </Text>
-        )}
-      </Box>
-
-      <Box flexDirection="column" marginTop={1}>
-        {runningExecutions.length === 0 ? (
-          <Text color="gray">No executions running</Text>
-        ) : (
-          runningExecutions.map((item, index) => (
-            <RunningExecutionItem
-              execution={item.execution}
-              index={index}
-              key={item.execution.id}
-              toolCalls={item.toolCalls}
-            />
-          ))
-        )}
-      </Box>
-    </Box>
-  )
-}
-
-/**
- * Single execution item with full details
- */
-function ExecutionItem({exec}: {exec: Execution}): React.ReactElement {
+function ExecutionItem({exec, toolCalls}: {exec: Execution; toolCalls: ToolCall[]}): React.ReactElement {
   // Parse input to get content
   let contentPreview = ''
   try {
@@ -232,6 +148,24 @@ function ExecutionItem({exec}: {exec: Execution}): React.ReactElement {
         <Text>"{contentPreview}"</Text>
       </Box>
 
+      {/* Tool Calls */}
+      {toolCalls.length > 0 && (
+        <Box flexDirection="column" marginTop={0}>
+          <Box gap={1}>
+            <Text color="gray">Tools ({toolCalls.length}):</Text>
+            {toolCalls.map((tc) => (
+              <Text
+                color={tc.status === 'completed' ? 'green' : tc.status === 'failed' ? 'red' : 'yellow'}
+                key={tc.id}
+              >
+                {tc.status === 'completed' ? '✓' : tc.status === 'failed' ? '✗' : '●'}{tc.name}
+                {tc.durationMs ? ` (${tc.durationMs}ms)` : ''}
+              </Text>
+            ))}
+          </Box>
+        </Box>
+      )}
+
       {/* Result or Error */}
       {exec.status === 'completed' && exec.result && (
         <Box>
@@ -250,21 +184,19 @@ function ExecutionItem({exec}: {exec: Execution}): React.ReactElement {
 }
 
 /**
- * Recent executions list with full details
+ * Session executions list with full details (includes tool calls)
+ * Shows ALL executions: running, completed, and failed
  */
-function RecentExecutionsPanel({executions}: {executions: Execution[]}): React.ReactElement {
-  // Filter out running executions (shown in CurrentExecutionPanel)
-  const recentCompleted = executions.filter((e) => e.status !== 'running')
-
+function SessionExecutionsPanel({executions}: {executions: ExecutionWithToolCalls[]}): React.ReactElement {
   return (
     <Box borderStyle="single" flexDirection="column" paddingX={1}>
-      <Text bold>Execution History ({recentCompleted.length})</Text>
+      <Text bold>Session History ({executions.length})</Text>
       <Box flexDirection="column" marginTop={1}>
-        {recentCompleted.length === 0 ? (
-          <Text color="gray">No completed executions yet</Text>
+        {executions.length === 0 ? (
+          <Text color="gray">No executions in this session</Text>
         ) : (
-          recentCompleted.slice(0, 5).map((exec) => (
-            <ExecutionItem exec={exec} key={exec.id} />
+          executions.slice(0, 10).map((item) => (
+            <ExecutionItem exec={item.execution} key={item.execution.id} toolCalls={item.toolCalls} />
           ))
         )}
       </Box>
@@ -307,9 +239,10 @@ type ConsumerStatus = 'error' | 'running' | 'starting' | 'stopped'
 /**
  * Hook to manage consumer lifecycle
  */
-function useConsumer(): {consumerError: Error | null; consumerStatus: ConsumerStatus} {
+function useConsumer(): {consumerError: Error | null; consumerId: null | string; consumerStatus: ConsumerStatus} {
   const [status, setStatus] = useState<ConsumerStatus>('starting')
   const [consumerError, setConsumerError] = useState<Error | null>(null)
+  const [consumerId, setConsumerId] = useState<null | string>(null)
   const [consumer] = useState(() => new ConsumerService())
 
   useEffect(() => {
@@ -320,6 +253,7 @@ function useConsumer(): {consumerError: Error | null; consumerStatus: ConsumerSt
         await consumer.start()
         if (mounted) {
           setStatus('running')
+          setConsumerId(consumer.getConsumerId())
         }
       } catch (error) {
         if (mounted) {
@@ -338,7 +272,7 @@ function useConsumer(): {consumerError: Error | null; consumerStatus: ConsumerSt
     }
   }, [consumer])
 
-  return {consumerError, consumerStatus: status}
+  return {consumerError, consumerId, consumerStatus: status}
 }
 
 /**
@@ -352,8 +286,9 @@ function useConsumer(): {consumerError: Error | null; consumerStatus: ConsumerSt
  */
 export function QueueDashboard({pollInterval = 500}: QueueDashboardProps): React.ReactElement {
   const {exit} = useApp()
-  const {consumerError, consumerStatus} = useConsumer()
-  const {error, isConnected, recentExecutions, runningExecutions, stats} = useQueuePolling({
+  const {consumerError, consumerId, consumerStatus} = useConsumer()
+  const {error, isConnected, sessionExecutions, stats} = useQueuePolling({
+    consumerId: consumerId ?? undefined,
     pollInterval,
   })
 
@@ -382,13 +317,8 @@ export function QueueDashboard({pollInterval = 500}: QueueDashboardProps): React
         <>
           <StatsPanel stats={stats} />
 
-          <Box gap={1} marginTop={1}>
-            <Box flexBasis="50%">
-              <RunningExecutionsPanel runningExecutions={runningExecutions} />
-            </Box>
-            <Box flexBasis="50%">
-              <RecentExecutionsPanel executions={recentExecutions} />
-            </Box>
+          <Box marginTop={1}>
+            <SessionExecutionsPanel executions={sessionExecutions} />
           </Box>
         </>
       ) : (

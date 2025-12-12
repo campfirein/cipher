@@ -39,31 +39,6 @@ function createResultSummary(result: unknown): string {
 }
 
 /**
- * Extract file path from tool args
- */
-function extractFilePath(toolName: string, args: Record<string, unknown>): string | undefined {
-  switch (toolName) {
-    case 'Edit':
-    case 'Read':
-    case 'Write': {
-      return typeof args.file_path === 'string' ? args.file_path : undefined
-    }
-
-    case 'Glob': {
-      return typeof args.path === 'string' ? args.path : undefined
-    }
-
-    case 'Grep': {
-      return typeof args.path === 'string' ? args.path : undefined
-    }
-
-    default: {
-      return undefined
-    }
-  }
-}
-
-/**
  * Calculate lines and chars count from result
  */
 function calculateMetrics(result: unknown): undefined | {charsCount: number; linesCount: number} {
@@ -121,6 +96,13 @@ export class ExecutionConsumer {
     this.maxConcurrency = options?.maxConcurrency ?? 5 // Default 5 concurrent jobs
     this.pollInterval = options?.pollInterval ?? 1000 // 1 second default
     this.consumerId = randomUUID() // Generate unique consumer ID
+  }
+
+  /**
+   * Get the unique consumer ID for this instance
+   */
+  getConsumerId(): string {
+    return this.consumerId
   }
 
   /**
@@ -488,7 +470,6 @@ export class ExecutionConsumer {
         if (!payload.callId) return
         const toolCallId = storage.addToolCall(executionId, {
           args: payload.args,
-          filePath: extractFilePath(payload.toolName, payload.args),
           name: payload.toolName,
         })
         toolCallMap.set(payload.callId, toolCallId)
@@ -502,15 +483,23 @@ export class ExecutionConsumer {
         if (!payload.callId) return
         const toolCallId = toolCallMap.get(payload.callId)
         if (toolCallId) {
-          const resultStr = typeof payload.result === 'string' ? payload.result : JSON.stringify(payload.result)
-          const metrics = calculateMetrics(payload.result)
+          // Format result: if error, wrap in {error: "..."} object
+          let resultStr: string
+          if (payload.success) {
+            resultStr = typeof payload.result === 'string' ? payload.result : JSON.stringify(payload.result)
+          } else {
+            // Error case: store as {error: "message"} format
+            const errorMsg = payload.error ?? (typeof payload.result === 'string' ? payload.result : 'Unknown error')
+            resultStr = JSON.stringify({error: errorMsg})
+          }
+
+          const metrics = payload.success ? calculateMetrics(payload.result) : undefined
 
           storage.updateToolCall(toolCallId, payload.success ? 'completed' : 'failed', {
             charsCount: metrics?.charsCount,
-            error: payload.error,
             linesCount: metrics?.linesCount,
             result: resultStr,
-            resultSummary: createResultSummary(payload.result),
+            resultSummary: payload.success ? createResultSummary(payload.result) : undefined,
           })
         }
       } catch (error) {

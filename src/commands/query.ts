@@ -471,11 +471,18 @@ Bad:
         if (!payload.callId) return
         const toolCallId = toolCallMap.get(payload.callId)
         if (toolCallId) {
-          const result = typeof payload.result === 'string' ? payload.result : JSON.stringify(payload.result)
+          // Format result: if error, wrap in {error: "..."} object
+          let result: string
+          if (payload.success) {
+            result = typeof payload.result === 'string' ? payload.result : JSON.stringify(payload.result)
+          } else {
+            const errorMsg = payload.error ?? (typeof payload.result === 'string' ? payload.result : 'Unknown error')
+            result = JSON.stringify({error: errorMsg})
+          }
+
           storage.updateToolCall(toolCallId, payload.success ? 'completed' : 'failed', {
-            error: payload.error,
             result,
-            resultSummary: this.createResultSummary(result),
+            resultSummary: payload.success ? this.createResultSummary(result) : undefined,
           })
         }
       } catch {

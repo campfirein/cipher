@@ -20,8 +20,8 @@ export interface ExecutionWithToolCalls {
 }
 
 export interface QueueSnapshot {
-  recentExecutions: Execution[]
-  runningExecutions: ExecutionWithToolCalls[]
+  /** All executions for the current session (with tool calls) - ordered by created_at ASC */
+  sessionExecutions: ExecutionWithToolCalls[]
   stats: QueueStats
   timestamp: number
 }
@@ -71,6 +71,7 @@ export interface QueueEvents {
  */
 // eslint-disable-next-line unicorn/prefer-event-target -- EventEmitter better for Node.js typed events
 export class QueuePollingService extends EventEmitter {
+  private consumerId?: string
   private initialized = false
   private lastSnapshot: null | QueueSnapshot = null
   private pollInterval: number
@@ -78,8 +79,9 @@ export class QueuePollingService extends EventEmitter {
   private running = false
   private seenExecutionIds = new Set<string>()
 
-  constructor(options?: {pollInterval?: number}) {
+  constructor(options?: {consumerId?: string; pollInterval?: number}) {
     super()
+    this.consumerId = options?.consumerId
     this.pollInterval = options?.pollInterval ?? 500
   }
 
@@ -95,6 +97,17 @@ export class QueuePollingService extends EventEmitter {
    */
   isRunning(): boolean {
     return this.running
+  }
+
+  /**
+   * Set consumer ID for session-based execution history
+   * Takes effect on next poll cycle
+   */
+  setConsumerId(consumerId: string | undefined): void {
+    this.consumerId = consumerId
+    // Clear last snapshot to force fresh data with new consumer
+    this.lastSnapshot = null
+    this.seenExecutionIds.clear()
   }
 
   /**
@@ -153,21 +166,21 @@ export class QueuePollingService extends EventEmitter {
   private buildSnapshot(): QueueSnapshot {
     const storage = getAgentStorageSync()
 
-    const running = storage.getRunningExecutions()
-    const recent = storage.getRecentExecutions(20)
-
-    // Get all running executions with their tool calls
-    const runningExecutions: ExecutionWithToolCalls[] = running.map((exec) => ({
-      execution: exec,
-      toolCalls: storage.getToolCalls(exec.id),
-    }))
+    // Get session executions with tool calls (if consumerId is set)
+    let sessionExecutions: ExecutionWithToolCalls[] = []
+    if (this.consumerId) {
+      const sessionExecs = storage.getSessionExecutions(this.consumerId)
+      sessionExecutions = sessionExecs.map((exec) => ({
+        execution: exec,
+        toolCalls: storage.getToolCalls(exec.id),
+      }))
+    }
 
     // Get stats directly from DB (accurate counts)
     const stats = storage.getStats()
 
     return {
-      recentExecutions: recent,
-      runningExecutions,
+      sessionExecutions,
       stats,
       timestamp: Date.now(),
     }
@@ -186,12 +199,15 @@ export class QueuePollingService extends EventEmitter {
     }
 
     // Detect execution state changes
-    for (const exec of newSnapshot.recentExecutions) {
+    const executions = newSnapshot.sessionExecutions.map((e) => e.execution)
+
+    for (const exec of executions) {
       const wasSeenBefore = this.seenExecutionIds.has(exec.id)
 
       if (wasSeenBefore) {
         // Check if status changed
-        const oldExec = oldSnapshot?.recentExecutions.find((e) => e.id === exec.id)
+        const oldExecs = oldSnapshot?.sessionExecutions.map((e) => e.execution) ?? []
+        const oldExec = oldExecs.find((e) => e.id === exec.id)
         if (oldExec && oldExec.status !== exec.status) {
           if (exec.status === 'completed') {
             this.emit('execution:completed', exec)
@@ -210,7 +226,7 @@ export class QueuePollingService extends EventEmitter {
 
     // Limit seen IDs to prevent memory growth
     if (this.seenExecutionIds.size > 1000) {
-      const idsToKeep = new Set(newSnapshot.recentExecutions.map((e) => e.id))
+      const idsToKeep = new Set(executions.map((e) => e.id))
       this.seenExecutionIds = idsToKeep
     }
   }
@@ -237,16 +253,22 @@ export class QueuePollingService extends EventEmitter {
       this.detectChangesAndEmit(this.lastSnapshot, newSnapshot)
       this.lastSnapshot = newSnapshot
     } catch (error) {
-      // Try to recover from errors (connection lost, etc.)
+      // If stop() was called during poll, silently exit - this is expected during shutdown
+      if (!this.running) return
+
+      // Try to recover from errors (connection lost, storage closed, etc.)
       try {
-        const storage = getAgentStorageSync()
+        // Use getAgentStorage() which auto-reinitializes if singleton was closed
+        const storage = await getAgentStorage()
         await storage.reconnect()
         this.seenExecutionIds.clear()
         this.lastSnapshot = null
         this.emit('reconnected')
       } catch {
-        // Reconnect failed - emit original error
-        this.emit('error', error instanceof Error ? error : new Error(String(error)))
+        // Reconnect failed - only emit error if still running (not during intentional shutdown)
+        if (this.running) {
+          this.emit('error', error instanceof Error ? error : new Error(String(error)))
+        }
       }
     }
   }
@@ -283,8 +305,11 @@ let instance: null | QueuePollingService = null
 
 /**
  * Get singleton QueuePollingService instance
+ * @param options - Configuration options
+ * @param options.consumerId - Optional consumer identifier
+ * @param options.pollInterval - Optional poll interval in milliseconds
  */
-export function getQueuePollingService(options?: {pollInterval?: number}): QueuePollingService {
+export function getQueuePollingService(options?: {consumerId?: string; pollInterval?: number}): QueuePollingService {
   if (!instance) {
     instance = new QueuePollingService(options)
   }

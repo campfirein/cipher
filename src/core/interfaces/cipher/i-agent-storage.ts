@@ -107,6 +107,13 @@ export interface IAgentStorage {
   getRunningExecutions(): Execution[]
 
   /**
+   * Get all executions belonging to a specific consumer session.
+   * Returns executions ordered by created_at ASC (oldest first, newest last).
+   * @param consumerId - The consumer ID to filter by
+   */
+  getSessionExecutions(consumerId: string): Execution[]
+
+  /**
    * Get queue statistics (queries DB directly for accurate counts).
    */
   getStats(): {completed: number; failed: number; queued: number; running: number; total: number}
