@@ -261,8 +261,8 @@ export class ExecutionConsumer {
 
     const llmConfig = {
       accessToken: this.authToken.accessToken,
+      apiBaseUrl: envConfig.llmApiBaseUrl,
       fileSystemConfig: {workingDirectory: process.cwd()},
-      grpcEndpoint: envConfig.llmGrpcEndpoint,
       maxIterations: 10,
       maxTokens: 8192,
       model,
