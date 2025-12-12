@@ -6,7 +6,7 @@ import type {Execution} from '../storage/agent-storage.js'
 import {getCurrentConfig} from '../../../config/environment.js'
 import {PROJECT} from '../../../constants.js'
 import {CipherAgent} from '../cipher-agent.js'
-import {closeAgentStorage, getAgentStorage, getAgentStorageSync} from '../storage/agent-storage.js'
+import {AgentStorage, closeAgentStorage, getAgentStorage, getAgentStorageSync} from '../storage/agent-storage.js'
 
 // Heartbeat interval for consumer liveness detection (10 seconds)
 const HEARTBEAT_INTERVAL_MS = 1000
@@ -391,21 +391,8 @@ export class ExecutionConsumer {
       } catch (error) {
         console.error('[Consumer] Poll error:', error)
         // Try to recover - re-acquire lock if lost
-        try {
-          storage = getAgentStorageSync()
-          if (!storage.hasConsumerLock(this.consumerId)) {
-            if (storage.isDbFileChanged()) {
-              // eslint-disable-next-line no-await-in-loop -- Must wait for reconnect before continuing
-              await storage.reconnect()
-              storage = getAgentStorageSync()
-            }
-
-            storage.acquireConsumerLock(this.consumerId)
-            console.log('[Consumer] Recovered from error, re-acquired lock')
-          }
-        } catch {
-          // Ignore recovery errors, will retry on next poll
-        }
+        // eslint-disable-next-line no-await-in-loop -- Must wait for recovery before continuing
+        storage = await this.tryRecoverLock(storage)
       }
 
       // eslint-disable-next-line no-await-in-loop
@@ -561,6 +548,29 @@ export class ExecutionConsumer {
       }
 
       this.processExecutionAsync(execution)
+    }
+  }
+
+  /**
+   * Try to recover lock after error (extracted to reduce nesting depth)
+   */
+  private async tryRecoverLock(currentStorage: AgentStorage): Promise<AgentStorage> {
+    try {
+      let storage = getAgentStorageSync()
+      if (!storage.hasConsumerLock(this.consumerId)) {
+        if (storage.isDbFileChanged()) {
+          await storage.reconnect()
+          storage = getAgentStorageSync()
+        }
+
+        storage.acquireConsumerLock(this.consumerId)
+        console.log('[Consumer] Recovered from error, re-acquired lock')
+      }
+
+      return storage
+    } catch {
+      // Ignore recovery errors, will retry on next poll
+      return currentStorage
     }
   }
 }

@@ -719,6 +719,7 @@ export class AgentStorage implements IAgentStorage {
 
   /**
    * Initialize storage - create tables, enable WAL
+   * @param options - Initialization options
    * @param options.cleanupOrphans - If true, cleanup orphaned executions (only Consumer should set this)
    */
   async initialize(options?: {cleanupOrphans?: boolean}): Promise<void> {
@@ -985,6 +986,7 @@ let initPromise: null | Promise<AgentStorage> = null
  * This is the PRIMARY API - just call this and it handles everything.
  * First call will initialize with provided config, subsequent calls return cached instance.
  *
+ * @param config - Configuration options
  * @param config.cleanupOrphans - Cleanup orphaned executions (only Consumer should set this)
  * @param config.inMemory - Use in-memory database (for testing)
  * @param config.storageDir - Directory for agent.db (default: .brv/blobs)
