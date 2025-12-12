@@ -1,6 +1,6 @@
 import type {Config} from '@oclif/core'
 
-import {Config as OclifConfig, ux} from '@oclif/core'
+import {Config as OclifConfig} from '@oclif/core'
 import {expect} from 'chai'
 import sinon, {restore, stub} from 'sinon'
 
@@ -8,6 +8,7 @@ import type {Space} from '../../src/core/domain/entities/space.js'
 import type {Team} from '../../src/core/domain/entities/team.js'
 import type {ICogitPullService} from '../../src/core/interfaces/i-cogit-pull-service.js'
 import type {IContextTreeService} from '../../src/core/interfaces/i-context-tree-service.js'
+import type {IContextTreeSnapshotService} from '../../src/core/interfaces/i-context-tree-snapshot-service.js'
 import type {IContextTreeWriterService} from '../../src/core/interfaces/i-context-tree-writer-service.js'
 import type {IFileService} from '../../src/core/interfaces/i-file-service.js'
 import type {ILegacyRuleDetector} from '../../src/core/interfaces/i-legacy-rule-detector.js'
@@ -15,50 +16,56 @@ import type {IProjectConfigStore} from '../../src/core/interfaces/i-project-conf
 import type {IRuleTemplateService} from '../../src/core/interfaces/i-rule-template-service.js'
 import type {ISpaceService} from '../../src/core/interfaces/i-space-service.js'
 import type {ITeamService} from '../../src/core/interfaces/i-team-service.js'
+import type {ITerminal} from '../../src/core/interfaces/i-terminal.js'
 import type {ITokenStore} from '../../src/core/interfaces/i-token-store.js'
 import type {ITrackingService} from '../../src/core/interfaces/i-tracking-service.js'
+import type {IInitUseCase} from '../../src/core/interfaces/usecase/i-init-use-case.js'
 
-import Init, {type LegacyProjectConfigInfo} from '../../src/commands/init.js'
+import Init from '../../src/commands/init.js'
 import {Agent} from '../../src/core/domain/entities/agent.js'
 import {AuthToken} from '../../src/core/domain/entities/auth-token.js'
 import {BrvConfig} from '../../src/core/domain/entities/brv-config.js'
 import {Space as SpaceImpl} from '../../src/core/domain/entities/space.js'
 import {Team as TeamImpl} from '../../src/core/domain/entities/team.js'
-import {IContextTreeSnapshotService} from '../../src/core/interfaces/i-context-tree-snapshot-service.js'
+import {InitUseCase, type InitUseCaseOptions, type LegacyProjectConfigInfo} from '../../src/infra/usecase/init-use-case.js'
 import {createMockTerminal} from '../helpers/mock-factories.js'
 
-/**
- * Testable Init command that accepts mocked services
- */
-class TestableInit extends Init {
+// ==================== TestableInitUseCase ====================
+
+interface TestableInitUseCaseOptions extends InitUseCaseOptions {
+  mockAceDirectoryExists?: boolean
+  mockAceRemovalConfirm?: boolean
+  mockCleanupError?: Error
+  mockConfirmReInit?: boolean
+  mockLegacyConfig?: LegacyProjectConfigInfo
+  mockSelectedAgent?: Agent
+  mockSelectedSpace?: Space
+  mockSelectedTeam?: Team
+}
+
+class TestableInitUseCase extends InitUseCase {
   public errorMessages: string[] = []
   public logMessages: string[] = []
-  public mockAceDirectoryExists = false
-  public mockAceRemovalConfirmResult = true
-  public mockCleanupError: Error | undefined = undefined
-  public mockConfirmResult = false
-  public mockLegacyConfig: LegacyProjectConfigInfo | undefined = undefined
   public removeAceDirectoryCalled = false
+  private readonly mockAceDirectoryExists: boolean
+  private readonly mockAceRemovalConfirm: boolean
+  private readonly mockCleanupError?: Error
+  private readonly mockConfirmReInit: boolean
+  private readonly mockLegacyConfig?: LegacyProjectConfigInfo
+  private readonly mockSelectedAgent: Agent
+  private readonly mockSelectedSpace?: Space
+  private readonly mockSelectedTeam?: Team
 
-  // eslint-disable-next-line max-params
-  constructor(
-    private readonly mockCogitPullService: ICogitPullService,
-    private readonly mockConfigStore: IProjectConfigStore,
-    private readonly mockContextTreeService: IContextTreeService,
-    private readonly mockContextTreeSnapshotService: IContextTreeSnapshotService,
-    private readonly mockContextTreeWriterService: IContextTreeWriterService,
-    private readonly mockFileService: IFileService,
-    private readonly mockLegacyRuleDetector: ILegacyRuleDetector,
-    private readonly mockSpaceService: ISpaceService,
-    private readonly mockTeamService: ITeamService,
-    private readonly mockTemplateService: IRuleTemplateService,
-    private readonly mockTokenStore: ITokenStore,
-    private readonly mockTrackingService: ITrackingService,
-    private readonly mockSelectedTeam: Team,
-    private readonly mockSelectedSpace: Space,
-    config: Config,
-  ) {
-    super([], config)
+  constructor(options: TestableInitUseCaseOptions) {
+    super(options)
+    this.mockAceDirectoryExists = options.mockAceDirectoryExists ?? false
+    this.mockAceRemovalConfirm = options.mockAceRemovalConfirm ?? true
+    this.mockCleanupError = options.mockCleanupError
+    this.mockConfirmReInit = options.mockConfirmReInit ?? false
+    this.mockLegacyConfig = options.mockLegacyConfig
+    this.mockSelectedAgent = options.mockSelectedAgent ?? 'Claude Code'
+    this.mockSelectedSpace = options.mockSelectedSpace
+    this.mockSelectedTeam = options.mockSelectedTeam
   }
 
   protected async aceDirectoryExists(): Promise<boolean> {
@@ -69,39 +76,11 @@ class TestableInit extends Init {
     if (this.mockCleanupError) {
       throw this.mockCleanupError
     }
-
     // Otherwise, do nothing in tests (don't actually delete files)
   }
 
   protected async confirmReInitialization(_config: BrvConfig | LegacyProjectConfigInfo): Promise<boolean> {
-    return this.mockConfirmResult
-  }
-
-  protected createServices() {
-    this.terminal = createMockTerminal({
-      error: (message: string) => {
-        this.errorMessages.push(message)
-      },
-      log: (message?: string) => {
-        if (message !== undefined) {
-          this.logMessages.push(message)
-        }
-      },
-    })
-    return {
-      cogitPullService: this.mockCogitPullService,
-      contextTreeService: this.mockContextTreeService,
-      contextTreeSnapshotService: this.mockContextTreeSnapshotService,
-      contextTreeWriterService: this.mockContextTreeWriterService,
-      fileService: this.mockFileService,
-      legacyRuleDetector: this.mockLegacyRuleDetector,
-      projectConfigStore: this.mockConfigStore,
-      spaceService: this.mockSpaceService,
-      teamService: this.mockTeamService,
-      templateService: this.mockTemplateService,
-      tokenStore: this.mockTokenStore,
-      trackingService: this.mockTrackingService,
-    }
+    return this.mockConfirmReInit
   }
 
   protected async getExistingConfig(): Promise<BrvConfig | LegacyProjectConfigInfo | undefined> {
@@ -110,11 +89,11 @@ class TestableInit extends Init {
       return this.mockLegacyConfig
     }
 
-    // Otherwise, use the mock config store
-    const exists = await this.mockConfigStore.exists()
+    // Otherwise, use the project config store
+    const exists = await this.projectConfigStore.exists()
     if (!exists) return undefined
 
-    const config = await this.mockConfigStore.read()
+    const config = await this.projectConfigStore.read()
     if (config === undefined) {
       throw new Error('Configuration file exists but cannot be read. Please check .brv/config.json')
     }
@@ -123,11 +102,11 @@ class TestableInit extends Init {
   }
 
   protected async promptAceDeprecationRemoval(): Promise<boolean> {
-    return this.mockAceRemovalConfirmResult
+    return this.mockAceRemovalConfirm
   }
 
   protected async promptForAgentSelection(): Promise<Agent> {
-    return 'Claude Code' // Default mock agent
+    return this.mockSelectedAgent
   }
 
   protected async promptForCleanupStrategy(): Promise<'manual'> {
@@ -139,14 +118,14 @@ class TestableInit extends Init {
   }
 
   protected async promptForOverwriteConfirmation(_agent: Agent): Promise<boolean> {
-    return true // Default to true for tests
+    return true
   }
 
-  protected async promptForSpaceSelection(_spaces: Space[]): Promise<Space> {
+  protected async promptForSpaceSelection(_spaces: Space[]): Promise<Space | undefined> {
     return this.mockSelectedSpace
   }
 
-  protected async promptForTeamSelection(_teams: Team[]): Promise<Team> {
+  protected async promptForTeamSelection(_teams: Team[]): Promise<Team | undefined> {
     return this.mockSelectedTeam
   }
 
@@ -157,67 +136,28 @@ class TestableInit extends Init {
   // Mock syncFromRemoteOrInitialize to avoid testing remote sync in unit tests
   protected async syncFromRemoteOrInitialize(): Promise<void> {
     // Simulate new space behavior: create templates with empty snapshot
-    // Use initializeMemoryContextDir to handle errors gracefully (like real implementation)
-    await this.initializeMemoryContextDir('context tree', () => this.mockContextTreeService.initialize())
-    await this.mockContextTreeSnapshotService.initEmptySnapshot()
+    await this.initializeMemoryContextDir('context tree', () => this.contextTreeService.initialize())
+    await this.contextTreeSnapshotService.initEmptySnapshot()
   }
 }
 
+// ==================== SyncTestableInitUseCase ====================
+
 /**
- * TestableInit variant that tests the actual syncFromRemoteOrInitialize implementation
- * Extends Init directly to avoid TestableInit's override
+ * TestableInitUseCase variant that tests the actual syncFromRemoteOrInitialize implementation
  */
-class SyncTestableInit extends Init {
-  public errorMessages: string[] = []
+class SyncTestableInitUseCase extends InitUseCase {
   public logMessages: string[] = []
   public mockContextTreeInitializeCalled = false
+  private readonly mockSelectedAgent: Agent
+  private readonly mockSelectedSpace: Space
+  private readonly mockSelectedTeam: Team
 
-  // eslint-disable-next-line max-params
-  constructor(
-    private readonly mockCogitPullService: ICogitPullService,
-    private readonly mockConfigStore: IProjectConfigStore,
-    private readonly mockContextTreeService: IContextTreeService,
-    private readonly mockContextTreeSnapshotService: IContextTreeSnapshotService,
-    private readonly mockContextTreeWriterService: IContextTreeWriterService,
-    private readonly mockFileService: IFileService,
-    private readonly mockLegacyRuleDetector: ILegacyRuleDetector,
-    private readonly mockSpaceService: ISpaceService,
-    private readonly mockTeamService: ITeamService,
-    private readonly mockTemplateService: IRuleTemplateService,
-    private readonly mockTokenStore: ITokenStore,
-    private readonly mockTrackingService: ITrackingService,
-    private readonly mockSelectedTeam: Team,
-    private readonly mockSelectedSpace: Space,
-    config: Config,
-  ) {
-    super([], config)
-  }
-
-  protected createServices() {
-    this.terminal = createMockTerminal({
-      error: (message: string) => {
-        this.errorMessages.push(message)
-      },
-      log: (message?: string) => {
-        if (message !== undefined) {
-          this.logMessages.push(message)
-        }
-      },
-    })
-    return {
-      cogitPullService: this.mockCogitPullService,
-      contextTreeService: this.mockContextTreeService,
-      contextTreeSnapshotService: this.mockContextTreeSnapshotService,
-      contextTreeWriterService: this.mockContextTreeWriterService,
-      fileService: this.mockFileService,
-      legacyRuleDetector: this.mockLegacyRuleDetector,
-      projectConfigStore: this.mockConfigStore,
-      spaceService: this.mockSpaceService,
-      teamService: this.mockTeamService,
-      templateService: this.mockTemplateService,
-      tokenStore: this.mockTokenStore,
-      trackingService: this.mockTrackingService,
-    }
+  constructor(options: TestableInitUseCaseOptions) {
+    super(options)
+    this.mockSelectedAgent = options.mockSelectedAgent ?? 'Claude Code'
+    this.mockSelectedSpace = options.mockSelectedSpace!
+    this.mockSelectedTeam = options.mockSelectedTeam!
   }
 
   protected async getExistingConfig(): Promise<BrvConfig | LegacyProjectConfigInfo | undefined> {
@@ -231,7 +171,7 @@ class SyncTestableInit extends Init {
   }
 
   protected async promptForAgentSelection(): Promise<Agent> {
-    return 'Claude Code'
+    return this.mockSelectedAgent
   }
 
   protected async promptForCleanupStrategy(): Promise<'manual'> {
@@ -246,37 +186,39 @@ class SyncTestableInit extends Init {
     return true
   }
 
-  protected async promptForSpaceSelection(_spaces: Space[]): Promise<Space> {
+  protected async promptForSpaceSelection(_spaces: Space[]): Promise<Space | undefined> {
     return this.mockSelectedSpace
   }
 
-  protected async promptForTeamSelection(_teams: Team[]): Promise<Team> {
+  protected async promptForTeamSelection(_teams: Team[]): Promise<Team | undefined> {
     return this.mockSelectedTeam
   }
 
   // Expose syncFromRemoteOrInitialize for direct testing
   public async testSyncFromRemoteOrInitialize(token: AuthToken): Promise<void> {
-    // Initialize terminal before calling syncFromRemoteOrInitialize (normally done in createServices)
-    this.terminal = createMockTerminal({
-      error: (message: string) => {
-        this.errorMessages.push(message)
-      },
-      log: (message?: string) => {
-        if (message !== undefined) {
-          this.logMessages.push(message)
-        }
-      },
-    })
     return this.syncFromRemoteOrInitialize({
-      cogitPullService: this.mockCogitPullService,
-      contextTreeService: this.mockContextTreeService,
-      contextTreeSnapshotService: this.mockContextTreeSnapshotService,
-      contextTreeWriterService: this.mockContextTreeWriterService,
       projectConfig: {spaceId: this.mockSelectedSpace.id, teamId: this.mockSelectedTeam.id},
       token,
     })
   }
 }
+
+// ==================== TestableInitCommand ====================
+
+class TestableInitCommand extends Init {
+  constructor(
+    private readonly useCase: IInitUseCase,
+    config: Config,
+  ) {
+    super([], config)
+  }
+
+  protected createUseCase(): IInitUseCase {
+    return this.useCase
+  }
+}
+
+// ==================== Tests ====================
 
 describe('Init Command', () => {
   let cogitPullService: sinon.SinonStubbedInstance<ICogitPullService>
@@ -290,12 +232,11 @@ describe('Init Command', () => {
   let spaceService: sinon.SinonStubbedInstance<ISpaceService>
   let teamService: sinon.SinonStubbedInstance<ITeamService>
   let templateService: sinon.SinonStubbedInstance<IRuleTemplateService>
+  let terminal: ITerminal
   let testSpaces: Space[]
   let testTeams: Team[]
   let tokenStore: sinon.SinonStubbedInstance<ITokenStore>
   let trackingService: sinon.SinonStubbedInstance<ITrackingService>
-  let uxActionStartStub: sinon.SinonStub
-  let uxActionStopStub: sinon.SinonStub
   let validToken: AuthToken
 
   before(async () => {
@@ -303,9 +244,6 @@ describe('Init Command', () => {
   })
 
   beforeEach(async () => {
-    uxActionStartStub = stub(ux.action, 'start')
-    uxActionStopStub = stub(ux.action, 'stop')
-
     tokenStore = {
       clear: stub(),
       load: stub(),
@@ -417,11 +355,49 @@ describe('Init Command', () => {
   })
 
   afterEach(() => {
-    // Call these to negate eslint's no-unused-expressions rule
-    uxActionStartStub.restore()
-    uxActionStopStub.restore()
     restore()
   })
+
+  function createTestUseCase(options: Partial<TestableInitUseCaseOptions> = {}): TestableInitUseCase {
+    const errorMessages: string[] = []
+    const logMessages: string[] = []
+    terminal = createMockTerminal({
+      error(msg: string) {
+        errorMessages.push(msg)
+      },
+      log(msg?: string) {
+        if (msg !== undefined) {
+          logMessages.push(msg)
+        }
+      },
+    })
+
+    const useCase = new TestableInitUseCase({
+      cogitPullService,
+      contextTreeService,
+      contextTreeSnapshotService,
+      contextTreeWriterService,
+      fileService,
+      legacyRuleDetector,
+      mockSelectedSpace: testSpaces[0],
+      mockSelectedTeam: testTeams[0],
+      projectConfigStore: configStore,
+      spaceService,
+      teamService,
+      templateService,
+      terminal,
+      tokenStore,
+      trackingService,
+      ...options,
+    })
+    useCase.errorMessages = errorMessages
+    useCase.logMessages = logMessages
+    return useCase
+  }
+
+  function createTestCommand(useCase: IInitUseCase): TestableInitCommand {
+    return new TestableInitCommand(useCase, config)
+  }
 
   describe('execute()', () => {
     it('should exit early if project is already initialized', async () => {
@@ -431,23 +407,8 @@ describe('Init Command', () => {
         BrvConfig.fromSpace({chatLogPath: 'chat.log', cwd: '/test/cwd', ide: 'Claude Code', space: testSpaces[0]}),
       )
 
-      const command = new TestableInit(
-        cogitPullService,
-        configStore,
-        contextTreeService,
-        contextTreeSnapshotService,
-        contextTreeWriterService,
-        fileService,
-        legacyRuleDetector,
-        spaceService,
-        teamService,
-        templateService,
-        tokenStore,
-        trackingService,
-        testTeams[0],
-        testSpaces[0],
-        config,
-      )
+      const useCase = createTestUseCase()
+      const command = createTestCommand(useCase)
 
       await command.run()
 
@@ -457,35 +418,19 @@ describe('Init Command', () => {
       expect(teamService.getTeams.called).to.be.false // Should not proceed to fetch teams
     })
 
-    it('should throw error when not authenticated', async () => {
+    it('should exit early if not authenticated', async () => {
       configStore.exists.resolves(false)
       tokenStore.load.resolves()
 
-      const command = new TestableInit(
-        cogitPullService,
-        configStore,
-        contextTreeService,
-        contextTreeSnapshotService,
-        contextTreeWriterService,
-        fileService,
-        legacyRuleDetector,
-        spaceService,
-        teamService,
-        templateService,
-        tokenStore,
-        trackingService,
-        testTeams[0],
-        testSpaces[0],
-        config,
-      )
+      const useCase = createTestUseCase()
+      const command = createTestCommand(useCase)
 
       await command.run()
 
-      expect(command.errorMessages).to.have.lengthOf(1)
-      expect(command.errorMessages[0]).to.include('Not authenticated')
+      expect(useCase.logMessages.some((msg) => msg.includes('Not authenticated'))).to.be.true
     })
 
-    it('should throw error when token is expired', async () => {
+    it('should exit early when token is expired', async () => {
       const expiredToken = new AuthToken({
         accessToken: 'access-token',
         expiresAt: new Date(Date.now() - 1000),
@@ -499,28 +444,12 @@ describe('Init Command', () => {
       configStore.exists.resolves(false)
       tokenStore.load.resolves(expiredToken)
 
-      const command = new TestableInit(
-        cogitPullService,
-        configStore,
-        contextTreeService,
-        contextTreeSnapshotService,
-        contextTreeWriterService,
-        fileService,
-        legacyRuleDetector,
-        spaceService,
-        teamService,
-        templateService,
-        tokenStore,
-        trackingService,
-        testTeams[0],
-        testSpaces[0],
-        config,
-      )
+      const useCase = createTestUseCase()
+      const command = createTestCommand(useCase)
 
       await command.run()
 
-      expect(command.errorMessages).to.have.lengthOf(1)
-      expect(command.errorMessages[0]).to.include('expired')
+      expect(useCase.logMessages.some((msg) => msg.includes('expired'))).to.be.true
     })
 
     it('should exit gracefully when no teams are available', async () => {
@@ -528,23 +457,8 @@ describe('Init Command', () => {
       tokenStore.load.resolves(validToken)
       teamService.getTeams.resolves({teams: [], total: 0})
 
-      const command = new TestableInit(
-        cogitPullService,
-        configStore,
-        contextTreeService,
-        contextTreeSnapshotService,
-        contextTreeWriterService,
-        fileService,
-        legacyRuleDetector,
-        spaceService,
-        teamService,
-        templateService,
-        tokenStore,
-        trackingService,
-        testTeams[0],
-        testSpaces[0],
-        config,
-      )
+      const useCase = createTestUseCase()
+      const command = createTestCommand(useCase)
 
       await command.run()
 
@@ -558,23 +472,8 @@ describe('Init Command', () => {
       teamService.getTeams.resolves({teams: testTeams, total: testTeams.length})
       spaceService.getSpaces.resolves({spaces: [], total: 0})
 
-      const command = new TestableInit(
-        cogitPullService,
-        configStore,
-        contextTreeService,
-        contextTreeSnapshotService,
-        contextTreeWriterService,
-        fileService,
-        legacyRuleDetector,
-        spaceService,
-        teamService,
-        templateService,
-        tokenStore,
-        trackingService,
-        testTeams[0],
-        testSpaces[0],
-        config,
-      )
+      const useCase = createTestUseCase()
+      const command = createTestCommand(useCase)
 
       await command.run()
 
@@ -589,23 +488,8 @@ describe('Init Command', () => {
       spaceService.getSpaces.resolves({spaces: testSpaces, total: testSpaces.length})
       configStore.write.resolves()
 
-      const command = new TestableInit(
-        cogitPullService,
-        configStore,
-        contextTreeService,
-        contextTreeSnapshotService,
-        contextTreeWriterService,
-        fileService,
-        legacyRuleDetector,
-        spaceService,
-        teamService,
-        templateService,
-        tokenStore,
-        trackingService,
-        testTeams[0],
-        testSpaces[0],
-        config,
-      )
+      const useCase = createTestUseCase()
+      const command = createTestCommand(useCase)
 
       await command.run()
 
@@ -630,23 +514,8 @@ describe('Init Command', () => {
       spaceService.getSpaces.resolves({spaces: testSpaces, total: testSpaces.length})
       configStore.write.resolves()
 
-      const command = new TestableInit(
-        cogitPullService,
-        configStore,
-        contextTreeService,
-        contextTreeSnapshotService,
-        contextTreeWriterService,
-        fileService,
-        legacyRuleDetector,
-        spaceService,
-        teamService,
-        templateService,
-        tokenStore,
-        trackingService,
-        testTeams[0],
-        testSpaces[1],
-        config,
-      )
+      const useCase = createTestUseCase({mockSelectedSpace: testSpaces[1]})
+      const command = createTestCommand(useCase)
 
       await command.run()
 
@@ -655,94 +524,49 @@ describe('Init Command', () => {
       expect(writtenConfig.spaceName).to.equal('backend-api')
     })
 
-    it('should propagate errors from team service', async () => {
+    it('should capture errors from team service', async () => {
       configStore.exists.resolves(false)
       tokenStore.load.resolves(validToken)
       teamService.getTeams.rejects(new Error('Network timeout'))
 
-      const command = new TestableInit(
-        cogitPullService,
-        configStore,
-        contextTreeService,
-        contextTreeSnapshotService,
-        contextTreeWriterService,
-        fileService,
-        legacyRuleDetector,
-        spaceService,
-        teamService,
-        templateService,
-        tokenStore,
-        trackingService,
-        testTeams[0],
-        testSpaces[0],
-        config,
-      )
+      const useCase = createTestUseCase()
+      const command = createTestCommand(useCase)
 
       await command.run()
 
-      expect(command.errorMessages).to.have.lengthOf(1)
-      expect(command.errorMessages[0]).to.include('Network timeout')
+      expect(useCase.errorMessages).to.have.lengthOf(1)
+      expect(useCase.errorMessages[0]).to.include('Network timeout')
     })
 
-    it('should propagate errors from space service', async () => {
+    it('should capture errors from space service', async () => {
       configStore.exists.resolves(false)
       tokenStore.load.resolves(validToken)
       teamService.getTeams.resolves({teams: testTeams, total: testTeams.length})
       spaceService.getSpaces.rejects(new Error('Network timeout'))
 
-      const command = new TestableInit(
-        cogitPullService,
-        configStore,
-        contextTreeService,
-        contextTreeSnapshotService,
-        contextTreeWriterService,
-        fileService,
-        legacyRuleDetector,
-        spaceService,
-        teamService,
-        templateService,
-        tokenStore,
-        trackingService,
-        testTeams[0],
-        testSpaces[0],
-        config,
-      )
+      const useCase = createTestUseCase()
+      const command = createTestCommand(useCase)
 
       await command.run()
 
-      expect(command.errorMessages).to.have.lengthOf(1)
-      expect(command.errorMessages[0]).to.include('Network timeout')
+      expect(useCase.errorMessages).to.have.lengthOf(1)
+      expect(useCase.errorMessages[0]).to.include('Network timeout')
     })
 
-    it('should propagate errors from config store', async () => {
+    it('should capture errors from config store', async () => {
       configStore.exists.resolves(false)
       tokenStore.load.resolves(validToken)
       teamService.getTeams.resolves({teams: testTeams, total: testTeams.length})
       spaceService.getSpaces.resolves({spaces: testSpaces, total: testSpaces.length})
       configStore.write.rejects(new Error('Permission denied'))
 
-      const command = new TestableInit(
-        cogitPullService,
-        configStore,
-        contextTreeService,
-        contextTreeSnapshotService,
-        contextTreeWriterService,
-        fileService,
-        legacyRuleDetector,
-        spaceService,
-        teamService,
-        templateService,
-        tokenStore,
-        trackingService,
-        testTeams[0],
-        testSpaces[0],
-        config,
-      )
+      const useCase = createTestUseCase()
+      const command = createTestCommand(useCase)
 
       await command.run()
 
-      expect(command.errorMessages).to.have.lengthOf(1)
-      expect(command.errorMessages[0]).to.include('Permission denied')
+      expect(useCase.errorMessages).to.have.lengthOf(1)
+      expect(useCase.errorMessages[0]).to.include('Permission denied')
     })
 
     it('should call gen-rules command after successful initialization', async () => {
@@ -752,23 +576,8 @@ describe('Init Command', () => {
       spaceService.getSpaces.resolves({spaces: testSpaces, total: testSpaces.length})
       configStore.write.resolves()
 
-      const command = new TestableInit(
-        cogitPullService,
-        configStore,
-        contextTreeService,
-        contextTreeSnapshotService,
-        contextTreeWriterService,
-        fileService,
-        legacyRuleDetector,
-        spaceService,
-        teamService,
-        templateService,
-        tokenStore,
-        trackingService,
-        testTeams[0],
-        testSpaces[0],
-        config,
-      )
+      const useCase = createTestUseCase()
+      const command = createTestCommand(useCase)
 
       await command.run()
 
@@ -783,23 +592,8 @@ describe('Init Command', () => {
       spaceService.getSpaces.resolves({spaces: testSpaces, total: testSpaces.length})
       configStore.write.resolves()
 
-      const command = new TestableInit(
-        cogitPullService,
-        configStore,
-        contextTreeService,
-        contextTreeSnapshotService,
-        contextTreeWriterService,
-        fileService,
-        legacyRuleDetector,
-        spaceService,
-        teamService,
-        templateService,
-        tokenStore,
-        trackingService,
-        testTeams[0],
-        testSpaces[0],
-        config,
-      )
+      const useCase = createTestUseCase()
+      const command = createTestCommand(useCase)
 
       await command.run()
 
@@ -814,23 +608,8 @@ describe('Init Command', () => {
       spaceService.getSpaces.resolves({spaces: testSpaces, total: testSpaces.length})
       configStore.write.resolves()
 
-      const command = new TestableInit(
-        cogitPullService,
-        configStore,
-        contextTreeService,
-        contextTreeSnapshotService,
-        contextTreeWriterService,
-        fileService,
-        legacyRuleDetector,
-        spaceService,
-        teamService,
-        templateService,
-        tokenStore,
-        trackingService,
-        testTeams[0],
-        testSpaces[0],
-        config,
-      )
+      const useCase = createTestUseCase()
+      const command = createTestCommand(useCase)
 
       await command.run()
 
@@ -848,23 +627,8 @@ describe('Init Command', () => {
       configStore.write.resolves()
       contextTreeService.initialize.rejects(new Error('Context tree already exists'))
 
-      const command = new TestableInit(
-        cogitPullService,
-        configStore,
-        contextTreeService,
-        contextTreeSnapshotService,
-        contextTreeWriterService,
-        fileService,
-        legacyRuleDetector,
-        spaceService,
-        teamService,
-        templateService,
-        tokenStore,
-        trackingService,
-        testTeams[0],
-        testSpaces[0],
-        config,
-      )
+      const useCase = createTestUseCase()
+      const command = createTestCommand(useCase)
 
       await command.run()
 
@@ -873,7 +637,7 @@ describe('Init Command', () => {
       expect(fileService.write.calledOnce).to.be.true
     })
 
-    it('should propagate errors from templateService', async () => {
+    it('should capture errors from templateService', async () => {
       configStore.exists.resolves(false)
       tokenStore.load.resolves(validToken)
       teamService.getTeams.resolves({teams: testTeams, total: testTeams.length})
@@ -881,28 +645,13 @@ describe('Init Command', () => {
       configStore.write.resolves()
       templateService.generateRuleContent.rejects(new Error('Template not found'))
 
-      const command = new TestableInit(
-        cogitPullService,
-        configStore,
-        contextTreeService,
-        contextTreeSnapshotService,
-        contextTreeWriterService,
-        fileService,
-        legacyRuleDetector,
-        spaceService,
-        teamService,
-        templateService,
-        tokenStore,
-        trackingService,
-        testTeams[0],
-        testSpaces[0],
-        config,
-      )
+      const useCase = createTestUseCase()
+      const command = createTestCommand(useCase)
 
       await command.run()
 
-      expect(command.errorMessages).to.have.lengthOf(1)
-      expect(command.errorMessages[0]).to.include('Template not found')
+      expect(useCase.errorMessages).to.have.lengthOf(1)
+      expect(useCase.errorMessages[0]).to.include('Template not found')
     })
   })
 
@@ -917,25 +666,11 @@ describe('Init Command', () => {
       teamService.getTeams.resolves({teams: testTeams, total: testTeams.length})
       spaceService.getSpaces.resolves({spaces: testSpaces, total: testSpaces.length})
 
-      const command = new TestableInit(
-        cogitPullService,
-        configStore,
-        contextTreeService,
-        contextTreeSnapshotService,
-        contextTreeWriterService,
-        fileService,
-        legacyRuleDetector,
-        spaceService,
-        teamService,
-        templateService,
-        tokenStore,
-        trackingService,
-        testTeams[0],
-        testSpaces[1], // Select different space
-        config,
-      )
-
-      command.mockConfirmResult = true // User confirms
+      const useCase = createTestUseCase({
+        mockConfirmReInit: true,
+        mockSelectedSpace: testSpaces[1], // Select different space
+      })
+      const command = createTestCommand(useCase)
 
       await command.run()
 
@@ -954,25 +689,8 @@ describe('Init Command', () => {
         BrvConfig.fromSpace({chatLogPath: 'chat.log', cwd: '/test/cwd', ide: 'Claude Code', space: testSpaces[0]}),
       )
 
-      const command = new TestableInit(
-        cogitPullService,
-        configStore,
-        contextTreeService,
-        contextTreeSnapshotService,
-        contextTreeWriterService,
-        fileService,
-        legacyRuleDetector,
-        spaceService,
-        teamService,
-        templateService,
-        tokenStore,
-        trackingService,
-        testTeams[0],
-        testSpaces[0],
-        config,
-      )
-
-      command.mockConfirmResult = false // User cancels
+      const useCase = createTestUseCase({mockConfirmReInit: false})
+      const command = createTestCommand(useCase)
 
       await command.run()
 
@@ -993,29 +711,13 @@ describe('Init Command', () => {
       teamService.getTeams.resolves({teams: testTeams, total: testTeams.length})
       spaceService.getSpaces.resolves({spaces: testSpaces, total: testSpaces.length})
 
-      const command = new TestableInit(
-        cogitPullService,
-        configStore,
-        contextTreeService,
-        contextTreeSnapshotService,
-        contextTreeWriterService,
-        fileService,
-        legacyRuleDetector,
-        spaceService,
-        teamService,
-        templateService,
-        tokenStore,
-        trackingService,
-        testTeams[0],
-        testSpaces[1],
-        config,
-      )
+      const useCase = createTestUseCase({
+        mockConfirmReInit: false, // Shouldn't matter with --force
+        mockSelectedSpace: testSpaces[1],
+      })
 
-      command.mockConfirmResult = false // Shouldn't matter with --force
-      // Override argv to include --force flag
-      ;(command as never as {argv: string[]}).argv = ['--force']
-
-      await command.run()
+      // Call run directly with force option
+      await useCase.run({force: true})
 
       expect(configStore.exists.calledOnce).to.be.true
       expect(tokenStore.load.calledOnce).to.be.true
@@ -1030,31 +732,16 @@ describe('Init Command', () => {
         BrvConfig.fromSpace({chatLogPath: 'chat.log', cwd: '/test/cwd', ide: 'Claude Code', space: testSpaces[0]}),
       )
 
-      const command = new TestableInit(
-        cogitPullService,
-        configStore,
-        contextTreeService,
-        contextTreeSnapshotService,
-        contextTreeWriterService,
-        fileService,
-        legacyRuleDetector,
-        spaceService,
-        teamService,
-        templateService,
-        tokenStore,
-        trackingService,
-        testTeams[0],
-        testSpaces[0],
-        config,
-      )
-
-      command.mockConfirmResult = true
-      command.mockCleanupError = new Error('Permission denied')
+      const useCase = createTestUseCase({
+        mockCleanupError: new Error('Permission denied'),
+        mockConfirmReInit: true,
+      })
+      const command = createTestCommand(useCase)
 
       await command.run()
 
-      expect(command.errorMessages).to.have.lengthOf(1)
-      expect(command.errorMessages[0]).to.include('Permission denied')
+      expect(useCase.errorMessages).to.have.lengthOf(1)
+      expect(useCase.errorMessages[0]).to.include('Permission denied')
     })
 
     it('should handle corrupted config file', async () => {
@@ -1062,31 +749,13 @@ describe('Init Command', () => {
       configStore.exists.resolves(true)
       configStore.read.resolves() // Corrupted/unreadable - returns undefined
 
-      const command = new TestableInit(
-        cogitPullService,
-        configStore,
-        contextTreeService,
-        contextTreeSnapshotService,
-        contextTreeWriterService,
-        fileService,
-        legacyRuleDetector,
-        spaceService,
-        teamService,
-        templateService,
-        tokenStore,
-        trackingService,
-        testTeams[0],
-        testSpaces[0],
-        config,
-      )
+      const useCase = createTestUseCase()
+      const command = createTestCommand(useCase)
 
       await command.run()
 
-      expect(command.errorMessages).to.have.lengthOf(1)
-      expect(command.errorMessages[0]).to.include('Configuration file exists but cannot be read')
-      expect(tokenStore.load.calledOnce).to.be.true // Auth happens first
-      expect(configStore.exists.calledOnce).to.be.true
-      expect(configStore.read.calledOnce).to.be.true
+      expect(useCase.errorMessages).to.have.lengthOf(1)
+      expect(useCase.errorMessages[0]).to.include('Configuration file exists but cannot be read')
     })
 
     it('should handle legacy config without version field', async () => {
@@ -1095,31 +764,16 @@ describe('Init Command', () => {
       teamService.getTeams.resolves({teams: testTeams, total: testTeams.length})
       spaceService.getSpaces.resolves({spaces: testSpaces, total: testSpaces.length})
 
-      const command = new TestableInit(
-        cogitPullService,
-        configStore,
-        contextTreeService,
-        contextTreeSnapshotService,
-        contextTreeWriterService,
-        fileService,
-        legacyRuleDetector,
-        spaceService,
-        teamService,
-        templateService,
-        tokenStore,
-        trackingService,
-        testTeams[0],
-        testSpaces[0],
-        config,
-      )
-      // Mock legacy config with missing version
-      command.mockLegacyConfig = {
-        currentVersion: undefined,
-        spaceName: 'frontend-app',
-        teamName: 'acme-corp',
-        type: 'legacy',
-      }
-      command.mockConfirmResult = true
+      const useCase = createTestUseCase({
+        mockConfirmReInit: true,
+        mockLegacyConfig: {
+          currentVersion: undefined,
+          spaceName: 'frontend-app',
+          teamName: 'acme-corp',
+          type: 'legacy',
+        },
+      })
+      const command = createTestCommand(useCase)
 
       await command.run()
 
@@ -1136,31 +790,16 @@ describe('Init Command', () => {
       teamService.getTeams.resolves({teams: testTeams, total: testTeams.length})
       spaceService.getSpaces.resolves({spaces: testSpaces, total: testSpaces.length})
 
-      const command = new TestableInit(
-        cogitPullService,
-        configStore,
-        contextTreeService,
-        contextTreeSnapshotService,
-        contextTreeWriterService,
-        fileService,
-        legacyRuleDetector,
-        spaceService,
-        teamService,
-        templateService,
-        tokenStore,
-        trackingService,
-        testTeams[0],
-        testSpaces[0],
-        config,
-      )
-      // Mock legacy config with version mismatch
-      command.mockLegacyConfig = {
-        currentVersion: '0.0.0',
-        spaceName: 'frontend-app',
-        teamName: 'acme-corp',
-        type: 'legacy',
-      }
-      command.mockConfirmResult = true
+      const useCase = createTestUseCase({
+        mockConfirmReInit: true,
+        mockLegacyConfig: {
+          currentVersion: '0.0.0',
+          spaceName: 'frontend-app',
+          teamName: 'acme-corp',
+          type: 'legacy',
+        },
+      })
+      const command = createTestCommand(useCase)
 
       await command.run()
 
@@ -1179,30 +818,13 @@ describe('Init Command', () => {
       spaceService.getSpaces.resolves({spaces: testSpaces, total: testSpaces.length})
       configStore.write.resolves()
 
-      const command = new TestableInit(
-        cogitPullService,
-        configStore,
-        contextTreeService,
-        contextTreeSnapshotService,
-        contextTreeWriterService,
-        fileService,
-        legacyRuleDetector,
-        spaceService,
-        teamService,
-        templateService,
-        tokenStore,
-        trackingService,
-        testTeams[0],
-        testSpaces[0],
-        config,
-      )
-
-      command.mockAceDirectoryExists = false // No existing ACE folder
+      const useCase = createTestUseCase({mockAceDirectoryExists: false})
+      const command = createTestCommand(useCase)
 
       await command.run()
 
       // Should not call removeAceDirectory since no ACE folder exists
-      expect(command.removeAceDirectoryCalled).to.be.false
+      expect(useCase.removeAceDirectoryCalled).to.be.false
       // Should still initialize context tree
       expect(contextTreeService.initialize.calledOnce).to.be.true
       // Should complete initialization
@@ -1216,31 +838,16 @@ describe('Init Command', () => {
       spaceService.getSpaces.resolves({spaces: testSpaces, total: testSpaces.length})
       configStore.write.resolves()
 
-      const command = new TestableInit(
-        cogitPullService,
-        configStore,
-        contextTreeService,
-        contextTreeSnapshotService,
-        contextTreeWriterService,
-        fileService,
-        legacyRuleDetector,
-        spaceService,
-        teamService,
-        templateService,
-        tokenStore,
-        trackingService,
-        testTeams[0],
-        testSpaces[0],
-        config,
-      )
-
-      command.mockAceDirectoryExists = true // Existing ACE folder
-      command.mockAceRemovalConfirmResult = true // User confirms removal
+      const useCase = createTestUseCase({
+        mockAceDirectoryExists: true,
+        mockAceRemovalConfirm: true,
+      })
+      const command = createTestCommand(useCase)
 
       await command.run()
 
       // Should call removeAceDirectory
-      expect(command.removeAceDirectoryCalled).to.be.true
+      expect(useCase.removeAceDirectoryCalled).to.be.true
       // Should still initialize context tree
       expect(contextTreeService.initialize.calledOnce).to.be.true
       // Should complete initialization
@@ -1254,31 +861,16 @@ describe('Init Command', () => {
       spaceService.getSpaces.resolves({spaces: testSpaces, total: testSpaces.length})
       configStore.write.resolves()
 
-      const command = new TestableInit(
-        cogitPullService,
-        configStore,
-        contextTreeService,
-        contextTreeSnapshotService,
-        contextTreeWriterService,
-        fileService,
-        legacyRuleDetector,
-        spaceService,
-        teamService,
-        templateService,
-        tokenStore,
-        trackingService,
-        testTeams[0],
-        testSpaces[0],
-        config,
-      )
-
-      command.mockAceDirectoryExists = true // Existing ACE folder
-      command.mockAceRemovalConfirmResult = false // User declines removal
+      const useCase = createTestUseCase({
+        mockAceDirectoryExists: true,
+        mockAceRemovalConfirm: false,
+      })
+      const command = createTestCommand(useCase)
 
       await command.run()
 
       // Should NOT call removeAceDirectory
-      expect(command.removeAceDirectoryCalled).to.be.false
+      expect(useCase.removeAceDirectoryCalled).to.be.false
       // Should still initialize context tree
       expect(contextTreeService.initialize.calledOnce).to.be.true
       // Should complete initialization
@@ -1295,38 +887,54 @@ describe('Init Command', () => {
       teamService.getTeams.resolves({teams: testTeams, total: testTeams.length})
       spaceService.getSpaces.resolves({spaces: testSpaces, total: testSpaces.length})
 
-      const command = new TestableInit(
-        cogitPullService,
-        configStore,
-        contextTreeService,
-        contextTreeSnapshotService,
-        contextTreeWriterService,
-        fileService,
-        legacyRuleDetector,
-        spaceService,
-        teamService,
-        templateService,
-        tokenStore,
-        trackingService,
-        testTeams[0],
-        testSpaces[0],
-        config,
-      )
+      const useCase = createTestUseCase({
+        mockAceDirectoryExists: true,
+        mockAceRemovalConfirm: true,
+      })
 
-      command.mockAceDirectoryExists = true // Existing ACE folder
-      command.mockAceRemovalConfirmResult = true // User confirms removal
-      ;(command as never as {argv: string[]}).argv = ['--force']
-
-      await command.run()
+      // Call run directly with force option
+      await useCase.run({force: true})
 
       // Should call removeAceDirectory (ACE folder existed and user confirmed)
-      expect(command.removeAceDirectoryCalled).to.be.true
+      expect(useCase.removeAceDirectoryCalled).to.be.true
       // Should complete initialization
       expect(configStore.write.calledOnce).to.be.true
     })
   })
 
   describe('syncFromRemoteOrInitialize', () => {
+    // eslint-disable-next-line unicorn/consistent-function-scoping
+    function createSyncTestUseCase(): SyncTestableInitUseCase {
+      const logMessages: string[] = []
+      terminal = createMockTerminal({
+        log(msg?: string) {
+          if (msg !== undefined) {
+            logMessages.push(msg)
+          }
+        },
+      })
+
+      const useCase = new SyncTestableInitUseCase({
+        cogitPullService,
+        contextTreeService,
+        contextTreeSnapshotService,
+        contextTreeWriterService,
+        fileService,
+        legacyRuleDetector,
+        mockSelectedSpace: testSpaces[0],
+        mockSelectedTeam: testTeams[0],
+        projectConfigStore: configStore,
+        spaceService,
+        teamService,
+        templateService,
+        terminal,
+        tokenStore,
+        trackingService,
+      })
+      useCase.logMessages = logMessages
+      return useCase
+    }
+
     it('should call initEmptySnapshot when remote has only README.md placeholder', async () => {
       // Set up pull to return only README.md placeholder
       cogitPullService.pull.resolves({
@@ -1346,28 +954,12 @@ describe('Init Command', () => {
         message: 'Initial commit',
       })
 
-      const command = new SyncTestableInit(
-        cogitPullService,
-        configStore,
-        contextTreeService,
-        contextTreeSnapshotService,
-        contextTreeWriterService,
-        fileService,
-        legacyRuleDetector,
-        spaceService,
-        teamService,
-        templateService,
-        tokenStore,
-        trackingService,
-        testTeams[0],
-        testSpaces[0],
-        config,
-      )
+      const useCase = createSyncTestUseCase()
 
-      await command.testSyncFromRemoteOrInitialize(validToken)
+      await useCase.testSyncFromRemoteOrInitialize(validToken)
 
       // Should detect README.md as placeholder and treat as empty space
-      expect(command.mockContextTreeInitializeCalled).to.be.true
+      expect(useCase.mockContextTreeInitializeCalled).to.be.true
       expect(contextTreeSnapshotService.initEmptySnapshot.calledOnce).to.be.true
       expect(contextTreeSnapshotService.saveSnapshot.called).to.be.false
       expect(contextTreeWriterService.sync.called).to.be.false
@@ -1383,28 +975,12 @@ describe('Init Command', () => {
         message: 'Initial commit',
       })
 
-      const command = new SyncTestableInit(
-        cogitPullService,
-        configStore,
-        contextTreeService,
-        contextTreeSnapshotService,
-        contextTreeWriterService,
-        fileService,
-        legacyRuleDetector,
-        spaceService,
-        teamService,
-        templateService,
-        tokenStore,
-        trackingService,
-        testTeams[0],
-        testSpaces[0],
-        config,
-      )
+      const useCase = createSyncTestUseCase()
 
-      await command.testSyncFromRemoteOrInitialize(validToken)
+      await useCase.testSyncFromRemoteOrInitialize(validToken)
 
       // Should treat as empty space
-      expect(command.mockContextTreeInitializeCalled).to.be.true
+      expect(useCase.mockContextTreeInitializeCalled).to.be.true
       expect(contextTreeSnapshotService.initEmptySnapshot.calledOnce).to.be.true
       expect(contextTreeSnapshotService.saveSnapshot.called).to.be.false
       expect(contextTreeWriterService.sync.called).to.be.false
@@ -1437,28 +1013,12 @@ describe('Init Command', () => {
         message: 'Add context files',
       })
 
-      const command = new SyncTestableInit(
-        cogitPullService,
-        configStore,
-        contextTreeService,
-        contextTreeSnapshotService,
-        contextTreeWriterService,
-        fileService,
-        legacyRuleDetector,
-        spaceService,
-        teamService,
-        templateService,
-        tokenStore,
-        trackingService,
-        testTeams[0],
-        testSpaces[0],
-        config,
-      )
+      const useCase = createSyncTestUseCase()
 
-      await command.testSyncFromRemoteOrInitialize(validToken)
+      await useCase.testSyncFromRemoteOrInitialize(validToken)
 
       // Should sync from remote and save snapshot
-      expect(command.mockContextTreeInitializeCalled).to.be.false
+      expect(useCase.mockContextTreeInitializeCalled).to.be.false
       expect(contextTreeWriterService.sync.calledOnce).to.be.true
       expect(contextTreeSnapshotService.saveSnapshot.calledOnce).to.be.true
       expect(contextTreeSnapshotService.initEmptySnapshot.called).to.be.false
@@ -1491,28 +1051,12 @@ describe('Init Command', () => {
         message: 'Add files',
       })
 
-      const command = new SyncTestableInit(
-        cogitPullService,
-        configStore,
-        contextTreeService,
-        contextTreeSnapshotService,
-        contextTreeWriterService,
-        fileService,
-        legacyRuleDetector,
-        spaceService,
-        teamService,
-        templateService,
-        tokenStore,
-        trackingService,
-        testTeams[0],
-        testSpaces[0],
-        config,
-      )
+      const useCase = createSyncTestUseCase()
 
-      await command.testSyncFromRemoteOrInitialize(validToken)
+      await useCase.testSyncFromRemoteOrInitialize(validToken)
 
       // README.md + other files = real content, should sync
-      expect(command.mockContextTreeInitializeCalled).to.be.false
+      expect(useCase.mockContextTreeInitializeCalled).to.be.false
       expect(contextTreeWriterService.sync.calledOnce).to.be.true
       expect(contextTreeSnapshotService.saveSnapshot.calledOnce).to.be.true
       expect(contextTreeSnapshotService.initEmptySnapshot.called).to.be.false
@@ -1521,26 +1065,10 @@ describe('Init Command', () => {
     it('should throw error when pull fails', async () => {
       cogitPullService.pull.rejects(new Error('Network error'))
 
-      const command = new SyncTestableInit(
-        cogitPullService,
-        configStore,
-        contextTreeService,
-        contextTreeSnapshotService,
-        contextTreeWriterService,
-        fileService,
-        legacyRuleDetector,
-        spaceService,
-        teamService,
-        templateService,
-        tokenStore,
-        trackingService,
-        testTeams[0],
-        testSpaces[0],
-        config,
-      )
+      const useCase = createSyncTestUseCase()
 
       try {
-        await command.testSyncFromRemoteOrInitialize(validToken)
+        await useCase.testSyncFromRemoteOrInitialize(validToken)
         expect.fail('Should have thrown an error')
       } catch (error) {
         expect((error as Error).message).to.include('Failed to sync from ByteRover')
