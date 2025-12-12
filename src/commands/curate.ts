@@ -11,17 +11,15 @@ import type {IProjectConfigStore} from '../core/interfaces/i-project-config-stor
 import type {ITrackingService} from '../core/interfaces/i-tracking-service.js'
 
 import {CONTEXT_TREE_DOMAINS} from '../config/context-tree-domains.js'
-import {getCurrentConfig, isDevelopment} from '../config/environment.js'
-import {BRV_DIR, CONTEXT_FILE, CONTEXT_TREE_DIR, PROJECT} from '../constants.js'
-import {CipherAgent} from '../infra/cipher/cipher-agent.js'
+import {isDevelopment} from '../config/environment.js'
+import {BRV_DIR, CONTEXT_FILE, CONTEXT_TREE_DIR} from '../constants.js'
 import {ExitCode, ExitError, exitWithCode} from '../infra/cipher/exit-codes.js'
+import {getAgentStorage} from '../infra/cipher/storage/agent-storage.js'
 import {WorkspaceNotInitializedError} from '../infra/cipher/validation/workspace-validator.js'
 import {ProjectConfigStore} from '../infra/config/file-config-store.js'
 import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
 import {MixpanelTrackingService} from '../infra/tracking/mixpanel-tracking-service.js'
-import {addErrorPrefix} from '../utils/emoji-helpers.js'
 import {validateFileForCurate} from '../utils/file-validator.js'
-import {formatToolCall, formatToolResult} from '../utils/tool-display-formatter.js'
 
 // Full path to context tree
 const CONTEXT_TREE_PATH = path.join(BRV_DIR, CONTEXT_TREE_DIR)
@@ -323,7 +321,7 @@ Bad:
   }
 
   /**
-   * Run in autonomous mode using CipherAgent
+   * Run in autonomous mode - push to queue for background processing
    */
   private async runAutonomous(
     content: string,
@@ -355,56 +353,22 @@ Bad:
         )
       }
 
-      // Create LLM config
-      const model = flags.model ?? (flags.apiKey ? 'google/gemini-2.5-pro' : 'gemini-2.5-pro')
-      const envConfig = getCurrentConfig()
+      // Initialize storage and create execution (auto-detects .brv/blobs)
+      const storage = await getAgentStorage()
 
-      const llmConfig = {
-        accessToken: token.accessToken,
-        apiBaseUrl: envConfig.llmApiBaseUrl,
-        fileSystemConfig: {workingDirectory: process.cwd()},
-        maxIterations: 10,
-        maxTokens: 8192,
-        model,
-        openRouterApiKey: flags.apiKey,
-        projectId: PROJECT,
-        sessionKey: token.sessionKey,
-        teamId: brvConfig?.teamId ?? '',
-        temperature: 0.7,
-        verbose: flags.verbose ?? false,
-      }
+      // Create execution with status='queued'
+      storage.createExecution(
+        'curate',
+        JSON.stringify({
+          content,
+          flags: {apiKey: flags.apiKey, model: flags.model, verbose: flags.verbose},
+        }),
+      )
+      // Simple output for agents - just confirm saved
+      this.log('✓ Context saved')
 
-      // Create and start CipherAgent
-      const agent = new CipherAgent(llmConfig, brvConfig)
-
-      this.log('Starting autonomous context tree curation...')
-      await agent.start()
-
-      try {
-        const sessionId = this.generateSessionId()
-
-        // Setup event listeners
-        this.setupEventListeners(agent, flags.verbose ?? false)
-
-        // Process file references if provided
-        const fileReferenceInstructions = flags.files
-          ? this.processFileReferences(flags.files)
-          : ''
-
-        // Execute with autonomous mode and add commandType
-        const prompt = `Add the following context to the context tree:\n\n${content}`
-        const response = await agent.execute(prompt, sessionId, {
-          executionContext: {commandType: 'curate', fileReferenceInstructions},
-          mode: 'autonomous',
-        })
-
-        this.log('\nCipherAgent Response:')
-        this.log(response)
-
-        await trackingService.track('mem:curate')
-      } finally {
-        // console.log('Logic for agent stopping and resource cleanup may go here!')
-      }
+      // Track the event
+      await trackingService.track('mem:curate')
     } catch (error) {
       if (error instanceof WorkspaceNotInitializedError) {
         this.handleWorkspaceError(error)
@@ -450,64 +414,6 @@ Bad:
       await this.openFile(contextFilePath)
     } catch (error) {
       this.error(error instanceof Error ? error.message : 'Unexpected error occurred')
-    }
-  }
-
-  /**
-   * Setup event listeners for CipherAgent
-   */
-  private setupEventListeners(agent: CipherAgent, verbose: boolean): void {
-    if (!agent.agentEventBus) {
-      throw new Error('Agent event bus not initialized')
-    }
-
-    const eventBus = agent.agentEventBus
-
-    if (verbose) {
-      // Verbose mode: show detailed events
-      eventBus.on('llmservice:thinking', () => {
-        this.log('🤔 [Event] LLM is thinking...')
-      })
-
-      eventBus.on('llmservice:response', (payload) => {
-        this.log(`✅ [Event] LLM Response (${payload.provider}/${payload.model})`)
-      })
-
-      eventBus.on('llmservice:toolCall', (payload) => {
-        const formattedCall = formatToolCall(payload.toolName, payload.args)
-        this.log(`🔧 [Event] Tool Call: ${formattedCall}`)
-      })
-
-      eventBus.on('llmservice:toolResult', (payload) => {
-        const resultSummary = formatToolResult(payload.toolName, payload.success, payload.result, payload.error)
-
-        if (payload.success) {
-          this.log(`✓ [Event] Tool Success: ${payload.toolName} → ${resultSummary}`)
-        } else {
-          this.log(`✗ [Event] Tool Error: ${payload.toolName} → ${resultSummary}`)
-        }
-      })
-
-      eventBus.on('llmservice:error', (payload) => {
-        this.log(`❌ [Event] LLM Error: ${payload.error}`)
-      })
-    } else {
-      // Non-verbose mode: show concise tool progress
-      eventBus.on('llmservice:toolCall', (payload) => {
-        this.log(`🔧 ${payload.toolName} → Executing...`)
-      })
-
-      eventBus.on('llmservice:toolResult', (payload) => {
-        if (payload.success) {
-          this.log(`✅ ${payload.toolName} → Complete`)
-        } else {
-          this.log(`❌ ${payload.toolName} → Failed: ${payload.error ?? 'Unknown error'}`)
-        }
-      })
-
-      eventBus.on('llmservice:error', (payload) => {
-        this.log(addErrorPrefix(payload.error))
-      })
     }
   }
 

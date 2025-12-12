@@ -8,6 +8,7 @@ import {getCurrentConfig, isDevelopment} from '../config/environment.js'
 import {PROJECT} from '../constants.js'
 import {CipherAgent} from '../infra/cipher/cipher-agent.js'
 import {ExitCode, ExitError, exitWithCode} from '../infra/cipher/exit-codes.js'
+import {getAgentStorage, getAgentStorageSync} from '../infra/cipher/storage/agent-storage.js'
 import {WorkspaceNotInitializedError} from '../infra/cipher/validation/workspace-validator.js'
 import {ProjectConfigStore} from '../infra/config/file-config-store.js'
 import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
@@ -110,6 +111,10 @@ Bad:
 
     const {projectConfigStore, trackingService} = this.createServices()
 
+    // Initialize storage for tool call tracking (auto-detects .brv/blobs)
+    const storage = await getAgentStorage()
+    let executionId: null | string = null
+
     try {
       // Get authentication token
       const tokenStore = new KeychainTokenStore()
@@ -128,6 +133,12 @@ Bad:
           '.brv',
         )
       }
+
+      // Combine all query terms from argv (everything after flags)
+      const queryTerms = argv.join(' ')
+
+      // Create execution with status='running' (query runs synchronously)
+      executionId = storage.createExecution('query', queryTerms)
 
       // Create LLM config
       const model = flags.model ?? (flags.apiKey ? 'google/gemini-2.5-pro' : 'gemini-2.5-pro')
@@ -158,11 +169,9 @@ Bad:
       try {
         const sessionId = this.generateSessionId()
 
-        // Setup event listeners
+        // Setup event listeners (display + tool call tracking)
         this.setupEventListeners(agent, flags.verbose ?? false)
-
-        // Combine all query terms from argv (everything after flags)
-        const queryTerms = argv.join(' ')
+        this.setupToolCallTracking(agent, executionId)
 
         // Execute with autonomous mode and query commandType
         const prompt = `Search the context tree for: ${queryTerms}`
@@ -171,15 +180,25 @@ Bad:
           mode: 'autonomous',
         })
 
+        // Mark execution as completed
+        storage.updateExecutionStatus(executionId, 'completed', response)
+
         this.log('\nQuery Results:')
         this.log(response)
 
         // Track query
         await trackingService.track('mem:query')
       } finally {
-        // console.log('Logic for agent stopping and resource cleanup may go here!')
+        // Cleanup old executions
+        storage.cleanupOldExecutions(100)
       }
     } catch (error) {
+      // Mark execution as failed
+      if (executionId) {
+        const errorMessage = error instanceof Error ? error.message : String(error)
+        storage.updateExecutionStatus(executionId, 'failed', undefined, errorMessage)
+      }
+
       if (error instanceof WorkspaceNotInitializedError) {
         this.handleWorkspaceError(error)
         return
@@ -189,6 +208,15 @@ Bad:
       process.stderr.write('Failed to query context tree:\n')
       exitWithCode(ExitCode.RUNTIME_ERROR, formatError(error))
     }
+  }
+
+  /**
+   * Create result summary for tool call
+   */
+  private createResultSummary(result: string): string {
+    const lines = result.split('\n').length
+    const chars = result.length
+    return `${lines} lines, ${chars} chars`
   }
 
   /**
@@ -411,5 +439,48 @@ Bad:
       // NOTE: llmservice:error is handled by catch block in the run method
       // which displays error via this.error(). DO NOT display here to avoid duplicate.
     }
+  }
+
+  /**
+   * Setup tool call tracking to persist in database
+   */
+  private setupToolCallTracking(agent: CipherAgent, executionId: string): void {
+    if (!agent.agentEventBus) {
+      return
+    }
+
+    const storage = getAgentStorageSync()
+    const eventBus = agent.agentEventBus
+    const toolCallMap = new Map<string, string>() // callId -> dbToolCallId
+
+    eventBus.on('llmservice:toolCall', (payload) => {
+      try {
+        if (!payload.callId) return
+        const toolCallId = storage.addToolCall(executionId, {
+          args: payload.args,
+          name: payload.toolName,
+        })
+        toolCallMap.set(payload.callId, toolCallId)
+      } catch {
+        // Ignore errors - don't break query execution
+      }
+    })
+
+    eventBus.on('llmservice:toolResult', (payload) => {
+      try {
+        if (!payload.callId) return
+        const toolCallId = toolCallMap.get(payload.callId)
+        if (toolCallId) {
+          const result = typeof payload.result === 'string' ? payload.result : JSON.stringify(payload.result)
+          storage.updateToolCall(toolCallId, payload.success ? 'completed' : 'failed', {
+            error: payload.error,
+            result,
+            resultSummary: this.createResultSummary(result),
+          })
+        }
+      } catch {
+        // Ignore errors - don't break query execution
+      }
+    })
   }
 }
