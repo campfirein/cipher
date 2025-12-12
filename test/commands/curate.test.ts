@@ -1,6 +1,3 @@
-import type {Config} from '@oclif/core'
-
-import {Config as OclifConfig, ux} from '@oclif/core'
 import {expect} from 'chai'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -8,49 +5,20 @@ import path from 'node:path'
 import sinon, {restore, stub} from 'sinon'
 
 import type {IProjectConfigStore} from '../../src/core/interfaces/i-project-config-store.js'
+import type {ITerminal} from '../../src/core/interfaces/i-terminal.js'
+import type {ITokenStore} from '../../src/core/interfaces/i-token-store.js'
 import type {ITrackingService} from '../../src/core/interfaces/i-tracking-service.js'
 
-import Curate from '../../src/commands/curate.js'
+import {CurateUseCase, type CurateUseCaseOptions} from '../../src/infra/usecase/curate-use-case.js'
 import {createMockTerminal} from '../helpers/mock-factories.js'
 
 /**
- * Testable Curate command for runInteractive tests
+ * Testable CurateUseCase for runInteractive tests
  */
-class TestableCurate extends Curate {
+class TestableCurateUseCase extends CurateUseCase {
   public openCalledWith: null | string = null
-  private logMessages: string[] = []
   private mockNavigateResult: null | string = null
   private mockTopicName: null | string = null
-
-  public constructor(
-    private readonly mockProjectConfigStore: IProjectConfigStore,
-    private readonly mockTrackingService: ITrackingService,
-    config: Config,
-  ) {
-    super([], config)
-  }
-
-  protected createServices() {
-    this.terminal = this.createTerminal()
-    return {
-      projectConfigStore: this.mockProjectConfigStore,
-      trackingService: this.mockTrackingService,
-    }
-  }
-
-  protected createTerminal() {
-    return createMockTerminal({
-      log: (message?: string) => {
-        if (message) {
-          this.logMessages.push(message)
-        }
-      },
-    })
-  }
-
-  public getLogMessages(): string[] {
-    return this.logMessages
-  }
 
   protected async navigateContextTree(): Promise<null | string> {
     return this.mockNavigateResult
@@ -75,41 +43,9 @@ class TestableCurate extends Curate {
 }
 
 /**
- * Testable Curate command for createTopicWithContextFile tests
+ * Testable CurateUseCase for createTopicWithContextFile tests
  */
-class TestableCurateForMethods extends Curate {
-  private logMessages: string[] = []
-
-  public constructor(
-    private readonly mockProjectConfigStore: IProjectConfigStore,
-    private readonly mockTrackingService: ITrackingService,
-    config: Config,
-  ) {
-    super([], config)
-  }
-
-  protected createServices() {
-    this.terminal = this.createTerminal()
-    return {
-      projectConfigStore: this.mockProjectConfigStore,
-      trackingService: this.mockTrackingService,
-    }
-  }
-
-  protected createTerminal() {
-    return createMockTerminal({
-      log: (message?: string) => {
-        if (message) {
-          this.logMessages.push(message)
-        }
-      },
-    })
-  }
-
-  public getLogMessages(): string[] {
-    return this.logMessages
-  }
-
+class TestableCurateUseCaseForMethods extends CurateUseCase {
   // Expose protected method for testing
   public testCreateTopicWithContextFile(targetPath: string, topicName: string): string {
     return this.createTopicWithContextFile(targetPath, topicName)
@@ -123,39 +59,12 @@ class TestableCurateForMethods extends Curate {
 }
 
 /**
- * Testable Curate command for promptForTopicName tests
+ * Testable CurateUseCase for promptForTopicName tests
  */
-class TestableCurateForPrompt extends Curate {
+class TestableCurateUseCaseForPrompt extends CurateUseCase {
   public inputCalledWithMessage: null | string = null
-  private logMessages: string[] = []
   private mockInputResult: null | string = null
   private mockInputShouldThrow = false
-
-  public constructor(
-    private readonly mockProjectConfigStore: IProjectConfigStore,
-    private readonly mockTrackingService: ITrackingService,
-    config: Config,
-  ) {
-    super([], config)
-  }
-
-  protected createServices() {
-    this.terminal = createMockTerminal({
-      log: (message?: string) => {
-        if (message) {
-          this.logMessages.push(message)
-        }
-      },
-    })
-    return {
-      projectConfigStore: this.mockProjectConfigStore,
-      trackingService: this.mockTrackingService,
-    }
-  }
-
-  public getLogMessages(): string[] {
-    return this.logMessages
-  }
 
   // Override promptForTopicName to use mock input
   protected async promptForTopicName(targetPath: string): Promise<null | string> {
@@ -194,25 +103,35 @@ class TestableCurateForPrompt extends Curate {
 }
 
 describe('Curate Command - Interactive Mode', () => {
-  let config: Config
+  let loggedMessages: string[]
   let projectConfigStore: sinon.SinonStubbedInstance<IProjectConfigStore>
+  let terminal: ITerminal
+  let tokenStore: sinon.SinonStubbedInstance<ITokenStore>
   let trackingService: sinon.SinonStubbedInstance<ITrackingService>
-  let uxActionStartStub: sinon.SinonStub
-  let uxActionStopStub: sinon.SinonStub
   let tempDir: string
 
-  before(async () => {
-    config = await OclifConfig.load(import.meta.url)
-  })
-
   beforeEach(() => {
-    uxActionStartStub = stub(ux.action, 'start')
-    uxActionStopStub = stub(ux.action, 'stop')
+    loggedMessages = []
+
+    terminal = createMockTerminal({
+      log(message?: string) {
+        if (message) {
+          loggedMessages.push(message)
+        }
+      },
+    })
+
+    tokenStore = {
+      clear: stub(),
+      load: stub(),
+      save: stub(),
+    }
 
     projectConfigStore = {
-      read: stub().resolves(),
-      write: stub().resolves(),
-    } as unknown as sinon.SinonStubbedInstance<IProjectConfigStore>
+      exists: stub(),
+      read: stub(),
+      write: stub(),
+    }
 
     trackingService = {
       track: stub().resolves(),
@@ -223,44 +142,48 @@ describe('Curate Command - Interactive Mode', () => {
   })
 
   afterEach(() => {
-    uxActionStartStub.restore()
-    uxActionStopStub.restore()
-
     // Clean up temp directory
     fs.rmSync(tempDir, {force: true, recursive: true})
 
     restore()
   })
 
+  function createUseCaseOptions(): CurateUseCaseOptions {
+    return {
+      projectConfigStore,
+      terminal,
+      tokenStore,
+      trackingService,
+    }
+  }
+
   describe('runInteractive', () => {
     it('should cancel when navigation returns null', async () => {
-      const cmd = new TestableCurate(projectConfigStore, trackingService, config)
-      cmd.setMockNavigateResult(null)
-      cmd.setMockTopicName('test-topic')
+      const useCase = new TestableCurateUseCase(createUseCaseOptions())
+      useCase.setMockNavigateResult(null)
+      useCase.setMockTopicName('test-topic')
 
-      await cmd.run()
+      await useCase.run({})
 
-      const messages = cmd.getLogMessages()
-      expect(messages.some((m) => m.includes('cancelled'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('cancelled'))).to.be.true
     })
 
     it('should cancel when topic name prompt returns null', async () => {
-      const cmd = new TestableCurate(projectConfigStore, trackingService, config)
-      cmd.setMockNavigateResult(tempDir)
-      cmd.setMockTopicName(null)
+      const useCase = new TestableCurateUseCase(createUseCaseOptions())
+      useCase.setMockNavigateResult(tempDir)
+      useCase.setMockTopicName(null)
 
-      await cmd.run()
+      await useCase.run({})
 
-      const messages = cmd.getLogMessages()
-      expect(messages.some((m) => m.includes('cancelled'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('cancelled'))).to.be.true
     })
 
     it('should create topic folder and open context.md file', async () => {
-      const cmd = new TestableCurate(projectConfigStore, trackingService, config)
-      cmd.setMockNavigateResult(tempDir)
-      cmd.setMockTopicName('my-new-topic')
+      const useCase = new TestableCurateUseCase(createUseCaseOptions())
+      useCase.setMockNavigateResult(tempDir)
+      useCase.setMockTopicName('my-new-topic')
 
-      await cmd.run()
+      await useCase.run({})
 
       // Verify folder and file created
       const topicPath = path.join(tempDir, 'my-new-topic')
@@ -275,20 +198,19 @@ describe('Curate Command - Interactive Mode', () => {
       expect(content).to.include('<!-- Add your context here -->')
 
       // Verify log messages
-      const messages = cmd.getLogMessages()
-      expect(messages.some((m) => m.includes('Created:'))).to.be.true
-      expect(messages.some((m) => m.includes('Opening context.md for editing...'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('Created:'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('Opening context.md for editing...'))).to.be.true
 
       // Verify open was called with correct path
-      expect(cmd.openCalledWith).to.equal(contextFilePath)
+      expect(useCase.openCalledWith).to.equal(contextFilePath)
     })
   })
 
   describe('createTopicWithContextFile', () => {
     it('should create topic folder with context.md file', () => {
-      const cmd = new TestableCurateForMethods(projectConfigStore, trackingService, config)
+      const useCase = new TestableCurateUseCaseForMethods(createUseCaseOptions())
 
-      const contextFilePath = cmd.testCreateTopicWithContextFile(tempDir, 'test-topic')
+      const contextFilePath = useCase.testCreateTopicWithContextFile(tempDir, 'test-topic')
 
       const topicPath = path.join(tempDir, 'test-topic')
       expect(fs.existsSync(topicPath)).to.be.true
@@ -297,28 +219,28 @@ describe('Curate Command - Interactive Mode', () => {
     })
 
     it('should create context.md with correct initial content', () => {
-      const cmd = new TestableCurateForMethods(projectConfigStore, trackingService, config)
+      const useCase = new TestableCurateUseCaseForMethods(createUseCaseOptions())
 
-      const contextFilePath = cmd.testCreateTopicWithContextFile(tempDir, 'My Topic')
+      const contextFilePath = useCase.testCreateTopicWithContextFile(tempDir, 'My Topic')
 
       const content = fs.readFileSync(contextFilePath, 'utf8')
       expect(content).to.equal('# My Topic\n\n<!-- Add your context here -->\n')
     })
 
     it('should create nested directories if needed', () => {
-      const cmd = new TestableCurateForMethods(projectConfigStore, trackingService, config)
+      const useCase = new TestableCurateUseCaseForMethods(createUseCaseOptions())
       const nestedPath = path.join(tempDir, 'nested', 'path')
 
-      const contextFilePath = cmd.testCreateTopicWithContextFile(nestedPath, 'deep-topic')
+      const contextFilePath = useCase.testCreateTopicWithContextFile(nestedPath, 'deep-topic')
 
       expect(fs.existsSync(path.join(nestedPath, 'deep-topic', 'context.md'))).to.be.true
       expect(contextFilePath).to.equal(path.join(nestedPath, 'deep-topic', 'context.md'))
     })
 
     it('should return the path to context.md file', () => {
-      const cmd = new TestableCurateForMethods(projectConfigStore, trackingService, config)
+      const useCase = new TestableCurateUseCaseForMethods(createUseCaseOptions())
 
-      const result = cmd.testCreateTopicWithContextFile(tempDir, 'result-topic')
+      const result = useCase.testCreateTopicWithContextFile(tempDir, 'result-topic')
 
       expect(result).to.equal(path.join(tempDir, 'result-topic', 'context.md'))
     })
@@ -326,52 +248,52 @@ describe('Curate Command - Interactive Mode', () => {
 
   describe('promptForTopicName', () => {
     it('should return null when input is cancelled', async () => {
-      const cmd = new TestableCurateForPrompt(projectConfigStore, trackingService, config)
-      cmd.setMockInputShouldThrow(true)
+      const useCase = new TestableCurateUseCaseForPrompt(createUseCaseOptions())
+      useCase.setMockInputShouldThrow(true)
 
-      const result = await cmd.testPromptForTopicName(tempDir)
+      const result = await useCase.testPromptForTopicName(tempDir)
 
       expect(result).to.be.null
     })
 
     it('should return trimmed topic name on valid input', async () => {
-      const cmd = new TestableCurateForPrompt(projectConfigStore, trackingService, config)
-      cmd.setMockInputResult('  valid-topic  ')
+      const useCase = new TestableCurateUseCaseForPrompt(createUseCaseOptions())
+      useCase.setMockInputResult('  valid-topic  ')
 
-      const result = await cmd.testPromptForTopicName(tempDir)
+      const result = await useCase.testPromptForTopicName(tempDir)
 
       expect(result).to.equal('valid-topic')
     })
 
     it('should use correct prompt message', async () => {
-      const cmd = new TestableCurateForPrompt(projectConfigStore, trackingService, config)
-      cmd.setMockInputResult('topic')
+      const useCase = new TestableCurateUseCaseForPrompt(createUseCaseOptions())
+      useCase.setMockInputResult('topic')
 
-      await cmd.testPromptForTopicName(tempDir)
+      await useCase.testPromptForTopicName(tempDir)
 
-      expect(cmd.inputCalledWithMessage).to.equal('New topic name:')
+      expect(useCase.inputCalledWithMessage).to.equal('New topic name:')
     })
   })
 
   describe('validateTopicName', () => {
     it('should reject empty topic name', () => {
-      const cmd = new TestableCurateForMethods(projectConfigStore, trackingService, config)
+      const useCase = new TestableCurateUseCaseForMethods(createUseCaseOptions())
 
-      const result = cmd.testValidateTopicName('', tempDir)
+      const result = useCase.testValidateTopicName('', tempDir)
       expect(result).to.equal('Topic name cannot be empty')
     })
 
     it('should reject topic name with only whitespace', () => {
-      const cmd = new TestableCurateForMethods(projectConfigStore, trackingService, config)
+      const useCase = new TestableCurateUseCaseForMethods(createUseCaseOptions())
 
-      const result = cmd.testValidateTopicName('   ', tempDir)
+      const result = useCase.testValidateTopicName('   ', tempDir)
       expect(result).to.equal('Topic name cannot be empty')
     })
 
     it('should reject topic name containing slash', () => {
-      const cmd = new TestableCurateForMethods(projectConfigStore, trackingService, config)
+      const useCase = new TestableCurateUseCaseForMethods(createUseCaseOptions())
 
-      const result = cmd.testValidateTopicName('invalid/name', tempDir)
+      const result = useCase.testValidateTopicName('invalid/name', tempDir)
       expect(result).to.equal('Topic name cannot contain "/" or null characters')
     })
 
@@ -380,30 +302,30 @@ describe('Curate Command - Interactive Mode', () => {
       const existingFolder = path.join(tempDir, 'existing-topic')
       fs.mkdirSync(existingFolder, {recursive: true})
 
-      const cmd = new TestableCurateForMethods(projectConfigStore, trackingService, config)
+      const useCase = new TestableCurateUseCaseForMethods(createUseCaseOptions())
 
-      const result = cmd.testValidateTopicName('existing-topic', tempDir)
+      const result = useCase.testValidateTopicName('existing-topic', tempDir)
       expect(result).to.equal('Topic "existing-topic" already exists at this location')
     })
 
     it('should accept valid topic name', () => {
-      const cmd = new TestableCurateForMethods(projectConfigStore, trackingService, config)
+      const useCase = new TestableCurateUseCaseForMethods(createUseCaseOptions())
 
-      const result = cmd.testValidateTopicName('valid-topic-name', tempDir)
+      const result = useCase.testValidateTopicName('valid-topic-name', tempDir)
       expect(result).to.be.true
     })
 
     it('should accept topic name with spaces', () => {
-      const cmd = new TestableCurateForMethods(projectConfigStore, trackingService, config)
+      const useCase = new TestableCurateUseCaseForMethods(createUseCaseOptions())
 
-      const result = cmd.testValidateTopicName('Topic With Spaces', tempDir)
+      const result = useCase.testValidateTopicName('Topic With Spaces', tempDir)
       expect(result).to.be.true
     })
 
     it('should accept topic name with special characters', () => {
-      const cmd = new TestableCurateForMethods(projectConfigStore, trackingService, config)
+      const useCase = new TestableCurateUseCaseForMethods(createUseCaseOptions())
 
-      const result = cmd.testValidateTopicName('topic-with_special.chars', tempDir)
+      const result = useCase.testValidateTopicName('topic-with_special.chars', tempDir)
       expect(result).to.be.true
     })
   })

@@ -1,27 +1,13 @@
 import {Args, Command, Flags} from '@oclif/core'
-import {randomUUID} from 'node:crypto'
-import fs from 'node:fs'
-import path from 'node:path'
-import open from 'open'
 
-import type {IProjectConfigStore} from '../core/interfaces/i-project-config-store.js'
-import type {ITerminal} from '../core/interfaces/i-terminal.js'
-import type {ITrackingService} from '../core/interfaces/i-tracking-service.js'
+import type {ICurateUseCase} from '../core/interfaces/usecase/i-curate-use-case.js'
 
-import {CONTEXT_TREE_DOMAINS} from '../config/context-tree-domains.js'
 import {isDevelopment} from '../config/environment.js'
-import {BRV_DIR, CONTEXT_FILE, CONTEXT_TREE_DIR} from '../constants.js'
-import {ExitCode, ExitError, exitWithCode} from '../infra/cipher/exit-codes.js'
-import {getAgentStorage} from '../infra/cipher/storage/agent-storage.js'
-import {WorkspaceNotInitializedError} from '../infra/cipher/validation/workspace-validator.js'
 import {ProjectConfigStore} from '../infra/config/file-config-store.js'
 import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
 import {OclifTerminal} from '../infra/terminal/oclif-terminal.js'
 import {MixpanelTrackingService} from '../infra/tracking/mixpanel-tracking-service.js'
-import {validateFileForCurate} from '../utils/file-validator.js'
-
-// Full path to context tree
-const CONTEXT_TREE_PATH = path.join(BRV_DIR, CONTEXT_TREE_DIR)
+import {CurateUseCase} from '../infra/usecase/curate-use-case.js'
 
 export default class Curate extends Command {
   public static args = {
@@ -92,349 +78,25 @@ Bad:
         }
       : {}),
   }
-  protected terminal: ITerminal = {} as ITerminal
 
-  // Override catch to prevent oclif from logging errors that were already displayed
-  async catch(error: Error & {oclif?: {exit: number}}): Promise<void> {
-    // Check if error is ExitError (message already displayed by exitWithCode)
-    if (error instanceof ExitError) {
-      return
-    }
-
-    // Backwards compatibility: also check oclif.exit property
-    if (error.oclif?.exit !== undefined) {
-      return
-    }
-
-    // For other errors, re-throw to let oclif handle them
-    throw error
-  }
-
-  protected createServices(): {
-    projectConfigStore: IProjectConfigStore
-    trackingService: ITrackingService
-  } {
-    this.terminal = new OclifTerminal(this)
-    return {
+  protected createUseCase(): ICurateUseCase {
+    const tokenStore = new KeychainTokenStore()
+    return new CurateUseCase({
       projectConfigStore: new ProjectConfigStore(),
-      trackingService: new MixpanelTrackingService(new KeychainTokenStore()),
-    }
-  }
-
-  /**
-   * Create topic folder with context.md file
-   * @param targetPath - The parent path where the topic folder will be created
-   * @param topicName - The name of the topic folder to create
-   * @returns The path to the created context.md file
-   */
-  protected createTopicWithContextFile(targetPath: string, topicName: string): string {
-    const topicPath = path.join(targetPath, topicName)
-    const contextFilePath = path.join(topicPath, CONTEXT_FILE)
-
-    // Create the topic directory
-    fs.mkdirSync(topicPath, {recursive: true})
-
-    // Create the context.md file with initial content
-    const initialContent = `# ${topicName}\n\n<!-- Add your context here -->\n`
-    fs.writeFileSync(contextFilePath, initialContent, 'utf8')
-
-    return contextFilePath
-  }
-
-  /**
-   * Generate a unique session ID for the autonomous agent.
-   * Uses crypto.randomUUID() for guaranteed uniqueness (122 bits of entropy).
-   */
-  protected generateSessionId(): string {
-    return randomUUID()
-  }
-
-  /**
-   * Navigate through the context tree using file selector
-   * Returns the selected path relative to context-tree root
-   */
-  protected async navigateContextTree(): Promise<null | string> {
-    const contextTreePath = path.resolve(process.cwd(), CONTEXT_TREE_PATH)
-
-    // Ensure context tree directory exists
-    if (!fs.existsSync(contextTreePath)) {
-      fs.mkdirSync(contextTreePath, {recursive: true})
-    }
-
-    // Ensure predefined domains exist as directories
-    for (const domain of CONTEXT_TREE_DOMAINS) {
-      const domainPath = path.join(contextTreePath, domain.name)
-      if (!fs.existsSync(domainPath)) {
-        fs.mkdirSync(domainPath, {recursive: true})
-      }
-    }
-
-    while (true) {
-      try {
-        // eslint-disable-next-line no-await-in-loop
-        const selectedItem = await this.terminal.fileSelector({
-          allowCancel: true,
-          basePath: contextTreePath,
-          filter: (item) => item.isDirectory,
-          message: 'Target context location:',
-          pageSize: 15,
-          theme: {
-            labels: {
-              messages: {
-                cancel: 'Selection cancelled.',
-                empty: 'No sub-folders. Press Enter to add content here.',
-              },
-            },
-          },
-          type: 'directory',
-        })
-
-        // User cancelled
-        if (!selectedItem) {
-          return null
-        }
-
-        // Restrict navigation to stay within the context tree
-        const normalizedItemPath = path.resolve(selectedItem.path)
-        const isValid = normalizedItemPath.startsWith(contextTreePath)
-
-        if (isValid) {
-          // Valid selection - proceed
-          return selectedItem.path
-        }
-
-        // Invalid selection - retry
-        this.terminal.log('Invalid selection. Please choose a valid location within the context tree.')
-      } catch {
-        // Error occurred
-        return null
-      }
-    }
-  }
-
-  /**
-   * Open a file in the default editor
-   * @param filePath - The path to the file to open
-   */
-  protected async openFile(filePath: string): Promise<void> {
-    await open(filePath)
-  }
-
-  /**
-   * Process file paths from --files flag
-   * @param filePaths - Array of file paths (relative or absolute)
-   * @returns Formatted instructions for the agent to read the specified files
-   */
-  protected processFileReferences(filePaths: string[]): string {
-    const MAX_FILES = 5
-
-    if (!filePaths || filePaths.length === 0) {
-      return ''
-    }
-
-    // Validate max files and truncate if needed
-    if (filePaths.length > MAX_FILES) {
-      const ignored = filePaths.slice(MAX_FILES)
-      this.log(`\n⚠️  Only the first ${MAX_FILES} files will be processed. Ignoring: ${ignored.join(', ')}\n`)
-      filePaths = filePaths.slice(0, MAX_FILES)
-    }
-
-    // Get project root (current directory with .brv)
-    const projectRoot = process.cwd()
-
-    // Validate each file and collect errors
-    const validPaths: string[] = []
-    const errors: string[] = []
-
-    for (const filePath of filePaths) {
-      const result = validateFileForCurate(filePath, projectRoot)
-
-      if (result.valid && result.normalizedPath) {
-        validPaths.push(result.normalizedPath)
-      } else {
-        errors.push(`  ✗ ${result.error}`)
-      }
-    }
-
-    // If there are any validation errors, show them and exit
-    if (errors.length > 0) {
-      this.log('\n❌ File validation failed:\n')
-      this.log(errors.join('\n'))
-      this.log('')
-      exitWithCode(ExitCode.VALIDATION_ERROR, 'Invalid files provided. Please fix the errors above and try again.')
-    }
-
-    // Format instructions for the agent
-    const instructions = [
-      '\n## IMPORTANT: Critical Files to Read (--files flag)',
-      '',
-      'The user has explicitly specified these files as critical context that MUST be read before creating knowledge topics:',
-      '',
-      ...validPaths.map((p) => `- ${p}`),
-      '',
-      '**MANDATORY INSTRUCTIONS:**',
-      '- You MUST use the `read_file` tool to read ALL of these files IN PARALLEL (in a single iteration) before proceeding to create knowledge topics',
-      '- These files contain essential context that will help you create comprehensive and accurate knowledge topics',
-      '- Read them in parallel to maximize efficiency - they do not depend on each other',
-      '- After reading all files, proceed with the normal workflow: detect domains, find existing knowledge, and create/update topics',
-      '',
-    ]
-
-    return instructions.join('\n')
-  }
-
-  /**
-   * Prompt user to enter topic name with validation
-   * @param targetPath - The path where the topic folder will be created
-   * @returns The topic name or null if cancelled
-   */
-  protected async promptForTopicName(targetPath: string): Promise<null | string> {
-    try {
-      const topicName = await this.terminal.input({
-        message: 'New topic name:',
-        validate: (value) => this.validateTopicName(value, targetPath),
-      })
-
-      return topicName.trim()
-    } catch {
-      return null
-    }
+      terminal: new OclifTerminal(this),
+      tokenStore,
+      trackingService: new MixpanelTrackingService(tokenStore),
+    })
   }
 
   public async run(): Promise<void> {
     const {args, flags} = await this.parse(Curate)
-
-    // Determine mode: autonomous if context is provided via args
-    const contextInput = args.context
-
-    // Autonomous mode: use CipherAgent to process context
-    // Interactive mode: manually prompt for domain/topic/context
-    return contextInput ? this.runAutonomous(contextInput, flags) : this.runInteractive()
-  }
-
-  /**
-   * Handle workspace not initialized error
-   */
-  private handleWorkspaceError(_error: WorkspaceNotInitializedError): void {
-    const message = 'Project not initialized. Please run "brv init" to select your team and workspace.'
-
-    exitWithCode(ExitCode.VALIDATION_ERROR, message)
-  }
-
-  /**
-   * Run in autonomous mode - push to queue for background processing
-   */
-  private async runAutonomous(
-    content: string,
-    flags: {
-      apiKey?: string
-      files?: string[]
-      model?: string
-      verbose?: boolean
-    },
-  ): Promise<void> {
-    const {projectConfigStore, trackingService} = this.createServices()
-
-    try {
-      // Get authentication token
-      const tokenStore = new KeychainTokenStore()
-      const token = await tokenStore.load()
-      if (!token) {
-        exitWithCode(ExitCode.CONFIG_ERROR, 'Authentication required. Please run "brv login" first.')
-      }
-
-      // Load project config
-      const brvConfig = await projectConfigStore.read()
-
-      // Validate workspace is initialized
-      if (!brvConfig) {
-        throw new WorkspaceNotInitializedError(
-          'Project not initialized. Please run "brv init" to select your team and workspace.',
-          '.brv',
-        )
-      }
-
-      // Initialize storage and create execution (auto-detects .brv/blobs)
-      const storage = await getAgentStorage()
-
-      // Create execution with status='queued'
-      storage.createExecution(
-        'curate',
-        JSON.stringify({
-          content,
-          flags: {apiKey: flags.apiKey, model: flags.model, verbose: flags.verbose},
-        }),
-      )
-      // Simple output for agents - just confirm saved
-      this.log('✓ Context saved')
-
-      // Track the event
-      await trackingService.track('mem:curate')
-    } catch (error) {
-      if (error instanceof WorkspaceNotInitializedError) {
-        this.handleWorkspaceError(error)
-        return
-      }
-
-      // Throw error to let oclif handle exit code
-      this.terminal.error(error instanceof Error ? error.message : 'Runtime error occurred')
-    }
-  }
-
-  /**
-   * Run in interactive mode with manual prompts
-   */
-  private async runInteractive(): Promise<void> {
-    const {trackingService} = this.createServices()
-    try {
-      // Navigate to target location in context tree
-      const targetPath = await this.navigateContextTree()
-
-      if (!targetPath) {
-        this.terminal.log('\nOperation cancelled.')
-        return
-      }
-
-      // Prompt for topic name with validation
-      const topicName = await this.promptForTopicName(targetPath)
-
-      if (!topicName) {
-        this.terminal.log('\nOperation cancelled.')
-        return
-      }
-
-      // Create the topic folder with context.md
-      const contextFilePath = this.createTopicWithContextFile(targetPath, topicName)
-      this.terminal.log(`\nCreated: ${contextFilePath}`)
-
-      // Track the event
-      trackingService.track('mem:curate')
-
-      // Auto-open context.md in default editor
-      this.terminal.log('Opening context.md for editing...')
-      await this.openFile(contextFilePath)
-    } catch (error) {
-      this.terminal.error(error instanceof Error ? error.message : 'Unexpected error occurred')
-    }
-  }
-
-  private validateTopicName(value: string, targetPath: string): boolean | string {
-    const trimmed = value.trim()
-    if (!trimmed) {
-      return 'Topic name cannot be empty'
-    }
-
-    // Check for invalid characters in folder names (filesystem restrictions)
-    if (/[/\0]/.test(trimmed)) {
-      return 'Topic name cannot contain "/" or null characters'
-    }
-
-    // Check if folder already exists
-    const topicPath = path.join(targetPath, trimmed)
-    if (fs.existsSync(topicPath)) {
-      return `Topic "${trimmed}" already exists at this location`
-    }
-
-    return true
+    await this.createUseCase().run({
+      apiKey: flags.apiKey,
+      context: args.context,
+      files: flags.files,
+      model: flags.model,
+      verbose: flags.verbose,
+    })
   }
 }
