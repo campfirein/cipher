@@ -17,11 +17,15 @@ import Login from '../../src/commands/login.js'
 import {AuthToken} from '../../src/core/domain/entities/auth-token.js'
 import {OAuthTokenData} from '../../src/core/domain/entities/oauth-token-data.js'
 import {User} from '../../src/core/domain/entities/user.js'
+import {createMockTerminal} from '../helpers/mock-factories.js'
 
 /**
  * Testable Login command that accepts mocked services
  */
 class TestableLogin extends Login {
+  public errorMessages: string[] = []
+  public logMessages: string[] = []
+
   // eslint-disable-next-line max-params
   constructor(
     private readonly mockAuthService: IAuthService,
@@ -41,6 +45,10 @@ class TestableLogin extends Login {
   }
 
   protected createServices() {
+    this.terminal = createMockTerminal({
+      error: (msg) => this.errorMessages.push(msg),
+      log: (msg) => msg !== undefined && this.logMessages.push(msg),
+    })
     return {
       browserLauncher: this.mockBrowserLauncher,
       callbackHandler: this.mockCallbackHandler,
@@ -49,22 +57,6 @@ class TestableLogin extends Login {
       trackingService: this.mockTrackingService,
       userService: this.mockUserService,
     }
-  }
-
-  // Suppress all output to prevent noisy test runs
-  public error(input: Error | string): never {
-    // Throw error to maintain behavior but suppress output
-    const errorMessage = typeof input === 'string' ? input : input.message
-    throw new Error(errorMessage)
-  }
-
-  public log(): void {
-    // Do nothing - suppress output
-  }
-
-  public warn(input: Error | string): Error | string {
-    // Do nothing - suppress output, but return input to match base signature
-    return input
   }
 }
 
@@ -219,14 +211,10 @@ describe('login command', () => {
         config,
       )
 
-      try {
-        await command.run()
-        expect.fail('Should have thrown error')
-      } catch (error) {
-        expect(error).to.be.an('error')
-        expect((error as Error).message).to.include('Failed to fetch user information')
-      }
+      await command.run()
 
+      expect(command.errorMessages).to.have.lengthOf(1)
+      expect(command.errorMessages[0]).to.include('Failed to fetch user information')
       // Verify token was NOT saved when user fetch fails
       expect(tokenStore.save.called).to.be.false
       // Verify cleanup still happened
@@ -308,14 +296,10 @@ describe('login command', () => {
         config,
       )
 
-      try {
-        await command.run()
-        expect.fail('Should have thrown error')
-      } catch (error) {
-        expect(error).to.be.an('error')
-        expect((error as Error).message).to.include('Authentication timeout')
-      }
+      await command.run()
 
+      expect(command.errorMessages).to.have.lengthOf(1)
+      expect(command.errorMessages[0]).to.include('Authentication timeout')
       // Verify cleanup happened
       expect(callbackHandler.stop.calledOnce).to.be.true
       expect(tokenStore.save.called).to.be.false
@@ -349,14 +333,10 @@ describe('login command', () => {
         config,
       )
 
-      try {
-        await command.run()
-        expect.fail('Should have thrown error')
-      } catch (error) {
-        expect(error).to.be.an('error')
-        expect((error as Error).message).to.include('Invalid authorization code')
-      }
+      await command.run()
 
+      expect(command.errorMessages).to.have.lengthOf(1)
+      expect(command.errorMessages[0]).to.include('Invalid authorization code')
       // Verify cleanup happened
       expect(callbackHandler.stop.calledOnce).to.be.true
       expect(tokenStore.save.called).to.be.false
@@ -380,14 +360,10 @@ describe('login command', () => {
         config,
       )
 
-      try {
-        await command.run()
-        expect.fail('Should have thrown error')
-      } catch (error) {
-        expect(error).to.be.an('error')
-        expect((error as Error).message).to.include('Port already in use')
-      }
+      await command.run()
 
+      expect(command.errorMessages).to.have.lengthOf(1)
+      expect(command.errorMessages[0]).to.include('Port already in use')
       // Verify cleanup still attempted
       expect(callbackHandler.stop.calledOnce).to.be.true
     })

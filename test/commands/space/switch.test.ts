@@ -1,60 +1,63 @@
-import {Config, ux} from '@oclif/core'
+import {Config} from '@oclif/core'
 import {expect} from 'chai'
 import {restore, type SinonStub, stub} from 'sinon'
 
 import type {Agent} from '../../../src/core/domain/entities/agent.js'
+import type {Space} from '../../../src/core/domain/entities/space.js'
+import type {Team} from '../../../src/core/domain/entities/team.js'
 import type {IProjectConfigStore} from '../../../src/core/interfaces/i-project-config-store.js'
 import type {ISpaceService} from '../../../src/core/interfaces/i-space-service.js'
 import type {ITeamService} from '../../../src/core/interfaces/i-team-service.js'
+import type {ITerminal} from '../../../src/core/interfaces/i-terminal.js'
 import type {ITokenStore} from '../../../src/core/interfaces/i-token-store.js'
+import type {IWorkspaceDetectorService} from '../../../src/core/interfaces/i-workspace-detector-service.js'
+import type {ISpaceSwitchUseCase} from '../../../src/core/interfaces/usecase/i-space-switch-use-case.js'
 
 import SpaceSwitch from '../../../src/commands/space/switch.js'
 import {BRV_CONFIG_VERSION} from '../../../src/constants.js'
 import {AuthToken} from '../../../src/core/domain/entities/auth-token.js'
 import {BrvConfig} from '../../../src/core/domain/entities/brv-config.js'
-import {Space} from '../../../src/core/domain/entities/space.js'
-import {Team} from '../../../src/core/domain/entities/team.js'
+import {Space as SpaceEntity} from '../../../src/core/domain/entities/space.js'
+import {Team as TeamEntity} from '../../../src/core/domain/entities/team.js'
+import {SpaceSwitchUseCase} from '../../../src/infra/usecase/space-switch-use-case.js'
+import {createMockTerminal} from '../../helpers/mock-factories.js'
 
-class TestableSpaceSwitch extends SpaceSwitch {
-  // eslint-disable-next-line max-params
-  public constructor(
-    private readonly mockConfigStore: IProjectConfigStore,
-    private readonly mockSpaceService: ISpaceService,
-    private readonly mockTeamService: ITeamService,
-    private readonly mockTokenStore: ITokenStore,
-    private readonly mockSelectedTeam: Team,
-    private readonly mockSelectedSpace: Space,
-    config: Config,
-  ) {
-    super([], config)
-  }
+interface TestableUseCaseOptions {
+  mockSelectedAgent: Agent
+  mockSelectedSpace: Space
+  mockSelectedTeam: Team
+  projectConfigStore: IProjectConfigStore
+  spaceService: ISpaceService
+  teamService: ITeamService
+  terminal: ITerminal
+  tokenStore: ITokenStore
+  workspaceDetector: IWorkspaceDetectorService
+}
 
-  protected createServices(): {
-    projectConfigStore: IProjectConfigStore
-    spaceService: ISpaceService
-    teamService: ITeamService
-    tokenStore: ITokenStore
-  } {
-    return {
-      projectConfigStore: this.mockConfigStore,
-      spaceService: this.mockSpaceService,
-      teamService: this.mockTeamService,
-      tokenStore: this.mockTokenStore,
-    }
-  }
+/**
+ * Testable use case that allows overriding prompts
+ */
+class TestableSpaceSwitchUseCase extends SpaceSwitchUseCase {
+  private readonly mockSelectedAgent: Agent
+  private readonly mockSelectedSpace: Space
+  private readonly mockSelectedTeam: Team
 
-  // Suppress all output to prevent noisy test runs
-  public error(input: Error | string): never {
-    const errorMessage = typeof input === 'string' ? input : input.message
-    throw new Error(errorMessage)
-  }
-
-  public log(): void {
-    // Do nothing - suppress output
+  constructor(options: TestableUseCaseOptions) {
+    super({
+      projectConfigStore: options.projectConfigStore,
+      spaceService: options.spaceService,
+      teamService: options.teamService,
+      terminal: options.terminal,
+      tokenStore: options.tokenStore,
+      workspaceDetector: options.workspaceDetector,
+    })
+    this.mockSelectedAgent = options.mockSelectedAgent
+    this.mockSelectedSpace = options.mockSelectedSpace
+    this.mockSelectedTeam = options.mockSelectedTeam
   }
 
   protected async promptForAgentSelection(): Promise<Agent> {
-    return 'Claude Code'
+    return this.mockSelectedAgent
   }
 
   protected async promptForSpaceSelection(_spaces: Space[]): Promise<Space> {
@@ -64,10 +67,18 @@ class TestableSpaceSwitch extends SpaceSwitch {
   protected async promptForTeamSelection(_teams: Team[]): Promise<Team> {
     return this.mockSelectedTeam
   }
+}
 
-  public warn(input: Error | string): Error | string {
-    // Do nothing - suppress output, but return input to match base signature
-    return input
+/**
+ * Testable command that accepts a pre-configured use case
+ */
+class TestableSpaceSwitch extends SpaceSwitch {
+  constructor(private readonly useCase: ISpaceSwitchUseCase, config: Config) {
+    super([], config)
+  }
+
+  protected createUseCase(): ISpaceSwitchUseCase {
+    return this.useCase
   }
 }
 
@@ -88,22 +99,17 @@ describe('space:switch', () => {
     load: SinonStub
     save: SinonStub
   }
+  let workspaceDetector: {
+    detectWorkspaces: SinonStub
+  }
   let oclifConfig: Config
-  let testSpaces: Space[]
-  let testTeams: Team[]
+  let testSpaces: SpaceEntity[]
+  let testTeams: TeamEntity[]
   let validToken: AuthToken
   let currentConfig: BrvConfig
 
-  // Stub ux.action to suppress spinner output
-  let uxActionStartStub: SinonStub
-  let uxActionStopStub: SinonStub
-
   beforeEach(async () => {
     oclifConfig = await Config.load(import.meta.url)
-
-    // Stub ux.action methods to suppress output
-    uxActionStartStub = stub(ux.action, 'start')
-    uxActionStopStub = stub(ux.action, 'stop')
 
     tokenStore = {
       clear: stub(),
@@ -125,6 +131,10 @@ describe('space:switch', () => {
       write: stub(),
     }
 
+    workspaceDetector = {
+      detectWorkspaces: stub().returns({chatLogPath: '', cwd: '/test/cwd'}),
+    }
+
     validToken = new AuthToken({
       accessToken: 'access-token',
       expiresAt: new Date(Date.now() + 3600 * 1000), // Expires in 1 hour
@@ -136,12 +146,12 @@ describe('space:switch', () => {
     })
 
     testSpaces = [
-      new Space('space-1', 'frontend-app', 'team-1', 'acme-corp'),
-      new Space('space-2', 'backend-api', 'team-1', 'acme-corp'),
+      new SpaceEntity('space-1', 'frontend-app', 'team-1', 'acme-corp'),
+      new SpaceEntity('space-2', 'backend-api', 'team-1', 'acme-corp'),
     ]
 
     testTeams = [
-      new Team({
+      new TeamEntity({
         avatarUrl: 'https://example.com/avatar1.png',
         createdAt: new Date('2024-01-01T00:00:00Z'),
         description: 'Acme Corporation',
@@ -151,7 +161,7 @@ describe('space:switch', () => {
         name: 'acme-corp',
         updatedAt: new Date('2024-01-02T00:00:00Z'),
       }),
-      new Team({
+      new TeamEntity({
         avatarUrl: 'https://example.com/avatar2.png',
         createdAt: new Date('2024-01-01T00:00:00Z'),
         description: 'Beta Company',
@@ -177,58 +187,68 @@ describe('space:switch', () => {
   })
 
   afterEach(() => {
-    // Restore all stubs
-    uxActionStartStub.restore()
-    uxActionStopStub.restore()
     restore()
   })
 
-  it('should error if project not initialized', async () => {
-    configStore.read.resolves()
-
-    const command = new TestableSpaceSwitch(
-      configStore,
+  function createTestCommand(
+    selectedTeam: TeamEntity,
+    selectedSpace: SpaceEntity,
+    logMessages?: string[],
+  ): TestableSpaceSwitch {
+    const useCase = new TestableSpaceSwitchUseCase({
+      mockSelectedAgent: 'Claude Code',
+      mockSelectedSpace: selectedSpace,
+      mockSelectedTeam: selectedTeam,
+      projectConfigStore: configStore,
       spaceService,
       teamService,
+      terminal: createMockTerminal({
+        error(msg: string) {
+          throw new Error(msg)
+        },
+        log(msg?: string) {
+          if (logMessages && msg) {
+            logMessages.push(msg)
+          }
+        },
+      }),
       tokenStore,
-      testTeams[0]!,
-      testSpaces[0]!,
-      oclifConfig,
-    )
+      workspaceDetector,
+    })
+    return new TestableSpaceSwitch(useCase, oclifConfig)
+  }
 
-    try {
-      await command.run()
-      expect.fail('Should have thrown an error')
-    } catch (error) {
-      expect(error).to.be.an('error')
-      expect((error as Error).message).to.include('Project not initialized')
-    }
+  it('should exit early if project not initialized', async () => {
+    configStore.read.resolves()
+
+    const logMessages: string[] = []
+    const command = createTestCommand(testTeams[0]!, testSpaces[0]!, logMessages)
+
+    await command.run()
+
+    // Should display message to user
+    expect(logMessages.some((msg) => msg.includes('Project not initialized'))).to.be.true
+    // Should not attempt to load token or fetch teams
+    expect(tokenStore.load.called).to.be.false
+    expect(teamService.getTeams.called).to.be.false
   })
 
-  it('should error if not authenticated', async () => {
+  it('should exit early if not authenticated', async () => {
     configStore.read.resolves(currentConfig)
     tokenStore.load.resolves()
 
-    const command = new TestableSpaceSwitch(
-      configStore,
-      spaceService,
-      teamService,
-      tokenStore,
-      testTeams[0]!,
-      testSpaces[0]!,
-      oclifConfig,
-    )
+    const logMessages: string[] = []
+    const command = createTestCommand(testTeams[0]!, testSpaces[0]!, logMessages)
 
-    try {
-      await command.run()
-      expect.fail('Should have thrown an error')
-    } catch (error) {
-      expect(error).to.be.an('error')
-      expect((error as Error).message).to.include('Not authenticated')
-    }
+    await command.run()
+
+    // Should display message to user
+    expect(logMessages.some((msg) => msg.includes('Not authenticated'))).to.be.true
+    // Should not attempt to fetch teams
+    expect(teamService.getTeams.called).to.be.false
   })
 
-  it('should error if token expired', async () => {
+  it('should exit early if token expired', async () => {
     const expiredToken = new AuthToken({
       accessToken: 'access-token',
       expiresAt: new Date(Date.now() - 3600 * 1000), // Expired 1 hour ago
@@ -242,72 +262,48 @@ describe('space:switch', () => {
     configStore.read.resolves(currentConfig)
     tokenStore.load.resolves(expiredToken)
 
-    const command = new TestableSpaceSwitch(
-      configStore,
-      spaceService,
-      teamService,
-      tokenStore,
-      testTeams[0]!,
-      testSpaces[0]!,
-      oclifConfig,
-    )
+    const logMessages: string[] = []
+    const command = createTestCommand(testTeams[0]!, testSpaces[0]!, logMessages)
 
-    try {
-      await command.run()
-      expect.fail('Should have thrown an error')
-    } catch (error) {
-      expect(error).to.be.an('error')
-      expect((error as Error).message).to.include('Authentication token expired')
-    }
+    await command.run()
+
+    // Should display message to user
+    expect(logMessages.some((msg) => msg.includes('token expired'))).to.be.true
+    // Should not attempt to fetch teams
+    expect(teamService.getTeams.called).to.be.false
   })
 
-  it('should error if no teams available', async () => {
+  it('should exit early if no teams available', async () => {
     configStore.read.resolves(currentConfig)
     tokenStore.load.resolves(validToken)
     teamService.getTeams.resolves({teams: [], total: 0})
 
-    const command = new TestableSpaceSwitch(
-      configStore,
-      spaceService,
-      teamService,
-      tokenStore,
-      testTeams[0]!,
-      testSpaces[0]!,
-      oclifConfig,
-    )
+    const logMessages: string[] = []
+    const command = createTestCommand(testTeams[0]!, testSpaces[0]!, logMessages)
 
-    try {
-      await command.run()
-      expect.fail('Should have thrown an error')
-    } catch (error) {
-      expect(error).to.be.an('error')
-      expect((error as Error).message).to.include('No teams found')
-    }
+    await command.run()
+
+    // Should display message to user
+    expect(logMessages.some((msg) => msg.includes('No teams found'))).to.be.true
+    // Should not attempt to fetch spaces
+    expect(spaceService.getSpaces.called).to.be.false
   })
 
-  it('should error if no spaces in selected team', async () => {
+  it('should exit early if no spaces in selected team', async () => {
     configStore.read.resolves(currentConfig)
     tokenStore.load.resolves(validToken)
     teamService.getTeams.resolves({teams: testTeams, total: testTeams.length})
     spaceService.getSpaces.resolves({spaces: [], total: 0})
 
-    const command = new TestableSpaceSwitch(
-      configStore,
-      spaceService,
-      teamService,
-      tokenStore,
-      testTeams[0]!,
-      testSpaces[0]!,
-      oclifConfig,
-    )
+    const logMessages: string[] = []
+    const command = createTestCommand(testTeams[0]!, testSpaces[0]!, logMessages)
 
-    try {
-      await command.run()
-      expect.fail('Should have thrown an error')
-    } catch (error) {
-      expect(error).to.be.an('error')
-      expect((error as Error).message).to.include('No spaces found')
-    }
+    await command.run()
+
+    // Should display message to user
+    expect(logMessages.some((msg) => msg.includes('No spaces found'))).to.be.true
+    // Should not attempt to write config
+    expect(configStore.write.called).to.be.false
   })
 
   it('should successfully switch to new space', async () => {
@@ -317,15 +313,7 @@ describe('space:switch', () => {
     spaceService.getSpaces.resolves({spaces: testSpaces, total: testSpaces.length})
     configStore.write.resolves()
 
-    const command = new TestableSpaceSwitch(
-      configStore,
-      spaceService,
-      teamService,
-      tokenStore,
-      testTeams[0]!,
-      testSpaces[1]!, // Switch to second space
-      oclifConfig,
-    )
+    const command = createTestCommand(testTeams[0]!, testSpaces[1]!) // Switch to second space
 
     await command.run()
 
@@ -345,15 +333,7 @@ describe('space:switch', () => {
     spaceService.getSpaces.resolves({spaces: testSpaces, total: testSpaces.length})
     configStore.write.resolves()
 
-    const command = new TestableSpaceSwitch(
-      configStore,
-      spaceService,
-      teamService,
-      tokenStore,
-      testTeams[0]!,
-      testSpaces[0]!,
-      oclifConfig,
-    )
+    const command = createTestCommand(testTeams[0]!, testSpaces[0]!)
 
     await command.run()
 
@@ -372,15 +352,7 @@ describe('space:switch', () => {
     spaceService.getSpaces.resolves({spaces: testSpaces, total: testSpaces.length})
     configStore.write.resolves()
 
-    const command = new TestableSpaceSwitch(
-      configStore,
-      spaceService,
-      teamService,
-      tokenStore,
-      testTeams[0]!,
-      testSpaces[0]!,
-      oclifConfig,
-    )
+    const command = createTestCommand(testTeams[0]!, testSpaces[0]!)
 
     await command.run()
 
@@ -393,7 +365,7 @@ describe('space:switch', () => {
   })
 
   it('should switch to a different team and space', async () => {
-    const spacesForTeam2 = [new Space('space-3', 'mobile-app', 'team-2', 'beta-co')]
+    const spacesForTeam2 = [new SpaceEntity('space-3', 'mobile-app', 'team-2', 'beta-co')]
 
     configStore.read.resolves(currentConfig)
     tokenStore.load.resolves(validToken)
@@ -401,15 +373,7 @@ describe('space:switch', () => {
     spaceService.getSpaces.resolves({spaces: spacesForTeam2, total: spacesForTeam2.length})
     configStore.write.resolves()
 
-    const command = new TestableSpaceSwitch(
-      configStore,
-      spaceService,
-      teamService,
-      tokenStore,
-      testTeams[1]!, // Select second team
-      spacesForTeam2[0]!, // Select space from second team
-      oclifConfig,
-    )
+    const command = createTestCommand(testTeams[1]!, spacesForTeam2[0]!) // Select second team
 
     await command.run()
 
@@ -430,15 +394,7 @@ describe('space:switch', () => {
     tokenStore.load.resolves(validToken)
     teamService.getTeams.rejects(new Error('Network error'))
 
-    const command = new TestableSpaceSwitch(
-      configStore,
-      spaceService,
-      teamService,
-      tokenStore,
-      testTeams[0]!,
-      testSpaces[0]!,
-      oclifConfig,
-    )
+    const command = createTestCommand(testTeams[0]!, testSpaces[0]!)
 
     try {
       await command.run()
@@ -455,15 +411,7 @@ describe('space:switch', () => {
     teamService.getTeams.resolves({teams: testTeams, total: testTeams.length})
     spaceService.getSpaces.rejects(new Error('API error'))
 
-    const command = new TestableSpaceSwitch(
-      configStore,
-      spaceService,
-      teamService,
-      tokenStore,
-      testTeams[0]!,
-      testSpaces[0]!,
-      oclifConfig,
-    )
+    const command = createTestCommand(testTeams[0]!, testSpaces[0]!)
 
     try {
       await command.run()
@@ -481,15 +429,7 @@ describe('space:switch', () => {
     spaceService.getSpaces.resolves({spaces: testSpaces, total: testSpaces.length})
     configStore.write.rejects(new Error('Write failed'))
 
-    const command = new TestableSpaceSwitch(
-      configStore,
-      spaceService,
-      teamService,
-      tokenStore,
-      testTeams[0]!,
-      testSpaces[0]!,
-      oclifConfig,
-    )
+    const command = createTestCommand(testTeams[0]!, testSpaces[0]!)
 
     try {
       await command.run()

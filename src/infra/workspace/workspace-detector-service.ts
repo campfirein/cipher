@@ -2,18 +2,14 @@ import {existsSync, readdirSync, readFileSync} from 'node:fs'
 import {homedir} from 'node:os'
 import {join} from 'node:path'
 
-import { Agent } from '../../core/domain/entities/agent.js'
-
-export type WorkspaceInfo = {
-  chatLogPath: string
-  cwd: string
-}
+import type {Agent} from '../../core/domain/entities/agent.js'
+import type {IWorkspaceDetectorService, WorkspaceInfo} from '../../core/interfaces/i-workspace-detector-service.js'
 
 /**
  * Service to detect IDE workspaces that contain the current working directory
  * Supports: VS Code (Github Copilot), Cursor, Claude, and Codex
  */
-export class WorkspaceDetectorService {
+export class WorkspaceDetectorService implements IWorkspaceDetectorService {
   private readonly claudeUserPath: string
   private readonly codexUserPath: string
   private readonly cursorUserPath: string

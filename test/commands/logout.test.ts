@@ -10,8 +10,11 @@ import type {ITrackingService} from '../../src/core/interfaces/i-tracking-servic
 
 import Logout from '../../src/commands/logout.js'
 import {AuthToken} from '../../src/core/domain/entities/auth-token.js'
+import {createMockTerminal} from '../helpers/mock-factories.js'
 
 class TestableLogout extends Logout {
+  public errorMessages: string[] = []
+  public logMessages: string[] = []
   private mockConfirmResult = true
   private readonly mockTokenStore: ITokenStore
   private readonly mockTrackingService: ITrackingService
@@ -35,25 +38,18 @@ class TestableLogout extends Logout {
     tokenStore: ITokenStore
     trackingService: ITrackingService
   } {
+    this.terminal = createMockTerminal({
+      error: (msg) => this.errorMessages.push(msg),
+      log: (msg) => msg !== undefined && this.logMessages.push(msg),
+    })
     return {
       tokenStore: this.mockTokenStore,
       trackingService: this.mockTrackingService,
     }
   }
 
-  public error(input: Error | string): never {
-    const errorMessage = typeof input === 'string' ? input : input.message
-    throw new Error(errorMessage)
-  }
-
-  public log(): void {}
-
   public setConfirmResult(result: boolean): void {
     this.mockConfirmResult = result
-  }
-
-  public warn(input: Error | string): Error | string {
-    return input
   }
 }
 
@@ -223,13 +219,10 @@ describe('logout command', () => {
       const command = new TestableLogout([], tokenStore, trackingService, config)
       command.setConfirmResult(true)
 
-      try {
-        await command.run()
-        expect.fail('Should have thrown error')
-      } catch (error) {
-        expect(error).to.be.an('error')
-        expect((error as Error).message).to.include('Unable to access system keychain')
-      }
+      await command.run()
+
+      expect(command.errorMessages).to.have.lengthOf(1)
+      expect(command.errorMessages[0]).to.include('Unable to access system keychain')
     })
 
     it('should handle generic errors gracefully', async () => {
@@ -240,13 +233,10 @@ describe('logout command', () => {
       const command = new TestableLogout([], tokenStore, trackingService, config)
       command.setConfirmResult(true)
 
-      try {
-        await command.run()
-        expect.fail('Should have thrown error')
-      } catch (error) {
-        expect(error).to.be.an('error')
-        expect((error as Error).message).to.include('Unexpected error')
-      }
+      await command.run()
+
+      expect(command.errorMessages).to.have.lengthOf(1)
+      expect(command.errorMessages[0]).to.include('Unexpected error')
     })
 
     it('should handle token load errors', async () => {
@@ -254,14 +244,10 @@ describe('logout command', () => {
 
       const command = new TestableLogout([], tokenStore, trackingService, config)
 
-      try {
-        await command.run()
-        expect.fail('Should have thrown error')
-      } catch (error) {
-        expect(error).to.be.an('error')
-        expect((error as Error).message).to.include('Failed to load token')
-      }
+      await command.run()
 
+      expect(command.errorMessages).to.have.lengthOf(1)
+      expect(command.errorMessages[0]).to.include('Failed to load token')
       // Verify clear was not attempted
       expect(tokenStore.clear.called).to.be.false
     })

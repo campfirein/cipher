@@ -7,48 +7,54 @@ import sinon, {restore, type SinonStub, stub} from 'sinon'
 import type {Space} from '../../../src/core/domain/entities/space.js'
 import type {IProjectConfigStore} from '../../../src/core/interfaces/i-project-config-store.js'
 import type {ISpaceService} from '../../../src/core/interfaces/i-space-service.js'
+import type {ITerminal} from '../../../src/core/interfaces/i-terminal.js'
 import type {ITokenStore} from '../../../src/core/interfaces/i-token-store.js'
+import type {ISpaceListUseCase} from '../../../src/core/interfaces/usecase/i-space-list-use-case.js'
 
 import SpaceList from '../../../src/commands/space/list.js'
 import {BRV_CONFIG_VERSION} from '../../../src/constants.js'
 import {AuthToken} from '../../../src/core/domain/entities/auth-token.js'
 import {BrvConfig} from '../../../src/core/domain/entities/brv-config.js'
 import {Space as SpaceImpl} from '../../../src/core/domain/entities/space.js'
+import {type SpaceListFlags, SpaceListUseCase} from '../../../src/infra/usecase/space-list-use-case.js'
+import {createMockTerminal} from '../../helpers/mock-factories.js'
+
+interface TestableUseCaseOptions {
+  flags: SpaceListFlags
+  projectConfigStore: IProjectConfigStore
+  spaceService: ISpaceService
+  terminal: ITerminal
+  tokenStore: ITokenStore
+}
 
 /**
- * Testable SpaceList command that accepts mocked services
+ * Testable use case (no prompts to override for list command)
+ */
+class TestableSpaceListUseCase extends SpaceListUseCase {
+  constructor(options: TestableUseCaseOptions) {
+    super({
+      flags: options.flags,
+      projectConfigStore: options.projectConfigStore,
+      spaceService: options.spaceService,
+      terminal: options.terminal,
+      tokenStore: options.tokenStore,
+    })
+  }
+}
+
+/**
+ * Testable command that accepts a pre-configured use case
  */
 class TestableSpaceList extends SpaceList {
   constructor(
-    private readonly mockProjectConfigStore: IProjectConfigStore,
-    private readonly mockSpaceService: ISpaceService,
-    private readonly mockTokenStore: ITokenStore,
+    private readonly useCase: ISpaceListUseCase,
     config: Config,
   ) {
     super([], config)
   }
 
-  protected createServices() {
-    return {
-      projectConfigStore: this.mockProjectConfigStore,
-      spaceService: this.mockSpaceService,
-      tokenStore: this.mockTokenStore,
-    }
-  }
-
-  // Suppress all output to prevent noisy test runs
-  public error(input: Error | string): never {
-    const errorMessage = typeof input === 'string' ? input : input.message
-    throw new Error(errorMessage)
-  }
-
-  public log(): void {
-    // Do nothing - suppress output
-  }
-
-  public warn(input: Error | string): Error | string {
-    // Do nothing - suppress output, but return input to match base signature
-    return input
+  protected createUseCase(): ISpaceListUseCase {
+    return this.useCase
   }
 }
 
@@ -126,11 +132,26 @@ describe('SpaceList Command', () => {
     restore()
   })
 
+  function createTestCommand(flags: Partial<SpaceListFlags> = {}): TestableSpaceList {
+    const useCase = new TestableSpaceListUseCase({
+      flags: {all: false, json: false, limit: 50, offset: 0, ...flags},
+      projectConfigStore,
+      spaceService,
+      terminal: createMockTerminal({
+        error(msg: string) {
+          throw new Error(msg)
+        },
+      }),
+      tokenStore,
+    })
+    return new TestableSpaceList(useCase, config)
+  }
+
   describe('project initialization', () => {
-    it('should throw error when project is not initialized', async () => {
+    it('should error if project not initialized', async () => {
       projectConfigStore.read.resolves()
 
-      const command = new TestableSpaceList(projectConfigStore, spaceService, tokenStore, config)
+      const command = createTestCommand()
 
       try {
         await command.run()
@@ -143,11 +164,11 @@ describe('SpaceList Command', () => {
   })
 
   describe('authentication', () => {
-    it('should throw error when not authenticated', async () => {
+    it('should error if not authenticated', async () => {
       projectConfigStore.read.resolves(testBrConfig)
       tokenStore.load.resolves()
 
-      const command = new TestableSpaceList(projectConfigStore, spaceService, tokenStore, config)
+      const command = createTestCommand()
 
       try {
         await command.run()
@@ -157,7 +178,7 @@ describe('SpaceList Command', () => {
       }
     })
 
-    it('should throw error when token is expired', async () => {
+    it('should error if token expired', async () => {
       const expiredToken = new AuthToken({
         accessToken: 'access-token',
         expiresAt: new Date(Date.now() - 1000), // Expired
@@ -170,7 +191,7 @@ describe('SpaceList Command', () => {
       projectConfigStore.read.resolves(testBrConfig)
       tokenStore.load.resolves(expiredToken)
 
-      const command = new TestableSpaceList(projectConfigStore, spaceService, tokenStore, config)
+      const command = createTestCommand()
 
       try {
         await command.run()
@@ -187,7 +208,7 @@ describe('SpaceList Command', () => {
       tokenStore.load.resolves(validToken)
       spaceService.getSpaces.resolves({spaces: testSpaces, total: 2})
 
-      const command = new TestableSpaceList(projectConfigStore, spaceService, tokenStore, config)
+      const command = createTestCommand()
       await command.run()
 
       expect(spaceService.getSpaces.calledWith('access-token', 'session-key', teamId, {limit: 50, offset: 0})).to.be
@@ -199,8 +220,7 @@ describe('SpaceList Command', () => {
       tokenStore.load.resolves(validToken)
       spaceService.getSpaces.resolves({spaces: testSpaces, total: 2})
 
-      const command = new TestableSpaceList(projectConfigStore, spaceService, tokenStore, config)
-      // Note: In a real test, we'd capture and verify log output
+      const command = createTestCommand()
       await command.run()
 
       expect(spaceService.getSpaces.calledOnce).to.be.true
@@ -213,7 +233,7 @@ describe('SpaceList Command', () => {
       tokenStore.load.resolves(validToken)
       spaceService.getSpaces.resolves({spaces: [], total: 0})
 
-      const command = new TestableSpaceList(projectConfigStore, spaceService, tokenStore, config)
+      const command = createTestCommand()
       await command.run()
 
       expect(spaceService.getSpaces.calledOnce).to.be.true
@@ -226,8 +246,7 @@ describe('SpaceList Command', () => {
       tokenStore.load.resolves(validToken)
       spaceService.getSpaces.resolves({spaces: testSpaces, total: 100})
 
-      const command = new TestableSpaceList(projectConfigStore, spaceService, tokenStore, config)
-      command.argv = ['--limit', '10']
+      const command = createTestCommand({ limit: 10})
       await command.run()
 
       expect(spaceService.getSpaces.calledWith('access-token', 'session-key', teamId, {limit: 10, offset: 0})).to.be
@@ -239,8 +258,7 @@ describe('SpaceList Command', () => {
       tokenStore.load.resolves(validToken)
       spaceService.getSpaces.resolves({spaces: testSpaces, total: 100})
 
-      const command = new TestableSpaceList(projectConfigStore, spaceService, tokenStore, config)
-      command.argv = ['--offset', '20']
+      const command = createTestCommand({ offset: 20})
       await command.run()
 
       expect(spaceService.getSpaces.calledWith('access-token', 'session-key', teamId, {limit: 50, offset: 20})).to.be
@@ -252,8 +270,7 @@ describe('SpaceList Command', () => {
       tokenStore.load.resolves(validToken)
       spaceService.getSpaces.resolves({spaces: testSpaces, total: 100})
 
-      const command = new TestableSpaceList(projectConfigStore, spaceService, tokenStore, config)
-      command.argv = ['--limit', '10', '--offset', '20']
+      const command = createTestCommand({limit: 10, offset: 20})
       await command.run()
 
       expect(spaceService.getSpaces.calledWith('access-token', 'session-key', teamId, {limit: 10, offset: 20})).to.be
@@ -265,33 +282,7 @@ describe('SpaceList Command', () => {
       tokenStore.load.resolves(validToken)
       spaceService.getSpaces.resolves({spaces: testSpaces, total: 2})
 
-      const command = new TestableSpaceList(projectConfigStore, spaceService, tokenStore, config)
-      command.argv = ['--all']
-      await command.run()
-
-      expect(spaceService.getSpaces.calledWith('access-token', 'session-key', teamId, {fetchAll: true})).to.be.true
-    })
-
-    it('should use short flags -l and -o', async () => {
-      projectConfigStore.read.resolves(testBrConfig)
-      tokenStore.load.resolves(validToken)
-      spaceService.getSpaces.resolves({spaces: testSpaces, total: 100})
-
-      const command = new TestableSpaceList(projectConfigStore, spaceService, tokenStore, config)
-      command.argv = ['-l', '15', '-o', '30']
-      await command.run()
-
-      expect(spaceService.getSpaces.calledWith('access-token', 'session-key', teamId, {limit: 15, offset: 30})).to.be
-        .true
-    })
-
-    it('should use short flag -a for --all', async () => {
-      projectConfigStore.read.resolves(testBrConfig)
-      tokenStore.load.resolves(validToken)
-      spaceService.getSpaces.resolves({spaces: testSpaces, total: 2})
-
-      const command = new TestableSpaceList(projectConfigStore, spaceService, tokenStore, config)
-      command.argv = ['-a']
+      const command = createTestCommand({all: true})
       await command.run()
 
       expect(spaceService.getSpaces.calledWith('access-token', 'session-key', teamId, {fetchAll: true})).to.be.true
@@ -304,21 +295,7 @@ describe('SpaceList Command', () => {
       tokenStore.load.resolves(validToken)
       spaceService.getSpaces.resolves({spaces: testSpaces, total: 2})
 
-      const command = new TestableSpaceList(projectConfigStore, spaceService, tokenStore, config)
-      command.argv = ['--json']
-      // Note: In a real test, we'd capture and verify JSON output
-      await command.run()
-
-      expect(spaceService.getSpaces.calledOnce).to.be.true
-    })
-
-    it('should use short flag -j for --json', async () => {
-      projectConfigStore.read.resolves(testBrConfig)
-      tokenStore.load.resolves(validToken)
-      spaceService.getSpaces.resolves({spaces: testSpaces, total: 2})
-
-      const command = new TestableSpaceList(projectConfigStore, spaceService, tokenStore, config)
-      command.argv = ['-j']
+      const command = createTestCommand({json: true})
       await command.run()
 
       expect(spaceService.getSpaces.calledOnce).to.be.true
@@ -332,8 +309,7 @@ describe('SpaceList Command', () => {
       // Return 2 spaces but total is 100 (more exist)
       spaceService.getSpaces.resolves({spaces: testSpaces, total: 100})
 
-      const command = new TestableSpaceList(projectConfigStore, spaceService, tokenStore, config)
-      // Note: In a real test, we'd verify the warning message appears
+      const command = createTestCommand()
       await command.run()
 
       expect(spaceService.getSpaces.calledOnce).to.be.true
@@ -345,7 +321,7 @@ describe('SpaceList Command', () => {
       // Return all spaces (total matches length)
       spaceService.getSpaces.resolves({spaces: testSpaces, total: 2})
 
-      const command = new TestableSpaceList(projectConfigStore, spaceService, tokenStore, config)
+      const command = createTestCommand()
       await command.run()
 
       expect(spaceService.getSpaces.calledOnce).to.be.true
@@ -356,8 +332,7 @@ describe('SpaceList Command', () => {
       tokenStore.load.resolves(validToken)
       spaceService.getSpaces.resolves({spaces: testSpaces, total: 2})
 
-      const command = new TestableSpaceList(projectConfigStore, spaceService, tokenStore, config)
-      command.argv = ['--all']
+      const command = createTestCommand({all: true})
       await command.run()
 
       expect(spaceService.getSpaces.calledOnce).to.be.true
@@ -370,7 +345,7 @@ describe('SpaceList Command', () => {
       tokenStore.load.resolves(validToken)
       spaceService.getSpaces.rejects(new Error('API unavailable'))
 
-      const command = new TestableSpaceList(projectConfigStore, spaceService, tokenStore, config)
+      const command = createTestCommand()
 
       try {
         await command.run()

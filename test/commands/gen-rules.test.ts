@@ -7,66 +7,73 @@ import sinon, {restore, stub} from 'sinon'
 import type {Agent} from '../../src/core/domain/entities/agent.js'
 import type {IFileService} from '../../src/core/interfaces/i-file-service.js'
 import type {IRuleTemplateService} from '../../src/core/interfaces/i-rule-template-service.js'
+import type {ITerminal} from '../../src/core/interfaces/i-terminal.js'
 import type {ITrackingService} from '../../src/core/interfaces/i-tracking-service.js'
+import type {IGenerateRulesUseCase} from '../../src/core/interfaces/usecase/i-generate-rules-use-case.js'
 
 import GenRules from '../../src/commands/gen-rules.js'
 import {LegacyRuleDetector} from '../../src/infra/rule/legacy-rule-detector.js'
+import {GenerateRulesUseCase} from '../../src/infra/usecase/generate-rules-use-case.js'
+import {createMockTerminal} from '../helpers/mock-factories.js'
+
+interface TestableUseCaseOptions {
+  fileService: IFileService
+  legacyRuleDetector: LegacyRuleDetector
+  mockFileCreationConfirmation: boolean
+  mockOverwriteConfirmation: boolean
+  mockSelectedAgent: Agent
+  templateService: IRuleTemplateService
+  terminal: ITerminal
+  trackingService: ITrackingService
+}
 
 /**
- * Testable GenRules command that accepts mocked services
+ * Testable use case that allows overriding prompts
+ */
+class TestableGenerateRulesUseCase extends GenerateRulesUseCase {
+  private readonly mockFileCreationConfirmation: boolean
+  private readonly mockOverwriteConfirmation: boolean
+  private readonly mockSelectedAgent: Agent
+
+  constructor(options: TestableUseCaseOptions) {
+    super(
+      options.fileService,
+      options.legacyRuleDetector,
+      options.templateService,
+      options.terminal,
+      options.trackingService,
+    )
+    this.mockSelectedAgent = options.mockSelectedAgent
+    this.mockFileCreationConfirmation = options.mockFileCreationConfirmation
+    this.mockOverwriteConfirmation = options.mockOverwriteConfirmation
+  }
+
+  protected async promptForAgentSelection(): Promise<Agent> {
+    return this.mockSelectedAgent
+  }
+
+  protected async promptForFileCreation(_agent: Agent, _filePath: string): Promise<boolean> {
+    return this.mockFileCreationConfirmation
+  }
+
+  protected async promptForOverwriteConfirmation(_agent: Agent): Promise<boolean> {
+    return this.mockOverwriteConfirmation
+  }
+}
+
+/**
+ * Testable GenRules command that accepts a pre-configured use case
  */
 class TestableGenRules extends GenRules {
-  // eslint-disable-next-line max-params
   constructor(
-    private readonly mockFileService: IFileService,
-    private readonly mockLegacyRuleDetector: LegacyRuleDetector,
-    private readonly mockTemplateService: IRuleTemplateService,
-    private readonly mockTrackingService: ITrackingService,
-    private readonly mockSelectedAgent: Agent,
-    private readonly mockFileCreationConfirmation: boolean,
-    private readonly mockOverwriteConfirmation: boolean,
+    private readonly useCase: IGenerateRulesUseCase,
     config: Config,
   ) {
     super([], config)
   }
 
-  protected createServices() {
-    return {
-      fileService: this.mockFileService,
-      legacyRuleDetector: this.mockLegacyRuleDetector,
-      templateService: this.mockTemplateService,
-      trackingService: this.mockTrackingService,
-    }
-  }
-
-  // Suppress all output to prevent noisy test runs
-  public error(input: Error | string): never {
-    const errorMessage = typeof input === 'string' ? input : input.message
-    throw new Error(errorMessage)
-  }
-
-  public log(): void {
-    // Do nothing - suppress output
-  }
-
-  // Override the interactive search prompt
-  protected async promptForAgentSelection(): Promise<Agent> {
-    return this.mockSelectedAgent
-  }
-
-  // Override the file creation prompt
-  protected async promptForFileCreation(_agent: Agent, _filePath: string): Promise<boolean> {
-    return this.mockFileCreationConfirmation
-  }
-
-  // Override the interactive confirmation prompt
-  protected async promptForOverwriteConfirmation(_agent: Agent): Promise<boolean> {
-    return this.mockOverwriteConfirmation
-  }
-
-  public warn(input: Error | string): Error | string {
-    // Do nothing - suppress output, but return input to match base signature
-    return input
+  protected createUseCase(): IGenerateRulesUseCase {
+    return this.useCase
   }
 }
 
@@ -110,16 +117,17 @@ describe('GenRules Command', () => {
         fileService.exists.resolves(false)
         templateService.generateRuleContent.resolves('# ByteRover Rules\n...')
 
-        const command = new TestableGenRules(
+        const useCase = new TestableGenerateRulesUseCase({
           fileService,
           legacyRuleDetector,
+          mockFileCreationConfirmation: true, // User confirms creation
+          mockOverwriteConfirmation: false,
+          mockSelectedAgent: 'Claude Code',
           templateService,
+          terminal: createMockTerminal(),
           trackingService,
-          'Claude Code',
-          true, // User confirms creation
-          false,
-          config,
-        )
+        })
+        const command = new TestableGenRules(useCase, config)
 
         await command.run()
 
@@ -132,16 +140,17 @@ describe('GenRules Command', () => {
       it('should skip creation when user declines', async () => {
         fileService.exists.resolves(false)
 
-        const command = new TestableGenRules(
+        const useCase = new TestableGenerateRulesUseCase({
           fileService,
           legacyRuleDetector,
+          mockFileCreationConfirmation: false, // User declines creation
+          mockOverwriteConfirmation: false,
+          mockSelectedAgent: 'Cursor',
           templateService,
+          terminal: createMockTerminal(),
           trackingService,
-          'Cursor',
-          false, // User declines creation
-          false,
-          config,
-        )
+        })
+        const command = new TestableGenRules(useCase, config)
 
         await command.run()
 
@@ -160,16 +169,17 @@ describe('GenRules Command', () => {
           '\n<!-- BEGIN BYTEROVER RULES -->\n...\n<!-- END BYTEROVER RULES -->',
         )
 
-        const command = new TestableGenRules(
+        const useCase = new TestableGenerateRulesUseCase({
           fileService,
           legacyRuleDetector,
+          mockFileCreationConfirmation: false,
+          mockOverwriteConfirmation: false,
+          mockSelectedAgent: 'Claude Code',
           templateService,
+          terminal: createMockTerminal(),
           trackingService,
-          'Claude Code',
-          false,
-          false,
-          config,
-        )
+        })
+        const command = new TestableGenRules(useCase, config)
 
         await command.run()
 
@@ -202,16 +212,17 @@ describe('GenRules Command', () => {
           '<!-- BEGIN BYTEROVER RULES -->\nNew rules\n<!-- END BYTEROVER RULES -->',
         )
 
-        const command = new TestableGenRules(
+        const useCase = new TestableGenerateRulesUseCase({
           fileService,
           legacyRuleDetector,
+          mockFileCreationConfirmation: false,
+          mockOverwriteConfirmation: true, // User confirms overwrite
+          mockSelectedAgent: 'Claude Code',
           templateService,
+          terminal: createMockTerminal(),
           trackingService,
-          'Claude Code',
-          false,
-          true, // User confirms overwrite
-          config,
-        )
+        })
+        const command = new TestableGenRules(useCase, config)
 
         await command.run()
 
@@ -227,16 +238,17 @@ describe('GenRules Command', () => {
         fileService.exists.resolves(true)
         fileService.read.resolves(existingContent)
 
-        const command = new TestableGenRules(
+        const useCase = new TestableGenerateRulesUseCase({
           fileService,
           legacyRuleDetector,
+          mockFileCreationConfirmation: false,
+          mockOverwriteConfirmation: false, // User declines overwrite
+          mockSelectedAgent: 'Cursor',
           templateService,
+          terminal: createMockTerminal(),
           trackingService,
-          'Cursor',
-          false,
-          false, // User declines overwrite
-          config,
-        )
+        })
+        const command = new TestableGenRules(useCase, config)
 
         await command.run()
 

@@ -7,39 +7,24 @@ import type {ITokenStore} from '../../src/core/interfaces/i-token-store.js'
 
 import Main from '../../src/commands/main.js'
 import {AuthToken} from '../../src/core/domain/entities/auth-token.js'
+import {createMockTerminal} from '../helpers/mock-factories.js'
 
 class TestableMain extends Main {
   public logMessages: string[] = []
   private readonly mockProjectConfigStore: IProjectConfigStore
   private readonly mockTokenStore: ITokenStore
 
-  public constructor(
-    mockTokenStore: ITokenStore,
-    mockProjectConfigStore: IProjectConfigStore,
-    config: Config,
-  ) {
+  public constructor(mockTokenStore: ITokenStore, mockProjectConfigStore: IProjectConfigStore, config: Config) {
     super([], config)
     this.mockTokenStore = mockTokenStore
     this.mockProjectConfigStore = mockProjectConfigStore
   }
 
   protected createServices(): {projectConfigStore: IProjectConfigStore; tokenStore: ITokenStore} {
+    this.terminal = createMockTerminal({
+      log: (msg) => msg && this.logMessages.push(msg),
+    })
     return {projectConfigStore: this.mockProjectConfigStore, tokenStore: this.mockTokenStore}
-  }
-
-  public error(input: Error | string): never {
-    const errorMessage = typeof input === 'string' ? input : input.message
-    throw new Error(errorMessage)
-  }
-
-  public log(message?: string): void {
-    if (message) {
-      this.logMessages.push(message)
-    }
-  }
-
-  public warn(input: Error | string): Error | string {
-    return input
   }
 }
 
@@ -106,7 +91,9 @@ describe('main command', () => {
       expect(command.logMessages[0]).to.equal(`Logged in as ${mockToken.userEmail}`)
       expect(command.logMessages[1]).to.equal('Project configuration found in the current directory:')
       expect(command.logMessages[2]).to.equal(process.cwd())
-      expect(command.logMessages[3]).to.equal("You can always run 'brv init' to re-initialize ByteRover for this project.")
+      expect(command.logMessages[3]).to.equal(
+        "You can always run 'brv init' to re-initialize ByteRover for this project.",
+      )
       expect(command.logMessages[4]).to.equal("Then run 'brv' again.")
     })
 

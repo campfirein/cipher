@@ -1,4 +1,3 @@
-import {confirm} from '@inquirer/prompts'
 import {Command, Flags, ux} from '@oclif/core'
 
 import type {AuthToken} from '../core/domain/entities/auth-token.js'
@@ -6,6 +5,7 @@ import type {BrvConfig} from '../core/domain/entities/brv-config.js'
 import type {ICogitPushService} from '../core/interfaces/i-cogit-push-service.js'
 import type {IContextFileReader} from '../core/interfaces/i-context-file-reader.js'
 import type {IProjectConfigStore} from '../core/interfaces/i-project-config-store.js'
+import type {ITerminal} from '../core/interfaces/i-terminal.js'
 import type {ITokenStore} from '../core/interfaces/i-token-store.js'
 
 import {getCurrentConfig} from '../config/environment.js'
@@ -20,6 +20,7 @@ import {ProjectConfigStore} from '../infra/config/file-config-store.js'
 import {FileContextFileReader} from '../infra/context-tree/file-context-file-reader.js'
 import {FileContextTreeSnapshotService} from '../infra/context-tree/file-context-tree-snapshot-service.js'
 import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
+import {OclifTerminal} from '../infra/terminal/oclif-terminal.js'
 import {MixpanelTrackingService} from '../infra/tracking/mixpanel-tracking-service.js'
 
 export default class Push extends Command {
@@ -42,6 +43,7 @@ export default class Push extends Command {
       description: 'Skip confirmation prompt',
     }),
   }
+  protected terminal: ITerminal = {} as ITerminal
 
   protected buildSpaceUrl(webAppUrl: string, teamName: string, spaceName: string): string {
     return `${webAppUrl}/${teamName}/${spaceName}`
@@ -77,11 +79,11 @@ export default class Push extends Command {
   }
 
   protected async confirmPush(projectConfig: BrvConfig, branch: string): Promise<boolean> {
-    this.log('\nYou are about to push to ByteRover memory storage:')
-    this.log(`  Space: ${projectConfig.spaceName}`)
-    this.log(`  Branch: ${branch}`)
+    this.terminal.log('\nYou are about to push to ByteRover memory storage:')
+    this.terminal.log(`  Space: ${projectConfig.spaceName}`)
+    this.terminal.log(`  Branch: ${branch}`)
 
-    return confirm({
+    return this.terminal.confirm({
       default: false,
       message: 'Push to ByteRover?',
     })
@@ -95,6 +97,7 @@ export default class Push extends Command {
     tokenStore: ITokenStore
     trackingService: ITrackingService
   } {
+    this.terminal = new OclifTerminal(this)
     const envConfig = getCurrentConfig()
     const tokenStore = new KeychainTokenStore()
     const trackingService = new MixpanelTrackingService(tokenStore)
@@ -127,6 +130,7 @@ export default class Push extends Command {
       await trackingService.track('mem:push')
 
       const token = await this.validateAuth(tokenStore)
+      if (!token) return
       const projectConfig = await this.checkProjectInit(projectConfigStore)
 
       // Check for changes
@@ -139,7 +143,7 @@ export default class Push extends Command {
         contextTreeChanges.modified.length === 0 &&
         contextTreeChanges.deleted.length === 0
       ) {
-        this.log('No context changes to push.')
+        this.terminal.log('No context changes to push.')
         return
       }
 
@@ -147,7 +151,7 @@ export default class Push extends Command {
       if (!flags.yes) {
         const confirmed = await this.confirmPush(projectConfig, flags.branch)
         if (!confirmed) {
-          this.log('Push cancelled.')
+          this.terminal.log('Push cancelled.')
           return
         }
       }
@@ -167,12 +171,12 @@ export default class Push extends Command {
       })
 
       if (pushContexts.length === 0) {
-        this.log('\nNo valid context files to push.')
+        this.terminal.log('\nNo valid context files to push.')
         return
       }
 
       // Push to CoGit (with two-request SHA flow)
-      this.log('Pushing to ByteRover...')
+      this.terminal.log('Pushing to ByteRover...')
       await cogitPushService.push({
         accessToken: token.accessToken,
         branch: flags.branch,
@@ -186,12 +190,12 @@ export default class Push extends Command {
       await contextTreeSnapshotService.saveSnapshot()
 
       // Success message
-      this.log('\n✓ Successfully pushed context tree to ByteRover memory storage!')
-      this.log(`  Branch: ${flags.branch}`)
-      this.log(
+      this.terminal.log('\n✓ Successfully pushed context tree to ByteRover memory storage!')
+      this.terminal.log(`  Branch: ${flags.branch}`)
+      this.terminal.log(
         `  Added: ${addedFiles.length}, Edited: ${modifiedFiles.length}, Deleted: ${contextTreeChanges.deleted.length}`,
       )
-      this.log(
+      this.terminal.log(
         `  View: ${this.buildSpaceUrl(getCurrentConfig().webAppUrl, projectConfig.teamName, projectConfig.spaceName)}`,
       )
     } catch (error) {
@@ -208,15 +212,17 @@ export default class Push extends Command {
     }
   }
 
-  protected async validateAuth(tokenStore: ITokenStore): Promise<AuthToken> {
+  protected async validateAuth(tokenStore: ITokenStore): Promise<AuthToken | undefined> {
     const token = await tokenStore.load()
 
     if (token === undefined) {
-      this.error('Not authenticated. Run "brv login" first.')
+      this.terminal.error('Not authenticated. Run "brv login" first.')
+      return undefined
     }
 
     if (!token.isValid()) {
-      this.error('Authentication token expired. Run "brv login" again.')
+      this.terminal.error('Authentication token expired. Run "brv login" again.')
+      return undefined
     }
 
     return token

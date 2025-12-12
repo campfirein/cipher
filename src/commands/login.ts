@@ -4,6 +4,7 @@ import type {IAuthService} from '../core/interfaces/i-auth-service.js'
 import type {IBrowserLauncher} from '../core/interfaces/i-browser-launcher.js'
 import type {ICallbackHandler} from '../core/interfaces/i-callback-handler.js'
 import type {IOidcDiscoveryService} from '../core/interfaces/i-oidc-discovery-service.js'
+import type {ITerminal} from '../core/interfaces/i-terminal.js'
 import type {ITokenStore} from '../core/interfaces/i-token-store.js'
 import type {IUserService} from '../core/interfaces/i-user-service.js'
 
@@ -17,6 +18,7 @@ import {OidcDiscoveryService} from '../infra/auth/oidc-discovery-service.js'
 import {SystemBrowserLauncher} from '../infra/browser/system-browser-launcher.js'
 import {CallbackHandler} from '../infra/http/callback-handler.js'
 import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
+import {OclifTerminal} from '../infra/terminal/oclif-terminal.js'
 import {MixpanelTrackingService} from '../infra/tracking/mixpanel-tracking-service.js'
 import {HttpUserService} from '../infra/user/http-user-service.js'
 
@@ -28,6 +30,7 @@ export default class Login extends Command {
     '# After authentication expires, re-login:\n<%= config.bin %> <%= command.id %>',
     '# Check authentication status after login:\n<%= config.bin %> <%= command.id %>\n<%= config.bin %> status',
   ]
+  protected terminal: ITerminal = {} as ITerminal
 
   protected async createAuthService(discoveryService: IOidcDiscoveryService): Promise<IAuthService> {
     const config = await getAuthConfig(discoveryService)
@@ -42,6 +45,7 @@ export default class Login extends Command {
     trackingService: ITrackingService
     userService: IUserService
   } {
+    this.terminal = new OclifTerminal(this)
     const config = getCurrentConfig()
     const tokenStore = new KeychainTokenStore()
     const trackingService = new MixpanelTrackingService(tokenStore)
@@ -57,10 +61,11 @@ export default class Login extends Command {
   }
 
   public async run(): Promise<void> {
-    const {browserLauncher, callbackHandler, discoveryService, tokenStore, trackingService, userService} = this.createServices()
+    const {browserLauncher, callbackHandler, discoveryService, tokenStore, trackingService, userService} =
+      this.createServices()
 
     try {
-      this.log('Starting authentication process...')
+      this.terminal.log('Starting authentication process...')
 
       // Create auth service with discovered config
       const authService = await this.createAuthService(discoveryService)
@@ -90,9 +95,9 @@ export default class Login extends Command {
 
       // If browser failed to open, display the URL for manual copy
       if (!browserOpened) {
-        this.log('\nBrowser failed to open automatically.')
-        this.log('Please open this URL in your browser:')
-        this.log(authContext.authUrl)
+        this.terminal.log('\nBrowser failed to open automatically.')
+        this.terminal.log('Please open this URL in your browser:')
+        this.terminal.log(authContext.authUrl)
       }
 
       try {
@@ -115,23 +120,23 @@ export default class Login extends Command {
         // Track successful authentication
         await trackingService.track('auth:signed_in')
 
-        this.log('Successfully authenticated!')
+        this.terminal.log('Successfully authenticated!')
       } catch (error) {
         // Throw error to let oclif handle display
         const errorMessage = error instanceof Error ? error.message : 'Authentication failed'
-        this.error(errorMessage)
+        this.terminal.error(errorMessage)
       }
     } catch (error) {
       if (error instanceof DiscoveryError) {
         const errorMessage =
           `Failed to configure authentication: ${error.message}\n` +
           'Please check your network connection and try again.'
-        this.error(errorMessage)
+        this.terminal.error(errorMessage)
       }
 
       // Throw error to let oclif handle display
       const errorMessage = error instanceof Error ? error.message : 'Authentication failed'
-      this.error(errorMessage)
+      this.terminal.error(errorMessage)
     } finally {
       // Always cleanup server
       await callbackHandler.stop()
