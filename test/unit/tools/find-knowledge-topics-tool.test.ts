@@ -64,7 +64,7 @@ describe('findKnowledgeTopicsTool', () => {
       expect(result.results).to.have.length(1)
       expect(result.results[0]).to.deep.include({
         domain: 'testing',
-        path: 'testing/unit_tests',
+        path: `${basePath}/testing/unit_tests/context.md`,
         topic: 'unit_tests',
       })
     })
@@ -196,7 +196,7 @@ describe('findKnowledgeTopicsTool', () => {
         includeSubtopics: true,
       })) as FindKnowledgeTopicsOutput
 
-      expect(result.results[0].subtopics?.[0].path).to.match(/testing\/unit_tests\/(mocking|assertions)/)
+      expect(result.results[0].subtopics?.[0].path).to.match(/\.brv\/context-tree\/testing\/unit_tests\/(mocking|assertions)\/context\.md/)
     })
   })
 
@@ -342,8 +342,8 @@ describe('findKnowledgeTopicsTool', () => {
 
       expect(result.total).to.equal(2)
       expect(result.results.map((r) => r.path)).to.have.members([
-        'domain1/shared_topic',
-        'domain2/shared_topic',
+        `${basePath}/domain1/shared_topic/context.md`,
+        `${basePath}/domain2/shared_topic/context.md`,
       ])
     })
 

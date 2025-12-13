@@ -133,6 +133,7 @@ async function readRelations(filePath: string): Promise<string[]> {
  * Process a single subtopic file and return its entry.
  */
 async function processSubtopicFile(params: {
+  basePath: string
   domainName: string
   includeContent: boolean
   subtopicFile: string
@@ -159,7 +160,7 @@ async function processSubtopicFile(params: {
 
   const subtopicEntry: SubtopicEntry = {
     name: subtopicName,
-    path: `${domainName}/${topicName}/${subtopicName}`,
+    path: `.brv/context-tree/${domainName}/${topicName}/${subtopicName}/context.md`,  // Full path
   }
 
   // Include subtopic content preview if requested
@@ -195,6 +196,7 @@ async function collectSubtopics(params: {
   for (const subtopicFile of subtopicFiles) {
     // eslint-disable-next-line no-await-in-loop
     const subtopicEntry = await processSubtopicFile({
+      basePath,
       domainName,
       includeContent,
       subtopicFile,
@@ -310,7 +312,7 @@ async function fetchRelatedTopics(params: {
 
       const entry: FindKnowledgeTopicsOutput['results'][number] = {
         domain: domainName,
-        path: relationPath,
+        path: `${basePath}/${relationPath}/context.md`,  // Full path 
         topic: topicName,
       }
 
@@ -398,8 +400,10 @@ async function executeFindKnowledgeTopics(
 
       // Skip if not a context.md file (only process context files)
       const fileName = parts.at(-1)
-      if (fileName !== 'context.md') continue
+      if (fileName !== 'context.md' ) continue
+      if (parts.length === 2) continue // Skip domain context.md files because they don't have much info
 
+      
       // Handle subtopic pattern filtering (case-insensitive)
       if (isSubtopic) {
         const subtopicName = rest[0]
@@ -430,7 +434,7 @@ async function executeFindKnowledgeTopics(
       // Build result entry for this topic
       const entry: FindKnowledgeTopicsOutput['results'][number] = {
         domain: domainName,
-        path: `${domainName}/${topicName}`,
+        path: `${basePath}/${domainName}/${topicName}/context.md`,  // Full path 
         topic: topicName,
       }
 
@@ -544,8 +548,7 @@ This tool helps discover what knowledge has been stored and navigate the domain/
 
 **Returns:**
 - total: Total number of matching topics (before relation traversal)
-- results: Array of topic entries with domain, topic name, path, optional relations, subtopics, and content`,
-
+- results: Array of topic entries with domain, topic name, optional relations, subtopics, and content with complete paths`,
     execute: executeFindKnowledgeTopics,
 
     id: ToolName.FIND_KNOWLEDGE_TOPICS,

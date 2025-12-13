@@ -56,8 +56,8 @@ describe('Tool Context Flow Integration', () => {
       // Simulate tool result
       const toolResult = {
         results: [
-          {domain: 'testing', path: 'testing/unit_tests', topic: 'unit_tests'},
-          {domain: 'testing', path: 'testing/integration_tests', topic: 'integration_tests'},
+          {domain: 'testing', path: '.brv/context-tree/testing/unit_tests/context.md', topic: 'unit_tests'},
+          {domain: 'testing', path: '.brv/context-tree/testing/integration_tests/context.md', topic: 'integration_tests'},
         ],
         total: 2,
       }
@@ -76,7 +76,7 @@ describe('Tool Context Flow Integration', () => {
       const content = messages[2].content as string
       expect(content).to.include('unit_tests')
       expect(content).to.include('integration_tests')
-      expect(content).to.include('testing/unit_tests')
+      expect(content).to.include('.brv/context-tree/testing/unit_tests/context.md')
     })
 
     it('should make tool results available in formatted messages', async () => {
@@ -97,7 +97,7 @@ describe('Tool Context Flow Integration', () => {
 
       // Add tool result
       const toolResult = {
-        results: [{domain: 'testing', path: 'testing/unit_tests', topic: 'unit_tests'}],
+        results: [{domain: 'testing', path: '.brv/context-tree/testing/unit_tests/context.md', topic: 'unit_tests'}],
         total: 1,
       }
       await contextManager.addToolResult('call_456', 'find_knowledge_topics', toolResult, {success: true})
@@ -132,7 +132,7 @@ describe('Tool Context Flow Integration', () => {
       ])
 
       const findResult = {
-        results: [{domain: 'testing', path: 'testing/unit_tests', topic: 'unit_tests'}],
+        results: [{domain: 'testing', path: '.brv/context-tree/testing/unit_tests/context.md', topic: 'unit_tests'}],
         total: 1,
       }
       await contextManager.addToolResult('call_1', 'find_knowledge_topics', findResult, {success: true})
@@ -193,8 +193,8 @@ describe('Tool Context Flow Integration', () => {
           'You have retrieved knowledge topics. Consider if you need to:\n- Read specific topic content\n- Filter further',
         result: {
           results: [
-            {domain: 'testing', path: 'testing/unit_tests', topic: 'unit_tests'},
-            {domain: 'architecture', path: 'architecture/patterns', topic: 'patterns'},
+            {domain: 'testing', path: '.brv/context-tree/testing/unit_tests/context.md', topic: 'unit_tests'},
+            {domain: 'architecture', path: '.brv/context-tree/architecture/patterns/context.md', topic: 'patterns'},
           ],
           total: 2,
         },
@@ -297,8 +297,8 @@ describe('Tool Context Flow Integration', () => {
           results: [
             {
               domain: 'testing',
-              path: 'testing/unit_tests',
-              subtopics: [{name: 'mocking', path: 'testing/unit_tests/mocking'}],
+              path: '.brv/context-tree/testing/unit_tests/context.md',
+              subtopics: [{name: 'mocking', path: '.brv/context-tree/testing/unit_tests/mocking/context.md'}],
               topic: 'unit_tests',
             },
           ],
