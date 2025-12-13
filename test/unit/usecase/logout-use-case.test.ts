@@ -1,18 +1,13 @@
-import type {Config} from "@oclif/core";
-
-import {Config as OclifConfig} from "@oclif/core";
 import {expect} from "chai";
 import * as sinon from "sinon";
 
-import type {ITerminal} from "../../src/core/interfaces/i-terminal.js";
-import type {ITokenStore} from "../../src/core/interfaces/i-token-store.js";
-import type {ITrackingService} from "../../src/core/interfaces/i-tracking-service.js";
-import type {ILogoutUseCase} from "../../src/core/interfaces/usecase/i-logout-use-case.js";
+import type {ITerminal} from "../../../src/core/interfaces/i-terminal.js";
+import type {ITokenStore} from "../../../src/core/interfaces/i-token-store.js";
+import type {ITrackingService} from "../../../src/core/interfaces/i-tracking-service.js";
 
-import Logout from "../../src/commands/logout.js";
-import {AuthToken} from "../../src/core/domain/entities/auth-token.js";
-import {LogoutUseCase, LogoutUseCaseDeps} from "../../src/infra/usecase/logout-use-case.js";
-import {createMockTerminal} from "../helpers/mock-factories.js";
+import {AuthToken} from "../../../src/core/domain/entities/auth-token.js";
+import {LogoutUseCase, LogoutUseCaseDeps} from "../../../src/infra/usecase/logout-use-case.js";
+import {createMockTerminal} from "../../helpers/mock-factories.js";
 
 // ==================== TestableLogoutUseCase ====================
 
@@ -33,22 +28,6 @@ class TestableLogoutUseCase extends LogoutUseCase {
   }
 }
 
-// ==================== TestableLogoutCommand ====================
-
-class TestableLogoutCommand extends Logout {
-  public constructor(
-    args: string[],
-    private readonly useCase: ILogoutUseCase,
-    config: Config,
-  ) {
-    super(args, config);
-  }
-
-  protected createUseCase(): ILogoutUseCase {
-    return this.useCase;
-  }
-}
-
 // ==================== Test Helpers ====================
 
 const createMockToken = (): AuthToken =>
@@ -64,17 +43,12 @@ const createMockToken = (): AuthToken =>
 
 // ==================== Tests ====================
 
-describe("logout command", () => {
-  let config: Config;
+describe("LogoutUseCase", () => {
   let errorMessages: string[];
   let logMessages: string[];
   let terminal: ITerminal;
   let tokenStore: sinon.SinonStubbedInstance<ITokenStore>;
   let trackingService: sinon.SinonStubbedInstance<ITrackingService>;
-
-  before(async () => {
-    config = await OclifConfig.load(import.meta.url);
-  });
 
   beforeEach(() => {
     errorMessages = [];
@@ -100,7 +74,7 @@ describe("logout command", () => {
     sinon.restore();
   });
 
-  function createTestUseCase(mockConfirmResult = true): TestableLogoutUseCase {
+  function createUseCase(mockConfirmResult = true): TestableLogoutUseCase {
     return new TestableLogoutUseCase({
       mockConfirmResult,
       terminal,
@@ -109,53 +83,57 @@ describe("logout command", () => {
     });
   }
 
-  function createTestCommand(args: string[], useCase: ILogoutUseCase): TestableLogoutCommand {
-    return new TestableLogoutCommand(args, useCase, config);
-  }
-
   describe("Successful logout flow", () => {
-    it("should logout successfully when user is authenticated and confirms", async () => {
+    it("should logout successfully when user confirms", async () => {
       const mockToken = createMockToken();
       tokenStore.load.resolves(mockToken);
       tokenStore.clear.resolves();
       trackingService.track.resolves();
 
-      const useCase = createTestUseCase(true);
-      const command = createTestCommand([], useCase);
-
-      await command.run();
+      const useCase = createUseCase(true);
+      await useCase.run({skipConfirmation: false});
 
       expect(tokenStore.load.calledOnce).to.be.true;
       expect(trackingService.track.calledOnce).to.be.true;
       expect(trackingService.track.calledWith("auth:signed_out")).to.be.true;
       expect(tokenStore.clear.calledOnce).to.be.true;
+      expect(logMessages.some((m) => m.includes("Successfully logged out"))).to.be.true;
     });
 
-    it("should skip confirmation and logout when --yes flag is used", async () => {
+    it("should logout successfully with skipConfirmation: true", async () => {
       const mockToken = createMockToken();
       tokenStore.load.resolves(mockToken);
       tokenStore.clear.resolves();
       trackingService.track.resolves();
 
-      const useCase = createTestUseCase();
-      const command = createTestCommand(["--yes"], useCase);
-
-      await command.run();
+      const useCase = createUseCase();
+      await useCase.run({skipConfirmation: true});
 
       expect(tokenStore.clear.calledOnce).to.be.true;
       expect(trackingService.track.calledWith("auth:signed_out")).to.be.true;
+      expect(logMessages.some((m) => m.includes("Successfully logged out"))).to.be.true;
+    });
+
+    it("should display re-login instructions after logout", async () => {
+      const mockToken = createMockToken();
+      tokenStore.load.resolves(mockToken);
+      tokenStore.clear.resolves();
+
+      const useCase = createUseCase();
+      await useCase.run({skipConfirmation: true});
+
+      expect(logMessages.some((m) => m.includes("brv login"))).to.be.true;
     });
   });
 
-  describe("Already logged out", () => {
+  describe("Not logged in", () => {
     it("should display message when no token exists", async () => {
       tokenStore.load.resolves();
 
-      const useCase = createTestUseCase();
-      const command = createTestCommand([], useCase);
+      const useCase = createUseCase();
+      await useCase.run({skipConfirmation: false});
 
-      await command.run();
-
+      expect(logMessages.some((m) => m.includes("not currently logged in"))).to.be.true;
       expect(tokenStore.clear.called).to.be.false;
       expect(trackingService.track.called).to.be.false;
     });
@@ -166,11 +144,10 @@ describe("logout command", () => {
       const mockToken = createMockToken();
       tokenStore.load.resolves(mockToken);
 
-      const useCase = createTestUseCase(false);
-      const command = createTestCommand([], useCase);
+      const useCase = createUseCase(false);
+      await useCase.run({skipConfirmation: false});
 
-      await command.run();
-
+      expect(logMessages.some((m) => m.includes("Logout cancelled"))).to.be.true;
       expect(tokenStore.clear.called).to.be.false;
       expect(trackingService.track.called).to.be.false;
     });
@@ -182,10 +159,8 @@ describe("logout command", () => {
       tokenStore.load.resolves(mockToken);
       tokenStore.clear.resolves();
 
-      const useCase = createTestUseCase(true);
-      const command = createTestCommand([], useCase);
-
-      await command.run();
+      const useCase = createUseCase();
+      await useCase.run({skipConfirmation: true});
 
       expect(trackingService.track.calledBefore(tokenStore.clear)).to.be.true;
       expect(trackingService.track.calledWith("auth:signed_out")).to.be.true;
@@ -197,25 +172,22 @@ describe("logout command", () => {
       tokenStore.clear.resolves();
       trackingService.track.rejects(new Error("Tracking service unavailable"));
 
-      const useCase = createTestUseCase(true);
-      const command = createTestCommand([], useCase);
-
-      await command.run();
+      const useCase = createUseCase();
+      await useCase.run({skipConfirmation: true});
 
       expect(tokenStore.clear.calledOnce).to.be.true;
+      expect(logMessages.some((m) => m.includes("Successfully logged out"))).to.be.true;
     });
   });
 
   describe("Error handling", () => {
-    it("should display clear error message for keychain access errors", async () => {
+    it("should display user-friendly message for keychain access errors", async () => {
       const mockToken = createMockToken();
       tokenStore.load.resolves(mockToken);
       tokenStore.clear.rejects(new Error("Failed to access keychain"));
 
-      const useCase = createTestUseCase(true);
-      const command = createTestCommand([], useCase);
-
-      await command.run();
+      const useCase = createUseCase();
+      await useCase.run({skipConfirmation: true});
 
       expect(errorMessages).to.have.lengthOf(1);
       expect(errorMessages[0]).to.include("Unable to access system keychain");
@@ -226,10 +198,8 @@ describe("logout command", () => {
       tokenStore.load.resolves(mockToken);
       tokenStore.clear.rejects(new Error("Unexpected error"));
 
-      const useCase = createTestUseCase(true);
-      const command = createTestCommand([], useCase);
-
-      await command.run();
+      const useCase = createUseCase();
+      await useCase.run({skipConfirmation: true});
 
       expect(errorMessages).to.have.lengthOf(1);
       expect(errorMessages[0]).to.include("Unexpected error");
@@ -238,29 +208,12 @@ describe("logout command", () => {
     it("should handle token load errors", async () => {
       tokenStore.load.rejects(new Error("Failed to load token"));
 
-      const useCase = createTestUseCase();
-      const command = createTestCommand([], useCase);
-
-      await command.run();
+      const useCase = createUseCase();
+      await useCase.run({skipConfirmation: false});
 
       expect(errorMessages).to.have.lengthOf(1);
       expect(errorMessages[0]).to.include("Failed to load token");
       expect(tokenStore.clear.called).to.be.false;
-    });
-  });
-
-  describe("Flag behavior", () => {
-    it("should support short flag -y for yes", async () => {
-      const mockToken = createMockToken();
-      tokenStore.load.resolves(mockToken);
-      tokenStore.clear.resolves();
-
-      const useCase = createTestUseCase();
-      const command = createTestCommand(["-y"], useCase);
-
-      await command.run();
-
-      expect(tokenStore.clear.calledOnce).to.be.true;
     });
   });
 });
