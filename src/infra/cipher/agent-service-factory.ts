@@ -4,6 +4,7 @@ import type {BlobStorageConfig} from '../../core/domain/cipher/blob/types.js'
 import type {FileSystemConfig} from '../../core/domain/cipher/file-system/types.js'
 import type {CipherAgentServices, SessionServices} from '../../core/interfaces/cipher/cipher-services.js'
 import type {IContentGenerator} from '../../core/interfaces/cipher/i-content-generator.js'
+import type {IHistoryStorage} from '../../core/interfaces/cipher/i-history-storage.js'
 
 import {createBlobStorage} from './blob/blob-storage-factory.js'
 import {AgentEventBus, SessionEventBus} from './events/event-emitter.js'
@@ -17,6 +18,10 @@ import {EventBasedLogger} from './logger/event-based-logger.js'
 import {MemoryManager} from './memory/memory-manager.js'
 import {ProcessService} from './process/process-service.js'
 import {BlobHistoryStorage} from './storage/blob-history-storage.js'
+import {DualFormatHistoryStorage} from './storage/dual-format-history-storage.js'
+import {GranularHistoryStorage} from './storage/granular-history-storage.js'
+import {MessageStorageService} from './storage/message-storage-service.js'
+import {SqliteKeyStorage} from './storage/sqlite-key-storage.js'
 import {SimplePromptFactory} from './system-prompt/simple-prompt-factory.js'
 import {CoreToolScheduler} from './tools/core-tool-scheduler.js'
 import {DEFAULT_POLICY_RULES} from './tools/default-policy-rules.js'
@@ -45,6 +50,13 @@ export interface CipherLLMConfig {
   temperature?: number
   topK?: number
   topP?: number
+  /**
+   * Enable granular history storage for new sessions.
+   * When enabled, new sessions use per-message storage with streaming support.
+   * Existing sessions continue using blob storage (no migration).
+   * Default: false (use blob storage for all sessions)
+   */
+  useGranularStorage?: boolean
   verbose?: boolean
 }
 
@@ -150,7 +162,30 @@ export async function createCipherAgentServices(llmConfig: CipherLLMConfig): Pro
   await toolManager.initialize()
 
   // 11. History storage (depends on BlobStorage) - SHARED across sessions
-  const historyStorage = new BlobHistoryStorage(blobStorage)
+  // Use DualFormatHistoryStorage when granular storage is enabled
+  let historyStorage: IHistoryStorage
+
+  if (llmConfig.useGranularStorage) {
+    // Create granular storage infrastructure
+    const keyStorage = new SqliteKeyStorage({
+      storageDir: join(workingDirectory, '.brv'),
+    })
+    await keyStorage.initialize()
+
+    const messageStorage = new MessageStorageService(keyStorage)
+    const granularStorage = new GranularHistoryStorage(messageStorage)
+    const blobHistoryStorage = new BlobHistoryStorage(blobStorage)
+
+    // DualFormatHistoryStorage routes between formats:
+    // - New sessions → GranularHistoryStorage
+    // - Existing sessions → BlobHistoryStorage (no migration)
+    historyStorage = new DualFormatHistoryStorage(blobHistoryStorage, granularStorage)
+
+    logger.info('Granular history storage enabled for new sessions')
+  } else {
+    // Default: use blob storage for all sessions
+    historyStorage = new BlobHistoryStorage(blobStorage)
+  }
 
   // Log successful initialization
   logger.info('CipherAgent services initialized successfully', {
