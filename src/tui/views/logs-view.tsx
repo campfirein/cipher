@@ -18,6 +18,34 @@ import {ActivityLog} from '../types.js'
 
 const MAX_PROGRESS_ITEMS = 3
 
+/** Minimum content lines to show before truncation */
+const MIN_CONTENT_LINES = 5
+
+/** Reserved lines for log item (header + input box + progress + margins) */
+const LOG_ITEM_OVERHEAD = 10
+
+/**
+ * Truncate content string to maxLines, returning truncated content and remaining line count
+ */
+function truncateContent(
+  content: string,
+  maxLines: number,
+): {remainingLines: number; totalLines: number; truncatedContent: string} {
+  const lines = content.split('\n')
+  const totalLines = lines.length
+
+  if (totalLines <= maxLines) {
+    return {remainingLines: 0, totalLines, truncatedContent: content}
+  }
+
+  const truncatedContent = lines.slice(0, maxLines).join('\n')
+  return {
+    remainingLines: totalLines - maxLines,
+    totalLines,
+    truncatedContent,
+  }
+}
+
 function safeJsonParse<T = unknown>(jsonString: string, fallback: null | T = null): null | T {
   try {
     return JSON.parse(jsonString) as T
@@ -69,7 +97,7 @@ function composeChangesFromToolCalls(toolCalls: ToolCall[]): {created: string[];
 /**
  * Estimate the line height of a log item
  */
-function estimateLogHeight(log: ActivityLog): number {
+function estimateLogHeight(log: ActivityLog, maxContentLines: number): number {
   let lines = 0
 
   // Header line: [type] @source [timestamp]
@@ -90,11 +118,12 @@ function estimateLogHeight(log: ActivityLog): number {
     lines += 1
   }
 
-  // Content box (if completed or failed)
+  // Content (if completed or failed)
   if (log.status === 'completed' || log.status === 'failed') {
-    // Estimate content lines (at least 3 for border + 1 line content)
-    const contentLines = Math.ceil((log.content?.length ?? 0) / 80) || 1
-    lines += 2 + contentLines // borders + content
+    const contentLineCount = log.content?.split('\n').length ?? 0
+    // Account for truncation: show max lines + 1 for hint if truncated
+    const displayedLines = contentLineCount <= maxContentLines ? contentLineCount : maxContentLines + 1
+    lines += displayedLines
   }
 
   // Changes sections
@@ -124,6 +153,10 @@ export const LogsView: React.FC<LogsViewProps> = ({availableHeight}) => {
   } = useTheme()
   const {mode} = useMode()
   const {sessionExecutions} = useConsumer()
+
+  // Calculate max content lines based on available height
+  const scrollableHeight = Math.max(1, availableHeight - 1)
+  const maxContentLines = Math.max(MIN_CONTENT_LINES, scrollableHeight - LOG_ITEM_OVERHEAD)
 
   const logs = useMemo(
     () =>
@@ -163,10 +196,7 @@ export const LogsView: React.FC<LogsViewProps> = ({availableHeight}) => {
           <Text color={colors.dimText}>[{log.timestamp.toISOString().slice(11, 19)}]</Text>
         </Box>
         <Box borderColor={colors.border} borderStyle="single">
-          <Text>
-            {'> '}
-            {log.input}
-          </Text>
+          <Text>{log.input}</Text>
         </Box>
         <Box flexDirection="column">
           {log.progress && log.progress.length > MAX_PROGRESS_ITEMS && (
@@ -195,11 +225,20 @@ export const LogsView: React.FC<LogsViewProps> = ({availableHeight}) => {
             </Text>
           )}
         </Box>
-        {(log.status === 'failed' || log.status === 'completed') && (
-          <Box borderColor={colors.border} borderStyle="single">
-            <Text color={log.status === 'failed' ? colors.errorText : colors.text}>{log.content}</Text>
-          </Box>
-        )}
+        {(log.status === 'failed' || log.status === 'completed') &&
+          (() => {
+            const {remainingLines, truncatedContent} = truncateContent(log.content ?? '', maxContentLines)
+            return (
+              <>
+                <Text color={log.status === 'failed' ? colors.errorText : colors.text}>{truncatedContent}</Text>
+                {remainingLines > 0 && (
+                  <Text color={colors.dimText}>
+                    ↕ {remainingLines} more lines (resize terminal to view full output)
+                  </Text>
+                )}
+              </>
+            )
+          })()}
         {log.status === 'completed' && log.changes.created.length > 0 && (
           <Box columnGap={1}>
             <Text color={colors.secondary}>created at:</Text>
@@ -222,13 +261,16 @@ export const LogsView: React.FC<LogsViewProps> = ({availableHeight}) => {
         )}
       </Box>
     ),
-    [colors],
+    [colors, maxContentLines],
   )
 
   const keyExtractor = useCallback((log: ActivityLog) => log.id, [])
 
-  // Account for the bottom border (1 line)
-  const scrollableHeight = Math.max(1, availableHeight - 1)
+  // Height estimator that accounts for content truncation
+  const heightEstimator = useCallback(
+    (log: ActivityLog) => estimateLogHeight(log, maxContentLines),
+    [maxContentLines],
+  )
 
   return (
     <Box
@@ -246,7 +288,7 @@ export const LogsView: React.FC<LogsViewProps> = ({availableHeight}) => {
           <ScrollableList
             autoScrollToBottom
             availableHeight={scrollableHeight}
-            estimateItemHeight={estimateLogHeight}
+            estimateItemHeight={heightEstimator}
             isActive={mode === 'activity'}
             items={logs}
             keyExtractor={keyExtractor}
