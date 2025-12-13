@@ -15,16 +15,11 @@ import {FsTemplateLoader} from '../../template/fs-template-loader.js'
 import {ReplTerminal} from '../../terminal/repl-terminal.js'
 import {MixpanelTrackingService} from '../../tracking/mixpanel-tracking-service.js'
 import {InitUseCase} from '../../usecase/init-use-case.js'
+import {Flags, parseReplArgs, toCommandFlags} from './arg-parser.js'
 
-/**
- * Parse init command arguments.
- * Extracts --force/-f flag from args string.
- */
-function parseInitArgs(args: string): {force: boolean} {
-  const trimmed = args.trim()
-  // Check for --force or -f flag
-  const force = /--force(?:\s|$)/.test(trimmed) || /(?:^|\s)-f(?:\s|$)/.test(trimmed)
-  return {force}
+// Flags - defined once, used for both parsing and help display
+const initFlags = {
+  force: Flags.boolean({char: 'f', description: 'Force re-initialization without confirmation prompt'}),
 }
 
 /**
@@ -34,15 +29,14 @@ function parseInitArgs(args: string): {force: boolean} {
  */
 export const initCommand: SlashCommand = {
   action(_context, args) {
-    const parsed = parseInitArgs(args)
-
     return {
       async execute(onMessage, onPrompt) {
+        // Parse flags
+        const parsed = await parseReplArgs(args, {flags: initFlags})
+        const force = parsed.flags.force ?? false
+
         // Create ReplTerminal with callbacks
         const terminal = new ReplTerminal({onMessage, onPrompt})
-
-        // Use parsed force flag
-        const {force} = parsed
 
         // Create services
         const envConfig = getCurrentConfig()
@@ -89,15 +83,7 @@ export const initCommand: SlashCommand = {
   aliases: [],
   autoExecute: true,
   description: 'Initialize a project with ByteRover',
-  flags: [
-    {
-      char: 'f',
-      default: false,
-      description: 'Force re-initialization without confirmation prompt',
-      name: 'force',
-      type: 'boolean',
-    },
-  ],
+  flags: toCommandFlags(initFlags),
   kind: CommandKind.BUILT_IN,
   name: 'init',
 }

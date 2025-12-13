@@ -1,12 +1,12 @@
-import {Args, Flags, Parser} from '@oclif/core'
-
 import {type CommandContext, CommandKind, type SlashCommand} from '../../../tui/types.js'
 import {FileContextTreeService} from '../../context-tree/file-context-tree-service.js'
 import {FileContextTreeSnapshotService} from '../../context-tree/file-context-tree-snapshot-service.js'
 import {ReplTerminal} from '../../terminal/repl-terminal.js'
 import {ResetUseCase} from '../../usecase/reset-use-case.js'
+import {Args, Flags, parseReplArgs, toCommandFlags} from './arg-parser.js'
 
-export const resetCommandFlags = {
+// Flags - defined once, used for both parsing and help display
+const resetFlags = {
   yes: Flags.boolean({
     char: 'y',
     default: false,
@@ -14,7 +14,8 @@ export const resetCommandFlags = {
   }),
 }
 
-export const resetCommandArgs = {
+// Args - defined once for parsing
+const resetArgs = {
   directory: Args.string({
     description: 'Project directory (defaults to current directory)',
     required: false,
@@ -30,10 +31,9 @@ export const resetCommand: SlashCommand = {
       async execute(onMessage, onPrompt) {
         const terminal = new ReplTerminal({onMessage, onPrompt})
 
-        const argv = args.split(/\s+/).filter(Boolean)
-        const parsed = await Parser.parse(argv, {
-          args: resetCommandArgs,
-          flags: resetCommandFlags,
+        const parsed = await parseReplArgs(args, {
+          args: resetArgs,
+          flags: resetFlags,
           strict: false,
         })
 
@@ -45,7 +45,7 @@ export const resetCommand: SlashCommand = {
 
         await useCase.run({
           directory: parsed.args.directory,
-          skipConfirmation: parsed.flags.yes,
+          skipConfirmation: parsed.flags.yes ?? false,
         })
       },
       type: 'streaming',
@@ -61,15 +61,7 @@ export const resetCommand: SlashCommand = {
   ],
   autoExecute: true,
   description: 'Reset the current context tree and start with 6 default domains',
-  flags: [
-    {
-      char: 'y',
-      default: false,
-      description: 'Skip confirmation prompt',
-      name: 'yes',
-      type: 'boolean',
-    },
-  ],
+  flags: toCommandFlags(resetFlags),
   kind: CommandKind.BUILT_IN,
   name: 'reset',
 }

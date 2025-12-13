@@ -56,8 +56,10 @@ export interface CommandContext {
    * Invocation details about the current command execution
    */
   invocation?: {
-    /** Arguments passed to the command */
+    /** Arguments passed to the command (without @file references) */
     args: string
+    /** File references extracted from @filepath tokens */
+    files: string[]
     /** Resolved command name */
     name: string
     /** Full raw input string */
