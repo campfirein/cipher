@@ -1,20 +1,10 @@
-import {Command, Flags, ux} from '@oclif/core'
+import {Command, Flags} from '@oclif/core'
 
-import type {AuthToken} from '../core/domain/entities/auth-token.js'
-import type {BrvConfig} from '../core/domain/entities/brv-config.js'
-import type {ICogitPushService} from '../core/interfaces/i-cogit-push-service.js'
-import type {IContextFileReader} from '../core/interfaces/i-context-file-reader.js'
-import type {IProjectConfigStore} from '../core/interfaces/i-project-config-store.js'
-import type {ITerminal} from '../core/interfaces/i-terminal.js'
-import type {ITokenStore} from '../core/interfaces/i-token-store.js'
+import type {IPushUseCase} from '../core/interfaces/usecase/i-push-use-case.js'
 
 import {getCurrentConfig} from '../config/environment.js'
 import {DEFAULT_BRANCH} from '../constants.js'
-import {IContextTreeSnapshotService} from '../core/interfaces/i-context-tree-snapshot-service.js'
-import {ITrackingService} from '../core/interfaces/i-tracking-service.js'
-import {ExitCode, ExitError, exitWithCode} from '../infra/cipher/exit-codes.js'
-import {WorkspaceNotInitializedError} from '../infra/cipher/validation/workspace-validator.js'
-import {mapToPushContexts} from '../infra/cogit/context-tree-to-push-context-mapper.js'
+import {ExitError} from '../infra/cipher/exit-codes.js'
 import {HttpCogitPushService} from '../infra/cogit/http-cogit-push-service.js'
 import {ProjectConfigStore} from '../infra/config/file-config-store.js'
 import {FileContextFileReader} from '../infra/context-tree/file-context-file-reader.js'
@@ -22,6 +12,7 @@ import {FileContextTreeSnapshotService} from '../infra/context-tree/file-context
 import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
 import {OclifTerminal} from '../infra/terminal/oclif-terminal.js'
 import {MixpanelTrackingService} from '../infra/tracking/mixpanel-tracking-service.js'
+import {PushUseCase} from '../infra/usecase/push-use-case.js'
 
 export default class Push extends Command {
   public static description = 'Push context tree to ByteRover memory storage'
@@ -43,11 +34,6 @@ export default class Push extends Command {
       description: 'Skip confirmation prompt',
     }),
   }
-  protected terminal: ITerminal = {} as ITerminal
-
-  protected buildSpaceUrl(webAppUrl: string, teamName: string, spaceName: string): string {
-    return `${webAppUrl}/${teamName}/${spaceName}`
-  }
 
   // Override catch to prevent oclif from logging errors that were already displayed
   async catch(error: Error & {oclif?: {exit: number}}): Promise<void> {
@@ -66,165 +52,27 @@ export default class Push extends Command {
     throw error
   }
 
-  protected async checkProjectInit(projectConfigStore: IProjectConfigStore): Promise<BrvConfig> {
-    const projectConfig = await projectConfigStore.read()
-    if (projectConfig === undefined) {
-      throw new WorkspaceNotInitializedError(
-        'Project not initialized. Please run "brv init" to select your team and workspace.',
-        '.brv',
-      )
-    }
-
-    return projectConfig
-  }
-
-  protected async confirmPush(projectConfig: BrvConfig, branch: string): Promise<boolean> {
-    this.terminal.log('\nYou are about to push to ByteRover memory storage:')
-    this.terminal.log(`  Space: ${projectConfig.spaceName}`)
-    this.terminal.log(`  Branch: ${branch}`)
-
-    return this.terminal.confirm({
-      default: false,
-      message: 'Push to ByteRover?',
-    })
-  }
-
-  protected createServices(): {
-    cogitPushService: ICogitPushService
-    contextFileReader: IContextFileReader
-    contextTreeSnapshotService: IContextTreeSnapshotService
-    projectConfigStore: IProjectConfigStore
-    tokenStore: ITokenStore
-    trackingService: ITrackingService
-  } {
-    this.terminal = new OclifTerminal(this)
+  protected createUseCase(): IPushUseCase {
     const envConfig = getCurrentConfig()
     const tokenStore = new KeychainTokenStore()
     const trackingService = new MixpanelTrackingService(tokenStore)
 
-    return {
+    return new PushUseCase({
       cogitPushService: new HttpCogitPushService({
         apiBaseUrl: envConfig.cogitApiBaseUrl,
       }),
       contextFileReader: new FileContextFileReader(),
       contextTreeSnapshotService: new FileContextTreeSnapshotService(),
       projectConfigStore: new ProjectConfigStore(),
+      terminal: new OclifTerminal(this),
       tokenStore,
       trackingService,
-    }
+      webAppUrl: envConfig.webAppUrl,
+    })
   }
 
   public async run(): Promise<void> {
-    const {flags} = await this.parse(Push)
-
-    try {
-      const {
-        cogitPushService,
-        contextFileReader,
-        contextTreeSnapshotService,
-        projectConfigStore,
-        tokenStore,
-        trackingService,
-      } = this.createServices()
-
-      await trackingService.track('mem:push')
-
-      const token = await this.validateAuth(tokenStore)
-      if (!token) return
-      const projectConfig = await this.checkProjectInit(projectConfigStore)
-
-      // Check for changes
-      ux.action.start('Checking for Context Tree changes')
-      const contextTreeChanges = await contextTreeSnapshotService.getChanges()
-      ux.action.stop()
-
-      if (
-        contextTreeChanges.added.length === 0 &&
-        contextTreeChanges.modified.length === 0 &&
-        contextTreeChanges.deleted.length === 0
-      ) {
-        this.terminal.log('No context changes to push.')
-        return
-      }
-
-      // Prompt for confirmation unless --yes flag is provided
-      if (!flags.yes) {
-        const confirmed = await this.confirmPush(projectConfig, flags.branch)
-        if (!confirmed) {
-          this.terminal.log('Push cancelled.')
-          return
-        }
-      }
-
-      // Read and prepare files
-      ux.action.start('Reading context files')
-      const [addedFiles, modifiedFiles] = await Promise.all([
-        contextFileReader.readMany(contextTreeChanges.added),
-        contextFileReader.readMany(contextTreeChanges.modified),
-      ])
-      ux.action.stop()
-
-      const pushContexts = mapToPushContexts({
-        addedFiles,
-        deletedPaths: contextTreeChanges.deleted,
-        modifiedFiles,
-      })
-
-      if (pushContexts.length === 0) {
-        this.terminal.log('\nNo valid context files to push.')
-        return
-      }
-
-      // Push to CoGit (with two-request SHA flow)
-      this.terminal.log('Pushing to ByteRover...')
-      await cogitPushService.push({
-        accessToken: token.accessToken,
-        branch: flags.branch,
-        contexts: pushContexts,
-        sessionKey: token.sessionKey,
-        spaceId: projectConfig.spaceId,
-        teamId: projectConfig.teamId,
-      })
-
-      // Update snapshot ONLY after successful push
-      await contextTreeSnapshotService.saveSnapshot()
-
-      // Success message
-      this.terminal.log('\n✓ Successfully pushed context tree to ByteRover memory storage!')
-      this.terminal.log(`  Branch: ${flags.branch}`)
-      this.terminal.log(
-        `  Added: ${addedFiles.length}, Edited: ${modifiedFiles.length}, Deleted: ${contextTreeChanges.deleted.length}`,
-      )
-      this.terminal.log(
-        `  View: ${this.buildSpaceUrl(getCurrentConfig().webAppUrl, projectConfig.teamName, projectConfig.spaceName)}`,
-      )
-    } catch (error) {
-      if (error instanceof WorkspaceNotInitializedError) {
-        exitWithCode(
-          ExitCode.VALIDATION_ERROR,
-          'Project not initialized. Please run "brv init" to select your team and workspace.',
-        )
-      }
-
-      // For other errors, use exitWithCode to properly display error before exit
-      const message = error instanceof Error ? error.message : 'Push failed'
-      exitWithCode(ExitCode.RUNTIME_ERROR, `Failed to push: ${message}`)
-    }
-  }
-
-  protected async validateAuth(tokenStore: ITokenStore): Promise<AuthToken | undefined> {
-    const token = await tokenStore.load()
-
-    if (token === undefined) {
-      this.terminal.error('Not authenticated. Run "brv login" first.')
-      return undefined
-    }
-
-    if (!token.isValid()) {
-      this.terminal.error('Authentication token expired. Run "brv login" again.')
-      return undefined
-    }
-
-    return token
+    const { flags } = await this.parse(Push)
+    await this.createUseCase().run({ branch: flags.branch, skipConfirmation: flags.yes })
   }
 }
