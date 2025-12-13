@@ -694,6 +694,7 @@ export class ByteRoverLLMService implements ILLMService {
       // Emit tool result event with success/error info
       this.sessionEventBus.emit('llmservice:toolResult', {
         callId: toolCall.id,
+        error: result.errorMessage,
         errorType: result.errorType,
         metadata: {
           ...result.metadata,
