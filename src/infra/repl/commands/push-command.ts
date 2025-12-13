@@ -1,5 +1,3 @@
-import {Flags, Parser} from '@oclif/core'
-
 import {getCurrentConfig} from '../../../config/environment.js'
 import {DEFAULT_BRANCH} from '../../../constants.js'
 import {type CommandContext, CommandKind, type SlashCommand} from '../../../tui/types.js'
@@ -11,8 +9,10 @@ import {KeychainTokenStore} from '../../storage/keychain-token-store.js'
 import {ReplTerminal} from '../../terminal/repl-terminal.js'
 import {MixpanelTrackingService} from '../../tracking/mixpanel-tracking-service.js'
 import {PushUseCase} from '../../usecase/push-use-case.js'
+import {Flags, parseReplArgs, toCommandFlags} from './arg-parser.js'
 
-export const pushCommandFlags = {
+// Flags - defined once, used for both parsing and help display
+const pushFlags = {
   branch: Flags.string({
     char: 'b',
     default: DEFAULT_BRANCH,
@@ -34,12 +34,7 @@ export const pushCommand: SlashCommand = {
       async execute(onMessage, onPrompt) {
         const terminal = new ReplTerminal({onMessage, onPrompt})
 
-        const argv = args.split(/\s+/).filter(Boolean)
-        const parsed = await Parser.parse(argv, {
-          args: {},
-          flags: pushCommandFlags,
-          strict: false,
-        })
+        const parsed = await parseReplArgs(args, {flags: pushFlags, strict: false})
 
         const envConfig = getCurrentConfig()
         const tokenStore = new KeychainTokenStore()
@@ -59,8 +54,8 @@ export const pushCommand: SlashCommand = {
         })
 
         await useCase.run({
-          branch: parsed.flags.branch,
-          skipConfirmation: parsed.flags.yes,
+          branch: parsed.flags.branch ?? DEFAULT_BRANCH,
+          skipConfirmation: parsed.flags.yes ?? false,
         })
       },
       type: 'streaming',
@@ -69,22 +64,7 @@ export const pushCommand: SlashCommand = {
   aliases: [],
   autoExecute: true,
   description: 'Push context tree to ByteRover memory storage',
-  flags: [
-    {
-      char: 'b',
-      default: 'main',
-      description: 'ByteRover branch name (not Git branch)',
-      name: 'branch',
-      type: 'string',
-    },
-    {
-      char: 'y',
-      default: false,
-      description: 'Skip confirmation prompt',
-      name: 'yes',
-      type: 'boolean',
-    },
-  ],
+  flags: toCommandFlags(pushFlags),
   kind: CommandKind.BUILT_IN,
   name: 'push',
 }

@@ -34,24 +34,29 @@ export interface ReplTerminalCallbacks {
  * Uses callbacks to integrate with TUI streaming and prompt system.
  */
 export class ReplTerminal implements ITerminal {
+  private currentActionId: null | string = null
+
   constructor(private readonly callbacks: ReplTerminalCallbacks) {}
 
   actionStart(message: string): void {
+    // Generate a unique action ID to link start/stop
+    this.currentActionId = generateId()
     this.callbacks.onMessage({
+      actionId: this.currentActionId,
       content: message,
       id: generateId(),
-      type: 'output',
+      type: 'action_start',
     })
   }
 
   actionStop(message?: string): void {
-    if (message) {
-      this.callbacks.onMessage({
-        content: message,
-        id: generateId(),
-        type: 'output',
-      })
-    }
+    this.callbacks.onMessage({
+      actionId: this.currentActionId ?? undefined,
+      content: message ?? '',
+      id: generateId(),
+      type: 'action_stop',
+    })
+    this.currentActionId = null
   }
 
   confirm(options: ConfirmOptions): Promise<boolean> {

@@ -2,6 +2,8 @@ import {useCallback, useState} from 'react'
 
 import type {CommandContext, SlashCommand, SlashCommandActionReturn} from '../types.js'
 
+import {splitArgs} from '../../infra/repl/commands/arg-parser.js'
+
 /**
  * Result of parsing user input
  */
@@ -144,11 +146,16 @@ export function useSlashCommandProcessor(
         }
       }
 
+      // Extract file references from args
+      const {args: argsWithoutFiles, files} = splitArgs(args)
+      const cleanArgs = argsWithoutFiles.join(' ')
+
       // Build execution context with invocation details
       const execContext: CommandContext = {
         ...context,
         invocation: {
-          args,
+          args: cleanArgs,
+          files,
           name: commandNameForContext,
           raw: input,
         },
@@ -158,7 +165,7 @@ export function useSlashCommandProcessor(
       setIsProcessing(true)
 
       try {
-        const result = await actionToExecute(execContext, args)
+        const result = await actionToExecute(execContext, cleanArgs)
         return result
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error)

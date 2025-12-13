@@ -4,29 +4,29 @@ import {join} from 'node:path'
 import type {IContextTreeService} from '../../core/interfaces/i-context-tree-service.js'
 import type {IContextTreeSnapshotService} from '../../core/interfaces/i-context-tree-snapshot-service.js'
 import type {ITerminal} from '../../core/interfaces/i-terminal.js'
-import type {IResetUseCase} from '../../core/interfaces/usecase/i-reset-use-case.js'
+import type {IClearUseCase} from '../../core/interfaces/usecase/i-clear-use-case.js'
 
 import {BRV_DIR, CONTEXT_TREE_DIR} from '../../constants.js'
 
-export interface ResetUseCaseOptions {
+export interface ClearUseCaseOptions {
   contextTreeService: IContextTreeService
   contextTreeSnapshotService: IContextTreeSnapshotService
   terminal: ITerminal
 }
 
-export class ResetUseCase implements IResetUseCase {
+export class ClearUseCase implements IClearUseCase {
   private readonly contextTreeService: IContextTreeService
   private readonly contextTreeSnapshotService: IContextTreeSnapshotService
   private readonly terminal: ITerminal
 
-  constructor(options: ResetUseCaseOptions) {
+  constructor(options: ClearUseCaseOptions) {
     this.contextTreeService = options.contextTreeService
     this.contextTreeSnapshotService = options.contextTreeSnapshotService
     this.terminal = options.terminal
   }
 
   // Protected method for testability - can be overridden in tests
-  protected async confirmReset(): Promise<boolean> {
+  protected async confirmClear(): Promise<boolean> {
     return this.terminal.confirm({
       default: false,
       message:
@@ -34,7 +34,7 @@ export class ResetUseCase implements IResetUseCase {
     })
   }
 
-  public async run(options: {directory?: string; skipConfirmation: boolean;}): Promise<void> {
+  public async run(options: {directory?: string; skipConfirmation: boolean}): Promise<void> {
     try {
       // Check if context tree exists
       const exists = await this.contextTreeService.exists(options.directory)
@@ -46,7 +46,7 @@ export class ResetUseCase implements IResetUseCase {
 
       // Confirmation prompt (unless skipConfirmation is true)
       if (!options.skipConfirmation) {
-        const confirmed = await this.confirmReset()
+        const confirmed = await this.confirmClear()
 
         if (!confirmed) {
           this.terminal.log('Cancelled. Context tree was not reset.')
