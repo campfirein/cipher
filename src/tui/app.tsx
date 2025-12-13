@@ -42,7 +42,7 @@ export const App: React.FC = () => {
           <Text>~ in queue: </Text>
           <Text color={colors.warning}>{stats.queued}</Text>
           <Text> | running: </Text>
-          <Text color={colors.secondary}>{stats.running}</Text>
+          <Text color={colors.primary}>{stats.running}</Text>
         </Box>
       )}
 
@@ -54,10 +54,10 @@ export const App: React.FC = () => {
 
           <Box flexGrow={1} height={contentHeight} paddingX={1}>
             <Box display={activeTab === 'activity' ? 'flex' : 'none'} height="100%" width="100%">
-              <LogsView />
+              <LogsView availableHeight={contentHeight} />
             </Box>
             <Box display={activeTab === 'console' ? 'flex' : 'none'} height="100%" width="100%">
-              <CommandView />
+              <CommandView availableHeight={contentHeight} />
             </Box>
           </Box>
 

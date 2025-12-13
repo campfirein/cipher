@@ -8,64 +8,44 @@ import {restore, stub} from 'sinon'
 import type {IAuthService} from '../../src/core/interfaces/i-auth-service.js'
 import type {IBrowserLauncher} from '../../src/core/interfaces/i-browser-launcher.js'
 import type {ICallbackHandler} from '../../src/core/interfaces/i-callback-handler.js'
-import type {IOidcDiscoveryService} from '../../src/core/interfaces/i-oidc-discovery-service.js'
+import type {ITerminal} from '../../src/core/interfaces/i-terminal.js'
 import type {ITokenStore} from '../../src/core/interfaces/i-token-store.js'
 import type {ITrackingService} from '../../src/core/interfaces/i-tracking-service.js'
 import type {IUserService} from '../../src/core/interfaces/i-user-service.js'
+import type {ILoginUseCase} from '../../src/core/interfaces/usecase/i-login-use-case.js'
 
 import Login from '../../src/commands/login.js'
 import {AuthToken} from '../../src/core/domain/entities/auth-token.js'
 import {OAuthTokenData} from '../../src/core/domain/entities/oauth-token-data.js'
 import {User} from '../../src/core/domain/entities/user.js'
+import {LoginUseCase} from '../../src/infra/usecase/login-use-case.js'
 import {createMockTerminal} from '../helpers/mock-factories.js'
 
-/**
- * Testable Login command that accepts mocked services
- */
-class TestableLogin extends Login {
-  public errorMessages: string[] = []
-  public logMessages: string[] = []
+// ==================== TestableLoginCommand ====================
 
-  // eslint-disable-next-line max-params
+class TestableLoginCommand extends Login {
   constructor(
-    private readonly mockAuthService: IAuthService,
-    private readonly mockBrowserLauncher: IBrowserLauncher,
-    private readonly mockTokenStore: ITokenStore,
-    private readonly mockCallbackHandler: ICallbackHandler,
-    private readonly mockTrackingService: ITrackingService,
-    private readonly mockDiscoveryService: IOidcDiscoveryService,
-    private readonly mockUserService: IUserService,
+    private readonly useCase: ILoginUseCase,
     config: Config,
   ) {
     super([], config)
   }
 
-  protected async createAuthService(_discoveryService: IOidcDiscoveryService): Promise<IAuthService> {
-    return this.mockAuthService
-  }
-
-  protected createServices() {
-    this.terminal = createMockTerminal({
-      error: (msg) => this.errorMessages.push(msg),
-      log: (msg) => msg !== undefined && this.logMessages.push(msg),
-    })
-    return {
-      browserLauncher: this.mockBrowserLauncher,
-      callbackHandler: this.mockCallbackHandler,
-      discoveryService: this.mockDiscoveryService,
-      tokenStore: this.mockTokenStore,
-      trackingService: this.mockTrackingService,
-      userService: this.mockUserService,
-    }
+  protected async createUseCase(): Promise<ILoginUseCase> {
+    return this.useCase
   }
 }
+
+// ==================== Tests ====================
 
 describe('login command', () => {
   let authService: SinonStubbedInstance<IAuthService>
   let browserLauncher: SinonStubbedInstance<IBrowserLauncher>
   let callbackHandler: SinonStubbedInstance<ICallbackHandler>
   let config: Config
-  let discoveryService: SinonStubbedInstance<IOidcDiscoveryService>
+  let errorMessages: string[]
+  let logMessages: string[]
+  let terminal: ITerminal
   let tokenStore: SinonStubbedInstance<ITokenStore>
   let trackingService: SinonStubbedInstance<ITrackingService>
   let userService: SinonStubbedInstance<IUserService>
@@ -75,6 +55,14 @@ describe('login command', () => {
   })
 
   beforeEach(() => {
+    logMessages = []
+    errorMessages = []
+
+    terminal = createMockTerminal({
+      error: (msg) => errorMessages.push(msg),
+      log: (msg) => msg !== undefined && logMessages.push(msg),
+    })
+
     authService = {
       exchangeCodeForToken: stub(),
       initiateAuthorization: stub(),
@@ -98,10 +86,6 @@ describe('login command', () => {
       waitForCallback: stub(),
     }
 
-    discoveryService = {
-      discover: stub(),
-    }
-
     trackingService = {
       track: stub<Parameters<ITrackingService['track']>, ReturnType<ITrackingService['track']>>().resolves(),
     }
@@ -114,6 +98,22 @@ describe('login command', () => {
   afterEach(() => {
     restore()
   })
+
+  function createTestUseCase(): LoginUseCase {
+    return new LoginUseCase({
+      authService,
+      browserLauncher,
+      callbackHandler,
+      terminal,
+      tokenStore,
+      trackingService,
+      userService,
+    })
+  }
+
+  function createTestCommand(useCase: ILoginUseCase): TestableLoginCommand {
+    return new TestableLoginCommand(useCase, config)
+  }
 
   describe('Successful login flow', () => {
     it('should complete successful login with user fetch and display success message', async () => {
@@ -141,16 +141,8 @@ describe('login command', () => {
       tokenStore.save.resolves()
       callbackHandler.stop.resolves()
 
-      const command = new TestableLogin(
-        authService,
-        browserLauncher,
-        tokenStore,
-        callbackHandler,
-        trackingService,
-        discoveryService,
-        userService,
-        config,
-      )
+      const useCase = createTestUseCase()
+      const command = createTestCommand(useCase)
 
       await command.run()
 
@@ -200,21 +192,13 @@ describe('login command', () => {
       userService.getCurrentUser.rejects(new Error('Failed to fetch user information'))
       callbackHandler.stop.resolves()
 
-      const command = new TestableLogin(
-        authService,
-        browserLauncher,
-        tokenStore,
-        callbackHandler,
-        trackingService,
-        discoveryService,
-        userService,
-        config,
-      )
+      const useCase = createTestUseCase()
+      const command = createTestCommand(useCase)
 
       await command.run()
 
-      expect(command.errorMessages).to.have.lengthOf(1)
-      expect(command.errorMessages[0]).to.include('Failed to fetch user information')
+      expect(errorMessages).to.have.lengthOf(1)
+      expect(errorMessages[0]).to.include('Failed to fetch user information')
       // Verify token was NOT saved when user fetch fails
       expect(tokenStore.save.called).to.be.false
       // Verify cleanup still happened
@@ -246,16 +230,8 @@ describe('login command', () => {
       tokenStore.save.resolves()
       callbackHandler.stop.resolves()
 
-      const command = new TestableLogin(
-        authService,
-        browserLauncher,
-        tokenStore,
-        callbackHandler,
-        trackingService,
-        discoveryService,
-        userService,
-        config,
-      )
+      const useCase = createTestUseCase()
+      const command = createTestCommand(useCase)
 
       await command.run()
 
@@ -285,21 +261,13 @@ describe('login command', () => {
       callbackHandler.waitForCallback.rejects(new Error('Authentication timeout'))
       callbackHandler.stop.resolves()
 
-      const command = new TestableLogin(
-        authService,
-        browserLauncher,
-        tokenStore,
-        callbackHandler,
-        trackingService,
-        discoveryService,
-        userService,
-        config,
-      )
+      const useCase = createTestUseCase()
+      const command = createTestCommand(useCase)
 
       await command.run()
 
-      expect(command.errorMessages).to.have.lengthOf(1)
-      expect(command.errorMessages[0]).to.include('Authentication timeout')
+      expect(errorMessages).to.have.lengthOf(1)
+      expect(errorMessages[0]).to.include('Authentication timeout')
       // Verify cleanup happened
       expect(callbackHandler.stop.calledOnce).to.be.true
       expect(tokenStore.save.called).to.be.false
@@ -322,21 +290,13 @@ describe('login command', () => {
       authService.exchangeCodeForToken.rejects(new Error('Invalid authorization code'))
       callbackHandler.stop.resolves()
 
-      const command = new TestableLogin(
-        authService,
-        browserLauncher,
-        tokenStore,
-        callbackHandler,
-        trackingService,
-        discoveryService,
-        userService,
-        config,
-      )
+      const useCase = createTestUseCase()
+      const command = createTestCommand(useCase)
 
       await command.run()
 
-      expect(command.errorMessages).to.have.lengthOf(1)
-      expect(command.errorMessages[0]).to.include('Invalid authorization code')
+      expect(errorMessages).to.have.lengthOf(1)
+      expect(errorMessages[0]).to.include('Invalid authorization code')
       // Verify cleanup happened
       expect(callbackHandler.stop.calledOnce).to.be.true
       expect(tokenStore.save.called).to.be.false
@@ -349,21 +309,13 @@ describe('login command', () => {
       callbackHandler.start.rejects(new Error('Port already in use'))
       callbackHandler.stop.resolves()
 
-      const command = new TestableLogin(
-        authService,
-        browserLauncher,
-        tokenStore,
-        callbackHandler,
-        trackingService,
-        discoveryService,
-        userService,
-        config,
-      )
+      const useCase = createTestUseCase()
+      const command = createTestCommand(useCase)
 
       await command.run()
 
-      expect(command.errorMessages).to.have.lengthOf(1)
-      expect(command.errorMessages[0]).to.include('Port already in use')
+      expect(errorMessages).to.have.lengthOf(1)
+      expect(errorMessages[0]).to.include('Port already in use')
       // Verify cleanup still attempted
       expect(callbackHandler.stop.calledOnce).to.be.true
     })
@@ -396,16 +348,8 @@ describe('login command', () => {
       tokenStore.save.resolves()
       callbackHandler.stop.resolves()
 
-      const command = new TestableLogin(
-        authService,
-        browserLauncher,
-        tokenStore,
-        callbackHandler,
-        trackingService,
-        discoveryService,
-        userService,
-        config,
-      )
+      const useCase = createTestUseCase()
+      const command = createTestCommand(useCase)
 
       await command.run()
 
@@ -445,16 +389,8 @@ describe('login command', () => {
       tokenStore.save.resolves()
       callbackHandler.stop.resolves()
 
-      const command = new TestableLogin(
-        authService,
-        browserLauncher,
-        tokenStore,
-        callbackHandler,
-        trackingService,
-        discoveryService,
-        userService,
-        config,
-      )
+      const useCase = createTestUseCase()
+      const command = createTestCommand(useCase)
 
       await command.run()
 

@@ -1,10 +1,6 @@
-import {useEffect, useState} from 'react'
-
-import type {ExecutionWithToolCalls, QueueSnapshot, QueueStats} from '../consumer/queue-polling-service.js'
-
-import {getQueuePollingService, stopQueuePollingService} from '../consumer/queue-polling-service.js'
-
 /**
+ * Queue Polling Hook
+ *
  * React hook for subscribing to QueuePollingService events
  *
  * Architecture:
@@ -18,6 +14,13 @@ import {getQueuePollingService, stopQueuePollingService} from '../consumer/queue
  * const { stats, sessionExecutions, error } = useQueuePolling({ consumerId })
  * ```
  */
+
+import {useEffect, useState} from 'react'
+
+import type {ExecutionWithToolCalls, QueueSnapshot, QueueStats} from '../../infra/cipher/consumer/queue-polling-service.js'
+
+import {getQueuePollingService, stopQueuePollingService} from '../../infra/cipher/consumer/queue-polling-service.js'
+
 export function useQueuePolling(options?: {consumerId?: string; pollInterval?: number}): {
   error: Error | null
   isConnected: boolean

@@ -294,7 +294,7 @@ describe('Curate Command - Interactive Mode', () => {
       const useCase = new TestableCurateUseCaseForMethods(createUseCaseOptions())
 
       const result = useCase.testValidateTopicName('invalid/name', tempDir)
-      expect(result).to.equal('Topic name cannot contain "/" or null characters')
+      expect(result).to.equal('Topic name can only contain letters (a-z, A-Z), numbers (0-9), and hyphens (-)')
     })
 
     it('should reject topic name if folder already exists', () => {
@@ -315,18 +315,18 @@ describe('Curate Command - Interactive Mode', () => {
       expect(result).to.be.true
     })
 
-    it('should accept topic name with spaces', () => {
+    it('should reject topic name with spaces', () => {
       const useCase = new TestableCurateUseCaseForMethods(createUseCaseOptions())
 
       const result = useCase.testValidateTopicName('Topic With Spaces', tempDir)
-      expect(result).to.be.true
+      expect(result).to.equal('Topic name can only contain letters (a-z, A-Z), numbers (0-9), and hyphens (-)')
     })
 
-    it('should accept topic name with special characters', () => {
+    it('should reject topic name with special characters', () => {
       const useCase = new TestableCurateUseCaseForMethods(createUseCaseOptions())
 
       const result = useCase.testValidateTopicName('topic-with_special.chars', tempDir)
-      expect(result).to.be.true
+      expect(result).to.equal('Topic name can only contain letters (a-z, A-Z), numbers (0-9), and hyphens (-)')
     })
   })
 })

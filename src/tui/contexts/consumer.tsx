@@ -13,10 +13,10 @@
 import React, { createContext, useContext, useMemo } from 'react'
 
 import type { ExecutionWithToolCalls, QueueStats } from '../../infra/cipher/consumer/queue-polling-service.js'
-import type { ConsumerStatus } from '../../infra/cipher/ui/queue-dashboard.js'
+import type { ConsumerStatus } from '../types.js'
 
-import { useConsumer as useConsumerHook } from '../../infra/cipher/ui/queue-dashboard.js'
-import { useQueuePolling } from '../../infra/cipher/ui/use-queue-polling.js'
+import { useConsumer as useConsumerHook } from '../hooks/use-consumer.js'
+import { useQueuePolling } from '../hooks/use-queue-polling.js'
 
 
 interface ConsumerContextValue {

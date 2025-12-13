@@ -2,22 +2,203 @@
  * Command View
  *
  * Main view with slash command input and streaming output support.
+ * Uses ScrollableList for message history with dynamic height calculation.
  */
 
-import type {ScrollViewRef} from 'ink-scroll-view'
-
-import {Box, Spacer, Text, useApp, useInput, useStdout} from 'ink'
-import {ScrollView} from 'ink-scroll-view'
+import {Box, Spacer, Text, useApp} from 'ink'
+import Spinner from 'ink-spinner'
 import TextInput from 'ink-text-input'
-import React, {useCallback, useEffect, useRef, useState} from 'react'
+import React, {useCallback, useEffect, useState} from 'react'
 
 import type {CommandMessage, PromptRequest, StreamingMessage} from '../types.js'
 
-import {MessageItem, Suggestions} from '../components/index.js'
-import {InlineConfirm, InlineSearch, InlineSelect} from '../components/inline-prompts/index.js'
+import {stopQueuePollingService} from '../../infra/cipher/consumer/queue-polling-service.js'
+import {MessageItem, ScrollableList, Suggestions} from '../components/index.js'
+import {
+  InlineConfirm,
+  InlineFileSelector,
+  InlineInput,
+  InlineSearch,
+  InlineSelect,
+} from '../components/inline-prompts/index.js'
 import {useCommands, useMode, useTheme} from '../hooks/index.js'
 
-export const CommandView: React.FC = () => {
+/** Fixed height for bottom area (suggestions + input) */
+const BOTTOM_AREA_HEIGHT = 4
+
+/** Max visible items in InlineSearch */
+const INLINE_SEARCH_MAX_ITEMS = 7
+
+/** Minimum output lines to show before truncation */
+const MIN_OUTPUT_LINES = 5
+
+/** Reserved lines for output box (command header + borders + hint line + margin) */
+const OUTPUT_BOX_OVERHEAD = 5
+
+/**
+ * Count the total number of lines in streaming messages
+ * Each message can contain multiple lines (newlines in content)
+ */
+function countOutputLines(messages: StreamingMessage[]): number {
+  let total = 0
+  for (const msg of messages) {
+    total += msg.content.split('\n').length
+  }
+
+  return total
+}
+
+/**
+ * Get messages that fit within maxLines, truncating the last message if needed
+ */
+function getMessagesWithinLines(
+  messages: StreamingMessage[],
+  maxLines: number,
+): {displayMessages: StreamingMessage[]; remainingLines: number; totalLines: number} {
+  const totalLines = countOutputLines(messages)
+
+  if (totalLines <= maxLines) {
+    return {displayMessages: messages, remainingLines: 0, totalLines}
+  }
+
+  const displayMessages: StreamingMessage[] = []
+  let lineCount = 0
+
+  for (const msg of messages) {
+    const msgLineArray = msg.content.split('\n')
+    const msgLineCount = msgLineArray.length
+
+    if (lineCount + msgLineCount <= maxLines) {
+      // Message fits completely
+      displayMessages.push(msg)
+      lineCount += msgLineCount
+    } else {
+      // Message needs to be truncated - show partial lines
+      const remainingSpace = maxLines - lineCount
+      if (remainingSpace > 0) {
+        // Take only the lines that fit
+        const truncatedContent = msgLineArray.slice(0, remainingSpace).join('\n')
+        displayMessages.push({
+          ...msg,
+          content: truncatedContent,
+        })
+        lineCount += remainingSpace
+      }
+
+      break
+    }
+  }
+
+  // Ensure we show at least one line
+  if (displayMessages.length === 0 && messages.length > 0) {
+    const firstLines = messages[0].content.split('\n')
+    displayMessages.push({
+      ...messages[0],
+      content: firstLines[0],
+    })
+    lineCount = 1
+  }
+
+  return {
+    displayMessages,
+    remainingLines: totalLines - lineCount,
+    totalLines,
+  }
+}
+
+/** Default page size for file selector */
+const INLINE_FILE_SELECTOR_PAGE_SIZE = 7
+
+/**
+ * Estimate height of an active prompt
+ */
+function estimatePromptHeight(prompt: null | PromptRequest): number {
+  if (!prompt) return 0
+
+  switch (prompt.type) {
+    case 'confirm': {
+      // Single line: "? message (Y/n) [input]"
+      return 3
+    }
+
+    case 'file_selector': {
+      // Message + path + separator + items + scroll indicator + hint
+      const pageSize = prompt.pageSize ?? INLINE_FILE_SELECTOR_PAGE_SIZE
+      return 5 + pageSize
+    }
+
+    case 'input': {
+      // Message line + optional error line
+      return 3
+    }
+
+    case 'search': {
+      // Message line + up to 7 visible choices (or 1 for "No results")
+      // We estimate 7 since we don't know actual results
+      return 3 + INLINE_SEARCH_MAX_ITEMS
+    }
+
+    case 'select': {
+      // Message line + choices + optional description (with margin)
+      const hasDescription = prompt.choices.some((c) => c.description)
+      return 1 + prompt.choices.length + (hasDescription ? 2 : 0)
+    }
+
+    default: {
+      return 4
+    }
+  }
+}
+
+interface MessageHeightOptions {
+  isLast?: boolean
+  maxOutputLines: number
+  promptHeight?: number
+  streamingLines?: number
+}
+
+/**
+ * Estimate the line height of a command message
+ */
+function estimateMessageHeight(msg: CommandMessage, options: MessageHeightOptions): number {
+  const {isLast = false, maxOutputLines, promptHeight = 0, streamingLines = 0} = options
+  let lines = 0
+
+  if (msg.type === 'command') {
+    // Command header with left border
+    lines += 1
+
+    // Output box if present (completed output)
+    if (msg.output && msg.output.length > 0) {
+      // Count actual lines in the output (each message can have multiple lines)
+      const totalOutputLines = countOutputLines(msg.output)
+      // Account for truncation: show max lines + 1 for hint
+      const displayedLines = totalOutputLines <= maxOutputLines ? totalOutputLines : maxOutputLines + 1
+      // Border top + content + border bottom
+      lines += 2 + displayedLines
+    }
+
+    // Live streaming output box (for last message while streaming)
+    if (isLast && (streamingLines > 0 || promptHeight > 0)) {
+      // Border top + streaming content + prompt + border bottom
+      lines += 2 + streamingLines + promptHeight
+    }
+
+    // Top margin for non-first items
+    lines += 1
+  } else {
+    // Other message types (info, error, etc)
+    lines += 2
+  }
+
+  return lines
+}
+
+interface CommandViewProps {
+  availableHeight: number
+}
+
+export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
   const {exit} = useApp()
   const [command, setCommand] = useState('')
   const [inputKey, setInputKey] = useState(0)
@@ -30,16 +211,6 @@ export const CommandView: React.FC = () => {
   } = useTheme()
   const {handleSlashCommand} = useCommands()
   const {appendShortcuts, mode, removeShortcuts} = useMode()
-  const scrollRef = useRef<ScrollViewRef>(null)
-  const {stdout} = useStdout()
-
-  useEffect(() => {
-    const handleResize = () => scrollRef.current?.remeasure()
-    stdout?.on('resize', handleResize)
-    return () => {
-      stdout?.off('resize', handleResize)
-    }
-  }, [stdout])
 
   // Append shortcuts for prompts
   useEffect(() => {
@@ -47,35 +218,10 @@ export const CommandView: React.FC = () => {
       appendShortcuts([{description: 'select', key: 'enter'}])
 
       return () => {
-        // Note: We can't easily track the specific shortcuts we added,
-        // but the removeShortcuts function will remove any shortcuts with key 'enter'
         removeShortcuts(['enter'])
       }
     }
   }, [activePrompt?.type, appendShortcuts, removeShortcuts])
-
-  // Scroll handling - only when not in prompt mode
-  useInput(
-    (_input, key) => {
-      const scroll = scrollRef.current
-      if (!scroll) return
-
-      const currentOffset = scroll.getScrollOffset()
-      const contentHeight = scroll.getContentHeight()
-      const viewportHeight = scroll.getViewportHeight()
-
-      // Only scroll up if not at the top
-      if (key.upArrow && currentOffset > 0) {
-        scroll.scrollBy(-2)
-      }
-
-      // Only scroll down if not at the bottom
-      if (key.downArrow && currentOffset + viewportHeight < contentHeight) {
-        scroll.scrollBy(2)
-      }
-    },
-    {isActive: mode === 'console' && !activePrompt && !isStreaming},
-  )
 
   const executeCommand = useCallback(
     async (value: string) => {
@@ -89,7 +235,6 @@ export const CommandView: React.FC = () => {
         {
           content: '',
           fromCommand: trimmed,
-          timestamp: new Date(),
           type: 'command',
         },
       ])
@@ -102,17 +247,22 @@ export const CommandView: React.FC = () => {
       }
 
       if (result && result.type === 'message') {
-        setMessages((prev) => [
-          ...prev,
-          {
-            content: result.content,
-            fromCommand: trimmed,
-            type: result.messageType === 'error' ? 'error' : 'info',
-          },
-        ])
+        setMessages((prev) => {
+          const last = prev.at(-1)
+
+          return [
+            ...(last?.type === 'command' ? prev.slice(0, -1) : [...prev]),
+            {
+              content: result.content,
+              fromCommand: trimmed,
+              type: result.messageType === 'error' ? 'error' : 'info',
+            },
+          ]
+        })
       }
 
       if (result && result.type === 'quit') {
+        stopQueuePollingService()
         exit()
       }
 
@@ -162,12 +312,6 @@ export const CommandView: React.FC = () => {
     [exit, handleSlashCommand],
   )
 
-  useEffect(() => {
-    if (messages.length > 0 || streamingMessages.length > 0) {
-      scrollRef.current?.scrollToBottom()
-    }
-  }, [messages.length, streamingMessages.length])
-
   const handleSubmit = useCallback(
     async (value: string) => {
       if (mode === 'console' && !isStreaming) await executeCommand(value)
@@ -183,7 +327,9 @@ export const CommandView: React.FC = () => {
   )
 
   const handleInsert = useCallback((value: string) => {
-    setCommand(value + ' ')
+    // Don't add space after directories (ends with /) to allow continued navigation
+    const suffix = value.endsWith('/') ? '' : ' '
+    setCommand(value + suffix)
     // TRICK: Force TextInput to remount with cursor at the end
     setInputKey((prev) => prev + 1)
   }, [])
@@ -219,102 +365,209 @@ export const CommandView: React.FC = () => {
     [activePrompt],
   )
 
-  // Render streaming message
-  const renderStreamingMessage = (msg: StreamingMessage) => {
-    let color = colors.text
-    if (msg.type === 'error') color = colors.errorText
-    if (msg.type === 'warning') color = colors.warning
+  const handleInputResponse = useCallback(
+    (value: string) => {
+      if (activePrompt?.type === 'input') {
+        activePrompt.onResponse(value)
+        setActivePrompt(null)
+      }
+    },
+    [activePrompt],
+  )
 
-    return (
-      <Text color={color} key={msg.id}>
-        {msg.content}
-      </Text>
-    )
-  }
+  const handleFileSelectorResponse = useCallback(
+    (value: null | {isDirectory: boolean; name: string; path: string}) => {
+      if (activePrompt?.type === 'file_selector') {
+        activePrompt.onResponse(value)
+        setActivePrompt(null)
+      }
+    },
+    [activePrompt],
+  )
+
+  // Calculate available height for scrollable content
+  // Subtract bottom area (suggestions + input)
+  const scrollableHeight = Math.max(1, availableHeight - BOTTOM_AREA_HEIGHT)
+
+  // Calculate max output lines based on available height
+  // Reserve space for command header, borders, hint line, and margin
+  const maxOutputLines = Math.max(MIN_OUTPUT_LINES, scrollableHeight - OUTPUT_BOX_OVERHEAD)
+
+  // Render streaming message
+  const renderStreamingMessage = useCallback(
+    (msg: StreamingMessage) => {
+      let color = colors.text
+      if (msg.type === 'error') color = colors.errorText
+      if (msg.type === 'warning') color = colors.warning
+
+      return (
+        <Text color={color} key={msg.id}>
+          {msg.content}
+        </Text>
+      )
+    },
+    [colors],
+  )
+
+  // Render a single message item
+  // For the last command message during streaming, show live streaming output
+  const renderMessageItem = useCallback(
+    (msg: CommandMessage, index: number) => {
+      if (msg.type === 'command') {
+        const hasOutput = msg.output && msg.output.length > 0
+        const isLastMessage = index === messages.length - 1
+        const showLiveOutput =
+          isLastMessage && (isStreaming || activePrompt) && (streamingMessages.length > 0 || activePrompt)
+
+        return (
+          <Box flexDirection="column" marginTop={index === 0 ? 0 : 1} width="100%">
+            <Box
+              borderBottom={false}
+              borderLeftColor={colors.primary}
+              borderRight={false}
+              borderStyle="bold"
+              borderTop={false}
+              paddingLeft={1}
+            >
+              <Text color={colors.text} dimColor>
+                {msg.fromCommand} <Text wrap="truncate-end">{msg.content}</Text>
+              </Text>
+            </Box>
+            {/* Command output (completed) */}
+            {hasOutput &&
+              (() => {
+                const {displayMessages, remainingLines} = getMessagesWithinLines(msg.output!, maxOutputLines)
+                return (
+                  <Box
+                    borderColor={colors.border}
+                    borderStyle="round"
+                    flexDirection="column"
+                    marginTop={0}
+                    paddingX={1}
+                    width="100%"
+                  >
+                    {displayMessages.map((streamMsg) => renderStreamingMessage(streamMsg))}
+                    {remainingLines > 0 && (
+                      <Text color={colors.secondary} dimColor>
+                        ↕ {remainingLines} more lines (resize terminal to view full output)
+                      </Text>
+                    )}
+                  </Box>
+                )
+              })()}
+            {/* Live streaming output (while running) */}
+            {showLiveOutput && (
+              <Box
+                borderColor={colors.border}
+                borderStyle="round"
+                flexDirection="column"
+                paddingX={1}
+                paddingY={0}
+                width="100%"
+              >
+                {streamingMessages.map((streamMsg) => renderStreamingMessage(streamMsg))}
+                {/* Show spinner when processing but no output yet */}
+                {isStreaming && !activePrompt && msg.fromCommand.startsWith('/query') && (
+                  <Text color={colors.dimText}>
+                    <Spinner type="dots" /> Processing...
+                  </Text>
+                )}
+                {/* Active prompt */}
+                {activePrompt?.type === 'search' && (
+                  <InlineSearch
+                    message={activePrompt.message}
+                    onSelect={handleSearchResponse}
+                    source={activePrompt.source}
+                  />
+                )}
+                {activePrompt?.type === 'confirm' && (
+                  <InlineConfirm
+                    default={activePrompt.default}
+                    message={activePrompt.message}
+                    onConfirm={handleConfirmResponse}
+                  />
+                )}
+                {activePrompt?.type === 'select' && (
+                  <InlineSelect
+                    choices={activePrompt.choices}
+                    message={activePrompt.message}
+                    onSelect={handleSelectResponse}
+                  />
+                )}
+                {activePrompt?.type === 'input' && (
+                  <InlineInput
+                    message={activePrompt.message}
+                    onSubmit={handleInputResponse}
+                    placeholder={activePrompt.placeholder}
+                    validate={activePrompt.validate}
+                  />
+                )}
+                {activePrompt?.type === 'file_selector' && (
+                  <InlineFileSelector
+                    allowCancel={activePrompt.allowCancel}
+                    basePath={activePrompt.basePath}
+                    filter={activePrompt.filter}
+                    message={activePrompt.message}
+                    mode={activePrompt.mode}
+                    onSelect={handleFileSelectorResponse}
+                    pageSize={activePrompt.pageSize}
+                  />
+                )}
+              </Box>
+            )}
+          </Box>
+        )
+      }
+
+      return <MessageItem message={msg} />
+    },
+    [
+      activePrompt,
+      colors,
+      handleConfirmResponse,
+      handleFileSelectorResponse,
+      handleInputResponse,
+      handleSearchResponse,
+      handleSelectResponse,
+      isStreaming,
+      maxOutputLines,
+      messages.length,
+      renderStreamingMessage,
+      streamingMessages,
+    ],
+  )
+
+  const keyExtractor = useCallback((_msg: CommandMessage, index: number) => `msg-${index}`, [])
+
+  // Height estimator that accounts for live streaming output and prompts
+  const heightEstimator = useCallback(
+    (msg: CommandMessage, index: number) => {
+      const isLast = index === messages.length - 1
+      const isLive = isLast && (isStreaming || activePrompt)
+      return estimateMessageHeight(msg, {
+        isLast,
+        maxOutputLines,
+        promptHeight: isLive ? estimatePromptHeight(activePrompt) : 0,
+        streamingLines: isLive ? streamingMessages.length : 0,
+      })
+    },
+    [activePrompt, isStreaming, maxOutputLines, messages.length, streamingMessages.length],
+  )
 
   return (
     <Box flexDirection="column" height="100%" width="100%">
-      {/* Messages - Scrollable area */}
-      {messages.length > 0 || streamingMessages.length > 0 || activePrompt ? (
+      {/* Messages - Scrollable area (includes live streaming output) */}
+      {messages.length > 0 ? (
         <Box flexDirection="column" flexGrow={1} paddingX={2}>
-          <ScrollView ref={scrollRef}>
-            <Box flexDirection="column" width="100%">
-              {/* Regular messages */}
-              {messages.map((msg, index) => {
-                if (msg.type === 'command') {
-                  const hasOutput = msg.output && msg.output.length > 0
-                  return (
-                    <Box flexDirection="column" key={index} marginTop={index === 0 ? 0 : 1} width="100%">
-                      <Box
-                        borderBottom={false}
-                        borderLeftColor={colors.primary}
-                        borderRight={false}
-                        borderStyle="bold"
-                        borderTop={false}
-                        paddingLeft={1}
-                      >
-                        <Text color={colors.text} dimColor>
-                          {msg.fromCommand} <Text wrap="truncate-end">{msg.content}</Text>
-                        </Text>
-                      </Box>
-                      {/* Command output */}
-                      {hasOutput && (
-                        <Box
-                          borderColor={colors.border}
-                          borderStyle="round"
-                          flexDirection="column"
-                          marginTop={0}
-                          paddingX={1}
-                          width="100%"
-                        >
-                          {msg.output!.map((streamMsg) => renderStreamingMessage(streamMsg))}
-                        </Box>
-                      )}
-                    </Box>
-                  )
-                }
-
-                return <MessageItem key={index} message={msg} />
-              })}
-
-              {/* Output box for streaming/result messages */}
-              {(streamingMessages.length > 0 || activePrompt) && (
-                <Box
-                  // backgroundColor={colors.bg2}
-                  borderColor={colors.border}
-                  borderStyle="round"
-                  flexDirection="column"
-                  paddingX={1}
-                  paddingY={0}
-                  width="100%"
-                >
-                  {streamingMessages.map((streamMsg) => renderStreamingMessage(streamMsg))}
-                  {/* Active prompt */}
-                  {activePrompt?.type === 'search' && (
-                    <InlineSearch
-                      message={activePrompt.message}
-                      onSelect={handleSearchResponse}
-                      source={activePrompt.source}
-                    />
-                  )}
-                  {activePrompt?.type === 'confirm' && (
-                    <InlineConfirm
-                      default={activePrompt.default}
-                      message={activePrompt.message}
-                      onConfirm={handleConfirmResponse}
-                    />
-                  )}
-                  {activePrompt?.type === 'select' && (
-                    <InlineSelect
-                      choices={activePrompt.choices}
-                      message={activePrompt.message}
-                      onSelect={handleSelectResponse}
-                    />
-                  )}
-                </Box>
-              )}
-            </Box>
-          </ScrollView>
+          <ScrollableList
+            autoScrollToBottom
+            availableHeight={scrollableHeight}
+            estimateItemHeight={heightEstimator}
+            isActive={mode === 'console' && !activePrompt && !isStreaming}
+            items={messages}
+            keyExtractor={keyExtractor}
+            renderItem={renderMessageItem}
+          />
         </Box>
       ) : (
         <Spacer />
@@ -331,7 +584,7 @@ export const CommandView: React.FC = () => {
         <Box borderColor={colors.border} borderLeft={false} borderRight={false} borderStyle="single" paddingX={2}>
           <Text color={colors.primary}>{'> '}</Text>
           <TextInput
-            focus={!activePrompt && mode === 'console'}
+            focus={!activePrompt && (mode === 'console' || mode === 'suggestions')}
             key={inputKey}
             onChange={setCommand}
             onSubmit={handleSubmit}

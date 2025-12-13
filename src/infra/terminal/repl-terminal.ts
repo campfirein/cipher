@@ -73,14 +73,30 @@ export class ReplTerminal implements ITerminal {
     })
   }
 
-  fileSelector(_options: FileSelectorOptions): Promise<FileSelectorItem | null> {
-    // File selector not supported in REPL terminal
-    throw new Error('File selector not supported in REPL terminal')
+  fileSelector(options: FileSelectorOptions): Promise<FileSelectorItem | null> {
+    return new Promise((resolve) => {
+      this.callbacks.onPrompt({
+        allowCancel: options.allowCancel,
+        basePath: options.basePath,
+        filter: options.filter,
+        message: options.message,
+        mode: options.type,
+        onResponse: resolve as (value: null | {isDirectory: boolean; name: string; path: string}) => void,
+        pageSize: options.pageSize,
+        type: 'file_selector',
+      })
+    })
   }
 
-  input(_options: InputOptions): Promise<string> {
-    // Text input not yet supported - could be added as InputPromptRequest
-    throw new Error('Text input not yet supported in REPL terminal')
+  input(options: InputOptions): Promise<string> {
+    return new Promise((resolve) => {
+      this.callbacks.onPrompt({
+        message: options.message,
+        onResponse: resolve,
+        type: 'input',
+        validate: options.validate,
+      })
+    })
   }
 
   log(message?: string): void {
