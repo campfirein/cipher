@@ -10,10 +10,12 @@ import {createBlobStorage} from './blob/blob-storage-factory.js'
 import {AgentEventBus, SessionEventBus} from './events/event-emitter.js'
 import {FileSystemService} from './file-system/file-system-service.js'
 import {ByteRoverLlmHttpService} from './http/internal-llm-http-service.js'
+import {CompactionService} from './llm/context/compaction/compaction-service.js'
 import {ByteRoverContentGenerator, LoggingContentGenerator, RetryableContentGenerator} from './llm/generators/index.js'
 import {ByteRoverLLMService} from './llm/internal-llm-service.js'
 import {OpenRouterLLMService} from './llm/openrouter-llm-service.js'
 import {DEFAULT_RETRY_POLICY} from './llm/retry/retry-policy.js'
+import {GeminiTokenizer} from './llm/tokenizers/gemini-tokenizer.js'
 import {EventBasedLogger} from './logger/event-based-logger.js'
 import {MemoryManager} from './memory/memory-manager.js'
 import {ProcessService} from './process/process-service.js'
@@ -164,6 +166,8 @@ export async function createCipherAgentServices(llmConfig: CipherLLMConfig): Pro
   // 11. History storage (depends on BlobStorage) - SHARED across sessions
   // Use DualFormatHistoryStorage when granular storage is enabled
   let historyStorage: IHistoryStorage
+  let compactionService: CompactionService | undefined
+  let messageStorageService: MessageStorageService | undefined
 
   if (llmConfig.useGranularStorage) {
     // Create granular storage infrastructure
@@ -173,6 +177,7 @@ export async function createCipherAgentServices(llmConfig: CipherLLMConfig): Pro
     await keyStorage.initialize()
 
     const messageStorage = new MessageStorageService(keyStorage)
+    messageStorageService = messageStorage
     const granularStorage = new GranularHistoryStorage(messageStorage)
     const blobHistoryStorage = new BlobHistoryStorage(blobStorage)
 
@@ -180,6 +185,16 @@ export async function createCipherAgentServices(llmConfig: CipherLLMConfig): Pro
     // - New sessions → GranularHistoryStorage
     // - Existing sessions → BlobHistoryStorage (no migration)
     historyStorage = new DualFormatHistoryStorage(blobHistoryStorage, granularStorage)
+
+    // Create CompactionService for context overflow management
+    // Uses GeminiTokenizer for token estimation (default model)
+    const tokenizer = new GeminiTokenizer(llmConfig.model ?? 'gemini-2.5-pro')
+    compactionService = new CompactionService(messageStorage, tokenizer, {
+      overflowThreshold: 0.85, // 85% triggers compaction check
+      protectedTurns: 2, // Protect first 2 user turns from pruning
+      pruneKeepTokens: 40_000, // Keep 40k tokens in tool outputs
+      pruneMinimumTokens: 20_000, // Only prune if 20k+ tokens can be saved
+    })
 
     logger.info('Granular history storage enabled for new sessions')
   } else {
@@ -197,9 +212,11 @@ export async function createCipherAgentServices(llmConfig: CipherLLMConfig): Pro
   return {
     agentEventBus,
     blobStorage,
+    compactionService,
     fileSystemService,
     historyStorage,
     memoryManager,
+    messageStorageService,
     policyEngine,
     processService,
     promptFactory,
@@ -330,6 +347,7 @@ export function createSessionServices(
         verbose: llmConfig.verbose ?? false,
       },
       {
+        compactionService: sharedServices.compactionService, // SHARED - for context overflow management
         historyStorage: sharedServices.historyStorage, // SHARED
         logger: sessionLogger,
         memoryManager: sharedServices.memoryManager, // SHARED

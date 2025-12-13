@@ -1,7 +1,9 @@
 import type {AgentEventBus, SessionEventBus} from '../../../infra/cipher/events/event-emitter.js'
 import type {FileSystemService} from '../../../infra/cipher/file-system/file-system-service.js'
+import type {CompactionService} from '../../../infra/cipher/llm/context/compaction/compaction-service.js'
 import type {MemoryManager} from '../../../infra/cipher/memory/memory-manager.js'
 import type {ProcessService} from '../../../infra/cipher/process/process-service.js'
+import type {MessageStorageService} from '../../../infra/cipher/storage/message-storage-service.js'
 import type {SimplePromptFactory} from '../../../infra/cipher/system-prompt/simple-prompt-factory.js'
 import type {ToolManager} from '../../../infra/cipher/tools/tool-manager.js'
 import type {ToolProvider} from '../../../infra/cipher/tools/tool-provider.js'
@@ -33,9 +35,19 @@ export interface CipherAgentServices {
   agentEventBus: AgentEventBus
   blobStorage: IBlobStorage
   codingAgentLogWatcher?: ICodingAgentLogWatcher
+  /**
+   * CompactionService for context overflow management.
+   * Only available when granular storage is enabled (useGranularStorage: true).
+   */
+  compactionService?: CompactionService
   fileSystemService: FileSystemService
   historyStorage: IHistoryStorage
   memoryManager: MemoryManager
+  /**
+   * MessageStorageService for direct granular message access.
+   * Only available when granular storage is enabled (useGranularStorage: true).
+   */
+  messageStorageService?: MessageStorageService
   policyEngine: IPolicyEngine
   processService: ProcessService
   promptFactory: SimplePromptFactory

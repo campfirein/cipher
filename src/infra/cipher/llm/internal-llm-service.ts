@@ -14,6 +14,7 @@ import type {InternalMessage, ToolCall} from '../../../core/interfaces/cipher/me
 import type {MemoryManager} from '../memory/memory-manager.js'
 import type {SimplePromptFactory} from '../system-prompt/simple-prompt-factory.js'
 import type {ToolManager} from '../tools/tool-manager.js'
+import type {CompactionService} from './context/compaction/compaction-service.js'
 
 import {AgentStateMachine} from '../../../core/domain/cipher/agent/agent-state-machine.js'
 import {AgentState, TerminationReason} from '../../../core/domain/cipher/agent/agent-state.js'
@@ -104,6 +105,7 @@ export interface LLMServiceConfig {
  * - Handle retry logic (handled by RetryableContentGenerator decorator)
  */
 export class ByteRoverLLMService implements ILLMService {
+  private readonly compactionService?: CompactionService
   private readonly config: {
     maxInputTokens: number
     maxIterations: number
@@ -124,6 +126,7 @@ export class ByteRoverLLMService implements ILLMService {
   private readonly promptFactory: SimplePromptFactory
   private readonly providerType: 'claude' | 'gemini'
   private readonly sessionEventBus: SessionEventBus
+  private readonly sessionId: string
   private readonly tokenizer: ITokenizer
   private readonly toolManager: ToolManager
 
@@ -147,6 +150,7 @@ export class ByteRoverLLMService implements ILLMService {
    * @param options.promptFactory - Simple prompt factory for building system prompts
    * @param options.memoryManager - Memory manager for agent memories
    * @param options.sessionEventBus - Event bus for session lifecycle events
+   * @param options.compactionService - Optional compaction service for context overflow management
    * @param options.historyStorage - Optional history storage for persistence
    * @param options.logger - Optional logger for structured logging
    */
@@ -155,6 +159,7 @@ export class ByteRoverLLMService implements ILLMService {
     generator: IContentGenerator,
     config: ByteRoverLLMServiceConfig,
     options: {
+      compactionService?: CompactionService
       historyStorage?: IHistoryStorage
       logger?: ILogger
       memoryManager?: MemoryManager
@@ -163,7 +168,9 @@ export class ByteRoverLLMService implements ILLMService {
       toolManager: ToolManager
     },
   ) {
+    this.sessionId = sessionId
     this.generator = generator
+    this.compactionService = options.compactionService
     this.toolManager = options.toolManager
     this.promptFactory = options.promptFactory
     this.memoryManager = options.memoryManager
@@ -464,6 +471,74 @@ export class ByteRoverLLMService implements ILLMService {
   }
 
   /**
+   * Check for context overflow and trigger compaction if needed.
+   * Called after each assistant response and after tool execution batches.
+   *
+   * Follows OpenCode's compaction patterns:
+   * - First tries pruning tool outputs (if overflow > 85%)
+   * - Then tries full compaction with LLM summary (if overflow > 95%)
+   */
+  private async checkAndTriggerCompaction(): Promise<void> {
+    if (!this.compactionService) return
+
+    // Calculate current token usage
+    const messages = this.contextManager.getMessages()
+    const messagesTokens = messages.reduce(
+      (total, msg) =>
+        total +
+        this.generator.estimateTokensSync(typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)),
+      0,
+    )
+
+    // Estimate system prompt tokens (rough estimate since we don't have full context here)
+    // Using a conservative estimate of 2000 tokens for system prompt
+    const estimatedSystemPromptTokens = 2000
+    const currentTokens = estimatedSystemPromptTokens + messagesTokens
+
+    // Check overflow
+    const overflowResult = this.compactionService.checkOverflow(currentTokens, this.config.maxInputTokens)
+
+    if (!overflowResult.isOverflow) return
+
+    if (overflowResult.recommendation === 'prune') {
+      // Try pruning tool outputs first
+      const pruneResult = await this.compactionService.pruneToolOutputs(this.sessionId)
+
+      if (this.config.verbose && pruneResult.compactedCount > 0) {
+        console.log(
+          `[Compaction] Pruned ${pruneResult.compactedCount} tool outputs, saved ~${pruneResult.tokensSaved} tokens`,
+        )
+      }
+
+      // Emit event for pruning
+      if (pruneResult.compactedCount > 0) {
+        this.sessionEventBus.emit('llmservice:warning', {
+          message: `Context compaction: pruned ${pruneResult.compactedCount} old tool outputs (~${pruneResult.tokensSaved} tokens)`,
+        })
+      }
+    } else if (overflowResult.recommendation === 'compact') {
+      // Full compaction needed - generate LLM summary
+      const summary = await this.compactionService.generateSummary(
+        this.generator,
+        messages,
+        this.sessionId,
+        this.config.model,
+      )
+
+      await this.compactionService.createCompactionBoundary(this.sessionId, summary)
+
+      if (this.config.verbose) {
+        console.log('[Compaction] Created compaction boundary with LLM-generated summary')
+      }
+
+      // Emit event for full compaction
+      this.sessionEventBus.emit('llmservice:warning', {
+        message: 'Context compaction: created summary boundary for conversation history',
+      })
+    }
+  }
+
+  /**
    * Detect provider type from model name.
    *
    * @param model - Model identifier
@@ -626,11 +701,19 @@ export class ByteRoverLLMService implements ILLMService {
 
     // Check if there are tool calls
     if (!lastMessage.toolCalls || lastMessage.toolCalls.length === 0) {
-      return this.handleFinalResponse(lastMessage)
+      const response = await this.handleFinalResponse(lastMessage)
+
+      // Auto-compaction check after assistant response
+      await this.checkAndTriggerCompaction()
+
+      return response
     }
 
     // Has tool calls - handle them
     await this.handleToolCalls(lastMessage)
+
+    // Auto-compaction check after tool execution batch
+    await this.checkAndTriggerCompaction()
 
     return null
   }

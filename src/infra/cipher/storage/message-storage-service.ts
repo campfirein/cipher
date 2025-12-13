@@ -180,9 +180,12 @@ export class MessageStorageService {
   /**
    * Prune old tool outputs by marking them as compacted.
    * Keeps the most recent tool outputs up to the specified token limit.
+   *
+   * Turn-based protection: Protects tool outputs in the most recent N user turns.
+   * Minimum threshold: Only executes if the minimum token threshold can be saved.
    */
   async pruneToolOutputs(options: PruneToolOutputsOptions): Promise<CompactionResult> {
-    const {keepTokens = 40_000, sessionId} = options
+    const {keepTokens = 40_000, minimumTokens = 20_000, protectedTurns = 2, sessionId} = options
     const session = await this.getSession(sessionId)
 
     if (!session || !session.newestMessageId) {
@@ -190,7 +193,9 @@ export class MessageStorageService {
     }
 
     // Collect all tool output parts, newest first
-    const toolOutputParts: Array<{key: StorageKey; part: StoredPart}> = []
+    // Track user turns for turn-based protection
+    const toolOutputParts: Array<{key: StorageKey; part: StoredPart; protected: boolean}> = []
+    let userTurnCount = 0
 
     // Traverse messages from newest to oldest
     let currentMessageId: string | undefined = session.newestMessageId
@@ -201,6 +206,17 @@ export class MessageStorageService {
       )
       if (!storedMsg) break
 
+      // Stop at existing compaction boundary
+      if (storedMsg.compactionBoundary) break
+
+      // Track user turns for turn-based protection
+      if (storedMsg.role === 'user') {
+        userTurnCount++
+      }
+
+      // Determine if this message's tool outputs are protected
+      const isProtected = userTurnCount <= protectedTurns
+
       // Collect tool output parts from this message
       for (const partId of storedMsg.partIds) {
         // eslint-disable-next-line no-await-in-loop
@@ -209,6 +225,7 @@ export class MessageStorageService {
           toolOutputParts.push({
             key: this.partKey(storedMsg.id, partId),
             part,
+            protected: isProtected,
           })
         }
       }
@@ -216,28 +233,43 @@ export class MessageStorageService {
       currentMessageId = storedMsg.prevMessageId
     }
 
-    // Estimate tokens (rough: 1 token ≈ 4 chars)
+    // First pass: Calculate potential tokens saved (only from unprotected parts)
     let keptTokens = 0
+    let potentialTokensSaved = 0
+    const partsToCompact: Array<{key: StorageKey; part: StoredPart; tokens: number}> = []
+
+    for (const {key, part, protected: isProtected} of toolOutputParts) {
+      const estimatedTokens = Math.ceil(part.content.length / 4)
+
+      if (isProtected || keptTokens < keepTokens) {
+        // Keep this part (either protected or within token limit)
+        keptTokens += estimatedTokens
+      } else {
+        // This part is a candidate for compaction
+        partsToCompact.push({key, part, tokens: estimatedTokens})
+        potentialTokensSaved += estimatedTokens
+      }
+    }
+
+    // Check minimum threshold: only proceed if we can save enough tokens
+    if (potentialTokensSaved < minimumTokens) {
+      return {compactedCount: 0, tokensSaved: 0}
+    }
+
+    // Second pass: Actually compact the parts
     let compactedCount = 0
     let tokensSaved = 0
     const now = Date.now()
 
-    for (const {key, part} of toolOutputParts) {
-      const estimatedTokens = Math.ceil(part.content.length / 4)
-
-      if (keptTokens < keepTokens) {
-        keptTokens += estimatedTokens
-      } else {
-        // Mark this part as compacted
-        // eslint-disable-next-line no-await-in-loop
-        await this.keyStorage.set(key, {
-          ...part,
-          compactedAt: now,
-          content: '', // Clear the content to save space
-        })
-        compactedCount++
-        tokensSaved += estimatedTokens
-      }
+    for (const {key, part, tokens} of partsToCompact) {
+      // eslint-disable-next-line no-await-in-loop
+      await this.keyStorage.set(key, {
+        ...part,
+        compactedAt: now,
+        content: '', // Clear the content to save space
+      })
+      compactedCount++
+      tokensSaved += tokens
     }
 
     return {compactedCount, tokensSaved}

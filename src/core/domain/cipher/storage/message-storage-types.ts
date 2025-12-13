@@ -240,9 +240,23 @@ export interface PruneToolOutputsOptions {
   /**
    * Target token count to keep in tool outputs.
    * Tool outputs beyond this (from oldest) will be marked as compacted.
-   * Default: 40000 (same as OpenCode)
+   * Default: 40000 (same as OpenCode PRUNE_PROTECT)
    */
   keepTokens?: number
+
+  /**
+   * Minimum tokens that must be recoverable to perform pruning.
+   * If pruning would save less than this, skip it entirely.
+   * Default: 20000 (same as OpenCode PRUNE_MINIMUM)
+   */
+  minimumTokens?: number
+
+  /**
+   * Number of recent user turns to protect from pruning.
+   * Tool outputs in these turns will not be compacted.
+   * Default: 2
+   */
+  protectedTurns?: number
 
   /**
    * Session ID to prune tool outputs from.
