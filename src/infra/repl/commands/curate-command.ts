@@ -1,3 +1,5 @@
+import {randomUUID} from 'node:crypto'
+
 import {isDevelopment} from '../../../config/environment.js'
 import {type CommandContext, CommandKind, type SlashCommand} from '../../../tui/types.js'
 import {ProjectConfigStore} from '../../config/file-config-store.js'
@@ -120,6 +122,12 @@ export const curateCommand: SlashCommand = {
           files: parsed.files,
           model: parsed.model,
           verbose: parsed.verbose,
+        })
+
+        onMessage({
+          content: 'View in Activity tab.             [tab]',
+          id: randomUUID(),
+          type: 'output',
         })
       },
       type: 'streaming' as const,
