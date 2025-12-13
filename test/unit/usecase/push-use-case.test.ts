@@ -1,46 +1,24 @@
-import type {Config} from '@oclif/core'
 import type {SinonStubbedInstance} from 'sinon'
 
-import {Config as OclifConfig} from '@oclif/core'
 import {expect} from 'chai'
 import {restore, stub} from 'sinon'
 
-import type {ICogitPushService} from '../../src/core/interfaces/i-cogit-push-service.js'
-import type {IContextFileReader} from '../../src/core/interfaces/i-context-file-reader.js'
-import type {IContextTreeSnapshotService} from '../../src/core/interfaces/i-context-tree-snapshot-service.js'
-import type {IProjectConfigStore} from '../../src/core/interfaces/i-project-config-store.js'
-import type {ITerminal} from '../../src/core/interfaces/i-terminal.js'
-import type {ITokenStore} from '../../src/core/interfaces/i-token-store.js'
-import type {ITrackingService} from '../../src/core/interfaces/i-tracking-service.js'
-import type {IPushUseCase} from '../../src/core/interfaces/usecase/i-push-use-case.js'
+import type {ICogitPushService} from '../../../src/core/interfaces/i-cogit-push-service.js'
+import type {IContextFileReader} from '../../../src/core/interfaces/i-context-file-reader.js'
+import type {IContextTreeSnapshotService} from '../../../src/core/interfaces/i-context-tree-snapshot-service.js'
+import type {IProjectConfigStore} from '../../../src/core/interfaces/i-project-config-store.js'
+import type {ITerminal} from '../../../src/core/interfaces/i-terminal.js'
+import type {ITokenStore} from '../../../src/core/interfaces/i-token-store.js'
+import type {ITrackingService} from '../../../src/core/interfaces/i-tracking-service.js'
 
-import Push from '../../src/commands/push.js'
-import {BRV_CONFIG_VERSION} from '../../src/constants.js'
-import {AuthToken} from '../../src/core/domain/entities/auth-token.js'
-import {BrvConfig} from '../../src/core/domain/entities/brv-config.js'
-import {CogitPushResponse} from '../../src/core/domain/entities/cogit-push-response.js'
-import {PushUseCase} from '../../src/infra/usecase/push-use-case.js'
-import {createMockTerminal} from '../helpers/mock-factories.js'
+import {BRV_CONFIG_VERSION} from '../../../src/constants.js'
+import {AuthToken} from '../../../src/core/domain/entities/auth-token.js'
+import {BrvConfig} from '../../../src/core/domain/entities/brv-config.js'
+import {CogitPushResponse} from '../../../src/core/domain/entities/cogit-push-response.js'
+import {PushUseCase} from '../../../src/infra/usecase/push-use-case.js'
+import {createMockTerminal} from '../../helpers/mock-factories.js'
 
-// ==================== TestablePushCommand ====================
-
-class TestablePushCommand extends Push {
-  constructor(
-    private readonly useCase: IPushUseCase,
-    config: Config,
-  ) {
-    super([], config)
-  }
-
-  protected createUseCase(): IPushUseCase {
-    return this.useCase
-  }
-}
-
-// ==================== Tests ====================
-
-describe('Push Command', () => {
-  let config: Config
+describe('PushUseCase', () => {
   let cogitPushService: SinonStubbedInstance<ICogitPushService>
   let configStore: SinonStubbedInstance<IProjectConfigStore>
   let contextFileReader: SinonStubbedInstance<IContextFileReader>
@@ -52,10 +30,6 @@ describe('Push Command', () => {
   let tokenStore: SinonStubbedInstance<ITokenStore>
   let trackingService: SinonStubbedInstance<ITrackingService>
   let validToken: AuthToken
-
-  before(async () => {
-    config = await OclifConfig.load(import.meta.url)
-  })
 
   beforeEach(() => {
     logMessages = []
@@ -109,8 +83,8 @@ describe('Push Command', () => {
     restore()
   })
 
-  function createCommand(): TestablePushCommand {
-    const useCase = new PushUseCase({
+  function createUseCase(): PushUseCase {
+    return new PushUseCase({
       cogitPushService,
       contextFileReader,
       contextTreeSnapshotService,
@@ -120,17 +94,15 @@ describe('Push Command', () => {
       trackingService,
       webAppUrl: 'https://app.byterover.com',
     })
-
-    return new TestablePushCommand(useCase, config)
   }
 
   describe('validation', () => {
     it('should error when not authenticated', async () => {
       tokenStore.load.resolves()
 
-      const command = createCommand()
+      const useCase = createUseCase()
 
-      await command.run()
+      await useCase.run({branch: 'main', skipConfirmation: false})
 
       expect(errorMessages).to.have.lengthOf(1)
       expect(errorMessages[0]).to.include('Not authenticated')
@@ -149,9 +121,9 @@ describe('Push Command', () => {
 
       tokenStore.load.resolves(expiredToken)
 
-      const command = createCommand()
+      const useCase = createUseCase()
 
-      await command.run()
+      await useCase.run({branch: 'main', skipConfirmation: false})
 
       expect(errorMessages).to.have.lengthOf(1)
       expect(errorMessages[0]).to.include('expired')
@@ -161,10 +133,10 @@ describe('Push Command', () => {
       tokenStore.load.resolves(validToken)
       configStore.read.resolves()
 
-      const command = createCommand()
+      const useCase = createUseCase()
 
       try {
-        await command.run()
+        await useCase.run({branch: 'main', skipConfirmation: false})
         expect.fail('Should have thrown error')
       } catch (error) {
         expect((error as Error).message).to.include('Project not initialized')
@@ -178,9 +150,9 @@ describe('Push Command', () => {
       configStore.read.resolves(projectConfig)
       contextTreeSnapshotService.getChanges.resolves({added: [], deleted: [], modified: []})
 
-      const command = createCommand()
+      const useCase = createUseCase()
 
-      await command.run()
+      await useCase.run({branch: 'main', skipConfirmation: false})
 
       expect(contextTreeSnapshotService.getChanges.calledOnce).to.be.true
       expect(contextFileReader.readMany.called).to.be.false
@@ -191,9 +163,9 @@ describe('Push Command', () => {
       configStore.read.resolves(projectConfig)
       contextTreeSnapshotService.getChanges.resolves({added: [], deleted: [], modified: []})
 
-      const command = createCommand()
+      const useCase = createUseCase()
 
-      await command.run()
+      await useCase.run({branch: 'main', skipConfirmation: false})
 
       expect(logMessages).to.include('No context changes to push.')
       expect(cogitPushService.push.called).to.be.false
@@ -222,9 +194,9 @@ describe('Push Command', () => {
       )
       contextTreeSnapshotService.saveSnapshot.resolves()
 
-      const command = createCommand()
+      const useCase = createUseCase()
 
-      await command.run()
+      await useCase.run({branch: 'main', skipConfirmation: false})
 
       expect(contextFileReader.readMany.calledTwice).to.be.true
       expect(contextFileReader.readMany.firstCall.calledWith(['structure/context.md'])).to.be.true
@@ -253,9 +225,9 @@ describe('Push Command', () => {
       )
       contextTreeSnapshotService.saveSnapshot.resolves()
 
-      const command = createCommand()
+      const useCase = createUseCase()
 
-      await command.run()
+      await useCase.run({branch: 'main', skipConfirmation: false})
 
       const pushCall = cogitPushService.push.getCall(0)
       expect(pushCall.args[0].accessToken).to.equal('access-token')
@@ -290,10 +262,9 @@ describe('Push Command', () => {
       )
       contextTreeSnapshotService.saveSnapshot.resolves()
 
-      const command = createCommand()
-      command.argv = ['--branch', 'develop']
+      const useCase = createUseCase()
 
-      await command.run()
+      await useCase.run({branch: 'develop', skipConfirmation: false})
 
       const pushCall = cogitPushService.push.getCall(0)
       expect(pushCall.args[0].branch).to.equal('develop')
@@ -320,9 +291,9 @@ describe('Push Command', () => {
       )
       contextTreeSnapshotService.saveSnapshot.resolves()
 
-      const command = createCommand()
+      const useCase = createUseCase()
 
-      await command.run()
+      await useCase.run({branch: 'main', skipConfirmation: false})
 
       expect(contextTreeSnapshotService.saveSnapshot.calledOnce).to.be.true
       expect(contextTreeSnapshotService.saveSnapshot.calledAfter(cogitPushService.push)).to.be.true
@@ -345,10 +316,10 @@ describe('Push Command', () => {
         .resolves([])
       cogitPushService.push.rejects(new Error('Push failed: Network error'))
 
-      const command = createCommand()
+      const useCase = createUseCase()
 
       try {
-        await command.run()
+        await useCase.run({branch: 'main', skipConfirmation: false})
         expect.fail('Should have thrown error')
       } catch {
         // Expected error
@@ -372,10 +343,10 @@ describe('Push Command', () => {
         .resolves([])
       cogitPushService.push.rejects(new Error('Failed to push to CoGit: Network timeout'))
 
-      const command = createCommand()
+      const useCase = createUseCase()
 
       try {
-        await command.run()
+        await useCase.run({branch: 'main', skipConfirmation: false})
         expect.fail('Should have thrown error')
       } catch (error) {
         expect((error as Error).message).to.include('Network timeout')
@@ -392,10 +363,10 @@ describe('Push Command', () => {
       })
       contextFileReader.readMany.rejects(new Error('File system error'))
 
-      const command = createCommand()
+      const useCase = createUseCase()
 
       try {
-        await command.run()
+        await useCase.run({branch: 'main', skipConfirmation: false})
         expect.fail('Should have thrown error')
       } catch (error) {
         expect((error as Error).message).to.include('File system error')
@@ -427,9 +398,9 @@ describe('Push Command', () => {
 
       const confirmStub = stub(terminal, 'confirm').resolves(true)
 
-      const command = createCommand()
+      const useCase = createUseCase()
 
-      await command.run()
+      await useCase.run({branch: 'main', skipConfirmation: false})
 
       expect(confirmStub.calledOnce).to.be.true
       expect(cogitPushService.push.calledOnce).to.be.true
@@ -446,9 +417,9 @@ describe('Push Command', () => {
 
       stub(terminal, 'confirm').resolves(false)
 
-      const command = createCommand()
+      const useCase = createUseCase()
 
-      await command.run()
+      await useCase.run({branch: 'main', skipConfirmation: false})
 
       expect(logMessages).to.include('Push cancelled.')
       expect(contextFileReader.readMany.called).to.be.false
@@ -479,10 +450,9 @@ describe('Push Command', () => {
 
       const confirmStub = stub(terminal, 'confirm').resolves(true)
 
-      const command = createCommand()
-      command.argv = ['--yes']
+      const useCase = createUseCase()
 
-      await command.run()
+      await useCase.run({branch: 'main', skipConfirmation: true})
 
       expect(confirmStub.called).to.be.false
       expect(cogitPushService.push.calledOnce).to.be.true
@@ -515,9 +485,9 @@ describe('Push Command', () => {
       )
       contextTreeSnapshotService.saveSnapshot.resolves()
 
-      const command = createCommand()
+      const useCase = createUseCase()
 
-      await command.run()
+      await useCase.run({branch: 'main', skipConfirmation: false})
 
       const pushCall = cogitPushService.push.getCall(0)
       expect(pushCall.args[0].contexts).to.have.lengthOf(3)
@@ -539,9 +509,9 @@ describe('Push Command', () => {
       // readMany returns empty array when files can't be read
       contextFileReader.readMany.resolves([])
 
-      const command = createCommand()
+      const useCase = createUseCase()
 
-      await command.run()
+      await useCase.run({branch: 'main', skipConfirmation: false})
 
       expect(logMessages).to.include('\nNo valid context files to push.')
       expect(cogitPushService.push.called).to.be.false
@@ -570,9 +540,9 @@ describe('Push Command', () => {
       )
       contextTreeSnapshotService.saveSnapshot.resolves()
 
-      const command = createCommand()
+      const useCase = createUseCase()
 
-      await command.run()
+      await useCase.run({branch: 'main', skipConfirmation: false})
 
       expect(contextFileReader.readMany.calledTwice).to.be.true
       expect(contextFileReader.readMany.secondCall.calledWith(['existing/context.md'])).to.be.true
@@ -603,9 +573,9 @@ describe('Push Command', () => {
       )
       contextTreeSnapshotService.saveSnapshot.resolves()
 
-      const command = createCommand()
+      const useCase = createUseCase()
 
-      await command.run()
+      await useCase.run({branch: 'main', skipConfirmation: false})
 
       const pushCall = cogitPushService.push.getCall(0)
       expect(pushCall.args[0].contexts).to.have.lengthOf(2)
@@ -639,9 +609,9 @@ describe('Push Command', () => {
       )
       contextTreeSnapshotService.saveSnapshot.resolves()
 
-      const command = createCommand()
+      const useCase = createUseCase()
 
-      await command.run()
+      await useCase.run({branch: 'main', skipConfirmation: false})
 
       expect(cogitPushService.push.calledOnce).to.be.true
       const pushCall = cogitPushService.push.getCall(0)
@@ -669,9 +639,9 @@ describe('Push Command', () => {
       )
       contextTreeSnapshotService.saveSnapshot.resolves()
 
-      const command = createCommand()
+      const useCase = createUseCase()
 
-      await command.run()
+      await useCase.run({branch: 'main', skipConfirmation: false})
 
       expect(cogitPushService.push.calledOnce).to.be.true
       const pushCall = cogitPushService.push.getCall(0)
@@ -703,9 +673,9 @@ describe('Push Command', () => {
       )
       contextTreeSnapshotService.saveSnapshot.resolves()
 
-      const command = createCommand()
+      const useCase = createUseCase()
 
-      await command.run()
+      await useCase.run({branch: 'main', skipConfirmation: false})
 
       const pushCall = cogitPushService.push.getCall(0)
       expect(pushCall.args[0].contexts).to.have.lengthOf(3)
@@ -734,9 +704,9 @@ describe('Push Command', () => {
       )
       contextTreeSnapshotService.saveSnapshot.resolves()
 
-      const command = createCommand()
+      const useCase = createUseCase()
 
-      await command.run()
+      await useCase.run({branch: 'main', skipConfirmation: false})
 
       expect(cogitPushService.push.calledOnce).to.be.true
       const pushCall = cogitPushService.push.getCall(0)
@@ -764,9 +734,9 @@ describe('Push Command', () => {
       )
       contextTreeSnapshotService.saveSnapshot.resolves()
 
-      const command = createCommand()
+      const useCase = createUseCase()
 
-      await command.run()
+      await useCase.run({branch: 'main', skipConfirmation: false})
 
       // contextFileReader.readMany is called only twice (for added and modified)
       // Deleted paths are passed directly to mapper without reading
