@@ -16,9 +16,16 @@ import {useConsumer} from '../contexts/index.js'
 import {useMode, useTheme} from '../hooks/index.js'
 import {ActivityLog} from '../types.js'
 
-/**
- * Compose changes from completed create_knowledge_topic toolCalls
- */
+const MAX_PROGRESS_ITEMS = 3
+
+function safeJsonParse<T = unknown>(jsonString: string, fallback: null | T = null): null | T {
+  try {
+    return JSON.parse(jsonString) as T
+  } catch {
+    return fallback
+  }
+}
+
 function composeChangesFromToolCalls(toolCalls: ToolCall[]): {created: string[]; updated: string[]} {
   const changes: {created: string[]; updated: string[]} = {created: [], updated: []}
   const contextTreeDir = join(BRV_DIR, CONTEXT_TREE_DIR)
@@ -71,10 +78,10 @@ function estimateLogHeight(log: ActivityLog): number {
   // Input box with border (top border + content + bottom border)
   lines += 3
 
-  // Progress items (max 3 shown + optional "more" line)
-  const progressCount = Math.min(log.progress?.length ?? 0, 3)
+  // Progress items (max MAX_PROGRESS_ITEMS shown + optional "more" line)
+  const progressCount = Math.min(log.progress?.length ?? 0, MAX_PROGRESS_ITEMS)
   lines += progressCount
-  if ((log.progress?.length ?? 0) > 3) {
+  if ((log.progress?.length ?? 0) > MAX_PROGRESS_ITEMS) {
     lines += 1 // "... and X more" line
   }
 
@@ -133,7 +140,7 @@ export const LogsView: React.FC<LogsViewProps> = ({availableHeight}) => {
           changes,
           content: execution.status === 'failed' ? execution.error ?? '' : execution.result ?? '',
           id: execution.id,
-          input: JSON.parse(execution.input).content,
+          input: safeJsonParse<{content: string}>(execution.input, {content: execution.input})?.content ?? '',
           progress,
           source: 'agent',
           status: execution.status,
@@ -162,24 +169,26 @@ export const LogsView: React.FC<LogsViewProps> = ({availableHeight}) => {
           </Text>
         </Box>
         <Box flexDirection="column">
-          {log.progress && log.progress.length > 3 && (
+          {log.progress && log.progress.length > MAX_PROGRESS_ITEMS && (
             <Box rowGap={1}>
-              <Text color={colors.dimText}>... and {log.progress.length - 3} more</Text>
+              <Text color={colors.dimText}>... and {log.progress.length - MAX_PROGRESS_ITEMS} more</Text>
             </Box>
           )}
           {log.progress &&
-            log.progress.slice(0, 3).map((progress) => (
-              <Box key={progress.id}>
-                {progress.status === 'completed' && <Text color={colors.primary}>✓ </Text>}
-                {progress.status === 'running' && (
-                  <Text color={colors.dimText}>
-                    <Spinner type="dots" />{' '}
-                  </Text>
-                )}
-                {progress.status === 'failed' && <Text color={colors.errorText}>✗ </Text>}
-                <Text color={colors.dimText}>{progress.toolCallName}</Text>
-              </Box>
-            ))}
+            log.progress
+              .slice(-MAX_PROGRESS_ITEMS)
+              .reverse()
+              .map((progress) => (
+                <Box key={progress.id}>
+                  {progress.status === 'completed' && <Text color={colors.primary}>✓ </Text>}
+                  {progress.status === 'running' && (
+                    <Text color={colors.dimText}>
+                      <Spinner type="dots" />{' '}
+                    </Text>
+                  )}
+                  {progress.status === 'failed' && <Text color={colors.errorText}>✗ </Text>}
+                </Box>
+              ))}
           {log.status === 'running' && (
             <Text color={colors.dimText}>
               <Spinner type="line" /> Processing...

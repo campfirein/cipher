@@ -42,7 +42,7 @@ export const App: React.FC = () => {
           <Text>~ in queue: </Text>
           <Text color={colors.warning}>{stats.queued}</Text>
           <Text> | running: </Text>
-          <Text color={colors.secondary}>{stats.running}</Text>
+          <Text color={colors.primary}>{stats.running}</Text>
         </Box>
       )}
 

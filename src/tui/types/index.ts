@@ -39,4 +39,4 @@ export type {ActivityLog, CommandMessage, Message, StreamingMessage} from './mes
 export type {ConfirmPromptRequest, PromptChoice, PromptRequest, SearchPromptRequest, SelectPromptRequest} from './prompts.js'
 
 // UI types
-export type {AuthState, QueueStats, Tab, TabId} from './ui.js'
+export type {AuthState, ConsumerStatus, QueueStats, Tab, TabId} from './ui.js'
