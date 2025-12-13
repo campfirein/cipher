@@ -217,6 +217,7 @@ export const LogsView: React.FC<LogsViewProps> = ({availableHeight}) => {
                     </Text>
                   )}
                   {progress.status === 'failed' && <Text color={colors.errorText}>✗ </Text>}
+                  <Text color={colors.dimText}>{progress.toolCallName}</Text>
                 </Box>
               ))}
           {log.status === 'running' && (
