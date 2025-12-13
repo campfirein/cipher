@@ -1,8 +1,71 @@
+import fs from 'node:fs'
+import path from 'node:path'
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react'
 
 import type {CommandSuggestion, SlashCommand} from '../types.js'
 
 import {useCommands} from '../contexts/use-commands.js'
+
+/**
+ * Generate file suggestions based on @ prefix
+ * Returns files from the current working directory matching the search pattern
+ */
+function generateFileSuggestions(searchPattern: string): CommandSuggestion[] {
+  try {
+    const cwd = process.cwd()
+
+    // If pattern ends with /, list contents of that directory
+    let searchDir: string
+    let searchPrefix: string
+
+    if (searchPattern.endsWith('/')) {
+      searchDir = searchPattern.slice(0, -1) || '.'
+      searchPrefix = ''
+    } else {
+      searchDir = path.dirname(searchPattern) || '.'
+      searchPrefix = path.basename(searchPattern).toLowerCase()
+    }
+
+    const fullSearchDir = path.resolve(cwd, searchDir)
+
+    // Check if search directory exists and is within cwd
+    if (!fs.existsSync(fullSearchDir) || !fullSearchDir.startsWith(cwd)) {
+      return []
+    }
+
+    const entries = fs.readdirSync(fullSearchDir, {withFileTypes: true})
+    const suggestions: CommandSuggestion[] = []
+
+    for (const entry of entries) {
+      // Skip hidden files
+      if (entry.name.startsWith('.')) continue
+
+      const name = entry.name.toLowerCase()
+      if (!searchPrefix || name.startsWith(searchPrefix)) {
+        const relativePath = searchDir === '.' ? entry.name : path.join(searchDir, entry.name)
+        const isDir = entry.isDirectory()
+
+        suggestions.push({
+          description: isDir ? 'folder' : '',
+          label: `${relativePath}${isDir ? '/' : ''}`,
+          value: `@${relativePath}${isDir ? '/' : ''}`,
+        })
+      }
+    }
+
+    // Sort: directories first, then alphabetically
+    suggestions.sort((a, b) => {
+      const aIsDir = a.description === 'folder'
+      const bIsDir = b.description === 'folder'
+      if (aIsDir !== bIsDir) return aIsDir ? -1 : 1
+      return a.label.localeCompare(b.label)
+    })
+
+    return suggestions.slice(0, 20) // Limit to 20 suggestions
+  } catch {
+    return []
+  }
+}
 
 /**
  * Hook return type
@@ -33,6 +96,25 @@ interface UseSlashCompletionReturn {
  */
 function generateSuggestions(input: string, commands: readonly SlashCommand[]): CommandSuggestion[] {
   const trimmed = input.trim()
+
+  // Check for @ file completion (last word starts with @)
+  // Don't show file suggestions if input ends with space (file already selected)
+  if (!input.endsWith(' ')) {
+    const lastAtMatch = trimmed.match(/@([^\s@]*)$/)
+    if (lastAtMatch) {
+      const searchPattern = lastAtMatch[1]
+      const suggestions = generateFileSuggestions(searchPattern)
+
+      // Filter out already selected files
+      const existingFiles = new Set(
+        [...trimmed.matchAll(/@([^\s@]+)/g)].map((m) => m[1]),
+      )
+      return suggestions.filter((s) => {
+        const filePath = s.value.slice(1) // Remove @ prefix
+        return !existingFiles.has(filePath)
+      })
+    }
+  }
 
   // Only suggest for slash command inputs
   if (!trimmed.startsWith('/')) {
@@ -107,15 +189,23 @@ export function useSlashCompletion(input: string): UseSlashCompletionReturn {
   // Check if input is a command attempt (starts with /)
   const isCommandAttempt = input.trim().startsWith('/')
 
+  // Check if we're in file completion mode (has @ and not ending with space)
+  const isFileCompletion = useMemo(
+    () => !input.endsWith(' ') && /@[^\s@]*$/.test(input.trim()),
+    [input],
+  )
+
   // Check if the input matches a known command (for when typing arguments)
   const hasMatchedCommand = useMemo(() => {
+    // File completion counts as "matched" to avoid showing "no commands found"
+    if (isFileCompletion) return true
     if (!isCommandAttempt) return false
     const trimmed = input.trim()
     const withoutSlash = trimmed.slice(1)
     const parts = withoutSlash.split(/\s+/)
     const commandPart = parts[0]?.toLowerCase() ?? ''
     return commands.some((cmd) => cmd.name === commandPart || cmd.aliases?.includes(commandPart))
-  }, [commands, input, isCommandAttempt])
+  }, [commands, input, isCommandAttempt, isFileCompletion])
 
   // Generate suggestions based on current input
   const suggestions = useMemo(() => generateSuggestions(input, commands), [commands, input])
@@ -123,10 +213,14 @@ export function useSlashCompletion(input: string): UseSlashCompletionReturn {
   // Use refs to avoid stale closures
   const activeIndexRef = useRef(activeIndex)
   const suggestionsRef = useRef(suggestions)
+  const inputRef = useRef(input)
+  const isFileCompletionRef = useRef(isFileCompletion)
 
   // Keep refs in sync
   activeIndexRef.current = activeIndex
   suggestionsRef.current = suggestions
+  inputRef.current = input
+  isFileCompletionRef.current = isFileCompletion
 
   // Reset active index when suggestions change
   useEffect(() => {
@@ -163,7 +257,16 @@ export function useSlashCompletion(input: string): UseSlashCompletionReturn {
       return null
     }
 
-    return currentSuggestions[currentIndex].value
+    const selectedValue = currentSuggestions[currentIndex].value
+
+    // For file completion, replace the @... part with the selected file
+    if (isFileCompletionRef.current) {
+      const currentInput = inputRef.current
+      // Replace the @... at the end with the selected file path
+      return currentInput.replace(/@[^\s@]*$/, selectedValue)
+    }
+
+    return selectedValue
   }, [])
 
   const clearSuggestions = useCallback(() => {

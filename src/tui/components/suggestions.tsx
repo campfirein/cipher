@@ -126,8 +126,22 @@ export const Suggestions: React.FC<SuggestionsProps> = ({input, onInsert, onSele
 
       if (key.return) {
         const value = selectSuggestion()
-        if (value && onSelect) {
-          onSelect(value)
+        if (value) {
+          // In file completion mode (value contains @)
+          const isFileCompletion = value.includes('@')
+          const isFolder = value.endsWith('/')
+
+          if (isFileCompletion && onInsert) {
+            onInsert(value)
+            // For folders, stay in suggestions mode to show contents
+            if (isFolder) {
+              clearSuggestions()
+              // Don't exit suggestions mode - new suggestions will appear
+              return
+            }
+          } else if (onSelect) {
+            onSelect(value)
+          }
         }
 
         clearSuggestions()
@@ -138,6 +152,11 @@ export const Suggestions: React.FC<SuggestionsProps> = ({input, onInsert, onSele
         const value = selectSuggestion()
         if (value && onInsert) {
           onInsert(value)
+          // For folders, stay in suggestions mode
+          if (value.endsWith('/')) {
+            clearSuggestions()
+            return
+          }
         }
 
         clearSuggestions()

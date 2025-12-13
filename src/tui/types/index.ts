@@ -36,7 +36,17 @@ export type {
 export type {ActivityLog, CommandMessage, Message, StreamingMessage} from './messages.js'
 
 // Prompt types
-export type {ConfirmPromptRequest, PromptChoice, PromptRequest, SearchPromptRequest, SelectPromptRequest} from './prompts.js'
+export type {
+  ConfirmPromptRequest,
+  FileSelectorItemResult,
+  FileSelectorMode,
+  FileSelectorPromptRequest,
+  InputPromptRequest,
+  PromptChoice,
+  PromptRequest,
+  SearchPromptRequest,
+  SelectPromptRequest,
+} from './prompts.js'
 
 // UI types
 export type {AuthState, ConsumerStatus, QueueStats, Tab, TabId} from './ui.js'

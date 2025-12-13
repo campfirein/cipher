@@ -12,21 +12,21 @@ import {CurateUseCase} from '../infra/usecase/curate-use-case.js'
 export default class Curate extends Command {
   public static args = {
     context: Args.string({
-      description: 'Knowledge context: patterns, decisions, errors, or insights (triggers autonomous mode)',
+      description: 'Knowledge context: patterns, decisions, errors, or insights',
       required: false,
     }),
   }
-  public static description = `Curate context to the context tree (interactive or autonomous mode)
-Good:
+  public static description = `Curate context to the context tree (autonomous mode)
+
+For interactive mode, use REPL: brv repl then /curate
+
+Good examples:
 - "Auth uses JWT with 24h expiry. Tokens stored in httpOnly cookies via authMiddleware.ts"
 - "API rate limit is 100 req/min per user. Implemented using Redis with sliding window in rateLimiter.ts"
-Bad:
+Bad examples:
 - "Authentication" or "JWT tokens" (too vague, lacks context)
 - "Rate limiting" (no implementation details or file references)`
   public static examples = [
-    '# Interactive mode (manually choose domain/topic)',
-    '<%= config.bin %> <%= command.id %>',
-    '',
     '# Autonomous mode - LLM auto-categorizes your context',
     '<%= config.bin %> <%= command.id %> "Auth uses JWT with 24h expiry. Tokens stored in httpOnly cookies via authMiddleware.ts"',
     '',
@@ -91,6 +91,12 @@ Bad:
 
   public async run(): Promise<void> {
     const {args, flags} = await this.parse(Curate)
+
+    if (!args.context) {
+      this.log('Context argument is required.\nFor interactive mode, use REPL: brv /curate')
+      return
+    }
+
     await this.createUseCase().run({
       apiKey: flags.apiKey,
       context: args.context,
