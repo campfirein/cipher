@@ -1,6 +1,6 @@
-import { useCallback, useState } from 'react'
+import {useCallback, useState} from 'react'
 
-import type { CommandContext, SlashCommand, SlashCommandActionReturn } from '../types.js'
+import type {CommandContext, SlashCommand, SlashCommandActionReturn} from '../types.js'
 
 /**
  * Result of parsing user input
@@ -23,7 +23,7 @@ function parseInput(input: string, commands: readonly SlashCommand[]): ParseResu
   const trimmed = input.trim()
 
   if (!trimmed.startsWith('/')) {
-    return { args: trimmed, isCommand: false }
+    return {args: trimmed, isCommand: false}
   }
 
   const withoutSlash = trimmed.slice(1)
@@ -31,14 +31,14 @@ function parseInput(input: string, commands: readonly SlashCommand[]): ParseResu
   const commandName = parts[0]?.toLowerCase()
 
   if (!commandName) {
-    return { args: '', isCommand: true }
+    return {args: '', isCommand: true}
   }
 
   // Find command by name or alias
   const command = commands.find((cmd) => cmd.name === commandName || cmd.aliases?.includes(commandName))
 
   if (!command) {
-    return { args: parts.slice(1).join(' '), isCommand: true }
+    return {args: parts.slice(1).join(' '), isCommand: true}
   }
 
   // Check for subcommand
@@ -81,18 +81,18 @@ interface UseSlashCommandProcessorReturn {
  */
 export function useSlashCommandProcessor(
   context: CommandContext,
-  commands: readonly SlashCommand[]
+  commands: readonly SlashCommand[],
 ): UseSlashCommandProcessorReturn {
   const [isProcessing, setIsProcessing] = useState(false)
 
   const handleSlashCommand = useCallback(
     async (input: string): Promise<SlashCommandActionReturn> => {
-      const { args, command, isCommand, subCommand } = parseInput(input, commands)
+      const {args, command, isCommand, subCommand} = parseInput(input, commands)
 
       if (!isCommand) {
         // Slash command only mode - show warning for non-slash input
         return {
-          content: 'Please use a slash command. Type /help for available commands.',
+          content: 'Please use a slash command. Type / for available commands.',
           messageType: 'error',
           type: 'message',
         }
@@ -101,7 +101,7 @@ export function useSlashCommandProcessor(
       if (!command) {
         const commandName = input.trim().slice(1).split(/\s+/)[0]
         return {
-          content: `Unknown command: /${commandName}. Type /help for available commands.`,
+          content: `Unknown command: /${commandName}. Type / for available commands.`,
           messageType: 'error',
           type: 'message',
         }

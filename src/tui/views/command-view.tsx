@@ -6,13 +6,14 @@
  */
 
 import {Box, Spacer, Text, useApp} from 'ink'
+import Spinner from 'ink-spinner'
 import TextInput from 'ink-text-input'
 import React, {useCallback, useEffect, useState} from 'react'
 
 import type {CommandMessage, PromptRequest, StreamingMessage} from '../types.js'
 
-import {MessageItem, ScrollableList, Suggestions} from '../components/index.js'
 import {stopQueuePollingService} from '../../infra/cipher/consumer/queue-polling-service.js'
+import {MessageItem, ScrollableList, Suggestions} from '../components/index.js'
 import {InlineConfirm, InlineSearch, InlineSelect} from '../components/inline-prompts/index.js'
 import {useCommands, useMode, useTheme} from '../hooks/index.js'
 
@@ -22,10 +23,87 @@ const BOTTOM_AREA_HEIGHT = 4
 /** Max visible items in InlineSearch */
 const INLINE_SEARCH_MAX_ITEMS = 7
 
+/** Minimum output lines to show before truncation */
+const MIN_OUTPUT_LINES = 5
+
+/** Reserved lines for output box (command header + borders + hint line + margin) */
+const OUTPUT_BOX_OVERHEAD = 5
+
+/**
+ * Count the total number of lines in streaming messages
+ * Each message can contain multiple lines (newlines in content)
+ */
+function countOutputLines(messages: StreamingMessage[]): number {
+  let total = 0
+  for (const msg of messages) {
+    total += msg.content.split('\n').length
+  }
+
+  return total
+}
+
+/**
+ * Get messages that fit within maxLines, truncating the last message if needed
+ */
+function getMessagesWithinLines(
+  messages: StreamingMessage[],
+  maxLines: number,
+): {displayMessages: StreamingMessage[]; remainingLines: number; totalLines: number} {
+  const totalLines = countOutputLines(messages)
+
+  if (totalLines <= maxLines) {
+    return {displayMessages: messages, remainingLines: 0, totalLines}
+  }
+
+  const displayMessages: StreamingMessage[] = []
+  let lineCount = 0
+
+  for (const msg of messages) {
+    const msgLineArray = msg.content.split('\n')
+    const msgLineCount = msgLineArray.length
+
+    if (lineCount + msgLineCount <= maxLines) {
+      // Message fits completely
+      displayMessages.push(msg)
+      lineCount += msgLineCount
+    } else {
+      // Message needs to be truncated - show partial lines
+      const remainingSpace = maxLines - lineCount
+      if (remainingSpace > 0) {
+        // Take only the lines that fit
+        const truncatedContent = msgLineArray.slice(0, remainingSpace).join('\n')
+        displayMessages.push({
+          ...msg,
+          content: truncatedContent,
+        })
+        lineCount += remainingSpace
+      }
+
+      break
+    }
+  }
+
+  // Ensure we show at least one line
+  if (displayMessages.length === 0 && messages.length > 0) {
+    const firstLines = messages[0].content.split('\n')
+    displayMessages.push({
+      ...messages[0],
+      content: firstLines[0],
+    })
+    lineCount = 1
+  }
+
+  return {
+    displayMessages,
+    remainingLines: totalLines - lineCount,
+    totalLines,
+  }
+}
+
 /**
  * Estimate height of an active prompt
  */
-function estimatePromptHeight(prompt: PromptRequest | null): number {
+function estimatePromptHeight(prompt: null | PromptRequest): number {
   if (!prompt) return 0
 
   switch (prompt.type) {
@@ -52,19 +130,18 @@ function estimatePromptHeight(prompt: PromptRequest | null): number {
   }
 }
 
+interface MessageHeightOptions {
+  isLast?: boolean
+  maxOutputLines: number
+  promptHeight?: number
+  streamingLines?: number
+}
+
 /**
  * Estimate the line height of a command message
- * @param msg - The message to estimate
- * @param isLast - Whether this is the last message (for live streaming output)
- * @param streamingLines - Number of streaming message lines
- * @param promptHeight - Height of active prompt (if any)
  */
-function estimateMessageHeight(
-  msg: CommandMessage,
-  isLast: boolean = false,
-  streamingLines: number = 0,
-  promptHeight: number = 0,
-): number {
+function estimateMessageHeight(msg: CommandMessage, options: MessageHeightOptions): number {
+  const {isLast = false, maxOutputLines, promptHeight = 0, streamingLines = 0} = options
   let lines = 0
 
   if (msg.type === 'command') {
@@ -73,8 +150,12 @@ function estimateMessageHeight(
 
     // Output box if present (completed output)
     if (msg.output && msg.output.length > 0) {
+      // Count actual lines in the output (each message can have multiple lines)
+      const totalOutputLines = countOutputLines(msg.output)
+      // Account for truncation: show max lines + 1 for hint
+      const displayedLines = totalOutputLines <= maxOutputLines ? totalOutputLines : maxOutputLines + 1
       // Border top + content + border bottom
-      lines += 2 + msg.output.length
+      lines += 2 + displayedLines
     }
 
     // Live streaming output box (for last message while streaming)
@@ -134,7 +215,6 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
         {
           content: '',
           fromCommand: trimmed,
-          timestamp: new Date(),
           type: 'command',
         },
       ])
@@ -147,14 +227,18 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
       }
 
       if (result && result.type === 'message') {
-        setMessages((prev) => [
-          ...prev,
-          {
-            content: result.content,
-            fromCommand: trimmed,
-            type: result.messageType === 'error' ? 'error' : 'info',
-          },
-        ])
+        setMessages((prev) => {
+          const last = prev.at(-1)
+
+          return [
+            ...(last?.type === 'command' ? prev.slice(0, -1) : [...prev]),
+            {
+              content: result.content,
+              fromCommand: trimmed,
+              type: result.messageType === 'error' ? 'error' : 'info',
+            },
+          ]
+        })
       }
 
       if (result && result.type === 'quit') {
@@ -259,6 +343,14 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
     [activePrompt],
   )
 
+  // Calculate available height for scrollable content
+  // Subtract bottom area (suggestions + input)
+  const scrollableHeight = Math.max(1, availableHeight - BOTTOM_AREA_HEIGHT)
+
+  // Calculate max output lines based on available height
+  // Reserve space for command header, borders, hint line, and margin
+  const maxOutputLines = Math.max(MIN_OUTPUT_LINES, scrollableHeight - OUTPUT_BOX_OVERHEAD)
+
   // Render streaming message
   const renderStreamingMessage = useCallback(
     (msg: StreamingMessage) => {
@@ -300,18 +392,27 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
               </Text>
             </Box>
             {/* Command output (completed) */}
-            {hasOutput && (
-              <Box
-                borderColor={colors.border}
-                borderStyle="round"
-                flexDirection="column"
-                marginTop={0}
-                paddingX={1}
-                width="100%"
-              >
-                {msg.output!.map((streamMsg) => renderStreamingMessage(streamMsg))}
-              </Box>
-            )}
+            {hasOutput &&
+              (() => {
+                const {displayMessages, remainingLines} = getMessagesWithinLines(msg.output!, maxOutputLines)
+                return (
+                  <Box
+                    borderColor={colors.border}
+                    borderStyle="round"
+                    flexDirection="column"
+                    marginTop={0}
+                    paddingX={1}
+                    width="100%"
+                  >
+                    {displayMessages.map((streamMsg) => renderStreamingMessage(streamMsg))}
+                    {remainingLines > 0 && (
+                      <Text color={colors.secondary} dimColor>
+                        ↕ {remainingLines} more lines (resize terminal to view full output)
+                      </Text>
+                    )}
+                  </Box>
+                )
+              })()}
             {/* Live streaming output (while running) */}
             {showLiveOutput && (
               <Box
@@ -323,6 +424,12 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
                 width="100%"
               >
                 {streamingMessages.map((streamMsg) => renderStreamingMessage(streamMsg))}
+                {/* Show spinner when processing but no output yet */}
+                {isStreaming && !activePrompt && msg.fromCommand.startsWith('/query') && (
+                  <Text color={colors.dimText}>
+                    <Spinner type="dots" /> Processing...
+                  </Text>
+                )}
                 {/* Active prompt */}
                 {activePrompt?.type === 'search' && (
                   <InlineSearch
@@ -360,6 +467,7 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
       handleSearchResponse,
       handleSelectResponse,
       isStreaming,
+      maxOutputLines,
       messages.length,
       renderStreamingMessage,
       streamingMessages,
@@ -373,16 +481,15 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
     (msg: CommandMessage, index: number) => {
       const isLast = index === messages.length - 1
       const isLive = isLast && (isStreaming || activePrompt)
-      const streamingLines = isLive ? streamingMessages.length : 0
-      const promptHeight = isLive ? estimatePromptHeight(activePrompt) : 0
-      return estimateMessageHeight(msg, isLast, streamingLines, promptHeight)
+      return estimateMessageHeight(msg, {
+        isLast,
+        maxOutputLines,
+        promptHeight: isLive ? estimatePromptHeight(activePrompt) : 0,
+        streamingLines: isLive ? streamingMessages.length : 0,
+      })
     },
-    [activePrompt, isStreaming, messages.length, streamingMessages.length],
+    [activePrompt, isStreaming, maxOutputLines, messages.length, streamingMessages.length],
   )
-
-  // Calculate available height for scrollable content
-  // Subtract bottom area (suggestions + input)
-  const scrollableHeight = Math.max(1, availableHeight - BOTTOM_AREA_HEIGHT)
 
   return (
     <Box flexDirection="column" height="100%" width="100%">
