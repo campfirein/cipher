@@ -93,7 +93,7 @@ export class LoginUseCase implements ILoginUseCase {
         // Track successful authentication
         await this.trackingService.track('auth:signed_in')
 
-        this.terminal.log('Successfully authenticated!')
+        this.terminal.log(`Logged in as ${user.email}`)
       } catch (error) {
         // Throw error to let oclif handle display
         const errorMessage = error instanceof Error ? error.message : 'Authentication failed'

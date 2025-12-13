@@ -15,3 +15,5 @@ export interface QueueStats {
   pending: number
   processing: number
 }
+
+export type ConsumerStatus = 'error' | 'running' | 'starting' | 'stopped'
