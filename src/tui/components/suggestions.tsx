@@ -1,43 +1,22 @@
 /**
- * Command kind indicates the source/type of command
- * Based on Gemini CLI pattern for extensibility
- */
-export enum CommandKind {
-  /** Built-in commands defined in code */
-  BUILT_IN = 'built-in',
-  /** Future: file-based commands */
-  FILE = 'file',
-  /** Commands that dispatch to oclif CLI commands */
-  OCLIF = 'oclif',
-}
-
-/**
- * Suggestion item for auto-completion
- */
-export interface CommandSuggestion {
-  /** Command kind for styling */
-  commandKind?: CommandKind
-  /** Optional description */
-  description?: string
-  /** Display label */
-  label: string
-  /** Value to insert on selection */
-  value: string
-}
-
-/**
  * Suggestions Component
  *
  * Displays command suggestions with auto-completion.
  * Uses useSlashCompletion hook internally to manage state.
+ * Shows args/flags details for the selected command.
+ * Shows max 7 items with sliding window that follows selection.
  */
 
-import { Box, Text, useInput } from 'ink'
-import React, { useEffect } from 'react'
+import {Box, Text, useInput} from 'ink'
+import React, {useEffect, useMemo, useRef} from 'react'
 
-import { useMode } from '../contexts/use-mode.js'
-import { useTheme } from '../contexts/use-theme.js'
-import { useSlashCompletion } from '../hooks/index.js'
+import type {CommandArg, CommandFlag} from '../types.js'
+
+import {useMode} from '../contexts/use-mode.js'
+import {useTheme} from '../contexts/use-theme.js'
+import {useSlashCompletion} from '../hooks/index.js'
+
+const MAX_VISIBLE_ITEMS = 5
 
 interface SuggestionsProps {
   input: string
@@ -45,59 +24,145 @@ interface SuggestionsProps {
   onSelect?: (value: string) => void
 }
 
-export const Suggestions: React.FC<SuggestionsProps> = ({ input, onInsert, onSelect }) => {
-  const { theme: { colors } } = useTheme()
-  const { mode, setMode } = useMode()
+/**
+ * Format usage string from args and flags
+ */
+function formatUsage(label: string, args?: CommandArg[], flags?: CommandFlag[]): string {
+  let usage = label
+
+  if (args?.length) {
+    const argsStr = args.map((a) => (a.required ? `<${a.name}>` : `[${a.name}]`)).join(' ')
+    usage += ` ${argsStr}`
+  }
+
+  if (flags?.length) {
+    const flagsStr = flags.map((f) => `[--${f.name}]`).join(' ')
+    usage += ` ${flagsStr}`
+  }
+
+  return usage
+}
+
+export const Suggestions: React.FC<SuggestionsProps> = ({input, onInsert, onSelect}) => {
+  const {
+    theme: {colors},
+  } = useTheme()
+  const {mode, setMode} = useMode()
   const {
     activeIndex,
     clearSuggestions,
+    hasMatchedCommand,
+    isCommandAttempt,
     nextSuggestion,
     prevSuggestion,
     selectSuggestion,
     suggestions,
   } = useSlashCompletion(input)
 
-  // Manage mode based on suggestions visibility
+  // Track if user dismissed suggestions with Escape
+  const isDismissedRef = useRef(false)
+  const prevInputRef = useRef(input)
+
+  // Reset dismissed state when input changes
   useEffect(() => {
-    if (suggestions.length > 0) {
+    if (input !== prevInputRef.current) {
+      isDismissedRef.current = false
+      prevInputRef.current = input
+    }
+  }, [input])
+
+  // Manage mode based on suggestions visibility
+  // Don't show suggestions mode when user is typing arguments for a matched command
+  // Don't re-enable if user dismissed with Escape
+  useEffect(() => {
+    if (isDismissedRef.current) {
+      return
+    }
+
+    if (suggestions.length > 0 || (isCommandAttempt && !hasMatchedCommand)) {
       setMode('suggestions')
     } else {
       setMode('console')
     }
-  }, [suggestions.length, setMode])
+  }, [suggestions.length, isCommandAttempt, hasMatchedCommand, setMode])
 
-  useInput((_input, key) => {
-    if (key.upArrow) prevSuggestion()
+  // Calculate visible window based on selected index
+  const {visibleSuggestions, windowStart} = useMemo(() => {
+    if (suggestions.length <= MAX_VISIBLE_ITEMS) {
+      return {visibleSuggestions: suggestions, windowStart: 0}
+    }
 
-    if (key.downArrow) nextSuggestion()
+    // Calculate window start to keep selected item visible
+    let start = 0
+    if (activeIndex >= MAX_VISIBLE_ITEMS) {
+      start = activeIndex - MAX_VISIBLE_ITEMS + 1
+    }
 
-    if (key.return) {
-      const value = selectSuggestion()
-      if (value && onSelect) {
-        onSelect(value)
+    // Ensure we don't go past the end
+    const maxStart = suggestions.length - MAX_VISIBLE_ITEMS
+    start = Math.min(start, maxStart)
+
+    return {
+      visibleSuggestions: suggestions.slice(start, start + MAX_VISIBLE_ITEMS),
+      windowStart: start,
+    }
+  }, [suggestions, activeIndex])
+
+  useInput(
+    (_input, key) => {
+      if (key.upArrow) {
+        prevSuggestion()
       }
 
-      clearSuggestions()
-      setMode('console')
-    }
-
-    if (key.tab) {
-      const value = selectSuggestion()
-      if (value && onInsert) {
-        onInsert(value)
+      if (key.downArrow) {
+        nextSuggestion()
       }
 
-      clearSuggestions()
-      setMode('console')
-    }
+      if (key.return) {
+        const value = selectSuggestion()
+        if (value && onSelect) {
+          onSelect(value)
+        }
 
-    if (key.escape) {
-      clearSuggestions()
-      setMode('console')
-    }
-  }, { isActive: mode === 'suggestions' })
+        clearSuggestions()
+        setMode('console')
+      }
 
+      if (key.tab) {
+        const value = selectSuggestion()
+        if (value && onInsert) {
+          onInsert(value)
+        }
+
+        clearSuggestions()
+        setMode('console')
+      }
+
+      if (key.escape) {
+        isDismissedRef.current = true
+        clearSuggestions()
+        setMode('console')
+      }
+    },
+    {isActive: mode === 'suggestions'},
+  )
+
+  // Don't render if dismissed
+  if (isDismissedRef.current) {
+    return null
+  }
+
+  // Show "No commands found" when typing an unknown command
+  // Don't show when user is typing arguments for a known command
   if (suggestions.length === 0) {
+    if (isCommandAttempt && !hasMatchedCommand && input.trim().length > 1) {
+      return (
+        <Box borderColor={colors.border} borderStyle="single" paddingX={1}>
+          <Text color={colors.dimText}>No commands found</Text>
+        </Box>
+      )
+    }
+
     return null
   }
 
@@ -105,17 +170,29 @@ export const Suggestions: React.FC<SuggestionsProps> = ({ input, onInsert, onSel
   const maxLabelLength = Math.max(...suggestions.map((s) => s.label.length))
   const labelWidth = Math.max(maxLabelLength, 12)
 
+  // Get the selected suggestion
+  const selectedSuggestion = activeIndex >= 0 ? suggestions[activeIndex] : null
+  const hasDetails = selectedSuggestion && (selectedSuggestion.args?.length || selectedSuggestion.flags?.length)
+
+  // Calculate if there are more items above/below
+  const hasMoreAbove = windowStart > 0
+  const hasMoreBelow = windowStart + MAX_VISIBLE_ITEMS < suggestions.length
+
   return (
-    <Box borderColor={colors.primary} borderStyle="single" flexDirection="column" paddingX={1}>
-      {suggestions.slice(0, 8).map((suggestion, index) => {
-        const isActive = index === activeIndex
+    <Box borderColor={colors.border} borderStyle="single" flexDirection="column" paddingX={1}>
+      {hasMoreAbove && (
+        <Text color={colors.dimText} dimColor>
+          ↑ {windowStart} more above
+        </Text>
+      )}
+
+      {visibleSuggestions.map((suggestion, index) => {
+        const actualIndex = windowStart + index
+        const isActive = actualIndex === activeIndex
         return (
           <Box key={suggestion.value}>
-            <Text
-              backgroundColor={isActive ? colors.primary : undefined}
-              color={colors.text}
-            >
-              {isActive ? '› ' : '  '}
+            <Text backgroundColor={isActive ? colors.dimText : undefined} color={colors.text}>
+              {isActive ? '❯ ' : '  '}
               {suggestion.label.padEnd(labelWidth)}
             </Text>
             <Text color={colors.dimText}> {suggestion.description || ''}</Text>
@@ -123,11 +200,40 @@ export const Suggestions: React.FC<SuggestionsProps> = ({ input, onInsert, onSel
         )
       })}
 
-      {/* Show count if there are more suggestions */}
-      {suggestions.length > 8 && (
+      {hasMoreBelow && (
         <Text color={colors.dimText} dimColor>
-          ... and {suggestions.length - 8} more
+          ↓ {suggestions.length - windowStart - MAX_VISIBLE_ITEMS} more below
         </Text>
+      )}
+
+      {/* Show args/flags for selected command */}
+      {hasDetails && (
+        <Box borderColor={colors.border} borderStyle="single" borderTop flexDirection="column" marginTop={0}>
+          <Text color={colors.text}>
+            Usage: {formatUsage(selectedSuggestion.label, selectedSuggestion.args, selectedSuggestion.flags)}
+          </Text>
+
+          {selectedSuggestion.args?.map((arg) => (
+            <Text color={colors.dimText} key={arg.name}>
+              {'  '}
+              <Text color={colors.text}>{arg.required ? `<${arg.name}>` : `[${arg.name}]`}</Text>
+              {'  '}
+              {arg.description}
+            </Text>
+          ))}
+
+          {selectedSuggestion.flags?.map((flag) => (
+            <Text color={colors.dimText} key={flag.name}>
+              {'  '}
+              <Text color={colors.text}>
+                {flag.char ? `-${flag.char}, ` : '    '}--{flag.name}
+              </Text>
+              {'  '}
+              {flag.description}
+              {flag.default !== undefined && <Text> (default: {String(flag.default)})</Text>}
+            </Text>
+          ))}
+        </Box>
       )}
     </Box>
   )
