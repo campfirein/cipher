@@ -24,6 +24,17 @@ import {ToolError, ToolErrorType, ToolErrorUtils, type ToolExecutionResult} from
  */
 export class ToolManager {
   /**
+   * Tools allowed for curate operations
+   */
+  private static readonly CURATE_TOOL_NAMES = [
+    'detect_domains',
+    'find_knowledge_topics',
+    'read_file',
+    'grep_content',
+    'glob_files',
+    'curate',
+  ] as const
+  /**
    * Read-only tools allowed for query operations
    */
   private static readonly QUERY_TOOL_NAMES = [
@@ -153,15 +164,21 @@ export class ToolManager {
   /**
    * Get filtered tool names based on command type.
    * For 'query' command, returns only read-only discovery tools.
+   * For 'curate' command, returns only curate-specific tools.
    * For other commands, returns all tools.
    *
-   * @param commandType - The command type ('add', 'query', etc.)
+   * @param commandType - The command type ('curate', 'query', etc.)
    * @returns Array of filtered tool names
    */
   public getToolNamesForCommand(commandType?: string): string[] {
     if (commandType === 'query') {
       // For query: only allow read-only tools
       return [...ToolManager.QUERY_TOOL_NAMES].filter((name) => this.hasTool(name))
+    }
+
+    if (commandType === 'curate') {
+      // For curate: only allow curate tools
+      return [...ToolManager.CURATE_TOOL_NAMES].filter((name) => this.hasTool(name))
     }
 
     // For all other commands: return all tools
@@ -181,9 +198,10 @@ export class ToolManager {
   /**
    * Get filtered tools based on command type.
    * For 'query' command, returns only read-only discovery tools.
+   * For 'curate' command, returns only curate-specific tools.
    * For other commands, returns all tools.
    *
-   * @param commandType - The command type ('add', 'query', etc.)
+   * @param commandType - The command type ('curate', 'query', etc.)
    * @returns Filtered tool set with JSON Schema definitions
    */
   public getToolsForCommand(commandType?: string): ToolSet {
@@ -193,6 +211,18 @@ export class ToolManager {
       // For query: only allow read-only tools
       const filteredTools: ToolSet = {}
       for (const toolName of ToolManager.QUERY_TOOL_NAMES) {
+        if (allTools[toolName]) {
+          filteredTools[toolName] = allTools[toolName]
+        }
+      }
+
+      return filteredTools
+    }
+
+    if (commandType === 'curate') {
+      // For curate: only allow curate tools
+      const filteredTools: ToolSet = {}
+      for (const toolName of ToolManager.CURATE_TOOL_NAMES) {
         if (allTools[toolName]) {
           filteredTools[toolName] = allTools[toolName]
         }
