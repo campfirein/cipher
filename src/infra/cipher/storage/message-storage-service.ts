@@ -8,12 +8,30 @@ import type {
   StoredMessage,
   StoredMessageWithParts,
   StoredPart,
+  StoredToolState,
   StreamMessagesOptions,
 } from '../../../core/domain/cipher/storage/message-storage-types.js'
 import type {IKeyStorage, StorageKey} from '../../../core/interfaces/cipher/i-key-storage.js'
-import type {InternalMessage, MessagePart} from '../../../core/interfaces/cipher/message-types.js'
+import type {AttachmentPart, InternalMessage, MessagePart, ToolPart} from '../../../core/interfaces/cipher/message-types.js'
 
 import {COMPACTED_TOOL_OUTPUT_PLACEHOLDER} from '../../../core/domain/cipher/storage/message-storage-types.js'
+import {ToolPartFactory} from './tool-part-factory.js'
+
+/**
+ * Options for creating a tool part.
+ */
+export interface CreateToolPartOptions {
+  /** Unique identifier for this tool call */
+  callId: string
+  /** Parsed input arguments */
+  input: Record<string, unknown>
+  /** ID of the message to add the tool part to */
+  messageId: string
+  /** Session ID for validation */
+  sessionId: string
+  /** Name of the tool being called */
+  toolName: string
+}
 
 /**
  * Service for granular message and part storage.
@@ -31,6 +49,77 @@ import {COMPACTED_TOOL_OUTPUT_PLACEHOLDER} from '../../../core/domain/cipher/sto
  */
 export class MessageStorageService {
   constructor(private readonly keyStorage: IKeyStorage) {}
+
+  /**
+   * Add attachments to a completed tool part.
+   *
+   * @param messageId - ID of the message containing the part
+   * @param partId - ID of the tool part
+   * @param attachments - Attachments to add
+   */
+  async addToolPartAttachments(
+    messageId: string,
+    partId: string,
+    attachments: AttachmentPart[],
+  ): Promise<void> {
+    await this.keyStorage.update<StoredPart>(this.partKey(messageId, partId), (prev) => {
+      if (!prev) throw new Error(`Part ${partId} not found`)
+      if (prev.type !== 'tool' || !prev.toolState) {
+        throw new Error(`Part ${partId} is not a tool part`)
+      }
+
+      const existingAttachments = prev.toolState.attachments ?? []
+      const newAttachments = attachments.map((att) => ({
+        data: att.data,
+        filename: att.filename,
+        mime: att.mime,
+        type: att.type,
+      }))
+
+      return {
+        ...prev,
+        toolState: {
+          ...prev.toolState,
+          attachments: [...existingAttachments, ...newAttachments],
+        },
+      }
+    })
+  }
+
+  /**
+   * Create a tool part in pending state and add it to a message.
+   *
+   * @param options - Options for creating the tool part
+   * @returns The created StoredPart
+   */
+  async createToolPart(options: CreateToolPartOptions): Promise<StoredPart> {
+    const {callId, input, messageId, sessionId, toolName} = options
+
+    // Verify message exists
+    const message = await this.keyStorage.get<StoredMessage>(this.messageKey(sessionId, messageId))
+    if (!message) {
+      throw new Error(`Message ${messageId} not found in session ${sessionId}`)
+    }
+
+    // Create the tool part in pending state
+    const toolPart = ToolPartFactory.createPending(messageId, callId, toolName, input)
+
+    // Save the part
+    await this.keyStorage.set(this.partKey(messageId, toolPart.id), toolPart)
+
+    // Update message's partIds
+    const now = Date.now()
+    await this.keyStorage.update<StoredMessage>(this.messageKey(sessionId, messageId), (prev) => {
+      if (!prev) throw new Error(`Message ${messageId} not found`)
+      return {
+        ...prev,
+        partIds: [...prev.partIds, toolPart.id],
+        updatedAt: now,
+      }
+    })
+
+    return toolPart
+  }
 
   /**
    * Delete a session and all its messages and parts.
@@ -67,6 +156,27 @@ export class MessageStorageService {
    */
   async getSession(sessionId: string): Promise<SessionRecord | undefined> {
     return this.keyStorage.get<SessionRecord>(this.sessionKey(sessionId))
+  }
+
+  /**
+   * Get a tool part by call ID from a message.
+   *
+   * @param messageId - ID of the message
+   * @param callId - Call ID of the tool part
+   * @returns The tool part if found
+   */
+  async getToolPartByCallId(messageId: string, callId: string): Promise<StoredPart | undefined> {
+    const partKeys = await this.keyStorage.list(this.partPrefix(messageId))
+
+    for (const partKey of partKeys) {
+      // eslint-disable-next-line no-await-in-loop
+      const part = await this.keyStorage.get<StoredPart>(partKey)
+      if (part?.type === 'tool' && part.toolState?.callId === callId) {
+        return part
+      }
+    }
+
+    return undefined
   }
 
   /**
@@ -426,53 +536,18 @@ export class MessageStorageService {
       const contentParts: MessagePart[] = []
 
       for (const part of parts) {
-        if (part.compactedAt) {
-          // Show placeholder for compacted parts
-          contentParts.push({
-            text: part.type === 'tool_output' ? COMPACTED_TOOL_OUTPUT_PLACEHOLDER : '[Content cleared]',
-            type: 'text',
-          })
-        } else {
-          switch (part.type) {
-            case 'file': {
-              contentParts.push({
-                data: part.content,
-                filename: part.filename,
-                mimeType: part.mimeType || 'application/octet-stream',
-                type: 'file',
-              })
+        const converted = this.convertStoredPartToMessagePart(part)
+        if (converted.messagePart) {
+          contentParts.push(converted.messagePart)
+        }
 
-              break
-            }
-
-            case 'image': {
-              contentParts.push({
-                image: part.content,
-                mimeType: part.mimeType,
-                type: 'image',
-              })
-
-              break
-            }
-
-            case 'text': {
-              contentParts.push({text: part.content, type: 'text'})
-
-              break
-            }
-
-            case 'tool_output': {
-              // Tool output becomes text content for tool messages
-              content = part.content
-
-              break
-            }
-          }
+        if (converted.toolOutputContent !== undefined) {
+          content = converted.toolOutputContent
         }
       }
 
-      // Only use content parts array if we have non-tool parts
-      if (contentParts.length > 0 && message.role === 'user') {
+      // Only use content parts array if we have non-tool parts or tool parts
+      if (contentParts.length > 0 && (message.role === 'user' || message.role === 'assistant')) {
         content = contentParts
       }
     }
@@ -496,6 +571,109 @@ export class MessageStorageService {
    */
   toInternalMessages(messages: StoredMessageWithParts[]): InternalMessage[] {
     return messages.map((msg) => this.toInternalMessage(msg))
+  }
+
+  /**
+   * Update a tool part's state.
+   * Used for transitioning through pending → running → completed/error.
+   *
+   * @param messageId - ID of the message containing the part
+   * @param partId - ID of the tool part to update
+   * @param update - Partial tool state update
+   */
+  async updateToolPartState(
+    messageId: string,
+    partId: string,
+    update: Partial<StoredToolState>,
+  ): Promise<void> {
+    await this.keyStorage.update<StoredPart>(this.partKey(messageId, partId), (prev) => {
+      if (!prev) throw new Error(`Part ${partId} not found`)
+      if (prev.type !== 'tool' || !prev.toolState) {
+        throw new Error(`Part ${partId} is not a tool part`)
+      }
+
+      return {
+        ...prev,
+        toolState: {
+          ...prev.toolState,
+          ...update,
+        },
+      }
+    })
+  }
+
+  /**
+   * Convert a StoredPart to a MessagePart for reconstruction.
+   * Returns the converted part and optionally tool output content.
+   */
+  private convertStoredPartToMessagePart(
+    part: StoredPart,
+  ): {messagePart?: MessagePart; toolOutputContent?: string} {
+    // Handle compacted parts
+    if (part.compactedAt) {
+      return {
+        messagePart: {
+          text: part.type === 'tool_output' ? COMPACTED_TOOL_OUTPUT_PLACEHOLDER : '[Content cleared]',
+          type: 'text',
+        },
+      }
+    }
+
+    // Convert based on part type
+    switch (part.type) {
+      case 'file': {
+        return {
+          messagePart: {
+            data: part.content,
+            filename: part.filename,
+            mimeType: part.mimeType || 'application/octet-stream',
+            type: 'file',
+          },
+        }
+      }
+
+      case 'image': {
+        return {
+          messagePart: {
+            image: part.content,
+            mimeType: part.mimeType,
+            type: 'image',
+          },
+        }
+      }
+
+      case 'reasoning': {
+        return {
+          messagePart: {
+            summary: part.reasoningSummary,
+            text: part.content,
+            type: 'reasoning',
+          },
+        }
+      }
+
+      case 'text': {
+        return {
+          messagePart: {text: part.content, type: 'text'},
+        }
+      }
+
+      case 'tool': {
+        if (!part.toolState) return {}
+        return {
+          messagePart: this.storedPartToToolPart(part),
+        }
+      }
+
+      case 'tool_output': {
+        // Tool output becomes text content for tool messages
+        return {toolOutputContent: part.content}
+      }
+
+      default: {
+        return {}
+      }
+    }
   }
 
   /**
@@ -563,6 +741,19 @@ export class MessageStorageService {
             break
           }
 
+          case 'reasoning': {
+            parts.push({
+              content: part.text,
+              createdAt: now,
+              id: partId,
+              messageId,
+              reasoningSummary: part.summary,
+              type: 'reasoning',
+            })
+
+            break
+          }
+
           case 'text': {
             parts.push({
               content: part.text,
@@ -574,10 +765,17 @@ export class MessageStorageService {
 
             break
           }
+
+          case 'tool': {
+            // Store tool part with full state
+            parts.push(this.toolPartToStoredPart(part, partId, messageId, now))
+
+            break
+          }
         }
       }
 
-      // For user messages, content is reconstructed from parts
+      // For user/assistant messages, content is reconstructed from parts
       // but we can store a text preview
       const textParts = message.content.filter((p) => p.type === 'text') as Array<{text: string; type: 'text'}>
       if (textParts.length > 0) {
@@ -656,6 +854,80 @@ export class MessageStorageService {
 
   private sessionKey(sessionId: string): StorageKey {
     return ['session', sessionId]
+  }
+
+  /**
+   * Convert a stored part with tool state to a ToolPart.
+   */
+  private storedPartToToolPart(part: StoredPart): ToolPart {
+    if (!part.toolState || !part.toolName) {
+      throw new Error('Cannot convert non-tool part to ToolPart')
+    }
+
+    return {
+      callId: part.toolState.callId,
+      state: ToolPartFactory.toToolPartState(part.toolState),
+      toolName: part.toolName,
+      type: 'tool',
+    }
+  }
+
+  /**
+   * Convert a ToolPart to a StoredPart.
+   */
+  private toolPartToStoredPart(part: ToolPart, partId: string, messageId: string, now: number): StoredPart {
+    const {callId, state, toolName} = part
+
+    // Build stored tool state from ToolPart state
+    const toolState: StoredToolState = {
+      callId,
+      input: state.input,
+      status: state.status,
+    }
+
+    // Add state-specific fields
+    switch (state.status) {
+      case 'completed': {
+        toolState.attachments = state.attachments?.map((att) => ({
+          data: att.data,
+          filename: att.filename,
+          mime: att.mime,
+          type: att.type,
+        }))
+        toolState.completedAt = state.time.end
+        toolState.output = state.output
+        toolState.startedAt = state.time.start
+        toolState.title = state.title
+        break
+      }
+
+      case 'error': {
+        toolState.completedAt = state.time.end
+        toolState.error = state.error
+        toolState.startedAt = state.time.start
+        break
+      }
+
+      case 'pending': {
+        // No additional fields for pending state
+        break
+      }
+
+      case 'running': {
+        toolState.startedAt = state.startedAt
+        break
+      }
+    }
+
+    return {
+      content: '',
+      createdAt: now,
+      id: partId,
+      messageId,
+      toolName,
+      toolState,
+      type: 'tool',
+    }
   }
 }
 

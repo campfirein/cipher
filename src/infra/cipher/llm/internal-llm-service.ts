@@ -10,7 +10,13 @@ import type {ILLMService} from '../../../core/interfaces/cipher/i-llm-service.js
 import type {ILogger} from '../../../core/interfaces/cipher/i-logger.js'
 import type {IMessageFormatter} from '../../../core/interfaces/cipher/i-message-formatter.js'
 import type {ITokenizer} from '../../../core/interfaces/cipher/i-tokenizer.js'
-import type {InternalMessage, ToolCall} from '../../../core/interfaces/cipher/message-types.js'
+import type {
+  InternalMessage,
+  ToolCall,
+  ToolStateCompleted,
+  ToolStateError,
+  ToolStateRunning,
+} from '../../../core/interfaces/cipher/message-types.js'
 import type {MemoryManager} from '../memory/memory-manager.js'
 import type {SimplePromptFactory} from '../system-prompt/simple-prompt-factory.js'
 import type {ToolManager} from '../tools/tool-manager.js'
@@ -991,7 +997,8 @@ export class ByteRoverLLMService implements ILLMService {
 
   /**
    * Handle tool calls from LLM response.
-   * Executes tools in parallel for performance, but adds results to context in order.
+   * Uses tool parts with state machine: pending → running → completed/error.
+   * Executes tools in parallel for performance, but updates state in order.
    *
    * @param lastMessage - Last message containing tool calls
    */
@@ -1007,29 +1014,84 @@ export class ByteRoverLLMService implements ILLMService {
     const assistantContent = this.extractTextContent(lastMessage)
     await this.contextManager.addAssistantMessage(assistantContent, lastMessage.toolCalls)
 
-    // Execute all tool calls in parallel
+    // Step 1: Create pending tool parts for all tool calls
+    for (const toolCall of lastMessage.toolCalls) {
+      const toolArgs = JSON.parse(toolCall.function.arguments)
+      this.contextManager.addToolCallPending(toolCall.id, toolCall.function.name, toolArgs)
+    }
+
+    // Step 2: Transition all to running state
+    const startTime = Date.now()
+    for (const toolCall of lastMessage.toolCalls) {
+      const runningState: ToolStateRunning = {
+        input: JSON.parse(toolCall.function.arguments),
+        startedAt: startTime,
+        status: 'running',
+      }
+      this.contextManager.updateToolCallState(toolCall.id, runningState)
+    }
+
+    // Step 3: Execute all tool calls in parallel
     const parallelResults = await Promise.allSettled(
       lastMessage.toolCalls.map((toolCall) => this.executeToolCallParallel(toolCall)),
     )
 
-    // Add results to context IN ORDER (preserves conversation flow)
+    // Step 4: Update tool part states with results (in order)
+    const endTime = Date.now()
     // eslint-disable-next-line unicorn/no-for-loop -- Need index to access both parallelResults and toolCalls in parallel
     for (let i = 0; i < parallelResults.length; i++) {
       const settledResult = parallelResults[i]
       const toolCall = lastMessage.toolCalls[i]
+      const toolArgs = JSON.parse(toolCall.function.arguments)
 
       if (settledResult.status === 'fulfilled') {
         const result = settledResult.value
+
+        if (result.toolResult?.success) {
+          // Transition to completed state
+          const completedState: ToolStateCompleted = {
+            attachments: result.toolResult.processedOutput.attachments,
+            input: toolArgs,
+            metadata: result.toolResult.metadata,
+            output: result.toolResult.processedOutput.content,
+            status: 'completed',
+            time: {end: endTime, start: startTime},
+            title: result.toolResult.processedOutput.title,
+          }
+          this.contextManager.updateToolCallState(toolCall.id, completedState)
+        } else {
+          // Transition to error state
+          const errorState: ToolStateError = {
+            error: result.toolResult?.processedOutput.content ?? result.error ?? 'Unknown error',
+            input: toolArgs,
+            status: 'error',
+            time: {end: endTime, start: startTime},
+          }
+          this.contextManager.updateToolCallState(toolCall.id, errorState)
+        }
+
+        // Also add to context as tool result message (for backward compatibility)
         // eslint-disable-next-line no-await-in-loop -- Must add results in order
         await this.addParallelToolResultToContext(result)
       } else {
-        // Handle unexpected Promise rejection (should be rare since executeToolCallParallel catches errors)
+        // Handle unexpected Promise rejection
         const errorMessage = getErrorMessage(settledResult.reason)
         this.logger.error('Unexpected error in parallel tool execution', {
           error: settledResult.reason,
           toolCallId: toolCall.id,
           toolName: toolCall.function.name,
         })
+
+        // Transition to error state
+        const errorState: ToolStateError = {
+          error: errorMessage,
+          input: toolArgs,
+          status: 'error',
+          time: {end: endTime, start: startTime},
+        }
+        this.contextManager.updateToolCallState(toolCall.id, errorState)
+
+        // Also add to context as tool result message (for backward compatibility)
         // eslint-disable-next-line no-await-in-loop -- Must add results in order
         await this.contextManager.addToolResult(toolCall.id, toolCall.function.name, `Error: ${errorMessage}`, {
           errorType: 'UNEXPECTED_ERROR',
