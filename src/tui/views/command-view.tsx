@@ -8,7 +8,7 @@
 import {Box, Spacer, Text, useApp} from 'ink'
 import Spinner from 'ink-spinner'
 import TextInput from 'ink-text-input'
-import React, {useCallback, useEffect, useState} from 'react'
+import React, {useCallback, useEffect, useMemo, useState} from 'react'
 
 import type {CommandMessage, PromptRequest, StreamingMessage} from '../types.js'
 
@@ -108,6 +108,55 @@ function getMessagesFromEnd(
     skippedLines: totalLines - lineCount,
     totalLines,
   }
+}
+
+/**
+ * Processed streaming message for rendering
+ * Includes action state for spinner display
+ */
+interface ProcessedMessage extends StreamingMessage {
+  /** For action_start: whether the action is still running (no matching action_stop) */
+  isActionRunning?: boolean
+  /** For action_start: the completion message from action_stop */
+  stopMessage?: string
+}
+
+/**
+ * Process streaming messages to handle action_start/action_stop pairs
+ * - action_start with matching action_stop: mark as completed with stop message
+ * - action_start without matching action_stop: mark as running (show spinner)
+ * - action_stop messages are filtered out (consumed by their action_start)
+ */
+function processMessagesForActions(messages: StreamingMessage[]): ProcessedMessage[] {
+  // Build a map of actionId -> action_stop message
+  const stopMessages = new Map<string, string>()
+  for (const msg of messages) {
+    if (msg.type === 'action_stop' && msg.actionId) {
+      stopMessages.set(msg.actionId, msg.content)
+    }
+  }
+
+  // Process messages, transforming action_start and filtering action_stop
+  const result: ProcessedMessage[] = []
+  for (const msg of messages) {
+    if (msg.type === 'action_stop') {
+      // Skip action_stop messages - they're consumed by action_start
+      continue
+    }
+
+    if (msg.type === 'action_start' && msg.actionId) {
+      const stopMessage = stopMessages.get(msg.actionId)
+      result.push({
+        ...msg,
+        isActionRunning: stopMessage === undefined,
+        stopMessage,
+      })
+    } else {
+      result.push(msg)
+    }
+  }
+
+  return result
 }
 
 /** Default page size for file selector */
@@ -213,6 +262,9 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
   const {
     theme: {colors},
   } = useTheme()
+
+  // Process streaming messages to handle action_start/action_stop pairs
+  const processedStreamingMessages = useMemo(() => processMessagesForActions(streamingMessages), [streamingMessages])
   const {handleSlashCommand} = useCommands()
   const {appendShortcuts, mode, removeShortcuts} = useMode()
 
@@ -397,9 +449,30 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
   // Reserve space for command header, borders, hint line, and margin
   const maxOutputLines = Math.max(MIN_OUTPUT_LINES, scrollableHeight - OUTPUT_BOX_OVERHEAD)
 
-  // Render streaming message
+  // Render streaming message (handles ProcessedMessage for action types)
   const renderStreamingMessage = useCallback(
-    (msg: StreamingMessage) => {
+    (msg: ProcessedMessage) => {
+      // Handle action messages with spinner
+      if (msg.type === 'action_start') {
+        if (msg.isActionRunning) {
+          // Action is still running - show spinner
+          return (
+            <Text color={colors.text} key={msg.id}>
+              <Spinner type="dots" /> {msg.content}
+            </Text>
+          )
+        }
+
+        // Action completed - show with completion message
+        return (
+          <Text color={colors.text} key={msg.id}>
+            {msg.content}
+            {msg.stopMessage ? `... ${msg.stopMessage}` : ''}
+          </Text>
+        )
+      }
+
+      // Regular messages
       let color = colors.text
       if (msg.type === 'error') color = colors.errorText
       if (msg.type === 'warning') color = colors.warning
@@ -461,11 +534,7 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
 
       case 'select': {
         return (
-          <InlineSelect
-            choices={activePrompt.choices}
-            message={activePrompt.message}
-            onSelect={handleSelectResponse}
-          />
+          <InlineSelect choices={activePrompt.choices} message={activePrompt.message} onSelect={handleSelectResponse} />
         )
       }
 
@@ -509,7 +578,8 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
             {/* Command output (completed) */}
             {hasOutput &&
               (() => {
-                const {displayMessages, skippedLines} = getMessagesFromEnd(msg.output!, maxOutputLines)
+                const processedOutput = processMessagesForActions(msg.output!)
+                const {displayMessages, skippedLines} = getMessagesFromEnd(processedOutput, maxOutputLines)
                 return (
                   <Box
                     borderColor={colors.border}
@@ -521,7 +591,7 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
                   >
                     {skippedLines > 0 && (
                       <Text color={colors.secondary} dimColor>
-                        ↑ {skippedLines} more lines above
+                        ↑ {skippedLines} more lines above (resize terminal to view full)
                       </Text>
                     )}
                     {displayMessages.map((streamMsg) => renderStreamingMessage(streamMsg))}
@@ -532,7 +602,7 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
             {showLiveOutput &&
               (() => {
                 const {displayMessages: liveMessages, skippedLines} = getMessagesFromEnd(
-                  streamingMessages,
+                  processedStreamingMessages,
                   maxOutputLines,
                 )
                 return (
@@ -547,7 +617,7 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
                     {/* Show skipped lines indicator at the top */}
                     {skippedLines > 0 && (
                       <Text color={colors.secondary} dimColor>
-                        ↑ {skippedLines} more lines above
+                        ↑ {skippedLines} more lines above (resize terminal to view full)
                       </Text>
                     )}
                     {liveMessages.map((streamMsg) => renderStreamingMessage(streamMsg))}
@@ -574,9 +644,9 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
       isStreaming,
       maxOutputLines,
       messages.length,
+      processedStreamingMessages,
       renderActivePrompt,
       renderStreamingMessage,
-      streamingMessages,
     ],
   )
 

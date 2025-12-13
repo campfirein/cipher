@@ -17,6 +17,8 @@ export interface Message {
  * Individual streaming message for real-time output
  */
 export interface StreamingMessage {
+  /** Action ID for linking action_start with action_stop */
+  actionId?: string
   /** Message content */
   content: string
   /** Unique identifier */
@@ -26,7 +28,7 @@ export interface StreamingMessage {
   /** Tool name (for tool_start/tool_end types) */
   toolName?: string
   /** Type of streaming message */
-  type: 'error' | 'output' | 'tool_end' | 'tool_start' | 'warning'
+  type: 'action_start' | 'action_stop' | 'error' | 'output' | 'tool_end' | 'tool_start' | 'warning'
 }
 
 export interface CommandMessage extends Message {
