@@ -244,6 +244,8 @@ export class CurateUseCase implements ICurateUseCase {
       verbose?: boolean
     },
   ): Promise<void> {
+    // this.terminal.log(`Option: ${JSON.stringify(options)}`)
+
     try {
       // Get authentication token
       const token = await this.tokenStore.load()
@@ -275,7 +277,7 @@ export class CurateUseCase implements ICurateUseCase {
         }),
       )
       // Simple output for agents - just confirm saved
-      this.terminal.log('✓ Context saved')
+      this.terminal.log('✓ Context queued for processing. View in Activity tab.    [tab]')
 
       // Track the event
       await this.trackingService.track('mem:curate')
@@ -313,7 +315,7 @@ export class CurateUseCase implements ICurateUseCase {
 
       // Create the topic folder with context.md
       const contextFilePath = this.createTopicWithContextFile(targetPath, topicName)
-      this.terminal.log(`\nCreated: ${contextFilePath}`)
+      this.terminal.log(`\nCreated: ${path.relative(process.cwd(), contextFilePath)}`)
 
       // Track the event
       this.trackingService.track('mem:curate')
@@ -332,9 +334,9 @@ export class CurateUseCase implements ICurateUseCase {
       return 'Topic name cannot be empty'
     }
 
-    // Check for invalid characters in folder names (filesystem restrictions)
-    if (/[/\0]/.test(trimmed)) {
-      return 'Topic name cannot contain "/" or null characters'
+    // Only allow letters, numbers, and hyphens
+    if (!/^[a-zA-Z0-9-]+$/.test(trimmed)) {
+      return 'Topic name can only contain letters (a-z, A-Z), numbers (0-9), and hyphens (-)'
     }
 
     // Check if folder already exists

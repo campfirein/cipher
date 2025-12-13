@@ -14,7 +14,13 @@ import type {CommandMessage, PromptRequest, StreamingMessage} from '../types.js'
 
 import {stopQueuePollingService} from '../../infra/cipher/consumer/queue-polling-service.js'
 import {MessageItem, ScrollableList, Suggestions} from '../components/index.js'
-import {InlineConfirm, InlineSearch, InlineSelect} from '../components/inline-prompts/index.js'
+import {
+  InlineConfirm,
+  InlineFileSelector,
+  InlineInput,
+  InlineSearch,
+  InlineSelect,
+} from '../components/inline-prompts/index.js'
 import {useCommands, useMode, useTheme} from '../hooks/index.js'
 
 /** Fixed height for bottom area (suggestions + input) */
@@ -100,6 +106,9 @@ function getMessagesWithinLines(
   }
 }
 
+/** Default page size for file selector */
+const INLINE_FILE_SELECTOR_PAGE_SIZE = 7
+
 /**
  * Estimate height of an active prompt
  */
@@ -109,6 +118,17 @@ function estimatePromptHeight(prompt: null | PromptRequest): number {
   switch (prompt.type) {
     case 'confirm': {
       // Single line: "? message (Y/n) [input]"
+      return 3
+    }
+
+    case 'file_selector': {
+      // Message + path + separator + items + scroll indicator + hint
+      const pageSize = prompt.pageSize ?? INLINE_FILE_SELECTOR_PAGE_SIZE
+      return 5 + pageSize
+    }
+
+    case 'input': {
+      // Message line + optional error line
       return 3
     }
 
@@ -307,7 +327,9 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
   )
 
   const handleInsert = useCallback((value: string) => {
-    setCommand(value + ' ')
+    // Don't add space after directories (ends with /) to allow continued navigation
+    const suffix = value.endsWith('/') ? '' : ' '
+    setCommand(value + suffix)
     // TRICK: Force TextInput to remount with cursor at the end
     setInputKey((prev) => prev + 1)
   }, [])
@@ -336,6 +358,26 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
   const handleSelectResponse = useCallback(
     (value: unknown) => {
       if (activePrompt?.type === 'select') {
+        activePrompt.onResponse(value)
+        setActivePrompt(null)
+      }
+    },
+    [activePrompt],
+  )
+
+  const handleInputResponse = useCallback(
+    (value: string) => {
+      if (activePrompt?.type === 'input') {
+        activePrompt.onResponse(value)
+        setActivePrompt(null)
+      }
+    },
+    [activePrompt],
+  )
+
+  const handleFileSelectorResponse = useCallback(
+    (value: null | {isDirectory: boolean; name: string; path: string}) => {
+      if (activePrompt?.type === 'file_selector') {
         activePrompt.onResponse(value)
         setActivePrompt(null)
       }
@@ -452,6 +494,25 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
                     onSelect={handleSelectResponse}
                   />
                 )}
+                {activePrompt?.type === 'input' && (
+                  <InlineInput
+                    message={activePrompt.message}
+                    onSubmit={handleInputResponse}
+                    placeholder={activePrompt.placeholder}
+                    validate={activePrompt.validate}
+                  />
+                )}
+                {activePrompt?.type === 'file_selector' && (
+                  <InlineFileSelector
+                    allowCancel={activePrompt.allowCancel}
+                    basePath={activePrompt.basePath}
+                    filter={activePrompt.filter}
+                    message={activePrompt.message}
+                    mode={activePrompt.mode}
+                    onSelect={handleFileSelectorResponse}
+                    pageSize={activePrompt.pageSize}
+                  />
+                )}
               </Box>
             )}
           </Box>
@@ -464,6 +525,8 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
       activePrompt,
       colors,
       handleConfirmResponse,
+      handleFileSelectorResponse,
+      handleInputResponse,
       handleSearchResponse,
       handleSelectResponse,
       isStreaming,

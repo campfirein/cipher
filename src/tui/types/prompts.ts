@@ -51,6 +51,64 @@ export interface SelectPromptRequest<T = unknown> {
 }
 
 /**
+ * Prompt request for text input with validation
+ */
+export interface InputPromptRequest {
+  /** The prompt message */
+  message: string
+  /** Callback when user submits */
+  onResponse: (value: string) => void
+  /** Placeholder text */
+  placeholder?: string
+  type: 'input'
+  /** Validation function - return true if valid, or error message string */
+  validate?: (value: string) => boolean | string
+}
+
+/**
+ * File selector item representation
+ */
+export interface FileSelectorItemResult {
+  /** Whether the item is a directory */
+  isDirectory: boolean
+  /** The file/directory name */
+  name: string
+  /** The full path to the item */
+  path: string
+}
+
+/**
+ * Selection mode for file selector
+ */
+export type FileSelectorMode = 'directory' | 'file'
+
+/**
+ * Prompt request for file/directory selection with tree navigation
+ */
+export interface FileSelectorPromptRequest {
+  /** Allow user to cancel selection */
+  allowCancel?: boolean
+  /** Base path to start from (cannot navigate above this) */
+  basePath: string
+  /** Filter function to show/hide items */
+  filter?: (item: FileSelectorItemResult) => boolean
+  /** The prompt message */
+  message: string
+  /** Selection mode: 'file' or 'directory' (default: 'file') */
+  mode?: FileSelectorMode
+  /** Callback when user selects or cancels */
+  onResponse: (value: FileSelectorItemResult | null) => void
+  /** Number of items visible at once */
+  pageSize?: number
+  type: 'file_selector'
+}
+
+/**
  * Union of all prompt request types
  */
-export type PromptRequest = ConfirmPromptRequest | SearchPromptRequest | SelectPromptRequest
+export type PromptRequest =
+  | ConfirmPromptRequest
+  | FileSelectorPromptRequest
+  | InputPromptRequest
+  | SearchPromptRequest
+  | SelectPromptRequest
