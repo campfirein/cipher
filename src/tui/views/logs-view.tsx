@@ -8,6 +8,7 @@ import {Box, Spacer, Text} from 'ink'
 import Spinner from 'ink-spinner'
 import {join} from 'node:path'
 import React, {useCallback, useMemo} from 'react'
+import z from 'zod'
 
 import {BRV_DIR, CONTEXT_TREE_DIR} from '../../constants.js'
 import {ToolCall} from '../../core/domain/cipher/queue/types.js'
@@ -46,11 +47,15 @@ function truncateContent(
   }
 }
 
-function safeJsonParse<T = unknown>(jsonString: string, fallback: null | T = null): null | T {
+const ExecutionInputSchema = z.object({
+  content: z.string(),
+})
+
+function parseExecutionContent(input: string): string {
   try {
-    return JSON.parse(jsonString) as T
+    return ExecutionInputSchema.safeParse(JSON.parse(input))?.data?.content ?? input
   } catch {
-    return fallback
+    return input
   }
 }
 
@@ -173,7 +178,7 @@ export const LogsView: React.FC<LogsViewProps> = ({availableHeight}) => {
           changes,
           content: execution.status === 'failed' ? execution.error ?? '' : execution.result ?? '',
           id: execution.id,
-          input: safeJsonParse<{content: string}>(execution.input, {content: execution.input})?.content ?? '',
+          input: parseExecutionContent(execution.input),
           progress,
           source: 'agent',
           status: execution.status,
@@ -276,10 +281,7 @@ export const LogsView: React.FC<LogsViewProps> = ({availableHeight}) => {
   const keyExtractor = useCallback((log: ActivityLog) => log.id, [])
 
   // Height estimator that accounts for content truncation
-  const heightEstimator = useCallback(
-    (log: ActivityLog) => estimateLogHeight(log, maxContentLines),
-    [maxContentLines],
-  )
+  const heightEstimator = useCallback((log: ActivityLog) => estimateLogHeight(log, maxContentLines), [maxContentLines])
 
   return (
     <Box
