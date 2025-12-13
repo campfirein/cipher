@@ -160,7 +160,9 @@ export class QueryUseCase implements IQueryUseCase {
   /**
    * Extract summary from curate tool result
    */
-  private extractCurateSummary(result: unknown): null | {added?: number; deleted?: number; failed?: number; merged?: number; updated?: number} {
+  private extractCurateSummary(
+    result: unknown,
+  ): null | {added?: number; deleted?: number; failed?: number; merged?: number; updated?: number} {
     if (typeof result === 'string') {
       try {
         const parsed = JSON.parse(result) as {
@@ -405,24 +407,21 @@ export class QueryUseCase implements IQueryUseCase {
       // which displays error via this.error(). DO NOT display here to avoid duplicate.
     } else {
       // Non-verbose mode: show concise tool progress with descriptions
-      eventBus.on('llmservice:toolCall', (payload) => {
-        // Clear any spinner on current line before printing (use spaces instead of ANSI codes)
-
-        const description = this.getToolDescription(payload.toolName, payload.args)
-        this.terminal.log(`🔧 ${payload.toolName} → ${description}`)
-      })
-
-      eventBus.on('llmservice:toolResult', (payload) => {
-        if (payload.success) {
-          // Show brief success summary for tool completion
-          const summary = this.formatToolResultSummary(payload.toolName, payload.result)
-          const completionText = summary ? `Complete (${summary})` : 'Complete'
-          this.terminal.log(`✅ ${payload.toolName} → ${completionText}`)
-        } else {
-          this.terminal.log(`✗ ${payload.toolName} → Failed: ${payload.error}`)
-        }
-      })
-
+      // eventBus.on('llmservice:toolCall', (payload) => {
+      //   // Clear any spinner on current line before printing (use spaces instead of ANSI codes)
+      //   const description = this.getToolDescription(payload.toolName, payload.args)
+      //   this.terminal.log(`🔧 ${payload.toolName} → ${description}`)
+      // })
+      // eventBus.on('llmservice:toolResult', (payload) => {
+      //   if (payload.success) {
+      //     // Show brief success summary for tool completion
+      //     const summary = this.formatToolResultSummary(payload.toolName, payload.result)
+      //     const completionText = summary ? `Complete (${summary})` : 'Complete'
+      //     this.terminal.log(`✅ ${payload.toolName} → ${completionText}`)
+      //   } else {
+      //     this.terminal.log(`✗ ${payload.toolName} → Failed: ${payload.error}`)
+      //   }
+      // })
       // NOTE: llmservice:error is handled by catch block in the run method
       // which displays error via this.error(). DO NOT display here to avoid duplicate.
     }
