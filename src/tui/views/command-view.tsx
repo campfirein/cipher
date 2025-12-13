@@ -331,7 +331,7 @@ export const CommandView: React.FC = () => {
         <Box borderColor={colors.border} borderLeft={false} borderRight={false} borderStyle="single" paddingX={2}>
           <Text color={colors.primary}>{'> '}</Text>
           <TextInput
-            focus={!activePrompt && mode === 'console'}
+            focus={!activePrompt && (mode === 'console' || mode === 'suggestions')}
             key={inputKey}
             onChange={setCommand}
             onSubmit={handleSubmit}

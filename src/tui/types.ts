@@ -313,6 +313,34 @@ export interface CommandContext {
 }
 
 /**
+ * Command argument definition
+ */
+export interface CommandArg {
+  /** Argument description */
+  description: string
+  /** Argument name */
+  name: string
+  /** Whether the argument is required */
+  required?: boolean
+}
+
+/**
+ * Command flag definition
+ */
+export interface CommandFlag {
+  /** Short flag character (e.g., 'b' for -b) */
+  char?: string
+  /** Default value */
+  default?: boolean | string
+  /** Flag description */
+  description: string
+  /** Flag name (e.g., 'branch' for --branch) */
+  name: string
+  /** Flag type */
+  type: 'boolean' | 'string'
+}
+
+/**
  * Slash command definition (based on Gemini CLI pattern)
  * Supports nested subcommands, auto-completion, and flexible action returns
  */
@@ -327,6 +355,10 @@ export interface SlashCommand {
    */
   aliases?: string[]
   /**
+   * Command arguments definition
+   */
+  args?: CommandArg[]
+  /**
    * Auto-execute on Enter when selected in suggestions (vs just autocomplete)
    */
   autoExecute?: boolean
@@ -338,6 +370,10 @@ export interface SlashCommand {
    * Description shown in help
    */
   description: string
+  /**
+   * Command flags definition
+   */
+  flags?: CommandFlag[]
   /**
    * Hide from help and suggestions (e.g., for internal commands)
    */
@@ -360,10 +396,14 @@ export interface SlashCommand {
  * Suggestion item for auto-completion
  */
 export interface CommandSuggestion {
+  /** Command arguments */
+  args?: CommandArg[]
   /** Command kind for styling */
   commandKind?: CommandKind
   /** Optional description */
   description?: string
+  /** Command flags */
+  flags?: CommandFlag[]
   /** Display label */
   label: string
   /** Value to insert on selection */

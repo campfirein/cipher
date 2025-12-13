@@ -129,6 +129,21 @@ export function useSlashCommandProcessor(
         }
       }
 
+      // Check for required arguments
+      const targetCommand = subCommand ?? command
+      const requiredArgs = targetCommand.args?.filter((arg) => arg.required) ?? []
+
+      if (requiredArgs.length > 0 && !args.trim()) {
+        const argNames = requiredArgs.map((a) => `<${a.name}>`).join(' ')
+        const flagsStr = targetCommand.flags?.map((f) => `[--${f.name}]`).join(' ') ?? ''
+        const usage = `/${commandNameForContext} ${argNames}${flagsStr ? ' ' + flagsStr : ''}`
+        return {
+          content: `Missing required argument(s).\nUsage: ${usage}`,
+          messageType: 'error',
+          type: 'message',
+        }
+      }
+
       // Build execution context with invocation details
       const execContext: CommandContext = {
         ...context,

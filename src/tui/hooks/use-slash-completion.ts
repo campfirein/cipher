@@ -5,11 +5,6 @@ import type {CommandSuggestion, SlashCommand} from '../types.js'
 import {useCommands} from '../contexts/use-commands.js'
 
 /**
- * Maximum number of suggestions to display
- */
-const MAX_SUGGESTIONS = 8
-
-/**
  * Hook return type
  */
 interface UseSlashCompletionReturn {
@@ -17,6 +12,10 @@ interface UseSlashCompletionReturn {
   activeIndex: number
   /** Clear suggestions */
   clearSuggestions: () => void
+  /** Whether the input matches a known command (even if typing arguments) */
+  hasMatchedCommand: boolean
+  /** Whether input is a slash command attempt (starts with /) */
+  isCommandAttempt: boolean
   /** Move to next suggestion */
   nextSuggestion: () => void
   /** Move to previous suggestion */
@@ -54,11 +53,12 @@ function generateSuggestions(input: string, commands: readonly SlashCommand[]): 
         const aliasMatch = cmd.aliases?.some((alias) => alias.toLowerCase().startsWith(commandPart))
         return nameMatch || aliasMatch
       })
-      .slice(0, MAX_SUGGESTIONS)
 
     return matchingCommands.map((cmd) => ({
+      args: cmd.args,
       commandKind: cmd.kind,
       description: cmd.description,
+      flags: cmd.flags,
       label: `/${cmd.name}`,
       value: `/${cmd.name}`,
     }))
@@ -81,11 +81,12 @@ function generateSuggestions(input: string, commands: readonly SlashCommand[]): 
         const aliasMatch = sub.aliases?.some((alias) => alias.toLowerCase().startsWith(subPart))
         return nameMatch || aliasMatch
       })
-      .slice(0, MAX_SUGGESTIONS)
 
     return matchingSubCommands.map((sub) => ({
+      args: sub.args,
       commandKind: sub.kind,
       description: sub.description,
+      flags: sub.flags,
       label: `/${command.name} ${sub.name}`,
       value: `/${command.name} ${sub.name}`,
     }))
@@ -102,6 +103,19 @@ function generateSuggestions(input: string, commands: readonly SlashCommand[]): 
 export function useSlashCompletion(input: string): UseSlashCompletionReturn {
   const {commands} = useCommands()
   const [activeIndex, setActiveIndex] = useState(-1)
+
+  // Check if input is a command attempt (starts with /)
+  const isCommandAttempt = input.trim().startsWith('/')
+
+  // Check if the input matches a known command (for when typing arguments)
+  const hasMatchedCommand = useMemo(() => {
+    if (!isCommandAttempt) return false
+    const trimmed = input.trim()
+    const withoutSlash = trimmed.slice(1)
+    const parts = withoutSlash.split(/\s+/)
+    const commandPart = parts[0]?.toLowerCase() ?? ''
+    return commands.some((cmd) => cmd.name === commandPart || cmd.aliases?.includes(commandPart))
+  }, [commands, input, isCommandAttempt])
 
   // Generate suggestions based on current input
   const suggestions = useMemo(() => generateSuggestions(input, commands), [commands, input])
@@ -160,6 +174,8 @@ export function useSlashCompletion(input: string): UseSlashCompletionReturn {
   return {
     activeIndex,
     clearSuggestions,
+    hasMatchedCommand,
+    isCommandAttempt,
     nextSuggestion,
     prevSuggestion,
     selectSuggestion,

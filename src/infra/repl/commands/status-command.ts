@@ -5,8 +5,24 @@ import {CommandKind, SlashCommand} from '../../../tui/types.js'
  */
 export const statusCommand: SlashCommand = {
   aliases: [],
+  args: [
+    {
+      description: 'Project directory (defaults to current directory)',
+      name: 'directory',
+      required: false,
+    },
+  ],
   autoExecute: true,
-  description: 'Show CLI status and project information. Display local context tree managed by ByteRover CLI',
+  description: 'Show CLI status and project information',
+  flags: [
+    {
+      char: 'f',
+      default: 'table',
+      description: 'Output format (table or json)',
+      name: 'format',
+      type: 'string',
+    },
+  ],
   kind: CommandKind.BUILT_IN,
   name: 'status',
 }
