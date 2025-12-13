@@ -66,12 +66,12 @@ describe('arg-parser', () => {
       })
 
       it('should handle single quotes inside double quotes', () => {
-        const result = splitArgs("\"it's a test\"")
+        const result = splitArgs('"it\'s a test"')
         expect(result.args).to.deep.equal(["it's a test"])
       })
 
       it('should handle double quotes inside single quotes', () => {
-        const result = splitArgs("'say \"hello\"'")
+        const result = splitArgs('\'say "hello"\'')
         expect(result.args).to.deep.equal(['say "hello"'])
       })
 
@@ -435,7 +435,7 @@ describe('arg-parser', () => {
 
     it('should handle flags with default values', () => {
       const flags = {
-        verbose: Flags.boolean({char: 'v', description: 'Verbose', default: false}),
+        verbose: Flags.boolean({char: 'v', default: false, description: 'Verbose'}),
       }
       const result = toCommandFlags(flags)
       expect(result[0].default).to.equal(false)

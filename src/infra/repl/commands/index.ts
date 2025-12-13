@@ -8,7 +8,6 @@ import {logoutCommand} from './logout-command.js'
 import {pullCommand} from './pull-command.js'
 import {pushCommand} from './push-command.js'
 import {queryCommand} from './query-command.js'
-import {resetCommand} from './reset-command.js'
 import {spaceCommand} from './space/index.js'
 import {statusCommand} from './status-command.js'
 
@@ -23,6 +22,5 @@ export const load: () => SlashCommand[] = () => [
   pullCommand,
   pushCommand,
   queryCommand,
-  resetCommand,
   statusCommand,
 ]

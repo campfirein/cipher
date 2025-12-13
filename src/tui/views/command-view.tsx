@@ -297,11 +297,6 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
 
       const result = await handleSlashCommand(trimmed)
 
-      if (result && result.type === 'clear') {
-        setMessages([])
-        setStreamingMessages([])
-      }
-
       if (result && result.type === 'message') {
         setMessages((prev) => {
           const last = prev.at(-1)

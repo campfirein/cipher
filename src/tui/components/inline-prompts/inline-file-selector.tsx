@@ -142,6 +142,38 @@ export function InlineFileSelector({
     return false
   }
 
+  // Handle Enter key selection
+  const handleEnterKey = () => {
+    const selected = items[selectedIndex]
+
+    // In directory mode with empty folder, select current path
+    if (mode === 'directory' && items.length === 0) {
+      onSelect({
+        isDirectory: true,
+        name: path.basename(currentPath),
+        path: currentPath,
+      })
+      return
+    }
+
+    // Select current folder on "." selection (directory mode)
+    if (selected?.name === '.' && mode === 'directory') {
+      onSelect(selected)
+      return
+    }
+
+    // Navigate into folder (same as right arrow)
+    if (selected?.isDirectory) {
+      setCurrentPath(selected.path)
+      return
+    }
+
+    // Select file (in file mode)
+    if (canSelectItem(selected)) {
+      onSelect(selected)
+    }
+  }
+
   // Handle keyboard input
   useInput((_input, key) => {
     if (key.upArrow) {
@@ -171,34 +203,7 @@ export function InlineFileSelector({
         setCurrentPath(selected.path)
       }
     } else if (key.return) {
-      const selected = items[selectedIndex]
-
-      // In directory mode with empty folder, select current path
-      if (mode === 'directory' && items.length === 0) {
-        onSelect({
-          isDirectory: true,
-          name: path.basename(currentPath),
-          path: currentPath,
-        })
-        return
-      }
-
-      // Select current folder on "." selection (directory mode)
-      if (selected?.name === '.' && mode === 'directory') {
-        onSelect(selected)
-        return
-      }
-
-      // Navigate into folder (same as right arrow)
-      if (selected?.isDirectory) {
-        setCurrentPath(selected.path)
-        return
-      }
-
-      // Select file (in file mode)
-      if (canSelectItem(selected)) {
-        onSelect(selected)
-      }
+      handleEnterKey()
     } else if (key.backspace || key.leftArrow) {
       // Go up one level (if not at basePath)
       if (canGoUp) {

@@ -7,10 +7,10 @@ import type {IContextTreeService} from '../../../src/core/interfaces/i-context-t
 import type {IContextTreeSnapshotService} from '../../../src/core/interfaces/i-context-tree-snapshot-service.js'
 import type {ITerminal} from '../../../src/core/interfaces/i-terminal.js'
 
-import {ResetUseCase} from '../../../src/infra/usecase/reset-use-case.js'
+import {ClearUseCase} from '../../../src/infra/usecase/clear-use-case.js'
 import {createMockTerminal} from '../../helpers/mock-factories.js'
 
-describe('ResetUseCase', () => {
+describe('ClearUseCase', () => {
   let contextTreeService: SinonStubbedInstance<IContextTreeService>
   let contextTreeSnapshotService: SinonStubbedInstance<IContextTreeSnapshotService>
   let errorMessages: string[]
@@ -44,8 +44,8 @@ describe('ResetUseCase', () => {
     restore()
   })
 
-  function createUseCase(): ResetUseCase {
-    return new ResetUseCase({
+  function createUseCase(): ClearUseCase {
+    return new ClearUseCase({
       contextTreeService,
       contextTreeSnapshotService,
       terminal,

@@ -8,7 +8,7 @@ import {Box, Spacer, Text} from 'ink'
 import Spinner from 'ink-spinner'
 import {join} from 'node:path'
 import React, {useCallback, useMemo} from 'react'
-import z from 'zod'
+import {object as zObject, string as zString} from 'zod'
 
 import {BRV_DIR, CONTEXT_TREE_DIR} from '../../constants.js'
 import {ToolCall} from '../../core/domain/cipher/queue/types.js'
@@ -47,8 +47,8 @@ function truncateContent(
   }
 }
 
-const ExecutionInputSchema = z.object({
-  content: z.string(),
+const ExecutionInputSchema = zObject({
+  content: zString(),
 })
 
 function parseExecutionContent(input: string): string {
@@ -64,35 +64,39 @@ function composeChangesFromToolCalls(toolCalls: ToolCall[]): {created: string[];
   const contextTreeDir = join(BRV_DIR, CONTEXT_TREE_DIR)
 
   for (const tc of toolCalls) {
-    if (tc.status === 'completed' && tc.name === 'create_knowledge_topic' && tc.result) {
-      try {
-        const parsed = JSON.parse(tc.result)
-        const result = parsed.result || {}
+    if (tc.status !== 'completed' || tc.name !== 'create_knowledge_topic' || !tc.result) {
+      continue
+    }
 
-        // Process created topics
-        for (const item of result.created || []) {
-          if (item.subtopics && item.subtopics.length > 0) {
-            for (const subtopic of item.subtopics) {
-              changes.created.push(join(contextTreeDir, item.domain, item.topic, subtopic, 'context.md'))
-            }
-          } else {
-            changes.created.push(join(contextTreeDir, item.domain, item.topic, 'context.md'))
-          }
-        }
+    try {
+      const parsed = JSON.parse(tc.result)
+      const result = parsed.result || {}
 
-        // Process updated topics
-        for (const item of result.updated || []) {
-          if (item.subtopics && item.subtopics.length > 0) {
-            for (const subtopic of item.subtopics) {
-              changes.created.push(join(contextTreeDir, item.domain, item.topic, subtopic, 'context.md'))
-            }
-          } else {
-            changes.created.push(join(contextTreeDir, item.domain, item.topic, 'context.md'))
+      // Process created topics
+      for (const item of result.created || []) {
+        if (item.subtopics && item.subtopics.length > 0) {
+          // eslint-disable-next-line max-depth
+          for (const subtopic of item.subtopics) {
+            changes.created.push(join(contextTreeDir, item.domain, item.topic, subtopic, 'context.md'))
           }
+        } else {
+          changes.created.push(join(contextTreeDir, item.domain, item.topic, 'context.md'))
         }
-      } catch {
-        // Ignore parse errors
       }
+
+      // Process updated topics
+      for (const item of result.updated || []) {
+        if (item.subtopics && item.subtopics.length > 0) {
+          // eslint-disable-next-line max-depth
+          for (const subtopic of item.subtopics) {
+            changes.created.push(join(contextTreeDir, item.domain, item.topic, subtopic, 'context.md'))
+          }
+        } else {
+          changes.created.push(join(contextTreeDir, item.domain, item.topic, 'context.md'))
+        }
+      }
+    } catch {
+      // Ignore parse errors
     }
   }
 
@@ -207,72 +211,72 @@ export const LogsView: React.FC<LogsViewProps> = ({availableHeight}) => {
             <Spacer />
             <Text color={colors.dimText}>[{displayTime}]</Text>
           </Box>
-        <Box borderColor={colors.border} borderStyle="single">
-          <Text>{log.input}</Text>
-        </Box>
-        <Box flexDirection="column">
-          {log.progress && log.progress.length > MAX_PROGRESS_ITEMS && (
-            <Box rowGap={1}>
-              <Text color={colors.dimText}>... and {log.progress.length - MAX_PROGRESS_ITEMS} more</Text>
-            </Box>
-          )}
-          {log.progress &&
-            log.progress
-              .slice(-MAX_PROGRESS_ITEMS)
-              .reverse()
-              .map((progress) => (
-                <Box key={progress.id}>
-                  {progress.status === 'completed' && <Text color={colors.primary}>✓ </Text>}
-                  {progress.status === 'running' && (
+          <Box borderColor={colors.border} borderStyle="single">
+            <Text>{log.input}</Text>
+          </Box>
+          <Box flexDirection="column">
+            {log.progress && log.progress.length > MAX_PROGRESS_ITEMS && (
+              <Box rowGap={1}>
+                <Text color={colors.dimText}>... and {log.progress.length - MAX_PROGRESS_ITEMS} more</Text>
+              </Box>
+            )}
+            {log.progress &&
+              log.progress
+                .slice(-MAX_PROGRESS_ITEMS)
+                .reverse()
+                .map((progress) => (
+                  <Box key={progress.id}>
+                    {progress.status === 'completed' && <Text color={colors.primary}>✓ </Text>}
+                    {progress.status === 'running' && (
+                      <Text color={colors.dimText}>
+                        <Spinner type="dots" />{' '}
+                      </Text>
+                    )}
+                    {progress.status === 'failed' && <Text color={colors.errorText}>✗ </Text>}
+                    <Text color={colors.dimText}>{progress.toolCallName}</Text>
+                  </Box>
+                ))}
+            {log.status === 'running' && (
+              <Text color={colors.dimText}>
+                <Spinner type="line" /> Processing...
+              </Text>
+            )}
+          </Box>
+          {(log.status === 'failed' || log.status === 'completed') &&
+            (() => {
+              const {remainingLines, truncatedContent} = truncateContent(log.content ?? '', maxContentLines)
+              return (
+                <>
+                  <Text color={log.status === 'failed' ? colors.errorText : colors.text}>{truncatedContent}</Text>
+                  {remainingLines > 0 && (
                     <Text color={colors.dimText}>
-                      <Spinner type="dots" />{' '}
+                      ↕ {remainingLines} more lines (resize terminal to view full output)
                     </Text>
                   )}
-                  {progress.status === 'failed' && <Text color={colors.errorText}>✗ </Text>}
-                  <Text color={colors.dimText}>{progress.toolCallName}</Text>
-                </Box>
-              ))}
-          {log.status === 'running' && (
-            <Text color={colors.dimText}>
-              <Spinner type="line" /> Processing...
-            </Text>
+                </>
+              )
+            })()}
+          {log.status === 'completed' && log.changes.created.length > 0 && (
+            <Box columnGap={1}>
+              <Text color={colors.secondary}>created at:</Text>
+              <Box flexDirection="column">
+                {log.changes.created.map((memoryPath) => (
+                  <Text key={memoryPath}>{memoryPath}</Text>
+                ))}
+              </Box>
+            </Box>
+          )}
+          {log.status === 'completed' && log.changes.updated.length > 0 && (
+            <Box columnGap={1}>
+              <Text color={colors.secondary}>updated at:</Text>
+              <Box flexDirection="column">
+                {log.changes.updated.map((memoryPath) => (
+                  <Text key={memoryPath}>{memoryPath}</Text>
+                ))}
+              </Box>
+            </Box>
           )}
         </Box>
-        {(log.status === 'failed' || log.status === 'completed') &&
-          (() => {
-            const {remainingLines, truncatedContent} = truncateContent(log.content ?? '', maxContentLines)
-            return (
-              <>
-                <Text color={log.status === 'failed' ? colors.errorText : colors.text}>{truncatedContent}</Text>
-                {remainingLines > 0 && (
-                  <Text color={colors.dimText}>
-                    ↕ {remainingLines} more lines (resize terminal to view full output)
-                  </Text>
-                )}
-              </>
-            )
-          })()}
-        {log.status === 'completed' && log.changes.created.length > 0 && (
-          <Box columnGap={1}>
-            <Text color={colors.secondary}>created at:</Text>
-            <Box flexDirection="column">
-              {log.changes.created.map((memoryPath) => (
-                <Text key={memoryPath}>{memoryPath}</Text>
-              ))}
-            </Box>
-          </Box>
-        )}
-        {log.status === 'completed' && log.changes.updated.length > 0 && (
-          <Box columnGap={1}>
-            <Text color={colors.secondary}>updated at:</Text>
-            <Box flexDirection="column">
-              {log.changes.updated.map((memoryPath) => (
-                <Text key={memoryPath}>{memoryPath}</Text>
-              ))}
-            </Box>
-          </Box>
-        )}
-      </Box>
       )
     },
     [colors, maxContentLines],
