@@ -187,14 +187,21 @@ export const LogsView: React.FC<LogsViewProps> = ({availableHeight}) => {
   )
 
   const renderLogItem = useCallback(
-    (log: ActivityLog) => (
-      <Box flexDirection="column" marginBottom={1} width="100%">
-        <Box>
-          <Text color={log.type === 'curate' ? colors.curateCommand : colors.queryCommand}>[{log.type}] </Text>
-          <Text color={colors.dimText}>@{log.source ?? 'system'}</Text>
-          <Spacer />
-          <Text color={colors.dimText}>[{log.timestamp.toISOString().slice(11, 19)}]</Text>
-        </Box>
+    (log: ActivityLog) => {
+      // Format timestamp as local time HH:MM:SS
+      const hours = log.timestamp.getHours().toString().padStart(2, '0')
+      const minutes = log.timestamp.getMinutes().toString().padStart(2, '0')
+      const seconds = log.timestamp.getSeconds().toString().padStart(2, '0')
+      const displayTime = `${hours}:${minutes}:${seconds}`
+
+      return (
+        <Box flexDirection="column" marginBottom={1} width="100%">
+          <Box>
+            <Text color={log.type === 'curate' ? colors.curateCommand : colors.queryCommand}>[{log.type}] </Text>
+            <Text color={colors.dimText}>@{log.source ?? 'system'}</Text>
+            <Spacer />
+            <Text color={colors.dimText}>[{displayTime}]</Text>
+          </Box>
         <Box borderColor={colors.border} borderStyle="single">
           <Text>{log.input}</Text>
         </Box>
@@ -261,7 +268,8 @@ export const LogsView: React.FC<LogsViewProps> = ({availableHeight}) => {
           </Box>
         )}
       </Box>
-    ),
+      )
+    },
     [colors, maxContentLines],
   )
 
