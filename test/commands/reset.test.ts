@@ -7,7 +7,7 @@ import sinon, {createSandbox, stub} from 'sinon'
 import type {IContextTreeService} from '../../src/core/interfaces/i-context-tree-service.js'
 import type {IContextTreeSnapshotService} from '../../src/core/interfaces/i-context-tree-snapshot-service.js'
 
-import Clear from '../../src/commands/clear.js'
+import Clear from '../../src/commands/reset.js'
 import {createMockTerminal} from '../helpers/mock-factories.js'
 
 /**

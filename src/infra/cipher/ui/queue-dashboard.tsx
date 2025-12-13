@@ -35,10 +35,14 @@ function truncate(str: string, maxLen: number): string {
  */
 function Header({consumerStatus}: {consumerStatus: 'error' | 'running' | 'starting' | 'stopped'}): React.ReactElement {
   const statusColor = consumerStatus === 'running' ? 'green' : consumerStatus === 'error' ? 'red' : 'yellow'
-  const statusText = consumerStatus === 'running' ? '● Consumer Running'
-    : consumerStatus === 'starting' ? '○ Starting...'
-    : consumerStatus === 'error' ? '✗ Consumer Error'
-    : '○ Consumer Stopped'
+  const statusText =
+    consumerStatus === 'running'
+      ? '● Consumer Running'
+      : consumerStatus === 'starting'
+      ? '○ Starting...'
+      : consumerStatus === 'error'
+      ? '✗ Consumer Error'
+      : '○ Consumer Stopped'
 
   return (
     <Box borderStyle="single" paddingX={1}>
@@ -109,22 +113,16 @@ function ExecutionItem({exec, toolCalls}: {exec: Execution; toolCalls: ToolCall[
   }
 
   const statusIcon =
-    exec.status === 'completed'
-      ? '✓'
-      : exec.status === 'failed'
-        ? '✗'
-        : exec.status === 'running'
-          ? '●'
-          : '○'
+    exec.status === 'completed' ? '✓' : exec.status === 'failed' ? '✗' : exec.status === 'running' ? '●' : '○'
 
   const statusColor =
     exec.status === 'completed'
       ? 'green'
       : exec.status === 'failed'
-        ? 'red'
-        : exec.status === 'running'
-          ? 'blue'
-          : 'yellow'
+      ? 'red'
+      : exec.status === 'running'
+      ? 'blue'
+      : 'yellow'
 
   // Calculate duration
   const duration = exec.startedAt
@@ -135,8 +133,12 @@ function ExecutionItem({exec, toolCalls}: {exec: Execution; toolCalls: ToolCall[
     <Box borderColor="gray" borderStyle="single" flexDirection="column" marginBottom={1} paddingX={1}>
       {/* Header row: status, type, time, duration, id */}
       <Box gap={2}>
-        <Text color={statusColor}>{statusIcon} {exec.status.toUpperCase()}</Text>
-        <Text bold color={exec.type === 'query' ? 'cyan' : 'yellow'}>[{exec.type.toUpperCase()}]</Text>
+        <Text color={statusColor}>
+          {statusIcon} {exec.status.toUpperCase()}
+        </Text>
+        <Text bold color={exec.type === 'query' ? 'cyan' : 'yellow'}>
+          [{exec.type.toUpperCase()}]
+        </Text>
         <Text color="gray">{formatTime(exec.createdAt)}</Text>
         <Text color="magenta">{duration}</Text>
         <Text color="gray">#{exec.id.slice(0, 8)}</Text>
@@ -154,11 +156,9 @@ function ExecutionItem({exec, toolCalls}: {exec: Execution; toolCalls: ToolCall[
           <Box gap={1}>
             <Text color="gray">Tools ({toolCalls.length}):</Text>
             {toolCalls.map((tc) => (
-              <Text
-                color={tc.status === 'completed' ? 'green' : tc.status === 'failed' ? 'red' : 'yellow'}
-                key={tc.id}
-              >
-                {tc.status === 'completed' ? '✓' : tc.status === 'failed' ? '✗' : '●'}{tc.name}
+              <Text color={tc.status === 'completed' ? 'green' : tc.status === 'failed' ? 'red' : 'yellow'} key={tc.id}>
+                {tc.status === 'completed' ? '✓' : tc.status === 'failed' ? '✗' : '●'}
+                {tc.name}
                 {tc.durationMs ? ` (${tc.durationMs}ms)` : ''}
               </Text>
             ))}
@@ -195,9 +195,9 @@ function SessionExecutionsPanel({executions}: {executions: ExecutionWithToolCall
         {executions.length === 0 ? (
           <Text color="gray">No executions in this session</Text>
         ) : (
-          executions.slice(0, 10).map((item) => (
-            <ExecutionItem exec={item.execution} key={item.execution.id} toolCalls={item.toolCalls} />
-          ))
+          executions
+            .slice(0, 10)
+            .map((item) => <ExecutionItem exec={item.execution} key={item.execution.id} toolCalls={item.toolCalls} />)
         )}
       </Box>
     </Box>
@@ -234,12 +234,16 @@ interface QueueDashboardProps {
   pollInterval?: number
 }
 
-type ConsumerStatus = 'error' | 'running' | 'starting' | 'stopped'
+export type ConsumerStatus = 'error' | 'running' | 'starting' | 'stopped'
 
 /**
  * Hook to manage consumer lifecycle
  */
-function useConsumer(): {consumerError: Error | null; consumerId: null | string; consumerStatus: ConsumerStatus} {
+export function useConsumer(): {
+  consumerError: Error | null
+  consumerId: null | string
+  consumerStatus: ConsumerStatus
+} {
   const [status, setStatus] = useState<ConsumerStatus>('starting')
   const [consumerError, setConsumerError] = useState<Error | null>(null)
   const [consumerId, setConsumerId] = useState<null | string>(null)
@@ -301,9 +305,12 @@ export function QueueDashboard({pollInterval = 500}: QueueDashboardProps): React
   })
 
   // Cleanup polling on unmount
-  useEffect(() => () => {
+  useEffect(
+    () => () => {
       stopQueuePollingService()
-    }, [])
+    },
+    [],
+  )
 
   const displayError = error ?? consumerError
 
