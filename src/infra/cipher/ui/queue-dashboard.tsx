@@ -234,7 +234,7 @@ interface QueueDashboardProps {
   pollInterval?: number
 }
 
-type ConsumerStatus = 'error' | 'running' | 'starting' | 'stopped'
+export type ConsumerStatus = 'error' | 'running' | 'starting' | 'stopped'
 
 /**
  * Hook to manage consumer lifecycle

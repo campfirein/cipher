@@ -14,8 +14,7 @@ import React, {useEffect, useMemo, useRef} from 'react'
 
 import {BRV_DIR, CONTEXT_TREE_DIR} from '../../constants.js'
 import {ToolCall} from '../../core/domain/cipher/queue/types.js'
-import {useConsumer} from '../../infra/cipher/ui/queue-dashboard.js'
-import {useQueuePolling} from '../../infra/cipher/ui/use-queue-polling.js'
+import {useConsumer} from '../contexts/index.js'
 import {useMode, useTheme} from '../hooks/index.js'
 import {ActivityLog} from '../types.js'
 
@@ -69,11 +68,7 @@ export const LogsView: React.FC = () => {
   const {mode} = useMode()
   const scrollRef = useRef<ScrollViewRef>(null)
   const {stdout} = useStdout()
-  const {consumerId} = useConsumer()
-  const {sessionExecutions} = useQueuePolling({
-    consumerId: consumerId ?? undefined,
-    pollInterval: 1000,
-  })
+  const {sessionExecutions} = useConsumer()
   const logs = useMemo(
     () =>
       sessionExecutions.map(({execution, toolCalls}) => {
@@ -87,7 +82,7 @@ export const LogsView: React.FC = () => {
 
         const activityLog: ActivityLog = {
           changes,
-          content: execution.status === 'failed' ? `err: ${execution.error}` : `success: ${execution.result}`,
+          content: execution.status === 'failed' ? execution.error ?? '' : execution.result ?? '',
           id: execution.id,
           input: JSON.parse(execution.input).content,
           progress,
@@ -161,13 +156,14 @@ export const LogsView: React.FC = () => {
             {logs.map((log) => (
               <Box flexDirection="column" key={log.id} marginBottom={1} width="100%">
                 <Box>
-                  <Text color={colors.agent}>@{log.source ?? 'system'}</Text>
+                  <Text color={log.type === 'curate' ? colors.curateCommand : colors.queryCommand}>[{log.type}] </Text>
+                  <Text color={colors.dimText}>@{log.source ?? 'system'}</Text>
                   <Spacer />
                   <Text color={colors.dimText}>[{log.timestamp.toISOString().slice(11, 19)}]</Text>
                 </Box>
                 <Box borderColor={colors.border} borderStyle="single">
                   <Text>
-                    {'>'}
+                    {'> '}
                     {log.input}
                   </Text>
                 </Box>
@@ -192,13 +188,13 @@ export const LogsView: React.FC = () => {
                     ))}
                   {log.status === 'running' && (
                     <Text color={colors.dimText}>
-                      <Spinner type="dots" />
+                      <Spinner type="line" /> Processing...
                     </Text>
                   )}
                 </Box>
                 {(log.status === 'failed' || log.status === 'completed') && (
                   <Box borderColor={colors.border} borderStyle="single">
-                    <Text>{log.content}</Text>
+                    <Text color={log.status === 'failed' ? colors.errorText : colors.text}>{log.content}</Text>
                   </Box>
                 )}
                 {log.status === 'completed' && log.changes.created.length > 0 && (

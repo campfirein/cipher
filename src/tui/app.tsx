@@ -6,13 +6,13 @@
  * - Authorized: Show main app with tabs
  */
 
-import { Box, useStdout } from 'ink'
+import { Box, Spacer, Text, useStdout } from 'ink'
 import React from 'react'
 
 import { Footer, Header, TabBar } from './components/index.js'
 import { LAYOUT } from './constants.js'
-import { useAuth } from './contexts/index.js'
-import { useTabNavigation } from './hooks/index.js'
+import { useAuth, useConsumer } from './contexts/index.js'
+import { useTabNavigation, useTheme } from './hooks/index.js'
 import { CommandView, LoginView, LogsView } from './views/index.js'
 
 export const App: React.FC = () => {
@@ -25,6 +25,8 @@ export const App: React.FC = () => {
 
   // Tab navigation and queue hooks
   const { activeTab } = useTabNavigation()
+  const { stats } = useConsumer()
+  const { theme: { colors } } = useTheme()
 
   const contentHeight = Math.max(1, terminalHeight - LAYOUT.headerHeight - LAYOUT.tabBarHeight - LAYOUT.footerHeight)
 
@@ -34,6 +36,15 @@ export const App: React.FC = () => {
       <Box flexShrink={0}>
         <Header compact={isAuthorized} />
       </Box>
+      {isAuthorized && stats && (
+        <Box paddingRight={1}>
+          <Spacer />
+          <Text>~ in queue: </Text>
+          <Text color={colors.warning}>{stats.queued}</Text>
+          <Text> | running: </Text>
+          <Text color={colors.secondary}>{stats.running}</Text>
+        </Box>
+      )}
 
       {isAuthorized ? (
         <>

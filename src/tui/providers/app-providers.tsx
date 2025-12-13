@@ -12,7 +12,7 @@ import type { BrvConfig } from '../../core/domain/entities/brv-config.js'
 import type { IProjectConfigStore } from '../../core/interfaces/i-project-config-store.js'
 import type { ITokenStore } from '../../core/interfaces/i-token-store.js'
 
-import { AuthProvider, ServicesProvider } from '../contexts/index.js'
+import { AuthProvider, ConsumerProvider, ServicesProvider } from '../contexts/index.js'
 import { CommandsProvider } from '../contexts/use-commands.js'
 import { ModeProvider } from '../contexts/use-mode.js'
 import { ThemeProvider } from '../contexts/use-theme.js'
@@ -39,7 +39,9 @@ export function AppProviders({
       <AuthProvider initialAuthToken={initialAuthToken} initialBrvConfig={initialBrvConfig}>
         <ThemeProvider>
           <CommandsProvider>
-            <ModeProvider>{children}</ModeProvider>
+            <ModeProvider>
+              <ConsumerProvider>{children}</ConsumerProvider>
+            </ModeProvider>
           </CommandsProvider>
         </ThemeProvider>
       </AuthProvider>

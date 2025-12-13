@@ -19,10 +19,10 @@
 import React, { createContext, useCallback, useContext, useMemo, useState } from 'react'
 
 export interface ThemeColors {
-  agent: string
   bg1: string
   bg2: string
   border: string
+  curateCommand: string
   dimText: string
   errorText: string
   info: string
@@ -30,6 +30,7 @@ export interface ThemeColors {
   logoDecor: string
   logoVersion: string
   primary: string
+  queryCommand: string
   secondary: string
   text: string
   warning: string
@@ -41,10 +42,10 @@ export interface Theme {
 
 const defaultTheme: Theme = {
   colors: {
-    agent: '#E5C76B',
     bg1: '#020202',
     bg2: '#222221',
     border: '#3D3D3D',
+    curateCommand: '#E5C76B',
     dimText: '#747474',
     errorText: '#E5484D',
     info: '#00B8D9',
@@ -52,6 +53,7 @@ const defaultTheme: Theme = {
     logoDecor: '#00E6A8',
     logoVersion: '#7FFFD4',
     primary: '#03BF86',
+    queryCommand: '#C477FF',
     secondary: '#4CCEBF60',
     text: '#F3F3F3',
     warning: '#F5A623'
