@@ -158,6 +158,52 @@ export class QueryUseCase implements IQueryUseCase {
   }
 
   /**
+   * Extract summary from curate tool result
+   */
+  private extractCurateSummary(result: unknown): null | {added?: number; deleted?: number; failed?: number; merged?: number; updated?: number} {
+    if (typeof result === 'string') {
+      try {
+        const parsed = JSON.parse(result) as {
+          applied?: unknown[]
+          summary?: {added?: number; deleted?: number; failed?: number; merged?: number; updated?: number}
+        }
+        return parsed.summary ?? null
+      } catch {
+        return null
+      }
+    }
+
+    if (typeof result === 'object' && result !== null) {
+      const resultObj = result as {
+        applied?: unknown[]
+        summary?: {added?: number; deleted?: number; failed?: number; merged?: number; updated?: number}
+      }
+      return resultObj.summary ?? null
+    }
+
+    return null
+  }
+
+  /**
+   * Format curate tool operation summary
+   */
+  private formatCurateResult(result: unknown): string {
+    const summary = this.extractCurateSummary(result)
+    if (!summary) {
+      return ''
+    }
+
+    const {added = 0, deleted = 0, failed = 0, merged = 0, updated = 0} = summary
+    const parts: string[] = []
+    if (added > 0) parts.push(`${added} added`)
+    if (updated > 0) parts.push(`${updated} updated`)
+    if (merged > 0) parts.push(`${merged} merged`)
+    if (deleted > 0) parts.push(`${deleted} deleted`)
+    if (failed > 0) parts.push(`${failed} failed`)
+    return parts.length > 0 ? parts.join(', ') : 'No operations'
+  }
+
+  /**
    * Format items count from list_directory result
    */
   private formatItemsCount(result: unknown): string {
@@ -200,9 +246,12 @@ export class QueryUseCase implements IQueryUseCase {
         case 'delete_knowledge_topic':
         case 'detect_domains':
         case 'read_file':
-        case 'update_knowledge_topic':
         case 'write_file': {
           return ''
+        }
+
+        case 'curate': {
+          return this.formatCurateResult(result)
         }
 
         case 'find_knowledge_topics': {
@@ -276,8 +325,12 @@ export class QueryUseCase implements IQueryUseCase {
         return 'Creating knowledge topic...'
       }
 
+      case 'curate': {
+        return 'Curating context tree...'
+      }
+
       case 'find_knowledge_topics': {
-        return 'Querying knowledge base...'
+        return 'Querying context tree...'
       }
 
       case 'grep_content': {
@@ -290,10 +343,6 @@ export class QueryUseCase implements IQueryUseCase {
 
       case 'read_file': {
         return `Reading file...`
-      }
-
-      case 'update_knowledge_topic': {
-        return 'Updating knowledge topic...'
       }
 
       case 'write_file': {

@@ -363,6 +363,90 @@ export default class CipherAgentRun extends Command {
   }
 
   /**
+   * Format curate tool result summary
+   *
+   * @param result - Tool result data
+   * @returns Formatted summary string or empty
+   */
+  private formatCurateResult(result: unknown): string {
+    if (typeof result !== 'string') {
+      return ''
+    }
+
+    try {
+      const parsed = JSON.parse(result) as {
+        applied?: unknown[]
+        summary?: {added?: number; deleted?: number; failed?: number; merged?: number; updated?: number}
+      }
+
+      if (!parsed.summary) {
+        return ''
+      }
+
+      const {added = 0, deleted = 0, failed = 0, merged = 0, updated = 0} = parsed.summary
+      const parts: string[] = []
+      if (added > 0) parts.push(`${added} added`)
+      if (updated > 0) parts.push(`${updated} updated`)
+      if (merged > 0) parts.push(`${merged} merged`)
+      if (deleted > 0) parts.push(`${deleted} deleted`)
+      if (failed > 0) parts.push(`${failed} failed`)
+      return parts.length > 0 ? parts.join(', ') : 'No operations'
+    } catch {
+      return ''
+    }
+  }
+
+  /**
+   * Format find_knowledge_topics tool result summary
+   *
+   * @param result - Tool result data
+   * @returns Formatted summary string or empty
+   */
+  private formatFindKnowledgeTopicsResult(result: unknown): string {
+    if (typeof result !== 'string') {
+      return ''
+    }
+
+    try {
+      const parsed = JSON.parse(result)
+      const count = Array.isArray(parsed) ? parsed.length : Object.keys(parsed).length
+      return `${count} topics retrieved`
+    } catch {
+      return ''
+    }
+  }
+
+  /**
+   * Format grep_content tool result summary
+   *
+   * @param result - Tool result data
+   * @returns Formatted summary string or empty
+   */
+  private formatGrepContentResult(result: unknown): string {
+    if (typeof result !== 'string') {
+      return ''
+    }
+
+    const lines = result.split('\n').filter((line) => line.trim())
+    return `${lines.length} matches found`
+  }
+
+  /**
+   * Format list_directory tool result summary
+   *
+   * @param result - Tool result data
+   * @returns Formatted summary string or empty
+   */
+  private formatListDirectoryResult(result: unknown): string {
+    if (typeof result !== 'string') {
+      return ''
+    }
+
+    const lines = result.split('\n').filter((line) => line.trim())
+    return `${lines.length} items`
+  }
+
+  /**
    * Format tool call for concise display in interactive mode
    *
    * @param toolName - Name of the tool
@@ -380,6 +464,10 @@ export default class CipherAgentRun extends Command {
 
       case 'create_knowledge_topic': {
         return 'Creating knowledge topic...'
+      }
+
+      case 'curate': {
+        return 'Curating knowledge topics...'
       }
 
       case 'find_knowledge_topics': {
@@ -421,50 +509,26 @@ export default class CipherAgentRun extends Command {
    * @returns Formatted summary string or empty if no summary needed
    */
   private formatToolResultSummary(toolName: string, result: unknown): string {
-    try {
-      switch (toolName) {
-        case 'find_knowledge_topics': {
-          // Parse result to count topics
-          if (typeof result === 'string') {
-            try {
-              const parsed = JSON.parse(result)
-              const count = Array.isArray(parsed) ? parsed.length : Object.keys(parsed).length
-              return `${count} topics retrieved`
-            } catch {
-              return ''
-            }
-          }
-
-          return ''
-        }
-
-        case 'grep_content': {
-          // Parse result to count matches
-          if (typeof result === 'string') {
-            const lines = result.split('\n').filter((line) => line.trim())
-            return `${lines.length} matches found`
-          }
-
-          return ''
-        }
-
-        case 'list_directory': {
-          // Parse result to count items
-          if (typeof result === 'string') {
-            const lines = result.split('\n').filter((line) => line.trim())
-            return `${lines.length} items`
-          }
-
-          return ''
-        }
-
-        default: {
-          return ''
-        }
+    switch (toolName) {
+      case 'curate': {
+        return this.formatCurateResult(result)
       }
-    } catch {
-      // If parsing fails, just return empty
-      return ''
+
+      case 'find_knowledge_topics': {
+        return this.formatFindKnowledgeTopicsResult(result)
+      }
+
+      case 'grep_content': {
+        return this.formatGrepContentResult(result)
+      }
+
+      case 'list_directory': {
+        return this.formatListDirectoryResult(result)
+      }
+
+      default: {
+        return ''
+      }
     }
   }
 

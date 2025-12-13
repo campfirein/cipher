@@ -89,7 +89,7 @@ export const DEFAULT_POLICY_RULES: PolicyRule[] = [
     decision: 'ALLOW',
     name: 'allow-write-tools',
     reason: 'Write operations allowed in autonomous mode',
-    toolPattern: /^(write_file|edit_file|write_memory|edit_memory|delete_memory|create_knowledge_topic)$/,
+    toolPattern: /^(write_file|edit_file|write_memory|edit_memory|delete_memory|create_knowledge_topic |curate)$/,
   },
 
   /**

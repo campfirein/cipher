@@ -6,6 +6,7 @@ export const ToolName: {
   readonly BASH_EXEC: 'bash_exec'
   readonly BASH_OUTPUT: 'bash_output'
   readonly CREATE_KNOWLEDGE_TOPIC: 'create_knowledge_topic'
+  readonly CURATE: 'curate'
   readonly DELETE_MEMORY: 'delete_memory'
   readonly DETECT_DOMAINS: 'detect_domains'
   readonly EDIT_FILE: 'edit_file'
@@ -25,6 +26,7 @@ export const ToolName: {
   BASH_EXEC: 'bash_exec',
   BASH_OUTPUT: 'bash_output',
   CREATE_KNOWLEDGE_TOPIC: 'create_knowledge_topic',
+  CURATE: 'curate',
   DELETE_MEMORY: 'delete_memory',
   DETECT_DOMAINS: 'detect_domains',
   EDIT_FILE: 'edit_file',

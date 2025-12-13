@@ -62,6 +62,24 @@ export const DirectoryManager = {
   },
 
   /**
+   * Delete a topic/subtopic folder recursively.
+   * Removes the folder and all its contents.
+   *
+   * @param topicPath - Full path to topic folder to delete
+   * @returns Whether the topic was deleted
+   */
+  async deleteTopicRecursive(topicPath: string): Promise<{deleted: boolean}> {
+    try {
+      await fs.access(topicPath)
+      await fs.rm(topicPath, {force: true, recursive: true})
+      return {deleted: true}
+    } catch {
+      // Path doesn't exist or already deleted
+      return {deleted: false}
+    }
+  },
+
+  /**
    * Ensure the base knowledge structure exists.
    * Creates .brv/context-tree/ directory if it doesn't exist.
    *
