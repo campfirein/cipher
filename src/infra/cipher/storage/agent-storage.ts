@@ -18,6 +18,10 @@ import type {
 import type {IAgentStorage} from '../../../core/interfaces/cipher/i-agent-storage.js'
 
 import {BLOBS_DIR, BRV_DIR} from '../../../constants.js'
+import {isProcessRunning} from './process-utils.js'
+
+// Query execution timeout (5 minutes of no activity)
+const QUERY_ACTIVITY_TIMEOUT_MS = 5 * 60 * 1000
 
 // Re-export types from domain for backward compatibility
 export type {
@@ -40,6 +44,7 @@ interface ExecutionRow {
   error: null | string
   id: string
   input: string
+  pid: null | number
   result: null | string
   started_at: null | number
   status: string
@@ -84,6 +89,7 @@ CREATE TABLE IF NOT EXISTS executions (
   input TEXT NOT NULL,
   status TEXT NOT NULL,
   consumer_id TEXT,
+  pid INTEGER,
   result TEXT,
   error TEXT,
   created_at INTEGER NOT NULL,
@@ -115,6 +121,7 @@ CREATE TABLE IF NOT EXISTS tool_calls (
 CREATE INDEX IF NOT EXISTS idx_executions_status ON executions(status);
 CREATE INDEX IF NOT EXISTS idx_executions_type ON executions(type);
 CREATE INDEX IF NOT EXISTS idx_executions_updated ON executions(updated_at);
+CREATE INDEX IF NOT EXISTS idx_executions_consumer_id ON executions(consumer_id);
 CREATE INDEX IF NOT EXISTS idx_tool_calls_execution ON tool_calls(execution_id);
 `
 
@@ -126,6 +133,10 @@ ALTER TABLE tool_calls ADD COLUMN lines_count INTEGER;
 ALTER TABLE tool_calls ADD COLUMN chars_count INTEGER;
 -- Add consumer_id to executions for orphan tracking
 ALTER TABLE executions ADD COLUMN consumer_id TEXT;
+-- Add pid to executions for query orphan detection
+ALTER TABLE executions ADD COLUMN pid INTEGER;
+-- Add index for consumer_id lookups (orphan detection queries)
+CREATE INDEX IF NOT EXISTS idx_executions_consumer_id ON executions(consumer_id);
 `
 
 // ==================== CLASS ====================
@@ -154,15 +165,20 @@ export class AgentStorage implements IAgentStorage {
   private stmtCountCompletedFailed: null | Statement = null
   // Cached prepared statements (lazy init, reuse to avoid memory leak)
   private stmtCreateExecution: null | Statement = null
+  private stmtDeleteConsumerLock: null | Statement = null
   private stmtDeleteOldExecutions: null | Statement = null
   private stmtDequeueBatchSelect: null | Statement = null
   private stmtDequeueSelect: null | Statement = null
+  private stmtFailQuery: null | Statement = null
   private stmtGetExecution: null | Statement = null
   private stmtGetExecutionsSince: null | Statement = null
   private stmtGetQueuedExecutions: null | Statement = null
   private stmtGetRecentExecutions: null | Statement = null
   private stmtGetRunningExecutions: null | Statement = null
   private stmtGetToolCalls: null | Statement = null
+  private stmtOrphanFromConsumer: null | Statement = null
+  private stmtOrphanMissingConsumer: null | Statement = null
+  private stmtOrphanNullConsumer: null | Statement = null
   private stmtUpdateStatus: null | Statement = null
   private stmtUpdateToolCall: null | Statement = null
   private readonly storageDir: string
@@ -200,10 +216,12 @@ export class AgentStorage implements IAgentStorage {
       }
 
       // No active consumer - acquire lock
-      this.getDb().prepare(
-        `INSERT INTO consumer_locks (id, pid, started_at, last_heartbeat)
+      this.getDb()
+        .prepare(
+          `INSERT INTO consumer_locks (id, pid, started_at, last_heartbeat)
          VALUES (?, ?, ?, ?)`,
-      ).run(consumerId, pid, now, now)
+        )
+        .run(consumerId, pid, now, now)
       return true
     })
 
@@ -306,65 +324,143 @@ export class AgentStorage implements IAgentStorage {
     let totalOrphaned = 0
 
     // Case 1: Find consumers with stale heartbeat
-    const staleConsumers = this.getDb().prepare(
-      `
+    const staleConsumers = this.getDb()
+      .prepare(
+        `
       SELECT id FROM consumer_locks WHERE last_heartbeat < ?
     `,
-    ).all(cutoff) as Array<{id: string}>
+      )
+      .all(cutoff) as Array<{id: string}>
 
     if (staleConsumers.length > 0) {
-      // Orphan executions from stale consumers
-      const orphanStmt = this.getDb().prepare(`
-        UPDATE executions
-        SET status = 'failed',
-            error = 'Consumer died unexpectedly',
-            consumer_id = NULL,
-            updated_at = ?
-        WHERE consumer_id = ? AND status = 'running'
-      `)
+      // Orphan executions from stale consumers (cached statement)
+      if (!this.stmtOrphanFromConsumer) {
+        this.stmtOrphanFromConsumer = this.getDb().prepare(`
+          UPDATE executions
+          SET status = 'failed',
+              error = 'Consumer died unexpectedly',
+              consumer_id = NULL,
+              updated_at = ?
+          WHERE consumer_id = ? AND status = 'running'
+        `)
+      }
 
-      // Delete stale consumer locks
-      const deleteLockStmt = this.getDb().prepare(`
-        DELETE FROM consumer_locks WHERE id = ?
-      `)
+      // Delete stale consumer locks (cached statement)
+      if (!this.stmtDeleteConsumerLock) {
+        this.stmtDeleteConsumerLock = this.getDb().prepare(`
+          DELETE FROM consumer_locks WHERE id = ?
+        `)
+      }
 
       for (const consumer of staleConsumers) {
-        const result = orphanStmt.run(now, consumer.id)
+        const result = this.stmtOrphanFromConsumer.run(now, consumer.id)
         totalOrphaned += result.changes
-        deleteLockStmt.run(consumer.id)
+        this.stmtDeleteConsumerLock.run(consumer.id)
       }
     }
 
     // Case 2: Find "running" executions whose consumer_id doesn't exist in consumer_locks
     // This handles cases where consumer crashed without proper cleanup
-    const orphanedFromMissingConsumers = this.getDb().prepare(`
-      UPDATE executions
-      SET status = 'failed',
-          error = 'Consumer no longer exists',
-          completed_at = ?,
-          updated_at = ?
-      WHERE status = 'running'
-        AND consumer_id IS NOT NULL
-        AND consumer_id NOT IN (SELECT id FROM consumer_locks)
-    `).run(now, now)
+    if (!this.stmtOrphanMissingConsumer) {
+      this.stmtOrphanMissingConsumer = this.getDb().prepare(`
+        UPDATE executions
+        SET status = 'failed',
+            error = 'Consumer no longer exists',
+            completed_at = ?,
+            updated_at = ?
+        WHERE status = 'running'
+          AND consumer_id IS NOT NULL
+          AND consumer_id NOT IN (SELECT id FROM consumer_locks)
+      `)
+    }
 
+    const orphanedFromMissingConsumers = this.stmtOrphanMissingConsumer.run(now, now)
     totalOrphaned += orphanedFromMissingConsumers.changes
 
     // Case 3: Find "running" CURATE executions with NULL consumer_id (orphaned from releaseConsumerLock)
     // These are stuck executions where consumer stopped but didn't complete the job
     // NOTE: Query runs inline (not via consumer), so consumer_id=NULL is normal for query
-    const orphanedNullConsumer = this.getDb().prepare(`
-      UPDATE executions
-      SET status = 'failed',
-          error = 'Execution orphaned (no consumer)',
-          completed_at = ?,
-          updated_at = ?
-      WHERE status = 'running'
-        AND consumer_id IS NULL
-        AND type = 'curate'
-    `).run(now, now)
+    if (!this.stmtOrphanNullConsumer) {
+      this.stmtOrphanNullConsumer = this.getDb().prepare(`
+        UPDATE executions
+        SET status = 'failed',
+            error = 'Execution orphaned (no consumer)',
+            completed_at = ?,
+            updated_at = ?
+        WHERE status = 'running'
+          AND consumer_id IS NULL
+          AND type = 'curate'
+      `)
+    }
 
+    const orphanedNullConsumer = this.stmtOrphanNullConsumer.run(now, now)
     totalOrphaned += orphanedNullConsumer.changes
+
+    // Case 4: Stuck query executions
+    // Two-layer detection:
+    // 1. PID dead → immediately fail
+    // 2. PID alive but no activity for 2 min → fail (process hung)
+    const runningQueries = this.getDb()
+      .prepare(
+        `
+      SELECT
+        e.id,
+        e.pid,
+        e.started_at,
+        COALESCE(
+          MAX(tc.completed_at),
+          MAX(tc.started_at),
+          e.started_at
+        ) as last_activity
+      FROM executions e
+      LEFT JOIN tool_calls tc ON tc.execution_id = e.id
+      WHERE e.status = 'running'
+        AND e.consumer_id IS NULL
+        AND e.type = 'query'
+      GROUP BY e.id
+    `,
+      )
+      .all() as Array<{id: string; last_activity: number; pid: null | number; started_at: number}>
+
+    const activityCutoff = now - QUERY_ACTIVITY_TIMEOUT_MS
+
+    // Cached statement for failing stuck queries
+    if (!this.stmtFailQuery) {
+      this.stmtFailQuery = this.getDb().prepare(`
+        UPDATE executions
+        SET status = 'failed',
+            error = ?,
+            completed_at = ?,
+            updated_at = ?
+        WHERE id = ?
+      `)
+    }
+
+    for (const query of runningQueries) {
+      let shouldFail = false
+      let errorMessage = ''
+
+      // Check 1: PID-based detection (instant)
+      if (query.pid) {
+        const processAlive = isProcessRunning(query.pid)
+        if (processAlive === false) {
+          // Process is definitely dead
+          shouldFail = true
+          errorMessage = `Query process died (PID ${query.pid} no longer exists)`
+        }
+      }
+
+      // Check 2: Activity-based detection (fallback)
+      if (!shouldFail && query.last_activity < activityCutoff) {
+        shouldFail = true
+        errorMessage = 'Query execution timed out (no activity for 2 minutes)'
+      }
+
+      if (shouldFail) {
+        this.stmtFailQuery.run(errorMessage, now, now, query.id)
+        totalOrphaned++
+      }
+    }
 
     return totalOrphaned
   }
@@ -394,6 +490,11 @@ export class AgentStorage implements IAgentStorage {
       this.stmtCountCompletedFailed = null
       this.stmtDeleteOldExecutions = null
       this.stmtGetExecutionsSince = null
+      this.stmtOrphanFromConsumer = null
+      this.stmtOrphanMissingConsumer = null
+      this.stmtOrphanNullConsumer = null
+      this.stmtDeleteConsumerLock = null
+      this.stmtFailQuery = null
     }
   }
 
@@ -411,15 +512,16 @@ export class AgentStorage implements IAgentStorage {
     // curate starts as 'queued', query starts as 'running'
     const status: ExecutionStatus = type === 'curate' ? 'queued' : 'running'
     const startedAt = type === 'query' ? now : null
+    const {pid} = process // Capture current process ID for orphan detection
 
     if (!this.stmtCreateExecution) {
       this.stmtCreateExecution = this.getDb().prepare(`
-        INSERT INTO executions (id, type, input, status, created_at, started_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO executions (id, type, input, status, pid, created_at, started_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `)
     }
 
-    this.stmtCreateExecution.run(id, type, input, status, now, startedAt, now)
+    this.stmtCreateExecution.run(id, type, input, status, pid, now, startedAt, now)
     return id
   }
 
@@ -658,11 +760,15 @@ export class AgentStorage implements IAgentStorage {
     // Get all executions belonging to this session:
     // 1. Curate executions with this consumer_id
     // 2. Query executions created after consumer started (have NULL consumer_id)
-    const rows = this.getDb().prepare(`
+    const rows = this.getDb()
+      .prepare(
+        `
       SELECT * FROM executions
       WHERE consumer_id = ? OR (consumer_id IS NULL AND created_at >= ?)
       ORDER BY created_at ASC
-    `).all(consumerId, lockRow.started_at) as ExecutionRow[]
+    `,
+      )
+      .all(consumerId, lockRow.started_at) as ExecutionRow[]
 
     return rows.map((row) => this.rowToExecution(row))
   }
@@ -673,7 +779,9 @@ export class AgentStorage implements IAgentStorage {
   getStats(): {completed: number; failed: number; queued: number; running: number; total: number} {
     this.ensureInitialized()
 
-    const result = this.getDb().prepare(`
+    const result = this.getDb()
+      .prepare(
+        `
       SELECT
         COUNT(*) as total,
         SUM(CASE WHEN status = 'queued' THEN 1 ELSE 0 END) as queued,
@@ -681,7 +789,9 @@ export class AgentStorage implements IAgentStorage {
         SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
         SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed
       FROM executions
-    `).get() as {completed: number; failed: number; queued: number; running: number; total: number}
+    `,
+      )
+      .get() as {completed: number; failed: number; queued: number; running: number; total: number}
 
     return result
   }
@@ -714,11 +824,13 @@ export class AgentStorage implements IAgentStorage {
     const now = Date.now()
     const cutoff = now - timeoutMs
 
-    const result = this.getDb().prepare(
-      `
+    const result = this.getDb()
+      .prepare(
+        `
       SELECT COUNT(*) as count FROM consumer_locks WHERE last_heartbeat >= ?
     `,
-    ).get(cutoff) as {count: number}
+      )
+      .get(cutoff) as {count: number}
 
     return result.count > 0
   }
@@ -730,7 +842,9 @@ export class AgentStorage implements IAgentStorage {
   hasConsumerLock(consumerId: string): boolean {
     this.ensureInitialized()
 
-    const result = this.getDb().prepare(`SELECT 1 FROM consumer_locks WHERE id = ?`).get(consumerId) as undefined | {1: number}
+    const result = this.getDb().prepare(`SELECT 1 FROM consumer_locks WHERE id = ?`).get(consumerId) as
+      | undefined
+      | {1: number}
     return result !== undefined
   }
 
@@ -836,20 +950,24 @@ export class AgentStorage implements IAgentStorage {
 
     // First, clear consumer_id from any running executions
     const now = Date.now()
-    this.getDb().prepare(
-      `
+    this.getDb()
+      .prepare(
+        `
       UPDATE executions
       SET consumer_id = NULL, updated_at = ?
       WHERE consumer_id = ? AND status = 'running'
     `,
-    ).run(now, consumerId)
+      )
+      .run(now, consumerId)
 
     // Then delete the lock
-    this.getDb().prepare(
-      `
+    this.getDb()
+      .prepare(
+        `
       DELETE FROM consumer_locks WHERE id = ?
     `,
-    ).run(consumerId)
+      )
+      .run(consumerId)
   }
 
   /**
@@ -859,11 +977,13 @@ export class AgentStorage implements IAgentStorage {
     this.ensureInitialized()
 
     const now = Date.now()
-    this.getDb().prepare(
-      `
+    this.getDb()
+      .prepare(
+        `
       UPDATE consumer_locks SET last_heartbeat = ? WHERE id = ?
     `,
-    ).run(now, consumerId)
+      )
+      .run(now, consumerId)
   }
 
   /**
@@ -960,6 +1080,7 @@ export class AgentStorage implements IAgentStorage {
     if (row.error) execution.error = row.error
     if (row.started_at) execution.startedAt = row.started_at
     if (row.completed_at) execution.completedAt = row.completed_at
+    if (row.pid) execution.pid = row.pid
 
     return execution
   }

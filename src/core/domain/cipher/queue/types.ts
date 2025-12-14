@@ -21,6 +21,7 @@ export interface Execution {
   error?: string
   id: string
   input: string
+  pid?: number // Process ID that created this execution (for orphan detection)
   result?: string
   startedAt?: number
   status: ExecutionStatus
