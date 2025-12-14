@@ -1,28 +1,40 @@
-import {CommandKind, SlashCommand} from '../../../tui/types.js'
+import {type CommandContext, CommandKind, type SlashCommand} from '../../../tui/types.js'
+import {ProjectConfigStore} from '../../config/file-config-store.js'
+import {FileContextTreeService} from '../../context-tree/file-context-tree-service.js'
+import {FileContextTreeSnapshotService} from '../../context-tree/file-context-tree-snapshot-service.js'
+import {KeychainTokenStore} from '../../storage/keychain-token-store.js'
+import {ReplTerminal} from '../../terminal/repl-terminal.js'
+import {MixpanelTrackingService} from '../../tracking/mixpanel-tracking-service.js'
+import {StatusUseCase} from '../../usecase/status-use-case.js'
 
 /**
  * Status command
  */
 export const statusCommand: SlashCommand = {
+  action(context: CommandContext, _args: string) {
+    return {
+      async execute(onMessage, onPrompt) {
+        const terminal = new ReplTerminal({onMessage, onPrompt})
+        const tokenStore = new KeychainTokenStore()
+        const trackingService = new MixpanelTrackingService(tokenStore)
+
+        const useCase = new StatusUseCase({
+          contextTreeService: new FileContextTreeService(),
+          contextTreeSnapshotService: new FileContextTreeSnapshotService(),
+          projectConfigStore: new ProjectConfigStore(),
+          terminal,
+          tokenStore,
+          trackingService,
+        })
+
+        await useCase.run({cliVersion: context.version ?? ''})
+      },
+      type: 'streaming',
+    }
+  },
   aliases: [],
-  args: [
-    {
-      description: 'Project directory (defaults to current directory)',
-      name: 'directory',
-      required: false,
-    },
-  ],
   autoExecute: true,
   description: 'Show CLI status and project information',
-  flags: [
-    {
-      char: 'f',
-      default: 'table',
-      description: 'Output format (table or json)',
-      name: 'format',
-      type: 'string',
-    },
-  ],
   kind: CommandKind.BUILT_IN,
   name: 'status',
 }

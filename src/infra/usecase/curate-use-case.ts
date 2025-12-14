@@ -244,8 +244,6 @@ export class CurateUseCase implements ICurateUseCase {
       verbose?: boolean
     },
   ): Promise<void> {
-    this.terminal.log(`Option: ${JSON.stringify(options)}`)
-
     try {
       // Get authentication token
       const token = await this.tokenStore.load()

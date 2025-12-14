@@ -200,6 +200,13 @@ export interface CurateDialogActionReturn {
 }
 
 /**
+ * Command action return type for refreshing auth state (after logout/login)
+ */
+export interface RefreshAuthActionReturn {
+  type: 'refresh_auth'
+}
+
+/**
  * Union of all possible command action return types
  */
 export type SlashCommandActionReturn =
@@ -210,6 +217,7 @@ export type SlashCommandActionReturn =
   | MessageActionReturn
   | QueryDialogActionReturn
   | QuitActionReturn
+  | RefreshAuthActionReturn
   | StreamingActionReturn
   | SubmitPromptReturn
   | void

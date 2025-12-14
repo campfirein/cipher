@@ -7,23 +7,25 @@
  * - Queue stats (pending/processing)
  */
 
-import {Box, Text} from 'ink'
-import Spinner from 'ink-spinner'
+import {Box, Spacer, Text} from 'ink'
 import React from 'react'
 
 import type {QueueStats} from '../types.js'
 
 import {useServices} from '../contexts/index.js'
+import {useTheme} from '../contexts/use-theme.js'
 import {Logo} from './logo.js'
 
 interface HeaderProps {
   compact?: boolean
   connectedAgent?: string
   queueStats?: QueueStats
+  showQueueStats?: boolean
 }
 
-export const Header: React.FC<HeaderProps> = ({compact, connectedAgent, queueStats}) => {
+export const Header: React.FC<HeaderProps> = ({compact, connectedAgent, queueStats, showQueueStats}) => {
   const {version} = useServices()
+  const {theme} = useTheme()
 
   return (
     <Box flexDirection="column" width="100%">
@@ -43,18 +45,14 @@ export const Header: React.FC<HeaderProps> = ({compact, connectedAgent, queueSta
         </Box>
 
         {/* Queue Stats */}
-        {queueStats && (
-          <Box>
-            <Text color="yellow">{queueStats.pending}</Text>
-            <Text color="gray"> pending</Text>
-            {queueStats.processing > 0 && (
-              <>
-                <Text color="cyan">
-                  <Spinner type="dots" /> {queueStats.processing}
-                </Text>
-                <Text color="gray"> processing</Text>
-              </>
-            )}
+
+        {showQueueStats && (
+          <Box paddingRight={1}>
+            <Spacer />
+            <Text>~ in queue: </Text>
+            <Text color={theme.colors.warning}>{queueStats?.pending ?? 0}</Text>
+            <Text> | running: </Text>
+            <Text color={theme.colors.primary}>{queueStats?.processing ?? 0}</Text>
           </Box>
         )}
       </Box>

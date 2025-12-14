@@ -2,16 +2,25 @@
  * Auth Context
  *
  * Manages authentication state and login flow.
- * Spawns login command as child process and captures output.
+ * Executes LoginUseCase directly for authentication.
  */
 
-import {spawn} from 'node:child_process'
 import React, {createContext, useCallback, useContext, useMemo, useState} from 'react'
 
 import type {AuthToken} from '../../core/domain/entities/auth-token.js'
 import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
+import type {ITerminal} from '../../core/interfaces/i-terminal.js'
 import type {AuthState} from '../types.js'
 
+import {getAuthConfig} from '../../config/auth.config.js'
+import {getCurrentConfig} from '../../config/environment.js'
+import {OAuthService} from '../../infra/auth/oauth-service.js'
+import {OidcDiscoveryService} from '../../infra/auth/oidc-discovery-service.js'
+import {SystemBrowserLauncher} from '../../infra/browser/system-browser-launcher.js'
+import {CallbackHandler} from '../../infra/http/callback-handler.js'
+import {MixpanelTrackingService} from '../../infra/tracking/mixpanel-tracking-service.js'
+import {LoginUseCase} from '../../infra/usecase/login-use-case.js'
+import {HttpUserService} from '../../infra/user/http-user-service.js'
 import {useServices} from './services-context.js'
 
 export interface AuthContextValue {
@@ -39,6 +48,41 @@ interface AuthProviderProps {
   initialBrvConfig?: BrvConfig
 }
 
+/**
+ * Simple terminal that appends output to state
+ * Only supports log/error/warn - interactive prompts throw errors
+ */
+function createStateTerminal(appendOutput: (line: string) => void): ITerminal {
+  return {
+    actionStart() {},
+    actionStop() {},
+    async confirm() {
+      return true
+    },
+    error(message: string) {
+      appendOutput(`Error: ${message}`)
+    },
+    async fileSelector() {
+      throw new Error('fileSelector not supported in login terminal')
+    },
+    async input() {
+      throw new Error('input not supported in login terminal')
+    },
+    log(message?: string) {
+      appendOutput(message ?? '')
+    },
+    async search() {
+      throw new Error('search not supported in login terminal')
+    },
+    async select() {
+      throw new Error('select not supported in login terminal')
+    },
+    warn(message: string) {
+      appendOutput(`Warning: ${message}`)
+    },
+  }
+}
+
 export function AuthProvider({children, initialAuthToken, initialBrvConfig}: AuthProviderProps): React.ReactElement {
   const {projectConfigStore, tokenStore} = useServices()
 
@@ -52,8 +96,11 @@ export function AuthProvider({children, initialAuthToken, initialBrvConfig}: Aut
   const authState: AuthState = authToken?.isValid() ? 'authorized' : 'unauthorized'
   const isAuthorized = authState === 'authorized'
 
-  // Reload auth state (after login)
+  // Reload auth state (after login or logout)
   const reloadAuth = useCallback(async () => {
+    // Clear display output
+    setLoginOutput([])
+
     const newToken = await tokenStore.load()
     if (newToken?.isValid()) {
       setAuthToken(newToken)
@@ -63,38 +110,49 @@ export function AuthProvider({children, initialAuthToken, initialBrvConfig}: Aut
         const config = await projectConfigStore.read()
         setBrvConfig(config)
       }
+    } else {
+      // Token is undefined or invalid (logged out or expired)
+      setAuthToken(undefined)
     }
   }, [tokenStore, projectConfigStore])
 
-  // Login action - spawns child process
+  // Login action - executes LoginUseCase
   const login = useCallback(() => {
     setIsLoggingIn(true)
     setLoginOutput([])
 
-    const child = spawn(process.execPath, [process.argv[1], 'login'], {
-      env: {...process.env},
-      stdio: ['inherit', 'pipe', 'pipe'],
-    })
+    const appendOutput = (line: string) => {
+      setLoginOutput((prev) => [...prev, line])
+    }
 
-    child.stdout?.on('data', (data: Buffer) => {
-      const lines = data.toString().split('\n').filter(Boolean)
-      setLoginOutput((prev) => [...prev, ...lines])
-    })
+    const runLogin = async () => {
+      try {
+        const config = getCurrentConfig()
+        const trackingService = new MixpanelTrackingService(tokenStore)
+        const discoveryService = new OidcDiscoveryService()
+        const authConfig = await getAuthConfig(discoveryService)
 
-    child.stderr?.on('data', (data: Buffer) => {
-      const lines = data.toString().split('\n').filter(Boolean)
-      setLoginOutput((prev) => [...prev, ...lines])
-    })
+        const useCase = new LoginUseCase({
+          authService: new OAuthService(authConfig),
+          browserLauncher: new SystemBrowserLauncher(),
+          callbackHandler: new CallbackHandler(),
+          terminal: createStateTerminal(appendOutput),
+          tokenStore,
+          trackingService,
+          userService: new HttpUserService({apiBaseUrl: config.apiBaseUrl}),
+        })
 
-    child.on('close', () => {
-      setIsLoggingIn(false)
-    })
+        await useCase.run()
+        await reloadAuth()
+      } catch (error) {
+        appendOutput(`Error: ${error instanceof Error ? error.message : 'Login failed'}`)
+      } finally {
+        setIsLoggingIn(false)
+      }
+    }
 
-    child.on('error', (err) => {
-      setLoginOutput((prev) => [...prev, `Error: ${err.message}`])
-      setIsLoggingIn(false)
-    })
-  }, [reloadAuth])
+    runLogin()
+  }, [tokenStore, reloadAuth])
 
   // Memoize context value
   const value = useMemo(
