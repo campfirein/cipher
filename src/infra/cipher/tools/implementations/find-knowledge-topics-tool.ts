@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import type { Tool, ToolExecutionContext } from '../../../../core/domain/cipher/tools/types.js'
 
+import {BRV_DIR, CONTEXT_FILE, CONTEXT_TREE_DIR} from '../../../../constants.js'
 import { ToolName } from '../../../../core/domain/cipher/tools/constants.js'
 import { DirectoryManager } from '../../../../core/domain/knowledge/directory-manager.js'
 import { parseRelations } from '../../../../core/domain/knowledge/relation-parser.js'
@@ -14,7 +15,7 @@ import { parseRelations } from '../../../../core/domain/knowledge/relation-parse
 const FindKnowledgeTopicsInputSchema = z.object({
   basePath: z
     .string()
-    .default('.brv/context-tree')
+    .default(`${BRV_DIR}/${CONTEXT_TREE_DIR}`)
     .describe('Base path to context tree structure'),
 
   // Scoping
@@ -133,7 +134,6 @@ async function readRelations(filePath: string): Promise<string[]> {
  * Process a single subtopic file and return its entry.
  */
 async function processSubtopicFile(params: {
-  basePath: string
   domainName: string
   includeContent: boolean
   subtopicFile: string
@@ -147,7 +147,7 @@ async function processSubtopicFile(params: {
   const subtopicParts = subtopicRelativePath.split('/')
 
   // Check if this is a subtopic context.md (not the topic's own context.md)
-  if (subtopicParts.length <= 1 || subtopicParts.at(-1) !== 'context.md') {
+  if (subtopicParts.length <= 1 || subtopicParts.at(-1) !== CONTEXT_FILE) {
     return null
   }
 
@@ -160,7 +160,7 @@ async function processSubtopicFile(params: {
 
   const subtopicEntry: SubtopicEntry = {
     name: subtopicName,
-    path: `.brv/context-tree/${domainName}/${topicName}/${subtopicName}/context.md`,  // Full path
+    path: `${BRV_DIR}/${CONTEXT_TREE_DIR}/${domainName}/${topicName}/${subtopicName}/${CONTEXT_FILE}` // Full path
   }
 
   // Include subtopic content preview if requested
@@ -196,7 +196,6 @@ async function collectSubtopics(params: {
   for (const subtopicFile of subtopicFiles) {
     // eslint-disable-next-line no-await-in-loop
     const subtopicEntry = await processSubtopicFile({
-      basePath,
       domainName,
       includeContent,
       subtopicFile,
@@ -303,7 +302,7 @@ async function fetchRelatedTopics(params: {
     if (parts.length < 2 || parts.length > 3) continue
 
     const [domainName, topicName] = parts
-    const contextPath = join(basePath, ...parts, 'context.md')
+    const contextPath = join(basePath, ...parts, CONTEXT_FILE)
 
     try {
       // eslint-disable-next-line no-await-in-loop
@@ -312,7 +311,7 @@ async function fetchRelatedTopics(params: {
 
       const entry: FindKnowledgeTopicsOutput['results'][number] = {
         domain: domainName,
-        path: `${basePath}/${relationPath}/context.md`,  // Full path 
+        path: `${basePath}/${relationPath}/${CONTEXT_FILE}`,
         topic: topicName,
       }
 
@@ -400,7 +399,7 @@ async function executeFindKnowledgeTopics(
 
       // Skip if not a context.md file (only process context files)
       const fileName = parts.at(-1)
-      if (fileName !== 'context.md' ) continue
+      if (fileName !== CONTEXT_FILE) continue
       if (parts.length === 2) continue // Skip domain context.md files because they don't have much info
 
       
@@ -434,7 +433,7 @@ async function executeFindKnowledgeTopics(
       // Build result entry for this topic
       const entry: FindKnowledgeTopicsOutput['results'][number] = {
         domain: domainName,
-        path: `${basePath}/${domainName}/${topicName}/context.md`,  // Full path 
+        path: `${basePath}/${domainName}/${topicName}/${CONTEXT_FILE}`,
         topic: topicName,
       }
 
