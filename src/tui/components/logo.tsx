@@ -20,6 +20,8 @@ const LOGO_FULL = [
   '░▀▀░░░▀░░░▀░░▀▀▀░▀░▀░▀▀▀░░▀░░▀▀▀░▀░▀',
 ]
 
+const MINI_LOGO = 'brv'
+
 interface PaddedLine {
   content: string
   padEnd: string
@@ -144,7 +146,7 @@ export const Logo: React.FC<LogoProps> = ({compact, version}) => {
 
   // Text-only logo for minimal terminals
   if (variant === 'text') {
-    const textContent = 'ByteRover CLI' + (version ? ` v${version}` : '')
+    const textContent = MINI_LOGO + (version ? ` v${version}` : '')
     const padEnd = calculatePadEnd(textContent.length, terminalWidth)
 
     return (
@@ -152,7 +154,7 @@ export const Logo: React.FC<LogoProps> = ({compact, version}) => {
         <Text color={colors.logoDecor}>{PAD_START}</Text>
         <Text>
           <Text bold color={colors.logoBold}>
-            brv
+            {MINI_LOGO}
           </Text>
           {version && <Text color={colors.logoVersion}> v{version}</Text>}
         </Text>
