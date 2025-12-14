@@ -8,7 +8,7 @@ import {Box, Spacer, Text} from 'ink'
 import Spinner from 'ink-spinner'
 import {join} from 'node:path'
 import React, {useCallback, useMemo} from 'react'
-import {object as zObject, string as zString} from 'zod'
+import {array as zArray, object as zObject, string as zString} from 'zod'
 
 import {BRV_DIR, CONTEXT_TREE_DIR} from '../../constants.js'
 import {ToolCall} from '../../core/domain/cipher/queue/types.js'
@@ -51,6 +51,18 @@ const ExecutionInputSchema = zObject({
   content: zString(),
 })
 
+const CurateResultSchema = zObject({
+  result: zObject({
+    applied: zArray(
+      zObject({
+        path: zString(),
+        status: zString(),
+        type: zString(),
+      }),
+    ).optional(),
+  }).optional(),
+})
+
 function parseExecutionContent(input: string): string {
   try {
     return ExecutionInputSchema.safeParse(JSON.parse(input))?.data?.content ?? input
@@ -64,39 +76,29 @@ function composeChangesFromToolCalls(toolCalls: ToolCall[]): {created: string[];
   const contextTreeDir = join(BRV_DIR, CONTEXT_TREE_DIR)
 
   for (const tc of toolCalls) {
-    if (tc.status !== 'completed' || tc.name !== 'create_knowledge_topic' || !tc.result) {
+    if (tc.status !== 'completed' || tc.name !== 'curate' || !tc.result) {
       continue
     }
 
-    try {
-      const parsed = JSON.parse(tc.result)
-      const result = parsed.result || {}
+    const parseResult = CurateResultSchema.safeParse(JSON.parse(tc.result))
+    if (!parseResult.success) {
+      continue
+    }
 
-      // Process created topics
-      for (const item of result.created || []) {
-        if (item.subtopics && item.subtopics.length > 0) {
-          // eslint-disable-next-line max-depth
-          for (const subtopic of item.subtopics) {
-            changes.created.push(join(contextTreeDir, item.domain, item.topic, subtopic, 'context.md'))
-          }
-        } else {
-          changes.created.push(join(contextTreeDir, item.domain, item.topic, 'context.md'))
-        }
+    const result = parseResult.data.result || {}
+
+    for (const operation of result.applied || []) {
+      if (operation.status !== 'success') {
+        continue
       }
 
-      // Process updated topics
-      for (const item of result.updated || []) {
-        if (item.subtopics && item.subtopics.length > 0) {
-          // eslint-disable-next-line max-depth
-          for (const subtopic of item.subtopics) {
-            changes.created.push(join(contextTreeDir, item.domain, item.topic, subtopic, 'context.md'))
-          }
-        } else {
-          changes.created.push(join(contextTreeDir, item.domain, item.topic, 'context.md'))
-        }
+      const contextPath = join(contextTreeDir, operation.path, 'context.md')
+
+      if (operation.type === 'ADD') {
+        changes.created.push(contextPath)
+      } else if (operation.type === 'UPDATE') {
+        changes.updated.push(contextPath)
       }
-    } catch {
-      // Ignore parse errors
     }
   }
 
@@ -223,7 +225,6 @@ export const LogsView: React.FC<LogsViewProps> = ({availableHeight}) => {
             {log.progress &&
               log.progress
                 .slice(-MAX_PROGRESS_ITEMS)
-                .reverse()
                 .map((progress) => (
                   <Box key={progress.id}>
                     {progress.status === 'completed' && <Text color={colors.primary}>✓ </Text>}
