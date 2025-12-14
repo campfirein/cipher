@@ -2,8 +2,8 @@ import type {KnownTool} from '../../../core/domain/cipher/tools/constants.js'
 import type {Tool} from '../../../core/domain/cipher/tools/types.js'
 import type {IFileSystem} from '../../../core/interfaces/cipher/i-file-system.js'
 import type {IProcessService} from '../../../core/interfaces/cipher/i-process-service.js'
-import type {IToolProvider} from '../../../core/interfaces/cipher/i-tool-provider.js'
 import type {MemoryManager} from '../memory/memory-manager.js'
+import type {ToolProviderGetter} from './tool-provider-getter.js'
 
 import {ToolName} from '../../../core/domain/cipher/tools/constants.js'
 import {createBashExecTool} from './implementations/bash-exec-tool.js'
@@ -19,6 +19,7 @@ import {createFindKnowledgeTopicsTool} from './implementations/find-knowledge-to
 import {createGlobFilesTool} from './implementations/glob-files-tool.js'
 import {createGrepContentTool} from './implementations/grep-content-tool.js'
 import {createKillProcessTool} from './implementations/kill-process-tool.js'
+import {createListDirectoryTool} from './implementations/list-directory-tool.js'
 import {createListMemoriesTool} from './implementations/list-memories-tool.js'
 import {createReadFileTool} from './implementations/read-file-tool.js'
 import {createReadMemoryTool} from './implementations/read-memory-tool.js'
@@ -27,12 +28,6 @@ import {createWriteFileTool} from './implementations/write-file-tool.js'
 import {createWriteMemoryTool} from './implementations/write-memory-tool.js'
 import {createWriteTodosTool} from './implementations/write-todos-tool.js'
 import {ToolMarker} from './tool-markers.js'
-
-/**
- * Lazy getter for ToolProvider to avoid circular dependencies.
- * Used by batch tool to execute other tools at runtime.
- */
-export type ToolProviderGetter = () => IToolProvider
 
 /**
  * Service dependencies available to tools.
@@ -215,6 +210,14 @@ export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
     factory: (services) => createKillProcessTool(getRequiredService(services.processService, 'processService')),
     markers: [ToolMarker.Execution, ToolMarker.Optional],
     requiredServices: ['processService'],
+  },
+
+  [ToolName.LIST_DIRECTORY]: {
+    descriptionFile: 'list_directory',
+    factory: (services) =>
+      createListDirectoryTool(getRequiredService(services.fileSystemService, 'fileSystemService')),
+    markers: [ToolMarker.Discovery],
+    requiredServices: ['fileSystemService'],
   },
 
   [ToolName.LIST_MEMORIES]: {

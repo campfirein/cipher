@@ -1,1 +1,23 @@
-Read the contents of a file. Supports pagination with offset (1-based line number) and limit (max lines).
+Reads a file from the local filesystem.
+
+Usage:
+- The filePath parameter must be an absolute path, not a relative path
+- By default, reads up to 2000 lines starting from the beginning of the file
+- You can specify offset (1-based line number) and limit to read specific sections
+- Any lines longer than 2000 characters will be truncated with "..."
+- Results include line numbers in "00001| content" format for easy reference
+- If the file is not found, similar filenames will be suggested
+
+Output:
+- content: File content with line numbers (00001| format)
+- lines: Number of lines returned
+- totalLines: Total lines in the file
+- truncated: Whether more content is available
+- message: Human-readable status with guidance on how to read more
+
+For large files, use offset and limit parameters:
+- First read: offset=1, limit=2000 (default)
+- Continue: offset=2001, limit=2000
+- Read specific section: offset=500, limit=100
+
+If results are truncated, the message will tell you which offset to use next.

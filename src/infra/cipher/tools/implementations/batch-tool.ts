@@ -1,7 +1,7 @@
 import {z} from 'zod'
 
 import type {Tool, ToolExecutionContext} from '../../../../core/domain/cipher/tools/types.js'
-import type {ToolProviderGetter} from '../tool-registry.js'
+import type {ToolProviderGetter} from '../tool-provider-getter.js'
 
 import {ToolName} from '../../../../core/domain/cipher/tools/constants.js'
 

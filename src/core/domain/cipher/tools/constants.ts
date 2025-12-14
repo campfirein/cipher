@@ -16,6 +16,7 @@ export const ToolName: {
   readonly GLOB_FILES: 'glob_files'
   readonly GREP_CONTENT: 'grep_content'
   readonly KILL_PROCESS: 'kill_process'
+  readonly LIST_DIRECTORY: 'list_directory'
   readonly LIST_MEMORIES: 'list_memories'
   readonly READ_FILE: 'read_file'
   readonly READ_MEMORY: 'read_memory'
@@ -37,6 +38,7 @@ export const ToolName: {
   GLOB_FILES: 'glob_files',
   GREP_CONTENT: 'grep_content',
   KILL_PROCESS: 'kill_process',
+  LIST_DIRECTORY: 'list_directory',
   LIST_MEMORIES: 'list_memories',
   READ_FILE: 'read_file',
   READ_MEMORY: 'read_memory',
