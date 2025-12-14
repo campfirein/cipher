@@ -38,7 +38,6 @@ const SHORTCUTS_BY_MODE = {
   activity: [
     {description: 'scroll logs', key: '↑↓'},
     {description: 'switch view', key: 'tab'},
-    {description: 'copy command', key: 'ctrl+y'},
     {description: 'quit', key: 'ctrl+c'},
   ],
   console: [
