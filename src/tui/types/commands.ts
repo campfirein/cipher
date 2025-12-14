@@ -45,7 +45,7 @@ export interface CommandFlag {
   /** Flag name (e.g., 'branch' for --branch) */
   name: string
   /** Flag type */
-  type: 'boolean' | 'string'
+  type: 'boolean' | 'file' | 'string'
 }
 
 /**

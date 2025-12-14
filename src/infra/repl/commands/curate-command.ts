@@ -85,7 +85,7 @@ export const curateCommand: SlashCommand = {
       char: '@',
       description: 'Include files (type @ to browse, max 5)',
       name: 'files',
-      type: 'string',
+      type: 'file',
     },
     ...(isDevelopment() ? toCommandFlags(devFlags) : []),
   ],
