@@ -142,6 +142,12 @@ function generateSuggestions(input: string, commands: readonly SlashCommand[]): 
       description: cmd.description,
       flags: cmd.flags,
       label: `/${cmd.name}`,
+      subCommands: cmd.subCommands
+        ?.filter((sub) => !sub.hidden)
+        .map((sub) => ({
+          description: sub.description,
+          name: sub.name,
+        })),
       value: `/${cmd.name}`,
     }))
   }

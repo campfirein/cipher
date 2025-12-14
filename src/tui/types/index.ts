@@ -12,6 +12,7 @@ export type {
   CommandArg,
   CommandContext,
   CommandFlag,
+  CommandSubcommandInfo,
   CommandSuggestion,
   ConfirmActionReturn,
   CurateDialogActionReturn,
