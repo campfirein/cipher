@@ -295,4 +295,201 @@ describe('Queue Orphan Detection (Integration)', () => {
       expect(orphaned).to.equal(0)
     })
   })
+
+  describe('Scenario: Query execution orphan detection', () => {
+    it('should detect stuck query with dead PID', () => {
+      // Create a query execution
+      const execId = storage.createExecution('query', 'test query')
+
+      // Verify it starts as running with current PID
+      let execution = storage.getExecution(execId)
+      expect(execution?.status).to.equal('running')
+      expect(execution?.pid).to.equal(process.pid)
+
+      // Manually set a dead PID (99999999 is unlikely to exist)
+      getTestDb(storage).prepare('UPDATE executions SET pid = ? WHERE id = ?').run(99_999_999, execId)
+
+      // Run cleanup
+      const orphaned = storage.cleanupStaleConsumers(5000)
+
+      expect(orphaned).to.equal(1)
+
+      // Verify execution is marked as failed with PID error
+      execution = storage.getExecution(execId)
+      expect(execution?.status).to.equal('failed')
+      expect(execution?.error).to.include('PID 99999999 no longer exists')
+    })
+
+    it('should detect stuck query with stale activity (no tool calls)', async () => {
+      // Create a query execution with old started_at
+      const execId = storage.createExecution('query', 'test query')
+
+      // Manually set started_at to 3 minutes ago (beyond 2 min timeout)
+      const threeMinutesAgo = Date.now() - 3 * 60 * 1000
+      getTestDb(storage)
+        .prepare('UPDATE executions SET started_at = ?, pid = ? WHERE id = ?')
+        .run(threeMinutesAgo, process.pid, execId) // Use current PID so PID check passes
+
+      // Run cleanup
+      const orphaned = storage.cleanupStaleConsumers(5000)
+
+      expect(orphaned).to.equal(1)
+
+      // Verify execution is marked as failed with timeout error
+      const execution = storage.getExecution(execId)
+      expect(execution?.status).to.equal('failed')
+      expect(execution?.error).to.include('no activity for 2 minutes')
+    })
+
+    it('should detect stuck query with stale tool calls', async () => {
+      // Create a query execution with current PID
+      const execId = storage.createExecution('query', 'test query')
+
+      // Add a tool call that completed 3 minutes ago
+      const threeMinutesAgo = Date.now() - 3 * 60 * 1000
+      storage.addToolCall(execId, {args: {}, name: 'test_tool'})
+
+      // Update tool call completion time to be stale
+      getTestDb(storage)
+        .prepare('UPDATE tool_calls SET completed_at = ?, status = ? WHERE execution_id = ?')
+        .run(threeMinutesAgo, 'completed', execId)
+
+      // Also update started_at to be old
+      getTestDb(storage)
+        .prepare('UPDATE executions SET started_at = ? WHERE id = ?')
+        .run(threeMinutesAgo - 1000, execId)
+
+      // Run cleanup
+      const orphaned = storage.cleanupStaleConsumers(5000)
+
+      expect(orphaned).to.equal(1)
+
+      const execution = storage.getExecution(execId)
+      expect(execution?.status).to.equal('failed')
+      expect(execution?.error).to.include('no activity for 2 minutes')
+    })
+
+    it('should NOT cleanup active query with recent tool calls', () => {
+      // Create a query execution
+      const execId = storage.createExecution('query', 'test query')
+
+      // Add a recently completed tool call
+      const toolCallId = storage.addToolCall(execId, {args: {}, name: 'test_tool'})
+      storage.updateToolCall(toolCallId, 'completed', {result: 'success'})
+
+      // Run cleanup
+      const orphaned = storage.cleanupStaleConsumers(5000)
+
+      expect(orphaned).to.equal(0)
+
+      // Verify execution is still running
+      const execution = storage.getExecution(execId)
+      expect(execution?.status).to.equal('running')
+    })
+
+    it('should NOT cleanup active query with running tool calls', () => {
+      // Create a query execution
+      const execId = storage.createExecution('query', 'test query')
+
+      // Add a tool call that is still running (no completed_at)
+      storage.addToolCall(execId, {args: {}, name: 'long_running_tool'})
+
+      // Run cleanup
+      const orphaned = storage.cleanupStaleConsumers(5000)
+
+      expect(orphaned).to.equal(0)
+
+      // Verify execution is still running
+      const execution = storage.getExecution(execId)
+      expect(execution?.status).to.equal('running')
+    })
+
+    it('should handle query without PID (legacy) using activity timeout only', async () => {
+      // Create a query execution
+      const execId = storage.createExecution('query', 'test query')
+
+      // Remove PID and set old started_at (simulating legacy execution)
+      const threeMinutesAgo = Date.now() - 3 * 60 * 1000
+      getTestDb(storage)
+        .prepare('UPDATE executions SET pid = NULL, started_at = ? WHERE id = ?')
+        .run(threeMinutesAgo, execId)
+
+      // Run cleanup
+      const orphaned = storage.cleanupStaleConsumers(5000)
+
+      expect(orphaned).to.equal(1)
+
+      const execution = storage.getExecution(execId)
+      expect(execution?.status).to.equal('failed')
+      expect(execution?.error).to.include('no activity for 2 minutes')
+    })
+
+    it('should handle query with invalid PID (negative) using activity timeout fallback', async () => {
+      // Create a query execution
+      const execId = storage.createExecution('query', 'test query')
+
+      // Set invalid negative PID and old started_at (simulating corrupted DB)
+      // Negative PID should be treated as "can't determine" and fall back to activity check
+      const threeMinutesAgo = Date.now() - 3 * 60 * 1000
+      getTestDb(storage)
+        .prepare('UPDATE executions SET pid = ?, started_at = ? WHERE id = ?')
+        .run(-12_345, threeMinutesAgo, execId)
+
+      // Run cleanup - should NOT crash despite negative PID
+      const orphaned = storage.cleanupStaleConsumers(5000)
+
+      expect(orphaned).to.equal(1)
+
+      // Should fail due to activity timeout, not PID check
+      const execution = storage.getExecution(execId)
+      expect(execution?.status).to.equal('failed')
+      expect(execution?.error).to.include('no activity for 2 minutes')
+    })
+
+    it('should NOT cleanup query with invalid PID but recent activity', () => {
+      // Create a query execution
+      const execId = storage.createExecution('query', 'test query')
+
+      // Set invalid negative PID but keep recent activity
+      getTestDb(storage).prepare('UPDATE executions SET pid = ? WHERE id = ?').run(-999, execId)
+
+      // Add recent tool call activity
+      const toolCallId = storage.addToolCall(execId, {args: {}, name: 'test_tool'})
+      storage.updateToolCall(toolCallId, 'completed', {result: 'success'})
+
+      // Run cleanup
+      const orphaned = storage.cleanupStaleConsumers(5000)
+
+      // Should NOT be cleaned up because recent activity protects it
+      expect(orphaned).to.equal(0)
+      expect(storage.getExecution(execId)?.status).to.equal('running')
+    })
+
+    it('should handle mixed query and curate orphans together', async () => {
+      const consumerId = 'dead-consumer'
+      const staleTimeoutMs = 2
+
+      // Setup stale curate consumer
+      storage.acquireConsumerLock(consumerId)
+      const curateExecId = storage.createExecution('curate', '{"content":"curate work"}')
+      storage.dequeueBatch(1, consumerId)
+
+      // Setup stuck query with dead PID
+      const queryExecId = storage.createExecution('query', 'test query')
+      getTestDb(storage).prepare('UPDATE executions SET pid = ? WHERE id = ?').run(99_999_999, queryExecId)
+
+      // Wait for consumer heartbeat to expire
+      await sleep(5)
+
+      // Run cleanup
+      const orphaned = storage.cleanupStaleConsumers(staleTimeoutMs)
+
+      // Should find both: 1 curate (dead consumer) + 1 query (dead PID)
+      expect(orphaned).to.equal(2)
+
+      // Verify both are failed
+      expect(storage.getExecution(curateExecId)?.status).to.equal('failed')
+      expect(storage.getExecution(queryExecId)?.status).to.equal('failed')
+    })
+  })
 })

@@ -105,12 +105,12 @@ describe('ExecutionConsumer', () => {
       expect(consumer.isRunning()).to.be.false
     })
 
-    it('should log stop message', () => {
+    it('should NOT log stop message if never started (idempotent)', () => {
       const consumer = new ExecutionConsumer()
       consumer.stop()
 
-      // Should have logged something about stopping
-      expect(consoleLogStub.called).to.be.true
+      // Consumer was never started, so stop() is a no-op
+      expect(consoleLogStub.called).to.be.false
     })
   })
 
