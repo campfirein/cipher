@@ -32,6 +32,7 @@ import {
 import {NoOpLogger} from '../../../core/interfaces/cipher/i-logger.js'
 import {getErrorMessage} from '../../../utils/error-helpers.js'
 import {SessionEventBus} from '../events/event-emitter.js'
+import {EnvironmentContextBuilder} from '../system-prompt/environment-context-builder.js'
 import {ContextManager, type FileData, type ImageData} from './context/context-manager.js'
 import {LoopDetector} from './context/loop-detector.js'
 import {ClaudeMessageFormatter} from './formatters/claude-formatter.js'
@@ -123,6 +124,7 @@ export class ByteRoverLLMService implements ILLMService {
     verbose: boolean
   }
   private readonly contextManager: ContextManager<Content | MessageParam>
+  private readonly environmentBuilder: EnvironmentContextBuilder
   private readonly formatter: IMessageFormatter<Content | MessageParam>
   private readonly generator: IContentGenerator
   private readonly logger: ILogger
@@ -135,6 +137,7 @@ export class ByteRoverLLMService implements ILLMService {
   private readonly sessionId: string
   private readonly tokenizer: ITokenizer
   private readonly toolManager: ToolManager
+  private readonly workingDirectory: string
 
   /**
    * Initialize a new ByteRover LLM service instance.
@@ -184,6 +187,8 @@ export class ByteRoverLLMService implements ILLMService {
     this.logger = options.logger ?? new NoOpLogger()
     this.outputProcessor = new ToolOutputProcessor(config.truncationConfig)
     this.loopDetector = new LoopDetector()
+    this.environmentBuilder = new EnvironmentContextBuilder()
+    this.workingDirectory = process.cwd()
     this.config = {
       maxInputTokens: config.maxInputTokens ?? 1_000_000,
       maxIterations: config.maxIterations ?? 50,
@@ -631,11 +636,21 @@ export class ByteRoverLLMService implements ILLMService {
       availableMarkers[marker] = marker
     }
 
+    // Build environment context for system prompt
+    const environmentContext = await this.environmentBuilder.build({
+      includeBrvStructure: true,
+      includeFileTree: true,
+      maxFileTreeDepth: 3,
+      maxFileTreeEntries: 100,
+      workingDirectory: this.workingDirectory,
+    })
+
     let systemPrompt = await this.promptFactory.buildSystemPrompt({
       availableMarkers,
       availableTools,
       commandType: executionContext?.commandType,
       conversationMetadata: executionContext?.conversationMetadata,
+      environmentContext,
       fileReferenceInstructions: executionContext?.fileReferenceInstructions,
       memoryManager: this.memoryManager,
       mode,

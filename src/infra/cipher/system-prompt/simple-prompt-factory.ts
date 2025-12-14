@@ -4,8 +4,7 @@ import path from 'node:path'
 import {fileURLToPath} from 'node:url'
 
 import type {MemoryManager} from '../memory/memory-manager.js'
-
-import { listDirectoryChildren } from '../../../utils/file-helpers.js'
+import type {EnvironmentContext} from './environment-context-builder.js'
 
 /**
  * Simple prompt configuration loaded from YAML
@@ -25,6 +24,8 @@ export interface BuildContext {
   availableTools?: string[]
   commandType?: 'curate' | 'query'
   conversationMetadata?: {conversationId?: string; title?: string}
+  /** Environment context with working directory, git status, file tree, etc. */
+  environmentContext?: EnvironmentContext
   fileReferenceInstructions?: string
   memoryManager?: MemoryManager
   mode?: 'autonomous' | 'default' | 'query'
@@ -136,6 +137,11 @@ export class SimplePromptFactory {
     // 2. Get memories if available
     const memories = context.memoryManager ? await this.formatMemories(context.memoryManager) : ''
 
+    // 2.5. Format environment context if provided
+    const environment = context.environmentContext
+      ? this.formatEnvironmentContext(context.environmentContext)
+      : ''
+
     // 3. Prepare template variables
     // Note: Variable names use snake_case to match template placeholders ({{available_tools}}, etc.)
     /* eslint-disable camelcase */
@@ -143,6 +149,7 @@ export class SimplePromptFactory {
       available_markers: Object.keys(context.availableMarkers ?? {}).join(', '),
       available_tools: context.availableTools?.join(', ') ?? '',
       datetime: `<dateTime>Current date and time: ${new Date().toISOString()}</dateTime>`,
+      environment,
       memories,
     }
     /* eslint-enable camelcase */
@@ -152,57 +159,9 @@ export class SimplePromptFactory {
 
     // 5. Append mode-specific prompts if specified (convention-based loading)
     if (context.mode && context.mode !== 'default') {
-      // Load main mode prompt: modes/{mode}.yml
-      try {
-        const modePrompt = this.loadPrompt(`modes/${context.mode}.yml`)
-        finalPrompt = finalPrompt + '\n\n' + modePrompt.prompt
-
-        if (this.verbose) {
-          console.log(`[PromptDebug:SimpleFactory] Loaded mode prompt: modes/${context.mode}.yml`)
-        }
-      } catch {
-        if (this.verbose) {
-          console.log(`[PromptDebug:SimpleFactory] No mode prompt found: modes/${context.mode}.yml`)
-        }
-      }
-
-      // Load companion prompts: {commandType}-*.yml or {mode}-*.yml
-      // Priority: commandType > mode for companion discovery
-      const discoveryKey = context.commandType || context.mode
-      const companionPrompts = this.discoverCompanionPrompts(discoveryKey)
-      const contextTree = listDirectoryChildren('.brv/context-tree')
-
-      const contextTreeString = JSON.stringify(contextTree, undefined, 2)
-      finalPrompt = finalPrompt + '\n\n' + contextTreeString
-      if (this.verbose) {
-        console.log(`[PromptDebug:SimpleFactory] Discovering companion prompts with key: ${discoveryKey}`)
-      }
-
-      for (const companionPath of companionPrompts) {
-        try {
-          const companionPrompt = this.loadPrompt(companionPath)
-          finalPrompt = finalPrompt + '\n\n' + companionPrompt.prompt
-
-          if (this.verbose) {
-            console.log(`[PromptDebug:SimpleFactory] Loaded companion prompt: ${companionPath}`)
-          }
-        } catch {
-          if (this.verbose) {
-            console.log(`[PromptDebug:SimpleFactory] Failed to load companion prompt: ${companionPath}`)
-          }
-        }
-      }
-
-      // Append file reference instructions after companion prompts (for curate command)
-      if (context.commandType === 'curate' && context.fileReferenceInstructions) {
-        finalPrompt = finalPrompt + '\n\n' + context.fileReferenceInstructions
-
-        if (this.verbose) {
-          console.log(
-            `[PromptDebug:SimpleFactory] Appended file reference instructions: ${context.fileReferenceInstructions.length} chars`,
-          )
-        }
-      }
+      finalPrompt = this.appendModePrompt(finalPrompt, context.mode)
+      finalPrompt = this.appendCompanionPrompts(finalPrompt, context.commandType || context.mode)
+      finalPrompt = this.appendFileReferenceInstructions(finalPrompt, context)
     }
 
     if (this.verbose) {
@@ -255,6 +214,89 @@ export class SimplePromptFactory {
   }
 
   /**
+   * Append companion prompts to the main prompt
+   *
+   * @param prompt - Current prompt string
+   * @param discoveryKey - Key for discovering companion prompts (commandType or mode)
+   * @returns Updated prompt string
+   */
+  private appendCompanionPrompts(prompt: string, discoveryKey: string): string {
+    const companionPrompts = this.discoverCompanionPrompts(discoveryKey)
+
+    if (this.verbose) {
+      console.log(`[PromptDebug:SimpleFactory] Discovering companion prompts with key: ${discoveryKey}`)
+    }
+
+    let result = prompt
+
+    for (const companionPath of companionPrompts) {
+      try {
+        const companionPrompt = this.loadPrompt(companionPath)
+        result = result + '\n\n' + companionPrompt.prompt
+
+        if (this.verbose) {
+          console.log(`[PromptDebug:SimpleFactory] Loaded companion prompt: ${companionPath}`)
+        }
+      } catch {
+        if (this.verbose) {
+          console.log(`[PromptDebug:SimpleFactory] Failed to load companion prompt: ${companionPath}`)
+        }
+      }
+    }
+
+    return result
+  }
+
+  /**
+   * Append file reference instructions to the prompt if applicable
+   *
+   * @param prompt - Current prompt string
+   * @param context - Build context
+   * @returns Updated prompt string
+   */
+  private appendFileReferenceInstructions(prompt: string, context: BuildContext): string {
+    if (context.commandType === 'curate' && context.fileReferenceInstructions) {
+      const updated = prompt + '\n\n' + context.fileReferenceInstructions
+
+      if (this.verbose) {
+        console.log(
+          `[PromptDebug:SimpleFactory] Appended file reference instructions: ${context.fileReferenceInstructions.length} chars`,
+        )
+      }
+
+      return updated
+    }
+
+    return prompt
+  }
+
+  /**
+   * Append mode-specific prompt to the main prompt
+   *
+   * @param prompt - Current prompt string
+   * @param mode - Mode name (e.g., 'autonomous', 'query')
+   * @returns Updated prompt string
+   */
+  private appendModePrompt(prompt: string, mode: string): string {
+    try {
+      const modePrompt = this.loadPrompt(`modes/${mode}.yml`)
+      const updated = prompt + '\n\n' + modePrompt.prompt
+
+      if (this.verbose) {
+        console.log(`[PromptDebug:SimpleFactory] Loaded mode prompt: modes/${mode}.yml`)
+      }
+
+      return updated
+    } catch {
+      if (this.verbose) {
+        console.log(`[PromptDebug:SimpleFactory] No mode prompt found: modes/${mode}.yml`)
+      }
+
+      return prompt
+    }
+  }
+
+  /**
    * Discover companion prompt files for a given mode.
    * Looks for files matching the pattern: {mode}-*.yml
    *
@@ -290,6 +332,41 @@ export class SimplePromptFactory {
     }
 
     return companionPrompts
+  }
+
+  /**
+   * Format environment context for inclusion in system prompt.
+   *
+   * @param envCtx - Environment context object
+   * @returns Formatted environment context string with XML-like tags
+   */
+  private formatEnvironmentContext(envCtx: EnvironmentContext): string {
+    const dateOptions: Intl.DateTimeFormatOptions = {
+      day: 'numeric',
+      month: 'short',
+      weekday: 'short',
+      year: 'numeric',
+    }
+    const formattedDate = new Date().toLocaleDateString('en-US', dateOptions)
+
+    let result = '<env>\n'
+    result += `  Working directory: ${envCtx.workingDirectory}\n`
+    result += `  Is directory a git repo: ${envCtx.isGitRepository ? 'Yes' : 'No'}\n`
+    result += `  Platform: ${envCtx.platform}\n`
+    result += `  OS Version: ${envCtx.osVersion}\n`
+    result += `  Node Version: ${envCtx.nodeVersion}\n`
+    result += `  Today's date: ${formattedDate}\n`
+    result += '</env>'
+
+    if (envCtx.fileTree) {
+      result += '\n\n' + envCtx.fileTree
+    }
+
+    if (envCtx.brvStructure) {
+      result += '\n\n' + envCtx.brvStructure
+    }
+
+    return result
   }
 
   /**
