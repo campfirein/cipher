@@ -97,6 +97,16 @@ export interface CommandContext {
 }
 
 /**
+ * Subcommand info for display in suggestions
+ */
+export interface CommandSubcommandInfo {
+  /** Subcommand description */
+  description: string
+  /** Subcommand name */
+  name: string
+}
+
+/**
  * Suggestion item for auto-completion
  */
 export interface CommandSuggestion {
@@ -110,6 +120,8 @@ export interface CommandSuggestion {
   flags?: CommandFlag[]
   /** Display label */
   label: string
+  /** Subcommands for commands with nested commands */
+  subCommands?: CommandSubcommandInfo[]
   /** Value to insert on selection */
   value: string
 }
