@@ -21,6 +21,7 @@ import {
   InlineSearch,
   InlineSelect,
 } from '../components/inline-prompts/index.js'
+import {useAuth} from '../contexts/auth-context.js'
 import {useCommands, useMode, useTheme} from '../hooks/index.js'
 
 /** Fixed height for bottom area (suggestions + input) */
@@ -253,6 +254,7 @@ interface CommandViewProps {
 
 export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
   const {exit} = useApp()
+  const {reloadAuth} = useAuth()
   const [command, setCommand] = useState('')
   const [inputKey, setInputKey] = useState(0)
   const [messages, setMessages] = useState<CommandMessage[]>([])
@@ -357,10 +359,16 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
           setStreamingMessages([])
           setIsStreaming(false)
           setActivePrompt(null)
+
+          // Refresh auth state after logout/login command
+          if (trimmed.startsWith('/logout') || trimmed.startsWith('/login')) {
+            stopQueuePollingService()
+            reloadAuth()
+          }
         }
       }
     },
-    [exit, handleSlashCommand],
+    [exit, handleSlashCommand, reloadAuth],
   )
 
   const handleSubmit = useCallback(
