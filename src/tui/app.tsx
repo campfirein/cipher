@@ -6,27 +6,26 @@
  * - Authorized: Show main app with tabs
  */
 
-import { Box, Spacer, Text, useStdout } from 'ink'
+import {Box, useStdout} from 'ink'
 import React from 'react'
 
-import { Footer, Header, TabBar } from './components/index.js'
-import { LAYOUT } from './constants.js'
-import { useAuth, useConsumer } from './contexts/index.js'
-import { useTabNavigation, useTheme } from './hooks/index.js'
-import { CommandView, LoginView, LogsView } from './views/index.js'
+import {Footer, Header, TabBar} from './components/index.js'
+import {LAYOUT} from './constants.js'
+import {useAuth, useConsumer} from './contexts/index.js'
+import {useTabNavigation} from './hooks/index.js'
+import {CommandView, LoginView, LogsView} from './views/index.js'
 
 export const App: React.FC = () => {
-  const { stdout } = useStdout()
+  const {stdout} = useStdout()
   const terminalHeight = stdout?.rows ?? 24
   const terminalWidth = stdout?.columns ?? 80
 
   // Get auth state from context
-  const { isAuthorized } = useAuth()
+  const {isAuthorized} = useAuth()
 
   // Tab navigation and queue hooks
-  const { activeTab } = useTabNavigation()
-  const { stats } = useConsumer()
-  const { theme: { colors } } = useTheme()
+  const {activeTab} = useTabNavigation()
+  const {stats} = useConsumer()
 
   const contentHeight = Math.max(1, terminalHeight - LAYOUT.headerHeight - LAYOUT.tabBarHeight - LAYOUT.footerHeight)
 
@@ -34,17 +33,12 @@ export const App: React.FC = () => {
     <Box flexDirection="column" height={terminalHeight} paddingBottom={1} width={terminalWidth}>
       {/* Header - always shown, but no queueStats when unauthorized */}
       <Box flexShrink={0}>
-        <Header compact={isAuthorized} />
+        <Header
+          compact={isAuthorized}
+          queueStats={stats ? {pending: stats.queued, processing: stats.running} : undefined}
+          showQueueStats={isAuthorized}
+        />
       </Box>
-      {isAuthorized && stats && (
-        <Box paddingRight={1}>
-          <Spacer />
-          <Text>~ in queue: </Text>
-          <Text color={colors.warning}>{stats.queued}</Text>
-          <Text> | running: </Text>
-          <Text color={colors.primary}>{stats.running}</Text>
-        </Box>
-      )}
 
       {isAuthorized ? (
         <>
