@@ -267,7 +267,9 @@ export const Suggestions: React.FC<SuggestionsProps> = ({input, onInsert, onSele
           {selectedSuggestion.args?.map((arg) => (
             <Text color={colors.dimText} key={arg.name}>
               {'  '}
-              <Text color={colors.text}>{arg.required ? `<${arg.name}>` : `[${arg.name}]`}</Text>
+              <Text color={colors.text}>
+                {(arg.required ? `<${arg.name}>` : `[${arg.name}]`).padEnd(labelWidth + 2)}
+              </Text>
               {'  '}
               {arg.description}
             </Text>
@@ -277,7 +279,10 @@ export const Suggestions: React.FC<SuggestionsProps> = ({input, onInsert, onSele
             <Text color={colors.dimText} key={flag.name}>
               {'  '}
               <Text color={colors.text}>
-                {flag.char ? `-${flag.char}, ` : '    '}--{flag.name}
+                {(flag.type === 'file'
+                  ? `${flag.char || '@'}file`
+                  : (flag.char ? `-${flag.char}, ` : '') + `--${flag.name}`
+                ).padEnd(labelWidth + 2)}
               </Text>
               {'  '}
               {flag.description}
