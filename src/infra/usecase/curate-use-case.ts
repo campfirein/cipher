@@ -264,13 +264,10 @@ export class CurateUseCase implements ICurateUseCase {
       }
 
       // Process file references if provided (validates and creates instructions)
-      let fileReferenceInstructions: string | undefined = ''
-      if (options.files && options.files.length > 0) {
-        fileReferenceInstructions = this.processFileReferences(options.files)
-        if (fileReferenceInstructions === undefined) {
-          // Validation failed, error already displayed
-          return
-        }
+      const fileReferenceInstructions = this.processFileReferences(options.files ?? [])
+      if (fileReferenceInstructions === undefined) {
+        // Validation failed, error already displayed
+        return
       }
 
       // Initialize storage and create execution (auto-detects .brv/blobs)
