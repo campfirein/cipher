@@ -5,7 +5,7 @@
  * Executes LoginUseCase directly for authentication.
  */
 
-import React, {createContext, useCallback, useContext, useMemo, useState} from 'react'
+import React, {createContext, useCallback, useContext, useEffect, useMemo, useState} from 'react'
 
 import type {AuthToken} from '../../core/domain/entities/auth-token.js'
 import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
@@ -27,6 +27,7 @@ export interface AuthContextValue {
   // State
   authToken: AuthToken | undefined
   brvConfig: BrvConfig | undefined
+  isInitialConfigLoaded: boolean
   isLoggingIn: boolean
   loginOutput: string[]
 
@@ -91,6 +92,7 @@ export function AuthProvider({children, initialAuthToken, initialBrvConfig}: Aut
   const [brvConfig, setBrvConfig] = useState<BrvConfig | undefined>(initialBrvConfig)
   const [isLoggingIn, setIsLoggingIn] = useState(false)
   const [loginOutput, setLoginOutput] = useState<string[]>([])
+  const [isInitialConfigLoaded, setIsInitialConfigLoaded] = useState(false)
 
   // Computed
   const authState: AuthState = authToken?.isValid() ? 'authorized' : 'unauthorized'
@@ -101,20 +103,28 @@ export function AuthProvider({children, initialAuthToken, initialBrvConfig}: Aut
     // Clear display output
     setLoginOutput([])
 
+    try {
+      // Reload brv config state before checking auth token
+      await reloadBrvConfig()
+    } catch {}
+
     const newToken = await tokenStore.load()
     if (newToken?.isValid()) {
       setAuthToken(newToken)
-
-      const configExists = await projectConfigStore.exists()
-      if (configExists) {
-        const config = await projectConfigStore.read()
-        setBrvConfig(config)
-      }
     } else {
       // Token is undefined or invalid (logged out or expired)
       setAuthToken(undefined)
     }
   }, [tokenStore, projectConfigStore])
+
+  // Reload brv config state
+  const reloadBrvConfig = useCallback(async () => {
+    const configExists = await projectConfigStore.exists()
+    if (configExists) {
+      const config = await projectConfigStore.read()
+      setBrvConfig(config)
+    }
+  }, [projectConfigStore])
 
   // Login action - executes LoginUseCase
   const login = useCallback(() => {
@@ -143,7 +153,6 @@ export function AuthProvider({children, initialAuthToken, initialBrvConfig}: Aut
         })
 
         await useCase.run()
-        await reloadAuth()
       } catch (error) {
         appendOutput(`Error: ${error instanceof Error ? error.message : 'Login failed'}`)
       } finally {
@@ -152,7 +161,14 @@ export function AuthProvider({children, initialAuthToken, initialBrvConfig}: Aut
     }
 
     runLogin()
-  }, [tokenStore, reloadAuth])
+  }, [tokenStore])
+
+  // Reload brv config state on mount and mark initial load complete
+  useEffect(() => {
+    reloadBrvConfig().then(() => {
+      setIsInitialConfigLoaded(true)
+    })
+  }, [reloadBrvConfig])
 
   // Memoize context value
   const value = useMemo(
@@ -161,12 +177,13 @@ export function AuthProvider({children, initialAuthToken, initialBrvConfig}: Aut
       authToken,
       brvConfig,
       isAuthorized,
+      isInitialConfigLoaded,
       isLoggingIn,
       login,
       loginOutput,
       reloadAuth,
     }),
-    [authToken, brvConfig, isLoggingIn, loginOutput, authState, isAuthorized, login, reloadAuth],
+    [authToken, brvConfig, isInitialConfigLoaded, isLoggingIn, loginOutput, authState, isAuthorized, login, reloadAuth],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
