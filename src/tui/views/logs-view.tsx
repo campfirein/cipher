@@ -213,8 +213,18 @@ export const LogsView: React.FC<LogsViewProps> = ({availableHeight}) => {
             <Spacer />
             <Text color={colors.dimText}>[{displayTime}]</Text>
           </Box>
-          <Box borderColor={colors.border} borderStyle="single">
-            <Text>{log.input}</Text>
+          <Box borderColor={colors.border} borderStyle="single" flexDirection="column">
+            {(() => {
+              const {remainingLines, truncatedContent} = truncateContent(log.input, 5)
+              return (
+                <>
+                  <Text>{truncatedContent}</Text>
+                  {remainingLines > 0 && (
+                    <Text color={colors.dimText}>... +{remainingLines} more lines</Text>
+                  )}
+                </>
+              )
+            })()}
           </Box>
           <Box flexDirection="column">
             {log.progress && log.progress.length > MAX_PROGRESS_ITEMS && (
@@ -247,14 +257,14 @@ export const LogsView: React.FC<LogsViewProps> = ({availableHeight}) => {
             (() => {
               const {remainingLines, truncatedContent} = truncateContent(log.content ?? '', maxContentLines)
               return (
-                <>
+                <Box marginBottom={1}>
                   <Text color={log.status === 'failed' ? colors.errorText : colors.text}>{truncatedContent}</Text>
                   {remainingLines > 0 && (
                     <Text color={colors.dimText}>
                       ↕ {remainingLines} more lines (resize terminal to view full output)
                     </Text>
                   )}
-                </>
+                </Box>
               )
             })()}
           {log.status === 'completed' && log.changes.created.length > 0 && (
