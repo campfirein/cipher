@@ -1,34 +1,29 @@
-import type {Config} from '@oclif/core'
-
-import {Config as OclifConfig} from '@oclif/core'
 import {expect} from 'chai'
 import sinon, {restore, stub} from 'sinon'
 
-import type {Space} from '../../src/core/domain/entities/space.js'
-import type {Team} from '../../src/core/domain/entities/team.js'
-import type {ICogitPullService} from '../../src/core/interfaces/i-cogit-pull-service.js'
-import type {IContextTreeService} from '../../src/core/interfaces/i-context-tree-service.js'
-import type {IContextTreeSnapshotService} from '../../src/core/interfaces/i-context-tree-snapshot-service.js'
-import type {IContextTreeWriterService} from '../../src/core/interfaces/i-context-tree-writer-service.js'
-import type {IFileService} from '../../src/core/interfaces/i-file-service.js'
-import type {ILegacyRuleDetector} from '../../src/core/interfaces/i-legacy-rule-detector.js'
-import type {IProjectConfigStore} from '../../src/core/interfaces/i-project-config-store.js'
-import type {IRuleTemplateService} from '../../src/core/interfaces/i-rule-template-service.js'
-import type {ISpaceService} from '../../src/core/interfaces/i-space-service.js'
-import type {ITeamService} from '../../src/core/interfaces/i-team-service.js'
-import type {ITerminal} from '../../src/core/interfaces/i-terminal.js'
-import type {ITokenStore} from '../../src/core/interfaces/i-token-store.js'
-import type {ITrackingService} from '../../src/core/interfaces/i-tracking-service.js'
-import type {IInitUseCase} from '../../src/core/interfaces/usecase/i-init-use-case.js'
+import type {Space} from '../../../src/core/domain/entities/space.js'
+import type {Team} from '../../../src/core/domain/entities/team.js'
+import type {ICogitPullService} from '../../../src/core/interfaces/i-cogit-pull-service.js'
+import type {IContextTreeService} from '../../../src/core/interfaces/i-context-tree-service.js'
+import type {IContextTreeSnapshotService} from '../../../src/core/interfaces/i-context-tree-snapshot-service.js'
+import type {IContextTreeWriterService} from '../../../src/core/interfaces/i-context-tree-writer-service.js'
+import type {IFileService} from '../../../src/core/interfaces/i-file-service.js'
+import type {ILegacyRuleDetector} from '../../../src/core/interfaces/i-legacy-rule-detector.js'
+import type {IProjectConfigStore} from '../../../src/core/interfaces/i-project-config-store.js'
+import type {IRuleTemplateService} from '../../../src/core/interfaces/i-rule-template-service.js'
+import type {ISpaceService} from '../../../src/core/interfaces/i-space-service.js'
+import type {ITeamService} from '../../../src/core/interfaces/i-team-service.js'
+import type {ITerminal} from '../../../src/core/interfaces/i-terminal.js'
+import type {ITokenStore} from '../../../src/core/interfaces/i-token-store.js'
+import type {ITrackingService} from '../../../src/core/interfaces/i-tracking-service.js'
 
-import Init from '../../src/commands/init.js'
-import {Agent} from '../../src/core/domain/entities/agent.js'
-import {AuthToken} from '../../src/core/domain/entities/auth-token.js'
-import {BrvConfig} from '../../src/core/domain/entities/brv-config.js'
-import {Space as SpaceImpl} from '../../src/core/domain/entities/space.js'
-import {Team as TeamImpl} from '../../src/core/domain/entities/team.js'
-import {InitUseCase, type InitUseCaseOptions, type LegacyProjectConfigInfo} from '../../src/infra/usecase/init-use-case.js'
-import {createMockTerminal} from '../helpers/mock-factories.js'
+import {Agent} from '../../../src/core/domain/entities/agent.js'
+import {AuthToken} from '../../../src/core/domain/entities/auth-token.js'
+import {BrvConfig} from '../../../src/core/domain/entities/brv-config.js'
+import {Space as SpaceImpl} from '../../../src/core/domain/entities/space.js'
+import {Team as TeamImpl} from '../../../src/core/domain/entities/team.js'
+import {InitUseCase, type InitUseCaseOptions, type LegacyProjectConfigInfo} from '../../../src/infra/usecase/init-use-case.js'
+import {createMockTerminal} from '../../helpers/mock-factories.js'
 
 // ==================== TestableInitUseCase ====================
 
@@ -203,26 +198,10 @@ class SyncTestableInitUseCase extends InitUseCase {
   }
 }
 
-// ==================== TestableInitCommand ====================
-
-class TestableInitCommand extends Init {
-  constructor(
-    private readonly useCase: IInitUseCase,
-    config: Config,
-  ) {
-    super([], config)
-  }
-
-  protected createUseCase(): IInitUseCase {
-    return this.useCase
-  }
-}
-
 // ==================== Tests ====================
 
-describe('Init Command', () => {
+describe('InitUseCase', () => {
   let cogitPullService: sinon.SinonStubbedInstance<ICogitPullService>
-  let config: Config
   let configStore: sinon.SinonStubbedInstance<IProjectConfigStore>
   let contextTreeService: sinon.SinonStubbedInstance<IContextTreeService>
   let contextTreeSnapshotService: sinon.SinonStubbedInstance<IContextTreeSnapshotService>
@@ -238,10 +217,6 @@ describe('Init Command', () => {
   let tokenStore: sinon.SinonStubbedInstance<ITokenStore>
   let trackingService: sinon.SinonStubbedInstance<ITrackingService>
   let validToken: AuthToken
-
-  before(async () => {
-    config = await OclifConfig.load(import.meta.url)
-  })
 
   beforeEach(async () => {
     tokenStore = {
@@ -395,11 +370,7 @@ describe('Init Command', () => {
     return useCase
   }
 
-  function createTestCommand(useCase: IInitUseCase): TestableInitCommand {
-    return new TestableInitCommand(useCase, config)
-  }
-
-  describe('execute()', () => {
+  describe('run()', () => {
     it('should exit early if project is already initialized', async () => {
       tokenStore.load.resolves(validToken)
       configStore.exists.resolves(true)
@@ -408,9 +379,8 @@ describe('Init Command', () => {
       )
 
       const useCase = createTestUseCase()
-      const command = createTestCommand(useCase)
 
-      await command.run()
+      await useCase.run({force: false})
 
       expect(tokenStore.load.calledOnce).to.be.true // Auth happens first
       expect(configStore.exists.calledOnce).to.be.true
@@ -423,9 +393,8 @@ describe('Init Command', () => {
       tokenStore.load.resolves()
 
       const useCase = createTestUseCase()
-      const command = createTestCommand(useCase)
 
-      await command.run()
+      await useCase.run({force: false})
 
       expect(useCase.logMessages.some((msg) => msg.includes('Not authenticated'))).to.be.true
     })
@@ -445,9 +414,8 @@ describe('Init Command', () => {
       tokenStore.load.resolves(expiredToken)
 
       const useCase = createTestUseCase()
-      const command = createTestCommand(useCase)
 
-      await command.run()
+      await useCase.run({force: false})
 
       expect(useCase.logMessages.some((msg) => msg.includes('expired'))).to.be.true
     })
@@ -458,9 +426,8 @@ describe('Init Command', () => {
       teamService.getTeams.resolves({teams: [], total: 0})
 
       const useCase = createTestUseCase()
-      const command = createTestCommand(useCase)
 
-      await command.run()
+      await useCase.run({force: false})
 
       // Verify that initialization did not occur
       expect(configStore.write.called).to.be.false
@@ -473,9 +440,8 @@ describe('Init Command', () => {
       spaceService.getSpaces.resolves({spaces: [], total: 0})
 
       const useCase = createTestUseCase()
-      const command = createTestCommand(useCase)
 
-      await command.run()
+      await useCase.run({force: false})
 
       // Verify that initialization did not occur
       expect(configStore.write.called).to.be.false
@@ -489,9 +455,8 @@ describe('Init Command', () => {
       configStore.write.resolves()
 
       const useCase = createTestUseCase()
-      const command = createTestCommand(useCase)
 
-      await command.run()
+      await useCase.run({force: false})
 
       expect(teamService.getTeams.calledWith('access-token', 'session-key', {fetchAll: true})).to.be.true
       expect(spaceService.getSpaces.calledWith('access-token', 'session-key', 'team-1', {fetchAll: true})).to.be.true
@@ -515,9 +480,8 @@ describe('Init Command', () => {
       configStore.write.resolves()
 
       const useCase = createTestUseCase({mockSelectedSpace: testSpaces[1]})
-      const command = createTestCommand(useCase)
 
-      await command.run()
+      await useCase.run({force: false})
 
       const writtenConfig = configStore.write.getCall(0).args[0]
       expect(writtenConfig.spaceId).to.equal('space-2')
@@ -530,9 +494,8 @@ describe('Init Command', () => {
       teamService.getTeams.rejects(new Error('Network timeout'))
 
       const useCase = createTestUseCase()
-      const command = createTestCommand(useCase)
 
-      await command.run()
+      await useCase.run({force: false})
 
       expect(useCase.errorMessages).to.have.lengthOf(1)
       expect(useCase.errorMessages[0]).to.include('Network timeout')
@@ -545,9 +508,8 @@ describe('Init Command', () => {
       spaceService.getSpaces.rejects(new Error('Network timeout'))
 
       const useCase = createTestUseCase()
-      const command = createTestCommand(useCase)
 
-      await command.run()
+      await useCase.run({force: false})
 
       expect(useCase.errorMessages).to.have.lengthOf(1)
       expect(useCase.errorMessages[0]).to.include('Network timeout')
@@ -561,9 +523,8 @@ describe('Init Command', () => {
       configStore.write.rejects(new Error('Permission denied'))
 
       const useCase = createTestUseCase()
-      const command = createTestCommand(useCase)
 
-      await command.run()
+      await useCase.run({force: false})
 
       expect(useCase.errorMessages).to.have.lengthOf(1)
       expect(useCase.errorMessages[0]).to.include('Permission denied')
@@ -577,9 +538,8 @@ describe('Init Command', () => {
       configStore.write.resolves()
 
       const useCase = createTestUseCase()
-      const command = createTestCommand(useCase)
 
-      await command.run()
+      await useCase.run({force: false})
 
       expect(templateService.generateRuleContent.calledOnce).to.be.true
       expect(fileService.write.calledOnce).to.be.true
@@ -593,9 +553,8 @@ describe('Init Command', () => {
       configStore.write.resolves()
 
       const useCase = createTestUseCase()
-      const command = createTestCommand(useCase)
 
-      await command.run()
+      await useCase.run({force: false})
 
       // Verify order: config write happens before templateService
       expect(configStore.write.calledBefore(templateService.generateRuleContent)).to.be.true
@@ -609,9 +568,8 @@ describe('Init Command', () => {
       configStore.write.resolves()
 
       const useCase = createTestUseCase()
-      const command = createTestCommand(useCase)
 
-      await command.run()
+      await useCase.run({force: false})
 
       // Verify order: context tree initialization happens before templateService
       expect(contextTreeService.initialize.calledBefore(templateService.generateRuleContent)).to.be.true
@@ -628,9 +586,8 @@ describe('Init Command', () => {
       contextTreeService.initialize.rejects(new Error('Context tree already exists'))
 
       const useCase = createTestUseCase()
-      const command = createTestCommand(useCase)
 
-      await command.run()
+      await useCase.run({force: false})
 
       // Should still call templateService even though context tree init failed
       expect(templateService.generateRuleContent.calledOnce).to.be.true
@@ -646,9 +603,8 @@ describe('Init Command', () => {
       templateService.generateRuleContent.rejects(new Error('Template not found'))
 
       const useCase = createTestUseCase()
-      const command = createTestCommand(useCase)
 
-      await command.run()
+      await useCase.run({force: false})
 
       expect(useCase.errorMessages).to.have.lengthOf(1)
       expect(useCase.errorMessages[0]).to.include('Template not found')
@@ -670,9 +626,8 @@ describe('Init Command', () => {
         mockConfirmReInit: true,
         mockSelectedSpace: testSpaces[1], // Select different space
       })
-      const command = createTestCommand(useCase)
 
-      await command.run()
+      await useCase.run({force: false})
 
       expect(configStore.exists.calledOnce).to.be.true
       expect(configStore.read.calledOnce).to.be.true
@@ -690,9 +645,8 @@ describe('Init Command', () => {
       )
 
       const useCase = createTestUseCase({mockConfirmReInit: false})
-      const command = createTestCommand(useCase)
 
-      await command.run()
+      await useCase.run({force: false})
 
       expect(tokenStore.load.calledOnce).to.be.true // Auth happens first
       expect(configStore.exists.calledOnce).to.be.true
@@ -701,7 +655,7 @@ describe('Init Command', () => {
       expect(spaceService.getSpaces.called).to.be.false
     })
 
-    it('should skip confirmation with --force flag', async () => {
+    it('should skip confirmation with force option', async () => {
       configStore.exists.resolves(true)
       configStore.read.resolves(
         BrvConfig.fromSpace({chatLogPath: 'chat.log', cwd: '/test/cwd', ide: 'Claude Code', space: testSpaces[0]}),
@@ -712,11 +666,10 @@ describe('Init Command', () => {
       spaceService.getSpaces.resolves({spaces: testSpaces, total: testSpaces.length})
 
       const useCase = createTestUseCase({
-        mockConfirmReInit: false, // Shouldn't matter with --force
+        mockConfirmReInit: false, // Shouldn't matter with force
         mockSelectedSpace: testSpaces[1],
       })
 
-      // Call run directly with force option
       await useCase.run({force: true})
 
       expect(configStore.exists.calledOnce).to.be.true
@@ -736,9 +689,8 @@ describe('Init Command', () => {
         mockCleanupError: new Error('Permission denied'),
         mockConfirmReInit: true,
       })
-      const command = createTestCommand(useCase)
 
-      await command.run()
+      await useCase.run({force: false})
 
       expect(useCase.errorMessages).to.have.lengthOf(1)
       expect(useCase.errorMessages[0]).to.include('Permission denied')
@@ -750,9 +702,8 @@ describe('Init Command', () => {
       configStore.read.resolves() // Corrupted/unreadable - returns undefined
 
       const useCase = createTestUseCase()
-      const command = createTestCommand(useCase)
 
-      await command.run()
+      await useCase.run({force: false})
 
       expect(useCase.errorMessages).to.have.lengthOf(1)
       expect(useCase.errorMessages[0]).to.include('Configuration file exists but cannot be read')
@@ -773,9 +724,8 @@ describe('Init Command', () => {
           type: 'legacy',
         },
       })
-      const command = createTestCommand(useCase)
 
-      await command.run()
+      await useCase.run({force: false})
 
       // Should proceed with re-initialization
       expect(tokenStore.load.calledOnce).to.be.true
@@ -799,9 +749,8 @@ describe('Init Command', () => {
           type: 'legacy',
         },
       })
-      const command = createTestCommand(useCase)
 
-      await command.run()
+      await useCase.run({force: false})
 
       // Should proceed with re-initialization
       expect(tokenStore.load.calledOnce).to.be.true
@@ -819,9 +768,8 @@ describe('Init Command', () => {
       configStore.write.resolves()
 
       const useCase = createTestUseCase({mockAceDirectoryExists: false})
-      const command = createTestCommand(useCase)
 
-      await command.run()
+      await useCase.run({force: false})
 
       // Should not call removeAceDirectory since no ACE folder exists
       expect(useCase.removeAceDirectoryCalled).to.be.false
@@ -842,9 +790,8 @@ describe('Init Command', () => {
         mockAceDirectoryExists: true,
         mockAceRemovalConfirm: true,
       })
-      const command = createTestCommand(useCase)
 
-      await command.run()
+      await useCase.run({force: false})
 
       // Should call removeAceDirectory
       expect(useCase.removeAceDirectoryCalled).to.be.true
@@ -865,9 +812,8 @@ describe('Init Command', () => {
         mockAceDirectoryExists: true,
         mockAceRemovalConfirm: false,
       })
-      const command = createTestCommand(useCase)
 
-      await command.run()
+      await useCase.run({force: false})
 
       // Should NOT call removeAceDirectory
       expect(useCase.removeAceDirectoryCalled).to.be.false
@@ -877,7 +823,7 @@ describe('Init Command', () => {
       expect(configStore.write.calledOnce).to.be.true
     })
 
-    it('should handle ACE deprecation during re-initialization with --force flag', async () => {
+    it('should handle ACE deprecation during re-initialization with force option', async () => {
       configStore.exists.resolves(true)
       configStore.read.resolves(
         BrvConfig.fromSpace({chatLogPath: 'chat.log', cwd: '/test/cwd', ide: 'Claude Code', space: testSpaces[0]}),
@@ -892,7 +838,6 @@ describe('Init Command', () => {
         mockAceRemovalConfirm: true,
       })
 
-      // Call run directly with force option
       await useCase.run({force: true})
 
       // Should call removeAceDirectory (ACE folder existed and user confirmed)

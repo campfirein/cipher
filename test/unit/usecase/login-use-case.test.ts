@@ -1,58 +1,32 @@
-import type {Config} from '@oclif/core'
 import type {SinonStubbedInstance} from 'sinon'
 
-import {Config as OclifConfig} from '@oclif/core'
 import {expect} from 'chai'
 import {restore, stub} from 'sinon'
 
-import type {IAuthService} from '../../src/core/interfaces/i-auth-service.js'
-import type {IBrowserLauncher} from '../../src/core/interfaces/i-browser-launcher.js'
-import type {ICallbackHandler} from '../../src/core/interfaces/i-callback-handler.js'
-import type {ITerminal} from '../../src/core/interfaces/i-terminal.js'
-import type {ITokenStore} from '../../src/core/interfaces/i-token-store.js'
-import type {ITrackingService} from '../../src/core/interfaces/i-tracking-service.js'
-import type {IUserService} from '../../src/core/interfaces/i-user-service.js'
-import type {ILoginUseCase} from '../../src/core/interfaces/usecase/i-login-use-case.js'
+import type {IAuthService} from '../../../src/core/interfaces/i-auth-service.js'
+import type {IBrowserLauncher} from '../../../src/core/interfaces/i-browser-launcher.js'
+import type {ICallbackHandler} from '../../../src/core/interfaces/i-callback-handler.js'
+import type {ITerminal} from '../../../src/core/interfaces/i-terminal.js'
+import type {ITokenStore} from '../../../src/core/interfaces/i-token-store.js'
+import type {ITrackingService} from '../../../src/core/interfaces/i-tracking-service.js'
+import type {IUserService} from '../../../src/core/interfaces/i-user-service.js'
 
-import Login from '../../src/commands/login.js'
-import {AuthToken} from '../../src/core/domain/entities/auth-token.js'
-import {OAuthTokenData} from '../../src/core/domain/entities/oauth-token-data.js'
-import {User} from '../../src/core/domain/entities/user.js'
-import {LoginUseCase} from '../../src/infra/usecase/login-use-case.js'
-import {createMockTerminal} from '../helpers/mock-factories.js'
+import {AuthToken} from '../../../src/core/domain/entities/auth-token.js'
+import {OAuthTokenData} from '../../../src/core/domain/entities/oauth-token-data.js'
+import {User} from '../../../src/core/domain/entities/user.js'
+import {LoginUseCase} from '../../../src/infra/usecase/login-use-case.js'
+import {createMockTerminal} from '../../helpers/mock-factories.js'
 
-// ==================== TestableLoginCommand ====================
-
-class TestableLoginCommand extends Login {
-  constructor(
-    private readonly useCase: ILoginUseCase,
-    config: Config,
-  ) {
-    super([], config)
-  }
-
-  protected async createUseCase(): Promise<ILoginUseCase> {
-    return this.useCase
-  }
-}
-
-// ==================== Tests ====================
-
-describe('login command', () => {
+describe('LoginUseCase', () => {
   let authService: SinonStubbedInstance<IAuthService>
   let browserLauncher: SinonStubbedInstance<IBrowserLauncher>
   let callbackHandler: SinonStubbedInstance<ICallbackHandler>
-  let config: Config
   let errorMessages: string[]
   let logMessages: string[]
   let terminal: ITerminal
   let tokenStore: SinonStubbedInstance<ITokenStore>
   let trackingService: SinonStubbedInstance<ITrackingService>
   let userService: SinonStubbedInstance<IUserService>
-
-  before(async () => {
-    config = await OclifConfig.load(import.meta.url)
-  })
 
   beforeEach(() => {
     logMessages = []
@@ -99,7 +73,7 @@ describe('login command', () => {
     restore()
   })
 
-  function createTestUseCase(): LoginUseCase {
+  function createUseCase(): LoginUseCase {
     return new LoginUseCase({
       authService,
       browserLauncher,
@@ -109,10 +83,6 @@ describe('login command', () => {
       trackingService,
       userService,
     })
-  }
-
-  function createTestCommand(useCase: ILoginUseCase): TestableLoginCommand {
-    return new TestableLoginCommand(useCase, config)
   }
 
   describe('Successful login flow', () => {
@@ -141,10 +111,9 @@ describe('login command', () => {
       tokenStore.save.resolves()
       callbackHandler.stop.resolves()
 
-      const useCase = createTestUseCase()
-      const command = createTestCommand(useCase)
+      const useCase = createUseCase()
 
-      await command.run()
+      await useCase.run()
 
       // Verify complete flow
       expect(callbackHandler.start.calledOnce).to.be.true
@@ -192,10 +161,9 @@ describe('login command', () => {
       userService.getCurrentUser.rejects(new Error('Failed to fetch user information'))
       callbackHandler.stop.resolves()
 
-      const useCase = createTestUseCase()
-      const command = createTestCommand(useCase)
+      const useCase = createUseCase()
 
-      await command.run()
+      await useCase.run()
 
       expect(errorMessages).to.have.lengthOf(1)
       expect(errorMessages[0]).to.include('Failed to fetch user information')
@@ -230,10 +198,9 @@ describe('login command', () => {
       tokenStore.save.resolves()
       callbackHandler.stop.resolves()
 
-      const useCase = createTestUseCase()
-      const command = createTestCommand(useCase)
+      const useCase = createUseCase()
 
-      await command.run()
+      await useCase.run()
 
       // Should still succeed (token saved with user info)
       expect(tokenStore.save.calledOnce).to.be.true
@@ -261,10 +228,9 @@ describe('login command', () => {
       callbackHandler.waitForCallback.rejects(new Error('Authentication timeout'))
       callbackHandler.stop.resolves()
 
-      const useCase = createTestUseCase()
-      const command = createTestCommand(useCase)
+      const useCase = createUseCase()
 
-      await command.run()
+      await useCase.run()
 
       expect(errorMessages).to.have.lengthOf(1)
       expect(errorMessages[0]).to.include('Authentication timeout')
@@ -290,10 +256,9 @@ describe('login command', () => {
       authService.exchangeCodeForToken.rejects(new Error('Invalid authorization code'))
       callbackHandler.stop.resolves()
 
-      const useCase = createTestUseCase()
-      const command = createTestCommand(useCase)
+      const useCase = createUseCase()
 
-      await command.run()
+      await useCase.run()
 
       expect(errorMessages).to.have.lengthOf(1)
       expect(errorMessages[0]).to.include('Invalid authorization code')
@@ -309,10 +274,9 @@ describe('login command', () => {
       callbackHandler.start.rejects(new Error('Port already in use'))
       callbackHandler.stop.resolves()
 
-      const useCase = createTestUseCase()
-      const command = createTestCommand(useCase)
+      const useCase = createUseCase()
 
-      await command.run()
+      await useCase.run()
 
       expect(errorMessages).to.have.lengthOf(1)
       expect(errorMessages[0]).to.include('Port already in use')
@@ -348,10 +312,9 @@ describe('login command', () => {
       tokenStore.save.resolves()
       callbackHandler.stop.resolves()
 
-      const useCase = createTestUseCase()
-      const command = createTestCommand(useCase)
+      const useCase = createUseCase()
 
-      await command.run()
+      await useCase.run()
 
       // Verify redirectUri was passed to initiateAuthorization
       expect(authService.initiateAuthorization.calledOnce).to.be.true
@@ -389,10 +352,9 @@ describe('login command', () => {
       tokenStore.save.resolves()
       callbackHandler.stop.resolves()
 
-      const useCase = createTestUseCase()
-      const command = createTestCommand(useCase)
+      const useCase = createUseCase()
 
-      await command.run()
+      await useCase.run()
 
       // Verify state from context was used to wait for callback
       expect(callbackHandler.waitForCallback.calledOnce).to.be.true

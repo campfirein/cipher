@@ -8,7 +8,7 @@ import {switchCommand} from './switch-command.js'
 export const spaceCommand: SlashCommand = {
   aliases: [],
   autoExecute: true,
-  description: 'Manage ByteRover spaces - /space <list|switch>',
+  description: 'Manage ByteRover spaces',
   kind: CommandKind.BUILT_IN,
   name: 'space',
   subCommands: [listCommand, switchCommand],

@@ -244,8 +244,6 @@ export class CurateUseCase implements ICurateUseCase {
       verbose?: boolean
     },
   ): Promise<void> {
-    // this.terminal.log(`Option: ${JSON.stringify(options)}`)
-
     try {
       // Get authentication token
       const token = await this.tokenStore.load()
@@ -277,7 +275,7 @@ export class CurateUseCase implements ICurateUseCase {
         }),
       )
       // Simple output for agents - just confirm saved
-      this.terminal.log('✓ Context queued for processing. View in Activity tab.    [tab]')
+      this.terminal.log('✓ Context queued for processing.')
 
       // Track the event
       await this.trackingService.track('mem:curate')

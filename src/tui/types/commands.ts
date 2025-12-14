@@ -56,8 +56,10 @@ export interface CommandContext {
    * Invocation details about the current command execution
    */
   invocation?: {
-    /** Arguments passed to the command */
+    /** Arguments passed to the command (without @file references) */
     args: string
+    /** File references extracted from @filepath tokens */
+    files: string[]
     /** Resolved command name */
     name: string
     /** Full raw input string */
@@ -95,6 +97,16 @@ export interface CommandContext {
 }
 
 /**
+ * Subcommand info for display in suggestions
+ */
+export interface CommandSubcommandInfo {
+  /** Subcommand description */
+  description: string
+  /** Subcommand name */
+  name: string
+}
+
+/**
  * Suggestion item for auto-completion
  */
 export interface CommandSuggestion {
@@ -108,6 +120,8 @@ export interface CommandSuggestion {
   flags?: CommandFlag[]
   /** Display label */
   label: string
+  /** Subcommands for commands with nested commands */
+  subCommands?: CommandSubcommandInfo[]
   /** Value to insert on selection */
   value: string
 }
@@ -198,6 +212,13 @@ export interface CurateDialogActionReturn {
 }
 
 /**
+ * Command action return type for refreshing auth state (after logout/login)
+ */
+export interface RefreshAuthActionReturn {
+  type: 'refresh_auth'
+}
+
+/**
  * Union of all possible command action return types
  */
 export type SlashCommandActionReturn =
@@ -208,6 +229,7 @@ export type SlashCommandActionReturn =
   | MessageActionReturn
   | QueryDialogActionReturn
   | QuitActionReturn
+  | RefreshAuthActionReturn
   | StreamingActionReturn
   | SubmitPromptReturn
   | void

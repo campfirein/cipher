@@ -10,7 +10,7 @@
 import {Box, Text, useInput} from 'ink'
 import React, {useEffect, useMemo, useRef} from 'react'
 
-import type {CommandArg, CommandFlag} from '../types.js'
+import type {CommandArg, CommandFlag, CommandSubcommandInfo} from '../types.js'
 
 import {useMode} from '../contexts/use-mode.js'
 import {useTheme} from '../contexts/use-theme.js'
@@ -25,10 +25,19 @@ interface SuggestionsProps {
 }
 
 /**
- * Format usage string from args and flags
+ * Format usage string from args, flags, and subcommands
  */
-function formatUsage(label: string, args?: CommandArg[], flags?: CommandFlag[]): string {
+function formatUsage(
+  label: string,
+  args?: CommandArg[],
+  flags?: CommandFlag[],
+  subCommands?: CommandSubcommandInfo[],
+): string {
   let usage = label
+
+  if (subCommands?.length) {
+    usage += ' <subcommand>'
+  }
 
   if (args?.length) {
     const argsStr = args.map((a) => (a.required ? `<${a.name}>` : `[${a.name}]`)).join(' ')
@@ -197,7 +206,9 @@ export const Suggestions: React.FC<SuggestionsProps> = ({input, onInsert, onSele
 
   // Get the selected suggestion
   const selectedSuggestion = activeIndex >= 0 ? suggestions[activeIndex] : null
-  const hasDetails = selectedSuggestion && (selectedSuggestion.args?.length || selectedSuggestion.flags?.length)
+  const hasDetails =
+    selectedSuggestion &&
+    (selectedSuggestion.args?.length || selectedSuggestion.flags?.length || selectedSuggestion.subCommands?.length)
 
   // Calculate if there are more items above/below
   const hasMoreAbove = windowStart > 0
@@ -231,12 +242,27 @@ export const Suggestions: React.FC<SuggestionsProps> = ({input, onInsert, onSele
         </Text>
       )}
 
-      {/* Show args/flags for selected command */}
+      {/* Show args/flags/subcommands for selected command */}
       {hasDetails && (
         <Box borderColor={colors.border} borderStyle="single" borderTop flexDirection="column" marginTop={0}>
           <Text color={colors.text}>
-            Usage: {formatUsage(selectedSuggestion.label, selectedSuggestion.args, selectedSuggestion.flags)}
+            Usage:{' '}
+            {formatUsage(
+              selectedSuggestion.label,
+              selectedSuggestion.args,
+              selectedSuggestion.flags,
+              selectedSuggestion.subCommands,
+            )}
           </Text>
+
+          {selectedSuggestion.subCommands?.map((sub) => (
+            <Text color={colors.dimText} key={sub.name}>
+              {'  '}
+              <Text color={colors.text}>{sub.name.padEnd(labelWidth + 2)}</Text>
+              {'  '}
+              {sub.description}
+            </Text>
+          ))}
 
           {selectedSuggestion.args?.map((arg) => (
             <Text color={colors.dimText} key={arg.name}>
