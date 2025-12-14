@@ -1,1 +1,22 @@
-Search file contents for a regex pattern. Can filter files with glob patterns and include context lines around matches.
+Fast content search tool that works with any codebase size.
+
+- Searches file contents using regular expressions
+- Supports full regex syntax (eg. "log.*Error", "function\s+\w+", "TODO.*fix")
+- Filter files by glob pattern (eg. "*.md", "**/*.{txt,md}", "*.txt")
+- Returns file paths and line numbers for matches
+- Use this tool when you need to find files containing specific patterns
+- For counting matches or advanced queries, use bash with `rg` (ripgrep) directly
+- When doing an open-ended search requiring multiple rounds, use the batch tool instead
+- You can speculatively perform multiple searches in a single batch for efficiency
+
+Common patterns for text and markdown files:
+- "## " - find all markdown headings
+- "```" - find code blocks in markdown
+- "^\s*[-*+]" - find markdown list items
+- "\[.*\]\(.*\)" - find markdown links
+- "TODO|FIXME|NOTE" - find notes and todos in documentation
+- "^\s*# " - find markdown H1 headings
+- "^\s*## " - find markdown H2 headings
+- "```\w+" - find code blocks with language specification
+
+If results are truncated, consider using a more specific path or glob pattern.

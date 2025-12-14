@@ -48,6 +48,23 @@ import {collectFileMetadata, escapeIfExactMatch, extractPaths, sortFilesByRecenc
 import {PathValidator} from './path-validator.js'
 
 /**
+ * Maximum line length for search results.
+ * Prevents context overflow from minified files or long lines.
+ */
+const MAX_LINE_LENGTH = 2000
+
+/**
+ * Truncates a line to MAX_LINE_LENGTH, adding ellipsis if truncated.
+ */
+function truncateLine(line: string): string {
+  if (line.length <= MAX_LINE_LENGTH) {
+    return line
+  }
+
+  return line.slice(0, MAX_LINE_LENGTH) + '...'
+}
+
+/**
  * File system service implementation.
  * Provides secure, validated file system operations with comprehensive
  * path validation, size limits, and allow/block list enforcement.
@@ -495,12 +512,12 @@ export class FileSystemService implements IFileSystem {
     if (contextLines > 0) {
       // Lines before
       for (let j = Math.max(0, lineIndex - contextLines); j < lineIndex; j++) {
-        before.push(lines[j])
+        before.push(truncateLine(lines[j]))
       }
 
       // Lines after
       for (let j = lineIndex + 1; j < Math.min(lines.length, lineIndex + 1 + contextLines); j++) {
-        after.push(lines[j])
+        after.push(truncateLine(lines[j]))
       }
     }
 
@@ -630,7 +647,7 @@ export class FileSystemService implements IFileSystem {
       if (!Number.isNaN(lineNumber)) {
         results.push({
           file: path.resolve(basePath, filePath),
-          line: content,
+          line: truncateLine(content),
           lineNumber,
         })
       }
@@ -700,7 +717,7 @@ export class FileSystemService implements IFileSystem {
         matches.push({
           context: contextLines > 0 ? context : undefined,
           file: filePath,
-          line,
+          line: truncateLine(line),
           lineNumber: i + 1, // 1-based line numbers
         })
       }
