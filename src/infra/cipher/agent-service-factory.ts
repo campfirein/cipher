@@ -140,9 +140,12 @@ export async function createCipherAgentServices(llmConfig: CipherLLMConfig): Pro
   const promptFactory = new SimplePromptFactory(undefined, verbose)
 
   // 8. Tool system (depends on FileSystemService, ProcessService, MemoryManager, PromptFactory)
-  const toolProvider = new ToolProvider(
+  // Note: getToolProvider is a lazy getter to avoid circular dependency with batch tool
+  // The explicit type annotation is required to avoid "implicitly has type 'any'" error
+  const toolProvider: ToolProvider = new ToolProvider(
     {
       fileSystemService,
+      getToolProvider: (): ToolProvider => toolProvider,
       memoryManager,
       processService,
     },

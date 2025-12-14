@@ -2,11 +2,13 @@ import type {KnownTool} from '../../../core/domain/cipher/tools/constants.js'
 import type {Tool} from '../../../core/domain/cipher/tools/types.js'
 import type {IFileSystem} from '../../../core/interfaces/cipher/i-file-system.js'
 import type {IProcessService} from '../../../core/interfaces/cipher/i-process-service.js'
+import type {IToolProvider} from '../../../core/interfaces/cipher/i-tool-provider.js'
 import type {MemoryManager} from '../memory/memory-manager.js'
 
 import {ToolName} from '../../../core/domain/cipher/tools/constants.js'
 import {createBashExecTool} from './implementations/bash-exec-tool.js'
 import {createBashOutputTool} from './implementations/bash-output-tool.js'
+import {createBatchTool} from './implementations/batch-tool.js'
 import {createCreateKnowledgeTopicTool} from './implementations/create-knowledge-topic-tool.js'
 import {createCurateTool} from './implementations/curate-tool.js'
 import {createDeleteMemoryTool} from './implementations/delete-memory-tool.js'
@@ -27,6 +29,12 @@ import {createWriteTodosTool} from './implementations/write-todos-tool.js'
 import {ToolMarker} from './tool-markers.js'
 
 /**
+ * Lazy getter for ToolProvider to avoid circular dependencies.
+ * Used by batch tool to execute other tools at runtime.
+ */
+export type ToolProviderGetter = () => IToolProvider
+
+/**
  * Service dependencies available to tools.
  * Tools declare which services they need via requiredServices.
  */
@@ -34,6 +42,12 @@ export interface ToolServices {
 
   /** File system service for file operations */
   fileSystemService?: IFileSystem
+
+  /**
+   * Lazy getter for tool provider (avoids circular dependency).
+   * Used by batch tool to execute other tools.
+   */
+  getToolProvider?: ToolProviderGetter
 
   /** Memory manager for agent memory operations */
   memoryManager?: MemoryManager
@@ -118,6 +132,13 @@ export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
     factory: (services) => createBashOutputTool(getRequiredService(services.processService, 'processService')),
     markers: [ToolMarker.Execution, ToolMarker.Optional],
     requiredServices: ['processService'],
+  },
+
+  [ToolName.BATCH]: {
+    descriptionFile: 'batch',
+    factory: (services) => createBatchTool(getRequiredService(services.getToolProvider, 'getToolProvider')),
+    markers: [ToolMarker.Execution, ToolMarker.Core],
+    requiredServices: ['getToolProvider'],
   },
 
   [ToolName.CREATE_KNOWLEDGE_TOPIC]: {

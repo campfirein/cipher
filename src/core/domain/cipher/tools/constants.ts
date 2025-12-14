@@ -5,6 +5,7 @@
 export const ToolName: {
   readonly BASH_EXEC: 'bash_exec'
   readonly BASH_OUTPUT: 'bash_output'
+  readonly BATCH: 'batch'
   readonly CREATE_KNOWLEDGE_TOPIC: 'create_knowledge_topic'
   readonly CURATE: 'curate'
   readonly DELETE_MEMORY: 'delete_memory'
@@ -25,6 +26,7 @@ export const ToolName: {
 } = {
   BASH_EXEC: 'bash_exec',
   BASH_OUTPUT: 'bash_output',
+  BATCH: 'batch',
   CREATE_KNOWLEDGE_TOPIC: 'create_knowledge_topic',
   CURATE: 'curate',
   DELETE_MEMORY: 'delete_memory',

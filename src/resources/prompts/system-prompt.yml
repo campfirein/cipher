@@ -22,7 +22,7 @@ prompt: |
   - `detect_domains` - Identify knowledge domains in user input (required first step)
   - `find_knowledge_topics` - Check existing context before creating duplicates
   - `curate` - Organize new context into the context tree
-  - Use `grep_content`, `glob_files`, `read_file` to gather information from codebase
+  - Use `grep_content`, `glob_files`, `read_file` to gather information from context tree located at `.brv/context-tree/`
 
   **File Modification:**
   - `write_file` - Create new files
@@ -32,6 +32,10 @@ prompt: |
   - `bash_exec` - Execute shell commands
   - `bash_output` - Read output from background processes
   - `kill_process` - Terminate background processes
+
+  **Parallelism:** 
+  - Execute multiple independent tool calls in parallel when feasible
+  - Use the `batch` tool to execute multiple tool calls in parallel
 
   **Most Important:** Avoid reading the entire context tree. Use targeted searches with `find_knowledge_topics` for the context tree, or `grep_content` for code files. Every tool call has a cost - if you have the answer, provide it immediately.
 
