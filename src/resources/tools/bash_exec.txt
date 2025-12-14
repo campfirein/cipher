@@ -5,3 +5,94 @@ Execute a shell command and return its output.
 Examples of inappropriate use:
 - Long-running processes (e.g. servers) that are not intended to terminate quickly
 - Processes that require user interaction
+
+## Tool Preferences
+
+Prefer using dedicated tools over bash commands when available:
+- **File search:** Use `glob_files` instead of `find` or `ls`
+- **Content search:** Use `grep_content` instead of `grep` or `rg`
+- **Read files:** Use `read_file` instead of `cat`, `head`, or `tail`
+- **Edit files:** Use `edit_file` instead of `sed` or `awk`
+- **Write files:** Use `write_file` instead of `echo >` or `cat <<EOF`
+
+Use bash_exec only for:
+- Git operations (git status, git commit, git push, etc.)
+- Package management (npm, yarn, pip, cargo, etc.)
+- Build commands (make, cargo build, npm run build, etc.)
+- Running tests (pytest, jest, cargo test, etc.)
+- Docker operations
+- Other system commands without dedicated tools
+
+## Working Directory
+
+The `cwd` parameter sets the working directory for command execution. Prefer using `cwd` over `cd <dir> &&` command chains.
+
+**Good:**
+```
+cwd: "/project/src", command: "npm test"
+```
+
+**Good:**
+```
+command: "npm test --prefix /project/src"
+```
+
+**Bad:**
+```
+command: "cd /project/src && npm test"
+```
+
+## Timeout Guidelines
+
+- Default timeout: 2 minutes (120,000ms)
+- Maximum timeout: 10 minutes (600,000ms)
+- Use appropriate timeouts for long-running commands like builds or tests
+- For very long operations, consider using `runInBackground: true`
+
+## Background Execution
+
+Set `runInBackground: true` for commands that may take a long time:
+- Large test suites
+- Build processes
+- File synchronization
+
+Use `bash_output` to retrieve output from background processes.
+
+## Command Chaining
+
+When multiple commands are needed:
+- Use `&&` for sequential commands where later commands depend on earlier ones succeeding
+- Use `;` only when you don't care if earlier commands fail
+- Prefer separate bash_exec calls for independent commands (they can run in parallel)
+
+**Good:** `git add . && git commit -m "message" && git push`
+**Good:** Separate calls for `npm install` and `npm test` if they're independent
+**Bad:** Using newlines to separate commands
+
+## Path Handling
+
+Always quote file paths that contain spaces:
+```
+mkdir "/path/with spaces/directory"
+python "/path/with spaces/script.py"
+```
+
+## Git Operations
+
+For git commits:
+1. Run `git status` to see changes
+2. Run `git diff` to review changes
+3. Stage files with `git add`
+4. Commit with a meaningful message
+
+For pull requests:
+1. Check branch status with `git status`
+2. Push to remote with `git push -u origin <branch>`
+3. Create PR using `gh pr create`
+
+## Security Notes
+
+- Commands are validated against dangerous patterns
+- Path arguments are validated to stay within the working directory
+- Some commands may be blocked based on security settings
+- Avoid commands that modify system files or configurations

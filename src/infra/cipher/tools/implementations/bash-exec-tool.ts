@@ -65,15 +65,7 @@ type BashExecInput = z.infer<typeof BashExecInputSchema>
  */
 export function createBashExecTool(processService: IProcessService): Tool {
   return {
-    description: `Execute a shell command and return its output.
-
-If there is a memory about suggested commands, read that first.
-
-**IMPORTANT:** Do not use this tool to start any process that is not intended to terminate quickly, or requires user interaction.
-
-Examples of inappropriate use:
-- Long-running processes (e.g. servers) that are not intended to terminate quickly
-- Processes that require user interaction`,
+    description: `Execute a shell command and return its output.`,
 
     async execute(input: unknown, context?: ToolExecutionContext) {
       const {command, cwd, description, runInBackground, timeout} = input as BashExecInput

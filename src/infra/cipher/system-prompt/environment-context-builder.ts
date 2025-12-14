@@ -40,6 +40,26 @@ export interface EnvironmentContextOptions {
 }
 
 /**
+ * Options for directory traversal.
+ */
+interface TraverseOptions {
+  /** Current traversal depth */
+  currentDepth: number
+  /** Current directory path */
+  dir: string
+  /** Counter for entries added (mutable object) */
+  entriesCount: {value: number}
+  /** Array to append lines to */
+  lines: string[]
+  /** Maximum depth to traverse */
+  maxDepth: number
+  /** Maximum entries to include */
+  maxEntries: number
+  /** Counter for truncated entries (mutable object) */
+  truncatedCount: {value: number}
+}
+
+/**
  * Patterns to exclude from file tree.
  */
 const EXCLUDE_PATTERNS = [
@@ -162,7 +182,15 @@ export class EnvironmentContextBuilder {
     const truncatedCount = {value: 0}
     const lines: string[] = ['<files>']
 
-    this.traverseDirectory(dir, maxDepth, maxEntries, 0, entriesCount, truncatedCount, lines)
+    this.traverseDirectory({
+      currentDepth: 0,
+      dir,
+      entriesCount,
+      lines,
+      maxDepth,
+      maxEntries,
+      truncatedCount,
+    })
 
     if (truncatedCount.value > 0) {
       lines.push(`[${truncatedCount.value} entries truncated]`)
@@ -233,29 +261,24 @@ export class EnvironmentContextBuilder {
         return true
       }
     }
+
     return false
   }
 
   /**
    * Recursively traverse a directory and build tree lines.
    *
-   * @param dir - Current directory path
-   * @param maxDepth - Maximum depth to traverse
-   * @param maxEntries - Maximum entries to include
-   * @param currentDepth - Current traversal depth
-   * @param entriesCount - Counter for entries added
-   * @param truncatedCount - Counter for truncated entries
-   * @param lines - Array to append lines to
+   * @param options - Traversal options
+   * @param options.dir - Current directory path
+   * @param options.maxDepth - Maximum depth to traverse
+   * @param options.maxEntries - Maximum entries to include
+   * @param options.currentDepth - Current traversal depth
+   * @param options.entriesCount - Counter for entries added (mutable object with value property)
+   * @param options.truncatedCount - Counter for truncated entries (mutable object with value property)
+   * @param options.lines - Array to append lines to
    */
-  private traverseDirectory(
-    dir: string,
-    maxDepth: number,
-    maxEntries: number,
-    currentDepth: number,
-    entriesCount: {value: number},
-    truncatedCount: {value: number},
-    lines: string[],
-  ): void {
+  private traverseDirectory(options: TraverseOptions): void {
+    const {currentDepth, dir, entriesCount, lines, maxDepth, maxEntries, truncatedCount} = options
     if (currentDepth >= maxDepth) {
       return
     }
@@ -288,15 +311,15 @@ export class EnvironmentContextBuilder {
 
       if (entry.isDirectory()) {
         lines.push(`${indent}${entry.name}/`)
-        this.traverseDirectory(
-          path.join(dir, entry.name),
+        this.traverseDirectory({
+          currentDepth: currentDepth + 1,
+          dir: path.join(dir, entry.name),
+          entriesCount,
+          lines,
           maxDepth,
           maxEntries,
-          currentDepth + 1,
-          entriesCount,
           truncatedCount,
-          lines,
-        )
+        })
       } else {
         lines.push(`${indent}${entry.name}`)
       }
