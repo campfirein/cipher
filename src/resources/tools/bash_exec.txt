@@ -1,0 +1,7 @@
+Execute a shell command and return its output.
+
+**IMPORTANT:** Do not use this tool to start any process that is not intended to terminate quickly, or requires user interaction.
+
+Examples of inappropriate use:
+- Long-running processes (e.g. servers) that are not intended to terminate quickly
+- Processes that require user interaction

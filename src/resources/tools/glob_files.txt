@@ -1,0 +1,1 @@
+Find files matching a glob pattern. Supports ** for recursive matching (e.g., "**/*.ts" finds all TypeScript files)

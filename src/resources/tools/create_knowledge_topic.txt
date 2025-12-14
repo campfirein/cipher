@@ -1,0 +1,23 @@
+Create organized knowledge topics within domain folders. This tool structures knowledge by creating topic and subtopic folders, each containing a context.md file with relevant snippets and optional relations.
+
+Use this tool after detecting domains to organize extracted knowledge into a hierarchical structure:
+- Domain folders (e.g., .brv/context-tree/domain-name/)
+- Topic folders (e.g., .brv/context-tree/domain-name/topic-name/)
+- Topic context.md files (e.g., .brv/context-tree/domain-name/topic-name/context.md)
+- Subtopic folders (e.g., .brv/context-tree/domain-name/topic-name/subtopic-name/)
+- Subtopic context.md files (e.g., .brv/context-tree/domain-name/topic-name/subtopic-name/context.md)
+
+Each topic should include:
+1. A clear topic name
+2. Relevant code/text snippets that demonstrate the knowledge
+3. Optional relations to other topics using @domain/topic or @domain/topic/subtopic notation
+4. Subtopics (optional) that break down the topic into smaller pieces
+
+Relations enhance knowledge discovery by linking related contexts. Example:
+- relations: ['code_style/error-handling', 'structure/api-endpoints/validation']
+
+The tool automatically:
+- Creates the base knowledge structure if it doesn't exist
+- Creates topic and subtopic folders as needed
+- Generates context.md files with snippets and relations
+- Handles existing topics gracefully (updates instead of recreating)

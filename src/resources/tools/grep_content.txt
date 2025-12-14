@@ -1,0 +1,1 @@
+Search file contents for a regex pattern. Can filter files with glob patterns and include context lines around matches.

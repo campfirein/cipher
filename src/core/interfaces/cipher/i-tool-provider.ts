@@ -1,5 +1,5 @@
 import type {ToolMarker} from '../../../infra/cipher/tools/tool-markers.js'
-import type {ToolSet} from '../../domain/cipher/tools/types.js'
+import type {ToolExecutionContext, ToolSet} from '../../domain/cipher/tools/types.js'
 
 /**
  * Interface for tool provider.
@@ -12,12 +12,18 @@ export interface IToolProvider {
    * @param toolName - Name of the tool to execute
    * @param args - Tool arguments (will be validated against schema)
    * @param sessionId - Optional session ID for context
+   * @param context - Optional execution context (includes metadata callback for streaming)
    * @returns Tool execution result
    * @throws ToolNotFoundError if tool doesn't exist
    * @throws ToolValidationError if input validation fails
    * @throws ToolExecutionError if execution fails
    */
-  executeTool(toolName: string, args: Record<string, unknown>, sessionId?: string): Promise<unknown>
+  executeTool(
+    toolName: string,
+    args: Record<string, unknown>,
+    sessionId?: string,
+    context?: ToolExecutionContext,
+  ): Promise<unknown>
 
   /**
    * Get all registered tools in JSON Schema format.

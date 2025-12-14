@@ -1,0 +1,1 @@
+Read the contents of a file. Supports pagination with offset (1-based line number) and limit (max lines).

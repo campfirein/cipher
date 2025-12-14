@@ -53,6 +53,14 @@ export type ToolFactory = (services: ToolServices) => Tool
  * Defines the factory, required services, semantic markers, and optional output guidance for each tool.
  */
 export interface ToolRegistryEntry {
+  /**
+   * Optional external description file name (without .txt extension).
+   * If specified, the ToolProvider will load the description from
+   * src/resources/tools/{descriptionFile}.txt instead of using the inline description.
+   * Example: 'bash_exec' will load from 'src/resources/tools/bash_exec.txt'
+   */
+  descriptionFile?: string
+
   /** Factory function to create the tool */
   factory: ToolFactory
 
@@ -99,18 +107,21 @@ function getRequiredService<T>(service: T | undefined, serviceName: string): T {
  */
 export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
   [ToolName.BASH_EXEC]: {
+    descriptionFile: 'bash_exec',
     factory: (services) => createBashExecTool(getRequiredService(services.processService, 'processService')),
     markers: [ToolMarker.Execution],
     requiredServices: ['processService'],
   },
 
   [ToolName.BASH_OUTPUT]: {
+    descriptionFile: 'bash_output',
     factory: (services) => createBashOutputTool(getRequiredService(services.processService, 'processService')),
     markers: [ToolMarker.Execution, ToolMarker.Optional],
     requiredServices: ['processService'],
   },
 
   [ToolName.CREATE_KNOWLEDGE_TOPIC]: {
+    descriptionFile: 'create_knowledge_topic',
     factory: () => createCreateKnowledgeTopicTool(),
     markers: [ToolMarker.ContextBuilding],
     outputGuidance: 'create_knowledge_topic',
@@ -118,6 +129,7 @@ export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
   },
 
   [ToolName.CURATE]: {
+    descriptionFile: 'curate',
     factory: () => createCurateTool(),
     markers: [ToolMarker.ContextBuilding, ToolMarker.Modification],
     outputGuidance: 'curate',
@@ -125,6 +137,7 @@ export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
   },
 
   [ToolName.DELETE_MEMORY]: {
+    descriptionFile: 'delete_memory',
     factory: (services) => createDeleteMemoryTool(getRequiredService(services.memoryManager, 'memoryManager')),
     markers: [ToolMarker.ContextBuilding],
     outputGuidance: 'delete_memory',
@@ -132,6 +145,7 @@ export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
   },
 
   [ToolName.DETECT_DOMAINS]: {
+    descriptionFile: 'detect_domains',
     factory: () => createDetectDomainsTool(),
     markers: [ToolMarker.ContextBuilding],
     outputGuidance: 'detect_domains',
@@ -139,12 +153,14 @@ export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
   },
 
   [ToolName.EDIT_FILE]: {
+    descriptionFile: 'edit_file',
     factory: (services) => createEditFileTool(getRequiredService(services.fileSystemService, 'fileSystemService')),
     markers: [ToolMarker.Modification],
     requiredServices: ['fileSystemService'],
   },
 
   [ToolName.EDIT_MEMORY]: {
+    descriptionFile: 'edit_memory',
     factory: (services) => createEditMemoryTool(getRequiredService(services.memoryManager, 'memoryManager')),
     markers: [ToolMarker.ContextBuilding],
     outputGuidance: 'edit_memory',
@@ -152,6 +168,7 @@ export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
   },
 
   [ToolName.FIND_KNOWLEDGE_TOPICS]: {
+    descriptionFile: 'find_knowledge_topics',
     factory: () => createFindKnowledgeTopicsTool(),
     markers: [ToolMarker.ContextBuilding, ToolMarker.Discovery],
     outputGuidance: 'find_knowledge_topics',
@@ -159,24 +176,28 @@ export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
   },
 
   [ToolName.GLOB_FILES]: {
+    descriptionFile: 'glob_files',
     factory: (services) => createGlobFilesTool(getRequiredService(services.fileSystemService, 'fileSystemService')),
     markers: [ToolMarker.Core, ToolMarker.Discovery],
     requiredServices: ['fileSystemService'],
   },
 
   [ToolName.GREP_CONTENT]: {
+    descriptionFile: 'grep_content',
     factory: (services) => createGrepContentTool(getRequiredService(services.fileSystemService, 'fileSystemService')),
     markers: [ToolMarker.Core, ToolMarker.Discovery],
     requiredServices: ['fileSystemService'],
   },
 
   [ToolName.KILL_PROCESS]: {
+    descriptionFile: 'kill_process',
     factory: (services) => createKillProcessTool(getRequiredService(services.processService, 'processService')),
     markers: [ToolMarker.Execution, ToolMarker.Optional],
     requiredServices: ['processService'],
   },
 
   [ToolName.LIST_MEMORIES]: {
+    descriptionFile: 'list_memories',
     factory: (services) => createListMemoriesTool(getRequiredService(services.memoryManager, 'memoryManager')),
     markers: [ToolMarker.ContextBuilding, ToolMarker.Discovery],
     outputGuidance: 'list_memories',
@@ -184,12 +205,14 @@ export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
   },
 
   [ToolName.READ_FILE]: {
+    descriptionFile: 'read_file',
     factory: (services) => createReadFileTool(getRequiredService(services.fileSystemService, 'fileSystemService')),
     markers: [ToolMarker.Core, ToolMarker.Discovery],
     requiredServices: ['fileSystemService'],
   },
 
   [ToolName.READ_MEMORY]: {
+    descriptionFile: 'read_memory',
     factory: (services) => createReadMemoryTool(getRequiredService(services.memoryManager, 'memoryManager')),
     markers: [ToolMarker.ContextBuilding, ToolMarker.Discovery],
     outputGuidance: 'read_memory',
@@ -197,18 +220,21 @@ export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
   },
 
   [ToolName.SEARCH_HISTORY]: {
+    descriptionFile: 'search_history',
     factory: (_services) => createSearchHistoryTool(),
     markers: [ToolMarker.ContextBuilding, ToolMarker.Discovery],
     requiredServices: [], // No services required yet (stub implementation)
   },
 
   [ToolName.WRITE_FILE]: {
+    descriptionFile: 'write_file',
     factory: (services) => createWriteFileTool(getRequiredService(services.fileSystemService, 'fileSystemService')),
     markers: [ToolMarker.Modification],
     requiredServices: ['fileSystemService'],
   },
 
   [ToolName.WRITE_MEMORY]: {
+    descriptionFile: 'write_memory',
     factory: (services) => createWriteMemoryTool(getRequiredService(services.memoryManager, 'memoryManager')),
     markers: [ToolMarker.ContextBuilding],
     outputGuidance: 'write_memory',
@@ -216,6 +242,7 @@ export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
   },
 
   [ToolName.WRITE_TODOS]: {
+    descriptionFile: 'write_todos',
     factory: () => createWriteTodosTool(),
     markers: [ToolMarker.Planning, ToolMarker.Core],
     requiredServices: [], // No services required (stateless tool)

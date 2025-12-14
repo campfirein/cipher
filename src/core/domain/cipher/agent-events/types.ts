@@ -24,6 +24,7 @@ export const SESSION_EVENT_NAMES = [
   'llmservice:thinking',
   'llmservice:thought',
   'llmservice:toolCall',
+  'llmservice:toolMetadata',
   'llmservice:toolResult',
   'llmservice:unsupportedInput',
   'llmservice:warning',
@@ -312,6 +313,24 @@ export interface AgentEventMap {
   }
 
   /**
+   * Emitted when a tool streams metadata updates during execution.
+   * Allows tools to push real-time updates (e.g., bash output streaming).
+   * @property {string} callId - Tool call identifier
+   * @property {string} [description] - Human-readable status description
+   * @property {Record<string, unknown>} metadata - The metadata update
+   * @property {string} [output] - Streamed output content
+   * @property {number} [progress] - Progress indicator (0-100)
+   * @property {string} sessionId - ID of the session
+   * @property {string} toolName - Name of the tool streaming metadata
+   */
+  'llmservice:toolMetadata': {
+    callId: string
+    metadata: Record<string, unknown>
+    sessionId: string
+    toolName: string
+  }
+
+  /**
    * Emitted when a tool execution completes.
    * @property {string} [callId] - Tool call identifier
    * @property {string} [error] - Error message (if failed)
@@ -439,6 +458,19 @@ export interface SessionEventMap {
   'llmservice:toolCall': {
     args: Record<string, unknown>
     callId?: string
+    toolName: string
+  }
+
+  /**
+   * Emitted when a tool streams metadata updates during execution.
+   * Allows tools to push real-time updates (e.g., bash output streaming).
+   * @property {string} callId - Tool call identifier
+   * @property {Record<string, unknown>} metadata - The metadata update
+   * @property {string} toolName - Name of the tool streaming metadata
+   */
+  'llmservice:toolMetadata': {
+    callId: string
+    metadata: Record<string, unknown>
     toolName: string
   }
 

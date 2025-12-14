@@ -33,6 +33,7 @@ import {NoOpLogger} from '../../../core/interfaces/cipher/i-logger.js'
 import {getErrorMessage} from '../../../utils/error-helpers.js'
 import {SessionEventBus} from '../events/event-emitter.js'
 import {EnvironmentContextBuilder} from '../system-prompt/environment-context-builder.js'
+import {ToolMetadataHandler} from '../tools/streaming/metadata-handler.js'
 import {ContextManager, type FileData, type ImageData} from './context/context-manager.js'
 import {LoopDetector} from './context/loop-detector.js'
 import {ClaudeMessageFormatter} from './formatters/claude-formatter.js'
@@ -95,6 +96,17 @@ export interface LLMServiceConfig {
 }
 
 /**
+ * Options for building generation request
+ */
+interface BuildGenerateContentRequestOptions {
+  executionContext?: ExecutionContext
+  mode?: 'autonomous' | 'default' | 'query'
+  sessionId: string
+  systemPrompt: string
+  tools: ToolSet
+}
+
+/**
  * ByteRover LLM Service.
  *
  * Orchestrates the agentic loop using IContentGenerator for LLM calls.
@@ -130,6 +142,7 @@ export class ByteRoverLLMService implements ILLMService {
   private readonly logger: ILogger
   private readonly loopDetector: LoopDetector
   private readonly memoryManager?: MemoryManager
+  private readonly metadataHandler: ToolMetadataHandler
   private readonly outputProcessor: ToolOutputProcessor
   private readonly promptFactory: SimplePromptFactory
   private readonly providerType: 'claude' | 'gemini'
@@ -188,6 +201,7 @@ export class ByteRoverLLMService implements ILLMService {
     this.outputProcessor = new ToolOutputProcessor(config.truncationConfig)
     this.loopDetector = new LoopDetector()
     this.environmentBuilder = new EnvironmentContextBuilder()
+    this.metadataHandler = new ToolMetadataHandler(this.sessionEventBus)
     this.workingDirectory = process.cwd()
     this.config = {
       maxInputTokens: config.maxInputTokens ?? 1_000_000,
@@ -407,20 +421,15 @@ export class ByteRoverLLMService implements ILLMService {
    *
    * Converts internal context to the standardized GenerateContentRequest format.
    *
-   * @param sessionId - Session ID for tracking the llm request in a command session
-   * @param systemPrompt - System prompt text
-   * @param tools - Available tools for function calling
-   * @param mode - Optional mode for system prompt
-   * @param executionContext - Optional execution context
+   * @param options - Request options
+   * @param options.sessionId - Session ID for tracking the llm request in a command session
+   * @param options.systemPrompt - System prompt text
+   * @param options.tools - Available tools for function calling
+   * @param options.mode - Optional mode for system prompt
+   * @param options.executionContext - Optional execution context
    * @returns GenerateContentRequest for the generator
    */
-  private buildGenerateContentRequest(
-    sessionId: string,
-    systemPrompt: string,
-    tools: ToolSet,
-    mode?: 'autonomous' | 'default' | 'query',
-    executionContext?: ExecutionContext,
-  ): GenerateContentRequest {
+  private buildGenerateContentRequest(options: BuildGenerateContentRequestOptions): GenerateContentRequest {
     // Get internal messages from context manager
     const messages = this.contextManager.getMessages()
 
@@ -430,12 +439,12 @@ export class ByteRoverLLMService implements ILLMService {
         temperature: this.config.temperature,
       },
       contents: messages,
-      executionContext,
-      mode,
+      executionContext: options.executionContext,
+      mode: options.mode,
       model: this.config.model,
-      sessionId,
-      systemPrompt,
-      tools,
+      sessionId: options.sessionId,
+      systemPrompt: options.systemPrompt,
+      tools: options.tools,
     }
   }
 
@@ -715,7 +724,13 @@ export class ByteRoverLLMService implements ILLMService {
     }
 
     // Build generation request
-    const request = this.buildGenerateContentRequest(sessionId, systemPrompt, toolsForThisIteration, mode, executionContext)
+    const request = this.buildGenerateContentRequest({
+      executionContext,
+      mode,
+      sessionId,
+      systemPrompt,
+      tools: toolsForThisIteration,
+    })
 
     // Call LLM via generator (retry + logging handled by decorators)
     const lastMessage = await this.callLLMAndParseResponse(request)
@@ -780,8 +795,16 @@ export class ByteRoverLLMService implements ILLMService {
         toolName,
       })
 
+      // Create metadata callback for streaming tool output
+      const metadataCallback = this.metadataHandler.createCallback(toolCall.id, toolName)
+
       // Execute tool via ToolManager (returns structured result)
-      const result: ToolExecutionResult = await this.toolManager.executeTool(toolName, toolArgs)
+      const result: ToolExecutionResult = await this.toolManager.executeTool(
+        toolName,
+        toolArgs,
+        this.sessionId,
+        { metadata: metadataCallback },
+      )
 
       // Process output (truncation and file saving if needed)
       const processedOutput = await this.outputProcessor.processOutput(toolName, result.content)
