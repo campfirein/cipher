@@ -263,6 +263,13 @@ export class CurateUseCase implements ICurateUseCase {
         )
       }
 
+      // Process file references if provided (validates and creates instructions)
+      const fileReferenceInstructions = this.processFileReferences(options.files ?? [])
+      if (fileReferenceInstructions === undefined) {
+        // Validation failed, error already displayed
+        return
+      }
+
       // Initialize storage and create execution (auto-detects .brv/blobs)
       const storage = await getAgentStorage()
 
@@ -271,6 +278,7 @@ export class CurateUseCase implements ICurateUseCase {
         'curate',
         JSON.stringify({
           content,
+          fileReferenceInstructions,
           flags: {apiKey: options.apiKey, model: options.model, verbose: options.verbose},
         }),
       )

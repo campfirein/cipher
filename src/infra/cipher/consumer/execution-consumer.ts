@@ -57,6 +57,7 @@ function calculateMetrics(result: unknown): undefined | {charsCount: number; lin
  */
 interface CurateInput {
   content: string
+  fileReferenceInstructions?: string
   flags?: {
     apiKey?: string
     model?: string
@@ -277,7 +278,10 @@ export class ExecutionConsumer {
       // Execute with autonomous mode
       const prompt = `Add the following context to the context tree:\n\n${input.content}`
       const response = await agent.execute(prompt, sessionId, {
-        executionContext: {commandType: 'curate'},
+        executionContext: {
+          commandType: 'curate',
+          fileReferenceInstructions: input.fileReferenceInstructions,
+        },
         mode: 'autonomous',
       })
 
