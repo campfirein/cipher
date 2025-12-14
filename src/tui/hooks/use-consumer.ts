@@ -4,7 +4,7 @@
  * Hook to manage consumer lifecycle
  */
 
-import {useEffect, useState} from 'react'
+import {useCallback, useEffect, useRef, useState} from 'react'
 
 import type {ConsumerStatus} from '../types.js'
 
@@ -14,38 +14,52 @@ export function useConsumer(): {
   consumerError: Error | null
   consumerId: null | string
   consumerStatus: ConsumerStatus
+  restart: () => Promise<void>
 } {
   const [status, setStatus] = useState<ConsumerStatus>('starting')
   const [consumerError, setConsumerError] = useState<Error | null>(null)
   const [consumerId, setConsumerId] = useState<null | string>(null)
-  const [consumer] = useState(() => new ConsumerService())
+  const consumerRef = useRef<ConsumerService>(new ConsumerService())
+  const mountedRef = useRef(true)
 
-  useEffect(() => {
-    let mounted = true
-
-    const startConsumer = async (): Promise<void> => {
-      try {
-        await consumer.start()
-        if (mounted) {
-          setStatus('running')
-          setConsumerId(consumer.getConsumerId())
-        }
-      } catch (error) {
-        if (mounted) {
-          setStatus('error')
-          setConsumerError(error instanceof Error ? error : new Error(String(error)))
-        }
+  const startConsumer = useCallback(async (): Promise<void> => {
+    try {
+      setStatus('starting')
+      setConsumerError(null)
+      await consumerRef.current.start()
+      if (mountedRef.current) {
+        setStatus('running')
+        setConsumerId(consumerRef.current.getConsumerId())
+      }
+    } catch (error) {
+      if (mountedRef.current) {
+        setStatus('error')
+        setConsumerError(error instanceof Error ? error : new Error(String(error)))
       }
     }
+  }, [])
 
+  const restart = useCallback(async (): Promise<void> => {
+    // Dispose current consumer
+    consumerRef.current.dispose()
+    setStatus('stopped')
+    setConsumerId(null)
+
+    // Create new consumer and start
+    consumerRef.current = new ConsumerService()
+    await startConsumer()
+  }, [startConsumer])
+
+  useEffect(() => {
+    mountedRef.current = true
     startConsumer()
 
     return () => {
-      mounted = false
-      consumer.dispose()
+      mountedRef.current = false
+      consumerRef.current.dispose()
       setStatus('stopped')
     }
-  }, [consumer])
+  }, [startConsumer])
 
-  return {consumerError, consumerId, consumerStatus: status}
+  return {consumerError, consumerId, consumerStatus: status, restart}
 }

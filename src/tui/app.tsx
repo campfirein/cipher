@@ -30,7 +30,7 @@ export const App: React.FC = () => {
   const contentHeight = Math.max(1, terminalHeight - LAYOUT.headerHeight - LAYOUT.tabBarHeight - LAYOUT.footerHeight)
 
   return (
-    <Box flexDirection="column" height={terminalHeight} paddingBottom={1} width={terminalWidth}>
+    <Box flexDirection="column" height={terminalHeight} width={terminalWidth}>
       {/* Header - always shown, but no queueStats when unauthorized */}
       <Box flexShrink={0}>
         <Header

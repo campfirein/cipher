@@ -10,14 +10,13 @@
  * ```
  */
 
-import React, { createContext, useContext, useMemo } from 'react'
+import React, {createContext, useContext, useMemo} from 'react'
 
-import type { ExecutionWithToolCalls, QueueStats } from '../../infra/cipher/consumer/queue-polling-service.js'
-import type { ConsumerStatus } from '../types.js'
+import type {ExecutionWithToolCalls, QueueStats} from '../../infra/cipher/consumer/queue-polling-service.js'
+import type {ConsumerStatus} from '../types.js'
 
-import { useConsumer as useConsumerHook } from '../hooks/use-consumer.js'
-import { useQueuePolling } from '../hooks/use-queue-polling.js'
-
+import {useConsumer as useConsumerHook} from '../hooks/use-consumer.js'
+import {useQueuePolling} from '../hooks/use-queue-polling.js'
 
 interface ConsumerContextValue {
   // From useConsumer hook
@@ -29,6 +28,7 @@ interface ConsumerContextValue {
   isConnected: boolean
   pollingError: Error | null
   reconnectCount: number
+  restart: () => Promise<void>
   sessionExecutions: ExecutionWithToolCalls[]
   stats: null | QueueStats
 }
@@ -39,9 +39,9 @@ interface ConsumerProviderProps {
   children: React.ReactNode
 }
 
-export function ConsumerProvider({ children }: ConsumerProviderProps): React.ReactElement {
+export function ConsumerProvider({children}: ConsumerProviderProps): React.ReactElement {
   // Start consumer service
-  const { consumerError, consumerId, consumerStatus } = useConsumerHook()
+  const {consumerError, consumerId, consumerStatus, restart} = useConsumerHook()
 
   // Poll queue for executions and stats
   const {
@@ -49,10 +49,10 @@ export function ConsumerProvider({ children }: ConsumerProviderProps): React.Rea
     isConnected,
     reconnectCount,
     sessionExecutions,
-    stats
+    stats,
   } = useQueuePolling({
     consumerId: consumerId ?? undefined,
-    pollInterval: 1000
+    pollInterval: 1000,
   })
 
   const contextValue = useMemo(
@@ -61,11 +61,12 @@ export function ConsumerProvider({ children }: ConsumerProviderProps): React.Rea
       consumerError,
       consumerId,
       consumerStatus,
-
       // Queue polling state
       isConnected,
+
       pollingError,
       reconnectCount,
+      restart,
       sessionExecutions,
       stats,
     }),
@@ -73,6 +74,7 @@ export function ConsumerProvider({ children }: ConsumerProviderProps): React.Rea
       consumerError,
       consumerId,
       consumerStatus,
+      restart,
       isConnected,
       pollingError,
       reconnectCount,

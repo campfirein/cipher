@@ -13,6 +13,7 @@ import type { IProjectConfigStore } from '../../core/interfaces/i-project-config
 import type { ITokenStore } from '../../core/interfaces/i-token-store.js'
 
 import { AuthProvider, ConsumerProvider, ServicesProvider } from '../contexts/index.js'
+import { OnboardingProvider } from '../contexts/onboarding-context.js'
 import { CommandsProvider } from '../contexts/use-commands.js'
 import { ModeProvider } from '../contexts/use-mode.js'
 import { ThemeProvider } from '../contexts/use-theme.js'
@@ -40,7 +41,9 @@ export function AppProviders({
         <ThemeProvider>
           <CommandsProvider>
             <ModeProvider>
-              <ConsumerProvider>{children}</ConsumerProvider>
+              <ConsumerProvider>
+                <OnboardingProvider>{children}</OnboardingProvider>
+              </ConsumerProvider>
             </ModeProvider>
           </CommandsProvider>
         </ThemeProvider>

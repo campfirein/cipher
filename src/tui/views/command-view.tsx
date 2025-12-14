@@ -12,6 +12,7 @@ import React, {useCallback, useEffect, useMemo, useState} from 'react'
 
 import type {CommandMessage, PromptRequest, StreamingMessage} from '../types.js'
 
+import {stopConsumer} from '../../infra/cipher/consumer/execution-consumer.js'
 import {stopQueuePollingService} from '../../infra/cipher/consumer/queue-polling-service.js'
 import {MessageItem, ScrollableList, Suggestions} from '../components/index.js'
 import {
@@ -22,6 +23,7 @@ import {
   InlineSelect,
 } from '../components/inline-prompts/index.js'
 import {useAuth} from '../contexts/auth-context.js'
+import {useConsumer} from '../contexts/index.js'
 import {useCommands, useMode, useTheme} from '../hooks/index.js'
 
 /** Fixed height for bottom area (suggestions + input) */
@@ -255,6 +257,7 @@ interface CommandViewProps {
 export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
   const {exit} = useApp()
   const {reloadAuth} = useAuth()
+  const {restart} = useConsumer()
   const [command, setCommand] = useState('')
   const [inputKey, setInputKey] = useState(0)
   const [messages, setMessages] = useState<CommandMessage[]>([])
@@ -360,15 +363,30 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
           setIsStreaming(false)
           setActivePrompt(null)
 
-          // Refresh auth state after logout/login command
+          // Refresh state after commands that change auth or project state
           if (trimmed.startsWith('/logout') || trimmed.startsWith('/login')) {
+            // Stop queue polling and consumer
             stopQueuePollingService()
-            reloadAuth()
+            stopConsumer()
+            // Wait for consumer to stop
+            setTimeout(() => {
+              reloadAuth()
+            }, 1000)
+          }
+
+          // Restart consumer after commands that change project state
+          if (
+            trimmed.startsWith('/init') ||
+            trimmed.startsWith('/space switch') ||
+            trimmed.startsWith('/space select')
+          ) {
+            await reloadAuth()
+            await restart()
           }
         }
       }
     },
-    [exit, handleSlashCommand, reloadAuth],
+    [exit, handleSlashCommand, reloadAuth, restart],
   )
 
   const handleSubmit = useCallback(
@@ -594,7 +612,7 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
                   >
                     {skippedLines > 0 && (
                       <Text color={colors.secondary} dimColor>
-                        ↑ {skippedLines} more lines above (resize terminal to view full)
+                        ↑ {skippedLines} more lines above
                       </Text>
                     )}
                     {displayMessages.map((streamMsg) => renderStreamingMessage(streamMsg))}
@@ -620,7 +638,7 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
                     {/* Show skipped lines indicator at the top */}
                     {skippedLines > 0 && (
                       <Text color={colors.secondary} dimColor>
-                        ↑ {skippedLines} more lines above (resize terminal to view full)
+                        ↑ {skippedLines} more lines above
                       </Text>
                     )}
                     {liveMessages.map((streamMsg) => renderStreamingMessage(streamMsg))}
