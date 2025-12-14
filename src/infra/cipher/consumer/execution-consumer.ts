@@ -139,20 +139,22 @@ export class ExecutionConsumer {
       return false
     }
 
-    // Register cleanup handlers - must be arrow fn to capture 'this'
+    // Register cleanup handlers
     // eslint-disable-next-line unicorn/consistent-function-scoping
     const cleanup = (): void => {
       this.stop()
       closeAgentStorage()
     }
 
-    process.on('exit', cleanup)
-    process.on('SIGTERM', () => {
+    // Use 'once' to prevent multiple handler calls
+    // 'exit' is always fired, so just cleanup (no need for process.exit)
+    process.once('exit', cleanup)
+    process.once('SIGTERM', () => {
       cleanup()
       // eslint-disable-next-line n/no-process-exit
       process.exit(0)
     })
-    process.on('SIGINT', () => {
+    process.once('SIGINT', () => {
       cleanup()
       // eslint-disable-next-line n/no-process-exit
       process.exit(0)
@@ -174,13 +176,13 @@ export class ExecutionConsumer {
     }, HEARTBEAT_INTERVAL_MS)
 
     // Log initial queue status
-    const queued = storage.getQueuedExecutions()
-    const running = storage.getRunningExecutions()
-    console.log(
-      `[Consumer] Started (${this.consumerId.slice(0, 8)}). Concurrency: ${this.maxConcurrency}, Queue: ${
-        queued.length
-      } pending, ${running.length} running`,
-    )
+    // const queued = storage.getQueuedExecutions()
+    // const running = storage.getRunningExecutions()
+    // console.log(
+    //   `[Consumer] Started (${this.consumerId.slice(0, 8)}). Concurrency: ${this.maxConcurrency}, Queue: ${
+    //     queued.length
+    //   } pending, ${running.length} running`,
+    // )
 
     // Start poll loop (fire and forget)
     this.poll().catch((error) => {
@@ -193,8 +195,14 @@ export class ExecutionConsumer {
 
   /**
    * Stop the consumer
+   * Idempotent - safe to call multiple times (only runs cleanup once)
    */
   stop(): void {
+    // Guard: Only run cleanup once
+    if (!this.running && !this.heartbeatInterval) {
+      return // Already stopped
+    }
+
     this.running = false
 
     // Stop heartbeat
@@ -211,7 +219,7 @@ export class ExecutionConsumer {
       // Ignore errors during shutdown
     }
 
-    console.log(`[Consumer] Stopped (${this.consumerId.slice(0, 8)})`)
+    // console.log(`[Consumer] Stopped (${this.consumerId.slice(0, 8)})`)
   }
 
   /**
