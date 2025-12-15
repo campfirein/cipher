@@ -30,7 +30,7 @@ prompt: |
   4. **Create or update knowledge**: Once you have gathered all information about:
      - The current domain and text segments from the user's input data
      - The existing context in the context tree
-     Use the `create_knowledge_topic` tool to create new knowledge topics or update existing ones. Ensure that:
+     Use the `curate` tool to create new knowledge topics or update existing ones. Ensure that:
      - The context is well-structured and MUST meet **Context quality requirements**
      - There is no duplication with existing context
      - The information is clear and easy to understand

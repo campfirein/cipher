@@ -12,6 +12,11 @@ export const EVENT_VALUES = [
   'mem:pull',
   'mem:push',
   'mem:query',
+  'onboarding:init_completed',
+  'onboarding:curate_completed',
+  'onboarding:query_completed',
+  'onboarding:skipped',
+  'onboarding:completed',
 ] as const
 
 export type EventName = (typeof EVENT_VALUES)[number]
