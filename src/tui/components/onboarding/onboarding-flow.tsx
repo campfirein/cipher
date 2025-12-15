@@ -222,6 +222,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({availableHeight})
     if (result && result.type === 'streaming') {
       const onMessage = (msg: StreamingMessage) => {
         setStreamingMessages((prev) => [...prev, msg])
+        setInitError(msg.type === 'error' ? msg.content : null)
       }
 
       const onPrompt = (prompt: PromptRequest) => {
@@ -230,6 +231,11 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({availableHeight})
 
       try {
         await result.execute(onMessage, onPrompt)
+        // If error occurred, return
+        if (!initError) {
+          return
+        }
+
         // Reload auth to detect config change
         await reloadAuth()
         // Restart consumer to pick up new project state
@@ -427,17 +433,13 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({availableHeight})
 
     if (initError) {
       return (
-        <Box flexDirection="column">
+        <Box flexDirection="column" rowGap={1}>
           <Text color={colors.errorText}>Error: {initError}</Text>
-          <Box marginTop={1}>
-            <Text color={colors.dimText}>
-              Press{' '}
-              <Text backgroundColor={colors.primary} color="black">
-                {' Enter '}
-              </Text>{' '}
-              to try again
-            </Text>
-          </Box>
+          <EnterPrompt
+            action="try again"
+            active={mode === 'activity' && currentStep === 'init' && !isRunningInit && !activePrompt}
+            onEnter={runInit}
+          />
         </Box>
       )
     }
@@ -509,7 +511,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({availableHeight})
     return (
       <Box flexDirection="column">
         <Text color={colors.dimText} wrap="wrap">
-          Now try querying your knowledge:
+          Copy this command and paste it to your AI agent:
         </Text>
         <CopyablePrompt isActive={mode === 'activity' && currentStep === 'query'} prompt={QUERY_PROMPT} />
         <Box marginTop={1}>
