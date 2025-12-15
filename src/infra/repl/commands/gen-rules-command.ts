@@ -25,8 +25,7 @@ export const genRulesCommand: SlashCommand = {
       const templateLoader = new FsTemplateLoader(fileService)
       const templateService = new RuleTemplateService(templateLoader)
       const globalConfigStore = new FileGlobalConfigStore()
-      const tokenStore = new KeychainTokenStore()
-      const trackingService = new MixpanelTrackingService({globalConfigStore, tokenStore})
+      const trackingService = new MixpanelTrackingService({globalConfigStore, tokenStore: new KeychainTokenStore()})
 
       // Create and run UseCase
       const useCase = new GenerateRulesUseCase(
