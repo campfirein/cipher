@@ -28,3 +28,4 @@ prompts:
   find_knowledge_topics_output: |
     Search complete. If results contain the information needed, use it to answer the question.
     Use includeContent or followRelations if the current results are insufficient.
+    If you need the entire content of any detected topic or subtopic, use the exact 'path' field for read_file tool.
