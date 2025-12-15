@@ -509,7 +509,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({availableHeight})
     return (
       <Box flexDirection="column">
         <Text color={colors.dimText} wrap="wrap">
-          Now try querying your knowledge:
+          Copy this command and paste it to your AI agent:
         </Text>
         <CopyablePrompt isActive={mode === 'activity' && currentStep === 'query'} prompt={QUERY_PROMPT} />
         <Box marginTop={1}>
