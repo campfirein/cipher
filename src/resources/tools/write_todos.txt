@@ -1,22 +1,12 @@
 Use this tool to create and manage a structured task list for the current session. This helps track progress, organize complex tasks, and demonstrate thoroughness to the user.
 
 ## When to Use This Tool
-Use this tool proactively in these scenarios:
-
-1. **Complex multi-step tasks** - When a task requires 3 or more distinct steps
-2. **Non-trivial and complex tasks** - Tasks that require careful planning or multiple operations
-3. **User explicitly requests todo list** - When the user directly asks to use the todo list
-4. **User provides multiple tasks** - When users provide a list of things to be done
-5. **After receiving new instructions** - Immediately capture user requirements as todos
-6. **When you start working on a task** - Mark it as in_progress BEFORE beginning work
-7. **After completing a task** - Mark it as completed and add any follow-up tasks
-
-## When NOT to Use This Tool
-Skip using this tool when:
-1. There is only a single, straightforward task
-2. The task is trivial and tracking provides no organizational benefit
-3. The task can be completed in less than 3 trivial steps
-4. The task is purely conversational or informational
+Always use this tool proactively when curating the context tree:
+1. Based on the context that needs to be queried, create a plan
+2. Start with the `glob_files` and `grep_content` tools to examine the current tree structure located at `.brv/context-tree/ related to the context that needs to be curated, such as domains, topics, and subtopics
+3. Read to understand important context if necessary using the `read_file` tool
+4. Run the `curator` tool to determine the necessary operations
+5. Curate using the tools: `write_file` to add, `edit_file` to update or merge, and `bash_exec` to remove context (delete operations) 
 
 ## Task States
 - **pending**: Task not yet started
@@ -27,6 +17,13 @@ Skip using this tool when:
 ## Important Rules
 - ONLY ONE task can be "in_progress" at any time
 - Mark tasks complete IMMEDIATELY after finishing (don't batch completions)
+- Each todo must have a unique **id** for tracking
 - Task descriptions need both forms:
   - content: Imperative form (e.g., "Run tests")
   - activeForm: Present continuous form (e.g., "Running tests")
+
+## Todo Item Fields
+- **id**: Unique identifier for the todo item (required)
+- **content**: Imperative description (e.g., "Run tests")
+- **activeForm**: Present continuous form (e.g., "Running tests")
+- **status**: pending, in_progress, completed, or cancelled

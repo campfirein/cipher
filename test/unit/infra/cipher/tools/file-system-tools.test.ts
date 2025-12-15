@@ -55,14 +55,17 @@ describe('File System Tools', () => {
   describe('read_file', () => {
     it('should read file content successfully', async () => {
       const tool = createReadFileTool(fileSystemMock)
-      const mockResult = {
+      const mockServiceResult = {
         content: 'file content',
         encoding: 'utf8',
+        formattedContent: '00001| file content',
         lines: 1,
+        message: 'File read successfully',
         size: 12,
+        totalLines: 1,
         truncated: false,
       }
-      readFileStub.resolves(mockResult)
+      readFileStub.resolves(mockServiceResult)
 
       const result = await tool.execute({filePath: '/path/to/file'})
 
@@ -71,7 +74,15 @@ describe('File System Tools', () => {
         '/path/to/file',
         sandbox.match({limit: undefined, offset: undefined}),
       )
-      expect(result).to.deep.equal(mockResult)
+      // Tool returns formattedContent as content, plus message and totalLines
+      expect(result).to.deep.equal({
+        content: '00001| file content',
+        lines: 1,
+        message: 'File read successfully',
+        size: 12,
+        totalLines: 1,
+        truncated: false,
+      })
     })
 
     it('should handle pagination parameters', async () => {

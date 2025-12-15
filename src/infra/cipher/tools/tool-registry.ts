@@ -2,6 +2,7 @@ import type {KnownTool} from '../../../core/domain/cipher/tools/constants.js'
 import type {Tool} from '../../../core/domain/cipher/tools/types.js'
 import type {IFileSystem} from '../../../core/interfaces/cipher/i-file-system.js'
 import type {IProcessService} from '../../../core/interfaces/cipher/i-process-service.js'
+import type {ITodoStorage} from '../../../core/interfaces/cipher/i-todo-storage.js'
 import type {MemoryManager} from '../memory/memory-manager.js'
 import type {ToolProviderGetter} from './tool-provider-getter.js'
 
@@ -23,6 +24,7 @@ import {createListDirectoryTool} from './implementations/list-directory-tool.js'
 import {createListMemoriesTool} from './implementations/list-memories-tool.js'
 import {createReadFileTool} from './implementations/read-file-tool.js'
 import {createReadMemoryTool} from './implementations/read-memory-tool.js'
+import {createReadTodosTool} from './implementations/read-todos-tool.js'
 import {createSearchHistoryTool} from './implementations/search-history-tool.js'
 import {createWriteFileTool} from './implementations/write-file-tool.js'
 import {createWriteMemoryTool} from './implementations/write-memory-tool.js'
@@ -34,7 +36,6 @@ import {ToolMarker} from './tool-markers.js'
  * Tools declare which services they need via requiredServices.
  */
 export interface ToolServices {
-
   /** File system service for file operations */
   fileSystemService?: IFileSystem
 
@@ -49,6 +50,9 @@ export interface ToolServices {
 
   /** Process service for command execution */
   processService?: IProcessService
+
+  /** Todo storage service for session-based todo persistence */
+  todoStorage?: ITodoStorage
 }
 
 /**
@@ -243,6 +247,13 @@ export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
     requiredServices: ['memoryManager'],
   },
 
+  [ToolName.READ_TODOS]: {
+    descriptionFile: 'read_todos',
+    factory: (services) => createReadTodosTool(getRequiredService(services.todoStorage, 'todoStorage')),
+    markers: [ToolMarker.Planning, ToolMarker.Core],
+    requiredServices: ['todoStorage'],
+  },
+
   [ToolName.SEARCH_HISTORY]: {
     descriptionFile: 'search_history',
     factory: (_services) => createSearchHistoryTool(),
@@ -267,8 +278,8 @@ export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
 
   [ToolName.WRITE_TODOS]: {
     descriptionFile: 'write_todos',
-    factory: () => createWriteTodosTool(),
+    factory: (services) => createWriteTodosTool(getRequiredService(services.todoStorage, 'todoStorage')),
     markers: [ToolMarker.Planning, ToolMarker.Core],
-    requiredServices: [], // No services required (stateless tool)
+    requiredServices: ['todoStorage'],
   },
 }
