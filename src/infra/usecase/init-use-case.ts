@@ -9,7 +9,11 @@ import type {IContextTreeService} from '../../core/interfaces/i-context-tree-ser
 import type {IContextTreeSnapshotService} from '../../core/interfaces/i-context-tree-snapshot-service.js'
 import type {IContextTreeWriterService} from '../../core/interfaces/i-context-tree-writer-service.js'
 import type {IFileService, WriteMode} from '../../core/interfaces/i-file-service.js'
-import type {ILegacyRuleDetector, LegacyRuleMatch, UncertainMatch} from '../../core/interfaces/i-legacy-rule-detector.js'
+import type {
+  ILegacyRuleDetector,
+  LegacyRuleMatch,
+  UncertainMatch,
+} from '../../core/interfaces/i-legacy-rule-detector.js'
 import type {IProjectConfigStore} from '../../core/interfaces/i-project-config-store.js'
 import type {IRuleTemplateService} from '../../core/interfaces/i-rule-template-service.js'
 import type {ISpaceService} from '../../core/interfaces/i-space-service.js'
@@ -529,6 +533,8 @@ export class InitUseCase implements IInitUseCase {
 
       this.logSuccess(selectedSpace)
     } catch (error) {
+      // Stop action if it's in progress
+      this.terminal.actionStop()
       this.terminal.error(`Initialization failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
