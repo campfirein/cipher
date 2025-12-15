@@ -61,10 +61,13 @@ interface OnboardingProviderProps {
  * Onboarding starts when project is not initialized on mount and
  * continues until all steps are completed and dismissed.
  */
+/** Cooldown period in milliseconds (7 days) */
+const ONBOARDING_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000
+
 export function OnboardingProvider({children}: OnboardingProviderProps): React.ReactElement {
   const {brvConfig, isInitialConfigLoaded} = useAuth()
   const {sessionExecutions} = useConsumer()
-  const {trackingService} = useServices()
+  const {onboardingPreferenceStore, trackingService} = useServices()
 
   const isInitialized = brvConfig !== undefined
 
@@ -74,6 +77,25 @@ export function OnboardingProvider({children}: OnboardingProviderProps): React.R
   // Track if project was not initialized after initial config check
   // This determines whether we're in onboarding mode for this session
   const wasNotInitializedRef = useRef(true)
+
+  // Track if onboarding is in cooldown (dismissed less than a week ago)
+  const [isInCooldown, setIsInCooldown] = useState(true) // Start true until we check
+
+  // Check cooldown on mount
+  useEffect(() => {
+    const checkCooldown = async () => {
+      const lastDismissedAt = await onboardingPreferenceStore.getLastDismissedAt()
+      if (lastDismissedAt) {
+        const elapsed = Date.now() - lastDismissedAt
+        setIsInCooldown(elapsed < ONBOARDING_COOLDOWN_MS)
+      } else {
+        // Never dismissed before - not in cooldown
+        setIsInCooldown(false)
+      }
+    }
+
+    checkCooldown()
+  }, [onboardingPreferenceStore])
 
   // Update ref once initial config load completes (only once)
   // This distinguishes "async load found existing config" from "user just ran init"
@@ -163,19 +185,22 @@ export function OnboardingProvider({children}: OnboardingProviderProps): React.R
 
   // Show onboarding if:
   // 1. Project was not initialized after initial config check, AND
-  // 2. User has not dismissed the onboarding
-  const shouldShowOnboarding = wasNotInitializedRef.current && !onboardingDismissed
+  // 2. User has not dismissed the onboarding in this session, AND
+  // 3. Not in cooldown period (dismissed less than a week ago)
+  const shouldShowOnboarding = wasNotInitializedRef.current && !onboardingDismissed && !isInCooldown
 
   const completeOnboarding = useCallback(
     (skipped = false) => {
       setOnboardingDismissed(true)
+      // Save the dismissal timestamp to enforce cooldown period
+      onboardingPreferenceStore.setLastDismissedAt(Date.now())
       if (skipped) {
         trackingService.track('onboarding:skipped', {step: currentStep})
       } else {
         trackingService.track('onboarding:completed')
       }
     },
-    [currentStep, trackingService],
+    [currentStep, onboardingPreferenceStore, trackingService],
   )
 
   const contextValue = useMemo(
@@ -198,6 +223,7 @@ export function OnboardingProvider({children}: OnboardingProviderProps): React.R
       currentStep,
       hasCurated,
       hasQueried,
+      isInCooldown,
       isInitialized,
       queryAcknowledged,
       shouldShowOnboarding,

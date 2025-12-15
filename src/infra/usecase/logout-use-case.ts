@@ -1,20 +1,24 @@
+import type {IOnboardingPreferenceStore} from "../../core/interfaces/i-onboarding-preference-store.js";
 import type {ITerminal} from "../../core/interfaces/i-terminal.js";
 import type {ITokenStore} from "../../core/interfaces/i-token-store.js";
 import type {ITrackingService} from "../../core/interfaces/i-tracking-service.js";
 import type {ILogoutUseCase} from "../../core/interfaces/usecase/i-logout-use-case.js";
 
 export interface LogoutUseCaseDeps {
+  onboardingPreferenceStore: IOnboardingPreferenceStore;
   terminal: ITerminal;
   tokenStore: ITokenStore;
   trackingService: ITrackingService;
 }
 
 export class LogoutUseCase implements ILogoutUseCase {
+  private readonly onboardingPreferenceStore: IOnboardingPreferenceStore;
   private readonly terminal: ITerminal;
   private readonly tokenStore: ITokenStore;
   private readonly trackingService: ITrackingService;
 
   public constructor(deps: LogoutUseCaseDeps) {
+    this.onboardingPreferenceStore = deps.onboardingPreferenceStore;
     this.terminal = deps.terminal;
     this.tokenStore = deps.tokenStore;
     this.trackingService = deps.trackingService;
@@ -50,6 +54,7 @@ export class LogoutUseCase implements ILogoutUseCase {
       }
 
       await this.tokenStore.clear();
+      await this.onboardingPreferenceStore.clear();
       this.terminal.log("Successfully logged out.");
       this.terminal.log("Run 'brv login' to authenticate again.");
     } catch (error) {

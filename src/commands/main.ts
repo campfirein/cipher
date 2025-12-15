@@ -2,6 +2,7 @@ import {Command} from '@oclif/core'
 
 import {ProjectConfigStore} from '../infra/config/file-config-store.js'
 import {startRepl} from '../infra/repl/repl-startup.js'
+import {FileOnboardingPreferenceStore} from '../infra/storage/file-onboarding-preference-store.js'
 import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
 import {MixpanelTrackingService} from '../infra/tracking/mixpanel-tracking-service.js'
 
@@ -22,9 +23,11 @@ export default class Main extends Command {
 
     const tokenStore = new KeychainTokenStore()
     const trackingService = new MixpanelTrackingService(tokenStore)
+    const onboardingPreferenceStore = new FileOnboardingPreferenceStore()
 
     // Start the interactive REPL
     await startRepl({
+      onboardingPreferenceStore,
       projectConfigStore: new ProjectConfigStore(),
       tokenStore,
       trackingService,

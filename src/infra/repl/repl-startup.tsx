@@ -1,5 +1,6 @@
 import {render} from 'ink'
 
+import type {IOnboardingPreferenceStore} from '../../core/interfaces/i-onboarding-preference-store.js'
 import type {IProjectConfigStore} from '../../core/interfaces/i-project-config-store.js'
 import type {ITokenStore} from '../../core/interfaces/i-token-store.js'
 import type {ITrackingService} from '../../core/interfaces/i-tracking-service.js'
@@ -12,6 +13,7 @@ import {stopQueuePollingService} from '../cipher/consumer/queue-polling-service.
  * Options for starting the REPL
  */
 export interface ReplOptions {
+  onboardingPreferenceStore: IOnboardingPreferenceStore
   projectConfigStore: IProjectConfigStore
   tokenStore: ITokenStore
   trackingService: ITrackingService
@@ -22,7 +24,7 @@ export interface ReplOptions {
  * Start the ByteRover REPL
  */
 export async function startRepl(options: ReplOptions): Promise<void> {
-  const {projectConfigStore, tokenStore, trackingService, version} = options
+  const {onboardingPreferenceStore, projectConfigStore, tokenStore, trackingService, version} = options
 
   // Check initial auth state
   const authToken = await tokenStore.load()
@@ -42,6 +44,7 @@ export async function startRepl(options: ReplOptions): Promise<void> {
     <AppProviders
       initialAuthToken={isAuthorized ? authToken : undefined}
       initialBrvConfig={brvConfig}
+      onboardingPreferenceStore={onboardingPreferenceStore}
       projectConfigStore={projectConfigStore}
       tokenStore={tokenStore}
       trackingService={trackingService}
