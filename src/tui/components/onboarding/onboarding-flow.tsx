@@ -217,7 +217,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({availableHeight})
   useInput(
     (_input, key) => {
       if (key.escape) {
-        completeOnboarding()
+        completeOnboarding(true) // Pass true to indicate skipped
       }
     },
     {isActive: isInWaitingState},

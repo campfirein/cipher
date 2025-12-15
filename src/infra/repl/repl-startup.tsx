@@ -2,6 +2,7 @@ import {render} from 'ink'
 
 import type {IProjectConfigStore} from '../../core/interfaces/i-project-config-store.js'
 import type {ITokenStore} from '../../core/interfaces/i-token-store.js'
+import type {ITrackingService} from '../../core/interfaces/i-tracking-service.js'
 
 import {App} from '../../tui/app.js'
 import {AppProviders} from '../../tui/providers/app-providers.js'
@@ -13,6 +14,7 @@ import {stopQueuePollingService} from '../cipher/consumer/queue-polling-service.
 export interface ReplOptions {
   projectConfigStore: IProjectConfigStore
   tokenStore: ITokenStore
+  trackingService: ITrackingService
   version: string
 }
 
@@ -20,7 +22,7 @@ export interface ReplOptions {
  * Start the ByteRover REPL
  */
 export async function startRepl(options: ReplOptions): Promise<void> {
-  const {projectConfigStore, tokenStore, version} = options
+  const {projectConfigStore, tokenStore, trackingService, version} = options
 
   // Check initial auth state
   const authToken = await tokenStore.load()
@@ -42,6 +44,7 @@ export async function startRepl(options: ReplOptions): Promise<void> {
       initialBrvConfig={brvConfig}
       projectConfigStore={projectConfigStore}
       tokenStore={tokenStore}
+      trackingService={trackingService}
       version={version}
     >
       <App />

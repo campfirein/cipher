@@ -14,12 +14,13 @@ import React, {createContext, useCallback, useContext, useEffect, useMemo, useRe
 
 import {useAuth} from './auth-context.js'
 import {useConsumer} from './index.js'
+import {useServices} from './services-context.js'
 
 export type OnboardingStep = 'complete' | 'curate' | 'init' | 'query'
 
 export interface OnboardingContextValue {
-  /** Set onboarding complete state */
-  completeOnboarding: () => void
+  /** Set onboarding complete state. Pass skipped=true when user skips via Esc */
+  completeOnboarding: (skipped?: boolean) => void
   /** Whether user has acknowledged curate completion */
   curateAcknowledged: boolean
   /** Current onboarding step */
@@ -63,6 +64,7 @@ interface OnboardingProviderProps {
 export function OnboardingProvider({children}: OnboardingProviderProps): React.ReactElement {
   const {brvConfig, isInitialConfigLoaded} = useAuth()
   const {sessionExecutions} = useConsumer()
+  const {trackingService} = useServices()
 
   const isInitialized = brvConfig !== undefined
 
@@ -86,11 +88,44 @@ export function OnboardingProvider({children}: OnboardingProviderProps): React.R
   }, [isInitialConfigLoaded, isInitialized])
 
   // Track acknowledgment for completed steps (user pressed Enter after seeing output)
-  const [curateAcknowledged, setCurateAcknowledged] = useState(false)
-  const [queryAcknowledged, setQueryAcknowledged] = useState(false)
+  const [curateAcknowledged, setCurateAcknowledgedState] = useState(false)
+  const [queryAcknowledged, setQueryAcknowledgedState] = useState(false)
 
   // Track if user has dismissed the onboarding (pressed Enter on complete step)
   const [onboardingDismissed, setOnboardingDismissed] = useState(false)
+
+  // Track if init was completed during this onboarding session (to avoid duplicate tracking)
+  const initTrackedRef = useRef(false)
+
+  // Track init completion when isInitialized changes during onboarding
+  useEffect(() => {
+    if (wasNotInitializedRef.current && isInitialized && !initTrackedRef.current) {
+      initTrackedRef.current = true
+      trackingService.track('onboarding:init_completed')
+    }
+  }, [isInitialized, trackingService])
+
+  // Wrapper for setCurateAcknowledged that also tracks
+  const setCurateAcknowledged = useCallback(
+    (value: boolean) => {
+      setCurateAcknowledgedState(value)
+      if (value) {
+        trackingService.track('onboarding:curate_completed')
+      }
+    },
+    [trackingService],
+  )
+
+  // Wrapper for setQueryAcknowledged that also tracks
+  const setQueryAcknowledged = useCallback(
+    (value: boolean) => {
+      setQueryAcknowledgedState(value)
+      if (value) {
+        trackingService.track('onboarding:query_completed')
+      }
+    },
+    [trackingService],
+  )
 
   // Check for completed curate/query executions in session
   const {hasCurated, hasQueried} = useMemo(() => {
@@ -131,9 +166,17 @@ export function OnboardingProvider({children}: OnboardingProviderProps): React.R
   // 2. User has not dismissed the onboarding
   const shouldShowOnboarding = wasNotInitializedRef.current && !onboardingDismissed
 
-  const completeOnboarding = useCallback(() => {
-    setOnboardingDismissed(true)
-  }, [])
+  const completeOnboarding = useCallback(
+    (skipped = false) => {
+      setOnboardingDismissed(true)
+      if (skipped) {
+        trackingService.track('onboarding:skipped', {step: currentStep})
+      } else {
+        trackingService.track('onboarding:completed')
+      }
+    },
+    [currentStep, trackingService],
+  )
 
   const contextValue = useMemo(
     () => ({
