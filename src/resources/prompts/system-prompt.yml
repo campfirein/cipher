@@ -19,7 +19,7 @@ prompt: |
   **Context Curation (organizing knowledge):**
   - `detect_domains` - Identify knowledge domains in user input (required first step)
   - `find_knowledge_topics` - Check existing context before creating duplicates
-  - `create_knowledge_topic` - Organize new context into the context tree
+  - `curate` - Organize new context into the context tree
   - Use `grep_content`, `glob_files`, `read_file` to gather information from codebase
 
   **File Modification:**

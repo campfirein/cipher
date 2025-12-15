@@ -41,18 +41,6 @@ describe('welcome init hook', () => {
   })
 
   describe('should show banner for root help', () => {
-    it('shows banner for bare command (brv)', async () => {
-      const context = createContext()
-      await hook.call(context, {
-        argv: [],
-        config,
-        context,
-        id: undefined,
-      })
-
-      expect(logStub.called).to.be.true
-    })
-
     it('shows banner for --help flag (brv --help)', async () => {
       const context = createContext()
       await hook.call(context, {

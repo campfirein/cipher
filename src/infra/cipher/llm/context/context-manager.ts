@@ -12,6 +12,30 @@ import {MiddleRemovalStrategy, OldestRemovalStrategy} from './compression/index.
 import {countMessagesTokens} from './utils.js'
 
 /**
+ * Configuration for persistence retry behavior.
+ */
+export interface PersistenceRetryConfig {
+  /** Base delay between retries in milliseconds (default: 100) */
+  baseDelayMs?: number
+  /** Maximum number of retry attempts (default: 3) */
+  maxRetries?: number
+  /** Multiplier for exponential backoff (default: 2) */
+  multiplier?: number
+}
+
+/**
+ * Event emitted when persistence fails after all retries.
+ */
+export interface PersistenceFailedEvent {
+  /** Number of attempts made */
+  attempts: number
+  /** The error that caused the failure */
+  error: Error
+  /** Session ID */
+  sessionId: string
+}
+
+/**
  * Image data for messages
  */
 export interface ImageData {
@@ -63,6 +87,10 @@ export interface ContextManagerOptions<T> {
   historyStorage?: IHistoryStorage
   logger?: ILogger
   maxInputTokens: number
+  /** Callback invoked when persistence fails after all retries */
+  onPersistenceFailed?: (event: PersistenceFailedEvent) => void
+  /** Configuration for persistence retry behavior */
+  persistenceRetry?: PersistenceRetryConfig
   sessionId: string
   tokenizer: ITokenizer
 }
@@ -92,6 +120,10 @@ export class ContextManager<T> {
    * Used during parallel tool execution to prevent race conditions.
    */
   private readonly mutex = new AsyncMutex()
+  /** Callback for persistence failure events */
+  private readonly onPersistenceFailed?: (event: PersistenceFailedEvent) => void
+  /** Retry configuration for persistence operations */
+  private readonly persistenceRetry: Required<PersistenceRetryConfig>
   private readonly sessionId: string
   private readonly tokenizer: ITokenizer
 
@@ -105,6 +137,8 @@ export class ContextManager<T> {
    * @param options.maxInputTokens - Maximum input tokens allowed
    * @param options.historyStorage - Optional history storage for persistence
    * @param options.compressionStrategies - Optional compression strategies (defaults to MiddleRemoval + OldestRemoval)
+   * @param options.persistenceRetry - Optional retry configuration for persistence
+   * @param options.onPersistenceFailed - Optional callback for persistence failure events
    */
   public constructor(options: ContextManagerOptions<T>) {
     this.sessionId = options.sessionId
@@ -113,6 +147,14 @@ export class ContextManager<T> {
     this.maxInputTokens = options.maxInputTokens
     this.historyStorage = options.historyStorage
     this.logger = options.logger ?? new NoOpLogger()
+    this.onPersistenceFailed = options.onPersistenceFailed
+
+    // Initialize persistence retry config with defaults
+    this.persistenceRetry = {
+      baseDelayMs: options.persistenceRetry?.baseDelayMs ?? 100,
+      maxRetries: options.persistenceRetry?.maxRetries ?? 3,
+      multiplier: options.persistenceRetry?.multiplier ?? 2,
+    }
 
     // Initialize compression strategies with defaults
     this.compressionStrategies = options.compressionStrategies ?? [
@@ -472,18 +514,65 @@ export class ContextManager<T> {
   }
 
   /**
-   * Persist current conversation history to storage.
+   * Persist current conversation history to storage with retry logic.
    * This is called automatically after each message is added.
    *
-   * @returns Promise that resolves when history is persisted
+   * Uses exponential backoff for retries:
+   * - Attempt 1: immediate
+   * - Attempt 2: baseDelayMs * multiplier^0 = 100ms
+   * - Attempt 3: baseDelayMs * multiplier^1 = 200ms
+   *
+   * If all retries fail, invokes onPersistenceFailed callback if configured.
+   *
+   * @returns Promise that resolves when history is persisted (or all retries exhausted)
    */
   private async persistHistory(): Promise<void> {
     if (!this.historyStorage) {
       return
     }
 
-    // Store InternalMessage directly (no conversion needed)
-    await this.historyStorage.saveHistory(this.sessionId, this.messages)
+    const {baseDelayMs, maxRetries, multiplier} = this.persistenceRetry
+    let lastError: Error | undefined
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        // Store InternalMessage directly (no conversion needed)
+        // eslint-disable-next-line no-await-in-loop
+        await this.historyStorage.saveHistory(this.sessionId, this.messages)
+        return // Success - exit early
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error))
+
+        if (attempt < maxRetries) {
+          // Calculate exponential backoff delay
+          const delay = baseDelayMs * multiplier ** (attempt - 1)
+
+          this.logger.warn(`Persistence attempt ${attempt}/${maxRetries} failed, retrying in ${delay}ms`, {
+            error: lastError.message,
+            sessionId: this.sessionId,
+          })
+
+          // Wait before next retry
+          // eslint-disable-next-line no-await-in-loop
+          await this.sleep(delay)
+        }
+      }
+    }
+
+    // All retries exhausted
+    this.logger.error(`Persistence failed after ${maxRetries} attempts`, {
+      error: lastError?.message,
+      sessionId: this.sessionId,
+    })
+
+    // Invoke callback if configured
+    if (this.onPersistenceFailed && lastError) {
+      this.onPersistenceFailed({
+        attempts: maxRetries,
+        error: lastError,
+        sessionId: this.sessionId,
+      })
+    }
   }
 
   /**
@@ -514,6 +603,16 @@ export class ContextManager<T> {
       // Handle circular references or other serialization errors
       return `[Tool result serialization failed: ${getErrorMessage(error)}]`
     }
+  }
+
+  /**
+   * Sleep for the specified duration.
+   * @param ms - Duration in milliseconds
+   */
+  private sleep(ms: number): Promise<void> {
+    return new Promise<void>((resolve) => {
+      setTimeout(resolve, ms)
+    })
   }
 
   /**

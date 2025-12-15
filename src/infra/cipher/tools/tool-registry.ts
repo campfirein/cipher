@@ -8,6 +8,7 @@ import {ToolName} from '../../../core/domain/cipher/tools/constants.js'
 import {createBashExecTool} from './implementations/bash-exec-tool.js'
 import {createBashOutputTool} from './implementations/bash-output-tool.js'
 import {createCreateKnowledgeTopicTool} from './implementations/create-knowledge-topic-tool.js'
+import {createCurateTool} from './implementations/curate-tool.js'
 import {createDeleteMemoryTool} from './implementations/delete-memory-tool.js'
 import {createDetectDomainsTool} from './implementations/detect-domains-tool.js'
 import {createEditFileTool} from './implementations/edit-file-tool.js'
@@ -114,6 +115,13 @@ export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
     markers: [ToolMarker.ContextBuilding],
     outputGuidance: 'create_knowledge_topic',
     requiredServices: [], // Uses DirectoryManager for file operations
+  },
+
+  [ToolName.CURATE]: {
+    factory: () => createCurateTool(),
+    markers: [ToolMarker.ContextBuilding, ToolMarker.Modification],
+    outputGuidance: 'curate',
+    requiredServices: [], // Uses DirectoryManager and MarkdownWriter for file operations
   },
 
   [ToolName.DELETE_MEMORY]: {
