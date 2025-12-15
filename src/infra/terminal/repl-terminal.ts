@@ -50,8 +50,13 @@ export class ReplTerminal implements ITerminal {
   }
 
   actionStop(message?: string): void {
+    // Stop action if it's in progress
+    if (!this.currentActionId) {
+      return
+    }
+
     this.callbacks.onMessage({
-      actionId: this.currentActionId ?? undefined,
+      actionId: this.currentActionId,
       content: message ?? '',
       id: generateId(),
       type: 'action_stop',

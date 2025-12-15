@@ -9,7 +9,6 @@ import type {ITokenStore} from '../../core/interfaces/i-token-store.js'
 import type {ITrackingService} from '../../core/interfaces/i-tracking-service.js'
 import type {IPushUseCase} from '../../core/interfaces/usecase/i-push-use-case.js'
 
-import {ExitCode, exitWithCode} from '../cipher/exit-codes.js'
 import {WorkspaceNotInitializedError} from '../cipher/validation/workspace-validator.js'
 import {mapToPushContexts} from '../cogit/context-tree-to-push-context-mapper.js'
 
@@ -118,16 +117,16 @@ export class PushUseCase implements IPushUseCase {
       )
       this.terminal.log(`  View: ${this.buildSpaceUrl(projectConfig.teamName, projectConfig.spaceName)}`)
     } catch (error) {
+      // Stop action if it's in progress
+      this.terminal.actionStop()
       if (error instanceof WorkspaceNotInitializedError) {
-        exitWithCode(
-          ExitCode.VALIDATION_ERROR,
-          'Project not initialized. Please run "brv init" to select your team and workspace.',
-        )
+        this.terminal.log('Project not initialized. Please run "brv init" to select your team and workspace.')
+        return
       }
 
-      // For other errors, use exitWithCode to properly display error before exit
+      // For other errors, to properly display error before exit
       const message = error instanceof Error ? error.message : 'Push failed'
-      exitWithCode(ExitCode.RUNTIME_ERROR, `Failed to push: ${message}`)
+      this.terminal.error(`Failed to push: ${message}`)
     }
   }
 

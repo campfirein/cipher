@@ -8,15 +8,17 @@
 
 import {Box, Text, useInput} from 'ink'
 import TextInput from 'ink-text-input'
-import React, {useEffect, useMemo, useState} from 'react'
+import React, {useEffect, useState} from 'react'
 
 import type {PromptChoice} from '../../types.js'
 
-import {useTheme} from '../../hooks/index.js'
+import {useTheme, useVisibleWindow} from '../../hooks/index.js'
 
 const MAX_VISIBLE_ITEMS = 7
 
 export interface InlineSearchProps<T = unknown> {
+  /** Maximum number of visible items in the dropdown (default: 7) */
+  maxVisibleItems?: number
   /** The prompt message */
   message: string
   /** Callback when user selects a value */
@@ -25,7 +27,7 @@ export interface InlineSearchProps<T = unknown> {
   source: (input: string | undefined) => Array<PromptChoice<T>> | Promise<Array<PromptChoice<T>>>
 }
 
-export function InlineSearch<T>({message, onSelect, source}: InlineSearchProps<T>): React.ReactElement {
+export function InlineSearch<T>({maxVisibleItems = MAX_VISIBLE_ITEMS, message, onSelect, source}: InlineSearchProps<T>): React.ReactElement {
   const {
     theme: {colors},
   } = useTheme()
@@ -50,27 +52,7 @@ export function InlineSearch<T>({message, onSelect, source}: InlineSearchProps<T
   }, [choices.length])
 
   // Calculate visible window based on selected index
-  const {visibleChoices, windowStart} = useMemo(() => {
-    if (choices.length <= MAX_VISIBLE_ITEMS) {
-      return {visibleChoices: choices, windowStart: 0}
-    }
-
-    // Calculate window start to keep selected item visible
-    let start = 0
-    if (selectedIndex >= MAX_VISIBLE_ITEMS) {
-      // Selected item is beyond visible range, adjust window
-      start = selectedIndex - MAX_VISIBLE_ITEMS + 1
-    }
-
-    // Ensure we don't go past the end
-    const maxStart = choices.length - MAX_VISIBLE_ITEMS
-    start = Math.min(start, maxStart)
-
-    return {
-      visibleChoices: choices.slice(start, start + MAX_VISIBLE_ITEMS),
-      windowStart: start,
-    }
-  }, [choices, selectedIndex])
+  const {visibleItems: visibleChoices, windowStart} = useVisibleWindow(choices, selectedIndex, maxVisibleItems)
 
   // Handle keyboard input
   useInput((_input, key) => {

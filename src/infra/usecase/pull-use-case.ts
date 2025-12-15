@@ -9,7 +9,6 @@ import type {ITokenStore} from '../../core/interfaces/i-token-store.js'
 import type {ITrackingService} from '../../core/interfaces/i-tracking-service.js'
 import type {IPullUseCase} from '../../core/interfaces/usecase/i-pull-use-case.js'
 
-import {ExitCode, exitWithCode} from '../cipher/exit-codes.js'
 import {WorkspaceNotInitializedError} from '../cipher/validation/workspace-validator.js'
 
 export interface PullUseCaseOptions {
@@ -73,10 +72,8 @@ export class PullUseCase implements IPullUseCase {
       this.terminal.actionStop()
 
       if (hasLocalChanges) {
-        exitWithCode(
-          ExitCode.VALIDATION_ERROR,
-          'You have local changes that have not been pushed. Run "brv push" first.',
-        )
+        this.terminal.log('You have local changes that have not been pushed. Run "brv push" first.')
+        return
       }
 
       // Pull from CoGit
@@ -105,15 +102,15 @@ export class PullUseCase implements IPullUseCase {
         `  Added: ${syncResult.added.length}, Edited: ${syncResult.edited.length}, Deleted: ${syncResult.deleted.length}`,
       )
     } catch (error) {
+      // Stop action if it's in progress
+      this.terminal.actionStop()
       if (error instanceof WorkspaceNotInitializedError) {
-        exitWithCode(
-          ExitCode.VALIDATION_ERROR,
-          'Project not initialized. Please run "brv init" to select your team and workspace.',
-        )
+        this.terminal.log('Project not initialized. Please run "brv init" to select your team and workspace.')
+        return
       }
 
       const message = error instanceof Error ? error.message : 'Pull failed'
-      exitWithCode(ExitCode.RUNTIME_ERROR, `Failed to pull: ${message}`)
+      this.terminal.error(`Failed to pull: ${message}`)
     }
   }
 

@@ -1,11 +1,11 @@
 import {render} from 'ink'
-import React from 'react'
 
 import type {IProjectConfigStore} from '../../core/interfaces/i-project-config-store.js'
 import type {ITokenStore} from '../../core/interfaces/i-token-store.js'
 
 import {App} from '../../tui/app.js'
 import {AppProviders} from '../../tui/providers/app-providers.js'
+import {stopQueuePollingService} from '../cipher/consumer/queue-polling-service.js'
 
 /**
  * Options for starting the REPL
@@ -49,4 +49,5 @@ export async function startRepl(options: ReplOptions): Promise<void> {
   )
 
   await waitUntilExit()
+  stopQueuePollingService()
 }
