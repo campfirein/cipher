@@ -5,7 +5,7 @@
  * Handles step transitions and init command execution.
  */
 
-import {Box, Text} from 'ink'
+import {Box, Text, useInput} from 'ink'
 import Spinner from 'ink-spinner'
 import React, {useCallback, useMemo, useState} from 'react'
 
@@ -209,6 +209,20 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({availableHeight})
   const [activePrompt, setActivePrompt] = useState<null | PromptRequest>(null)
   const [initError, setInitError] = useState<null | string>(null)
 
+  // Determine if we're in a skippable waiting state (curate/query without active log)
+  const isInWaitingState =
+    mode === 'activity' && ((currentStep === 'curate' && !curateLog) || (currentStep === 'query' && !queryLog))
+
+  // Handle escape key to skip onboarding
+  useInput(
+    (_input, key) => {
+      if (key.escape) {
+        completeOnboarding(true) // Pass true to indicate skipped
+      }
+    },
+    {isActive: isInWaitingState},
+  )
+
   // Handle init command execution
   const runInit = useCallback(async () => {
     if (isRunningInit) return
@@ -231,10 +245,6 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({availableHeight})
 
       try {
         await result.execute(onMessage, onPrompt)
-        // If error occurred, return
-        if (!initError) {
-          return
-        }
 
         // Reload auth to detect config change
         await reloadAuth()
@@ -483,6 +493,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({availableHeight})
           <Text color={colors.dimText}>
             <Spinner type="dots" /> Waiting for curate...
           </Text>
+          <Text color={colors.dimText}> (Press Esc to skip)</Text>
         </Box>
       </Box>
     )
@@ -518,6 +529,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({availableHeight})
           <Text color={colors.dimText}>
             <Spinner type="dots" /> Waiting for query...
           </Text>
+          <Text color={colors.dimText}> (Press Esc to skip)</Text>
         </Box>
       </Box>
     )

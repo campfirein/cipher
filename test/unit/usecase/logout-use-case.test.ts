@@ -1,6 +1,7 @@
 import {expect} from "chai";
 import * as sinon from "sinon";
 
+import type {IOnboardingPreferenceStore} from "../../../src/core/interfaces/i-onboarding-preference-store.js";
 import type {ITerminal} from "../../../src/core/interfaces/i-terminal.js";
 import type {ITokenStore} from "../../../src/core/interfaces/i-token-store.js";
 import type {ITrackingService} from "../../../src/core/interfaces/i-tracking-service.js";
@@ -46,6 +47,7 @@ const createMockToken = (): AuthToken =>
 describe("LogoutUseCase", () => {
   let errorMessages: string[];
   let logMessages: string[];
+  let onboardingPreferenceStore: sinon.SinonStubbedInstance<IOnboardingPreferenceStore>;
   let terminal: ITerminal;
   let tokenStore: sinon.SinonStubbedInstance<ITokenStore>;
   let trackingService: sinon.SinonStubbedInstance<ITrackingService>;
@@ -58,6 +60,12 @@ describe("LogoutUseCase", () => {
       error: (msg) => errorMessages.push(msg),
       log: (msg) => msg !== undefined && logMessages.push(msg),
     });
+
+    onboardingPreferenceStore = {
+      clear: sinon.stub<[], Promise<void>>().resolves(),
+      getLastDismissedAt: sinon.stub<[], Promise<number | undefined>>().resolves(undefined),
+      setLastDismissedAt: sinon.stub<[number], Promise<void>>().resolves(),
+    };
 
     tokenStore = {
       clear: sinon.stub(),
@@ -77,6 +85,7 @@ describe("LogoutUseCase", () => {
   function createUseCase(mockConfirmResult = true): TestableLogoutUseCase {
     return new TestableLogoutUseCase({
       mockConfirmResult,
+      onboardingPreferenceStore,
       terminal,
       tokenStore,
       trackingService,

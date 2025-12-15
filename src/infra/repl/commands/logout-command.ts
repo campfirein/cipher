@@ -1,4 +1,5 @@
 import {type CommandContext, CommandKind, type SlashCommand} from '../../../tui/types.js'
+import {FileOnboardingPreferenceStore} from '../../storage/file-onboarding-preference-store.js'
 import {KeychainTokenStore} from '../../storage/keychain-token-store.js'
 import {ReplTerminal} from '../../terminal/repl-terminal.js'
 import {MixpanelTrackingService} from '../../tracking/mixpanel-tracking-service.js'
@@ -30,6 +31,7 @@ export const logoutCommand: SlashCommand = {
 
         const tokenStore = new KeychainTokenStore()
         const useCase = new LogoutUseCase({
+          onboardingPreferenceStore: new FileOnboardingPreferenceStore(),
           terminal,
           tokenStore,
           trackingService: new MixpanelTrackingService(tokenStore),
