@@ -2,6 +2,32 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [0.4.0]
+
+### Added
+- **Interactive REPL mode**: Running `brv` with no arguments now starts an interactive terminal UI with a persistent session
+- **Slash commands**: All core functionality is now available via slash commands in REPL mode:
+  - `/login`, `/logout` - Authentication
+  - `/init` - Project setup with team/space selection
+  - `/status` - Show auth, config, and context tree state
+  - `/curate` - Add context to context tree
+  - `/push [--branch <name>]`, `/pull [--branch <name>]` - Cloud sync (default branch: `main`)
+  - `/space list`, `/space switch` - Space management
+  - `/gen-rules` - Generate agent-specific rule files
+  - `/clear` - Reset context tree
+  - `/query` - Query context tree
+- **File references in curate**: Use `--files` flag to include file references in autonomous curation
+- **Interactive onboarding**: New guided onboarding flow for first-time users (press Esc to skip)
+
+### Changed
+- **Command renamed**: `reset` command is now `/clear` in REPL mode
+
+### Fixed
+- Improved UI responsiveness and layout
+- Fixed terminal scrolling issues
+- Fixed UI flickering during long-running operations
+- Fixed tool error display showing 'undefined'
+
 ## [0.3.5]
 
 ### Added
