@@ -135,12 +135,9 @@ describe('PushUseCase', () => {
 
       const useCase = createUseCase()
 
-      try {
-        await useCase.run({branch: 'main', skipConfirmation: false})
-        expect.fail('Should have thrown error')
-      } catch (error) {
-        expect((error as Error).message).to.include('Project not initialized')
-      }
+      await useCase.run({branch: 'main', skipConfirmation: false})
+
+      expect(logMessages.some((msg) => msg.includes('Project not initialized'))).to.be.true
     })
   })
 
@@ -318,17 +315,13 @@ describe('PushUseCase', () => {
 
       const useCase = createUseCase()
 
-      try {
-        await useCase.run({branch: 'main', skipConfirmation: false})
-        expect.fail('Should have thrown error')
-      } catch {
-        // Expected error
-      }
+      await useCase.run({branch: 'main', skipConfirmation: false})
 
       expect(contextTreeSnapshotService.saveSnapshot.called).to.be.false
+      expect(errorMessages.some((msg) => msg.includes('Network error'))).to.be.true
     })
 
-    it('should propagate errors from cogit push service', async () => {
+    it('should display errors from cogit push service', async () => {
       tokenStore.load.resolves(validToken)
       configStore.read.resolves(projectConfig)
       contextTreeSnapshotService.getChanges.resolves({
@@ -345,15 +338,12 @@ describe('PushUseCase', () => {
 
       const useCase = createUseCase()
 
-      try {
-        await useCase.run({branch: 'main', skipConfirmation: false})
-        expect.fail('Should have thrown error')
-      } catch (error) {
-        expect((error as Error).message).to.include('Network timeout')
-      }
+      await useCase.run({branch: 'main', skipConfirmation: false})
+
+      expect(errorMessages.some((msg) => msg.includes('Network timeout'))).to.be.true
     })
 
-    it('should propagate errors from context file reader', async () => {
+    it('should display errors from context file reader', async () => {
       tokenStore.load.resolves(validToken)
       configStore.read.resolves(projectConfig)
       contextTreeSnapshotService.getChanges.resolves({
@@ -365,12 +355,9 @@ describe('PushUseCase', () => {
 
       const useCase = createUseCase()
 
-      try {
-        await useCase.run({branch: 'main', skipConfirmation: false})
-        expect.fail('Should have thrown error')
-      } catch (error) {
-        expect((error as Error).message).to.include('File system error')
-      }
+      await useCase.run({branch: 'main', skipConfirmation: false})
+
+      expect(errorMessages.some((msg) => msg.includes('File system error'))).to.be.true
     })
   })
 

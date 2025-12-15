@@ -152,12 +152,9 @@ describe('PullUseCase', () => {
 
       const useCase = createUseCase()
 
-      try {
-        await useCase.run({branch: 'main'})
-        expect.fail('Should have thrown error')
-      } catch (error) {
-        expect((error as Error).message).to.include('Project not initialized')
-      }
+      await useCase.run({branch: 'main'})
+
+      expect(logMessages.some((msg) => msg.includes('Project not initialized'))).to.be.true
     })
   })
 
@@ -169,13 +166,9 @@ describe('PullUseCase', () => {
 
       const useCase = createUseCase()
 
-      try {
-        await useCase.run({branch: 'main'})
-        expect.fail('Should have thrown error')
-      } catch (error) {
-        expect((error as Error).message).to.include('Run "brv push" first')
-      }
+      await useCase.run({branch: 'main'})
 
+      expect(logMessages.some((msg) => msg.includes('Run "brv push" first'))).to.be.true
       expect(cogitPullService.pull.called).to.be.false
     })
 
@@ -186,13 +179,9 @@ describe('PullUseCase', () => {
 
       const useCase = createUseCase()
 
-      try {
-        await useCase.run({branch: 'main'})
-        expect.fail('Should have thrown error')
-      } catch (error) {
-        expect((error as Error).message).to.include('Run "brv push" first')
-      }
+      await useCase.run({branch: 'main'})
 
+      expect(logMessages.some((msg) => msg.includes('Run "brv push" first'))).to.be.true
       expect(cogitPullService.pull.called).to.be.false
     })
 
@@ -203,13 +192,9 @@ describe('PullUseCase', () => {
 
       const useCase = createUseCase()
 
-      try {
-        await useCase.run({branch: 'main'})
-        expect.fail('Should have thrown error')
-      } catch (error) {
-        expect((error as Error).message).to.include('Run "brv push" first')
-      }
+      await useCase.run({branch: 'main'})
 
+      expect(logMessages.some((msg) => msg.includes('Run "brv push" first'))).to.be.true
       expect(cogitPullService.pull.called).to.be.false
     })
 
@@ -345,14 +330,10 @@ describe('PullUseCase', () => {
 
       const useCase = createUseCase()
 
-      try {
-        await useCase.run({branch: 'main'})
-        expect.fail('Should have thrown error')
-      } catch {
-        // Expected error
-      }
+      await useCase.run({branch: 'main'})
 
       expect(contextTreeSnapshotService.saveSnapshot.called).to.be.false
+      expect(errorMessages.some((msg) => msg.includes('Network error'))).to.be.true
     })
 
     it('should not save snapshot if sync fails', async () => {
@@ -364,17 +345,13 @@ describe('PullUseCase', () => {
 
       const useCase = createUseCase()
 
-      try {
-        await useCase.run({branch: 'main'})
-        expect.fail('Should have thrown error')
-      } catch {
-        // Expected error
-      }
+      await useCase.run({branch: 'main'})
 
       expect(contextTreeSnapshotService.saveSnapshot.called).to.be.false
+      expect(errorMessages.some((msg) => msg.includes('File system error'))).to.be.true
     })
 
-    it('should propagate errors from cogit pull service', async () => {
+    it('should display errors from cogit pull service', async () => {
       tokenStore.load.resolves(validToken)
       configStore.read.resolves(projectConfig)
       contextTreeSnapshotService.getChanges.resolves({added: [], deleted: [], modified: []})
@@ -382,12 +359,9 @@ describe('PullUseCase', () => {
 
       const useCase = createUseCase()
 
-      try {
-        await useCase.run({branch: 'main'})
-        expect.fail('Should have thrown error')
-      } catch (error) {
-        expect((error as Error).message).to.include('Network timeout')
-      }
+      await useCase.run({branch: 'main'})
+
+      expect(errorMessages.some((msg) => msg.includes('Network timeout'))).to.be.true
     })
   })
 
