@@ -6,12 +6,20 @@ import type {IFileWatcherService} from '../../src/core/interfaces/i-file-watcher
 import type {IProjectConfigStore} from '../../src/core/interfaces/i-project-config-store.js'
 
 import Watch from '../../src/commands/watch.js'
+import {createMockTerminal} from '../helpers/mock-factories.js'
 
 class TestableWatch extends Watch {
+  public errorMessages: string[] = []
+  public logMessages: string[] = []
   private readonly mockFileWatcherService: IFileWatcherService
   private readonly mockProjectConfigStore: IProjectConfigStore
 
-  public constructor(mockFileWatcherService: IFileWatcherService, mockProjectConfigStore: IProjectConfigStore, argv: string[], config: Config) {
+  public constructor(
+    mockFileWatcherService: IFileWatcherService,
+    mockProjectConfigStore: IProjectConfigStore,
+    argv: string[],
+    config: Config,
+  ) {
     super(argv, config)
     this.mockFileWatcherService = mockFileWatcherService
     this.mockProjectConfigStore = mockProjectConfigStore
@@ -21,24 +29,23 @@ class TestableWatch extends Watch {
     fileWatcherService: IFileWatcherService
     projectConfigStore: IProjectConfigStore
   } {
+    this.terminal = createMockTerminal({
+      error: (message: string) => {
+        this.errorMessages.push(message)
+      },
+      log: (message?: string) => {
+        if (message !== undefined) {
+          this.logMessages.push(message)
+        }
+      },
+    })
     return {
       fileWatcherService: this.mockFileWatcherService,
       projectConfigStore: this.mockProjectConfigStore,
     }
   }
 
-  public error(input: Error | string): never {
-    const errorMessage = typeof input === 'string' ? input : input.message
-    throw new Error(errorMessage)
-  }
-
-  public log(): void {}
-
   protected async waitForShutdownSignal(): Promise<void> {}
-
-  public warn(input: Error | string): Error | string {
-    return input
-  }
 }
 
 describe('watch command', () => {
@@ -84,7 +91,12 @@ describe('watch command', () => {
       fileWatcherService.start.resolves()
       fileWatcherService.stop.resolves()
 
-      const command = new TestableWatch(fileWatcherService, projectConfigStore, ['--paths', './logs,./outputs,./workspace'], config)
+      const command = new TestableWatch(
+        fileWatcherService,
+        projectConfigStore,
+        ['--paths', './logs,./outputs,./workspace'],
+        config,
+      )
       await command.run()
 
       expect(fileWatcherService.start.calledOnce).to.be.true
@@ -95,7 +107,12 @@ describe('watch command', () => {
       fileWatcherService.start.resolves()
       fileWatcherService.stop.resolves()
 
-      const command = new TestableWatch(fileWatcherService, projectConfigStore, ['--paths', ' ./logs , ./outputs , ./workspace '], config)
+      const command = new TestableWatch(
+        fileWatcherService,
+        projectConfigStore,
+        ['--paths', ' ./logs , ./outputs , ./workspace '],
+        config,
+      )
       await command.run()
 
       expect(fileWatcherService.start.calledOnce).to.be.true
@@ -152,13 +169,10 @@ describe('watch command', () => {
 
       const command = new TestableWatch(fileWatcherService, projectConfigStore, ['--paths', './test'], config)
 
-      try {
-        await command.run()
-        expect.fail('Should have thrown error')
-      } catch (error) {
-        expect((error as Error).message).to.equal('Start failed')
-      }
+      await command.run()
 
+      expect(command.errorMessages).to.have.lengthOf(1)
+      expect(command.errorMessages[0]).to.include('Start failed')
       // Stop should still be called
       expect(fileWatcherService.stop.calledOnce).to.be.true
     })
@@ -183,12 +197,10 @@ describe('watch command', () => {
 
       const command = new TestableWatch(fileWatcherService, projectConfigStore, ['--paths', './test'], config)
 
-      try {
-        await command.run()
-        expect.fail('Should have thrown error')
-      } catch (error) {
-        expect((error as Error).message).to.equal('Failed to start watcher')
-      }
+      await command.run()
+
+      expect(command.errorMessages).to.have.lengthOf(1)
+      expect(command.errorMessages[0]).to.include('Failed to start watcher')
     })
   })
 })
