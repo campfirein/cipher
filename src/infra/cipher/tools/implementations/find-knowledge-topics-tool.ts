@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import type { Tool, ToolExecutionContext } from '../../../../core/domain/cipher/tools/types.js'
 
+import {BRV_DIR, CONTEXT_FILE, CONTEXT_TREE_DIR} from '../../../../constants.js'
 import { ToolName } from '../../../../core/domain/cipher/tools/constants.js'
 import { DirectoryManager } from '../../../../core/domain/knowledge/directory-manager.js'
 import { parseRelations } from '../../../../core/domain/knowledge/relation-parser.js'
@@ -14,7 +15,7 @@ import { parseRelations } from '../../../../core/domain/knowledge/relation-parse
 const FindKnowledgeTopicsInputSchema = z.object({
   basePath: z
     .string()
-    .default('.brv/context-tree')
+    .default(`${BRV_DIR}/${CONTEXT_TREE_DIR}`)
     .describe('Base path to context tree structure'),
 
   // Scoping
@@ -146,7 +147,7 @@ async function processSubtopicFile(params: {
   const subtopicParts = subtopicRelativePath.split('/')
 
   // Check if this is a subtopic context.md (not the topic's own context.md)
-  if (subtopicParts.length <= 1 || subtopicParts.at(-1) !== 'context.md') {
+  if (subtopicParts.length <= 1 || subtopicParts.at(-1) !== CONTEXT_FILE) {
     return null
   }
 
@@ -159,7 +160,7 @@ async function processSubtopicFile(params: {
 
   const subtopicEntry: SubtopicEntry = {
     name: subtopicName,
-    path: `${domainName}/${topicName}/${subtopicName}`,
+    path: `${BRV_DIR}/${CONTEXT_TREE_DIR}/${domainName}/${topicName}/${subtopicName}/${CONTEXT_FILE}` // Full path
   }
 
   // Include subtopic content preview if requested
@@ -301,7 +302,7 @@ async function fetchRelatedTopics(params: {
     if (parts.length < 2 || parts.length > 3) continue
 
     const [domainName, topicName] = parts
-    const contextPath = join(basePath, ...parts, 'context.md')
+    const contextPath = join(basePath, ...parts, CONTEXT_FILE)
 
     try {
       // eslint-disable-next-line no-await-in-loop
@@ -310,7 +311,7 @@ async function fetchRelatedTopics(params: {
 
       const entry: FindKnowledgeTopicsOutput['results'][number] = {
         domain: domainName,
-        path: relationPath,
+        path: `${basePath}/${relationPath}/${CONTEXT_FILE}`,
         topic: topicName,
       }
 
@@ -398,8 +399,10 @@ async function executeFindKnowledgeTopics(
 
       // Skip if not a context.md file (only process context files)
       const fileName = parts.at(-1)
-      if (fileName !== 'context.md') continue
+      if (fileName !== CONTEXT_FILE) continue
+      if (parts.length === 2) continue // Skip domain context.md files because they don't have much info
 
+      
       // Handle subtopic pattern filtering (case-insensitive)
       if (isSubtopic) {
         const subtopicName = rest[0]
@@ -430,7 +433,7 @@ async function executeFindKnowledgeTopics(
       // Build result entry for this topic
       const entry: FindKnowledgeTopicsOutput['results'][number] = {
         domain: domainName,
-        path: `${domainName}/${topicName}`,
+        path: `${basePath}/${domainName}/${topicName}/${CONTEXT_FILE}`,
         topic: topicName,
       }
 
@@ -544,8 +547,7 @@ This tool helps discover what knowledge has been stored and navigate the domain/
 
 **Returns:**
 - total: Total number of matching topics (before relation traversal)
-- results: Array of topic entries with domain, topic name, path, optional relations, subtopics, and content`,
-
+- results: Array of topic entries with domain, topic name, optional relations, subtopics, and content with complete paths`,
     execute: executeFindKnowledgeTopics,
 
     id: ToolName.FIND_KNOWLEDGE_TOPICS,
