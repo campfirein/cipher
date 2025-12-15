@@ -39,6 +39,7 @@ export interface AuthContextValue {
   // Actions
   login: () => void
   reloadAuth: () => Promise<void>
+  reloadBrvConfig: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
@@ -182,6 +183,7 @@ export function AuthProvider({children, initialAuthToken, initialBrvConfig}: Aut
       login,
       loginOutput,
       reloadAuth,
+      reloadBrvConfig
     }),
     [authToken, brvConfig, isInitialConfigLoaded, isLoggingIn, loginOutput, authState, isAuthorized, login, reloadAuth],
   )

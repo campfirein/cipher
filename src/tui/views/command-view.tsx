@@ -256,7 +256,7 @@ interface CommandViewProps {
 
 export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
   const {exit} = useApp()
-  const {reloadAuth} = useAuth()
+  const {reloadAuth, reloadBrvConfig} = useAuth()
   const {restart} = useConsumer()
   const [command, setCommand] = useState('')
   const [inputKey, setInputKey] = useState(0)
@@ -362,26 +362,20 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
           setStreamingMessages([])
           setIsStreaming(false)
           setActivePrompt(null)
+          const needReloadAuth = trimmed.startsWith('/login') || trimmed.startsWith('/logout')
+          const needReloadBrvConfig = trimmed.startsWith('/space switch') || trimmed.startsWith('/init')
 
           // Refresh state after commands that change auth or project state
-          if (trimmed.startsWith('/logout') || trimmed.startsWith('/login')) {
+          if (needReloadAuth || needReloadBrvConfig) {
             // Stop queue polling and consumer
             stopQueuePollingService()
             stopConsumer()
             // Wait for consumer to stop
-            setTimeout(() => {
-              reloadAuth()
+            setTimeout(async () => {
+              if (needReloadAuth) await reloadAuth()
+              if (needReloadBrvConfig) await reloadBrvConfig()
+              await restart()
             }, 1000)
-          }
-
-          // Restart consumer after commands that change project state
-          if (
-            trimmed.startsWith('/init') ||
-            trimmed.startsWith('/space switch') ||
-            trimmed.startsWith('/space select')
-          ) {
-            await reloadAuth()
-            await restart()
           }
         }
       }
