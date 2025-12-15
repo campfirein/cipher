@@ -31,7 +31,7 @@ describe('cipher/tools', () => {
     it('should have all expected tool name properties', () => {
       expect(ToolName.BASH_EXEC).to.equal('bash_exec')
       expect(ToolName.BASH_OUTPUT).to.equal('bash_output')
-      expect(ToolName.CREATE_KNOWLEDGE_TOPIC).to.equal('create_knowledge_topic')
+      expect(ToolName.CURATE).to.equal('curate')
       expect(ToolName.DELETE_MEMORY).to.equal('delete_memory')
       expect(ToolName.DETECT_DOMAINS).to.equal('detect_domains')
       expect(ToolName.EDIT_FILE).to.equal('edit_file')
@@ -73,7 +73,7 @@ describe('cipher/tools', () => {
       const allTools: KnownTool[] = [
         'bash_exec',
         'bash_output',
-        'create_knowledge_topic',
+        'curate',
         'delete_memory',
         'detect_domains',
         'edit_file',

@@ -1,6 +1,7 @@
 import {Args, Command, Flags} from '@oclif/core'
 
 import type {IProjectConfigStore} from '../../core/interfaces/i-project-config-store.js'
+import type {ITerminal} from '../../core/interfaces/i-terminal.js'
 
 import {getCurrentConfig, isDevelopment} from '../../config/environment.js'
 import {PROJECT} from '../../constants.js'
@@ -10,6 +11,7 @@ import {displayInfo, startInteractiveLoop} from '../../infra/cipher/interactive-
 import {WorkspaceNotInitializedError} from '../../infra/cipher/validation/workspace-validator.js'
 import {ProjectConfigStore} from '../../infra/config/file-config-store.js'
 import {KeychainTokenStore} from '../../infra/storage/keychain-token-store.js'
+import {OclifTerminal} from '../../infra/terminal/oclif-terminal.js'
 import {formatToolCall, formatToolResult} from '../../utils/tool-display-formatter.js'
 
 export default class CipherAgentRun extends Command {
@@ -95,6 +97,7 @@ export default class CipherAgentRun extends Command {
     }),
   }
   static override hidden = !isDevelopment()
+  protected terminal: ITerminal = {} as ITerminal
 
   // Override catch to prevent oclif from logging errors that were already displayed
   async catch(error: Error & {oclif?: {exit: number}}): Promise<void> {
@@ -116,6 +119,7 @@ export default class CipherAgentRun extends Command {
   protected createServices(): {
     projectConfigStore: IProjectConfigStore
   } {
+    this.terminal = new OclifTerminal(this)
     return {
       projectConfigStore: new ProjectConfigStore(),
     }
@@ -168,8 +172,12 @@ export default class CipherAgentRun extends Command {
 
   // eslint-disable-next-line complexity
   public async run(): Promise<void> {
+    // Load services first to initialize terminal
+    const {projectConfigStore} = this.createServices()
+
     if (!isDevelopment()) {
-      this.error('This command is only available in development environment')
+      this.terminal.error('This command is only available in development environment')
+      return
     }
 
     const {args, flags} = await this.parse(CipherAgentRun)
@@ -194,16 +202,17 @@ export default class CipherAgentRun extends Command {
 
       // Validate prompt requirement for non-interactive mode
       if (!isInteractive && !currentPrompt) {
-        this.error('Prompt is required in non-interactive mode. Use --interactive flag for interactive mode.')
+        this.terminal.error('Prompt is required in non-interactive mode. Use --interactive flag for interactive mode.')
       }
 
       // Validate flags: In headless mode, prompt is required for session continuation
       if ((flags.continue || flags.resume) && !isInteractive && !args.prompt) {
-        this.error('Session continuation flags (-c/--continue or -r/--resume) require a prompt in headless mode.')
+        this.terminal.error(
+          'Session continuation flags (-c/--continue or -r/--resume) require a prompt in headless mode.',
+        )
       }
 
       // Load ByteRover config to get custom system prompt (if configured)
-      const {projectConfigStore} = this.createServices()
       const brvConfig = await projectConfigStore.read()
 
       // Validate workspace is initialized
@@ -223,7 +232,7 @@ export default class CipherAgentRun extends Command {
       // Create CipherAgent with service factory pattern
       const agent = new CipherAgent(llmConfig, brvConfig)
 
-      this.log('Starting CipherAgent...')
+      this.terminal.log('Starting CipherAgent...')
       await agent.start()
 
       try {
@@ -243,18 +252,18 @@ export default class CipherAgentRun extends Command {
         } else {
           // Non-interactive mode: single execution
           if (!currentPrompt) {
-            this.error('Prompt is required in non-interactive mode.')
+            this.terminal.error('Prompt is required in non-interactive mode.')
           }
 
-          this.log('Executing prompt...')
+          this.terminal.log('Executing prompt...')
           const response = await agent.execute(currentPrompt, resolvedSessionId)
 
-          this.log('\nCipherAgent Response:')
-          this.log(response)
+          this.terminal.log('\nCipherAgent Response:')
+          this.terminal.log(response)
 
           // Show agent state
           const state = agent.getState()
-          this.log(`\n[Agent State: ${state.currentIteration} iterations]`)
+          this.terminal.log(`\n[Agent State: ${state.currentIteration} iterations]`)
         }
       } finally {
         // await agent.stop()
@@ -319,8 +328,8 @@ export default class CipherAgentRun extends Command {
     },
   ): {
     accessToken: string
+    apiBaseUrl: string
     fileSystemConfig?: {workingDirectory: string}
-    grpcEndpoint: string
     maxIterations: number
     maxTokens: number
     model: string
@@ -332,14 +341,14 @@ export default class CipherAgentRun extends Command {
     temperature: number
     verbose?: boolean
   } {
-    // Default model: google/gemini-2.5-pro for OpenRouter, gemini-2.5-pro for gRPC
+    // Default model: google/gemini-2.5-pro for OpenRouter, gemini-2.5-pro for HTTP
     const model = flags.model ?? (flags.apiKey ? 'google/gemini-2.5-pro' : 'gemini-2.5-pro')
     const envConfig = getCurrentConfig()
 
     return {
       accessToken: token.accessToken,
+      apiBaseUrl: envConfig.llmApiBaseUrl,
       fileSystemConfig: flags.workingDirectory ? {workingDirectory: flags.workingDirectory} : undefined,
-      grpcEndpoint: envConfig.llmGrpcEndpoint,
       maxIterations: 10, // Hardcoded default
       maxTokens: flags.maxTokens ?? 8192, // Default: 8192
       model,
@@ -351,6 +360,90 @@ export default class CipherAgentRun extends Command {
       temperature: flags.temperature ? Number.parseFloat(flags.temperature) : 0.2, // Default: 0.2
       verbose: flags.verbose ?? false,
     }
+  }
+
+  /**
+   * Format curate tool result summary
+   *
+   * @param result - Tool result data
+   * @returns Formatted summary string or empty
+   */
+  private formatCurateResult(result: unknown): string {
+    if (typeof result !== 'string') {
+      return ''
+    }
+
+    try {
+      const parsed = JSON.parse(result) as {
+        applied?: unknown[]
+        summary?: {added?: number; deleted?: number; failed?: number; merged?: number; updated?: number}
+      }
+
+      if (!parsed.summary) {
+        return ''
+      }
+
+      const {added = 0, deleted = 0, failed = 0, merged = 0, updated = 0} = parsed.summary
+      const parts: string[] = []
+      if (added > 0) parts.push(`${added} added`)
+      if (updated > 0) parts.push(`${updated} updated`)
+      if (merged > 0) parts.push(`${merged} merged`)
+      if (deleted > 0) parts.push(`${deleted} deleted`)
+      if (failed > 0) parts.push(`${failed} failed`)
+      return parts.length > 0 ? parts.join(', ') : 'No operations'
+    } catch {
+      return ''
+    }
+  }
+
+  /**
+   * Format find_knowledge_topics tool result summary
+   *
+   * @param result - Tool result data
+   * @returns Formatted summary string or empty
+   */
+  private formatFindKnowledgeTopicsResult(result: unknown): string {
+    if (typeof result !== 'string') {
+      return ''
+    }
+
+    try {
+      const parsed = JSON.parse(result)
+      const count = Array.isArray(parsed) ? parsed.length : Object.keys(parsed).length
+      return `${count} topics retrieved`
+    } catch {
+      return ''
+    }
+  }
+
+  /**
+   * Format grep_content tool result summary
+   *
+   * @param result - Tool result data
+   * @returns Formatted summary string or empty
+   */
+  private formatGrepContentResult(result: unknown): string {
+    if (typeof result !== 'string') {
+      return ''
+    }
+
+    const lines = result.split('\n').filter((line) => line.trim())
+    return `${lines.length} matches found`
+  }
+
+  /**
+   * Format list_directory tool result summary
+   *
+   * @param result - Tool result data
+   * @returns Formatted summary string or empty
+   */
+  private formatListDirectoryResult(result: unknown): string {
+    if (typeof result !== 'string') {
+      return ''
+    }
+
+    const lines = result.split('\n').filter((line) => line.trim())
+    return `${lines.length} items`
   }
 
   /**
@@ -371,6 +464,10 @@ export default class CipherAgentRun extends Command {
 
       case 'create_knowledge_topic': {
         return 'Creating knowledge topic...'
+      }
+
+      case 'curate': {
+        return 'Curating knowledge topics...'
       }
 
       case 'find_knowledge_topics': {
@@ -412,50 +509,26 @@ export default class CipherAgentRun extends Command {
    * @returns Formatted summary string or empty if no summary needed
    */
   private formatToolResultSummary(toolName: string, result: unknown): string {
-    try {
-      switch (toolName) {
-        case 'find_knowledge_topics': {
-          // Parse result to count topics
-          if (typeof result === 'string') {
-            try {
-              const parsed = JSON.parse(result)
-              const count = Array.isArray(parsed) ? parsed.length : Object.keys(parsed).length
-              return `${count} topics retrieved`
-            } catch {
-              return ''
-            }
-          }
-
-          return ''
-        }
-
-        case 'grep_content': {
-          // Parse result to count matches
-          if (typeof result === 'string') {
-            const lines = result.split('\n').filter((line) => line.trim())
-            return `${lines.length} matches found`
-          }
-
-          return ''
-        }
-
-        case 'list_directory': {
-          // Parse result to count items
-          if (typeof result === 'string') {
-            const lines = result.split('\n').filter((line) => line.trim())
-            return `${lines.length} items`
-          }
-
-          return ''
-        }
-
-        default: {
-          return ''
-        }
+    switch (toolName) {
+      case 'curate': {
+        return this.formatCurateResult(result)
       }
-    } catch {
-      // If parsing fails, just return empty
-      return ''
+
+      case 'find_knowledge_topics': {
+        return this.formatFindKnowledgeTopicsResult(result)
+      }
+
+      case 'grep_content': {
+        return this.formatGrepContentResult(result)
+      }
+
+      case 'list_directory': {
+        return this.formatListDirectoryResult(result)
+      }
+
+      default: {
+        return ''
+      }
     }
   }
 
@@ -500,7 +573,7 @@ export default class CipherAgentRun extends Command {
       }
 
       const metadata = await agent.getSessionMetadata(flags.resume)
-      this.log(`📌 Resuming session: ${flags.resume} (${metadata?.messageCount ?? 0} messages)\n`)
+      this.terminal.log(`📌 Resuming session: ${flags.resume} (${metadata?.messageCount ?? 0} messages)\n`)
       return flags.resume
     }
 
@@ -513,13 +586,15 @@ export default class CipherAgentRun extends Command {
       }
 
       const metadata = await agent.getSessionMetadata(mostRecentSessionId)
-      this.log(`📌 Continuing most recent session: ${mostRecentSessionId} (${metadata?.messageCount ?? 0} messages)\n`)
+      this.terminal.log(
+        `📌 Continuing most recent session: ${mostRecentSessionId} (${metadata?.messageCount ?? 0} messages)\n`,
+      )
       return mostRecentSessionId
     }
 
     // No continuation flags: generate new unique session ID
     const newSessionId = this.generateSessionId()
-    this.log(`🚀 Starting new session: ${newSessionId}\n`)
+    this.terminal.log(`🚀 Starting new session: ${newSessionId}\n`)
     return newSessionId
   }
 
@@ -570,35 +645,35 @@ export default class CipherAgentRun extends Command {
 
     // In non-interactive mode, show verbose event logs for debugging
     eventBus.on('llmservice:thinking', () => {
-      this.log('🤔 [Event] LLM is thinking...')
+      this.terminal.log('🤔 [Event] LLM is thinking...')
     })
 
     eventBus.on('llmservice:response', (payload) => {
-      this.log(`✅ [Event] LLM Response (${payload.provider}/${payload.model})`)
+      this.terminal.log(`✅ [Event] LLM Response (${payload.provider}/${payload.model})`)
     })
 
     eventBus.on('llmservice:toolCall', (payload) => {
       const formattedCall = formatToolCall(payload.toolName, payload.args)
-      this.log(`🔧 [Event] Tool Call: ${formattedCall}`)
+      this.terminal.log(`🔧 [Event] Tool Call: ${formattedCall}`)
     })
 
     eventBus.on('llmservice:toolResult', (payload) => {
       const resultSummary = formatToolResult(payload.toolName, payload.success, payload.result, payload.error)
 
       if (payload.success) {
-        this.log(`✓ [Event] Tool Success: ${payload.toolName} → ${resultSummary}`)
+        this.terminal.log(`✓ [Event] Tool Success: ${payload.toolName} → ${resultSummary}`)
       } else {
-        this.log(`✗ [Event] Tool Error: ${payload.toolName} → ${resultSummary}`)
+        this.terminal.log(`✗ [Event] Tool Error: ${payload.toolName} → ${resultSummary}`)
       }
     })
 
     eventBus.on('llmservice:error', (payload) => {
       const errorMessage = payload.error || 'Unknown error occurred'
-      this.log(`❌ [Event] LLM Error: ${errorMessage}`)
+      this.terminal.log(`❌ [Event] LLM Error: ${errorMessage}`)
     })
 
     eventBus.on('cipher:conversationReset', () => {
-      this.log('🔄 [Event] Conversation Reset')
+      this.terminal.log('🔄 [Event] Conversation Reset')
     })
   }
 }

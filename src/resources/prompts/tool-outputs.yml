@@ -18,13 +18,14 @@ prompts:
     Memory deleted successfully.
 
   detect_domains_output: |
-    Domains detected. Now use create_knowledge_topic to organize them into the context tree.
+    Domains detected. Now use curate to organize them into the context tree.
 
-  create_knowledge_topic_output: |
-    Knowledge topic created successfully.
+  curate_output: |
+    Context tree curated successfully.
     If you detected multiple domains, create topics for the remaining ones.
     Once all domains are organized, your curation task is complete.
 
   find_knowledge_topics_output: |
     Search complete. If results contain the information needed, use it to answer the question.
     Use includeContent or followRelations if the current results are insufficient.
+    If you need the entire content of any detected topic or subtopic, use the exact 'path' field for read_file tool.

@@ -4,11 +4,12 @@ import type {BlobStorageConfig} from '../../core/domain/cipher/blob/types.js'
 import type {FileSystemConfig} from '../../core/domain/cipher/file-system/types.js'
 import type {CipherAgentServices, SessionServices} from '../../core/interfaces/cipher/cipher-services.js'
 import type {IContentGenerator} from '../../core/interfaces/cipher/i-content-generator.js'
+import type {IHistoryStorage} from '../../core/interfaces/cipher/i-history-storage.js'
 
 import {createBlobStorage} from './blob/blob-storage-factory.js'
 import {AgentEventBus, SessionEventBus} from './events/event-emitter.js'
 import {FileSystemService} from './file-system/file-system-service.js'
-import {ByteRoverLlmGrpcService} from './grpc/internal-llm-grpc-service.js'
+import {ByteRoverLlmHttpService} from './http/internal-llm-http-service.js'
 import {ByteRoverContentGenerator, LoggingContentGenerator, RetryableContentGenerator} from './llm/generators/index.js'
 import {ByteRoverLLMService} from './llm/internal-llm-service.js'
 import {OpenRouterLLMService} from './llm/openrouter-llm-service.js'
@@ -17,6 +18,10 @@ import {EventBasedLogger} from './logger/event-based-logger.js'
 import {MemoryManager} from './memory/memory-manager.js'
 import {ProcessService} from './process/process-service.js'
 import {BlobHistoryStorage} from './storage/blob-history-storage.js'
+import {DualFormatHistoryStorage} from './storage/dual-format-history-storage.js'
+import {GranularHistoryStorage} from './storage/granular-history-storage.js'
+import {MessageStorageService} from './storage/message-storage-service.js'
+import {SqliteKeyStorage} from './storage/sqlite-key-storage.js'
 import {SimplePromptFactory} from './system-prompt/simple-prompt-factory.js'
 import {CoreToolScheduler} from './tools/core-tool-scheduler.js'
 import {DEFAULT_POLICY_RULES} from './tools/default-policy-rules.js'
@@ -29,10 +34,10 @@ import {ToolProvider} from './tools/tool-provider.js'
  */
 export interface CipherLLMConfig {
   accessToken: string
+  apiBaseUrl: string
   apiKey?: string
   blobStorageConfig?: Partial<BlobStorageConfig>
   fileSystemConfig?: Partial<FileSystemConfig>
-  grpcEndpoint: string
   httpReferer?: string
   maxIterations?: number
   maxTokens?: number
@@ -45,15 +50,22 @@ export interface CipherLLMConfig {
   temperature?: number
   topK?: number
   topP?: number
+  /**
+   * Enable granular history storage for new sessions.
+   * When enabled, new sessions use per-message storage with streaming support.
+   * Existing sessions continue using blob storage (no migration).
+   * Default: false (use blob storage for all sessions)
+   */
+  useGranularStorage?: boolean
   verbose?: boolean
 }
 
 /**
- * gRPC configuration for ByteRover LLM service
+ * HTTP configuration for ByteRover LLM service
  */
-export interface ByteRoverGrpcConfig {
+export interface ByteRoverHttpConfig {
   accessToken: string
-  grpcEndpoint: string
+  apiBaseUrl: string
   projectId: string
   region?: string
   sessionKey: string
@@ -150,7 +162,30 @@ export async function createCipherAgentServices(llmConfig: CipherLLMConfig): Pro
   await toolManager.initialize()
 
   // 11. History storage (depends on BlobStorage) - SHARED across sessions
-  const historyStorage = new BlobHistoryStorage(blobStorage)
+  // Use DualFormatHistoryStorage when granular storage is enabled
+  let historyStorage: IHistoryStorage
+
+  if (llmConfig.useGranularStorage) {
+    // Create granular storage infrastructure
+    const keyStorage = new SqliteKeyStorage({
+      storageDir: join(workingDirectory, '.brv'),
+    })
+    await keyStorage.initialize()
+
+    const messageStorage = new MessageStorageService(keyStorage)
+    const granularStorage = new GranularHistoryStorage(messageStorage)
+    const blobHistoryStorage = new BlobHistoryStorage(blobStorage)
+
+    // DualFormatHistoryStorage routes between formats:
+    // - New sessions → GranularHistoryStorage
+    // - Existing sessions → BlobHistoryStorage (no migration)
+    historyStorage = new DualFormatHistoryStorage(blobHistoryStorage, granularStorage)
+
+    logger.info('Granular history storage enabled for new sessions')
+  } else {
+    // Default: use blob storage for all sessions
+    historyStorage = new BlobHistoryStorage(blobStorage)
+  }
 
   // Log successful initialization
   logger.info('CipherAgent services initialized successfully', {
@@ -187,7 +222,7 @@ export async function createCipherAgentServices(llmConfig: CipherLLMConfig): Pro
  *
  * @param sessionId - Unique session identifier
  * @param sharedServices - Shared services from agent
- * @param grpcConfig - gRPC configuration
+ * @param httpConfig - HTTP configuration
  * @param llmConfig - LLM service configuration
  * @param llmConfig.openRouterApiKey - Optional OpenRouter API key for OpenRouter service
  * @param llmConfig.httpReferer - Optional HTTP Referer for OpenRouter rankings
@@ -202,7 +237,7 @@ export async function createCipherAgentServices(llmConfig: CipherLLMConfig): Pro
 export function createSessionServices(
   sessionId: string,
   sharedServices: CipherAgentServices,
-  grpcConfig: ByteRoverGrpcConfig,
+  httpConfig: ByteRoverHttpConfig,
   llmConfig: {
     httpReferer?: string
     maxIterations?: number
@@ -248,22 +283,22 @@ export function createSessionServices(
       },
     )
   } else {
-    // Use gRPC backend service (default) with new generator pattern
+    // Use HTTP backend service (default) with new generator pattern
 
-    // Step 1: Create gRPC service
-    const grpcService = new ByteRoverLlmGrpcService({
-      accessToken: grpcConfig.accessToken,
-      grpcEndpoint: grpcConfig.grpcEndpoint,
-      projectId: grpcConfig.projectId,
-      region: grpcConfig.region,
-      sessionKey: grpcConfig.sessionKey,
-      spaceId: grpcConfig.spaceId,
-      teamId: grpcConfig.teamId,
-      timeout: grpcConfig.timeout,
+    // Step 1: Create HTTP service
+    const httpService = new ByteRoverLlmHttpService({
+      accessToken: httpConfig.accessToken,
+      apiBaseUrl: httpConfig.apiBaseUrl,
+      projectId: httpConfig.projectId,
+      region: httpConfig.region,
+      sessionKey: httpConfig.sessionKey,
+      spaceId: httpConfig.spaceId,
+      teamId: httpConfig.teamId,
+      timeout: httpConfig.timeout,
     })
 
     // Step 2: Create base content generator
-    let generator: IContentGenerator = new ByteRoverContentGenerator(grpcService, {
+    let generator: IContentGenerator = new ByteRoverContentGenerator(httpService, {
       maxTokens: llmConfig.maxTokens ?? 8192,
       model: llmConfig.model ?? 'gemini-2.5-pro',
       temperature: llmConfig.temperature ?? 0.7,

@@ -2,6 +2,7 @@ description: "context tree curation instructions"
 prompt: |
 
   Your task is to assemble relevant high-level information (context) from the input data which will be saved to the context tree in the following steps.
+  Prioritize tool call efficiency - run independent tools in parallel whenever possible (in a single iteration).
 
   The information should be sufficient to understand what the user has provided to the coding assistant as the important context so that the coding assistant can use it to complete the task at hand. When organizing the context, keep in mind the hierarchical structure with a maximum of 2 levels: domain → topic → subtopic. If subtopics contain complex information, break them into separate topics rather than creating deeper nesting.
 
@@ -16,28 +17,39 @@ prompt: |
 
   After collecting all the information, follow these steps to understand and update the context tree:
 
-  1. **Explore existing context**: Use `glob_files` and `grep_content` to understand the current related context in the context tree. You may use bash commands (e.g., `ls`, `find`) to list directories if necessary to navigate the context tree structure.
+  1. **Detect and read referenced files**:
+     - IMPORTANT: Before proceeding, analyze the user's input content for any file path references (e.g., "implemented in auth.ts", "see config.json", "refer to src/utils/helper.ts")
+     - If there are file references that you must read, use the `read_file` tool to read these files IN PARALLEL (in a single iteration) to gather comprehensive context
+     - Multiple file reads can be done simultaneously - they don't depend on each other
+     - This ensures you have complete information before creating knowledge topics
 
-  2. **Find existing knowledge**: Use `find_knowledge_topics` to retrieve concise information about existing knowledge topics in the context tree that relate to the current domain and text segments.
+  2. **Explore existing context**: Use `glob_files` and `grep_content` to understand the current related context in the context tree. You may use bash commands (e.g., `ls`, `find`) to list directories if necessary to navigate the context tree structure.
 
-  3. **Create or update knowledge**: Once you have gathered all information about:
+  3. **Find existing knowledge**: Use `find_knowledge_topics` to retrieve concise information about existing knowledge topics in the context tree that relate to the current domain and text segments.
+
+  4. **Create or update knowledge**: Once you have gathered all information about:
      - The current domain and text segments from the user's input data
      - The existing context in the context tree
-     Use the `create_knowledge_topic` tool to create new knowledge topics or update existing ones. Ensure that:
+     Use the `curate` tool to create new knowledge topics or update existing ones. Ensure that:
      - The context is well-structured and MUST meet **Context quality requirements**
      - There is no duplication with existing context
      - The information is clear and easy to understand
-     
-  4. **Context quality requirements**: Each context in the `contexts` array must:
-       - Important: Minimum 2-4 sentences per context. Otherwise, DO NOT add that context.
-       - A developer should understand the concept without reading source code
-       - Include names of functions, classes, patterns, or key concepts
 
-       AVOID vague contexts like:
+  5. **Tool Execution Efficiency:**
+     - When multiple tools don't depend on each other's results, execute them in parallel (same iteration)
+     - Example: Reading multiple files can be done in parallel
+     - Example: `detect_domains` and `read_file` operations for different files can run together
+
+  6. **Context quality requirements**: Each context in the `contexts` array must:
+     - Important: Minimum 2-4 sentences per context. Otherwise, DO NOT add that context.
+     - A developer should understand the concept without reading source code
+     - Include names of functions, classes, patterns, or key concepts
+
+   AVOID vague contexts like:
        - "Hook system" 
        - "Error handling" 
 
-       WRITE detailed contexts like:
+   WRITE detailed contexts like:
        - "The hook system allows registering callbacks for lifecycle events. Register hooks using 
         `HookRegistry.register(hookName, callback)` and trigger them with `HookRegistry.trigger(hookName, context)`. Hooks are used to: 
         support async callbacks and are commonly used for: pre/post tool execution, agent lifecycle events, and custom 

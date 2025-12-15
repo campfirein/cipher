@@ -10,6 +10,10 @@
 
 - `CONTEXT`: Knowledge context: patterns, decisions, errors, or insights (triggers autonomous mode, optional)
 
+**Flags:**
+
+- `--files`, `-f`: Include file paths for critical context (max 5 files). Only text/code files from the current project directory are allowed. **CONTEXT argument must come BEFORE this flag.**
+
 **Good examples of context:**
 
 - "Auth uses JWT with 24h expiry. Tokens stored in httpOnly cookies via authMiddleware.ts"
@@ -28,12 +32,20 @@ brv curate
 
 # Autonomous mode - LLM auto-categorizes your context
 brv curate "Auth uses JWT with 24h expiry. Tokens stored in httpOnly cookies via authMiddleware.ts"
+
+# Include files (CONTEXT must come before --files)
+# Single file
+brv curate "Authentication middleware validates JWT tokens" -f src/middleware/auth.ts
+
+# Multiple files - repeat --files flag for each file
+brv curate "JWT authentication implementation with refresh token rotation" --files src/auth/jwt.ts --files docs/auth.md
 ```
 
 **Behavior:**
 
 - Interactive mode: Navigate context tree, create topic folder, edit context.md
 - Autonomous mode: LLM automatically categorizes and places context in appropriate location
+- When `--files` is provided, agent reads files in parallel before creating knowledge topics
 
 **Requirements:** Project must be initialized (`brv init`) and authenticated (`brv login`)
 
