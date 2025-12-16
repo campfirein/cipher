@@ -975,15 +975,8 @@ export class SessionManager {
 			}
 
 			// Use environment variables for SQLite configuration
-			const dbPath = env.STORAGE_DATABASE_PATH;
-			let sqlitePath = './data';
-			let sqliteDatabase = 'cipher-sessions.db';
-
-			if (dbPath) {
-				const pathParts = dbPath.split('/');
-				sqliteDatabase = pathParts.pop() || 'cipher-sessions.db';
-				sqlitePath = pathParts.join('/') || './data';
-			}
+			const sqlitePath = env.STORAGE_DATABASE_PATH || './data';
+			const sqliteDatabase = env.STORAGE_DATABASE_NAME || 'cipher-sessions.db';
 
 			this.storageManager = new StorageManager({
 				database: {
