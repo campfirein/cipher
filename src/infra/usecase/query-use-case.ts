@@ -111,11 +111,10 @@ export class QueryUseCase implements IQueryUseCase {
         this.setupEventListeners(agent, options.verbose ?? false)
         this.setupToolCallTracking(agent, executionId)
 
-        // Execute with autonomous mode and query commandType
+        // Execute with query commandType
         const prompt = `Search the context tree for: ${options.query}`
         const response = await agent.execute(prompt, sessionId, {
           executionContext: {commandType: 'query'},
-          mode: 'autonomous',
         })
 
         // Mark execution as completed

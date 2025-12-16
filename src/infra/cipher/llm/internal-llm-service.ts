@@ -18,7 +18,7 @@ import type {
   ToolStateRunning,
 } from '../../../core/interfaces/cipher/message-types.js'
 import type {MemoryManager} from '../memory/memory-manager.js'
-import type {SimplePromptFactory} from '../system-prompt/simple-prompt-factory.js'
+import type {SystemPromptManager} from '../system-prompt/system-prompt-manager.js'
 import type {ToolManager} from '../tools/tool-manager.js'
 import type {CompactionService} from './context/compaction/compaction-service.js'
 
@@ -100,7 +100,6 @@ export interface LLMServiceConfig {
  */
 interface BuildGenerateContentRequestOptions {
   executionContext?: ExecutionContext
-  mode?: 'autonomous' | 'default' | 'query'
   sessionId: string
   systemPrompt: string
   tools: ToolSet
@@ -144,10 +143,10 @@ export class ByteRoverLLMService implements ILLMService {
   private readonly memoryManager?: MemoryManager
   private readonly metadataHandler: ToolMetadataHandler
   private readonly outputProcessor: ToolOutputProcessor
-  private readonly promptFactory: SimplePromptFactory
   private readonly providerType: 'claude' | 'gemini'
   private readonly sessionEventBus: SessionEventBus
   private readonly sessionId: string
+  private readonly systemPromptManager: SystemPromptManager
   private readonly tokenizer: ITokenizer
   private readonly toolManager: ToolManager
   private readonly workingDirectory: string
@@ -169,7 +168,7 @@ export class ByteRoverLLMService implements ILLMService {
    * @param config - LLM service configuration (model, tokens, temperature)
    * @param options - Service dependencies
    * @param options.toolManager - Tool manager for executing agent tools
-   * @param options.promptFactory - Simple prompt factory for building system prompts
+   * @param options.systemPromptManager - System prompt manager for building system prompts
    * @param options.memoryManager - Memory manager for agent memories
    * @param options.sessionEventBus - Event bus for session lifecycle events
    * @param options.compactionService - Optional compaction service for context overflow management
@@ -185,8 +184,8 @@ export class ByteRoverLLMService implements ILLMService {
       historyStorage?: IHistoryStorage
       logger?: ILogger
       memoryManager?: MemoryManager
-      promptFactory: SimplePromptFactory
       sessionEventBus: SessionEventBus
+      systemPromptManager: SystemPromptManager
       toolManager: ToolManager
     },
   ) {
@@ -194,7 +193,7 @@ export class ByteRoverLLMService implements ILLMService {
     this.generator = generator
     this.compactionService = options.compactionService
     this.toolManager = options.toolManager
-    this.promptFactory = options.promptFactory
+    this.systemPromptManager = options.systemPromptManager
     this.memoryManager = options.memoryManager
     this.sessionEventBus = options.sessionEventBus
     this.logger = options.logger ?? new NoOpLogger()
@@ -253,7 +252,6 @@ export class ByteRoverLLMService implements ILLMService {
    * @param options.imageData - Optional image data
    * @param options.fileData - Optional file data
    * @param options.stream - Whether to stream response (not implemented yet)
-   * @param options.mode - Optional mode for system prompt ('autonomous' enables autonomous mode)
    * @returns Final assistant response
    */
   public async completeTask(
@@ -263,13 +261,12 @@ export class ByteRoverLLMService implements ILLMService {
       executionContext?: ExecutionContext
       fileData?: FileData
       imageData?: ImageData
-      mode?: 'autonomous' | 'default' | 'query'
       signal?: AbortSignal
       stream?: boolean
     },
   ): Promise<string> {
     // Extract options with defaults
-    const {executionContext, fileData, imageData, mode, signal} = options ?? {}
+    const {executionContext, fileData, imageData, signal} = options ?? {}
 
     // Add user message to context
     await this.contextManager.addUserMessage(textInput, imageData, fileData)
@@ -301,7 +298,6 @@ export class ByteRoverLLMService implements ILLMService {
         const result = await this.executeAgenticIteration({
           executionContext,
           iterationCount: stateMachine.getContext().turnCount,
-          mode,
           sessionId,
           tools: toolSet,
         })
@@ -425,7 +421,6 @@ export class ByteRoverLLMService implements ILLMService {
    * @param options.sessionId - Session ID for tracking the llm request in a command session
    * @param options.systemPrompt - System prompt text
    * @param options.tools - Available tools for function calling
-   * @param options.mode - Optional mode for system prompt
    * @param options.executionContext - Optional execution context
    * @returns GenerateContentRequest for the generator
    */
@@ -440,7 +435,6 @@ export class ByteRoverLLMService implements ILLMService {
       },
       contents: messages,
       executionContext: options.executionContext,
-      mode: options.mode,
       model: this.config.model,
       sessionId: options.sessionId,
       systemPrompt: options.systemPrompt,
@@ -623,19 +617,17 @@ export class ByteRoverLLMService implements ILLMService {
    * @param options.iterationCount - Current iteration number
    * @param options.sessionId - Session ID for tracking the llm request in a command session
    * @param options.tools - Available tools for this iteration
-   * @param options.mode - Optional mode for system prompt
    * @param options.executionContext - Optional execution context
    * @returns Final response string if complete, null if more iterations needed
    */
   private async executeAgenticIteration(options: {
     executionContext?: ExecutionContext
     iterationCount: number
-    mode?: 'autonomous' | 'default' | 'query'
     sessionId: string
     tools: ToolSet
   }): Promise<null | string> {
-    const {executionContext, iterationCount, mode, sessionId, tools} = options
-    // Build system prompt using SimplePromptFactory (before compression for correct token accounting)
+    const {executionContext, iterationCount, sessionId, tools} = options
+    // Build system prompt using SystemPromptManager (before compression for correct token accounting)
     // Use filtered tool names based on command type (e.g., only read-only tools for 'query')
     const availableTools = this.toolManager.getToolNamesForCommand(executionContext?.commandType)
     const markersSet = this.toolManager.getAvailableMarkers()
@@ -654,7 +646,7 @@ export class ByteRoverLLMService implements ILLMService {
       workingDirectory: this.workingDirectory,
     })
 
-    let systemPrompt = await this.promptFactory.buildSystemPrompt({
+    let systemPrompt = await this.systemPromptManager.build({
       availableMarkers,
       availableTools,
       commandType: executionContext?.commandType,
@@ -662,7 +654,6 @@ export class ByteRoverLLMService implements ILLMService {
       environmentContext,
       fileReferenceInstructions: executionContext?.fileReferenceInstructions,
       memoryManager: this.memoryManager,
-      mode,
     })
 
     // Determine which reflection prompt to add (only highest priority is chosen)
@@ -670,7 +661,7 @@ export class ByteRoverLLMService implements ILLMService {
 
     // Add reflection prompt if eligible (hierarchical: only one reflection per iteration)
     if (reflectionType) {
-      const reflectionPrompt = this.promptFactory.buildReflectionPrompt({
+      const reflectionPrompt = this.systemPromptManager.buildReflectionPrompt({
         currentIteration: iterationCount + 1,
         maxIterations: this.config.maxIterations,
         type: reflectionType,
@@ -726,7 +717,6 @@ export class ByteRoverLLMService implements ILLMService {
     // Build generation request
     const request = this.buildGenerateContentRequest({
       executionContext,
-      mode,
       sessionId,
       systemPrompt,
       tools: toolsForThisIteration,

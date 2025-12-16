@@ -1,4 +1,5 @@
-import {join} from 'node:path'
+import {dirname, join} from 'node:path'
+import {fileURLToPath} from 'node:url'
 
 import type {BlobStorageConfig} from '../../core/domain/cipher/blob/types.js'
 import type {FileSystemConfig} from '../../core/domain/cipher/file-system/types.js'
@@ -24,7 +25,7 @@ import {DualFormatHistoryStorage} from './storage/dual-format-history-storage.js
 import {GranularHistoryStorage} from './storage/granular-history-storage.js'
 import {MessageStorageService} from './storage/message-storage-service.js'
 import {SqliteKeyStorage} from './storage/sqlite-key-storage.js'
-import {SimplePromptFactory} from './system-prompt/simple-prompt-factory.js'
+import {SystemPromptManager} from './system-prompt/system-prompt-manager.js'
 import {CoreToolScheduler} from './tools/core-tool-scheduler.js'
 import {DEFAULT_POLICY_RULES} from './tools/default-policy-rules.js'
 import {PolicyEngine} from './tools/policy-engine.js'
@@ -134,14 +135,30 @@ export async function createCipherAgentServices(llmConfig: CipherLLMConfig): Pro
   const memoryLogger = logger.withSource('MemoryManager')
   const memoryManager = new MemoryManager(blobStorage, memoryLogger)
 
-  // 7. Simple prompt factory - SHARED across sessions
+  // 7. System prompt manager - SHARED across sessions
   // Created early so it can be used by ToolProvider
-  const verbose = llmConfig.verbose ?? false
-  const promptFactory = new SimplePromptFactory(undefined, verbose)
+  // Calculate path to prompts directory relative to this file's location
+  // This file is at dist/infra/cipher/agent-service-factory.js
+  // Resources are at dist/resources/prompts/
+  const currentDir = dirname(fileURLToPath(import.meta.url))
+  const promptsBasePath = join(currentDir, '../../resources/prompts')
 
-  // 8. Tool system (depends on FileSystemService, ProcessService, MemoryManager, PromptFactory)
+  const systemPromptManager = new SystemPromptManager({
+    basePath: promptsBasePath,
+    validateConfig: true,
+  })
+  // Register default contributors
+  systemPromptManager.registerContributors([
+    {enabled: true, filepath: 'system-prompt.yml', id: 'base', priority: 0, type: 'file'},
+    {enabled: true, id: 'env', priority: 10, type: 'environment'},
+    {enabled: true, id: 'memories', priority: 20, type: 'memory'},
+    {enabled: true, id: 'datetime', priority: 30, type: 'dateTime'},
+  ])
+
+  // 8. Tool system (depends on FileSystemService, ProcessService, MemoryManager, SystemPromptManager)
   // Note: getToolProvider is a lazy getter to avoid circular dependency with batch tool
   // The explicit type annotation is required to avoid "implicitly has type 'any'" error
+  const verbose = llmConfig.verbose ?? false
   const toolProvider: ToolProvider = new ToolProvider(
     {
       fileSystemService,
@@ -149,7 +166,7 @@ export async function createCipherAgentServices(llmConfig: CipherLLMConfig): Pro
       memoryManager,
       processService,
     },
-    promptFactory,
+    systemPromptManager,
   )
   await toolProvider.initialize()
 
@@ -222,7 +239,7 @@ export async function createCipherAgentServices(llmConfig: CipherLLMConfig): Pro
     messageStorageService,
     policyEngine,
     processService,
-    promptFactory,
+    systemPromptManager,
     toolManager,
     toolProvider,
     toolScheduler,
@@ -298,7 +315,7 @@ export function createSessionServices(
         logger: sessionLogger,
         memoryManager: sharedServices.memoryManager, // SHARED
         sessionEventBus,
-        systemPromptManager: sharedServices.promptFactory, // SHARED
+        systemPromptManager: sharedServices.systemPromptManager, // SHARED
         toolManager: sharedServices.toolManager, // SHARED
       },
     )
@@ -354,8 +371,8 @@ export function createSessionServices(
         historyStorage: sharedServices.historyStorage, // SHARED
         logger: sessionLogger,
         memoryManager: sharedServices.memoryManager, // SHARED
-        promptFactory: sharedServices.promptFactory, // SHARED
         sessionEventBus,
+        systemPromptManager: sharedServices.systemPromptManager, // SHARED
         toolManager: sharedServices.toolManager, // SHARED
       },
     )

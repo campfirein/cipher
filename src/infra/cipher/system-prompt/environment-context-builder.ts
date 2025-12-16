@@ -2,6 +2,9 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
+import {SystemPromptError} from '../../../core/domain/cipher/errors/system-prompt-error.js'
+import {EnvironmentContextOptionsSchema, type ValidatedEnvironmentContextOptions} from './schemas.js'
+
 /**
  * Environment context information for system prompts.
  * Provides the Cipher agent with awareness of its operating environment.
@@ -25,6 +28,7 @@ export interface EnvironmentContext {
 
 /**
  * Options for building environment context.
+ * @deprecated Use ValidatedEnvironmentContextOptions from schemas.ts instead
  */
 export interface EnvironmentContextOptions {
   /** Whether to include .brv structure explanation (default: true) */
@@ -102,13 +106,26 @@ export class EnvironmentContextBuilder {
    * @returns Environment context object
    */
   public async build(options: EnvironmentContextOptions): Promise<EnvironmentContext> {
+    // Validate options with Zod schema
+    const parseResult = EnvironmentContextOptionsSchema.safeParse(options)
+
+    if (!parseResult.success) {
+      const errorMessages = parseResult.error.errors
+        .map((err) => `${err.path.join('.')}: ${err.message}`)
+        .join('; ')
+
+      throw SystemPromptError.configInvalid(errorMessages, parseResult.error.errors)
+    }
+
+    const validatedOptions: ValidatedEnvironmentContextOptions = parseResult.data
+
     const {
       includeBrvStructure = true,
       includeFileTree = true,
       maxFileTreeDepth = 3,
       maxFileTreeEntries = 100,
       workingDirectory,
-    } = options
+    } = validatedOptions
 
     const isGitRepository = this.detectGitRepository(workingDirectory)
 

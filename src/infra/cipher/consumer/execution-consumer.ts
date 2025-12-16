@@ -275,14 +275,13 @@ export class ExecutionConsumer {
       // Setup event listeners for tool call tracking
       this.setupToolCallTracking(agent, execution.id)
 
-      // Execute with autonomous mode
+      // Execute with curate commandType
       const prompt = `Add the following context to the context tree:\n\n${input.content}`
       const response = await agent.execute(prompt, sessionId, {
         executionContext: {
           commandType: 'curate',
           fileReferenceInstructions: input.fileReferenceInstructions,
         },
-        mode: 'autonomous',
       })
 
       // Mark completed

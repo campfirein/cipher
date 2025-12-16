@@ -57,7 +57,6 @@ export interface IChatSession {
    *
    * @param input - User message content
    * @param options - Optional execution options
-   * @param options.mode - Optional mode for system prompt ('autonomous' enables autonomous mode)
    * @param options.executionContext - Optional execution context
    * @returns Assistant response
    * @throws SessionCancelledError if operation is cancelled
@@ -68,7 +67,6 @@ export interface IChatSession {
     input: string,
     options?: {
       executionContext?: ExecutionContext
-      mode?: 'autonomous' | 'default' | 'query'
     },
   ): Promise<string>
 }

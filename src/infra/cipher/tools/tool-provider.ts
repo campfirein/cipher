@@ -2,7 +2,7 @@ import { ZodError } from 'zod'
 
 import type { Tool, ToolExecutionContext, ToolSet } from '../../../core/domain/cipher/tools/types.js'
 import type { IToolProvider } from '../../../core/interfaces/cipher/i-tool-provider.js'
-import type { SimplePromptFactory } from '../system-prompt/simple-prompt-factory.js'
+import type { SystemPromptManager } from '../system-prompt/system-prompt-manager.js'
 import type { ToolDescriptionLoader } from './tool-description-loader.js'
 import type { ToolServices } from './tool-registry.js'
 
@@ -29,24 +29,24 @@ export class ToolProvider implements IToolProvider {
   private readonly descriptionLoader?: ToolDescriptionLoader
   private initialized: boolean = false
   private invocationBuilder?: ToolInvocationBuilder
-  private readonly promptFactory?: SimplePromptFactory
   private readonly services: ToolServices
+  private readonly systemPromptManager?: SystemPromptManager
   private readonly toolMarkers: Set<string> = new Set()
   private readonly tools: Map<string, Tool> = new Map()
 
   /**
    * Creates a new tool provider
    * @param services - Services available to tools
-   * @param promptFactory - Optional prompt factory for tool output guidance
+   * @param systemPromptManager - Optional system prompt manager for tool output guidance
    * @param descriptionLoader - Optional loader for external tool descriptions
    */
   public constructor(
     services: ToolServices,
-    promptFactory?: SimplePromptFactory,
+    systemPromptManager?: SystemPromptManager,
     descriptionLoader?: ToolDescriptionLoader,
   ) {
     this.services = services
-    this.promptFactory = promptFactory
+    this.systemPromptManager = systemPromptManager
     this.descriptionLoader = descriptionLoader
   }
 
@@ -111,8 +111,8 @@ export class ToolProvider implements IToolProvider {
 
       // Check if this tool has output guidance configured
       const registryEntry = TOOL_REGISTRY[toolName as keyof typeof TOOL_REGISTRY]
-      if (registryEntry?.outputGuidance && this.promptFactory) {
-        const guidance = this.promptFactory.getToolOutputGuidance(registryEntry.outputGuidance)
+      if (registryEntry?.outputGuidance && this.systemPromptManager) {
+        const guidance = this.systemPromptManager.getToolOutputGuidance(registryEntry.outputGuidance)
 
         if (guidance) {
           // Return structured result with guidance

@@ -8,7 +8,7 @@ import type {AgentEventBus} from './events/event-emitter.js'
 import type {FileSystemService} from './file-system/file-system-service.js'
 import type {MemoryManager} from './memory/memory-manager.js'
 import type {ProcessService} from './process/process-service.js'
-import type {SimplePromptFactory} from './system-prompt/simple-prompt-factory.js'
+import type {SystemPromptManager} from './system-prompt/system-prompt-manager.js'
 import type {ToolManager} from './tools/tool-manager.js'
 import type {ToolProvider} from './tools/tool-provider.js'
 
@@ -44,7 +44,7 @@ export class CipherAgent implements ICipherAgent {
   public readonly historyStorage?: IHistoryStorage
   public readonly memoryManager?: MemoryManager
   public readonly processService?: ProcessService
-  public readonly promptFactory?: SimplePromptFactory
+  public readonly systemPromptManager?: SystemPromptManager
   public readonly toolManager?: ToolManager
   public readonly toolProvider?: ToolProvider
   private readonly _brvConfig?: BrvConfig
@@ -99,7 +99,6 @@ export class CipherAgent implements ICipherAgent {
    * @param input - User input string
    * @param sessionId - Optional session ID (uses 'default' if not provided)
    * @param options - Optional execution options
-   * @param options.mode - Optional mode for system prompt ('autonomous' enables autonomous mode)
    * @param options.executionContext - Optional execution context
    * @returns Agent response from LLM
    * @throws Error if agent is not started
@@ -107,7 +106,7 @@ export class CipherAgent implements ICipherAgent {
   public async execute(
     input: string,
     sessionId?: string,
-    options?: {executionContext?: ExecutionContext; mode?: 'autonomous' | 'default' | 'query'},
+    options?: {executionContext?: ExecutionContext},
   ): Promise<string> {
     // Ensure agent is started
     this.ensureStarted()
@@ -188,14 +187,14 @@ export class CipherAgent implements ICipherAgent {
   }
 
   /**
-   * Get the current system prompt from SimplePromptFactory
+   * Get the current system prompt from SystemPromptManager
    * Useful for debugging and inspection
    *
    * @returns Current system prompt (built dynamically)
    */
   public async getSystemPrompt(): Promise<string> {
     this.ensureStarted()
-    return this.getPromptFactory().buildSystemPrompt({})
+    return this.getSystemPromptManager().build({})
   }
 
   /**
@@ -312,7 +311,7 @@ export class CipherAgent implements ICipherAgent {
       !this.historyStorage ||
       !this.memoryManager ||
       !this.processService ||
-      !this.promptFactory ||
+      !this.systemPromptManager ||
       !this.toolManager ||
       !this.toolProvider ||
       !this.sessionManager
@@ -350,20 +349,6 @@ export class CipherAgent implements ICipherAgent {
   }
 
   /**
-   * Get initialized prompt factory (guaranteed to be defined after start())
-   *
-   * @returns SimplePromptFactory instance
-   * @throws Error if not initialized
-   */
-  private getPromptFactory(): SimplePromptFactory {
-    if (!this.promptFactory) {
-      throw new Error('SimplePromptFactory not initialized. This is a bug.')
-    }
-
-    return this.promptFactory
-  }
-
-  /**
    * Get initialized session manager (guaranteed to be defined after start())
    *
    * @returns SessionManager instance
@@ -375,5 +360,19 @@ export class CipherAgent implements ICipherAgent {
     }
 
     return this.sessionManager
+  }
+
+  /**
+   * Get initialized system prompt manager (guaranteed to be defined after start())
+   *
+   * @returns SystemPromptManager instance
+   * @throws Error if not initialized
+   */
+  private getSystemPromptManager(): SystemPromptManager {
+    if (!this.systemPromptManager) {
+      throw new Error('SystemPromptManager not initialized. This is a bug.')
+    }
+
+    return this.systemPromptManager
   }
 }

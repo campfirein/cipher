@@ -148,7 +148,7 @@ export class ChatSession implements IChatSession {
    */
   public async run(
     input: string,
-    options?: {executionContext?: ExecutionContext; mode?: 'autonomous' | 'default' | 'query'},
+    options?: {executionContext?: ExecutionContext},
   ): Promise<string> {
     // Create abort controller for cancellation
     this.currentController = new AbortController()
@@ -157,7 +157,6 @@ export class ChatSession implements IChatSession {
       // Delegate to service - it handles everything
       const response = await this.llmService.completeTask(input, this.id, {
         executionContext: options?.executionContext,
-        mode: options?.mode,
         signal: this.currentController.signal,
       })
 

@@ -85,4 +85,5 @@ prompt: |
   {{datetime}}
 
   Available tools: {{available_tools}}
+  You are currently in autonomous mode. You can use all tools to process the input data and perform the CREATE, READ, UPDATE and DELETE operations on the context tree without any human intervention.
 excluded_tools: []
