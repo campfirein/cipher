@@ -2,7 +2,10 @@ import {Command} from '@oclif/core'
 
 import {ProjectConfigStore} from '../infra/config/file-config-store.js'
 import {startRepl} from '../infra/repl/repl-startup.js'
+import {FileGlobalConfigStore} from "../infra/storage/file-global-config-store.js";
+import {FileOnboardingPreferenceStore} from '../infra/storage/file-onboarding-preference-store.js'
 import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
+import {MixpanelTrackingService} from '../infra/tracking/mixpanel-tracking-service.js'
 
 export default class Main extends Command {
   public static description = 'ByteRover CLI - Interactive REPL'
@@ -19,10 +22,17 @@ export default class Main extends Command {
       return
     }
 
+    const tokenStore = new KeychainTokenStore()
+    const globalConfigStore = new FileGlobalConfigStore()
+    const trackingService = new MixpanelTrackingService({globalConfigStore, tokenStore})
+    const onboardingPreferenceStore = new FileOnboardingPreferenceStore()
+
     // Start the interactive REPL
     await startRepl({
+      onboardingPreferenceStore,
       projectConfigStore: new ProjectConfigStore(),
-      tokenStore: new KeychainTokenStore(),
+      tokenStore,
+      trackingService,
       version: this.config.version,
     })
   }

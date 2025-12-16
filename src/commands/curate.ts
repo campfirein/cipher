@@ -4,6 +4,7 @@ import type {ICurateUseCase} from '../core/interfaces/usecase/i-curate-use-case.
 
 import {isDevelopment} from '../config/environment.js'
 import {ProjectConfigStore} from '../infra/config/file-config-store.js'
+import {FileGlobalConfigStore} from '../infra/storage/file-global-config-store.js'
 import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
 import {OclifTerminal} from '../infra/terminal/oclif-terminal.js'
 import {MixpanelTrackingService} from '../infra/tracking/mixpanel-tracking-service.js'
@@ -81,11 +82,12 @@ Bad examples:
 
   protected createUseCase(): ICurateUseCase {
     const tokenStore = new KeychainTokenStore()
+    const globalConfigStore = new FileGlobalConfigStore()
     return new CurateUseCase({
       projectConfigStore: new ProjectConfigStore(),
       terminal: new OclifTerminal(this),
       tokenStore,
-      trackingService: new MixpanelTrackingService(tokenStore),
+      trackingService: new MixpanelTrackingService({globalConfigStore, tokenStore}),
     })
   }
 

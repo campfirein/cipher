@@ -9,6 +9,7 @@ import {FsFileService} from '../../file/fs-file-service.js'
 import {LegacyRuleDetector} from '../../rule/legacy-rule-detector.js'
 import {RuleTemplateService} from '../../rule/rule-template-service.js'
 import {HttpSpaceService} from '../../space/http-space-service.js'
+import {FileGlobalConfigStore} from "../../storage/file-global-config-store.js";
 import {KeychainTokenStore} from '../../storage/keychain-token-store.js'
 import {HttpTeamService} from '../../team/http-team-service.js'
 import {FsTemplateLoader} from '../../template/fs-template-loader.js'
@@ -41,7 +42,8 @@ export const initCommand: SlashCommand = {
         // Create services
         const envConfig = getCurrentConfig()
         const tokenStore = new KeychainTokenStore()
-        const trackingService = new MixpanelTrackingService(tokenStore)
+        const globalConfigStore = new FileGlobalConfigStore()
+        const trackingService = new MixpanelTrackingService({globalConfigStore, tokenStore})
 
         const fileService = new FsFileService()
         const templateLoader = new FsTemplateLoader(fileService)

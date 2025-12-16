@@ -2,25 +2,39 @@ import mixpanel, {Mixpanel} from 'mixpanel'
 
 import {getCurrentConfig} from '../../config/environment.js'
 import {EventName, PropertyDict} from '../../core/domain/entities/event.js'
+import {IGlobalConfigStore} from '../../core/interfaces/i-global-config-store.js'
 import {ITokenStore} from '../../core/interfaces/i-token-store.js'
 import {ITrackingService} from '../../core/interfaces/i-tracking-service.js'
+
+/**
+ * Parameters for creating a MixpanelTrackingService instance.
+ */
+export interface MixpanelTrackingServiceParams {
+  readonly globalConfigStore: IGlobalConfigStore
+  readonly mixpanel?: Mixpanel
+  readonly tokenStore: ITokenStore
+}
 
 /**
  * Tracking service implementation using the Mixpanel library.
  */
 export class MixpanelTrackingService implements ITrackingService {
+  private readonly globalConfigStore: IGlobalConfigStore
   private readonly mp: Mixpanel
   private readonly tokenStore: ITokenStore
+  
 
-  constructor(tokenStore: ITokenStore, mp?: Mixpanel) {
-    this.tokenStore = tokenStore
-    if (mp) {
-      // Injected dependencies for testing
-      this.mp = mp
-    } else {
+  public constructor(params: MixpanelTrackingServiceParams) {
+    this.tokenStore = params.tokenStore
+    this.globalConfigStore = params.globalConfigStore
+
+    if (params.mixpanel === undefined) {
       // Initialize with real implementations for production
       const envConfig = getCurrentConfig()
       this.mp = mixpanel.init(envConfig.mixpanelToken)
+    } else {
+      // Injected dependencies for testing
+      this.mp = params.mixpanel
     }
   }
 
@@ -39,14 +53,18 @@ export class MixpanelTrackingService implements ITrackingService {
   }
 
   private async getIdentificationProperties(): Promise<PropertyDict> {
-    // 2. Load and validate authentication token
-    const token = await this.tokenStore.load()
-    if (token) {
-      return {
-        $user_id: token.userId, // eslint-disable-line camelcase
-      }
+    // Always include $device_id for anonymous/pre-auth tracking
+    const deviceId = await this.globalConfigStore.getOrCreateDeviceId()
+    const props: PropertyDict = {
+      $device_id: deviceId, // eslint-disable-line camelcase
     }
 
-    return {}
+    // Add $user_id if authenticated (enables Mixpanel identity merging)
+    const token = await this.tokenStore.load()
+    if (token !== undefined) {
+      props.$user_id = token.userId // eslint-disable-line camelcase
+    }
+
+    return props
   }
 }

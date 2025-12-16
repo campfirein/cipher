@@ -9,40 +9,61 @@ For help with any command, run `brv --help` or `brv <command> --help`.
 
 ## Getting Started
 
-Before using ByteRover CLI, you need to authenticate and initialize your project:
+ByteRover CLI offers two ways to interact: **Interactive REPL mode** (recommended) and traditional CLI commands.
+
+### Interactive REPL Mode (Recommended)
+
+Start the interactive terminal UI by running `brv` with no arguments:
 
 ```bash
-# First, authenticate with ByteRover
-brv login
-
-# Then, initialize your project (select team and space)
-brv init
+brv
 ```
 
-Authentication uses OAuth 2.0 with PKCE flow. Your credentials are securely stored in your system's keychain. The `brv init` command creates a `.brv/` directory in your project with configuration and context tree structure.
+This launches a persistent session with a React/Ink-based terminal interface where you can use slash commands:
+
+```
+/login              # Authenticate with ByteRover
+/init               # Initialize project (select team/space)
+/status             # Show auth, config, and context tree state
+/curate [context]   # Add content to context tree
+/query <query>      # Query information from context tree
+/push [--branch]    # Push context tree to cloud
+/pull [--branch]    # Pull context tree from cloud
+/space list         # List all spaces
+/space switch       # Switch team or space
+/gen-rules          # Generate agent rule files
+/clear              # Reset context tree
+/logout             # Log out
+```
+
+First-time users will see an interactive onboarding flow. Press `Esc` at any time to skip onboarding.
+
+### Standalone CLI Commands
+
+A few commands are also available as standalone CLI commands for scripting and quick access:
+
+```bash
+brv status                              # Show CLI and project status
+brv query "How is auth implemented?"    # Query context tree
+brv curate "JWT tokens expire in 24h"   # Add content to context tree
+```
 
 ## CLI Commands
 
 | Command                                         | Description                                  | Example                                            |
 | ----------------------------------------------- | -------------------------------------------- | -------------------------------------------------- |
-| `brv login`                                     | Authenticate with ByteRover using OAuth 2.0  | `brv login`                                        |
-| `brv logout`                                    | Log out and clear authentication             | `brv logout --yes`                                 |
+| `brv`                                           | Start interactive REPL mode (recommended)    | `brv`                                              |
 | `brv status [DIRECTORY]`                        | Show CLI status and project information      | `brv status`                                       |
-| `brv init`                                      | Initialize a project with ByteRover          | `brv init`                                         |
-| `brv space list`                                | List all spaces for the current team         | `brv space list --all`                             |
-| `brv space switch`                              | Switch to a different team or space          | `brv space switch`                                 |
-| `brv push`                                      | Push context tree to ByteRover memory storage | `brv push`                                         |
-| `brv pull`                                      | Pull context tree from ByteRover memory storage | `brv pull`                                       |
 | `brv query <QUERY>`                             | Query information from the context tree      | `brv query "How is auth implemented?"`             |
-| `brv curate [CONTEXT]`                          | Add content to context tree                  | `brv curate "JWT tokens expire in 24h"`            |
-| `brv clear [DIRECTORY]`                         | Reset context tree to default domains        | `brv clear`                                        |
-| `brv gen-rules`                                 | Generate rule instructions for coding agents | `brv gen-rules --agent Claude`                     |
+| `brv curate [CONTEXT] [--files]`                | Add content to context tree                  | `brv curate "JWT tokens expire in 24h" --files src/auth.ts` |
+
+> **Note:** Commands like `login`, `logout`, `init`, `push`, `pull`, `space`, `gen-rules`, and `clear` are only available as slash commands in REPL mode. Run `brv` to start REPL mode.
 
 ## Command Details
 
-### `brv login`
+### `brv`
 
-Authenticate with ByteRover using OAuth 2.0 with PKCE flow. Opens your browser for secure authentication and stores tokens in your system's keychain.
+Start the interactive REPL mode with a React/Ink-based terminal UI. This is the recommended way to use ByteRover CLI for an enhanced user experience.
 
 **Arguments**
 
@@ -55,53 +76,40 @@ None
 **Examples**
 
 ```bash
-# Authenticate with ByteRover
-brv login
-
-# Re-authenticate after token expires
-brv login
+# Start interactive REPL mode
+brv
 ```
+
+**Features**
+
+- **Persistent session**: Stay in the CLI and run multiple commands without restarting
+- **Slash commands**: Use `/command` syntax for all operations (e.g., `/login`, `/push`, `/query`)
+- **Interactive onboarding**: First-time users get a guided setup flow (press `Esc` to skip)
+- **Real-time feedback**: See streaming responses and progress indicators
+- **Tab completion**: Auto-complete slash commands as you type
+
+**Available Slash Commands**
+
+| Command | Description |
+| ------- | ----------- |
+| `/login` | Authenticate with ByteRover |
+| `/logout` | Log out and clear authentication |
+| `/init` | Initialize project with team/space selection |
+| `/status` | Show auth, config, and context tree state |
+| `/curate [context] [--files <paths>]` | Add content to context tree |
+| `/query <query>` | Query information from context tree |
+| `/push [--branch <name>]` | Push context tree to cloud |
+| `/pull [--branch <name>]` | Pull context tree from cloud |
+| `/space list` | List all spaces for current team |
+| `/space switch` | Switch to different team or space |
+| `/gen-rules` | Generate agent-specific rule files |
+| `/clear` | Reset context tree to default domains |
 
 **Notes**
 
-- First command you should run when setting up ByteRover
-- Opens your default browser for authentication
-- Tokens are stored securely in system keychain (macOS Keychain, Windows Credential Manager, Linux libsecret)
-- If authentication expires, simply run `brv login` again
-
----
-
-### `brv logout`
-
-Log out of ByteRover CLI and clear authentication. Removes credentials from system keychain while preserving all local project files.
-
-**Arguments**
-
-None
-
-**Flags**
-
-| Flag        | Description              | Default |
-| ----------- | ------------------------ | ------- |
-| `-y, --yes` | Skip confirmation prompt | `false` |
-
-**Examples**
-
-```bash
-# Log out (with confirmation)
-brv logout
-
-# Log out without confirmation
-brv logout --yes
-brv logout -y
-```
-
-**Notes**
-
-- Clears authentication token from system keychain
-- Does NOT affect local project files (`.brv/` directory is preserved)
-- Shows confirmation prompt with current user email unless `--yes` flag is used
-- You can run `brv login` again to re-authenticate
+- REPL mode is the primary way to use ByteRover CLI
+- Most commands (login, init, push, pull, etc.) are only available in REPL mode
+- Use `Ctrl+C` to exit REPL mode
 
 ---
 
@@ -146,206 +154,6 @@ The status command displays:
 
 ---
 
-### `brv init`
-
-Initialize a project with ByteRover. Creates `.brv/config.json` with team and space selection, and initializes the context tree structure.
-
-**Arguments**
-
-None
-
-**Flags**
-
-| Flag              | Description                                             | Default |
-| ----------------- | ------------------------------------------------------- | ------- |
-| `-f, --force`     | Force re-initialization without confirmation prompt     | `false` |
-
-**Examples**
-
-```bash
-# Initialize project (interactive team/space selection)
-brv init
-
-# Complete first-time setup
-brv login
-brv init
-
-# Force re-initialization without confirmation (for scripts/automation)
-brv init --force
-```
-
-**Re-initialization**
-
-If the project is already initialized, `brv init` will prompt you to confirm re-initialization. This allows you to switch to a different team/space or reset your project.
-
-**Re-initializing will:**
-- Remove the entire `.brv/` directory and all its contents
-- Allow you to select a new team/space
-- Create a fresh configuration and context tree
-- Regenerate rule instructions
-
-**To re-initialize:**
-1. Run `brv init` in an initialized project
-2. Review the warning about what will be deleted
-3. Confirm to proceed or cancel to keep current configuration
-4. Use `--force` flag to skip confirmation (useful for automation)
-
-**Notes**
-
-- Requires `brv login` first
-- Interactive prompts guide you through team and space selection
-- Creates `.brv/` directory with configuration and context tree structure
-- Automatically runs `brv gen-rules` after initialization
-- **Warning:** Re-initialization deletes all local context tree data
-- To switch spaces without clearing data, use `brv space switch` instead
-
----
-
-### `brv space list`
-
-List all spaces for the current team. Requires project initialization to determine which team to query.
-
-**Arguments**
-
-None
-
-**Flags**
-
-| Flag                   | Description                                    | Default |
-| ---------------------- | ---------------------------------------------- | ------- |
-| `-a, --all`            | Fetch all spaces (may be slow for large teams) | `false` |
-| `-j, --json`           | Output in JSON format                          | `false` |
-| `-l, --limit <value>`  | Maximum number of spaces to fetch              | `50`    |
-| `-o, --offset <value>` | Number of spaces to skip                       | `0`     |
-
-**Examples**
-
-```bash
-# List first 50 spaces (default)
-brv space list
-
-# List all spaces
-brv space list --all
-
-# Manual pagination: get 10 spaces at a time
-brv space list --limit 10
-brv space list --limit 10 --offset 10
-
-# Output as JSON
-brv space list --json
-```
-
-**Notes**
-
-- Requires `brv init` first (reads team ID from config)
-- Default limit is 50 spaces
-- Use `--all` to fetch all spaces (internally paginates at 100 items per page)
-- Use `--limit` and `--offset` for manual pagination control
-
----
-
-### `brv space switch`
-
-Switch to a different team or space. Updates `.brv/config.json` with new selection.
-
-**Arguments**
-
-None
-
-**Flags**
-
-None
-
-**Examples**
-
-```bash
-# Switch team or space (interactive)
-brv space switch
-```
-
-**Notes**
-
-- Requires `brv init` first (project must be initialized)
-- Displays current team and space configuration
-- Interactive prompts guide you through new team and space selection
-- Updates configuration but does NOT initialize context tree
-
----
-
-### `brv push`
-
-Push context tree to ByteRover memory storage. Uploads your accumulated knowledge to the cloud.
-
-**Arguments**
-
-None
-
-**Flags**
-
-| Flag                   | Description                            | Default |
-| ---------------------- | -------------------------------------- | ------- |
-| `-b, --branch <value>` | ByteRover branch name (not Git branch) | `main`  |
-| `-y, --yes`            | Skip confirmation prompt               | `false` |
-
-**Examples**
-
-```bash
-# Push to default branch (with confirmation)
-brv push
-
-# Push to a specific branch
-brv push --branch develop
-brv push -b feature-auth
-
-# Skip confirmation prompt
-brv push --yes
-brv push -y
-```
-
-**Notes**
-
-- Requires `brv login` and `brv init` first
-- Context tree must exist to push
-- Branch concept is ByteRover-internal, NOT related to Git branches
-- Shows confirmation dialog unless `--yes` flag is used
-- Snapshots the current context tree state for version tracking
-
----
-
-### `brv pull`
-
-Pull context tree from ByteRover memory storage. Downloads the latest knowledge from the cloud to your local context tree.
-
-**Arguments**
-
-None
-
-**Flags**
-
-| Flag                   | Description                            | Default |
-| ---------------------- | -------------------------------------- | ------- |
-| `-b, --branch <value>` | ByteRover branch name (not Git branch) | `main`  |
-
-**Examples**
-
-```bash
-# Pull from default branch
-brv pull
-
-# Pull from a specific branch
-brv pull --branch develop
-brv pull -b feature-auth
-```
-
-**Notes**
-
-- Requires `brv login` and `brv init` first
-- Checks for local changes before pulling (push local changes first if any)
-- Syncs files to local context tree
-- Branch concept is ByteRover-internal, NOT related to Git branches
-
----
-
 ### `brv query`
 
 Query and retrieve information from the context tree using natural language.
@@ -373,7 +181,7 @@ brv query "What testing strategies are used?"
 
 **Notes**
 
-- Context tree must exist (run `brv init` first)
+- Context tree must exist (run `/init` in REPL mode first)
 - Uses AI to search and analyze your context tree
 - Best results with specific, detailed questions
 - Avoid vague queries like "auth" or "show me code"
@@ -392,7 +200,9 @@ Add content to the context tree using interactive or autonomous mode.
 
 **Flags**
 
-None
+| Flag                   | Description                                                    | Default |
+| ---------------------- | -------------------------------------------------------------- | ------- |
+| `--files <paths>`      | Include file references in autonomous curation (comma-separated or multiple flags) | None    |
 
 **Examples**
 
@@ -403,108 +213,29 @@ brv curate
 # Autonomous mode with internal LLM (default)
 brv curate "User authentication uses JWT tokens with 24h expiry"
 brv curate "React components follow atomic design pattern"
+
+# Include file references for context
+brv curate "This module handles user sessions" --files src/auth/session.ts
+brv curate "API rate limiting implementation" --files src/middleware/rate-limit.ts,src/config/limits.ts
 ```
 
 **Notes**
 
-- Context tree must exist (run `brv init` first)
+- Context tree must exist (run `/init` in REPL mode first)
 - **Interactive mode**: Navigate context tree, select domain/topic, creates context.md file
-- **Autonomous mode**: AI agent automatically determines best location and adds content
-
----
-
-### `brv clear`
-
-Reset the context tree to its original state with 6 default domains. Removes all custom domains and content, restoring the initial configuration created by `brv init`.
-
-**Default Domains Restored**
-
-- `code_style` - Style guidelines and quality standards
-- `design` - UI libraries, themes, and design guidelines
-- `structure` - Project structure, components, and context
-- `compliance` - Security and compliance information
-- `testing` - Testing implementation context
-- `bug_fixes` - Bug fixing logic and procedures
-
-**Arguments**
-
-| Argument    | Type   | Required | Description                                       |
-| ----------- | ------ | -------- | ------------------------------------------------- |
-| `DIRECTORY` | string | No       | Project directory (defaults to current directory) |
-
-**Flags**
-
-| Flag        | Description              | Default |
-| ----------- | ------------------------ | ------- |
-| `-y, --yes` | Skip confirmation prompt | `false` |
-
-**Examples**
-
-```bash
-# Reset context tree (with confirmation)
-brv clear
-
-# Reset without confirmation
-brv clear --yes
-brv clear -y
-
-# Reset context tree in specific directory
-brv clear /path/to/project
-```
-
-**Notes**
-
-- Context tree must exist (created by `brv init`)
-- Shows confirmation prompt unless `--yes` flag is used
-- This action removes all custom domains and content
-- Cannot be undone - all custom context will be lost
-- Does not affect `.brv/config.json` or project initialization
-
----
-
-### `brv gen-rules`
-
-Generate rule instructions for coding agents to work with ByteRover correctly. Creates agent-specific rule files with instructions for using ByteRover CLI in their workflow.
-
-**Arguments**
-
-None
-
-**Flags**
-
-| Flag                  | Description                                      | Default |
-| --------------------- | ------------------------------------------------ | ------- |
-| `-a, --agent <value>` | Agent to generate rules for (skips interactive prompt) | None    |
-
-**Examples**
-
-```bash
-# Generate rules (interactive agent selection)
-brv gen-rules
-
-# Generate rules for a specific agent
-brv gen-rules --agent Claude
-brv gen-rules -a Cursor
-```
-
-**Notes**
-
-- Interactive search prompt for agent selection (if `--agent` flag not provided)
-- Prompts for overwrite confirmation if rule file already exists
-- Automatically called by `brv init` command
-- Generated rules help coding agents understand ByteRover workflow
-- Rules include commands, workflows, and best practices for the selected agent
+- **Autonomous mode**: ByteRover agent automatically determines best location and adds content
+- **File references**: Use `--files` or `@` to provide source files as additional context for the AI agent. Files must be text files within the project directory
 
 ---
 
 ## Global Options
 
-ByteRover CLI provides these global options that work with any command:
+ByteRover CLI provides these global options:
 
-| Flag        | Description           | Example                         |
-| ----------- | --------------------- | ------------------------------- |
-| `--help`    | Show help for command | `brv --help`, `brv init --help` |
-| `--version` | Show CLI version      | `brv --version`                 |
+| Flag        | Description           | Example                           |
+| ----------- | --------------------- | --------------------------------- |
+| `--help`    | Show help for command | `brv --help`, `brv status --help` |
+| `--version` | Show CLI version      | `brv --version`                   |
 
 ## File Structure
 

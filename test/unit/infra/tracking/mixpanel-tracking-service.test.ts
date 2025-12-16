@@ -4,15 +4,20 @@ import {restore, SinonStub, stub} from 'sinon'
 
 import {AuthToken} from '../../../../src/core/domain/entities/auth-token.js'
 import {EventName} from '../../../../src/core/domain/entities/event.js'
+import {IGlobalConfigStore} from '../../../../src/core/interfaces/i-global-config-store.js'
 import {ITokenStore} from '../../../../src/core/interfaces/i-token-store.js'
 import {MixpanelTrackingService} from '../../../../src/infra/tracking/mixpanel-tracking-service.js'
 
 describe('MixpanelTrackingService', () => {
   let mockMixpanel: Partial<Mixpanel>
   let mockTokenStore: ITokenStore
+  let mockGlobalConfigStore: IGlobalConfigStore
   let trackStub: SinonStub
   let tokenStoreLoadStub: SinonStub
+  let globalConfigStoreGetOrCreateDeviceIdStub: SinonStub
   let consoleErrorStub: SinonStub
+
+  const testDeviceId = '550e8400-e29b-41d4-a716-446655440000'
 
   beforeEach(() => {
     // Create mock Mixpanel instance
@@ -29,6 +34,15 @@ describe('MixpanelTrackingService', () => {
       save: stub(),
     }
 
+    // Create mock global config store
+    globalConfigStoreGetOrCreateDeviceIdStub = stub().resolves(testDeviceId)
+    mockGlobalConfigStore = {
+      getOrCreateDeviceId: globalConfigStoreGetOrCreateDeviceIdStub,
+      read: stub(),
+      regenerateDeviceId: stub().resolves('new-device-id'),
+      write: stub(),
+    }
+
     // Stub console.error to suppress error output during tests
     consoleErrorStub = stub(console, 'error')
   })
@@ -38,7 +52,7 @@ describe('MixpanelTrackingService', () => {
   })
 
   describe('track', () => {
-    it('should track event with user identification when authenticated', async () => {
+    it('should track event with both device_id and user_id when authenticated', async () => {
       const validToken = new AuthToken({
         accessToken: 'access-token',
         expiresAt: new Date(Date.now() + 3600 * 1000),
@@ -50,29 +64,39 @@ describe('MixpanelTrackingService', () => {
       })
       tokenStoreLoadStub.resolves(validToken)
 
-      const service = new MixpanelTrackingService(mockTokenStore, mockMixpanel as Mixpanel)
+      const service = new MixpanelTrackingService({
+        globalConfigStore: mockGlobalConfigStore,
+        mixpanel: mockMixpanel as Mixpanel,
+        tokenStore: mockTokenStore,
+      })
 
       await service.track('auth:signed_in')
 
       expect(trackStub.calledOnce).to.be.true
       expect(trackStub.firstCall.args[0]).to.equal('cli:auth:signed_in')
       expect(trackStub.firstCall.args[1]).to.deep.equal({
+        $device_id: testDeviceId, // eslint-disable-line camelcase
         $user_id: 'user_id', // eslint-disable-line camelcase
         beta: true,
       })
     })
 
-    it('should track event without user identification when not authenticated', async () => {
+    it('should track event with only device_id when not authenticated', async () => {
       // eslint-disable-next-line unicorn/no-useless-undefined
       tokenStoreLoadStub.resolves(undefined)
 
-      const service = new MixpanelTrackingService(mockTokenStore, mockMixpanel as Mixpanel)
+      const service = new MixpanelTrackingService({
+        globalConfigStore: mockGlobalConfigStore,
+        mixpanel: mockMixpanel as Mixpanel,
+        tokenStore: mockTokenStore,
+      })
 
       await service.track('rule:generate')
 
       expect(trackStub.calledOnce).to.be.true
       expect(trackStub.firstCall.args[0]).to.equal('cli:rule:generate')
       expect(trackStub.firstCall.args[1]).to.deep.equal({
+        $device_id: testDeviceId, // eslint-disable-line camelcase
         beta: true,
       })
     })
@@ -81,7 +105,11 @@ describe('MixpanelTrackingService', () => {
       // eslint-disable-next-line unicorn/no-useless-undefined
       tokenStoreLoadStub.resolves(undefined)
 
-      const service = new MixpanelTrackingService(mockTokenStore, mockMixpanel as Mixpanel)
+      const service = new MixpanelTrackingService({
+        globalConfigStore: mockGlobalConfigStore,
+        mixpanel: mockMixpanel as Mixpanel,
+        tokenStore: mockTokenStore,
+      })
 
       await service.track('mem:push', {
         branch: 'main',
@@ -91,6 +119,7 @@ describe('MixpanelTrackingService', () => {
       expect(trackStub.calledOnce).to.be.true
       expect(trackStub.firstCall.args[0]).to.equal('cli:mem:push')
       expect(trackStub.firstCall.args[1]).to.deep.equal({
+        $device_id: testDeviceId, // eslint-disable-line camelcase
         beta: true,
         branch: 'main',
         filesCount: 5,
@@ -109,7 +138,11 @@ describe('MixpanelTrackingService', () => {
       })
       tokenStoreLoadStub.resolves(validToken)
 
-      const service = new MixpanelTrackingService(mockTokenStore, mockMixpanel as Mixpanel)
+      const service = new MixpanelTrackingService({
+        globalConfigStore: mockGlobalConfigStore,
+        mixpanel: mockMixpanel as Mixpanel,
+        tokenStore: mockTokenStore,
+      })
 
       await service.track('mem:query', {
         query: 'search term',
@@ -119,6 +152,7 @@ describe('MixpanelTrackingService', () => {
       expect(trackStub.calledOnce).to.be.true
       expect(trackStub.firstCall.args[0]).to.equal('cli:mem:query')
       expect(trackStub.firstCall.args[1]).to.deep.equal({
+        $device_id: testDeviceId, // eslint-disable-line camelcase
         $user_id: 'user_id', // eslint-disable-line camelcase
         beta: true,
         query: 'search term',
@@ -130,7 +164,11 @@ describe('MixpanelTrackingService', () => {
       // eslint-disable-next-line unicorn/no-useless-undefined
       tokenStoreLoadStub.resolves(undefined)
 
-      const service = new MixpanelTrackingService(mockTokenStore, mockMixpanel as Mixpanel)
+      const service = new MixpanelTrackingService({
+        globalConfigStore: mockGlobalConfigStore,
+        mixpanel: mockMixpanel as Mixpanel,
+        tokenStore: mockTokenStore,
+      })
 
       await service.track('space:init')
 
@@ -141,7 +179,11 @@ describe('MixpanelTrackingService', () => {
       // eslint-disable-next-line unicorn/no-useless-undefined
       tokenStoreLoadStub.resolves(undefined)
 
-      const service = new MixpanelTrackingService(mockTokenStore, mockMixpanel as Mixpanel)
+      const service = new MixpanelTrackingService({
+        globalConfigStore: mockGlobalConfigStore,
+        mixpanel: mockMixpanel as Mixpanel,
+        tokenStore: mockTokenStore,
+      })
 
       await service.track('mem:curate')
 
@@ -151,7 +193,11 @@ describe('MixpanelTrackingService', () => {
     it('should handle token store errors gracefully', async () => {
       tokenStoreLoadStub.rejects(new Error('Keychain access denied'))
 
-      const service = new MixpanelTrackingService(mockTokenStore, mockMixpanel as Mixpanel)
+      const service = new MixpanelTrackingService({
+        globalConfigStore: mockGlobalConfigStore,
+        mixpanel: mockMixpanel as Mixpanel,
+        tokenStore: mockTokenStore,
+      })
 
       // Should not throw
       await service.track('auth:signed_in')
@@ -166,7 +212,11 @@ describe('MixpanelTrackingService', () => {
       tokenStoreLoadStub.resolves(undefined)
       trackStub.throws(new Error('Network error'))
 
-      const service = new MixpanelTrackingService(mockTokenStore, mockMixpanel as Mixpanel)
+      const service = new MixpanelTrackingService({
+        globalConfigStore: mockGlobalConfigStore,
+        mixpanel: mockMixpanel as Mixpanel,
+        tokenStore: mockTokenStore,
+      })
 
       // Should not throw
       await service.track('space:changed')
@@ -179,7 +229,11 @@ describe('MixpanelTrackingService', () => {
       // eslint-disable-next-line unicorn/no-useless-undefined
       tokenStoreLoadStub.resolves(undefined)
 
-      const service = new MixpanelTrackingService(mockTokenStore, mockMixpanel as Mixpanel)
+      const service = new MixpanelTrackingService({
+        globalConfigStore: mockGlobalConfigStore,
+        mixpanel: mockMixpanel as Mixpanel,
+        tokenStore: mockTokenStore,
+      })
 
       const events: EventName[] = [
         'auth:signed_in',
@@ -204,12 +258,17 @@ describe('MixpanelTrackingService', () => {
       // eslint-disable-next-line unicorn/no-useless-undefined
       tokenStoreLoadStub.resolves(undefined)
 
-      const service = new MixpanelTrackingService(mockTokenStore, mockMixpanel as Mixpanel)
+      const service = new MixpanelTrackingService({
+        globalConfigStore: mockGlobalConfigStore,
+        mixpanel: mockMixpanel as Mixpanel,
+        tokenStore: mockTokenStore,
+      })
 
       await service.track('mem:status', {})
 
       expect(trackStub.calledOnce).to.be.true
       expect(trackStub.firstCall.args[1]).to.deep.equal({
+        $device_id: testDeviceId, // eslint-disable-line camelcase
         beta: true,
       })
     })
@@ -218,7 +277,11 @@ describe('MixpanelTrackingService', () => {
       // eslint-disable-next-line unicorn/no-useless-undefined
       tokenStoreLoadStub.resolves(undefined)
 
-      const service = new MixpanelTrackingService(mockTokenStore, mockMixpanel as Mixpanel)
+      const service = new MixpanelTrackingService({
+        globalConfigStore: mockGlobalConfigStore,
+        mixpanel: mockMixpanel as Mixpanel,
+        tokenStore: mockTokenStore,
+      })
 
       await service.track('mem:push', {
         booleanProp: true,
@@ -237,7 +300,11 @@ describe('MixpanelTrackingService', () => {
       // eslint-disable-next-line unicorn/no-useless-undefined
       tokenStoreLoadStub.resolves(undefined)
 
-      const service = new MixpanelTrackingService(mockTokenStore, mockMixpanel as Mixpanel)
+      const service = new MixpanelTrackingService({
+        globalConfigStore: mockGlobalConfigStore,
+        mixpanel: mockMixpanel as Mixpanel,
+        tokenStore: mockTokenStore,
+      })
 
       await service.track('mem:curate', {
         beta: false,
@@ -259,7 +326,11 @@ describe('MixpanelTrackingService', () => {
       })
       tokenStoreLoadStub.resolves(validToken)
 
-      const service = new MixpanelTrackingService(mockTokenStore, mockMixpanel as Mixpanel)
+      const service = new MixpanelTrackingService({
+        globalConfigStore: mockGlobalConfigStore,
+        mixpanel: mockMixpanel as Mixpanel,
+        tokenStore: mockTokenStore,
+      })
 
       await service.track('space:init')
 
@@ -268,18 +339,58 @@ describe('MixpanelTrackingService', () => {
       expect(properties).to.not.have.property('refreshToken')
       expect(properties).to.not.have.property('sessionKey')
     })
+
+    it('should always include device_id in events', async () => {
+      // eslint-disable-next-line unicorn/no-useless-undefined
+      tokenStoreLoadStub.resolves(undefined)
+
+      const service = new MixpanelTrackingService({
+        globalConfigStore: mockGlobalConfigStore,
+        mixpanel: mockMixpanel as Mixpanel,
+        tokenStore: mockTokenStore,
+      })
+
+      await service.track('mem:status')
+
+      expect(trackStub.firstCall.args[1]).to.have.property('$device_id', testDeviceId)
+    })
+
+    it('should handle global config store errors gracefully', async () => {
+      globalConfigStoreGetOrCreateDeviceIdStub.rejects(new Error('Config store error'))
+      // eslint-disable-next-line unicorn/no-useless-undefined
+      tokenStoreLoadStub.resolves(undefined)
+
+      const service = new MixpanelTrackingService({
+        globalConfigStore: mockGlobalConfigStore,
+        mixpanel: mockMixpanel as Mixpanel,
+        tokenStore: mockTokenStore,
+      })
+
+      // Should not throw
+      await service.track('auth:signed_in')
+
+      expect(consoleErrorStub.calledOnce).to.be.true
+      expect(consoleErrorStub.firstCall.args[0]).to.include('Failed to track event auth:signed_in')
+    })
   })
 
   describe('constructor', () => {
     it('should accept injected Mixpanel instance for testing', () => {
-      const service = new MixpanelTrackingService(mockTokenStore, mockMixpanel as Mixpanel)
+      const service = new MixpanelTrackingService({
+        globalConfigStore: mockGlobalConfigStore,
+        mixpanel: mockMixpanel as Mixpanel,
+        tokenStore: mockTokenStore,
+      })
 
       expect(service).to.be.instanceOf(MixpanelTrackingService)
     })
 
     it('should initialize without injected Mixpanel instance', () => {
       // This tests the production code path
-      const service = new MixpanelTrackingService(mockTokenStore)
+      const service = new MixpanelTrackingService({
+        globalConfigStore: mockGlobalConfigStore,
+        tokenStore: mockTokenStore,
+      })
 
       expect(service).to.be.instanceOf(MixpanelTrackingService)
     })
@@ -289,7 +400,11 @@ describe('MixpanelTrackingService', () => {
     it('should log error message with event name', async () => {
       tokenStoreLoadStub.rejects(new Error('Token load failed'))
 
-      const service = new MixpanelTrackingService(mockTokenStore, mockMixpanel as Mixpanel)
+      const service = new MixpanelTrackingService({
+        globalConfigStore: mockGlobalConfigStore,
+        mixpanel: mockMixpanel as Mixpanel,
+        tokenStore: mockTokenStore,
+      })
 
       await service.track('auth:signed_in')
 
@@ -301,7 +416,11 @@ describe('MixpanelTrackingService', () => {
     it('should not throw when tracking fails', async () => {
       tokenStoreLoadStub.rejects(new Error('Critical failure'))
 
-      const service = new MixpanelTrackingService(mockTokenStore, mockMixpanel as Mixpanel)
+      const service = new MixpanelTrackingService({
+        globalConfigStore: mockGlobalConfigStore,
+        mixpanel: mockMixpanel as Mixpanel,
+        tokenStore: mockTokenStore,
+      })
 
       // Should not throw - tracking failures should be silent
       let errorThrown = false
@@ -317,7 +436,11 @@ describe('MixpanelTrackingService', () => {
     it('should continue with empty identification when token load fails', async () => {
       tokenStoreLoadStub.rejects(new Error('Token load failed'))
 
-      const service = new MixpanelTrackingService(mockTokenStore, mockMixpanel as Mixpanel)
+      const service = new MixpanelTrackingService({
+        globalConfigStore: mockGlobalConfigStore,
+        mixpanel: mockMixpanel as Mixpanel,
+        tokenStore: mockTokenStore,
+      })
 
       await service.track('rule:generate')
 
@@ -327,20 +450,26 @@ describe('MixpanelTrackingService', () => {
   })
 
   describe('identification properties', () => {
-    it('should return empty object when token is null', async () => {
-      tokenStoreLoadStub.resolves(null)
+    it('should return device_id when token is undefined', async () => {
+      // eslint-disable-next-line unicorn/no-useless-undefined
+      tokenStoreLoadStub.resolves(undefined)
 
-      const service = new MixpanelTrackingService(mockTokenStore, mockMixpanel as Mixpanel)
+      const service = new MixpanelTrackingService({
+        globalConfigStore: mockGlobalConfigStore,
+        mixpanel: mockMixpanel as Mixpanel,
+        tokenStore: mockTokenStore,
+      })
 
       await service.track('space:changed')
 
       expect(trackStub.calledOnce).to.be.true
       expect(trackStub.firstCall.args[1]).to.deep.equal({
+        $device_id: testDeviceId, // eslint-disable-line camelcase
         beta: true,
       })
     })
 
-    it('should return user_id when token exists', async () => {
+    it('should return both device_id and user_id when token exists', async () => {
       const validToken = new AuthToken({
         accessToken: 'access-token',
         expiresAt: new Date(Date.now() + 3600 * 1000),
@@ -352,11 +481,16 @@ describe('MixpanelTrackingService', () => {
       })
       tokenStoreLoadStub.resolves(validToken)
 
-      const service = new MixpanelTrackingService(mockTokenStore, mockMixpanel as Mixpanel)
+      const service = new MixpanelTrackingService({
+        globalConfigStore: mockGlobalConfigStore,
+        mixpanel: mockMixpanel as Mixpanel,
+        tokenStore: mockTokenStore,
+      })
 
       await service.track('mem:curate')
 
       expect(trackStub.calledOnce).to.be.true
+      expect(trackStub.firstCall.args[1]).to.have.property('$device_id', testDeviceId)
       expect(trackStub.firstCall.args[1]).to.have.property('$user_id', 'user_id')
     })
 
@@ -372,12 +506,17 @@ describe('MixpanelTrackingService', () => {
       })
       tokenStoreLoadStub.resolves(expiredToken)
 
-      const service = new MixpanelTrackingService(mockTokenStore, mockMixpanel as Mixpanel)
+      const service = new MixpanelTrackingService({
+        globalConfigStore: mockGlobalConfigStore,
+        mixpanel: mockMixpanel as Mixpanel,
+        tokenStore: mockTokenStore,
+      })
 
       await service.track('mem:curate')
 
-      // Should still include user_id even for expired tokens
+      // Should still include both device_id and user_id even for expired tokens
       expect(trackStub.calledOnce).to.be.true
+      expect(trackStub.firstCall.args[1]).to.have.property('$device_id', testDeviceId)
       expect(trackStub.firstCall.args[1]).to.have.property('$user_id', 'user_id')
     })
   })

@@ -10,15 +10,14 @@ prompt: |
   1. **Understand the query**: Analyze what the user is asking for - which domains, topics, or specific information they need.
 
   2. **Search strategically**:
-     - Use `find_knowledge_topics` to locate relevant topics across domains with pattern matching
+     - Use `find_knowledge_topics` to locate relevant topics across domains with pattern matching. Use the 'path' field for `read_file` tool if you need full content.
      - Use `read_file` to read the full content of relevant context.md files
      - Use `grep_content` to search for specific terms, code snippets, or patterns within context files
      - Use `glob_files` to find files by path patterns if needed
      - For multi-part queries (queries that include words like "and"), use tools in parallel:
       - Use `find_knowledge_topics` and `read_file` multiple times to get all relevant topics and their full content.
       - If ANY of these tools don't depend on each other, try to run them in the same iteration.
-
-     - Consider the context tree structure: `.brv/context-tree/{domain}/{topic}/context.md`
+     - Consider the context tree structure: `.brv/context-tree/{domain}/{topic}/context.md` or `.brv/context-tree/{domain}/{topic}/{subtopic}/context.md`
 
   3. **Read relevant content**:
      - Use `read_file` to read the full content of relevant context.md files
@@ -37,7 +36,7 @@ prompt: |
      - If initial search returns too many results, refine with more specific patterns
      - If search returns no results, try broader patterns or alternative terms
 
-  Available domains in the context tree:
+  Default domains in the context tree (search in .brv/context-tree if users add new domains):
   - `code_style` - Coding standards, style guidelines, quality standards
   - `design` - UI/UX design, component libraries, themes, design systems
   - `structure` - Project structure, architecture, component organization

@@ -12,7 +12,7 @@ import Spinner from 'ink-spinner'
 import React, {useState} from 'react'
 
 import {EnterPrompt, OutputLog} from '../components/index.js'
-import {useAuth} from '../contexts/index.js'
+import {useAuth, useConsumer} from '../contexts/index.js'
 import {useTheme} from '../contexts/use-theme.js'
 
 type LoginState = 'completed' | 'idle' | 'loading'
@@ -20,6 +20,7 @@ type LoginState = 'completed' | 'idle' | 'loading'
 export const LoginView: React.FC = () => {
   const {theme} = useTheme()
   const {isLoggingIn, login, loginOutput, reloadAuth} = useAuth()
+  const {restart} = useConsumer()
   const [hasStartedLogin, setHasStartedLogin] = useState(false)
 
   // Derive state from props and local state
@@ -51,7 +52,10 @@ export const LoginView: React.FC = () => {
           }}
         />
       )}
-      {state === 'completed' && <EnterPrompt action="continue" onEnter={() => reloadAuth()} />}
+      {state === 'completed' && <EnterPrompt action="continue" onEnter={async () => {
+        await reloadAuth()
+        await restart()
+      }} />}
     </Box>
   )
 }

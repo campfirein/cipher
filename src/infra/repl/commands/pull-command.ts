@@ -5,6 +5,7 @@ import {HttpCogitPullService} from '../../cogit/http-cogit-pull-service.js'
 import {ProjectConfigStore} from '../../config/file-config-store.js'
 import {FileContextTreeSnapshotService} from '../../context-tree/file-context-tree-snapshot-service.js'
 import {FileContextTreeWriterService} from '../../context-tree/file-context-tree-writer-service.js'
+import {FileGlobalConfigStore} from "../../storage/file-global-config-store.js";
 import {KeychainTokenStore} from '../../storage/keychain-token-store.js'
 import {ReplTerminal} from '../../terminal/repl-terminal.js'
 import {MixpanelTrackingService} from '../../tracking/mixpanel-tracking-service.js'
@@ -32,7 +33,8 @@ export const pullCommand: SlashCommand = {
 
         const envConfig = getCurrentConfig()
         const tokenStore = new KeychainTokenStore()
-        const trackingService = new MixpanelTrackingService(tokenStore)
+        const globalConfigStore = new FileGlobalConfigStore()
+        const trackingService = new MixpanelTrackingService({globalConfigStore, tokenStore})
         const contextTreeSnapshotService = new FileContextTreeSnapshotService()
 
         const useCase = new PullUseCase({

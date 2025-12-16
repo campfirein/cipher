@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-ByteRover CLI (`brv`) - oclif TypeScript CLI with Clean Architecture
+ByteRover CLI (`brv`) - Interactive REPL with React/Ink TUI
 
 ## Dev Commands
 
@@ -11,15 +11,18 @@ npx mocha --forbid-only "test/path/to/file.test.ts"  # Single test
 npm run lint                                     # ESLint
 ./bin/dev.js [command]                          # Dev mode (ts-node)
 ./bin/run.js [command]                          # Prod mode
-npx oclif generate command                       # New command
-npm run pack:dev / pack:prod                     # Tarballs
 ```
 
-**Test dirs**: `test/commands/` (integration), `test/unit/`, `test/learning/`
+**Test dirs**: `test/commands/`, `test/unit/`, `test/integration/`, `test/hooks/`, `test/learning/`
 
 ## Architecture
 
-- Commands: UI-driven linear flows
+### REPL + TUI Architecture
+
+- `brv` (no args) starts interactive REPL (`src/infra/repl/repl-startup.tsx`)
+- React/Ink-based TUI (`src/tui/`) with streaming, dialogs, prompts
+- Slash commands (`/command`) in `src/infra/repl/commands/`
+- Few oclif commands remain: `status`, `curate`, `query`, `watch`, `cipher-agent/*`
 
 ### Core Interfaces (`src/core/interfaces/`)
 
@@ -37,7 +40,7 @@ npm run pack:dev / pack:prod                     # Tarballs
 
 **CoGit Services** (context sync):
 
-- `ICogitPushService.pushContexts(...)` - Push context tree to ByteRover cloud
+- `ICogitPushService.pushContexts(...)` - Push context tree to cloud
 - `ICogitPullService.pullSnapshot(...)` - Pull snapshot from cloud
 
 **Context Tree**:
@@ -48,106 +51,102 @@ npm run pack:dev / pack:prod                     # Tarballs
 - `IContextFileReader` - Read context files with metadata extraction
 - `IProjectConfigStore` - `.brv/config.json` persistence
 
+**Storage/Config**:
+
+- `IGlobalConfigStore` - User-level config (`~/.config/brv/config.json`), device ID management
+- `IOnboardingPreferenceStore` - Onboarding state persistence
+- `ITrackingService` - Event tracking (Mixpanel implementation)
+
 **Pagination**: `{fetchAll: true}` auto-paginates (100/page) or `{limit, offset}` manual
 
 ### Domain Entities (`src/core/domain/entities/`)
 
-All have `toJSON()`/`fromJSON()`, immutable readonly properties
+All have `toJson()`/`fromJson()`, immutable readonly properties
 
 - `AuthToken` - `accessToken`, `refreshToken`, `sessionKey`, `userId`, `userEmail`, `expiresAt`. `fromJson()` returns `undefined` for old tokens (forces re-login)
 - `OAuthTokenData` - OAuth response, no user info. Used before user fetch in login
 - `User`, `Team`, `Space` - `getDisplayName()` methods
-- `Agent` - 18 supported agents (Claude Code, Cursor, Windsurf, Copilot, etc.)
-- `BrvConfig` - `.brv/config.json` with version validation (`BRV_CONFIG_VERSION = '0.0.1'`)
+- `Agent` - Supported agents (Claude Code, Cursor, Windsurf, Copilot, etc.)
+- `BrvConfig` - `.brv/config.json` with version validation
+- `GlobalConfig` - User-level config with device ID
+- `Event` - Tracking event definitions
 - `CogitSnapshot`, `CogitPushContext` - CoGit sync entities
 
 ### Infrastructure (`src/infra/`)
+
+**REPL** (`src/infra/repl/`):
+
+- `repl-startup.tsx` - Bootstrap REPL with providers
+- `commands/` - Slash command implementations (`/login`, `/push`, `/pull`, etc.)
+
+**Cipher** (`src/infra/cipher/`) - LLM agent system:
+
+- `llm/` - Multi-provider support (Claude, Gemini, OpenRouter), tokenizers, context compression
+- `tools/` - Tool implementations (bash, file ops, memory, grep, glob)
+- `session/` - Chat session management
+- `memory/` - Memory persistence
 
 **Auth/HTTP**:
 
 - `OAuthService` - Manages `code_verifier` internally
 - `CallbackServer` - Force-closes keep-alive connections
-- `AuthenticatedHttpClient` - Auto-injects both auth headers
 
 **Context Tree**:
 
 - `FileContextTreeService` - File-based context tree operations
 - `FileContextTreeSnapshotService` - Git-style snapshot and diff tracking
-- `FileContextTreeWriterService` - Sync files from CoGit pull
 
 **CoGit**:
 
-- `HttpCogitPushService` - Push contexts to cloud
-- `HttpCogitPullService` - Pull snapshots from cloud
+- `HttpCogitPushService` / `HttpCogitPullService` - Cloud sync
 - `context-tree-to-push-context-mapper.ts` - Maps context tree to push format
 
-**Rules**:
+**Tracking**:
 
-- `RuleTemplateService` - Load rule templates
-- `RuleWriterService` - Write rules to agent-specific locations
-- `LegacyRuleDetector` - Detect legacy ByteRover rules (without boundary markers) for migration
-- `agent-rule-config.ts` - Agent-specific rule file paths
+- `MixpanelTrackingService` - Analytics implementation
 
 ### Config
 
-- `environment.ts` - Dev/Prod config. Exports: `getCurrentConfig()` (returns all URLs/tokens), `isDevelopment()`, `ENV_CONFIG`
+- `environment.ts` - Dev/Prod config. Exports: `getCurrentConfig()`, `isDevelopment()`, `ENV_CONFIG`
 - `auth.config.ts` - OIDC discovery (1h cache, 3 retries, 5s timeout, hardcoded fallback)
-- `context-tree-domains.ts` - Context tree domain definitions
 
 ### Hooks (`src/hooks/`)
 
-- `init/update-notifier.ts` - Auto-update notification on CLI start (24h check interval), optional npm update prompt
+- `init/welcome.ts` - Node.js version check, ASCII banner on `--help`
+- `init/update-notifier.ts` - Auto-update notification (24h check interval)
+- `command_not_found/handle-invalid-commands.ts` - Invalid command handler
+- `error/clean-errors.ts` - Error formatting
+- `prerun/validate-brv-config-version.ts` - Config version validation
 
-### Commands
+### TUI (`src/tui/`)
 
-**DI Pattern**:
+React/Ink terminal UI components:
 
-```typescript
-protected createServices(): {myService: IMyService} {
-  return {myService: new MyServiceImpl()}
-}
-```
+- `components/` - Execution, inline prompts, onboarding dialogs
+- `hooks/` - Activity logs, consumer, slash completion, tab navigation
+- `contexts/` - React contexts for state management
+- `types/` - Command, dialog, message, prompt type definitions
 
-**Core Commands**:
+### Slash Commands (REPL)
 
-- `brv login` - OAuth: code → user → AuthToken. `fromJson()` forces re-login for old tokens
-- `brv logout` - Clear stored credentials
-- `brv status` - Reads `userEmail` from AuthToken (no API). Shows: version, auth, directory, config, context tree changes
-- `brv init` - `{fetchAll: true}` for teams/spaces, initializes context tree
+Commands prefixed with `/` in the REPL (`src/infra/repl/commands/`):
 
-**Context Operations**:
-
-- `brv curate` - Interactive or autonomous mode to add context to context tree
-- `brv push [--branch <name>] [--yes]` - Default: `main` (ByteRover, not git). Snapshots and pushes to cloud
-- `brv pull [--branch <name>]` - Pull snapshot from cloud and sync to local context tree
-- `brv gen-rules` - Generate agent-specific rule files from context tree
-- `brv clear [--yes]` - Reset context tree to default 6 domains (destructive)
-
-**Space Management**:
-
-- `brv space list` - Default 50, needs `--all` or manual pagination
-- `brv space switch` - Switch space (**no context tree init**)
-
-**Dev-Only Commands** (require `BRV_ENV=development`):
-
-- `brv query` - Query context tree
-- `brv watch` - Watch filesystem for changes, trigger parsing pipeline
-- `brv cipher-agent run` - Interactive CipherAgent session
-- `brv cipher-agent set-prompt` / `show-prompt` - Manage CipherAgent system prompts
+- `/login`, `/logout` - Authentication
+- `/init` - Project setup (team/space selection, context tree init)
+- `/status` - Show auth, config, context tree state
+- `/curate` - Add context to context tree
+- `/push [--branch <name>]`, `/pull [--branch <name>]` - Cloud sync (default branch: `main`)
+- `/space list`, `/space switch` - Space management
+- `/gen-rules` - Generate agent-specific rule files
+- `/clear` - Reset context tree (destructive)
+- `/query` - Query context tree
 
 **OAuth Flow**:
 
 - `redirectUri`: `http://localhost:{port}/callback` (built after server starts)
 - Login: `OAuthTokenData` → fetch User → `AuthToken` with `userId`/`userEmail`
-- Authenticated requests: AuthToken → `accessToken` + `sessionKey` → `AuthenticatedHttpClient` injects headers
 
 ## Testing
-
-**Commands**:
-
-- Override `createServices()` for mocks
-- Override `promptForTeamSelection()` / `promptForSpaceSelection()`
-- **Suppress output**: `log()` no-op, `warn()` return input, `error()` throw without console, stub `ux.action.start/stop`. See [login.test.ts:51-65](test/commands/login.test.ts#L51-L65), [init.test.ts:82-94](test/commands/init.test.ts#L82-L94)
 
 **HTTP (nock)**:
 
@@ -174,9 +173,8 @@ protected createServices(): {myService: IMyService} {
 
 ## Environment
 
-- `BRV_ENV` - `development` | `production` (dev-only commands require `development`, set by bin/dev.js and bin/run.js)
-- `BR_NPM_LOG_LEVEL`, `BR_NPM_REGISTRY`
+- `BRV_ENV` - `development` | `production` (dev-only oclif commands require `development`, set by bin/dev.js and bin/run.js)
 
 ## Stack
 
-oclif v4, TypeScript (ES2022, Node16 modules, strict), axios, express, @inquirer/prompts, better-sqlite3, @grpc/grpc-js, Mocha + Chai + Sinon + Nock
+oclif v4, TypeScript (ES2022, Node16 modules, strict), React/Ink (TUI), axios, express, better-sqlite3, Mocha + Chai + Sinon + Nock

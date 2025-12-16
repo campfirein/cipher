@@ -5,6 +5,7 @@ import type {IStatusUseCase} from '../core/interfaces/usecase/i-status-use-case.
 import {ProjectConfigStore} from '../infra/config/file-config-store.js'
 import {FileContextTreeService} from '../infra/context-tree/file-context-tree-service.js'
 import {FileContextTreeSnapshotService} from '../infra/context-tree/file-context-tree-snapshot-service.js'
+import {FileGlobalConfigStore} from '../infra/storage/file-global-config-store.js'
 import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
 import {OclifTerminal} from '../infra/terminal/oclif-terminal.js'
 import {MixpanelTrackingService} from '../infra/tracking/mixpanel-tracking-service.js'
@@ -35,7 +36,8 @@ export default class Status extends Command {
 
   protected createUseCase(): IStatusUseCase {
     const tokenStore = new KeychainTokenStore()
-    const trackingService = new MixpanelTrackingService(tokenStore)
+    const globalConfigStore = new FileGlobalConfigStore()
+    const trackingService = new MixpanelTrackingService({globalConfigStore, tokenStore})
     const contextTreeSnapshotService = new FileContextTreeSnapshotService()
 
     return new StatusUseCase({

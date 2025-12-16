@@ -5,7 +5,7 @@
  * Handles step transitions and init command execution.
  */
 
-import {Box, Text} from 'ink'
+import {Box, Text, useInput} from 'ink'
 import Spinner from 'ink-spinner'
 import React, {useCallback, useMemo, useState} from 'react'
 
@@ -209,6 +209,20 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({availableHeight})
   const [activePrompt, setActivePrompt] = useState<null | PromptRequest>(null)
   const [initError, setInitError] = useState<null | string>(null)
 
+  // Determine if we're in a skippable waiting state (curate/query without active log)
+  const isInWaitingState =
+    mode === 'activity' && ((currentStep === 'curate' && !curateLog) || (currentStep === 'query' && !queryLog))
+
+  // Handle escape key to skip onboarding
+  useInput(
+    (_input, key) => {
+      if (key.escape) {
+        completeOnboarding(true) // Pass true to indicate skipped
+      }
+    },
+    {isActive: isInWaitingState},
+  )
+
   // Handle init command execution
   const runInit = useCallback(async () => {
     if (isRunningInit) return
@@ -222,6 +236,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({availableHeight})
     if (result && result.type === 'streaming') {
       const onMessage = (msg: StreamingMessage) => {
         setStreamingMessages((prev) => [...prev, msg])
+        setInitError(msg.type === 'error' ? msg.content : null)
       }
 
       const onPrompt = (prompt: PromptRequest) => {
@@ -230,6 +245,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({availableHeight})
 
       try {
         await result.execute(onMessage, onPrompt)
+
         // Reload auth to detect config change
         await reloadAuth()
         // Restart consumer to pick up new project state
@@ -427,17 +443,13 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({availableHeight})
 
     if (initError) {
       return (
-        <Box flexDirection="column">
+        <Box flexDirection="column" rowGap={1}>
           <Text color={colors.errorText}>Error: {initError}</Text>
-          <Box marginTop={1}>
-            <Text color={colors.dimText}>
-              Press{' '}
-              <Text backgroundColor={colors.primary} color="black">
-                {' Enter '}
-              </Text>{' '}
-              to try again
-            </Text>
-          </Box>
+          <EnterPrompt
+            action="try again"
+            active={mode === 'activity' && currentStep === 'init' && !isRunningInit && !activePrompt}
+            onEnter={runInit}
+          />
         </Box>
       )
     }
@@ -481,6 +493,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({availableHeight})
           <Text color={colors.dimText}>
             <Spinner type="dots" /> Waiting for curate...
           </Text>
+          <Text color={colors.dimText}> (Press Esc to skip)</Text>
         </Box>
       </Box>
     )
@@ -509,13 +522,14 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({availableHeight})
     return (
       <Box flexDirection="column">
         <Text color={colors.dimText} wrap="wrap">
-          Now try querying your knowledge:
+          Copy this command and paste it to your AI agent:
         </Text>
         <CopyablePrompt isActive={mode === 'activity' && currentStep === 'query'} prompt={QUERY_PROMPT} />
         <Box marginTop={1}>
           <Text color={colors.dimText}>
             <Spinner type="dots" /> Waiting for query...
           </Text>
+          <Text color={colors.dimText}> (Press Esc to skip)</Text>
         </Box>
       </Box>
     )

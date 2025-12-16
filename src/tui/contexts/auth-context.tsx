@@ -18,6 +18,7 @@ import {OAuthService} from '../../infra/auth/oauth-service.js'
 import {OidcDiscoveryService} from '../../infra/auth/oidc-discovery-service.js'
 import {SystemBrowserLauncher} from '../../infra/browser/system-browser-launcher.js'
 import {CallbackHandler} from '../../infra/http/callback-handler.js'
+import {FileGlobalConfigStore} from "../../infra/storage/file-global-config-store.js";
 import {MixpanelTrackingService} from '../../infra/tracking/mixpanel-tracking-service.js'
 import {LoginUseCase} from '../../infra/usecase/login-use-case.js'
 import {HttpUserService} from '../../infra/user/http-user-service.js'
@@ -39,6 +40,7 @@ export interface AuthContextValue {
   // Actions
   login: () => void
   reloadAuth: () => Promise<void>
+  reloadBrvConfig: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
@@ -138,7 +140,8 @@ export function AuthProvider({children, initialAuthToken, initialBrvConfig}: Aut
     const runLogin = async () => {
       try {
         const config = getCurrentConfig()
-        const trackingService = new MixpanelTrackingService(tokenStore)
+        const globalConfigStore = new FileGlobalConfigStore()
+        const trackingService = new MixpanelTrackingService({globalConfigStore, tokenStore})
         const discoveryService = new OidcDiscoveryService()
         const authConfig = await getAuthConfig(discoveryService)
 
@@ -182,6 +185,7 @@ export function AuthProvider({children, initialAuthToken, initialBrvConfig}: Aut
       login,
       loginOutput,
       reloadAuth,
+      reloadBrvConfig
     }),
     [authToken, brvConfig, isInitialConfigLoaded, isLoggingIn, loginOutput, authState, isAuthorized, login, reloadAuth],
   )

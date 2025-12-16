@@ -1,6 +1,6 @@
 # ByteRover CLI
 
-Command-line interface for ByteRover, enabling seamless team/space management, authentication, and space's memory operations directly from your terminal.
+Command-line interface for ByteRover, featuring an interactive REPL with a modern terminal UI for managing your project's context tree and memory storage.
 
 [![Version](https://img.shields.io/npm/v/byterover-cli.svg)](https://npmjs.org/package/byterover-cli)
 [![Downloads/week](https://img.shields.io/npm/dw/byterover-cli.svg)](https://npmjs.org/package/byterover-cli)
@@ -18,8 +18,9 @@ Please check the migration guide [here](https://docs.byterover.dev/beta/migratio
 
 * [Installation](#installation)
 * [Quick Start](#quick-start)
+* [Interactive REPL](#interactive-repl)
 * [What is Context Tree?](#what-is-context-tree)
-* [Essential Commands](#essential-commands)
+* [Slash Commands Reference](#slash-commands-reference)
 * [Authentication](#authentication)
 * [Configuration](#configuration)
 * [Getting Help](#getting-help)
@@ -56,26 +57,58 @@ Visit [**ByteRover's Beta Docs**](https://docs.byterover.dev/beta) for more info
 
 Get started with ByteRover CLI in three simple steps:
 
-### 1. Authenticate
+### 1. Start the REPL
 
 ```bash
-brv login
+cd to/your/project
+brv
+```
+
+This launches the interactive REPL with a modern terminal UI.
+
+### 2. Authenticate
+
+In the REPL, type:
+
+```
+/login
 ```
 
 This opens your browser to complete OAuth authentication. Your credentials are securely stored in the system keychain.
 
-### 2. Initialize a project
+### 3. Initialize your project
 
-```bash
-cd to/your/project
-brv init
+```
+/init
 ```
 
-Select a space from your available spaces and configure your project.
+Select a team and space from your available options, and ByteRover will set up your project's context tree.
 
-### 3. Start using ByteRover
+You're now ready to use ByteRover! Try `/status` to see your project's current state.
 
-You're ready to use ByteRover commands in your project!
+## Interactive REPL
+
+ByteRover CLI features an interactive REPL (Read-Eval-Print Loop) with a React/Ink-based terminal UI.
+
+### Starting the REPL
+
+```bash
+brv
+```
+
+Running `brv` without arguments starts the interactive REPL. The REPL requires an interactive terminal (TTY).
+
+### Using Commands
+
+In the REPL, use slash commands (commands prefixed with `/`) to interact with ByteRover:
+
+```
+/status              # Check your project status
+/curate              # Add context interactively
+/push                # Push changes to cloud
+```
+
+Commands support tab completion for quick navigation.
 
 ## What is Context Tree?
 
@@ -96,62 +129,88 @@ The context tree organizes knowledge into:
 - **Topics**: Specific subjects within domains (e.g., Authentication, Components)
 - **Context Files**: Markdown files containing your actual knowledge
 
-For comprehensive instructions for coding agents, check the generated rule files after running `brv gen-rules`.
+For comprehensive instructions for coding agents, use `/gen-rules` to generate rule files.
 
-## Essential Commands
+## Slash Commands Reference
 
-### Authentication
+### Core Workflow
 
-```bash
-# Log in to ByteRover
-brv login
+| Command | Description |
+|---------|-------------|
+| `/status` | Show CLI status and project information |
+| `/curate [context] @files` | Curate context to the context tree |
+| `/query <question>` | Query and retrieve information from the context tree |
 
-# Log out and clear credentials
-brv logout
-
-# Check your authentication and project status
-brv status
+**Curate examples:**
 ```
+/curate                                    # Interactive mode
+/curate "Auth uses JWT tokens"             # Autonomous mode with text
+/curate "API docs" @src/api.ts @README.md  # With file references (max 5)
+```
+
+**Query example:**
+```
+/query How is authentication implemented?
+/q What endpoints exist?                   # /q is an alias for /query
+```
+
+### Sync Operations
+
+| Command | Description |
+|---------|-------------|
+| `/push [-b branch] [-y]` | Push context tree to ByteRover memory storage |
+| `/pull [-b branch]` | Pull context tree from ByteRover memory storage |
+
+**Options:**
+- `-b, --branch <name>`: ByteRover branch name (default: `main`)
+- `-y, --yes`: Skip confirmation prompt
+
+**Examples:**
+```
+/push                    # Push to main branch
+/push -b feature-auth    # Push to a specific branch
+/push -y                 # Push without confirmation
+/pull -b feature-auth    # Pull from a specific branch
+```
+
+### Space Management
+
+| Command | Description |
+|---------|-------------|
+| `/space list` | List all spaces for the current team |
+| `/space switch` | Switch to a different space |
+
+**Space list options:**
+- `-a, --all`: Fetch all spaces
+- `-j, --json`: Output in JSON format
+- `-l, --limit <n>`: Maximum spaces to fetch (default: 50)
+- `-o, --offset <n>`: Number of spaces to skip
+
+### Context Tree Management
+
+| Command | Description |
+|---------|-------------|
+| `/gen-rules` | Generate rule instructions for coding agents |
+| `/clear [-y] [directory]` | Reset context tree to default domains |
+
+**Clear options:**
+- `-y, --yes`: Skip confirmation prompt
 
 ### Project Setup
 
-```bash
-# Initialize project with ByteRover
-brv init
+| Command | Description |
+|---------|-------------|
+| `/init [-f]` | Initialize a project with ByteRover |
 
-# List available spaces
-brv space list
+**Options:**
+- `-f, --force`: Force re-initialization without confirmation
 
-# Switch to a different space or team
-brv space switch
-```
+### Authentication
 
-### Memory Operations
-
-```bash
-# Add content to context tree (interactive or autonomous)
-brv curate
-brv curate "User authentication uses JWT tokens"
-
-# Push your context tree to ByteRover's memory storage
-brv push
-
-# Pull context tree from ByteRover cloud
-brv pull
-
-# Query the context tree
-brv query "How is authentication implemented?"
-
-# Reset context tree to default state
-brv clear
-```
-
-### For Coding Agents
-
-```bash
-# Generate agent rules (sets up context tree workflow for your coding agent)
-brv gen-rules
-```
+| Command | Description |
+|---------|-------------|
+| `/login` | Authenticate with ByteRover using OAuth 2.0 + PKCE |
+| `/logout [-y]` | Log out and clear authentication |
 
 ## Authentication
 
@@ -159,7 +218,7 @@ ByteRover CLI uses **OAuth 2.0 with PKCE** (Proof Key for Code Exchange) for sec
 
 ### How it works
 
-1. Run `brv login` to start authentication
+1. Run `/login` in the REPL to start authentication
 2. Your browser opens to the ByteRover authorization page
 3. After successful login, tokens are securely stored in your system keychain
 4. All subsequent commands automatically use your stored credentials
@@ -167,7 +226,7 @@ ByteRover CLI uses **OAuth 2.0 with PKCE** (Proof Key for Code Exchange) for sec
 ### Security features
 
 - **PKCE flow**: Prevents authorization code interception attacks
-- **System keychain**: Tokens stored in macOS Keychain
+- **System keychain**: Tokens stored in macOS Keychain, Windows Credential Manager, or Linux Secret Service
 - **Session tracking**: Each session includes a session key for request tracking
 - **Auto-refresh**: Refresh tokens enable seamless credential renewal
 
@@ -175,7 +234,7 @@ ByteRover CLI uses **OAuth 2.0 with PKCE** (Proof Key for Code Exchange) for sec
 
 ### Project Configuration
 
-When you run `brv init`, a configuration file is created at `.brv/config.json` in your project directory containing:
+When you run `/init`, a configuration file is created at `.brv/config.json` in your project directory containing:
 
 - **Space ID**: The ByteRover workspace/space associated with this project
 - **User information**: Your user ID and email
@@ -204,32 +263,29 @@ The context tree is stored in `.brv/context-tree/`:
         └── context.md
 ```
 
-**Note**: When you run `brv push`, your context tree is uploaded to ByteRover's memory storage for version control and team collaboration.
+**Note**: When you run `/push`, your context tree is uploaded to ByteRover's memory storage for version control and team collaboration.
 
 ## Getting Help
+
+### In-REPL Help
+
+Start typing `/` in the REPL to see available commands with tab completion.
 
 ### Command Help
 
 ```bash
 # Get general help
 brv --help
-
-# Get help for a specific command
-brv login --help
-brv init --help
-brv push --help
-brv pull --help
-brv query --help
-brv clear --help
 ```
 
 ### Support
 
 If you encounter issues or have questions:
 
-1. Check the command help: `brv [command] --help`
-2. Review your status: `brv status`
-3. Contact ByteRover support
+1. Check the command help in the REPL
+2. Run `/status` to review your project state
+3. Visit [ByteRover Docs](https://docs.byterover.dev/beta)
+4. Contact ByteRover support
 
 ---
 

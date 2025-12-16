@@ -5,6 +5,7 @@ import {HttpCogitPushService} from '../../cogit/http-cogit-push-service.js'
 import {ProjectConfigStore} from '../../config/file-config-store.js'
 import {FileContextFileReader} from '../../context-tree/file-context-file-reader.js'
 import {FileContextTreeSnapshotService} from '../../context-tree/file-context-tree-snapshot-service.js'
+import {FileGlobalConfigStore} from "../../storage/file-global-config-store.js";
 import {KeychainTokenStore} from '../../storage/keychain-token-store.js'
 import {ReplTerminal} from '../../terminal/repl-terminal.js'
 import {MixpanelTrackingService} from '../../tracking/mixpanel-tracking-service.js'
@@ -38,7 +39,8 @@ export const pushCommand: SlashCommand = {
 
         const envConfig = getCurrentConfig()
         const tokenStore = new KeychainTokenStore()
-        const trackingService = new MixpanelTrackingService(tokenStore)
+        const globalConfigStore = new FileGlobalConfigStore()
+        const trackingService = new MixpanelTrackingService({globalConfigStore, tokenStore})
 
         const useCase = new PushUseCase({
           cogitPushService: new HttpCogitPushService({
