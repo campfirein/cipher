@@ -18,6 +18,7 @@ export const EVENT_VALUES = [
   'onboarding:query_completed',
   'onboarding:skipped',
   'onboarding:completed',
+  'init'
 ] as const
 
 export type EventName = (typeof EVENT_VALUES)[number]
