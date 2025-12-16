@@ -2,6 +2,7 @@
  * Array of all supported Events.
  */
 export const EVENT_VALUES = [
+  'repl',
   'auth:signed_in',
   'auth:signed_out',
   'space:init',
