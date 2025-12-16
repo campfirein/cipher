@@ -157,6 +157,51 @@ export class KnowledgeGraphManager {
 	}
 
 	/**
+	 * Get the current backend type
+	 *
+	 * Returns the type of the currently connected backend, or the last known type
+	 * if disconnected. When connected, this method delegates to the backend instance
+	 * (source of truth). When disconnected, it returns cached metadata or 'unknown'.
+	 *
+	 * This method is useful for conditional logic based on backend capabilities,
+	 * particularly for determining if advanced features like Cypher queries
+	 * (Neo4j-specific) are available.
+	 *
+	 * @returns Backend type identifier ('neo4j', 'in-memory', or 'unknown')
+	 *
+	 * @example
+	 * ```typescript
+	 * // Check backend type before executing queries
+	 * const manager = new KnowledgeGraphManager(config);
+	 * await manager.connect();
+	 *
+	 * const backendType = manager.getBackendType();
+	 * if (backendType === 'neo4j') {
+	 *   // Execute Cypher queries
+	 *   const graph = manager.getGraph();
+	 *   await graph.query({
+	 *     type: 'cypher',
+	 *     query: 'MATCH (n:Function)-[r:CALLS]->(m) RETURN n, r, m'
+	 *   });
+	 * } else {
+	 *   // Use structured queries for in-memory
+	 *   await graph.query({
+	 *     type: 'node',
+	 *     pattern: { labels: ['Function'] }
+	 *   });
+	 * }
+	 * ```
+	 */
+	public getBackendType(): string {
+		// When connected: delegate to the backend instance (source of truth)
+		if (this.graph) {
+			return this.graph.getBackendType();
+		}
+		// When disconnected: return cached metadata or safe default
+		return this.backendMetadata.type || 'unknown';
+	}
+
+	/**
 	 * Check if the manager is connected and ready
 	 */
 	public isConnected(): boolean {
@@ -175,13 +220,20 @@ export class KnowledgeGraphManager {
 		this.connectionAttempts++;
 		this.connectionStartTime = Date.now();
 
+		this.logger.debug(`${LOG_PREFIXES.MANAGER} Starting connect() - config.type: ${this.config.type}`);
+		this.logger.debug(`${LOG_PREFIXES.MANAGER} Config:`, JSON.stringify(this.config, null, 2));
+
 		try {
 			this.logger.info(`${LOG_PREFIXES.MANAGER} Connecting to ${this.config.type} backend...`);
+			this.logger.debug(`${LOG_PREFIXES.MANAGER} About to call createBackend()`);
 
 			// Create backend instance
 			this.graph = await this.createBackend();
+			this.logger.debug(`${LOG_PREFIXES.MANAGER} createBackend() returned, backend type: ${this.graph.getBackendType()}`);
 
 			// Connect to backend
+			this.logger.debug(`${LOG_PREFIXES.MANAGER} About to call graph.connect()`);
+
 			await this.graph.connect();
 
 			// Verify connection
@@ -215,6 +267,7 @@ export class KnowledgeGraphManager {
 
 			return this.graph;
 		} catch (error) {
+			this.logger.error(`${LOG_PREFIXES.MANAGER} ERROR in connect():`, error);
 			this.lastConnectionError = error as Error;
 			this.backendMetadata.connected = false;
 
@@ -222,10 +275,14 @@ export class KnowledgeGraphManager {
 
 			// Try fallback to in-memory backend if configured
 			if (this.config.type !== BACKEND_TYPES.IN_MEMORY) {
+				this.logger.warn(`${LOG_PREFIXES.MANAGER} config.type=${this.config.type}, attempting fallback to in-memory`);
 				this.logger.warn(`${LOG_PREFIXES.MANAGER} Attempting fallback to in-memory backend...`);
 
 				try {
+					this.logger.debug(`${LOG_PREFIXES.MANAGER} Calling createInMemoryFallback()`);
 					this.graph = await this.createInMemoryFallback();
+					this.logger.debug(`${LOG_PREFIXES.MANAGER} createInMemoryFallback() succeeded`);
+
 					await this.graph.connect();
 
 					this.backendMetadata = {

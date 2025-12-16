@@ -1,4 +1,45 @@
 import { z } from 'zod';
+import { MIN_TIMEOUT_MS, MAX_TIMEOUT_MS } from './constants.js';
+
+/**
+ * Get the default MCP timeout from environment variables or use hardcoded default.
+ * Priority: CIPHER_MCP_TIMEOUT > MCP_TIMEOUT > 30000ms
+ * Values outside the valid range (5s-5min) are rejected with a warning.
+ */
+function getDefaultMcpTimeout(): number {
+  const cipherTimeout = process.env.CIPHER_MCP_TIMEOUT;
+  if (cipherTimeout !== undefined && cipherTimeout !== '') {
+    const parsed = parseInt(cipherTimeout, 10);
+    if (!isNaN(parsed) && parsed >= MIN_TIMEOUT_MS && parsed <= MAX_TIMEOUT_MS) {
+      return parsed;
+    }
+    if (!isNaN(parsed)) {
+      console.warn(
+        `[MCP] CIPHER_MCP_TIMEOUT=${cipherTimeout}ms outside valid range ` +
+        `(${MIN_TIMEOUT_MS}-${MAX_TIMEOUT_MS}ms). Trying MCP_TIMEOUT or using default.`
+      );
+    }
+  }
+
+  const mcpTimeout = process.env.MCP_TIMEOUT;
+  if (mcpTimeout !== undefined && mcpTimeout !== '') {
+    const parsed = parseInt(mcpTimeout, 10);
+    if (!isNaN(parsed) && parsed >= MIN_TIMEOUT_MS && parsed <= MAX_TIMEOUT_MS) {
+      return parsed;
+    }
+    if (!isNaN(parsed)) {
+      console.warn(
+        `[MCP] MCP_TIMEOUT=${mcpTimeout}ms outside valid range ` +
+        `(${MIN_TIMEOUT_MS}-${MAX_TIMEOUT_MS}ms). Using default 30000ms.`
+      );
+    }
+  }
+
+  return 30000; // Default: 30 seconds
+}
+
+const DEFAULT_MCP_TIMEOUT = getDefaultMcpTimeout();
+
 export const StdioServerConfigSchema = z
 	.object({
 		type: z.literal('stdio'),
@@ -24,8 +65,8 @@ export const StdioServerConfigSchema = z
 			.number()
 			.int()
 			.positive()
-			.default(30000)
-			.describe('Maximum time in milliseconds to wait for server startup (30 seconds default)'),
+			.default(DEFAULT_MCP_TIMEOUT)
+			.describe('Maximum time in milliseconds to wait for server startup (configurable via CIPHER_MCP_TIMEOUT or MCP_TIMEOUT, default: 30s)'),
 		connectionMode: z
 			.enum(['strict', 'lenient'])
 			.default('lenient')
@@ -60,8 +101,8 @@ export const SseServerConfigSchema = z
 			.number()
 			.int()
 			.positive()
-			.default(30000)
-			.describe('Maximum time in milliseconds to establish SSE connection (30 seconds default)'),
+			.default(DEFAULT_MCP_TIMEOUT)
+			.describe('Maximum time in milliseconds to establish SSE connection (configurable via CIPHER_MCP_TIMEOUT or MCP_TIMEOUT, default: 30s)'),
 		connectionMode: z
 			.enum(['strict', 'lenient'])
 			.default('lenient')
@@ -96,8 +137,8 @@ export const StreamableHttpServerConfigSchema = z
 			.number()
 			.int()
 			.positive()
-			.default(30000)
-			.describe('Maximum time in milliseconds to wait for HTTP responses (30 seconds default)'),
+			.default(DEFAULT_MCP_TIMEOUT)
+			.describe('Maximum time in milliseconds to wait for HTTP responses (configurable via CIPHER_MCP_TIMEOUT or MCP_TIMEOUT, default: 30s)'),
 		connectionMode: z
 			.enum(['strict', 'lenient'])
 			.default('lenient')
