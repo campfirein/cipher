@@ -3,9 +3,11 @@ import type {CipherAgentServices, SessionServices} from '../../../core/interface
 import type {IChatSession} from '../../../core/interfaces/cipher/i-chat-session.js'
 import type {ExecutionContext} from '../../../core/interfaces/cipher/i-cipher-agent.js'
 import type {ILLMService} from '../../../core/interfaces/cipher/i-llm-service.js'
+import type {FileData, ImageData} from '../llm/context/context-manager.js'
 
 import {LLMError, SessionCancelledError} from '../../../core/domain/cipher/errors/session-error.js'
 import {SessionEventBus} from '../events/event-emitter.js'
+import {MessageQueueService} from './message-queue.js'
 
 // List of all session events that should be forwarded to agent bus
 const SESSION_EVENT_NAMES: readonly [
@@ -16,6 +18,8 @@ const SESSION_EVENT_NAMES: readonly [
   'llmservice:toolResult',
   'llmservice:error',
   'llmservice:unsupportedInput',
+  'message:queued',
+  'message:dequeued',
 ] = [
   'llmservice:thinking',
   'llmservice:chunk',
@@ -24,6 +28,8 @@ const SESSION_EVENT_NAMES: readonly [
   'llmservice:toolResult',
   'llmservice:error',
   'llmservice:unsupportedInput',
+  'message:queued',
+  'message:dequeued',
 ]
 
 /**
@@ -48,7 +54,9 @@ export class ChatSession implements IChatSession {
   public readonly id: string
   private currentController?: AbortController
   private readonly forwarders = new Map<string, (payload?: unknown) => void>()
+  private isExecuting: boolean = false
   private readonly llmService: ILLMService
+  private readonly messageQueue: MessageQueueService
   private readonly sharedServices: CipherAgentServices
 
   /**
@@ -63,6 +71,7 @@ export class ChatSession implements IChatSession {
     this.sharedServices = sharedServices
     this.eventBus = sessionServices.sessionEventBus
     this.llmService = sessionServices.llmService
+    this.messageQueue = new MessageQueueService(sessionServices.sessionEventBus)
 
     // Setup event forwarding from session bus to agent bus
     this.setupEventForwarding()
@@ -78,10 +87,29 @@ export class ChatSession implements IChatSession {
   }
 
   /**
-   * Dispose of the session and clean up resources.
+   * Cleanup session resources but preserve history for later restoration.
+   * Call this when ending a session temporarily (e.g., user navigates away).
+   * History remains in ContextManager for persistence; event listeners stay for potential reactivation.
+   */
+  public cleanup(): void {
+    // Cancel any in-flight operation
+    if (this.currentController) {
+      this.currentController.abort()
+      this.currentController = undefined
+    }
+    // Note: History remains in LLMService's ContextManager for persistence
+    // Event listeners remain for potential reactivation
+  }
+
+  /**
+   * Dispose of the session completely - remove all event listeners.
+   * Call this when permanently destroying a session.
    * Removes event listeners to prevent memory leaks.
    */
   public dispose(): void {
+    // First cleanup any in-flight operations
+    this.cleanup()
+
     // Remove all event forwarders
     for (const [eventName, forwarder] of this.forwarders.entries()) {
       this.eventBus.off(eventName as keyof typeof this.eventBus, forwarder)
@@ -145,6 +173,7 @@ export class ChatSession implements IChatSession {
   /**
    * Send a message and get a response.
    * Delegates to the LLM service which handles the agentic loop.
+   * Processes any queued messages first if present.
    */
   public async run(
     input: string,
@@ -152,10 +181,15 @@ export class ChatSession implements IChatSession {
   ): Promise<string> {
     // Create abort controller for cancellation
     this.currentController = new AbortController()
+    this.isExecuting = true
 
     try {
+      // Process any queued messages first, coalescing with current input
+      const queued = this.messageQueue.dequeueAll()
+      const finalInput = queued ? `${queued.content}\n\nAlso: ${input}` : input
+
       // Delegate to service - it handles everything
-      const response = await this.llmService.completeTask(input, this.id, {
+      const response = await this.llmService.completeTask(finalInput, this.id, {
         executionContext: options?.executionContext,
         signal: this.currentController.signal,
       })
@@ -171,8 +205,43 @@ export class ChatSession implements IChatSession {
       const errorMessage = error instanceof Error ? error.message : String(error)
       throw new LLMError(errorMessage, this.id)
     } finally {
+      this.isExecuting = false
       this.currentController = undefined
     }
+  }
+
+  /**
+   * Send a message, queuing if the session is busy executing.
+   * If the session is idle, executes immediately via run().
+   * If the session is busy, queues the message and returns the queue position.
+   *
+   * @param input - User message content
+   * @param options - Optional execution options and attachments
+   * @param options.executionContext - Optional execution context for the LLM
+   * @param options.fileData - Optional file attachment
+   * @param options.imageData - Optional image attachment
+   * @returns Response string if executed, or queue info if queued
+   */
+  public async sendMessage(
+    input: string,
+    options?: {
+      executionContext?: ExecutionContext
+      fileData?: FileData
+      imageData?: ImageData
+    },
+  ): Promise<string | {position: number; queued: true}> {
+    if (this.isExecuting) {
+      // Queue the message for later processing
+      const position = this.messageQueue.enqueue({
+        content: input,
+        fileData: options?.fileData,
+        imageData: options?.imageData,
+      })
+      return {position, queued: true}
+    }
+
+    // Execute immediately
+    return this.run(input, {executionContext: options?.executionContext})
   }
 
   /**

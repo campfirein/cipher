@@ -320,6 +320,23 @@ export class ContextManager<T> {
   }
 
   /**
+   * Flush any pending history writes to storage.
+   * Provides explicit durability guarantee - ensures all messages
+   * are persisted before the promise resolves.
+   *
+   * Call at turn boundaries, before session cleanup, or when
+   * explicit persistence confirmation is needed.
+   *
+   * @returns Promise that resolves when history is persisted
+   * @throws Error if persistence fails after all retries
+   */
+  public async flush(): Promise<void> {
+    if (this.historyStorage) {
+      await this.persistHistory()
+    }
+  }
+
+  /**
    * Get comprehensive messages (all messages, for persistence/debugging).
    * This includes all messages including invalid ones.
    *

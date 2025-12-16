@@ -28,6 +28,8 @@ export const SESSION_EVENT_NAMES = [
   'llmservice:toolResult',
   'llmservice:unsupportedInput',
   'llmservice:warning',
+  'message:dequeued',
+  'message:queued',
 ] as const
 
 /**
@@ -375,6 +377,35 @@ export interface AgentEventMap {
     provider?: string
     sessionId: string
   }
+
+  /**
+   * Emitted when queued messages are dequeued for processing.
+   * @property {number} count - Number of messages that were dequeued
+   * @property {string} sessionId - ID of the session
+   */
+  'message:dequeued': {
+    count: number
+    sessionId: string
+  }
+
+  /**
+   * Emitted when a message is queued because session is busy.
+   * @property {object} message - The queued message
+   * @property {string} message.id - Unique identifier for the queued message
+   * @property {string} message.content - Message text content
+   * @property {number} message.queuedAt - Timestamp when queued
+   * @property {number} position - Position in the queue (1-based)
+   * @property {string} sessionId - ID of the session
+   */
+  'message:queued': {
+    message: {
+      content: string
+      id: string
+      queuedAt: number
+    }
+    position: number
+    sessionId: string
+  }
 }
 
 /**
@@ -512,6 +543,31 @@ export interface SessionEventMap {
     message: string
     model?: string
     provider?: string
+  }
+
+  /**
+   * Emitted when queued messages are dequeued for processing.
+   * @property {number} count - Number of messages that were dequeued
+   */
+  'message:dequeued': {
+    count: number
+  }
+
+  /**
+   * Emitted when a message is queued because session is busy.
+   * @property {object} message - The queued message
+   * @property {string} message.id - Unique identifier for the queued message
+   * @property {string} message.content - Message text content
+   * @property {number} message.queuedAt - Timestamp when queued
+   * @property {number} position - Position in the queue (1-based)
+   */
+  'message:queued': {
+    message: {
+      content: string
+      id: string
+      queuedAt: number
+    }
+    position: number
   }
 }
 
