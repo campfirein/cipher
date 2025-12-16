@@ -28,3 +28,14 @@ export const DEFAULT_BRANCH = 'main'
  * Used in CLI help output to direct users to online documentation.
  */
 export const DOCS_URL = 'https://docs.byterover.dev/beta'
+
+// Transport layer constants (optimized for localhost real-time)
+export const TRANSPORT_HOST = '127.0.0.1' // Direct IP, no DNS lookup
+export const TRANSPORT_REQUEST_TIMEOUT_MS = 10_000 // 10s - most operations complete quickly
+export const TRANSPORT_ROOM_TIMEOUT_MS = 2000 // 2s - room ops are instant on localhost
+export const TRANSPORT_CONNECT_TIMEOUT_MS = 3000 // 3s - 127.0.0.1 connects in <10ms
+export const TRANSPORT_RECONNECTION_DELAY_MS = 50 // 50ms - ultra aggressive start
+export const TRANSPORT_RECONNECTION_DELAY_MAX_MS = 1000 // 1s cap - fail fast, retry fast
+export const TRANSPORT_RECONNECTION_ATTEMPTS = 30 // More attempts with faster retry
+export const TRANSPORT_PING_INTERVAL_MS = 1000 // 1s ping - aggressive heartbeat
+export const TRANSPORT_PING_TIMEOUT_MS = 1000 // 1s - fail fast if no pong (total 2s detect)
