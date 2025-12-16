@@ -1,6 +1,7 @@
 export const BRV_DIR = '.brv'
 export const BLOBS_DIR = 'blobs'
 export const PROJECT_CONFIG_FILE = 'config.json'
+export const INSTANCE_FILE = 'instance.json'
 export const BRV_CONFIG_VERSION = '0.0.1'
 
 // Global config constants (user-level, stored in XDG config directory)
