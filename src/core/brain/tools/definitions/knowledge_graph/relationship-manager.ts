@@ -351,6 +351,8 @@ async function analyzeRelationshipInstruction(
 	}
 
 	try {
+		// FIX (2025-01-29): Enhanced structured prompt for better LLM parsing
+		// Provides clearer JSON structure requirements and better examples
 		const analysisPrompt = `
 You are an expert at analyzing relationship management instructions for a knowledge graph. Your job is to understand what operation the user wants to perform and extract the relevant parameters.
 
@@ -364,18 +366,15 @@ Possible operations:
 5. bulk_update: Update multiple relationships at once (e.g., "update all employees' status to active")
 6. conditional_update: Update relationships based on conditions (e.g., "promote all junior developers to mid-level")
 
-Analyze the instruction and provide:
-1. The operation type
-2. Entities involved (source, target, etc.)
-3. Relationship types or criteria
-4. Confidence level (0.0-1.0)
-5. Specific parameters for the operation
+Analyze the instruction carefully. Look for keywords that indicate the operation:
+- Words like "not...but", "replace", "instead" -> replace_entity
+- Words like "merge", "combine", "consolidate" -> merge_entities
+- Words like "update", "change", "modify", "set" -> update_relationship
+- Words like "delete", "remove", "disconnect" -> delete_relationships
 
-Examples:
-- "not Long but Nam and Trang" -> replace_entity: replace "Long" with "Nam", keep "Trang"
-- "John works at Microsoft now, not Google" -> replace_entity in WORKS_AT relationship
-- "merge Google and Alphabet" -> merge_entities: combine all relationships
-- "update John's role to senior engineer" -> update_relationship: modify role property
+Examples with JSON output:
+- "Replace user1 with user2" -> {"operationType": "replace_entity", "entities": {"source": "user1", "target": "user2"}}
+- "Merge nodeA and nodeB" -> {"operationType": "merge_entities", "entities": {"source": "nodeA", "target": "nodeB"}}
 
 Respond with a JSON object:
 {
@@ -400,8 +399,34 @@ Respond with a JSON object:
 Respond ONLY with the JSON object:`;
 
 		const response = await llmService.generate(analysisPrompt);
-		const cleanResponse = response.replace(/```json|```/g, '').trim();
-		const analysis = JSON.parse(cleanResponse);
+
+		// FIX: Enhanced JSON extraction with multiple patterns
+		const extractJSON = (text: string): any => {
+			// Try multiple extraction patterns
+			const patterns = [
+				/\{[\s\S]*\}/,  // First JSON object
+				/```json\s*([\s\S]*?)\s*```/,  // Markdown JSON code block
+				/```\s*([\s\S]*?)\s*```/,  // Generic code block
+			];
+
+			for (const pattern of patterns) {
+				const match = text.match(pattern);
+				if (match) {
+					try {
+						const jsonStr = match[1] || match[0];
+						return JSON.parse(jsonStr.trim());
+					} catch (e) {
+						// Continue to next pattern
+					}
+				}
+			}
+
+			// Last resort: clean and try
+			const cleaned = text.replace(/```json|```/g, '').trim();
+			return JSON.parse(cleaned);
+		};
+
+		const analysis = extractJSON(response);
 
 		return {
 			type: analysis.operationType || 'replace_entity',
@@ -420,24 +445,85 @@ Respond ONLY with the JSON object:`;
 			error: error instanceof Error ? error.message : String(error),
 		});
 
-		// Fallback: simple pattern matching
+		// FIX: Enhanced fallback pattern matching with better entity extraction
+		const FALLBACK_PATTERNS = [
+			{
+				// "Replace X with Y", "X instead of Y"
+				pattern: /replace\s+(\S+)\s+with\s+(\S+)/i,
+				type: 'replace_entity' as RelationshipOperation,
+				extract: (match: RegExpMatchArray) => ({
+					entities: { source: match[1], target: match[2] }
+				})
+			},
+			{
+				// "not X but Y"
+				pattern: /not\s+(\S+)\s+but\s+(\S+)/i,
+				type: 'replace_entity' as RelationshipOperation,
+				extract: (match: RegExpMatchArray) => ({
+					entities: { source: match[1], target: match[2] }
+				})
+			},
+			{
+				// "Merge X and Y", "Combine X with Y"
+				pattern: /(?:merge|combine)\s+(\S+)\s+(?:and|with)\s+(\S+)/i,
+				type: 'merge_entities' as RelationshipOperation,
+				extract: (match: RegExpMatchArray) => ({
+					entities: { source: match[1], target: match[2] }
+				})
+			},
+			{
+				// "Delete relationship between X and Y"
+				pattern: /delete\s+(?:relationship|connection|link).*between\s+(\S+)\s+and\s+(\S+)/i,
+				type: 'delete_relationships' as RelationshipOperation,
+				extract: (match: RegExpMatchArray) => ({
+					entities: { source: match[1], target: match[2] }
+				})
+			},
+			{
+				// "Update X's Y to Z"
+				pattern: /update\s+(\S+)(?:'s|'s)\s+(\S+)\s+to\s+(\S+)/i,
+				type: 'update_relationship' as RelationshipOperation,
+				extract: (match: RegExpMatchArray) => ({
+					entities: { source: match[1] },
+					relationships: { property: match[2], value: match[3] }
+				})
+			}
+		];
+
+		// Try each pattern
+		for (const { pattern, type, extract } of FALLBACK_PATTERNS) {
+			const match = instruction.match(pattern);
+			if (match) {
+				const params = extract(match);
+				return {
+					type,
+					description: `${type} operation detected via pattern matching`,
+					affectedEntities: 0,
+					affectedRelationships: 0,
+					confidence: 0.7,
+					params
+				};
+			}
+		}
+
+		// Ultimate fallback: simple keyword matching
 		const instructionLower = instruction.toLowerCase();
 
 		if (instructionLower.includes('not') && instructionLower.includes('but')) {
 			return {
 				type: 'replace_entity',
-				description: 'Entity replacement based on pattern matching',
+				description: 'Entity replacement based on keyword matching',
 				affectedEntities: 0,
 				affectedRelationships: 0,
-				confidence: 0.6,
+				confidence: 0.5,
 			};
 		} else if (instructionLower.includes('merge')) {
 			return {
 				type: 'merge_entities',
-				description: 'Entity merge based on pattern matching',
+				description: 'Entity merge based on keyword matching',
 				affectedEntities: 0,
 				affectedRelationships: 0,
-				confidence: 0.6,
+				confidence: 0.5,
 			};
 		} else if (instructionLower.includes('update') || instructionLower.includes('change')) {
 			return {

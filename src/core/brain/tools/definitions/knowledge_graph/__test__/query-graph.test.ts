@@ -21,9 +21,16 @@ const mockGraph = {
 	query: vi.fn().mockResolvedValue(mockQueryResult),
 };
 
-const getContext = (opts: { withManager?: boolean; withGraph?: boolean } = {}) => {
+const getContext = (opts: {
+	withManager?: boolean;
+	withGraph?: boolean;
+	backendType?: string;
+} = {}) => {
 	const kgManager = opts.withManager
-		? { getGraph: vi.fn().mockReturnValue(opts.withGraph ? mockGraph : null) }
+		? {
+				getGraph: vi.fn().mockReturnValue(opts.withGraph ? mockGraph : null),
+				getBackendType: vi.fn().mockReturnValue(opts.backendType || 'neo4j'),
+		  }
 		: undefined;
 	return {
 		toolName: 'query_graph',
@@ -211,7 +218,12 @@ describe('queryGraphTool', () => {
 			startTime: Date.now(),
 			sessionId: 'test-session',
 			metadata: {},
-			services: { knowledgeGraphManager: { getGraph: vi.fn().mockReturnValue(errorGraph) } as any },
+			services: {
+				knowledgeGraphManager: {
+					getGraph: vi.fn().mockReturnValue(errorGraph),
+					getBackendType: vi.fn().mockReturnValue('neo4j'),
+				} as any,
+			},
 		};
 
 		const result = await queryGraphTool.handler(
@@ -286,6 +298,55 @@ describe('queryGraphTool', () => {
 			pattern: {},
 			parameters: { labels: ['Function'] },
 			limit: 100,
+		});
+	});
+
+	it('should reject cypher queries for in-memory backend', async () => {
+		const context = getContext({
+			withManager: true,
+			withGraph: true,
+			backendType: 'in-memory',
+		});
+
+		const result = await queryGraphTool.handler(
+			{
+				query: 'MATCH (n) RETURN n',
+				queryType: 'cypher',
+				limit: 10,
+			},
+			context
+		);
+
+		expect(result.success).toBe(false);
+		expect(result.message).toContain('Cypher queries require Neo4j backend');
+		expect(result.message).toContain('Current backend: in-memory');
+		expect(result.alternatives).toEqual(['node', 'edge', 'path']);
+		expect(result.results).toBeNull();
+	});
+
+	it('should allow cypher queries for neo4j backend', async () => {
+		const context = getContext({
+			withManager: true,
+			withGraph: true,
+			backendType: 'neo4j',
+		});
+
+		const result = await queryGraphTool.handler(
+			{
+				query: 'MATCH (n:Function) RETURN n',
+				queryType: 'cypher',
+				limit: 10,
+			},
+			context
+		);
+
+		expect(result.success).toBe(true);
+		expect(result.message).toBe('Query executed');
+		expect(mockGraph.query).toHaveBeenCalledWith({
+			type: 'cypher',
+			query: 'MATCH (n:Function) RETURN n',
+			parameters: {},
+			limit: 10,
 		});
 	});
 });
