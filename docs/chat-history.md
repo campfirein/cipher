@@ -5,6 +5,7 @@ Cipher supports persistent chat history using multiple storage backends. This al
 ## Overview
 
 Cipher stores chat history and session data using a hierarchical fallback system:
+
 1. **PostgreSQL** (recommended for production)
 2. **SQLite** (good for single-user setups)
 3. **In-Memory** (development/testing only)
@@ -23,11 +24,13 @@ CIPHER_PG_URL="postgresql://username:password@localhost:5432/cipher_db"
 ```
 
 **URL Format:**
-```
+
+```text
 postgresql://[username[:password]@][host[:port]][/database][?param=value&...]
 ```
 
 **Examples:**
+
 ```bash
 # Local PostgreSQL
 CIPHER_PG_URL="postgresql://postgres:password@localhost:5432/cipher_db"
@@ -76,6 +79,7 @@ GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO cipher_user;
 3. **Automatic Schema Creation:**
 
 Cipher will automatically create the necessary tables and indexes on first run:
+
 - `sessions` - Session metadata and configuration
 - `messages` - Chat messages and history
 - Indexes for optimal query performance
@@ -83,21 +87,25 @@ Cipher will automatically create the necessary tables and indexes on first run:
 ### Cloud PostgreSQL Services
 
 **Heroku Postgres:**
+
 ```bash
 CIPHER_PG_URL=$DATABASE_URL  # Heroku provides this automatically
 ```
 
 **Supabase:**
+
 ```bash
 CIPHER_PG_URL="postgresql://postgres:[PASSWORD]@db.[PROJECT].supabase.co:5432/postgres"
 ```
 
 **AWS RDS:**
+
 ```bash
 CIPHER_PG_URL="postgresql://username:password@your-rds-instance.amazonaws.com:5432/cipher_db"
 ```
 
 **Google Cloud SQL:**
+
 ```bash
 CIPHER_PG_URL="postgresql://username:password@your-instance-ip:5432/cipher_db"
 ```
@@ -119,10 +127,12 @@ If PostgreSQL is not configured, Cipher automatically uses SQLite:
 
 ```bash
 # .env
-STORAGE_DATABASE_PATH="/custom/path/to/cipher.db"
+STORAGE_DATABASE_PATH="/custom/path/to/data"
+STORAGE_DATABASE_NAME="my-sessions.db"  # optional, defaults to cipher-sessions.db
 ```
 
 **Features:**
+
 - Single file database
 - No server setup required
 - Good performance for single users
@@ -138,6 +148,7 @@ STORAGE_DATABASE_TYPE="in-memory"
 ```
 
 **Characteristics:**
+
 - Fastest performance
 - No persistence (data lost on restart)
 - No disk usage
@@ -171,7 +182,7 @@ Messages are stored with:
 ```json
 {
   "messageId": "msg-123",
-  "sessionId": "session-456", 
+  "sessionId": "session-456",
   "timestamp": "2024-01-15T10:30:00Z",
   "role": "user|assistant|system",
   "content": "Message content...",
@@ -188,14 +199,17 @@ Messages are stored with:
 Cipher uses consistent key patterns for data organization:
 
 ### Session Data
+
 - **Pattern:** `cipher:sessions:{sessionId}`
 - **Content:** Session configuration and metadata
 
-### Message History  
+### Message History
+
 - **Pattern:** `messages:{sessionId}`
 - **Content:** Array of messages for the session
 
 ### Workspace Data
+
 - **Pattern:** `workspace:{sessionId}:*`
 - **Content:** Workspace-specific memory and context
 
@@ -206,11 +220,11 @@ Cipher uses consistent key patterns for data organization:
 | `CIPHER_PG_URL` | Complete PostgreSQL connection URL | None | No |
 | `STORAGE_DATABASE_HOST` | PostgreSQL host | localhost | No |
 | `STORAGE_DATABASE_PORT` | PostgreSQL port | 5432 | No |
-| `STORAGE_DATABASE_NAME` | Database name | None | No |
+| `STORAGE_DATABASE_NAME` | Database name (PostgreSQL) or filename (SQLite) | cipher-sessions.db | No |
 | `STORAGE_DATABASE_USER` | Username | None | No |
 | `STORAGE_DATABASE_PASSWORD` | Password | None | No |
 | `STORAGE_DATABASE_SSL` | Enable SSL | false | No |
-| `STORAGE_DATABASE_PATH` | Custom SQLite location | ./data/cipher.db | No |
+| `STORAGE_DATABASE_PATH` | SQLite directory path | ./data | No |
 | `STORAGE_DATABASE_TYPE` | Force storage type | in-memory | No |
 
 ## Fallback Behavior
@@ -218,10 +232,10 @@ Cipher uses consistent key patterns for data organization:
 Cipher uses intelligent fallback for storage:
 
 1. **PostgreSQL** - If `CIPHER_PG_URL` or individual DB params are set
-2. **SQLite** - If PostgreSQL fails or isn't configured  
+2. **SQLite** - If PostgreSQL fails or isn't configured
 3. **In-Memory** - If all persistent storage fails
 
-```
+```text
 PostgreSQL Available? → Use PostgreSQL
         ↓ No
 SQLite Available? → Use SQLite
@@ -276,7 +290,6 @@ SQLITE_CACHE_SIZE=2000
 SQLITE_TEMP_STORE=memory
 SQLITE_SYNCHRONOUS=normal
 ```
-
 
 ## Related Documentation
 
