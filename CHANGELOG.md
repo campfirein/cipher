@@ -2,9 +2,21 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [0.4.1]
+
+### Fixed
+
+- `/status` command now correctly displays CLI version
+
+### Changed
+
+- Minimum Node.js version requirement increased from 18 to 20
+- Simplified welcome banner by removing verbose onboarding instructions
+
 ## [0.4.0]
 
 ### Added
+
 - **Interactive REPL mode**: Running `brv` with no arguments now starts an interactive terminal UI with a persistent session
 - **Slash commands**: All core functionality is now available via slash commands in REPL mode:
   - `/login`, `/logout` - Authentication
@@ -20,9 +32,11 @@ All notable user-facing changes to ByteRover CLI will be documented in this file
 - **Interactive onboarding**: New guided onboarding flow for first-time users (press Esc to skip)
 
 ### Changed
+
 - **Command renamed**: `reset` command is now `/clear` in REPL mode
 
 ### Fixed
+
 - Improved UI responsiveness and layout
 - Fixed terminal scrolling issues
 - Fixed UI flickering during long-running operations
@@ -31,6 +45,7 @@ All notable user-facing changes to ByteRover CLI will be documented in this file
 ## [0.3.5]
 
 ### Added
+
 - **Auto-update notification**: CLI now checks for updates every 24 hours and offers to update automatically via `npm update -g byterover-cli`
 - **Legacy rule migration**: `brv gen-rules` now detects existing agent rules and creates backups before updating
 
