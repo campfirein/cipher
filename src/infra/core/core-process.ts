@@ -15,6 +15,7 @@ import type {
 import type {ILogger} from '../../core/interfaces/cipher/i-logger.js'
 import type {IInstanceManager} from '../../core/interfaces/instance/i-instance-manager.js'
 import type {ITransportServer} from '../../core/interfaces/transport/i-transport-server.js'
+import type {TaskProcessor} from './task-processor.js'
 
 import {
   CoreProcessAlreadyRunningError,
@@ -48,6 +49,8 @@ export type CoreProcessConfig = {
   preferredPort?: number
   /** Project root directory (default: cwd) */
   projectRoot?: string
+  /** Task processor for handling tasks (injected with UseCases) */
+  taskProcessor?: TaskProcessor
   /** Transport server instance */
   transportServer?: ITransportServer
 }
@@ -83,6 +86,7 @@ export class CoreProcess {
     port: undefined,
     running: false,
   }
+  private readonly taskProcessor: TaskProcessor | undefined
   private readonly transportServer: ITransportServer
 
   constructor(config?: CoreProcessConfig) {
@@ -90,6 +94,7 @@ export class CoreProcess {
     this.preferredPort = config?.preferredPort
     this.logger = config?.logger ?? new NoOpLogger()
     this.instanceManager = config?.instanceManager ?? new FileInstanceManager()
+    this.taskProcessor = config?.taskProcessor
     this.transportServer = config?.transportServer ?? new SocketIOTransportServer()
   }
 
@@ -284,6 +289,7 @@ export class CoreProcess {
   /**
    * Handle task:create request.
    * Creates a new task and returns the task ID.
+   * Routes to TaskProcessor for actual processing.
    */
   private handleTaskCreate(data: TaskCreateRequest, clientId: string): TaskCreateResponse {
     const taskId = randomUUID()
@@ -296,11 +302,54 @@ export class CoreProcess {
     // Send ack immediately (fast feedback)
     this.transportServer.broadcast('task:ack', {taskId})
 
-    // TODO: Queue task for consumer processing
-    // For now, just simulate task started
-    setTimeout(() => {
-      this.transportServer.broadcastTo(`task:${taskId}`, 'task:started', {taskId})
-    }, 100)
+    // Route to TaskProcessor if available
+    if (this.taskProcessor) {
+      // Process task asynchronously (don't await - return taskId immediately)
+      this.taskProcessor
+        .process(
+          {
+            content: data.input,
+            taskId,
+            type: data.type as 'curate' | 'query',
+          },
+          {
+            onChunk: (content) => {
+              this.transportServer.broadcastTo(`task:${taskId}`, 'task:chunk', {content, taskId})
+            },
+            onCompleted: (result) => {
+              this.transportServer.broadcastTo(`task:${taskId}`, 'task:completed', {result, taskId})
+            },
+            onError: (error) => {
+              this.transportServer.broadcastTo(`task:${taskId}`, 'task:error', {error, taskId})
+            },
+            onStarted: () => {
+              this.transportServer.broadcastTo(`task:${taskId}`, 'task:started', {taskId})
+            },
+            onToolCall: (info) => {
+              this.transportServer.broadcastTo(`task:${taskId}`, 'task:toolCall', {...info, taskId})
+            },
+            onToolResult: (info) => {
+              this.transportServer.broadcastTo(`task:${taskId}`, 'task:toolResult', {...info, taskId})
+            },
+          },
+        )
+        .catch((error) => {
+          this.logger.error('Task processing failed', {error: String(error), taskId})
+          this.transportServer.broadcastTo(`task:${taskId}`, 'task:error', {
+            error: error instanceof Error ? error.message : String(error),
+            taskId,
+          })
+        })
+    } else {
+      // No TaskProcessor - send error
+      this.logger.warn('No TaskProcessor configured', {taskId})
+      setTimeout(() => {
+        this.transportServer.broadcastTo(`task:${taskId}`, 'task:error', {
+          error: 'Task processing not available. Core not fully initialized.',
+          taskId,
+        })
+      }, 100)
+    }
 
     return {taskId}
   }
