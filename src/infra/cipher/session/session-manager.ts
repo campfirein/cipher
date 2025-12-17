@@ -31,8 +31,6 @@ export interface SessionManagerOptions {
  *
  * Manages multiple chat sessions with creation, retrieval, and deletion.
  * Each session gets its own LLM service instance with isolated context.
- *
- * Following Dexto's pattern: SessionManager uses shared services from the agent
  * and creates session-specific services (LLM, EventBus) per conversation.
  */
 export class SessionManager {
@@ -106,7 +104,6 @@ export class SessionManager {
    * Create a new chat session.
    *
    * Each session gets its own LLM service instance for isolated conversation context.
-   * Following Dexto's pattern with race condition protection via pendingCreations tracker.
    *
    * @param sessionId - Optional session ID (generates UUID if not provided)
    * @returns New or existing chat session instance

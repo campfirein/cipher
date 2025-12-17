@@ -18,8 +18,6 @@ import {SessionManager} from './session/session-manager.js'
 
 /**
  * CipherAgent - Main agent implementation
- *
- * Following Dexto's pattern: CipherAgent orchestrates sessions and delegates
  * execution to ChatSession instances. Each session maintains isolated conversation
  * context while sharing global services (tools, prompts, file system, etc.).
  *
@@ -92,8 +90,6 @@ export class CipherAgent implements ICipherAgent {
 
   /**
    * Execute the agent with user input.
-   *
-   * Following Dexto's pattern: determine target session, get or create it,
    * then delegate to session.run().
    *
    * @param input - User input string

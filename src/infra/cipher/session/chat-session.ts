@@ -34,8 +34,6 @@ const SESSION_EVENT_NAMES: readonly [
 
 /**
  * Chat session implementation.
- *
- * Following Dexto's pattern: ChatSession owns session-specific services
  * (LLM, EventBus) and receives shared services (ToolManager, SystemPromptManager).
  *
  * The LLM service handles:
@@ -247,8 +245,6 @@ export class ChatSession implements IChatSession {
   /**
    * Setup automatic event forwarding from SessionEventBus to AgentEventBus.
    * All session events are forwarded with sessionId added to the payload.
-   *
-   * Following Dexto's pattern: event forwarding is built into the session.
    */
   private setupEventForwarding(): void {
     for (const eventName of SESSION_EVENT_NAMES) {

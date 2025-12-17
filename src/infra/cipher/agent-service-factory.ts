@@ -88,7 +88,6 @@ export type {
  * Creates shared services for CipherAgent.
  * These services are singletons shared across all sessions.
  *
- * Following Dexto's pattern: shared services are created once at agent level,
  * while session-specific services (LLM, EventBus) are created per session.
  *
  * @param llmConfig - LLM configuration
@@ -248,10 +247,6 @@ export async function createCipherAgentServices(llmConfig: CipherLLMConfig): Pro
 
 /**
  * Creates session-specific services for a ChatSession.
- *
- * Following Dexto's pattern: each session gets its own LLM service and event bus
- * for conversation isolation, while using shared services for tools/prompts.
- *
  * Generator composition order (innermost to outermost):
  * 1. Base generator (ByteRoverContentGenerator or OpenRouterContentGenerator)
  * 2. RetryableContentGenerator - handles transient errors with backoff

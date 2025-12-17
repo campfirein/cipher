@@ -2,7 +2,6 @@
  * LLM Configuration Schemas
  *
  * Zod schemas for validating LLM configuration with cross-field validation.
- * Following Dexto's pattern for comprehensive config validation.
  */
 
 import {z} from 'zod'
