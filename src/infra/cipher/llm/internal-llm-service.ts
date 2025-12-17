@@ -29,6 +29,13 @@ import {
   LlmMaxIterationsError,
   LlmResponseParsingError,
 } from '../../../core/domain/cipher/errors/llm-error.js'
+import {
+  getEffectiveMaxInputTokens,
+  getMaxInputTokensForModel,
+  getProviderFromModel,
+  isValidProviderModel,
+  safeParseLLMConfig,
+} from '../../../core/domain/cipher/llm/index.js'
 import {NoOpLogger} from '../../../core/interfaces/cipher/i-logger.js'
 import {getErrorMessage} from '../../../utils/error-helpers.js'
 import {SessionEventBus} from '../events/event-emitter.js'
@@ -202,19 +209,30 @@ export class ByteRoverLLMService implements ILLMService {
     this.environmentBuilder = new EnvironmentContextBuilder()
     this.metadataHandler = new ToolMetadataHandler(this.sessionEventBus)
     this.workingDirectory = process.cwd()
+    // Detect provider type from model name (needed for validation)
+    const modelName = config.model ?? 'claude-haiku-4-5@20251001'
+    this.providerType = this.detectProviderType(modelName)
+
+    // Validate core LLM config using Zod schema (logs warning if invalid)
+    this.validateConfig(modelName, config.maxInputTokens)
+
+    // Get effective max input tokens from registry (respects model limits)
+    const effectiveMaxInputTokens = getEffectiveMaxInputTokens(
+      this.providerType,
+      modelName,
+      config.maxInputTokens
+    )
+
     this.config = {
-      maxInputTokens: config.maxInputTokens ?? 1_000_000,
+      maxInputTokens: effectiveMaxInputTokens,
       maxIterations: config.maxIterations ?? 50,
       maxTokens: config.maxTokens ?? 8192,
-      model: config.model ?? 'claude-haiku-4-5@20251001',
+      model: modelName,
       temperature: config.temperature ?? 0.7,
       thinkingConfig: config.thinkingConfig,
       timeout: config.timeout,
       verbose: config.verbose ?? false,
     }
-
-    // Detect provider type from model name
-    this.providerType = this.detectProviderType(this.config.model)
 
     // Initialize formatter and tokenizer based on provider type
     if (this.providerType === 'claude') {
@@ -347,10 +365,13 @@ export class ByteRoverLLMService implements ILLMService {
    * @returns Service configuration object with model info and constraints
    */
   public getConfig(): LLMServiceConfig {
+    // Get model's actual max tokens from registry
+    const modelMaxTokens = getMaxInputTokensForModel(this.providerType, this.config.model)
+
     return {
       configuredMaxInputTokens: this.config.maxInputTokens,
       model: this.config.model,
-      modelMaxInputTokens: this.config.maxInputTokens,
+      modelMaxInputTokens: modelMaxTokens,
       provider: 'byterover',
       router: 'in-built',
     }
@@ -514,6 +535,14 @@ export class ByteRoverLLMService implements ILLMService {
 
     if (!overflowResult.isOverflow) return
 
+    // Emit context overflow event
+    const utilizationPercent = Math.round((currentTokens / this.config.maxInputTokens) * 100)
+    this.sessionEventBus.emit('llmservice:contextOverflow', {
+      currentTokens,
+      maxTokens: this.config.maxInputTokens,
+      utilizationPercent,
+    })
+
     if (overflowResult.recommendation === 'prune') {
       // Try pruning tool outputs first
       const pruneResult = await this.compactionService.pruneToolOutputs(this.sessionId)
@@ -524,13 +553,22 @@ export class ByteRoverLLMService implements ILLMService {
         )
       }
 
-      // Emit event for pruning
+      // Emit context pruned event
       if (pruneResult.compactedCount > 0) {
+        this.sessionEventBus.emit('llmservice:contextPruned', {
+          pruneCount: pruneResult.compactedCount,
+          reason: 'overflow',
+          tokensSaved: pruneResult.tokensSaved,
+        })
+
+        // Also emit warning for backward compatibility
         this.sessionEventBus.emit('llmservice:warning', {
           message: `Context compaction: pruned ${pruneResult.compactedCount} old tool outputs (~${pruneResult.tokensSaved} tokens)`,
         })
       }
     } else if (overflowResult.recommendation === 'compact') {
+      const originalTokens = currentTokens
+
       // Full compaction needed - generate LLM summary
       const summary = await this.compactionService.generateSummary(
         this.generator,
@@ -545,7 +583,16 @@ export class ByteRoverLLMService implements ILLMService {
         console.log('[Compaction] Created compaction boundary with LLM-generated summary')
       }
 
-      // Emit event for full compaction
+      // Emit context compressed event
+      // Estimate compressed tokens (summary is much smaller than original)
+      const compressedTokens = this.generator.estimateTokensSync(summary)
+      this.sessionEventBus.emit('llmservice:contextCompressed', {
+        compressedTokens,
+        originalTokens,
+        strategy: 'summary',
+      })
+
+      // Also emit warning for backward compatibility
       this.sessionEventBus.emit('llmservice:warning', {
         message: 'Context compaction: created summary boundary for conversation history',
       })
@@ -553,12 +600,22 @@ export class ByteRoverLLMService implements ILLMService {
   }
 
   /**
-   * Detect provider type from model name.
+   * Detect provider type from model name using the LLM registry.
+   *
+   * Uses the centralized registry to determine provider from model name.
+   * Falls back to string prefix matching if model is not in registry.
    *
    * @param model - Model identifier
    * @returns Provider type ('claude' or 'gemini')
    */
   private detectProviderType(model: string): 'claude' | 'gemini' {
+    // Use registry to detect provider
+    const registryProvider = getProviderFromModel(model)
+    if (registryProvider === 'claude' || registryProvider === 'gemini') {
+      return registryProvider
+    }
+
+    // Fallback to string prefix matching for unknown models
     return model.toLowerCase().startsWith('claude') ? 'claude' : 'gemini'
   }
 
@@ -1124,6 +1181,46 @@ export class ByteRoverLLMService implements ILLMService {
         await this.contextManager.addToolResult(toolCall.id, toolCall.function.name, `Error: ${errorMessage}`, {
           errorType: 'UNEXPECTED_ERROR',
           success: false,
+        })
+      }
+    }
+  }
+
+  /**
+   * Validate LLM configuration using Zod schema.
+   *
+   * Performs validation against the centralized LLM config schema.
+   * Logs warnings for invalid configurations but doesn't throw to maintain
+   * backward compatibility with existing code.
+   *
+   * @param model - Model name to validate
+   * @param maxInputTokens - Optional max input tokens to validate
+   */
+  private validateConfig(model: string, maxInputTokens?: number): void {
+    const result = safeParseLLMConfig({
+      maxInputTokens,
+      maxIterations: this.config?.maxIterations ?? 50,
+      model,
+      provider: this.providerType,
+    })
+
+    if (!result.success) {
+      // Log validation warnings but don't throw (backward compatibility)
+      const issues = result.error.issues
+        .map((issue) => `${issue.path.join('.')}: ${issue.message}`)
+        .join('; ')
+
+      this.logger.warn('LLM config validation warning', {
+        issues,
+        model,
+        provider: this.providerType,
+      })
+
+      // Also check if model is valid in registry
+      if (!isValidProviderModel(this.providerType, model)) {
+        this.logger.info('Model not in registry, using fallback defaults', {
+          model,
+          provider: this.providerType,
         })
       }
     }

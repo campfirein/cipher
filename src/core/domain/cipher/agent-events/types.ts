@@ -18,6 +18,9 @@ export const AGENT_EVENT_NAMES = [
  */
 export const SESSION_EVENT_NAMES = [
   'llmservice:chunk',
+  'llmservice:contextCompressed',
+  'llmservice:contextOverflow',
+  'llmservice:contextPruned',
   'llmservice:error',
   'llmservice:outputTruncated',
   'llmservice:response',
@@ -218,6 +221,48 @@ export interface AgentEventMap {
     isComplete?: boolean
     sessionId: string
     type: 'reasoning' | 'text'
+  }
+
+  /**
+   * Emitted when conversation context is compressed via summarization.
+   * @property {number} compressedTokens - Token count after compression
+   * @property {number} originalTokens - Token count before compression
+   * @property {string} sessionId - ID of the session
+   * @property {'middle_removal' | 'oldest_removal' | 'summary'} strategy - Compression strategy used
+   */
+  'llmservice:contextCompressed': {
+    compressedTokens: number
+    originalTokens: number
+    sessionId: string
+    strategy: 'middle_removal' | 'oldest_removal' | 'summary'
+  }
+
+  /**
+   * Emitted when context is approaching the token limit.
+   * @property {number} currentTokens - Current token count
+   * @property {number} maxTokens - Maximum allowed tokens
+   * @property {string} sessionId - ID of the session
+   * @property {number} utilizationPercent - Percentage of context used (0-100)
+   */
+  'llmservice:contextOverflow': {
+    currentTokens: number
+    maxTokens: number
+    sessionId: string
+    utilizationPercent: number
+  }
+
+  /**
+   * Emitted when old tool outputs are pruned to save context space.
+   * @property {number} pruneCount - Number of tool outputs pruned
+   * @property {'manual' | 'overflow'} reason - Why pruning was triggered
+   * @property {string} sessionId - ID of the session
+   * @property {number} tokensSaved - Estimated tokens saved
+   */
+  'llmservice:contextPruned': {
+    pruneCount: number
+    reason: 'manual' | 'overflow'
+    sessionId: string
+    tokensSaved: number
   }
 
   /**
@@ -423,6 +468,42 @@ export interface SessionEventMap {
     content: string
     isComplete?: boolean
     type: 'reasoning' | 'text'
+  }
+
+  /**
+   * Emitted when conversation context is compressed via summarization.
+   * @property {number} compressedTokens - Token count after compression
+   * @property {number} originalTokens - Token count before compression
+   * @property {'middle_removal' | 'oldest_removal' | 'summary'} strategy - Compression strategy used
+   */
+  'llmservice:contextCompressed': {
+    compressedTokens: number
+    originalTokens: number
+    strategy: 'middle_removal' | 'oldest_removal' | 'summary'
+  }
+
+  /**
+   * Emitted when context is approaching the token limit.
+   * @property {number} currentTokens - Current token count
+   * @property {number} maxTokens - Maximum allowed tokens
+   * @property {number} utilizationPercent - Percentage of context used (0-100)
+   */
+  'llmservice:contextOverflow': {
+    currentTokens: number
+    maxTokens: number
+    utilizationPercent: number
+  }
+
+  /**
+   * Emitted when old tool outputs are pruned to save context space.
+   * @property {number} pruneCount - Number of tool outputs pruned
+   * @property {'manual' | 'overflow'} reason - Why pruning was triggered
+   * @property {number} tokensSaved - Estimated tokens saved
+   */
+  'llmservice:contextPruned': {
+    pruneCount: number
+    reason: 'manual' | 'overflow'
+    tokensSaved: number
   }
 
   /**
