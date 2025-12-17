@@ -70,10 +70,10 @@ describe('MixpanelTrackingService', () => {
         tokenStore: mockTokenStore,
       })
 
-      await service.track('auth:signed_in')
+      await service.track('auth:sign_in')
 
       expect(trackStub.calledOnce).to.be.true
-      expect(trackStub.firstCall.args[0]).to.equal('cli:auth:signed_in')
+      expect(trackStub.firstCall.args[0]).to.equal('cli:auth:sign_in')
       expect(trackStub.firstCall.args[1]).to.deep.equal({
         $device_id: testDeviceId, // eslint-disable-line camelcase
         $user_id: 'user_id', // eslint-disable-line camelcase
@@ -200,11 +200,11 @@ describe('MixpanelTrackingService', () => {
       })
 
       // Should not throw
-      await service.track('auth:signed_in')
+      await service.track('auth:sign_in')
 
       // Should still track event without user identification
       expect(consoleErrorStub.calledOnce).to.be.true
-      expect(consoleErrorStub.firstCall.args[0]).to.include('Failed to track event auth:signed_in')
+      expect(consoleErrorStub.firstCall.args[0]).to.include('Failed to track event auth:sign_in')
     })
 
     it('should handle Mixpanel tracking errors gracefully', async () => {
@@ -236,7 +236,7 @@ describe('MixpanelTrackingService', () => {
       })
 
       const events: EventName[] = [
-        'auth:signed_in',
+        'auth:sign_in',
         'space:init',
         'space:changed',
         'rule:generate',
@@ -367,10 +367,10 @@ describe('MixpanelTrackingService', () => {
       })
 
       // Should not throw
-      await service.track('auth:signed_in')
+      await service.track('auth:sign_in')
 
       expect(consoleErrorStub.calledOnce).to.be.true
-      expect(consoleErrorStub.firstCall.args[0]).to.include('Failed to track event auth:signed_in')
+      expect(consoleErrorStub.firstCall.args[0]).to.include('Failed to track event auth:sign_in')
     })
   })
 
@@ -406,10 +406,10 @@ describe('MixpanelTrackingService', () => {
         tokenStore: mockTokenStore,
       })
 
-      await service.track('auth:signed_in')
+      await service.track('auth:sign_in')
 
       expect(consoleErrorStub.calledOnce).to.be.true
-      expect(consoleErrorStub.firstCall.args[0]).to.equal('Failed to track event auth:signed_in:')
+      expect(consoleErrorStub.firstCall.args[0]).to.equal('Failed to track event auth:sign_in:')
       expect(consoleErrorStub.firstCall.args[1]).to.be.an('error')
     })
 

@@ -52,6 +52,7 @@ export class QueryUseCase implements IQueryUseCase {
   }
 
   public async run(options: QueryUseCaseRunOptions): Promise<void> {
+    await this.trackingService.track('mem:query', {status: 'started'})
     // Initialize storage for tool call tracking (auto-detects .brv/blobs)
     const storage = await getAgentStorage()
     let executionId: null | string = null
@@ -60,7 +61,7 @@ export class QueryUseCase implements IQueryUseCase {
       // Get authentication token
       const token = await this.tokenStore.load()
       if (!token) {
-        this.terminal.log('Authentication required. Please run "brv login" first.')
+        this.terminal.log('Authentication required. Please run "/login" first.')
         return
       }
 
@@ -70,7 +71,7 @@ export class QueryUseCase implements IQueryUseCase {
       // Validate workspace is initialized
       if (!brvConfig) {
         throw new WorkspaceNotInitializedError(
-          'Project not initialized. Please run "brv init" to select your team and workspace.',
+          'Project not initialized. Please run "/init" to select your team and workspace.',
           '.brv',
         )
       }
@@ -124,8 +125,7 @@ export class QueryUseCase implements IQueryUseCase {
         this.terminal.log('\nQuery Results:')
         this.terminal.log(response)
 
-        // Track query
-        await this.trackingService.track('mem:query')
+        await this.trackingService.track('mem:query', {status: 'finished'})
       } finally {
         // Cleanup old executions
         storage.cleanupOldExecutions(100)
@@ -144,6 +144,7 @@ export class QueryUseCase implements IQueryUseCase {
 
       // Display context on one line, error on separate line
       process.stderr.write('Failed to query context tree:\n')
+      await this.trackingService.track('mem:query', {message: formatError(error), status: 'error'})
       this.terminal.log(formatError(error))
     }
   }

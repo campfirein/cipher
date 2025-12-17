@@ -156,6 +156,7 @@ export class CurateUseCase implements ICurateUseCase {
   }
 
   public async run(options: CurateUseCaseRunOptions): Promise<void> {
+    await this.trackingService.track('mem:curate', {status: 'started'})
     // Determine mode: autonomous if context is provided
     return options.context ? this.runAutonomous(options.context, options) : this.runInteractive()
   }
@@ -164,7 +165,7 @@ export class CurateUseCase implements ICurateUseCase {
    * Handle workspace not initialized error
    */
   private handleWorkspaceError(_error: WorkspaceNotInitializedError): void {
-    const message = 'Project not initialized. Please run "brv init" to select your team and workspace.'
+    const message = 'Project not initialized. Please run "/init" to select your team and workspace.'
     this.terminal.log(message)
   }
 
@@ -248,7 +249,7 @@ export class CurateUseCase implements ICurateUseCase {
       // Get authentication token
       const token = await this.tokenStore.load()
       if (!token) {
-        this.terminal.log('Authentication required. Please run "brv login" first.')
+        this.terminal.log('Authentication required. Please run "/login" first.')
         return
       }
 
@@ -258,7 +259,7 @@ export class CurateUseCase implements ICurateUseCase {
       // Validate workspace is initialized
       if (!brvConfig) {
         throw new WorkspaceNotInitializedError(
-          'Project not initialized. Please run "brv init" to select your team and workspace.',
+          'Project not initialized. Please run "/init" to select your team and workspace.',
           '.brv',
         )
       }
@@ -286,7 +287,7 @@ export class CurateUseCase implements ICurateUseCase {
       this.terminal.log('✓ Context queued for processing.')
 
       // Track the event
-      await this.trackingService.track('mem:curate')
+      await this.trackingService.track('mem:curate', {status: 'finished'})
     } catch (error) {
       if (error instanceof WorkspaceNotInitializedError) {
         this.handleWorkspaceError(error)
@@ -294,7 +295,9 @@ export class CurateUseCase implements ICurateUseCase {
       }
 
       // Display error
-      this.terminal.error(error instanceof Error ? error.message : 'Runtime error occurred')
+      const errMsg = error instanceof Error ? error.message : 'Runtime error occurred'
+      await this.trackingService.track('mem:curate', {message: errMsg, status: 'error'})
+      this.terminal.error(errMsg)
     }
   }
 
@@ -330,7 +333,9 @@ export class CurateUseCase implements ICurateUseCase {
       this.terminal.log('Opening context.md for editing...')
       await this.openFile(contextFilePath)
     } catch (error) {
-      this.terminal.error(error instanceof Error ? error.message : 'Unexpected error occurred')
+      const errMsg = error instanceof Error ? error.message : 'Unexpected error occurred'
+      await this.trackingService.track('mem:curate', {message: errMsg, status: 'error'})
+      this.terminal.error(errMsg)
     }
   }
 
