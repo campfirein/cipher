@@ -22,6 +22,7 @@ import type {CommandContext, SlashCommand, SlashCommandActionReturn} from '../ty
 
 import {load} from '../../infra/repl/commands/index.js'
 import {useSlashCommandProcessor} from '../hooks/index.js'
+import {useServices} from './services-context.js'
 
 interface CommandsContextValue {
   commands: readonly SlashCommand[]
@@ -36,6 +37,7 @@ interface CommandsProviderProps {
 
 export function CommandsProvider({children}: CommandsProviderProps): React.ReactElement {
   const [commands, setCommands] = useState<readonly SlashCommand[]>([])
+  const {version} = useServices()
 
   useEffect(() => {
     const abortController = new AbortController()
@@ -54,10 +56,9 @@ export function CommandsProvider({children}: CommandsProviderProps): React.React
   const commandContext: CommandContext = useMemo(
     () => ({
       slashCommands: commands,
-      // version:, -> need pass version here
-      // syncService:, -> need pass sync service here
+      version,
     }),
-    [commands],
+    [commands, version],
   )
 
   const {handleSlashCommand} = useSlashCommandProcessor(commandContext, commands)

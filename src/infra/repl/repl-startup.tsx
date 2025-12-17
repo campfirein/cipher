@@ -39,6 +39,7 @@ export async function startRepl(options: ReplOptions): Promise<void> {
     }
   }
 
+  await trackingService.track('repl', {status: 'started'})
   // Render the App with providers
   const {waitUntilExit} = render(
     <AppProviders
@@ -53,7 +54,7 @@ export async function startRepl(options: ReplOptions): Promise<void> {
       <App />
     </AppProviders>,
   )
-
   await waitUntilExit()
   stopQueuePollingService()
+  await trackingService.track('repl', {status: 'finished'})
 }

@@ -2,7 +2,8 @@
  * Array of all supported Events.
  */
 export const EVENT_VALUES = [
-  'auth:signed_in',
+  'repl',
+  'auth:sign_in',
   'auth:signed_out',
   'space:init',
   'space:changed',
@@ -17,6 +18,7 @@ export const EVENT_VALUES = [
   'onboarding:query_completed',
   'onboarding:skipped',
   'onboarding:completed',
+  'init'
 ] as const
 
 export type EventName = (typeof EVENT_VALUES)[number]

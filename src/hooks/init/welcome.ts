@@ -8,7 +8,7 @@ import {DOCS_URL} from '../../constants.js'
  * Validates Node.js version compatibility
  * @returns Error message if incompatible, warning message if untested, null if compatible
  */
-function checkNodeVersion(): null | {message: string; type: 'error' | 'warning'} {
+function checkNodeVersion(): undefined | {message: string; type: 'error' | 'warning'}{
   const nodeVersion = process.version
   const versionMatch = nodeVersion.match(/^v(\d+)\.(\d+)\.(\d+)/)
 
@@ -23,12 +23,12 @@ function checkNodeVersion(): null | {message: string; type: 'error' | 'warning'}
   const majorVersion = Number.parseInt(major, 10)
   const minorVersion = Number.parseInt(minor, 10)
 
-  // Minimum supported version: Node 18
-  if (majorVersion < 18) {
+  // Minimum supported version: Node 20
+  if (majorVersion < 20) {
     return {
       message:
         `Node.js ${majorVersion}.${minorVersion} is not supported.\n` +
-        'ByteRover CLI requires Node.js 18 or higher.\n' +
+        'ByteRover CLI requires Node.js 20 or higher.\n' +
         `Current version: ${nodeVersion}\n\n` +
         'Please upgrade Node.js:\n' +
         '  - Using nvm: nvm install 22 && nvm use 22\n' +
@@ -37,15 +37,15 @@ function checkNodeVersion(): null | {message: string; type: 'error' | 'warning'}
     }
   }
 
-  // Recommended versions: Node 18, 20, 22
-  // Node 24+ may have compatibility issues with native modules (better-sqlite3, grpc)
+  // Recommended versions: Node 20, 22
+  // Node 24+ may have compatibility issues with native modules
   if (majorVersion >= 24) {
     return {
       message:
         `Node.js ${majorVersion}.${minorVersion} has not been fully tested with ByteRover CLI.\n` +
         `Current version: ${nodeVersion}\n` +
-        'Recommended versions: Node.js 18.x, 20.x, or 22.x (LTS)\n\n' +
-        'Some native dependencies (sqlite, grpc) may not work correctly.\n' +
+        'Recommended versions: Node.js 20.x or 22.x\n\n' +
+        'Some native dependencies may not work correctly.\n' +
         'If you encounter errors, please switch to a recommended version:\n' +
         '  - Using nvm: nvm install 22 && nvm use 22',
       type: 'warning',
@@ -53,7 +53,7 @@ function checkNodeVersion(): null | {message: string; type: 'error' | 'warning'}
   }
 
   // All checks passed
-  return null
+  return undefined
 }
 
 const hook: Hook<'init'> = async function (options): Promise<void> {
@@ -94,25 +94,9 @@ const hook: Hook<'init'> = async function (options): Promise<void> {
       chalk.cyan('        |___/                                  '),
     ].join('\n')
 
-    const onboardingText = [
-      'ByteRover CLI quick start:',
-      '',
-      '  1. Authenticate with ByteRover:',
-      '     brv login',
-      '  2. Link your workspace:',
-      '     brv init',
-      '',
-      'After setup, run `brv status` to confirm your connection.',
-      '',
-      '  Explore commands:',
-      '    • `brv curate` - Organize and curate your context tree',
-      '    • `brv query` - Search and query your context tree',
-      '    • `brv push` - Push your context tree to ByteRover',
-    ].join('\n')
-
     const docsLink = `For more information, run 'brv --help', 'brv [command] --help' or visit ${DOCS_URL}`
 
-    this.log(`\n${logo}\n\n${onboardingText}\n\n${docsLink}\n\n`)
+    this.log(`\n${logo}\n\n${docsLink}\n\n`)
   }
 }
 

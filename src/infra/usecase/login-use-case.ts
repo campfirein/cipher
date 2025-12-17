@@ -41,6 +41,7 @@ export class LoginUseCase implements ILoginUseCase {
 
   public async run(): Promise<void> {
     try {
+      await this.trackingService.track('auth:sign_in', {status: 'started'})
       this.terminal.log('Starting authentication process...')
 
       // Start callback server
@@ -49,7 +50,9 @@ export class LoginUseCase implements ILoginUseCase {
       // Get port and build redirect URI
       const port = this.callbackHandler.getPort()
       if (!port) {
-        throw new Error('Failed to get callback server port')
+        const getPortFailedErr = 'Failed to get callback server port'
+        await this.trackingService.track('auth:sign_in', {message: getPortFailedErr, status: 'error'})
+        throw new Error(getPortFailedErr)
       }
 
       const redirectUri = `http://localhost:${port}/callback`
@@ -64,6 +67,7 @@ export class LoginUseCase implements ILoginUseCase {
         browserOpened = true
       } catch {
         // Browser launch failed, will return URL to user
+        await this.trackingService.track('auth:sign_in', {message: 'browser launch failed', status: 'error'})
       }
 
       // If browser failed to open, display the URL for manual copy
@@ -89,14 +93,12 @@ export class LoginUseCase implements ILoginUseCase {
         })
 
         await this.tokenStore.save(authToken)
-
-        // Track successful authentication
-        await this.trackingService.track('auth:signed_in')
-
+        await this.trackingService.track('auth:sign_in', {status: 'finished'})
         this.terminal.log(`Logged in as ${user.email}`)
       } catch (error) {
         // Throw error to let oclif handle display
         const errorMessage = error instanceof Error ? error.message : 'Authentication failed'
+        await this.trackingService.track('auth:sign_in', {message: errorMessage, status: 'error'})
         this.terminal.error(errorMessage)
       }
     } catch (error) {
@@ -104,11 +106,13 @@ export class LoginUseCase implements ILoginUseCase {
         const errorMessage =
           `Failed to configure authentication: ${error.message}\n` +
           'Please check your network connection and try again.'
+        await this.trackingService.track('auth:sign_in', {message: errorMessage, status: 'error'})
         this.terminal.error(errorMessage)
       }
 
       // Throw error to let oclif handle display
       const errorMessage = error instanceof Error ? error.message : 'Authentication failed'
+      await this.trackingService.track('auth:sign_in', {message: errorMessage, status: 'error'})
       this.terminal.error(errorMessage)
     } finally {
       // Always cleanup server
