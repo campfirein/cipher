@@ -115,7 +115,9 @@ export class InitUseCase implements IInitUseCase {
       this.terminal.actionStop('✓')
     } catch (error) {
       this.terminal.actionStop('✗')
-      throw new Error(`Failed to remove ${BRV_DIR}/: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      const brvDirRemovalErr = `Failed to remove ${BRV_DIR}/: ${error instanceof Error ? error.message : 'Unknown error'}`
+      await this.trackingService.track('init', {message: brvDirRemovalErr, status: 'error'})
+      throw new Error(brvDirRemovalErr)
     }
   }
 
@@ -155,12 +157,12 @@ export class InitUseCase implements IInitUseCase {
     const token = await this.tokenStore.load()
 
     if (token === undefined) {
-      this.terminal.log('Not authenticated. Please run "brv login" first.')
+      this.terminal.log('Not authenticated. Please run "/login" first.')
       return undefined
     }
 
     if (!token.isValid()) {
-      this.terminal.log('Authentication token expired. Please run "brv login" again.')
+      this.terminal.log('Authentication token expired. Please run "/login" again.')
       return undefined
     }
 
@@ -290,7 +292,9 @@ export class InitUseCase implements IInitUseCase {
     try {
       const projectConfig = await this.projectConfigStore.read()
       if (projectConfig === undefined) {
-        throw new Error('Configuration file exists but cannot be read. Please check .brv/config.json')
+        const corruptedConfigFileErr = 'Configuration file exists but cannot be read. Please check .brv/config.json'
+        this.trackingService.track('init', {message: corruptedConfigFileErr, status: 'error'})
+        throw new Error(corruptedConfigFileErr)
       }
 
       return projectConfig
@@ -469,6 +473,7 @@ export class InitUseCase implements IInitUseCase {
 
   public async run(options: {force: boolean}): Promise<void> {
     try {
+      await this.trackingService.track('init', {status: 'started'})
       const authToken = await this.ensureAuthenticated()
       if (!authToken) return
 
@@ -532,10 +537,13 @@ export class InitUseCase implements IInitUseCase {
       await this.trackingService.track('space:init')
 
       this.logSuccess(selectedSpace)
+      await this.trackingService.track('init', {status: 'finished'})
     } catch (error) {
       // Stop action if it's in progress
       this.terminal.actionStop()
-      this.terminal.error(`Initialization failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      const initErr = `Initialization failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+      await this.trackingService.track('init', {message: initErr, status: 'error'})
+      this.terminal.error(initErr)
     }
   }
 
@@ -572,8 +580,9 @@ export class InitUseCase implements IInitUseCase {
         this.terminal.log(`✓ Synced ${coGitSnapshot.files.length} context files from remote`)
       }
     } catch (error) {
-      throw new Error(
-        `Failed to sync from ByteRover: ${error instanceof Error ? error.message : 'Unknown error'}. Please try again.`,
+      const syncFailureErr = `Failed to sync from ByteRover: ${error instanceof Error ? error.message : 'Unknown error'}. Please try again.`
+      await this.trackingService.track('init', {message: syncFailureErr, status: 'error'})
+      throw new Error(syncFailureErr
       )
     }
   }
