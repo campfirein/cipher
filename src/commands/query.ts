@@ -1,14 +1,27 @@
 import {Args, Command, Flags} from '@oclif/core'
 
-import type {IQueryUseCase} from '../core/interfaces/usecase/i-query-use-case.js'
+import type {TaskCreateResponse} from '../core/domain/transport/schemas.js'
+import type {ITransportClient} from '../core/interfaces/transport/i-transport-client.js'
 
 import {isDevelopment} from '../config/environment.js'
-import {ProjectConfigStore} from '../infra/config/file-config-store.js'
-import {FileGlobalConfigStore} from '../infra/storage/file-global-config-store.js'
-import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
-import {OclifTerminal} from '../infra/terminal/oclif-terminal.js'
-import {MixpanelTrackingService} from '../infra/tracking/mixpanel-tracking-service.js'
-import {QueryUseCase} from '../infra/usecase/query-use-case.js'
+import {
+  ConnectionError,
+  ConnectionFailedError,
+  InstanceCrashedError,
+  NoInstanceRunningError,
+} from '../core/domain/errors/connection-error.js'
+import {createTransportClientFactory} from '../infra/transport/transport-client-factory.js'
+
+/**
+ * Task event payloads from Core
+ */
+type TaskAckPayload = {taskId: string}
+type TaskStartedPayload = {taskId: string}
+type TaskChunkPayload = {content: string; taskId: string}
+type TaskCompletedPayload = {result: string; taskId: string}
+type TaskErrorPayload = {error: string; taskId: string}
+type TaskToolCallPayload = {args?: Record<string, unknown>; callId: string; name: string; taskId: string}
+type TaskToolResultPayload = {callId: string; error?: string; result?: unknown; success: boolean; taskId: string}
 
 export default class Query extends Command {
   public static args = {
@@ -17,7 +30,10 @@ export default class Query extends Command {
       required: true,
     }),
   }
-  public static description = `Query and retrieve information from the context tree
+  public static description = `Query and retrieve information from the context tree (connects to running brv instance)
+
+Requires a running brv instance. Start one with: brv start
+
 Good:
 - "How is user authentication implemented?"
 - "What are the API rate limits and where are they enforced?"
@@ -28,33 +44,10 @@ Bad:
     '# Ask questions about patterns, decisions, or implementation details',
     '<%= config.bin %> <%= command.id %> What are the coding standards?',
     '<%= config.bin %> <%= command.id %> How is authentication implemented?',
-    '',
-    ...(isDevelopment()
-      ? [
-          '# Query with OpenRouter (development only)',
-          '<%= config.bin %> <%= command.id %> -k YOUR_API_KEY Show me all API endpoints',
-          '',
-          '# Query with custom model (development only)',
-          '<%= config.bin %> <%= command.id %> -k YOUR_API_KEY -m anthropic/claude-sonnet-4 Explain the database schema',
-          '',
-          '# Query with verbose output (development only)',
-          '<%= config.bin %> <%= command.id %> -v What testing strategies are used?',
-        ]
-      : []),
   ]
   public static flags = {
     ...(isDevelopment()
       ? {
-          apiKey: Flags.string({
-            char: 'k',
-            description: 'OpenRouter API key (use OpenRouter instead of internal gRPC backend) [Development only]',
-            env: 'OPENROUTER_API_KEY',
-          }),
-          model: Flags.string({
-            char: 'm',
-            description:
-              'Model to use (default: google/gemini-2.5-pro for OpenRouter, gemini-2.5-pro for gRPC) [Development only]',
-          }),
           verbose: Flags.boolean({
             char: 'v',
             default: false,
@@ -65,26 +58,170 @@ Bad:
   }
   public static strict = false
 
-  protected createUseCase(): IQueryUseCase {
-    const tokenStore = new KeychainTokenStore()
-    const globalConfigStore = new FileGlobalConfigStore()
-    return new QueryUseCase({
-      projectConfigStore: new ProjectConfigStore(),
-      terminal: new OclifTerminal(this),
-      tokenStore,
-      trackingService: new MixpanelTrackingService({globalConfigStore, tokenStore}),
-    })
-  }
-
   public async run(): Promise<void> {
     const {argv, flags} = await this.parse(Query)
-    const queryTerms = argv.join(' ')
+    const queryTerms = (argv as string[]).join(' ')
 
-    await this.createUseCase().run({
-      apiKey: flags.apiKey,
-      model: flags.model,
-      query: queryTerms,
-      verbose: flags.verbose ?? false,
+    if (!queryTerms.trim()) {
+      this.log('Query argument is required.')
+      this.log('Usage: brv query "your question here"')
+      return
+    }
+
+    const verbose = (flags as {verbose?: boolean}).verbose ?? false
+
+    // Connect to running instance
+    let client: ITransportClient | undefined
+
+    try {
+      const factory = createTransportClientFactory()
+
+      if (verbose) {
+        this.log('Discovering running instance...')
+      }
+
+      const {client: connectedClient} = await factory.connect()
+      client = connectedClient
+
+      if (verbose) {
+        this.log(`Connected to instance (clientId: ${client.getClientId()})`)
+      }
+
+      // Send task:create request
+      const response = await client.request<TaskCreateResponse>('task:create', {
+        input: queryTerms,
+        type: 'query',
+      })
+
+      const {taskId} = response
+
+      if (verbose) {
+        this.log(`Task created: ${taskId}`)
+      }
+
+      // Wait for task completion with streaming
+      await this.streamTaskResults(client, taskId, verbose)
+    } catch (error) {
+      this.handleConnectionError(error)
+    } finally {
+      // Cleanup
+      if (client) {
+        await client.disconnect()
+      }
+    }
+  }
+
+  /**
+   * Handle connection-related errors with user-friendly messages.
+   */
+  private handleConnectionError(error: unknown): void {
+    if (error instanceof NoInstanceRunningError) {
+      this.error('No ByteRover instance is running.\n\nStart one with: brv start', {exit: 1})
+    }
+
+    if (error instanceof InstanceCrashedError) {
+      this.error('ByteRover instance has crashed.\n\nPlease restart with: brv start', {exit: 1})
+    }
+
+    if (error instanceof ConnectionFailedError) {
+      this.error(`Failed to connect to ByteRover instance: ${error.message}`, {exit: 1})
+    }
+
+    if (error instanceof ConnectionError) {
+      this.error(`Connection error: ${error.message}`, {exit: 1})
+    }
+
+    // Unknown error
+    const message = error instanceof Error ? error.message : String(error)
+    this.error(`Unexpected error: ${message}`, {exit: 1})
+  }
+
+  /**
+   * Stream task results from the connected instance.
+   */
+  private async streamTaskResults(client: ITransportClient, taskId: string, verbose: boolean): Promise<void> {
+    return new Promise((resolve, reject) => {
+      let completed = false
+
+      // Timeout after 5 minutes
+      const timeout = setTimeout(() => {
+        if (!completed) {
+          completed = true
+          cleanup()
+          reject(new Error('Task timed out after 5 minutes'))
+        }
+      }, 5 * 60 * 1000)
+
+      // Setup all event handlers
+      const unsubscribers = [
+        // task:ack - immediate acknowledgment
+        client.on<TaskAckPayload>('task:ack', (payload) => {
+          if (payload.taskId === taskId && verbose) {
+            this.log('Task acknowledged by server')
+          }
+        }),
+
+        // task:started - task is being processed
+        client.on<TaskStartedPayload>('task:started', (payload) => {
+          if (payload.taskId === taskId && verbose) {
+            this.log('Task started processing...')
+          }
+        }),
+
+        // task:chunk - streaming content
+        client.on<TaskChunkPayload>('task:chunk', (payload) => {
+          if (payload.taskId === taskId) {
+            // Stream chunk to stdout (no newline - chunks build up)
+            process.stdout.write(payload.content)
+          }
+        }),
+
+        // task:toolCall - tool invocation (always show - important feedback)
+        client.on<TaskToolCallPayload>('task:toolCall', (payload) => {
+          if (payload.taskId === taskId) {
+            this.log(`\n🔧 Tool: ${payload.name}`)
+          }
+        }),
+
+        // task:toolResult - tool result (always show - important feedback)
+        client.on<TaskToolResultPayload>('task:toolResult', (payload) => {
+          if (payload.taskId === taskId) {
+            const status = payload.success ? '✓' : '✗'
+            this.log(`   ${status} Result received`)
+          }
+        }),
+
+        // task:completed - task finished
+        client.on<TaskCompletedPayload>('task:completed', (payload) => {
+          if (payload.taskId === taskId && !completed) {
+            completed = true
+            cleanup()
+
+            // Display the result (final response from agent)
+            if (payload.result) {
+              this.log(`\n${payload.result}`)
+            }
+
+            resolve()
+          }
+        }),
+
+        // task:error - task failed
+        client.on<TaskErrorPayload>('task:error', (payload) => {
+          if (payload.taskId === taskId && !completed) {
+            completed = true
+            cleanup()
+            reject(new Error(payload.error))
+          }
+        }),
+
+        // Clear timeout when done
+        () => clearTimeout(timeout),
+      ]
+
+      const cleanup = (): void => {
+        for (const unsub of unsubscribers) unsub()
+      }
     })
   }
 }

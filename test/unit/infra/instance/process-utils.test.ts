@@ -15,7 +15,7 @@ describe('Process Utils', () => {
 
   describe('isProcessAlive', () => {
     it('should return true for the current process', () => {
-      const pid = process.pid
+      const {pid} = process
       const alive = isProcessAlive(pid)
 
       expect(alive).to.be.true
