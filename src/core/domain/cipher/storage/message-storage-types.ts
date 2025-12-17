@@ -212,8 +212,20 @@ export interface StoredPartMetadata {
  * - Lazy loading of large content
  * - Efficient streaming without loading all content
  * - Tool state tracking with full lifecycle
+ *
+ * Blob references:
+ * - Large binary content (>5KB) can be stored in blob storage
+ * - When stored as blob, content contains "@blob:{id}" reference
+ * - Blob refs are resolved lazily at format-time via BlobReferenceResolver
  */
 export interface StoredPart {
+  /**
+   * Blob reference ID (without @ prefix) when content is stored externally.
+   * Present when isBlob is true. The actual data can be retrieved from
+   * blob storage using this ID.
+   */
+  blobRef?: string
+
   /**
    * Unix timestamp when this part was marked as compacted.
    * If set, the original content has been cleared to save space,
@@ -224,13 +236,14 @@ export interface StoredPart {
   /**
    * The actual content of the part.
    * - Tool output: string (JSON or text)
-   * - File: base64 encoded data or file path
+   * - File: base64 encoded data, file path, or blob reference (@blob:id)
    * - Text: raw text content
-   * - Image: base64 encoded data
+   * - Image: base64 encoded data or blob reference (@blob:id)
    * - Reasoning: thinking text from the model
    * - Tool: empty (state stored in toolState)
    *
    * When compactedAt is set, this will be empty or contain a placeholder.
+   * When isBlob is true, this contains the blob reference string.
    */
   content: string
 
@@ -242,6 +255,13 @@ export interface StoredPart {
 
   /** Unique part identifier (UUID) */
   id: string
+
+  /**
+   * Whether the content field contains a blob reference.
+   * When true, content should be resolved via BlobReferenceResolver
+   * before use (at format-time for LLM requests).
+   */
+  isBlob?: boolean
 
   /** ID of the message this part belongs to */
   messageId: string

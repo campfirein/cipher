@@ -236,6 +236,33 @@ export interface InternalMessage {
   content: Array<MessagePart> | null | string
 
   /**
+   * Message-level metadata for compression and tracking.
+   * Used by compression strategies to mark summary messages and track compaction.
+   */
+  metadata?: {
+    /** Custom metadata fields */
+    [key: string]: unknown
+
+    /**
+     * Unix timestamp when this message was created via compaction.
+     * Present on summary messages created by compression strategies.
+     */
+    compactedAt?: number
+
+    /**
+     * Whether this message is a summary of prior conversation.
+     * When true, messages before this point can be filtered at read-time.
+     */
+    isSummary?: boolean
+
+    /**
+     * Number of messages that were summarized into this one.
+     * Present when isSummary is true.
+     */
+    summarizedMessageCount?: number
+  }
+
+  /**
    * Name of the tool that produced this result.
    * Only present in tool messages.
    */
