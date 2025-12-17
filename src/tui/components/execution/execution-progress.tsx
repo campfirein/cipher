@@ -13,8 +13,8 @@ import type {ToolCallStatus} from '../../../core/domain/cipher/queue/types.js'
 
 import {useTheme} from '../../hooks/index.js'
 
-/** Default maximum number of visible progress items */
-const DEFAULT_MAX_ITEMS = 3
+/** Default maximum number of lines (rows) for progress display */
+const DEFAULT_MAX_LINES = 3
 
 interface ProgressItem {
   id: string
@@ -23,13 +23,13 @@ interface ProgressItem {
 }
 
 interface ExecutionProgressProps {
-  /** Maximum number of items to show (default: 3) */
-  maxItems?: number
+  /** Maximum number of lines (rows) this component can use, including hint line (default: 3) */
+  maxLines?: number
   /** Array of progress items */
   progress: ProgressItem[]
 }
 
-export const ExecutionProgress: React.FC<ExecutionProgressProps> = ({maxItems = DEFAULT_MAX_ITEMS, progress}) => {
+export const ExecutionProgress: React.FC<ExecutionProgressProps> = ({maxLines = DEFAULT_MAX_LINES, progress}) => {
   const {
     theme: {colors},
   } = useTheme()
@@ -38,12 +38,14 @@ export const ExecutionProgress: React.FC<ExecutionProgressProps> = ({maxItems = 
     return null
   }
 
-  const hasMore = progress.length > maxItems
-  const visibleItems = progress.slice(-maxItems).reverse()
+  const hasMore = progress.length > maxLines
+  // If there's overflow, reserve 1 line for hint, show (maxLines - 1) items
+  const visibleCount = hasMore ? maxLines - 1 : maxLines
+  const visibleItems = progress.slice(-visibleCount)
 
   return (
     <Box flexDirection="column">
-      {hasMore && <Text color={colors.dimText}>... and {progress.length - maxItems} more</Text>}
+      {hasMore && <Text color={colors.dimText}>... and {progress.length - visibleCount} more tools used</Text>}
       {visibleItems.map((item) => (
         <Box key={item.id}>
           {item.status === 'completed' && <Text color={colors.primary}>✓ </Text>}

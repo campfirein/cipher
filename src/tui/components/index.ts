@@ -2,6 +2,7 @@
  * TUI Components
  */
 
+export {CommandDetails} from './command-details.js'
 export {EnterPrompt} from './enter-prompt.js'
 export {
   ExecutionChanges,

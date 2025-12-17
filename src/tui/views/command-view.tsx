@@ -686,7 +686,7 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
     <Box flexDirection="column" height="100%" width="100%">
       {/* Messages - Scrollable area (includes live streaming output) */}
       {messages.length > 0 ? (
-        <Box flexDirection="column" flexGrow={1} paddingX={2}>
+        <Box flexDirection="column" flexGrow={1} flexShrink={0} paddingX={2}>
           <ScrollableList
             autoScrollToBottom
             availableHeight={scrollableHeight}

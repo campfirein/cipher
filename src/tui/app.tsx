@@ -6,19 +6,17 @@
  * - Authorized: Show main app with tabs
  */
 
-import {Box, useStdout} from 'ink'
+import {Box} from 'ink'
 import React from 'react'
 
 import {Footer, Header, TabBar} from './components/index.js'
-import {LAYOUT} from './constants.js'
 import {useAuth, useConsumer} from './contexts/index.js'
-import {useTabNavigation} from './hooks/index.js'
+import {useTabNavigation, useTerminalBreakpoint, useUIHeights} from './hooks/index.js'
 import {CommandView, LoginView, LogsView} from './views/index.js'
 
 export const App: React.FC = () => {
-  const {stdout} = useStdout()
-  const terminalHeight = stdout?.rows ?? 24
-  const terminalWidth = stdout?.columns ?? 80
+  const {columns: terminalWidth, rows: terminalHeight} = useTerminalBreakpoint()
+  const {appBottomPadding, fixed} = useUIHeights()
 
   // Get auth state from context
   const {isAuthorized} = useAuth()
@@ -27,10 +25,10 @@ export const App: React.FC = () => {
   const {activeTab} = useTabNavigation()
   const {stats} = useConsumer()
 
-  const contentHeight = Math.max(1, terminalHeight - LAYOUT.headerHeight - LAYOUT.tabBarHeight - LAYOUT.footerHeight)
+  const contentHeight = Math.max(1, terminalHeight - fixed.header - fixed.tab - fixed.footer)
 
   return (
-    <Box flexDirection="column" height={terminalHeight} paddingBottom={1} width={terminalWidth}>
+    <Box flexDirection="column" height={terminalHeight} paddingBottom={appBottomPadding} width={terminalWidth}>
       {/* Header - always shown, but no queueStats when unauthorized */}
       <Box flexShrink={0}>
         <Header
@@ -46,7 +44,7 @@ export const App: React.FC = () => {
             <TabBar activeTab={activeTab} />
           </Box>
 
-          <Box flexGrow={1} height={contentHeight} paddingX={1}>
+          <Box flexGrow={1} paddingX={1}>
             <Box display={activeTab === 'activity' ? 'flex' : 'none'} height="100%" width="100%">
               <LogsView availableHeight={contentHeight} />
             </Box>
