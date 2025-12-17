@@ -63,7 +63,7 @@ describe("LogoutUseCase", () => {
 
     onboardingPreferenceStore = {
       clear: sinon.stub<[], Promise<void>>().resolves(),
-      getLastDismissedAt: sinon.stub<[], Promise<number | undefined>>().resolves(undefined),
+      getLastDismissedAt: sinon.stub<[], Promise<number | undefined>>().resolves(),
       setLastDismissedAt: sinon.stub<[number], Promise<void>>().resolves(),
     };
 
