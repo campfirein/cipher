@@ -600,7 +600,7 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
               paddingLeft={1}
             >
               <Text color={colors.text} dimColor>
-                {msg.fromCommand} {maxOutputLines}<Text wrap="truncate-end">{msg.content}</Text>
+                {msg.fromCommand} <Text wrap="truncate-end">{msg.content}</Text>
               </Text>
             </Box>
             {/* Command output (completed) */}
