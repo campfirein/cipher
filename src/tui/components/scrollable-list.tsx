@@ -166,7 +166,7 @@ export function ScrollableList<T>({
   const itemsBelow = totalItems - visibleEndIndex
 
   return (
-    <Box flexDirection="column" height="100%" justifyContent="space-between" overflowY="hidden" width="100%">
+    <Box flexDirection="column" height={availableHeight} justifyContent="space-between" overflowY="hidden" width="100%">
       {/* Scroll up indicator */}
       {showIndicator && canScrollUp && (
         <Box justifyContent="center">

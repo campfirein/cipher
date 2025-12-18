@@ -57,10 +57,10 @@ export const LogItem: React.FC<LogItemProps> = ({heights, log}) => {
       {/* Content */}
       {(log.status === 'failed' || log.status === 'completed') && (
         <ExecutionContent
-          bottomMargin={heights.maxContent.bottomMargin}
+          bottomMargin={heights.contentBottomMargin}
           content={log.content ?? ''}
           isError={log.status === 'failed'}
-          maxLines={heights.maxContent.max}
+          maxLines={heights.maxContentLines}
         />
       )}
 

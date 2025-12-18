@@ -32,10 +32,7 @@ const BREAKPOINT_HEIGHTS = {
       header: 1,
       input: 3,
       maxProgressItems: 2,
-      maxContent: {
-        max: 3,
-        bottomMargin: 0,
-      },
+      contentBottomMargin: 0,
       maxChanges: {
         created: 2,
         updated: 2,
@@ -53,10 +50,7 @@ const BREAKPOINT_HEIGHTS = {
       header: 1,
       input: 3,
       maxProgressItems: 3,
-      maxContent: {
-        max: 3,
-        bottomMargin: 1,
-      },
+      contentBottomMargin: 1,
       maxChanges: {
         created: 3,
         updated: 3,
@@ -79,16 +73,14 @@ const BREAKPOINT_HEIGHTS = {
  */
 export interface MessageItemHeights {
   bottomMargin: number
+  contentBottomMargin: number
   header: number
   input: number
   maxChanges: {
     created: number
     updated: number
   }
-  maxContent: {
-    bottomMargin: number
-    max: number
-  }
+  maxContentLines: number
   maxProgressItems: number
 }
 

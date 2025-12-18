@@ -8,19 +8,9 @@ import {Box, Text, useStdout} from 'ink'
 import React from 'react'
 
 import {useTheme} from '../../hooks/index.js'
+import {getVisualLineCount} from '../../utils/line.js'
 
 const DEFAULT_MAX_LINES = 5
-
-/**
- * Calculate visual line count for a single line, accounting for wrapping
- */
-function getVisualLineCount(line: string, maxCharsPerLine: number): number {
-  if (maxCharsPerLine <= 0 || line.length === 0) {
-    return 1
-  }
-
-  return Math.ceil(line.length / maxCharsPerLine) || 1
-}
 
 /**
  * Truncate content string to maxLines, returning truncated content and remaining line count.

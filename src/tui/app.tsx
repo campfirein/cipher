@@ -16,7 +16,7 @@ import {CommandView, LoginView, LogsView} from './views/index.js'
 
 export const App: React.FC = () => {
   const {columns: terminalWidth, rows: terminalHeight} = useTerminalBreakpoint()
-  const {appBottomPadding, fixed} = useUIHeights()
+  const {appBottomPadding, footer, header, tab} = useUIHeights()
 
   // Get auth state from context
   const {isAuthorized} = useAuth()
@@ -25,7 +25,7 @@ export const App: React.FC = () => {
   const {activeTab} = useTabNavigation()
   const {stats} = useConsumer()
 
-  const contentHeight = Math.max(1, terminalHeight - fixed.header - fixed.tab - fixed.footer)
+  const contentHeight = Math.max(1, terminalHeight - header - tab - footer)
 
   return (
     <Box flexDirection="column" height={terminalHeight} paddingBottom={appBottomPadding} width={terminalWidth}>
