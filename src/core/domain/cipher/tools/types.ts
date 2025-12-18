@@ -1,10 +1,34 @@
 import type {ZodSchema} from 'zod'
 
 /**
+ * Callback function for tools to push metadata updates during execution.
+ * Called by tools to stream real-time updates to the UI/LLM.
+ */
+export type MetadataCallback = (update: ToolMetadataUpdate) => void
+
+/**
  * Risk level for tool execution.
  * Used for logging, auditing, and policy decisions.
  */
 export type RiskLevel = 'critical' | 'high' | 'low' | 'medium'
+
+/**
+ * Real-time metadata update from a tool during execution.
+ * Allows tools to push incremental updates (e.g., streaming bash output).
+ */
+export interface ToolMetadataUpdate {
+  /** Additional custom metadata */
+  [key: string]: unknown
+
+  /** Human-readable description of current status */
+  description?: string
+
+  /** Streamed output content (e.g., bash stdout/stderr) */
+  output?: string
+
+  /** Progress indicator (0-100) */
+  progress?: number
+}
 
 /**
  * Semantic category for tools.
@@ -74,8 +98,20 @@ export interface Tool {
  * Contains metadata about the execution environment.
  */
 export interface ToolExecutionContext {
+  /**
+   * Callback for streaming metadata updates during execution.
+   * Tools can use this to push real-time output (e.g., bash streaming).
+   */
+  metadata?: MetadataCallback
+
   /** Session ID if available */
   sessionId?: string
+
+  /**
+   * Abort signal for cancelling long-running operations.
+   * Tools should check this signal periodically and abort gracefully.
+   */
+  signal?: AbortSignal
 }
 
 /**

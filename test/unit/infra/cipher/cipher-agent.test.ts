@@ -1,26 +1,32 @@
 import {expect} from 'chai'
 import {restore, stub} from 'sinon'
 
-import type {CipherLLMConfig} from '../../../../src/infra/cipher/agent-service-factory.js'
+import type {AgentConfig} from '../../../../src/infra/cipher/agent/index.js'
 
 import {BRV_CONFIG_VERSION} from '../../../../src/constants.js'
 import {BrvConfig} from '../../../../src/core/domain/entities/brv-config.js'
-import {CipherAgent} from '../../../../src/infra/cipher/cipher-agent.js'
+import {CipherAgent} from '../../../../src/infra/cipher/agent/index.js'
 
 describe('CipherAgent', () => {
-  let llmConfig: CipherLLMConfig
+  let agentConfig: AgentConfig
 
   beforeEach(() => {
-    llmConfig = {
+    agentConfig = {
       accessToken: 'test-access-token',
       apiBaseUrl: 'http://localhost:3333',
-      blobStorageConfig: {inMemory: true}, // Use in-memory storage for tests
-      maxIterations: 10,
-      maxTokens: 1000,
+      blobStorage: {
+        maxBlobSize: 100 * 1024 * 1024,
+        maxTotalSize: 1024 * 1024 * 1024,
+        storageDir: '.brv/blobs',
+      },
+      llm: {
+        maxIterations: 10,
+        maxTokens: 1000,
+        temperature: 0.5,
+      },
       model: 'gemini-2.5-flash',
       projectId: 'byterover',
       sessionKey: 'test-session-key',
-      temperature: 0.5,
     }
     stub(console, 'log')
   })
@@ -30,13 +36,13 @@ describe('CipherAgent', () => {
   })
 
   describe('constructor', () => {
-    it('should create instance with valid LLM config', () => {
-      const agent = new CipherAgent(llmConfig)
+    it('should create instance with valid agent config', () => {
+      const agent = new CipherAgent(agentConfig)
 
       expect(agent).to.be.instanceOf(CipherAgent)
     })
 
-    it('should create instance with LLM config and BRV config', () => {
+    it('should create instance with agent config and BRV config', () => {
       const brvConfig = new BrvConfig({
         chatLogPath: 'chat.log',
         cipherAgentSystemPrompt: 'Custom system prompt',
@@ -50,13 +56,13 @@ describe('CipherAgent', () => {
         version: BRV_CONFIG_VERSION,
       })
 
-      const agent = new CipherAgent(llmConfig, brvConfig)
+      const agent = new CipherAgent(agentConfig, brvConfig)
 
       expect(agent).to.be.instanceOf(CipherAgent)
     })
 
     it('should initialize with zero iterations', () => {
-      const agent = new CipherAgent(llmConfig)
+      const agent = new CipherAgent(agentConfig)
 
       const state = agent.getState()
       expect(state.currentIteration).to.equal(0)
@@ -66,7 +72,7 @@ describe('CipherAgent', () => {
 
   describe('getState', () => {
     it('should return initial state before start', () => {
-      const agent = new CipherAgent(llmConfig)
+      const agent = new CipherAgent(agentConfig)
 
       const state = agent.getState()
 
@@ -77,7 +83,7 @@ describe('CipherAgent', () => {
     })
 
     it('should return independent state copies', () => {
-      const agent = new CipherAgent(llmConfig)
+      const agent = new CipherAgent(agentConfig)
 
       const state1 = agent.getState()
       const state2 = agent.getState()
@@ -89,7 +95,7 @@ describe('CipherAgent', () => {
 
   describe('reset', () => {
     it('should reset state to initial values after start', async () => {
-      const agent = new CipherAgent(llmConfig)
+      const agent = new CipherAgent(agentConfig)
       await agent.start()
 
       // Reset should clear state
@@ -101,7 +107,7 @@ describe('CipherAgent', () => {
     })
 
     it('should allow reset before start (no event emission)', () => {
-      const agent = new CipherAgent(llmConfig)
+      const agent = new CipherAgent(agentConfig)
 
       // Reset is safe to call before start() - it just won't emit events
       // This is safer than the old implementation which would throw TypeError
@@ -115,7 +121,7 @@ describe('CipherAgent', () => {
 
   describe('execute - error handling', () => {
     it('should throw error when execute is called before start', async () => {
-      const agent = new CipherAgent(llmConfig)
+      const agent = new CipherAgent(agentConfig)
 
       try {
         await agent.execute('test input')
@@ -129,7 +135,7 @@ describe('CipherAgent', () => {
 
   describe('getSystemPrompt - error handling', () => {
     it('should throw error when getSystemPrompt is called before start', async () => {
-      const agent = new CipherAgent(llmConfig)
+      const agent = new CipherAgent(agentConfig)
 
       try {
         await agent.getSystemPrompt()
@@ -143,7 +149,7 @@ describe('CipherAgent', () => {
 
   describe('start', () => {
     it('should throw error when start is called twice', async () => {
-      const agent = new CipherAgent(llmConfig)
+      const agent = new CipherAgent(agentConfig)
 
       await agent.start()
 
@@ -159,7 +165,7 @@ describe('CipherAgent', () => {
 
   describe('two-phase initialization pattern', () => {
     it('should require start() before execute()', async () => {
-      const agent = new CipherAgent(llmConfig)
+      const agent = new CipherAgent(agentConfig)
 
       // Phase 1: Constructor completes synchronously
       expect(agent).to.be.instanceOf(CipherAgent)
@@ -175,7 +181,7 @@ describe('CipherAgent', () => {
     })
 
     it('should allow reset() before start() (safe behavior)', () => {
-      const agent = new CipherAgent(llmConfig)
+      const agent = new CipherAgent(agentConfig)
 
       // After refactoring to remove non-null assertions, reset() is now safe
       // to call before start() - it just won't emit events
@@ -187,7 +193,7 @@ describe('CipherAgent', () => {
     })
 
     it('should allow getState() before start()', () => {
-      const agent = new CipherAgent(llmConfig)
+      const agent = new CipherAgent(agentConfig)
 
       // getState should work without start()
       const state = agent.getState()
@@ -199,7 +205,7 @@ describe('CipherAgent', () => {
 
   describe('interface compliance', () => {
     it('should implement all ICipherAgent methods', () => {
-      const agent = new CipherAgent(llmConfig)
+      const agent = new CipherAgent(agentConfig)
 
       // Check that all required methods exist
       expect(agent).to.have.property('start').that.is.a('function')
@@ -209,7 +215,7 @@ describe('CipherAgent', () => {
     })
 
     it('should expose agentEventBus after start', async () => {
-      const agent = new CipherAgent(llmConfig)
+      const agent = new CipherAgent(agentConfig)
 
       await agent.start()
 

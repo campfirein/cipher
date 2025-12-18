@@ -1,5 +1,7 @@
 import type {CompactionResult} from '../../../../../core/domain/cipher/storage/message-storage-types.js'
+import type {IContentGenerator} from '../../../../../core/interfaces/cipher/i-content-generator.js'
 import type {ITokenizer} from '../../../../../core/interfaces/cipher/i-tokenizer.js'
+import type {InternalMessage} from '../../../../../core/interfaces/cipher/message-types.js'
 import type {MessageStorageService} from '../../../storage/message-storage-service.js'
 
 /**
@@ -13,10 +15,27 @@ export interface CompactionConfig {
   overflowThreshold?: number
 
   /**
+   * Number of recent user turns to protect from pruning.
+   * Based on OpenCode's turn-based protection pattern.
+   * Tool outputs in these turns will not be compacted.
+   * Default: 2
+   */
+  protectedTurns?: number
+
+  /**
    * Number of tokens to keep in tool outputs after pruning.
+   * Based on OpenCode's PRUNE_PROTECT constant.
    * Default: 40000
    */
   pruneKeepTokens?: number
+
+  /**
+   * Minimum tokens that must be recoverable to perform pruning.
+   * Based on OpenCode's PRUNE_MINIMUM constant.
+   * If pruning would save less than this, skip it.
+   * Default: 20000
+   */
+  pruneMinimumTokens?: number
 
   /**
    * System prompt for generating compaction summaries.
@@ -86,7 +105,9 @@ export class CompactionService {
   ) {
     this.config = {
       overflowThreshold: config?.overflowThreshold ?? 0.85,
+      protectedTurns: config?.protectedTurns ?? 2,
       pruneKeepTokens: config?.pruneKeepTokens ?? 40_000,
+      pruneMinimumTokens: config?.pruneMinimumTokens ?? 20_000,
       summaryPrompt: config?.summaryPrompt ?? DEFAULT_SUMMARY_PROMPT,
     }
   }
@@ -161,6 +182,43 @@ export class CompactionService {
   }
 
   /**
+   * Generate a compaction summary using the LLM.
+   * Called when context overflow requires full compaction (not just pruning).
+   *
+   * @param generator - The content generator to use for LLM calls
+   * @param messages - The conversation history to summarize
+   * @param sessionId - The session ID for the request
+   * @param model - The model ID to use for generation
+   * @returns The generated summary text
+   */
+  async generateSummary(
+    generator: IContentGenerator,
+    messages: InternalMessage[],
+    sessionId: string,
+    model: string,
+  ): Promise<string> {
+    const {systemPrompt, userMessage} = this.getSummaryPromptParts()
+
+    try {
+      const response = await generator.generateContent({
+        config: {
+          maxTokens: 4096, // Reasonable limit for summaries
+          temperature: 0.3, // Lower temperature for more focused summaries
+        },
+        contents: [...messages, {content: userMessage, role: 'user'}],
+        model,
+        sessionId,
+        systemPrompt,
+        tools: {}, // No tools for summary generation
+      })
+
+      return typeof response.content === 'string' ? response.content : '[Summary generation failed]'
+    } catch {
+      return '[Summary generation failed due to error]'
+    }
+  }
+
+  /**
    * Get the current compaction configuration.
    */
   getConfig(): Readonly<Required<CompactionConfig>> {
@@ -175,20 +233,30 @@ export class CompactionService {
     return {
       systemPrompt: this.config.summaryPrompt,
       userMessage:
-        'Based on our conversation so far, provide a detailed summary that captures all important context. ' +
-        'This summary will be used to continue the conversation without the full history.',
+        'Provide a detailed prompt for continuing our conversation above. ' +
+        'Focus on information that would be helpful for continuing the conversation, including ' +
+        'what we did, what we are doing, which files we are working on, and what we are going to do next ' +
+        'considering a new session will not have access to our conversation.',
     }
   }
 
   /**
    * Prune old tool outputs to reduce context size.
    * Keeps the most recent tool outputs up to the configured token limit.
+   * Only executes if minimum token threshold can be recovered.
+   *
+   * @param sessionId - The session to prune
+   * @returns CompactionResult with count and tokens saved (or zeros if below threshold)
    */
   async pruneToolOutputs(sessionId: string): Promise<CompactionResult> {
-    return this.messageStorage.pruneToolOutputs({
+    const result = await this.messageStorage.pruneToolOutputs({
       keepTokens: this.config.pruneKeepTokens,
+      minimumTokens: this.config.pruneMinimumTokens,
+      protectedTurns: this.config.protectedTurns,
       sessionId,
     })
+
+    return result
   }
 }
 

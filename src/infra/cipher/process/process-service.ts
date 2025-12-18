@@ -1,4 +1,4 @@
-import {spawn} from 'node:child_process'
+import {type ChildProcess, spawn} from 'node:child_process'
 import {randomBytes} from 'node:crypto'
 import {isAbsolute, relative, resolve} from 'node:path'
 
@@ -16,6 +16,7 @@ import type {IProcessService} from '../../../core/interfaces/cipher/i-process-se
 
 import {ProcessError} from '../../../core/domain/cipher/errors/process-error.js'
 import {CommandValidator} from './command-validator.js'
+import {normalizePath} from './path-utils.js'
 
 /**
  * Default timeout for foreground commands (milliseconds).
@@ -132,6 +133,9 @@ export class ProcessService implements IProcessService {
     // Resolve working directory
     const cwd = this.resolveSafeCwd(options.cwd)
 
+    // Validate path arguments in the command
+    this.validatePathArguments(normalizedCommand, cwd)
+
     // Merge environment variables
     const env: Record<string, string> = {}
     for (const [key, value] of Object.entries({
@@ -213,6 +217,8 @@ export class ProcessService implements IProcessService {
   /**
    * Terminate a background process.
    *
+   * Uses process tree killing to ensure all child processes are terminated.
+   *
    * @param processId - Unique process identifier
    */
   public async killProcess(processId: string): Promise<void> {
@@ -227,15 +233,8 @@ export class ProcessService implements IProcessService {
     }
 
     try {
-      // Send SIGTERM
-      bgProcess.child.kill('SIGTERM')
-
-      // Wait 5 seconds, then escalate to SIGKILL
-      setTimeout(() => {
-        if (bgProcess.child.exitCode === null) {
-          bgProcess.child.kill('SIGKILL')
-        }
-      }, 5000)
+      // Kill the entire process tree
+      await this.killProcessTree(bgProcess.child, bgProcess.child.pid)
     } catch (error) {
       throw ProcessError.killFailed(processId, error instanceof Error ? error.message : String(error))
     }
@@ -401,12 +400,18 @@ export class ProcessService implements IProcessService {
     }
 
     // Spawn process
+    // Use detached: true on Unix to create a process group for tree killing
     const child = spawn(command, {
       cwd: options.cwd,
-      detached: false, // Process dies with parent
+      detached: process.platform !== 'win32',
       env: options.env,
       shell: true,
     })
+
+    // Prevent child from keeping parent alive on Unix
+    if (process.platform !== 'win32') {
+      child.unref()
+    }
 
     const startedAt = new Date()
 
@@ -477,14 +482,10 @@ export class ProcessService implements IProcessService {
     // Set timeout handler
     const killTimer = setTimeout(() => {
       if (bgProcess.status === 'running') {
-        child.kill('SIGTERM')
-
-        // Escalate to SIGKILL after 5 seconds
-        setTimeout(() => {
-          if (bgProcess.status === 'running') {
-            child.kill('SIGKILL')
-          }
-        }, 5000)
+        // Use process tree killing for timeout
+        this.killProcessTree(child, child.pid).catch(() => {
+          // Ignore errors during timeout kill - process may already be dead
+        })
       }
     }, options.timeout)
 
@@ -500,6 +501,50 @@ export class ProcessService implements IProcessService {
       pid: child.pid,
       processId,
       startedAt,
+    }
+  }
+
+  /**
+   * Kill a process and all its children (process tree).
+   *
+   * On Unix, uses process groups (-pid) to kill all descendants.
+   * On Windows, uses taskkill with /t flag for tree kill.
+   * Falls back to direct kill if process group kill fails.
+   *
+   * @param child - Child process to kill
+   * @param pid - Process ID (optional, extracted from child if not provided)
+   * @returns Promise that resolves when kill attempt completes
+   */
+  private async killProcessTree(child: ChildProcess, pid?: number): Promise<void> {
+    const targetPid = pid ?? child.pid
+    if (!targetPid) return
+
+    if (process.platform === 'win32') {
+      // Use taskkill with /t flag for tree kill on Windows
+      return new Promise((resolve) => {
+        const killer = spawn('taskkill', ['/pid', String(targetPid), '/f', '/t'], {stdio: 'ignore'})
+        killer.once('exit', () => resolve())
+        killer.once('error', () => resolve())
+      })
+    }
+
+    // Unix: kill process group using negative PID
+    try {
+      process.kill(-targetPid, 'SIGTERM')
+      await this.sleep(5000)
+      try {
+        process.kill(-targetPid, 'SIGKILL')
+      } catch {
+        // Process already dead, ignore
+      }
+    } catch {
+      // Fallback to direct kill if process group kill fails
+      // (e.g., process wasn't started with detached: true)
+      child.kill('SIGTERM')
+      await this.sleep(5000)
+      if (child.exitCode === null) {
+        child.kill('SIGKILL')
+      }
     }
   }
 
@@ -520,8 +565,11 @@ export class ProcessService implements IProcessService {
       return baseDir
     }
 
+    // Normalize for Git Bash on Windows
+    const normalizedCwd = normalizePath(cwd)
+
     // Resolve to absolute path
-    const candidatePath = isAbsolute(cwd) ? resolve(cwd) : resolve(baseDir, cwd)
+    const candidatePath = isAbsolute(normalizedCwd) ? resolve(normalizedCwd) : resolve(baseDir, normalizedCwd)
 
     // Check if path is within base directory
     const relativePath = relative(baseDir, candidatePath)
@@ -535,5 +583,47 @@ export class ProcessService implements IProcessService {
     }
 
     return candidatePath
+  }
+
+  /**
+   * Sleep for specified milliseconds.
+   *
+   * @param ms - Milliseconds to sleep
+   * @returns Promise that resolves after the delay
+   */
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => {
+      setTimeout(resolve, ms)
+    })
+  }
+
+  /**
+   * Validate file path arguments in a command.
+   *
+   * Extracts path arguments from path-sensitive commands and validates
+   * that they are within the configured base directory.
+   *
+   * @param command - Command string to validate
+   * @param baseDir - Base directory for confinement
+   * @throws ProcessError if any path argument is outside the base directory
+   */
+  private validatePathArguments(command: string, baseDir: string): void {
+    const paths = this.commandValidator.extractPathArguments(command)
+
+    for (const pathArg of paths) {
+      // Resolve to absolute path
+      const resolved = isAbsolute(pathArg) ? resolve(pathArg) : resolve(baseDir, pathArg)
+
+      // Check if path is within base directory
+      const relativePath = relative(baseDir, resolved)
+      const isOutsideBase = relativePath.startsWith('..') || isAbsolute(relativePath)
+
+      if (isOutsideBase) {
+        throw ProcessError.invalidWorkingDirectory(
+          pathArg,
+          `Path argument "${pathArg}" references location outside ${baseDir}`,
+        )
+      }
+    }
   }
 }

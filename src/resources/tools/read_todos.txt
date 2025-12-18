@@ -1,0 +1,17 @@
+Read the current todo list for this session.
+
+This tool should be used proactively and frequently to ensure that you are aware of
+the status of the current task list
+
+## Output
+
+- **title**: Count of incomplete todos (e.g., "3 todos")
+- **content**: JSON formatted list of all todos
+- **metadata**: Structured todo data for programmatic access
+
+## Each todo item contains
+
+- **id**: Unique identifier
+- **content**: Task description (imperative form, e.g., "Run tests")
+- **activeForm**: Present continuous form for display (e.g., "Running tests")
+- **status**: pending, in_progress, completed, or cancelled

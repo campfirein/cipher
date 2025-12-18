@@ -18,15 +18,22 @@ export const AGENT_EVENT_NAMES = [
  */
 export const SESSION_EVENT_NAMES = [
   'llmservice:chunk',
+  'llmservice:contextCompressed',
+  'llmservice:contextOverflow',
+  'llmservice:contextPruned',
   'llmservice:error',
   'llmservice:outputTruncated',
   'llmservice:response',
   'llmservice:thinking',
   'llmservice:thought',
   'llmservice:toolCall',
+  'llmservice:toolMetadata',
   'llmservice:toolResult',
   'llmservice:unsupportedInput',
   'llmservice:warning',
+  'message:dequeued',
+  'message:queued',
+  'run:complete',
 ] as const
 
 /**
@@ -218,6 +225,48 @@ export interface AgentEventMap {
   }
 
   /**
+   * Emitted when conversation context is compressed via summarization.
+   * @property {number} compressedTokens - Token count after compression
+   * @property {number} originalTokens - Token count before compression
+   * @property {string} sessionId - ID of the session
+   * @property {'middle_removal' | 'oldest_removal' | 'summary'} strategy - Compression strategy used
+   */
+  'llmservice:contextCompressed': {
+    compressedTokens: number
+    originalTokens: number
+    sessionId: string
+    strategy: 'middle_removal' | 'oldest_removal' | 'summary'
+  }
+
+  /**
+   * Emitted when context is approaching the token limit.
+   * @property {number} currentTokens - Current token count
+   * @property {number} maxTokens - Maximum allowed tokens
+   * @property {string} sessionId - ID of the session
+   * @property {number} utilizationPercent - Percentage of context used (0-100)
+   */
+  'llmservice:contextOverflow': {
+    currentTokens: number
+    maxTokens: number
+    sessionId: string
+    utilizationPercent: number
+  }
+
+  /**
+   * Emitted when old tool outputs are pruned to save context space.
+   * @property {number} pruneCount - Number of tool outputs pruned
+   * @property {'manual' | 'overflow'} reason - Why pruning was triggered
+   * @property {string} sessionId - ID of the session
+   * @property {number} tokensSaved - Estimated tokens saved
+   */
+  'llmservice:contextPruned': {
+    pruneCount: number
+    reason: 'manual' | 'overflow'
+    sessionId: string
+    tokensSaved: number
+  }
+
+  /**
    * Emitted when an error occurs during LLM service operation.
    * @property {string} [code] - Error code (optional)
    * @property {string} error - Error message
@@ -312,6 +361,24 @@ export interface AgentEventMap {
   }
 
   /**
+   * Emitted when a tool streams metadata updates during execution.
+   * Allows tools to push real-time updates (e.g., bash output streaming).
+   * @property {string} callId - Tool call identifier
+   * @property {string} [description] - Human-readable status description
+   * @property {Record<string, unknown>} metadata - The metadata update
+   * @property {string} [output] - Streamed output content
+   * @property {number} [progress] - Progress indicator (0-100)
+   * @property {string} sessionId - ID of the session
+   * @property {string} toolName - Name of the tool streaming metadata
+   */
+  'llmservice:toolMetadata': {
+    callId: string
+    metadata: Record<string, unknown>
+    sessionId: string
+    toolName: string
+  }
+
+  /**
    * Emitted when a tool execution completes.
    * @property {string} [callId] - Tool call identifier
    * @property {string} [error] - Error message (if failed)
@@ -356,6 +423,51 @@ export interface AgentEventMap {
     provider?: string
     sessionId: string
   }
+
+  /**
+   * Emitted when queued messages are dequeued for processing.
+   * @property {number} count - Number of messages that were dequeued
+   * @property {string} sessionId - ID of the session
+   */
+  'message:dequeued': {
+    count: number
+    sessionId: string
+  }
+
+  /**
+   * Emitted when a message is queued because session is busy.
+   * @property {object} message - The queued message
+   * @property {string} message.id - Unique identifier for the queued message
+   * @property {string} message.content - Message text content
+   * @property {number} message.queuedAt - Timestamp when queued
+   * @property {number} position - Position in the queue (1-based)
+   * @property {string} sessionId - ID of the session
+   */
+  'message:queued': {
+    message: {
+      content: string
+      id: string
+      queuedAt: number
+    }
+    position: number
+    sessionId: string
+  }
+
+  /**
+   * Emitted when a session run completes (streaming API lifecycle event).
+   * @property {number} durationMs - Execution duration in milliseconds
+   * @property {Error} [error] - Error if terminated due to error
+   * @property {'cancelled' | 'error' | 'max-iterations' | 'stop' | 'timeout'} finishReason - Why execution terminated
+   * @property {string} sessionId - ID of the session
+   * @property {number} stepCount - Number of agentic steps completed
+   */
+  'run:complete': {
+    durationMs: number
+    error?: Error
+    finishReason: 'cancelled' | 'error' | 'max-iterations' | 'stop' | 'timeout'
+    sessionId: string
+    stepCount: number
+  }
 }
 
 /**
@@ -373,6 +485,42 @@ export interface SessionEventMap {
     content: string
     isComplete?: boolean
     type: 'reasoning' | 'text'
+  }
+
+  /**
+   * Emitted when conversation context is compressed via summarization.
+   * @property {number} compressedTokens - Token count after compression
+   * @property {number} originalTokens - Token count before compression
+   * @property {'middle_removal' | 'oldest_removal' | 'summary'} strategy - Compression strategy used
+   */
+  'llmservice:contextCompressed': {
+    compressedTokens: number
+    originalTokens: number
+    strategy: 'middle_removal' | 'oldest_removal' | 'summary'
+  }
+
+  /**
+   * Emitted when context is approaching the token limit.
+   * @property {number} currentTokens - Current token count
+   * @property {number} maxTokens - Maximum allowed tokens
+   * @property {number} utilizationPercent - Percentage of context used (0-100)
+   */
+  'llmservice:contextOverflow': {
+    currentTokens: number
+    maxTokens: number
+    utilizationPercent: number
+  }
+
+  /**
+   * Emitted when old tool outputs are pruned to save context space.
+   * @property {number} pruneCount - Number of tool outputs pruned
+   * @property {'manual' | 'overflow'} reason - Why pruning was triggered
+   * @property {number} tokensSaved - Estimated tokens saved
+   */
+  'llmservice:contextPruned': {
+    pruneCount: number
+    reason: 'manual' | 'overflow'
+    tokensSaved: number
   }
 
   /**
@@ -443,6 +591,19 @@ export interface SessionEventMap {
   }
 
   /**
+   * Emitted when a tool streams metadata updates during execution.
+   * Allows tools to push real-time updates (e.g., bash output streaming).
+   * @property {string} callId - Tool call identifier
+   * @property {Record<string, unknown>} metadata - The metadata update
+   * @property {string} toolName - Name of the tool streaming metadata
+   */
+  'llmservice:toolMetadata': {
+    callId: string
+    metadata: Record<string, unknown>
+    toolName: string
+  }
+
+  /**
    * Emitted when a tool execution completes.
    * @property {string} [callId] - Tool call identifier
    * @property {string} [error] - Error message (if failed)
@@ -480,6 +641,45 @@ export interface SessionEventMap {
     message: string
     model?: string
     provider?: string
+  }
+
+  /**
+   * Emitted when queued messages are dequeued for processing.
+   * @property {number} count - Number of messages that were dequeued
+   */
+  'message:dequeued': {
+    count: number
+  }
+
+  /**
+   * Emitted when a message is queued because session is busy.
+   * @property {object} message - The queued message
+   * @property {string} message.id - Unique identifier for the queued message
+   * @property {string} message.content - Message text content
+   * @property {number} message.queuedAt - Timestamp when queued
+   * @property {number} position - Position in the queue (1-based)
+   */
+  'message:queued': {
+    message: {
+      content: string
+      id: string
+      queuedAt: number
+    }
+    position: number
+  }
+
+  /**
+   * Emitted when a session run completes (streaming API lifecycle event).
+   * @property {number} durationMs - Execution duration in milliseconds
+   * @property {Error} [error] - Error if terminated due to error
+   * @property {'cancelled' | 'error' | 'max-iterations' | 'stop' | 'timeout'} finishReason - Why execution terminated
+   * @property {number} stepCount - Number of agentic steps completed
+   */
+  'run:complete': {
+    durationMs: number
+    error?: Error
+    finishReason: 'cancelled' | 'error' | 'max-iterations' | 'stop' | 'timeout'
+    stepCount: number
   }
 }
 

@@ -18,7 +18,7 @@ import {getCurrentConfig} from '../../config/environment.js'
 import {PROJECT} from '../../constants.js'
 import {formatError} from '../../utils/error-handler.js'
 import {formatToolCall, formatToolResult} from '../../utils/tool-display-formatter.js'
-import {CipherAgent} from '../cipher/cipher-agent.js'
+import {CipherAgent} from '../cipher/agent/index.js'
 import {getAgentStorage, getAgentStorageSync} from '../cipher/storage/agent-storage.js'
 import {WorkspaceNotInitializedError} from '../cipher/validation/workspace-validator.js'
 
@@ -154,17 +154,19 @@ export class QueryUseCase implements IQueryUseCase {
       const llmConfig = {
         accessToken: token.accessToken,
         apiBaseUrl: envConfig.llmApiBaseUrl,
-        fileSystemConfig: {workingDirectory: process.cwd()},
-        maxIterations: 5,
-        maxTokens: 2048,
+        fileSystem: {workingDirectory: process.cwd()},
+        llm: {
+          maxIterations: 5,
+          maxTokens: 2048,
+          temperature: 0.7,
+          topK: 10,
+          topP: 0.95,
+          verbose: options.verbose ?? false,
+        },
         model,
         openRouterApiKey: options.apiKey,
         projectId: PROJECT,
         sessionKey: token.sessionKey,
-        temperature: 0.7,
-        topK: 10,
-        topP: 0.95,
-        verbose: options.verbose ?? false,
       }
 
       // Create and start CipherAgent
@@ -180,11 +182,10 @@ export class QueryUseCase implements IQueryUseCase {
         this.setupEventListeners(agent, options.verbose ?? false)
         this.setupToolCallTracking(agent, executionId)
 
-        // Execute with autonomous mode and query commandType
+        // Execute with query commandType
         const prompt = `Search the context tree for: ${options.query}`
         const response = await agent.execute(prompt, sessionId, {
           executionContext: {commandType: 'query'},
-          mode: 'autonomous',
         })
 
         // Mark execution as completed
@@ -195,6 +196,8 @@ export class QueryUseCase implements IQueryUseCase {
 
         await this.trackingService.track('mem:query', {status: 'finished'})
       } finally {
+        // Stop agent to cleanup resources and allow process to exit
+        await agent.stop()
         // Cleanup old executions
         storage.cleanupOldExecutions(100)
       }

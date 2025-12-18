@@ -5,7 +5,7 @@ import type {ITerminal} from '../../core/interfaces/i-terminal.js'
 
 import {getCurrentConfig, isDevelopment} from '../../config/environment.js'
 import {PROJECT} from '../../constants.js'
-import {CipherAgent} from '../../infra/cipher/cipher-agent.js'
+import {CipherAgent} from '../../infra/cipher/agent/index.js'
 import {ExitCode, ExitError, exitWithCode} from '../../infra/cipher/exit-codes.js'
 import {displayInfo, startInteractiveLoop} from '../../infra/cipher/interactive-loop.js'
 import {WorkspaceNotInitializedError} from '../../infra/cipher/validation/workspace-validator.js'
@@ -266,7 +266,8 @@ export default class CipherAgentRun extends Command {
           this.terminal.log(`\n[Agent State: ${state.currentIteration} iterations]`)
         }
       } finally {
-        // await agent.stop()
+        // Stop agent to cleanup resources and allow process to exit
+        await agent.stop()
       }
     } catch (error) {
       // Handle workspace not initialized error with friendly message
@@ -329,17 +330,19 @@ export default class CipherAgentRun extends Command {
   ): {
     accessToken: string
     apiBaseUrl: string
-    fileSystemConfig?: {workingDirectory: string}
-    maxIterations: number
-    maxTokens: number
+    fileSystem?: {workingDirectory: string}
+    llm: {
+      maxIterations: number
+      maxTokens: number
+      temperature: number
+      verbose: boolean
+    }
     model: string
     openRouterApiKey?: string
     projectId: string
     sessionKey: string
     spaceId: string
     teamId: string
-    temperature: number
-    verbose?: boolean
   } {
     // Default model: google/gemini-2.5-pro for OpenRouter, gemini-2.5-pro for HTTP
     const model = flags.model ?? (flags.apiKey ? 'google/gemini-2.5-pro' : 'gemini-2.5-pro')
@@ -348,17 +351,19 @@ export default class CipherAgentRun extends Command {
     return {
       accessToken: token.accessToken,
       apiBaseUrl: envConfig.llmApiBaseUrl,
-      fileSystemConfig: flags.workingDirectory ? {workingDirectory: flags.workingDirectory} : undefined,
-      maxIterations: 10, // Hardcoded default
-      maxTokens: flags.maxTokens ?? 8192, // Default: 8192
+      fileSystem: flags.workingDirectory ? {workingDirectory: flags.workingDirectory} : undefined,
+      llm: {
+        maxIterations: 10, // Hardcoded default
+        maxTokens: flags.maxTokens ?? 8192, // Default: 8192
+        temperature: flags.temperature ? Number.parseFloat(flags.temperature) : 0.2, // Default: 0.2
+        verbose: flags.verbose ?? false,
+      },
       model,
       openRouterApiKey: flags.apiKey, // Map -k flag to OpenRouter API key
       projectId: PROJECT,
       sessionKey: token.sessionKey,
       spaceId: token.spaceId,
       teamId: token.teamId,
-      temperature: flags.temperature ? Number.parseFloat(flags.temperature) : 0.2, // Default: 0.2
-      verbose: flags.verbose ?? false,
     }
   }
 

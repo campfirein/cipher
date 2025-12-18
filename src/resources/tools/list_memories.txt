@@ -1,0 +1,1 @@
+List and filter memories from the scratch pad. Returns memories sorted by most recent first. Use this to discover what context has been stored.

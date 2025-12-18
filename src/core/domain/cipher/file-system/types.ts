@@ -111,6 +111,48 @@ export interface SearchOptions {
 }
 
 /**
+ * Options for listing directory contents.
+ */
+export interface ListDirectoryOptions {
+  /** Additional glob patterns to ignore (merged with defaults) */
+  ignore?: string[]
+
+  /** Maximum number of files to return (default: 100) */
+  maxResults?: number
+}
+
+/**
+ * Entry in directory listing.
+ */
+export interface DirectoryEntry {
+  /** Whether this is a directory */
+  isDirectory: boolean
+
+  /** Entry name (file or directory name, not full path) */
+  name: string
+
+  /** Relative path from the listed directory */
+  path: string
+}
+
+/**
+ * Result of a directory listing operation.
+ */
+export interface ListDirectoryResult {
+  /** Total number of entries found */
+  count: number
+
+  /** Array of directory entries */
+  entries: DirectoryEntry[]
+
+  /** Formatted tree output string */
+  tree: string
+
+  /** Whether results were truncated */
+  truncated: boolean
+}
+
+/**
  * Result of a file read operation.
  */
 export interface FileContent {
@@ -120,11 +162,20 @@ export interface FileContent {
   /** Character encoding used */
   encoding: string
 
+  /** Formatted content with line numbers (00001| content format) */
+  formattedContent: string
+
   /** Total number of lines in the returned content */
   lines: number
 
+  /** Human-readable message about file status (truncation info, etc.) */
+  message: string
+
   /** File size in bytes */
   size: number
+
+  /** Total lines in the entire file */
+  totalLines: number
 
   /** Whether content was truncated due to size/line limits */
   truncated: boolean

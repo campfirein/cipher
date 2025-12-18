@@ -81,7 +81,8 @@ describe('File System Tools Integration', () => {
       const result = await tool.execute({filePath})
       assertReadFileResult(result)
 
-      expect(result.content).to.equal('Hello World')
+      // Content is now formatted with line numbers (e.g., "00001| Hello World")
+      expect(result.content).to.include('Hello World')
       expect(result.size).to.equal(11)
     })
   })
@@ -103,7 +104,8 @@ describe('File System Tools Integration', () => {
       const readTool = createReadFileTool(fileSystemService)
       const readResult = await readTool.execute({filePath})
       assertReadFileResult(readResult)
-      expect(readResult.content).to.equal('New Content')
+      // Content is now formatted with line numbers
+      expect(readResult.content).to.include('New Content')
     })
   })
 
@@ -127,7 +129,8 @@ describe('File System Tools Integration', () => {
       const readTool = createReadFileTool(fileSystemService)
       const readResult = await readTool.execute({filePath})
       assertReadFileResult(readResult)
-      expect(readResult.content).to.equal('Hello New World')
+      // Content is now formatted with line numbers
+      expect(readResult.content).to.include('Hello New World')
     })
   })
 

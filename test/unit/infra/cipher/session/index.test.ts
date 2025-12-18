@@ -93,6 +93,8 @@ describe('Session index exports', () => {
       // Type check - if this compiles, the interface is exported
       const session: IChatSession = {
         cancel() {},
+        cleanup() {},
+        dispose() {},
         getHistory() {
           return []
         },
@@ -107,6 +109,10 @@ describe('Session index exports', () => {
         async run() {
           return 'response'
         },
+        async sendMessage() {
+          return 'response'
+        },
+        async streamRun() {},
       }
       expect(session).to.exist
     })
@@ -180,6 +186,8 @@ describe('Session index exports', () => {
       // Cannot test interfaces as values, but compilation ensures they exist
       const session: IChatSession = {
         cancel() {},
+        cleanup() {},
+        dispose() {},
         getHistory() {
           return []
         },
@@ -194,6 +202,10 @@ describe('Session index exports', () => {
         async run() {
           return 'response'
         },
+        async sendMessage() {
+          return 'response'
+        },
+        async streamRun() {},
       }
       const service: ILLMService = {
         async completeTask(_textInput, _sessionId, _options) {

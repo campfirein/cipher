@@ -1,0 +1,31 @@
+Search and filter knowledge topics in the context tree structure with relation support.
+
+This tool helps discover what knowledge has been stored and navigate the domain/topic hierarchy. It works similarly to find_symbol but for knowledge organization, with the ability to follow relations between topics.
+
+**Use cases:**
+- Discover what knowledge topics exist in a domain
+- Find topics matching specific patterns
+- Navigate the knowledge hierarchy via relations
+- Retrieve context for specific areas
+- Check what has been documented
+- Follow related topics for comprehensive context
+
+**Search capabilities:**
+- Pattern matching on domain, topic, and subtopic names (substring matching)
+- Scope searches to specific domains (exact match)
+- Optional subtopic inclusion (depth control)
+- Optional content preview (500 character limit)
+- Pagination for large result sets
+- Relation traversal (automatically fetch related topics up to 3 levels deep)
+
+**Examples:**
+- Find all topics in "testing" domain: {domain: "testing"}
+- Find topics about "eslint": {topicPattern: "eslint"}
+- Find subtopics with "config": {subtopicPattern: "config", includeSubtopics: true}
+- Get content previews: {domain: "architecture", includeContent: true}
+- Follow relations: {topicPattern: "auth", followRelations: true, relationDepth: 2}
+- Paginate results: {limit: 10, offset: 0}
+
+**Returns:**
+- total: Total number of matching topics (before relation traversal)
+- results: Array of topic entries with domain, topic name, path, optional relations, subtopics, and content

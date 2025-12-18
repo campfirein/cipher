@@ -41,15 +41,22 @@ describe('cipher/agent-events', () => {
     it('should have correct SESSION_EVENT_NAMES array', () => {
       expect(SESSION_EVENT_NAMES).to.deep.equal([
         'llmservice:chunk',
+        'llmservice:contextCompressed',
+        'llmservice:contextOverflow',
+        'llmservice:contextPruned',
         'llmservice:error',
         'llmservice:outputTruncated',
         'llmservice:response',
         'llmservice:thinking',
         'llmservice:thought',
         'llmservice:toolCall',
+        'llmservice:toolMetadata',
         'llmservice:toolResult',
         'llmservice:unsupportedInput',
         'llmservice:warning',
+        'message:dequeued',
+        'message:queued',
+        'run:complete',
       ])
     })
 
@@ -63,15 +70,22 @@ describe('cipher/agent-events', () => {
         'cipher:stateReset',
         'cipher:ui',
         'llmservice:chunk',
+        'llmservice:contextCompressed',
+        'llmservice:contextOverflow',
+        'llmservice:contextPruned',
         'llmservice:error',
         'llmservice:outputTruncated',
         'llmservice:response',
         'llmservice:thinking',
         'llmservice:thought',
         'llmservice:toolCall',
+        'llmservice:toolMetadata',
         'llmservice:toolResult',
         'llmservice:unsupportedInput',
         'llmservice:warning',
+        'message:dequeued',
+        'message:queued',
+        'run:complete',
       ])
     })
 
@@ -267,15 +281,22 @@ describe('cipher/agent-events', () => {
         'cipher:stateReset',
         'cipher:ui',
         'llmservice:chunk',
+        'llmservice:contextCompressed',
+        'llmservice:contextOverflow',
+        'llmservice:contextPruned',
         'llmservice:error',
         'llmservice:outputTruncated',
         'llmservice:response',
         'llmservice:thinking',
         'llmservice:thought',
         'llmservice:toolCall',
+        'llmservice:toolMetadata',
         'llmservice:toolResult',
         'llmservice:unsupportedInput',
         'llmservice:warning',
+        'message:dequeued',
+        'message:queued',
+        'run:complete',
       ]
 
       for (const key of agentKeys) {
@@ -285,15 +306,22 @@ describe('cipher/agent-events', () => {
       // Verify all SESSION_EVENT_NAMES are keys in SessionEventMap
       const sessionKeys: (keyof SessionEventMap)[] = [
         'llmservice:chunk',
+        'llmservice:contextCompressed',
+        'llmservice:contextOverflow',
+        'llmservice:contextPruned',
         'llmservice:error',
         'llmservice:outputTruncated',
         'llmservice:response',
         'llmservice:thinking',
         'llmservice:thought',
         'llmservice:toolCall',
+        'llmservice:toolMetadata',
         'llmservice:toolResult',
         'llmservice:unsupportedInput',
         'llmservice:warning',
+        'message:dequeued',
+        'message:queued',
+        'run:complete',
       ]
 
       for (const key of sessionKeys) {

@@ -58,6 +58,7 @@
     "eslint": "^9",
     "eslint-config-oclif": "^6",
     "eslint-config-prettier": "^10",
+    "eslint-import-resolver-typescript": "^4.4.4",
     "expect-type": "^1.2.2",
     "mocha": "^10",
     "nock": "^14.0.10",

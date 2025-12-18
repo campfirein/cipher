@@ -26,6 +26,12 @@ export interface Todo {
   content: string
 
   /**
+   * Unique identifier for the todo item.
+   * Used for tracking and updating individual todos.
+   */
+  id: string
+
+  /**
    * Current status of the todo.
    * - pending: Not yet started
    * - in_progress: Currently working on (only ONE at a time)
@@ -56,9 +62,43 @@ export interface WriteTodosResult {
   llmContent: string
 
   /**
+   * Structured metadata for tool consumption.
+   */
+  metadata: {
+    todos: Todo[]
+  }
+
+  /**
    * Display content for rendering to user.
    */
   returnDisplay: {
     todos: Todo[]
   }
+
+  /**
+   * Smart title showing incomplete count.
+   */
+  title: string
+}
+
+/**
+ * Result of read_todos tool execution.
+ */
+export interface ReadTodosResult {
+  /**
+   * JSON formatted list of all todos.
+   */
+  content: string
+
+  /**
+   * Structured metadata for tool consumption.
+   */
+  metadata: {
+    todos: Todo[]
+  }
+
+  /**
+   * Smart title showing incomplete count.
+   */
+  title: string
 }

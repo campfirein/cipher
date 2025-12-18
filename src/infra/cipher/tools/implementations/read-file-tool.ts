@@ -53,12 +53,13 @@ export function createReadFileTool(fileSystemService: IFileSystem): Tool {
         offset,
       })
 
-      // Return formatted result
+      // Return formatted result with clear guidance
       return {
-        content: result.content,
-        encoding: result.encoding,
+        content: result.formattedContent,
         lines: result.lines,
+        message: result.message,
         size: result.size,
+        totalLines: result.totalLines,
         truncated: result.truncated,
       }
     },

@@ -2,10 +2,21 @@ import {randomUUID} from 'node:crypto'
 
 import type {CipherAgentServices, SessionManagerConfig} from '../../../core/interfaces/cipher/cipher-services.js'
 import type {IChatSession} from '../../../core/interfaces/cipher/i-chat-session.js'
-import type {ByteRoverHttpConfig} from '../agent-service-factory.js'
 
-import {createSessionServices} from '../agent-service-factory.js'
+import {type ByteRoverHttpConfig, createSessionServices} from '../agent/service-initializer.js'
 import {ChatSession} from './chat-session.js'
+import {generateSessionTitle} from './title-generator.js'
+
+/**
+ * Metadata about a session for listing purposes.
+ */
+export interface SessionMetadata {
+  createdAt: number
+  id: string
+  lastActivity: number
+  messageCount: number
+  title?: string
+}
 
 /**
  * Options for SessionManager constructor
@@ -19,11 +30,10 @@ export interface SessionManagerOptions {
  *
  * Manages multiple chat sessions with creation, retrieval, and deletion.
  * Each session gets its own LLM service instance with isolated context.
- *
- * Following Dexto's pattern: SessionManager uses shared services from the agent
  * and creates session-specific services (LLM, EventBus) per conversation.
  */
 export class SessionManager {
+  private cleanupTimer?: ReturnType<typeof setInterval>
   private readonly config: Required<SessionManagerConfig>
   private readonly httpConfig: ByteRoverHttpConfig
   private readonly llmConfig: {
@@ -36,7 +46,10 @@ export class SessionManager {
     temperature?: number
   }
   private pendingCreations = new Map<string, Promise<IChatSession>>()
+  private readonly sessionCreatedAt: Map<string, number> = new Map()
+  private readonly sessionLastActivity: Map<string, number> = new Map()
   private readonly sessions: Map<string, IChatSession> = new Map()
+  private readonly sessionTitles: Map<string, string> = new Map()
   private readonly sharedServices: CipherAgentServices
 
   /**
@@ -76,13 +89,20 @@ export class SessionManager {
       maxSessions: options?.config?.maxSessions ?? 100,
       sessionTTL: options?.config?.sessionTTL ?? 3_600_000, // 1 hour
     }
+
+    // Start periodic cleanup (every 15 minutes or 1/4 TTL, whichever is smaller)
+    const cleanupInterval = Math.min(15 * 60 * 1000, this.config.sessionTTL / 4)
+    this.cleanupTimer = setInterval(() => {
+      this.cleanupExpiredSessions().catch(() => {
+        // Silently ignore cleanup errors
+      })
+    }, cleanupInterval)
   }
 
   /**
    * Create a new chat session.
    *
    * Each session gets its own LLM service instance for isolated conversation context.
-   * Following Dexto's pattern with race condition protection via pendingCreations tracker.
    *
    * @param sessionId - Optional session ID (generates UUID if not provided)
    * @returns New or existing chat session instance
@@ -150,8 +170,20 @@ export class SessionManager {
   }
 
   /**
+   * Stop cleanup timer and dispose of all resources.
+   * Call this when shutting down the session manager.
+   */
+  public dispose(): void {
+    if (this.cleanupTimer) {
+      clearInterval(this.cleanupTimer)
+      this.cleanupTimer = undefined
+    }
+  }
+
+  /**
    * End a session (remove from memory, preserve history for future restoration).
-   * Currently same as deleteSession since we don't have persistent storage yet.
+   * Unlike deleteSession, this preserves the conversation history in storage
+   * so the session can be restored later.
    *
    * @param id - Session ID to end
    * @returns True if session existed and was ended
@@ -162,8 +194,14 @@ export class SessionManager {
       return false
     }
 
-    // In the future, this would preserve history in storage
-    // For now, just remove from memory
+    // Ensure history is persisted before removing from memory
+    const contextManager = session.getLLMService().getContextManager()
+    await contextManager.flush()
+
+    // Cleanup session resources (cancels in-flight ops, preserves history)
+    session.cleanup()
+
+    // Remove from memory only - history remains in storage
     return this.sessions.delete(id)
   }
 
@@ -206,6 +244,81 @@ export class SessionManager {
   }
 
   /**
+   * List all sessions with metadata.
+   * Returns sessions sorted by last activity (most recent first).
+   *
+   * @returns Array of session metadata
+   */
+  public listSessionsWithMetadata(): SessionMetadata[] {
+    const sessions: SessionMetadata[] = []
+
+    for (const [id, session] of this.sessions) {
+      const contextManager = session.getLLMService().getContextManager()
+      sessions.push({
+        createdAt: this.sessionCreatedAt.get(id) ?? Date.now(),
+        id,
+        lastActivity: this.sessionLastActivity.get(id) ?? Date.now(),
+        messageCount: contextManager.getMessages().length,
+        title: this.sessionTitles.get(id),
+      })
+    }
+
+    // Sort by last activity (most recent first)
+    return sessions.sort((a, b) => b.lastActivity - a.lastActivity)
+  }
+
+  /**
+   * Set session title from the first user message.
+   * Uses heuristic extraction (no LLM call).
+   *
+   * @param sessionId - Session ID
+   * @param firstMessage - First user message
+   */
+  public setSessionTitleFromMessage(sessionId: string, firstMessage: string): void {
+    const session = this.sessions.get(sessionId)
+    if (!session) {
+      return
+    }
+
+    const title = generateSessionTitle(firstMessage)
+    this.sessionTitles.set(sessionId, title)
+  }
+
+  /**
+   * Update the last activity timestamp for a session.
+   * Should be called after each message exchange.
+   *
+   * @param sessionId - Session ID
+   */
+  public updateSessionActivity(sessionId: string): void {
+    if (this.sessions.has(sessionId)) {
+      this.sessionLastActivity.set(sessionId, Date.now())
+    }
+  }
+
+  /**
+   * Remove sessions that have exceeded TTL.
+   *
+   * @returns Number of sessions cleaned up
+   */
+  private async cleanupExpiredSessions(): Promise<number> {
+    const now = Date.now()
+    let cleaned = 0
+
+    for (const [id] of this.sessions) {
+      const lastActivity = this.sessionLastActivity.get(id) ?? 0
+
+      if (now - lastActivity > this.config.sessionTTL) {
+        // eslint-disable-next-line no-await-in-loop
+        await this.endSession(id) // Preserve history
+        cleaned++
+      }
+    }
+
+    return cleaned
+  }
+
+  /**
    * Internal session creation logic.
    *
    * @param id - Session ID
@@ -224,6 +337,11 @@ export class SessionManager {
       await sessionServices.llmService.initialize()
       // Debug logging removed for cleaner user experience
     }
+
+    // Track session metadata
+    const now = Date.now()
+    this.sessionCreatedAt.set(id, now)
+    this.sessionLastActivity.set(id, now)
 
     this.sessions.set(id, session)
     return session

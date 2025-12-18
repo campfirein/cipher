@@ -5,6 +5,7 @@
 export const ToolName: {
   readonly BASH_EXEC: 'bash_exec'
   readonly BASH_OUTPUT: 'bash_output'
+  readonly BATCH: 'batch'
   readonly CREATE_KNOWLEDGE_TOPIC: 'create_knowledge_topic'
   readonly CURATE: 'curate'
   readonly DELETE_MEMORY: 'delete_memory'
@@ -15,9 +16,11 @@ export const ToolName: {
   readonly GLOB_FILES: 'glob_files'
   readonly GREP_CONTENT: 'grep_content'
   readonly KILL_PROCESS: 'kill_process'
+  readonly LIST_DIRECTORY: 'list_directory'
   readonly LIST_MEMORIES: 'list_memories'
   readonly READ_FILE: 'read_file'
   readonly READ_MEMORY: 'read_memory'
+  readonly READ_TODOS: 'read_todos'
   readonly SEARCH_HISTORY: 'search_history'
   readonly WRITE_FILE: 'write_file'
   readonly WRITE_MEMORY: 'write_memory'
@@ -25,6 +28,7 @@ export const ToolName: {
 } = {
   BASH_EXEC: 'bash_exec',
   BASH_OUTPUT: 'bash_output',
+  BATCH: 'batch',
   CREATE_KNOWLEDGE_TOPIC: 'create_knowledge_topic',
   CURATE: 'curate',
   DELETE_MEMORY: 'delete_memory',
@@ -35,9 +39,11 @@ export const ToolName: {
   GLOB_FILES: 'glob_files',
   GREP_CONTENT: 'grep_content',
   KILL_PROCESS: 'kill_process',
+  LIST_DIRECTORY: 'list_directory',
   LIST_MEMORIES: 'list_memories',
   READ_FILE: 'read_file',
   READ_MEMORY: 'read_memory',
+  READ_TODOS: 'read_todos',
   SEARCH_HISTORY: 'search_history',
   WRITE_FILE: 'write_file',
   WRITE_MEMORY: 'write_memory',

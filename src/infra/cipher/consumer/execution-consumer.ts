@@ -7,7 +7,7 @@ import type {Execution} from '../storage/agent-storage.js'
 
 import {getCurrentConfig} from '../../../config/environment.js'
 import {PROJECT} from '../../../constants.js'
-import {CipherAgent} from '../cipher-agent.js'
+import {CipherAgent} from '../agent/index.js'
 import {AgentStorage, closeAgentStorage, getAgentStorage, getAgentStorageSync} from '../storage/agent-storage.js'
 
 // Heartbeat interval for consumer liveness detection (10 seconds)
@@ -255,16 +255,18 @@ export class ExecutionConsumer {
     const llmConfig = {
       accessToken: this.authToken.accessToken,
       apiBaseUrl: envConfig.llmApiBaseUrl,
-      fileSystemConfig: {workingDirectory: process.cwd()},
-      maxIterations: 10,
-      maxTokens: 8192,
+      fileSystem: {workingDirectory: process.cwd()},
+      llm: {
+        maxIterations: 10,
+        maxTokens: 8192,
+        temperature: 0.7,
+        verbose: input.flags?.verbose ?? false,
+      },
       model,
       openRouterApiKey: input.flags?.apiKey,
       projectId: PROJECT,
       sessionKey: this.authToken.sessionKey,
       teamId: this.brvConfig?.teamId ?? '',
-      temperature: 0.7,
-      verbose: input.flags?.verbose ?? false,
     }
 
     // Create and start CipherAgent
@@ -277,21 +279,21 @@ export class ExecutionConsumer {
       // Setup event listeners for tool call tracking
       this.setupToolCallTracking(agent, execution.id)
 
-      // Execute with autonomous mode
+      // Execute with curate commandType
       const prompt = `Add the following context to the context tree:\n\n${input.content}`
       const response = await agent.execute(prompt, sessionId, {
         executionContext: {
           commandType: 'curate',
           fileReferenceInstructions: input.fileReferenceInstructions,
         },
-        mode: 'autonomous',
       })
 
       // Mark completed
       storage.updateExecutionStatus(execution.id, 'completed', response)
       console.log(`[Consumer] Execution ${execution.id} completed`)
     } finally {
-      // Agent cleanup (if needed in future)
+      // Stop agent to cleanup resources
+      await agent.stop()
     }
   }
 

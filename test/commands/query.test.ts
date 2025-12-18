@@ -1,3 +1,5 @@
+/// <reference types="mocha" />
+
 import {expect} from 'chai'
 import sinon, {restore, stub} from 'sinon'
 
@@ -10,7 +12,7 @@ import type {ITrackingService} from '../../src/core/interfaces/i-tracking-servic
 import {BRV_CONFIG_VERSION} from '../../src/constants.js'
 import {AuthToken} from '../../src/core/domain/entities/auth-token.js'
 import {BrvConfig as BrvConfigImpl} from '../../src/core/domain/entities/brv-config.js'
-import {CipherAgent} from '../../src/infra/cipher/cipher-agent.js'
+import {CipherAgent} from '../../src/infra/cipher/agent/index.js'
 import {QueryUseCase, type QueryUseCaseOptions} from '../../src/infra/usecase/query-use-case.js'
 import {createMockTerminal} from '../helpers/mock-factories.js'
 

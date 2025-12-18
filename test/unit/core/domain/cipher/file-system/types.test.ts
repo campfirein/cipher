@@ -183,15 +183,21 @@ describe('cipher/file-system', () => {
       const fileContent: FileContent = {
         content: 'file content',
         encoding: 'utf8',
+        formattedContent: '00001| file content',
         lines: 10,
+        message: 'File read successfully',
         size: 1024,
+        totalLines: 10,
         truncated: false,
       }
 
       expectTypeOf<string>(fileContent.content)
       expectTypeOf<string>(fileContent.encoding)
+      expectTypeOf<string>(fileContent.formattedContent)
       expectTypeOf<number>(fileContent.lines)
+      expectTypeOf<string>(fileContent.message)
       expectTypeOf<number>(fileContent.size)
+      expectTypeOf<number>(fileContent.totalLines)
       expectTypeOf<boolean>(fileContent.truncated)
     })
   })
@@ -462,8 +468,11 @@ describe('cipher/file-system', () => {
       const result: FileContent = {
         content: 'file content',
         encoding: 'utf8',
+        formattedContent: '00001| file content',
         lines: 50,
+        message: 'File read successfully',
         size: 1024,
+        totalLines: 50,
         truncated: false,
       }
 
