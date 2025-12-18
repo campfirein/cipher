@@ -45,7 +45,7 @@ export interface ContributorContext {
   availableTools?: string[]
 
   /** Type of command being executed */
-  commandType?: 'curate' | 'query'
+  commandType?: 'chat' | 'curate' | 'query'
 
   /** Metadata about the current conversation */
   conversationMetadata?: {conversationId?: string; title?: string}
