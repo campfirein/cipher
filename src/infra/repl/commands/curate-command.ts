@@ -48,6 +48,7 @@ export const curateCommand: SlashCommand = {
         const tokenStore = new KeychainTokenStore()
         const globalConfigStore = new FileGlobalConfigStore()
         const useCase = new CurateUseCase({
+          fileSelectorOptions: {pageSize: 3},
           projectConfigStore: new ProjectConfigStore(),
           terminal,
           tokenStore,

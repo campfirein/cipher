@@ -4,7 +4,7 @@ import path from 'node:path'
 import open from 'open'
 
 import type {IProjectConfigStore} from '../../core/interfaces/i-project-config-store.js'
-import type {ITerminal} from '../../core/interfaces/i-terminal.js'
+import type {FileSelectorOptions, ITerminal} from '../../core/interfaces/i-terminal.js'
 import type {ITokenStore} from '../../core/interfaces/i-token-store.js'
 import type {ITrackingService} from '../../core/interfaces/i-tracking-service.js'
 import type {CurateUseCaseRunOptions, ICurateUseCase} from '../../core/interfaces/usecase/i-curate-use-case.js'
@@ -19,6 +19,7 @@ import {WorkspaceNotInitializedError} from '../cipher/validation/workspace-valid
 const CONTEXT_TREE_PATH = path.join(BRV_DIR, CONTEXT_TREE_DIR)
 
 export interface CurateUseCaseOptions {
+  fileSelectorOptions?: Partial<FileSelectorOptions>
   projectConfigStore: IProjectConfigStore
   terminal: ITerminal
   tokenStore: ITokenStore
@@ -26,12 +27,14 @@ export interface CurateUseCaseOptions {
 }
 
 export class CurateUseCase implements ICurateUseCase {
+  private readonly fileSelectorOptions?: Partial<FileSelectorOptions>
   private readonly projectConfigStore: IProjectConfigStore
   private readonly terminal: ITerminal
   private readonly tokenStore: ITokenStore
   private readonly trackingService: ITrackingService
 
   constructor(options: CurateUseCaseOptions) {
+    this.fileSelectorOptions = options.fileSelectorOptions
     this.projectConfigStore = options.projectConfigStore
     this.terminal = options.terminal
     this.tokenStore = options.tokenStore
@@ -104,6 +107,7 @@ export class CurateUseCase implements ICurateUseCase {
             },
           },
           type: 'directory',
+          ...this.fileSelectorOptions,
         })
 
         // User cancelled
