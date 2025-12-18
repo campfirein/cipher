@@ -18,8 +18,8 @@ export interface TerminalBreakpointReturn {
  * Hook for determining terminal breakpoint based on row count
  *
  * Breakpoints:
- * - compact: 0 - 22 rows (small terminal, limited space)
- * - normal: >= 22 rows (standard terminal, comfortable space)
+ * - compact: 0 - 23 rows (small terminal, limited space)
+ * - normal: >= 24 rows (standard terminal, comfortable space)
  *
  * @returns Current breakpoint and terminal dimensions
  */

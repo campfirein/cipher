@@ -21,7 +21,7 @@ import React, {createContext, useContext, useEffect, useMemo, useState} from 're
 import type {CommandContext, SlashCommand, SlashCommandActionReturn} from '../types.js'
 
 import {load} from '../../infra/repl/commands/index.js'
-import {useSlashCommandProcessor} from '../hooks/index.js'
+import {useSlashCommandProcessor, useTerminalBreakpoint} from '../hooks/index.js'
 import {useServices} from './services-context.js'
 
 interface CommandsContextValue {
@@ -38,6 +38,7 @@ interface CommandsProviderProps {
 export function CommandsProvider({children}: CommandsProviderProps): React.ReactElement {
   const [commands, setCommands] = useState<readonly SlashCommand[]>([])
   const {version} = useServices()
+  const {breakpoint, columns, rows} = useTerminalBreakpoint()
 
   useEffect(() => {
     const abortController = new AbortController()
@@ -55,10 +56,10 @@ export function CommandsProvider({children}: CommandsProviderProps): React.React
 
   const commandContext: CommandContext = useMemo(
     () => ({
-      slashCommands: commands,
+      screen: {breakpoint, columns, rows},
       version,
     }),
-    [commands, version],
+    [breakpoint, columns, rows, version],
   )
 
   const {handleSlashCommand} = useSlashCommandProcessor(commandContext, commands)

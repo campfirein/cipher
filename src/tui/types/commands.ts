@@ -66,6 +66,17 @@ export interface CommandContext {
     raw: string
   }
   /**
+   * Terminal screen dimensions and breakpoint
+   */
+  screen?: {
+    /** Terminal breakpoint tier */
+    breakpoint: 'compact' | 'normal'
+    /** Terminal width in columns */
+    columns: number
+    /** Terminal height in rows */
+    rows: number
+  }
+  /**
    * CLI version
    */
   version?: string
