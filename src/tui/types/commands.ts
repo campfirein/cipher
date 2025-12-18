@@ -66,31 +66,6 @@ export interface CommandContext {
     raw: string
   }
   /**
-   * All loaded slash commands (for help command, etc.)
-   */
-  slashCommands?: readonly SlashCommand[]
-  /**
-   * UI operations available to commands
-   */
-  ui?: {
-    /**
-     * Add a message to the message history
-     */
-    addMessage: (msg: Message) => void
-    /**
-     * Clear all messages from the history
-     */
-    clearMessages: () => void
-    /**
-     * Remove the currently displayed custom dialog
-     */
-    removeDialog: () => void
-    /**
-     * Set processing state
-     */
-    setIsProcessing: (processing: boolean) => void
-  }
-  /**
    * CLI version
    */
   version?: string
