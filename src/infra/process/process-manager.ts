@@ -1,0 +1,465 @@
+/**
+ * Process Manager - Manages the lifecycle of Transport and Agent processes.
+ *
+ * Architecture v0.5.0:
+ * - Spawns 2 separate child processes: Transport and Agent
+ * - Transport Process: Socket.IO server only (message hub)
+ * - Agent Process: TaskProcessor + UseCases + CipherAgent
+ * - ALL task communication via Socket.IO (NO IPC for tasks)
+ * - IPC only for process lifecycle: ready, shutdown, stopped
+ *
+ * Startup sequence:
+ * 1. fork('transport-worker.js')
+ * 2. Wait for Transport 'ready' with port
+ * 3. fork('agent-worker.js') with TRANSPORT_PORT env
+ * 4. Wait for Agent 'ready'
+ *
+ * Shutdown sequence:
+ * 1. Send 'shutdown' to Agent via IPC
+ * 2. Wait for Agent to exit
+ * 3. Send 'shutdown' to Transport via IPC
+ * 4. Wait for Transport to exit
+ */
+
+import {type ChildProcess, fork} from 'node:child_process'
+import path from 'node:path'
+import {fileURLToPath} from 'node:url'
+
+/**
+ * IPC messages for process lifecycle.
+ * Note: Task communication uses Socket.IO, NOT IPC.
+ */
+type IPCMessageToChild = {type: 'ping'} | {type: 'shutdown'}
+
+type TransportReadyMessage = {port: number; type: 'ready'}
+type AgentReadyMessage = {type: 'ready'}
+type ProcessErrorMessage = {error: string; type: 'error'}
+type ProcessStoppedMessage = {type: 'stopped'}
+type ProcessPongMessage = {type: 'pong'}
+
+type TransportMessage = ProcessErrorMessage | ProcessPongMessage | ProcessStoppedMessage | TransportReadyMessage
+type AgentMessage = AgentReadyMessage | ProcessErrorMessage | ProcessPongMessage | ProcessStoppedMessage
+
+/**
+ * Process state tracking.
+ */
+export type ProcessState = {
+  /** Agent child process */
+  agentProcess?: ChildProcess
+  /** Whether Agent is connected */
+  agentReady: boolean
+  /** Transport port (from Transport Process) */
+  port?: number
+  /** Whether system is running */
+  running: boolean
+  /** Transport child process */
+  transportProcess?: ChildProcess
+  /** Whether Transport is ready */
+  transportReady: boolean
+}
+
+/**
+ * ProcessManager configuration.
+ */
+export type ProcessManagerConfig = {
+  /** Timeout for process shutdown (ms) */
+  shutdownTimeoutMs?: number
+  /** Timeout for process startup (ms) */
+  startupTimeoutMs?: number
+}
+
+const DEFAULT_SHUTDOWN_TIMEOUT_MS = 5000
+const DEFAULT_STARTUP_TIMEOUT_MS = 30_000
+
+/**
+ * ProcessManager - Spawns and manages Transport and Agent processes.
+ *
+ * Architecture v0.5.0:
+ * - Single source of truth for child process lifecycle
+ * - Transport spawned first (needs port)
+ * - Agent spawned second (needs transport port)
+ * - Crash recovery: respawn on exit
+ */
+export class ProcessManager {
+  private readonly shutdownTimeoutMs: number
+  private readonly startupTimeoutMs: number
+  private state: ProcessState = {
+    agentReady: false,
+    running: false,
+    transportReady: false,
+  }
+
+  constructor(config?: ProcessManagerConfig) {
+    this.startupTimeoutMs = config?.startupTimeoutMs ?? DEFAULT_STARTUP_TIMEOUT_MS
+    this.shutdownTimeoutMs = config?.shutdownTimeoutMs ?? DEFAULT_SHUTDOWN_TIMEOUT_MS
+  }
+
+  /**
+   * Get current state.
+   */
+  getState(): Readonly<ProcessState> {
+    return {...this.state}
+  }
+
+  /**
+   * Get transport port (for TUI to connect).
+   */
+  getTransportPort(): number | undefined {
+    return this.state.port
+  }
+
+  /**
+   * Check if system is fully running.
+   */
+  isRunning(): boolean {
+    return this.state.running && this.state.transportReady && this.state.agentReady
+  }
+
+  /**
+   * Start Transport and Agent processes.
+   *
+   * Sequence:
+   * 1. Start Transport Process
+   * 2. Wait for Transport 'ready' with port
+   * 3. Start Agent Process with TRANSPORT_PORT env
+   * 4. Wait for Agent 'ready'
+   *
+   * @throws Error if startup fails or times out
+   */
+  async start(): Promise<void> {
+    if (this.state.running) {
+      return
+    }
+
+    // Step 1: Start Transport Process
+    const port = await this.startTransportProcess()
+    this.state.port = port
+    this.state.transportReady = true
+
+    // Step 2: Start Agent Process (with transport port)
+    await this.startAgentProcess(port)
+    this.state.agentReady = true
+
+    this.state.running = true
+  }
+
+  /**
+   * Stop all processes gracefully.
+   *
+   * Sequence:
+   * 1. Stop Agent first (so it can disconnect cleanly)
+   * 2. Stop Transport after Agent is gone
+   */
+  async stop(): Promise<void> {
+    if (!this.state.running) {
+      return
+    }
+
+    this.state.running = false
+
+    // Step 1: Stop Agent Process
+    await this.stopAgentProcess()
+    this.state.agentReady = false
+
+    // Step 2: Stop Transport Process
+    await this.stopTransportProcess()
+    this.state.transportReady = false
+    this.state.port = undefined
+  }
+
+  /**
+   * Get directory for worker files.
+   */
+  private getWorkerDir(): string {
+    return path.dirname(fileURLToPath(import.meta.url))
+  }
+
+  /**
+   * Send IPC message to child process.
+   */
+  private sendToChild(child: ChildProcess, message: IPCMessageToChild): void {
+    child.send?.(message)
+  }
+
+  /**
+   * Setup Agent crash recovery.
+   */
+  private setupAgentCrashRecovery(): void {
+    const {agentProcess} = this.state
+    if (!agentProcess) return
+
+    agentProcess.on('exit', (code, signal) => {
+      if (!this.state.running) return // Intentional shutdown
+
+      console.error(`[ProcessManager] Agent process exited unexpectedly (code=${code}, signal=${signal})`)
+      this.state.agentReady = false
+
+      // Respawn Agent
+      if (this.state.port) {
+        this.startAgentProcess(this.state.port)
+          .then(() => {
+            this.state.agentReady = true
+            console.log('[ProcessManager] Agent process respawned')
+          })
+          .catch((error) => {
+            console.error('[ProcessManager] Failed to respawn Agent:', error)
+          })
+      }
+    })
+  }
+
+  /**
+   * Setup Transport crash recovery.
+   */
+  private setupTransportCrashRecovery(): void {
+    const {transportProcess} = this.state
+    if (!transportProcess) return
+
+    transportProcess.on('exit', (code, signal) => {
+      if (!this.state.running) return // Intentional shutdown
+
+      console.error(`[ProcessManager] Transport process exited unexpectedly (code=${code}, signal=${signal})`)
+      this.state.transportReady = false
+
+      // Respawn Transport, then reconnect Agent
+      this.startTransportProcess()
+        .then(async (newPort) => {
+          this.state.port = newPort
+          this.state.transportReady = true
+          console.log(`[ProcessManager] Transport process respawned on port ${newPort}`)
+
+          // Agent needs to reconnect to new port
+          // For now, just restart Agent
+          if (this.state.agentProcess) {
+            await this.stopAgentProcess()
+            await this.startAgentProcess(newPort)
+            this.state.agentReady = true
+            console.log('[ProcessManager] Agent reconnected to new Transport')
+          }
+        })
+        .catch((error) => {
+          console.error('[ProcessManager] Failed to respawn Transport:', error)
+        })
+    })
+  }
+
+  /**
+   * Start Agent Process.
+   */
+  private async startAgentProcess(transportPort: number): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const workerPath = path.resolve(this.getWorkerDir(), 'agent-worker.js')
+
+      const child = fork(workerPath, [], {
+        env: {
+          ...process.env,
+          TRANSPORT_PORT: String(transportPort),
+        },
+        stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
+      })
+
+      this.state.agentProcess = child
+
+      const timeout = setTimeout(() => {
+        cleanup()
+        child.kill('SIGKILL')
+        reject(new Error(`Agent process startup timed out after ${this.startupTimeoutMs}ms`))
+      }, this.startupTimeoutMs)
+
+      const onMessage = (message: AgentMessage): void => {
+        if (message.type === 'ready') {
+          cleanup()
+          this.setupAgentCrashRecovery()
+          resolve()
+        } else if (message.type === 'error') {
+          cleanup()
+          child.kill('SIGKILL')
+          reject(new Error(`Agent process failed to start: ${message.error}`))
+        }
+      }
+
+      const onError = (error: Error): void => {
+        cleanup()
+        reject(new Error(`Agent process error: ${error.message}`))
+      }
+
+      const onExit = (code: null | number): void => {
+        cleanup()
+        reject(new Error(`Agent process exited during startup with code ${code}`))
+      }
+
+      const cleanup = (): void => {
+        clearTimeout(timeout)
+        child.off('message', onMessage)
+        child.off('error', onError)
+        child.off('exit', onExit)
+      }
+
+      child.on('message', onMessage)
+      child.on('error', onError)
+      child.on('exit', onExit)
+
+      // Forward stdout/stderr
+      child.stdout?.pipe(process.stdout)
+      child.stderr?.pipe(process.stderr)
+    })
+  }
+
+  /**
+   * Start Transport Process.
+   * @returns The port Transport is listening on
+   */
+  private async startTransportProcess(): Promise<number> {
+    return new Promise((resolve, reject) => {
+      const workerPath = path.resolve(this.getWorkerDir(), 'transport-worker.js')
+
+      const child = fork(workerPath, [], {
+        stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
+      })
+
+      this.state.transportProcess = child
+
+      const timeout = setTimeout(() => {
+        cleanup()
+        child.kill('SIGKILL')
+        reject(new Error(`Transport process startup timed out after ${this.startupTimeoutMs}ms`))
+      }, this.startupTimeoutMs)
+
+      const onMessage = (message: TransportMessage): void => {
+        if (message.type === 'ready') {
+          cleanup()
+          this.setupTransportCrashRecovery()
+          resolve(message.port)
+        } else if (message.type === 'error') {
+          cleanup()
+          child.kill('SIGKILL')
+          reject(new Error(`Transport process failed to start: ${message.error}`))
+        }
+      }
+
+      const onError = (error: Error): void => {
+        cleanup()
+        reject(new Error(`Transport process error: ${error.message}`))
+      }
+
+      const onExit = (code: null | number): void => {
+        cleanup()
+        reject(new Error(`Transport process exited during startup with code ${code}`))
+      }
+
+      const cleanup = (): void => {
+        clearTimeout(timeout)
+        child.off('message', onMessage)
+        child.off('error', onError)
+        child.off('exit', onExit)
+      }
+
+      child.on('message', onMessage)
+      child.on('error', onError)
+      child.on('exit', onExit)
+
+      // Forward stdout/stderr
+      child.stdout?.pipe(process.stdout)
+      child.stderr?.pipe(process.stderr)
+    })
+  }
+
+  /**
+   * Stop Agent Process.
+   */
+  private async stopAgentProcess(): Promise<void> {
+    const {agentProcess} = this.state
+    if (!agentProcess) return
+
+    return new Promise((resolve) => {
+      const timeout = setTimeout(() => {
+        agentProcess.kill('SIGKILL')
+        this.state.agentProcess = undefined
+        resolve()
+      }, this.shutdownTimeoutMs)
+
+      const onMessage = (message: AgentMessage): void => {
+        if (message.type === 'stopped') {
+          clearTimeout(timeout)
+          this.state.agentProcess = undefined
+          resolve()
+        }
+      }
+
+      const onExit = (): void => {
+        clearTimeout(timeout)
+        this.state.agentProcess = undefined
+        resolve()
+      }
+
+      agentProcess.on('message', onMessage)
+      agentProcess.on('exit', onExit)
+
+      // Send shutdown command
+      this.sendToChild(agentProcess, {type: 'shutdown'})
+    })
+  }
+
+  /**
+   * Stop Transport Process.
+   */
+  private async stopTransportProcess(): Promise<void> {
+    const {transportProcess} = this.state
+    if (!transportProcess) return
+
+    return new Promise((resolve) => {
+      const timeout = setTimeout(() => {
+        transportProcess.kill('SIGKILL')
+        this.state.transportProcess = undefined
+        resolve()
+      }, this.shutdownTimeoutMs)
+
+      const onMessage = (message: TransportMessage): void => {
+        if (message.type === 'stopped') {
+          clearTimeout(timeout)
+          this.state.transportProcess = undefined
+          resolve()
+        }
+      }
+
+      const onExit = (): void => {
+        clearTimeout(timeout)
+        this.state.transportProcess = undefined
+        resolve()
+      }
+
+      transportProcess.on('message', onMessage)
+      transportProcess.on('exit', onExit)
+
+      // Send shutdown command
+      this.sendToChild(transportProcess, {type: 'shutdown'})
+    })
+  }
+}
+
+// ============================================================================
+// Singleton
+// ============================================================================
+
+let instance: ProcessManager | undefined
+
+/**
+ * Get or create the ProcessManager singleton.
+ */
+export function getProcessManager(config?: ProcessManagerConfig): ProcessManager {
+  if (!instance) {
+    instance = new ProcessManager(config)
+  }
+
+  return instance
+}
+
+/**
+ * Dispose the ProcessManager singleton.
+ */
+export async function disposeProcessManager(): Promise<void> {
+  if (instance) {
+    await instance.stop()
+    instance = undefined
+  }
+}

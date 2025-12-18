@@ -1,3 +1,5 @@
+// TODO(v0.5.0): Remove this file. ConsumerService is replaced by CoreProcess → TaskProcessor.
+
 /**
  * Consumer Hook
  *

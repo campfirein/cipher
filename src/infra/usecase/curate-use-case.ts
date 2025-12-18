@@ -4,11 +4,13 @@ import path from 'node:path'
 import open from 'open'
 
 import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
+import type {ICipherAgent} from '../../core/interfaces/cipher/i-cipher-agent.js'
 import type {IProjectConfigStore} from '../../core/interfaces/i-project-config-store.js'
 import type {ITerminal} from '../../core/interfaces/i-terminal.js'
 import type {ITokenStore} from '../../core/interfaces/i-token-store.js'
 import type {ITrackingService} from '../../core/interfaces/i-tracking-service.js'
 import type {
+  CurateExecuteOptions,
   CurateTransportCallbacks,
   CurateTransportOptions,
   CurateUseCaseRunOptions,
@@ -72,6 +74,70 @@ export class CurateUseCase implements ICurateUseCase {
     fs.writeFileSync(contextFilePath, initialContent, 'utf8')
 
     return contextFilePath
+  }
+
+  /**
+   * Execute with an injected agent (v7 architecture).
+   * UseCase receives agent from TaskProcessor, doesn't manage agent lifecycle.
+   *
+   * Key differences from runForTransport:
+   * - Agent is passed in (already started, long-lived)
+   * - No agent.start() or lifecycle management
+   * - Agent memory persists across multiple calls
+   */
+  public async executeWithAgent(
+    agent: ICipherAgent,
+    options: CurateExecuteOptions,
+    callbacks?: CurateTransportCallbacks,
+  ): Promise<void> {
+    const {content, fileReferenceInstructions} = options
+
+    // Initialize storage for tool call tracking
+    const storage = await getAgentStorage()
+    let executionId: null | string = null
+
+    try {
+      // Create execution with status='running'
+      executionId = storage.createExecution('curate', content)
+
+      // Build prompt with optional file reference instructions
+      const prompt = fileReferenceInstructions ? `${content}\n${fileReferenceInstructions}` : content
+
+      callbacks?.onStarted?.()
+
+      // Setup streaming via event bus (agent already started, has event bus)
+      // Note: We cast to CipherAgent to access agentEventBus (not exposed in ICipherAgent)
+      const cipherAgent = agent as CipherAgent
+      if (cipherAgent.agentEventBus) {
+        this.setupStreamingCallbacks(cipherAgent, callbacks, executionId)
+      }
+
+      // Execute with autonomous mode and curate commandType
+      // Use a unique sessionId for this execution within the long-lived agent
+      // Note: Cast to CipherAgent for full execute signature (ICipherAgent is minimal)
+      const sessionId = this.generateSessionId()
+      const response = await cipherAgent.execute(prompt, sessionId, {
+        executionContext: {commandType: 'curate'},
+        mode: 'autonomous',
+      })
+
+      // Mark execution as completed
+      storage.updateExecutionStatus(executionId, 'completed', response)
+
+      // Notify completion
+      callbacks?.onCompleted?.(response)
+
+      // Cleanup old executions
+      storage.cleanupOldExecutions(100)
+    } catch (error) {
+      // Mark execution as failed
+      if (executionId) {
+        const errorMessage = error instanceof Error ? error.message : String(error)
+        storage.updateExecutionStatus(executionId, 'failed', undefined, errorMessage)
+      }
+
+      callbacks?.onError?.(error instanceof Error ? error.message : String(error))
+    }
   }
 
   /**

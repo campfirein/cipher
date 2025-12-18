@@ -4,7 +4,70 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {io, Socket} from 'socket.io-client'
 
+import type {TaskCallbacks, TaskInput} from '../../../../src/infra/core/task-processor.js'
+
 import {CoreProcess} from '../../../../src/infra/core/core-process.js'
+
+/**
+ * Mock TaskProcessor for testing broadcast events
+ */
+class MockTaskProcessor {
+  private mockBehavior: 'error' | 'streaming' | 'success' = 'success'
+  private streamChunks: string[] = ['Hello ', 'World', '!']
+
+  cancel(_taskId: string): boolean {
+    return true
+  }
+
+  isRunning(_taskId: string): boolean {
+    return false
+  }
+
+  async process(_input: TaskInput, callbacks?: TaskCallbacks): Promise<void> {
+    // Simulate async start
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 10)
+    })
+
+    callbacks?.onStarted?.()
+
+    switch (this.mockBehavior) {
+      case 'error': {
+        callbacks?.onError?.('Mock error occurred')
+        break
+      }
+
+      case 'streaming': {
+        for (const chunk of this.streamChunks) {
+          // eslint-disable-next-line no-await-in-loop
+          await new Promise<void>((resolve) => {
+            setTimeout(resolve, 5)
+          })
+          callbacks?.onChunk?.(chunk)
+        }
+
+        callbacks?.onToolCall?.({args: {path: '/test'}, callId: 'call-1', name: 'read_file'})
+        callbacks?.onToolResult?.({callId: 'call-1', result: 'file content', success: true})
+        callbacks?.onCompleted?.('Streaming completed')
+        break
+      }
+
+      case 'success': {
+        callbacks?.onCompleted?.('Task completed successfully')
+        break
+      }
+    }
+  }
+
+  setAuthToken(_token: {accessToken: string; sessionKey: string}): void {
+    // Mock
+  }
+
+  setMockBehavior(behavior: 'error' | 'streaming' | 'success', chunks?: string[]): void {
+    this.mockBehavior = behavior
+    if (chunks) this.streamChunks = chunks
+  }
+}
 
 describe('CoreProcess (Integration)', function () {
   this.timeout(10_000) // 10s timeout for integration tests
@@ -216,6 +279,137 @@ describe('CoreProcess (Integration)', function () {
 
       expect(response.success).to.be.true
       expect(response.data.success).to.be.true
+    })
+  })
+
+  describe('Task Lifecycle Events', () => {
+    let mockProcessor: MockTaskProcessor
+
+    beforeEach(async () => {
+      mockProcessor = new MockTaskProcessor()
+      // @ts-expect-error - Using mock processor for testing
+      core = new CoreProcess({projectRoot: tempDir, taskProcessor: mockProcessor})
+      await core.start()
+
+      const state = core.getState()
+      client = io(`http://127.0.0.1:${state.port}`, {timeout: 2000})
+
+      await new Promise<void>((resolve, reject) => {
+        client!.on('connect', () => resolve())
+        client!.on('connect_error', (err) => reject(err))
+        setTimeout(() => reject(new Error('Connection timeout')), 3000)
+      })
+    })
+
+    it('should broadcast task:started when task begins', async () => {
+      mockProcessor.setMockBehavior('success')
+
+      const startedPromise = new Promise<{taskId: string}>((resolve) => {
+        client!.on('task:started', resolve)
+      })
+
+      client!.emit('task:create', {input: 'test input', type: 'curate'}, () => {})
+
+      const started = await startedPromise
+      expect(started.taskId).to.be.a('string')
+    })
+
+    it('should broadcast task:completed when task succeeds', async () => {
+      mockProcessor.setMockBehavior('success')
+
+      const completedPromise = new Promise<{result: string; taskId: string}>((resolve) => {
+        client!.on('task:completed', resolve)
+      })
+
+      client!.emit('task:create', {input: 'test input', type: 'curate'}, () => {})
+
+      const completed = await completedPromise
+      expect(completed.taskId).to.be.a('string')
+      expect(completed.result).to.equal('Task completed successfully')
+    })
+
+    it('should broadcast task:error when task fails', async () => {
+      mockProcessor.setMockBehavior('error')
+
+      const errorPromise = new Promise<{error: string; taskId: string}>((resolve) => {
+        client!.on('task:error', resolve)
+      })
+
+      client!.emit('task:create', {input: 'test input', type: 'curate'}, () => {})
+
+      const error = await errorPromise
+      expect(error.taskId).to.be.a('string')
+      expect(error.error).to.equal('Mock error occurred')
+    })
+
+    it('should broadcast task:chunk for streaming output', async () => {
+      mockProcessor.setMockBehavior('streaming', ['chunk1', 'chunk2', 'chunk3'])
+
+      const chunks: string[] = []
+      const completedPromise = new Promise<void>((resolve) => {
+        client!.on('task:chunk', (data: {content: string}) => {
+          chunks.push(data.content)
+        })
+        client!.on('task:completed', () => resolve())
+      })
+
+      client!.emit('task:create', {input: 'test input', type: 'curate'}, () => {})
+
+      await completedPromise
+      expect(chunks).to.deep.equal(['chunk1', 'chunk2', 'chunk3'])
+    })
+
+    it('should broadcast task:toolCall and task:toolResult', async () => {
+      mockProcessor.setMockBehavior('streaming')
+
+      const toolCallPromise = new Promise<{callId: string; name: string; taskId: string}>((resolve) => {
+        client!.on('task:toolCall', resolve)
+      })
+
+      const toolResultPromise = new Promise<{callId: string; success: boolean; taskId: string}>((resolve) => {
+        client!.on('task:toolResult', resolve)
+      })
+
+      client!.emit('task:create', {input: 'test input', type: 'curate'}, () => {})
+
+      const toolCall = await toolCallPromise
+      expect(toolCall.taskId).to.be.a('string')
+      expect(toolCall.name).to.equal('read_file')
+      expect(toolCall.callId).to.equal('call-1')
+
+      const toolResult = await toolResultPromise
+      expect(toolResult.taskId).to.be.a('string')
+      expect(toolResult.callId).to.equal('call-1')
+      expect(toolResult.success).to.be.true
+    })
+
+    it('should broadcast full task lifecycle in order', async () => {
+      mockProcessor.setMockBehavior('streaming', ['Hello'])
+
+      const events: string[] = []
+      const completedPromise = new Promise<void>((resolve) => {
+        client!.on('task:ack', () => events.push('ack'))
+        client!.on('task:started', () => events.push('started'))
+        client!.on('task:chunk', () => events.push('chunk'))
+        client!.on('task:toolCall', () => events.push('toolCall'))
+        client!.on('task:toolResult', () => events.push('toolResult'))
+        client!.on('task:completed', () => {
+          events.push('completed')
+          resolve()
+        })
+      })
+
+      client!.emit('task:create', {input: 'test input', type: 'curate'}, () => {})
+
+      await completedPromise
+
+      // Verify order: ack -> started -> chunk -> toolCall -> toolResult -> completed
+      expect(events[0]).to.equal('ack')
+      expect(events[1]).to.equal('started')
+      expect(events).to.include('chunk')
+      expect(events).to.include('toolCall')
+      expect(events).to.include('toolResult')
+      expect(events.at(-1)).to.equal('completed')
     })
   })
 })

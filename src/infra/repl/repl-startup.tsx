@@ -11,12 +11,18 @@ import {stopQueuePollingService} from '../cipher/consumer/queue-polling-service.
 
 /**
  * Options for starting the REPL
+ *
+ * Architecture v0.5.0:
+ * - transportPort: Port for TUI to connect to Transport via Socket.IO
+ * - TUI is a Socket.IO client, Transport is the only server
  */
 export interface ReplOptions {
   onboardingPreferenceStore: IOnboardingPreferenceStore
   projectConfigStore: IProjectConfigStore
   tokenStore: ITokenStore
   trackingService: ITrackingService
+  /** Port for TUI to connect to Transport (v0.5.0 architecture) */
+  transportPort?: number
   version: string
 }
 
@@ -24,7 +30,12 @@ export interface ReplOptions {
  * Start the ByteRover REPL
  */
 export async function startRepl(options: ReplOptions): Promise<void> {
-  const {onboardingPreferenceStore, projectConfigStore, tokenStore, trackingService, version} = options
+  const {onboardingPreferenceStore, projectConfigStore, tokenStore, trackingService, transportPort, version} = options
+
+  // Log transport port for debugging (v0.5.0 architecture)
+  if (transportPort) {
+    console.log(`[REPL] Transport available on port ${transportPort}`)
+  }
 
   // Check initial auth state
   const authToken = await tokenStore.load()

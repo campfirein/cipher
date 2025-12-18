@@ -1,3 +1,5 @@
+// TODO(v0.5.0): Remove this file. TUI receives state via Transport events, not SQLite polling.
+
 /**
  * Consumer Context
  *

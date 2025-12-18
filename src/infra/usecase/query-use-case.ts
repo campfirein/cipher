@@ -1,12 +1,14 @@
 import {randomUUID} from 'node:crypto'
 
 import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
+import type {ICipherAgent} from '../../core/interfaces/cipher/i-cipher-agent.js'
 import type {IProjectConfigStore} from '../../core/interfaces/i-project-config-store.js'
 import type {ITerminal} from '../../core/interfaces/i-terminal.js'
 import type {ITokenStore} from '../../core/interfaces/i-token-store.js'
 import type {ITrackingService} from '../../core/interfaces/i-tracking-service.js'
 import type {
   IQueryUseCase,
+  QueryExecuteOptions,
   QueryTransportCallbacks,
   QueryTransportOptions,
   QueryUseCaseRunOptions,
@@ -46,6 +48,67 @@ export class QueryUseCase implements IQueryUseCase {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   protected createCipherAgent(llmConfig: any, brvConfig: BrvConfig): CipherAgent {
     return new CipherAgent(llmConfig, brvConfig)
+  }
+
+  /**
+   * Execute with an injected agent (v7 architecture).
+   * UseCase receives agent from TaskProcessor, doesn't manage agent lifecycle.
+   *
+   * Key differences from runForTransport:
+   * - Agent is passed in (already started, long-lived)
+   * - No agent.start() or lifecycle management
+   * - Agent memory persists across multiple calls
+   */
+  public async executeWithAgent(
+    agent: ICipherAgent,
+    options: QueryExecuteOptions,
+    callbacks?: QueryTransportCallbacks,
+  ): Promise<void> {
+    const {query} = options
+
+    // Initialize storage for tool call tracking
+    const storage = await getAgentStorage()
+    let executionId: null | string = null
+
+    try {
+      // Create execution with status='running'
+      executionId = storage.createExecution('query', query)
+
+      callbacks?.onStarted?.()
+
+      // Setup streaming via event bus (agent already started, has event bus)
+      // Note: We cast to CipherAgent to access agentEventBus (not exposed in ICipherAgent)
+      const cipherAgent = agent as CipherAgent
+      if (cipherAgent.agentEventBus) {
+        this.setupStreamingCallbacks(cipherAgent, callbacks, executionId)
+      }
+
+      // Execute with autonomous mode and query commandType
+      // Use a unique sessionId for this execution within the long-lived agent
+      const sessionId = this.generateSessionId()
+      const prompt = `Search the context tree for: ${query}`
+      const response = await cipherAgent.execute(prompt, sessionId, {
+        executionContext: {commandType: 'query'},
+        mode: 'autonomous',
+      })
+
+      // Mark execution as completed
+      storage.updateExecutionStatus(executionId, 'completed', response)
+
+      // Notify completion
+      callbacks?.onCompleted?.(response)
+
+      // Cleanup old executions
+      storage.cleanupOldExecutions(100)
+    } catch (error) {
+      // Mark execution as failed
+      if (executionId) {
+        const errorMessage = error instanceof Error ? error.message : String(error)
+        storage.updateExecutionStatus(executionId, 'failed', undefined, errorMessage)
+      }
+
+      callbacks?.onError?.(error instanceof Error ? error.message : String(error))
+    }
   }
 
   /**

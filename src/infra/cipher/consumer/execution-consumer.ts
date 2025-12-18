@@ -1,3 +1,5 @@
+// TODO(v0.5.0): Remove this file. ExecutionConsumer is replaced by TaskProcessor.
+
 import {randomUUID} from 'node:crypto'
 
 import type {BrvConfig} from '../../../core/domain/entities/brv-config.js'
