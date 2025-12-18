@@ -1,5 +1,6 @@
 import type {TerminationReason} from '../../domain/cipher/agent/agent-state.js'
 import type {SessionMetadata} from '../../domain/cipher/storage/history-types.js'
+import type {GenerateResponse, StreamingEvent, StreamOptions} from '../../domain/cipher/streaming/types.js'
 import type {ConversationMetadata} from '../../domain/cipher/system-prompt/types.js'
 
 /**
@@ -63,6 +64,15 @@ export interface AgentState {
  */
 export interface ICipherAgent {
   /**
+   * Cancels the currently running turn for a session.
+   * Safe to call even if no run is in progress.
+   *
+   * @param sessionId - Session ID to cancel
+   * @returns true if a run was in progress and was signaled to abort; false otherwise
+   */
+  cancel(sessionId: string): Promise<boolean>
+
+  /**
    * Delete a session completely (memory + history)
    * @param sessionId - Session ID to delete
    * @returns True if session existed and was deleted
@@ -76,6 +86,17 @@ export interface ICipherAgent {
    * @returns Agent response
    */
   execute(input: string, sessionId?: string): Promise<string>
+
+  /**
+   * Generate a complete response (waits for full completion).
+   * Wrapper around stream() that collects all events and returns final result.
+   *
+   * @param input - User message
+   * @param sessionId - Session ID
+   * @param options - Optional configuration
+   * @returns Complete response with content, usage, and tool calls
+   */
+  generate(input: string, sessionId: string, options?: StreamOptions): Promise<GenerateResponse>
 
   /**
    * Get session metadata without loading full history
@@ -107,4 +128,15 @@ export interface ICipherAgent {
    * Must be called before execute()
    */
   start(): Promise<void>
+
+  /**
+   * Stream a response (yields events as they arrive).
+   * This is the recommended method for real-time streaming UI updates.
+   *
+   * @param input - User message
+   * @param sessionId - Session ID for the conversation
+   * @param options - Optional configuration (signal for cancellation)
+   * @returns AsyncIterator that yields StreamingEvent objects
+   */
+  stream(input: string, sessionId: string, options?: StreamOptions): Promise<AsyncIterableIterator<StreamingEvent>>
 }

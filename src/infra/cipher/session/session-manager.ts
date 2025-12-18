@@ -2,9 +2,8 @@ import {randomUUID} from 'node:crypto'
 
 import type {CipherAgentServices, SessionManagerConfig} from '../../../core/interfaces/cipher/cipher-services.js'
 import type {IChatSession} from '../../../core/interfaces/cipher/i-chat-session.js'
-import type {ByteRoverHttpConfig} from '../agent-service-factory.js'
 
-import {createSessionServices} from '../agent-service-factory.js'
+import {type ByteRoverHttpConfig, createSessionServices} from '../agent/service-initializer.js'
 import {ChatSession} from './chat-session.js'
 import {generateSessionTitle} from './title-generator.js'
 

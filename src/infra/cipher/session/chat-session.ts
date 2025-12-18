@@ -20,6 +20,7 @@ const SESSION_EVENT_NAMES: readonly [
   'llmservice:unsupportedInput',
   'message:queued',
   'message:dequeued',
+  'run:complete',
 ] = [
   'llmservice:thinking',
   'llmservice:chunk',
@@ -30,6 +31,7 @@ const SESSION_EVENT_NAMES: readonly [
   'llmservice:unsupportedInput',
   'message:queued',
   'message:dequeued',
+  'run:complete',
 ]
 
 /**
@@ -240,6 +242,69 @@ export class ChatSession implements IChatSession {
 
     // Execute immediately
     return this.run(input, {executionContext: options?.executionContext})
+  }
+
+  /**
+   * Stream execution with real-time event emission.
+   * Unlike run(), this does not return a response directly - events are yielded via the agent's stream().
+   * Emits run:complete event when finished.
+   *
+   * @param input - User message
+   * @param options - Execution options with optional signal for cancellation
+   * @param options.executionContext - Optional execution context for the LLM
+   * @param options.signal - Optional AbortSignal for cancellation
+   */
+  public async streamRun(
+    input: string,
+    options?: {
+      executionContext?: ExecutionContext
+      signal?: AbortSignal
+    },
+  ): Promise<void> {
+    const startTime = Date.now()
+    let finishReason: 'cancelled' | 'error' | 'max-iterations' | 'stop' | 'timeout' = 'stop'
+    let error: Error | undefined
+
+    // Create abort controller for cancellation
+    this.currentController = new AbortController()
+    this.isExecuting = true
+
+    // Link external signal if provided
+    if (options?.signal) {
+      options.signal.addEventListener('abort', () => this.currentController?.abort())
+    }
+
+    try {
+      // Process any queued messages first, coalescing with current input
+      const queued = this.messageQueue.dequeueAll()
+      const finalInput = queued ? `${queued.content}\n\nAlso: ${input}` : input
+
+      // Delegate to service - it handles everything and emits events
+      await this.llmService.completeTask(finalInput, this.id, {
+        executionContext: options?.executionContext,
+        signal: this.currentController.signal,
+      })
+    } catch (error_) {
+      // Check if cancelled
+      if (this.currentController.signal.aborted) {
+        finishReason = 'cancelled'
+      } else {
+        finishReason = 'error'
+        error = error_ instanceof Error ? error_ : new Error(String(error_))
+      }
+    } finally {
+      this.isExecuting = false
+      this.currentController = undefined
+
+      // Emit run:complete event
+      const durationMs = Date.now() - startTime
+      this.eventBus.emit('run:complete', {
+        durationMs,
+        error,
+        finishReason,
+        stepCount: 0, // Can be enhanced later to track actual step count
+      })
+    }
   }
 
   /**

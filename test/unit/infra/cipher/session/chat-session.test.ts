@@ -61,6 +61,7 @@ describe('ChatSession', () => {
 
   describe('constructor', () => {
     it('should setup event forwarding for all SESSION_EVENT_NAMES', () => {
+      // These are the events that ChatSession actually forwards (defined in chat-session.ts)
       const eventNames = [
         'llmservice:thinking',
         'llmservice:chunk',
@@ -69,6 +70,8 @@ describe('ChatSession', () => {
         'llmservice:toolResult',
         'llmservice:error',
         'llmservice:unsupportedInput',
+        'message:queued',
+        'message:dequeued',
       ]
 
       const agentEmitStub = sandbox.stub(agentEventBus, 'emit')
@@ -221,9 +224,6 @@ describe('ChatSession', () => {
       expect((mockLLMService.completeTask as SinonStub).calledOnce).to.be.true
       expect((mockLLMService.completeTask as SinonStub).firstCall.args[0]).to.equal('test input')
       expect((mockLLMService.completeTask as SinonStub).firstCall.args[1]).to.equal(sessionId)
-      expect((mockLLMService.completeTask as SinonStub).firstCall.args[2]).to.deep.include({
-        mode: undefined,
-      })
       expect((mockLLMService.completeTask as SinonStub).firstCall.args[2].signal).to.be.instanceOf(AbortSignal)
     })
 
@@ -240,14 +240,14 @@ describe('ChatSession', () => {
       expect(signalSpy.firstCall.args[0]).to.be.instanceOf(AbortSignal)
     })
 
-    it('should support mode query', async () => {
-      await session.run('input', {mode: 'query'})
+    it('should support executionContext with commandType query', async () => {
+      await session.run('input', {executionContext: {commandType: 'query'}})
 
       expect((mockLLMService.completeTask as SinonStub).calledOnce).to.be.true
       expect((mockLLMService.completeTask as SinonStub).firstCall.args[0]).to.equal('input')
       expect((mockLLMService.completeTask as SinonStub).firstCall.args[1]).to.equal(sessionId)
       expect((mockLLMService.completeTask as SinonStub).firstCall.args[2]).to.deep.include({
-        mode: 'query',
+        executionContext: {commandType: 'query'},
       })
       expect((mockLLMService.completeTask as SinonStub).firstCall.args[2].signal).to.be.instanceOf(AbortSignal)
     })
@@ -355,8 +355,8 @@ describe('ChatSession', () => {
 
       session.dispose()
 
-      // Should call off for each event name
-      expect(offStub.callCount).to.equal(7) // 7 SESSION_EVENT_NAMES
+      // Should call off for each event name (10 events in ChatSession's SESSION_EVENT_NAMES)
+      expect(offStub.callCount).to.equal(10)
     })
 
     it('should clear forwarders map', () => {

@@ -5,7 +5,7 @@ import type {ITerminal} from '../../core/interfaces/i-terminal.js'
 
 import {getCurrentConfig, isDevelopment} from '../../config/environment.js'
 import {PROJECT} from '../../constants.js'
-import {CipherAgent} from '../../infra/cipher/cipher-agent.js'
+import {CipherAgent} from '../../infra/cipher/agent/index.js'
 import {ExitCode, ExitError, exitWithCode} from '../../infra/cipher/exit-codes.js'
 import {displayInfo, startInteractiveLoop} from '../../infra/cipher/interactive-loop.js'
 import {WorkspaceNotInitializedError} from '../../infra/cipher/validation/workspace-validator.js'

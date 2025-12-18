@@ -5,7 +5,7 @@ import type {Execution} from '../storage/agent-storage.js'
 
 import {getCurrentConfig} from '../../../config/environment.js'
 import {PROJECT} from '../../../constants.js'
-import {CipherAgent} from '../cipher-agent.js'
+import {CipherAgent} from '../agent/index.js'
 import {AgentStorage, closeAgentStorage, getAgentStorage, getAgentStorageSync} from '../storage/agent-storage.js'
 
 // Heartbeat interval for consumer liveness detection (10 seconds)

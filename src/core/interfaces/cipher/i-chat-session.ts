@@ -97,4 +97,22 @@ export interface IChatSession {
       imageData?: unknown
     },
   ): Promise<string | {position: number; queued: true}>
+
+  /**
+   * Stream execution with real-time event emission.
+   * Unlike run(), this does not return a response directly - events are yielded via the agent's stream().
+   * Emits run:complete event when finished.
+   *
+   * @param input - User message
+   * @param options - Execution options with optional signal for cancellation
+   * @param options.executionContext - Optional execution context for the LLM
+   * @param options.signal - Optional AbortSignal for cancellation
+   */
+  streamRun(
+    input: string,
+    options?: {
+      executionContext?: ExecutionContext
+      signal?: AbortSignal
+    },
+  ): Promise<void>
 }

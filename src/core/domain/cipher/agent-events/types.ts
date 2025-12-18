@@ -33,6 +33,7 @@ export const SESSION_EVENT_NAMES = [
   'llmservice:warning',
   'message:dequeued',
   'message:queued',
+  'run:complete',
 ] as const
 
 /**
@@ -451,6 +452,22 @@ export interface AgentEventMap {
     position: number
     sessionId: string
   }
+
+  /**
+   * Emitted when a session run completes (streaming API lifecycle event).
+   * @property {number} durationMs - Execution duration in milliseconds
+   * @property {Error} [error] - Error if terminated due to error
+   * @property {'cancelled' | 'error' | 'max-iterations' | 'stop' | 'timeout'} finishReason - Why execution terminated
+   * @property {string} sessionId - ID of the session
+   * @property {number} stepCount - Number of agentic steps completed
+   */
+  'run:complete': {
+    durationMs: number
+    error?: Error
+    finishReason: 'cancelled' | 'error' | 'max-iterations' | 'stop' | 'timeout'
+    sessionId: string
+    stepCount: number
+  }
 }
 
 /**
@@ -649,6 +666,20 @@ export interface SessionEventMap {
       queuedAt: number
     }
     position: number
+  }
+
+  /**
+   * Emitted when a session run completes (streaming API lifecycle event).
+   * @property {number} durationMs - Execution duration in milliseconds
+   * @property {Error} [error] - Error if terminated due to error
+   * @property {'cancelled' | 'error' | 'max-iterations' | 'stop' | 'timeout'} finishReason - Why execution terminated
+   * @property {number} stepCount - Number of agentic steps completed
+   */
+  'run:complete': {
+    durationMs: number
+    error?: Error
+    finishReason: 'cancelled' | 'error' | 'max-iterations' | 'stop' | 'timeout'
+    stepCount: number
   }
 }
 

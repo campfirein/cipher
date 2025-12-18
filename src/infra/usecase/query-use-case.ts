@@ -11,7 +11,7 @@ import {getCurrentConfig} from '../../config/environment.js'
 import {PROJECT} from '../../constants.js'
 import {formatError} from '../../utils/error-handler.js'
 import {formatToolCall, formatToolResult} from '../../utils/tool-display-formatter.js'
-import {CipherAgent} from '../cipher/cipher-agent.js'
+import {CipherAgent} from '../cipher/agent/index.js'
 import {getAgentStorage, getAgentStorageSync} from '../cipher/storage/agent-storage.js'
 import {WorkspaceNotInitializedError} from '../cipher/validation/workspace-validator.js'
 

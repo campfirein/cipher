@@ -31,7 +31,7 @@ import type {FileSystemService} from '../../src/infra/cipher/file-system/file-sy
 import type {ContextManager} from '../../src/infra/cipher/llm/context/context-manager.js'
 import type {MemoryManager} from '../../src/infra/cipher/memory/memory-manager.js'
 import type {ProcessService} from '../../src/infra/cipher/process/process-service.js'
-import type {SimplePromptFactory} from '../../src/infra/cipher/system-prompt/simple-prompt-factory.js'
+import type {SystemPromptManager} from '../../src/infra/cipher/system-prompt/system-prompt-manager.js'
 import type {ToolManager} from '../../src/infra/cipher/tools/tool-manager.js'
 import type {ToolProvider} from '../../src/infra/cipher/tools/tool-provider.js'
 
@@ -56,6 +56,7 @@ export function createMockContextManager<T = unknown>(
 ): ContextManager<T> {
   const mock: Partial<ContextManager<T>> = {
     clearHistory: sandbox.stub().resolves(),
+    flush: sandbox.stub().resolves(),
     getMessages: sandbox.stub().returns([]),
     ...overrides,
   }
@@ -199,21 +200,22 @@ export function createMockProcessService(sandbox: SinonSandbox, overrides?: Part
 }
 
 /**
- * Creates a mock SimplePromptFactory with commonly-used methods stubbed.
+ * Creates a mock SystemPromptManager with commonly-used methods stubbed.
  *
  * @param sandbox - Sinon sandbox for creating stubs
  * @param overrides - Optional overrides for specific methods
- * @returns Mock SimplePromptFactory (cast to full type for test usage)
+ * @returns Mock SystemPromptManager (cast to full type for test usage)
  */
-export function createMockPromptFactory(
+export function createMockSystemPromptManager(
   sandbox: SinonSandbox,
-  overrides?: Partial<SimplePromptFactory>,
-): SimplePromptFactory {
-  const mock: Partial<SimplePromptFactory> = {
+  overrides?: Partial<SystemPromptManager>,
+): SystemPromptManager {
+  const mock: Partial<SystemPromptManager> = {
+    build: sandbox.stub().resolves('mock system prompt'),
     ...overrides,
   }
 
-  return mock as SimplePromptFactory
+  return mock as SystemPromptManager
 }
 
 /**
@@ -334,7 +336,7 @@ export function createMockCipherAgentServices(
     memoryManager: createMockMemoryManager(sandbox),
     policyEngine: createMockPolicyEngine(sandbox),
     processService: createMockProcessService(sandbox),
-    promptFactory: createMockPromptFactory(sandbox),
+    systemPromptManager: createMockSystemPromptManager(sandbox),
     toolManager: createMockToolManager(sandbox),
     toolProvider: createMockToolProvider(sandbox),
     toolScheduler: createMockToolScheduler(sandbox),
