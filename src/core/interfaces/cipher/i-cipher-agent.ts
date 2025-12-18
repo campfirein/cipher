@@ -9,7 +9,7 @@ import type {ConversationMetadata} from '../../domain/cipher/system-prompt/types
  */
 export interface ExecutionContext {
   /** Command type that initiated the execution (for command-specific prompt loading) */
-  commandType?: 'curate' | 'query'
+  commandType?: 'chat' | 'curate' | 'query'
 
   /** Metadata about the conversation (for JSON input mode) */
   conversationMetadata?: ConversationMetadata

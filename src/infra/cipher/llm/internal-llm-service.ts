@@ -635,7 +635,7 @@ export class ByteRoverLLMService implements ILLMService {
    */
   private determineReflectionType(
     iterationCount: number,
-    commandType?: 'curate' | 'query',
+    commandType?: 'chat' | 'curate' | 'query',
   ): 'completion_check' | 'final_iteration' | 'mid_point_check' | 'near_max_iterations' | undefined {
     const isQuery = commandType === 'query'
     const isLastIteration = iterationCount === this.config.maxIterations - 1

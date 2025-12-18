@@ -14,6 +14,7 @@ import type {IProjectConfigStore} from '../../core/interfaces/i-project-config-s
 import type {ITokenStore} from '../../core/interfaces/i-token-store.js'
 import type {ITrackingService} from '../../core/interfaces/i-tracking-service.js'
 
+import {ChatProvider} from '../contexts/chat-context.js'
 import {AuthProvider, ConsumerProvider, ServicesProvider} from '../contexts/index.js'
 import {OnboardingProvider} from '../contexts/onboarding-context.js'
 import {CommandsProvider} from '../contexts/use-commands.js'
@@ -50,15 +51,17 @@ export function AppProviders({
       version={version}
     >
       <AuthProvider initialAuthToken={initialAuthToken} initialBrvConfig={initialBrvConfig}>
-        <ThemeProvider>
-          <CommandsProvider>
-            <ModeProvider>
-              <ConsumerProvider>
-                <OnboardingProvider>{children}</OnboardingProvider>
-              </ConsumerProvider>
-            </ModeProvider>
-          </CommandsProvider>
-        </ThemeProvider>
+        <ChatProvider>
+          <ThemeProvider>
+            <CommandsProvider>
+              <ModeProvider>
+                <ConsumerProvider>
+                  <OnboardingProvider>{children}</OnboardingProvider>
+                </ConsumerProvider>
+              </ModeProvider>
+            </CommandsProvider>
+          </ThemeProvider>
+        </ChatProvider>
       </AuthProvider>
     </ServicesProvider>
   )
