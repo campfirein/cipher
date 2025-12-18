@@ -85,17 +85,19 @@ export class QueryUseCase implements IQueryUseCase {
       const llmConfig = {
         accessToken: token.accessToken,
         apiBaseUrl: envConfig.llmApiBaseUrl,
-        fileSystemConfig: {workingDirectory: process.cwd()},
-        maxIterations: 5,
-        maxTokens: 2048,
+        fileSystem: {workingDirectory: process.cwd()},
+        llm: {
+          maxIterations: 5,
+          maxTokens: 2048,
+          temperature: 0.7,
+          topK: 10,
+          topP: 0.95,
+          verbose: options.verbose ?? false,
+        },
         model,
         openRouterApiKey: options.apiKey,
         projectId: PROJECT,
         sessionKey: token.sessionKey,
-        temperature: 0.7,
-        topK: 10,
-        topP: 0.95,
-        verbose: options.verbose ?? false,
       }
 
       // Create and start CipherAgent
@@ -126,6 +128,8 @@ export class QueryUseCase implements IQueryUseCase {
         // Track query
         await this.trackingService.track('mem:query')
       } finally {
+        // Stop agent to cleanup resources and allow process to exit
+        await agent.stop()
         // Cleanup old executions
         storage.cleanupOldExecutions(100)
       }

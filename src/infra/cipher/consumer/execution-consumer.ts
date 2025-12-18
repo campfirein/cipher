@@ -253,16 +253,18 @@ export class ExecutionConsumer {
     const llmConfig = {
       accessToken: this.authToken.accessToken,
       apiBaseUrl: envConfig.llmApiBaseUrl,
-      fileSystemConfig: {workingDirectory: process.cwd()},
-      maxIterations: 10,
-      maxTokens: 8192,
+      fileSystem: {workingDirectory: process.cwd()},
+      llm: {
+        maxIterations: 10,
+        maxTokens: 8192,
+        temperature: 0.7,
+        verbose: input.flags?.verbose ?? false,
+      },
       model,
       openRouterApiKey: input.flags?.apiKey,
       projectId: PROJECT,
       sessionKey: this.authToken.sessionKey,
       teamId: this.brvConfig?.teamId ?? '',
-      temperature: 0.7,
-      verbose: input.flags?.verbose ?? false,
     }
 
     // Create and start CipherAgent
@@ -288,7 +290,8 @@ export class ExecutionConsumer {
       storage.updateExecutionStatus(execution.id, 'completed', response)
       console.log(`[Consumer] Execution ${execution.id} completed`)
     } finally {
-      // Agent cleanup (if needed in future)
+      // Stop agent to cleanup resources
+      await agent.stop()
     }
   }
 
