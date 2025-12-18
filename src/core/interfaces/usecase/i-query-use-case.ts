@@ -1,4 +1,5 @@
 import type {BrvConfig} from '../../domain/entities/brv-config.js'
+import type {ICipherAgent} from '../cipher/i-cipher-agent.js'
 import type {ToolCallInfo, ToolResultInfo} from './i-curate-use-case.js'
 
 /**
@@ -41,7 +42,29 @@ export interface QueryTransportCallbacks {
   onToolResult?: (info: ToolResultInfo) => void
 }
 
+/**
+ * Options for executing with an injected agent (v7 architecture).
+ */
+export interface QueryExecuteOptions {
+  /** Query content */
+  query: string
+}
+
 export interface IQueryUseCase {
+  /**
+   * Execute with an injected agent (v7 architecture).
+   * UseCase receives agent from TaskProcessor, doesn't manage agent lifecycle.
+   *
+   * @param agent - Long-lived CipherAgent from AgentSessionManager
+   * @param options - Execution options (query)
+   * @param callbacks - Streaming callbacks
+   */
+  executeWithAgent(
+    agent: ICipherAgent,
+    options: QueryExecuteOptions,
+    callbacks?: QueryTransportCallbacks,
+  ): Promise<void>
+
   /**
    * Run in REPL mode (with terminal output).
    */
@@ -50,6 +73,8 @@ export interface IQueryUseCase {
   /**
    * Run in Transport mode (headless, with callbacks).
    * Called by TaskProcessor - streams results via callbacks.
+   *
+   * @deprecated Use executeWithAgent() instead for v7 architecture
    */
   runForTransport(options: QueryTransportOptions, callbacks?: QueryTransportCallbacks): Promise<void>
 }

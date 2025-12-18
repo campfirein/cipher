@@ -12,6 +12,7 @@ import type {
   TaskCreateRequest,
   TaskCreateResponse,
 } from '../../core/domain/transport/schemas.js'
+import type {ICipherAgent} from '../../core/interfaces/cipher/i-cipher-agent.js'
 import type {ILogger} from '../../core/interfaces/cipher/i-logger.js'
 import type {IInstanceManager} from '../../core/interfaces/instance/i-instance-manager.js'
 import type {ITransportServer} from '../../core/interfaces/transport/i-transport-server.js'
@@ -25,14 +26,19 @@ import {
 import {NoOpLogger} from '../../core/interfaces/cipher/i-logger.js'
 import {FileInstanceManager} from '../instance/file-instance-manager.js'
 import {findAvailablePort, isPortAvailable} from '../transport/port-utils.js'
-import {SocketIOTransportServer} from '../transport/socket-io-transport-server.js'
+import {createTransportServer} from '../transport/transport-factory.js'
 
 /**
- * Core Process - Long-running server that handles Transport, Consumer, SessionManager.
+ * Core Process - Long-running server that handles Transport and CipherAgent.
  *
- * Architecture (from v7):
+ * @deprecated Use ProcessManager + TransportHandlers + agent-worker from src/infra/process/ instead.
+ * Architecture v0.5.0 uses 3-process model where Transport and Agent are separate processes.
+ * This file is kept for backward compatibility with existing tests.
+ *
+ * Old architecture (deprecated):
  * - Single entry point for Core process
- * - Orchestrates Transport server, Consumer, SessionManager
+ * - OWNS single CipherAgent (1 per Core, long-lived)
+ * - Uses Transport Factory (createTransportServer)
  * - Manages instance.json lifecycle (write on startup, cleanup on shutdown)
  * - Handles signal handlers for graceful shutdown
  */
@@ -68,14 +74,26 @@ export type CoreProcessState = {
 }
 
 /**
- * Core Process - Orchestrates Transport, Consumer, SessionManager.
+ * Core Process - Orchestrates Transport, TaskProcessor, and CipherAgent.
+ *
+ * Architecture v0.5.0:
+ * - CoreProcess OWNS single CipherAgent (1 per Core)
+ * - Agent starts on start(), stops on stop()
+ * - TaskProcessor receives agent reference
+ * - UseCases receive agent via executeWithAgent()
  *
  * Lifecycle:
- * 1. start() → find port → start transport → write instance.json → setup handlers
- * 2. Running: handle events from clients
- * 3. stop() → cleanup → release instance.json
+ * 1. start() → start agent → find port → start transport → write instance.json → setup handlers
+ * 2. Running: handle events from clients, agent processes tasks
+ * 3. stop() → stop agent → stop transport → release instance.json
  */
 export class CoreProcess {
+  /**
+   * Single CipherAgent owned by CoreProcess.
+   * Architecture v0.5.0: 1 Agent per Core, starts on start(), stops on stop().
+   * Agent manages its own session/memory internally.
+   */
+  private cipherAgent: ICipherAgent | undefined
   private readonly instanceManager: IInstanceManager
   private readonly logger: ILogger
   private readonly preferredPort: number | undefined
@@ -95,7 +113,8 @@ export class CoreProcess {
     this.logger = config?.logger ?? new NoOpLogger()
     this.instanceManager = config?.instanceManager ?? new FileInstanceManager()
     this.taskProcessor = config?.taskProcessor
-    this.transportServer = config?.transportServer ?? new SocketIOTransportServer()
+    // Use Factory pattern for Transport (v0.5.0 architecture)
+    this.transportServer = config?.transportServer ?? createTransportServer()
   }
 
   /**
@@ -115,12 +134,13 @@ export class CoreProcess {
   /**
    * Start the Core process.
    *
-   * Steps:
-   * 1. Find available port
-   * 2. Start transport server
-   * 3. Acquire instance lock (write instance.json)
-   * 4. Setup event handlers
-   * 5. Setup signal handlers
+   * Architecture v0.5.0 Steps:
+   * 1. Start CipherAgent (TODO: agent implementation handled separately)
+   * 2. Find available port
+   * 3. Start transport server
+   * 4. Acquire instance lock (write instance.json)
+   * 5. Setup event handlers
+   * 6. Setup signal handlers
    *
    * @throws Error if already running or instance already exists
    */
@@ -128,6 +148,20 @@ export class CoreProcess {
     if (this.state.running) {
       throw new CoreProcessAlreadyRunningError()
     }
+
+    // ==========================================================================
+    // TODO: Start CipherAgent here (agent implementation handled separately)
+    // ==========================================================================
+    // When agent implementation is ready, uncomment and implement:
+    //
+    // this.cipherAgent = new CipherAgent(config)
+    // await this.cipherAgent.start()
+    // this.logger.info('CipherAgent started')
+    //
+    // Then pass agent to TaskProcessor:
+    // this.taskProcessor?.setAgent(this.cipherAgent)
+    // ==========================================================================
+    this.logger.debug('TODO: CipherAgent start placeholder - agent handled separately')
 
     // Find available port
     const port = this.preferredPort ? await this.findPortWithPreference(this.preferredPort) : await findAvailablePort()
@@ -166,9 +200,10 @@ export class CoreProcess {
   /**
    * Stop the Core process.
    *
-   * Steps:
-   * 1. Stop transport server
-   * 2. Release instance lock (delete instance.json)
+   * Architecture v0.5.0 Steps:
+   * 1. Stop CipherAgent (cleanup memory, close connections)
+   * 2. Stop transport server
+   * 3. Release instance lock (delete instance.json)
    */
   async stop(): Promise<void> {
     if (!this.state.running) {
@@ -176,6 +211,23 @@ export class CoreProcess {
     }
 
     this.state.running = false
+
+    // ==========================================================================
+    // TODO: Stop CipherAgent here (agent implementation handled separately)
+    // ==========================================================================
+    // When agent implementation is ready, uncomment and implement:
+    //
+    // if (this.cipherAgent) {
+    //   await this.cipherAgent.stop()  // or cleanup() method
+    //   this.cipherAgent = undefined
+    //   this.logger.info('CipherAgent stopped')
+    // }
+    // ==========================================================================
+    if (this.cipherAgent) {
+      // Agent cleanup placeholder - just clear reference for now
+      this.cipherAgent = undefined
+      this.logger.info('CipherAgent reference cleared')
+    }
 
     // Stop transport
     await this.transportServer.stop()

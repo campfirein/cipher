@@ -1,4 +1,5 @@
 import type {BrvConfig} from '../../domain/entities/brv-config.js'
+import type {ICipherAgent} from '../cipher/i-cipher-agent.js'
 
 /**
  * Options for REPL-style execution (with terminal output).
@@ -69,7 +70,33 @@ export interface CurateTransportCallbacks {
   onToolResult?: (info: ToolResultInfo) => void
 }
 
+/**
+ * Options for executing with an injected agent (v7 architecture).
+ */
+export interface CurateExecuteOptions {
+  /** Context content */
+  content: string
+  /** Optional file reference instructions */
+  fileReferenceInstructions?: string
+}
+
 export interface ICurateUseCase {
+  /**
+   * Execute with an injected agent (v7 architecture).
+   * UseCase receives agent from TaskProcessor, doesn't manage agent lifecycle.
+   *
+   * Flow: TaskProcessor → AgentSessionManager.getOrCreateAgent() → UseCase.executeWithAgent(agent, ...)
+   *
+   * @param agent - Long-lived CipherAgent from AgentSessionManager
+   * @param options - Execution options (content, file references)
+   * @param callbacks - Streaming callbacks
+   */
+  executeWithAgent(
+    agent: ICipherAgent,
+    options: CurateExecuteOptions,
+    callbacks?: CurateTransportCallbacks,
+  ): Promise<void>
+
   /**
    * Run in REPL mode (with terminal output).
    */
@@ -78,6 +105,8 @@ export interface ICurateUseCase {
   /**
    * Run in Transport mode (headless, with callbacks).
    * Called by TaskProcessor - streams results via callbacks.
+   *
+   * @deprecated Use executeWithAgent() instead for v7 architecture
    */
   runForTransport(options: CurateTransportOptions, callbacks?: CurateTransportCallbacks): Promise<void>
 }

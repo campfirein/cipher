@@ -1,3 +1,5 @@
+// TODO(v0.5.0): Remove this file. SQLite queue polling is replaced by Transport events.
+
 /**
  * Queue Polling Hook
  *
@@ -17,7 +19,11 @@
 
 import {useEffect, useState} from 'react'
 
-import type {ExecutionWithToolCalls, QueueSnapshot, QueueStats} from '../../infra/cipher/consumer/queue-polling-service.js'
+import type {
+  ExecutionWithToolCalls,
+  QueueSnapshot,
+  QueueStats,
+} from '../../infra/cipher/consumer/queue-polling-service.js'
 
 import {getQueuePollingService, stopQueuePollingService} from '../../infra/cipher/consumer/queue-polling-service.js'
 
