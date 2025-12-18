@@ -13,8 +13,9 @@ import type {PromptRequest, StreamingMessage} from '../../types.js'
 
 import {useAuth} from '../../contexts/auth-context.js'
 import {useConsumer} from '../../contexts/index.js'
-import {useActivityLogs, useCommands, useMode, useTheme} from '../../hooks/index.js'
+import {useActivityLogs, useCommands, useMode, useTheme, useUIHeights} from '../../hooks/index.js'
 import {useOnboarding} from '../../hooks/use-onboarding.js'
+import {calculateLogContentLimit} from '../../utils/log.js'
 import {EnterPrompt} from '../enter-prompt.js'
 import {LogItem} from '../execution/index.js'
 import {InlineConfirm, InlineInput, InlineSearch, InlineSelect} from '../inline-prompts/index.js'
@@ -27,12 +28,6 @@ const QUERY_PROMPT = 'brv query "How is authentication implemented?"'
 
 /** Minimum output lines to show before truncation */
 const MIN_OUTPUT_LINES = 3
-
-/** Reserved lines for onboarding step (title + description + borders + margins + onboard title + onboard description + content margin top) */
-const ONBOARDING_STEP_OVERHEAD = 8
-
-/** Reserved lines for onboarding curate/query (content margin bottom + 1 line + prompt 'enter' to continue) */
-const ONBOARDING_CURATE_QUERY_OVER_BOTTOM = 3
 
 /** Reserved lines for inline search (message + input + margins) */
 const INLINE_SEARCH_OVERHEAD = 3
@@ -188,20 +183,32 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({availableHeight})
     totalSteps,
   } = useOnboarding()
   const {logs} = useActivityLogs()
-
-  // Calculate max output lines based on available height
-  // Reserve space for onboarding step title, description, borders, and margins
-  const maxOutputLines = Math.max(
-    MIN_OUTPUT_LINES,
-    availableHeight - ONBOARDING_STEP_OVERHEAD - ONBOARDING_CURATE_QUERY_OVER_BOTTOM,
-  )
-
-  // Calculate max visible items for inline search based on available height
-  const maxSearchItems = Math.max(MIN_SEARCH_ITEMS, maxOutputLines - INLINE_SEARCH_OVERHEAD)
+  const {messageItem} = useUIHeights()
 
   // Find running or queued curate/query logs
   const curateLog = useMemo(() => logs.find((log) => log.type === 'curate'), [logs])
   const queryLog = useMemo(() => logs.find((log) => log.type === 'query'), [logs])
+
+  // Onboarding UI overhead: step title (1) + description (1) + content margin top (1)
+  const onboardingOverhead = 3
+  const enterPromptHeight =
+    ((currentStep === 'curate' && hasCurated && !curateAcknowledged) ||
+      (currentStep === 'query' && hasQueried && !queryAcknowledged))
+      ? 4
+      : 0
+
+  const activeLog = currentStep === 'curate' ? curateLog : currentStep === 'query' ? queryLog : null
+
+  let maxOutputLines = MIN_OUTPUT_LINES
+  if (activeLog) {
+    // Calculate available height for the log (subtract onboarding UI and EnterPrompt)
+    const logAvailableHeight = availableHeight - onboardingOverhead - enterPromptHeight
+    const parts = calculateLogContentLimit(activeLog, logAvailableHeight, messageItem)
+    const contentPart = parts.find((p) => p.field === 'content')
+    maxOutputLines = Math.max(MIN_OUTPUT_LINES, contentPart?.lines ?? MIN_OUTPUT_LINES)
+  }
+
+  const maxSearchItems = Math.max(MIN_SEARCH_ITEMS, maxOutputLines - INLINE_SEARCH_OVERHEAD)
 
   // Streaming state for init command
   const [isRunningInit, setIsRunningInit] = useState(false)
@@ -469,7 +476,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({availableHeight})
     if (curateLog) {
       return (
         <Box flexDirection="column" width="100%">
-          <LogItem log={curateLog} maxContentLines={maxOutputLines} />
+          <LogItem heights={{...messageItem, maxContentLines: maxOutputLines}} log={curateLog} />
           {/* Waiting for Enter to continue */}
           {hasCurated && !curateAcknowledged && (
             <EnterPrompt
@@ -505,7 +512,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({availableHeight})
     if (queryLog) {
       return (
         <Box flexDirection="column" width="100%">
-          <LogItem log={queryLog} maxContentLines={maxOutputLines} />
+          <LogItem heights={{...messageItem, maxContentLines: maxOutputLines}} log={queryLog} />
           {/* Waiting for Enter to continue */}
           {hasQueried && !queryAcknowledged && (
             <EnterPrompt
