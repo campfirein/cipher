@@ -56,7 +56,6 @@ export function CommandsProvider({children}: CommandsProviderProps): React.React
 
   const commandContext: CommandContext = useMemo(
     () => ({
-      screen: {breakpoint, columns, rows},
       version,
     }),
     [breakpoint, columns, rows, version],

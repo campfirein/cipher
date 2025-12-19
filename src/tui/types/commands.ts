@@ -5,7 +5,6 @@
 import type React from 'react'
 
 import type {PromptRequest, StreamingMessage} from './index.js'
-import type {Message} from './messages.js'
 
 /**
  * Command kind indicates the source/type of command
@@ -64,17 +63,6 @@ export interface CommandContext {
     name: string
     /** Full raw input string */
     raw: string
-  }
-  /**
-   * Terminal screen dimensions and breakpoint
-   */
-  screen?: {
-    /** Terminal breakpoint tier */
-    breakpoint: 'compact' | 'normal'
-    /** Terminal width in columns */
-    columns: number
-    /** Terminal height in rows */
-    rows: number
   }
   /**
    * CLI version

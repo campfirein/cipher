@@ -48,7 +48,6 @@ export const curateCommand: SlashCommand = {
         const tokenStore = new KeychainTokenStore()
         const globalConfigStore = new FileGlobalConfigStore()
         const useCase = new CurateUseCase({
-          fileSelectorOptions: {pageSize: context.screen?.breakpoint === 'normal' ? 4 : 2},
           projectConfigStore: new ProjectConfigStore(),
           terminal,
           tokenStore,

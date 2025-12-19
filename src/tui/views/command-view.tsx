@@ -270,6 +270,13 @@ function estimateMessageHeight(msg: CommandMessage, options: MessageHeightOption
   return lines
 }
 
+/**
+ * Props for CommandView component
+ *
+ * Calculated as: `Math.max(1, terminalHeight - header - tab - footer)`
+ * This represents the remaining terminal space after accounting for all UI chrome
+ * (header, tab bar, and footer), ensuring at least 1 line is always available.
+ */
 interface CommandViewProps {
   availableHeight: number
 }
@@ -288,7 +295,7 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
     theme: {colors},
   } = useTheme()
   const {commandInput} = useUIHeights()
-  const {columns: terminalWidth} = useTerminalBreakpoint()
+  const {breakpoint, columns: terminalWidth} = useTerminalBreakpoint()
 
   // Process streaming messages to handle action_start/action_stop pairs
   const processedStreamingMessages = useMemo(() => processMessagesForActions(streamingMessages), [streamingMessages])
@@ -531,6 +538,8 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
       }
 
       case 'file_selector': {
+        // availableHeight - more above indicator - input - selector title - selector footer - command input
+        const pageSize = availableHeight - 1 - 1 - 4 - 4 - commandInput
         return (
           <InlineFileSelector
             allowCancel={activePrompt.allowCancel}
@@ -539,7 +548,7 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
             message={activePrompt.message}
             mode={activePrompt.mode}
             onSelect={handleFileSelectorResponse}
-            pageSize={activePrompt.pageSize}
+            pageSize={breakpoint === 'normal' ? pageSize : 2}
           />
         )
       }
