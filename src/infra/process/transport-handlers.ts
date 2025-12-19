@@ -216,16 +216,18 @@ export class TransportHandlers {
 
   /**
    * Handle task:chunk from Agent.
-   * Route to clients in the task room.
+   * Route to clients in the task room + TUI room.
    */
   private handleTaskChunk(data: TaskChunkMessage): void {
     const {content, taskId} = data
     this.transport.broadcastTo(`task:${taskId}`, 'task:chunk', {content, taskId})
+    // Also broadcast to TUI room for monitoring
+    this.transport.broadcastTo('tui', 'task:chunk', {content, taskId})
   }
 
   /**
    * Handle task:completed from Agent.
-   * Route to clients in the task room.
+   * Route to clients in the task room + TUI room.
    */
   private handleTaskCompleted(data: TaskCompletedMessage): void {
     const {result, taskId} = data
@@ -233,6 +235,8 @@ export class TransportHandlers {
     console.log(`[Transport] Task completed: ${taskId}`)
 
     this.transport.broadcastTo(`task:${taskId}`, 'task:completed', {result, taskId})
+    // Also broadcast to TUI room for monitoring
+    this.transport.broadcastTo('tui', 'task:completed', {result, taskId})
     this.tasks.delete(taskId)
   }
 
@@ -293,6 +297,8 @@ export class TransportHandlers {
     console.log(`[Transport] Task error: ${taskId} - ${error}`)
 
     this.transport.broadcastTo(`task:${taskId}`, 'task:error', {error, taskId})
+    // Also broadcast to TUI room for monitoring
+    this.transport.broadcastTo('tui', 'task:error', {error, taskId})
     this.tasks.delete(taskId)
   }
 
@@ -303,6 +309,8 @@ export class TransportHandlers {
   private handleTaskStarted(data: TaskStartedMessage): void {
     const {taskId} = data
     this.transport.broadcastTo(`task:${taskId}`, 'task:started', {taskId})
+    // Also broadcast to TUI room for monitoring
+    this.transport.broadcastTo('tui', 'task:started', {taskId})
   }
 
   /**
@@ -312,6 +320,8 @@ export class TransportHandlers {
   private handleTaskToolCall(data: TaskToolCallMessage): void {
     const {taskId, ...rest} = data
     this.transport.broadcastTo(`task:${taskId}`, 'task:toolCall', {taskId, ...rest})
+    // Also broadcast to TUI room for monitoring
+    this.transport.broadcastTo('tui', 'task:toolCall', {taskId, ...rest})
   }
 
   /**
@@ -321,6 +331,8 @@ export class TransportHandlers {
   private handleTaskToolResult(data: TaskToolResultMessage): void {
     const {taskId, ...rest} = data
     this.transport.broadcastTo(`task:${taskId}`, 'task:toolResult', {taskId, ...rest})
+    // Also broadcast to TUI room for monitoring
+    this.transport.broadcastTo('tui', 'task:toolResult', {taskId, ...rest})
   }
 
   /**

@@ -1,6 +1,4 @@
-import type {BrvConfig} from '../../domain/entities/brv-config.js'
 import type {ICipherAgent} from '../cipher/i-cipher-agent.js'
-import type {ToolCallInfo, ToolResultInfo} from './i-curate-use-case.js'
 
 /**
  * Options for REPL-style execution (with terminal output).
@@ -13,37 +11,7 @@ export interface QueryUseCaseRunOptions {
 }
 
 /**
- * Options for Transport-style execution (headless, with callbacks).
- */
-export interface QueryTransportOptions {
-  /** Auth token (pre-loaded by CoreProcess) */
-  authToken: {accessToken: string; sessionKey: string}
-  /** Project config (pre-loaded by CoreProcess) */
-  brvConfig?: BrvConfig
-  /** Query content */
-  query: string
-}
-
-/**
- * Callbacks for Transport-style execution (streaming results).
- */
-export interface QueryTransportCallbacks {
-  /** Called on each streaming chunk */
-  onChunk?: (content: string) => void
-  /** Called when task processing completes */
-  onCompleted?: (result: string) => void
-  /** Called when task encounters an error */
-  onError?: (error: string) => void
-  /** Called when task actually starts processing */
-  onStarted?: () => void
-  /** Called when a tool is invoked */
-  onToolCall?: (info: ToolCallInfo) => void
-  /** Called when a tool returns a result */
-  onToolResult?: (info: ToolResultInfo) => void
-}
-
-/**
- * Options for executing with an injected agent (v7 architecture).
+ * Options for executing with an injected agent (v0.5.0 architecture).
  */
 export interface QueryExecuteOptions {
   /** Query content */
@@ -66,12 +34,4 @@ export interface IQueryUseCase {
    * Run in REPL mode (with terminal output).
    */
   run(options: QueryUseCaseRunOptions): Promise<void>
-
-  /**
-   * Run in Transport mode (headless, with callbacks).
-   * Called by TaskProcessor - streams results via callbacks.
-   *
-   * @deprecated Use executeWithAgent() instead for v7 architecture
-   */
-  runForTransport(options: QueryTransportOptions, callbacks?: QueryTransportCallbacks): Promise<void>
 }

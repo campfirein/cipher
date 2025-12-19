@@ -9,8 +9,6 @@ import type {ITrackingService} from '../../core/interfaces/i-tracking-service.js
 import type {
   IQueryUseCase,
   QueryExecuteOptions,
-  QueryTransportCallbacks,
-  QueryTransportOptions,
   QueryUseCaseRunOptions,
 } from '../../core/interfaces/usecase/i-query-use-case.js'
 
@@ -203,87 +201,6 @@ export class QueryUseCase implements IQueryUseCase {
       process.stderr.write('Failed to query context tree:\n')
       await this.trackingService.track('mem:query', {message: formatError(error), status: 'error'})
       this.terminal.log(formatError(error))
-    }
-  }
-
-  /**
-   * Run in Transport mode (headless, with callbacks).
-   * Called by TaskProcessor - streams results via callbacks.
-   */
-  public async runForTransport(
-    options: QueryTransportOptions,
-    callbacks?: QueryTransportCallbacks,
-  ): Promise<void> {
-    const {authToken, brvConfig, query} = options
-
-    // Initialize storage for tool call tracking
-    const storage = await getAgentStorage()
-    let executionId: null | string = null
-
-    try {
-      // Validate brvConfig
-      if (!brvConfig) {
-        callbacks?.onError?.('Project not initialized. Please run "brv init" first.')
-        return
-      }
-
-      // Create execution with status='running'
-      executionId = storage.createExecution('query', query)
-
-      // Create LLM config
-      const envConfig = getCurrentConfig()
-      const llmConfig = {
-        accessToken: authToken.accessToken,
-        apiBaseUrl: envConfig.llmApiBaseUrl,
-        fileSystemConfig: {workingDirectory: process.cwd()},
-        maxIterations: 5,
-        maxTokens: 2048,
-        model: 'gemini-2.5-pro',
-        projectId: PROJECT,
-        sessionKey: authToken.sessionKey,
-        temperature: 0.7,
-        topK: 10,
-        topP: 0.95,
-        verbose: false,
-      }
-
-      // Create and start CipherAgent
-      const agent = this.createCipherAgent(llmConfig, brvConfig)
-
-      callbacks?.onStarted?.()
-      await agent.start()
-
-      try {
-        const sessionId = this.generateSessionId()
-
-        // Setup streaming via event bus
-        if (agent.agentEventBus) {
-          this.setupStreamingCallbacks(agent, callbacks, executionId)
-        }
-
-        // Execute with autonomous mode and query commandType
-        const prompt = `Search the context tree for: ${query}`
-        const response = await agent.execute(prompt, sessionId, {
-          executionContext: {commandType: 'query'},
-        })
-
-        // Mark execution as completed
-        storage.updateExecutionStatus(executionId, 'completed', response)
-
-        // Notify completion
-        callbacks?.onCompleted?.(response)
-      } finally {
-        // Cleanup old executions
-        storage.cleanupOldExecutions(100)
-      }
-    } catch (error) {
-      // Mark execution as failed
-      if (executionId) {
-        const errorMessage = error instanceof Error ? error.message : String(error)
-        storage.updateExecutionStatus(executionId, 'failed', undefined, errorMessage)
-      }
-
-      callbacks?.onError?.(error instanceof Error ? error.message : String(error))
     }
   }
 
@@ -564,85 +481,6 @@ export class QueryUseCase implements IQueryUseCase {
       // NOTE: llmservice:error is handled by catch block in the run method
       // which displays error via this.error(). DO NOT display here to avoid duplicate.
     }
-  }
-
-  /**
-   * Setup streaming callbacks for Transport mode.
-   * Streams LLM response chunks and tracks tool calls.
-   */
-  private setupStreamingCallbacks(
-    agent: CipherAgent,
-    callbacks: QueryTransportCallbacks | undefined,
-    executionId: string,
-  ): void {
-    if (!agent.agentEventBus) return
-
-    const eventBus = agent.agentEventBus
-    const storage = getAgentStorageSync()
-    const toolCallMap = new Map<string, string>()
-
-    // Stream LLM response chunks
-    eventBus.on('llmservice:response', (payload) => {
-      if (payload.content) {
-        callbacks?.onChunk?.(payload.content)
-      }
-    })
-
-    // Track and stream tool calls
-    eventBus.on('llmservice:toolCall', (payload) => {
-      try {
-        if (!payload.callId) return
-
-        // Stream tool call to CLI
-        callbacks?.onToolCall?.({
-          args: payload.args as Record<string, unknown> | undefined,
-          callId: payload.callId,
-          name: payload.toolName,
-        })
-
-        // Persist to DB
-        const toolCallId = storage.addToolCall(executionId, {
-          args: payload.args,
-          name: payload.toolName,
-        })
-        toolCallMap.set(payload.callId, toolCallId)
-      } catch {
-        // Ignore errors - don't break execution
-      }
-    })
-
-    // Track and stream tool results
-    eventBus.on('llmservice:toolResult', (payload) => {
-      try {
-        if (!payload.callId) return
-
-        // Stream tool result to CLI
-        callbacks?.onToolResult?.({
-          callId: payload.callId,
-          error: payload.error,
-          result: payload.result,
-          success: payload.success,
-        })
-
-        // Persist to DB
-        const toolCallId = toolCallMap.get(payload.callId)
-        if (toolCallId) {
-          let result: string
-          if (payload.success) {
-            result = typeof payload.result === 'string' ? payload.result : JSON.stringify(payload.result)
-          } else {
-            const errorMsg = payload.error ?? 'Unknown error'
-            result = JSON.stringify({error: errorMsg})
-          }
-
-          storage.updateToolCall(toolCallId, payload.success ? 'completed' : 'failed', {
-            result,
-          })
-        }
-      } catch {
-        // Ignore errors - don't break execution
-      }
-    })
   }
 
   /**

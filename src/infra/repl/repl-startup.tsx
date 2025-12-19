@@ -4,16 +4,21 @@ import type {IOnboardingPreferenceStore} from '../../core/interfaces/i-onboardin
 import type {IProjectConfigStore} from '../../core/interfaces/i-project-config-store.js'
 import type {ITokenStore} from '../../core/interfaces/i-token-store.js'
 import type {ITrackingService} from '../../core/interfaces/i-tracking-service.js'
+import type {ITransportClient} from '../../core/interfaces/transport/i-transport-client.js'
 
 import {App} from '../../tui/app.js'
 import {AppProviders} from '../../tui/providers/app-providers.js'
 import {stopQueuePollingService} from '../cipher/consumer/queue-polling-service.js'
+import {connectTransportClient, disconnectTransportClient} from './transport-client-helper.js'
+
+/** Global transport client - lives for entire REPL session */
+let transportClient: ITransportClient | null = null
 
 /**
  * Options for starting the REPL
  *
  * Architecture v0.5.0:
- * - transportPort: Port for TUI to connect to Transport via Socket.IO
+ * - TUI discovers Transport via TransportClientFactory (same as external CLIs)
  * - TUI is a Socket.IO client, Transport is the only server
  */
 export interface ReplOptions {
@@ -21,8 +26,6 @@ export interface ReplOptions {
   projectConfigStore: IProjectConfigStore
   tokenStore: ITokenStore
   trackingService: ITrackingService
-  /** Port for TUI to connect to Transport (v0.5.0 architecture) */
-  transportPort?: number
   version: string
 }
 
@@ -30,12 +33,10 @@ export interface ReplOptions {
  * Start the ByteRover REPL
  */
 export async function startRepl(options: ReplOptions): Promise<void> {
-  const {onboardingPreferenceStore, projectConfigStore, tokenStore, trackingService, transportPort, version} = options
+  const {onboardingPreferenceStore, projectConfigStore, tokenStore, trackingService, version} = options
 
-  // Log transport port for debugging (v0.5.0 architecture)
-  if (transportPort) {
-    console.log(`[REPL] Transport available on port ${transportPort}`)
-  }
+  // Connect to Transport (discovers via instance.json)
+  transportClient = await connectTransportClient()
 
   // Check initial auth state
   const authToken = await tokenStore.load()
@@ -51,7 +52,7 @@ export async function startRepl(options: ReplOptions): Promise<void> {
   }
 
   await trackingService.track('repl', {status: 'started'})
-  // Render the App with providers
+
   const {waitUntilExit} = render(
     <AppProviders
       initialAuthToken={isAuthorized ? authToken : undefined}
@@ -65,7 +66,12 @@ export async function startRepl(options: ReplOptions): Promise<void> {
       <App />
     </AppProviders>,
   )
+
   await waitUntilExit()
+
+  // Cleanup
+  await disconnectTransportClient(transportClient)
+  transportClient = null
   stopQueuePollingService()
   await trackingService.track('repl', {status: 'finished'})
 }

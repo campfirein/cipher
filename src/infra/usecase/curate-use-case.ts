@@ -11,18 +11,15 @@ import type {ITokenStore} from '../../core/interfaces/i-token-store.js'
 import type {ITrackingService} from '../../core/interfaces/i-tracking-service.js'
 import type {
   CurateExecuteOptions,
-  CurateTransportCallbacks,
-  CurateTransportOptions,
   CurateUseCaseRunOptions,
   ICurateUseCase,
 } from '../../core/interfaces/usecase/i-curate-use-case.js'
 
 import {CONTEXT_TREE_DOMAINS} from '../../config/context-tree-domains.js'
-import {getCurrentConfig} from '../../config/environment.js'
-import {BRV_DIR, CONTEXT_FILE, CONTEXT_TREE_DIR, PROJECT} from '../../constants.js'
+import {BRV_DIR, CONTEXT_FILE, CONTEXT_TREE_DIR} from '../../constants.js'
 import {validateFileForCurate} from '../../utils/file-validator.js'
 import {CipherAgent} from '../cipher/agent/index.js'
-import {getAgentStorage, getAgentStorageSync} from '../cipher/storage/agent-storage.js'
+import {getAgentStorage} from '../cipher/storage/agent-storage.js'
 import {WorkspaceNotInitializedError} from '../cipher/validation/workspace-validator.js'
 
 // Full path to context tree
@@ -235,98 +232,6 @@ export class CurateUseCase implements ICurateUseCase {
   }
 
   /**
-   * Run in Transport mode (headless, with callbacks).
-   * Called by TaskProcessor - streams results via callbacks.
-   */
-  public async runForTransport(
-    options: CurateTransportOptions,
-    callbacks?: CurateTransportCallbacks,
-  ): Promise<void> {
-    const {authToken, brvConfig, content, files} = options
-
-    // Initialize storage for tool call tracking
-    const storage = await getAgentStorage()
-    let executionId: null | string = null
-
-    try {
-      // Validate brvConfig
-      if (!brvConfig) {
-        callbacks?.onError?.('Project not initialized. Please run "brv init" first.')
-        return
-      }
-
-      // Process file references if provided (validation + instructions)
-      const fileReferenceInstructions = this.processFileReferences(files ?? [])
-      if (fileReferenceInstructions === undefined) {
-        callbacks?.onError?.('File validation failed. Please check file paths.')
-        return
-      }
-
-      // Create execution with status='running'
-      executionId = storage.createExecution('curate', content)
-
-      // Build prompt with optional file reference instructions
-      const prompt = fileReferenceInstructions
-        ? `${content}\n${fileReferenceInstructions}`
-        : content
-
-      // Create LLM config
-      const envConfig = getCurrentConfig()
-      const llmConfig = {
-        accessToken: authToken.accessToken,
-        apiBaseUrl: envConfig.llmApiBaseUrl,
-        fileSystemConfig: {workingDirectory: process.cwd()},
-        maxIterations: 10,
-        maxTokens: 4096,
-        model: 'gemini-2.5-pro',
-        projectId: PROJECT,
-        sessionKey: authToken.sessionKey,
-        temperature: 0.7,
-        topK: 10,
-        topP: 0.95,
-        verbose: false,
-      }
-
-      // Create and start CipherAgent
-      const agent = this.createCipherAgent(llmConfig, brvConfig)
-
-      callbacks?.onStarted?.()
-      await agent.start()
-
-      try {
-        const sessionId = this.generateSessionId()
-
-        // Setup streaming via event bus
-        if (agent.agentEventBus) {
-          this.setupStreamingCallbacks(agent, callbacks, executionId)
-        }
-
-        // Execute with curate commandType
-        const response = await agent.execute(prompt, sessionId, {
-          executionContext: {commandType: 'curate'},
-        })
-
-        // Mark execution as completed
-        storage.updateExecutionStatus(executionId, 'completed', response)
-
-        // Notify completion
-        callbacks?.onCompleted?.(response)
-      } finally {
-        // Cleanup old executions
-        storage.cleanupOldExecutions(100)
-      }
-    } catch (error) {
-      // Mark execution as failed
-      if (executionId) {
-        const errorMessage = error instanceof Error ? error.message : String(error)
-        storage.updateExecutionStatus(executionId, 'failed', undefined, errorMessage)
-      }
-
-      callbacks?.onError?.(error instanceof Error ? error.message : String(error))
-    }
-  }
-
-  /**
    * Handle workspace not initialized error
    */
   private handleWorkspaceError(_error: WorkspaceNotInitializedError): void {
@@ -502,85 +407,6 @@ export class CurateUseCase implements ICurateUseCase {
       await this.trackingService.track('mem:curate', {message: errMsg, status: 'error'})
       this.terminal.error(errMsg)
     }
-  }
-
-  /**
-   * Setup streaming callbacks for Transport mode.
-   * Streams LLM response chunks and tracks tool calls.
-   */
-  private setupStreamingCallbacks(
-    agent: CipherAgent,
-    callbacks: CurateTransportCallbacks | undefined,
-    executionId: string,
-  ): void {
-    if (!agent.agentEventBus) return
-
-    const eventBus = agent.agentEventBus
-    const storage = getAgentStorageSync()
-    const toolCallMap = new Map<string, string>()
-
-    // Stream LLM response chunks
-    eventBus.on('llmservice:response', (payload) => {
-      if (payload.content) {
-        callbacks?.onChunk?.(payload.content)
-      }
-    })
-
-    // Track and stream tool calls
-    eventBus.on('llmservice:toolCall', (payload) => {
-      try {
-        if (!payload.callId) return
-
-        // Stream tool call to CLI
-        callbacks?.onToolCall?.({
-          args: payload.args as Record<string, unknown> | undefined,
-          callId: payload.callId,
-          name: payload.toolName,
-        })
-
-        // Persist to DB
-        const toolCallId = storage.addToolCall(executionId, {
-          args: payload.args,
-          name: payload.toolName,
-        })
-        toolCallMap.set(payload.callId, toolCallId)
-      } catch {
-        // Ignore errors - don't break execution
-      }
-    })
-
-    // Track and stream tool results
-    eventBus.on('llmservice:toolResult', (payload) => {
-      try {
-        if (!payload.callId) return
-
-        // Stream tool result to CLI
-        callbacks?.onToolResult?.({
-          callId: payload.callId,
-          error: payload.error,
-          result: payload.result,
-          success: payload.success,
-        })
-
-        // Persist to DB
-        const toolCallId = toolCallMap.get(payload.callId)
-        if (toolCallId) {
-          let result: string
-          if (payload.success) {
-            result = typeof payload.result === 'string' ? payload.result : JSON.stringify(payload.result)
-          } else {
-            const errorMsg = payload.error ?? 'Unknown error'
-            result = JSON.stringify({error: errorMsg})
-          }
-
-          storage.updateToolCall(toolCallId, payload.success ? 'completed' : 'failed', {
-            result,
-          })
-        }
-      } catch {
-        // Ignore errors - don't break execution
-      }
-    })
   }
 
   private validateTopicName(value: string, targetPath: string): boolean | string {
