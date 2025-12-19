@@ -257,23 +257,30 @@ export const TaskAckSchema = z.object({
 
 /**
  * task:started - Agent begins processing the task
+ * Direct send: {taskId} only
+ * Broadcast: {taskId, input, type, files?}
  */
 export const TaskStartedSchema = z.object({
+  files: z.array(z.string()).optional(),
+  input: z.string().optional(),
   taskId: z.string(),
+  type: z.string().optional(),
 })
 
 /**
  * task:completed - Task finished successfully
  */
 export const TaskCompletedSchema = z.object({
+  result: z.string(),
   taskId: z.string(),
 })
 
 /**
  * Structured error object
+ * Matches TaskErrorData interface in task-error.ts
  */
 export const TaskErrorDataSchema = z.object({
-  code: z.string(),
+  code: z.string().optional(),
   details: z.record(z.unknown()).optional(),
   message: z.string(),
   name: z.string(),
