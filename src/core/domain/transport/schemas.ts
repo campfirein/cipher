@@ -220,6 +220,8 @@ export const TaskTypeSchema = z.enum(['curate', 'query'])
  * Request to create a new task
  */
 export const TaskCreateRequestSchema = z.object({
+  /** Optional file paths for curate --files (max 5) */
+  files: z.array(z.string()).optional(),
   /** Input content/prompt */
   input: z.string().min(1),
   /** Task type */

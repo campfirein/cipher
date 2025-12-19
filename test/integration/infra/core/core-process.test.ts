@@ -4,7 +4,7 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {io, Socket} from 'socket.io-client'
 
-import type {TaskCallbacks, TaskInput} from '../../../../src/infra/core/task-processor.js'
+import type {TaskInput} from '../../../../src/infra/core/task-processor.js'
 
 import {CoreProcess} from '../../../../src/infra/core/core-process.js'
 
@@ -13,7 +13,6 @@ import {CoreProcess} from '../../../../src/infra/core/core-process.js'
  */
 class MockTaskProcessor {
   private mockBehavior: 'error' | 'streaming' | 'success' = 'success'
-  private streamChunks: string[] = ['Hello ', 'World', '!']
 
   cancel(_taskId: string): boolean {
     return true
@@ -23,38 +22,25 @@ class MockTaskProcessor {
     return false
   }
 
-  async process(_input: TaskInput, callbacks?: TaskCallbacks): Promise<void> {
-    // Simulate async start
+  async process(_input: TaskInput): Promise<string> {
+    // Simulate async processing
     await new Promise<void>((resolve) => {
       setTimeout(resolve, 10)
     })
 
-    callbacks?.onStarted?.()
-
     switch (this.mockBehavior) {
       case 'error': {
-        callbacks?.onError?.('Mock error occurred')
-        break
+        throw new Error('Mock error occurred')
       }
 
       case 'streaming': {
-        for (const chunk of this.streamChunks) {
-          // eslint-disable-next-line no-await-in-loop
-          await new Promise<void>((resolve) => {
-            setTimeout(resolve, 5)
-          })
-          callbacks?.onChunk?.(chunk)
-        }
-
-        callbacks?.onToolCall?.({args: {path: '/test'}, callId: 'call-1', name: 'read_file'})
-        callbacks?.onToolResult?.({callId: 'call-1', result: 'file content', success: true})
-        callbacks?.onCompleted?.('Streaming completed')
-        break
+        // In v0.5.0 architecture, streaming is handled by agent-worker
+        // This mock just returns the final result
+        return 'Streaming completed'
       }
 
       case 'success': {
-        callbacks?.onCompleted?.('Task completed successfully')
-        break
+        return 'Task completed successfully'
       }
     }
   }
@@ -63,9 +49,8 @@ class MockTaskProcessor {
     // Mock
   }
 
-  setMockBehavior(behavior: 'error' | 'streaming' | 'success', chunks?: string[]): void {
+  setMockBehavior(behavior: 'error' | 'streaming' | 'success'): void {
     this.mockBehavior = behavior
-    if (chunks) this.streamChunks = chunks
   }
 }
 
@@ -301,7 +286,8 @@ describe('CoreProcess (Integration)', function () {
       })
     })
 
-    it('should broadcast task:started when task begins', async () => {
+    // Skip: In v0.5.0 architecture, task:started is broadcasted by agent-worker, not CoreProcess
+    it.skip('should broadcast task:started when task begins', async () => {
       mockProcessor.setMockBehavior('success')
 
       const startedPromise = new Promise<{taskId: string}>((resolve) => {
@@ -342,8 +328,9 @@ describe('CoreProcess (Integration)', function () {
       expect(error.error).to.equal('Mock error occurred')
     })
 
-    it('should broadcast task:chunk for streaming output', async () => {
-      mockProcessor.setMockBehavior('streaming', ['chunk1', 'chunk2', 'chunk3'])
+    // Skip: In v0.5.0 architecture, task:chunk is broadcasted by agent-worker via agentEventBus
+    it.skip('should broadcast task:chunk for streaming output', async () => {
+      mockProcessor.setMockBehavior('streaming')
 
       const chunks: string[] = []
       const completedPromise = new Promise<void>((resolve) => {
@@ -359,7 +346,8 @@ describe('CoreProcess (Integration)', function () {
       expect(chunks).to.deep.equal(['chunk1', 'chunk2', 'chunk3'])
     })
 
-    it('should broadcast task:toolCall and task:toolResult', async () => {
+    // Skip: In v0.5.0 architecture, tool events are broadcasted by agent-worker via agentEventBus
+    it.skip('should broadcast task:toolCall and task:toolResult', async () => {
       mockProcessor.setMockBehavior('streaming')
 
       const toolCallPromise = new Promise<{callId: string; name: string; taskId: string}>((resolve) => {
@@ -383,16 +371,13 @@ describe('CoreProcess (Integration)', function () {
       expect(toolResult.success).to.be.true
     })
 
-    it('should broadcast full task lifecycle in order', async () => {
-      mockProcessor.setMockBehavior('streaming', ['Hello'])
+    // Updated for v0.5.0: CoreProcess only broadcasts ack and completed
+    it('should broadcast task lifecycle (ack -> completed)', async () => {
+      mockProcessor.setMockBehavior('success')
 
       const events: string[] = []
       const completedPromise = new Promise<void>((resolve) => {
         client!.on('task:ack', () => events.push('ack'))
-        client!.on('task:started', () => events.push('started'))
-        client!.on('task:chunk', () => events.push('chunk'))
-        client!.on('task:toolCall', () => events.push('toolCall'))
-        client!.on('task:toolResult', () => events.push('toolResult'))
         client!.on('task:completed', () => {
           events.push('completed')
           resolve()
@@ -403,12 +388,9 @@ describe('CoreProcess (Integration)', function () {
 
       await completedPromise
 
-      // Verify order: ack -> started -> chunk -> toolCall -> toolResult -> completed
+      // In v0.5.0, CoreProcess only handles ack and completed
+      // Streaming events (started, chunk, toolCall, toolResult) are handled by agent-worker
       expect(events[0]).to.equal('ack')
-      expect(events[1]).to.equal('started')
-      expect(events).to.include('chunk')
-      expect(events).to.include('toolCall')
-      expect(events).to.include('toolResult')
       expect(events.at(-1)).to.equal('completed')
     })
   })

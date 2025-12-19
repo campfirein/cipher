@@ -30,7 +30,7 @@ Bad examples:
 - "Authentication" or "JWT tokens" (too vague, lacks context)
 - "Rate limiting" (no implementation details or file references)`
   public static examples = [
-    '# Curate context - streams results from running instance',
+    '# Curate context - queues task for background processing',
     '<%= config.bin %> <%= command.id %> "Auth uses JWT with 24h expiry. Tokens stored in httpOnly cookies via authMiddleware.ts"',
     '',
     '# Include relevant files for comprehensive context (max 5 files)',
@@ -66,8 +66,8 @@ Bad examples:
     }
 
     const verbose = (flags as {verbose?: boolean}).verbose ?? false
+    const files = (flags as {files?: string[]}).files
 
-    // Connect to running instance
     let client: ITransportClient | undefined
 
     try {
@@ -84,29 +84,24 @@ Bad examples:
         this.log(`Connected to instance (clientId: ${client.getClientId()})`)
       }
 
-      // Send task:create request
+      // Send task:create - Transport routes to Agent, UseCase handles logic
       const response = await client.request<TaskCreateResponse>('task:create', {
+        ...(files?.length ? {files} : {}),
         input: args.context,
         type: 'curate',
       })
 
-      const {taskId} = response
-
-      // Curate: emit and exit immediately (TUI will show streaming results)
-      this.log(`✓ Context curate task queued (${taskId.slice(0, 8)})`)
+      // Fire and exit - TUI shows processing in background
+      this.log(`✓ Context queued (${response.taskId.slice(0, 8)})`)
     } catch (error) {
       this.handleConnectionError(error)
     } finally {
-      // Cleanup
       if (client) {
         await client.disconnect()
       }
     }
   }
 
-  /**
-   * Handle connection-related errors with user-friendly messages.
-   */
   private handleConnectionError(error: unknown): void {
     if (error instanceof NoInstanceRunningError) {
       this.error('No ByteRover instance is running.\n\nStart one with: brv start', {exit: 1})
@@ -124,7 +119,6 @@ Bad examples:
       this.error(`Connection error: ${error.message}`, {exit: 1})
     }
 
-    // Unknown error
     const message = error instanceof Error ? error.message : String(error)
     this.error(`Unexpected error: ${message}`, {exit: 1})
   }

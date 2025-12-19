@@ -18,16 +18,16 @@
  * - Sends: 'task:started', 'task:chunk', 'task:completed', 'task:error', 'task:toolCall', 'task:toolResult'
  */
 
+import type {ICipherAgent} from '../../core/interfaces/cipher/i-cipher-agent.js'
 import type {ITransportClient} from '../../core/interfaces/transport/i-transport-client.js'
-import type {ToolCallInfo, ToolResultInfo} from '../../core/interfaces/usecase/i-curate-use-case.js'
 
-import {
-  NoOpProjectConfigStore,
-  NoOpTerminal,
-  NoOpTokenStore,
-  NoOpTrackingService,
-} from '../../core/interfaces/noop-implementations.js'
+import {getCurrentConfig} from '../../config/environment.js'
+import {PROJECT} from '../../constants.js'
+import {NoOpTerminal, NoOpTrackingService} from '../../core/interfaces/noop-implementations.js'
+import {CipherAgent} from '../cipher/agent/index.js'
+import {ProjectConfigStore} from '../config/file-config-store.js'
 import {createTaskProcessor, TaskProcessor} from '../core/task-processor.js'
+import {KeychainTokenStore} from '../storage/keychain-token-store.js'
 import {createTransportClient} from '../transport/transport-factory.js'
 import {CurateUseCase} from '../usecase/curate-use-case.js'
 import {QueryUseCase} from '../usecase/query-use-case.js'
@@ -49,7 +49,7 @@ function sendToParent(message: IPCResponse): void {
 
 type TaskExecuteMessage = {
   clientId: string
-  fileReferenceInstructions?: string
+  files?: string[]
   input: string
   taskId: string
   type: 'curate' | 'query'
@@ -65,6 +65,9 @@ type TaskCancelMessage = {
 
 let transportClient: ITransportClient | undefined
 let taskProcessor: TaskProcessor | undefined
+let cipherAgent: ICipherAgent | undefined
+/** Current task being processed (for event routing) */
+let currentTaskId: string | undefined
 
 /**
  * Get Transport port from environment.
@@ -84,22 +87,74 @@ function getTransportPort(): number {
 }
 
 /**
- * Create UseCase dependencies (NoOp for headless mode).
+ * Create UseCase dependencies.
+ * Uses real stores for auth/config, NoOp for terminal/tracking (headless mode).
  */
 function createUseCaseDependencies() {
   return {
-    projectConfigStore: new NoOpProjectConfigStore(),
+    projectConfigStore: new ProjectConfigStore(),
     terminal: new NoOpTerminal(),
-    tokenStore: new NoOpTokenStore(),
+    tokenStore: new KeychainTokenStore(),
     trackingService: new NoOpTrackingService(),
   }
+}
+
+/**
+ * Setup event forwarding from CipherAgent to Transport.
+ * agent-worker subscribes directly to agentEventBus (owns the agent).
+ * Events are forwarded with currentTaskId.
+ */
+function setupAgentEventForwarding(agent: CipherAgent): void {
+  const eventBus = agent.agentEventBus
+  if (!eventBus) {
+    console.warn('[Agent] No agentEventBus available for event forwarding')
+    return
+  }
+
+  // Forward LLM response chunks
+  eventBus.on('llmservice:response', (payload) => {
+    if (currentTaskId && payload.content) {
+      transportClient?.request('task:chunk', {content: payload.content, taskId: currentTaskId}).catch(() => {})
+    }
+  })
+
+  // Forward tool calls
+  eventBus.on('llmservice:toolCall', (payload) => {
+    if (currentTaskId && payload.callId) {
+      transportClient
+        ?.request('task:toolCall', {
+          args: payload.args,
+          callId: payload.callId,
+          name: payload.toolName,
+          taskId: currentTaskId,
+        })
+        .catch(() => {})
+    }
+  })
+
+  // Forward tool results
+  eventBus.on('llmservice:toolResult', (payload) => {
+    if (currentTaskId && payload.callId) {
+      transportClient
+        ?.request('task:toolResult', {
+          callId: payload.callId,
+          error: payload.error,
+          result: payload.result,
+          success: payload.success,
+          taskId: currentTaskId,
+        })
+        .catch(() => {})
+    }
+  })
+
+  console.log('[Agent] Event forwarding setup complete')
 }
 
 /**
  * Handle task:execute from Transport.
  */
 async function handleTaskExecute(data: TaskExecuteMessage): Promise<void> {
-  const {fileReferenceInstructions, input, taskId, type} = data
+  const {files, input, taskId, type} = data
 
   console.log(`[Agent] Processing task: ${taskId} (type=${type})`)
 
@@ -109,37 +164,31 @@ async function handleTaskExecute(data: TaskExecuteMessage): Promise<void> {
     return
   }
 
-  // Process task with streaming callbacks
-  await taskProcessor.process(
-    {
+  // Set current task for event routing
+  currentTaskId = taskId
+
+  try {
+    // Notify task started
+    transportClient?.request('task:started', {taskId}).catch(() => {})
+
+    // Process task - events stream via agentEventBus subscription
+    const result = await taskProcessor.process({
       content: input,
-      fileReferenceInstructions,
+      files,
       taskId,
       type,
-    },
-    {
-      onChunk(content: string) {
-        transportClient?.request('task:chunk', {content, taskId}).catch(() => {})
-      },
-      onCompleted(result: string) {
-        console.log(`[Agent] Task completed: ${taskId}`)
-        transportClient?.request('task:completed', {result, taskId}).catch(() => {})
-      },
-      onError(error: string) {
-        console.error(`[Agent] Task error: ${taskId} - ${error}`)
-        transportClient?.request('task:error', {error, taskId}).catch(() => {})
-      },
-      onStarted() {
-        transportClient?.request('task:started', {taskId}).catch(() => {})
-      },
-      onToolCall(info: ToolCallInfo) {
-        transportClient?.request('task:toolCall', {...info, taskId}).catch(() => {})
-      },
-      onToolResult(info: ToolResultInfo) {
-        transportClient?.request('task:toolResult', {...info, taskId}).catch(() => {})
-      },
-    },
-  )
+    })
+
+    // Notify completion
+    console.log(`[Agent] Task completed: ${taskId}`)
+    transportClient?.request('task:completed', {result, taskId}).catch(() => {})
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    console.error(`[Agent] Task error: ${taskId} - ${errorMessage}`)
+    transportClient?.request('task:error', {error: errorMessage, taskId}).catch(() => {})
+  } finally {
+    currentTaskId = undefined
+  }
 }
 
 /**
@@ -169,16 +218,59 @@ async function startAgent(): Promise<void> {
   await transportClient.request('agent:register', {})
   console.log('[Agent] Registered with Transport')
 
-  // Create UseCases
+  // Create UseCases with real stores
   const deps = createUseCaseDependencies()
   const curateUseCase = new CurateUseCase(deps)
   const queryUseCase = new QueryUseCase(deps)
 
-  // Create TaskProcessor
+  // Load auth token and config for CipherAgent
+  const tokenStore = new KeychainTokenStore()
+  const configStore = new ProjectConfigStore()
+
+  const authToken = await tokenStore.load()
+  const brvConfig = await configStore.read()
+
+  if (!authToken) {
+    throw new Error('Not authenticated. Please run "brv login" first.')
+  }
+
+  if (!brvConfig) {
+    throw new Error('Project not initialized. Please run "brv init" first.')
+  }
+
+  // Create CipherAgent (v0.5.0: single agent per process)
+  const envConfig = getCurrentConfig()
+  const agentConfig = {
+    accessToken: authToken.accessToken,
+    apiBaseUrl: envConfig.llmApiBaseUrl,
+    fileSystem: {workingDirectory: process.cwd()},
+    llm: {
+      maxIterations: 10,
+      maxTokens: 4096,
+      temperature: 0.7,
+      topK: 10,
+      topP: 0.95,
+      verbose: false,
+    },
+    model: 'gemini-2.5-pro',
+    projectId: PROJECT,
+    sessionKey: authToken.sessionKey,
+  }
+
+  const agent = new CipherAgent(agentConfig, brvConfig)
+  await agent.start()
+  console.log('[Agent] CipherAgent started')
+
+  // Setup event forwarding BEFORE processing any tasks
+  setupAgentEventForwarding(agent)
+  cipherAgent = agent
+
+  // Create TaskProcessor and inject agent
   taskProcessor = createTaskProcessor({
     curateUseCase,
     queryUseCase,
   })
+  taskProcessor.setAgent(cipherAgent)
 
   // Setup event handlers
   transportClient.on<TaskExecuteMessage>('task:execute', (data) => {
@@ -212,6 +304,13 @@ async function startAgent(): Promise<void> {
  * Stop Agent Process.
  */
 async function stopAgent(): Promise<void> {
+  // Stop CipherAgent first
+  if (cipherAgent) {
+    await (cipherAgent as CipherAgent).stop()
+    cipherAgent = undefined
+    console.log('[Agent] CipherAgent stopped')
+  }
+
   if (transportClient) {
     await transportClient.disconnect()
     transportClient = undefined

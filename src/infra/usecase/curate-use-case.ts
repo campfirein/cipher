@@ -21,7 +21,7 @@ import {CONTEXT_TREE_DOMAINS} from '../../config/context-tree-domains.js'
 import {getCurrentConfig} from '../../config/environment.js'
 import {BRV_DIR, CONTEXT_FILE, CONTEXT_TREE_DIR, PROJECT} from '../../constants.js'
 import {validateFileForCurate} from '../../utils/file-validator.js'
-import {CipherAgent} from '../cipher/cipher-agent.js'
+import {CipherAgent} from '../cipher/agent/index.js'
 import {getAgentStorage, getAgentStorageSync} from '../cipher/storage/agent-storage.js'
 import {WorkspaceNotInitializedError} from '../cipher/validation/workspace-validator.js'
 
@@ -77,58 +77,49 @@ export class CurateUseCase implements ICurateUseCase {
   }
 
   /**
-   * Execute with an injected agent (v7 architecture).
+   * Execute with an injected agent (v0.5.0 architecture).
    * UseCase receives agent from TaskProcessor, doesn't manage agent lifecycle.
+   * Event streaming handled by agent-worker (subscribes to agentEventBus).
    *
-   * Key differences from runForTransport:
-   * - Agent is passed in (already started, long-lived)
-   * - No agent.start() or lifecycle management
-   * - Agent memory persists across multiple calls
+   * @param agent - Long-lived CipherAgent
+   * @param options - Execution options (content, file references)
+   * @returns Result string from agent execution
    */
-  public async executeWithAgent(
-    agent: ICipherAgent,
-    options: CurateExecuteOptions,
-    callbacks?: CurateTransportCallbacks,
-  ): Promise<void> {
-    const {content, fileReferenceInstructions} = options
+  public async executeWithAgent(agent: ICipherAgent, options: CurateExecuteOptions): Promise<string> {
+    const {content, files} = options
 
     // Initialize storage for tool call tracking
     const storage = await getAgentStorage()
     let executionId: null | string = null
 
     try {
+      // Process file references if provided (validation + instructions)
+      const fileReferenceInstructions = this.processFileReferences(files ?? [])
+      if (fileReferenceInstructions === undefined) {
+        throw new Error('File validation failed. Please check file paths.')
+      }
+
       // Create execution with status='running'
       executionId = storage.createExecution('curate', content)
 
       // Build prompt with optional file reference instructions
       const prompt = fileReferenceInstructions ? `${content}\n${fileReferenceInstructions}` : content
 
-      callbacks?.onStarted?.()
-
-      // Setup streaming via event bus (agent already started, has event bus)
-      // Note: We cast to CipherAgent to access agentEventBus (not exposed in ICipherAgent)
+      // Execute with curate commandType
+      // Cast to CipherAgent for full execute signature (ICipherAgent is minimal)
       const cipherAgent = agent as CipherAgent
-      if (cipherAgent.agentEventBus) {
-        this.setupStreamingCallbacks(cipherAgent, callbacks, executionId)
-      }
-
-      // Execute with autonomous mode and curate commandType
-      // Use a unique sessionId for this execution within the long-lived agent
-      // Note: Cast to CipherAgent for full execute signature (ICipherAgent is minimal)
       const sessionId = this.generateSessionId()
       const response = await cipherAgent.execute(prompt, sessionId, {
         executionContext: {commandType: 'curate'},
-        mode: 'autonomous',
       })
 
       // Mark execution as completed
       storage.updateExecutionStatus(executionId, 'completed', response)
 
-      // Notify completion
-      callbacks?.onCompleted?.(response)
-
       // Cleanup old executions
       storage.cleanupOldExecutions(100)
+
+      return response
     } catch (error) {
       // Mark execution as failed
       if (executionId) {
@@ -136,7 +127,7 @@ export class CurateUseCase implements ICurateUseCase {
         storage.updateExecutionStatus(executionId, 'failed', undefined, errorMessage)
       }
 
-      callbacks?.onError?.(error instanceof Error ? error.message : String(error))
+      throw error
     }
   }
 
@@ -251,7 +242,7 @@ export class CurateUseCase implements ICurateUseCase {
     options: CurateTransportOptions,
     callbacks?: CurateTransportCallbacks,
   ): Promise<void> {
-    const {authToken, brvConfig, content, fileReferenceInstructions} = options
+    const {authToken, brvConfig, content, files} = options
 
     // Initialize storage for tool call tracking
     const storage = await getAgentStorage()
@@ -261,6 +252,13 @@ export class CurateUseCase implements ICurateUseCase {
       // Validate brvConfig
       if (!brvConfig) {
         callbacks?.onError?.('Project not initialized. Please run "brv init" first.')
+        return
+      }
+
+      // Process file references if provided (validation + instructions)
+      const fileReferenceInstructions = this.processFileReferences(files ?? [])
+      if (fileReferenceInstructions === undefined) {
+        callbacks?.onError?.('File validation failed. Please check file paths.')
         return
       }
 
@@ -303,10 +301,9 @@ export class CurateUseCase implements ICurateUseCase {
           this.setupStreamingCallbacks(agent, callbacks, executionId)
         }
 
-        // Execute with autonomous mode and curate commandType
+        // Execute with curate commandType
         const response = await agent.execute(prompt, sessionId, {
           executionContext: {commandType: 'curate'},
-          mode: 'autonomous',
         })
 
         // Mark execution as completed

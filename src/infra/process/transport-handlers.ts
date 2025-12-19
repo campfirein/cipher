@@ -58,7 +58,7 @@ type TaskInfo = {
  */
 type TaskExecuteMessage = {
   clientId: string
-  fileReferenceInstructions?: string
+  files?: string[]
   input: string
   taskId: string
   type: 'curate' | 'query'
@@ -263,6 +263,7 @@ export class TransportHandlers {
     if (this.agentClientId) {
       const executeMsg: TaskExecuteMessage = {
         clientId,
+        ...(data.files?.length ? {files: data.files} : {}),
         input: data.input,
         taskId,
         type: data.type as 'curate' | 'query',

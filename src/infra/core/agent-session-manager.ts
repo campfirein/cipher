@@ -11,7 +11,7 @@ import type {
 import {getCurrentConfig} from '../../config/environment.js'
 import {PROJECT} from '../../constants.js'
 import {NoOpLogger} from '../../core/interfaces/cipher/i-logger.js'
-import {CipherAgent} from '../cipher/cipher-agent.js'
+import {CipherAgent} from '../cipher/agent/index.js'
 
 /**
  * Session entry with agent and metadata.

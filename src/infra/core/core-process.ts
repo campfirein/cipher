@@ -357,35 +357,17 @@ export class CoreProcess {
     // Route to TaskProcessor if available
     if (this.taskProcessor) {
       // Process task asynchronously (don't await - return taskId immediately)
+      // Note: Event streaming is handled by agent-worker in v0.5.0 architecture
       this.taskProcessor
-        .process(
-          {
-            content: data.input,
-            taskId,
-            type: data.type as 'curate' | 'query',
-          },
-          {
-            onChunk: (content) => {
-              this.transportServer.broadcastTo(`task:${taskId}`, 'task:chunk', {content, taskId})
-            },
-            onCompleted: (result) => {
-              this.transportServer.broadcastTo(`task:${taskId}`, 'task:completed', {result, taskId})
-            },
-            onError: (error) => {
-              this.transportServer.broadcastTo(`task:${taskId}`, 'task:error', {error, taskId})
-            },
-            onStarted: () => {
-              this.transportServer.broadcastTo(`task:${taskId}`, 'task:started', {taskId})
-            },
-            onToolCall: (info) => {
-              this.transportServer.broadcastTo(`task:${taskId}`, 'task:toolCall', {...info, taskId})
-            },
-            onToolResult: (info) => {
-              this.transportServer.broadcastTo(`task:${taskId}`, 'task:toolResult', {...info, taskId})
-            },
-          },
-        )
-        .catch((error) => {
+        .process({
+          content: data.input,
+          taskId,
+          type: data.type as 'curate' | 'query',
+        })
+        .then((result: string) => {
+          this.transportServer.broadcastTo(`task:${taskId}`, 'task:completed', {result, taskId})
+        })
+        .catch((error: unknown) => {
           this.logger.error('Task processing failed', {error: String(error), taskId})
           this.transportServer.broadcastTo(`task:${taskId}`, 'task:error', {
             error: error instanceof Error ? error.message : String(error),

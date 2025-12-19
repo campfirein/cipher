@@ -52,18 +52,15 @@ export interface QueryExecuteOptions {
 
 export interface IQueryUseCase {
   /**
-   * Execute with an injected agent (v7 architecture).
+   * Execute with an injected agent (v0.5.0 architecture).
    * UseCase receives agent from TaskProcessor, doesn't manage agent lifecycle.
+   * Event streaming handled by agent-worker (subscribes to agentEventBus).
    *
-   * @param agent - Long-lived CipherAgent from AgentSessionManager
+   * @param agent - Long-lived CipherAgent
    * @param options - Execution options (query)
-   * @param callbacks - Streaming callbacks
+   * @returns Result string from agent execution
    */
-  executeWithAgent(
-    agent: ICipherAgent,
-    options: QueryExecuteOptions,
-    callbacks?: QueryTransportCallbacks,
-  ): Promise<void>
+  executeWithAgent(agent: ICipherAgent, options: QueryExecuteOptions): Promise<string>
 
   /**
    * Run in REPL mode (with terminal output).

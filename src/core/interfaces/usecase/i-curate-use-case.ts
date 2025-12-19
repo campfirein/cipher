@@ -22,8 +22,8 @@ export interface CurateTransportOptions {
   brvConfig?: BrvConfig
   /** Context content */
   content: string
-  /** Optional file reference instructions */
-  fileReferenceInstructions?: string
+  /** Optional file paths for --files flag */
+  files?: string[]
 }
 
 /**
@@ -76,26 +76,21 @@ export interface CurateTransportCallbacks {
 export interface CurateExecuteOptions {
   /** Context content */
   content: string
-  /** Optional file reference instructions */
-  fileReferenceInstructions?: string
+  /** Optional file paths for --files flag */
+  files?: string[]
 }
 
 export interface ICurateUseCase {
   /**
-   * Execute with an injected agent (v7 architecture).
+   * Execute with an injected agent (v0.5.0 architecture).
    * UseCase receives agent from TaskProcessor, doesn't manage agent lifecycle.
+   * Event streaming handled by agent-worker (subscribes to agentEventBus).
    *
-   * Flow: TaskProcessor → AgentSessionManager.getOrCreateAgent() → UseCase.executeWithAgent(agent, ...)
-   *
-   * @param agent - Long-lived CipherAgent from AgentSessionManager
+   * @param agent - Long-lived CipherAgent
    * @param options - Execution options (content, file references)
-   * @param callbacks - Streaming callbacks
+   * @returns Result string from agent execution
    */
-  executeWithAgent(
-    agent: ICipherAgent,
-    options: CurateExecuteOptions,
-    callbacks?: CurateTransportCallbacks,
-  ): Promise<void>
+  executeWithAgent(agent: ICipherAgent, options: CurateExecuteOptions): Promise<string>
 
   /**
    * Run in REPL mode (with terminal output).

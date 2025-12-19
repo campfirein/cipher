@@ -51,19 +51,15 @@ export class QueryUseCase implements IQueryUseCase {
   }
 
   /**
-   * Execute with an injected agent (v7 architecture).
+   * Execute with an injected agent (v0.5.0 architecture).
    * UseCase receives agent from TaskProcessor, doesn't manage agent lifecycle.
+   * Event streaming handled by agent-worker (subscribes to agentEventBus).
    *
-   * Key differences from runForTransport:
-   * - Agent is passed in (already started, long-lived)
-   * - No agent.start() or lifecycle management
-   * - Agent memory persists across multiple calls
+   * @param agent - Long-lived CipherAgent
+   * @param options - Execution options (query)
+   * @returns Result string from agent execution
    */
-  public async executeWithAgent(
-    agent: ICipherAgent,
-    options: QueryExecuteOptions,
-    callbacks?: QueryTransportCallbacks,
-  ): Promise<void> {
+  public async executeWithAgent(agent: ICipherAgent, options: QueryExecuteOptions): Promise<string> {
     const {query} = options
 
     // Initialize storage for tool call tracking
@@ -74,32 +70,22 @@ export class QueryUseCase implements IQueryUseCase {
       // Create execution with status='running'
       executionId = storage.createExecution('query', query)
 
-      callbacks?.onStarted?.()
-
-      // Setup streaming via event bus (agent already started, has event bus)
-      // Note: We cast to CipherAgent to access agentEventBus (not exposed in ICipherAgent)
+      // Execute with query commandType
+      // Cast to CipherAgent for full execute signature (ICipherAgent is minimal)
       const cipherAgent = agent as CipherAgent
-      if (cipherAgent.agentEventBus) {
-        this.setupStreamingCallbacks(cipherAgent, callbacks, executionId)
-      }
-
-      // Execute with autonomous mode and query commandType
-      // Use a unique sessionId for this execution within the long-lived agent
       const sessionId = this.generateSessionId()
       const prompt = `Search the context tree for: ${query}`
       const response = await cipherAgent.execute(prompt, sessionId, {
         executionContext: {commandType: 'query'},
-        mode: 'autonomous',
       })
 
       // Mark execution as completed
       storage.updateExecutionStatus(executionId, 'completed', response)
 
-      // Notify completion
-      callbacks?.onCompleted?.(response)
-
       // Cleanup old executions
       storage.cleanupOldExecutions(100)
+
+      return response
     } catch (error) {
       // Mark execution as failed
       if (executionId) {
@@ -107,7 +93,7 @@ export class QueryUseCase implements IQueryUseCase {
         storage.updateExecutionStatus(executionId, 'failed', undefined, errorMessage)
       }
 
-      callbacks?.onError?.(error instanceof Error ? error.message : String(error))
+      throw error
     }
   }
 
@@ -279,7 +265,6 @@ export class QueryUseCase implements IQueryUseCase {
         const prompt = `Search the context tree for: ${query}`
         const response = await agent.execute(prompt, sessionId, {
           executionContext: {commandType: 'query'},
-          mode: 'autonomous',
         })
 
         // Mark execution as completed
