@@ -184,13 +184,139 @@ export interface ToolPart extends BasePart {
   type: 'tool'
 }
 
+// ==================== EXTENDED PARTS (OpenCode Pattern) ====================
+
+/**
+ * Snapshot part - captures code/file state at a point in time.
+ * Used for tracking state before/after operations for undo/revert.
+ */
+export interface SnapshotPart extends BasePart {
+  /** Unique identifier for this snapshot */
+  id: string
+  /** Snapshot data as JSON string */
+  snapshot: string
+  /** Unix timestamp when snapshot was taken */
+  timestamp: number
+  type: 'snapshot'
+}
+
+/**
+ * Patch part - represents a file diff/change.
+ * Used for tracking file modifications and enabling rich diff views.
+ */
+export interface PatchPart extends BasePart {
+  /** Unified diff content */
+  diff: string
+  /** Path to the file that was modified */
+  filePath: string
+  /** Unique identifier for this patch */
+  id: string
+  /** Number of lines added */
+  linesAdded: number
+  /** Number of lines removed */
+  linesRemoved: number
+  type: 'patch'
+}
+
+/**
+ * Step start part - marks the beginning of an execution step.
+ * Used for tracking multi-step operations and providing progress feedback.
+ */
+export interface StepStartPart extends BasePart {
+  /** Unique identifier for this step */
+  id: string
+  /** Step index (0-based) */
+  stepIndex: number
+  /** Unix timestamp when step started */
+  timestamp: number
+  type: 'step_start'
+}
+
+/**
+ * Step finish part - marks the end of an execution step with cost/token info.
+ * Used for tracking per-step costs and providing detailed analytics.
+ */
+export interface StepFinishPart extends BasePart {
+  /** Cost in dollars for this step */
+  cost: number
+  /** Why this step finished */
+  finishReason: 'max_tokens' | 'stop' | 'tool_calls'
+  /** Unique identifier for this step */
+  id: string
+  /** Step index (0-based) */
+  stepIndex: number
+  /** Unix timestamp when step finished */
+  timestamp: number
+  /** Token usage for this step */
+  tokens: {
+    /** Cache tokens (read/write) */
+    cache?: {read: number; write: number}
+    /** Input tokens consumed */
+    input: number
+    /** Output tokens generated */
+    output: number
+    /** Reasoning tokens (if extended thinking enabled) */
+    reasoning?: number
+  }
+  type: 'step_finish'
+}
+
+/**
+ * Compaction part - marks a context compaction boundary.
+ * Inserted when context is compacted to preserve summary of removed content.
+ */
+export interface CompactionPart extends BasePart {
+  /** IDs of messages that were compacted */
+  compactedMessageIds: string[]
+  /** Unique identifier for this compaction */
+  id: string
+  /** Summary of the compacted content */
+  summary: string
+  /** Unix timestamp when compaction occurred */
+  timestamp: number
+  /** Number of tokens saved by compaction */
+  tokensSaved: number
+  type: 'compaction'
+}
+
+/**
+ * Retry part - tracks retry attempts for failed operations.
+ * Used for debugging and providing visibility into retry behavior.
+ */
+export interface RetryPart extends BasePart {
+  /** Current retry attempt number (1-based) */
+  attempt: number
+  /** Error message from the failed attempt */
+  errorMessage: string
+  /** Unique identifier for this retry */
+  id: string
+  /** Maximum number of retry attempts */
+  maxAttempts: number
+  /** Unix timestamp of next retry (if scheduled) */
+  nextRetryAt?: number
+  /** What operation is being retried */
+  operation: string
+  type: 'retry'
+}
+
 // ==================== MESSAGE PART UNION ====================
 
 /**
  * Union type for message content parts.
  * Discriminated by the `type` field.
  */
-export type MessagePart = FilePart | ImagePart | ReasoningPart | TextPart | ToolPart
+export type MessagePart =
+  | CompactionPart
+  | FilePart
+  | ImagePart
+  | PatchPart
+  | ReasoningPart
+  | RetryPart
+  | SnapshotPart
+  | StepFinishPart
+  | StepStartPart
+  | TextPart
+  | ToolPart
 
 /**
  * Tool call made by the assistant

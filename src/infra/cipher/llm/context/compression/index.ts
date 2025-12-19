@@ -2,6 +2,10 @@
  * Context compression strategies module
  */
 
+// Compression strategies (alphabetical order)
+export {createEnhancedCompactionStrategy, EnhancedCompactionStrategy} from './enhanced-compaction.js'
+export type {CompactionResult, EnhancedCompactionOptions} from './enhanced-compaction.js'
+
 // Filter utilities
 export {
   filterCompacted,
@@ -12,7 +16,7 @@ export {
   isSummaryMessage,
 } from './filter-compacted.js'
 
-// Compression strategies
+// More compression strategies
 export {MiddleRemovalStrategy} from './middle-removal.js'
 export {OldestRemovalStrategy} from './oldest-removal.js'
 export {createReactiveOverflowStrategy, ReactiveOverflowStrategy} from './reactive-overflow.js'

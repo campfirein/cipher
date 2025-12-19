@@ -8,6 +8,7 @@ import type {FileData, ImageData} from '../llm/context/context-manager.js'
 import {LLMError, SessionCancelledError} from '../../../core/domain/cipher/errors/session-error.js'
 import {SessionEventBus} from '../events/event-emitter.js'
 import {MessageQueueService} from './message-queue.js'
+import {sessionStatusManager} from './session-status.js'
 
 // List of all session events that should be forwarded to agent bus
 const SESSION_EVENT_NAMES: readonly [
@@ -16,22 +17,30 @@ const SESSION_EVENT_NAMES: readonly [
   'llmservice:response',
   'llmservice:toolCall',
   'llmservice:toolResult',
+  'llmservice:doomLoopDetected',
   'llmservice:error',
   'llmservice:unsupportedInput',
   'message:queued',
   'message:dequeued',
   'run:complete',
+  'session:statusChanged',
+  'step:started',
+  'step:finished',
 ] = [
   'llmservice:thinking',
   'llmservice:chunk',
   'llmservice:response',
   'llmservice:toolCall',
   'llmservice:toolResult',
+  'llmservice:doomLoopDetected',
   'llmservice:error',
   'llmservice:unsupportedInput',
   'message:queued',
   'message:dequeued',
   'run:complete',
+  'session:statusChanged',
+  'step:started',
+  'step:finished',
 ]
 
 /**
@@ -116,6 +125,9 @@ export class ChatSession implements IChatSession {
     }
 
     this.forwarders.clear()
+
+    // Clean up session status
+    sessionStatusManager.remove(this.id)
   }
 
   /**
@@ -183,6 +195,9 @@ export class ChatSession implements IChatSession {
     this.currentController = new AbortController()
     this.isExecuting = true
 
+    // Update session status to busy
+    sessionStatusManager.setBusy(this.id, this.eventBus)
+
     try {
       // Process any queued messages first, coalescing with current input
       const queued = this.messageQueue.dequeueAll()
@@ -207,6 +222,9 @@ export class ChatSession implements IChatSession {
     } finally {
       this.isExecuting = false
       this.currentController = undefined
+
+      // Update session status back to idle
+      sessionStatusManager.setIdle(this.id, this.eventBus)
     }
   }
 
@@ -269,6 +287,9 @@ export class ChatSession implements IChatSession {
     this.currentController = new AbortController()
     this.isExecuting = true
 
+    // Update session status to busy
+    sessionStatusManager.setBusy(this.id, this.eventBus)
+
     // Link external signal if provided
     if (options?.signal) {
       options.signal.addEventListener('abort', () => this.currentController?.abort())
@@ -295,6 +316,9 @@ export class ChatSession implements IChatSession {
     } finally {
       this.isExecuting = false
       this.currentController = undefined
+
+      // Update session status back to idle
+      sessionStatusManager.setIdle(this.id, this.eventBus)
 
       // Emit run:complete event
       const durationMs = Date.now() - startTime

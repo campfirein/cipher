@@ -817,18 +817,29 @@ export class ByteRoverLLMService implements ILLMService {
       const loopResult = await this.loopDetector.recordAndCheck(toolName, toolArgs)
 
       if (loopResult.isLoop) {
-        // Emit warning event
+        // Emit dedicated doom loop event for observability
+        this.sessionEventBus.emit('llmservice:doomLoopDetected', {
+          args: toolArgs,
+          loopType: loopResult.loopType!,
+          repeatCount: loopResult.repeatCount ?? 0,
+          toolName,
+        })
+
+        // Also emit warning event for backward compatibility
         this.sessionEventBus.emit('llmservice:warning', {
-          message: `Loop detected: ${loopResult.loopType} - tool "${toolName}" repeated ${loopResult.repeatCount} times`,
+          message: `Doom loop detected: ${loopResult.loopType} - tool "${toolName}" repeated ${loopResult.repeatCount} times. Auto-denying to prevent infinite loop.`,
         })
 
         return {
           toolCall,
           toolResult: {
             errorType: 'LOOP_DETECTED',
-            metadata: {},
+            metadata: {
+              loopType: loopResult.loopType,
+              repeatCount: loopResult.repeatCount,
+            },
             processedOutput: {
-              content: `⚠️ LOOP DETECTED: ${loopResult.suggestion}\n\nPlease try a different approach to accomplish your goal.`,
+              content: `⚠️ DOOM LOOP DETECTED: ${loopResult.suggestion}\n\nThe tool call has been automatically rejected to prevent an infinite loop. Please try a different approach to accomplish your goal.`,
             },
             success: false,
           },

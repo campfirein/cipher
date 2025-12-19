@@ -21,6 +21,7 @@ export const SESSION_EVENT_NAMES = [
   'llmservice:contextCompressed',
   'llmservice:contextOverflow',
   'llmservice:contextPruned',
+  'llmservice:doomLoopDetected',
   'llmservice:error',
   'llmservice:outputTruncated',
   'llmservice:response',
@@ -34,6 +35,9 @@ export const SESSION_EVENT_NAMES = [
   'message:dequeued',
   'message:queued',
   'run:complete',
+  'session:statusChanged',
+  'step:finished',
+  'step:started',
 ] as const
 
 /**
@@ -267,6 +271,23 @@ export interface AgentEventMap {
   }
 
   /**
+   * Emitted when a doom loop is detected (repeated identical tool calls).
+   * The tool call is automatically rejected to prevent infinite loops.
+   * @property {Record<string, unknown>} args - Arguments that were repeated
+   * @property {'exact_repeat' | 'oscillation'} loopType - Type of loop detected
+   * @property {number} repeatCount - Number of times the pattern repeated
+   * @property {string} sessionId - ID of the session
+   * @property {string} toolName - Name of the tool involved in the loop
+   */
+  'llmservice:doomLoopDetected': {
+    args: Record<string, unknown>
+    loopType: 'exact_repeat' | 'oscillation'
+    repeatCount: number
+    sessionId: string
+    toolName: string
+  }
+
+  /**
    * Emitted when an error occurs during LLM service operation.
    * @property {string} [code] - Error code (optional)
    * @property {string} error - Error message
@@ -468,6 +489,44 @@ export interface AgentEventMap {
     sessionId: string
     stepCount: number
   }
+
+  /**
+   * Emitted when session status changes.
+   * Tracks the lifecycle state of a session (idle, busy, retry, waiting).
+   * @property {string} sessionId - ID of the session
+   * @property {SessionStatusType} status - The new session status
+   */
+  'session:statusChanged': {
+    sessionId: string
+    status: SessionStatusType
+  }
+
+  /**
+   * Emitted when an execution step finishes.
+   * Provides per-step cost and token tracking.
+   * @property {number} cost - Cost in dollars for this step
+   * @property {'max_tokens' | 'stop' | 'tool_calls'} finishReason - Why step finished
+   * @property {string} sessionId - ID of the session
+   * @property {number} stepIndex - Step index (0-based)
+   * @property {StepTokenUsage} tokens - Token usage for this step
+   */
+  'step:finished': {
+    cost: number
+    finishReason: 'max_tokens' | 'stop' | 'tool_calls'
+    sessionId: string
+    stepIndex: number
+    tokens: StepTokenUsage
+  }
+
+  /**
+   * Emitted when an execution step starts.
+   * @property {string} sessionId - ID of the session
+   * @property {number} stepIndex - Step index (0-based)
+   */
+  'step:started': {
+    sessionId: string
+    stepIndex: number
+  }
 }
 
 /**
@@ -521,6 +580,21 @@ export interface SessionEventMap {
     pruneCount: number
     reason: 'manual' | 'overflow'
     tokensSaved: number
+  }
+
+  /**
+   * Emitted when a doom loop is detected (repeated identical tool calls).
+   * The tool call is automatically rejected to prevent infinite loops.
+   * @property {Record<string, unknown>} args - Arguments that were repeated
+   * @property {'exact_repeat' | 'oscillation'} loopType - Type of loop detected
+   * @property {number} repeatCount - Number of times the pattern repeated
+   * @property {string} toolName - Name of the tool involved in the loop
+   */
+  'llmservice:doomLoopDetected': {
+    args: Record<string, unknown>
+    loopType: 'exact_repeat' | 'oscillation'
+    repeatCount: number
+    toolName: string
   }
 
   /**
@@ -681,7 +755,66 @@ export interface SessionEventMap {
     finishReason: 'cancelled' | 'error' | 'max-iterations' | 'stop' | 'timeout'
     stepCount: number
   }
+
+  /**
+   * Emitted when session status changes.
+   * Tracks the lifecycle state of a session (idle, busy, retry, waiting).
+   * @property {SessionStatusType} status - The new session status
+   */
+  'session:statusChanged': {
+    status: SessionStatusType
+  }
+
+  /**
+   * Emitted when an execution step finishes.
+   * Provides per-step cost and token tracking.
+   * @property {number} cost - Cost in dollars for this step
+   * @property {'max_tokens' | 'stop' | 'tool_calls'} finishReason - Why step finished
+   * @property {number} stepIndex - Step index (0-based)
+   * @property {StepTokenUsage} tokens - Token usage for this step
+   */
+  'step:finished': {
+    cost: number
+    finishReason: 'max_tokens' | 'stop' | 'tool_calls'
+    stepIndex: number
+    tokens: StepTokenUsage
+  }
+
+  /**
+   * Emitted when an execution step starts.
+   * @property {number} stepIndex - Step index (0-based)
+   */
+  'step:started': {
+    stepIndex: number
+  }
 }
+
+/**
+ * Token usage for a single execution step.
+ */
+export interface StepTokenUsage {
+  /** Cache tokens (read/write) */
+  cache?: { read: number; write: number }
+  /** Input tokens consumed */
+  input: number
+  /** Output tokens generated */
+  output: number
+  /** Reasoning tokens (if extended thinking enabled) */
+  reasoning?: number
+}
+
+/**
+ * Session status type representing lifecycle states.
+ * - busy: Session is currently executing a request
+ * - idle: Session is ready to accept new messages
+ * - retry: Session is waiting to retry after a transient error
+ * - waiting_permission: Session is waiting for user permission (e.g., tool confirmation)
+ */
+export type SessionStatusType =
+  | { attempt: number; message: string; nextRetryAt: number; type: 'retry' }
+  | { toolName: string; type: 'waiting_permission' }
+  | { type: 'busy' }
+  | { type: 'idle' }
 
 /**
  * Compile-time validation: Ensure all AGENT_EVENT_NAMES are in AgentEventMap.
