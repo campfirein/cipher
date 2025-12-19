@@ -23,8 +23,8 @@ import {CopyablePrompt} from './copyable-prompt.js'
 import {OnboardingStep} from './onboarding-step.js'
 
 /** Example prompts for curate and query steps */
-const CURATE_PROMPT = 'brv curate "Auth uses JWT with 24h expiry. Tokens stored in httpOnly cookies"'
-const QUERY_PROMPT = 'brv query "How is authentication implemented?"'
+const CURATE_PROMPT = 'run brv curate "Auth uses JWT with 24h expiry. Tokens stored in httpOnly cookies"'
+const QUERY_PROMPT = 'run brv query "How is authentication implemented?"'
 
 /** Minimum output lines to show before truncation */
 const MIN_OUTPUT_LINES = 3
