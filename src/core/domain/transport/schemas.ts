@@ -270,10 +270,20 @@ export const TaskCompletedSchema = z.object({
 })
 
 /**
+ * Structured error object
+ */
+export const TaskErrorDataSchema = z.object({
+  code: z.string(),
+  details: z.record(z.unknown()).optional(),
+  message: z.string(),
+  name: z.string(),
+})
+
+/**
  * task:error - Task failed with error
  */
 export const TaskErrorSchema = z.object({
-  error: z.string(),
+  error: TaskErrorDataSchema,
   taskId: z.string(),
 })
 
@@ -312,6 +322,7 @@ export const LlmToolResultEventSchema = z.object({
 export type TaskAck = z.infer<typeof TaskAckSchema>
 export type TaskStarted = z.infer<typeof TaskStartedSchema>
 export type TaskCompleted = z.infer<typeof TaskCompletedSchema>
+export type TaskErrorData = z.infer<typeof TaskErrorDataSchema>
 export type TaskError = z.infer<typeof TaskErrorSchema>
 export type LlmResponseEvent = z.infer<typeof LlmResponseEventSchema>
 export type LlmToolCallEvent = z.infer<typeof LlmToolCallEventSchema>

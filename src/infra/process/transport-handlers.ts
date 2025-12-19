@@ -43,8 +43,15 @@ import type {
   TaskCancelResponse,
   TaskCreateRequest,
   TaskCreateResponse,
+  TaskErrorData,
 } from '../../core/domain/transport/schemas.js'
 import type {ITransportServer} from '../../core/interfaces/transport/i-transport-server.js'
+
+import {
+  AgentDisconnectedError,
+  AgentNotAvailableError,
+  serializeTaskError,
+} from '../../core/domain/errors/task-error.js'
 
 // ============================================================================
 // Types
@@ -56,6 +63,8 @@ import type {ITransportServer} from '../../core/interfaces/transport/i-transport
 type TaskInfo = {
   clientId: string
   createdAt: number
+  files?: string[]
+  input: string
   taskId: string
   type: string
 }
@@ -96,7 +105,7 @@ type LlmErrorMessage = {code?: string; error: string; taskId: string}
 type LlmUnsupportedInputMessage = {reason: string; taskId: string}
 type TaskStartedMessage = {taskId: string}
 type TaskCompletedMessage = {result: string; taskId: string}
-type TaskErrorMessage = {error: string; taskId: string}
+type TaskErrorMessage = {error: TaskErrorData; taskId: string}
 
 // ============================================================================
 // Transport Handlers
@@ -367,6 +376,8 @@ export class TransportHandlers {
     this.tasks.set(taskId, {
       clientId,
       createdAt: Date.now(),
+      ...(data.files?.length ? {files: data.files} : {}),
+      input: data.input,
       taskId,
       type: data.type,
     })
@@ -387,11 +398,9 @@ export class TransportHandlers {
     } else {
       // No Agent connected - send error directly to client
       console.warn(`[Transport] No Agent connected, cannot process task ${taskId}`)
+      const error = serializeTaskError(new AgentNotAvailableError())
       setTimeout(() => {
-        this.transport.sendTo(clientId, 'task:error', {
-          error: 'Agent not available. Please wait for Agent to connect.',
-          taskId,
-        })
+        this.transport.sendTo(clientId, 'task:error', {error, taskId})
       }, 100)
     }
 
@@ -406,7 +415,7 @@ export class TransportHandlers {
     const {error, taskId} = data
     const task = this.tasks.get(taskId)
 
-    console.log(`[Transport] Task error: ${taskId} - ${error}`)
+    console.log(`[Transport] Task error: ${taskId} - [${error.code}] ${error.message}`)
 
     if (task) {
       this.transport.sendTo(task.clientId, 'task:error', {error, taskId})
@@ -425,9 +434,18 @@ export class TransportHandlers {
     const task = this.tasks.get(taskId)
     if (task) {
       this.transport.sendTo(task.clientId, 'task:started', {taskId})
-    }
 
-    this.transport.broadcastTo('broadcast-room', 'task:started', {taskId})
+      // Broadcast with full task info for monitoring
+      this.transport.broadcastTo('broadcast-room', 'task:started', {
+        ...(task.files?.length ? {files: task.files} : {}),
+        input: task.input,
+        taskId,
+        type: task.type,
+      })
+    } else {
+      // Fallback if task not found
+      this.transport.broadcastTo('broadcast-room', 'task:started', {taskId})
+    }
   }
 
   /**
@@ -520,11 +538,9 @@ export class TransportHandlers {
         this.transport.broadcast('agent:disconnected', {})
 
         // Fail all pending tasks - send directly to each client
+        const error = serializeTaskError(new AgentDisconnectedError())
         for (const [taskId, task] of this.tasks) {
-          this.transport.sendTo(task.clientId, 'task:error', {
-            error: 'Agent disconnected',
-            taskId,
-          })
+          this.transport.sendTo(task.clientId, 'task:error', {error, taskId})
         }
 
         this.tasks.clear()

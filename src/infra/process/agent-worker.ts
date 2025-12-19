@@ -23,6 +23,12 @@ import type {ITransportClient} from '../../core/interfaces/transport/i-transport
 
 import {getCurrentConfig} from '../../config/environment.js'
 import {PROJECT} from '../../constants.js'
+import {
+  NotAuthenticatedError,
+  ProcessorNotInitError,
+  ProjectNotInitError,
+  serializeTaskError,
+} from '../../core/domain/errors/task-error.js'
 import {NoOpTerminal, NoOpTrackingService} from '../../core/interfaces/noop-implementations.js'
 import {CipherAgent} from '../cipher/agent/index.js'
 import {ProjectConfigStore} from '../config/file-config-store.js'
@@ -206,7 +212,8 @@ async function handleTaskExecute(data: TaskExecuteMessage): Promise<void> {
 
   if (!taskProcessor) {
     console.error('[Agent] TaskProcessor not initialized')
-    transportClient?.request('task:error', {error: 'TaskProcessor not initialized', taskId})
+    const error = serializeTaskError(new ProcessorNotInitError())
+    transportClient?.request('task:error', {error, taskId})
     return
   }
 
@@ -230,9 +237,9 @@ async function handleTaskExecute(data: TaskExecuteMessage): Promise<void> {
     console.log(`[Agent] Task completed: ${taskId}`)
     transportClient?.request('task:completed', {taskId}).catch(() => {})
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error)
-    console.error(`[Agent] Task error: ${taskId} - ${errorMessage}`)
-    transportClient?.request('task:error', {error: errorMessage, taskId}).catch(() => {})
+    const errorData = serializeTaskError(error)
+    console.error(`[Agent] Task error: ${taskId} - [${errorData.name}] ${errorData.message}`)
+    transportClient?.request('task:error', {error: errorData, taskId}).catch(() => {})
   } finally {
     currentTaskId = undefined
   }
@@ -278,11 +285,11 @@ async function startAgent(): Promise<void> {
   const brvConfig = await configStore.read()
 
   if (!authToken) {
-    throw new Error('Not authenticated. Please run "brv login" first.')
+    throw new NotAuthenticatedError()
   }
 
   if (!brvConfig) {
-    throw new Error('Project not initialized. Please run "brv init" first.')
+    throw new ProjectNotInitError()
   }
 
   // Create CipherAgent (v0.5.0: single agent per process)
@@ -323,12 +330,8 @@ async function startAgent(): Promise<void> {
   transportClient.on<TaskExecuteMessage>('task:execute', (data) => {
     handleTaskExecute(data).catch((error) => {
       console.error('[Agent] Task execution failed:', error)
-      transportClient
-        ?.request('task:error', {
-          error: error instanceof Error ? error.message : String(error),
-          taskId: data.taskId,
-        })
-        .catch(() => {})
+      const errorData = serializeTaskError(error)
+      transportClient?.request('task:error', {error: errorData, taskId: data.taskId}).catch(() => {})
     })
   })
 

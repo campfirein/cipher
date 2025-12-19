@@ -17,6 +17,7 @@ import type {
 
 import {CONTEXT_TREE_DOMAINS} from '../../config/context-tree-domains.js'
 import {BRV_DIR, CONTEXT_FILE, CONTEXT_TREE_DIR} from '../../constants.js'
+import {FileValidationError} from '../../core/domain/errors/task-error.js'
 import {validateFileForCurate} from '../../utils/file-validator.js'
 import {CipherAgent} from '../cipher/agent/index.js'
 import {getAgentStorage} from '../cipher/storage/agent-storage.js'
@@ -93,7 +94,7 @@ export class CurateUseCase implements ICurateUseCase {
       // Process file references if provided (validation + instructions)
       const fileReferenceInstructions = this.processFileReferences(files ?? [])
       if (fileReferenceInstructions === undefined) {
-        throw new Error('File validation failed. Please check file paths.')
+        throw new FileValidationError()
       }
 
       // Create execution with status='running'
