@@ -15,16 +15,30 @@ import {createTransportClientFactory} from '../transport/transport-client-factor
 const TRANSPORT_LOG_FILE = path.join(BRV_DIR, 'transport-events.log')
 
 /**
- * Transport events that TUI subscribes to via "tui" room.
+ * Transport events that TUI subscribes to via "broadcast-room".
+ *
+ * Event naming convention:
+ * - task:* events are Transport-generated (lifecycle)
+ * - llmservice:* events are forwarded from Agent with ORIGINAL names
+ *
+ * This means FE receives the SAME event names that Agent emits internally.
+ * No mapping needed - what you see is what Agent does.
  */
 const TRANSPORT_EVENTS = [
+  // Task lifecycle (Transport-generated)
   'task:ack',
   'task:started',
-  'task:chunk',
   'task:completed',
   'task:error',
-  'task:toolCall',
-  'task:toolResult',
+  // LLM events (all 7 from session-event-forwarder.ts)
+  'llmservice:thinking',
+  'llmservice:chunk',
+  'llmservice:response',
+  'llmservice:toolCall',
+  'llmservice:toolResult',
+  'llmservice:error',
+  'llmservice:unsupportedInput',
+  // Connection events
   'agent:connected',
   'agent:disconnected',
   'session:switched',
@@ -67,8 +81,8 @@ export async function connectTransportClient(): Promise<ITransportClient | null>
 
     logEvent('_connection', {clientId: client.getClientId(), state: 'initialized'})
 
-    await client.joinRoom('tui')
-    logEvent('_room', {room: 'tui', state: 'joined'})
+    await client.joinRoom('broadcast-room')
+    logEvent('_room', {room: 'broadcast-room', state: 'joined'})
 
     return client
   } catch (error) {

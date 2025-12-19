@@ -4,23 +4,30 @@
  * Architecture v0.5.0:
  * - Routes messages between clients (TUI, external CLIs) and Agent
  * - Agent is a special client that registers via 'agent:register'
- * - Transport generates taskId, manages task rooms
+ * - Transport generates taskId, tracks clientId for direct messaging
  * - NO TaskProcessor, NO business logic (just routing)
+ *
+ * Event naming convention:
+ * - task:* events are Transport-generated (ack, started, completed, error)
+ * - llmservice:* events are forwarded from Agent with ORIGINAL names
  *
  * Message flows:
  * 1. Client → Transport: task:create {type, input}
  *    Transport → Agent: task:execute {taskId, type, input, clientId}
  *    Transport → Client: task:ack {taskId}
  *
- * 2. Agent → Transport: task:chunk {taskId, content}
- *    Transport → Client (room): task:chunk {taskId, content}
+ * 2. Agent → Transport: llmservice:response {taskId, content}
+ *    Transport → Client (direct): llmservice:response
+ *    Transport → broadcast-room: llmservice:response (for TUI monitoring)
  *
- * 3. Agent → Transport: task:completed {taskId, result}
- *    Transport → Client (room): task:completed {taskId, result}
+ * 3. Agent → Transport: task:completed {taskId}
+ *    Transport → Client (direct): task:completed
+ *    Transport → broadcast-room: task:completed (for TUI monitoring)
  *
  * Special events:
  * - agent:register: Agent identifies itself
  * - agent:connected / agent:disconnected: Broadcast to all clients
+ * - broadcast-room: TUI joins this room to monitor all events
  */
 
 import {randomUUID} from 'node:crypto'
@@ -66,13 +73,30 @@ type TaskExecuteMessage = {
 
 /**
  * Messages from Agent to Transport (for routing to clients).
+ *
+ * Event naming convention:
+ * - task:* events are Transport-generated (ack, started, completed, error)
+ * - llmservice:* events are forwarded from Agent with original names
+ *
+ * All 7 llmservice events from session-event-forwarder.ts:
+ * 1. llmservice:thinking
+ * 2. llmservice:chunk
+ * 3. llmservice:response
+ * 4. llmservice:toolCall
+ * 5. llmservice:toolResult
+ * 6. llmservice:error
+ * 7. llmservice:unsupportedInput
  */
-type TaskChunkMessage = {content: string; taskId: string}
+type LlmThinkingMessage = {taskId: string}
+type LlmChunkMessage = {content: string; isComplete?: boolean; taskId: string; type: 'reasoning' | 'text'}
+type LlmResponseMessage = {content: string; taskId: string}
+type LlmToolCallMessage = {args?: Record<string, unknown>; callId: string; name: string; taskId: string}
+type LlmToolResultMessage = {callId: string; error?: string; result?: unknown; success: boolean; taskId: string}
+type LlmErrorMessage = {code?: string; error: string; taskId: string}
+type LlmUnsupportedInputMessage = {reason: string; taskId: string}
 type TaskStartedMessage = {taskId: string}
 type TaskCompletedMessage = {result: string; taskId: string}
 type TaskErrorMessage = {error: string; taskId: string}
-type TaskToolCallMessage = {args?: Record<string, unknown>; callId: string; name: string; taskId: string}
-type TaskToolResultMessage = {callId: string; error?: string; result?: unknown; success: boolean; taskId: string}
 
 // ============================================================================
 // Transport Handlers
@@ -127,6 +151,104 @@ export class TransportHandlers {
 
     // Broadcast to all clients that Agent is online
     this.transport.broadcast('agent:connected', {})
+  }
+
+  /**
+   * Handle llmservice:chunk from Agent.
+   * Route directly to task owner + broadcast-room for monitoring.
+   */
+  private handleLlmChunk(data: LlmChunkMessage): void {
+    const {taskId, ...rest} = data
+    const task = this.tasks.get(taskId)
+    if (task) {
+      this.transport.sendTo(task.clientId, 'llmservice:chunk', {taskId, ...rest})
+    }
+
+    this.transport.broadcastTo('broadcast-room', 'llmservice:chunk', {taskId, ...rest})
+  }
+
+  /**
+   * Handle llmservice:error from Agent.
+   * Route directly to task owner + broadcast-room for monitoring.
+   */
+  private handleLlmError(data: LlmErrorMessage): void {
+    const {taskId, ...rest} = data
+    const task = this.tasks.get(taskId)
+    if (task) {
+      this.transport.sendTo(task.clientId, 'llmservice:error', {taskId, ...rest})
+    }
+
+    this.transport.broadcastTo('broadcast-room', 'llmservice:error', {taskId, ...rest})
+  }
+
+  /**
+   * Handle llmservice:response from Agent (LLM text output chunks).
+   * Route directly to task owner + broadcast-room for monitoring.
+   */
+  private handleLlmResponse(data: LlmResponseMessage): void {
+    const {content, taskId} = data
+    const task = this.tasks.get(taskId)
+    if (task) {
+      this.transport.sendTo(task.clientId, 'llmservice:response', {content, taskId})
+    }
+
+    this.transport.broadcastTo('broadcast-room', 'llmservice:response', {content, taskId})
+  }
+
+  /**
+   * Handle llmservice:thinking from Agent.
+   * Route directly to task owner + broadcast-room for monitoring.
+   */
+  private handleLlmThinking(data: LlmThinkingMessage): void {
+    const {taskId} = data
+    const task = this.tasks.get(taskId)
+    if (task) {
+      this.transport.sendTo(task.clientId, 'llmservice:thinking', {taskId})
+    }
+
+    this.transport.broadcastTo('broadcast-room', 'llmservice:thinking', {taskId})
+  }
+
+  /**
+   * Handle llmservice:toolCall from Agent.
+   * Route directly to task owner + broadcast-room for monitoring.
+   */
+  private handleLlmToolCall(data: LlmToolCallMessage): void {
+    const {taskId, ...rest} = data
+    const task = this.tasks.get(taskId)
+    if (task) {
+      this.transport.sendTo(task.clientId, 'llmservice:toolCall', {taskId, ...rest})
+    }
+
+    this.transport.broadcastTo('broadcast-room', 'llmservice:toolCall', {taskId, ...rest})
+  }
+
+  /**
+   * Handle llmservice:toolResult from Agent.
+   * Route directly to task owner + broadcast-room for monitoring.
+   */
+  private handleLlmToolResult(data: LlmToolResultMessage): void {
+    const {taskId, ...rest} = data
+    const task = this.tasks.get(taskId)
+    if (task) {
+      this.transport.sendTo(task.clientId, 'llmservice:toolResult', {taskId, ...rest})
+    }
+
+    this.transport.broadcastTo('broadcast-room', 'llmservice:toolResult', {taskId, ...rest})
+  }
+
+  /**
+   * Handle llmservice:unsupportedInput from Agent.
+   * Route directly to task owner + broadcast-room for monitoring.
+   */
+  private handleLlmUnsupportedInput(data: LlmUnsupportedInputMessage): void {
+    const {taskId, ...rest} = data
+    const task = this.tasks.get(taskId)
+    if (task) {
+      this.transport.sendTo(task.clientId, 'llmservice:unsupportedInput', {taskId, ...rest})
+    }
+
+    this.transport.broadcastTo('broadcast-room', 'llmservice:unsupportedInput', {taskId, ...rest})
   }
 
   /**
@@ -215,28 +337,20 @@ export class TransportHandlers {
   }
 
   /**
-   * Handle task:chunk from Agent.
-   * Route to clients in the task room + TUI room.
-   */
-  private handleTaskChunk(data: TaskChunkMessage): void {
-    const {content, taskId} = data
-    this.transport.broadcastTo(`task:${taskId}`, 'task:chunk', {content, taskId})
-    // Also broadcast to TUI room for monitoring
-    this.transport.broadcastTo('tui', 'task:chunk', {content, taskId})
-  }
-
-  /**
    * Handle task:completed from Agent.
-   * Route to clients in the task room + TUI room.
+   * Route directly to task owner + broadcast-room for monitoring.
    */
   private handleTaskCompleted(data: TaskCompletedMessage): void {
     const {result, taskId} = data
+    const task = this.tasks.get(taskId)
 
     console.log(`[Transport] Task completed: ${taskId}`)
 
-    this.transport.broadcastTo(`task:${taskId}`, 'task:completed', {result, taskId})
-    // Also broadcast to TUI room for monitoring
-    this.transport.broadcastTo('tui', 'task:completed', {result, taskId})
+    if (task) {
+      this.transport.sendTo(task.clientId, 'task:completed', {result, taskId})
+    }
+
+    this.transport.broadcastTo('broadcast-room', 'task:completed', {result, taskId})
     this.tasks.delete(taskId)
   }
 
@@ -249,16 +363,13 @@ export class TransportHandlers {
 
     console.log(`[Transport] Task created: ${taskId} (type=${data.type}, client=${clientId})`)
 
-    // Track task
+    // Track task (clientId used for direct messaging)
     this.tasks.set(taskId, {
       clientId,
       createdAt: Date.now(),
       taskId,
       type: data.type,
     })
-
-    // Add client to task room for targeted broadcasts
-    this.transport.addToRoom(clientId, `task:${taskId}`)
 
     // Send ack immediately (fast feedback)
     this.transport.sendTo(clientId, 'task:ack', {taskId})
@@ -274,10 +385,10 @@ export class TransportHandlers {
       }
       this.transport.sendTo(this.agentClientId, 'task:execute', executeMsg)
     } else {
-      // No Agent connected
+      // No Agent connected - send error directly to client
       console.warn(`[Transport] No Agent connected, cannot process task ${taskId}`)
       setTimeout(() => {
-        this.transport.broadcastTo(`task:${taskId}`, 'task:error', {
+        this.transport.sendTo(clientId, 'task:error', {
           error: 'Agent not available. Please wait for Agent to connect.',
           taskId,
         })
@@ -289,50 +400,34 @@ export class TransportHandlers {
 
   /**
    * Handle task:error from Agent.
-   * Route to clients in the task room.
+   * Route directly to task owner + broadcast-room for monitoring.
    */
   private handleTaskError(data: TaskErrorMessage): void {
     const {error, taskId} = data
+    const task = this.tasks.get(taskId)
 
     console.log(`[Transport] Task error: ${taskId} - ${error}`)
 
-    this.transport.broadcastTo(`task:${taskId}`, 'task:error', {error, taskId})
-    // Also broadcast to TUI room for monitoring
-    this.transport.broadcastTo('tui', 'task:error', {error, taskId})
+    if (task) {
+      this.transport.sendTo(task.clientId, 'task:error', {error, taskId})
+    }
+
+    this.transport.broadcastTo('broadcast-room', 'task:error', {error, taskId})
     this.tasks.delete(taskId)
   }
 
   /**
    * Handle task:started from Agent.
-   * Route to clients in the task room.
+   * Route directly to task owner + broadcast-room for monitoring.
    */
   private handleTaskStarted(data: TaskStartedMessage): void {
     const {taskId} = data
-    this.transport.broadcastTo(`task:${taskId}`, 'task:started', {taskId})
-    // Also broadcast to TUI room for monitoring
-    this.transport.broadcastTo('tui', 'task:started', {taskId})
-  }
+    const task = this.tasks.get(taskId)
+    if (task) {
+      this.transport.sendTo(task.clientId, 'task:started', {taskId})
+    }
 
-  /**
-   * Handle task:toolCall from Agent.
-   * Route to clients in the task room.
-   */
-  private handleTaskToolCall(data: TaskToolCallMessage): void {
-    const {taskId, ...rest} = data
-    this.transport.broadcastTo(`task:${taskId}`, 'task:toolCall', {taskId, ...rest})
-    // Also broadcast to TUI room for monitoring
-    this.transport.broadcastTo('tui', 'task:toolCall', {taskId, ...rest})
-  }
-
-  /**
-   * Handle task:toolResult from Agent.
-   * Route to clients in the task room.
-   */
-  private handleTaskToolResult(data: TaskToolResultMessage): void {
-    const {taskId, ...rest} = data
-    this.transport.broadcastTo(`task:${taskId}`, 'task:toolResult', {taskId, ...rest})
-    // Also broadcast to TUI room for monitoring
-    this.transport.broadcastTo('tui', 'task:toolResult', {taskId, ...rest})
+    this.transport.broadcastTo('broadcast-room', 'task:started', {taskId})
   }
 
   /**
@@ -346,13 +441,9 @@ export class TransportHandlers {
       return {success: true}
     })
 
-    // Agent task events (route to clients)
+    // Task lifecycle events (Transport-generated names)
     this.transport.onRequest<TaskStartedMessage, void>('task:started', (data) => {
       this.handleTaskStarted(data)
-    })
-
-    this.transport.onRequest<TaskChunkMessage, void>('task:chunk', (data) => {
-      this.handleTaskChunk(data)
     })
 
     this.transport.onRequest<TaskCompletedMessage, void>('task:completed', (data) => {
@@ -363,12 +454,33 @@ export class TransportHandlers {
       this.handleTaskError(data)
     })
 
-    this.transport.onRequest<TaskToolCallMessage, void>('task:toolCall', (data) => {
-      this.handleTaskToolCall(data)
+    // LLM events (all 7 from session-event-forwarder.ts)
+    this.transport.onRequest<LlmThinkingMessage, void>('llmservice:thinking', (data) => {
+      this.handleLlmThinking(data)
     })
 
-    this.transport.onRequest<TaskToolResultMessage, void>('task:toolResult', (data) => {
-      this.handleTaskToolResult(data)
+    this.transport.onRequest<LlmChunkMessage, void>('llmservice:chunk', (data) => {
+      this.handleLlmChunk(data)
+    })
+
+    this.transport.onRequest<LlmResponseMessage, void>('llmservice:response', (data) => {
+      this.handleLlmResponse(data)
+    })
+
+    this.transport.onRequest<LlmToolCallMessage, void>('llmservice:toolCall', (data) => {
+      this.handleLlmToolCall(data)
+    })
+
+    this.transport.onRequest<LlmToolResultMessage, void>('llmservice:toolResult', (data) => {
+      this.handleLlmToolResult(data)
+    })
+
+    this.transport.onRequest<LlmErrorMessage, void>('llmservice:error', (data) => {
+      this.handleLlmError(data)
+    })
+
+    this.transport.onRequest<LlmUnsupportedInputMessage, void>('llmservice:unsupportedInput', (data) => {
+      this.handleLlmUnsupportedInput(data)
     })
   }
 
@@ -407,9 +519,9 @@ export class TransportHandlers {
         // Broadcast to all clients
         this.transport.broadcast('agent:disconnected', {})
 
-        // Fail all pending tasks
-        for (const [taskId] of this.tasks) {
-          this.transport.broadcastTo(`task:${taskId}`, 'task:error', {
+        // Fail all pending tasks - send directly to each client
+        for (const [taskId, task] of this.tasks) {
+          this.transport.sendTo(task.clientId, 'task:error', {
             error: 'Agent disconnected',
             taskId,
           })

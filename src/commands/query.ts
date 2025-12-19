@@ -13,15 +13,20 @@ import {
 import {createTransportClientFactory} from '../infra/transport/transport-client-factory.js'
 
 /**
- * Task event payloads from Core
+ * Task lifecycle payloads (Transport-generated)
  */
 type TaskAckPayload = {taskId: string}
 type TaskStartedPayload = {taskId: string}
-type TaskChunkPayload = {content: string; taskId: string}
-type TaskCompletedPayload = {result: string; taskId: string}
+type TaskCompletedPayload = {taskId: string}
 type TaskErrorPayload = {error: string; taskId: string}
-type TaskToolCallPayload = {args?: Record<string, unknown>; callId: string; name: string; taskId: string}
-type TaskToolResultPayload = {callId: string; error?: string; result?: unknown; success: boolean; taskId: string}
+
+/**
+ * LLM service payloads (forwarded from Agent with original names)
+ */
+// type LlmChunkPayload = {content: string; isComplete?: boolean; taskId: string; type: 'reasoning' | 'text'}
+type LlmResponsePayload = {content: string; taskId: string}
+type LlmToolCallPayload = {args?: Record<string, unknown>; callId: string; name: string; taskId: string}
+type LlmToolResultPayload = {callId: string; error?: string; result?: unknown; success: boolean; taskId: string}
 
 export default class Query extends Command {
   public static args = {
@@ -113,50 +118,86 @@ Bad:
 
   /**
    * Format tool arguments for display.
-   * Shows key args in a readable format for agents/humans.
+   * Extract the most meaningful value for human reading.
    */
-  private formatToolArgs(args: Record<string, unknown>): string {
-    const entries = Object.entries(args)
-    if (entries.length === 0) return ''
+  private formatToolArgs(toolName: string, args: Record<string, unknown>): string {
+    // Extract the most meaningful arg based on tool type
+    const meaningfulKeys: Record<string, string[]> = {
+      curate: ['operations'],
+      // eslint-disable-next-line camelcase
+      find_knowledge_topics: ['topicPattern', 'query'],
+      // eslint-disable-next-line camelcase
+      grep_content: ['pattern', 'query'],
+      // eslint-disable-next-line camelcase
+      list_directory: ['path', 'directory'],
+      // eslint-disable-next-line camelcase
+      read_file: ['filePath', 'path'],
+    }
 
-    // Show first 2-3 args, truncate values if too long
-    const formatted = entries.slice(0, 3).map(([key, value]) => {
-      const strValue = typeof value === 'string' ? value : JSON.stringify(value)
-      const truncated = strValue.length > 50 ? `${strValue.slice(0, 47)}...` : strValue
-      return `${key}="${truncated}"`
-    })
+    const keys = meaningfulKeys[toolName] ?? Object.keys(args)
+    for (const key of keys) {
+      if (args[key] !== undefined) {
+        const value = args[key]
+        if (typeof value === 'string') {
+          // Clean display - just the value, truncated if needed
+          return value.length > 40 ? `${value.slice(0, 37)}...` : value
+        }
 
-    const more = entries.length > 3 ? ` +${entries.length - 3} more` : ''
-    return ` (${formatted.join(', ')}${more})`
+        if (Array.isArray(value)) {
+          return `${value.length} items`
+        }
+      }
+    }
+
+    return ''
   }
 
   /**
    * Format tool result for display.
-   * Shows meaningful summary for agents reading the output.
+   * Shows meaningful, concise summary.
    */
-  private formatToolResult(payload: TaskToolResultPayload): string {
+  private formatToolResult(payload: LlmToolResultPayload): string {
     if (!payload.success) {
-      return payload.error ? `Error: ${payload.error}` : 'Failed'
+      const errMsg = payload.error ?? 'Failed'
+      return errMsg.length > 50 ? `${errMsg.slice(0, 47)}...` : errMsg
     }
 
-    if (!payload.result) return 'Completed'
+    if (!payload.result) return 'Done'
 
-    // Handle different result types
+    // Handle different result types with concise output
     if (Array.isArray(payload.result)) {
-      return `Found ${payload.result.length} items`
+      return `${payload.result.length} results`
     }
 
     if (typeof payload.result === 'object') {
-      const keys = Object.keys(payload.result as Record<string, unknown>)
-      return `Result: {${keys.slice(0, 3).join(', ')}${keys.length > 3 ? '...' : ''}}`
+      const obj = payload.result as Record<string, unknown>
+      // Check for common patterns
+      if ('topics' in obj && Array.isArray(obj.topics)) {
+        return `${(obj.topics as unknown[]).length} topics found`
+      }
+
+      if ('results' in obj && Array.isArray(obj.results)) {
+        return `${(obj.results as unknown[]).length} matches`
+      }
+
+      if ('count' in obj) {
+        return `${obj.count} items`
+      }
+
+      // Generic object - just show it worked
+      return 'Done'
     }
 
     if (typeof payload.result === 'string') {
-      const truncated = payload.result.length > 60 ? `${payload.result.slice(0, 57)}...` : payload.result
-      return truncated
+      // For string results, show char count if long
+      if (payload.result.length > 100) {
+        return `${payload.result.length} chars`
+      }
+
+      return payload.result.length > 40 ? `${payload.result.slice(0, 37)}...` : payload.result
     }
 
-    return 'Completed'
+    return 'Done'
   }
 
   /**
@@ -216,28 +257,40 @@ Bad:
           }
         }),
 
-        // task:chunk - streaming content
-        client.on<TaskChunkPayload>('task:chunk', (payload) => {
-          if (payload.taskId === taskId) {
-            // Stream chunk to stdout (no newline - chunks build up)
-            process.stdout.write(payload.content)
+        // llmservice:chunk - streaming content (for future release)
+        // client.on<LlmChunkPayload>('llmservice:chunk', (payload) => {
+        //   if (payload.taskId === taskId) {
+        //     if (!hasReceivedChunks) {
+        //       this.log('\nResult:')
+        //     }
+        //     hasReceivedChunks = true
+        //     process.stdout.write(payload.content)
+        //   }
+        // }),
+
+        // llmservice:response - final response from LLM
+        client.on<LlmResponsePayload>('llmservice:response', (payload) => {
+          if (payload.taskId === taskId && payload.content) {
+            this.log('\nResult:')
+            this.log(payload.content)
           }
         }),
 
-        // task:toolCall - tool invocation with args (important feedback for agents)
-        client.on<TaskToolCallPayload>('task:toolCall', (payload) => {
+        // llmservice:toolCall - tool invocation
+        client.on<LlmToolCallPayload>('llmservice:toolCall', (payload) => {
           if (payload.taskId === taskId) {
-            const argsStr = payload.args ? this.formatToolArgs(payload.args) : ''
-            this.log(`\n🔧 Tool: ${payload.name}${argsStr}`)
+            const detail = payload.args ? this.formatToolArgs(payload.name, payload.args) : ''
+            const suffix = detail ? `: ${detail}` : ''
+            this.log(`🔧 ${payload.name}${suffix}`)
           }
         }),
 
-        // task:toolResult - tool result with summary (important feedback for agents)
-        client.on<TaskToolResultPayload>('task:toolResult', (payload) => {
+        // llmservice:toolResult - tool result with summary
+        client.on<LlmToolResultPayload>('llmservice:toolResult', (payload) => {
           if (payload.taskId === taskId) {
             const status = payload.success ? '✓' : '✗'
             const resultSummary = this.formatToolResult(payload)
-            this.log(`   ${status} ${resultSummary}`)
+            this.log(`  ${status} ${resultSummary}`)
           }
         }),
 

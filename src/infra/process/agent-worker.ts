@@ -111,18 +111,39 @@ function setupAgentEventForwarding(agent: CipherAgent): void {
     return
   }
 
-  // Forward LLM response chunks
-  eventBus.on('llmservice:response', (payload) => {
-    if (currentTaskId && payload.content) {
-      transportClient?.request('task:chunk', {content: payload.content, taskId: currentTaskId}).catch(() => {})
+  // Forward llmservice:thinking
+  eventBus.on('llmservice:thinking', () => {
+    if (currentTaskId) {
+      transportClient?.request('llmservice:thinking', {taskId: currentTaskId}).catch(() => {})
     }
   })
 
-  // Forward tool calls
+  // Forward llmservice:chunk
+  eventBus.on('llmservice:chunk', (payload) => {
+    if (currentTaskId) {
+      transportClient
+        ?.request('llmservice:chunk', {
+          content: payload.content,
+          isComplete: payload.isComplete,
+          taskId: currentTaskId,
+          type: payload.type,
+        })
+        .catch(() => {})
+    }
+  })
+
+  // Forward llmservice:response
+  eventBus.on('llmservice:response', (payload) => {
+    if (currentTaskId && payload.content) {
+      transportClient?.request('llmservice:response', {content: payload.content, taskId: currentTaskId}).catch(() => {})
+    }
+  })
+
+  // Forward llmservice:toolCall
   eventBus.on('llmservice:toolCall', (payload) => {
     if (currentTaskId && payload.callId) {
       transportClient
-        ?.request('task:toolCall', {
+        ?.request('llmservice:toolCall', {
           args: payload.args,
           callId: payload.callId,
           name: payload.toolName,
@@ -132,15 +153,40 @@ function setupAgentEventForwarding(agent: CipherAgent): void {
     }
   })
 
-  // Forward tool results
+  // Forward llmservice:toolResult
   eventBus.on('llmservice:toolResult', (payload) => {
     if (currentTaskId && payload.callId) {
       transportClient
-        ?.request('task:toolResult', {
+        ?.request('llmservice:toolResult', {
           callId: payload.callId,
           error: payload.error,
           result: payload.result,
           success: payload.success,
+          taskId: currentTaskId,
+        })
+        .catch(() => {})
+    }
+  })
+
+  // Forward llmservice:error
+  eventBus.on('llmservice:error', (payload) => {
+    if (currentTaskId) {
+      transportClient
+        ?.request('llmservice:error', {
+          code: payload.code,
+          error: payload.error,
+          taskId: currentTaskId,
+        })
+        .catch(() => {})
+    }
+  })
+
+  // Forward llmservice:unsupportedInput
+  eventBus.on('llmservice:unsupportedInput', (payload) => {
+    if (currentTaskId) {
+      transportClient
+        ?.request('llmservice:unsupportedInput', {
+          reason: payload.reason,
           taskId: currentTaskId,
         })
         .catch(() => {})
@@ -172,7 +218,8 @@ async function handleTaskExecute(data: TaskExecuteMessage): Promise<void> {
     transportClient?.request('task:started', {taskId}).catch(() => {})
 
     // Process task - events stream via agentEventBus subscription
-    const result = await taskProcessor.process({
+    // Response is forwarded via llmservice:response event (no manual send needed)
+    await taskProcessor.process({
       content: input,
       files,
       taskId,
@@ -181,7 +228,7 @@ async function handleTaskExecute(data: TaskExecuteMessage): Promise<void> {
 
     // Notify completion
     console.log(`[Agent] Task completed: ${taskId}`)
-    transportClient?.request('task:completed', {result, taskId}).catch(() => {})
+    transportClient?.request('task:completed', {taskId}).catch(() => {})
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error)
     console.error(`[Agent] Task error: ${taskId} - ${errorMessage}`)

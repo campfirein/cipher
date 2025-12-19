@@ -211,6 +211,113 @@ export const TransportEventNames = {
 } as const
 
 // ============================================================================
+// Transport Event Schemas (Transport → Client)
+// ============================================================================
+
+/**
+ * Transport Events - Sent to Clients (TUI, external CLIs)
+ *
+ * Event naming convention:
+ * - task:* events are Transport-generated (lifecycle events)
+ * - llmservice:* events are forwarded from Agent with ORIGINAL names
+ *
+ * This means FE receives the SAME event names that Agent emits internally.
+ * No mapping needed - what you see is what Agent does.
+ *
+ * Event Flow:
+ * 1. Client sends task:create → Transport generates taskId → task:ack
+ * 2. Transport forwards to Agent → Agent starts → task:started
+ * 3. Agent processes:
+ *    - LLM generates text → llmservice:response (streaming chunks)
+ *    - LLM calls a tool → llmservice:toolCall
+ *    - Tool returns result → llmservice:toolResult
+ * 4. Agent finishes → task:completed OR task:error
+ */
+export const TransportTaskEventNames = {
+  // Task lifecycle (Transport-generated)
+  ACK: 'task:ack',
+  COMPLETED: 'task:completed',
+  ERROR: 'task:error',
+  STARTED: 'task:started',
+} as const
+
+export const LlmEventNames = {
+  // LLM events (forwarded with original Agent names)
+  RESPONSE: 'llmservice:response',
+  TOOL_CALL: 'llmservice:toolCall',
+  TOOL_RESULT: 'llmservice:toolResult',
+} as const
+
+/**
+ * task:ack - Transport acknowledges task creation
+ */
+export const TaskAckSchema = z.object({
+  taskId: z.string(),
+})
+
+/**
+ * task:started - Agent begins processing the task
+ */
+export const TaskStartedSchema = z.object({
+  taskId: z.string(),
+})
+
+/**
+ * task:completed - Task finished successfully
+ */
+export const TaskCompletedSchema = z.object({
+  taskId: z.string(),
+})
+
+/**
+ * task:error - Task failed with error
+ */
+export const TaskErrorSchema = z.object({
+  error: z.string(),
+  taskId: z.string(),
+})
+
+/**
+ * llmservice:response - LLM text output (streaming chunks)
+ * Original Agent event name, forwarded as-is
+ */
+export const LlmResponseEventSchema = z.object({
+  content: z.string(),
+  taskId: z.string(),
+})
+
+/**
+ * llmservice:toolCall - Agent invokes a tool
+ * Original Agent event name, forwarded as-is
+ */
+export const LlmToolCallEventSchema = z.object({
+  args: z.record(z.unknown()).optional(),
+  callId: z.string(),
+  name: z.string(),
+  taskId: z.string(),
+})
+
+/**
+ * llmservice:toolResult - Tool returns result
+ * Original Agent event name, forwarded as-is
+ */
+export const LlmToolResultEventSchema = z.object({
+  callId: z.string(),
+  error: z.string().optional(),
+  result: z.unknown().optional(),
+  success: z.boolean(),
+  taskId: z.string(),
+})
+
+export type TaskAck = z.infer<typeof TaskAckSchema>
+export type TaskStarted = z.infer<typeof TaskStartedSchema>
+export type TaskCompleted = z.infer<typeof TaskCompletedSchema>
+export type TaskError = z.infer<typeof TaskErrorSchema>
+export type LlmResponseEvent = z.infer<typeof LlmResponseEventSchema>
+export type LlmToolCallEvent = z.infer<typeof LlmToolCallEventSchema>
+export type LlmToolResultEvent = z.infer<typeof LlmToolResultEventSchema>
+
+// ============================================================================
 // Request/Response Schemas (for client → server commands)
 // ============================================================================
 

@@ -85,14 +85,14 @@ Bad examples:
       }
 
       // Send task:create - Transport routes to Agent, UseCase handles logic
-      const response = await client.request<TaskCreateResponse>('task:create', {
+      await client.request<TaskCreateResponse>('task:create', {
         ...(files?.length ? {files} : {}),
         input: args.context,
         type: 'curate',
       })
 
+      this.log('✓ Context queued for processing.')
       // Fire and exit - TUI shows processing in background
-      this.log(`✓ Context queued (${response.taskId.slice(0, 8)})`)
     } catch (error) {
       this.handleConnectionError(error)
     } finally {
