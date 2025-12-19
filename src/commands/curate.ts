@@ -66,7 +66,7 @@ Bad examples:
     }
 
     const verbose = (flags as {verbose?: boolean}).verbose ?? false
-    const files = (flags as {files?: string[]}).files
+    const {files} = flags as {files?: string[]}
 
     let client: ITransportClient | undefined
 

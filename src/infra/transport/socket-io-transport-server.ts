@@ -1,9 +1,11 @@
+import {instrument} from '@socket.io/admin-ui'
 import {createServer, Server as HttpServer} from 'node:http'
 import {Server, Socket} from 'socket.io'
 
 import type {TransportServerConfig} from '../../core/domain/transport/types.js'
 import type {ConnectionHandler, ITransportServer, RequestHandler} from '../../core/interfaces/transport/index.js'
 
+import {isDevelopment} from '../../config/environment.js'
 import {TRANSPORT_PING_INTERVAL_MS, TRANSPORT_PING_TIMEOUT_MS} from '../../constants.js'
 import {
   TransportPortInUseError,
@@ -131,14 +133,28 @@ export class SocketIOTransportServer implements ITransportServer {
 
     return new Promise((resolve, reject) => {
       this.httpServer = createServer()
+
+      // In development mode, allow admin.socket.io for debugging
+      const corsOrigin = isDevelopment() ? [this.config.corsOrigin, 'https://admin.socket.io'] : this.config.corsOrigin
+
       this.io = new Server(this.httpServer, {
         cors: {
-          origin: this.config.corsOrigin,
+          credentials: isDevelopment(), // Required for admin UI authentication
+          origin: corsOrigin,
         },
         // Aggressive ping for faster disconnect detection (real-time)
         pingInterval: this.config.pingIntervalMs,
         pingTimeout: this.config.pingTimeoutMs,
       })
+
+      // Enable Socket.IO Admin UI in development mode only
+      if (isDevelopment()) {
+        instrument(this.io, {
+          auth: false, // No authentication for local dev
+          mode: 'development',
+        })
+        console.log('[Transport] Socket.IO Admin UI enabled - connect at https://admin.socket.io')
+      }
 
       this.io.on('connection', (socket) => {
         const clientId = socket.id
