@@ -178,11 +178,11 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
    * Execute the agent with user input.
    * Internally uses generate() for single code path maintainability.
    */
-  public async execute(input: string, sessionId?: string, options?: {executionContext?: ExecutionContext}): Promise<string> {
+  public async execute(input: string, trackingSessionId?: string, options?: {executionContext?: ExecutionContext}): Promise<string> {
     this.ensureStarted()
 
     // Determine target session (backward compatible: defaults to 'default')
-    const targetSessionId = sessionId ?? this.currentDefaultSessionId
+    const targetSessionId = trackingSessionId ?? this.currentDefaultSessionId
 
     // Use generate() internally for single code path
     const response = await this.generate(input, targetSessionId, {
@@ -197,15 +197,15 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
    * Wrapper around stream() that collects all events and returns final result.
    *
    * @param input - User message
-   * @param sessionId - Session ID
+   * @param trackingSessionId - Tracking session ID for backend metrics
    * @param options - Optional configuration
    * @returns Complete response with content, usage, and tool calls
    */
-  public async generate(input: string, sessionId: string, options?: StreamOptions): Promise<GenerateResponse> {
+  public async generate(input: string, trackingSessionId: string, options?: StreamOptions): Promise<GenerateResponse> {
     // Collect all events from stream
     const events: StreamingEvent[] = []
 
-    for await (const event of await this.stream(input, sessionId, options)) {
+    for await (const event of await this.stream(input, trackingSessionId, options)) {
       events.push(event)
     }
 
@@ -247,7 +247,7 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
     return {
       content: responseEvent.content,
       reasoning: responseEvent.reasoning,
-      sessionId,
+      sessionId: trackingSessionId,
       toolCalls,
       usage: responseEvent.tokenUsage ?? defaultUsage,
     }
@@ -399,20 +399,20 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
    * Stream a response with real-time event emission.
    *
    * @param input - User message
-   * @param sessionId - Session ID for the conversation
+   * @param trackingSessionId - Tracking session ID for backend metrics
    * @param options - Optional configuration (signal for cancellation)
    * @returns AsyncIterator that yields StreamingEvent objects
    */
   public async stream(
     input: string,
-    sessionId: string,
+    trackingSessionId: string,
     options?: StreamOptions,
   ): Promise<AsyncIterableIterator<StreamingEvent>> {
     this.ensureStarted()
 
-    // Validate sessionId is provided
-    if (!sessionId) {
-      throw AgentError.serviceNotInitialized('sessionId is required for streaming')
+    // Validate trackingSessionId is provided
+    if (!trackingSessionId) {
+      throw AgentError.serviceNotInitialized('trackingSessionId is required for streaming')
     }
 
     const signal = options?.signal
@@ -426,7 +426,7 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
     const cleanupSignal = controller.signal
 
     // Store controller so cancel() can abort this stream
-    this.activeStreamControllers.set(sessionId, controller)
+    this.activeStreamControllers.set(trackingSessionId, controller)
 
     // Increase listener limit - stream() registers many event listeners
     setMaxListeners(30, cleanupSignal)
@@ -455,7 +455,7 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
 
       listeners.length = 0
       // Remove from active controllers map
-      this.activeStreamControllers.delete(sessionId)
+      this.activeStreamControllers.delete(trackingSessionId)
     }
 
     // Wire external signal to trigger cleanup
@@ -468,11 +468,11 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
       signal.addEventListener('abort', abortHandler, {once: true})
     }
 
-    // Subscribe to streaming events (filter by sessionId)
+    // Subscribe to streaming events (filter by trackingSessionId)
     for (const eventName of STREAMING_EVENT_NAMES) {
       const listener = (payload: unknown) => {
         const data = payload as {sessionId?: string}
-        if (data.sessionId !== sessionId) return
+        if (data.sessionId !== trackingSessionId) return
 
         // Add event to queue with name discriminant
         eventQueue.push({name: eventName, ...data} as StreamingEvent)
@@ -492,11 +492,11 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
       try {
         // Get or create session
         const sessionMgr = this.getSessionManagerInternal()
-        const existingSession = sessionMgr.getSession(sessionId)
-        const session = existingSession ?? (await sessionMgr.createSession(sessionId))
+        const existingSession = sessionMgr.getSession(trackingSessionId)
+        const session = existingSession ?? (await sessionMgr.createSession(trackingSessionId))
 
         // Cache default session for faster access
-        if (sessionId === this.currentDefaultSessionId && !this.defaultSession) {
+        if (trackingSessionId === this.currentDefaultSessionId && !this.defaultSession) {
           this.defaultSession = session
         }
 
@@ -518,7 +518,7 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
           error: error.message,
           name: 'llmservice:error',
           recoverable: false,
-          sessionId,
+          sessionId: trackingSessionId,
         })
       }
     })()

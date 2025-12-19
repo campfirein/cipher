@@ -82,21 +82,21 @@ export interface ICipherAgent {
   /**
    * Execute the agent with user input
    * @param input - User input string
-   * @param sessionId - Optional session ID
+   * @param trackingSessionId - Optional tracking session ID for backend metrics
    * @returns Agent response
    */
-  execute(input: string, sessionId?: string): Promise<string>
+  execute(input: string, trackingSessionId?: string): Promise<string>
 
   /**
    * Generate a complete response (waits for full completion).
    * Wrapper around stream() that collects all events and returns final result.
    *
    * @param input - User message
-   * @param sessionId - Session ID
+   * @param trackingSessionId - Tracking session ID for backend metrics
    * @param options - Optional configuration
    * @returns Complete response with content, usage, and tool calls
    */
-  generate(input: string, sessionId: string, options?: StreamOptions): Promise<GenerateResponse>
+  generate(input: string, trackingSessionId: string, options?: StreamOptions): Promise<GenerateResponse>
 
   /**
    * Get session metadata without loading full history
@@ -134,9 +134,9 @@ export interface ICipherAgent {
    * This is the recommended method for real-time streaming UI updates.
    *
    * @param input - User message
-   * @param sessionId - Session ID for the conversation
+   * @param trackingSessionId - Tracking session ID for backend metrics
    * @param options - Optional configuration (signal for cancellation)
    * @returns AsyncIterator that yields StreamingEvent objects
    */
-  stream(input: string, sessionId: string, options?: StreamOptions): Promise<AsyncIterableIterator<StreamingEvent>>
+  stream(input: string, trackingSessionId: string, options?: StreamOptions): Promise<AsyncIterableIterator<StreamingEvent>>
 }

@@ -106,8 +106,8 @@ export class CurateUseCase implements ICurateUseCase {
       // Execute with curate commandType
       // Cast to CipherAgent for full execute signature (ICipherAgent is minimal)
       const cipherAgent = agent as CipherAgent
-      const sessionId = this.generateSessionId()
-      const response = await cipherAgent.execute(prompt, sessionId, {
+      const trackingSessionId = this.generateTrackingSessionId()
+      const response = await cipherAgent.execute(prompt, trackingSessionId, {
         executionContext: {commandType: 'curate'},
       })
 
@@ -130,10 +130,10 @@ export class CurateUseCase implements ICurateUseCase {
   }
 
   /**
-   * Generate a unique session ID for the autonomous agent.
+   * Generate a unique tracking session ID for backend metrics.
    * Uses crypto.randomUUID() for guaranteed uniqueness (122 bits of entropy).
    */
-  protected generateSessionId(): string {
+  protected generateTrackingSessionId(): string {
     return randomUUID()
   }
 

@@ -22,7 +22,7 @@ export interface ILLMService {
    * - Returning final response
    *
    * @param textInput - User input text
-   * @param sessionId - Session ID for tracking the conversation
+   * @param trackingSessionId - Tracking session ID for backend metrics
    * @param options - Execution options
    * @param options.signal - Optional abort signal for cancellation
    * @param options.imageData - Optional image data
@@ -33,7 +33,7 @@ export interface ILLMService {
    */
   completeTask(
     textInput: string,
-    sessionId: string,
+    trackingSessionId: string,
     options?: {
       executionContext?: ExecutionContext
       fileData?: FileData

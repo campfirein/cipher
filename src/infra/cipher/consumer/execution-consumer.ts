@@ -274,14 +274,14 @@ export class ExecutionConsumer {
     await agent.start()
 
     try {
-      const sessionId = randomUUID()
+      const trackingSessionId = randomUUID()
 
       // Setup event listeners for tool call tracking
       this.setupToolCallTracking(agent, execution.id)
 
       // Execute with curate commandType
       const prompt = `Add the following context to the context tree:\n\n${input.content}`
-      const response = await agent.execute(prompt, sessionId, {
+      const response = await agent.execute(prompt, trackingSessionId, {
         executionContext: {
           commandType: 'curate',
           fileReferenceInstructions: input.fileReferenceInstructions,

@@ -71,9 +71,9 @@ export class QueryUseCase implements IQueryUseCase {
       // Execute with query commandType
       // Cast to CipherAgent for full execute signature (ICipherAgent is minimal)
       const cipherAgent = agent as CipherAgent
-      const sessionId = this.generateSessionId()
+      const trackingSessionId = this.generateTrackingSessionId()
       const prompt = `Search the context tree for: ${query}`
-      const response = await cipherAgent.execute(prompt, sessionId, {
+      const response = await cipherAgent.execute(prompt, trackingSessionId, {
         executionContext: {commandType: 'query'},
       })
 
@@ -96,10 +96,10 @@ export class QueryUseCase implements IQueryUseCase {
   }
 
   /**
-   * Generate a unique session ID for the query agent.
+   * Generate a unique tracking session ID for backend metrics.
    * Uses crypto.randomUUID() for guaranteed uniqueness (122 bits of entropy).
    */
-  protected generateSessionId(): string {
+  protected generateTrackingSessionId(): string {
     return randomUUID()
   }
 
@@ -160,7 +160,7 @@ export class QueryUseCase implements IQueryUseCase {
       await agent.start()
 
       try {
-        const sessionId = this.generateSessionId()
+        const trackingSessionId = this.generateTrackingSessionId()
 
         // Setup event listeners (display + tool call tracking)
         this.setupEventListeners(agent, options.verbose ?? false)
@@ -168,7 +168,7 @@ export class QueryUseCase implements IQueryUseCase {
 
         // Execute with query commandType
         const prompt = `Search the context tree for: ${options.query}`
-        const response = await agent.execute(prompt, sessionId, {
+        const response = await agent.execute(prompt, trackingSessionId, {
           executionContext: {commandType: 'query'},
         })
 
