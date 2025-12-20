@@ -1,12 +1,7 @@
 import {randomUUID} from 'node:crypto'
-import fs from 'node:fs'
-import path from 'node:path'
 
 import type {ICipherAgent} from '../../core/interfaces/cipher/i-cipher-agent.js'
-import type {
-  CurateExecuteOptionsV2,
-  ICurateUseCaseV2,
-} from '../../core/interfaces/usecase/i-curate-use-case-v2.js'
+import type {CurateExecuteOptionsV2, ICurateUseCaseV2} from '../../core/interfaces/usecase/i-curate-use-case-v2.js'
 
 import {FileValidationError} from '../../core/domain/errors/task-error.js'
 import {validateFileForCurate} from '../../utils/file-validator.js'

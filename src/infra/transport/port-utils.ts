@@ -65,7 +65,7 @@ export function getRandomPort(): number {
 export async function findAvailablePort(): Promise<number> {
   for (let attempt = 0; attempt < MAX_PORT_ATTEMPTS; attempt++) {
     const port = getRandomPort()
-
+    // eslint-disable-next-line no-await-in-loop -- Sequential check is intentional: find first available port
     if (await isPortAvailable(port)) {
       return port
     }
