@@ -237,6 +237,7 @@ export const TransportTaskEventNames = {
   // Task lifecycle (Transport-generated)
   ACK: 'task:ack',
   COMPLETED: 'task:completed',
+  CREATED: 'task:created',
   ERROR: 'task:error',
   STARTED: 'task:started',
 } as const
@@ -253,6 +254,21 @@ export const LlmEventNames = {
  */
 export const TaskAckSchema = z.object({
   taskId: z.string(),
+})
+
+/**
+ * task:created - Broadcasted when a new task is created
+ * Sent to broadcast-room for TUI monitoring
+ */
+export const TaskCreatedSchema = z.object({
+  /** Optional file paths for curate --files */
+  files: z.array(z.string()).optional(),
+  /** Task input content */
+  input: z.string(),
+  /** Unique task identifier */
+  taskId: z.string(),
+  /** Task type (curate or query) */
+  type: z.enum(['curate', 'query']),
 })
 
 /**
@@ -327,6 +343,7 @@ export const LlmToolResultEventSchema = z.object({
 })
 
 export type TaskAck = z.infer<typeof TaskAckSchema>
+export type TaskCreated = z.infer<typeof TaskCreatedSchema>
 export type TaskStarted = z.infer<typeof TaskStartedSchema>
 export type TaskCompleted = z.infer<typeof TaskCompletedSchema>
 export type TaskErrorData = z.infer<typeof TaskErrorDataSchema>

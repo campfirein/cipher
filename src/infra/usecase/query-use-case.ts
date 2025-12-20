@@ -1,16 +1,11 @@
 import {randomUUID} from 'node:crypto'
 
 import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
-import type {ICipherAgent} from '../../core/interfaces/cipher/i-cipher-agent.js'
 import type {IProjectConfigStore} from '../../core/interfaces/i-project-config-store.js'
 import type {ITerminal} from '../../core/interfaces/i-terminal.js'
 import type {ITokenStore} from '../../core/interfaces/i-token-store.js'
 import type {ITrackingService} from '../../core/interfaces/i-tracking-service.js'
-import type {
-  IQueryUseCase,
-  QueryExecuteOptions,
-  QueryUseCaseRunOptions,
-} from '../../core/interfaces/usecase/i-query-use-case.js'
+import type {IQueryUseCase, QueryUseCaseRunOptions} from '../../core/interfaces/usecase/i-query-use-case.js'
 
 import {getCurrentConfig} from '../../config/environment.js'
 import {PROJECT} from '../../constants.js'
@@ -49,58 +44,10 @@ export class QueryUseCase implements IQueryUseCase {
   }
 
   /**
-   * Execute with an injected agent (v0.5.0 architecture).
-   * UseCase receives agent from TaskProcessor, doesn't manage agent lifecycle.
-   * Event streaming handled by agent-worker (subscribes to agentEventBus).
-   *
-   * @param agent - Long-lived CipherAgent
-   * @param options - Execution options (query)
-   * @returns Result string from agent execution
-   */
-  public async executeWithAgent(agent: ICipherAgent, options: QueryExecuteOptions): Promise<string> {
-    const {query} = options
-
-    // Initialize storage for tool call tracking
-    const storage = await getAgentStorage()
-    let executionId: null | string = null
-
-    try {
-      // Create execution with status='running'
-      executionId = storage.createExecution('query', query)
-
-      // Execute with query commandType
-      // Agent uses its default session (created during start())
-      const cipherAgent = agent as CipherAgent
-      const trackingRequestId = this.generateTrackingRequestId()
-      const prompt = `Search the context tree for: ${query}`
-      const response = await cipherAgent.execute(prompt, {
-        executionContext: {commandType: 'query'},
-        trackingRequestId,
-      })
-
-      // Mark execution as completed
-      storage.updateExecutionStatus(executionId, 'completed', response)
-
-      // Cleanup old executions
-      storage.cleanupOldExecutions(100)
-
-      return response
-    } catch (error) {
-      // Mark execution as failed
-      if (executionId) {
-        const errorMessage = error instanceof Error ? error.message : String(error)
-        storage.updateExecutionStatus(executionId, 'failed', undefined, errorMessage)
-      }
-
-      throw error
-    }
-  }
-
-  /**
-   * Generate a unique tracking request ID for backend metrics.
+   * Generate a unique session ID for the query agent.
    * Uses crypto.randomUUID() for guaranteed uniqueness (122 bits of entropy).
    */
-  protected generateTrackingRequestId(): string {
+  protected generateSessionId(): string {
     return randomUUID()
   }
 
@@ -139,40 +86,37 @@ export class QueryUseCase implements IQueryUseCase {
       const llmConfig = {
         accessToken: token.accessToken,
         apiBaseUrl: envConfig.llmApiBaseUrl,
-        fileSystem: {workingDirectory: process.cwd()},
-        llm: {
-          maxIterations: 5,
-          maxTokens: 2048,
-          temperature: 0.7,
-          topK: 10,
-          topP: 0.95,
-          verbose: options.verbose ?? false,
-        },
+        fileSystemConfig: {workingDirectory: process.cwd()},
+        maxIterations: 5,
+        maxTokens: 2048,
         model,
         openRouterApiKey: options.apiKey,
         projectId: PROJECT,
         sessionKey: token.sessionKey,
+        temperature: 0.7,
+        topK: 10,
+        topP: 0.95,
+        verbose: options.verbose ?? false,
       }
 
       // Create and start CipherAgent
-      // Agent creates its default session during start() (Single-Session pattern)
       const agent = this.createCipherAgent(llmConfig, brvConfig)
 
       this.terminal.log('Querying context tree...')
       await agent.start()
 
       try {
-        const trackingRequestId = this.generateTrackingRequestId()
+        const sessionId = this.generateSessionId()
 
         // Setup event listeners (display + tool call tracking)
         this.setupEventListeners(agent, options.verbose ?? false)
         this.setupToolCallTracking(agent, executionId)
 
-        // Execute with query commandType
+        // Execute with autonomous mode and query commandType
         const prompt = `Search the context tree for: ${options.query}`
         const response = await agent.execute(prompt, {
           executionContext: {commandType: 'query'},
-          trackingRequestId,
+          trackingRequestId: sessionId,
         })
 
         // Mark execution as completed
@@ -183,8 +127,6 @@ export class QueryUseCase implements IQueryUseCase {
 
         await this.trackingService.track('mem:query', {status: 'finished'})
       } finally {
-        // Stop agent to cleanup resources and allow process to exit
-        await agent.stop()
         // Cleanup old executions
         storage.cleanupOldExecutions(100)
       }

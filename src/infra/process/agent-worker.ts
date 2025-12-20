@@ -37,8 +37,8 @@ import {ProjectConfigStore} from '../config/file-config-store.js'
 import {createTaskProcessor, TaskProcessor} from '../core/task-processor.js'
 import {KeychainTokenStore} from '../storage/keychain-token-store.js'
 import {createTransportClient} from '../transport/transport-factory.js'
-import {CurateUseCase} from '../usecase/curate-use-case.js'
-import {QueryUseCase} from '../usecase/query-use-case.js'
+import {CurateUseCaseV2} from '../usecase/curate-use-case-v2.js'
+import {QueryUseCaseV2} from '../usecase/query-use-case-v2.js'
 
 // ============================================================================
 // IPC Types
@@ -277,10 +277,9 @@ async function startAgent(): Promise<void> {
   await transportClient.request('agent:register', {})
   console.log('[Agent] Registered with Transport')
 
-  // Create UseCases with real stores
-  const deps = createUseCaseDependencies()
-  const curateUseCase = new CurateUseCase(deps)
-  const queryUseCase = new QueryUseCase(deps)
+  // Create V2 UseCases (pure execution, no dependencies)
+  const curateUseCase = new CurateUseCaseV2()
+  const queryUseCase = new QueryUseCaseV2()
 
   // Load auth token and config for CipherAgent
   const tokenStore = new KeychainTokenStore()

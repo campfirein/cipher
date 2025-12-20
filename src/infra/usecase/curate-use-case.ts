@@ -3,23 +3,15 @@ import fs from 'node:fs'
 import path from 'node:path'
 import open from 'open'
 
-import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
-import type {ICipherAgent} from '../../core/interfaces/cipher/i-cipher-agent.js'
 import type {IProjectConfigStore} from '../../core/interfaces/i-project-config-store.js'
 import type {ITerminal} from '../../core/interfaces/i-terminal.js'
 import type {ITokenStore} from '../../core/interfaces/i-token-store.js'
 import type {ITrackingService} from '../../core/interfaces/i-tracking-service.js'
-import type {
-  CurateExecuteOptions,
-  CurateUseCaseRunOptions,
-  ICurateUseCase,
-} from '../../core/interfaces/usecase/i-curate-use-case.js'
+import type {CurateUseCaseRunOptions, ICurateUseCase} from '../../core/interfaces/usecase/i-curate-use-case.js'
 
 import {CONTEXT_TREE_DOMAINS} from '../../config/context-tree-domains.js'
 import {BRV_DIR, CONTEXT_FILE, CONTEXT_TREE_DIR} from '../../constants.js'
-import {FileValidationError} from '../../core/domain/errors/task-error.js'
 import {validateFileForCurate} from '../../utils/file-validator.js'
-import {CipherAgent} from '../cipher/agent/index.js'
 import {getAgentStorage} from '../cipher/storage/agent-storage.js'
 import {WorkspaceNotInitializedError} from '../cipher/validation/workspace-validator.js'
 
@@ -47,14 +39,6 @@ export class CurateUseCase implements ICurateUseCase {
   }
 
   /**
-   * Create CipherAgent instance. Protected to allow test overrides.
-   */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  protected createCipherAgent(llmConfig: any, brvConfig: BrvConfig): CipherAgent {
-    return new CipherAgent(llmConfig, brvConfig)
-  }
-
-  /**
    * Create topic folder with context.md file
    * @param targetPath - The parent path where the topic folder will be created
    * @param topicName - The name of the topic folder to create
@@ -75,66 +59,10 @@ export class CurateUseCase implements ICurateUseCase {
   }
 
   /**
-   * Execute with an injected agent (v0.5.0 architecture).
-   * UseCase receives agent from TaskProcessor, doesn't manage agent lifecycle.
-   * Event streaming handled by agent-worker (subscribes to agentEventBus).
-   *
-   * @param agent - Long-lived CipherAgent
-   * @param options - Execution options (content, file references)
-   * @returns Result string from agent execution
-   */
-  public async executeWithAgent(agent: ICipherAgent, options: CurateExecuteOptions): Promise<string> {
-    const {content, files} = options
-
-    // Initialize storage for tool call tracking
-    const storage = await getAgentStorage()
-    let executionId: null | string = null
-
-    try {
-      // Process file references if provided (validation + instructions)
-      const fileReferenceInstructions = this.processFileReferences(files ?? [])
-      if (fileReferenceInstructions === undefined) {
-        throw new FileValidationError()
-      }
-
-      // Create execution with status='running'
-      executionId = storage.createExecution('curate', content)
-
-      // Build prompt with optional file reference instructions
-      const prompt = fileReferenceInstructions ? `${content}\n${fileReferenceInstructions}` : content
-
-      // Execute with curate commandType
-      // Agent uses its default session (created during start())
-      const cipherAgent = agent as CipherAgent
-      const trackingRequestId = this.generateTrackingRequestId()
-      const response = await cipherAgent.execute(prompt, {
-        executionContext: {commandType: 'curate'},
-        trackingRequestId,
-      })
-
-      // Mark execution as completed
-      storage.updateExecutionStatus(executionId, 'completed', response)
-
-      // Cleanup old executions
-      storage.cleanupOldExecutions(100)
-
-      return response
-    } catch (error) {
-      // Mark execution as failed
-      if (executionId) {
-        const errorMessage = error instanceof Error ? error.message : String(error)
-        storage.updateExecutionStatus(executionId, 'failed', undefined, errorMessage)
-      }
-
-      throw error
-    }
-  }
-
-  /**
-   * Generate a unique tracking request ID for backend metrics.
+   * Generate a unique session ID for the autonomous agent.
    * Uses crypto.randomUUID() for guaranteed uniqueness (122 bits of entropy).
    */
-  protected generateTrackingRequestId(): string {
+  protected generateSessionId(): string {
     return randomUUID()
   }
 

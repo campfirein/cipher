@@ -8,13 +8,14 @@
  * - NO TaskProcessor, NO business logic (just routing)
  *
  * Event naming convention:
- * - task:* events are Transport-generated (ack, started, completed, error)
+ * - task:* events are Transport-generated (ack, created, started, completed, error)
  * - llmservice:* events are forwarded from Agent with ORIGINAL names
  *
  * Message flows:
  * 1. Client → Transport: task:create {type, input}
  *    Transport → Agent: task:execute {taskId, type, input, clientId}
  *    Transport → Client: task:ack {taskId}
+ *    Transport → broadcast-room: task:created {taskId, type, input, files?}
  *
  * 2. Agent → Transport: llmservice:response {taskId, content}
  *    Transport → Client (direct): llmservice:response
@@ -384,6 +385,14 @@ export class TransportHandlers {
 
     // Send ack immediately (fast feedback)
     this.transport.sendTo(clientId, 'task:ack', {taskId})
+
+    // Broadcast task:created to broadcast-room for TUI monitoring
+    this.transport.broadcastTo('broadcast-room', 'task:created', {
+      ...(data.files?.length ? {files: data.files} : {}),
+      input: data.input,
+      taskId,
+      type: data.type,
+    })
 
     // Forward to Agent
     if (this.agentClientId) {

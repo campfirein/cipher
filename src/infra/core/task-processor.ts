@@ -1,7 +1,7 @@
 import type {ICipherAgent} from '../../core/interfaces/cipher/i-cipher-agent.js'
 import type {ILogger} from '../../core/interfaces/cipher/i-logger.js'
-import type {ICurateUseCase} from '../../core/interfaces/usecase/i-curate-use-case.js'
-import type {IQueryUseCase} from '../../core/interfaces/usecase/i-query-use-case.js'
+import type {ICurateUseCaseV2} from '../../core/interfaces/usecase/i-curate-use-case-v2.js'
+import type {IQueryUseCaseV2} from '../../core/interfaces/usecase/i-query-use-case-v2.js'
 
 import {NoOpLogger} from '../../core/interfaces/cipher/i-logger.js'
 
@@ -24,12 +24,12 @@ export type TaskInput = {
  * Configuration for TaskProcessor.
  */
 export type TaskProcessorConfig = {
-  /** Curate use case instance (injected by CoreProcess) */
-  curateUseCase: ICurateUseCase
+  /** Curate use case V2 instance (injected by CoreProcess) */
+  curateUseCase: ICurateUseCaseV2
   /** Logger instance */
   logger?: ILogger
-  /** Query use case instance (injected by CoreProcess) */
-  queryUseCase: IQueryUseCase
+  /** Query use case V2 instance (injected by CoreProcess) */
+  queryUseCase: IQueryUseCaseV2
 }
 
 /**
@@ -48,9 +48,9 @@ export class TaskProcessor {
    * Single CipherAgent reference from agent-worker.
    */
   private agent: ICipherAgent | undefined
-  private readonly curateUseCase: ICurateUseCase
+  private readonly curateUseCase: ICurateUseCaseV2
   private readonly logger: ILogger
-  private readonly queryUseCase: IQueryUseCase
+  private readonly queryUseCase: IQueryUseCaseV2
   /** Track running tasks for cancellation */
   private readonly runningTasks = new Map<string, {abort: () => void}>()
 
