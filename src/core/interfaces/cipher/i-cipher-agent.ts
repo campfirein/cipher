@@ -64,13 +64,12 @@ export interface AgentState {
  */
 export interface ICipherAgent {
   /**
-   * Cancels the currently running turn for a session.
+   * Cancels the currently running turn for the agent's default session.
    * Safe to call even if no run is in progress.
    *
-   * @param sessionId - Session ID to cancel
    * @returns true if a run was in progress and was signaled to abort; false otherwise
    */
-  cancel(sessionId: string): Promise<boolean>
+  cancel(): Promise<boolean>
 
   /**
    * Delete a session completely (memory + history)
@@ -80,23 +79,27 @@ export interface ICipherAgent {
   deleteSession(sessionId: string): Promise<boolean>
 
   /**
-   * Execute the agent with user input
+   * Execute the agent with user input.
+   * Uses the agent's default session (created during start()).
+   *
    * @param input - User input string
-   * @param trackingSessionId - Optional tracking session ID for backend metrics
+   * @param options - Optional execution options
+   * @param options.trackingRequestId - Optional tracking request ID for backend metrics (random UUID per request)
    * @returns Agent response
    */
-  execute(input: string, trackingSessionId?: string): Promise<string>
+  execute(input: string, options?: {trackingRequestId?: string}): Promise<string>
 
   /**
    * Generate a complete response (waits for full completion).
    * Wrapper around stream() that collects all events and returns final result.
+   * Uses the agent's default session (created during start()).
    *
    * @param input - User message
-   * @param trackingSessionId - Tracking session ID for backend metrics
    * @param options - Optional configuration
+   * @param options.trackingRequestId - Optional tracking request ID for backend metrics (random UUID per request)
    * @returns Complete response with content, usage, and tool calls
    */
-  generate(input: string, trackingSessionId: string, options?: StreamOptions): Promise<GenerateResponse>
+  generate(input: string, options?: StreamOptions): Promise<GenerateResponse>
 
   /**
    * Get session metadata without loading full history
@@ -132,11 +135,11 @@ export interface ICipherAgent {
   /**
    * Stream a response (yields events as they arrive).
    * This is the recommended method for real-time streaming UI updates.
+   * Uses the agent's default session (created during start()).
    *
    * @param input - User message
-   * @param trackingSessionId - Tracking session ID for backend metrics
-   * @param options - Optional configuration (signal for cancellation)
+   * @param options - Optional configuration (signal for cancellation, trackingRequestId)
    * @returns AsyncIterator that yields StreamingEvent objects
    */
-  stream(input: string, trackingSessionId: string, options?: StreamOptions): Promise<AsyncIterableIterator<StreamingEvent>>
+  stream(input: string, options?: StreamOptions): Promise<AsyncIterableIterator<StreamingEvent>>
 }

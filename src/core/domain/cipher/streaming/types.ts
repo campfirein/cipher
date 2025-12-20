@@ -99,6 +99,8 @@ export interface StreamOptions {
   executionContext?: ExecutionContext
   /** AbortSignal for cancellation */
   signal?: AbortSignal
+  /** Tracking request ID for backend metrics (random UUID per request, NOT related to session memory) */
+  trackingRequestId?: string
 }
 
 /**
@@ -115,7 +117,7 @@ export interface GenerateResponse {
   toolCalls: Array<{
     args: Record<string, unknown>
     callId: string
-    result?: {data: unknown; success: boolean;}
+    result?: {data: unknown; success: boolean}
     toolName: string
   }>
   /** Token usage statistics */

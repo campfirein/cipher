@@ -7,6 +7,7 @@ import {NoOpLogger} from '../../core/interfaces/cipher/i-logger.js'
 
 /**
  * Task input for processing.
+ * Agent uses its default session (Single-Session pattern).
  */
 export type TaskInput = {
   /** Task content/prompt */
@@ -141,6 +142,7 @@ export class TaskProcessor {
 
     switch (type) {
       case 'curate': {
+        // Agent uses its default session (Single-Session pattern)
         return this.curateUseCase.executeWithAgent(this.agent, {
           content,
           files: input.files,
@@ -148,6 +150,7 @@ export class TaskProcessor {
       }
 
       case 'query': {
+        // Agent uses its default session (Single-Session pattern)
         return this.queryUseCase.executeWithAgent(this.agent, {query: content})
       }
     }

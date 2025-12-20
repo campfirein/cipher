@@ -186,10 +186,15 @@ export class ChatSession implements IChatSession {
    * Send a message and get a response.
    * Delegates to the LLM service which handles the agentic loop.
    * Processes any queued messages first if present.
+   *
+   * @param input - User message
+   * @param options - Execution options
+   * @param options.executionContext - Optional execution context
+   * @param options.trackingRequestId - Optional tracking request ID for backend metrics (random UUID per request)
    */
   public async run(
     input: string,
-    options?: {executionContext?: ExecutionContext},
+    options?: {executionContext?: ExecutionContext; trackingRequestId?: string},
   ): Promise<string> {
     // Create abort controller for cancellation
     this.currentController = new AbortController()
@@ -204,7 +209,8 @@ export class ChatSession implements IChatSession {
       const finalInput = queued ? `${queued.content}\n\nAlso: ${input}` : input
 
       // Delegate to service - it handles everything
-      const response = await this.llmService.completeTask(finalInput, this.id, {
+      // Use trackingRequestId for backend metrics if provided, otherwise generate one
+      const response = await this.llmService.completeTask(finalInput, options?.trackingRequestId ?? '', {
         executionContext: options?.executionContext,
         signal: this.currentController.signal,
       })
@@ -271,12 +277,14 @@ export class ChatSession implements IChatSession {
    * @param options - Execution options with optional signal for cancellation
    * @param options.executionContext - Optional execution context for the LLM
    * @param options.signal - Optional AbortSignal for cancellation
+   * @param options.trackingRequestId - Optional tracking request ID for backend metrics (random UUID per request)
    */
   public async streamRun(
     input: string,
     options?: {
       executionContext?: ExecutionContext
       signal?: AbortSignal
+      trackingRequestId?: string
     },
   ): Promise<void> {
     const startTime = Date.now()
@@ -301,7 +309,8 @@ export class ChatSession implements IChatSession {
       const finalInput = queued ? `${queued.content}\n\nAlso: ${input}` : input
 
       // Delegate to service - it handles everything and emits events
-      await this.llmService.completeTask(finalInput, this.id, {
+      // Use trackingRequestId for backend metrics if provided
+      await this.llmService.completeTask(finalInput, options?.trackingRequestId ?? '', {
         executionContext: options?.executionContext,
         signal: this.currentController.signal,
       })

@@ -69,12 +69,13 @@ export class QueryUseCase implements IQueryUseCase {
       executionId = storage.createExecution('query', query)
 
       // Execute with query commandType
-      // Cast to CipherAgent for full execute signature (ICipherAgent is minimal)
+      // Agent uses its default session (created during start())
       const cipherAgent = agent as CipherAgent
-      const trackingSessionId = this.generateTrackingSessionId()
+      const trackingRequestId = this.generateTrackingRequestId()
       const prompt = `Search the context tree for: ${query}`
-      const response = await cipherAgent.execute(prompt, trackingSessionId, {
+      const response = await cipherAgent.execute(prompt, {
         executionContext: {commandType: 'query'},
+        trackingRequestId,
       })
 
       // Mark execution as completed
@@ -96,10 +97,10 @@ export class QueryUseCase implements IQueryUseCase {
   }
 
   /**
-   * Generate a unique tracking session ID for backend metrics.
+   * Generate a unique tracking request ID for backend metrics.
    * Uses crypto.randomUUID() for guaranteed uniqueness (122 bits of entropy).
    */
-  protected generateTrackingSessionId(): string {
+  protected generateTrackingRequestId(): string {
     return randomUUID()
   }
 
@@ -154,13 +155,14 @@ export class QueryUseCase implements IQueryUseCase {
       }
 
       // Create and start CipherAgent
+      // Agent creates its default session during start() (Single-Session pattern)
       const agent = this.createCipherAgent(llmConfig, brvConfig)
 
       this.terminal.log('Querying context tree...')
       await agent.start()
 
       try {
-        const trackingSessionId = this.generateTrackingSessionId()
+        const trackingRequestId = this.generateTrackingRequestId()
 
         // Setup event listeners (display + tool call tracking)
         this.setupEventListeners(agent, options.verbose ?? false)
@@ -168,8 +170,9 @@ export class QueryUseCase implements IQueryUseCase {
 
         // Execute with query commandType
         const prompt = `Search the context tree for: ${options.query}`
-        const response = await agent.execute(prompt, trackingSessionId, {
+        const response = await agent.execute(prompt, {
           executionContext: {commandType: 'query'},
+          trackingRequestId,
         })
 
         // Mark execution as completed

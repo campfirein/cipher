@@ -223,7 +223,8 @@ describe('ChatSession', () => {
       expect(result).to.equal('test response')
       expect((mockLLMService.completeTask as SinonStub).calledOnce).to.be.true
       expect((mockLLMService.completeTask as SinonStub).firstCall.args[0]).to.equal('test input')
-      expect((mockLLMService.completeTask as SinonStub).firstCall.args[1]).to.equal(sessionId)
+      // Second arg is trackingRequestId (defaults to empty string when not provided)
+      expect((mockLLMService.completeTask as SinonStub).firstCall.args[1]).to.equal('')
       expect((mockLLMService.completeTask as SinonStub).firstCall.args[2].signal).to.be.instanceOf(AbortSignal)
     })
 
@@ -245,7 +246,8 @@ describe('ChatSession', () => {
 
       expect((mockLLMService.completeTask as SinonStub).calledOnce).to.be.true
       expect((mockLLMService.completeTask as SinonStub).firstCall.args[0]).to.equal('input')
-      expect((mockLLMService.completeTask as SinonStub).firstCall.args[1]).to.equal(sessionId)
+      // Second arg is trackingRequestId (defaults to empty string when not provided)
+      expect((mockLLMService.completeTask as SinonStub).firstCall.args[1]).to.equal('')
       expect((mockLLMService.completeTask as SinonStub).firstCall.args[2]).to.deep.include({
         executionContext: {commandType: 'query'},
       })

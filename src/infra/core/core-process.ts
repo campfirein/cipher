@@ -356,8 +356,10 @@ export class CoreProcess {
 
     // Route to TaskProcessor if available
     if (this.taskProcessor) {
+      // Ensure a session exists (create if needed)
       // Process task asynchronously (don't await - return taskId immediately)
       // Note: Event streaming is handled by agent-worker in v0.5.0 architecture
+      // Agent uses its default session (Single-Session pattern)
       this.taskProcessor
         .process({
           content: data.input,

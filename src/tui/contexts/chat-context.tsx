@@ -5,8 +5,6 @@
  * Agent stays alive between /exit and /chat for instant re-entry.
  */
 
-import {randomUUID} from 'node:crypto'
-
 import React, {createContext, useCallback, useContext, useEffect, useMemo, useRef, useState} from 'react'
 
 import type {StreamingEvent} from '../../core/domain/cipher/streaming/types.js'
@@ -34,7 +32,7 @@ export interface ChatContextValue {
   /** Send a message and get streaming iterator */
   sendMessage: (input: string) => Promise<AsyncIterableIterator<StreamingEvent>>
   /** Current session ID */
-  sessionId: string | null
+  sessionId: null | string
 }
 
 const ChatContext = createContext<ChatContextValue | undefined>(undefined)
@@ -50,7 +48,7 @@ export function ChatProvider({children}: ChatProviderProps): React.ReactElement 
   // State
   const [agent, setAgent] = useState<CipherAgent | null>(null)
   const [isInChatMode, setIsInChatMode] = useState(false)
-  const [sessionId, setSessionId] = useState<string | null>(null)
+  const [sessionId, setSessionId] = useState<null | string>(null)
   const [isProcessing, setIsProcessing] = useState(false)
 
   // Refs for cancellation
@@ -89,7 +87,7 @@ export function ChatProvider({children}: ChatProviderProps): React.ReactElement 
    */
   const enterChatMode = useCallback(async () => {
     // Already in chat mode with agent
-    if (agent && sessionId) {
+    if (agent) {
       setIsInChatMode(true)
       return
     }
@@ -99,18 +97,16 @@ export function ChatProvider({children}: ChatProviderProps): React.ReactElement 
     }
 
     // Create new agent
+    // Agent creates its default session during start() (Single-Session pattern)
     const config = createAgentConfig()
     const newAgent = new CipherAgent(config, brvConfig)
     await newAgent.start()
 
-    // Create persistent session
-    const chatSessionId = `chat-${randomUUID()}`
-    await newAgent.createSession(chatSessionId)
-
     setAgent(newAgent)
-    setSessionId(chatSessionId)
+    // Session is now managed internally by the agent
+    setSessionId(newAgent.sessionId ?? null)
     setIsInChatMode(true)
-  }, [agent, sessionId, authToken, brvConfig, createAgentConfig])
+  }, [agent, authToken, brvConfig, createAgentConfig])
 
   /**
    * Exit chat mode - keeps agent alive for fast re-entry
@@ -125,7 +121,7 @@ export function ChatProvider({children}: ChatProviderProps): React.ReactElement 
    */
   const sendMessage = useCallback(
     async (input: string): Promise<AsyncIterableIterator<StreamingEvent>> => {
-      if (!agent || !sessionId) {
+      if (!agent) {
         throw new Error('Chat mode not initialized. Call enterChatMode() first.')
       }
 
@@ -134,21 +130,20 @@ export function ChatProvider({children}: ChatProviderProps): React.ReactElement 
       setIsProcessing(true)
 
       try {
-        const iterator = await agent.stream(input, sessionId, {
+        // Agent uses its default session (created during start())
+        const iterator = await agent.stream(input, {
           executionContext: {commandType: 'chat'},
           signal: abortControllerRef.current.signal,
         })
 
         // Wrap iterator to handle cleanup
         const wrappedIterator: AsyncIterableIterator<StreamingEvent> = {
-          [Symbol.asyncIterator]() {
-            return this
-          },
           async next() {
             const result = await iterator.next()
             if (result.done) {
               setIsProcessing(false)
             }
+
             return result
           },
           async return() {
@@ -156,7 +151,11 @@ export function ChatProvider({children}: ChatProviderProps): React.ReactElement 
             if (iterator.return) {
               return iterator.return()
             }
+
             return {done: true, value: undefined}
+          },
+          [Symbol.asyncIterator]() {
+            return this
           },
         }
 
@@ -166,7 +165,7 @@ export function ChatProvider({children}: ChatProviderProps): React.ReactElement 
         throw error
       }
     },
-    [agent, sessionId],
+    [agent],
   )
 
   /**
@@ -177,24 +176,24 @@ export function ChatProvider({children}: ChatProviderProps): React.ReactElement 
       abortControllerRef.current.abort()
       abortControllerRef.current = null
     }
-    if (agent && sessionId) {
-      agent.cancel(sessionId).catch(() => {
+
+    if (agent) {
+      agent.cancel().catch(() => {
         // Ignore cancel errors
       })
     }
+
     setIsProcessing(false)
-  }, [agent, sessionId])
+  }, [agent])
 
   // Cleanup on unmount - stop agent
-  useEffect(() => {
-    return () => {
+  useEffect(() => () => {
       if (agent) {
         agent.stop().catch(() => {
           // Ignore cleanup errors
         })
       }
-    }
-  }, [agent])
+    }, [agent])
 
   // Memoize context value
   const value = useMemo(

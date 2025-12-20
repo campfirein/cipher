@@ -46,9 +46,12 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
   // Private state (must come before methods)
   private readonly _agentEventBus: AgentEventBus
   private readonly _brvConfig?: BrvConfig
+  /**
+   * Session ID - created once during start().
+   * Each agent has exactly 1 session (Single-Session pattern).
+   */
+  private _sessionId?: string
   private readonly activeStreamControllers: Map<string, AbortController> = new Map()
-  private readonly currentDefaultSessionId: string = 'default'
-  private defaultSession: IChatSession | null = null
   private sessionManager?: SessionManager
 
   /**
@@ -90,6 +93,14 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
     return this.services?.processService
   }
 
+  /**
+   * Get the session ID (created during start()).
+   * Each agent has exactly 1 session (Single-Session pattern).
+   */
+  public get sessionId(): string | undefined {
+    return this._sessionId
+  }
+
   public get systemPromptManager(): SystemPromptManager | undefined {
     return this.services?.systemPromptManager
   }
@@ -105,19 +116,15 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
   // === Public Methods (alphabetical order) ===
 
   /**
-   * Cancels the currently running turn for a session.
+   * Cancels the currently running turn for the agent's default session.
    * Safe to call even if no run is in progress.
    *
-   * @param sessionId - Session ID to cancel
    * @returns true if a run was in progress and was signaled to abort; false otherwise
    */
-  public async cancel(sessionId: string): Promise<boolean> {
+  public async cancel(): Promise<boolean> {
     this.ensureStarted()
 
-    // Defensive runtime validation
-    if (!sessionId || typeof sessionId !== 'string') {
-      throw AgentError.serviceNotInitialized('sessionId is required and must be a non-empty string')
-    }
+    const sessionId = this.getSessionIdInternal()
 
     // Abort the stream iterator first (so consumer's for-await loop exits cleanly)
     const streamController = this.activeStreamControllers.get(sessionId)
@@ -148,8 +155,6 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
     if (this.stateManager) {
       this.stateManager.reset()
     }
-
-    this.defaultSession = null
   }
 
   /**
@@ -176,17 +181,24 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
 
   /**
    * Execute the agent with user input.
+   * Uses the agent's default session (created during start()).
    * Internally uses generate() for single code path maintainability.
+   *
+   * @param input - User message
+   * @param options - Optional execution options
+   * @param options.trackingRequestId - Optional tracking request ID for backend metrics (random UUID per request)
+   * @param options.executionContext - Optional execution context
    */
-  public async execute(input: string, trackingSessionId?: string, options?: {executionContext?: ExecutionContext}): Promise<string> {
+  public async execute(
+    input: string,
+    options?: {executionContext?: ExecutionContext; trackingRequestId?: string},
+  ): Promise<string> {
     this.ensureStarted()
 
-    // Determine target session (backward compatible: defaults to 'default')
-    const targetSessionId = trackingSessionId ?? this.currentDefaultSessionId
-
     // Use generate() internally for single code path
-    const response = await this.generate(input, targetSessionId, {
+    const response = await this.generate(input, {
       executionContext: options?.executionContext,
+      trackingRequestId: options?.trackingRequestId,
     })
 
     return response.content
@@ -195,17 +207,19 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
   /**
    * Generate a complete response (waits for full completion).
    * Wrapper around stream() that collects all events and returns final result.
+   * Uses the agent's default session (created during start()).
    *
    * @param input - User message
-   * @param trackingSessionId - Tracking session ID for backend metrics
-   * @param options - Optional configuration
+   * @param options - Optional configuration (includes trackingRequestId for backend metrics)
    * @returns Complete response with content, usage, and tool calls
    */
-  public async generate(input: string, trackingSessionId: string, options?: StreamOptions): Promise<GenerateResponse> {
+  public async generate(input: string, options?: StreamOptions): Promise<GenerateResponse> {
+    const sessionId = this.getSessionIdInternal()
+
     // Collect all events from stream
     const events: StreamingEvent[] = []
 
-    for await (const event of await this.stream(input, trackingSessionId, options)) {
+    for await (const event of await this.stream(input, options)) {
       events.push(event)
     }
 
@@ -247,7 +261,7 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
     return {
       content: responseEvent.content,
       reasoning: responseEvent.reasoning,
-      sessionId: trackingSessionId,
+      sessionId,
       toolCalls,
       usage: responseEvent.tokenUsage ?? defaultUsage,
     }
@@ -332,23 +346,28 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
 
   /**
    * Reset the agent to initial state.
+   * Resets execution state only. To reset sessions, use resetSession(sessionId).
    */
   public reset(): void {
     // Reset execution state (only if state manager exists - may not if not started)
     if (this.stateManager) {
       this.stateManager.reset()
     }
+  }
 
-    // Reset default session if it exists
-    if (this.defaultSession) {
-      this.defaultSession.reset()
+  /**
+   * Reset a specific session's conversation history.
+   * @param sessionId - The session ID to reset
+   */
+  public resetSession(sessionId: string): void {
+    const session = this.getSessionManagerInternal().getSession(sessionId)
+    if (session) {
+      session.reset()
     }
 
     // Emit conversation reset event (only if agent is started)
     if (this._isStarted && this.services?.agentEventBus) {
-      this.services.agentEventBus.emit('cipher:conversationReset', {
-        sessionId: this.currentDefaultSessionId,
-      })
+      this.services.agentEventBus.emit('cipher:conversationReset', {sessionId})
     }
   }
 
@@ -393,29 +412,28 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
         sessionTTL: this.config.sessions.sessionTTL,
       },
     })
+
+    // Create default session (Single-Session pattern)
+    // Each agent has exactly 1 session created at start time
+    const defaultSession = await this.sessionManager.createSession()
+    this._sessionId = defaultSession.id
   }
 
   /**
    * Stream a response with real-time event emission.
+   * Uses the agent's default session (created during start()).
    *
    * @param input - User message
-   * @param trackingSessionId - Tracking session ID for backend metrics
-   * @param options - Optional configuration (signal for cancellation)
+   * @param options - Optional configuration (signal for cancellation, trackingRequestId for backend metrics)
    * @returns AsyncIterator that yields StreamingEvent objects
    */
-  public async stream(
-    input: string,
-    trackingSessionId: string,
-    options?: StreamOptions,
-  ): Promise<AsyncIterableIterator<StreamingEvent>> {
+  public async stream(input: string, options?: StreamOptions): Promise<AsyncIterableIterator<StreamingEvent>> {
     this.ensureStarted()
 
-    // Validate trackingSessionId is provided
-    if (!trackingSessionId) {
-      throw AgentError.serviceNotInitialized('trackingSessionId is required for streaming')
-    }
+    const sessionId = this.getSessionIdInternal()
 
     const signal = options?.signal
+    const trackingRequestId = options?.trackingRequestId
 
     // Event queue for aggregation
     const eventQueue: StreamingEvent[] = []
@@ -425,8 +443,8 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
     const controller = new AbortController()
     const cleanupSignal = controller.signal
 
-    // Store controller so cancel() can abort this stream
-    this.activeStreamControllers.set(trackingSessionId, controller)
+    // Store controller so cancel() can abort this stream (keyed by sessionId)
+    this.activeStreamControllers.set(sessionId, controller)
 
     // Increase listener limit - stream() registers many event listeners
     setMaxListeners(30, cleanupSignal)
@@ -455,7 +473,7 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
 
       listeners.length = 0
       // Remove from active controllers map
-      this.activeStreamControllers.delete(trackingSessionId)
+      this.activeStreamControllers.delete(sessionId)
     }
 
     // Wire external signal to trigger cleanup
@@ -468,11 +486,11 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
       signal.addEventListener('abort', abortHandler, {once: true})
     }
 
-    // Subscribe to streaming events (filter by trackingSessionId)
+    // Subscribe to streaming events (filter by sessionId - ChatSession.id)
     for (const eventName of STREAMING_EVENT_NAMES) {
       const listener = (payload: unknown) => {
         const data = payload as {sessionId?: string}
-        if (data.sessionId !== trackingSessionId) return
+        if (data.sessionId !== sessionId) return
 
         // Add event to queue with name discriminant
         eventQueue.push({name: eventName, ...data} as StreamingEvent)
@@ -490,23 +508,21 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
     // Start streaming in background (fire-and-forget)
     ;(async () => {
       try {
-        // Get or create session
+        // Get or create session using the provided sessionId
+        // ChatSession maintains conversation history
         const sessionMgr = this.getSessionManagerInternal()
-        const existingSession = sessionMgr.getSession(trackingSessionId)
-        const session = existingSession ?? (await sessionMgr.createSession(trackingSessionId))
-
-        // Cache default session for faster access
-        if (trackingSessionId === this.currentDefaultSessionId && !this.defaultSession) {
-          this.defaultSession = session
-        }
+        const existingSession = sessionMgr.getSession(sessionId)
+        const session = existingSession ?? (await sessionMgr.createSession(sessionId))
 
         // Increment iteration counter
         this.getStateManager().incrementIteration()
 
         // Call session.streamRun() which emits events and run:complete
+        // Pass trackingRequestId for backend metrics (separate from session memory)
         await session.streamRun(input, {
           executionContext: options?.executionContext,
           signal,
+          trackingRequestId,
         })
       } catch (error_) {
         // Emit error event if something goes wrong
@@ -518,7 +534,7 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
           error: error.message,
           name: 'llmservice:error',
           recoverable: false,
-          sessionId: trackingSessionId,
+          sessionId,
         })
       }
     })()
@@ -624,6 +640,14 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
     }
 
     return storage
+  }
+
+  private getSessionIdInternal(): string {
+    if (!this._sessionId) {
+      throw AgentError.serviceNotInitialized('Session (call start() first)')
+    }
+
+    return this._sessionId
   }
 
   private getSessionManagerInternal(): SessionManager {

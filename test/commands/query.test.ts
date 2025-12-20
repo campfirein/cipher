@@ -22,9 +22,14 @@ class MockCipherAgent {
   public agentEventBus = {
     on: stub(),
   }
+  public createSessionCalled = false
   public executeCalled = false
   public executeResponse = 'Mock query response'
   public startCalled = false
+
+  async createSession(_sessionId: string): Promise<void> {
+    this.createSessionCalled = true
+  }
 
   async execute(_prompt: string, _sessionId: string, _options: unknown): Promise<string> {
     this.executeCalled = true
@@ -33,6 +38,10 @@ class MockCipherAgent {
 
   async start(): Promise<void> {
     this.startCalled = true
+  }
+
+  async stop(): Promise<void> {
+    // Mock stop
   }
 }
 

@@ -1,6 +1,7 @@
 /* eslint-disable unicorn/no-process-exit */
 /* eslint-disable n/no-process-exit */
 import chalk from 'chalk'
+import {randomUUID} from 'node:crypto'
 import readline from 'node:readline'
 
 import type {ICipherAgent} from '../../core/interfaces/cipher/i-cipher-agent.js'
@@ -293,8 +294,11 @@ async function executePrompt(
     // Mark execution started - prevents late thinking events from starting spinner
     isExecutingRef.value = true
 
-    // Execute AI prompt
-    const response = await agent.execute(prompt)
+    // Generate tracking ID for backend metrics
+    const trackingRequestId = randomUUID()
+
+    // Execute AI prompt (agent uses its default session)
+    const response = await agent.execute(prompt, {trackingRequestId})
 
     // Mark execution finished - no more spinners allowed
     isExecutingRef.value = false
@@ -397,7 +401,7 @@ export async function startInteractiveLoop(
         continue
       }
 
-      // Execute AI prompt
+      // Execute AI prompt (agent uses its default session)
       // eslint-disable-next-line no-await-in-loop -- Sequential agent execution required for interactive loop
       await executePrompt(parsed.rawInput, agent, {isExecutingRef, spinnerRef}, options?.eventBus)
     }

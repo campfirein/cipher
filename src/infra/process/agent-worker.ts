@@ -18,6 +18,8 @@
  * - Sends: 'task:started', 'task:chunk', 'task:completed', 'task:error', 'task:toolCall', 'task:toolResult'
  */
 
+import {randomUUID} from 'node:crypto'
+
 import type {ICipherAgent} from '../../core/interfaces/cipher/i-cipher-agent.js'
 import type {ITransportClient} from '../../core/interfaces/transport/i-transport-client.js'
 
@@ -74,6 +76,8 @@ let taskProcessor: TaskProcessor | undefined
 let cipherAgent: ICipherAgent | undefined
 /** Current task being processed (for event routing) */
 let currentTaskId: string | undefined
+/** ChatSession ID - created once when agent starts, used for all tasks */
+let chatSessionId: string | undefined
 
 /**
  * Get Transport port from environment.
@@ -226,6 +230,7 @@ async function handleTaskExecute(data: TaskExecuteMessage): Promise<void> {
 
     // Process task - events stream via agentEventBus subscription
     // Response is forwarded via llmservice:response event (no manual send needed)
+    // Agent uses its default session (Single-Session pattern)
     await taskProcessor.process({
       content: input,
       files,
@@ -314,6 +319,11 @@ async function startAgent(): Promise<void> {
   const agent = new CipherAgent(agentConfig, brvConfig)
   await agent.start()
   console.log('[Agent] CipherAgent started')
+
+  // Create ChatSession ONCE when agent starts (used for all tasks)
+  chatSessionId = `agent-session-${randomUUID()}`
+  await agent.createSession(chatSessionId)
+  console.log(`[Agent] ChatSession created: ${chatSessionId}`)
 
   // Setup event forwarding BEFORE processing any tasks
   setupAgentEventForwarding(agent)

@@ -270,22 +270,27 @@ export class ExecutionConsumer {
     }
 
     // Create and start CipherAgent
+    // Agent creates its default session during start() (Single-Session pattern)
     const agent = new CipherAgent(llmConfig, this.brvConfig)
     await agent.start()
 
     try {
-      const trackingSessionId = randomUUID()
+      // Generate tracking request ID for backend metrics (separate from sessionId)
+      const trackingRequestId = randomUUID()
 
       // Setup event listeners for tool call tracking
       this.setupToolCallTracking(agent, execution.id)
 
       // Execute with curate commandType
+      // Agent uses its default session (created during start())
+      // trackingRequestId is for backend LLM metrics only
       const prompt = `Add the following context to the context tree:\n\n${input.content}`
-      const response = await agent.execute(prompt, trackingSessionId, {
+      const response = await agent.execute(prompt, {
         executionContext: {
           commandType: 'curate',
           fileReferenceInstructions: input.fileReferenceInstructions,
         },
+        trackingRequestId,
       })
 
       // Mark completed

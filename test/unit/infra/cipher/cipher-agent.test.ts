@@ -124,6 +124,7 @@ describe('CipherAgent', () => {
       const agent = new CipherAgent(agentConfig)
 
       try {
+        // Agent now uses its default session (created during start())
         await agent.execute('test input')
         expect.fail('Should have thrown error')
       } catch (error) {
@@ -172,6 +173,7 @@ describe('CipherAgent', () => {
       expect(agent.getState().currentIteration).to.equal(0)
 
       // Phase 2: Must call start() before execute()
+      // Agent now uses its default session (created during start())
       try {
         await agent.execute('test')
         expect.fail('Should require start() first')

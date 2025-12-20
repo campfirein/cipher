@@ -12,6 +12,7 @@ export interface QueryUseCaseRunOptions {
 
 /**
  * Options for executing with an injected agent (v0.5.0 architecture).
+ * Agent uses its default session (Single-Session pattern).
  */
 export interface QueryExecuteOptions {
   /** Query content */

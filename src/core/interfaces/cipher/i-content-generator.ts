@@ -40,12 +40,12 @@ export interface GenerateContentRequest {
   executionContext?: ExecutionContext
   /** Model identifier */
   model: string
-  /** Session identifier */
-  sessionId: string
   /** Optional system prompt */
   systemPrompt?: string
   /** Available tools for function calling */
   tools?: ToolSet
+  /** Tracking request ID for backend metrics (random UUID per request) */
+  trackingRequestId: string
 }
 
 /**

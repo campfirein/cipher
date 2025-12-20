@@ -109,7 +109,7 @@ interface BuildGenerateContentRequestOptions {
   executionContext?: ExecutionContext
   systemPrompt: string
   tools: ToolSet
-  trackingSessionId: string
+  trackingRequestId: string
 }
 
 /**
@@ -217,11 +217,7 @@ export class ByteRoverLLMService implements ILLMService {
     this.validateConfig(modelName, config.maxInputTokens)
 
     // Get effective max input tokens from registry (respects model limits)
-    const effectiveMaxInputTokens = getEffectiveMaxInputTokens(
-      this.providerType,
-      modelName,
-      config.maxInputTokens
-    )
+    const effectiveMaxInputTokens = getEffectiveMaxInputTokens(this.providerType, modelName, config.maxInputTokens)
 
     this.config = {
       maxInputTokens: effectiveMaxInputTokens,
@@ -263,7 +259,7 @@ export class ByteRoverLLMService implements ILLMService {
    * 3. Returning final response when no more tool calls
    *
    * @param textInput - User input text
-   * @param trackingSessionId - Tracking session ID for backend metrics
+   * @param trackingRequestId - Tracking request ID for backend metrics (random UUID per request)
    * @param options - Execution options
    * @param options.executionContext - Optional execution context
    * @param options.signal - Optional abort signal for cancellation
@@ -274,7 +270,7 @@ export class ByteRoverLLMService implements ILLMService {
    */
   public async completeTask(
     textInput: string,
-    trackingSessionId: string,
+    trackingRequestId: string,
     options?: {
       executionContext?: ExecutionContext
       fileData?: FileData
@@ -316,8 +312,8 @@ export class ByteRoverLLMService implements ILLMService {
         const result = await this.executeAgenticIteration({
           executionContext,
           iterationCount: stateMachine.getContext().turnCount,
-          trackingSessionId,
           tools: toolSet,
+          trackingRequestId,
         })
 
         if (result !== null) {
@@ -417,12 +413,10 @@ export class ByteRoverLLMService implements ILLMService {
 
     if (!toolResult) {
       // This shouldn't happen, but handle gracefully
-      await this.contextManager.addToolResult(
-        toolCall.id,
-        toolCall.function.name,
-        'Error: No tool result available',
-        {errorType: 'NO_RESULT', success: false},
-      )
+      await this.contextManager.addToolResult(toolCall.id, toolCall.function.name, 'Error: No tool result available', {
+        errorType: 'NO_RESULT',
+        success: false,
+      })
       return
     }
 
@@ -439,7 +433,7 @@ export class ByteRoverLLMService implements ILLMService {
    * Converts internal context to the standardized GenerateContentRequest format.
    *
    * @param options - Request options
-   * @param options.trackingSessionId - Tracking session ID for backend metrics
+   * @param options.trackingRequestId - Tracking request ID for backend metrics (random UUID per request)
    * @param options.systemPrompt - System prompt text
    * @param options.tools - Available tools for function calling
    * @param options.executionContext - Optional execution context
@@ -457,9 +451,9 @@ export class ByteRoverLLMService implements ILLMService {
       contents: messages,
       executionContext: options.executionContext,
       model: this.config.model,
-      sessionId: options.trackingSessionId,
       systemPrompt: options.systemPrompt,
       tools: options.tools,
+      trackingRequestId: options.trackingRequestId,
     }
   }
 
@@ -512,8 +506,10 @@ export class ByteRoverLLMService implements ILLMService {
    * Follows OpenCode's compaction patterns:
    * - First tries pruning tool outputs (if overflow > 85%)
    * - Then tries full compaction with LLM summary (if overflow > 95%)
+   *
+   * @param trackingRequestId - Tracking request ID for backend metrics (passed from caller)
    */
-  private async checkAndTriggerCompaction(): Promise<void> {
+  private async checkAndTriggerCompaction(trackingRequestId: string): Promise<void> {
     if (!this.compactionService) return
 
     // Calculate current token usage
@@ -570,10 +566,11 @@ export class ByteRoverLLMService implements ILLMService {
       const originalTokens = currentTokens
 
       // Full compaction needed - generate LLM summary
+      // Use the same trackingRequestId from caller (all LLM calls in a request share the same tracking ID)
       const summary = await this.compactionService.generateSummary(
         this.generator,
         messages,
-        this.sessionId,
+        trackingRequestId,
         this.config.model,
       )
 
@@ -672,7 +669,7 @@ export class ByteRoverLLMService implements ILLMService {
    *
    * @param options - Iteration options
    * @param options.iterationCount - Current iteration number
-   * @param options.trackingSessionId - Tracking session ID for backend metrics
+   * @param options.trackingRequestId - Tracking request ID for backend metrics (random UUID per request)
    * @param options.tools - Available tools for this iteration
    * @param options.executionContext - Optional execution context
    * @returns Final response string if complete, null if more iterations needed
@@ -681,9 +678,9 @@ export class ByteRoverLLMService implements ILLMService {
     executionContext?: ExecutionContext
     iterationCount: number
     tools: ToolSet
-    trackingSessionId: string
+    trackingRequestId: string
   }): Promise<null | string> {
-    const {executionContext, iterationCount, tools, trackingSessionId} = options
+    const {executionContext, iterationCount, tools, trackingRequestId} = options
     // Build system prompt using SystemPromptManager (before compression for correct token accounting)
     // Use filtered tool names based on command type (e.g., only read-only tools for 'query')
     const availableTools = this.toolManager.getToolNamesForCommand(executionContext?.commandType)
@@ -776,7 +773,7 @@ export class ByteRoverLLMService implements ILLMService {
       executionContext,
       systemPrompt,
       tools: toolsForThisIteration,
-      trackingSessionId,
+      trackingRequestId,
     })
 
     // Call LLM via generator (retry + logging handled by decorators)
@@ -787,7 +784,7 @@ export class ByteRoverLLMService implements ILLMService {
       const response = await this.handleFinalResponse(lastMessage)
 
       // Auto-compaction check after assistant response
-      await this.checkAndTriggerCompaction()
+      await this.checkAndTriggerCompaction(trackingRequestId)
 
       return response
     }
@@ -796,7 +793,7 @@ export class ByteRoverLLMService implements ILLMService {
     await this.handleToolCalls(lastMessage)
 
     // Auto-compaction check after tool execution batch
-    await this.checkAndTriggerCompaction()
+    await this.checkAndTriggerCompaction(trackingRequestId)
 
     return null
   }
@@ -857,12 +854,9 @@ export class ByteRoverLLMService implements ILLMService {
       const metadataCallback = this.metadataHandler.createCallback(toolCall.id, toolName)
 
       // Execute tool via ToolManager (returns structured result)
-      const result: ToolExecutionResult = await this.toolManager.executeTool(
-        toolName,
-        toolArgs,
-        this.sessionId,
-        { metadata: metadataCallback },
-      )
+      const result: ToolExecutionResult = await this.toolManager.executeTool(toolName, toolArgs, this.sessionId, {
+        metadata: metadataCallback,
+      })
 
       // Process output (truncation and file saving if needed)
       const processedOutput = await this.outputProcessor.processOutput(toolName, result.content)
@@ -1217,9 +1211,7 @@ export class ByteRoverLLMService implements ILLMService {
 
     if (!result.success) {
       // Log validation warnings but don't throw (backward compatibility)
-      const issues = result.error.issues
-        .map((issue) => `${issue.path.join('.')}: ${issue.message}`)
-        .join('; ')
+      const issues = result.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join('; ')
 
       this.logger.warn('LLM config validation warning', {
         issues,

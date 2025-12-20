@@ -104,11 +104,12 @@ export class CurateUseCase implements ICurateUseCase {
       const prompt = fileReferenceInstructions ? `${content}\n${fileReferenceInstructions}` : content
 
       // Execute with curate commandType
-      // Cast to CipherAgent for full execute signature (ICipherAgent is minimal)
+      // Agent uses its default session (created during start())
       const cipherAgent = agent as CipherAgent
-      const trackingSessionId = this.generateTrackingSessionId()
-      const response = await cipherAgent.execute(prompt, trackingSessionId, {
+      const trackingRequestId = this.generateTrackingRequestId()
+      const response = await cipherAgent.execute(prompt, {
         executionContext: {commandType: 'curate'},
+        trackingRequestId,
       })
 
       // Mark execution as completed
@@ -130,10 +131,10 @@ export class CurateUseCase implements ICurateUseCase {
   }
 
   /**
-   * Generate a unique tracking session ID for backend metrics.
+   * Generate a unique tracking request ID for backend metrics.
    * Uses crypto.randomUUID() for guaranteed uniqueness (122 bits of entropy).
    */
-  protected generateTrackingSessionId(): string {
+  protected generateTrackingRequestId(): string {
     return randomUUID()
   }
 
