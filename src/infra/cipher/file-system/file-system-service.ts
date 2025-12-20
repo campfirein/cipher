@@ -1017,7 +1017,7 @@ export class FileSystemService implements IFileSystem {
       const chunks: Buffer[] = []
 
       if (signal) {
-        signal.addEventListener('abort', () => child.kill())
+        signal.addEventListener('abort', () => child.kill(), {once: true})
       }
 
       child.stdout.on('data', (chunk: Buffer) => chunks.push(chunk))

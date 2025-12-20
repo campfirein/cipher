@@ -86,9 +86,15 @@ export class QueryUseCase implements IQueryUseCase {
       const llmConfig = {
         accessToken: token.accessToken,
         apiBaseUrl: envConfig.llmApiBaseUrl,
-        fileSystemConfig: {workingDirectory: process.cwd()},
-        maxIterations: 5,
-        maxTokens: 2048,
+        fileSystem: {workingDirectory: process.cwd()},
+        llm: {
+          maxIterations: 15,
+          maxTokens: 2048,
+          temperature: 0.7,
+          topK: 10,
+          topP: 0.95,
+          verbose: options.verbose ?? false,
+        },
         model,
         openRouterApiKey: options.apiKey,
         projectId: PROJECT,
@@ -112,8 +118,10 @@ export class QueryUseCase implements IQueryUseCase {
         this.setupEventListeners(agent, options.verbose ?? false)
         this.setupToolCallTracking(agent, executionId)
 
-        // Execute with autonomous mode and query commandType
-        const prompt = `Search the context tree for: ${options.query}`
+        // Execute with plan agent that delegates to explore subagent
+        const prompt = `Search the context tree for: ${options.query}
+
+Analyze this search request and use the explore subagent to find relevant information from the context tree.`
         const response = await agent.execute(prompt, {
           executionContext: {commandType: 'query'},
           trackingRequestId: sessionId,
@@ -257,10 +265,6 @@ export class QueryUseCase implements IQueryUseCase {
           return this.formatCurateResult(result)
         }
 
-        case 'find_knowledge_topics': {
-          return this.formatTopicsCount(result)
-        }
-
         case 'grep_content': {
           return this.formatMatchesCount(result)
         }
@@ -276,38 +280,6 @@ export class QueryUseCase implements IQueryUseCase {
     } catch {
       return ''
     }
-  }
-
-  /**
-   * Format topics count from find_knowledge_topics result
-   */
-  private formatTopicsCount(result: unknown): string {
-    if (typeof result === 'string') {
-      try {
-        const parsed = JSON.parse(result)
-        const count = Array.isArray(parsed) ? parsed.length : Object.keys(parsed).length
-        return `${count} topics retrieved`
-      } catch {
-        return ''
-      }
-    }
-
-    if (typeof result === 'object' && result !== null) {
-      const resultObj = result as {results?: unknown[]; total?: number}
-      if (Array.isArray(resultObj.results)) {
-        return `${resultObj.results.length} topics retrieved`
-      }
-
-      if (typeof resultObj.total === 'number') {
-        return `${resultObj.total} topics retrieved`
-      }
-
-      if (Array.isArray(result)) {
-        return `${result.length} topics retrieved`
-      }
-    }
-
-    return ''
   }
 
   /**
@@ -330,10 +302,6 @@ export class QueryUseCase implements IQueryUseCase {
 
       case 'curate': {
         return 'Curating context tree...'
-      }
-
-      case 'find_knowledge_topics': {
-        return 'Querying context tree...'
       }
 
       case 'grep_content': {

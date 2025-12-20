@@ -4,6 +4,7 @@ import type {IFileSystem} from '../../../core/interfaces/cipher/i-file-system.js
 import type {IProcessService} from '../../../core/interfaces/cipher/i-process-service.js'
 import type {ITodoStorage} from '../../../core/interfaces/cipher/i-todo-storage.js'
 import type {MemoryManager} from '../memory/memory-manager.js'
+import type {SessionManager} from '../session/session-manager.js'
 import type {ToolProviderGetter} from './tool-provider-getter.js'
 
 import {ToolName} from '../../../core/domain/cipher/tools/constants.js'
@@ -16,7 +17,7 @@ import {createDeleteMemoryTool} from './implementations/delete-memory-tool.js'
 import {createDetectDomainsTool} from './implementations/detect-domains-tool.js'
 import {createEditFileTool} from './implementations/edit-file-tool.js'
 import {createEditMemoryTool} from './implementations/edit-memory-tool.js'
-import {createFindKnowledgeTopicsTool} from './implementations/find-knowledge-topics-tool.js'
+// import {createFindKnowledgeTopicsTool} from './implementations/find-knowledge-topics-tool.js'
 import {createGlobFilesTool} from './implementations/glob-files-tool.js'
 import {createGrepContentTool} from './implementations/grep-content-tool.js'
 import {createKillProcessTool} from './implementations/kill-process-tool.js'
@@ -26,6 +27,7 @@ import {createReadFileTool} from './implementations/read-file-tool.js'
 import {createReadMemoryTool} from './implementations/read-memory-tool.js'
 import {createReadTodosTool} from './implementations/read-todos-tool.js'
 import {createSearchHistoryTool} from './implementations/search-history-tool.js'
+import {createTaskTool} from './implementations/task-tool.js'
 import {createWriteFileTool} from './implementations/write-file-tool.js'
 import {createWriteMemoryTool} from './implementations/write-memory-tool.js'
 import {createWriteTodosTool} from './implementations/write-todos-tool.js'
@@ -38,6 +40,13 @@ import {ToolMarker} from './tool-markers.js'
 export interface ToolServices {
   /** File system service for file operations */
   fileSystemService?: IFileSystem
+
+  /**
+   * Lazy getter for session manager (avoids circular dependency).
+   * SessionManager is created after ToolProvider, so we need a getter.
+   * Used by task tool for subagent delegation.
+   */
+  getSessionManager?: () => SessionManager | undefined
 
   /**
    * Lazy getter for tool provider (avoids circular dependency).
@@ -187,14 +196,6 @@ export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
     requiredServices: ['memoryManager'],
   },
 
-  [ToolName.FIND_KNOWLEDGE_TOPICS]: {
-    descriptionFile: 'find_knowledge_topics',
-    factory: () => createFindKnowledgeTopicsTool(),
-    markers: [ToolMarker.ContextBuilding, ToolMarker.Discovery],
-    outputGuidance: 'find_knowledge_topics',
-    requiredServices: [], // Uses DirectoryManager for file operations
-  },
-
   [ToolName.GLOB_FILES]: {
     descriptionFile: 'glob_files',
     factory: (services) => createGlobFilesTool(getRequiredService(services.fileSystemService, 'fileSystemService')),
@@ -259,6 +260,16 @@ export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
     factory: (_services) => createSearchHistoryTool(),
     markers: [ToolMarker.ContextBuilding, ToolMarker.Discovery],
     requiredServices: [], // No services required yet (stub implementation)
+  },
+
+  [ToolName.TASK]: {
+    descriptionFile: 'task',
+    factory: (services) =>
+      createTaskTool({
+        getSessionManager: getRequiredService(services.getSessionManager, 'getSessionManager'),
+      }),
+    markers: [ToolMarker.Execution, ToolMarker.Planning],
+    requiredServices: ['getSessionManager'],
   },
 
   [ToolName.WRITE_FILE]: {

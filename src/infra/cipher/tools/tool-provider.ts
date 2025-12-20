@@ -29,7 +29,7 @@ export class ToolProvider implements IToolProvider {
   private readonly descriptionLoader?: ToolDescriptionLoader
   private initialized: boolean = false
   private invocationBuilder?: ToolInvocationBuilder
-  private readonly services: ToolServices
+  private services: ToolServices
   private readonly systemPromptManager?: SystemPromptManager
   private readonly toolMarkers: Set<string> = new Set()
   private readonly tools: Map<string, Tool> = new Map()
@@ -238,6 +238,33 @@ export class ToolProvider implements IToolProvider {
     this.invocationBuilder = new ToolInvocationBuilder(this.tools)
 
     this.initialized = true
+  }
+
+  /**
+   * Update services and re-register tools that depend on newly available services.
+   * This is used to inject services that are created after ToolProvider initialization
+   * (e.g., SessionManager which is created after ToolProvider).
+   *
+   * @param additionalServices - Additional services to add
+   */
+  public updateServices(additionalServices: Partial<ToolServices>): void {
+    // Merge new services into existing services
+    this.services = {...this.services, ...additionalServices}
+
+    // Re-register tools that may now have their required services available
+    for (const [toolName, entry] of Object.entries(TOOL_REGISTRY)) {
+      // Skip if tool is already registered
+      if (this.tools.has(toolName)) {
+        continue
+      }
+
+      this.registerToolIfAvailable(toolName, entry)
+    }
+
+    // Update invocation builder with any newly registered tools
+    if (this.initialized && this.invocationBuilder) {
+      this.invocationBuilder = new ToolInvocationBuilder(this.tools)
+    }
   }
 
   /**

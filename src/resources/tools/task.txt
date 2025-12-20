@@ -1,0 +1,27 @@
+Delegates work to a specialized subagent for complex tasks. Each subagent runs with its own configuration and tool access.
+
+Available Subagents:
+- query: Searches and retrieves information from the context tree. Use for knowledge discovery.
+- curate: Creates or updates knowledge topics in the context tree. Use after gathering information.
+
+Parameters:
+- description: Short task description (3-5 words)
+- prompt: Detailed instructions for the subagent
+- subagent_type: Which subagent to use ("query" or "curate")
+- session_id: (Optional) Continue an existing subagent session
+
+Workflow Example:
+1. Use task with "query" to find existing related context
+2. Use task with "curate" to create/update topics based on findings
+
+Good Use Cases:
+- Orchestrating multi-step curation workflows
+- Searching context tree before making changes
+- Delegating specialized tasks to focused agents
+
+Rules:
+- Always query before curating to avoid duplicates
+- Provide clear, detailed prompts to subagents
+- Subagents cannot call task (no recursion)
+
+Performance Tip: Run query first to understand existing context, then curate with full knowledge.

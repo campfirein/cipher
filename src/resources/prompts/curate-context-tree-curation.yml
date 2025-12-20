@@ -25,7 +25,7 @@ prompt: |
 
   2. **Explore existing context**: Use `glob_files` and `grep_content` to understand the current related context in the context tree. You may use bash commands (e.g., `ls`, `find`) to list directories if necessary to navigate the context tree structure.
 
-  3. **Find existing knowledge**: Use `find_knowledge_topics` to retrieve concise information about existing knowledge topics in the context tree that relate to the current domain and text segments.
+  3. **Find existing knowledge**: Use `read_file` and `grep_content` to retrieve concise information about existing knowledge topics in the context tree that relate to the current domain and text segments.
 
   4. **Create or update knowledge**: Once you have gathered all information about:
      - The current domain and text segments from the user's input data

@@ -6,9 +6,11 @@ import {fileURLToPath} from 'node:url'
 import type {ContributorContext, SystemPromptContributor} from '../../../core/domain/cipher/system-prompt/types.js'
 import type {ValidatedContributorConfig} from './contributor-schemas.js'
 
+import {getAgentRegistry} from '../../../core/domain/cipher/agent/agent-registry.js'
 import {SystemPromptError} from '../../../core/domain/cipher/errors/system-prompt-error.js'
 import {ContributorConfigSchema} from './contributor-schemas.js'
 import {
+  AgentPromptContributor,
   DateTimeContributor,
   EnvironmentContributor,
   FileContributor,
@@ -121,6 +123,59 @@ export class SystemPromptManager {
       .map((r) => r.content)
       .filter(Boolean)
       .join('\n\n')
+  }
+
+  /**
+   * Build a system prompt specifically for an agent.
+   *
+   * This method builds the prompt by:
+   * 1. Getting the agent configuration from the registry
+   * 2. Loading the agent's prompt (from promptFile or inline prompt)
+   * 3. Combining it with base contributors (datetime, environment, etc.)
+   *
+   * @param agentName - Name of the agent (e.g., 'plan', 'query', 'curate')
+   * @param context - Runtime context with dependencies
+   * @returns Complete system prompt for the agent
+   */
+  public async buildForAgent(agentName: string, context: ContributorContext): Promise<string> {
+    const registry = getAgentRegistry()
+    const agent = registry.get(agentName)
+
+    if (!agent) {
+      // Unknown agent - fall back to default build
+      return this.build(context)
+    }
+
+    // Create agent prompt contributor
+    const agentContributor = new AgentPromptContributor('agent', 5, {
+      basePath: this.basePath,
+      cache: true,
+    })
+
+    // Build context with agent name for the contributor
+    const agentContext = {
+      ...context,
+      agentName,
+    }
+
+    // Get agent-specific prompt
+    const agentPrompt = await agentContributor.getContent(agentContext)
+
+    // If agent has no custom prompt, use default build
+    if (!agentPrompt) {
+      return this.build(context)
+    }
+
+    // Build base prompt from existing contributors
+    const basePrompt = await this.build(context)
+
+    // Combine: agent prompt takes precedence, then base prompt
+    // Agent prompt comes first as it defines the agent's role
+    if (basePrompt) {
+      return `${agentPrompt}\n\n${basePrompt}`
+    }
+
+    return agentPrompt
   }
 
   /**

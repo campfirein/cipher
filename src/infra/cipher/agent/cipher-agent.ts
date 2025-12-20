@@ -417,6 +417,13 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
     // Each agent has exactly 1 session created at start time
     const defaultSession = await this.sessionManager.createSession()
     this._sessionId = defaultSession.id
+
+    // Update ToolProvider with SessionManager getter for TaskTool
+    // This must happen after SessionManager is created since TaskTool needs it for subagent delegation
+    const {sessionManager} = this
+    services.toolProvider.updateServices({
+      getSessionManager: () => sessionManager,
+    })
   }
 
   /**

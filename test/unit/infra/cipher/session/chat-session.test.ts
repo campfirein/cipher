@@ -357,8 +357,8 @@ describe('ChatSession', () => {
 
       session.dispose()
 
-      // Should call off for each event name (10 events in ChatSession's SESSION_EVENT_NAMES)
-      expect(offStub.callCount).to.equal(10)
+      // Should call off for each event name (14 events in ChatSession's SESSION_EVENT_NAMES)
+      expect(offStub.callCount).to.equal(14)
     })
 
     it('should clear forwarders map', () => {

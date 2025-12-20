@@ -11,10 +11,14 @@ import {generateSessionTitle} from './title-generator.js'
  * Metadata about a session for listing purposes.
  */
 export interface SessionMetadata {
+  /** Name of the agent running this session (e.g., 'plan', 'query', 'curate') */
+  agentName?: string
   createdAt: number
   id: string
   lastActivity: number
   messageCount: number
+  /** Parent session ID for subagent sessions */
+  parentId?: string
   title?: string
 }
 
@@ -46,8 +50,12 @@ export class SessionManager {
     temperature?: number
   }
   private pendingCreations = new Map<string, Promise<IChatSession>>()
+  /** Agent name for each session (e.g., 'plan', 'query', 'curate') */
+  private readonly sessionAgentNames: Map<string, string> = new Map()
   private readonly sessionCreatedAt: Map<string, number> = new Map()
   private readonly sessionLastActivity: Map<string, number> = new Map()
+  /** Parent session ID for subagent sessions */
+  private readonly sessionParentIds: Map<string, string> = new Map()
   private readonly sessions: Map<string, IChatSession> = new Map()
   private readonly sessionTitles: Map<string, string> = new Map()
   private readonly sharedServices: CipherAgentServices
@@ -97,6 +105,29 @@ export class SessionManager {
         // Silently ignore cleanup errors
       })
     }, cleanupInterval)
+  }
+
+  /**
+   * Create a child session for a subagent.
+   * Child sessions are linked to their parent and have an agent name.
+   *
+   * @param parentId - Parent session ID
+   * @param agentName - Name of the agent (e.g., 'query', 'curate')
+   * @param sessionId - Optional session ID (generates one if not provided)
+   * @returns New child chat session instance
+   */
+  public async createChildSession(parentId: string, agentName: string, sessionId?: string): Promise<IChatSession> {
+    // Generate session ID if not provided
+    const id = sessionId ?? `${agentName}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+
+    // Create the session using normal flow
+    const session = await this.createSession(id)
+
+    // Track parent-child relationship and agent name
+    this.sessionParentIds.set(id, parentId)
+    this.sessionAgentNames.set(id, agentName)
+
+    return session
   }
 
   /**
@@ -255,10 +286,12 @@ export class SessionManager {
     for (const [id, session] of this.sessions) {
       const contextManager = session.getLLMService().getContextManager()
       sessions.push({
+        agentName: this.sessionAgentNames.get(id),
         createdAt: this.sessionCreatedAt.get(id) ?? Date.now(),
         id,
         lastActivity: this.sessionLastActivity.get(id) ?? Date.now(),
         messageCount: contextManager.getMessages().length,
+        parentId: this.sessionParentIds.get(id),
         title: this.sessionTitles.get(id),
       })
     }

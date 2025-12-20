@@ -5,6 +5,7 @@ import type {IToolScheduler} from '../../../core/interfaces/cipher/i-tool-schedu
 import type {ToolPluginManager} from './plugins/plugin-manager.js'
 import type {ToolMarker} from './tool-markers.js'
 
+import {getAgentRegistry} from '../../../core/domain/cipher/agent/agent-registry.js'
 import {ToolError, ToolErrorType, ToolErrorUtils, type ToolExecutionResult} from '../../../core/domain/cipher/tools/tool-error.js'
 
 /**
@@ -36,7 +37,6 @@ export class ToolManager {
    */
   private static readonly CURATE_TOOL_NAMES = [
     'detect_domains',
-    'find_knowledge_topics',
     'read_file',
     'grep_content',
     'glob_files',
@@ -46,10 +46,10 @@ export class ToolManager {
    * Read-only tools allowed for query operations
    */
   private static readonly QUERY_TOOL_NAMES = [
-    'find_knowledge_topics',
     'read_file',
     'grep_content',
     'glob_files',
+    'task',
   ] as const
   private cacheValid: boolean = false
   private callIdCounter: number = 0
@@ -263,6 +263,53 @@ export class ToolManager {
    */
   public getToolsByMarker(marker: ToolMarker): string[] {
     return this.toolProvider.getToolsByMarker(marker)
+  }
+
+  /**
+   * Get filtered tools based on agent configuration.
+   * Uses the agent registry to determine which tools are enabled/disabled for the agent.
+   *
+   * Tool filtering rules from agent.tools config:
+   * - `{ '*': false }` - Disable all tools
+   * - `{ '*': false, 'tool_name': true }` - Only enable specific tools
+   * - `{ 'tool_name': false }` - Disable specific tools, keep others enabled
+   * - `{}` or undefined - All tools enabled (default)
+   *
+   * @param agentName - The agent name (e.g., 'plan', 'query', 'curate')
+   * @returns Filtered tool set based on agent configuration
+   */
+  public getToolsForAgent(agentName: string): ToolSet {
+    const registry = getAgentRegistry()
+    const agent = registry.get(agentName)
+
+    if (!agent) {
+      // Unknown agent - return all tools
+      return this.getAllTools()
+    }
+
+    const allTools = this.getAllTools()
+    const toolConfig = agent.tools
+
+    // If no tool config or empty, return all tools
+    if (!toolConfig || Object.keys(toolConfig).length === 0) {
+      return allTools
+    }
+
+    // Check for wildcard disable
+    const wildcardValue = toolConfig['*']
+
+    const filteredTools: ToolSet = {}
+
+    for (const [toolName, toolDef] of Object.entries(allTools)) {
+      // Get specific config for this tool, or use wildcard, or default to true
+      const isEnabled = toolConfig[toolName] ?? wildcardValue ?? true
+
+      if (isEnabled) {
+        filteredTools[toolName] = toolDef
+      }
+    }
+
+    return filteredTools
   }
 
   /**

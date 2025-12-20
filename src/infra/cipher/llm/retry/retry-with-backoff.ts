@@ -74,10 +74,12 @@ async function sleep(ms: number, signal?: AbortSignal): Promise<void> {
 
     const timeout = setTimeout(resolve, ms)
 
-    signal?.addEventListener('abort', () => {
+    const abortHandler = () => {
       clearTimeout(timeout)
       reject(new Error('Retry aborted'))
-    })
+    }
+
+    signal?.addEventListener('abort', abortHandler, {once: true})
   })
 }
 

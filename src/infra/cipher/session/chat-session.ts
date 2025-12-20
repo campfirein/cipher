@@ -298,9 +298,9 @@ export class ChatSession implements IChatSession {
     // Update session status to busy
     sessionStatusManager.setBusy(this.id, this.eventBus)
 
-    // Link external signal if provided
+    // Link external signal if provided (use {once: true} to prevent listener accumulation)
     if (options?.signal) {
-      options.signal.addEventListener('abort', () => this.currentController?.abort())
+      options.signal.addEventListener('abort', () => this.currentController?.abort(), {once: true})
     }
 
     try {

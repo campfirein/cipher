@@ -1,3 +1,5 @@
+export {AgentPromptContributor} from './agent-prompt-contributor.js'
+export type {AgentPromptContributorOptions} from './agent-prompt-contributor.js'
 export {CompanionContributor} from './companion-contributor.js'
 export type {CompanionContributorOptions} from './companion-contributor.js'
 export {DateTimeContributor} from './datetime-contributor.js'

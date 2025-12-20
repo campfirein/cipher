@@ -79,7 +79,7 @@ export const DEFAULT_POLICY_RULES: PolicyRule[] = [
     decision: 'ALLOW',
     name: 'allow-read-tools',
     reason: 'Read operations are safe',
-    toolPattern: /^(read_file|glob_files|grep_content|list_memories|read_memory|search_history|find_knowledge_topics)$/,
+    toolPattern: /^(read_file|glob_files|grep_content|list_memories|read_memory|search_history)$/,
   },
 
   /**

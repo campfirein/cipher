@@ -44,6 +44,7 @@ describe('cipher/agent-events', () => {
         'llmservice:contextCompressed',
         'llmservice:contextOverflow',
         'llmservice:contextPruned',
+        'llmservice:doomLoopDetected',
         'llmservice:error',
         'llmservice:outputTruncated',
         'llmservice:response',
@@ -57,6 +58,9 @@ describe('cipher/agent-events', () => {
         'message:dequeued',
         'message:queued',
         'run:complete',
+        'session:statusChanged',
+        'step:finished',
+        'step:started',
       ])
     })
 
@@ -73,6 +77,7 @@ describe('cipher/agent-events', () => {
         'llmservice:contextCompressed',
         'llmservice:contextOverflow',
         'llmservice:contextPruned',
+        'llmservice:doomLoopDetected',
         'llmservice:error',
         'llmservice:outputTruncated',
         'llmservice:response',
@@ -86,6 +91,9 @@ describe('cipher/agent-events', () => {
         'message:dequeued',
         'message:queued',
         'run:complete',
+        'session:statusChanged',
+        'step:finished',
+        'step:started',
       ])
     })
 
