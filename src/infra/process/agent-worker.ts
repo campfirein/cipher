@@ -25,12 +25,7 @@ import type {ITransportClient} from '../../core/interfaces/transport/i-transport
 
 import {getCurrentConfig} from '../../config/environment.js'
 import {PROJECT} from '../../constants.js'
-import {
-  NotAuthenticatedError,
-  ProcessorNotInitError,
-  ProjectNotInitError,
-  serializeTaskError,
-} from '../../core/domain/errors/task-error.js'
+import {NotAuthenticatedError, ProcessorNotInitError, serializeTaskError} from '../../core/domain/errors/task-error.js'
 import {CipherAgent} from '../cipher/agent/index.js'
 import {ProjectConfigStore} from '../config/file-config-store.js'
 import {createTaskProcessor, TaskProcessor} from '../core/task-processor.js'
@@ -77,6 +72,12 @@ let cipherAgent: ICipherAgent | undefined
 let currentTaskId: string | undefined
 /** ChatSession ID - created once when agent starts, used for all tasks */
 let chatSessionId: string | undefined
+/** Whether the agent is fully initialized (has auth + config) */
+let isAgentInitialized = false
+/** Initialization error if agent couldn't be initialized */
+let initializationError: Error | undefined
+/** Config identity from last initialization (teamId:spaceId) - for change detection */
+let lastConfigIdentity: string | undefined
 
 /**
  * Get Transport port from environment.
@@ -193,12 +194,150 @@ function setupAgentEventForwarding(agent: CipherAgent): void {
 }
 
 /**
+ * Try to initialize/reinitialize the CipherAgent.
+ * Called on startup and lazily when tasks arrive but agent is not initialized.
+ * This handles the case where user completes onboarding after agent starts.
+ *
+ * @param forceReinit - Force reinitialization even if already initialized (for config reload)
+ */
+async function tryInitializeAgent(forceReinit = false): Promise<boolean> {
+  // Already initialized and not forcing reinit
+  if (!forceReinit && isAgentInitialized && cipherAgent && taskProcessor) {
+    return true
+  }
+
+  // If forcing reinit, stop existing agent first
+  if (forceReinit && cipherAgent) {
+    console.log('[Agent] Reinitializing with new config...')
+    try {
+      await (cipherAgent as CipherAgent).stop()
+    } catch (error) {
+      console.warn('[Agent] Error stopping previous agent:', error)
+    }
+
+    cipherAgent = undefined
+    taskProcessor = undefined
+    isAgentInitialized = false
+  }
+
+  const tokenStore = new KeychainTokenStore()
+  const configStore = new ProjectConfigStore()
+
+  const authToken = await tokenStore.load()
+  const brvConfig = await configStore.read()
+
+  // Need at least authToken to initialize
+  if (!authToken) {
+    initializationError = new NotAuthenticatedError()
+    console.warn('[Agent] Cannot initialize - no auth token')
+    return false
+  }
+
+  // Create V2 UseCases
+  const curateUseCase = new CurateUseCaseV2()
+  const queryUseCase = new QueryUseCaseV2()
+
+  // Initialize CipherAgent
+  const envConfig = getCurrentConfig()
+  const agentConfig = {
+    accessToken: authToken.accessToken,
+    apiBaseUrl: envConfig.llmApiBaseUrl,
+    fileSystem: {workingDirectory: process.cwd()},
+    llm: {
+      maxIterations: 10,
+      maxTokens: 4096,
+      temperature: 0.7,
+      topK: 10,
+      topP: 0.95,
+      verbose: false,
+    },
+    model: 'gemini-2.5-pro',
+    projectId: PROJECT,
+    sessionKey: authToken.sessionKey,
+  }
+
+  const agent = new CipherAgent(agentConfig, brvConfig ?? undefined)
+  await agent.start()
+  console.log('[Agent] CipherAgent started')
+
+  // Create ChatSession
+  chatSessionId = `agent-session-${randomUUID()}`
+  await agent.createSession(chatSessionId)
+  console.log(`[Agent] ChatSession created: ${chatSessionId}`)
+
+  // Setup event forwarding
+  setupAgentEventForwarding(agent)
+  cipherAgent = agent
+
+  // Create TaskProcessor
+  taskProcessor = createTaskProcessor({
+    curateUseCase,
+    queryUseCase,
+  })
+  taskProcessor.setAgent(cipherAgent)
+
+  // Mark as initialized and track config identity for change detection
+  isAgentInitialized = true
+  initializationError = undefined
+  lastConfigIdentity = brvConfig ? `${brvConfig.teamId}:${brvConfig.spaceId}` : undefined
+
+  if (brvConfig) {
+    console.log(`[Agent] Fully initialized with auth and config (team=${brvConfig.teamId}, space=${brvConfig.spaceId})`)
+  } else {
+    console.log('[Agent] Initialized with auth only (no project config yet - will reinit when config available)')
+  }
+
+  return true
+}
+
+/**
  * Handle task:execute from Transport.
  */
 async function handleTaskExecute(data: TaskExecuteMessage): Promise<void> {
   const {files, input, taskId, type} = data
 
   console.log(`[Agent] Processing task: ${taskId} (type=${type})`)
+
+  // If not initialized, try to initialize now (lazy init for post-onboarding)
+  if (!isAgentInitialized) {
+    console.log('[Agent] Not initialized, attempting lazy initialization...')
+    const initialized = await tryInitializeAgent()
+    if (!initialized) {
+      console.error('[Agent] Lazy initialization failed')
+      const error = serializeTaskError(initializationError ?? new ProcessorNotInitError())
+      transportClient?.request('task:error', {error, taskId})
+      return
+    }
+
+    console.log('[Agent] Lazy initialization successful!')
+  }
+
+  // Check if config has changed (new config or updated team/space)
+  // This handles: user completes /init or re-inits with different team/space
+  if (isAgentInitialized) {
+    const configStore = new ProjectConfigStore()
+    const brvConfig = await configStore.read()
+    const currentConfigIdentity = brvConfig ? `${brvConfig.teamId}:${brvConfig.spaceId}` : undefined
+
+    // Reinit if: config appeared (was undefined) OR config changed (different team/space)
+    if (currentConfigIdentity !== lastConfigIdentity) {
+      const reason =
+        lastConfigIdentity === undefined
+          ? 'config now available'
+          : `config changed (${lastConfigIdentity} → ${currentConfigIdentity})`
+      console.log(`[Agent] ${reason}, reinitializing...`)
+
+      const reinitialized = await tryInitializeAgent(true)
+      if (!reinitialized) {
+        console.error('[Agent] Reinitialization with new config failed')
+        const error = serializeTaskError(initializationError ?? new ProcessorNotInitError())
+        transportClient?.request('task:error', {error, taskId})
+        return
+      }
+
+      console.log('[Agent] Reinitialization successful!')
+    }
+  }
 
   if (!taskProcessor) {
     console.error('[Agent] TaskProcessor not initialized')
@@ -263,63 +402,11 @@ async function startAgent(): Promise<void> {
   await transportClient.request('agent:register', {})
   console.log('[Agent] Registered with Transport')
 
-  // Create V2 UseCases (pure execution, no dependencies)
-  const curateUseCase = new CurateUseCaseV2()
-  const queryUseCase = new QueryUseCaseV2()
-
-  // Load auth token and config for CipherAgent
-  const tokenStore = new KeychainTokenStore()
-  const configStore = new ProjectConfigStore()
-
-  const authToken = await tokenStore.load()
-  const brvConfig = await configStore.read()
-
-  if (!authToken) {
-    throw new NotAuthenticatedError()
+  // Try to initialize agent (may fail if no auth yet - that's OK, will lazy init later)
+  const initialized = await tryInitializeAgent()
+  if (!initialized) {
+    console.log('[Agent] Initial setup incomplete - will retry when tasks arrive (lazy init)')
   }
-
-  if (!brvConfig) {
-    throw new ProjectNotInitError()
-  }
-
-  // Create CipherAgent (v0.5.0: single agent per process)
-  const envConfig = getCurrentConfig()
-  const agentConfig = {
-    accessToken: authToken.accessToken,
-    apiBaseUrl: envConfig.llmApiBaseUrl,
-    fileSystem: {workingDirectory: process.cwd()},
-    llm: {
-      maxIterations: 10,
-      maxTokens: 4096,
-      temperature: 0.7,
-      topK: 10,
-      topP: 0.95,
-      verbose: false,
-    },
-    model: 'gemini-2.5-pro',
-    projectId: PROJECT,
-    sessionKey: authToken.sessionKey,
-  }
-
-  const agent = new CipherAgent(agentConfig, brvConfig)
-  await agent.start()
-  console.log('[Agent] CipherAgent started')
-
-  // Create ChatSession ONCE when agent starts (used for all tasks)
-  chatSessionId = `agent-session-${randomUUID()}`
-  await agent.createSession(chatSessionId)
-  console.log(`[Agent] ChatSession created: ${chatSessionId}`)
-
-  // Setup event forwarding BEFORE processing any tasks
-  setupAgentEventForwarding(agent)
-  cipherAgent = agent
-
-  // Create TaskProcessor and inject agent
-  taskProcessor = createTaskProcessor({
-    curateUseCase,
-    queryUseCase,
-  })
-  taskProcessor.setAgent(cipherAgent)
 
   // Setup event handlers
   transportClient.on<TaskExecuteMessage>('task:execute', (data) => {
