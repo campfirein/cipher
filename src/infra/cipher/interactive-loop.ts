@@ -105,6 +105,7 @@ export function displayInfo(message: string, clear = false): void {
 
 /**
  * Setup event listeners for spinner and error handling
+ * @returns Cleanup function to remove all listeners (prevents memory leaks)
  */
 function setupEventListeners(
   eventBus: AgentEventBus,
@@ -114,58 +115,49 @@ function setupEventListeners(
     isExecutingRef: {value: boolean}
     ref: {current: NodeJS.Timeout | null}
   },
-): void {
+): () => void {
   const {frames: spinnerFrames, indexRef: spinnerIndexRef, isExecutingRef, ref: spinnerRef} = spinnerState
-  // Thinking event - start spinner
-  eventBus.on('llmservice:thinking', () => {
-    // Only start spinner if currently executing and not already running
+
+  // Store listener references for cleanup
+  const thinkingListener = (): void => {
     if (isExecutingRef.value && !spinnerRef.current) {
-      // Start animated spinner
       spinnerRef.current = setInterval(() => {
         clearTerminalLine()
         process.stdout.write(chalk.gray(`💭 Agent thinking ${spinnerFrames[spinnerIndexRef.value]}`))
         spinnerIndexRef.value = (spinnerIndexRef.value + 1) % spinnerFrames.length
       }, 80)
     }
-  })
+  }
 
-  // Response event - clear spinner
-  eventBus.on('llmservice:response', () => {
+  const responseListener = (): void => {
     if (spinnerRef.current) {
       clearInterval(spinnerRef.current)
       spinnerRef.current = null
       clearTerminalLine()
     }
-  })
+  }
 
-  // Tool call event - clear spinner before tool execution
-  eventBus.on('llmservice:toolCall', () => {
+  const toolCallListener = (): void => {
     if (spinnerRef.current) {
       clearInterval(spinnerRef.current)
       spinnerRef.current = null
       clearTerminalLine()
     }
-  })
+  }
 
-  // Error event - SINGLE POINT where ALL errors are displayed
-  // Clear spinner and display formatted error message
-  eventBus.on('llmservice:error', (payload: {error: string}) => {
-    // Stop spinner first
+  const errorListener = (payload: {error: string}): void => {
     if (spinnerRef.current) {
       clearInterval(spinnerRef.current)
       spinnerRef.current = null
       clearTerminalLine()
     }
 
-    // Display error message (already formatted with ❌ from gRPC layer)
     process.stdout.write('\n' + chalk.red(payload.error) + '\n\n')
-  })
+  }
 
-  // cipher:ui event - handle UI events (welcome banner, responses, etc.)
-  eventBus.on('cipher:ui', (payload) => {
+  const uiListener = (payload: {context?: unknown; message?: string; type: string}): void => {
     switch (payload.type) {
       case 'banner': {
-        // Welcome banner
         const {model, sessionId} = payload.context as {model: string; sessionId: string}
         console.log('\n' + chalk.cyan('═'.repeat(60)))
         console.log(chalk.bold.cyan('🤖 CipherAgent Interactive Mode'))
@@ -178,7 +170,6 @@ function setupEventListeners(
       }
 
       case 'help': {
-        // Help message
         if (payload.message) {
           console.log(chalk.yellow(`ℹ ${payload.message}`))
         }
@@ -187,7 +178,6 @@ function setupEventListeners(
       }
 
       case 'response': {
-        // AI response
         if (payload.message) {
           console.log('\n' + chalk.rgb(255, 165, 0)('─'.repeat(60)))
           console.log(chalk.bold.rgb(255, 165, 0)('🤖 AI Response:'))
@@ -200,20 +190,16 @@ function setupEventListeners(
       }
 
       case 'shutdown': {
-        // Shutdown message
         if (payload.message) {
           console.log(chalk.gray(`✓ ${payload.message}`))
         }
 
         break
       }
-      // No default case needed - other UI types can be ignored
     }
-  })
+  }
 
-  // cipher:log event - handle structured logging
-  // NOTE: Skip 'error' level - those are handled by llmservice:error to avoid duplicates
-  eventBus.on('cipher:log', (payload) => {
+  const logListener = (payload: {level: string; message: string; source?: string}): void => {
     const prefix = payload.source ? `[${payload.source}] ` : ''
     const message = `${prefix}${payload.message}`
 
@@ -238,7 +224,25 @@ function setupEventListeners(
         break
       }
     }
-  })
+  }
+
+  // Register all listeners
+  eventBus.on('llmservice:thinking', thinkingListener)
+  eventBus.on('llmservice:response', responseListener)
+  eventBus.on('llmservice:toolCall', toolCallListener)
+  eventBus.on('llmservice:error', errorListener)
+  eventBus.on('cipher:ui', uiListener)
+  eventBus.on('cipher:log', logListener)
+
+  // Return cleanup function to remove all listeners
+  return () => {
+    eventBus.off('llmservice:thinking', thinkingListener)
+    eventBus.off('llmservice:response', responseListener)
+    eventBus.off('llmservice:toolCall', toolCallListener)
+    eventBus.off('llmservice:error', errorListener)
+    eventBus.off('cipher:ui', uiListener)
+    eventBus.off('cipher:log', logListener)
+  }
 }
 
 /**
@@ -352,9 +356,10 @@ export async function startInteractiveLoop(
   const spinnerIndexRef = {value: 0}
   const isExecutingRef = {value: false}
 
-  // Setup event listeners
+  // Setup event listeners and get cleanup function
+  let cleanupEventListeners: (() => void) | undefined
   if (options?.eventBus) {
-    setupEventListeners(options.eventBus, {
+    cleanupEventListeners = setupEventListeners(options.eventBus, {
       frames: spinnerFrames,
       indexRef: spinnerIndexRef,
       isExecutingRef,
@@ -365,6 +370,7 @@ export async function startInteractiveLoop(
   const isExitingRef = {value: false}
   const exitEventHandler = async () => {
     stopSpinner(spinnerRef)
+    cleanupEventListeners?.()
     await cleanup(agent, rl, isExitingRef, options?.eventBus)
     process.exit(0)
   }
@@ -407,6 +413,7 @@ export async function startInteractiveLoop(
     }
   } finally {
     stopSpinner(spinnerRef)
+    cleanupEventListeners?.()
     await cleanup(agent, rl, isExitingRef, options?.eventBus)
     rl.off('SIGINT', exitEventHandler)
     process.off('SIGTERM', exitEventHandler)

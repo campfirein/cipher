@@ -122,6 +122,9 @@ export class SocketIOTransportClient implements ITransportClient {
     }
 
     return new Promise((resolve) => {
+      // Remove all listeners to prevent memory leaks
+      socket.removeAllListeners()
+      socket.io.removeAllListeners()
       socket.disconnect()
       this.socket = undefined
       this.setState('disconnected')

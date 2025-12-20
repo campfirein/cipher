@@ -145,6 +145,13 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
   }
 
   protected override async cleanupServices(): Promise<void> {
+    // Abort all active streams and clear controllers
+    for (const controller of this.activeStreamControllers.values()) {
+      controller.abort()
+    }
+
+    this.activeStreamControllers.clear()
+
     // Dispose session manager
     if (this.sessionManager) {
       this.sessionManager.dispose()

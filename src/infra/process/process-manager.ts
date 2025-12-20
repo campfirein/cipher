@@ -70,6 +70,8 @@ export type ProcessManagerConfig = {
 
 const DEFAULT_SHUTDOWN_TIMEOUT_MS = 5000
 const DEFAULT_STARTUP_TIMEOUT_MS = 30_000
+const HEALTH_CHECK_INTERVAL_MS = 5000 // Check every 5 seconds
+const SLEEP_DETECTION_THRESHOLD_MS = 30_000 // If 30s passed when expecting 5s, likely slept
 
 /**
  * ProcessManager - Spawns and manages Transport and Agent processes.
@@ -81,6 +83,8 @@ const DEFAULT_STARTUP_TIMEOUT_MS = 30_000
  * - Crash recovery: respawn on exit
  */
 export class ProcessManager {
+  private healthCheckInterval?: NodeJS.Timeout
+  private lastHealthCheckTime: number = Date.now()
   private readonly shutdownTimeoutMs: number
   private readonly startupTimeoutMs: number
   private state: ProcessState = {
@@ -141,6 +145,9 @@ export class ProcessManager {
     this.state.agentReady = true
 
     this.state.running = true
+
+    // Step 3: Start health check for sleep/wake detection
+    this.startHealthCheck()
   }
 
   /**
@@ -156,6 +163,9 @@ export class ProcessManager {
     }
 
     this.state.running = false
+
+    // Stop health check first
+    this.stopHealthCheck()
 
     // Step 1: Stop Agent Process
     await this.stopAgentProcess()
@@ -188,7 +198,8 @@ export class ProcessManager {
     const {agentProcess} = this.state
     if (!agentProcess) return
 
-    agentProcess.on('exit', (code, signal) => {
+    // Use .once() to prevent listener accumulation on crash/respawn cycles
+    agentProcess.once('exit', (code, signal) => {
       if (!this.state.running) return // Intentional shutdown
 
       console.error(`[ProcessManager] Agent process exited unexpectedly (code=${code}, signal=${signal})`)
@@ -215,7 +226,8 @@ export class ProcessManager {
     const {transportProcess} = this.state
     if (!transportProcess) return
 
-    transportProcess.on('exit', (code, signal) => {
+    // Use .once() to prevent listener accumulation on crash/respawn cycles
+    transportProcess.once('exit', (code, signal) => {
       if (!this.state.running) return // Intentional shutdown
 
       console.error(`[ProcessManager] Transport process exited unexpectedly (code=${code}, signal=${signal})`)
@@ -434,6 +446,68 @@ export class ProcessManager {
       // Send shutdown command
       this.sendToChild(transportProcess, {type: 'shutdown'})
     })
+  }
+
+  /**
+   * Start health check interval for sleep/wake detection.
+   * Detects system sleep by monitoring for large time gaps between checks.
+   */
+  private startHealthCheck(): void {
+    this.lastHealthCheckTime = Date.now()
+
+    this.healthCheckInterval = setInterval(() => {
+      const now = Date.now()
+      const elapsed = now - this.lastHealthCheckTime
+      this.lastHealthCheckTime = now
+
+      // If significantly more time passed than expected, system likely slept
+      if (elapsed > SLEEP_DETECTION_THRESHOLD_MS) {
+        console.log(`[ProcessManager] System wake detected (${Math.round(elapsed / 1000)}s gap)`)
+        this.handleSystemWake()
+      }
+    }, HEALTH_CHECK_INTERVAL_MS)
+
+    // Don't prevent process exit
+    this.healthCheckInterval.unref()
+  }
+
+  /**
+   * Stop health check interval.
+   */
+  private stopHealthCheck(): void {
+    if (this.healthCheckInterval) {
+      clearInterval(this.healthCheckInterval)
+      this.healthCheckInterval = undefined
+    }
+  }
+
+  /**
+   * Handle system wake from sleep.
+   * Verify processes are still alive and restart if needed.
+   */
+  private handleSystemWake(): void {
+    const {agentProcess, transportProcess} = this.state
+
+    // Check if processes are still running
+    const agentAlive = agentProcess && !agentProcess.killed && agentProcess.exitCode === null
+    const transportAlive = transportProcess && !transportProcess.killed && transportProcess.exitCode === null
+
+    if (!agentAlive || !transportAlive) {
+      console.error('[ProcessManager] Processes not healthy after wake, triggering restart')
+
+      // Trigger restart by simulating crash recovery
+      if (!transportAlive && transportProcess) {
+        console.log('[ProcessManager] Transport process died during sleep, respawning...')
+        // The crash recovery handler will handle this
+        transportProcess.emit('exit', 1, null)
+      } else if (!agentAlive && agentProcess) {
+        console.log('[ProcessManager] Agent process died during sleep, respawning...')
+        // The crash recovery handler will handle this
+        agentProcess.emit('exit', 1, null)
+      }
+    } else {
+      console.log('[ProcessManager] Processes healthy after wake')
+    }
   }
 }
 
