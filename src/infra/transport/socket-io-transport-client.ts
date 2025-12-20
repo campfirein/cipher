@@ -11,6 +11,7 @@ import type {
 
 import {
   TRANSPORT_CONNECT_TIMEOUT_MS,
+  TRANSPORT_DEFAULT_TRANSPORTS,
   TRANSPORT_RECONNECTION_ATTEMPTS,
   TRANSPORT_RECONNECTION_DELAY_MAX_MS,
   TRANSPORT_RECONNECTION_DELAY_MS,
@@ -55,6 +56,7 @@ export class SocketIOTransportClient implements ITransportClient {
       reconnectionDelayMs: config?.reconnectionDelayMs ?? TRANSPORT_RECONNECTION_DELAY_MS,
       requestTimeoutMs: config?.requestTimeoutMs ?? TRANSPORT_REQUEST_TIMEOUT_MS,
       roomTimeoutMs: config?.roomTimeoutMs ?? TRANSPORT_ROOM_TIMEOUT_MS,
+      transports: config?.transports ?? TRANSPORT_DEFAULT_TRANSPORTS,
     }
   }
 
@@ -73,6 +75,8 @@ export class SocketIOTransportClient implements ITransportClient {
         reconnectionDelay: this.config.reconnectionDelayMs,
         reconnectionDelayMax: this.config.reconnectionDelayMaxMs,
         timeout: this.config.connectTimeoutMs,
+        // Use WebSocket-only by default to avoid HTTP polling issues in sandboxed environments
+        transports: this.config.transports,
       })
 
       const onConnect = () => {

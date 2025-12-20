@@ -1,3 +1,5 @@
+import {TRANSPORT_HOST} from '../../../constants.js'
+
 /**
  * Raw instance data as stored in instance.json.
  * Used for serialization/deserialization.
@@ -30,12 +32,7 @@ export class InstanceInfo {
   public readonly port: number
   public readonly startedAt: Date
 
-  private constructor(data: {
-    currentSessionId: null | string
-    pid: number
-    port: number
-    startedAt: Date
-  }) {
+  private constructor(data: {currentSessionId: null | string; pid: number; port: number; startedAt: Date}) {
     this.currentSessionId = data.currentSessionId
     this.pid = data.pid
     this.port = data.port
@@ -68,9 +65,10 @@ export class InstanceInfo {
 
   /**
    * Returns the transport URL for connecting to this instance.
+   * Uses 'localhost' instead of '127.0.0.1' for better sandbox compatibility.
    */
   public getTransportUrl(): string {
-    return `http://127.0.0.1:${this.port}`
+    return `http://${TRANSPORT_HOST}:${this.port}`
   }
 
   /**

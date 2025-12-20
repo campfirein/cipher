@@ -29,6 +29,13 @@ export type TransportServerConfig = {
 }
 
 /**
+ * Socket.IO transport types.
+ * 'websocket' is preferred for sandboxed environments (like IDE terminals).
+ * 'polling' uses HTTP long-polling which may be blocked by some sandboxes.
+ */
+export type SocketTransport = 'polling' | 'websocket'
+
+/**
  * Configuration for transport client.
  */
 export type TransportClientConfig = {
@@ -61,4 +68,11 @@ export type TransportClientConfig = {
    * Room operation timeout in milliseconds.
    */
   roomTimeoutMs?: number
+
+  /**
+   * Socket.IO transport types to use.
+   * Defaults to ['websocket'] to avoid HTTP polling issues in sandboxed environments.
+   * Set to ['polling', 'websocket'] for default Socket.IO behavior.
+   */
+  transports?: SocketTransport[]
 }

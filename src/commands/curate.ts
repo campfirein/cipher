@@ -4,6 +4,12 @@ import type {TaskCreateResponse} from '../core/domain/transport/schemas.js'
 import type {ITransportClient} from '../core/interfaces/transport/i-transport-client.js'
 
 import {isDevelopment} from '../config/environment.js'
+
+/** Parsed flags type */
+type CurateFlags = {
+  files?: string[]
+  verbose?: boolean
+}
 import {
   ConnectionError,
   ConnectionFailedError,
@@ -11,6 +17,7 @@ import {
   NoInstanceRunningError,
 } from '../core/domain/errors/connection-error.js'
 import {createTransportClientFactory} from '../infra/transport/transport-client-factory.js'
+import {getSandboxEnvironmentName, isSandboxEnvironment, isSandboxNetworkError} from '../utils/sandbox-detector.js'
 
 export default class Curate extends Command {
   public static args = {
@@ -57,7 +64,8 @@ Bad examples:
   }
 
   public async run(): Promise<void> {
-    const {args, flags} = await this.parse(Curate)
+    const {args, flags: rawFlags} = await this.parse(Curate)
+    const flags = rawFlags as CurateFlags
 
     if (!args.context) {
       this.log('Context argument is required.')
@@ -65,8 +73,8 @@ Bad examples:
       return
     }
 
-    const verbose = (flags as {verbose?: boolean}).verbose ?? false
-    const {files} = flags as {files?: string[]}
+    const verbose = flags.verbose ?? false
+    const {files} = flags
 
     let client: ITransportClient | undefined
 
@@ -104,15 +112,45 @@ Bad examples:
 
   private handleConnectionError(error: unknown): void {
     if (error instanceof NoInstanceRunningError) {
-      this.error('No ByteRover instance is running.\n\nStart one with: brv start', {exit: 1})
+      // Check if running in sandbox environment
+      if (isSandboxEnvironment()) {
+        const sandboxName = getSandboxEnvironmentName()
+        this.error(
+          `Error: No ByteRover instance is running.\n` +
+            `⚠️  Sandbox environment detected (${sandboxName}).\n\n` +
+            `Please run 'brv' command in a separate terminal window/tab outside the sandbox first.`,
+          {exit: 1},
+        )
+      } else {
+        this.error(
+          'No ByteRover instance is running.\n\n' +
+            'Start a ByteRover instance by running "brv" in a separate terminal window/tab.\n' +
+            'The instance will keep running and handle your commands.',
+          {exit: 1},
+        )
+      }
     }
 
     if (error instanceof InstanceCrashedError) {
-      this.error('ByteRover instance has crashed.\n\nPlease restart with: brv start', {exit: 1})
+      this.error('ByteRover instance has crashed.\n\nPlease restart with: brv', {exit: 1})
     }
 
     if (error instanceof ConnectionFailedError) {
-      this.error(`Failed to connect to ByteRover instance: ${error.message}`, {exit: 1})
+      // Check if it's specifically a sandbox network restriction error
+      const isSandboxError = isSandboxNetworkError(error.originalError ?? error)
+
+      if (isSandboxError) {
+        const sandboxName = getSandboxEnvironmentName()
+        this.error(
+          `Error: Failed to connect to ByteRover instance.\n` +
+            `Port: ${error.port ?? 'unknown'}\n` +
+            `⚠️  Sandbox network restriction detected (${sandboxName}).\n\n` +
+            `Please allow network access in the sandbox and retry the command.`,
+          {exit: 1},
+        )
+      } else {
+        this.error(`Failed to connect to ByteRover instance: ${error.message}`, {exit: 1})
+      }
     }
 
     if (error instanceof ConnectionError) {

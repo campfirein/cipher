@@ -26,6 +26,7 @@ import type {ITransportClient} from '../../core/interfaces/transport/i-transport
 import {getCurrentConfig} from '../../config/environment.js'
 import {PROJECT} from '../../constants.js'
 import {NotAuthenticatedError, ProcessorNotInitError, serializeTaskError} from '../../core/domain/errors/task-error.js'
+import {agentLog} from '../../utils/process-logger.js'
 import {CipherAgent} from '../cipher/agent/index.js'
 import {ProjectConfigStore} from '../config/file-config-store.js'
 import {createTaskProcessor, TaskProcessor} from '../core/task-processor.js'
@@ -104,7 +105,7 @@ function getTransportPort(): number {
 function setupAgentEventForwarding(agent: CipherAgent): void {
   const eventBus = agent.agentEventBus
   if (!eventBus) {
-    console.warn('[Agent] No agentEventBus available for event forwarding')
+    agentLog('No agentEventBus available for event forwarding')
     return
   }
 
@@ -190,7 +191,7 @@ function setupAgentEventForwarding(agent: CipherAgent): void {
     }
   })
 
-  console.log('[Agent] Event forwarding setup complete')
+  agentLog('Event forwarding setup complete')
 }
 
 /**
@@ -208,11 +209,11 @@ async function tryInitializeAgent(forceReinit = false): Promise<boolean> {
 
   // If forcing reinit, stop existing agent first
   if (forceReinit && cipherAgent) {
-    console.log('[Agent] Reinitializing with new config...')
+    agentLog('Reinitializing with new config...')
     try {
       await (cipherAgent as CipherAgent).stop()
     } catch (error) {
-      console.warn('[Agent] Error stopping previous agent:', error)
+      agentLog(`Error stopping previous agent: ${error}`)
     }
 
     cipherAgent = undefined
@@ -229,7 +230,7 @@ async function tryInitializeAgent(forceReinit = false): Promise<boolean> {
   // Need at least authToken to initialize
   if (!authToken) {
     initializationError = new NotAuthenticatedError()
-    console.warn('[Agent] Cannot initialize - no auth token')
+    agentLog('Cannot initialize - no auth token')
     return false
   }
 
@@ -258,12 +259,12 @@ async function tryInitializeAgent(forceReinit = false): Promise<boolean> {
 
   const agent = new CipherAgent(agentConfig, brvConfig ?? undefined)
   await agent.start()
-  console.log('[Agent] CipherAgent started')
+  agentLog('CipherAgent started')
 
   // Create ChatSession
   chatSessionId = `agent-session-${randomUUID()}`
   await agent.createSession(chatSessionId)
-  console.log(`[Agent] ChatSession created: ${chatSessionId}`)
+  agentLog(`ChatSession created: ${chatSessionId}`)
 
   // Setup event forwarding
   setupAgentEventForwarding(agent)
@@ -282,9 +283,9 @@ async function tryInitializeAgent(forceReinit = false): Promise<boolean> {
   lastConfigIdentity = brvConfig ? `${brvConfig.teamId}:${brvConfig.spaceId}` : undefined
 
   if (brvConfig) {
-    console.log(`[Agent] Fully initialized with auth and config (team=${brvConfig.teamId}, space=${brvConfig.spaceId})`)
+    agentLog(`Fully initialized with auth and config (team=${brvConfig.teamId}, space=${brvConfig.spaceId})`)
   } else {
-    console.log('[Agent] Initialized with auth only (no project config yet - will reinit when config available)')
+    agentLog('Initialized with auth only (no project config yet - will reinit when config available)')
   }
 
   return true
@@ -296,20 +297,20 @@ async function tryInitializeAgent(forceReinit = false): Promise<boolean> {
 async function handleTaskExecute(data: TaskExecuteMessage): Promise<void> {
   const {files, input, taskId, type} = data
 
-  console.log(`[Agent] Processing task: ${taskId} (type=${type})`)
+  agentLog(`Processing task: ${taskId} (type=${type})`)
 
   // If not initialized, try to initialize now (lazy init for post-onboarding)
   if (!isAgentInitialized) {
-    console.log('[Agent] Not initialized, attempting lazy initialization...')
+    agentLog('Not initialized, attempting lazy initialization...')
     const initialized = await tryInitializeAgent()
     if (!initialized) {
-      console.error('[Agent] Lazy initialization failed')
+      agentLog('Lazy initialization failed')
       const error = serializeTaskError(initializationError ?? new ProcessorNotInitError())
       transportClient?.request('task:error', {error, taskId})
       return
     }
 
-    console.log('[Agent] Lazy initialization successful!')
+    agentLog('Lazy initialization successful!')
   }
 
   // Check if config has changed (new config or updated team/space)
@@ -325,22 +326,22 @@ async function handleTaskExecute(data: TaskExecuteMessage): Promise<void> {
         lastConfigIdentity === undefined
           ? 'config now available'
           : `config changed (${lastConfigIdentity} → ${currentConfigIdentity})`
-      console.log(`[Agent] ${reason}, reinitializing...`)
+      agentLog(`${reason}, reinitializing...`)
 
       const reinitialized = await tryInitializeAgent(true)
       if (!reinitialized) {
-        console.error('[Agent] Reinitialization with new config failed')
+        agentLog('Reinitialization with new config failed')
         const error = serializeTaskError(initializationError ?? new ProcessorNotInitError())
         transportClient?.request('task:error', {error, taskId})
         return
       }
 
-      console.log('[Agent] Reinitialization successful!')
+      agentLog('Reinitialization successful!')
     }
   }
 
   if (!taskProcessor) {
-    console.error('[Agent] TaskProcessor not initialized')
+    agentLog('TaskProcessor not initialized')
     const error = serializeTaskError(new ProcessorNotInitError())
     transportClient?.request('task:error', {error, taskId})
     return
@@ -364,11 +365,11 @@ async function handleTaskExecute(data: TaskExecuteMessage): Promise<void> {
     })
 
     // Notify completion
-    console.log(`[Agent] Task completed: ${taskId}`)
+    agentLog(`Task completed: ${taskId}`)
     transportClient?.request('task:completed', {taskId}).catch(() => {})
   } catch (error) {
     const errorData = serializeTaskError(error)
-    console.error(`[Agent] Task error: ${taskId} - [${errorData.name}] ${errorData.message}`)
+    agentLog(`Task error: ${taskId} - [${errorData.name}] ${errorData.message}`)
     transportClient?.request('task:error', {error: errorData, taskId}).catch(() => {})
   } finally {
     currentTaskId = undefined
@@ -380,7 +381,7 @@ async function handleTaskExecute(data: TaskExecuteMessage): Promise<void> {
  */
 function handleTaskCancel(data: TaskCancelMessage): void {
   const {taskId} = data
-  console.log(`[Agent] Cancelling task: ${taskId}`)
+  agentLog(`Cancelling task: ${taskId}`)
   taskProcessor?.cancel(taskId)
 }
 
@@ -389,29 +390,29 @@ function handleTaskCancel(data: TaskCancelMessage): void {
  */
 async function startAgent(): Promise<void> {
   const port = getTransportPort()
-  console.log(`[Agent] Connecting to Transport on port ${port}`)
+  agentLog(`Connecting to Transport on port ${port}`)
 
   // Create Transport client
   transportClient = createTransportClient()
 
   // Connect to Transport
   await transportClient.connect(`http://localhost:${port}`)
-  console.log('[Agent] Connected to Transport')
+  agentLog('Connected to Transport')
 
   // Register as Agent
   await transportClient.request('agent:register', {})
-  console.log('[Agent] Registered with Transport')
+  agentLog('Registered with Transport')
 
   // Try to initialize agent (may fail if no auth yet - that's OK, will lazy init later)
   const initialized = await tryInitializeAgent()
   if (!initialized) {
-    console.log('[Agent] Initial setup incomplete - will retry when tasks arrive (lazy init)')
+    agentLog('Initial setup incomplete - will retry when tasks arrive (lazy init)')
   }
 
   // Setup event handlers
   transportClient.on<TaskExecuteMessage>('task:execute', (data) => {
     handleTaskExecute(data).catch((error) => {
-      console.error('[Agent] Task execution failed:', error)
+      agentLog(`Task execution failed: ${error}`)
       const errorData = serializeTaskError(error)
       transportClient?.request('task:error', {error: errorData, taskId: data.taskId}).catch(() => {})
     })
@@ -421,7 +422,7 @@ async function startAgent(): Promise<void> {
 
   // Handle shutdown from Transport
   transportClient.on('shutdown', () => {
-    console.log('[Agent] Received shutdown from Transport')
+    agentLog('Received shutdown from Transport')
     stopAgent().then(() => {
       sendToParent({type: 'stopped'})
       // eslint-disable-next-line n/no-process-exit, unicorn/no-process-exit
@@ -429,7 +430,7 @@ async function startAgent(): Promise<void> {
     })
   })
 
-  console.log('[Agent] Ready to process tasks')
+  agentLog('Ready to process tasks')
 }
 
 /**
@@ -440,7 +441,7 @@ async function stopAgent(): Promise<void> {
   if (cipherAgent) {
     await (cipherAgent as CipherAgent).stop()
     cipherAgent = undefined
-    console.log('[Agent] CipherAgent stopped')
+    agentLog('CipherAgent stopped')
   }
 
   if (transportClient) {
@@ -449,7 +450,7 @@ async function stopAgent(): Promise<void> {
   }
 
   taskProcessor = undefined
-  console.log('[Agent] Stopped')
+  agentLog('Stopped')
 }
 
 // ============================================================================
@@ -462,7 +463,7 @@ async function runWorker(): Promise<void> {
     sendToParent({type: 'ready'})
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    console.error('[Agent] Failed to start:', message)
+    agentLog(`Failed to start: ${message}`)
     sendToParent({error: message, type: 'error'})
     // eslint-disable-next-line n/no-process-exit, unicorn/no-process-exit
     process.exit(1)
@@ -499,7 +500,7 @@ async function runWorker(): Promise<void> {
 try {
   await runWorker()
 } catch (error) {
-  console.error('[Agent] Fatal error:', error)
+  agentLog(`Fatal error: ${error}`)
   // eslint-disable-next-line n/no-process-exit, unicorn/no-process-exit
   process.exit(1)
 }

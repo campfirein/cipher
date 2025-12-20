@@ -1,5 +1,7 @@
 import {createServer} from 'node:net'
 
+import {TRANSPORT_HOST} from '../../constants.js'
+
 /**
  * Port range for transport server.
  * Using high ports (49152-65535) which are "dynamic/private" per IANA.
@@ -33,7 +35,7 @@ export function isPortAvailable(port: number): Promise<boolean> {
       })
     })
 
-    server.listen(port, '127.0.0.1')
+    server.listen(port, TRANSPORT_HOST)
   })
 }
 

@@ -13,7 +13,7 @@ export class ConnectionError extends Error {
  */
 export class NoInstanceRunningError extends ConnectionError {
   public constructor() {
-    super('No ByteRover instance is running. Start one with: brv start')
+    super('No ByteRover instance is running. Start one with: brv')
     this.name = 'NoInstanceRunningError'
   }
 }
@@ -24,7 +24,7 @@ export class NoInstanceRunningError extends ConnectionError {
 export class InstanceCrashedError extends ConnectionError {
   public constructor(projectRoot?: string) {
     const details = projectRoot ? ` in ${projectRoot}` : ''
-    super(`ByteRover instance${details} has crashed. Please restart with: brv start`)
+    super(`ByteRover instance${details} has crashed. Please restart with: brv`)
     this.name = 'InstanceCrashedError'
   }
 }

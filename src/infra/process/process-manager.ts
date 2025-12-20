@@ -25,6 +25,8 @@ import {type ChildProcess, fork} from 'node:child_process'
 import path from 'node:path'
 import {fileURLToPath} from 'node:url'
 
+import {processManagerLog} from '../../utils/process-logger.js'
+
 /**
  * IPC messages for process lifecycle.
  * Note: Task communication uses Socket.IO, NOT IPC.
@@ -196,20 +198,20 @@ export class ProcessManager {
     const transportAlive = transportProcess && !transportProcess.killed && transportProcess.exitCode === null
 
     if (!agentAlive || !transportAlive) {
-      console.error('[ProcessManager] Processes not healthy after wake, triggering restart')
+      processManagerLog('Processes not healthy after wake, triggering restart')
 
       // Trigger restart by simulating crash recovery
       if (!transportAlive && transportProcess) {
-        console.log('[ProcessManager] Transport process died during sleep, respawning...')
+        processManagerLog('Transport process died during sleep, respawning...')
         // The crash recovery handler will handle this
         transportProcess.emit('exit', 1, null)
       } else if (!agentAlive && agentProcess) {
-        console.log('[ProcessManager] Agent process died during sleep, respawning...')
+        processManagerLog('Agent process died during sleep, respawning...')
         // The crash recovery handler will handle this
         agentProcess.emit('exit', 1, null)
       }
     } else {
-      console.log('[ProcessManager] Processes healthy after wake')
+      processManagerLog('Processes healthy after wake')
     }
   }
 
@@ -231,7 +233,7 @@ export class ProcessManager {
     agentProcess.once('exit', (code, signal) => {
       if (!this.state.running) return // Intentional shutdown
 
-      console.error(`[ProcessManager] Agent process exited unexpectedly (code=${code}, signal=${signal})`)
+      processManagerLog(`Agent process exited unexpectedly (code=${code}, signal=${signal})`)
       this.state.agentReady = false
 
       // Respawn Agent
@@ -239,10 +241,10 @@ export class ProcessManager {
         this.startAgentProcess(this.state.port)
           .then(() => {
             this.state.agentReady = true
-            console.log('[ProcessManager] Agent process respawned')
+            processManagerLog('Agent process respawned')
           })
           .catch((error) => {
-            console.error('[ProcessManager] Failed to respawn Agent:', error)
+            processManagerLog(`Failed to respawn Agent: ${error}`)
           })
       }
     })
@@ -259,7 +261,7 @@ export class ProcessManager {
     transportProcess.once('exit', (code, signal) => {
       if (!this.state.running) return // Intentional shutdown
 
-      console.error(`[ProcessManager] Transport process exited unexpectedly (code=${code}, signal=${signal})`)
+      processManagerLog(`Transport process exited unexpectedly (code=${code}, signal=${signal})`)
       this.state.transportReady = false
 
       // Respawn Transport, then reconnect Agent
@@ -267,7 +269,7 @@ export class ProcessManager {
         .then(async (newPort) => {
           this.state.port = newPort
           this.state.transportReady = true
-          console.log(`[ProcessManager] Transport process respawned on port ${newPort}`)
+          processManagerLog(`Transport process respawned on port ${newPort}`)
 
           // Agent needs to reconnect to new port
           // For now, just restart Agent
@@ -275,11 +277,11 @@ export class ProcessManager {
             await this.stopAgentProcess()
             await this.startAgentProcess(newPort)
             this.state.agentReady = true
-            console.log('[ProcessManager] Agent reconnected to new Transport')
+            processManagerLog('Agent reconnected to new Transport')
           }
         })
         .catch((error) => {
-          console.error('[ProcessManager] Failed to respawn Transport:', error)
+          processManagerLog(`Failed to respawn Transport: ${error}`)
         })
     })
   }
@@ -360,7 +362,7 @@ export class ProcessManager {
 
       // If significantly more time passed than expected, system likely slept
       if (elapsed > SLEEP_DETECTION_THRESHOLD_MS) {
-        console.log(`[ProcessManager] System wake detected (${Math.round(elapsed / 1000)}s gap)`)
+        processManagerLog(`System wake detected (${Math.round(elapsed / 1000)}s gap)`)
         this.handleSystemWake()
       }
     }, HEALTH_CHECK_INTERVAL_MS)

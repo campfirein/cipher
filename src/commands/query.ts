@@ -4,6 +4,11 @@ import type {TaskCreateResponse} from '../core/domain/transport/schemas.js'
 import type {ITransportClient} from '../core/interfaces/transport/i-transport-client.js'
 
 import {isDevelopment} from '../config/environment.js'
+
+/** Parsed flags type */
+type QueryFlags = {
+  verbose?: boolean
+}
 import {
   ConnectionError,
   ConnectionFailedError,
@@ -11,6 +16,7 @@ import {
   NoInstanceRunningError,
 } from '../core/domain/errors/connection-error.js'
 import {createTransportClientFactory} from '../infra/transport/transport-client-factory.js'
+import {getSandboxEnvironmentName, isSandboxEnvironment, isSandboxNetworkError} from '../utils/sandbox-detector.js'
 
 /**
  * Task lifecycle payloads (Transport-generated)
@@ -67,7 +73,8 @@ Bad:
   public static strict = false
 
   public async run(): Promise<void> {
-    const {argv, flags} = await this.parse(Query)
+    const {argv, flags: rawFlags} = await this.parse(Query)
+    const flags = rawFlags as QueryFlags
     const queryTerms = (argv as string[]).join(' ')
 
     if (!queryTerms.trim()) {
@@ -76,7 +83,7 @@ Bad:
       return
     }
 
-    const verbose = (flags as {verbose?: boolean}).verbose ?? false
+    const verbose = flags.verbose ?? false
 
     // Connect to running instance
     let client: ITransportClient | undefined
@@ -120,22 +127,78 @@ Bad:
   }
 
   /**
+   * Format a parsed object result into a concise summary.
+   */
+  private formatParsedResult(obj: Record<string, unknown>): string {
+    // Check for common patterns
+    if ('topics' in obj && Array.isArray(obj.topics)) {
+      return `${(obj.topics as unknown[]).length} topics found`
+    }
+
+    if ('results' in obj && Array.isArray(obj.results)) {
+      return `${(obj.results as unknown[]).length} matches`
+    }
+
+    if ('matches' in obj && Array.isArray(obj.matches)) {
+      return `${(obj.matches as unknown[]).length} matches`
+    }
+
+    if ('filesSearched' in obj) {
+      const files = obj.filesSearched as number
+      const matches = Array.isArray(obj.matches) ? obj.matches.length : 0
+      return `${files} files searched, ${matches} matches`
+    }
+
+    // glob_files returns {files: [...]}
+    if ('files' in obj && Array.isArray(obj.files)) {
+      return `${(obj.files as unknown[]).length} files`
+    }
+
+    // list_directory returns {entries: [...]}
+    if ('entries' in obj && Array.isArray(obj.entries)) {
+      return `${(obj.entries as unknown[]).length} entries`
+    }
+
+    // read_file returns {content: string, ...}
+    if ('content' in obj && typeof obj.content === 'string') {
+      const content = obj.content as string
+      const lines = content.split('\n').length
+      return `${lines} lines`
+    }
+
+    if ('count' in obj) {
+      return `${obj.count} items`
+    }
+
+    // Check for any array property as fallback
+    for (const key of Object.keys(obj)) {
+      if (Array.isArray(obj[key])) {
+        return `${(obj[key] as unknown[]).length} ${key}`
+      }
+    }
+
+    // Generic object - just show it worked
+    return 'Done'
+  }
+
+  /**
    * Format tool arguments for display.
    * Extract the most meaningful value for human reading.
    */
   private formatToolArgs(toolName: string, args: Record<string, unknown>): string {
     // Extract the most meaningful arg based on tool type
+    // Tool names use snake_case (LLM convention)
+    /* eslint-disable camelcase */
     const meaningfulKeys: Record<string, string[]> = {
       curate: ['operations'],
-      // eslint-disable-next-line camelcase
       find_knowledge_topics: ['topicPattern', 'query'],
-      // eslint-disable-next-line camelcase
+      glob_files: ['pattern', 'glob'],
       grep_content: ['pattern', 'query'],
-      // eslint-disable-next-line camelcase
       list_directory: ['path', 'directory'],
-      // eslint-disable-next-line camelcase
       read_file: ['filePath', 'path'],
+      read_knowledge_topic: ['topicPath', 'path'],
     }
+    /* eslint-enable camelcase */
 
     const keys = meaningfulKeys[toolName] ?? Object.keys(args)
     for (const key of keys) {
@@ -157,7 +220,7 @@ Bad:
 
   /**
    * Format tool result for display.
-   * Shows meaningful, concise summary.
+   * Shows meaningful, concise summary - NEVER shows raw JSON.
    */
   private formatToolResult(payload: LlmToolResultPayload): string {
     if (!payload.success) {
@@ -172,32 +235,24 @@ Bad:
       return `${payload.result.length} results`
     }
 
-    if (typeof payload.result === 'object') {
-      const obj = payload.result as Record<string, unknown>
-      // Check for common patterns
-      if ('topics' in obj && Array.isArray(obj.topics)) {
-        return `${(obj.topics as unknown[]).length} topics found`
-      }
+    // Handle string results - might be JSON
+    if (typeof payload.result === 'string') {
+      // Try to parse as JSON for better formatting
+      try {
+        const parsed = JSON.parse(payload.result)
+        return this.formatParsedResult(parsed)
+      } catch {
+        // Not JSON - show char count for long strings
+        if (payload.result.length > 100) {
+          return `${payload.result.length} chars`
+        }
 
-      if ('results' in obj && Array.isArray(obj.results)) {
-        return `${(obj.results as unknown[]).length} matches`
+        return payload.result.length > 40 ? `${payload.result.slice(0, 37)}...` : payload.result
       }
-
-      if ('count' in obj) {
-        return `${obj.count} items`
-      }
-
-      // Generic object - just show it worked
-      return 'Done'
     }
 
-    if (typeof payload.result === 'string') {
-      // For string results, show char count if long
-      if (payload.result.length > 100) {
-        return `${payload.result.length} chars`
-      }
-
-      return payload.result.length > 40 ? `${payload.result.slice(0, 37)}...` : payload.result
+    if (typeof payload.result === 'object') {
+      return this.formatParsedResult(payload.result as Record<string, unknown>)
     }
 
     return 'Done'
@@ -208,15 +263,45 @@ Bad:
    */
   private handleConnectionError(error: unknown): void {
     if (error instanceof NoInstanceRunningError) {
-      this.error('No ByteRover instance is running.\n\nStart one with: brv start', {exit: 1})
+      // Check if running in sandbox environment
+      if (isSandboxEnvironment()) {
+        const sandboxName = getSandboxEnvironmentName()
+        this.error(
+          `Error: No ByteRover instance is running.\n` +
+            `⚠️  Sandbox environment detected (${sandboxName}).\n\n` +
+            `Please run 'brv' command in a separate terminal window/tab outside the sandbox first.`,
+          {exit: 1},
+        )
+      } else {
+        this.error(
+          'No ByteRover instance is running.\n\n' +
+            'Start a ByteRover instance by running "brv" in a separate terminal window/tab.\n' +
+            'The instance will keep running and handle your commands.',
+          {exit: 1},
+        )
+      }
     }
 
     if (error instanceof InstanceCrashedError) {
-      this.error('ByteRover instance has crashed.\n\nPlease restart with: brv start', {exit: 1})
+      this.error('ByteRover instance has crashed.\n\nPlease restart with: brv', {exit: 1})
     }
 
     if (error instanceof ConnectionFailedError) {
-      this.error(`Failed to connect to ByteRover instance: ${error.message}`, {exit: 1})
+      // Check if it's specifically a sandbox network restriction error
+      const isSandboxError = isSandboxNetworkError(error.originalError ?? error)
+
+      if (isSandboxError) {
+        const sandboxName = getSandboxEnvironmentName()
+        this.error(
+          `Error: Failed to connect to ByteRover instance.\n` +
+            `Port: ${error.port ?? 'unknown'}\n` +
+            `⚠️  Sandbox network restriction detected (${sandboxName}).\n\n` +
+            `Please allow network access in the sandbox and retry the command.`,
+          {exit: 1},
+        )
+      } else {
+        this.error(`Failed to connect to ByteRover instance: ${error.message}`, {exit: 1})
+      }
     }
 
     if (error instanceof ConnectionError) {
@@ -234,6 +319,7 @@ Bad:
   private async streamTaskResults(client: ITransportClient, taskId: string, verbose: boolean): Promise<void> {
     return new Promise((resolve, reject) => {
       let completed = false
+      let resultPrinted = false // Track if we've already printed the result
 
       // Timeout after 5 minutes
       const timeout = setTimeout(() => {
@@ -271,26 +357,27 @@ Bad:
         //   }
         // }),
 
-        // llmservice:response - final response from LLM
+        // llmservice:response - final response from LLM (only print once)
         client.on<LlmResponsePayload>('llmservice:response', (payload) => {
-          if (payload.taskId === taskId && payload.content) {
+          if (payload.taskId === taskId && payload.content && !resultPrinted) {
+            resultPrinted = true
             this.log('\nResult:')
             this.log(payload.content)
           }
         }),
 
-        // llmservice:toolCall - tool invocation
+        // llmservice:toolCall - tool invocation (stop showing after response)
         client.on<LlmToolCallPayload>('llmservice:toolCall', (payload) => {
-          if (payload.taskId === taskId) {
+          if (payload.taskId === taskId && !resultPrinted) {
             const detail = payload.args ? this.formatToolArgs(payload.name, payload.args) : ''
             const suffix = detail ? `: ${detail}` : ''
             this.log(`🔧 ${payload.name}${suffix}`)
           }
         }),
 
-        // llmservice:toolResult - tool result with summary
+        // llmservice:toolResult - tool result with summary (stop showing after response)
         client.on<LlmToolResultPayload>('llmservice:toolResult', (payload) => {
-          if (payload.taskId === taskId) {
+          if (payload.taskId === taskId && !resultPrinted) {
             const status = payload.success ? '✓' : '✗'
             const resultSummary = this.formatToolResult(payload)
             this.log(`  ${status} ${resultSummary}`)

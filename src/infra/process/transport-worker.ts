@@ -20,6 +20,7 @@
 
 import type {ITransportServer} from '../../core/interfaces/transport/i-transport-server.js'
 
+import {transportLog} from '../../utils/process-logger.js'
 import {FileInstanceManager} from '../instance/file-instance-manager.js'
 import {findAvailablePort} from '../transport/port-utils.js'
 import {createTransportServer} from '../transport/transport-factory.js'
@@ -65,8 +66,8 @@ async function startTransport(): Promise<number> {
   transportHandlers = new TransportHandlers(transportServer)
   transportHandlers.setup()
 
-  console.log(`[Transport] Socket.IO server started on port ${port}`)
-  console.log(`[Transport] Instance registered at ${projectRoot}/.brv/instance.json`)
+  transportLog(`Socket.IO server started on port ${port}`)
+  transportLog(`Instance registered at ${projectRoot}/.brv/instance.json`)
   return port
 }
 
@@ -85,7 +86,7 @@ async function stopTransport(): Promise<void> {
     transportServer = undefined
   }
 
-  console.log('[Transport] Socket.IO server stopped')
+  transportLog('Socket.IO server stopped')
 }
 
 // ============================================================================
@@ -98,7 +99,7 @@ async function runWorker(): Promise<void> {
     sendToParent({port, type: 'ready'})
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    console.error('[Transport] Failed to start:', message)
+    transportLog(`Failed to start: ${message}`)
     sendToParent({error: message, type: 'error'})
     // eslint-disable-next-line n/no-process-exit, unicorn/no-process-exit
     process.exit(1)
@@ -135,7 +136,7 @@ async function runWorker(): Promise<void> {
 try {
   await runWorker()
 } catch (error) {
-  console.error('[Transport] Fatal error:', error)
+  transportLog(`Fatal error: ${error}`)
   // eslint-disable-next-line n/no-process-exit, unicorn/no-process-exit
   process.exit(1)
 }

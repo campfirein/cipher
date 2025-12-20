@@ -12,6 +12,7 @@ import {
   TransportServerAlreadyRunningError,
   TransportServerNotStartedError,
 } from '../../core/domain/errors/transport-error.js'
+import {transportLog} from '../../utils/process-logger.js'
 
 /**
  * Internal protocol constants for request/response pattern.
@@ -153,7 +154,7 @@ export class SocketIOTransportServer implements ITransportServer {
           auth: false, // No authentication for local dev
           mode: 'development',
         })
-        console.log('[Transport] Socket.IO Admin UI enabled - connect at https://admin.socket.io')
+        transportLog('Socket.IO Admin UI enabled - connect at https://admin.socket.io')
       }
 
       this.io.on('connection', (socket) => {

@@ -4,6 +4,7 @@ import type {ITransportServer} from '../../core/interfaces/transport/i-transport
 
 import {
   TRANSPORT_CONNECT_TIMEOUT_MS,
+  TRANSPORT_DEFAULT_TRANSPORTS,
   TRANSPORT_PING_INTERVAL_MS,
   TRANSPORT_PING_TIMEOUT_MS,
   TRANSPORT_RECONNECTION_ATTEMPTS,
@@ -34,6 +35,7 @@ const DEFAULT_CLIENT_CONFIG: Required<TransportClientConfig> = {
   reconnectionDelayMs: TRANSPORT_RECONNECTION_DELAY_MS,
   requestTimeoutMs: TRANSPORT_REQUEST_TIMEOUT_MS,
   roomTimeoutMs: TRANSPORT_ROOM_TIMEOUT_MS,
+  transports: TRANSPORT_DEFAULT_TRANSPORTS,
 }
 
 /**

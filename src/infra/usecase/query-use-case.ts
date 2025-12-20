@@ -99,10 +99,6 @@ export class QueryUseCase implements IQueryUseCase {
         openRouterApiKey: options.apiKey,
         projectId: PROJECT,
         sessionKey: token.sessionKey,
-        temperature: 0.7,
-        topK: 10,
-        topP: 0.95,
-        verbose: options.verbose ?? false,
       }
 
       // Create and start CipherAgent

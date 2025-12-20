@@ -53,6 +53,7 @@ import {
   AgentNotAvailableError,
   serializeTaskError,
 } from '../../core/domain/errors/task-error.js'
+import {transportLog} from '../../utils/process-logger.js'
 
 // ============================================================================
 // Types
@@ -156,7 +157,7 @@ export class TransportHandlers {
    * Agent connects as Socket.IO client and sends 'agent:register'.
    */
   private handleAgentRegister(clientId: string): void {
-    console.log(`[Transport] Agent registered: ${clientId}`)
+    transportLog(`Agent registered: ${clientId}`)
     this.agentClientId = clientId
 
     // Broadcast to all clients that Agent is online
@@ -268,7 +269,7 @@ export class TransportHandlers {
     const sessionId = randomUUID()
     this.currentSessionId = sessionId
 
-    console.log(`[Transport] Session created: ${sessionId}`)
+    transportLog(`Session created: ${sessionId}`)
 
     // Broadcast session switch
     this.transport.broadcast('session:switched', {sessionId})
@@ -322,7 +323,7 @@ export class TransportHandlers {
   private handleSessionSwitch(data: SessionSwitchRequest, _clientId: string): SessionSwitchResponse {
     this.currentSessionId = data.sessionId
 
-    console.log(`[Transport] Session switched: ${data.sessionId}`)
+    transportLog(`Session switched: ${data.sessionId}`)
 
     // Broadcast session switch
     this.transport.broadcast('session:switched', {sessionId: data.sessionId})
@@ -336,7 +337,7 @@ export class TransportHandlers {
   private handleTaskCancel(data: TaskCancelRequest, _clientId: string): TaskCancelResponse {
     const {taskId} = data
 
-    console.log(`[Transport] Task cancel requested: ${taskId}`)
+    transportLog(`Task cancel requested: ${taskId}`)
 
     // Forward to Agent
     if (this.agentClientId) {
@@ -354,7 +355,7 @@ export class TransportHandlers {
     const {result, taskId} = data
     const task = this.tasks.get(taskId)
 
-    console.log(`[Transport] Task completed: ${taskId}`)
+    transportLog(`Task completed: ${taskId}`)
 
     if (task) {
       this.transport.sendTo(task.clientId, 'task:completed', {result, taskId})
@@ -371,7 +372,7 @@ export class TransportHandlers {
   private handleTaskCreate(data: TaskCreateRequest, clientId: string): TaskCreateResponse {
     const taskId = randomUUID()
 
-    console.log(`[Transport] Task created: ${taskId} (type=${data.type}, client=${clientId})`)
+    transportLog(`Task created: ${taskId} (type=${data.type}, client=${clientId})`)
 
     // Track task (clientId used for direct messaging)
     this.tasks.set(taskId, {
@@ -424,7 +425,7 @@ export class TransportHandlers {
     const {error, taskId} = data
     const task = this.tasks.get(taskId)
 
-    console.log(`[Transport] Task error: ${taskId} - [${error.code}] ${error.message}`)
+    transportLog(`Task error: ${taskId} - [${error.code}] ${error.message}`)
 
     if (task) {
       this.transport.sendTo(task.clientId, 'task:error', {error, taskId})
@@ -532,15 +533,15 @@ export class TransportHandlers {
    */
   private setupConnectionHandlers(): void {
     this.transport.onConnection((clientId) => {
-      console.log(`[Transport] Client connected: ${clientId}`)
+      transportLog(`Client connected: ${clientId}`)
     })
 
     this.transport.onDisconnection((clientId) => {
-      console.log(`[Transport] Client disconnected: ${clientId}`)
+      transportLog(`Client disconnected: ${clientId}`)
 
       // Check if Agent disconnected
       if (clientId === this.agentClientId) {
-        console.log('[Transport] Agent disconnected!')
+        transportLog('Agent disconnected!')
         this.agentClientId = undefined
 
         // Broadcast to all clients
