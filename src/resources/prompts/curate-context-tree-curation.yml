@@ -21,13 +21,11 @@ prompt: |
      - IMPORTANT: Before proceeding, analyze the user's input content for any file path references (e.g., "implemented in auth.ts", "see config.json", "refer to src/utils/helper.ts")
      - If there are file references that you must read, use the `read_file` tool to read these files IN PARALLEL (in a single iteration) to gather comprehensive context
      - Multiple file reads can be done simultaneously - they don't depend on each other
-     - This ensures you have complete information before creating knowledge topics
+     - This ensures you have complete information before creating topics, subtopics and context.
 
-  2. **Explore existing context**: Use `glob_files` and `grep_content` to understand the current related context in the context tree. You may use bash commands (e.g., `ls`, `find`) to list directories if necessary to navigate the context tree structure.
+  2. **Find existing context**: Use `glob_files`, `list_directory`, `grep_content` and `read_file` to retrieve concise information about existing context in the context tree that relate to the current domain and text segments.
 
-  3. **Find existing knowledge**: Use `read_file` and `grep_content` to retrieve concise information about existing knowledge topics in the context tree that relate to the current domain and text segments.
-
-  4. **Create or update knowledge**: Once you have gathered all information about:
+  3. **Create or update context**: Once you have gathered all information about:
      - The current domain and text segments from the user's input data
      - The existing context in the context tree
      Use the `curate` tool to create new knowledge topics or update existing ones. Ensure that:
@@ -35,12 +33,11 @@ prompt: |
      - There is no duplication with existing context
      - The information is clear and easy to understand
 
-  5. **Tool Execution Efficiency:**
-     - When multiple tools don't depend on each other's results, execute them in parallel (same iteration)
-     - Example: Reading multiple files can be done in parallel
-     - Example: `detect_domains` and `read_file` operations for different files can run together
+  4. **Tool Execution Efficiency:**
+     - When multiple tools don't depend on each other's results, execute them in parallel with `batch`
+     - Example: `glob_files`, `list_directory`, `grep_content` and `read_file` operations for different files can run together
 
-  6. **Context quality requirements**: Each context in the `contexts` array must:
+  5. **Context quality requirements**: Each context in the `contexts` array must:
      - Important: Minimum 2-4 sentences per context. Otherwise, DO NOT add that context.
      - A developer should understand the concept without reading source code
      - Include names of functions, classes, patterns, or key concepts
