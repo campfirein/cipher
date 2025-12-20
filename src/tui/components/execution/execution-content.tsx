@@ -8,17 +8,9 @@ import {Box, Text, useStdout} from 'ink'
 import React from 'react'
 
 import {useTheme} from '../../hooks/index.js'
+import {getVisualLineCount} from '../../utils/line.js'
 
-/**
- * Calculate visual line count for a single line, accounting for wrapping
- */
-function getVisualLineCount(line: string, maxCharsPerLine: number): number {
-  if (maxCharsPerLine <= 0 || line.length === 0) {
-    return 1
-  }
-
-  return Math.ceil(line.length / maxCharsPerLine) || 1
-}
+const DEFAULT_MAX_LINES = 5
 
 /**
  * Truncate content string to maxLines, returning truncated content and remaining line count.
@@ -64,23 +56,46 @@ export function truncateContent(
     }
   }
 
+  // Replace last 3 characters of last line with "..." if truncated
+  let finalContent = truncatedLines.join('\n')
+  if (truncatedLines.length > 0 && totalVisualLines > visualLineCount) {
+    const lastLineIndex = truncatedLines.length - 1
+    const lastLine = truncatedLines[lastLineIndex]
+
+    if (lastLine.length >= 3) {
+      truncatedLines[lastLineIndex] = lastLine.slice(0, -3) + '...'
+      finalContent = truncatedLines.join('\n')
+    } else if (lastLine.length > 0) {
+      // If last line is shorter than 3 chars, just replace entirely with "..."
+      truncatedLines[lastLineIndex] = '...'
+      finalContent = truncatedLines.join('\n')
+    }
+  }
+
   return {
     remainingLines: totalVisualLines - visualLineCount,
     totalLines: totalVisualLines,
-    truncatedContent: truncatedLines.join('\n'),
+    truncatedContent: finalContent,
   }
 }
 
 interface ExecutionContentProps {
+  /** Bottom margin for this content section */
+  bottomMargin?: number
   /** The content to display */
   content: string
   /** Whether this is error content */
   isError?: boolean
-  /** Maximum number of lines before truncation */
-  maxLines: number
+  /** Maximum number of lines (rows) this component can use, including the "more lines" indicator */
+  maxLines?: number
 }
 
-export const ExecutionContent: React.FC<ExecutionContentProps> = ({content, isError = false, maxLines}) => {
+export const ExecutionContent: React.FC<ExecutionContentProps> = ({
+  bottomMargin = 1,
+  content,
+  isError = false,
+  maxLines = DEFAULT_MAX_LINES,
+}) => {
   const {
     theme: {colors},
   } = useTheme()
@@ -91,10 +106,16 @@ export const ExecutionContent: React.FC<ExecutionContentProps> = ({content, isEr
     return null
   }
 
-  const {remainingLines, truncatedContent} = truncateContent(content, maxLines, contentWidth)
+  // First check if content would overflow
+  const {totalLines} = truncateContent(content, maxLines, contentWidth)
+  const hasOverflow = totalLines > maxLines
+
+  // If overflow, reserve 1 line for indicator, show (maxLines - 1) lines of content
+  const effectiveMaxLines = hasOverflow ? maxLines - 1 : maxLines
+  const {remainingLines, truncatedContent} = truncateContent(content, effectiveMaxLines, contentWidth)
 
   return (
-    <Box flexDirection="column" marginBottom={1}>
+    <Box flexDirection="column" marginBottom={bottomMargin}>
       <Text color={isError ? colors.errorText : colors.text}>{truncatedContent}</Text>
       {remainingLines > 0 && <Text color={colors.dimText}>↕ {remainingLines} more lines</Text>}
     </Box>

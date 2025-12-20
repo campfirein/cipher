@@ -24,91 +24,110 @@ import {
 } from '../components/inline-prompts/index.js'
 import {useAuth} from '../contexts/auth-context.js'
 import {useConsumer} from '../contexts/index.js'
-import {useCommands, useMode, useTheme} from '../hooks/index.js'
-
-/** Fixed height for bottom area (suggestions + input) */
-const BOTTOM_AREA_HEIGHT = 4
+import {useCommands, useMode, useTerminalBreakpoint, useTheme, useUIHeights} from '../hooks/index.js'
+import {getVisualLineCount} from '../utils/line.js'
 
 /** Max visible items in InlineSearch */
 const INLINE_SEARCH_MAX_ITEMS = 7
 
-/** Minimum output lines to show before truncation */
-const MIN_OUTPUT_LINES = 5
-
-/** Reserved lines for output box (command header + borders + hint line + margin) */
-const OUTPUT_BOX_OVERHEAD = 5
-
 /**
- * Count the total number of lines in streaming messages
- * Each message can contain multiple lines (newlines in content)
+ * Calculate visual line count for a message
  */
-function countOutputLines(messages: StreamingMessage[]): number {
-  let total = 0
-  for (const msg of messages) {
-    total += msg.content.split('\n').length
-  }
-
-  return total
+function getMessageVisualLineCount(message: StreamingMessage, terminalWidth: number): number {
+  return message.content
+    .split('\n')
+    .reduce((total, line) => total + getVisualLineCount(line, terminalWidth), 0)
 }
 
 /**
- * Get messages from the end that fit within maxLines, truncating from the beginning (shows newest first)
- * Used for both completed and live streaming output to always show the latest messages
+ * Count total visual lines across all messages
+ */
+function countOutputLines(messages: StreamingMessage[], terminalWidth: number): number {
+  return messages.reduce((total, msg) => total + getMessageVisualLineCount(msg, terminalWidth), 0)
+}
+
+/**
+ * Truncate message content from the end to fit within available visual lines
+ */
+function truncateMessageFromEnd(
+  message: StreamingMessage,
+  availableLines: number,
+  terminalWidth: number,
+): {content: string; usedLines: number} {
+  const lines = message.content.split('\n')
+  const truncatedLines: string[] = []
+  let usedLines = 0
+
+  // Build from end, taking lines that fit
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i]
+    const lineVisualCount = getVisualLineCount(line, terminalWidth)
+
+    if (usedLines + lineVisualCount <= availableLines) {
+      truncatedLines.unshift(line)
+      usedLines += lineVisualCount
+    } else if (usedLines < availableLines) {
+      // Partial line - take last chars that fit
+      const remainingLines = availableLines - usedLines
+      const maxChars = remainingLines * terminalWidth
+      truncatedLines.unshift(line.slice(-maxChars))
+      usedLines = availableLines
+      break
+    } else {
+      break
+    }
+  }
+
+  return {content: truncatedLines.join('\n'), usedLines}
+}
+
+/**
+ * Get messages from end that fit within maxLines (shows newest first)
  */
 function getMessagesFromEnd(
   messages: StreamingMessage[],
   maxLines: number,
+  terminalWidth: number,
 ): {displayMessages: StreamingMessage[]; skippedLines: number; totalLines: number} {
-  const totalLines = countOutputLines(messages)
+  const totalLines = countOutputLines(messages, terminalWidth)
 
   if (totalLines <= maxLines) {
     return {displayMessages: messages, skippedLines: 0, totalLines}
   }
 
   const displayMessages: StreamingMessage[] = []
-  let lineCount = 0
+  let usedLines = 0
 
-  // Iterate from the end (newest messages first)
-  for (let i = messages.length - 1; i >= 0; i--) {
+  // Iterate from end (newest first)
+  for (let i = messages.length - 1; i >= 0 && usedLines < maxLines; i--) {
     const msg = messages[i]
-    const msgLineArray = msg.content.split('\n')
-    const msgLineCount = msgLineArray.length
+    const msgLineCount = getMessageVisualLineCount(msg, terminalWidth)
+    const availableLines = maxLines - usedLines
 
-    if (lineCount + msgLineCount <= maxLines) {
-      // Message fits completely - prepend to maintain order
+    if (msgLineCount <= availableLines) {
+      // Whole message fits
       displayMessages.unshift(msg)
-      lineCount += msgLineCount
-    } else {
-      // Message needs to be truncated - show partial lines from the end
-      const remainingSpace = maxLines - lineCount
-      if (remainingSpace > 0) {
-        // Take only the last lines that fit
-        const truncatedContent = msgLineArray.slice(-remainingSpace).join('\n')
-        displayMessages.unshift({
-          ...msg,
-          content: truncatedContent,
-        })
-        lineCount += remainingSpace
-      }
-
+      usedLines += msgLineCount
+    } else if (availableLines > 0) {
+      // Truncate message to fit
+      const {content, usedLines: truncatedLines} = truncateMessageFromEnd(msg, availableLines, terminalWidth)
+      displayMessages.unshift({...msg, content})
+      usedLines += truncatedLines
       break
     }
   }
 
-  // Ensure we show at least one line
+  // Fallback: show at least last line of last message
   if (displayMessages.length === 0 && messages.length > 0) {
     const lastMsg = messages.at(-1)!
-    const lastLines = lastMsg.content.split('\n')
-    displayMessages.push({
-      ...lastMsg,
-      content: lastLines.at(-1) ?? '',
-    })
-    lineCount = 1
+    const lastLine = lastMsg.content.split('\n').at(-1) ?? ''
+    displayMessages.push({...lastMsg, content: lastLine})
+    usedLines = getVisualLineCount(lastLine, terminalWidth)
   }
 
   return {
     displayMessages,
-    skippedLines: totalLines - lineCount,
+    skippedLines: totalLines - usedLines,
     totalLines,
   }
 }
@@ -211,13 +230,14 @@ interface MessageHeightOptions {
   maxOutputLines: number
   promptHeight?: number
   streamingLines?: number
+  terminalWidth: number
 }
 
 /**
  * Estimate the line height of a command message
  */
 function estimateMessageHeight(msg: CommandMessage, options: MessageHeightOptions): number {
-  const {isLast = false, maxOutputLines, promptHeight = 0, streamingLines = 0} = options
+  const {isLast = false, maxOutputLines, promptHeight = 0, streamingLines = 0, terminalWidth} = options
   let lines = 0
 
   if (msg.type === 'command') {
@@ -227,7 +247,7 @@ function estimateMessageHeight(msg: CommandMessage, options: MessageHeightOption
     // Output box if present (completed output)
     if (msg.output && msg.output.length > 0) {
       // Count actual lines in the output (each message can have multiple lines)
-      const totalOutputLines = countOutputLines(msg.output)
+      const totalOutputLines = countOutputLines(msg.output, terminalWidth)
       // Account for truncation: show max lines + 1 for hint
       const displayedLines = totalOutputLines <= maxOutputLines ? totalOutputLines : maxOutputLines + 1
       // Border top + content + border bottom
@@ -250,6 +270,13 @@ function estimateMessageHeight(msg: CommandMessage, options: MessageHeightOption
   return lines
 }
 
+/**
+ * Props for CommandView component
+ *
+ * Calculated as: `Math.max(1, terminalHeight - header - tab - footer)`
+ * This represents the remaining terminal space after accounting for all UI chrome
+ * (header, tab bar, and footer), ensuring at least 1 line is always available.
+ */
 interface CommandViewProps {
   availableHeight: number
 }
@@ -267,6 +294,8 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
   const {
     theme: {colors},
   } = useTheme()
+  const {commandInput} = useUIHeights()
+  const {breakpoint, columns: terminalWidth} = useTerminalBreakpoint()
 
   // Process streaming messages to handle action_start/action_stop pairs
   const processedStreamingMessages = useMemo(() => processMessagesForActions(streamingMessages), [streamingMessages])
@@ -315,11 +344,6 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
             },
           ]
         })
-      }
-
-      if (result && result.type === 'quit') {
-        stopQueuePollingService()
-        exit()
       }
 
       if (result && result.type === 'streaming') {
@@ -457,12 +481,9 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
   )
 
   // Calculate available height for scrollable content
-  // Subtract bottom area (suggestions + input)
-  const scrollableHeight = Math.max(1, availableHeight - BOTTOM_AREA_HEIGHT)
-
-  // Calculate max output lines based on available height
-  // Reserve space for command header, borders, hint line, and margin
-  const maxOutputLines = Math.max(MIN_OUTPUT_LINES, scrollableHeight - OUTPUT_BOX_OVERHEAD)
+  const scrollableHeight = Math.max(1, availableHeight - commandInput)
+  // Subtract input + border + indicator lines + indicator page (1 + 2 + 1 + 2)
+  const maxOutputLines = scrollableHeight - 6
 
   // Render streaming message (handles ProcessedMessage for action types)
   const renderStreamingMessage = useCallback(
@@ -517,6 +538,8 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
       }
 
       case 'file_selector': {
+        // availableHeight - more above indicator - input - selector title - selector footer - command input
+        const pageSize = availableHeight - 1 - 1 - 4 - 4 - commandInput
         return (
           <InlineFileSelector
             allowCancel={activePrompt.allowCancel}
@@ -525,7 +548,7 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
             message={activePrompt.message}
             mode={activePrompt.mode}
             onSelect={handleFileSelectorResponse}
-            pageSize={activePrompt.pageSize}
+            pageSize={breakpoint === 'normal' ? pageSize : 2}
           />
         )
       }
@@ -566,8 +589,6 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
     handleSelectResponse,
   ])
 
-  // Render a single message item
-  // For the last command message during streaming, show live streaming output
   const renderMessageItem = useCallback(
     (msg: CommandMessage, index: number) => {
       if (msg.type === 'command') {
@@ -575,9 +596,10 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
         const isLastMessage = index === messages.length - 1
         const showLiveOutput =
           isLastMessage && (isStreaming || activePrompt) && (streamingMessages.length > 0 || activePrompt)
+        const contentWidth = terminalWidth - 12
 
         return (
-          <Box flexDirection="column" marginTop={index === 0 ? 0 : 1} width="100%">
+          <Box flexDirection="column" marginBottom={1} width="100%">
             <Box
               borderBottom={false}
               borderLeftColor={colors.primary}
@@ -594,13 +616,12 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
             {hasOutput &&
               (() => {
                 const processedOutput = processMessagesForActions(msg.output!)
-                const {displayMessages, skippedLines} = getMessagesFromEnd(processedOutput, maxOutputLines)
+                const {displayMessages, skippedLines} = getMessagesFromEnd(processedOutput, maxOutputLines, contentWidth)
                 return (
                   <Box
                     borderColor={colors.border}
                     borderStyle="round"
                     flexDirection="column"
-                    marginTop={0}
                     paddingX={1}
                     width="100%"
                   >
@@ -619,6 +640,7 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
                 const {displayMessages: liveMessages, skippedLines} = getMessagesFromEnd(
                   processedStreamingMessages,
                   maxOutputLines,
+                  contentWidth,
                 )
                 return (
                   <Box
@@ -677,9 +699,10 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
         maxOutputLines,
         promptHeight: isLive ? estimatePromptHeight(activePrompt) : 0,
         streamingLines: isLive ? streamingMessages.length : 0,
+        terminalWidth,
       })
     },
-    [activePrompt, isStreaming, maxOutputLines, messages.length, streamingMessages.length],
+    [activePrompt, isStreaming, maxOutputLines, messages.length, streamingMessages.length, terminalWidth],
   )
 
   return (

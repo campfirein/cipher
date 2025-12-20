@@ -7,6 +7,7 @@
 import {Box, Spacer, Text} from 'ink'
 import React from 'react'
 
+import type {MessageItemHeights} from '../../hooks/index.js'
 import type {ActivityLog} from '../../types.js'
 
 import {useTheme} from '../../hooks/index.js'
@@ -16,23 +17,14 @@ import {ExecutionInput} from './execution-input.js'
 import {ExecutionProgress} from './execution-progress.js'
 import {ExecutionStatus} from './execution-status.js'
 
-/** Default maximum number of visible progress items */
-const DEFAULT_MAX_PROGRESS_ITEMS = 3
-
 interface LogItemProps {
+  /** Dynamic heights based on terminal breakpoint */
+  heights: MessageItemHeights
   /** The activity log to display */
   log: ActivityLog
-  /** Maximum number of content lines before truncation */
-  maxContentLines: number
-  /** Maximum number of progress items to show (default: 3) */
-  maxProgressItems?: number
 }
 
-export const LogItem: React.FC<LogItemProps> = ({
-  log,
-  maxContentLines,
-  maxProgressItems = DEFAULT_MAX_PROGRESS_ITEMS,
-}) => {
+export const LogItem: React.FC<LogItemProps> = ({heights, log}) => {
   const {
     theme: {colors},
   } = useTheme()
@@ -42,8 +34,6 @@ export const LogItem: React.FC<LogItemProps> = ({
   const minutes = log.timestamp.getMinutes().toString().padStart(2, '0')
   const seconds = log.timestamp.getSeconds().toString().padStart(2, '0')
   const displayTime = `${hours}:${minutes}:${seconds}`
-
-  const displayTools = Math.min(log.progress?.length ?? 0, maxProgressItems) + 1
 
   return (
     <Box flexDirection="column" marginBottom={1} width="100%">
@@ -60,21 +50,24 @@ export const LogItem: React.FC<LogItemProps> = ({
 
       {/* Progress and Status */}
       <Box flexDirection="column">
-        {log.progress && <ExecutionProgress maxItems={maxProgressItems} progress={log.progress} />}
+        {log.progress && <ExecutionProgress maxLines={heights.maxProgressItems} progress={log.progress} />}
         <ExecutionStatus status={log.status} />
       </Box>
 
       {/* Content */}
       {(log.status === 'failed' || log.status === 'completed') && (
         <ExecutionContent
+          bottomMargin={heights.contentBottomMargin}
           content={log.content ?? ''}
           isError={log.status === 'failed'}
-          maxLines={maxContentLines - displayTools}
+          maxLines={heights.maxContentLines}
         />
       )}
 
       {/* Changes */}
-      {log.status === 'completed' && <ExecutionChanges created={log.changes.created} updated={log.changes.updated} />}
+      {log.status === 'completed' && (
+        <ExecutionChanges created={log.changes.created} maxChanges={heights.maxChanges} updated={log.changes.updated} />
+      )}
     </Box>
   )
 }

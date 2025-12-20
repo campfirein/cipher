@@ -14,6 +14,7 @@ import type {QueueStats} from '../types.js'
 
 import {useServices} from '../contexts/index.js'
 import {useTheme} from '../contexts/use-theme.js'
+import {useTerminalBreakpoint} from '../hooks/use-terminal-breakpoint.js'
 import {Logo} from './logo.js'
 
 interface HeaderProps {
@@ -26,6 +27,7 @@ interface HeaderProps {
 export const Header: React.FC<HeaderProps> = ({compact, connectedAgent, queueStats, showQueueStats}) => {
   const {version} = useServices()
   const {theme} = useTheme()
+  const {breakpoint} = useTerminalBreakpoint()
 
   return (
     <Box flexDirection="column" width="100%">
@@ -41,6 +43,9 @@ export const Header: React.FC<HeaderProps> = ({compact, connectedAgent, queueSta
               <Text color="green">● </Text>
               <Text color="gray">{connectedAgent}</Text>
             </Box>
+          )}
+          {breakpoint === "compact" && (
+            <Text color={theme.colors.warning}>Terminal too small - expand for better experience</Text>
           )}
         </Box>
 
