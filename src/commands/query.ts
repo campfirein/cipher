@@ -18,7 +18,10 @@ import {createTransportClientFactory} from '../infra/transport/transport-client-
 type TaskAckPayload = {taskId: string}
 type TaskStartedPayload = {taskId: string}
 type TaskCompletedPayload = {taskId: string}
-type TaskErrorPayload = {error: string; taskId: string}
+type TaskErrorPayload = {
+  error: {code?: string; details?: Record<string, unknown>; message: string; name: string}
+  taskId: string
+}
 
 /**
  * LLM service payloads (forwarded from Agent with original names)
@@ -310,7 +313,7 @@ Bad:
           if (payload.taskId === taskId && !completed) {
             completed = true
             cleanup()
-            reject(new Error(payload.error))
+            reject(new Error(payload.error.message))
           }
         }),
 

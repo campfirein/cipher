@@ -38,5 +38,5 @@ export const TRANSPORT_CONNECT_TIMEOUT_MS = 3000 // 3s - 127.0.0.1 connects in <
 export const TRANSPORT_RECONNECTION_DELAY_MS = 50 // 50ms - ultra aggressive start
 export const TRANSPORT_RECONNECTION_DELAY_MAX_MS = 1000 // 1s cap - fail fast, retry fast
 export const TRANSPORT_RECONNECTION_ATTEMPTS = 30 // More attempts with faster retry
-export const TRANSPORT_PING_INTERVAL_MS = 1000 // 1s ping - aggressive heartbeat
-export const TRANSPORT_PING_TIMEOUT_MS = 1000 // 1s - fail fast if no pong (total 2s detect)
+export const TRANSPORT_PING_INTERVAL_MS = 5000 // 5s ping - reasonable for local communication
+export const TRANSPORT_PING_TIMEOUT_MS = 10_000 // 10s timeout - avoid false disconnects during GC/load
