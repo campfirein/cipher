@@ -185,6 +185,35 @@ export class ProcessManager {
   }
 
   /**
+   * Handle system wake from sleep.
+   * Verify processes are still alive and restart if needed.
+   */
+  private handleSystemWake(): void {
+    const {agentProcess, transportProcess} = this.state
+
+    // Check if processes are still running
+    const agentAlive = agentProcess && !agentProcess.killed && agentProcess.exitCode === null
+    const transportAlive = transportProcess && !transportProcess.killed && transportProcess.exitCode === null
+
+    if (!agentAlive || !transportAlive) {
+      console.error('[ProcessManager] Processes not healthy after wake, triggering restart')
+
+      // Trigger restart by simulating crash recovery
+      if (!transportAlive && transportProcess) {
+        console.log('[ProcessManager] Transport process died during sleep, respawning...')
+        // The crash recovery handler will handle this
+        transportProcess.emit('exit', 1, null)
+      } else if (!agentAlive && agentProcess) {
+        console.log('[ProcessManager] Agent process died during sleep, respawning...')
+        // The crash recovery handler will handle this
+        agentProcess.emit('exit', 1, null)
+      }
+    } else {
+      console.log('[ProcessManager] Processes healthy after wake')
+    }
+  }
+
+  /**
    * Send IPC message to child process.
    */
   private sendToChild(child: ChildProcess, message: IPCMessageToChild): void {
@@ -318,6 +347,29 @@ export class ProcessManager {
   }
 
   /**
+   * Start health check interval for sleep/wake detection.
+   * Detects system sleep by monitoring for large time gaps between checks.
+   */
+  private startHealthCheck(): void {
+    this.lastHealthCheckTime = Date.now()
+
+    this.healthCheckInterval = setInterval(() => {
+      const now = Date.now()
+      const elapsed = now - this.lastHealthCheckTime
+      this.lastHealthCheckTime = now
+
+      // If significantly more time passed than expected, system likely slept
+      if (elapsed > SLEEP_DETECTION_THRESHOLD_MS) {
+        console.log(`[ProcessManager] System wake detected (${Math.round(elapsed / 1000)}s gap)`)
+        this.handleSystemWake()
+      }
+    }, HEALTH_CHECK_INTERVAL_MS)
+
+    // Don't prevent process exit
+    this.healthCheckInterval.unref()
+  }
+
+  /**
    * Start Transport Process.
    * @returns The port Transport is listening on
    */
@@ -413,6 +465,16 @@ export class ProcessManager {
   }
 
   /**
+   * Stop health check interval.
+   */
+  private stopHealthCheck(): void {
+    if (this.healthCheckInterval) {
+      clearInterval(this.healthCheckInterval)
+      this.healthCheckInterval = undefined
+    }
+  }
+
+  /**
    * Stop Transport Process.
    */
   private async stopTransportProcess(): Promise<void> {
@@ -446,68 +508,6 @@ export class ProcessManager {
       // Send shutdown command
       this.sendToChild(transportProcess, {type: 'shutdown'})
     })
-  }
-
-  /**
-   * Start health check interval for sleep/wake detection.
-   * Detects system sleep by monitoring for large time gaps between checks.
-   */
-  private startHealthCheck(): void {
-    this.lastHealthCheckTime = Date.now()
-
-    this.healthCheckInterval = setInterval(() => {
-      const now = Date.now()
-      const elapsed = now - this.lastHealthCheckTime
-      this.lastHealthCheckTime = now
-
-      // If significantly more time passed than expected, system likely slept
-      if (elapsed > SLEEP_DETECTION_THRESHOLD_MS) {
-        console.log(`[ProcessManager] System wake detected (${Math.round(elapsed / 1000)}s gap)`)
-        this.handleSystemWake()
-      }
-    }, HEALTH_CHECK_INTERVAL_MS)
-
-    // Don't prevent process exit
-    this.healthCheckInterval.unref()
-  }
-
-  /**
-   * Stop health check interval.
-   */
-  private stopHealthCheck(): void {
-    if (this.healthCheckInterval) {
-      clearInterval(this.healthCheckInterval)
-      this.healthCheckInterval = undefined
-    }
-  }
-
-  /**
-   * Handle system wake from sleep.
-   * Verify processes are still alive and restart if needed.
-   */
-  private handleSystemWake(): void {
-    const {agentProcess, transportProcess} = this.state
-
-    // Check if processes are still running
-    const agentAlive = agentProcess && !agentProcess.killed && agentProcess.exitCode === null
-    const transportAlive = transportProcess && !transportProcess.killed && transportProcess.exitCode === null
-
-    if (!agentAlive || !transportAlive) {
-      console.error('[ProcessManager] Processes not healthy after wake, triggering restart')
-
-      // Trigger restart by simulating crash recovery
-      if (!transportAlive && transportProcess) {
-        console.log('[ProcessManager] Transport process died during sleep, respawning...')
-        // The crash recovery handler will handle this
-        transportProcess.emit('exit', 1, null)
-      } else if (!agentAlive && agentProcess) {
-        console.log('[ProcessManager] Agent process died during sleep, respawning...')
-        // The crash recovery handler will handle this
-        agentProcess.emit('exit', 1, null)
-      }
-    } else {
-      console.log('[ProcessManager] Processes healthy after wake')
-    }
   }
 }
 

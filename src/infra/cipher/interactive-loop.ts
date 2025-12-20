@@ -155,6 +155,8 @@ function setupEventListeners(
     process.stdout.write('\n' + chalk.red(payload.error) + '\n\n')
   }
 
+  // TODO(v0.5.0): Move to outer scope for better performance
+  // eslint-disable-next-line unicorn/consistent-function-scoping
   const uiListener = (payload: {context?: unknown; message?: string; type: string}): void => {
     switch (payload.type) {
       case 'banner': {
@@ -199,6 +201,8 @@ function setupEventListeners(
     }
   }
 
+  // TODO(v0.5.0): Move to outer scope for better performance
+  // eslint-disable-next-line unicorn/consistent-function-scoping
   const logListener = (payload: {level: string; message: string; source?: string}): void => {
     const prefix = payload.source ? `[${payload.source}] ` : ''
     const message = `${prefix}${payload.message}`

@@ -31,7 +31,6 @@ import {
   ProjectNotInitError,
   serializeTaskError,
 } from '../../core/domain/errors/task-error.js'
-import {NoOpTerminal, NoOpTrackingService} from '../../core/interfaces/noop-implementations.js'
 import {CipherAgent} from '../cipher/agent/index.js'
 import {ProjectConfigStore} from '../config/file-config-store.js'
 import {createTaskProcessor, TaskProcessor} from '../core/task-processor.js'
@@ -94,19 +93,6 @@ function getTransportPort(): number {
   }
 
   return port
-}
-
-/**
- * Create UseCase dependencies.
- * Uses real stores for auth/config, NoOp for terminal/tracking (headless mode).
- */
-function createUseCaseDependencies() {
-  return {
-    projectConfigStore: new ProjectConfigStore(),
-    terminal: new NoOpTerminal(),
-    tokenStore: new KeychainTokenStore(),
-    trackingService: new NoOpTrackingService(),
-  }
 }
 
 /**
