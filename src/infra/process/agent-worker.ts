@@ -357,6 +357,7 @@ async function handleTaskExecute(data: TaskExecuteMessage): Promise<void> {
     // Process task - events stream via agentEventBus subscription
     // Response is forwarded via llmservice:response event (no manual send needed)
     // Agent uses its default session (Single-Session pattern)
+    // File validation is handled by UseCase (business logic belongs there)
     await taskProcessor.process({
       content: input,
       files,

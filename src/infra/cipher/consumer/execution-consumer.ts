@@ -236,12 +236,13 @@ export class ExecutionConsumer {
   private async executeCurate(execution: Execution): Promise<void> {
     const storage = getAgentStorageSync()
 
-    // Parse input
+    // Parse input - support both JSON format (legacy/v2) and plain text
     let input: CurateInput
     try {
       input = JSON.parse(execution.input) as CurateInput
     } catch {
-      throw new Error('Invalid curate input: failed to parse JSON')
+      // Plain text format - wrap in CurateInput
+      input = {content: execution.input}
     }
 
     if (!input.content) {

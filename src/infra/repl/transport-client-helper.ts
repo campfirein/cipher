@@ -27,6 +27,7 @@ const TRANSPORT_LOG_FILE = path.join(BRV_DIR, 'transport-events.log')
 const TRANSPORT_EVENTS = [
   // Task lifecycle (Transport-generated)
   'task:ack',
+  'task:created',
   'task:started',
   'task:completed',
   'task:error',

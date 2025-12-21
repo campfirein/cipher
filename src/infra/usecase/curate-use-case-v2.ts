@@ -49,10 +49,14 @@ export class CurateUseCaseV2 implements ICurateUseCaseV2 {
       }
 
       // Create execution with status='running'
-      // Format as JSON for compatibility with legacy ExecutionConsumer
+      // Save in JSON format with all fields for tracking:
+      // - content: the context to curate
+      // - files: original file paths (if provided)
+      // - fileReferenceInstructions: generated instructions (if files provided and valid)
       const executionInput = JSON.stringify({
         content,
         ...(fileReferenceInstructions ? {fileReferenceInstructions} : {}),
+        ...(files && files.length > 0 ? {files} : {}),
       })
       executionId = storage.createExecution('curate', executionInput)
 
