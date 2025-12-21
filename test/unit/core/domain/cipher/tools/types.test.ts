@@ -33,7 +33,6 @@ describe('cipher/tools', () => {
       expect(ToolName.BASH_OUTPUT).to.equal('bash_output')
       expect(ToolName.CURATE).to.equal('curate')
       expect(ToolName.DELETE_MEMORY).to.equal('delete_memory')
-      expect(ToolName.DETECT_DOMAINS).to.equal('detect_domains')
       expect(ToolName.EDIT_FILE).to.equal('edit_file')
       expect(ToolName.EDIT_MEMORY).to.equal('edit_memory')
       expect(ToolName.GLOB_FILES).to.equal('glob_files')
@@ -74,7 +73,6 @@ describe('cipher/tools', () => {
         'bash_output',
         'curate',
         'delete_memory',
-        'detect_domains',
         'edit_file',
         'edit_memory',
         'glob_files',
