@@ -2,13 +2,13 @@ import {z} from 'zod'
 
 import type {Tool, ToolExecutionContext} from '../../../../core/domain/cipher/tools/types.js'
 
-import {CONTEXT_TREE_DOMAINS} from '../../../../config/context-tree-domains.js'
+import {DEFAULT_CONTEXT_TREE_DOMAINS} from '../../../../config/context-tree-domains.js'
 import {ToolName} from '../../../../core/domain/cipher/tools/constants.js'
 
 /**
  * Predefined domain category names for validation reference
  */
-const PREDEFINED_DOMAIN_NAMES = CONTEXT_TREE_DOMAINS.map((domain) => domain.name)
+const PREDEFINED_DOMAIN_NAMES = DEFAULT_CONTEXT_TREE_DOMAINS.map((domain) => domain.name)
 
 /**
  * Domain category for knowledge classification.
@@ -17,7 +17,7 @@ const DomainCategory = z
   .string()
   .min(1)
   .describe(
-    `Domain category name. Must be one of the predefined categories: ${PREDEFINED_DOMAIN_NAMES.join(', ')}`,
+    `Domain category name from the input data. This is the default context tree domains: ${PREDEFINED_DOMAIN_NAMES.join(', ')} or you can create a new domain tool.`,
   )
 
 /**
@@ -83,8 +83,8 @@ async function executeDetectDomains(
  *
  * @returns Configured detect domains tool
  */
-export function createDetectDomainsTool(): Tool {
-  const domainDescriptions = CONTEXT_TREE_DOMAINS.map(
+export function createSpecAnalyzeTool(): Tool {
+  const domainDescriptions = DEFAULT_CONTEXT_TREE_DOMAINS.map(
     (domain) => `  - ${domain.name}: ${domain.description}`,
   ).join('\n')
 
@@ -97,7 +97,7 @@ Predefined domain categories:
 ${domainDescriptions}
 
 For each domain you detect:
-1. Identify the domain category (must be one of the predefined categories above)
+1. Identify the domain category from the predefined list above or create a new domain category if it is not in the list
 2. Extract relevant text segments from the input data that demonstrate why this domain is relevant
 3. Each text segment should be a meaningful excerpt (not just keywords) that shows the connection to the domain
 4. Only include domains that are actually present in the data - do not include domains just because they exist in the predefined list
@@ -106,7 +106,7 @@ The text segments will be used later to create organized knowledge topics, so th
 
     execute: executeDetectDomains,
 
-    id: ToolName.DETECT_DOMAINS,
+    id: ToolName.SPEC_ANALYZE,
     inputSchema: DetectDomainsInputSchema,
   }
 }

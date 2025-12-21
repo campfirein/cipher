@@ -46,12 +46,12 @@ const EXPLORE_AGENT_TOOLS: Record<string, boolean> = {
 const CURATE_AGENT_TOOLS: Record<string, boolean> = {
   [ToolName.BASH_EXEC]: false,
   [ToolName.CURATE]: true,
-  [ToolName.DETECT_DOMAINS]: true,
   [ToolName.EDIT_FILE]: false,
   [ToolName.GLOB_FILES]: true,
   [ToolName.GREP_CONTENT]: true,
   [ToolName.LIST_DIRECTORY]: true,
   [ToolName.READ_FILE]: true,
+  [ToolName.SPEC_ANALYZE]: true,
   [ToolName.WRITE_FILE]: false,
 }
 
@@ -108,7 +108,7 @@ const BUILT_IN_AGENTS: Record<KnownAgent, AgentInfo> = {
       bash: {'*': 'deny'},
       edit: 'deny', // Only uses curate tool, not general file editing
     },
-    promptFile: 'curate-context-tree-curation.yml',
+    promptFile: 'curate.yml',
     tools: CURATE_AGENT_TOOLS,
   }),
 

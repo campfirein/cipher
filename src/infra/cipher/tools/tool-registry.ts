@@ -14,7 +14,6 @@ import {createBatchTool} from './implementations/batch-tool.js'
 import {createCreateKnowledgeTopicTool} from './implementations/create-knowledge-topic-tool.js'
 import {createCurateTool} from './implementations/curate-tool.js'
 import {createDeleteMemoryTool} from './implementations/delete-memory-tool.js'
-import {createDetectDomainsTool} from './implementations/detect-domains-tool.js'
 import {createEditFileTool} from './implementations/edit-file-tool.js'
 import {createEditMemoryTool} from './implementations/edit-memory-tool.js'
 // import {createFindKnowledgeTopicsTool} from './implementations/find-knowledge-topics-tool.js'
@@ -27,6 +26,7 @@ import {createReadFileTool} from './implementations/read-file-tool.js'
 import {createReadMemoryTool} from './implementations/read-memory-tool.js'
 import {createReadTodosTool} from './implementations/read-todos-tool.js'
 import {createSearchHistoryTool} from './implementations/search-history-tool.js'
+import {createSpecAnalyzeTool} from './implementations/spec-analyze-tool.js'
 import {createTaskTool} from './implementations/task-tool.js'
 import {createWriteFileTool} from './implementations/write-file-tool.js'
 import {createWriteMemoryTool} from './implementations/write-memory-tool.js'
@@ -173,14 +173,6 @@ export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
     requiredServices: ['memoryManager'],
   },
 
-  [ToolName.DETECT_DOMAINS]: {
-    descriptionFile: 'detect_domains',
-    factory: () => createDetectDomainsTool(),
-    markers: [ToolMarker.ContextBuilding],
-    outputGuidance: 'detect_domains',
-    requiredServices: [], // No services required (validates LLM-detected domains)
-  },
-
   [ToolName.EDIT_FILE]: {
     descriptionFile: 'edit_file',
     factory: (services) => createEditFileTool(getRequiredService(services.fileSystemService, 'fileSystemService')),
@@ -260,6 +252,14 @@ export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
     factory: (_services) => createSearchHistoryTool(),
     markers: [ToolMarker.ContextBuilding, ToolMarker.Discovery],
     requiredServices: [], // No services required yet (stub implementation)
+  },
+
+  [ToolName.SPEC_ANALYZE]: {
+    descriptionFile: 'spec_analyze',
+    factory: () => createSpecAnalyzeTool(),
+    markers: [ToolMarker.ContextBuilding],
+    outputGuidance: 'spec_analyze',
+    requiredServices: [], // No services required (validates LLM-detected domains)
   },
 
   [ToolName.TASK]: {

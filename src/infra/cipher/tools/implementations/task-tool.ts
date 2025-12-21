@@ -4,6 +4,7 @@ import type {Tool, ToolExecutionContext} from '../../../../core/domain/cipher/to
 import type {SessionManager} from '../../session/session-manager.js'
 
 import {AgentRegistry, getAgentRegistry} from '../../../../core/domain/cipher/agent/agent-registry.js'
+import {createContextTreeFileSystem} from '../../file-system/context-tree-file-system-factory.js'
 
 /**
  * Tool name constant for task tool.
@@ -15,6 +16,16 @@ export const TASK_TOOL_NAME = 'task' as const
  */
 const TaskInputSchema = z
   .object({
+    /**
+     * If true, restricts file operations to .brv/context-tree/ only.
+     * Use this for query commands to search only curated knowledge.
+     */
+    contextTreeOnly: z
+      .boolean()
+      .optional()
+      .default(false)
+      .describe('If true, restricts file operations to .brv/context-tree/ only'),
+
     /**
      * Short description of the task (3-5 words).
      * Used for display and tracking purposes.
@@ -37,7 +48,7 @@ const TaskInputSchema = z
      * The type of subagent to use.
      * Must be a registered subagent name (e.g., "query", "curate").
      */
-    subagentType: z.string().min(1).describe('Which subagent to use (e.g., "query", "curate")'),
+    subagentType: z.string().min(1).describe('Which subagent to use (e.g., "explore", "curate")'),
   })
   .strict()
 
@@ -102,7 +113,7 @@ export function createTaskTool(dependencies: TaskToolDependencies): Tool {
 
     async execute(input: unknown, context?: ToolExecutionContext): Promise<TaskResult> {
       const params = input as TaskInput
-      const {description, prompt, sessionId, subagentType} = params
+      const {contextTreeOnly, description, prompt, sessionId, subagentType} = params
 
       // Get session manager (lazy loaded)
       const sessionManager = getSessionManager()
@@ -151,7 +162,23 @@ export function createTaskTool(dependencies: TaskToolDependencies): Tool {
 
       try {
         // Get or create session for the subagent
-        const session = await sessionManager.createSession(subagentSessionId)
+        // If contextTreeOnly is true, create a session with restricted file system
+        let session
+        if (contextTreeOnly) {
+          // Create a restricted FileSystemService for context-tree only access
+          const restrictedFs = createContextTreeFileSystem(process.cwd())
+          await restrictedFs.initialize()
+
+          // Create session with restricted file system
+          session = await sessionManager.createChildSessionWithOverrides(
+            context?.sessionId ?? 'parent',
+            agent.name,
+            subagentSessionId,
+            {fileSystemService: restrictedFs},
+          )
+        } else {
+          session = await sessionManager.createSession(subagentSessionId)
+        }
 
         // Build the system prompt for the subagent
         // The agent's promptFile will be used by the SystemPromptManager
@@ -236,15 +263,17 @@ Available subagents:
 ${subagentList}
 
 Use this tool when you need to:
-- Search the context tree for existing information (use 'query' subagent)
+- Search the context tree for existing information (use 'explore' subagent with contextTreeOnly=true)
+- Search the codebase for information (use 'explore' subagent without contextTreeOnly)
 - Create or update knowledge topics (use 'curate' subagent)
 
 Each subagent runs with its own specialized configuration and tool access.
 The subagent will execute and return its results to you.
 
 Parameters:
+- subagent_type: Which subagent to use (e.g., "explore", "curate")
 - description: Short description of the task (3-5 words)
 - prompt: Detailed instructions for the subagent
-- subagent_type: Which subagent to use
+- context_tree_only: (Optional) If true, restricts file operations to .brv/context-tree/ only. Use this for query commands.
 - session_id: (Optional) Continue an existing subagent session`
 }

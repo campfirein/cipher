@@ -65,6 +65,28 @@ export function sanitizeFolderName(folderName: string): string {
 }
 
 /**
+ * Converts a string to lowercase snake_case for file/folder naming.
+ * Replaces spaces and special characters with underscores, converts to lowercase.
+ * @param name - The name to convert
+ * @returns The snake_case version of the name
+ *
+ * @example
+ * ```ts
+ * toSnakeCase('Best Practices') // => 'best_practices'
+ * toSnakeCase('Error-Handling') // => 'error_handling'
+ * toSnakeCase('QuickSort Optimizations') // => 'quicksort_optimizations'
+ * ```
+ */
+export function toSnakeCase(name: string): string {
+  return name
+    .toLowerCase()
+    .trim()
+    .replaceAll(/[^\w]+/g, '_')
+    .replaceAll(/_{2,}/g, '_')
+    .replaceAll(/^_|_$/g, '');
+}
+
+/**
  * Lists all immediate children (files and directories) of the given directory,
  * and, for each child folder, shows its own immediate children.
  * @param dirPath The directory path whose children to list.

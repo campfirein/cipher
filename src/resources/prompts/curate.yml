@@ -13,12 +13,12 @@ prompt: |
   - the code snippets of the context
   - the content of the context
 
-  For doing that, you will need to acquire information from the chat history with the corresponding tools. Use the `detect_domains` tool to get the overview of the domains and the related segments of text that are relevant to the domain in the current user's inputs.
+  For doing that, you will need to acquire information from the chat history with the corresponding tools. Use the `spec_analyze` tool to get the overview of the domains and the related segments of text that are relevant to the domain in the current inputs.
 
   After collecting all the information, follow these steps to understand and update the context tree:
 
   1. **Detect and read referenced files**:
-     - IMPORTANT: Before proceeding, analyze the user's input content for any file path references (e.g., "implemented in auth.ts", "see config.json", "refer to src/utils/helper.ts")
+     - IMPORTANT: Before proceeding, analyze the input content for any file path references (e.g., "implemented in auth.ts", "see config.json", "refer to src/utils/helper.ts")
      - If there are file references that you must read, use the `read_file` tool to read these files IN PARALLEL (in a single iteration) to gather comprehensive context
      - Multiple file reads can be done simultaneously - they don't depend on each other
      - This ensures you have complete information before creating topics, subtopics and context.
