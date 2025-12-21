@@ -7,12 +7,23 @@
 
 import { spawn, ChildProcess } from 'child_process';
 import { EventEmitter } from 'events';
+import { platform } from 'os';
 import {
 	createInternalToolName,
 	type InternalTool,
 	type InternalToolHandler,
 } from '../../types.js';
 import { logger } from '../../../../logger/index.js';
+
+/**
+ * Get the appropriate shell command and args for the current OS
+ */
+function getShellCommand(): { shell: string; args: string[] } {
+	if (platform() === 'win32') {
+		return { shell: 'cmd.exe', args: ['/c'] };
+	}
+	return { shell: '/bin/bash', args: ['-c'] };
+}
 
 /**
  * Command execution result structure
@@ -66,7 +77,8 @@ class BashSession extends EventEmitter {
 
 		try {
 			// Start bash process with non-interactive mode to avoid prompt issues
-			this.process = spawn('/bin/bash', [], {
+			const { shell, args } = getShellCommand();
+			this.process = spawn(shell, args, {
 				cwd: this.currentWorkingDir,
 				stdio: ['pipe', 'pipe', 'pipe'],
 				env: { ...process.env },
@@ -240,7 +252,7 @@ class BashSessionManager {
  * Execute a bash command with optional session persistence
  */
 async function executeBashCommand(options: CommandOptions): Promise<CommandResult> {
-	const { command, timeout = 30000, workingDir, environment, shell = '/bin/bash' } = options;
+	const { command, timeout = 30000, workingDir, environment } = options;
 
 	logger.debug('Executing bash command', { command, timeout, workingDir });
 
@@ -254,7 +266,8 @@ async function executeBashCommand(options: CommandOptions): Promise<CommandResul
 		let output = '';
 		let error = '';
 
-		const childProcess = spawn(shell, ['-c', command], {
+		const { shell, args } = getShellCommand();
+		const childProcess = spawn(shell, [...args, command], {
 			cwd: workingDir || process.cwd(),
 			env: { ...process.env, ...environment },
 			stdio: ['pipe', 'pipe', 'pipe'],
