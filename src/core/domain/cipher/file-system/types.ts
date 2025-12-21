@@ -153,9 +153,27 @@ export interface ListDirectoryResult {
 }
 
 /**
+ * Attachment data for binary files (images, PDFs).
+ * Used to return base64-encoded content for multimodal LLM consumption.
+ */
+export interface FileAttachment {
+  /** Base64-encoded file content */
+  base64: string
+
+  /** Original file name */
+  fileName: string
+
+  /** MIME type (e.g., 'image/png', 'application/pdf') */
+  mimeType: string
+}
+
+/**
  * Result of a file read operation.
  */
 export interface FileContent {
+  /** Attachment data for binary files (images, PDFs) */
+  attachment?: FileAttachment
+
   /** File content as string */
   content: string
 
@@ -170,6 +188,9 @@ export interface FileContent {
 
   /** Human-readable message about file status (truncation info, etc.) */
   message: string
+
+  /** Preview of content (first 20 lines) for UI display */
+  preview?: string
 
   /** File size in bytes */
   size: number
