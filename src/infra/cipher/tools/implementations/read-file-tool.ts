@@ -10,13 +10,13 @@ import {ToolName} from '../../../../core/domain/cipher/tools/constants.js'
  */
 const ReadFileInputSchema = z
   .object({
-    filePath: z.string().describe('Absolute path to the file to read'),
+    filePath: z.string().describe('Path to the file to read (absolute or relative to working directory)'),
     limit: z
       .number()
       .int()
       .positive()
       .optional()
-      .describe('Maximum number of lines to read (optional)'),
+      .describe('Maximum number of lines to read (optional, default: 2000)'),
     offset: z
       .number()
       .int()
@@ -35,7 +35,14 @@ type ReadFileInput = z.infer<typeof ReadFileInputSchema>
  * Creates the read file tool.
  *
  * Reads the contents of a file with optional pagination support.
- * Supports offset (starting line) and limit (max lines) for large files.
+ *
+ * Features:
+ * - Accepts both absolute and relative paths
+ * - Image/PDF files returned as base64 attachments for multimodal LLMs
+ * - Binary file detection with clear error messages
+ * - .env file blocking with whitelist for example files
+ * - XML-wrapped output for clearer LLM parsing
+ * - Preview metadata for UI display
  *
  * @param fileSystemService - File system service dependency
  * @returns Configured read file tool
@@ -43,7 +50,7 @@ type ReadFileInput = z.infer<typeof ReadFileInputSchema>
 export function createReadFileTool(fileSystemService: IFileSystem): Tool {
   return {
     description:
-      'Read the contents of a file. Supports pagination with offset (1-based line number) and limit (max lines).',
+      'Read the contents of a file. Supports relative/absolute paths, pagination, and returns images/PDFs as base64 attachments.',
     async execute(input: unknown, _context?: ToolExecutionContext) {
       const {filePath, limit, offset} = input as ReadFileInput
 
@@ -53,11 +60,13 @@ export function createReadFileTool(fileSystemService: IFileSystem): Tool {
         offset,
       })
 
-      // Return formatted result with clear guidance
+      // Return formatted result with all metadata
       return {
+        attachment: result.attachment,
         content: result.formattedContent,
         lines: result.lines,
         message: result.message,
+        preview: result.preview,
         size: result.size,
         totalLines: result.totalLines,
         truncated: result.truncated,

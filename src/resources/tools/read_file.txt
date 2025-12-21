@@ -1,19 +1,27 @@
 Reads a file from the local filesystem.
 
 Usage:
-- The filePath parameter must be an absolute path, not a relative path
+- Accepts both absolute and relative paths (relative paths resolved against working directory)
 - By default, reads up to 2000 lines starting from the beginning of the file
 - You can specify offset (1-based line number) and limit to read specific sections
 - Any lines longer than 2000 characters will be truncated with "..."
-- Results include line numbers in "00001| content" format for easy reference
+- Results include line numbers in "00001| content" format wrapped in <file> tags
 - If the file is not found, similar filenames will be suggested
 
+Special file handling:
+- Image files (PNG, JPG, GIF, WebP, BMP, ICO): Returned as base64 attachment for multimodal processing
+- PDF files: Returned as base64 attachment
+- Binary files: Rejected with clear error message
+- .env files: Blocked for security (except .env.sample, .env.example, .env.template)
+
 Output:
-- content: File content with line numbers (00001| format)
+- content: File content with line numbers (00001| format) wrapped in <file> tags
 - lines: Number of lines returned
 - totalLines: Total lines in the file
 - truncated: Whether more content is available
 - message: Human-readable status with guidance on how to read more
+- preview: First 20 lines of content (for UI display)
+- attachment: Base64 data for images/PDFs (with mimeType and fileName)
 
 For large files, use offset and limit parameters:
 - First read: offset=1, limit=2000 (default)

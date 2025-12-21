@@ -46,6 +46,7 @@ import {
   WriteOperationError,
 } from '../../../core/domain/cipher/errors/file-system-error.js'
 import {getErrorMessage} from '../../../utils/error-helpers.js'
+import {getMimeType, isBinaryFile, isMediaFile, isPdfFile} from './binary-utils.js'
 import {createGitignoreFilter} from './gitignore-filter.js'
 import {collectFileMetadata, escapeIfExactMatch, extractPaths, sortFilesByRecency} from './glob-utils.js'
 import {PathValidator} from './path-validator.js'
@@ -61,6 +62,22 @@ const MAX_LINE_LENGTH = 2000
  * Prevents context overflow while providing enough content.
  */
 const DEFAULT_READ_LIMIT = 2000
+
+/**
+ * Number of lines to include in the preview.
+ */
+const PREVIEW_LINES = 20
+
+/**
+ * Buffer size for binary file detection (4KB sample).
+ */
+const BINARY_DETECTION_BUFFER_SIZE = 4096
+
+/**
+ * Whitelist of .env file patterns that are safe to read.
+ * These are typically example/template files without real secrets.
+ */
+const ENV_WHITELIST = ['.env.sample', '.env.example', '.env.template', '.env.defaults']
 
 /**
  * Truncates a line to MAX_LINE_LENGTH, adding ellipsis if truncated.
@@ -472,17 +489,39 @@ export class FileSystemService implements IFileSystem {
 
   /**
    * Read the contents of a file.
+   *
+   * Features:
+   * - Relative path support (resolved against working directory)
+   * - Image/PDF files returned as base64 attachments
+   * - Binary file detection and rejection
+   * - .env file blocking with whitelist for example files
+   * - XML-wrapped output for clearer LLM parsing
+   * - Preview metadata (first 20 lines)
    */
   public async readFile(filePath: string, options: ReadFileOptions = {}): Promise<FileContent> {
     this.ensureInitialized()
 
+    // Resolve relative paths against working directory
+    let resolvedPath = filePath
+    if (!path.isAbsolute(filePath)) {
+      resolvedPath = path.resolve(this.config.workingDirectory, filePath)
+    }
+
     // Validate path
-    const validation = this.pathValidator.validate(filePath, 'read')
+    const validation = this.pathValidator.validate(resolvedPath, 'read')
     if (!validation.valid) {
-      this.throwValidationError(filePath, validation.error)
+      this.throwValidationError(resolvedPath, validation.error)
     }
 
     const {normalizedPath} = validation
+
+    // Check .env file whitelist (allow .env.sample, .env.example, etc.)
+    const fileName = path.basename(normalizedPath).toLowerCase()
+    const isEnvFile = fileName.includes('.env')
+    const isWhitelisted = ENV_WHITELIST.some((w) => fileName.endsWith(w))
+    if (isEnvFile && !isWhitelisted) {
+      throw new PathBlockedError(normalizedPath, 'Environment files are blocked for security. Only example files (.env.sample, .env.example) are allowed.')
+    }
 
     try {
       // Check if file exists
@@ -493,8 +532,8 @@ export class FileSystemService implements IFileSystem {
         if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
           // Try to find similar files for suggestions
           const dirPath = path.dirname(normalizedPath)
-          const fileName = path.basename(normalizedPath)
-          const suggestions = await findSimilarFiles(dirPath, fileName)
+          const baseName = path.basename(normalizedPath)
+          const suggestions = await findSimilarFiles(dirPath, baseName)
 
           if (suggestions.length > 0) {
             throw new FileNotFoundError(
@@ -514,7 +553,41 @@ export class FileSystemService implements IFileSystem {
         throw new FileTooLargeError(normalizedPath, stats.size, this.config.maxFileSize)
       }
 
-      // Read file
+      // Handle image/PDF files - return as base64 attachment
+      if (isMediaFile(normalizedPath)) {
+        const buffer = await fs.readFile(normalizedPath)
+        const mimeType = getMimeType(normalizedPath) ?? 'application/octet-stream'
+        const fileType = isPdfFile(normalizedPath) ? 'PDF' : 'Image'
+        const baseName = path.basename(normalizedPath)
+
+        return {
+          attachment: {
+            base64: buffer.toString('base64'),
+            fileName: baseName,
+            mimeType,
+          },
+          content: `[${fileType} file: ${baseName}]`,
+          encoding: 'base64',
+          formattedContent: `<file>\n[${fileType} file: ${baseName} (${stats.size} bytes)]\n</file>`,
+          lines: 1,
+          message: `${fileType} file read successfully. Content available as base64 attachment.`,
+          size: stats.size,
+          totalLines: 1,
+          truncated: false,
+        }
+      }
+
+      // Check for binary files (read first 4KB for detection)
+      const handle = await fs.open(normalizedPath, 'r')
+      const sampleBuffer = Buffer.alloc(BINARY_DETECTION_BUFFER_SIZE)
+      const {bytesRead} = await handle.read(sampleBuffer, 0, BINARY_DETECTION_BUFFER_SIZE, 0)
+      await handle.close()
+
+      if (isBinaryFile(normalizedPath, sampleBuffer.subarray(0, bytesRead))) {
+        throw new ReadOperationError(normalizedPath, 'Cannot read binary file. Use a hex editor or appropriate tool for binary files.')
+      }
+
+      // Read text file
       const encoding = (options.encoding ?? 'utf8') as BufferEncoding
       const rawContent = await fs.readFile(normalizedPath, encoding)
 
@@ -534,7 +607,7 @@ export class FileSystemService implements IFileSystem {
       const truncatedLines = selectedLines.map((line) => truncateLine(line))
 
       // Format with line numbers
-      const formattedContent = formatWithLineNumbers(truncatedLines, offset + 1)
+      const numberedContent = formatWithLineNumbers(truncatedLines, offset + 1)
 
       // Build informative message
       const lastReadLine = offset + selectedLines.length
@@ -548,12 +621,24 @@ export class FileSystemService implements IFileSystem {
         message = `End of file - read ${selectedLines.length} lines (${totalLines} total).`
       }
 
+      // Generate preview (first N lines of selected content)
+      const previewLines = truncatedLines.slice(0, PREVIEW_LINES)
+      const preview = previewLines.join('\n')
+
+      // Wrap in XML tags for clearer LLM parsing
+      const truncationNote = truncated
+        ? `\n\n(File has more lines. Use offset=${lastReadLine + 1} to continue)`
+        : `\n\n(End of file - ${totalLines} lines)`
+
+      const formattedContent = `<file>\n${numberedContent}${truncationNote}\n</file>`
+
       return {
         content: truncatedLines.join('\n'),
         encoding,
         formattedContent,
         lines: selectedLines.length,
         message,
+        preview,
         size: stats.size,
         totalLines,
         truncated,
@@ -565,7 +650,8 @@ export class FileSystemService implements IFileSystem {
         error instanceof FileTooLargeError ||
         error instanceof PathNotAllowedError ||
         error instanceof PathTraversalError ||
-        error instanceof PathBlockedError
+        error instanceof PathBlockedError ||
+        error instanceof ReadOperationError
       ) {
         throw error
       }
