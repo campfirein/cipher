@@ -25,7 +25,7 @@ import {type ChildProcess, fork} from 'node:child_process'
 import path from 'node:path'
 import {fileURLToPath} from 'node:url'
 
-import {processManagerLog} from '../../utils/process-logger.js'
+import {crashLog, getSessionLogPath, processManagerLog} from '../../utils/process-logger.js'
 
 /**
  * IPC messages for process lifecycle.
@@ -74,6 +74,15 @@ const DEFAULT_SHUTDOWN_TIMEOUT_MS = 5000
 const DEFAULT_STARTUP_TIMEOUT_MS = 30_000
 const HEALTH_CHECK_INTERVAL_MS = 5000 // Check every 5 seconds
 const SLEEP_DETECTION_THRESHOLD_MS = 30_000 // If 30s passed when expecting 5s, likely slept
+
+/**
+ * Creates a system error with crash log.
+ * Logs error details to session log and returns user-friendly message.
+ */
+function createSystemError(error: string, context: string): Error {
+  const logPath = crashLog(new Error(error), context)
+  return new Error(`brv failed to start. Details logged to: ${logPath}`)
+}
 
 /**
  * ProcessManager - Spawns and manages Transport and Agent processes.
@@ -296,6 +305,7 @@ export class ProcessManager {
       const child = fork(workerPath, [], {
         env: {
           ...process.env,
+          BRV_SESSION_LOG: getSessionLogPath(),
           TRANSPORT_PORT: String(transportPort),
         },
         stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
@@ -306,7 +316,7 @@ export class ProcessManager {
       const timeout = setTimeout(() => {
         cleanup()
         child.kill('SIGKILL')
-        reject(new Error(`Agent process startup timed out after ${this.startupTimeoutMs}ms`))
+        reject(createSystemError(`Agent startup timed out after ${this.startupTimeoutMs}ms`, 'Agent startup timeout'))
       }, this.startupTimeoutMs)
 
       const onMessage = (message: AgentMessage): void => {
@@ -317,18 +327,18 @@ export class ProcessManager {
         } else if (message.type === 'error') {
           cleanup()
           child.kill('SIGKILL')
-          reject(new Error(`Agent process failed to start: ${message.error}`))
+          reject(createSystemError(message.error, 'Agent startup error'))
         }
       }
 
       const onError = (error: Error): void => {
         cleanup()
-        reject(new Error(`Agent process error: ${error.message}`))
+        reject(createSystemError(error.message, 'Agent process error'))
       }
 
       const onExit = (code: null | number): void => {
         cleanup()
-        reject(new Error(`Agent process exited during startup with code ${code}`))
+        reject(createSystemError(`Agent exited with code ${code}`, 'Agent unexpected exit'))
       }
 
       const cleanup = (): void => {
@@ -380,6 +390,10 @@ export class ProcessManager {
       const workerPath = path.resolve(this.getWorkerDir(), 'transport-worker.js')
 
       const child = fork(workerPath, [], {
+        env: {
+          ...process.env,
+          BRV_SESSION_LOG: getSessionLogPath(),
+        },
         stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
       })
 
@@ -388,7 +402,12 @@ export class ProcessManager {
       const timeout = setTimeout(() => {
         cleanup()
         child.kill('SIGKILL')
-        reject(new Error(`Transport process startup timed out after ${this.startupTimeoutMs}ms`))
+        reject(
+          createSystemError(
+            `Transport startup timed out after ${this.startupTimeoutMs}ms`,
+            'Transport startup timeout',
+          ),
+        )
       }, this.startupTimeoutMs)
 
       const onMessage = (message: TransportMessage): void => {
@@ -399,18 +418,24 @@ export class ProcessManager {
         } else if (message.type === 'error') {
           cleanup()
           child.kill('SIGKILL')
-          reject(new Error(`Transport process failed to start: ${message.error}`))
+          // Pass through user-friendly errors directly
+          const isUserFriendly = message.error.startsWith('brv is already running')
+          if (isUserFriendly) {
+            reject(new Error(message.error))
+          } else {
+            reject(createSystemError(message.error, 'Transport startup error'))
+          }
         }
       }
 
       const onError = (error: Error): void => {
         cleanup()
-        reject(new Error(`Transport process error: ${error.message}`))
+        reject(createSystemError(error.message, 'Transport process error'))
       }
 
       const onExit = (code: null | number): void => {
         cleanup()
-        reject(new Error(`Transport process exited during startup with code ${code}`))
+        reject(createSystemError(`Transport exited with code ${code}`, 'Transport unexpected exit'))
       }
 
       const cleanup = (): void => {

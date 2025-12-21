@@ -94,8 +94,8 @@ Bad examples:
 
       // Send task:create - Transport routes to Agent, UseCase handles logic
       await client.request<TaskCreateResponse>('task:create', {
+        content: args.context,
         ...(files?.length ? {files} : {}),
-        input: args.context,
         type: 'curate',
       })
 

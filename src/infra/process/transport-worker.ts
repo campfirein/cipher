@@ -59,7 +59,10 @@ async function startTransport(): Promise<number> {
   const projectRoot = process.cwd()
   const acquireResult = await instanceManager.acquire(projectRoot, port)
   if (!acquireResult.acquired) {
-    throw new Error(`Failed to acquire instance lock: ${acquireResult.reason}`)
+    throw new Error(
+      'brv is already running in this directory. ' +
+        'Please close the other instance first, or use a different terminal.',
+    )
   }
 
   // Setup message handlers (routing between clients and Agent)
