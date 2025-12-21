@@ -9,7 +9,6 @@ export const ToolName: {
   readonly CREATE_KNOWLEDGE_TOPIC: 'create_knowledge_topic'
   readonly CURATE: 'curate'
   readonly DELETE_MEMORY: 'delete_memory'
-  readonly DETECT_DOMAINS: 'detect_domains'
   readonly EDIT_FILE: 'edit_file'
   readonly EDIT_MEMORY: 'edit_memory'
   readonly GLOB_FILES: 'glob_files'
@@ -21,6 +20,7 @@ export const ToolName: {
   readonly READ_MEMORY: 'read_memory'
   readonly READ_TODOS: 'read_todos'
   readonly SEARCH_HISTORY: 'search_history'
+  readonly SPEC_ANALYZE: 'spec_analyze'
   readonly TASK: 'task'
   readonly WRITE_FILE: 'write_file'
   readonly WRITE_MEMORY: 'write_memory'
@@ -32,7 +32,6 @@ export const ToolName: {
   CREATE_KNOWLEDGE_TOPIC: 'create_knowledge_topic',
   CURATE: 'curate',
   DELETE_MEMORY: 'delete_memory',
-  DETECT_DOMAINS: 'detect_domains',
   EDIT_FILE: 'edit_file',
   EDIT_MEMORY: 'edit_memory',
   GLOB_FILES: 'glob_files',
@@ -44,6 +43,7 @@ export const ToolName: {
   READ_MEMORY: 'read_memory',
   READ_TODOS: 'read_todos',
   SEARCH_HISTORY: 'search_history',
+  SPEC_ANALYZE: 'spec_analyze',
   TASK: 'task',
   WRITE_FILE: 'write_file',
   WRITE_MEMORY: 'write_memory',

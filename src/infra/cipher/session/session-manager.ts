@@ -2,10 +2,29 @@ import {randomUUID} from 'node:crypto'
 
 import type {CipherAgentServices, SessionManagerConfig} from '../../../core/interfaces/cipher/cipher-services.js'
 import type {IChatSession} from '../../../core/interfaces/cipher/i-chat-session.js'
+import type {FileSystemService} from '../file-system/file-system-service.js'
 
 import {type ByteRoverHttpConfig, createSessionServices} from '../agent/service-initializer.js'
+import {CoreToolScheduler} from '../tools/core-tool-scheduler.js'
+import {DEFAULT_POLICY_RULES} from '../tools/default-policy-rules.js'
+import {PolicyEngine} from '../tools/policy-engine.js'
+import {ToolManager} from '../tools/tool-manager.js'
+import {ToolProvider} from '../tools/tool-provider.js'
 import {ChatSession} from './chat-session.js'
 import {generateSessionTitle} from './title-generator.js'
+
+/**
+ * Service overrides for creating sessions with custom services.
+ * Used to create restricted sessions (e.g., context-tree only search).
+ */
+export interface SessionServiceOverrides {
+  /**
+   * Custom file system service to use for this session.
+   * If provided, a new ToolProvider and ToolManager will be created
+   * using this file system service instead of the shared one.
+   */
+  fileSystemService?: FileSystemService
+}
 
 /**
  * Metadata about a session for listing purposes.
@@ -128,6 +147,77 @@ export class SessionManager {
     this.sessionAgentNames.set(id, agentName)
 
     return session
+  }
+
+  /**
+   * Create a child session for a subagent with custom service overrides.
+   * This is used to create sessions with restricted file system access
+   * (e.g., context-tree only search for query commands).
+   *
+   * @param parentId - Parent session ID
+   * @param agentName - Name of the agent (e.g., 'explore', 'curate')
+   * @param sessionId - Optional session ID (generates one if not provided)
+   * @param overrides - Service overrides (e.g., restricted FileSystemService)
+   * @returns New child chat session instance with overridden services
+   */
+  public async createChildSessionWithOverrides(
+    parentId: string,
+    agentName: string,
+    sessionId?: string,
+    overrides?: SessionServiceOverrides,
+  ): Promise<IChatSession> {
+    // If no overrides, use the standard createChildSession
+    if (!overrides?.fileSystemService) {
+      return this.createChildSession(parentId, agentName, sessionId)
+    }
+
+    // Generate session ID if not provided
+    const id = sessionId ?? `${agentName}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+
+    // Check pending operations (race condition protection)
+    if (this.pendingCreations.has(id)) {
+      const pending = this.pendingCreations.get(id)
+
+      if (!pending) {
+        throw new Error(`Pending session ${id} not found. This is a bug.`)
+      }
+
+      return pending
+    }
+
+    // Check in-memory cache
+    if (this.sessions.has(id)) {
+      const existing = this.sessions.get(id)
+
+      if (!existing) {
+        throw new Error(`Session ${id} not found in cache. This is a bug.`)
+      }
+
+      return existing
+    }
+
+    // Check max sessions limit
+    if (this.sessions.size >= this.config.maxSessions) {
+      throw new Error(
+        `Maximum sessions (${this.config.maxSessions}) reached. Delete unused sessions or increase maxSessions limit.`,
+      )
+    }
+
+    // Create with pending tracker
+    const creationPromise = this.createSessionWithOverridesInternal(id, overrides)
+    this.pendingCreations.set(id, creationPromise)
+
+    try {
+      const session = await creationPromise
+
+      // Track parent-child relationship and agent name
+      this.sessionParentIds.set(id, parentId)
+      this.sessionAgentNames.set(id, agentName)
+
+      return session
+    } finally {
+      this.pendingCreations.delete(id)
+    }
   }
 
   /**
@@ -369,6 +459,80 @@ export class SessionManager {
     if ('initialize' in sessionServices.llmService && typeof sessionServices.llmService.initialize === 'function') {
       await sessionServices.llmService.initialize()
       // Debug logging removed for cleaner user experience
+    }
+
+    // Track session metadata
+    const now = Date.now()
+    this.sessionCreatedAt.set(id, now)
+    this.sessionLastActivity.set(id, now)
+
+    this.sessions.set(id, session)
+    return session
+  }
+
+  /**
+   * Internal session creation with service overrides.
+   * Creates a new ToolProvider and ToolManager with the overridden FileSystemService
+   * to provide file access restrictions for the session.
+   *
+   * @param id - Session ID
+   * @param overrides - Service overrides (e.g., restricted FileSystemService)
+   * @returns New chat session instance with overridden services
+   */
+  private async createSessionWithOverridesInternal(
+    id: string,
+    overrides: SessionServiceOverrides,
+  ): Promise<IChatSession> {
+    // Create a holder object to allow self-reference in the getToolProvider callback
+    const toolProviderHolder: {provider?: ToolProvider} = {}
+
+    // Create a new ToolProvider with the overridden FileSystemService
+    const overriddenToolProvider = new ToolProvider(
+      {
+        fileSystemService: overrides.fileSystemService!,
+        getToolProvider: (): ToolProvider => toolProviderHolder.provider!,
+        memoryManager: this.sharedServices.memoryManager,
+        processService: this.sharedServices.processService,
+      },
+      this.sharedServices.systemPromptManager,
+    )
+    toolProviderHolder.provider = overriddenToolProvider
+    await overriddenToolProvider.initialize()
+
+    // Create a new PolicyEngine and ToolScheduler for the overridden session
+    const overriddenPolicyEngine = new PolicyEngine({defaultDecision: 'ALLOW'})
+    overriddenPolicyEngine.addRules(DEFAULT_POLICY_RULES)
+
+    const overriddenToolScheduler = new CoreToolScheduler(
+      overriddenToolProvider,
+      overriddenPolicyEngine,
+      undefined,
+      {verbose: false},
+    )
+
+    // Create a new ToolManager with the overridden ToolProvider
+    const overriddenToolManager = new ToolManager(overriddenToolProvider, overriddenToolScheduler)
+    await overriddenToolManager.initialize()
+
+    // Create overridden shared services with the new tool stack
+    const overriddenSharedServices: CipherAgentServices = {
+      ...this.sharedServices,
+      fileSystemService: overrides.fileSystemService!,
+      policyEngine: overriddenPolicyEngine,
+      toolManager: overriddenToolManager,
+      toolProvider: overriddenToolProvider,
+      toolScheduler: overriddenToolScheduler,
+    }
+
+    // Create session-specific services using the overridden shared services
+    const sessionServices = createSessionServices(id, overriddenSharedServices, this.httpConfig, this.llmConfig)
+
+    // Create session with overridden shared services
+    const session = new ChatSession(id, overriddenSharedServices, sessionServices)
+
+    // Initialize LLM service to load persisted history from blob storage
+    if ('initialize' in sessionServices.llmService && typeof sessionServices.llmService.initialize === 'function') {
+      await sessionServices.llmService.initialize()
     }
 
     // Track session metadata
