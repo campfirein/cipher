@@ -60,6 +60,84 @@ export interface ServiceEventMap {
 	'lazy-memory:error': { componentType: string; error: string; timestamp: number };
 	'lazy-service:loaded': { serviceType: string; timestamp: number };
 	'lazy-service:initialized': { initTime: number; lazyLoadingEnabled: boolean; timestamp: number };
+
+	// Cross-project knowledge events
+	'cross-project:transferStarted': {
+		sourceProject: string;
+		targetProject: string;
+		knowledgeTypes: string[];
+		timestamp: number;
+	};
+	'cross-project:transferCompleted': {
+		sourceProject: string;
+		targetProject: string;
+		knowledgeTypes: string[];
+		transferredCount: number;
+		duration: number;
+		timestamp: number;
+	};
+	'cross-project:transferFailed': {
+		sourceProject: string;
+		targetProject: string;
+		knowledgeTypes: string[];
+		error: string;
+		duration: number;
+		timestamp: number;
+	};
+	'cross-project:synthesisStarted': {
+		projectCount: number;
+		domain: string;
+		timestamp: number;
+	};
+	'cross-project:synthesisCompleted': {
+		projectCount: number;
+		domain: string;
+		patternsFound: number;
+		solutionsFound: number;
+		guidelinesGenerated: number;
+		duration: number;
+		timestamp: number;
+	};
+	'cross-project:synthesisFailed': {
+		projectCount: number;
+		domain: string;
+		error: string;
+		duration: number;
+		timestamp: number;
+	};
+	'cross-project:masterGuideGenerated': {
+		domain: string;
+		projectCount: number;
+		patternsIncluded: number;
+		solutionsIncluded: number;
+		guidelinesIncluded: number;
+		timestamp: number;
+	};
+	'cross-project:projectRegistered': {
+		projectId: string;
+		projectName: string;
+		domain: string;
+		timestamp: number;
+	};
+	'cross-project:projectUnregistered': {
+		projectId: string;
+		projectName: string;
+		reason?: string;
+		timestamp: number;
+	};
+	'cross-project:knowledgeExtracted': {
+		projectId: string;
+		knowledgeType: string;
+		count: number;
+		timestamp: number;
+	};
+	'cross-project:performanceMetrics': {
+		transfersPerMinute: number;
+		averageTransferTime: number;
+		cacheHitRate: number;
+		activeProjects: number;
+		timestamp: number;
+	};
 }
 
 // Session-level events (scoped to individual conversations)
@@ -212,6 +290,17 @@ export const ServiceEvents = {
 	VECTOR_STORE_ERROR: 'cipher:vectorStoreError' as const,
 	LLM_PROVIDER_REGISTERED: 'cipher:llmProviderRegistered' as const,
 	LLM_PROVIDER_ERROR: 'cipher:llmProviderError' as const,
+	CROSS_PROJECT_TRANSFER_STARTED: 'cross-project:transferStarted' as const,
+	CROSS_PROJECT_TRANSFER_COMPLETED: 'cross-project:transferCompleted' as const,
+	CROSS_PROJECT_TRANSFER_FAILED: 'cross-project:transferFailed' as const,
+	CROSS_PROJECT_SYNTHESIS_STARTED: 'cross-project:synthesisStarted' as const,
+	CROSS_PROJECT_SYNTHESIS_COMPLETED: 'cross-project:synthesisCompleted' as const,
+	CROSS_PROJECT_SYNTHESIS_FAILED: 'cross-project:synthesisFailed' as const,
+	CROSS_PROJECT_MASTER_GUIDE_GENERATED: 'cross-project:masterGuideGenerated' as const,
+	CROSS_PROJECT_PROJECT_REGISTERED: 'cross-project:projectRegistered' as const,
+	CROSS_PROJECT_PROJECT_UNREGISTERED: 'cross-project:projectUnregistered' as const,
+	CROSS_PROJECT_KNOWLEDGE_EXTRACTED: 'cross-project:knowledgeExtracted' as const,
+	CROSS_PROJECT_PERFORMANCE_METRICS: 'cross-project:performanceMetrics' as const,
 } as const;
 
 export const SessionEvents = {
