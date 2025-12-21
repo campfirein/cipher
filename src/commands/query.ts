@@ -104,7 +104,7 @@ Bad:
 
       // Send task:create request
       const response = await client.request<TaskCreateResponse>('task:create', {
-        input: queryTerms,
+        content: queryTerms,
         type: 'query',
       })
 

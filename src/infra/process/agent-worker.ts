@@ -52,8 +52,8 @@ function sendToParent(message: IPCResponse): void {
 
 type TaskExecuteMessage = {
   clientId: string
+  content: string
   files?: string[]
-  input: string
   taskId: string
   type: 'curate' | 'query'
 }
@@ -79,6 +79,49 @@ let isAgentInitialized = false
 let initializationError: Error | undefined
 /** Config identity from last initialization (teamId:spaceId) - for change detection */
 let lastConfigIdentity: string | undefined
+
+// ============================================================================
+// Curate Task Queue (In-Memory, FIFO, Max 2 Concurrent)
+// ============================================================================
+
+/** Queue of pending curate tasks (FIFO) */
+const curateQueue: TaskExecuteMessage[] = []
+/** Number of curate tasks currently being processed */
+let activeCurateTasks = 0
+/** Maximum concurrent curate tasks */
+const MAX_CONCURRENT_CURATE = 2
+
+/**
+ * Try to process next curate task from queue.
+ * Only processes if under concurrency limit.
+ */
+function tryProcessNextCurate(): void {
+  if (activeCurateTasks >= MAX_CONCURRENT_CURATE) {
+    agentLog(`Curate queue: ${curateQueue.length} waiting, ${activeCurateTasks} active (at limit)`)
+    return
+  }
+
+  if (curateQueue.length === 0) {
+    return
+  }
+
+  const data = curateQueue.shift()! // FIFO
+  activeCurateTasks++
+  agentLog(`Curate queue: picked task ${data.taskId}, ${curateQueue.length} remaining, ${activeCurateTasks} active`)
+
+  handleTaskExecute(data)
+    .catch((error) => {
+      agentLog(`Task execution failed: ${error}`)
+      const errorData = serializeTaskError(error)
+      transportClient?.request('task:error', {error: errorData, taskId: data.taskId}).catch(() => {})
+    })
+    .finally(() => {
+      activeCurateTasks--
+      agentLog(`Curate task ${data.taskId} done, ${activeCurateTasks} active`)
+      // Try to process next from queue
+      tryProcessNextCurate()
+    })
+}
 
 /**
  * Get Transport port from environment.
@@ -295,7 +338,7 @@ async function tryInitializeAgent(forceReinit = false): Promise<boolean> {
  * Handle task:execute from Transport.
  */
 async function handleTaskExecute(data: TaskExecuteMessage): Promise<void> {
-  const {files, input, taskId, type} = data
+  const {content, files, taskId, type} = data
 
   agentLog(`Processing task: ${taskId} (type=${type})`)
 
@@ -357,8 +400,9 @@ async function handleTaskExecute(data: TaskExecuteMessage): Promise<void> {
     // Process task - events stream via agentEventBus subscription
     // Response is forwarded via llmservice:response event (no manual send needed)
     // Agent uses its default session (Single-Session pattern)
+    // File validation is handled by UseCase (business logic belongs there)
     await taskProcessor.process({
-      content: input,
+      content,
       files,
       taskId,
       type,
@@ -411,11 +455,19 @@ async function startAgent(): Promise<void> {
 
   // Setup event handlers
   transportClient.on<TaskExecuteMessage>('task:execute', (data) => {
-    handleTaskExecute(data).catch((error) => {
-      agentLog(`Task execution failed: ${error}`)
-      const errorData = serializeTaskError(error)
-      transportClient?.request('task:error', {error: errorData, taskId: data.taskId}).catch(() => {})
-    })
+    if (data.type === 'curate') {
+      // Curate: add to queue (FIFO, max 2 concurrent)
+      curateQueue.push(data)
+      agentLog(`Curate task ${data.taskId} queued, ${curateQueue.length} in queue`)
+      tryProcessNextCurate()
+    } else {
+      // Query: process immediately (no queue)
+      handleTaskExecute(data).catch((error) => {
+        agentLog(`Task execution failed: ${error}`)
+        const errorData = serializeTaskError(error)
+        transportClient?.request('task:error', {error: errorData, taskId: data.taskId}).catch(() => {})
+      })
+    }
   })
 
   transportClient.on<TaskCancelMessage>('task:cancel', handleTaskCancel)
