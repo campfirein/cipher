@@ -25,6 +25,7 @@ import {type ChildProcess, fork} from 'node:child_process'
 import path from 'node:path'
 import {fileURLToPath} from 'node:url'
 
+import {writeCrashLog} from '../../utils/crash-log.js'
 import {processManagerLog} from '../../utils/process-logger.js'
 
 /**
@@ -74,6 +75,20 @@ const DEFAULT_SHUTDOWN_TIMEOUT_MS = 5000
 const DEFAULT_STARTUP_TIMEOUT_MS = 30_000
 const HEALTH_CHECK_INTERVAL_MS = 5000 // Check every 5 seconds
 const SLEEP_DETECTION_THRESHOLD_MS = 30_000 // If 30s passed when expecting 5s, likely slept
+
+/**
+ * Creates a system error with crash log.
+ * Writes detailed error info to ~/.config/brv/logs/ and returns user-friendly message.
+ */
+async function createSystemError(error: string, context: string): Promise<Error> {
+  try {
+    const logPath = await writeCrashLog(new Error(error), context)
+    return new Error(`brv failed to start. Details logged to: ${logPath}`)
+  } catch {
+    // If we can't write the crash log, just return the original error
+    return new Error(`brv failed to start: ${error}`)
+  }
+}
 
 /**
  * ProcessManager - Spawns and manages Transport and Agent processes.
@@ -306,7 +321,10 @@ export class ProcessManager {
       const timeout = setTimeout(() => {
         cleanup()
         child.kill('SIGKILL')
-        reject(new Error(`Agent process startup timed out after ${this.startupTimeoutMs}ms`))
+        createSystemError(
+          `Agent startup timed out after ${this.startupTimeoutMs}ms`,
+          'Agent startup timeout',
+        ).then(reject)
       }, this.startupTimeoutMs)
 
       const onMessage = (message: AgentMessage): void => {
@@ -317,18 +335,18 @@ export class ProcessManager {
         } else if (message.type === 'error') {
           cleanup()
           child.kill('SIGKILL')
-          reject(new Error(`Agent process failed to start: ${message.error}`))
+          createSystemError(message.error, 'Agent startup error').then(reject)
         }
       }
 
       const onError = (error: Error): void => {
         cleanup()
-        reject(new Error(`Agent process error: ${error.message}`))
+        createSystemError(error.message, 'Agent process error').then(reject)
       }
 
       const onExit = (code: null | number): void => {
         cleanup()
-        reject(new Error(`Agent process exited during startup with code ${code}`))
+        createSystemError(`Agent exited with code ${code}`, 'Agent unexpected exit').then(reject)
       }
 
       const cleanup = (): void => {
@@ -388,7 +406,10 @@ export class ProcessManager {
       const timeout = setTimeout(() => {
         cleanup()
         child.kill('SIGKILL')
-        reject(new Error(`Transport process startup timed out after ${this.startupTimeoutMs}ms`))
+        createSystemError(
+          `Transport startup timed out after ${this.startupTimeoutMs}ms`,
+          'Transport startup timeout',
+        ).then(reject)
       }, this.startupTimeoutMs)
 
       const onMessage = (message: TransportMessage): void => {
@@ -399,18 +420,24 @@ export class ProcessManager {
         } else if (message.type === 'error') {
           cleanup()
           child.kill('SIGKILL')
-          reject(new Error(`Transport process failed to start: ${message.error}`))
+          // Pass through user-friendly errors directly
+          const isUserFriendly = message.error.startsWith('brv is already running')
+          if (isUserFriendly) {
+            reject(new Error(message.error))
+          } else {
+            createSystemError(message.error, 'Transport startup error').then(reject)
+          }
         }
       }
 
       const onError = (error: Error): void => {
         cleanup()
-        reject(new Error(`Transport process error: ${error.message}`))
+        createSystemError(error.message, 'Transport process error').then(reject)
       }
 
       const onExit = (code: null | number): void => {
         cleanup()
-        reject(new Error(`Transport process exited during startup with code ${code}`))
+        createSystemError(`Transport exited with code ${code}`, 'Transport unexpected exit').then(reject)
       }
 
       const cleanup = (): void => {

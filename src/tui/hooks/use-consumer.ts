@@ -11,6 +11,7 @@ import {useCallback, useEffect, useRef, useState} from 'react'
 import type {ConsumerStatus} from '../types.js'
 
 import {ConsumerService} from '../../infra/cipher/consumer/consumer-service.js'
+import {stopQueuePollingService} from '../../infra/cipher/consumer/queue-polling-service.js'
 
 export function useConsumer(): {
   consumerError: Error | null
@@ -42,10 +43,19 @@ export function useConsumer(): {
   }, [])
 
   const restart = useCallback(async (): Promise<void> => {
-    // Dispose current consumer
+    // IMPORTANT: Order matters for proper lock release!
+    // 1. Dispose consumer FIRST - releases lock while AgentStorage is still open
     consumerRef.current.dispose()
     setStatus('stopped')
     setConsumerId(null)
+
+    // 2. Stop queue polling AFTER - closes storage (idempotent if already closed)
+    stopQueuePollingService()
+
+    // Wait for cleanup to complete
+    await new Promise((resolve) => {
+      setTimeout(resolve, 500)
+    })
 
     // Create new consumer and start
     consumerRef.current = new ConsumerService()

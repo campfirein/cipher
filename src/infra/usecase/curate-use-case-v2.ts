@@ -49,7 +49,12 @@ export class CurateUseCaseV2 implements ICurateUseCaseV2 {
       }
 
       // Create execution with status='running'
-      executionId = storage.createExecution('curate', content)
+      // Format as JSON for compatibility with legacy ExecutionConsumer
+      const executionInput = JSON.stringify({
+        content,
+        ...(fileReferenceInstructions ? {fileReferenceInstructions} : {}),
+      })
+      executionId = storage.createExecution('curate', executionInput)
 
       // Build prompt with optional file reference instructions
       const prompt = fileReferenceInstructions ? `${content}\n${fileReferenceInstructions}` : content

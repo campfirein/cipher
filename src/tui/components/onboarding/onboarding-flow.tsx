@@ -248,7 +248,9 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({availableHeight})
 
         // Reload auth to detect config change
         await reloadAuth()
+
         // Restart consumer to pick up new project state
+        // (restart() handles stop + cleanup + start internally)
         await restart()
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error)

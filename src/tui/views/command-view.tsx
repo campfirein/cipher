@@ -5,17 +5,15 @@
  * Uses ScrollableList for message history with dynamic height calculation.
  */
 
-import {randomUUID} from 'node:crypto'
-
 import {Box, Spacer, Text, useApp} from 'ink'
 import Spinner from 'ink-spinner'
 import TextInput from 'ink-text-input'
+import {randomUUID} from 'node:crypto'
 import React, {useCallback, useEffect, useMemo, useState} from 'react'
 
 import type {StreamingEvent} from '../../core/domain/cipher/streaming/types.js'
 import type {CommandMessage, PromptRequest, StreamingMessage} from '../types.js'
 
-import {stopConsumer} from '../../infra/cipher/consumer/execution-consumer.js'
 import {stopQueuePollingService} from '../../infra/cipher/consumer/queue-polling-service.js'
 import {MessageItem, ScrollableList, Suggestions} from '../components/index.js'
 import {
@@ -45,12 +43,27 @@ const OUTPUT_BOX_OVERHEAD = 5
 /**
  * Map streaming events from CipherAgent to StreamingMessage for display
  */
-function mapEventToStreamingMessage(event: StreamingEvent): StreamingMessage | null {
+function mapEventToStreamingMessage(event: StreamingEvent): null | StreamingMessage {
   switch (event.name) {
     case 'llmservice:chunk': {
       if (event.type === 'text') {
         return {content: event.content, id: randomUUID(), type: 'output'}
       }
+
+      return null
+    }
+
+    case 'llmservice:error': {
+      return {content: event.error, id: randomUUID(), type: 'error'}
+    }
+
+    case 'llmservice:response': {
+      // Final response - always display it since llmservice:chunk events
+      // are not emitted by the current LLM service implementation
+      if (event.content) {
+        return {content: event.content, id: randomUUID(), type: 'output'}
+      }
+
       return null
     }
 
@@ -72,21 +85,8 @@ function mapEventToStreamingMessage(event: StreamingEvent): StreamingMessage | n
       }
     }
 
-    case 'llmservice:error': {
-      return {content: event.error, id: randomUUID(), type: 'error'}
-    }
-
     case 'llmservice:warning': {
       return {content: event.message, id: randomUUID(), type: 'warning'}
-    }
-
-    case 'llmservice:response': {
-      // Final response - always display it since llmservice:chunk events
-      // are not emitted by the current LLM service implementation
-      if (event.content) {
-        return {content: event.content, id: randomUUID(), type: 'output'}
-      }
-      return null
     }
 
     default: {
@@ -393,6 +393,7 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
                 output: [{content: 'Entered chat mode. Type your message or /exit to leave.', id: 'chat-enter', type: 'output'}],
               }
             }
+
             return updated
           })
         } catch (error) {
@@ -406,9 +407,11 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
                 output: [{content: `Failed to enter chat mode: ${errorMessage}`, id: 'chat-error', type: 'error'}],
               }
             }
+
             return updated
           })
         }
+
         return
       }
 
@@ -424,6 +427,7 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
               output: [{content: 'Exited chat mode.', id: 'chat-exit', type: 'output'}],
             }
           }
+
           return updated
         })
         return
@@ -474,15 +478,10 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
 
           // Refresh state after commands that change auth or project state
           if (needReloadAuth || needReloadBrvConfig) {
-            // Stop queue polling and consumer
-            stopQueuePollingService()
-            stopConsumer()
-            // Wait for consumer to stop
-            setTimeout(async () => {
-              if (needReloadAuth) await reloadAuth()
-              if (needReloadBrvConfig) await reloadBrvConfig()
-              await restart()
-            }, 1000)
+            if (needReloadAuth) await reloadAuth()
+            if (needReloadBrvConfig) await reloadBrvConfig()
+            // restart() handles stop + cleanup + start
+            await restart()
           }
         }
       }
@@ -543,6 +542,7 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
           if (lastIndex >= 0 && updated[lastIndex].type === 'command') {
             updated[lastIndex] = {...updated[lastIndex], output: collectedMessages}
           }
+
           return updated
         })
         setStreamingMessages([])
@@ -556,11 +556,7 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
     async (value: string) => {
       if (mode === 'console' && !isStreaming && !isChatProcessing) {
         // In chat mode, route non-slash input to chat handler
-        if (isInChatMode && !value.trim().startsWith('/')) {
-          await handleChatMessage(value)
-        } else {
-          await executeCommand(value)
-        }
+        await (isInChatMode && !value.trim().startsWith('/') ? handleChatMessage(value) : executeCommand(value));
       }
     },
     [executeCommand, handleChatMessage, isChatProcessing, isInChatMode, isStreaming, mode],
