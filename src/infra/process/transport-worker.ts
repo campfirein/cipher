@@ -19,6 +19,7 @@
  */
 
 import type {ITransportServer} from '../../core/interfaces/transport/i-transport-server.js'
+import type {IPCCommand, TransportIPCResponse} from './ipc-types.js'
 
 import {transportLog} from '../../utils/process-logger.js'
 import {FileInstanceManager} from '../instance/file-instance-manager.js'
@@ -26,14 +27,9 @@ import {findAvailablePort} from '../transport/port-utils.js'
 import {createTransportServer} from '../transport/transport-factory.js'
 import {TransportHandlers} from './transport-handlers.js'
 
-// ============================================================================
-// IPC Types
-// ============================================================================
+// IPC types imported from ./ipc-types.ts
 
-type IPCMessage = {type: 'ping'} | {type: 'shutdown'}
-type IPCResponse = {error: string; type: 'error'} | {port: number; type: 'ready'} | {type: 'pong'} | {type: 'stopped'}
-
-function sendToParent(message: IPCResponse): void {
+function sendToParent(message: TransportIPCResponse): void {
   process.send?.(message)
 }
 
@@ -109,7 +105,7 @@ async function runWorker(): Promise<void> {
   }
 
   // IPC message handler
-  process.on('message', async (msg: IPCMessage) => {
+  process.on('message', async (msg: IPCCommand) => {
     if (msg.type === 'ping') {
       sendToParent({type: 'pong'})
     } else if (msg.type === 'shutdown') {

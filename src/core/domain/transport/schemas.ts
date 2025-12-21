@@ -1,14 +1,26 @@
 /**
- * Transport Schemas - 1:1 mapping with AgentEventMap
+ * Transport Schemas - Types and validation for Socket.IO transport layer.
  *
- * These schemas validate messages sent over transport (Socket.IO).
- * They directly mirror the event payloads from AgentEventMap so
- * frontend receives exactly what the agent emits.
+ * Architecture (Clean Architecture compliance):
+ * - Domain types from agent-events/types.ts are the Single Source of Truth (SSOT)
+ * - Transport layer IMPORTS from domain, does NOT redefine
+ * - Transport events EXTEND domain types with `taskId` for routing
+ * - Zod schemas provide runtime validation for transport messages
  */
 import {z} from 'zod'
 
+import type {AgentEventMap} from '../cipher/agent-events/types.js'
+// Re-export domain types for convenience (SSOT: agent-events/types.ts)
+export type {
+  AgentTerminationReason,
+  LogLevel,
+  TokenUsage,
+  ToolErrorType,
+  UIEventType,
+} from '../cipher/agent-events/types.js'
+
 // ============================================================================
-// Shared Schemas (used across multiple events)
+// Zod Schemas for Runtime Validation (mirrors domain types)
 // ============================================================================
 
 export const TokenUsageSchema = z.object({
@@ -244,10 +256,126 @@ export const TransportTaskEventNames = {
 
 export const LlmEventNames = {
   // LLM events (forwarded with original Agent names)
+  CHUNK: 'llmservice:chunk',
+  ERROR: 'llmservice:error',
   RESPONSE: 'llmservice:response',
+  THINKING: 'llmservice:thinking',
   TOOL_CALL: 'llmservice:toolCall',
   TOOL_RESULT: 'llmservice:toolResult',
+  UNSUPPORTED_INPUT: 'llmservice:unsupportedInput',
 } as const
+
+// ============================================================================
+// Internal Transport ↔ Agent Messages
+// ============================================================================
+
+/**
+ * task:execute - Transport sends task to Agent for processing
+ * Internal message, not exposed to external clients
+ */
+export const TaskExecuteSchema = z.object({
+  /** Client ID that created the task (for response routing) */
+  clientId: z.string(),
+  /** Task content/prompt */
+  content: z.string(),
+  /** Optional file paths for curate --files */
+  files: z.array(z.string()).optional(),
+  /** Unique task identifier */
+  taskId: z.string(),
+  /** Task type */
+  type: z.enum(['curate', 'query']),
+})
+
+/**
+ * task:cancel - Transport tells Agent to cancel a task
+ */
+export const TaskCancelSchema = z.object({
+  taskId: z.string(),
+})
+
+export type TaskExecute = z.infer<typeof TaskExecuteSchema>
+export type TaskCancel = z.infer<typeof TaskCancelSchema>
+
+// ============================================================================
+// Transport LLM Events (extends domain types with taskId)
+//
+// Architecture: Domain types (AgentEventMap) are SSOT with sessionId.
+// Transport events ADD taskId for routing while KEEPING sessionId.
+// Pattern: DomainType & { taskId: string }
+// ============================================================================
+
+/**
+ * llmservice:thinking - Agent started thinking
+ * Extends: AgentEventMap['llmservice:thinking'] + taskId
+ */
+export type LlmThinkingEvent = AgentEventMap['llmservice:thinking'] & {taskId: string}
+
+/**
+ * llmservice:chunk - Streaming content chunk from Agent
+ * Extends: AgentEventMap['llmservice:chunk'] + taskId
+ */
+export type LlmChunkEvent = AgentEventMap['llmservice:chunk'] & {taskId: string}
+
+/**
+ * llmservice:error - Error from Agent LLM service
+ * Extends: AgentEventMap['llmservice:error'] + taskId
+ */
+export type LlmErrorEvent = AgentEventMap['llmservice:error'] & {taskId: string}
+
+/**
+ * llmservice:unsupportedInput - Agent received unsupported input
+ * Extends: AgentEventMap['llmservice:unsupportedInput'] + taskId
+ */
+export type LlmUnsupportedInputEvent = AgentEventMap['llmservice:unsupportedInput'] & {taskId: string}
+
+/**
+ * llmservice:response - LLM text output
+ * Extends: AgentEventMap['llmservice:response'] + taskId
+ */
+export type LlmResponseEvent = AgentEventMap['llmservice:response'] & {taskId: string}
+
+/**
+ * llmservice:toolCall - Agent invokes a tool
+ * Extends: AgentEventMap['llmservice:toolCall'] + taskId
+ */
+export type LlmToolCallEvent = AgentEventMap['llmservice:toolCall'] & {taskId: string}
+
+/**
+ * llmservice:toolResult - Tool returns result
+ * Extends: AgentEventMap['llmservice:toolResult'] + taskId
+ */
+export type LlmToolResultEvent = AgentEventMap['llmservice:toolResult'] & {taskId: string}
+
+// Zod schemas for runtime validation (if needed)
+export const LlmThinkingEventSchema = z.object({
+  sessionId: z.string(),
+  taskId: z.string(),
+})
+
+export const LlmChunkEventSchema = z.object({
+  content: z.string(),
+  isComplete: z.boolean().optional(),
+  sessionId: z.string(),
+  taskId: z.string(),
+  type: z.enum(['reasoning', 'text']),
+})
+
+export const LlmErrorEventSchema = z.object({
+  code: z.string().optional(),
+  error: z.string(),
+  sessionId: z.string(),
+  taskId: z.string(),
+})
+
+export const LlmUnsupportedInputEventSchema = z.object({
+  reason: z.string(),
+  sessionId: z.string(),
+  taskId: z.string(),
+})
+
+// ============================================================================
+// Transport Events (Transport → Client)
+// ============================================================================
 
 /**
  * task:ack - Transport acknowledges task creation
@@ -276,7 +404,7 @@ export const TaskCreatedSchema = z.object({
  * Direct send: {taskId} only
  * Broadcast: {taskId, content, type, files?}
  */
-export const TaskStartedSchema = z.object({
+export const TaskStartedEventSchema = z.object({
   /** Task content/prompt */
   content: z.string().optional(),
   /** Optional file paths for curate --files */
@@ -290,7 +418,7 @@ export const TaskStartedSchema = z.object({
 /**
  * task:completed - Task finished successfully
  */
-export const TaskCompletedSchema = z.object({
+export const TaskCompletedEventSchema = z.object({
   result: z.string(),
   taskId: z.string(),
 })
@@ -309,52 +437,62 @@ export const TaskErrorDataSchema = z.object({
 /**
  * task:error - Task failed with error
  */
-export const TaskErrorSchema = z.object({
+export const TaskErrorEventSchema = z.object({
   error: TaskErrorDataSchema,
   taskId: z.string(),
 })
 
 /**
- * llmservice:response - LLM text output (streaming chunks)
- * Original Agent event name, forwarded as-is
+ * llmservice:response - LLM text output
+ * Matches: AgentEventMap['llmservice:response'] + taskId
  */
 export const LlmResponseEventSchema = z.object({
   content: z.string(),
+  model: z.string().optional(),
+  partial: z.boolean().optional(),
+  provider: z.string().optional(),
+  reasoning: z.string().optional(),
+  sessionId: z.string(),
   taskId: z.string(),
+  tokenUsage: TokenUsageSchema.optional(),
 })
 
 /**
  * llmservice:toolCall - Agent invokes a tool
- * Original Agent event name, forwarded as-is
+ * Matches: AgentEventMap['llmservice:toolCall'] + taskId
  */
 export const LlmToolCallEventSchema = z.object({
-  args: z.record(z.unknown()).optional(),
-  callId: z.string(),
-  name: z.string(),
+  args: z.record(z.unknown()),
+  callId: z.string().optional(),
+  sessionId: z.string(),
   taskId: z.string(),
+  toolName: z.string(),
 })
 
 /**
  * llmservice:toolResult - Tool returns result
- * Original Agent event name, forwarded as-is
+ * Matches: AgentEventMap['llmservice:toolResult'] + taskId
  */
 export const LlmToolResultEventSchema = z.object({
-  callId: z.string(),
+  callId: z.string().optional(),
   error: z.string().optional(),
+  errorType: ToolErrorTypeSchema.optional(),
+  metadata: z.record(z.unknown()).optional(),
   result: z.unknown().optional(),
+  sessionId: z.string(),
   success: z.boolean(),
   taskId: z.string(),
+  toolName: z.string(),
 })
 
 export type TaskAck = z.infer<typeof TaskAckSchema>
 export type TaskCreated = z.infer<typeof TaskCreatedSchema>
-export type TaskStarted = z.infer<typeof TaskStartedSchema>
-export type TaskCompleted = z.infer<typeof TaskCompletedSchema>
+export type TaskStartedEvent = z.infer<typeof TaskStartedEventSchema>
+export type TaskCompletedEvent = z.infer<typeof TaskCompletedEventSchema>
 export type TaskErrorData = z.infer<typeof TaskErrorDataSchema>
-export type TaskError = z.infer<typeof TaskErrorSchema>
-export type LlmResponseEvent = z.infer<typeof LlmResponseEventSchema>
-export type LlmToolCallEvent = z.infer<typeof LlmToolCallEventSchema>
-export type LlmToolResultEvent = z.infer<typeof LlmToolResultEventSchema>
+export type TaskErrorEvent = z.infer<typeof TaskErrorEventSchema>
+// Note: LlmResponseEvent, LlmToolCallEvent, LlmToolResultEvent are defined above
+// as type aliases extending AgentEventMap (lines 335-347)
 
 // ============================================================================
 // Request/Response Schemas (for client → server commands)
@@ -483,11 +621,9 @@ export const SessionSwitchedBroadcastSchema = z.object({
 // Type Exports
 // ============================================================================
 
-export type TokenUsage = z.infer<typeof TokenUsageSchema>
-export type LogLevel = z.infer<typeof LogLevelSchema>
-export type UIEventType = z.infer<typeof UIEventTypeSchema>
-export type ToolErrorType = z.infer<typeof ToolErrorTypeSchema>
-export type AgentTerminationReason = z.infer<typeof AgentTerminationReasonSchema>
+// Note: TokenUsage, LogLevel, UIEventType, ToolErrorType, AgentTerminationReason
+// are re-exported from domain (agent-events/types.ts) at the top of this file
+
 export type TodoItem = z.infer<typeof TodoItemSchema>
 
 export type ChunkPayload = z.infer<typeof ChunkPayloadSchema>

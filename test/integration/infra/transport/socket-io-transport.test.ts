@@ -74,7 +74,7 @@ describe('Socket.IO Transport Integration', () => {
       server.broadcast('task:started', {taskId: 'task-1'})
 
       await new Promise((resolve) => {
-        setTimeout(resolve, 50)
+        setTimeout(resolve, 10)
       })
 
       expect(tuiReceived).to.deep.equal([{taskId: 'task-1'}])
@@ -107,7 +107,7 @@ describe('Socket.IO Transport Integration', () => {
       server.broadcastTo('task-abc', 'task:chunk', {content: 'Hello from agent'})
 
       await new Promise((resolve) => {
-        setTimeout(resolve, 50)
+        setTimeout(resolve, 10)
       })
 
       // Only CLI1 (in room) should receive
@@ -165,7 +165,7 @@ describe('Socket.IO Transport Integration', () => {
 
       // Wait for connection handler to be called
       await new Promise((resolve) => {
-        setTimeout(resolve, 50)
+        setTimeout(resolve, 10)
       })
 
       // Server adds TUI to global room using the tracked client ID
@@ -179,7 +179,7 @@ describe('Socket.IO Transport Integration', () => {
       server.broadcastTo('all-tasks', 'task:update', {status: 'completed', taskId: 'task-2'})
 
       await new Promise((resolve) => {
-        setTimeout(resolve, 50)
+        setTimeout(resolve, 10)
       })
 
       expect(tuiReceived).to.have.length(2)
@@ -204,7 +204,7 @@ describe('Socket.IO Transport Integration', () => {
 
       // Wait for disconnect event
       await new Promise((resolve) => {
-        setTimeout(resolve, 50)
+        setTimeout(resolve, 10)
       })
 
       expect(disconnected).to.have.length(1)
@@ -221,7 +221,7 @@ describe('Socket.IO Transport Integration', () => {
 
       // Wait for clients to detect disconnection
       await new Promise((resolve) => {
-        setTimeout(resolve, 100)
+        setTimeout(resolve, 15)
       })
 
       // Clients should detect disconnection
@@ -293,7 +293,7 @@ describe('Socket.IO Transport Integration', () => {
 
       // Wait for ack
       await new Promise((resolve) => {
-        setTimeout(resolve, 50)
+        setTimeout(resolve, 10)
       })
 
       // 3. Simulate agent starting
@@ -310,7 +310,7 @@ describe('Socket.IO Transport Integration', () => {
 
       // Wait for all events
       await new Promise((resolve) => {
-        setTimeout(resolve, 100)
+        setTimeout(resolve, 15)
       })
 
       // TUI should receive all events (via all-tasks room)

@@ -25,22 +25,14 @@ import {type ChildProcess, fork} from 'node:child_process'
 import path from 'node:path'
 import {fileURLToPath} from 'node:url'
 
+import type {AgentIPCResponse, IPCCommand, TransportIPCResponse} from './ipc-types.js'
+
 import {crashLog, getSessionLogPath, processManagerLog} from '../../utils/process-logger.js'
 
-/**
- * IPC messages for process lifecycle.
- * Note: Task communication uses Socket.IO, NOT IPC.
- */
-type IPCMessageToChild = {type: 'ping'} | {type: 'shutdown'}
-
-type TransportReadyMessage = {port: number; type: 'ready'}
-type AgentReadyMessage = {type: 'ready'}
-type ProcessErrorMessage = {error: string; type: 'error'}
-type ProcessStoppedMessage = {type: 'stopped'}
-type ProcessPongMessage = {type: 'pong'}
-
-type TransportMessage = ProcessErrorMessage | ProcessPongMessage | ProcessStoppedMessage | TransportReadyMessage
-type AgentMessage = AgentReadyMessage | ProcessErrorMessage | ProcessPongMessage | ProcessStoppedMessage
+// IPC types imported from ./ipc-types.ts
+// - IPCCommand: Parent → Child (ping, shutdown)
+// - TransportIPCResponse: Transport → Parent (ready with port, pong, stopped, error)
+// - AgentIPCResponse: Agent → Parent (ready, pong, stopped, error)
 
 /**
  * Process state tracking.
@@ -227,7 +219,7 @@ export class ProcessManager {
   /**
    * Send IPC message to child process.
    */
-  private sendToChild(child: ChildProcess, message: IPCMessageToChild): void {
+  private sendToChild(child: ChildProcess, message: IPCCommand): void {
     child.send?.(message)
   }
 
@@ -319,7 +311,7 @@ export class ProcessManager {
         reject(createSystemError(`Agent startup timed out after ${this.startupTimeoutMs}ms`, 'Agent startup timeout'))
       }, this.startupTimeoutMs)
 
-      const onMessage = (message: AgentMessage): void => {
+      const onMessage = (message: AgentIPCResponse): void => {
         if (message.type === 'ready') {
           cleanup()
           this.setupAgentCrashRecovery()
@@ -410,7 +402,7 @@ export class ProcessManager {
         )
       }, this.startupTimeoutMs)
 
-      const onMessage = (message: TransportMessage): void => {
+      const onMessage = (message: TransportIPCResponse): void => {
         if (message.type === 'ready') {
           cleanup()
           this.setupTransportCrashRecovery()
@@ -469,7 +461,7 @@ export class ProcessManager {
         resolve()
       }, this.shutdownTimeoutMs)
 
-      const onMessage = (message: AgentMessage): void => {
+      const onMessage = (message: AgentIPCResponse): void => {
         if (message.type === 'stopped') {
           clearTimeout(timeout)
           this.state.agentProcess = undefined
@@ -515,7 +507,7 @@ export class ProcessManager {
         resolve()
       }, this.shutdownTimeoutMs)
 
-      const onMessage = (message: TransportMessage): void => {
+      const onMessage = (message: TransportIPCResponse): void => {
         if (message.type === 'stopped') {
           clearTimeout(timeout)
           this.state.transportProcess = undefined
