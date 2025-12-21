@@ -114,10 +114,19 @@ export class QueryUseCase implements IQueryUseCase {
         this.setupEventListeners(agent, options.verbose ?? false)
         this.setupToolCallTracking(agent, executionId)
 
-        // Execute with plan agent that delegates to explore subagent
+        // Execute with plan agent that delegates to explore subagent with contextTreeOnly
         const prompt = `Search the context tree for: ${options.query}
 
-Analyze this search request and use the explore subagent to find relevant information from the context tree.`
+Use the explore subagent with contextTreeOnly=true to search ONLY within .brv/context-tree/.
+Do NOT search the main codebase - only search the curated context.
+
+Example task call:
+task({
+  subagentType: "explore",
+  description: "Search context tree",
+  prompt: "Search for information about: ${options.query}",
+  contextTreeOnly: true
+})`
         const response = await agent.execute(prompt, {
           executionContext: {commandType: 'query'},
           trackingRequestId: sessionId,
