@@ -618,6 +618,29 @@ export const SessionSwitchedBroadcastSchema = z.object({
 })
 
 // ============================================================================
+// Agent Control (agent:*)
+// ============================================================================
+
+/**
+ * Request to restart/reinitialize the Agent.
+ * Used when config changes (e.g., after /init) require Agent to reload.
+ */
+export const AgentRestartRequestSchema = z.object({
+  /** Optional reason for restart (for logging) */
+  reason: z.string().optional(),
+})
+
+/**
+ * Response after agent restart request.
+ */
+export const AgentRestartResponseSchema = z.object({
+  /** Error message if restart failed */
+  error: z.string().optional(),
+  /** Whether the restart was initiated successfully */
+  success: z.boolean(),
+})
+
+// ============================================================================
 // Type Exports
 // ============================================================================
 
@@ -651,3 +674,6 @@ export type SessionCreateResponse = z.infer<typeof SessionCreateResponseSchema>
 export type SessionSwitchRequest = z.infer<typeof SessionSwitchRequestSchema>
 export type SessionSwitchResponse = z.infer<typeof SessionSwitchResponseSchema>
 export type SessionSwitchedBroadcast = z.infer<typeof SessionSwitchedBroadcastSchema>
+
+export type AgentRestartRequest = z.infer<typeof AgentRestartRequestSchema>
+export type AgentRestartResponse = z.infer<typeof AgentRestartResponseSchema>

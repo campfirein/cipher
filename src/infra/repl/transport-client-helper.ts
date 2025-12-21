@@ -43,6 +43,9 @@ const TRANSPORT_EVENTS = [
   'agent:connected',
   'agent:disconnected',
   'session:switched',
+  // Agent control events
+  'agent:restarting',
+  'agent:restarted',
 ]
 
 function formatTimestamp(): string {

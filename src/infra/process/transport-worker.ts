@@ -18,7 +18,7 @@
  * - Transport → Client: task:ack, task:started, task:chunk, task:completed, task:error, agent:connected, agent:disconnected
  */
 
-import {type FSWatcher, watch} from 'node:fs'
+import {existsSync} from 'node:fs'
 import {join} from 'node:path'
 
 import type {ITransportServer} from '../../core/interfaces/transport/i-transport-server.js'
@@ -43,81 +43,54 @@ function sendToParent(message: TransportIPCResponse): void {
 
 let transportServer: ITransportServer | undefined
 let transportHandlers: TransportHandlers | undefined
-let instanceWatcher: FSWatcher | undefined
+let instancePollingInterval: ReturnType<typeof setInterval> | undefined
 const instanceManager = new FileInstanceManager()
 
+/** Polling interval in milliseconds */
+const INSTANCE_POLLING_INTERVAL_MS = 2000
+
 /**
- * Setup file watcher to detect instance.json deletion and recreate it.
- * This handles the case where /init or other commands delete .brv/ folder
- * while Transport is still running.
+ * Setup polling to detect instance.json deletion and recreate it.
+ *
+ * Why polling instead of fs.watch()?
+ * - fs.watch() on .brv/ directory silently stops when the directory is deleted
+ * - /init deletes entire .brv/ folder, causing watcher to become a dead listener
+ * - Polling is more reliable for this self-healing use case
  */
-function setupInstanceWatcher(projectRoot: string, port: number): void {
-  const brvDir = join(projectRoot, BRV_DIR)
-  const instanceFileName = INSTANCE_FILE
+function setupInstancePolling(projectRoot: string, port: number): void {
+  const instancePath = join(projectRoot, BRV_DIR, INSTANCE_FILE)
 
-  try {
-    instanceWatcher = watch(brvDir, async (eventType, filename) => {
-      // Only care about instance.json changes
-      if (filename !== instanceFileName) return
-
-      // Check if instance.json was deleted (rename event on deletion)
-      if (eventType === 'rename') {
-        // Small delay to avoid race with file operations
-        await new Promise((resolve) => {
-          setTimeout(resolve, 100)
-        })
-
-        // Try to recreate instance.json
+  instancePollingInterval = setInterval(async () => {
+    // Check if instance.json exists
+    if (!existsSync(instancePath)) {
+      // Check if .brv directory exists (init might have recreated it)
+      const brvDir = join(projectRoot, BRV_DIR)
+      if (existsSync(brvDir)) {
+        // .brv exists but instance.json doesn't - recreate it
         try {
           const result = await instanceManager.acquire(projectRoot, port)
           if (result.acquired) {
             transportLog('instance.json was deleted - recreated successfully')
           }
         } catch (error) {
-          // .brv directory might not exist yet, will be recreated by init
           transportLog(`Could not recreate instance.json: ${error}`)
         }
       }
-    })
+      // If .brv doesn't exist, wait for /init to create it
+    }
+  }, INSTANCE_POLLING_INTERVAL_MS)
 
-    instanceWatcher.on('error', (error) => {
-      transportLog(`Instance watcher error: ${error.message}`)
-      // Watcher might fail if .brv/ is deleted, try to restart it
-      restartInstanceWatcher(projectRoot, port)
-    })
-
-    transportLog('Instance file watcher started')
-  } catch {
-    // .brv directory might not exist, will setup watcher later
-    transportLog('Could not setup instance watcher (directory may not exist)')
-  }
+  transportLog('Instance self-healing polling started')
 }
 
 /**
- * Restart the instance watcher after an error or directory recreation.
+ * Stop the instance polling.
  */
-function restartInstanceWatcher(projectRoot: string, port: number): void {
-  // Close existing watcher
-  if (instanceWatcher) {
-    instanceWatcher.close()
-    instanceWatcher = undefined
+function stopInstancePolling(): void {
+  if (instancePollingInterval) {
+    clearInterval(instancePollingInterval)
+    instancePollingInterval = undefined
   }
-
-  // Wait a bit for directory to be recreated, then try to restart
-  setTimeout(async () => {
-    // First: recreate instance.json (this also creates .brv/ if needed)
-    try {
-      const result = await instanceManager.acquire(projectRoot, port)
-      if (result.acquired) {
-        transportLog('instance.json recreated after directory deletion')
-      }
-    } catch (error) {
-      transportLog(`Failed to recreate instance.json: ${error}`)
-    }
-
-    // Then: setup watcher (now .brv/ should exist)
-    setupInstanceWatcher(projectRoot, port)
-  }, 500)
 }
 
 async function startTransport(): Promise<number> {
@@ -144,8 +117,8 @@ async function startTransport(): Promise<number> {
   transportHandlers = new TransportHandlers(transportServer)
   transportHandlers.setup()
 
-  // Setup watcher to recreate instance.json if deleted
-  setupInstanceWatcher(projectRoot, port)
+  // Setup polling to recreate instance.json if deleted
+  setupInstancePolling(projectRoot, port)
 
   transportLog(`Socket.IO server started on port ${port}`)
   transportLog(`Instance registered at ${projectRoot}/.brv/instance.json`)
@@ -153,11 +126,8 @@ async function startTransport(): Promise<number> {
 }
 
 async function stopTransport(): Promise<void> {
-  // Close instance watcher first
-  if (instanceWatcher) {
-    instanceWatcher.close()
-    instanceWatcher = undefined
-  }
+  // Stop instance polling first
+  stopInstancePolling()
 
   // Release instance.json
   const projectRoot = process.cwd()

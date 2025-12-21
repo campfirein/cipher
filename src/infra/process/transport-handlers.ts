@@ -34,6 +34,8 @@
 import {randomUUID} from 'node:crypto'
 
 import type {
+  AgentRestartRequest,
+  AgentRestartResponse,
   LlmChunkEvent,
   LlmErrorEvent,
   LlmResponseEvent,
@@ -63,7 +65,7 @@ import {
   AgentNotAvailableError,
   serializeTaskError,
 } from '../../core/domain/errors/task-error.js'
-import {transportLog} from '../../utils/process-logger.js'
+import {eventLog, transportLog} from '../../utils/process-logger.js'
 
 // ============================================================================
 // Types
@@ -127,6 +129,7 @@ export class TransportHandlers {
     this.setupAgentHandlers()
     this.setupClientHandlers()
     this.setupSessionHandlers()
+    this.setupAgentControlHandlers()
   }
 
   /**
@@ -435,6 +438,43 @@ export class TransportHandlers {
       // Fallback if task not found
       this.transport.broadcastTo('broadcast-room', 'task:started', {taskId})
     }
+  }
+
+  /**
+   * Setup agent control handlers.
+   * These handle commands to control the Agent process (restart, etc.)
+   */
+  private setupAgentControlHandlers(): void {
+    // agent:restart - Client requests Agent to reinitialize
+    this.transport.onRequest<AgentRestartRequest, AgentRestartResponse>('agent:restart', (data, clientId) => {
+      transportLog(`Agent restart requested by ${clientId}: ${data.reason ?? 'no reason'}`)
+
+      if (!this.agentClientId) {
+        return {error: 'Agent not connected', success: false}
+      }
+
+      // Forward restart command to Agent
+      this.transport.sendTo(this.agentClientId, 'agent:restart', {reason: data.reason})
+
+      // Broadcast and log event
+      eventLog('agent:restarting', {reason: data.reason})
+      this.transport.broadcast('agent:restarting', {reason: data.reason})
+
+      return {success: true}
+    })
+
+    // agent:restarted - Agent reports restart result
+    this.transport.onRequest<{error?: string; success: boolean}, void>('agent:restarted', (data) => {
+      if (data.success) {
+        transportLog('Agent restarted successfully')
+        eventLog('agent:restarted', {success: true})
+        this.transport.broadcast('agent:restarted', {success: true})
+      } else {
+        transportLog(`Agent restart failed: ${data.error}`)
+        eventLog('agent:restarted', {error: data.error, success: false})
+        this.transport.broadcast('agent:restarted', {error: data.error, success: false})
+      }
+    })
   }
 
   /**

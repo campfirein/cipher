@@ -141,7 +141,9 @@ function setupAgentEventForwarding(agent: CipherAgent): void {
   // Transport type: AgentEventMap['llmservice:thinking'] & { taskId: string }
   eventBus.on('llmservice:thinking', (payload) => {
     if (currentTaskId) {
-      transportClient?.request('llmservice:thinking', {sessionId: payload.sessionId, taskId: currentTaskId}).catch(() => {})
+      transportClient
+        ?.request('llmservice:thinking', {sessionId: payload.sessionId, taskId: currentTaskId})
+        .catch(() => {})
     }
   })
 
@@ -491,6 +493,32 @@ async function startAgent(): Promise<void> {
       // eslint-disable-next-line n/no-process-exit, unicorn/no-process-exit
       process.exit(0)
     })
+  })
+
+  // Handle agent:restart from Transport (triggered by client, e.g., after /init)
+  transportClient.on<{reason?: string}>('agent:restart', async (data) => {
+    agentLog(`Agent restart requested: ${data.reason ?? 'no reason'}`)
+
+    try {
+      // Reinitialize agent with fresh config
+      const success = await tryInitializeAgent(true) // forceReinit = true
+
+      if (success) {
+        agentLog('Agent reinitialized successfully')
+        // Notify Transport that restart completed
+        await transportClient?.request('agent:restarted', {success: true})
+      } else {
+        agentLog('Agent reinitialization failed - config incomplete')
+        await transportClient?.request('agent:restarted', {
+          error: 'Config incomplete (no auth token or config)',
+          success: false,
+        })
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      agentLog(`Agent reinitialization error: ${message}`)
+      await transportClient?.request('agent:restarted', {error: message, success: false})
+    }
   })
 
   agentLog('Ready to process tasks')
