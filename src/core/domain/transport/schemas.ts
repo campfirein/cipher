@@ -261,10 +261,10 @@ export const TaskAckSchema = z.object({
  * Sent to broadcast-room for TUI monitoring
  */
 export const TaskCreatedSchema = z.object({
+  /** Task content/prompt */
+  content: z.string(),
   /** Optional file paths for curate --files */
   files: z.array(z.string()).optional(),
-  /** Task input content */
-  input: z.string(),
   /** Unique task identifier */
   taskId: z.string(),
   /** Task type (curate or query) */
@@ -274,12 +274,16 @@ export const TaskCreatedSchema = z.object({
 /**
  * task:started - Agent begins processing the task
  * Direct send: {taskId} only
- * Broadcast: {taskId, input, type, files?}
+ * Broadcast: {taskId, content, type, files?}
  */
 export const TaskStartedSchema = z.object({
+  /** Task content/prompt */
+  content: z.string().optional(),
+  /** Optional file paths for curate --files */
   files: z.array(z.string()).optional(),
-  input: z.string().optional(),
+  /** Unique task identifier */
   taskId: z.string(),
+  /** Task type (curate or query) */
   type: z.string().optional(),
 })
 
@@ -362,10 +366,10 @@ export const TaskTypeSchema = z.enum(['curate', 'query'])
  * Request to create a new task
  */
 export const TaskCreateRequestSchema = z.object({
+  /** Task content/prompt */
+  content: z.string().min(1),
   /** Optional file paths for curate --files (max 5) */
   files: z.array(z.string()).optional(),
-  /** Input content/prompt */
-  input: z.string().min(1),
   /** Task type */
   type: TaskTypeSchema,
 })

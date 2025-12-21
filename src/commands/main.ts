@@ -7,6 +7,7 @@ import {FileGlobalConfigStore} from '../infra/storage/file-global-config-store.j
 import {FileOnboardingPreferenceStore} from '../infra/storage/file-onboarding-preference-store.js'
 import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
 import {MixpanelTrackingService} from '../infra/tracking/mixpanel-tracking-service.js'
+import {initSessionLog} from '../utils/process-logger.js'
 
 /**
  * Main command - Entry point for ByteRover CLI.
@@ -24,6 +25,9 @@ export default class Main extends Command {
   public static hidden = true
 
   public async run(): Promise<void> {
+    // Initialize session log (creates ~/.brv/logs/brv-{timestamp}.log)
+    initSessionLog()
+
     // Check if running in an interactive terminal
     if (!process.stdin.isTTY || !process.stdout.isTTY) {
       this.log('ByteRover REPL requires an interactive terminal.')
