@@ -605,13 +605,28 @@ export class FileSystemService implements IFileSystem {
         return this.searchContentJS(pattern, options)
       }
 
+      // Collect file modification times for sorting (recent files first)
+      const matchesWithMtime = await Promise.all(
+        matches.map(async (match) => {
+          try {
+            const stats = await fs.stat(match.file)
+            return {...match, mtime: stats.mtime.getTime()}
+          } catch {
+            return {...match, mtime: 0}
+          }
+        }),
+      )
+
+      // Sort by modification time (newest first)
+      matchesWithMtime.sort((a, b) => (b.mtime ?? 0) - (a.mtime ?? 0))
+
       // Apply maxResults limit
-      const truncated = matches.length > maxResults
+      const truncated = matchesWithMtime.length > maxResults
 
       return {
-        filesSearched: new Set(matches.map((m) => m.file)).size,
-        matches: matches.slice(0, maxResults),
-        totalMatches: matches.length,
+        filesSearched: new Set(matchesWithMtime.map((m) => m.file)).size,
+        matches: matchesWithMtime.slice(0, maxResults),
+        totalMatches: matchesWithMtime.length,
         truncated,
       }
     } catch (error) {

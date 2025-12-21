@@ -270,6 +270,9 @@ export interface SearchMatch {
 
   /** Line number (1-based) */
   lineNumber: number
+
+  /** File modification time in milliseconds (for sorting by recency) */
+  mtime?: number
 }
 
 /**

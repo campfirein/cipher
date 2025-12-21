@@ -115,18 +115,28 @@ export class QueryUseCase implements IQueryUseCase {
         this.setupToolCallTracking(agent, executionId)
 
         // Execute with plan agent that delegates to explore subagent with contextTreeOnly
-        const prompt = `Search the context tree for: ${options.query}
+        const keywords = options.query
+          .split(' ')
+          .filter((w) => w.length > 2)
+          .join(', ')
+        const prompt = `Search the context tree for: "${options.query}"
 
-Use the explore subagent with contextTreeOnly=true to search ONLY within .brv/context-tree/.
-Do NOT search the main codebase - only search the curated context.
+## Search Instructions
+1. Use Glob to list available topics in .brv/context-tree/
+2. Use Grep to search for keywords: ${keywords}
+3. Read matching topic files to extract detailed information
+4. Synthesize findings into a coherent answer
 
-Example task call:
-task({
-  subagentType: "explore",
-  description: "Search context tree",
-  prompt: "Search for information about: ${options.query}",
-  contextTreeOnly: true
-})`
+## Scope
+- contextTreeOnly=true: Search ONLY within .brv/context-tree/
+- Do NOT search the main codebase
+
+## Output Requirements
+- Quote relevant sections from context tree files
+- Include file paths for all referenced information
+- If nothing found, state what was searched and suggest missing topics
+
+Use the explore subagent with contextTreeOnly=true.`
         const response = await agent.execute(prompt, {
           executionContext: {commandType: 'query'},
           trackingRequestId: sessionId,

@@ -1,27 +1,23 @@
-Delegates work to a specialized subagent for complex tasks. Each subagent runs with its own configuration and tool access.
+Delegates work to a specialized subagent for complex tasks.
 
 Available Subagents:
-- query: Searches and retrieves information from the context tree. Use for knowledge discovery.
-- curate: Creates or updates knowledge topics in the context tree. Use after gathering information.
+- explore: Fast codebase exploration. Searches files, reads code, finds patterns.
+  Use for: finding implementations, understanding code structure, locating files
+- curate: Creates/updates knowledge topics in the context tree.
+  Use for: storing knowledge after gathering information
 
 Parameters:
+- subagent_type: "explore" or "curate"
 - description: Short task description (3-5 words)
 - prompt: Detailed instructions for the subagent
-- subagent_type: Which subagent to use ("query" or "curate")
-- session_id: (Optional) Continue an existing subagent session
+- contextTreeOnly: (Optional) If true, restricts to .brv/context-tree/ only
+- session_id: (Optional) Continue existing session
 
-Workflow Example:
-1. Use task with "query" to find existing related context
-2. Use task with "curate" to create/update topics based on findings
-
-Good Use Cases:
-- Orchestrating multi-step curation workflows
-- Searching context tree before making changes
-- Delegating specialized tasks to focused agents
+Workflow:
+1. Use explore to find/understand code
+2. Use curate to store findings in context tree
 
 Rules:
-- Always query before curating to avoid duplicates
-- Provide clear, detailed prompts to subagents
+- Provide clear, detailed prompts
 - Subagents cannot call task (no recursion)
-
-Performance Tip: Run query first to understand existing context, then curate with full knowledge.
+- For context tree queries, use contextTreeOnly=true

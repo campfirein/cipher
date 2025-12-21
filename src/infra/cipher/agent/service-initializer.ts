@@ -41,6 +41,7 @@ import {SystemPromptManager} from '../system-prompt/system-prompt-manager.js'
 import {CoreToolScheduler} from '../tools/core-tool-scheduler.js'
 import {DEFAULT_POLICY_RULES} from '../tools/default-policy-rules.js'
 import {PolicyEngine} from '../tools/policy-engine.js'
+import {ToolDescriptionLoader} from '../tools/tool-description-loader.js'
 import {ToolManager} from '../tools/tool-manager.js'
 import {ToolProvider} from '../tools/tool-provider.js'
 
@@ -157,6 +158,7 @@ export async function createCipherAgentServices(
 
   // 7. Tool provider (depends on FileSystemService, ProcessService, MemoryManager, SystemPromptManager)
   const verbose = config.llm.verbose ?? false
+  const descriptionLoader = new ToolDescriptionLoader()
   const toolProvider: ToolProvider = new ToolProvider(
     {
       fileSystemService,
@@ -165,6 +167,7 @@ export async function createCipherAgentServices(
       processService,
     },
     systemPromptManager,
+    descriptionLoader,
   )
   await toolProvider.initialize()
 
