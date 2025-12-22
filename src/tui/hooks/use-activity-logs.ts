@@ -91,29 +91,31 @@ export function useActivityLogs(): UseActivityLogsReturn {
 
   const logs = useMemo(
     () =>
-      sessionExecutions.map(({execution, toolCalls}) => {
-        const progress = toolCalls.map((tc) => ({
-          id: tc.id,
-          status: tc.status,
-          toolCallName: tc.name,
-        }))
+      sessionExecutions
+        .filter(({execution}) => execution.status !== 'queued')
+        .map(({execution, toolCalls}) => {
+          const progress = toolCalls.map((tc) => ({
+            id: tc.id,
+            status: tc.status,
+            toolCallName: tc.name,
+          }))
 
-        const changes = composeChangesFromToolCalls(toolCalls)
+          const changes = composeChangesFromToolCalls(toolCalls)
 
-        const activityLog: ActivityLog = {
-          changes,
-          content: execution.status === 'failed' ? execution.error ?? '' : execution.result ?? '',
-          id: execution.id,
-          input: parseExecutionContent(execution.input),
-          progress,
-          source: 'agent',
-          status: execution.status,
-          timestamp: new Date(execution.updatedAt),
-          type: execution.type,
-        }
+          const activityLog: ActivityLog = {
+            changes,
+            content: execution.status === 'failed' ? execution.error ?? '' : execution.result ?? '',
+            id: execution.id,
+            input: parseExecutionContent(execution.input),
+            progress,
+            source: 'agent',
+            status: execution.status,
+            timestamp: new Date(execution.updatedAt),
+            type: execution.type,
+          }
 
-        return activityLog
-      }),
+          return activityLog
+        }),
     [sessionExecutions],
   )
 
