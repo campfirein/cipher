@@ -5,7 +5,6 @@ import type {CurateExecuteOptionsV2, ICurateUseCaseV2} from '../../core/interfac
 
 import {FileValidationError} from '../../core/domain/errors/task-error.js'
 import {validateFileForCurate} from '../../utils/file-validator.js'
-import {CipherAgent} from '../cipher/agent/index.js'
 import {getAgentStorage} from '../cipher/storage/agent-storage.js'
 
 /**
@@ -65,9 +64,8 @@ export class CurateUseCaseV2 implements ICurateUseCaseV2 {
 
       // Execute with curate commandType
       // Agent uses its default session (created during start())
-      const cipherAgent = agent as CipherAgent
       const trackingRequestId = randomUUID()
-      const response = await cipherAgent.execute(prompt, {
+      const response = await agent.execute(prompt, {
         executionContext: {commandType: 'curate'},
         trackingRequestId,
       })

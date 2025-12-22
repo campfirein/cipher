@@ -18,22 +18,22 @@
  * - Transport → Client: task:ack, task:started, task:chunk, task:completed, task:error, agent:connected, agent:disconnected
  */
 
-import type {ITransportServer} from '../../core/interfaces/transport/i-transport-server.js'
+import {existsSync} from 'node:fs'
+import {join} from 'node:path'
 
+import type {ITransportServer} from '../../core/interfaces/transport/i-transport-server.js'
+import type {IPCCommand, TransportIPCResponse} from './ipc-types.js'
+
+import {BRV_DIR, INSTANCE_FILE} from '../../constants.js'
 import {transportLog} from '../../utils/process-logger.js'
 import {FileInstanceManager} from '../instance/file-instance-manager.js'
 import {findAvailablePort} from '../transport/port-utils.js'
 import {createTransportServer} from '../transport/transport-factory.js'
 import {TransportHandlers} from './transport-handlers.js'
 
-// ============================================================================
-// IPC Types
-// ============================================================================
+// IPC types imported from ./ipc-types.ts
 
-type IPCMessage = {type: 'ping'} | {type: 'shutdown'}
-type IPCResponse = {error: string; type: 'error'} | {port: number; type: 'ready'} | {type: 'pong'} | {type: 'stopped'}
-
-function sendToParent(message: IPCResponse): void {
+function sendToParent(message: TransportIPCResponse): void {
   process.send?.(message)
 }
 
@@ -43,7 +43,55 @@ function sendToParent(message: IPCResponse): void {
 
 let transportServer: ITransportServer | undefined
 let transportHandlers: TransportHandlers | undefined
+let instancePollingInterval: ReturnType<typeof setInterval> | undefined
 const instanceManager = new FileInstanceManager()
+
+/** Polling interval in milliseconds */
+const INSTANCE_POLLING_INTERVAL_MS = 2000
+
+/**
+ * Setup polling to detect instance.json deletion and recreate it.
+ *
+ * Why polling instead of fs.watch()?
+ * - fs.watch() on .brv/ directory silently stops when the directory is deleted
+ * - /init deletes entire .brv/ folder, causing watcher to become a dead listener
+ * - Polling is more reliable for this self-healing use case
+ */
+function setupInstancePolling(projectRoot: string, port: number): void {
+  const instancePath = join(projectRoot, BRV_DIR, INSTANCE_FILE)
+
+  instancePollingInterval = setInterval(async () => {
+    // Check if instance.json exists
+    if (!existsSync(instancePath)) {
+      // Check if .brv directory exists (init might have recreated it)
+      const brvDir = join(projectRoot, BRV_DIR)
+      if (existsSync(brvDir)) {
+        // .brv exists but instance.json doesn't - recreate it
+        try {
+          const result = await instanceManager.acquire(projectRoot, port)
+          if (result.acquired) {
+            transportLog('instance.json was deleted - recreated successfully')
+          }
+        } catch (error) {
+          transportLog(`Could not recreate instance.json: ${error}`)
+        }
+      }
+      // If .brv doesn't exist, wait for /init to create it
+    }
+  }, INSTANCE_POLLING_INTERVAL_MS)
+
+  transportLog('Instance self-healing polling started')
+}
+
+/**
+ * Stop the instance polling.
+ */
+function stopInstancePolling(): void {
+  if (instancePollingInterval) {
+    clearInterval(instancePollingInterval)
+    instancePollingInterval = undefined
+  }
+}
 
 async function startTransport(): Promise<number> {
   // Create Socket.IO server
@@ -69,13 +117,19 @@ async function startTransport(): Promise<number> {
   transportHandlers = new TransportHandlers(transportServer)
   transportHandlers.setup()
 
+  // Setup polling to recreate instance.json if deleted
+  setupInstancePolling(projectRoot, port)
+
   transportLog(`Socket.IO server started on port ${port}`)
   transportLog(`Instance registered at ${projectRoot}/.brv/instance.json`)
   return port
 }
 
 async function stopTransport(): Promise<void> {
-  // Release instance.json first
+  // Stop instance polling first
+  stopInstancePolling()
+
+  // Release instance.json
   const projectRoot = process.cwd()
   await instanceManager.release(projectRoot)
 
@@ -109,7 +163,7 @@ async function runWorker(): Promise<void> {
   }
 
   // IPC message handler
-  process.on('message', async (msg: IPCMessage) => {
+  process.on('message', async (msg: IPCCommand) => {
     if (msg.type === 'ping') {
       sendToParent({type: 'pong'})
     } else if (msg.type === 'shutdown') {

@@ -20,8 +20,10 @@
 
 import {randomUUID} from 'node:crypto'
 
+import type {TaskCancel, TaskExecute} from '../../core/domain/transport/schemas.js'
 import type {ICipherAgent} from '../../core/interfaces/cipher/i-cipher-agent.js'
 import type {ITransportClient} from '../../core/interfaces/transport/i-transport-client.js'
+import type {AgentIPCResponse, IPCCommand} from './ipc-types.js'
 
 import {getCurrentConfig} from '../../config/environment.js'
 import {PROJECT} from '../../constants.js'
@@ -35,32 +37,15 @@ import {createTransportClient} from '../transport/transport-factory.js'
 import {CurateUseCaseV2} from '../usecase/curate-use-case-v2.js'
 import {QueryUseCaseV2} from '../usecase/query-use-case-v2.js'
 
-// ============================================================================
-// IPC Types
-// ============================================================================
+// IPC types imported from ./ipc-types.ts
 
-type IPCMessage = {type: 'ping'} | {type: 'shutdown'}
-type IPCResponse = {error: string; type: 'error'} | {type: 'pong'} | {type: 'ready'} | {type: 'stopped'}
-
-function sendToParent(message: IPCResponse): void {
+function sendToParent(message: AgentIPCResponse): void {
   process.send?.(message)
 }
 
-// ============================================================================
-// Task Types (from Transport)
-// ============================================================================
-
-type TaskExecuteMessage = {
-  clientId: string
-  content: string
-  files?: string[]
-  taskId: string
-  type: 'curate' | 'query'
-}
-
-type TaskCancelMessage = {
-  taskId: string
-}
+// Task types imported from core/domain/transport/schemas.ts:
+// - TaskExecute: Transport → Agent (task:execute event)
+// - TaskCancel: Transport → Agent (task:cancel event)
 
 // ============================================================================
 // Agent Process
@@ -85,7 +70,7 @@ let lastConfigIdentity: string | undefined
 // ============================================================================
 
 /** Queue of pending curate tasks (FIFO) */
-const curateQueue: TaskExecuteMessage[] = []
+const curateQueue: TaskExecute[] = []
 /** Number of curate tasks currently being processed */
 let activeCurateTasks = 0
 /** Maximum concurrent curate tasks */
@@ -153,19 +138,24 @@ function setupAgentEventForwarding(agent: CipherAgent): void {
   }
 
   // Forward llmservice:thinking
-  eventBus.on('llmservice:thinking', () => {
+  // Transport type: AgentEventMap['llmservice:thinking'] & { taskId: string }
+  eventBus.on('llmservice:thinking', (payload) => {
     if (currentTaskId) {
-      transportClient?.request('llmservice:thinking', {taskId: currentTaskId}).catch(() => {})
+      transportClient
+        ?.request('llmservice:thinking', {sessionId: payload.sessionId, taskId: currentTaskId})
+        .catch(() => {})
     }
   })
 
   // Forward llmservice:chunk
+  // Transport type: AgentEventMap['llmservice:chunk'] & { taskId: string }
   eventBus.on('llmservice:chunk', (payload) => {
     if (currentTaskId) {
       transportClient
         ?.request('llmservice:chunk', {
           content: payload.content,
           isComplete: payload.isComplete,
+          sessionId: payload.sessionId,
           taskId: currentTaskId,
           type: payload.type,
         })
@@ -174,48 +164,69 @@ function setupAgentEventForwarding(agent: CipherAgent): void {
   })
 
   // Forward llmservice:response
+  // Transport type: AgentEventMap['llmservice:response'] & { taskId: string }
   eventBus.on('llmservice:response', (payload) => {
     if (currentTaskId && payload.content) {
-      transportClient?.request('llmservice:response', {content: payload.content, taskId: currentTaskId}).catch(() => {})
+      transportClient
+        ?.request('llmservice:response', {
+          content: payload.content,
+          model: payload.model,
+          partial: payload.partial,
+          provider: payload.provider,
+          reasoning: payload.reasoning,
+          sessionId: payload.sessionId,
+          taskId: currentTaskId,
+          tokenUsage: payload.tokenUsage,
+        })
+        .catch(() => {})
     }
   })
 
   // Forward llmservice:toolCall
+  // Transport type: AgentEventMap['llmservice:toolCall'] & { taskId: string }
   eventBus.on('llmservice:toolCall', (payload) => {
     if (currentTaskId && payload.callId) {
       transportClient
         ?.request('llmservice:toolCall', {
           args: payload.args,
           callId: payload.callId,
-          name: payload.toolName,
+          sessionId: payload.sessionId,
           taskId: currentTaskId,
+          toolName: payload.toolName,
         })
         .catch(() => {})
     }
   })
 
   // Forward llmservice:toolResult
+  // Transport type: AgentEventMap['llmservice:toolResult'] & { taskId: string }
   eventBus.on('llmservice:toolResult', (payload) => {
     if (currentTaskId && payload.callId) {
       transportClient
         ?.request('llmservice:toolResult', {
           callId: payload.callId,
           error: payload.error,
+          errorType: payload.errorType,
+          metadata: payload.metadata,
           result: payload.result,
+          sessionId: payload.sessionId,
           success: payload.success,
           taskId: currentTaskId,
+          toolName: payload.toolName,
         })
         .catch(() => {})
     }
   })
 
   // Forward llmservice:error
+  // Transport type: AgentEventMap['llmservice:error'] & { taskId: string }
   eventBus.on('llmservice:error', (payload) => {
     if (currentTaskId) {
       transportClient
         ?.request('llmservice:error', {
           code: payload.code,
           error: payload.error,
+          sessionId: payload.sessionId,
           taskId: currentTaskId,
         })
         .catch(() => {})
@@ -223,11 +234,13 @@ function setupAgentEventForwarding(agent: CipherAgent): void {
   })
 
   // Forward llmservice:unsupportedInput
+  // Transport type: AgentEventMap['llmservice:unsupportedInput'] & { taskId: string }
   eventBus.on('llmservice:unsupportedInput', (payload) => {
     if (currentTaskId) {
       transportClient
         ?.request('llmservice:unsupportedInput', {
           reason: payload.reason,
+          sessionId: payload.sessionId,
           taskId: currentTaskId,
         })
         .catch(() => {})
@@ -337,7 +350,7 @@ async function tryInitializeAgent(forceReinit = false): Promise<boolean> {
 /**
  * Handle task:execute from Transport.
  */
-async function handleTaskExecute(data: TaskExecuteMessage): Promise<void> {
+async function handleTaskExecute(data: TaskExecute): Promise<void> {
   const {content, files, taskId, type} = data
 
   agentLog(`Processing task: ${taskId} (type=${type})`)
@@ -423,7 +436,7 @@ async function handleTaskExecute(data: TaskExecuteMessage): Promise<void> {
 /**
  * Handle task:cancel from Transport.
  */
-function handleTaskCancel(data: TaskCancelMessage): void {
+function handleTaskCancel(data: TaskCancel): void {
   const {taskId} = data
   agentLog(`Cancelling task: ${taskId}`)
   taskProcessor?.cancel(taskId)
@@ -454,7 +467,7 @@ async function startAgent(): Promise<void> {
   }
 
   // Setup event handlers
-  transportClient.on<TaskExecuteMessage>('task:execute', (data) => {
+  transportClient.on<TaskExecute>('task:execute', (data) => {
     if (data.type === 'curate') {
       // Curate: add to queue (FIFO, max 2 concurrent)
       curateQueue.push(data)
@@ -470,7 +483,7 @@ async function startAgent(): Promise<void> {
     }
   })
 
-  transportClient.on<TaskCancelMessage>('task:cancel', handleTaskCancel)
+  transportClient.on<TaskCancel>('task:cancel', handleTaskCancel)
 
   // Handle shutdown from Transport
   transportClient.on('shutdown', () => {
@@ -480,6 +493,32 @@ async function startAgent(): Promise<void> {
       // eslint-disable-next-line n/no-process-exit, unicorn/no-process-exit
       process.exit(0)
     })
+  })
+
+  // Handle agent:restart from Transport (triggered by client, e.g., after /init)
+  transportClient.on<{reason?: string}>('agent:restart', async (data) => {
+    agentLog(`Agent restart requested: ${data.reason ?? 'no reason'}`)
+
+    try {
+      // Reinitialize agent with fresh config
+      const success = await tryInitializeAgent(true) // forceReinit = true
+
+      if (success) {
+        agentLog('Agent reinitialized successfully')
+        // Notify Transport that restart completed
+        await transportClient?.request('agent:restarted', {success: true})
+      } else {
+        agentLog('Agent reinitialization failed - config incomplete')
+        await transportClient?.request('agent:restarted', {
+          error: 'Config incomplete (no auth token or config)',
+          success: false,
+        })
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      agentLog(`Agent reinitialization error: ${message}`)
+      await transportClient?.request('agent:restarted', {error: message, success: false})
+    }
   })
 
   agentLog('Ready to process tasks')
@@ -522,7 +561,7 @@ async function runWorker(): Promise<void> {
   }
 
   // IPC message handler
-  process.on('message', async (msg: IPCMessage) => {
+  process.on('message', async (msg: IPCCommand) => {
     if (msg.type === 'ping') {
       sendToParent({type: 'pong'})
     } else if (msg.type === 'shutdown') {

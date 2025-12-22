@@ -1,6 +1,15 @@
 import {Args, Command, Flags} from '@oclif/core'
 
-import type {TaskCreateResponse} from '../core/domain/transport/schemas.js'
+import type {
+  LlmResponseEvent,
+  LlmToolCallEvent,
+  LlmToolResultEvent,
+  TaskAck,
+  TaskCompletedEvent,
+  TaskCreateResponse,
+  TaskErrorEvent,
+  TaskStartedEvent,
+} from '../core/domain/transport/schemas.js'
 import type {ITransportClient} from '../core/interfaces/transport/i-transport-client.js'
 
 import {isDevelopment} from '../config/environment.js'
@@ -17,25 +26,6 @@ import {
 } from '../core/domain/errors/connection-error.js'
 import {createTransportClientFactory} from '../infra/transport/transport-client-factory.js'
 import {getSandboxEnvironmentName, isSandboxEnvironment, isSandboxNetworkError} from '../utils/sandbox-detector.js'
-
-/**
- * Task lifecycle payloads (Transport-generated)
- */
-type TaskAckPayload = {taskId: string}
-type TaskStartedPayload = {taskId: string}
-type TaskCompletedPayload = {taskId: string}
-type TaskErrorPayload = {
-  error: {code?: string; details?: Record<string, unknown>; message: string; name: string}
-  taskId: string
-}
-
-/**
- * LLM service payloads (forwarded from Agent with original names)
- */
-// type LlmChunkPayload = {content: string; isComplete?: boolean; taskId: string; type: 'reasoning' | 'text'}
-type LlmResponsePayload = {content: string; taskId: string}
-type LlmToolCallPayload = {args?: Record<string, unknown>; callId: string; name: string; taskId: string}
-type LlmToolResultPayload = {callId: string; error?: string; result?: unknown; success: boolean; taskId: string}
 
 export default class Query extends Command {
   public static args = {
@@ -222,7 +212,7 @@ Bad:
    * Format tool result for display.
    * Shows meaningful, concise summary - NEVER shows raw JSON.
    */
-  private formatToolResult(payload: LlmToolResultPayload): string {
+  private formatToolResult(payload: LlmToolResultEvent): string {
     if (!payload.success) {
       const errMsg = payload.error ?? 'Failed'
       return errMsg.length > 50 ? `${errMsg.slice(0, 47)}...` : errMsg
@@ -333,14 +323,14 @@ Bad:
       // Setup all event handlers
       const unsubscribers = [
         // task:ack - immediate acknowledgment
-        client.on<TaskAckPayload>('task:ack', (payload) => {
+        client.on<TaskAck>('task:ack', (payload) => {
           if (payload.taskId === taskId && verbose) {
             this.log('Task acknowledged by server')
           }
         }),
 
         // task:started - task is being processed
-        client.on<TaskStartedPayload>('task:started', (payload) => {
+        client.on<TaskStartedEvent>('task:started', (payload) => {
           if (payload.taskId === taskId && verbose) {
             this.log('Task started processing...')
           }
@@ -358,7 +348,7 @@ Bad:
         // }),
 
         // llmservice:response - final response from LLM (only print once)
-        client.on<LlmResponsePayload>('llmservice:response', (payload) => {
+        client.on<LlmResponseEvent>('llmservice:response', (payload) => {
           if (payload.taskId === taskId && payload.content && !resultPrinted) {
             resultPrinted = true
             this.log('\nResult:')
@@ -367,16 +357,16 @@ Bad:
         }),
 
         // llmservice:toolCall - tool invocation (stop showing after response)
-        client.on<LlmToolCallPayload>('llmservice:toolCall', (payload) => {
+        client.on<LlmToolCallEvent>('llmservice:toolCall', (payload) => {
           if (payload.taskId === taskId && !resultPrinted) {
-            const detail = payload.args ? this.formatToolArgs(payload.name, payload.args) : ''
+            const detail = payload.args ? this.formatToolArgs(payload.toolName, payload.args) : ''
             const suffix = detail ? `: ${detail}` : ''
-            this.log(`🔧 ${payload.name}${suffix}`)
+            this.log(`🔧 ${payload.toolName}${suffix}`)
           }
         }),
 
         // llmservice:toolResult - tool result with summary (stop showing after response)
-        client.on<LlmToolResultPayload>('llmservice:toolResult', (payload) => {
+        client.on<LlmToolResultEvent>('llmservice:toolResult', (payload) => {
           if (payload.taskId === taskId && !resultPrinted) {
             const status = payload.success ? '✓' : '✗'
             const resultSummary = this.formatToolResult(payload)
@@ -385,7 +375,7 @@ Bad:
         }),
 
         // task:completed - task finished (chunks already streamed, just resolve)
-        client.on<TaskCompletedPayload>('task:completed', (payload) => {
+        client.on<TaskCompletedEvent>('task:completed', (payload) => {
           if (payload.taskId === taskId && !completed) {
             completed = true
             cleanup()
@@ -396,7 +386,7 @@ Bad:
         }),
 
         // task:error - task failed
-        client.on<TaskErrorPayload>('task:error', (payload) => {
+        client.on<TaskErrorEvent>('task:error', (payload) => {
           if (payload.taskId === taskId && !completed) {
             completed = true
             cleanup()

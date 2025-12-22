@@ -6,7 +6,6 @@ import type {
   QueryExecuteOptionsV2,
 } from '../../core/interfaces/usecase/i-query-use-case-v2.js'
 
-import {CipherAgent} from '../cipher/agent/index.js'
 import {getAgentStorage} from '../cipher/storage/agent-storage.js'
 
 /**
@@ -43,10 +42,9 @@ export class QueryUseCaseV2 implements IQueryUseCaseV2 {
 
       // Execute with query commandType
       // Agent uses its default session (created during start())
-      const cipherAgent = agent as CipherAgent
       const trackingRequestId = randomUUID()
       const prompt = `Search the context tree for: ${query}`
-      const response = await cipherAgent.execute(prompt, {
+      const response = await agent.execute(prompt, {
         executionContext: {commandType: 'query'},
         trackingRequestId,
       })

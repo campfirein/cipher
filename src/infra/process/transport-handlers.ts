@@ -34,6 +34,15 @@
 import {randomUUID} from 'node:crypto'
 
 import type {
+  AgentRestartRequest,
+  AgentRestartResponse,
+  LlmChunkEvent,
+  LlmErrorEvent,
+  LlmResponseEvent,
+  LlmThinkingEvent,
+  LlmToolCallEvent,
+  LlmToolResultEvent,
+  LlmUnsupportedInputEvent,
   SessionCreateRequest,
   SessionCreateResponse,
   SessionInfoResponse,
@@ -42,9 +51,12 @@ import type {
   SessionSwitchResponse,
   TaskCancelRequest,
   TaskCancelResponse,
+  TaskCompletedEvent,
   TaskCreateRequest,
   TaskCreateResponse,
-  TaskErrorData,
+  TaskErrorEvent,
+  TaskExecute,
+  TaskStartedEvent,
 } from '../../core/domain/transport/schemas.js'
 import type {ITransportServer} from '../../core/interfaces/transport/i-transport-server.js'
 
@@ -53,14 +65,14 @@ import {
   AgentNotAvailableError,
   serializeTaskError,
 } from '../../core/domain/errors/task-error.js'
-import {transportLog} from '../../utils/process-logger.js'
+import {eventLog, transportLog} from '../../utils/process-logger.js'
 
 // ============================================================================
 // Types
 // ============================================================================
 
 /**
- * Internal task tracking.
+ * Internal task tracking (local to TransportHandlers).
  */
 type TaskInfo = {
   clientId: string
@@ -71,43 +83,10 @@ type TaskInfo = {
   type: string
 }
 
-/**
- * Message sent from Transport to Agent.
- */
-type TaskExecuteMessage = {
-  clientId: string
-  content: string
-  files?: string[]
-  taskId: string
-  type: 'curate' | 'query'
-}
-
-/**
- * Messages from Agent to Transport (for routing to clients).
- *
- * Event naming convention:
- * - task:* events are Transport-generated (ack, started, completed, error)
- * - llmservice:* events are forwarded from Agent with original names
- *
- * All 7 llmservice events from session-event-forwarder.ts:
- * 1. llmservice:thinking
- * 2. llmservice:chunk
- * 3. llmservice:response
- * 4. llmservice:toolCall
- * 5. llmservice:toolResult
- * 6. llmservice:error
- * 7. llmservice:unsupportedInput
- */
-type LlmThinkingMessage = {taskId: string}
-type LlmChunkMessage = {content: string; isComplete?: boolean; taskId: string; type: 'reasoning' | 'text'}
-type LlmResponseMessage = {content: string; taskId: string}
-type LlmToolCallMessage = {args?: Record<string, unknown>; callId: string; name: string; taskId: string}
-type LlmToolResultMessage = {callId: string; error?: string; result?: unknown; success: boolean; taskId: string}
-type LlmErrorMessage = {code?: string; error: string; taskId: string}
-type LlmUnsupportedInputMessage = {reason: string; taskId: string}
-type TaskStartedMessage = {taskId: string}
-type TaskCompletedMessage = {result: string; taskId: string}
-type TaskErrorMessage = {error: TaskErrorData; taskId: string}
+// All message types are imported from core/domain/transport/schemas.ts
+// - TaskExecute: Transport → Agent (command)
+// - TaskStartedEvent, TaskCompletedEvent, TaskErrorEvent: Agent → Transport (task lifecycle events)
+// - LlmThinkingEvent, LlmChunkEvent, LlmResponseEvent, etc: Agent → Transport (LLM events)
 
 // ============================================================================
 // Transport Handlers
@@ -150,6 +129,7 @@ export class TransportHandlers {
     this.setupAgentHandlers()
     this.setupClientHandlers()
     this.setupSessionHandlers()
+    this.setupAgentControlHandlers()
   }
 
   /**
@@ -168,7 +148,7 @@ export class TransportHandlers {
    * Handle llmservice:chunk from Agent.
    * Route directly to task owner + broadcast-room for monitoring.
    */
-  private handleLlmChunk(data: LlmChunkMessage): void {
+  private handleLlmChunk(data: LlmChunkEvent): void {
     const {taskId, ...rest} = data
     const task = this.tasks.get(taskId)
     if (task) {
@@ -182,7 +162,7 @@ export class TransportHandlers {
    * Handle llmservice:error from Agent.
    * Route directly to task owner + broadcast-room for monitoring.
    */
-  private handleLlmError(data: LlmErrorMessage): void {
+  private handleLlmError(data: LlmErrorEvent): void {
     const {taskId, ...rest} = data
     const task = this.tasks.get(taskId)
     if (task) {
@@ -196,35 +176,35 @@ export class TransportHandlers {
    * Handle llmservice:response from Agent (LLM text output chunks).
    * Route directly to task owner + broadcast-room for monitoring.
    */
-  private handleLlmResponse(data: LlmResponseMessage): void {
-    const {content, taskId} = data
+  private handleLlmResponse(data: LlmResponseEvent): void {
+    const {taskId, ...rest} = data
     const task = this.tasks.get(taskId)
     if (task) {
-      this.transport.sendTo(task.clientId, 'llmservice:response', {content, taskId})
+      this.transport.sendTo(task.clientId, 'llmservice:response', {taskId, ...rest})
     }
 
-    this.transport.broadcastTo('broadcast-room', 'llmservice:response', {content, taskId})
+    this.transport.broadcastTo('broadcast-room', 'llmservice:response', {taskId, ...rest})
   }
 
   /**
    * Handle llmservice:thinking from Agent.
    * Route directly to task owner + broadcast-room for monitoring.
    */
-  private handleLlmThinking(data: LlmThinkingMessage): void {
-    const {taskId} = data
+  private handleLlmThinking(data: LlmThinkingEvent): void {
+    const {taskId, ...rest} = data
     const task = this.tasks.get(taskId)
     if (task) {
-      this.transport.sendTo(task.clientId, 'llmservice:thinking', {taskId})
+      this.transport.sendTo(task.clientId, 'llmservice:thinking', {taskId, ...rest})
     }
 
-    this.transport.broadcastTo('broadcast-room', 'llmservice:thinking', {taskId})
+    this.transport.broadcastTo('broadcast-room', 'llmservice:thinking', {taskId, ...rest})
   }
 
   /**
    * Handle llmservice:toolCall from Agent.
    * Route directly to task owner + broadcast-room for monitoring.
    */
-  private handleLlmToolCall(data: LlmToolCallMessage): void {
+  private handleLlmToolCall(data: LlmToolCallEvent): void {
     const {taskId, ...rest} = data
     const task = this.tasks.get(taskId)
     if (task) {
@@ -238,7 +218,7 @@ export class TransportHandlers {
    * Handle llmservice:toolResult from Agent.
    * Route directly to task owner + broadcast-room for monitoring.
    */
-  private handleLlmToolResult(data: LlmToolResultMessage): void {
+  private handleLlmToolResult(data: LlmToolResultEvent): void {
     const {taskId, ...rest} = data
     const task = this.tasks.get(taskId)
     if (task) {
@@ -252,7 +232,7 @@ export class TransportHandlers {
    * Handle llmservice:unsupportedInput from Agent.
    * Route directly to task owner + broadcast-room for monitoring.
    */
-  private handleLlmUnsupportedInput(data: LlmUnsupportedInputMessage): void {
+  private handleLlmUnsupportedInput(data: LlmUnsupportedInputEvent): void {
     const {taskId, ...rest} = data
     const task = this.tasks.get(taskId)
     if (task) {
@@ -351,7 +331,7 @@ export class TransportHandlers {
    * Handle task:completed from Agent.
    * Route directly to task owner + broadcast-room for monitoring.
    */
-  private handleTaskCompleted(data: TaskCompletedMessage): void {
+  private handleTaskCompleted(data: TaskCompletedEvent): void {
     const {result, taskId} = data
     const task = this.tasks.get(taskId)
 
@@ -397,7 +377,7 @@ export class TransportHandlers {
 
     // Forward to Agent
     if (this.agentClientId) {
-      const executeMsg: TaskExecuteMessage = {
+      const executeMsg: TaskExecute = {
         clientId,
         content: data.content,
         ...(data.files?.length ? {files: data.files} : {}),
@@ -421,7 +401,7 @@ export class TransportHandlers {
    * Handle task:error from Agent.
    * Route directly to task owner + broadcast-room for monitoring.
    */
-  private handleTaskError(data: TaskErrorMessage): void {
+  private handleTaskError(data: TaskErrorEvent): void {
     const {error, taskId} = data
     const task = this.tasks.get(taskId)
 
@@ -439,7 +419,7 @@ export class TransportHandlers {
    * Handle task:started from Agent.
    * Route directly to task owner + broadcast-room for monitoring.
    */
-  private handleTaskStarted(data: TaskStartedMessage): void {
+  private handleTaskStarted(data: TaskStartedEvent): void {
     const {taskId} = data
     const task = this.tasks.get(taskId)
     if (task) {
@@ -461,6 +441,43 @@ export class TransportHandlers {
   }
 
   /**
+   * Setup agent control handlers.
+   * These handle commands to control the Agent process (restart, etc.)
+   */
+  private setupAgentControlHandlers(): void {
+    // agent:restart - Client requests Agent to reinitialize
+    this.transport.onRequest<AgentRestartRequest, AgentRestartResponse>('agent:restart', (data, clientId) => {
+      transportLog(`Agent restart requested by ${clientId}: ${data.reason ?? 'no reason'}`)
+
+      if (!this.agentClientId) {
+        return {error: 'Agent not connected', success: false}
+      }
+
+      // Forward restart command to Agent
+      this.transport.sendTo(this.agentClientId, 'agent:restart', {reason: data.reason})
+
+      // Broadcast and log event
+      eventLog('agent:restarting', {reason: data.reason})
+      this.transport.broadcast('agent:restarting', {reason: data.reason})
+
+      return {success: true}
+    })
+
+    // agent:restarted - Agent reports restart result
+    this.transport.onRequest<{error?: string; success: boolean}, void>('agent:restarted', (data) => {
+      if (data.success) {
+        transportLog('Agent restarted successfully')
+        eventLog('agent:restarted', {success: true})
+        this.transport.broadcast('agent:restarted', {success: true})
+      } else {
+        transportLog(`Agent restart failed: ${data.error}`)
+        eventLog('agent:restarted', {error: data.error, success: false})
+        this.transport.broadcast('agent:restarted', {error: data.error, success: false})
+      }
+    })
+  }
+
+  /**
    * Setup Agent-related handlers.
    * These handle events FROM the Agent.
    */
@@ -472,44 +489,44 @@ export class TransportHandlers {
     })
 
     // Task lifecycle events (Transport-generated names)
-    this.transport.onRequest<TaskStartedMessage, void>('task:started', (data) => {
+    this.transport.onRequest<TaskStartedEvent, void>('task:started', (data) => {
       this.handleTaskStarted(data)
     })
 
-    this.transport.onRequest<TaskCompletedMessage, void>('task:completed', (data) => {
+    this.transport.onRequest<TaskCompletedEvent, void>('task:completed', (data) => {
       this.handleTaskCompleted(data)
     })
 
-    this.transport.onRequest<TaskErrorMessage, void>('task:error', (data) => {
+    this.transport.onRequest<TaskErrorEvent, void>('task:error', (data) => {
       this.handleTaskError(data)
     })
 
     // LLM events (all 7 from session-event-forwarder.ts)
-    this.transport.onRequest<LlmThinkingMessage, void>('llmservice:thinking', (data) => {
+    this.transport.onRequest<LlmThinkingEvent, void>('llmservice:thinking', (data) => {
       this.handleLlmThinking(data)
     })
 
-    this.transport.onRequest<LlmChunkMessage, void>('llmservice:chunk', (data) => {
+    this.transport.onRequest<LlmChunkEvent, void>('llmservice:chunk', (data) => {
       this.handleLlmChunk(data)
     })
 
-    this.transport.onRequest<LlmResponseMessage, void>('llmservice:response', (data) => {
+    this.transport.onRequest<LlmResponseEvent, void>('llmservice:response', (data) => {
       this.handleLlmResponse(data)
     })
 
-    this.transport.onRequest<LlmToolCallMessage, void>('llmservice:toolCall', (data) => {
+    this.transport.onRequest<LlmToolCallEvent, void>('llmservice:toolCall', (data) => {
       this.handleLlmToolCall(data)
     })
 
-    this.transport.onRequest<LlmToolResultMessage, void>('llmservice:toolResult', (data) => {
+    this.transport.onRequest<LlmToolResultEvent, void>('llmservice:toolResult', (data) => {
       this.handleLlmToolResult(data)
     })
 
-    this.transport.onRequest<LlmErrorMessage, void>('llmservice:error', (data) => {
+    this.transport.onRequest<LlmErrorEvent, void>('llmservice:error', (data) => {
       this.handleLlmError(data)
     })
 
-    this.transport.onRequest<LlmUnsupportedInputMessage, void>('llmservice:unsupportedInput', (data) => {
+    this.transport.onRequest<LlmUnsupportedInputEvent, void>('llmservice:unsupportedInput', (data) => {
       this.handleLlmUnsupportedInput(data)
     })
   }

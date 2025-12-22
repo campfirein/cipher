@@ -84,10 +84,11 @@ export interface ICipherAgent {
    *
    * @param input - User input string
    * @param options - Optional execution options
+   * @param options.executionContext - Optional context for command-specific behavior (curate/query/chat)
    * @param options.trackingRequestId - Optional tracking request ID for backend metrics (random UUID per request)
    * @returns Agent response
    */
-  execute(input: string, options?: {trackingRequestId?: string}): Promise<string>
+  execute(input: string, options?: {executionContext?: ExecutionContext; trackingRequestId?: string}): Promise<string>
 
   /**
    * Generate a complete response (waits for full completion).

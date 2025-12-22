@@ -90,7 +90,7 @@ describe('SocketIOTransportServer', () => {
 
       // Wait for disconnect
       await new Promise<void>((resolve) => {
-        setTimeout(resolve, 100)
+        setTimeout(resolve, 15)
       })
 
       expect(clientSocket.connected).to.be.false
@@ -113,7 +113,7 @@ describe('SocketIOTransportServer', () => {
 
       // Wait for handler to be called
       await new Promise((resolve) => {
-        setTimeout(resolve, 50)
+        setTimeout(resolve, 10)
       })
 
       expect(connectedClientId).to.equal(clientSocket.id)
@@ -137,7 +137,7 @@ describe('SocketIOTransportServer', () => {
 
       // Wait for handler to be called
       await new Promise((resolve) => {
-        setTimeout(resolve, 50)
+        setTimeout(resolve, 10)
       })
 
       expect(disconnectedClientId).to.equal(clientId)
@@ -285,7 +285,7 @@ describe('SocketIOTransportServer', () => {
 
       // Wait for potential messages
       await new Promise((resolve) => {
-        setTimeout(resolve, 100)
+        setTimeout(resolve, 15)
       })
 
       expect(client1Received).to.be.true
@@ -316,7 +316,7 @@ describe('SocketIOTransportServer', () => {
 
       // Wait for connection handler
       await new Promise((resolve) => {
-        setTimeout(resolve, 50)
+        setTimeout(resolve, 10)
       })
 
       // Add client to room server-side
@@ -347,7 +347,7 @@ describe('SocketIOTransportServer', () => {
 
       // Wait for connection handler
       await new Promise((resolve) => {
-        setTimeout(resolve, 50)
+        setTimeout(resolve, 10)
       })
 
       // Add then remove from room
@@ -363,7 +363,7 @@ describe('SocketIOTransportServer', () => {
 
       // Wait to verify no message received
       await new Promise((resolve) => {
-        setTimeout(resolve, 100)
+        setTimeout(resolve, 15)
       })
 
       expect(received).to.be.false
@@ -386,7 +386,7 @@ describe('SocketIOTransportServer', () => {
 
       // Wait for connection handler
       await new Promise((resolve) => {
-        setTimeout(resolve, 50)
+        setTimeout(resolve, 10)
       })
 
       const received = new Promise<{message: string}>((resolve) => {

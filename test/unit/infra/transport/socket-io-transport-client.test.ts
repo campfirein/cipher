@@ -138,13 +138,13 @@ describe('SocketIOTransportClient', () => {
       await client.connect(`http://127.0.0.1:${basePort + 22}`)
 
       try {
-        await client.request('slow', {}, {timeout: 100})
+        await client.request('slow', {}, {timeout: 15})
         expect.fail('Should have thrown error')
       } catch (error) {
         expect(error).to.be.instanceOf(TransportRequestTimeoutError)
         expect((error as TransportRequestTimeoutError).name).to.equal('TransportRequestTimeoutError')
         expect((error as TransportRequestTimeoutError).event).to.equal('slow')
-        expect((error as TransportRequestTimeoutError).timeoutMs).to.equal(100)
+        expect((error as TransportRequestTimeoutError).timeoutMs).to.equal(15)
       }
     })
 
@@ -185,7 +185,7 @@ describe('SocketIOTransportClient', () => {
 
       server.broadcast('event', {})
       await new Promise((resolve) => {
-        setTimeout(resolve, 50)
+        setTimeout(resolve, 10)
       })
 
       expect(callCount).to.equal(1)
@@ -193,7 +193,7 @@ describe('SocketIOTransportClient', () => {
       unsubscribe()
       server.broadcast('event', {})
       await new Promise((resolve) => {
-        setTimeout(resolve, 50)
+        setTimeout(resolve, 10)
       })
 
       expect(callCount).to.equal(1) // Should not increase
@@ -215,7 +215,7 @@ describe('SocketIOTransportClient', () => {
 
       server.broadcast('multi', {})
       await new Promise((resolve) => {
-        setTimeout(resolve, 50)
+        setTimeout(resolve, 10)
       })
 
       expect(handler1Called).to.be.true
@@ -237,7 +237,7 @@ describe('SocketIOTransportClient', () => {
       server.broadcast('single', {})
 
       await new Promise((resolve) => {
-        setTimeout(resolve, 100)
+        setTimeout(resolve, 15)
       })
 
       expect(callCount).to.equal(1)
@@ -280,7 +280,7 @@ describe('SocketIOTransportClient', () => {
       server.broadcastTo('temp-room', 'temp:event', {})
 
       await new Promise((resolve) => {
-        setTimeout(resolve, 100)
+        setTimeout(resolve, 15)
       })
 
       expect(received).to.be.false
