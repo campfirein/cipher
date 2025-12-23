@@ -10,6 +10,12 @@ import path from 'node:path'
 import type {ITransportClient} from '../../core/interfaces/transport/i-transport-client.js'
 
 import {BRV_DIR} from '../../constants.js'
+import {
+  TransportAgentEventNames,
+  TransportLlmEventList,
+  TransportSessionEventNames,
+  TransportTaskEventNames,
+} from '../../core/domain/transport/schemas.js'
 import {createTransportClientFactory} from '../transport/transport-client-factory.js'
 
 const TRANSPORT_LOG_FILE = path.join(BRV_DIR, 'transport-events.log')
@@ -25,27 +31,21 @@ const TRANSPORT_LOG_FILE = path.join(BRV_DIR, 'transport-events.log')
  * No mapping needed - what you see is what Agent does.
  */
 const TRANSPORT_EVENTS = [
-  // Task lifecycle (Transport-generated)
-  'task:ack',
-  'task:created',
-  'task:started',
-  'task:completed',
-  'task:error',
-  // LLM events (all 7 from session-event-forwarder.ts)
-  'llmservice:thinking',
-  'llmservice:chunk',
-  'llmservice:response',
-  'llmservice:toolCall',
-  'llmservice:toolResult',
-  'llmservice:error',
-  'llmservice:unsupportedInput',
-  // Connection events
-  'agent:connected',
-  'agent:disconnected',
-  'session:switched',
+  // Task lifecycle (Transport-generated) - using constants from schemas
+  TransportTaskEventNames.ACK,
+  TransportTaskEventNames.CREATED,
+  TransportTaskEventNames.STARTED,
+  TransportTaskEventNames.COMPLETED,
+  TransportTaskEventNames.ERROR,
+  // LLM events (using constants from schemas)
+  ...TransportLlmEventList,
+  // Connection events (internal)
+  TransportAgentEventNames.CONNECTED,
+  TransportAgentEventNames.DISCONNECTED,
+  TransportSessionEventNames.SWITCHED,
   // Agent control events
-  'agent:restarting',
-  'agent:restarted',
+  TransportAgentEventNames.RESTARTING,
+  TransportAgentEventNames.RESTARTED,
 ]
 
 function formatTimestamp(): string {

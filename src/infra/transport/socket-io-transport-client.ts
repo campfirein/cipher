@@ -82,12 +82,26 @@ export class SocketIOTransportClient implements ITransportClient {
       const onConnect = () => {
         this.setState('connected')
         cleanup()
+        // Register any handlers that were added before connect() was called.
+        // This fixes the issue where on() called before connect() would not
+        // actually register handlers on the socket.
+        this.registerPendingEventHandlers()
         resolve()
       }
 
       const onConnectError = (error: Error) => {
         this.setState('disconnected')
         cleanup()
+        // Properly disconnect and cleanup socket to prevent leaks.
+        // Without this, the socket continues attempting reconnection
+        // even after we reject the promise.
+        if (this.socket) {
+          this.socket.removeAllListeners()
+          this.socket.io.removeAllListeners()
+          this.socket.disconnect()
+          this.socket = undefined
+        }
+
         reject(new TransportConnectionError(url, error))
       }
 
@@ -265,6 +279,30 @@ export class SocketIOTransportClient implements ITransportClient {
         }
       })
     })
+  }
+
+  /**
+   * Register all pending event handlers on the socket.
+   * Called after successful connection to handle handlers added before connect().
+   */
+  private registerPendingEventHandlers(): void {
+    const {socket} = this
+    if (!socket) return
+
+    for (const [event, handlers] of this.eventHandlers) {
+      // Check if this event is already registered on socket
+      // by checking if socket has listeners for it
+      if (socket.listeners(event).length === 0 && handlers.size > 0) {
+        socket.on(event, (data: unknown) => {
+          const currentHandlers = this.eventHandlers.get(event)
+          if (currentHandlers) {
+            for (const h of currentHandlers) {
+              h(data)
+            }
+          }
+        })
+      }
+    }
   }
 
   private setState(state: ConnectionState): void {

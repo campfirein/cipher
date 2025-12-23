@@ -9,6 +9,8 @@ export interface CurateExecuteOptionsV2 {
   content: string
   /** Optional file paths for --files flag */
   files?: string[]
+  /** Task ID for event routing (required for concurrent task isolation) */
+  taskId: string
 }
 
 /**

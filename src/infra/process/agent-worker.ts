@@ -18,6 +18,7 @@
  * - Sends: 'task:started', 'task:chunk', 'task:completed', 'task:error', 'task:toolCall', 'task:toolResult'
  */
 
+import {AsyncLocalStorage} from 'node:async_hooks'
 import {randomUUID} from 'node:crypto'
 
 import type {TaskCancel, TaskExecute} from '../../core/domain/transport/schemas.js'
@@ -36,11 +37,22 @@ import {KeychainTokenStore} from '../storage/keychain-token-store.js'
 import {createTransportClient} from '../transport/transport-factory.js'
 import {CurateUseCaseV2} from '../usecase/curate-use-case-v2.js'
 import {QueryUseCaseV2} from '../usecase/query-use-case-v2.js'
+import {TaskQueueManager} from './task-queue-manager.js'
 
 // IPC types imported from ./ipc-types.ts
 
 function sendToParent(message: AgentIPCResponse): void {
   process.send?.(message)
+}
+
+/**
+ * Log transport errors instead of silently swallowing them.
+ * Used for fire-and-forget transport calls where we don't want to crash
+ * but still want visibility into failures for debugging.
+ */
+function logTransportError(error: unknown): void {
+  const message = error instanceof Error ? error.message : String(error)
+  agentLog(`Transport error (non-fatal): ${message}`)
 }
 
 // Task types imported from core/domain/transport/schemas.ts:
@@ -54,8 +66,23 @@ function sendToParent(message: AgentIPCResponse): void {
 let transportClient: ITransportClient | undefined
 let taskProcessor: TaskProcessor | undefined
 let cipherAgent: ICipherAgent | undefined
-/** Current task being processed (for event routing) */
-let currentTaskId: string | undefined
+
+/**
+ * Task context using AsyncLocalStorage for concurrent task isolation.
+ * This ensures each task's events are routed correctly even when
+ * multiple curate tasks run concurrently (MAX_CONCURRENT_CURATE = 2).
+ */
+type TaskContext = {taskId: string}
+const taskContext = new AsyncLocalStorage<TaskContext>()
+
+/**
+ * Get current task ID from AsyncLocalStorage context.
+ * Returns undefined if called outside of a task execution context.
+ */
+function getCurrentTaskId(): string | undefined {
+  return taskContext.getStore()?.taskId
+}
+
 /** ChatSession ID - created once when agent starts, used for all tasks */
 let chatSessionId: string | undefined
 /** Whether the agent is fully initialized (has auth + config) */
@@ -66,47 +93,21 @@ let initializationError: Error | undefined
 let lastConfigIdentity: string | undefined
 
 // ============================================================================
-// Curate Task Queue (In-Memory, FIFO, Max 2 Concurrent)
+// Task Queue Manager (replaces inline queue logic)
 // ============================================================================
 
-/** Queue of pending curate tasks (FIFO) */
-const curateQueue: TaskExecute[] = []
-/** Number of curate tasks currently being processed */
-let activeCurateTasks = 0
-/** Maximum concurrent curate tasks */
-const MAX_CONCURRENT_CURATE = 2
-
 /**
- * Try to process next curate task from queue.
- * Only processes if under concurrency limit.
+ * Task queue manager handles:
+ * - Separate queues for curate and query tasks
+ * - Concurrency limits (max 2 concurrent per type)
+ * - Task deduplication (same taskId can't be queued twice)
+ * - Cancel tasks from queue before processing
+ * - FIFO processing order
  */
-function tryProcessNextCurate(): void {
-  if (activeCurateTasks >= MAX_CONCURRENT_CURATE) {
-    agentLog(`Curate queue: ${curateQueue.length} waiting, ${activeCurateTasks} active (at limit)`)
-    return
-  }
-
-  if (curateQueue.length === 0) {
-    return
-  }
-
-  const data = curateQueue.shift()! // FIFO
-  activeCurateTasks++
-  agentLog(`Curate queue: picked task ${data.taskId}, ${curateQueue.length} remaining, ${activeCurateTasks} active`)
-
-  handleTaskExecute(data)
-    .catch((error) => {
-      agentLog(`Task execution failed: ${error}`)
-      const errorData = serializeTaskError(error)
-      transportClient?.request('task:error', {error: errorData, taskId: data.taskId}).catch(() => {})
-    })
-    .finally(() => {
-      activeCurateTasks--
-      agentLog(`Curate task ${data.taskId} done, ${activeCurateTasks} active`)
-      // Try to process next from queue
-      tryProcessNextCurate()
-    })
-}
+const taskQueueManager = new TaskQueueManager({
+  curate: {maxConcurrent: 2},
+  query: {maxConcurrent: 2},
+})
 
 /**
  * Get Transport port from environment.
@@ -140,33 +141,34 @@ function setupAgentEventForwarding(agent: CipherAgent): void {
   // Forward llmservice:thinking
   // Transport type: AgentEventMap['llmservice:thinking'] & { taskId: string }
   eventBus.on('llmservice:thinking', (payload) => {
-    if (currentTaskId) {
-      transportClient
-        ?.request('llmservice:thinking', {sessionId: payload.sessionId, taskId: currentTaskId})
-        .catch(() => {})
+    const taskId = getCurrentTaskId()
+    if (taskId) {
+      transportClient?.request('llmservice:thinking', {sessionId: payload.sessionId, taskId}).catch(logTransportError)
     }
   })
 
   // Forward llmservice:chunk
   // Transport type: AgentEventMap['llmservice:chunk'] & { taskId: string }
   eventBus.on('llmservice:chunk', (payload) => {
-    if (currentTaskId) {
+    const taskId = getCurrentTaskId()
+    if (taskId) {
       transportClient
         ?.request('llmservice:chunk', {
           content: payload.content,
           isComplete: payload.isComplete,
           sessionId: payload.sessionId,
-          taskId: currentTaskId,
+          taskId,
           type: payload.type,
         })
-        .catch(() => {})
+        .catch(logTransportError)
     }
   })
 
   // Forward llmservice:response
   // Transport type: AgentEventMap['llmservice:response'] & { taskId: string }
   eventBus.on('llmservice:response', (payload) => {
-    if (currentTaskId && payload.content) {
+    const taskId = getCurrentTaskId()
+    if (taskId && payload.content) {
       transportClient
         ?.request('llmservice:response', {
           content: payload.content,
@@ -175,33 +177,35 @@ function setupAgentEventForwarding(agent: CipherAgent): void {
           provider: payload.provider,
           reasoning: payload.reasoning,
           sessionId: payload.sessionId,
-          taskId: currentTaskId,
+          taskId,
           tokenUsage: payload.tokenUsage,
         })
-        .catch(() => {})
+        .catch(logTransportError)
     }
   })
 
   // Forward llmservice:toolCall
   // Transport type: AgentEventMap['llmservice:toolCall'] & { taskId: string }
   eventBus.on('llmservice:toolCall', (payload) => {
-    if (currentTaskId && payload.callId) {
+    const taskId = getCurrentTaskId()
+    if (taskId && payload.callId) {
       transportClient
         ?.request('llmservice:toolCall', {
           args: payload.args,
           callId: payload.callId,
           sessionId: payload.sessionId,
-          taskId: currentTaskId,
+          taskId,
           toolName: payload.toolName,
         })
-        .catch(() => {})
+        .catch(logTransportError)
     }
   })
 
   // Forward llmservice:toolResult
   // Transport type: AgentEventMap['llmservice:toolResult'] & { taskId: string }
   eventBus.on('llmservice:toolResult', (payload) => {
-    if (currentTaskId && payload.callId) {
+    const taskId = getCurrentTaskId()
+    if (taskId && payload.callId) {
       transportClient
         ?.request('llmservice:toolResult', {
           callId: payload.callId,
@@ -211,43 +215,67 @@ function setupAgentEventForwarding(agent: CipherAgent): void {
           result: payload.result,
           sessionId: payload.sessionId,
           success: payload.success,
-          taskId: currentTaskId,
+          taskId,
           toolName: payload.toolName,
         })
-        .catch(() => {})
+        .catch(logTransportError)
     }
   })
 
   // Forward llmservice:error
   // Transport type: AgentEventMap['llmservice:error'] & { taskId: string }
   eventBus.on('llmservice:error', (payload) => {
-    if (currentTaskId) {
+    const taskId = getCurrentTaskId()
+    if (taskId) {
       transportClient
         ?.request('llmservice:error', {
           code: payload.code,
           error: payload.error,
           sessionId: payload.sessionId,
-          taskId: currentTaskId,
+          taskId,
         })
-        .catch(() => {})
+        .catch(logTransportError)
     }
   })
 
   // Forward llmservice:unsupportedInput
   // Transport type: AgentEventMap['llmservice:unsupportedInput'] & { taskId: string }
   eventBus.on('llmservice:unsupportedInput', (payload) => {
-    if (currentTaskId) {
+    const taskId = getCurrentTaskId()
+    if (taskId) {
       transportClient
         ?.request('llmservice:unsupportedInput', {
           reason: payload.reason,
           sessionId: payload.sessionId,
-          taskId: currentTaskId,
+          taskId,
         })
-        .catch(() => {})
+        .catch(logTransportError)
     }
   })
 
   agentLog('Event forwarding setup complete')
+}
+
+/**
+ * Setup the task executor for TaskQueueManager.
+ * Called after agent is initialized.
+ */
+function setupTaskExecutor(): void {
+  taskQueueManager.setExecutor(async (task: TaskExecute) => {
+    const {taskId, type} = task
+    const stats = taskQueueManager.getStats(type)
+    agentLog(`Processing task ${taskId} (${type}), ${stats.queued} queued, ${stats.active} active`)
+
+    try {
+      await handleTaskExecute(task)
+    } catch (error) {
+      agentLog(`Task execution failed: ${error}`)
+      const errorData = serializeTaskError(error)
+      transportClient?.request('task:error', {error: errorData, taskId}).catch(logTransportError)
+    }
+  })
+
+  agentLog('Task executor setup complete')
 }
 
 /**
@@ -333,6 +361,9 @@ async function tryInitializeAgent(forceReinit = false): Promise<boolean> {
   })
   taskProcessor.setAgent(cipherAgent)
 
+  // Setup task executor for queue manager (enables processing)
+  setupTaskExecutor()
+
   // Mark as initialized and track config identity for change detection
   isAgentInitialized = true
   initializationError = undefined
@@ -362,7 +393,7 @@ async function handleTaskExecute(data: TaskExecute): Promise<void> {
     if (!initialized) {
       agentLog('Lazy initialization failed')
       const error = serializeTaskError(initializationError ?? new ProcessorNotInitError())
-      transportClient?.request('task:error', {error, taskId})
+      transportClient?.request('task:error', {error, taskId}).catch(logTransportError)
       return
     }
 
@@ -388,7 +419,7 @@ async function handleTaskExecute(data: TaskExecute): Promise<void> {
       if (!reinitialized) {
         agentLog('Reinitialization with new config failed')
         const error = serializeTaskError(initializationError ?? new ProcessorNotInitError())
-        transportClient?.request('task:error', {error, taskId})
+        transportClient?.request('task:error', {error, taskId}).catch(logTransportError)
         return
       }
 
@@ -399,47 +430,64 @@ async function handleTaskExecute(data: TaskExecute): Promise<void> {
   if (!taskProcessor) {
     agentLog('TaskProcessor not initialized')
     const error = serializeTaskError(new ProcessorNotInitError())
-    transportClient?.request('task:error', {error, taskId})
+    transportClient?.request('task:error', {error, taskId}).catch(logTransportError)
     return
   }
 
-  // Set current task for event routing
-  currentTaskId = taskId
+  // Run task within AsyncLocalStorage context for proper event routing.
+  // This ensures concurrent curate tasks each have their own taskId context,
+  // fixing the race condition where events from Task A could be routed to Task B.
+  await taskContext.run({taskId}, async () => {
+    try {
+      // Notify task started
+      transportClient?.request('task:started', {taskId}).catch(logTransportError)
 
-  try {
-    // Notify task started
-    transportClient?.request('task:started', {taskId}).catch(() => {})
+      // Process task - events stream via agentEventBus subscription
+      // Response is forwarded via llmservice:response event (no manual send needed)
+      // Agent uses its default session (Single-Session pattern)
+      // File validation is handled by UseCase (business logic belongs there)
+      const result = await taskProcessor!.process({
+        content,
+        files,
+        taskId,
+        type,
+      })
 
-    // Process task - events stream via agentEventBus subscription
-    // Response is forwarded via llmservice:response event (no manual send needed)
-    // Agent uses its default session (Single-Session pattern)
-    // File validation is handled by UseCase (business logic belongs there)
-    await taskProcessor.process({
-      content,
-      files,
-      taskId,
-      type,
-    })
-
-    // Notify completion
-    agentLog(`Task completed: ${taskId}`)
-    transportClient?.request('task:completed', {taskId}).catch(() => {})
-  } catch (error) {
-    const errorData = serializeTaskError(error)
-    agentLog(`Task error: ${taskId} - [${errorData.name}] ${errorData.message}`)
-    transportClient?.request('task:error', {error: errorData, taskId}).catch(() => {})
-  } finally {
-    currentTaskId = undefined
-  }
+      // Notify completion with result (required by TaskCompletedEventSchema)
+      agentLog(`Task completed: ${taskId}`)
+      transportClient?.request('task:completed', {result, taskId}).catch(logTransportError)
+    } catch (error) {
+      const errorData = serializeTaskError(error)
+      agentLog(`Task error: ${taskId} - [${errorData.name}] ${errorData.message}`)
+      transportClient?.request('task:error', {error: errorData, taskId}).catch(logTransportError)
+    }
+  })
 }
 
 /**
  * Handle task:cancel from Transport.
+ * Uses TaskQueueManager to remove from queue or signal cancellation.
  */
 function handleTaskCancel(data: TaskCancel): void {
   const {taskId} = data
   agentLog(`Cancelling task: ${taskId}`)
-  taskProcessor?.cancel(taskId)
+
+  const result = taskQueueManager.cancel(taskId)
+
+  if (result.success) {
+    if (result.wasQueued) {
+      // Task was in queue, not yet processing - removed by queue manager
+      agentLog(`Task ${taskId} removed from ${result.taskType} queue (was waiting)`)
+      // Notify transport that task was cancelled
+      transportClient?.request('task:cancelled', {taskId}).catch(logTransportError)
+    } else {
+      // Task is currently processing - cancel via taskProcessor
+      agentLog(`Task ${taskId} is processing, forwarding cancel to taskProcessor`)
+      taskProcessor?.cancel(taskId)
+    }
+  } else {
+    agentLog(`Task ${taskId} not found in queue or processing`)
+  }
 }
 
 /**
@@ -466,20 +514,17 @@ async function startAgent(): Promise<void> {
     agentLog('Initial setup incomplete - will retry when tasks arrive (lazy init)')
   }
 
-  // Setup event handlers
+  // Setup event handlers - TaskQueueManager handles queueing and deduplication
   transportClient.on<TaskExecute>('task:execute', (data) => {
-    if (data.type === 'curate') {
-      // Curate: add to queue (FIFO, max 2 concurrent)
-      curateQueue.push(data)
-      agentLog(`Curate task ${data.taskId} queued, ${curateQueue.length} in queue`)
-      tryProcessNextCurate()
+    const result = taskQueueManager.enqueue(data)
+
+    if (result.success) {
+      const stats = taskQueueManager.getStats(data.type)
+      agentLog(`Task ${data.taskId} (${data.type}) queued at position ${result.position}, ${stats.queued} in queue`)
+    } else if (result.reason === 'duplicate') {
+      agentLog(`Task ${data.taskId} already known (duplicate), ignoring`)
     } else {
-      // Query: process immediately (no queue)
-      handleTaskExecute(data).catch((error) => {
-        agentLog(`Task execution failed: ${error}`)
-        const errorData = serializeTaskError(error)
-        transportClient?.request('task:error', {error: errorData, taskId: data.taskId}).catch(() => {})
-      })
+      agentLog(`Task ${data.taskId} rejected: ${result.reason}`)
     }
   })
 
@@ -528,6 +573,9 @@ async function startAgent(): Promise<void> {
  * Stop Agent Process.
  */
 async function stopAgent(): Promise<void> {
+  // Clear task queue
+  taskQueueManager.clear()
+
   // Stop CipherAgent first
   if (cipherAgent) {
     await (cipherAgent as CipherAgent).stop()

@@ -248,9 +248,16 @@ export const TransportEventNames = {
 export const TransportTaskEventNames = {
   // Task lifecycle (Transport-generated)
   ACK: 'task:ack',
+  // Client requests
+  CANCEL: 'task:cancel',
+  // Task terminal states
+  CANCELLED: 'task:cancelled',
   COMPLETED: 'task:completed',
+  CREATE: 'task:create',
   CREATED: 'task:created',
   ERROR: 'task:error',
+  // Internal (Transport → Agent)
+  EXECUTE: 'task:execute',
   STARTED: 'task:started',
 } as const
 
@@ -263,6 +270,45 @@ export const LlmEventNames = {
   TOOL_CALL: 'llmservice:toolCall',
   TOOL_RESULT: 'llmservice:toolResult',
   UNSUPPORTED_INPUT: 'llmservice:unsupportedInput',
+} as const
+
+/**
+ * Explicit list of LLM event names for iteration.
+ *
+ * Avoids `Object.values(LlmEventNames)` so call sites remain readable and
+ * type-safe (the list is visible and ordered intentionally).
+ */
+export const TransportLlmEventList = [
+  LlmEventNames.THINKING,
+  LlmEventNames.CHUNK,
+  LlmEventNames.RESPONSE,
+  LlmEventNames.TOOL_CALL,
+  LlmEventNames.TOOL_RESULT,
+  LlmEventNames.ERROR,
+  LlmEventNames.UNSUPPORTED_INPUT,
+] as const
+
+/**
+ * Transport-generated Agent lifecycle/control events (internal).
+ */
+export const TransportAgentEventNames = {
+  CONNECTED: 'agent:connected',
+  DISCONNECTED: 'agent:disconnected',
+  REGISTER: 'agent:register',
+  RESTART: 'agent:restart',
+  RESTARTED: 'agent:restarted',
+  RESTARTING: 'agent:restarting',
+} as const
+
+/**
+ * Transport-generated session events (internal).
+ */
+export const TransportSessionEventNames = {
+  CREATE: 'session:create',
+  INFO: 'session:info',
+  LIST: 'session:list',
+  SWITCH: 'session:switch',
+  SWITCHED: 'session:switched',
 } as const
 
 // ============================================================================
@@ -416,6 +462,14 @@ export const TaskStartedEventSchema = z.object({
 })
 
 /**
+ * task:cancelled - Task was cancelled before completion
+ * Terminal state: no more events should follow for this taskId
+ */
+export const TaskCancelledEventSchema = z.object({
+  taskId: z.string(),
+})
+
+/**
  * task:completed - Task finished successfully
  */
 export const TaskCompletedEventSchema = z.object({
@@ -486,6 +540,7 @@ export const LlmToolResultEventSchema = z.object({
 })
 
 export type TaskAck = z.infer<typeof TaskAckSchema>
+export type TaskCancelledEvent = z.infer<typeof TaskCancelledEventSchema>
 export type TaskCreated = z.infer<typeof TaskCreatedSchema>
 export type TaskStartedEvent = z.infer<typeof TaskStartedEventSchema>
 export type TaskCompletedEvent = z.infer<typeof TaskCompletedEventSchema>
@@ -531,6 +586,8 @@ export const TaskCancelRequestSchema = z.object({
  * Response after task cancellation
  */
 export const TaskCancelResponseSchema = z.object({
+  /** Error message if cancellation failed */
+  error: z.string().optional(),
   success: z.boolean(),
 })
 

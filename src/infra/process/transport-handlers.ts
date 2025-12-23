@@ -43,12 +43,7 @@ import type {
   LlmToolCallEvent,
   LlmToolResultEvent,
   LlmUnsupportedInputEvent,
-  SessionCreateRequest,
-  SessionCreateResponse,
-  SessionInfoResponse,
-  SessionListResponse,
-  SessionSwitchRequest,
-  SessionSwitchResponse,
+  TaskCancelledEvent,
   TaskCancelRequest,
   TaskCancelResponse,
   TaskCompletedEvent,
@@ -65,6 +60,12 @@ import {
   AgentNotAvailableError,
   serializeTaskError,
 } from '../../core/domain/errors/task-error.js'
+import {
+  LlmEventNames,
+  TransportAgentEventNames,
+  TransportLlmEventList,
+  TransportTaskEventNames,
+} from '../../core/domain/transport/schemas.js'
 import {eventLog, transportLog} from '../../utils/process-logger.js'
 
 // ============================================================================
@@ -81,6 +82,18 @@ type TaskInfo = {
   files?: string[]
   taskId: string
   type: string
+}
+
+type LlmEventName = (typeof TransportLlmEventList)[number]
+
+type LlmEventPayloadMap = {
+  [LlmEventNames.CHUNK]: LlmChunkEvent
+  [LlmEventNames.ERROR]: LlmErrorEvent
+  [LlmEventNames.RESPONSE]: LlmResponseEvent
+  [LlmEventNames.THINKING]: LlmThinkingEvent
+  [LlmEventNames.TOOL_CALL]: LlmToolCallEvent
+  [LlmEventNames.TOOL_RESULT]: LlmToolResultEvent
+  [LlmEventNames.UNSUPPORTED_INPUT]: LlmUnsupportedInputEvent
 }
 
 // All message types are imported from core/domain/transport/schemas.ts
@@ -101,8 +114,6 @@ type TaskInfo = {
 export class TransportHandlers {
   /** The Agent's client ID (set when Agent registers) */
   private agentClientId: string | undefined
-  /** Current session ID (simple session management) */
-  private currentSessionId: string | undefined
   /** Track active tasks */
   private tasks: Map<string, TaskInfo> = new Map()
   /** Transport server reference */
@@ -118,7 +129,6 @@ export class TransportHandlers {
   cleanup(): void {
     this.tasks.clear()
     this.agentClientId = undefined
-    this.currentSessionId = undefined
   }
 
   /**
@@ -128,7 +138,6 @@ export class TransportHandlers {
     this.setupConnectionHandlers()
     this.setupAgentHandlers()
     this.setupClientHandlers()
-    this.setupSessionHandlers()
     this.setupAgentControlHandlers()
   }
 
@@ -141,190 +150,57 @@ export class TransportHandlers {
     this.agentClientId = clientId
 
     // Broadcast to all clients that Agent is online
-    this.transport.broadcast('agent:connected', {})
-  }
-
-  /**
-   * Handle llmservice:chunk from Agent.
-   * Route directly to task owner + broadcast-room for monitoring.
-   */
-  private handleLlmChunk(data: LlmChunkEvent): void {
-    const {taskId, ...rest} = data
-    const task = this.tasks.get(taskId)
-    if (task) {
-      this.transport.sendTo(task.clientId, 'llmservice:chunk', {taskId, ...rest})
-    }
-
-    this.transport.broadcastTo('broadcast-room', 'llmservice:chunk', {taskId, ...rest})
-  }
-
-  /**
-   * Handle llmservice:error from Agent.
-   * Route directly to task owner + broadcast-room for monitoring.
-   */
-  private handleLlmError(data: LlmErrorEvent): void {
-    const {taskId, ...rest} = data
-    const task = this.tasks.get(taskId)
-    if (task) {
-      this.transport.sendTo(task.clientId, 'llmservice:error', {taskId, ...rest})
-    }
-
-    this.transport.broadcastTo('broadcast-room', 'llmservice:error', {taskId, ...rest})
-  }
-
-  /**
-   * Handle llmservice:response from Agent (LLM text output chunks).
-   * Route directly to task owner + broadcast-room for monitoring.
-   */
-  private handleLlmResponse(data: LlmResponseEvent): void {
-    const {taskId, ...rest} = data
-    const task = this.tasks.get(taskId)
-    if (task) {
-      this.transport.sendTo(task.clientId, 'llmservice:response', {taskId, ...rest})
-    }
-
-    this.transport.broadcastTo('broadcast-room', 'llmservice:response', {taskId, ...rest})
-  }
-
-  /**
-   * Handle llmservice:thinking from Agent.
-   * Route directly to task owner + broadcast-room for monitoring.
-   */
-  private handleLlmThinking(data: LlmThinkingEvent): void {
-    const {taskId, ...rest} = data
-    const task = this.tasks.get(taskId)
-    if (task) {
-      this.transport.sendTo(task.clientId, 'llmservice:thinking', {taskId, ...rest})
-    }
-
-    this.transport.broadcastTo('broadcast-room', 'llmservice:thinking', {taskId, ...rest})
-  }
-
-  /**
-   * Handle llmservice:toolCall from Agent.
-   * Route directly to task owner + broadcast-room for monitoring.
-   */
-  private handleLlmToolCall(data: LlmToolCallEvent): void {
-    const {taskId, ...rest} = data
-    const task = this.tasks.get(taskId)
-    if (task) {
-      this.transport.sendTo(task.clientId, 'llmservice:toolCall', {taskId, ...rest})
-    }
-
-    this.transport.broadcastTo('broadcast-room', 'llmservice:toolCall', {taskId, ...rest})
-  }
-
-  /**
-   * Handle llmservice:toolResult from Agent.
-   * Route directly to task owner + broadcast-room for monitoring.
-   */
-  private handleLlmToolResult(data: LlmToolResultEvent): void {
-    const {taskId, ...rest} = data
-    const task = this.tasks.get(taskId)
-    if (task) {
-      this.transport.sendTo(task.clientId, 'llmservice:toolResult', {taskId, ...rest})
-    }
-
-    this.transport.broadcastTo('broadcast-room', 'llmservice:toolResult', {taskId, ...rest})
-  }
-
-  /**
-   * Handle llmservice:unsupportedInput from Agent.
-   * Route directly to task owner + broadcast-room for monitoring.
-   */
-  private handleLlmUnsupportedInput(data: LlmUnsupportedInputEvent): void {
-    const {taskId, ...rest} = data
-    const task = this.tasks.get(taskId)
-    if (task) {
-      this.transport.sendTo(task.clientId, 'llmservice:unsupportedInput', {taskId, ...rest})
-    }
-
-    this.transport.broadcastTo('broadcast-room', 'llmservice:unsupportedInput', {taskId, ...rest})
-  }
-
-  /**
-   * Handle session:create request.
-   */
-  private handleSessionCreate(_data: SessionCreateRequest, _clientId: string): SessionCreateResponse {
-    const sessionId = randomUUID()
-    this.currentSessionId = sessionId
-
-    transportLog(`Session created: ${sessionId}`)
-
-    // Broadcast session switch
-    this.transport.broadcast('session:switched', {sessionId})
-
-    return {sessionId}
-  }
-
-  /**
-   * Handle session:info request.
-   */
-  private handleSessionInfo(_clientId: string): SessionInfoResponse {
-    // Create default session if none exists
-    if (!this.currentSessionId) {
-      this.currentSessionId = randomUUID()
-    }
-
-    return {
-      session: {
-        createdAt: Date.now(),
-        id: this.currentSessionId,
-        lastActiveAt: Date.now(),
-      },
-      stats: {
-        completedTasks: 0,
-        failedTasks: 0,
-        totalTasks: this.tasks.size,
-      },
-    }
-  }
-
-  /**
-   * Handle session:list request.
-   */
-  private handleSessionList(_clientId: string): SessionListResponse {
-    const sessions = this.currentSessionId
-      ? [
-          {
-            createdAt: Date.now(),
-            id: this.currentSessionId,
-            lastActiveAt: Date.now(),
-          },
-        ]
-      : []
-
-    return {sessions}
-  }
-
-  /**
-   * Handle session:switch request.
-   */
-  private handleSessionSwitch(data: SessionSwitchRequest, _clientId: string): SessionSwitchResponse {
-    this.currentSessionId = data.sessionId
-
-    transportLog(`Session switched: ${data.sessionId}`)
-
-    // Broadcast session switch
-    this.transport.broadcast('session:switched', {sessionId: data.sessionId})
-
-    return {success: true}
+    this.transport.broadcast(TransportAgentEventNames.CONNECTED, {})
   }
 
   /**
    * Handle task:cancel request from client.
+   * Returns success:false if task not found or Agent not available.
+   * Emits task:cancelled terminal event when cancelled locally (no Agent).
    */
   private handleTaskCancel(data: TaskCancelRequest, _clientId: string): TaskCancelResponse {
     const {taskId} = data
 
     transportLog(`Task cancel requested: ${taskId}`)
 
-    // Forward to Agent
-    if (this.agentClientId) {
-      this.transport.sendTo(this.agentClientId, 'task:cancel', {taskId})
+    // Check if task exists
+    const task = this.tasks.get(taskId)
+    if (!task) {
+      return {error: 'Task not found', success: false}
     }
 
+    // If Agent connected, forward cancel request
+    if (this.agentClientId) {
+      this.transport.sendTo(this.agentClientId, TransportTaskEventNames.CANCEL, {taskId})
+      return {success: true}
+    }
+
+    // No Agent - cancel task locally and emit terminal event
+    transportLog(`No Agent connected, cancelling task locally: ${taskId}`)
+    this.transport.sendTo(task.clientId, TransportTaskEventNames.CANCELLED, {taskId})
+    this.transport.broadcastTo('broadcast-room', TransportTaskEventNames.CANCELLED, {taskId})
+    this.tasks.delete(taskId)
+
     return {success: true}
+  }
+
+  /**
+   * Handle task:cancelled from Agent.
+   * Terminal event: task was cancelled before completion.
+   * Route to task owner + broadcast-room, then cleanup.
+   */
+  private handleTaskCancelled(data: TaskCancelledEvent): void {
+    const {taskId} = data
+    const task = this.tasks.get(taskId)
+
+    transportLog(`Task cancelled: ${taskId}`)
+
+    if (task) {
+      this.transport.sendTo(task.clientId, TransportTaskEventNames.CANCELLED, {taskId})
+    }
+
+    this.transport.broadcastTo('broadcast-room', TransportTaskEventNames.CANCELLED, {taskId})
+    this.tasks.delete(taskId)
   }
 
   /**
@@ -338,10 +214,10 @@ export class TransportHandlers {
     transportLog(`Task completed: ${taskId}`)
 
     if (task) {
-      this.transport.sendTo(task.clientId, 'task:completed', {result, taskId})
+      this.transport.sendTo(task.clientId, TransportTaskEventNames.COMPLETED, {result, taskId})
     }
 
-    this.transport.broadcastTo('broadcast-room', 'task:completed', {result, taskId})
+    this.transport.broadcastTo('broadcast-room', TransportTaskEventNames.COMPLETED, {result, taskId})
     this.tasks.delete(taskId)
   }
 
@@ -365,10 +241,10 @@ export class TransportHandlers {
     })
 
     // Send ack immediately (fast feedback)
-    this.transport.sendTo(clientId, 'task:ack', {taskId})
+    this.transport.sendTo(clientId, TransportTaskEventNames.ACK, {taskId})
 
     // Broadcast task:created to broadcast-room for TUI monitoring
-    this.transport.broadcastTo('broadcast-room', 'task:created', {
+    this.transport.broadcastTo('broadcast-room', TransportTaskEventNames.CREATED, {
       content: data.content,
       ...(data.files?.length ? {files: data.files} : {}),
       taskId,
@@ -384,13 +260,15 @@ export class TransportHandlers {
         taskId,
         type: data.type as 'curate' | 'query',
       }
-      this.transport.sendTo(this.agentClientId, 'task:execute', executeMsg)
+      this.transport.sendTo(this.agentClientId, TransportTaskEventNames.EXECUTE, executeMsg)
     } else {
-      // No Agent connected - send error directly to client
+      // No Agent connected - send error to client AND broadcast-room, then cleanup
       console.warn(`[Transport] No Agent connected, cannot process task ${taskId}`)
       const error = serializeTaskError(new AgentNotAvailableError())
       setTimeout(() => {
-        this.transport.sendTo(clientId, 'task:error', {error, taskId})
+        this.transport.sendTo(clientId, TransportTaskEventNames.ERROR, {error, taskId})
+        this.transport.broadcastTo('broadcast-room', TransportTaskEventNames.ERROR, {error, taskId})
+        this.tasks.delete(taskId)
       }, 100)
     }
 
@@ -408,10 +286,10 @@ export class TransportHandlers {
     transportLog(`Task error: ${taskId} - [${error.code}] ${error.message}`)
 
     if (task) {
-      this.transport.sendTo(task.clientId, 'task:error', {error, taskId})
+      this.transport.sendTo(task.clientId, TransportTaskEventNames.ERROR, {error, taskId})
     }
 
-    this.transport.broadcastTo('broadcast-room', 'task:error', {error, taskId})
+    this.transport.broadcastTo('broadcast-room', TransportTaskEventNames.ERROR, {error, taskId})
     this.tasks.delete(taskId)
   }
 
@@ -423,12 +301,12 @@ export class TransportHandlers {
     const {taskId} = data
     const task = this.tasks.get(taskId)
     if (task) {
-      this.transport.sendTo(task.clientId, 'task:started', {taskId})
+      this.transport.sendTo(task.clientId, TransportTaskEventNames.STARTED, {taskId})
 
       // Broadcast with task info for monitoring
       // Note: fileReferenceInstructions is generated by UseCase during execution,
       // so it's not available at task:started time. It's saved to DB instead.
-      this.transport.broadcastTo('broadcast-room', 'task:started', {
+      this.transport.broadcastTo('broadcast-room', TransportTaskEventNames.STARTED, {
         content: task.content,
         ...(task.files?.length ? {files: task.files} : {}),
         taskId,
@@ -436,8 +314,38 @@ export class TransportHandlers {
       })
     } else {
       // Fallback if task not found
-      this.transport.broadcastTo('broadcast-room', 'task:started', {taskId})
+      this.transport.broadcastTo('broadcast-room', TransportTaskEventNames.STARTED, {taskId})
     }
+  }
+
+  private registerLlmEvent<E extends LlmEventName>(eventName: E): void {
+    this.transport.onRequest<LlmEventPayloadMap[E], void>(eventName, (data) => {
+      this.routeLlmEvent(eventName, data as unknown as {[key: string]: unknown; taskId: string})
+    })
+  }
+
+  /**
+   * Generic handler for routing LLM events from Agent to clients.
+   * Routes directly to task owner + broadcast-room for monitoring.
+   *
+   * All llmservice:* events follow the same routing pattern:
+   * 1. Extract taskId from payload
+   * 2. Check if task is still active (not completed/cancelled/errored)
+   * 3. Send to task owner + broadcast-room if active
+   * 4. Drop silently if task already ended (prevents events-after-terminal)
+   */
+  private routeLlmEvent(eventName: string, data: {[key: string]: unknown; taskId: string}): void {
+    const {taskId, ...rest} = data
+    const task = this.tasks.get(taskId)
+
+    // Guard: Drop events for tasks that have already ended (terminal state reached)
+    // This prevents "ghost events" arriving after task:completed/cancelled/error
+    if (!task) {
+      return
+    }
+
+    this.transport.sendTo(task.clientId, eventName, {taskId, ...rest})
+    this.transport.broadcastTo('broadcast-room', eventName, {taskId, ...rest})
   }
 
   /**
@@ -446,33 +354,36 @@ export class TransportHandlers {
    */
   private setupAgentControlHandlers(): void {
     // agent:restart - Client requests Agent to reinitialize
-    this.transport.onRequest<AgentRestartRequest, AgentRestartResponse>('agent:restart', (data, clientId) => {
-      transportLog(`Agent restart requested by ${clientId}: ${data.reason ?? 'no reason'}`)
+    this.transport.onRequest<AgentRestartRequest, AgentRestartResponse>(
+      TransportAgentEventNames.RESTART,
+      (data, clientId) => {
+        transportLog(`Agent restart requested by ${clientId}: ${data.reason ?? 'no reason'}`)
 
-      if (!this.agentClientId) {
-        return {error: 'Agent not connected', success: false}
-      }
+        if (!this.agentClientId) {
+          return {error: 'Agent not connected', success: false}
+        }
 
-      // Forward restart command to Agent
-      this.transport.sendTo(this.agentClientId, 'agent:restart', {reason: data.reason})
+        // Forward restart command to Agent
+        this.transport.sendTo(this.agentClientId, TransportAgentEventNames.RESTART, {reason: data.reason})
 
-      // Broadcast and log event
-      eventLog('agent:restarting', {reason: data.reason})
-      this.transport.broadcast('agent:restarting', {reason: data.reason})
+        // Broadcast and log event
+        eventLog('agent:restarting', {reason: data.reason})
+        this.transport.broadcast(TransportAgentEventNames.RESTARTING, {reason: data.reason})
 
-      return {success: true}
-    })
+        return {success: true}
+      },
+    )
 
     // agent:restarted - Agent reports restart result
-    this.transport.onRequest<{error?: string; success: boolean}, void>('agent:restarted', (data) => {
+    this.transport.onRequest<{error?: string; success: boolean}, void>(TransportAgentEventNames.RESTARTED, (data) => {
       if (data.success) {
         transportLog('Agent restarted successfully')
         eventLog('agent:restarted', {success: true})
-        this.transport.broadcast('agent:restarted', {success: true})
+        this.transport.broadcast(TransportAgentEventNames.RESTARTED, {success: true})
       } else {
         transportLog(`Agent restart failed: ${data.error}`)
         eventLog('agent:restarted', {error: data.error, success: false})
-        this.transport.broadcast('agent:restarted', {error: data.error, success: false})
+        this.transport.broadcast(TransportAgentEventNames.RESTARTED, {error: data.error, success: false})
       }
     })
   }
@@ -483,52 +394,35 @@ export class TransportHandlers {
    */
   private setupAgentHandlers(): void {
     // Agent registration
-    this.transport.onRequest<Record<string, never>, {success: boolean}>('agent:register', (_data, clientId) => {
-      this.handleAgentRegister(clientId)
-      return {success: true}
-    })
+    this.transport.onRequest<Record<string, never>, {success: boolean}>(
+      TransportAgentEventNames.REGISTER,
+      (_data, clientId) => {
+        this.handleAgentRegister(clientId)
+        return {success: true}
+      },
+    )
 
     // Task lifecycle events (Transport-generated names)
-    this.transport.onRequest<TaskStartedEvent, void>('task:started', (data) => {
+    this.transport.onRequest<TaskStartedEvent, void>(TransportTaskEventNames.STARTED, (data) => {
       this.handleTaskStarted(data)
     })
 
-    this.transport.onRequest<TaskCompletedEvent, void>('task:completed', (data) => {
+    this.transport.onRequest<TaskCompletedEvent, void>(TransportTaskEventNames.COMPLETED, (data) => {
       this.handleTaskCompleted(data)
     })
 
-    this.transport.onRequest<TaskErrorEvent, void>('task:error', (data) => {
+    this.transport.onRequest<TaskErrorEvent, void>(TransportTaskEventNames.ERROR, (data) => {
       this.handleTaskError(data)
     })
 
-    // LLM events (all 7 from session-event-forwarder.ts)
-    this.transport.onRequest<LlmThinkingEvent, void>('llmservice:thinking', (data) => {
-      this.handleLlmThinking(data)
+    this.transport.onRequest<TaskCancelledEvent, void>(TransportTaskEventNames.CANCELLED, (data) => {
+      this.handleTaskCancelled(data)
     })
 
-    this.transport.onRequest<LlmChunkEvent, void>('llmservice:chunk', (data) => {
-      this.handleLlmChunk(data)
-    })
-
-    this.transport.onRequest<LlmResponseEvent, void>('llmservice:response', (data) => {
-      this.handleLlmResponse(data)
-    })
-
-    this.transport.onRequest<LlmToolCallEvent, void>('llmservice:toolCall', (data) => {
-      this.handleLlmToolCall(data)
-    })
-
-    this.transport.onRequest<LlmToolResultEvent, void>('llmservice:toolResult', (data) => {
-      this.handleLlmToolResult(data)
-    })
-
-    this.transport.onRequest<LlmErrorEvent, void>('llmservice:error', (data) => {
-      this.handleLlmError(data)
-    })
-
-    this.transport.onRequest<LlmUnsupportedInputEvent, void>('llmservice:unsupportedInput', (data) => {
-      this.handleLlmUnsupportedInput(data)
-    })
+    // LLM events - explicit list + typed payload map
+    for (const eventName of TransportLlmEventList) {
+      this.registerLlmEvent(eventName)
+    }
   }
 
   /**
@@ -537,12 +431,12 @@ export class TransportHandlers {
    */
   private setupClientHandlers(): void {
     // Task creation from clients
-    this.transport.onRequest<TaskCreateRequest, TaskCreateResponse>('task:create', (data, clientId) =>
+    this.transport.onRequest<TaskCreateRequest, TaskCreateResponse>(TransportTaskEventNames.CREATE, (data, clientId) =>
       this.handleTaskCreate(data, clientId),
     )
 
     // Task cancellation from clients
-    this.transport.onRequest<TaskCancelRequest, TaskCancelResponse>('task:cancel', (data, clientId) =>
+    this.transport.onRequest<TaskCancelRequest, TaskCancelResponse>(TransportTaskEventNames.CANCEL, (data, clientId) =>
       this.handleTaskCancel(data, clientId),
     )
   }
@@ -564,37 +458,17 @@ export class TransportHandlers {
         this.agentClientId = undefined
 
         // Broadcast to all clients
-        this.transport.broadcast('agent:disconnected', {})
+        this.transport.broadcast(TransportAgentEventNames.DISCONNECTED, {})
 
-        // Fail all pending tasks - send directly to each client
+        // Fail all pending tasks - send to client AND broadcast-room for TUI monitoring
         const error = serializeTaskError(new AgentDisconnectedError())
         for (const [taskId, task] of this.tasks) {
-          this.transport.sendTo(task.clientId, 'task:error', {error, taskId})
+          this.transport.sendTo(task.clientId, TransportTaskEventNames.ERROR, {error, taskId})
+          this.transport.broadcastTo('broadcast-room', TransportTaskEventNames.ERROR, {error, taskId})
         }
 
         this.tasks.clear()
       }
     })
-  }
-
-  /**
-   * Setup session-related handlers.
-   */
-  private setupSessionHandlers(): void {
-    this.transport.onRequest<Record<string, never>, SessionInfoResponse>('session:info', (_data, clientId) =>
-      this.handleSessionInfo(clientId),
-    )
-
-    this.transport.onRequest<Record<string, never>, SessionListResponse>('session:list', (_data, clientId) =>
-      this.handleSessionList(clientId),
-    )
-
-    this.transport.onRequest<SessionCreateRequest, SessionCreateResponse>('session:create', (data, clientId) =>
-      this.handleSessionCreate(data, clientId),
-    )
-
-    this.transport.onRequest<SessionSwitchRequest, SessionSwitchResponse>('session:switch', (data, clientId) =>
-      this.handleSessionSwitch(data, clientId),
-    )
   }
 }
