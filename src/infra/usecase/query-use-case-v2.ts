@@ -1,10 +1,7 @@
 import {randomUUID} from 'node:crypto'
 
 import type {ICipherAgent} from '../../core/interfaces/cipher/i-cipher-agent.js'
-import type {
-  IQueryUseCaseV2,
-  QueryExecuteOptionsV2,
-} from '../../core/interfaces/usecase/i-query-use-case-v2.js'
+import type {IQueryUseCaseV2, QueryExecuteOptionsV2} from '../../core/interfaces/usecase/i-query-use-case-v2.js'
 
 import {getAgentStorage} from '../cipher/storage/agent-storage.js'
 
@@ -30,7 +27,7 @@ export class QueryUseCaseV2 implements IQueryUseCaseV2 {
    * @returns Result string from agent execution
    */
   public async executeWithAgent(agent: ICipherAgent, options: QueryExecuteOptionsV2): Promise<string> {
-    const {query} = options
+    const {query, taskId} = options
 
     // Initialize storage for execution tracking
     const storage = await getAgentStorage()
@@ -46,6 +43,7 @@ export class QueryUseCaseV2 implements IQueryUseCaseV2 {
       const prompt = `Search the context tree for: ${query}`
       const response = await agent.execute(prompt, {
         executionContext: {commandType: 'query'},
+        taskId,
         trackingRequestId,
       })
 

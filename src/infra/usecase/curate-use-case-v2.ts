@@ -34,7 +34,7 @@ export class CurateUseCaseV2 implements ICurateUseCaseV2 {
    * @returns Result string from agent execution
    */
   public async executeWithAgent(agent: ICipherAgent, options: CurateExecuteOptionsV2): Promise<string> {
-    const {content, files} = options
+    const {content, files, taskId} = options
 
     // Initialize storage for execution tracking
     const storage = await getAgentStorage()
@@ -67,6 +67,7 @@ export class CurateUseCaseV2 implements ICurateUseCaseV2 {
       const trackingRequestId = randomUUID()
       const response = await agent.execute(prompt, {
         executionContext: {commandType: 'curate'},
+        taskId,
         trackingRequestId,
       })
 

@@ -121,6 +121,17 @@ export class TransportClientFactory {
         this.logger.info('Connected to instance', {clientId: client.getClientId(), url})
         return client
       } catch (error) {
+        // Safety cleanup: ensure client is disconnected even if connect() throws
+        // for reasons other than connect_error (edge cases).
+        // Note: SocketIOTransportClient.connect() now handles cleanup on connect_error,
+        // but this provides defense-in-depth for unexpected exceptions.
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          await client.disconnect()
+        } catch {
+          // Ignore disconnect errors during cleanup
+        }
+
         lastError = error instanceof Error ? error : new Error(String(error))
         const errorMessage = lastError.message.toLowerCase()
         const isSandboxError =

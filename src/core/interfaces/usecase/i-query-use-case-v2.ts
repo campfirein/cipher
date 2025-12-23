@@ -7,6 +7,8 @@ import type {ICipherAgent} from '../cipher/i-cipher-agent.js'
 export interface QueryExecuteOptionsV2 {
   /** Query content to search in context tree */
   query: string
+  /** Task ID for event routing (required for concurrent task isolation) */
+  taskId: string
 }
 
 /**

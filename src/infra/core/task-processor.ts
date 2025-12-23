@@ -132,13 +132,13 @@ export class TaskProcessor {
    * Execute task with the injected agent.
    */
   private async executeWithAgent(input: TaskInput): Promise<string> {
-    const {content, type} = input
+    const {content, taskId, type} = input
 
     if (!this.agent) {
       throw new Error('Agent not configured')
     }
 
-    this.logger.debug('Executing with agent', {type})
+    this.logger.debug('Executing with agent', {taskId, type})
 
     switch (type) {
       case 'curate': {
@@ -146,12 +146,13 @@ export class TaskProcessor {
         return this.curateUseCase.executeWithAgent(this.agent, {
           content,
           files: input.files,
+          taskId,
         })
       }
 
       case 'query': {
         // Agent uses its default session (Single-Session pattern)
-        return this.queryUseCase.executeWithAgent(this.agent, {query: content})
+        return this.queryUseCase.executeWithAgent(this.agent, {query: content, taskId})
       }
     }
   }
