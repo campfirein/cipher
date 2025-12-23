@@ -65,6 +65,7 @@ export interface IChatSession {
    * @param input - User message content
    * @param options - Optional execution options
    * @param options.executionContext - Optional execution context
+   * @param options.taskId - Optional task ID for concurrent task isolation (included in all emitted events)
    * @param options.trackingRequestId - Optional tracking request ID for backend metrics (random UUID per request)
    * @returns Assistant response
    * @throws SessionCancelledError if operation is cancelled
@@ -75,6 +76,7 @@ export interface IChatSession {
     input: string,
     options?: {
       executionContext?: ExecutionContext
+      taskId?: string
       trackingRequestId?: string
     },
   ): Promise<string>
@@ -109,6 +111,7 @@ export interface IChatSession {
    * @param options - Execution options with optional signal for cancellation
    * @param options.executionContext - Optional execution context for the LLM
    * @param options.signal - Optional AbortSignal for cancellation
+   * @param options.taskId - Optional task ID for concurrent task isolation (included in all emitted events)
    * @param options.trackingRequestId - Optional tracking request ID for backend metrics (random UUID per request)
    */
   streamRun(
@@ -116,6 +119,7 @@ export interface IChatSession {
     options?: {
       executionContext?: ExecutionContext
       signal?: AbortSignal
+      taskId?: string
       trackingRequestId?: string
     },
   ): Promise<void>

@@ -219,12 +219,14 @@ export interface AgentEventMap {
    * @property {string} content - Content of the chunk
    * @property {boolean} [isComplete] - Whether this is the final chunk
    * @property {string} sessionId - ID of the session
+   * @property {string} [taskId] - Optional task ID for concurrent task isolation
    * @property {'reasoning' | 'text'} type - Type of chunk (text or reasoning)
    */
   'llmservice:chunk': {
     content: string
     isComplete?: boolean
     sessionId: string
+    taskId?: string
     type: 'reasoning' | 'text'
   }
 
@@ -233,6 +235,7 @@ export interface AgentEventMap {
    * @property {number} compressedTokens - Token count after compression
    * @property {number} originalTokens - Token count before compression
    * @property {string} sessionId - ID of the session
+   * @property {string} [taskId] - Optional task ID for concurrent task isolation
    * @property {'middle_removal' | 'oldest_removal' | 'summary'} strategy - Compression strategy used
    */
   'llmservice:contextCompressed': {
@@ -240,6 +243,7 @@ export interface AgentEventMap {
     originalTokens: number
     sessionId: string
     strategy: 'middle_removal' | 'oldest_removal' | 'summary'
+    taskId?: string
   }
 
   /**
@@ -247,12 +251,14 @@ export interface AgentEventMap {
    * @property {number} currentTokens - Current token count
    * @property {number} maxTokens - Maximum allowed tokens
    * @property {string} sessionId - ID of the session
+   * @property {string} [taskId] - Optional task ID for concurrent task isolation
    * @property {number} utilizationPercent - Percentage of context used (0-100)
    */
   'llmservice:contextOverflow': {
     currentTokens: number
     maxTokens: number
     sessionId: string
+    taskId?: string
     utilizationPercent: number
   }
 
@@ -261,12 +267,14 @@ export interface AgentEventMap {
    * @property {number} pruneCount - Number of tool outputs pruned
    * @property {'manual' | 'overflow'} reason - Why pruning was triggered
    * @property {string} sessionId - ID of the session
+   * @property {string} [taskId] - Optional task ID for concurrent task isolation
    * @property {number} tokensSaved - Estimated tokens saved
    */
   'llmservice:contextPruned': {
     pruneCount: number
     reason: 'manual' | 'overflow'
     sessionId: string
+    taskId?: string
     tokensSaved: number
   }
 
@@ -277,6 +285,7 @@ export interface AgentEventMap {
    * @property {'exact_repeat' | 'oscillation'} loopType - Type of loop detected
    * @property {number} repeatCount - Number of times the pattern repeated
    * @property {string} sessionId - ID of the session
+   * @property {string} [taskId] - Optional task ID for concurrent task isolation
    * @property {string} toolName - Name of the tool involved in the loop
    */
   'llmservice:doomLoopDetected': {
@@ -284,6 +293,7 @@ export interface AgentEventMap {
     loopType: 'exact_repeat' | 'oscillation'
     repeatCount: number
     sessionId: string
+    taskId?: string
     toolName: string
   }
 
@@ -292,11 +302,13 @@ export interface AgentEventMap {
    * @property {string} [code] - Error code (optional)
    * @property {string} error - Error message
    * @property {string} sessionId - ID of the session
+   * @property {string} [taskId] - Optional task ID for concurrent task isolation
    */
   'llmservice:error': {
     code?: string
     error: string
     sessionId: string
+    taskId?: string
   }
 
   /**
@@ -304,12 +316,14 @@ export interface AgentEventMap {
    * @property {number} originalLength - Original output length before truncation
    * @property {string} savedToFile - Path to file where full output was saved
    * @property {string} sessionId - ID of the session
+   * @property {string} [taskId] - Optional task ID for concurrent task isolation
    * @property {string} toolName - Name of the tool that produced the output
    */
   'llmservice:outputTruncated': {
     originalLength: number
     savedToFile: string
     sessionId: string
+    taskId?: string
     toolName: string
   }
 
@@ -321,6 +335,7 @@ export interface AgentEventMap {
    * @property {string} [provider] - LLM provider name
    * @property {string} [reasoning] - Internal reasoning (if available)
    * @property {string} sessionId - ID of the session
+   * @property {string} [taskId] - Optional task ID for concurrent task isolation
    * @property {TokenUsage} [tokenUsage] - Token usage statistics
    */
   'llmservice:response': {
@@ -330,36 +345,43 @@ export interface AgentEventMap {
     provider?: string
     reasoning?: string
     sessionId: string
+    taskId?: string
     tokenUsage?: TokenUsage
   }
 
   /**
    * Emitted when LLM service starts thinking/processing.
    * @property {string} sessionId - ID of the session
+   * @property {string} [taskId] - Optional task ID for concurrent task isolation
    */
   'llmservice:thinking': {
     sessionId: string
+    taskId?: string
   }
 
   /**
    * Emitted when LLM generates a thought (Gemini models only).
    * @property {string} description - Detailed thought description
    * @property {string} sessionId - ID of the session
+   * @property {string} [taskId] - Optional task ID for concurrent task isolation
    * @property {string} subject - Brief thought subject
    */
   'llmservice:thought': {
     description: string
     sessionId: string
     subject: string
+    taskId?: string
   }
 
   /**
    * Emitted when the todo list is updated via write_todos tool.
    * @property {string} sessionId - ID of the session
+   * @property {string} [taskId] - Optional task ID for concurrent task isolation
    * @property {Array<{content: string, status: string, activeForm: string}>} todos - Updated todo list
    */
   'llmservice:todoUpdated': {
     sessionId: string
+    taskId?: string
     todos: Array<{
       activeForm: string
       content: string
@@ -372,12 +394,14 @@ export interface AgentEventMap {
    * @property {Record<string, unknown>} args - Arguments for the tool
    * @property {string} [callId] - Unique identifier for this tool call
    * @property {string} sessionId - ID of the session
+   * @property {string} [taskId] - Optional task ID for concurrent task isolation
    * @property {string} toolName - Name of the tool to execute
    */
   'llmservice:toolCall': {
     args: Record<string, unknown>
     callId?: string
     sessionId: string
+    taskId?: string
     toolName: string
   }
 
@@ -390,12 +414,14 @@ export interface AgentEventMap {
    * @property {string} [output] - Streamed output content
    * @property {number} [progress] - Progress indicator (0-100)
    * @property {string} sessionId - ID of the session
+   * @property {string} [taskId] - Optional task ID for concurrent task isolation
    * @property {string} toolName - Name of the tool streaming metadata
    */
   'llmservice:toolMetadata': {
     callId: string
     metadata: Record<string, unknown>
     sessionId: string
+    taskId?: string
     toolName: string
   }
 
@@ -407,6 +433,7 @@ export interface AgentEventMap {
    * @property {Record<string, unknown>} [metadata] - Execution metadata (duration, tokens, etc.)
    * @property {unknown} [result] - Tool execution result
    * @property {string} sessionId - ID of the session
+   * @property {string} [taskId] - Optional task ID for concurrent task isolation
    * @property {boolean} success - Whether execution succeeded
    * @property {string} toolName - Name of the executed tool
    */
@@ -418,6 +445,7 @@ export interface AgentEventMap {
     result?: unknown
     sessionId: string
     success: boolean
+    taskId?: string
     toolName: string
   }
 
@@ -425,10 +453,12 @@ export interface AgentEventMap {
    * Emitted when LLM receives unsupported input.
    * @property {string} reason - Reason why input is unsupported
    * @property {string} sessionId - ID of the session
+   * @property {string} [taskId] - Optional task ID for concurrent task isolation
    */
   'llmservice:unsupportedInput': {
     reason: string
     sessionId: string
+    taskId?: string
   }
 
   /**
@@ -437,22 +467,26 @@ export interface AgentEventMap {
    * @property {string} [model] - Model identifier
    * @property {string} [provider] - LLM provider name
    * @property {string} sessionId - ID of the session
+   * @property {string} [taskId] - Optional task ID for concurrent task isolation
    */
   'llmservice:warning': {
     message: string
     model?: string
     provider?: string
     sessionId: string
+    taskId?: string
   }
 
   /**
    * Emitted when queued messages are dequeued for processing.
    * @property {number} count - Number of messages that were dequeued
    * @property {string} sessionId - ID of the session
+   * @property {string} [taskId] - Optional task ID for concurrent task isolation
    */
   'message:dequeued': {
     count: number
     sessionId: string
+    taskId?: string
   }
 
   /**
@@ -463,6 +497,7 @@ export interface AgentEventMap {
    * @property {number} message.queuedAt - Timestamp when queued
    * @property {number} position - Position in the queue (1-based)
    * @property {string} sessionId - ID of the session
+   * @property {string} [taskId] - Optional task ID for concurrent task isolation
    */
   'message:queued': {
     message: {
@@ -472,6 +507,7 @@ export interface AgentEventMap {
     }
     position: number
     sessionId: string
+    taskId?: string
   }
 
   /**
@@ -480,6 +516,7 @@ export interface AgentEventMap {
    * @property {Error} [error] - Error if terminated due to error
    * @property {'cancelled' | 'error' | 'max-iterations' | 'stop' | 'timeout'} finishReason - Why execution terminated
    * @property {string} sessionId - ID of the session
+   * @property {string} [taskId] - Optional task ID for concurrent task isolation
    * @property {number} stepCount - Number of agentic steps completed
    */
   'run:complete': {
@@ -488,17 +525,20 @@ export interface AgentEventMap {
     finishReason: 'cancelled' | 'error' | 'max-iterations' | 'stop' | 'timeout'
     sessionId: string
     stepCount: number
+    taskId?: string
   }
 
   /**
    * Emitted when session status changes.
    * Tracks the lifecycle state of a session (idle, busy, retry, waiting).
    * @property {string} sessionId - ID of the session
+   * @property {string} [taskId] - Optional task ID for concurrent task isolation
    * @property {SessionStatusType} status - The new session status
    */
   'session:statusChanged': {
     sessionId: string
     status: SessionStatusType
+    taskId?: string
   }
 
   /**
@@ -508,6 +548,7 @@ export interface AgentEventMap {
    * @property {'max_tokens' | 'stop' | 'tool_calls'} finishReason - Why step finished
    * @property {string} sessionId - ID of the session
    * @property {number} stepIndex - Step index (0-based)
+   * @property {string} [taskId] - Optional task ID for concurrent task isolation
    * @property {StepTokenUsage} tokens - Token usage for this step
    */
   'step:finished': {
@@ -515,6 +556,7 @@ export interface AgentEventMap {
     finishReason: 'max_tokens' | 'stop' | 'tool_calls'
     sessionId: string
     stepIndex: number
+    taskId?: string
     tokens: StepTokenUsage
   }
 
@@ -522,10 +564,12 @@ export interface AgentEventMap {
    * Emitted when an execution step starts.
    * @property {string} sessionId - ID of the session
    * @property {number} stepIndex - Step index (0-based)
+   * @property {string} [taskId] - Optional task ID for concurrent task isolation
    */
   'step:started': {
     sessionId: string
     stepIndex: number
+    taskId?: string
   }
 }
 

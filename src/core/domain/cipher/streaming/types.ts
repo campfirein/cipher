@@ -30,6 +30,7 @@ export type StreamingEvent =
       callId?: string
       name: 'llmservice:toolCall'
       sessionId: string
+      taskId?: string
       toolName: string
     }
   | {
@@ -39,6 +40,7 @@ export type StreamingEvent =
       result?: unknown
       sessionId: string
       success: boolean
+      taskId?: string
       toolName: string
     }
   | {
@@ -47,12 +49,14 @@ export type StreamingEvent =
       name: 'llmservice:error'
       recoverable?: boolean
       sessionId: string
+      taskId?: string
     }
   | {
       content: string
       isComplete?: boolean
       name: 'llmservice:chunk'
       sessionId: string
+      taskId?: string
       type: 'reasoning' | 'text'
     }
   | {
@@ -63,12 +67,14 @@ export type StreamingEvent =
       provider?: string
       reasoning?: string
       sessionId: string
+      taskId?: string
       tokenUsage?: TokenUsage
     }
   | {
       count: number
       name: 'message:dequeued'
       sessionId: string
+      taskId?: string
     }
   | {
       durationMs: number
@@ -77,19 +83,22 @@ export type StreamingEvent =
       name: 'run:complete'
       sessionId: string
       stepCount: number
+      taskId?: string
     }
   | {
       message: string
       name: 'llmservice:warning'
       sessionId: string
+      taskId?: string
     }
   | {
       message: {content: string; id: string; queuedAt: number}
       name: 'message:queued'
       position: number
       sessionId: string
+      taskId?: string
     }
-  | {name: 'llmservice:thinking'; sessionId: string}
+  | {name: 'llmservice:thinking'; sessionId: string; taskId?: string}
 
 /**
  * Options for stream() method
@@ -99,6 +108,8 @@ export interface StreamOptions {
   executionContext?: ExecutionContext
   /** AbortSignal for cancellation */
   signal?: AbortSignal
+  /** Task ID for concurrent task isolation (included in all emitted events) */
+  taskId?: string
   /** Tracking request ID for backend metrics (random UUID per request, NOT related to session memory) */
   trackingRequestId?: string
 }

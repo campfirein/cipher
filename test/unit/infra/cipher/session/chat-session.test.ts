@@ -382,4 +382,167 @@ describe('ChatSession', () => {
       expect(service).to.equal(mockLLMService)
     })
   })
+
+  describe('taskId propagation (ENG-713)', () => {
+    it('should include taskId in forwarded events when provided to run()', async () => {
+      const taskId = 'test-task-123'
+      const agentEmitStub = sandbox.stub(agentEventBus, 'emit')
+
+      // Setup completeTask to trigger some events
+      ;(mockLLMService.completeTask as SinonStub).callsFake(async () => {
+        // Emit a thinking event during execution
+        sessionEventBus.emit('llmservice:thinking')
+        return 'response'
+      })
+
+      await session.run('test input', {taskId})
+
+      // Find the thinking event
+      const thinkingCall = agentEmitStub.getCalls().find((call) => call.args[0] === 'llmservice:thinking')
+
+      expect(thinkingCall).to.exist
+      expect(thinkingCall!.args[1]).to.deep.include({
+        sessionId,
+        taskId,
+      })
+    })
+
+    it('should include taskId in forwarded events when provided to streamRun()', async () => {
+      const taskId = 'stream-task-456'
+      const agentEmitStub = sandbox.stub(agentEventBus, 'emit')
+
+      // Setup completeTask to trigger some events
+      ;(mockLLMService.completeTask as SinonStub).callsFake(async () => {
+        // Emit a toolCall event during execution
+        sessionEventBus.emit('llmservice:toolCall', {
+          args: {path: '/test'},
+          callId: 'call-1',
+          toolName: 'read_file',
+        })
+        return 'response'
+      })
+
+      await session.streamRun('test input', {taskId})
+
+      // Find the toolCall event
+      const toolCallEvent = agentEmitStub.getCalls().find((call) => call.args[0] === 'llmservice:toolCall')
+
+      expect(toolCallEvent).to.exist
+      expect(toolCallEvent!.args[1]).to.deep.include({
+        sessionId,
+        taskId,
+        toolName: 'read_file',
+      })
+    })
+
+    it('should NOT include taskId in forwarded events when not provided', async () => {
+      const agentEmitStub = sandbox.stub(agentEventBus, 'emit')
+
+      // Setup completeTask to trigger some events
+      ;(mockLLMService.completeTask as SinonStub).callsFake(async () => {
+        sessionEventBus.emit('llmservice:thinking')
+        return 'response'
+      })
+
+      await session.run('test input') // No taskId provided
+
+      // Find the thinking event
+      const thinkingCall = agentEmitStub.getCalls().find((call) => call.args[0] === 'llmservice:thinking')
+
+      expect(thinkingCall).to.exist
+      expect(thinkingCall!.args[1]).to.have.property('sessionId', sessionId)
+      expect(thinkingCall!.args[1]).to.not.have.property('taskId')
+    })
+
+    it('should clear taskId after run() completes', async () => {
+      const taskId = 'transient-task-789'
+      const agentEmitStub = sandbox.stub(agentEventBus, 'emit')
+
+      // First run with taskId
+      ;(mockLLMService.completeTask as SinonStub).resolves('response')
+      await session.run('first input', {taskId})
+
+      agentEmitStub.resetHistory()
+
+      // Second run without taskId - events should NOT have the previous taskId
+      ;(mockLLMService.completeTask as SinonStub).callsFake(async () => {
+        sessionEventBus.emit('llmservice:thinking')
+        return 'response'
+      })
+      await session.run('second input') // No taskId
+
+      const thinkingCall = agentEmitStub.getCalls().find((call) => call.args[0] === 'llmservice:thinking')
+
+      expect(thinkingCall).to.exist
+      expect(thinkingCall!.args[1]).to.not.have.property('taskId')
+    })
+
+    it('should clear taskId after streamRun() completes', async () => {
+      const taskId = 'transient-stream-task-789'
+      const agentEmitStub = sandbox.stub(agentEventBus, 'emit')
+
+      // First streamRun with taskId
+      ;(mockLLMService.completeTask as SinonStub).resolves('response')
+      await session.streamRun('first input', {taskId})
+
+      agentEmitStub.resetHistory()
+
+      // Second streamRun without taskId
+      ;(mockLLMService.completeTask as SinonStub).callsFake(async () => {
+        sessionEventBus.emit('llmservice:response', {content: 'response'})
+        return 'response'
+      })
+      await session.streamRun('second input') // No taskId
+
+      const responseCall = agentEmitStub.getCalls().find((call) => call.args[0] === 'llmservice:response')
+
+      expect(responseCall).to.exist
+      expect(responseCall!.args[1]).to.not.have.property('taskId')
+    })
+
+    it('should include taskId in all forwarded session events', async () => {
+      const taskId = 'all-events-task'
+      const agentEmitStub = sandbox.stub(agentEventBus, 'emit')
+
+      // Setup completeTask to trigger multiple events
+      ;(mockLLMService.completeTask as SinonStub).callsFake(async () => {
+        sessionEventBus.emit('llmservice:thinking')
+        sessionEventBus.emit('llmservice:chunk', {content: 'test', type: 'text'})
+        sessionEventBus.emit('llmservice:toolCall', {
+          args: {},
+          callId: 'call-1',
+          toolName: 'test_tool',
+        })
+        sessionEventBus.emit('llmservice:toolResult', {
+          callId: 'call-1',
+          result: 'success',
+          success: true,
+          toolName: 'test_tool',
+        })
+        sessionEventBus.emit('llmservice:response', {content: 'final response'})
+        return 'response'
+      })
+
+      await session.run('test input', {taskId})
+
+      // Check all relevant events include taskId
+      const eventsToCheck = [
+        'llmservice:thinking',
+        'llmservice:chunk',
+        'llmservice:toolCall',
+        'llmservice:toolResult',
+        'llmservice:response',
+      ]
+
+      for (const eventName of eventsToCheck) {
+        const eventCall = agentEmitStub.getCalls().find((call) => call.args[0] === eventName)
+        expect(eventCall, `Event ${eventName} should be forwarded`).to.exist
+        expect(eventCall!.args[1], `Event ${eventName} should include taskId`).to.have.property('taskId', taskId)
+        expect(eventCall!.args[1], `Event ${eventName} should include sessionId`).to.have.property(
+          'sessionId',
+          sessionId,
+        )
+      }
+    })
+  })
 })
