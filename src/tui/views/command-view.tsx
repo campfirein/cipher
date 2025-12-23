@@ -25,7 +25,6 @@ import {
 } from '../components/inline-prompts/index.js'
 import {useAuth} from '../contexts/auth-context.js'
 import {useChat} from '../contexts/chat-context.js'
-import {useConsumer} from '../contexts/index.js'
 import {useCommands, useMode, useTerminalBreakpoint, useTheme, useUIHeights} from '../hooks/index.js'
 import {getVisualLineCount} from '../utils/line.js'
 
@@ -341,7 +340,6 @@ interface CommandViewProps {
 export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
   const {exit} = useApp()
   const {reloadAuth, reloadBrvConfig} = useAuth()
-  const {restart} = useConsumer()
   const {enterChatMode, exitChatMode, isInChatMode, isProcessing: isChatProcessing, sendMessage} = useChat()
   const [command, setCommand] = useState('')
   const [inputKey, setInputKey] = useState(0)
@@ -506,16 +504,13 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
           const needReloadBrvConfig = trimmed.startsWith('/space switch') || trimmed.startsWith('/init')
 
           // Refresh state after commands that change auth or project state
-          if (needReloadAuth || needReloadBrvConfig) {
-            if (needReloadAuth) await reloadAuth()
-            if (needReloadBrvConfig) await reloadBrvConfig()
-            // restart() handles stop + cleanup + start
-            await restart()
-          }
+          if (needReloadAuth) await reloadAuth()
+          if (needReloadBrvConfig) await reloadBrvConfig()
+
         }
       }
     },
-    [enterChatMode, exit, exitChatMode, handleSlashCommand, reloadAuth, reloadBrvConfig, restart],
+    [enterChatMode, exit, exitChatMode, handleSlashCommand, reloadAuth, reloadBrvConfig],
   )
 
   /**

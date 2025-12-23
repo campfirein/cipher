@@ -2,7 +2,7 @@
  * Onboarding Context
  *
  * Global context for managing onboarding state and step derivation.
- * State is derived from brvConfig and sessionExecutions.
+ * State is derived from brvConfig and tasks from transport events.
  *
  * Usage:
  * ```tsx
@@ -12,8 +12,8 @@
 
 import React, {createContext, useCallback, useContext, useEffect, useMemo, useRef, useState} from 'react'
 
+import {useTasks} from '../hooks/use-tasks.js'
 import {useAuth} from './auth-context.js'
-import {useConsumer} from './index.js'
 import {useServices} from './services-context.js'
 
 export type OnboardingStep = 'complete' | 'curate' | 'init' | 'query'
@@ -66,7 +66,7 @@ const ONBOARDING_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000
 
 export function OnboardingProvider({children}: OnboardingProviderProps): React.ReactElement {
   const {brvConfig, isInitialConfigLoaded} = useAuth()
-  const {sessionExecutions} = useConsumer()
+  const {tasks} = useTasks()
   const {onboardingPreferenceStore, trackingService} = useServices()
 
   const isInitialized = brvConfig !== undefined
@@ -149,16 +149,16 @@ export function OnboardingProvider({children}: OnboardingProviderProps): React.R
     [trackingService],
   )
 
-  // Check for completed curate/query executions in session
+  // Check for completed curate/query tasks in session
   const {hasCurated, hasQueried} = useMemo(() => {
     let curateCompleted = false
     let queryCompleted = false
 
-    for (const {execution} of sessionExecutions) {
-      if (execution.status === 'completed') {
-        if (execution.type === 'curate') {
+    for (const task of tasks.values()) {
+      if (task.status === 'completed') {
+        if (task.type === 'curate') {
           curateCompleted = true
-        } else if (execution.type === 'query') {
+        } else if (task.type === 'query') {
           queryCompleted = true
         }
       }
@@ -168,7 +168,7 @@ export function OnboardingProvider({children}: OnboardingProviderProps): React.R
     }
 
     return {hasCurated: curateCompleted, hasQueried: queryCompleted}
-  }, [sessionExecutions])
+  }, [tasks])
 
   // Derive current step (considering acknowledgment)
   // Stay on curate/query step until user acknowledges the completion

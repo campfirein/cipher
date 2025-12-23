@@ -11,7 +11,7 @@ import {LogItem, OnboardingFlow, ScrollableList} from '../components/index.js'
 import {useActivityLogs, useMode, useTheme, useUIHeights} from '../hooks/index.js'
 import {useOnboarding} from '../hooks/use-onboarding.js'
 import {ActivityLog} from '../types.js'
-import {calculateLogContentLimit} from '../utils/log.js'
+import {calculateActualLogHeight, calculateLogContentLimit} from '../utils/log.js'
 
 interface LogsViewProps {
   /**
@@ -64,12 +64,18 @@ export const LogsView: React.FC<LogsViewProps> = ({availableHeight}) => {
 
   const keyExtractor = useCallback((log: ActivityLog) => log.id, [])
 
-  // Height estimator that accounts for content truncation
+  // Height calculator that returns the actual rendered height of each log item
   const heightEstimator = useCallback(
     (log: ActivityLog) => {
-      // Calculate all parts and sum their line counts
+      // Calculate dynamic content limit for height estimation
       const parts = calculateLogContentLimit(log, scrollableHeight, messageItem)
-      return parts.reduce((sum, part) => sum + part.lines, 0)
+      const contentPart = parts.find((p) => p.field === 'content')
+      const maxContentLine = contentPart?.lines ?? 0
+
+      return calculateActualLogHeight(log, {
+        ...messageItem,
+        maxContentLines: maxContentLine,
+      })
     },
     [messageItem, scrollableHeight],
   )

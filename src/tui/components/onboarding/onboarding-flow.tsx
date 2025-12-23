@@ -12,7 +12,6 @@ import React, {useCallback, useMemo, useState} from 'react'
 import type {PromptRequest, StreamingMessage} from '../../types.js'
 
 import {useAuth} from '../../contexts/auth-context.js'
-import {useConsumer} from '../../contexts/index.js'
 import {useActivityLogs, useCommands, useMode, useTheme, useUIHeights} from '../../hooks/index.js'
 import {useOnboarding} from '../../hooks/use-onboarding.js'
 import {calculateLogContentLimit} from '../../utils/log.js'
@@ -169,7 +168,6 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({availableHeight})
   } = useTheme()
   const {mode} = useMode()
   const {reloadAuth} = useAuth()
-  const {restart} = useConsumer()
   const {handleSlashCommand} = useCommands()
   const {
     completeOnboarding,
@@ -258,7 +256,6 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({availableHeight})
 
         // Restart consumer to pick up new project state
         // (restart() handles stop + cleanup + start internally)
-        await restart()
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error)
         setInitError(errorMessage)
@@ -270,7 +267,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({availableHeight})
       setInitError(result.content)
       setIsRunningInit(false)
     }
-  }, [handleSlashCommand, isRunningInit, reloadAuth, restart])
+  }, [handleSlashCommand, isRunningInit, reloadAuth])
 
   // Process streaming messages to handle action_start/action_stop pairs
   const processedStreamingMessages = useMemo(() => processMessagesForActions(streamingMessages), [streamingMessages])

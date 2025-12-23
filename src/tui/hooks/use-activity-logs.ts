@@ -1,18 +1,19 @@
 /**
  * Activity Logs Hook
  *
- * Transforms sessionExecutions into ActivityLog format for display.
+ * Transforms tasks from transport events into ActivityLog format for display.
  */
 
 import {join} from 'node:path'
 import {useMemo} from 'react'
 import {array as zArray, object as zObject, string as zString} from 'zod'
 
-import type {ToolCall} from '../../core/domain/cipher/queue/types.js'
+import type {ExecutionStatus, ToolCallStatus} from '../../core/domain/cipher/queue/types.js'
 import type {ActivityLog} from '../types.js'
+import type {Task, ToolCallEvent} from './use-tasks.js'
 
 import {BRV_DIR, CONTEXT_TREE_DIR} from '../../constants.js'
-import {useConsumer} from '../contexts/index.js'
+import {useTasks} from './use-tasks.js'
 
 const ExecutionInputSchema = zObject({
   content: zString(),
@@ -42,18 +43,27 @@ export function parseExecutionContent(input: string): string {
 }
 
 /**
- * Extract file changes from curate tool calls
+ * Extract file changes from curate tool calls (transport events)
  */
-export function composeChangesFromToolCalls(toolCalls: ToolCall[]): {created: string[]; updated: string[]} {
+function composeChangesFromToolCalls(toolCalls: ToolCallEvent[]): {created: string[]; updated: string[]} {
   const changes: {created: string[]; updated: string[]} = {created: [], updated: []}
   const contextTreeDir = join(BRV_DIR, CONTEXT_TREE_DIR)
 
   for (const tc of toolCalls) {
-    if (tc.status !== 'completed' || tc.name !== 'curate' || !tc.result) {
+    if (tc.status !== 'completed' || tc.toolName !== 'curate' || !tc.result) {
       continue
     }
 
-    const parseResult = CurateResultSchema.safeParse(JSON.parse(tc.result))
+    // Parse JSON - skip if invalid
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(String(tc.result))
+    } catch {
+      continue
+    }
+
+    // Validate schema with safeParse
+    const parseResult = CurateResultSchema.safeParse(parsed)
     if (!parseResult.success) {
       continue
     }
@@ -79,45 +89,96 @@ export function composeChangesFromToolCalls(toolCalls: ToolCall[]): {created: st
 }
 
 export interface UseActivityLogsReturn {
-  /** Activity logs derived from session executions */
+  /** Activity logs derived from tasks */
   logs: ActivityLog[]
 }
 
 /**
- * Hook that transforms sessionExecutions into ActivityLog format
+ * Map task status to execution status
+ */
+function mapTaskStatusToExecutionStatus(taskStatus: Task['status']): ExecutionStatus {
+  switch (taskStatus) {
+    case 'cancelled': {
+      return 'failed'
+    }
+
+    case 'completed': {
+      return 'completed'
+    }
+
+    case 'created':
+    case 'started': {
+      return 'running'
+    }
+
+    case 'error': {
+      return 'failed'
+    }
+
+    default: {
+      return 'running'
+    }
+  }
+}
+
+/**
+ * Map tool call status to ToolCallStatus
+ */
+function mapToolCallStatus(status: ToolCallEvent['status']): ToolCallStatus {
+  switch (status) {
+    case 'completed': {
+      return 'completed'
+    }
+
+    case 'error': {
+      return 'failed'
+    }
+
+    case 'running': {
+      return 'running'
+    }
+
+    default: {
+      return 'running'
+    }
+  }
+}
+
+/**
+ * Hook that transforms tasks from transport events into ActivityLog format
  */
 export function useActivityLogs(): UseActivityLogsReturn {
-  const {sessionExecutions} = useConsumer()
+  const {tasks} = useTasks()
 
-  const logs = useMemo(
-    () =>
-      sessionExecutions
-        .filter(({execution}) => execution.status !== 'queued')
-        .map(({execution, toolCalls}) => {
-          const progress = toolCalls.map((tc) => ({
-            id: tc.id,
-            status: tc.status,
-            toolCallName: tc.name,
-          }))
+  const logs = useMemo(() => {
+    const taskArray = [...tasks.values()]
 
-          const changes = composeChangesFromToolCalls(toolCalls)
+    return taskArray
+      .filter((task) => task.status !== 'created')
+      .map((task) => {
+        const progress = task.toolCalls.map((tc, index) => ({
+          id: tc.callId ?? `${task.taskId}-${index}`,
+          status: mapToolCallStatus(tc.status),
+          toolCallName: tc.toolName,
+        }))
 
-          const activityLog: ActivityLog = {
-            changes,
-            content: execution.status === 'failed' ? execution.error ?? '' : execution.result ?? '',
-            id: execution.id,
-            input: parseExecutionContent(execution.input),
-            progress,
-            source: 'agent',
-            status: execution.status,
-            timestamp: new Date(execution.updatedAt),
-            type: execution.type,
-          }
+        const changes = composeChangesFromToolCalls(task.toolCalls)
 
-          return activityLog
-        }),
-    [sessionExecutions],
-  )
+        const activityLog: ActivityLog = {
+          changes,
+          content: task.status === 'error' ? task.error?.message ?? '' : task.result ?? '',
+          id: task.taskId,
+          input: task.content,
+          progress,
+          source: 'agent',
+          status: mapTaskStatusToExecutionStatus(task.status),
+          timestamp: new Date(task.completedAt ?? task.startedAt ?? task.createdAt),
+          type: task.type,
+        }
+
+        return activityLog
+      })
+  }, [tasks])
 
   return {logs}
 }
