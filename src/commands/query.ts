@@ -1,25 +1,13 @@
 import {Args, Command, Flags} from '@oclif/core'
 
-import type {
-  LlmResponseEvent,
-  LlmToolCallEvent,
-  LlmToolResultEvent,
-  TaskAck,
-  TaskCompletedEvent,
-  TaskCreateResponse,
-  TaskErrorEvent,
-  TaskStartedEvent,
-} from '../core/domain/transport/schemas.js'
-import type {ITransportClient} from '../core/interfaces/transport/i-transport-client.js'
-
 import {isDevelopment} from '../config/environment.js'
-import {createTransportClientFactory} from '../infra/transport/transport-client-factory.js'
-import {handleConnectionError} from '../utils/connection-error-handler.js'
-
-/** Parsed flags type */
-type QueryFlags = {
-  verbose?: boolean
-}
+import {IQueryUseCase} from '../core/interfaces/usecase/i-query-use-case.js'
+import {ProjectConfigStore} from '../infra/config/file-config-store.js'
+import {FileGlobalConfigStore} from '../infra/storage/file-global-config-store.js'
+import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
+import {OclifTerminal} from '../infra/terminal/oclif-terminal.js'
+import {MixpanelTrackingService} from '../infra/tracking/mixpanel-tracking-service.js'
+import {QueryUseCase} from '../infra/usecase/query-use-case.js'
 
 export default class Query extends Command {
   public static args = {
@@ -56,290 +44,21 @@ Bad:
   }
   public static strict = false
 
-  public async run(): Promise<void> {
-    const {argv, flags: rawFlags} = await this.parse(Query)
-    const flags = rawFlags as QueryFlags
-    const queryTerms = (argv as string[]).join(' ')
+  protected createUseCase(): IQueryUseCase {
+    const tokenStore = new KeychainTokenStore()
+    const globalConfigStore = new FileGlobalConfigStore()
+    const trackingService = new MixpanelTrackingService({globalConfigStore, tokenStore})
 
-    if (!queryTerms.trim()) {
-      this.log('Query argument is required.')
-      this.log('Usage: brv query "your question here"')
-      return
-    }
-
-    const verbose = flags.verbose ?? false
-
-    // Connect to running instance
-    let client: ITransportClient | undefined
-
-    try {
-      const factory = createTransportClientFactory()
-
-      if (verbose) {
-        this.log('Discovering running instance...')
-      }
-
-      const {client: connectedClient} = await factory.connect()
-      client = connectedClient
-
-      if (verbose) {
-        this.log(`Connected to instance (clientId: ${client.getClientId()})`)
-      }
-
-      // Send task:create request
-      const response = await client.request<TaskCreateResponse>('task:create', {
-        content: queryTerms,
-        type: 'query',
-      })
-
-      const {taskId} = response
-
-      if (verbose) {
-        this.log(`Task created: ${taskId}`)
-      }
-
-      // Wait for task completion with streaming
-      await this.streamTaskResults(client, taskId, verbose)
-    } catch (error) {
-      handleConnectionError(error, (msg, opts) => this.error(msg, opts))
-    } finally {
-      // Cleanup
-      if (client) {
-        await client.disconnect()
-      }
-    }
-  }
-
-  /**
-   * Format a parsed object result into a concise summary.
-   */
-  private formatParsedResult(obj: Record<string, unknown>): string {
-    // Check for common patterns
-    if ('topics' in obj && Array.isArray(obj.topics)) {
-      return `${(obj.topics as unknown[]).length} topics found`
-    }
-
-    if ('results' in obj && Array.isArray(obj.results)) {
-      return `${(obj.results as unknown[]).length} matches`
-    }
-
-    if ('matches' in obj && Array.isArray(obj.matches)) {
-      return `${(obj.matches as unknown[]).length} matches`
-    }
-
-    if ('filesSearched' in obj) {
-      const files = obj.filesSearched as number
-      const matches = Array.isArray(obj.matches) ? obj.matches.length : 0
-      return `${files} files searched, ${matches} matches`
-    }
-
-    // glob_files returns {files: [...]}
-    if ('files' in obj && Array.isArray(obj.files)) {
-      return `${(obj.files as unknown[]).length} files`
-    }
-
-    // list_directory returns {entries: [...]}
-    if ('entries' in obj && Array.isArray(obj.entries)) {
-      return `${(obj.entries as unknown[]).length} entries`
-    }
-
-    // read_file returns {content: string, ...}
-    if ('content' in obj && typeof obj.content === 'string') {
-      const content = obj.content as string
-      const lines = content.split('\n').length
-      return `${lines} lines`
-    }
-
-    if ('count' in obj) {
-      return `${obj.count} items`
-    }
-
-    // Check for any array property as fallback
-    for (const key of Object.keys(obj)) {
-      if (Array.isArray(obj[key])) {
-        return `${(obj[key] as unknown[]).length} ${key}`
-      }
-    }
-
-    // Generic object - just show it worked
-    return 'Done'
-  }
-
-  /**
-   * Format tool arguments for display.
-   * Extract the most meaningful value for human reading.
-   */
-  private formatToolArgs(toolName: string, args: Record<string, unknown>): string {
-    // Extract the most meaningful arg based on tool type
-    // Tool names use snake_case (LLM convention)
-    /* eslint-disable camelcase */
-    const meaningfulKeys: Record<string, string[]> = {
-      curate: ['operations'],
-      find_knowledge_topics: ['topicPattern', 'query'],
-      glob_files: ['pattern', 'glob'],
-      grep_content: ['pattern', 'query'],
-      list_directory: ['path', 'directory'],
-      read_file: ['filePath', 'path'],
-      read_knowledge_topic: ['topicPath', 'path'],
-    }
-    /* eslint-enable camelcase */
-
-    const keys = meaningfulKeys[toolName] ?? Object.keys(args)
-    for (const key of keys) {
-      if (args[key] !== undefined) {
-        const value = args[key]
-        if (typeof value === 'string') {
-          // Clean display - just the value, truncated if needed
-          return value.length > 40 ? `${value.slice(0, 37)}...` : value
-        }
-
-        if (Array.isArray(value)) {
-          return `${value.length} items`
-        }
-      }
-    }
-
-    return ''
-  }
-
-  /**
-   * Format tool result for display.
-   * Shows meaningful, concise summary - NEVER shows raw JSON.
-   */
-  private formatToolResult(payload: LlmToolResultEvent): string {
-    if (!payload.success) {
-      const errMsg = payload.error ?? 'Failed'
-      return errMsg.length > 50 ? `${errMsg.slice(0, 47)}...` : errMsg
-    }
-
-    if (!payload.result) return 'Done'
-
-    // Handle different result types with concise output
-    if (Array.isArray(payload.result)) {
-      return `${payload.result.length} results`
-    }
-
-    // Handle string results - might be JSON
-    if (typeof payload.result === 'string') {
-      // Try to parse as JSON for better formatting
-      try {
-        const parsed = JSON.parse(payload.result)
-        return this.formatParsedResult(parsed)
-      } catch {
-        // Not JSON - show char count for long strings
-        if (payload.result.length > 100) {
-          return `${payload.result.length} chars`
-        }
-
-        return payload.result.length > 40 ? `${payload.result.slice(0, 37)}...` : payload.result
-      }
-    }
-
-    if (typeof payload.result === 'object') {
-      return this.formatParsedResult(payload.result as Record<string, unknown>)
-    }
-
-    return 'Done'
-  }
-
-  /**
-   * Stream task results from the connected instance.
-   */
-  private async streamTaskResults(client: ITransportClient, taskId: string, verbose: boolean): Promise<void> {
-    return new Promise((resolve, reject) => {
-      let completed = false
-      let resultPrinted = false // Track if we've already printed the result
-
-      // Timeout after 5 minutes
-      const timeout = setTimeout(() => {
-        if (!completed) {
-          completed = true
-          cleanup()
-          reject(new Error('Task timed out after 5 minutes'))
-        }
-      }, 5 * 60 * 1000)
-
-      // Setup all event handlers
-      const unsubscribers = [
-        // task:ack - immediate acknowledgment
-        client.on<TaskAck>('task:ack', (payload) => {
-          if (payload.taskId === taskId && verbose) {
-            this.log('Task acknowledged by server')
-          }
-        }),
-
-        // task:started - task is being processed
-        client.on<TaskStartedEvent>('task:started', (payload) => {
-          if (payload.taskId === taskId && verbose) {
-            this.log('Task started processing...')
-          }
-        }),
-
-        // llmservice:chunk - streaming content (for future release)
-        // client.on<LlmChunkPayload>('llmservice:chunk', (payload) => {
-        //   if (payload.taskId === taskId) {
-        //     if (!hasReceivedChunks) {
-        //       this.log('\nResult:')
-        //     }
-        //     hasReceivedChunks = true
-        //     process.stdout.write(payload.content)
-        //   }
-        // }),
-
-        // llmservice:response - final response from LLM (only print once)
-        client.on<LlmResponseEvent>('llmservice:response', (payload) => {
-          if (payload.taskId === taskId && payload.content && !resultPrinted) {
-            resultPrinted = true
-            this.log('\nResult:')
-            this.log(payload.content)
-          }
-        }),
-
-        // llmservice:toolCall - tool invocation (stop showing after response)
-        client.on<LlmToolCallEvent>('llmservice:toolCall', (payload) => {
-          if (payload.taskId === taskId && !resultPrinted) {
-            const detail = payload.args ? this.formatToolArgs(payload.toolName, payload.args) : ''
-            const suffix = detail ? `: ${detail}` : ''
-            this.log(`🔧 ${payload.toolName}${suffix}`)
-          }
-        }),
-
-        // llmservice:toolResult - tool result with summary (stop showing after response)
-        client.on<LlmToolResultEvent>('llmservice:toolResult', (payload) => {
-          if (payload.taskId === taskId && !resultPrinted) {
-            const status = payload.success ? '✓' : '✗'
-            const resultSummary = this.formatToolResult(payload)
-            this.log(`  ${status} ${resultSummary}`)
-          }
-        }),
-
-        // task:completed - task finished (chunks already streamed, just resolve)
-        client.on<TaskCompletedEvent>('task:completed', (payload) => {
-          if (payload.taskId === taskId && !completed) {
-            completed = true
-            cleanup()
-            // Note: Don't log result here - chunks already streamed it
-            this.log('') // Final newline for clean output
-            resolve()
-          }
-        }),
-
-        // task:error - task failed
-        client.on<TaskErrorEvent>('task:error', (payload) => {
-          if (payload.taskId === taskId && !completed) {
-            completed = true
-            cleanup()
-            reject(new Error(payload.error.message))
-          }
-        }),
-
-        // Clear timeout when done
-        () => clearTimeout(timeout),
-      ]
-
-      const cleanup = (): void => {
-        for (const unsub of unsubscribers) unsub()
-      }
+    return new QueryUseCase({
+      projectConfigStore: new ProjectConfigStore(),
+      terminal: new OclifTerminal(this),
+      tokenStore,
+      trackingService,
     })
+  }
+
+  public async run(): Promise<void> {
+    const {args, flags} = await this.parse(Query)
+    await this.createUseCase().run({query: args.query, verbose: flags.verbose})
   }
 }
