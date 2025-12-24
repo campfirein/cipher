@@ -193,18 +193,20 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
    *
    * @param input - User message
    * @param options - Optional execution options
-   * @param options.trackingRequestId - Optional tracking request ID for backend metrics (random UUID per request)
    * @param options.executionContext - Optional execution context
+   * @param options.taskId - Optional task ID for concurrent task isolation
+   * @param options.trackingRequestId - Optional tracking request ID for backend metrics (random UUID per request)
    */
   public async execute(
     input: string,
-    options?: {executionContext?: ExecutionContext; trackingRequestId?: string},
+    options?: {executionContext?: ExecutionContext; taskId?: string; trackingRequestId?: string},
   ): Promise<string> {
     this.ensureStarted()
 
     // Use generate() internally for single code path
     const response = await this.generate(input, {
       executionContext: options?.executionContext,
+      taskId: options?.taskId,
       trackingRequestId: options?.trackingRequestId,
     })
 
@@ -533,9 +535,11 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
 
         // Call session.streamRun() which emits events and run:complete
         // Pass trackingRequestId for backend metrics (separate from session memory)
+        // Pass taskId for concurrent task isolation (included in all emitted events)
         await session.streamRun(input, {
           executionContext: options?.executionContext,
           signal,
+          taskId: options?.taskId,
           trackingRequestId,
         })
       } catch (error_) {

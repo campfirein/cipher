@@ -62,6 +62,7 @@ export class ChatSession implements IChatSession {
   public readonly eventBus: SessionEventBus
   public readonly id: string
   private currentController?: AbortController
+  private currentTaskId?: string
   private readonly forwarders = new Map<string, (payload?: unknown) => void>()
   private isExecuting: boolean = false
   private readonly llmService: ILLMService
@@ -190,15 +191,19 @@ export class ChatSession implements IChatSession {
    * @param input - User message
    * @param options - Execution options
    * @param options.executionContext - Optional execution context
+   * @param options.taskId - Optional task ID for concurrent task isolation
    * @param options.trackingRequestId - Optional tracking request ID for backend metrics (random UUID per request)
    */
   public async run(
     input: string,
-    options?: {executionContext?: ExecutionContext; trackingRequestId?: string},
+    options?: {executionContext?: ExecutionContext; taskId?: string; trackingRequestId?: string},
   ): Promise<string> {
     // Create abort controller for cancellation
     this.currentController = new AbortController()
     this.isExecuting = true
+
+    // Store taskId for event forwarding
+    this.currentTaskId = options?.taskId
 
     // Update session status to busy
     sessionStatusManager.setBusy(this.id, this.eventBus)
@@ -228,6 +233,7 @@ export class ChatSession implements IChatSession {
     } finally {
       this.isExecuting = false
       this.currentController = undefined
+      this.currentTaskId = undefined
 
       // Update session status back to idle
       sessionStatusManager.setIdle(this.id, this.eventBus)
@@ -277,6 +283,7 @@ export class ChatSession implements IChatSession {
    * @param options - Execution options with optional signal for cancellation
    * @param options.executionContext - Optional execution context for the LLM
    * @param options.signal - Optional AbortSignal for cancellation
+   * @param options.taskId - Optional task ID for concurrent task isolation
    * @param options.trackingRequestId - Optional tracking request ID for backend metrics (random UUID per request)
    */
   public async streamRun(
@@ -284,6 +291,7 @@ export class ChatSession implements IChatSession {
     options?: {
       executionContext?: ExecutionContext
       signal?: AbortSignal
+      taskId?: string
       trackingRequestId?: string
     },
   ): Promise<void> {
@@ -294,6 +302,9 @@ export class ChatSession implements IChatSession {
     // Create abort controller for cancellation
     this.currentController = new AbortController()
     this.isExecuting = true
+
+    // Store taskId for event forwarding
+    this.currentTaskId = options?.taskId
 
     // Update session status to busy
     sessionStatusManager.setBusy(this.id, this.eventBus)
@@ -325,6 +336,7 @@ export class ChatSession implements IChatSession {
     } finally {
       this.isExecuting = false
       this.currentController = undefined
+      this.currentTaskId = undefined
 
       // Update session status back to idle
       sessionStatusManager.setIdle(this.id, this.eventBus)
@@ -342,14 +354,18 @@ export class ChatSession implements IChatSession {
 
   /**
    * Setup automatic event forwarding from SessionEventBus to AgentEventBus.
-   * All session events are forwarded with sessionId added to the payload.
+   * All session events are forwarded with sessionId and taskId added to the payload.
    */
   private setupEventForwarding(): void {
     for (const eventName of SESSION_EVENT_NAMES) {
       const forwarder = (payload?: unknown) => {
-        // Add sessionId to payload
-        const payloadWithSession =
-          payload && typeof payload === 'object' ? {...(payload as object), sessionId: this.id} : {sessionId: this.id}
+        // Add sessionId and taskId to payload
+        const basePayload = payload && typeof payload === 'object' ? (payload as object) : {}
+        const payloadWithSession = {
+          ...basePayload,
+          sessionId: this.id,
+          ...(this.currentTaskId && {taskId: this.currentTaskId}),
+        }
 
         // Forward to agent bus - eventName is properly typed from SESSION_EVENT_NAMES
         this.sharedServices.agentEventBus.emit(eventName, payloadWithSession)
