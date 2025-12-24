@@ -2,7 +2,6 @@ import {Args, Command, Flags} from '@oclif/core'
 
 import {isDevelopment} from '../config/environment.js'
 import {IQueryUseCase} from '../core/interfaces/usecase/i-query-use-case.js'
-import {ProjectConfigStore} from '../infra/config/file-config-store.js'
 import {FileGlobalConfigStore} from '../infra/storage/file-global-config-store.js'
 import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
 import {OclifTerminal} from '../infra/terminal/oclif-terminal.js'
@@ -50,9 +49,7 @@ Bad:
     const trackingService = new MixpanelTrackingService({globalConfigStore, tokenStore})
 
     return new QueryUseCase({
-      projectConfigStore: new ProjectConfigStore(),
       terminal: new OclifTerminal(this),
-      tokenStore,
       trackingService,
     })
   }

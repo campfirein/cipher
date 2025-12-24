@@ -10,8 +10,8 @@ import {Box} from 'ink'
 import React from 'react'
 
 import {Footer, Header, TabBar} from './components/index.js'
-import {useAuth} from './contexts/index.js'
-import {useTabNavigation, useTasks, useTerminalBreakpoint, useUIHeights} from './hooks/index.js'
+import {useAuth, useTasks} from './contexts/index.js'
+import {useTabNavigation, useTerminalBreakpoint, useUIHeights} from './hooks/index.js'
 import {CommandView, LoginView, LogsView} from './views/index.js'
 
 export const App: React.FC = () => {

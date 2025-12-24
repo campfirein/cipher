@@ -23,8 +23,7 @@ import {
   InlineSearch,
   InlineSelect,
 } from '../components/inline-prompts/index.js'
-import {useAuth} from '../contexts/auth-context.js'
-import {useChat} from '../contexts/chat-context.js'
+import {useAuth, useChat, useTasks, useTransport} from '../contexts/index.js'
 import {useCommands, useMode, useTerminalBreakpoint, useTheme, useUIHeights} from '../hooks/index.js'
 import {getVisualLineCount} from '../utils/line.js'
 
@@ -340,6 +339,8 @@ interface CommandViewProps {
 export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
   const {exit} = useApp()
   const {reloadAuth, reloadBrvConfig} = useAuth()
+  const {client} = useTransport()
+  const {clearTasks} = useTasks()
   const {enterChatMode, exitChatMode, isInChatMode, isProcessing: isChatProcessing, sendMessage} = useChat()
   const [command, setCommand] = useState('')
   const [inputKey, setInputKey] = useState(0)
@@ -369,6 +370,143 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
     }
   }, [activePrompt?.type, appendShortcuts, removeShortcuts])
 
+  /**
+   * Update last command message with output
+   */
+  const updateLastCommandOutput = useCallback((output: StreamingMessage[]) => {
+    setMessages((prev) => {
+      const updated = [...prev]
+      const lastIndex = updated.length - 1
+      if (lastIndex >= 0 && updated[lastIndex].type === 'command') {
+        updated[lastIndex] = {...updated[lastIndex], output}
+      }
+
+      return updated
+    })
+  }, [])
+
+  /**
+   * Handle post-command state reload and agent restart
+   */
+  const handlePostCommandReload = useCallback(
+    async (command: string) => {
+      if (!client) return
+
+      const needReloadAuth = command.startsWith('/login') || command.startsWith('/logout')
+      const needReloadBrvConfig = command.startsWith('/space switch') || command.startsWith('/init')
+
+      if (!needReloadAuth && !needReloadBrvConfig) return
+
+      clearTasks()
+
+      if (needReloadAuth) await reloadAuth()
+      if (needReloadBrvConfig) await reloadBrvConfig()
+
+      // Determine restart reason
+      const reasonMap: Record<string, string> = {
+        '/init': 'Project initialized',
+        '/login': 'User logged in',
+        '/logout': 'User logged out',
+        '/space switch': 'Space switched',
+      }
+
+      const reason = Object.entries(reasonMap).find(([cmd]) => command.startsWith(cmd))?.[1] ?? 'Command executed'
+
+      await client.request('agent:restart', {reason})
+    },
+    [client, clearTasks, reloadAuth, reloadBrvConfig],
+  )
+
+  /**
+   * Handle 'message' result type
+   */
+  const handleMessageResult = useCallback(
+    (result: {content: string; messageType: 'error' | 'info'}, command: string) => {
+      setMessages((prev) => {
+        const last = prev.at(-1)
+        return [
+          ...(last?.type === 'command' ? prev.slice(0, -1) : [...prev]),
+          {
+            content: result.content,
+            fromCommand: command,
+            type: result.messageType === 'error' ? 'error' : 'info',
+          },
+        ]
+      })
+    },
+    [],
+  )
+
+  /**
+   * Handle 'quit' result type
+   */
+  const handleQuitResult = useCallback(() => {
+    stopQueuePollingService()
+    exit()
+  }, [exit])
+
+  /**
+   * Handle 'enter_chat_mode' result type
+   */
+  const handleEnterChatMode = useCallback(async () => {
+    try {
+      await enterChatMode()
+      updateLastCommandOutput([{content: 'Entered chat mode. Type your message or /exit to leave.', id: 'chat-enter', type: 'output'}])
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      updateLastCommandOutput([{content: `Failed to enter chat mode: ${errorMessage}`, id: 'chat-error', type: 'error'}])
+    }
+  }, [enterChatMode, updateLastCommandOutput])
+
+  /**
+   * Handle 'exit_chat_mode' result type
+   */
+  const handleExitChatMode = useCallback(() => {
+    exitChatMode()
+    updateLastCommandOutput([{content: 'Exited chat mode.', id: 'chat-exit', type: 'output'}])
+  }, [exitChatMode, updateLastCommandOutput])
+
+  /**
+   * Handle 'streaming' result type
+   */
+  const handleStreamingResult = useCallback(
+    async (result: {execute: (onMessage: (msg: StreamingMessage) => void, onPrompt: (prompt: PromptRequest) => void) => Promise<void>}, command: string) => {
+      setIsStreaming(true)
+      setStreamingMessages([])
+
+      const collectedMessages: StreamingMessage[] = []
+
+      const onMessage = (msg: StreamingMessage) => {
+        collectedMessages.push(msg)
+        setStreamingMessages((prev) => [...prev, msg])
+      }
+
+      const onPrompt = (prompt: PromptRequest) => {
+        setActivePrompt(prompt)
+      }
+
+      try {
+        await result.execute(onMessage, onPrompt)
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error)
+        const errorMsg: StreamingMessage = {
+          content: `Error: ${errorMessage}`,
+          id: `error-${Date.now()}`,
+          type: 'error',
+        }
+        collectedMessages.push(errorMsg)
+        setStreamingMessages((prev) => [...prev, errorMsg])
+      } finally {
+        updateLastCommandOutput(collectedMessages)
+        setStreamingMessages([])
+        setIsStreaming(false)
+        setActivePrompt(null)
+        await handlePostCommandReload(command)
+      }
+    },
+    [handlePostCommandReload, updateLastCommandOutput],
+  )
+
   const executeCommand = useCallback(
     async (value: string) => {
       const trimmed = value.trim()
@@ -387,130 +525,40 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
 
       const result = await handleSlashCommand(trimmed)
 
-      if (result && result.type === 'message') {
-        setMessages((prev) => {
-          const last = prev.at(-1)
+      if (!result) return
 
-          return [
-            ...(last?.type === 'command' ? prev.slice(0, -1) : [...prev]),
-            {
-              content: result.content,
-              fromCommand: trimmed,
-              type: result.messageType === 'error' ? 'error' : 'info',
-            },
-          ]
-        })
-      }
-
-      if (result && result.type === 'quit') {
-        stopQueuePollingService()
-        exit()
-      }
-
-      // Handle enter chat mode
-      if (result && result.type === 'enter_chat_mode') {
-        try {
-          await enterChatMode()
-          setMessages((prev) => {
-            const updated = [...prev]
-            const lastIndex = updated.length - 1
-            if (lastIndex >= 0 && updated[lastIndex].type === 'command') {
-              updated[lastIndex] = {
-                ...updated[lastIndex],
-                output: [{content: 'Entered chat mode. Type your message or /exit to leave.', id: 'chat-enter', type: 'output'}],
-              }
-            }
-
-            return updated
-          })
-        } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : String(error)
-          setMessages((prev) => {
-            const updated = [...prev]
-            const lastIndex = updated.length - 1
-            if (lastIndex >= 0 && updated[lastIndex].type === 'command') {
-              updated[lastIndex] = {
-                ...updated[lastIndex],
-                output: [{content: `Failed to enter chat mode: ${errorMessage}`, id: 'chat-error', type: 'error'}],
-              }
-            }
-
-            return updated
-          })
+      switch (result.type) {
+        case 'enter_chat_mode': {
+          await handleEnterChatMode()
+          break
         }
 
-        return
-      }
-
-      // Handle exit chat mode
-      if (result && result.type === 'exit_chat_mode') {
-        exitChatMode()
-        setMessages((prev) => {
-          const updated = [...prev]
-          const lastIndex = updated.length - 1
-          if (lastIndex >= 0 && updated[lastIndex].type === 'command') {
-            updated[lastIndex] = {
-              ...updated[lastIndex],
-              output: [{content: 'Exited chat mode.', id: 'chat-exit', type: 'output'}],
-            }
-          }
-
-          return updated
-        })
-        return
-      }
-
-      if (result && result.type === 'streaming') {
-        setIsStreaming(true)
-        setStreamingMessages([])
-
-        const collectedMessages: StreamingMessage[] = []
-
-        const onMessage = (msg: StreamingMessage) => {
-          collectedMessages.push(msg)
-          setStreamingMessages((prev) => [...prev, msg])
+        case 'exit_chat_mode': {
+          handleExitChatMode()
+          break
         }
 
-        const onPrompt = (prompt: PromptRequest) => {
-          setActivePrompt(prompt)
+        case 'message': {
+          handleMessageResult(result, trimmed)
+          break
         }
 
-        try {
-          await result.execute(onMessage, onPrompt)
-        } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : String(error)
-          const errorMsg: StreamingMessage = {
-            content: `Error: ${errorMessage}`,
-            id: `error-${Date.now()}`,
-            type: 'error',
-          }
-          collectedMessages.push(errorMsg)
-          setStreamingMessages((prev) => [...prev, errorMsg])
-        } finally {
-          // Store output with the command message
-          setMessages((prev) => {
-            const updated = [...prev]
-            const lastIndex = updated.length - 1
-            if (lastIndex >= 0 && updated[lastIndex].type === 'command') {
-              updated[lastIndex] = {...updated[lastIndex], output: collectedMessages}
-            }
+        case 'quit': {
+          handleQuitResult()
+          break
+        }
 
-            return updated
-          })
-          setStreamingMessages([])
-          setIsStreaming(false)
-          setActivePrompt(null)
-          const needReloadAuth = trimmed.startsWith('/login') || trimmed.startsWith('/logout')
-          const needReloadBrvConfig = trimmed.startsWith('/space switch') || trimmed.startsWith('/init')
+        case 'streaming': {
+          await handleStreamingResult(result, trimmed)
+          break
+        }
 
-          // Refresh state after commands that change auth or project state
-          if (needReloadAuth) await reloadAuth()
-          if (needReloadBrvConfig) await reloadBrvConfig()
-
+        default: {
+          break
         }
       }
     },
-    [enterChatMode, exit, exitChatMode, handleSlashCommand, reloadAuth, reloadBrvConfig],
+    [handleEnterChatMode, handleExitChatMode, handleMessageResult, handleQuitResult, handleSlashCommand, handleStreamingResult],
   )
 
   /**

@@ -1,4 +1,4 @@
-import {useCallback, useEffect, useMemo, useState} from 'react'
+import React, {createContext, useCallback, useContext, useEffect, useMemo, useState} from 'react'
 
 import type {
   LlmResponseEvent,
@@ -11,8 +11,8 @@ import type {
   ToolErrorType,
 } from '../../core/domain/transport/schemas.js'
 
-import {useTransport} from '../contexts/transport-context.js'
 import {TaskStats} from '../types/ui.js'
+import {useTransport} from './transport-context.js'
 
 /**
  * Task status derived from task lifecycle events.
@@ -65,11 +65,10 @@ export type Task = {
   type: 'curate' | 'query'
 }
 
-
 /**
- * Return type for useTasks hook.
+ * Context value for tasks state.
  */
-export type UseTasksResult = {
+export type TasksContextValue = {
   /** Clear all tasks from memory */
   clearTasks: () => void
   /** Get a specific task by ID */
@@ -80,8 +79,10 @@ export type UseTasksResult = {
   tasks: Map<string, Task>
 }
 
+const TasksContext = createContext<TasksContextValue | undefined>(undefined)
+
 /**
- * Hook to subscribe to task events and maintain task state.
+ * Provider component that subscribes to task events and maintains task state.
  * Tracks task lifecycle and LLM tool calls for all tasks.
  *
  * Event Flow:
@@ -91,10 +92,8 @@ export type UseTasksResult = {
  * 4. llmservice:toolResult → Update tool call status to 'completed' or 'error'
  * 5. llmservice:response → Update task result content from LLM response
  * 6. task:completed | task:error | task:cancelled → Terminal state
- *
- * @returns Tasks map and helper functions
  */
-export function useTasks(): UseTasksResult {
+export function TasksProvider({children}: {children: React.ReactNode}): React.ReactElement {
   const {client} = useTransport()
   const [tasks, setTasks] = useState<Map<string, Task>>(new Map())
 
@@ -270,7 +269,7 @@ export function useTasks(): UseTasksResult {
       client.on<{taskId: string}>('task:cancelled', handleTaskCancelled),
       client.on<LlmToolCallEvent>('llmservice:toolCall', handleToolCall),
       client.on<LlmToolResultEvent>('llmservice:toolResult', handleToolResult),
-      client.on<LlmResponseEvent>('llmservice:response', handleResponse)
+      client.on<LlmResponseEvent>('llmservice:response', handleResponse),
     )
 
     // Cleanup subscriptions
@@ -285,10 +284,7 @@ export function useTasks(): UseTasksResult {
   }, [])
 
   // Helper function to get task by ID
-  const getTask = useCallback(
-    (taskId: string) => tasks.get(taskId),
-    [tasks],
-  )
+  const getTask = useCallback((taskId: string) => tasks.get(taskId), [tasks])
 
   // Calculate transport stats
   const stats = useMemo<TaskStats>(() => {
@@ -306,10 +302,24 @@ export function useTasks(): UseTasksResult {
     return {created, started}
   }, [tasks])
 
-  return {
+  const value: TasksContextValue = {
     clearTasks,
     getTask,
     stats,
     tasks,
   }
+
+  return <TasksContext.Provider value={value}>{children}</TasksContext.Provider>
+}
+
+/**
+ * Hook to access tasks context.
+ * Must be used within a TasksProvider.
+ */
+export function useTasks(): TasksContextValue {
+  const context = useContext(TasksContext)
+  if (!context) {
+    throw new Error('useTasks must be used within a TasksProvider')
+  }
+  return context
 }

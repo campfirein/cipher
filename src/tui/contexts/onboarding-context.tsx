@@ -12,9 +12,9 @@
 
 import React, {createContext, useCallback, useContext, useEffect, useMemo, useRef, useState} from 'react'
 
-import {useTasks} from '../hooks/use-tasks.js'
 import {useAuth} from './auth-context.js'
 import {useServices} from './services-context.js'
+import {useTasks} from './tasks-context.js'
 
 export type OnboardingStep = 'complete' | 'curate' | 'init' | 'query'
 

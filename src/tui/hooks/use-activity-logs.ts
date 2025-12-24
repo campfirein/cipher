@@ -9,11 +9,11 @@ import {useMemo} from 'react'
 import {array as zArray, object as zObject, string as zString} from 'zod'
 
 import type {ExecutionStatus, ToolCallStatus} from '../../core/domain/cipher/queue/types.js'
+import type {Task, ToolCallEvent} from '../contexts/tasks-context.js'
 import type {ActivityLog} from '../types.js'
-import type {Task, ToolCallEvent} from './use-tasks.js'
 
 import {BRV_DIR, CONTEXT_TREE_DIR} from '../../constants.js'
-import {useTasks} from './use-tasks.js'
+import {useTasks} from '../contexts/tasks-context.js'
 
 const ExecutionInputSchema = zObject({
   content: zString(),

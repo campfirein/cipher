@@ -1,9 +1,7 @@
 import {randomUUID} from 'node:crypto'
 
 import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
-import type {IProjectConfigStore} from '../../core/interfaces/i-project-config-store.js'
 import type {ITerminal} from '../../core/interfaces/i-terminal.js'
-import type {ITokenStore} from '../../core/interfaces/i-token-store.js'
 import type {ITrackingService} from '../../core/interfaces/i-tracking-service.js'
 import type {IQueryUseCase, QueryUseCaseRunOptions} from '../../core/interfaces/usecase/i-query-use-case.js'
 
@@ -24,27 +22,22 @@ import {
   TaskStartedEvent,
 } from '../../core/domain/transport/schemas.js'
 import {ITransportClient} from '../../core/interfaces/transport/i-transport-client.js'
+import { formatError } from '../../utils/error-handler.js'
 import {getSandboxEnvironmentName, isSandboxEnvironment, isSandboxNetworkError} from '../../utils/sandbox-detector.js'
 import {CipherAgent} from '../cipher/agent/index.js'
 import {createTransportClientFactory} from '../transport/transport-client-factory.js'
 
 export interface QueryUseCaseOptions {
-  projectConfigStore: IProjectConfigStore
   terminal: ITerminal
-  tokenStore: ITokenStore
   trackingService: ITrackingService
 }
 
 export class QueryUseCase implements IQueryUseCase {
-  private readonly projectConfigStore: IProjectConfigStore
   private readonly terminal: ITerminal
-  private readonly tokenStore: ITokenStore
   private readonly trackingService: ITrackingService
 
   constructor(options: QueryUseCaseOptions) {
-    this.projectConfigStore = options.projectConfigStore
     this.terminal = options.terminal
-    this.tokenStore = options.tokenStore
     this.trackingService = options.trackingService
   }
 
@@ -65,6 +58,7 @@ export class QueryUseCase implements IQueryUseCase {
   }
 
   public async run(options: QueryUseCaseRunOptions): Promise<void> {
+    await this.trackingService.track('mem:query', {status: 'started'})
     if (!options.query.trim()) {
       this.terminal.log('Query argument is required.')
       this.terminal.log('Usage: brv query "your question here"')
@@ -104,8 +98,10 @@ export class QueryUseCase implements IQueryUseCase {
 
       // Wait for task completion with streaming
       await this.streamTaskResults(client, taskId, verbose)
+      await this.trackingService.track('mem:query', {status: 'finished'})
     } catch (error) {
       this.handleConnectionError(error)
+      await this.trackingService.track('mem:query', {message: formatError(error), status: 'error'})
     } finally {
       // Cleanup
       if (client) {

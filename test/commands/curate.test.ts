@@ -4,9 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import sinon, {restore, stub} from 'sinon'
 
-import type {IProjectConfigStore} from '../../src/core/interfaces/i-project-config-store.js'
 import type {ITerminal} from '../../src/core/interfaces/i-terminal.js'
-import type {ITokenStore} from '../../src/core/interfaces/i-token-store.js'
 import type {ITrackingService} from '../../src/core/interfaces/i-tracking-service.js'
 
 import {CurateUseCase, type CurateUseCaseOptions} from '../../src/infra/usecase/curate-use-case.js'
@@ -104,9 +102,7 @@ class TestableCurateUseCaseForPrompt extends CurateUseCase {
 
 describe('Curate Command - Interactive Mode', () => {
   let loggedMessages: string[]
-  let projectConfigStore: sinon.SinonStubbedInstance<IProjectConfigStore>
   let terminal: ITerminal
-  let tokenStore: sinon.SinonStubbedInstance<ITokenStore>
   let trackingService: sinon.SinonStubbedInstance<ITrackingService>
   let tempDir: string
 
@@ -120,18 +116,6 @@ describe('Curate Command - Interactive Mode', () => {
         }
       },
     })
-
-    tokenStore = {
-      clear: stub(),
-      load: stub(),
-      save: stub(),
-    }
-
-    projectConfigStore = {
-      exists: stub(),
-      read: stub(),
-      write: stub(),
-    }
 
     trackingService = {
       track: stub().resolves(),
@@ -150,9 +134,7 @@ describe('Curate Command - Interactive Mode', () => {
 
   function createUseCaseOptions(): CurateUseCaseOptions {
     return {
-      projectConfigStore,
       terminal,
-      tokenStore,
       trackingService,
     }
   }

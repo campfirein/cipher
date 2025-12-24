@@ -11,7 +11,7 @@ import React, {useCallback, useMemo, useState} from 'react'
 
 import type {PromptRequest, StreamingMessage} from '../../types.js'
 
-import {useAuth} from '../../contexts/auth-context.js'
+import {useAuth, useTransport} from '../../contexts/index.js'
 import {useActivityLogs, useCommands, useMode, useTheme, useUIHeights} from '../../hooks/index.js'
 import {useOnboarding} from '../../hooks/use-onboarding.js'
 import {calculateLogContentLimit} from '../../utils/log.js'
@@ -168,6 +168,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({availableHeight})
   } = useTheme()
   const {mode} = useMode()
   const {reloadAuth} = useAuth()
+  const {client} = useTransport()
   const {handleSlashCommand} = useCommands()
   const {
     completeOnboarding,
@@ -254,8 +255,10 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({availableHeight})
         // Reload auth to detect config change
         await reloadAuth()
 
-        // Restart consumer to pick up new project state
-        // (restart() handles stop + cleanup + start internally)
+        // Restart agent to pick up new project state
+        if (client) {
+          await client.request('agent:restart', {reason: 'Project initialized'})
+        }
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error)
         setInitError(errorMessage)
