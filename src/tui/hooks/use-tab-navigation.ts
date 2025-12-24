@@ -9,7 +9,7 @@ import type {TabId} from '../types.js'
 
 import {stopQueuePollingService} from '../../infra/cipher/consumer/queue-polling-service.js'
 import {DEFAULT_TAB, TABS} from '../constants.js'
-import {useMode} from '../contexts/use-mode.js'
+import {useMode} from '../contexts/mode-context.js'
 import {useOnboarding} from './use-onboarding.js'
 
 interface UseTabNavigationResult {

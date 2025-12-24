@@ -23,9 +23,7 @@ import {
   InlineSearch,
   InlineSelect,
 } from '../components/inline-prompts/index.js'
-import {useAuth} from '../contexts/auth-context.js'
-import {useChat} from '../contexts/chat-context.js'
-import {useConsumer} from '../contexts/index.js'
+import {useAuth, useChat, useTasks, useTransport} from '../contexts/index.js'
 import {useCommands, useMode, useTerminalBreakpoint, useTheme, useUIHeights} from '../hooks/index.js'
 import {getVisualLineCount} from '../utils/line.js'
 
@@ -341,7 +339,8 @@ interface CommandViewProps {
 export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
   const {exit} = useApp()
   const {reloadAuth, reloadBrvConfig} = useAuth()
-  const {restart} = useConsumer()
+  const {client} = useTransport()
+  const {clearTasks} = useTasks()
   const {enterChatMode, exitChatMode, isInChatMode, isProcessing: isChatProcessing, sendMessage} = useChat()
   const [command, setCommand] = useState('')
   const [inputKey, setInputKey] = useState(0)
@@ -507,15 +506,29 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
 
           // Refresh state after commands that change auth or project state
           if (needReloadAuth || needReloadBrvConfig) {
+            clearTasks()
+
             if (needReloadAuth) await reloadAuth()
             if (needReloadBrvConfig) await reloadBrvConfig()
-            // restart() handles stop + cleanup + start
-            await restart()
+
+            // Restart agent with appropriate reason
+            if (client) {
+              const reasonMap: Record<string, string> = {
+                '/init': 'Project initialized',
+                '/login': 'User logged in',
+                '/logout': 'User logged out',
+                '/space switch': 'Space switched',
+              }
+
+              const reason = Object.entries(reasonMap).find(([cmd]) => trimmed.startsWith(cmd))?.[1] ?? 'Command executed'
+
+              await client.request('agent:restart', {reason})
+            }
           }
         }
       }
     },
-    [enterChatMode, exit, exitChatMode, handleSlashCommand, reloadAuth, reloadBrvConfig, restart],
+    [clearTasks, client, enterChatMode, exit, exitChatMode, handleSlashCommand, reloadAuth, reloadBrvConfig],
   )
 
   /**

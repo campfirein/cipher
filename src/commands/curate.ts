@@ -1,11 +1,12 @@
 import {Args, Command, Flags} from '@oclif/core'
 
-import type {TaskCreateResponse} from '../core/domain/transport/schemas.js'
-import type {ITransportClient} from '../core/interfaces/transport/i-transport-client.js'
-
 import {isDevelopment} from '../config/environment.js'
-import {createTransportClientFactory} from '../infra/transport/transport-client-factory.js'
-import {handleConnectionError} from '../utils/connection-error-handler.js'
+import {ICurateUseCase} from '../core/interfaces/usecase/i-curate-use-case.js'
+import {FileGlobalConfigStore} from '../infra/storage/file-global-config-store.js'
+import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
+import {OclifTerminal} from '../infra/terminal/oclif-terminal.js'
+import {MixpanelTrackingService} from '../infra/tracking/mixpanel-tracking-service.js'
+import {CurateUseCase} from '../infra/usecase/curate-use-case.js'
 
 /** Parsed flags type */
 type CurateFlags = {
@@ -57,50 +58,19 @@ Bad examples:
       : {}),
   }
 
+  protected createUseCase(): ICurateUseCase {
+    const tokenStore = new KeychainTokenStore()
+    const globalConfigStore = new FileGlobalConfigStore()
+    const terminal = new OclifTerminal(this)
+    const trackingService = new MixpanelTrackingService({globalConfigStore, tokenStore})
+
+    return new CurateUseCase({terminal, trackingService})
+  }
+
   public async run(): Promise<void> {
     const {args, flags: rawFlags} = await this.parse(Curate)
     const flags = rawFlags as CurateFlags
 
-    if (!args.context) {
-      this.log('Context argument is required.')
-      this.log('Usage: brv curate "your context here"')
-      return
-    }
-
-    const verbose = flags.verbose ?? false
-    const {files} = flags
-
-    let client: ITransportClient | undefined
-
-    try {
-      const factory = createTransportClientFactory()
-
-      if (verbose) {
-        this.log('Discovering running instance...')
-      }
-
-      const {client: connectedClient} = await factory.connect()
-      client = connectedClient
-
-      if (verbose) {
-        this.log(`Connected to instance (clientId: ${client.getClientId()})`)
-      }
-
-      // Send task:create - Transport routes to Agent, UseCase handles logic
-      await client.request<TaskCreateResponse>('task:create', {
-        content: args.context,
-        ...(files?.length ? {files} : {}),
-        type: 'curate',
-      })
-
-      this.log('✓ Context queued for processing.')
-      // Fire and exit - TUI shows processing in background
-    } catch (error) {
-      handleConnectionError(error, (msg, opts) => this.error(msg, opts))
-    } finally {
-      if (client) {
-        await client.disconnect()
-      }
-    }
+    return this.createUseCase().run({context: args.context, files: flags.files, verbose: flags.verbose})
   }
 }
