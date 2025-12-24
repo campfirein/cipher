@@ -64,7 +64,8 @@ export class TaskQueueManager {
   constructor(config?: Partial<TaskQueueManagerConfig>) {
     this.config = {
       curate: {maxConcurrent: config?.curate?.maxConcurrent ?? 2},
-      query: {maxConcurrent: config?.query?.maxConcurrent ?? 2},
+      // Query tasks are unlimited (Infinity) - lightweight and fast
+      query: {maxConcurrent: config?.query?.maxConcurrent ?? Infinity},
     }
   }
 
@@ -212,13 +213,21 @@ export class TaskQueueManager {
   setExecutor(executor: TaskExecutor): void {
     this.taskExecutor = executor
     // Process any tasks that were queued before executor was set
-    // Loop to start up to maxConcurrent tasks for each queue
-    for (let i = 0; i < this.config.curate.maxConcurrent; i++) {
-      this.tryProcessNext('curate')
-    }
+    // Use queue length as upper bound to handle Infinity maxConcurrent safely
+    this.drainQueue('curate')
+    this.drainQueue('query')
+  }
 
-    for (let i = 0; i < this.config.query.maxConcurrent; i++) {
-      this.tryProcessNext('query')
+  /**
+   * Process all possible tasks from a queue (up to maxConcurrent).
+   * Handles Infinity maxConcurrent safely by using queue length as bound.
+   */
+  private drainQueue(type: TaskType): void {
+    const state = this.getQueueState(type)
+    // Process up to queue length (safe for Infinity maxConcurrent)
+    const toProcess = Math.min(state.queue.length, state.config.maxConcurrent)
+    for (let i = 0; i < toProcess; i++) {
+      this.tryProcessNext(type)
     }
   }
 
