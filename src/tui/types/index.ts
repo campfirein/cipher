@@ -50,4 +50,4 @@ export type {
 } from './prompts.js'
 
 // UI types
-export type {AuthState, ConsumerStatus, QueueStats, Tab, TabId} from './ui.js'
+export type {AuthState, ConsumerStatus, Tab, TabId, TaskStats} from './ui.js'

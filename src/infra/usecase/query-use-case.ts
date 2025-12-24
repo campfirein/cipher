@@ -1,37 +1,43 @@
 import {randomUUID} from 'node:crypto'
 
 import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
-import type {IProjectConfigStore} from '../../core/interfaces/i-project-config-store.js'
 import type {ITerminal} from '../../core/interfaces/i-terminal.js'
-import type {ITokenStore} from '../../core/interfaces/i-token-store.js'
 import type {ITrackingService} from '../../core/interfaces/i-tracking-service.js'
 import type {IQueryUseCase, QueryUseCaseRunOptions} from '../../core/interfaces/usecase/i-query-use-case.js'
 
-import {getCurrentConfig} from '../../config/environment.js'
-import {PROJECT} from '../../constants.js'
-import {formatError} from '../../utils/error-handler.js'
-import {formatToolCall, formatToolResult} from '../../utils/tool-display-formatter.js'
+import {
+  ConnectionError,
+  ConnectionFailedError,
+  InstanceCrashedError,
+  NoInstanceRunningError,
+} from '../../core/domain/errors/connection-error.js'
+import {
+  LlmResponseEvent,
+  LlmToolCallEvent,
+  LlmToolResultEvent,
+  TaskAck,
+  TaskCompletedEvent,
+  TaskCreateResponse,
+  TaskErrorEvent,
+  TaskStartedEvent,
+} from '../../core/domain/transport/schemas.js'
+import {ITransportClient} from '../../core/interfaces/transport/i-transport-client.js'
+import { formatError } from '../../utils/error-handler.js'
+import {getSandboxEnvironmentName, isSandboxEnvironment, isSandboxNetworkError} from '../../utils/sandbox-detector.js'
 import {CipherAgent} from '../cipher/agent/index.js'
-import {getAgentStorage, getAgentStorageSync} from '../cipher/storage/agent-storage.js'
-import {WorkspaceNotInitializedError} from '../cipher/validation/workspace-validator.js'
+import {createTransportClientFactory} from '../transport/transport-client-factory.js'
 
 export interface QueryUseCaseOptions {
-  projectConfigStore: IProjectConfigStore
   terminal: ITerminal
-  tokenStore: ITokenStore
   trackingService: ITrackingService
 }
 
 export class QueryUseCase implements IQueryUseCase {
-  private readonly projectConfigStore: IProjectConfigStore
   private readonly terminal: ITerminal
-  private readonly tokenStore: ITokenStore
   private readonly trackingService: ITrackingService
 
   constructor(options: QueryUseCaseOptions) {
-    this.projectConfigStore = options.projectConfigStore
     this.terminal = options.terminal
-    this.tokenStore = options.tokenStore
     this.trackingService = options.trackingService
   }
 
@@ -53,410 +59,347 @@ export class QueryUseCase implements IQueryUseCase {
 
   public async run(options: QueryUseCaseRunOptions): Promise<void> {
     await this.trackingService.track('mem:query', {status: 'started'})
-    // Initialize storage for tool call tracking (auto-detects .brv/blobs)
-    const storage = await getAgentStorage()
-    let executionId: null | string = null
-
-    try {
-      // Get authentication token
-      const token = await this.tokenStore.load()
-      if (!token) {
-        this.terminal.log('Authentication required. Please run "/login" first.')
-        return
-      }
-
-      // Load project config
-      const brvConfig = await this.projectConfigStore.read()
-
-      // Validate workspace is initialized
-      if (!brvConfig) {
-        throw new WorkspaceNotInitializedError(
-          'Project not initialized. Please run "/init" to select your team and workspace.',
-          '.brv',
-        )
-      }
-
-      // Create execution with status='running' (query runs synchronously)
-      executionId = storage.createExecution('query', options.query)
-
-      // Create LLM config
-      const model = options.model ?? (options.apiKey ? 'google/gemini-2.5-pro' : 'gemini-2.5-pro')
-      const envConfig = getCurrentConfig()
-
-      const llmConfig = {
-        accessToken: token.accessToken,
-        apiBaseUrl: envConfig.llmApiBaseUrl,
-        fileSystem: {workingDirectory: process.cwd()},
-        llm: {
-          maxIterations: 15,
-          maxTokens: 2048,
-          temperature: 0.7,
-          topK: 10,
-          topP: 0.95,
-          verbose: options.verbose ?? false,
-        },
-        model,
-        openRouterApiKey: options.apiKey,
-        projectId: PROJECT,
-        sessionKey: token.sessionKey,
-      }
-
-      // Create and start CipherAgent
-      const agent = this.createCipherAgent(llmConfig, brvConfig)
-
-      this.terminal.log('Querying context tree...')
-      await agent.start()
-
-      try {
-        const sessionId = this.generateSessionId()
-
-        // Setup event listeners (display + tool call tracking)
-        this.setupEventListeners(agent, options.verbose ?? false)
-        this.setupToolCallTracking(agent, executionId)
-
-        // Execute with plan agent that delegates to explore subagent with contextTreeOnly
-        const keywords = options.query
-          .split(' ')
-          .filter((w) => w.length > 2)
-          .join(', ')
-        const prompt = `Search the context tree for: "${options.query}"
-
-## Search Instructions
-1. Use Glob to list available topics in .brv/context-tree/
-2. Use Grep to search for keywords: ${keywords}
-3. Read matching topic files to extract detailed information
-4. Synthesize findings into a coherent answer
-
-## Scope
-- contextTreeOnly=true: Search ONLY within .brv/context-tree/
-- Do NOT search the main codebase
-
-## Output Requirements
-- Quote relevant sections from context tree files
-- Include file paths for all referenced information
-- If nothing found, state what was searched and suggest missing topics
-
-Use the explore subagent with contextTreeOnly=true.`
-        const response = await agent.execute(prompt, {
-          executionContext: {commandType: 'query'},
-          trackingRequestId: sessionId,
-        })
-
-        // Mark execution as completed
-        storage.updateExecutionStatus(executionId, 'completed', response)
-
-        this.terminal.log('\nQuery Results:')
-        this.terminal.log(response)
-
-        await this.trackingService.track('mem:query', {status: 'finished'})
-      } finally {
-        // Cleanup old executions
-        storage.cleanupOldExecutions(100)
-      }
-    } catch (error) {
-      // Mark execution as failed
-      if (executionId) {
-        const errorMessage = error instanceof Error ? error.message : String(error)
-        storage.updateExecutionStatus(executionId, 'failed', undefined, errorMessage)
-      }
-
-      if (error instanceof WorkspaceNotInitializedError) {
-        this.handleWorkspaceError(error)
-        return
-      }
-
-      // Display context on one line, error on separate line
-      process.stderr.write('Failed to query context tree:\n')
-      await this.trackingService.track('mem:query', {message: formatError(error), status: 'error'})
-      this.terminal.log(formatError(error))
-    }
-  }
-
-  /**
-   * Create result summary for tool call
-   */
-  private createResultSummary(result: string): string {
-    const lines = result.split('\n').length
-    const chars = result.length
-    return `${lines} lines, ${chars} chars`
-  }
-
-  /**
-   * Extract summary from curate tool result
-   */
-  private extractCurateSummary(
-    result: unknown,
-  ): null | {added?: number; deleted?: number; failed?: number; merged?: number; updated?: number} {
-    if (typeof result === 'string') {
-      try {
-        const parsed = JSON.parse(result) as {
-          applied?: unknown[]
-          summary?: {added?: number; deleted?: number; failed?: number; merged?: number; updated?: number}
-        }
-        return parsed.summary ?? null
-      } catch {
-        return null
-      }
-    }
-
-    if (typeof result === 'object' && result !== null) {
-      const resultObj = result as {
-        applied?: unknown[]
-        summary?: {added?: number; deleted?: number; failed?: number; merged?: number; updated?: number}
-      }
-      return resultObj.summary ?? null
-    }
-
-    return null
-  }
-
-  /**
-   * Format curate tool operation summary
-   */
-  private formatCurateResult(result: unknown): string {
-    const summary = this.extractCurateSummary(result)
-    if (!summary) {
-      return ''
-    }
-
-    const {added = 0, deleted = 0, failed = 0, merged = 0, updated = 0} = summary
-    const parts: string[] = []
-    if (added > 0) parts.push(`${added} added`)
-    if (updated > 0) parts.push(`${updated} updated`)
-    if (merged > 0) parts.push(`${merged} merged`)
-    if (deleted > 0) parts.push(`${deleted} deleted`)
-    if (failed > 0) parts.push(`${failed} failed`)
-    return parts.length > 0 ? parts.join(', ') : 'No operations'
-  }
-
-  /**
-   * Format items count from list_directory result
-   */
-  private formatItemsCount(result: unknown): string {
-    if (typeof result === 'string') {
-      const lines = result.split('\n').filter((line) => line.trim())
-      return `${lines.length} items`
-    }
-
-    if (Array.isArray(result)) {
-      return `${result.length} items`
-    }
-
-    return ''
-  }
-
-  /**
-   * Format matches count from grep_content result
-   */
-  private formatMatchesCount(result: unknown): string {
-    if (typeof result === 'string') {
-      const lines = result.split('\n').filter((line) => line.trim())
-      return `${lines.length} matches found`
-    }
-
-    if (Array.isArray(result)) {
-      return `${result.length} matches found`
-    }
-
-    return ''
-  }
-
-  /**
-   * Format tool result summary for display
-   */
-  private formatToolResultSummary(toolName: string, result: unknown): string {
-    try {
-      switch (toolName) {
-        case 'bash_exec':
-        case 'create_knowledge_topic':
-        case 'delete_knowledge_topic':
-        case 'detect_domains':
-        case 'read_file':
-        case 'write_file': {
-          return ''
-        }
-
-        case 'curate': {
-          return this.formatCurateResult(result)
-        }
-
-        case 'grep_content': {
-          return this.formatMatchesCount(result)
-        }
-
-        case 'list_directory': {
-          return this.formatItemsCount(result)
-        }
-
-        default: {
-          return ''
-        }
-      }
-    } catch {
-      return ''
-    }
-  }
-
-  /**
-   * Get user-friendly description for a tool
-   *
-   * @param toolName - Name of the tool
-   * @param args - Tool arguments
-   * @returns User-friendly description
-   */
-  private getToolDescription(toolName: string, args: Record<string, unknown>): string {
-    switch (toolName) {
-      case 'bash_exec': {
-        const cmd = String(args.command ?? '')
-        return cmd.length > 60 ? `Running command...` : `Running: ${cmd}`
-      }
-
-      case 'create_knowledge_topic': {
-        return 'Creating knowledge topic...'
-      }
-
-      case 'curate': {
-        return 'Curating context tree...'
-      }
-
-      case 'grep_content': {
-        return 'Searching context tree...'
-      }
-
-      case 'list_directory': {
-        return 'Listing directory...'
-      }
-
-      case 'read_file': {
-        return `Reading file...`
-      }
-
-      case 'write_file': {
-        return 'Writing file...'
-      }
-
-      default: {
-        return 'Processing...'
-      }
-    }
-  }
-
-  /**
-   * Handle workspace not initialized error
-   */
-  private handleWorkspaceError(_error: WorkspaceNotInitializedError): void {
-    const message = 'Project not initialized. Please run "brv init" to select your team and workspace.'
-
-    this.terminal.log(message)
-  }
-
-  /**
-   * Setup event listeners for CipherAgent
-   */
-  private setupEventListeners(agent: CipherAgent, verbose: boolean): void {
-    if (!agent.agentEventBus) {
-      throw new Error('Agent event bus not initialized')
-    }
-
-    const eventBus = agent.agentEventBus
-
-    if (verbose) {
-      // Verbose mode: show detailed events
-      eventBus.on('llmservice:thinking', () => {
-        this.terminal.log('🤔 [Event] LLM is thinking...')
-      })
-
-      eventBus.on('llmservice:response', (payload) => {
-        this.terminal.log(`✅ [Event] LLM Response (${payload.provider}/${payload.model})`)
-      })
-
-      eventBus.on('llmservice:toolCall', (payload) => {
-        // Clear any spinner on current line before printing (use spaces instead of ANSI codes)
-
-        const formattedCall = formatToolCall(payload.toolName, payload.args)
-        this.terminal.log(`🔧 [Event] Tool Call: ${formattedCall}`)
-      })
-
-      eventBus.on('llmservice:toolResult', (payload) => {
-        const resultSummary = formatToolResult(payload.toolName, payload.success, payload.result, payload.error)
-
-        if (payload.success) {
-          this.terminal.log(`✓ [Event] Tool Success: ${payload.toolName} → ${resultSummary}`)
-        } else {
-          this.terminal.log(`✗ [Event] Tool Error: ${payload.toolName} → ${resultSummary}`)
-        }
-      })
-
-      // NOTE: llmservice:error is handled by catch block in the run method
-      // which displays error via this.error(). DO NOT display here to avoid duplicate.
-    } else {
-      // Non-verbose mode: show concise tool progress with descriptions
-      // eventBus.on('llmservice:toolCall', (payload) => {
-      //   // Clear any spinner on current line before printing (use spaces instead of ANSI codes)
-      //   const description = this.getToolDescription(payload.toolName, payload.args)
-      //   this.terminal.log(`🔧 ${payload.toolName} → ${description}`)
-      // })
-      // eventBus.on('llmservice:toolResult', (payload) => {
-      //   if (payload.success) {
-      //     // Show brief success summary for tool completion
-      //     const summary = this.formatToolResultSummary(payload.toolName, payload.result)
-      //     const completionText = summary ? `Complete (${summary})` : 'Complete'
-      //     this.terminal.log(`✅ ${payload.toolName} → ${completionText}`)
-      //   } else {
-      //     this.terminal.log(`✗ ${payload.toolName} → Failed: ${payload.error}`)
-      //   }
-      // })
-      // NOTE: llmservice:error is handled by catch block in the run method
-      // which displays error via this.error(). DO NOT display here to avoid duplicate.
-    }
-  }
-
-  /**
-   * Setup tool call tracking to persist in database
-   */
-  private setupToolCallTracking(agent: CipherAgent, executionId: string): void {
-    if (!agent.agentEventBus) {
+    if (!options.query.trim()) {
+      this.terminal.log('Query argument is required.')
+      this.terminal.log('Usage: brv query "your question here"')
       return
     }
 
-    const storage = getAgentStorageSync()
-    const eventBus = agent.agentEventBus
-    const toolCallMap = new Map<string, string>() // callId -> dbToolCallId
+    const verbose = options.verbose || false
 
-    eventBus.on('llmservice:toolCall', (payload) => {
-      try {
-        if (!payload.callId) return
-        const toolCallId = storage.addToolCall(executionId, {
-          args: payload.args,
-          name: payload.toolName,
-        })
-        toolCallMap.set(payload.callId, toolCallId)
-      } catch {
-        // Ignore errors - don't break query execution
+    // Connect to running instance
+    let client: ITransportClient | undefined
+
+    try {
+      const factory = createTransportClientFactory()
+
+      if (verbose) {
+        this.terminal.log('Discovering running instance...')
       }
-    })
 
-    eventBus.on('llmservice:toolResult', (payload) => {
-      try {
-        if (!payload.callId) return
-        const toolCallId = toolCallMap.get(payload.callId)
-        if (toolCallId) {
-          // Format result: if error, wrap in {error: "..."} object
-          let result: string
-          if (payload.success) {
-            result = typeof payload.result === 'string' ? payload.result : JSON.stringify(payload.result)
-          } else {
-            const errorMsg = payload.error ?? (typeof payload.result === 'string' ? payload.result : 'Unknown error')
-            result = JSON.stringify({error: errorMsg})
-          }
+      const {client: connectedClient} = await factory.connect()
+      client = connectedClient
 
-          storage.updateToolCall(toolCallId, payload.success ? 'completed' : 'failed', {
-            result,
-            resultSummary: payload.success ? this.createResultSummary(result) : undefined,
-          })
+      if (verbose) {
+        this.terminal.log(`Connected to instance (clientId: ${client.getClientId()})`)
+      }
+
+      // Send task:create request
+      const response = await client.request<TaskCreateResponse>('task:create', {
+        content: options.query,
+        type: 'query',
+      })
+
+      const {taskId} = response
+
+      if (verbose) {
+        this.terminal.log(`Task created: ${taskId}`)
+      }
+
+      // Wait for task completion with streaming
+      await this.streamTaskResults(client, taskId, verbose)
+      await this.trackingService.track('mem:query', {status: 'finished'})
+    } catch (error) {
+      this.handleConnectionError(error)
+      await this.trackingService.track('mem:query', {message: formatError(error), status: 'error'})
+    } finally {
+      // Cleanup
+      if (client) {
+        await client.disconnect()
+      }
+    }
+  }
+
+  /**
+   * Format a parsed object result into a concise summary.
+   */
+  private formatParsedResult(obj: Record<string, unknown>): string {
+    // Check for common patterns
+    if ('topics' in obj && Array.isArray(obj.topics)) {
+      return `${(obj.topics as unknown[]).length} topics found`
+    }
+
+    if ('results' in obj && Array.isArray(obj.results)) {
+      return `${(obj.results as unknown[]).length} matches`
+    }
+
+    if ('matches' in obj && Array.isArray(obj.matches)) {
+      return `${(obj.matches as unknown[]).length} matches`
+    }
+
+    if ('filesSearched' in obj) {
+      const files = obj.filesSearched as number
+      const matches = Array.isArray(obj.matches) ? obj.matches.length : 0
+      return `${files} files searched, ${matches} matches`
+    }
+
+    // glob_files returns {files: [...]}
+    if ('files' in obj && Array.isArray(obj.files)) {
+      return `${(obj.files as unknown[]).length} files`
+    }
+
+    // list_directory returns {entries: [...]}
+    if ('entries' in obj && Array.isArray(obj.entries)) {
+      return `${(obj.entries as unknown[]).length} entries`
+    }
+
+    // read_file returns {content: string, ...}
+    if ('content' in obj && typeof obj.content === 'string') {
+      const content = obj.content as string
+      const lines = content.split('\n').length
+      return `${lines} lines`
+    }
+
+    if ('count' in obj) {
+      return `${obj.count} items`
+    }
+
+    // Check for any array property as fallback
+    for (const key of Object.keys(obj)) {
+      if (Array.isArray(obj[key])) {
+        return `${(obj[key] as unknown[]).length} ${key}`
+      }
+    }
+
+    // Generic object - just show it worked
+    return 'Done'
+  }
+
+  /**
+   * Format tool arguments for display.
+   * Extract the most meaningful value for human reading.
+   */
+  private formatToolArgs(toolName: string, args: Record<string, unknown>): string {
+    // Extract the most meaningful arg based on tool type
+    // Tool names use snake_case (LLM convention)
+    /* eslint-disable camelcase */
+    const meaningfulKeys: Record<string, string[]> = {
+      curate: ['operations'],
+      find_knowledge_topics: ['topicPattern', 'query'],
+      glob_files: ['pattern', 'glob'],
+      grep_content: ['pattern', 'query'],
+      list_directory: ['path', 'directory'],
+      read_file: ['filePath', 'path'],
+      read_knowledge_topic: ['topicPath', 'path'],
+    }
+    /* eslint-enable camelcase */
+
+    const keys = meaningfulKeys[toolName] ?? Object.keys(args)
+    for (const key of keys) {
+      if (args[key] !== undefined) {
+        const value = args[key]
+        if (typeof value === 'string') {
+          // Clean display - just the value, truncated if needed
+          return value.length > 40 ? `${value.slice(0, 37)}...` : value
         }
+
+        if (Array.isArray(value)) {
+          return `${value.length} items`
+        }
+      }
+    }
+
+    return ''
+  }
+
+  /**
+   * Format tool result for display.
+   * Shows meaningful, concise summary - NEVER shows raw JSON.
+   */
+  private formatToolResult(payload: LlmToolResultEvent): string {
+    if (!payload.success) {
+      const errMsg = payload.error ?? 'Failed'
+      return errMsg.length > 50 ? `${errMsg.slice(0, 47)}...` : errMsg
+    }
+
+    if (!payload.result) return 'Done'
+
+    // Handle different result types with concise output
+    if (Array.isArray(payload.result)) {
+      return `${payload.result.length} results`
+    }
+
+    // Handle string results - might be JSON
+    if (typeof payload.result === 'string') {
+      // Try to parse as JSON for better formatting
+      try {
+        const parsed = JSON.parse(payload.result)
+        return this.formatParsedResult(parsed)
       } catch {
-        // Ignore errors - don't break query execution
+        // Not JSON - show char count for long strings
+        if (payload.result.length > 100) {
+          return `${payload.result.length} chars`
+        }
+
+        return payload.result.length > 40 ? `${payload.result.slice(0, 37)}...` : payload.result
+      }
+    }
+
+    if (typeof payload.result === 'object') {
+      return this.formatParsedResult(payload.result as Record<string, unknown>)
+    }
+
+    return 'Done'
+  }
+
+  /**
+   * Handle connection-related errors with user-friendly messages.
+   */
+  private handleConnectionError(error: unknown): void {
+    if (error instanceof NoInstanceRunningError) {
+      // Check if running in sandbox environment
+      if (isSandboxEnvironment()) {
+        const sandboxName = getSandboxEnvironmentName()
+        this.terminal.log(
+          `Error: No ByteRover instance is running.\n` +
+            `⚠️  Sandbox environment detected (${sandboxName}).\n\n` +
+            `Please run 'brv' command in a separate terminal window/tab outside the sandbox first.`,
+        )
+      } else {
+        this.terminal.log(
+          'No ByteRover instance is running.\n\n' +
+            'Start a ByteRover instance by running "brv" in a separate terminal window/tab.\n' +
+            'The instance will keep running and handle your commands.',
+        )
+      }
+
+      return
+    }
+
+    if (error instanceof InstanceCrashedError) {
+      this.terminal.log('ByteRover instance has crashed.\n\nPlease restart with: brv')
+      return
+    }
+
+    if (error instanceof ConnectionFailedError) {
+      // Check if it's specifically a sandbox network restriction error
+      const isSandboxError = isSandboxNetworkError(error.originalError ?? error)
+
+      if (isSandboxError) {
+        const sandboxName = getSandboxEnvironmentName()
+        this.terminal.log(
+          `Error: Failed to connect to ByteRover instance.\n` +
+            `Port: ${error.port ?? 'unknown'}\n` +
+            `⚠️  Sandbox network restriction detected (${sandboxName}).\n\n` +
+            `Please allow network access in the sandbox and retry the command.`,
+        )
+      } else {
+        this.terminal.log(`Failed to connect to ByteRover instance: ${error.message}`)
+      }
+
+      return
+    }
+
+    if (error instanceof ConnectionError) {
+      this.terminal.log(`Connection error: ${error.message}`)
+      return
+    }
+
+    // Unknown error
+    const message = error instanceof Error ? error.message : String(error)
+    this.terminal.log(`Unexpected error: ${message}`)
+  }
+
+  /**
+   * Stream task results from the connected instance.
+   */
+  private async streamTaskResults(client: ITransportClient, taskId: string, verbose: boolean): Promise<void> {
+    return new Promise((resolve, reject) => {
+      let completed = false
+      let resultPrinted = false // Track if we've already printed the result
+
+      // Timeout after 5 minutes
+      const timeout = setTimeout(
+        () => {
+          if (!completed) {
+            completed = true
+            cleanup()
+            reject(new Error('Task timed out after 5 minutes'))
+          }
+        },
+        5 * 60 * 1000,
+      )
+
+      // Setup all event handlers
+      const unsubscribers = [
+        // task:ack - immediate acknowledgment
+        client.on<TaskAck>('task:ack', (payload) => {
+          if (payload.taskId === taskId && verbose) {
+            this.terminal.log('Task acknowledged by server')
+          }
+        }),
+
+        // task:started - task is being processed
+        client.on<TaskStartedEvent>('task:started', (payload) => {
+          if (payload.taskId === taskId && verbose) {
+            this.terminal.log('Task started processing...')
+          }
+        }),
+
+        // llmservice:chunk - streaming content (for future release)
+        // client.on<LlmChunkPayload>('llmservice:chunk', (payload) => {
+        //   if (payload.taskId === taskId) {
+        //     if (!hasReceivedChunks) {
+        //       this.terminal.log('\nResult:')
+        //     }
+        //     hasReceivedChunks = true
+        //     process.stdout.write(payload.content)
+        //   }
+        // }),
+
+        // llmservice:response - final response from LLM (only print once)
+        client.on<LlmResponseEvent>('llmservice:response', (payload) => {
+          if (payload.taskId === taskId && payload.content && !resultPrinted) {
+            resultPrinted = true
+            this.terminal.log('\nResult:')
+            this.terminal.log(payload.content)
+          }
+        }),
+
+        // llmservice:toolCall - tool invocation (stop showing after response)
+        client.on<LlmToolCallEvent>('llmservice:toolCall', (payload) => {
+          if (payload.taskId === taskId && !resultPrinted) {
+            const detail = payload.args ? this.formatToolArgs(payload.toolName, payload.args) : ''
+            const suffix = detail ? `: ${detail}` : ''
+            this.terminal.log(`🔧 ${payload.toolName}${suffix}`)
+          }
+        }),
+
+        // llmservice:toolResult - tool result with summary (stop showing after response)
+        client.on<LlmToolResultEvent>('llmservice:toolResult', (payload) => {
+          if (payload.taskId === taskId && !resultPrinted) {
+            const status = payload.success ? '✓' : '✗'
+            const resultSummary = this.formatToolResult(payload)
+            this.terminal.log(`  ${status} ${resultSummary}`)
+          }
+        }),
+
+        // task:completed - task finished (chunks already streamed, just resolve)
+        client.on<TaskCompletedEvent>('task:completed', (payload) => {
+          if (payload.taskId === taskId && !completed) {
+            completed = true
+            cleanup()
+            // Note: Don't log result here - chunks already streamed it
+            this.terminal.log('') // Final newline for clean output
+            resolve()
+          }
+        }),
+
+        // task:error - task failed
+        client.on<TaskErrorEvent>('task:error', (payload) => {
+          if (payload.taskId === taskId && !completed) {
+            completed = true
+            cleanup()
+            reject(new Error(payload.error.message))
+          }
+        }),
+
+        // Clear timeout when done
+        () => clearTimeout(timeout),
+      ]
+
+      const cleanup = (): void => {
+        for (const unsub of unsubscribers) unsub()
       }
     })
   }

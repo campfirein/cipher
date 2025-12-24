@@ -136,9 +136,7 @@ describe('Query Command', () => {
   function createTestUseCase(): TestableQueryUseCase {
     return new TestableQueryUseCase({
       mockCipherAgent,
-      projectConfigStore: configStore,
       terminal,
-      tokenStore,
       trackingService,
     })
   }

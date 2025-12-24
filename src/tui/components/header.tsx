@@ -10,21 +10,20 @@
 import {Box, Spacer, Text} from 'ink'
 import React from 'react'
 
-import type {QueueStats} from '../types.js'
-
 import {useServices} from '../contexts/index.js'
-import {useTheme} from '../contexts/use-theme.js'
+import {useTheme} from '../contexts/theme-context.js'
 import {useTerminalBreakpoint} from '../hooks/use-terminal-breakpoint.js'
+import {TaskStats} from '../types/ui.js'
 import {Logo} from './logo.js'
 
 interface HeaderProps {
   compact?: boolean
   connectedAgent?: string
-  queueStats?: QueueStats
-  showQueueStats?: boolean
+  showTransportStats?: boolean
+  taskStats?: TaskStats
 }
 
-export const Header: React.FC<HeaderProps> = ({compact, connectedAgent, queueStats, showQueueStats}) => {
+export const Header: React.FC<HeaderProps> = ({compact, connectedAgent, showTransportStats, taskStats: transportStats}) => {
   const {version} = useServices()
   const {theme} = useTheme()
   const {breakpoint} = useTerminalBreakpoint()
@@ -49,15 +48,15 @@ export const Header: React.FC<HeaderProps> = ({compact, connectedAgent, queueSta
           )}
         </Box>
 
-        {/* Queue Stats */}
+        {/* Transport Stats */}
 
-        {showQueueStats && (
+        {showTransportStats && (
           <Box paddingRight={1}>
             <Spacer />
             <Text>~ in queue: </Text>
-            <Text color={theme.colors.warning}>{queueStats?.pending ?? 0}</Text>
+            <Text color={theme.colors.warning}>{transportStats?.created ?? 0}</Text>
             <Text> | running: </Text>
-            <Text color={theme.colors.primary}>{queueStats?.processing ?? 0}</Text>
+            <Text color={theme.colors.primary}>{transportStats?.started ?? 0}</Text>
           </Box>
         )}
       </Box>

@@ -53,7 +53,7 @@ function formatTimestamp(): string {
 }
 
 function logEvent(eventName: string, data: unknown): void {
-  const line = JSON.stringify({data, event: eventName, timestamp: formatTimestamp()}) + '\n'
+  const line = JSON.stringify({data, event: eventName, timestamp: formatTimestamp()}, null, 2) + '\n'
   try {
     fs.appendFileSync(TRANSPORT_LOG_FILE, line)
   } catch {

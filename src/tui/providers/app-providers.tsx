@@ -14,12 +14,17 @@ import type {IProjectConfigStore} from '../../core/interfaces/i-project-config-s
 import type {ITokenStore} from '../../core/interfaces/i-token-store.js'
 import type {ITrackingService} from '../../core/interfaces/i-tracking-service.js'
 
-import {ChatProvider} from '../contexts/chat-context.js'
-import {AuthProvider, ConsumerProvider, ServicesProvider} from '../contexts/index.js'
-import {OnboardingProvider} from '../contexts/onboarding-context.js'
-import {CommandsProvider} from '../contexts/use-commands.js'
-import {ModeProvider} from '../contexts/use-mode.js'
-import {ThemeProvider} from '../contexts/use-theme.js'
+import {
+  AuthProvider,
+  ChatProvider,
+  CommandsProvider,
+  ModeProvider,
+  OnboardingProvider,
+  ServicesProvider,
+  TasksProvider,
+  ThemeProvider,
+  TransportProvider,
+} from '../contexts/index.js'
 
 interface AppProvidersProps {
   children: React.ReactNode
@@ -55,9 +60,11 @@ export function AppProviders({
           <ThemeProvider>
             <CommandsProvider>
               <ModeProvider>
-                <ConsumerProvider>
-                  <OnboardingProvider>{children}</OnboardingProvider>
-                </ConsumerProvider>
+                <TransportProvider>
+                  <TasksProvider>
+                    <OnboardingProvider>{children}</OnboardingProvider>
+                  </TasksProvider>
+                </TransportProvider>
               </ModeProvider>
             </CommandsProvider>
           </ThemeProvider>
