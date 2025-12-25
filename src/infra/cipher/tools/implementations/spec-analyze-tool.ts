@@ -17,7 +17,7 @@ const DomainCategory = z
   .string()
   .min(1)
   .describe(
-    `Domain category name from the input data. This is the default context tree domains: ${PREDEFINED_DOMAIN_NAMES.join(', ')} or you can create a new domain tool.`,
+    `Domain category name. Prefer using predefined domains: ${PREDEFINED_DOMAIN_NAMES.join(', ')}. Custom domains are allowed but limited to 3 maximum.`,
   )
 
 /**
@@ -97,10 +97,12 @@ Predefined domain categories:
 ${domainDescriptions}
 
 For each domain you detect:
-1. Identify the domain category from the predefined list above or create a new domain category if it is not in the list
+1. Identify the domain category from the predefined list above. Only create a custom domain if the content clearly does not fit any predefined domain (max 3 custom domains allowed)
 2. Extract relevant text segments from the input data that demonstrate why this domain is relevant
 3. Each text segment should be a meaningful excerpt (not just keywords) that shows the connection to the domain
 4. Only include domains that are actually present in the data - do not include domains just because they exist in the predefined list
+
+**Important:** Always prefer predefined domains over custom ones to maintain query quality and ease of maintenance.
 
 The text segments will be used later to create organized knowledge topics, so they should be substantial enough to provide context.`,
 
