@@ -10,7 +10,7 @@ export interface DomainConfig {
 /**
  * Predefined domains that will be scaffolded during project initialization.
  */
-export const CONTEXT_TREE_DOMAINS: DomainConfig[] = [
+export const DEFAULT_CONTEXT_TREE_DOMAINS: DomainConfig[] = [
   {
     description: 'Ensure all code follows style guidelines and quality standards',
     name: 'code_style',
@@ -36,3 +36,9 @@ export const CONTEXT_TREE_DOMAINS: DomainConfig[] = [
     name: 'bug_fixes',
   },
 ]
+
+/**
+ * Alias for backward compatibility.
+ * @deprecated Use DEFAULT_CONTEXT_TREE_DOMAINS instead
+ */
+export const CONTEXT_TREE_DOMAINS = DEFAULT_CONTEXT_TREE_DOMAINS

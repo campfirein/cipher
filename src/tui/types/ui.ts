@@ -11,9 +11,14 @@ export interface Tab {
   label: string
 }
 
-export interface QueueStats {
-  pending: number
-  processing: number
+/**
+ * Statistics for task states.
+ */
+export type TaskStats = {
+  /** Number of tasks in 'created' status */
+  created: number
+  /** Number of tasks in 'started' status */
+  started: number
 }
 
 export type ConsumerStatus = 'error' | 'running' | 'starting' | 'stopped'

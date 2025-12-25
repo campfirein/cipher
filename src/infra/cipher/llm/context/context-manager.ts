@@ -2,7 +2,12 @@ import type {IHistoryStorage} from '../../../../core/interfaces/cipher/i-history
 import type {ILogger} from '../../../../core/interfaces/cipher/i-logger.js'
 import type {IMessageFormatter} from '../../../../core/interfaces/cipher/i-message-formatter.js'
 import type {ITokenizer} from '../../../../core/interfaces/cipher/i-tokenizer.js'
-import type {InternalMessage} from '../../../../core/interfaces/cipher/message-types.js'
+import type {
+  InternalMessage,
+  MessagePart,
+  ToolPart,
+  ToolState,
+} from '../../../../core/interfaces/cipher/message-types.js'
 import type {ICompressionStrategy} from './compression/types.js'
 
 import {NoOpLogger} from '../../../../core/interfaces/cipher/i-logger.js'
@@ -204,6 +209,32 @@ export class ContextManager<T> {
   }
 
   /**
+   * Add a pending tool call to the current assistant message.
+   * Creates a ToolPart in pending state and adds it to the last assistant message's content.
+   *
+   * @param callId - Unique identifier for this tool call
+   * @param toolName - Name of the tool being called
+   * @param input - Parsed input arguments
+   */
+  public addToolCallPending(callId: string, toolName: string, input: Record<string, unknown>): void {
+    const toolPart: ToolPart = {
+      callId,
+      state: {input, status: 'pending'},
+      toolName,
+      type: 'tool',
+    }
+
+    // Find the last assistant message and add the tool part
+    const lastAssistantIdx = this.findLastAssistantMessageIndex()
+    if (lastAssistantIdx === -1) {
+      this.logger.warn('No assistant message found to add tool call', {callId, sessionId: this.sessionId})
+      return
+    }
+
+    this.addToolPartToMessage(lastAssistantIdx, toolPart)
+  }
+
+  /**
    * Add a tool result message to the conversation.
    * Thread-safe: Uses mutex to protect shared state during parallel tool execution.
    *
@@ -289,6 +320,23 @@ export class ContextManager<T> {
   }
 
   /**
+   * Flush any pending history writes to storage.
+   * Provides explicit durability guarantee - ensures all messages
+   * are persisted before the promise resolves.
+   *
+   * Call at turn boundaries, before session cleanup, or when
+   * explicit persistence confirmation is needed.
+   *
+   * @returns Promise that resolves when history is persisted
+   * @throws Error if persistence fails after all retries
+   */
+  public async flush(): Promise<void> {
+    if (this.historyStorage) {
+      await this.persistHistory()
+    }
+  }
+
+  /**
    * Get comprehensive messages (all messages, for persistence/debugging).
    * This includes all messages including invalid ones.
    *
@@ -363,6 +411,27 @@ export class ContextManager<T> {
   }
 
   /**
+   * Get a tool part by its call ID.
+   *
+   * @param callId - ID of the tool call to find
+   * @returns The tool part if found, undefined otherwise
+   */
+  public getToolPart(callId: string): ToolPart | undefined {
+    for (let msgIdx = this.messages.length - 1; msgIdx >= 0; msgIdx--) {
+      const message = this.messages[msgIdx]
+      if (!Array.isArray(message.content)) continue
+
+      for (const part of message.content) {
+        if (part.type === 'tool' && part.callId === callId) {
+          return part
+        }
+      }
+    }
+
+    return undefined
+  }
+
+  /**
    * Initialize the context manager by loading persisted history.
    * Should be called after construction to restore previous conversation.
    *
@@ -396,6 +465,71 @@ export class ContextManager<T> {
       this.logger.error('Failed to load history for session', {error, sessionId: this.sessionId})
       this.isInitialized = true
       return false
+    }
+  }
+
+  /**
+   * Update a tool call's state.
+   * Used for transitioning through pending → running → completed/error.
+   *
+   * @param callId - ID of the tool call to update
+   * @param stateUpdate - New state
+   */
+  public updateToolCallState(callId: string, stateUpdate: ToolState): void {
+    // Find the tool part with this callId
+    for (let msgIdx = this.messages.length - 1; msgIdx >= 0; msgIdx--) {
+      const message = this.messages[msgIdx]
+      if (!Array.isArray(message.content)) continue
+
+      for (let partIdx = 0; partIdx < message.content.length; partIdx++) {
+        const part = message.content[partIdx]
+        if (part.type === 'tool' && part.callId === callId) {
+          // Update the tool part state
+          const updatedPart: ToolPart = {
+            ...part,
+            state: stateUpdate,
+          }
+
+          // Create new content array with updated part
+          const newContent: MessagePart[] = [...message.content]
+          newContent[partIdx] = updatedPart
+
+          // Update the message
+          this.messages[msgIdx] = {
+            ...message,
+            content: newContent,
+          }
+
+          return
+        }
+      }
+    }
+
+    this.logger.warn('Tool call not found for state update', {callId, sessionId: this.sessionId})
+  }
+
+  // ==================== PRIVATE METHODS ====================
+
+  /**
+   * Add a ToolPart to a message at the given index.
+   */
+  private addToolPartToMessage(messageIdx: number, toolPart: ToolPart): void {
+    const message = this.messages[messageIdx]
+    let newContent: MessagePart[]
+
+    if (Array.isArray(message.content)) {
+      newContent = [...message.content, toolPart]
+    } else if (typeof message.content === 'string') {
+      // Convert string content to array with text part + tool part
+      newContent = [{text: message.content, type: 'text'}, toolPart]
+    } else {
+      // null content - just add tool part
+      newContent = [toolPart]
+    }
+
+    this.messages[messageIdx] = {
+      ...message,
+      content: newContent,
     }
   }
 
@@ -500,6 +634,21 @@ export class ContextManager<T> {
       .join('\n')
 
     return this.tokenizer.countTokens(text)
+  }
+
+  /**
+   * Find the index of the last assistant message.
+   *
+   * @returns Index of last assistant message, or -1 if not found
+   */
+  private findLastAssistantMessageIndex(): number {
+    for (let i = this.messages.length - 1; i >= 0; i--) {
+      if (this.messages[i].role === 'assistant') {
+        return i
+      }
+    }
+
+    return -1
   }
 
   /**

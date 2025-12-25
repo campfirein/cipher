@@ -3,9 +3,12 @@ import type {CipherAgentServices, SessionServices} from '../../../core/interface
 import type {IChatSession} from '../../../core/interfaces/cipher/i-chat-session.js'
 import type {ExecutionContext} from '../../../core/interfaces/cipher/i-cipher-agent.js'
 import type {ILLMService} from '../../../core/interfaces/cipher/i-llm-service.js'
+import type {FileData, ImageData} from '../llm/context/context-manager.js'
 
 import {LLMError, SessionCancelledError} from '../../../core/domain/cipher/errors/session-error.js'
 import {SessionEventBus} from '../events/event-emitter.js'
+import {MessageQueueService} from './message-queue.js'
+import {sessionStatusManager} from './session-status.js'
 
 // List of all session events that should be forwarded to agent bus
 const SESSION_EVENT_NAMES: readonly [
@@ -14,22 +17,34 @@ const SESSION_EVENT_NAMES: readonly [
   'llmservice:response',
   'llmservice:toolCall',
   'llmservice:toolResult',
+  'llmservice:doomLoopDetected',
   'llmservice:error',
   'llmservice:unsupportedInput',
+  'message:queued',
+  'message:dequeued',
+  'run:complete',
+  'session:statusChanged',
+  'step:started',
+  'step:finished',
 ] = [
   'llmservice:thinking',
   'llmservice:chunk',
   'llmservice:response',
   'llmservice:toolCall',
   'llmservice:toolResult',
+  'llmservice:doomLoopDetected',
   'llmservice:error',
   'llmservice:unsupportedInput',
+  'message:queued',
+  'message:dequeued',
+  'run:complete',
+  'session:statusChanged',
+  'step:started',
+  'step:finished',
 ]
 
 /**
  * Chat session implementation.
- *
- * Following Dexto's pattern: ChatSession owns session-specific services
  * (LLM, EventBus) and receives shared services (ToolManager, SystemPromptManager).
  *
  * The LLM service handles:
@@ -47,8 +62,11 @@ export class ChatSession implements IChatSession {
   public readonly eventBus: SessionEventBus
   public readonly id: string
   private currentController?: AbortController
+  private currentTaskId?: string
   private readonly forwarders = new Map<string, (payload?: unknown) => void>()
+  private isExecuting: boolean = false
   private readonly llmService: ILLMService
+  private readonly messageQueue: MessageQueueService
   private readonly sharedServices: CipherAgentServices
 
   /**
@@ -63,6 +81,7 @@ export class ChatSession implements IChatSession {
     this.sharedServices = sharedServices
     this.eventBus = sessionServices.sessionEventBus
     this.llmService = sessionServices.llmService
+    this.messageQueue = new MessageQueueService(sessionServices.sessionEventBus)
 
     // Setup event forwarding from session bus to agent bus
     this.setupEventForwarding()
@@ -78,16 +97,38 @@ export class ChatSession implements IChatSession {
   }
 
   /**
-   * Dispose of the session and clean up resources.
+   * Cleanup session resources but preserve history for later restoration.
+   * Call this when ending a session temporarily (e.g., user navigates away).
+   * History remains in ContextManager for persistence; event listeners stay for potential reactivation.
+   */
+  public cleanup(): void {
+    // Cancel any in-flight operation
+    if (this.currentController) {
+      this.currentController.abort()
+      this.currentController = undefined
+    }
+    // Note: History remains in LLMService's ContextManager for persistence
+    // Event listeners remain for potential reactivation
+  }
+
+  /**
+   * Dispose of the session completely - remove all event listeners.
+   * Call this when permanently destroying a session.
    * Removes event listeners to prevent memory leaks.
    */
   public dispose(): void {
+    // First cleanup any in-flight operations
+    this.cleanup()
+
     // Remove all event forwarders
     for (const [eventName, forwarder] of this.forwarders.entries()) {
       this.eventBus.off(eventName as keyof typeof this.eventBus, forwarder)
     }
 
     this.forwarders.clear()
+
+    // Clean up session status
+    sessionStatusManager.remove(this.id)
   }
 
   /**
@@ -145,19 +186,37 @@ export class ChatSession implements IChatSession {
   /**
    * Send a message and get a response.
    * Delegates to the LLM service which handles the agentic loop.
+   * Processes any queued messages first if present.
+   *
+   * @param input - User message
+   * @param options - Execution options
+   * @param options.executionContext - Optional execution context
+   * @param options.taskId - Optional task ID for concurrent task isolation
+   * @param options.trackingRequestId - Optional tracking request ID for backend metrics (random UUID per request)
    */
   public async run(
     input: string,
-    options?: {executionContext?: ExecutionContext; mode?: 'autonomous' | 'default' | 'query'},
+    options?: {executionContext?: ExecutionContext; taskId?: string; trackingRequestId?: string},
   ): Promise<string> {
     // Create abort controller for cancellation
     this.currentController = new AbortController()
+    this.isExecuting = true
+
+    // Store taskId for event forwarding
+    this.currentTaskId = options?.taskId
+
+    // Update session status to busy
+    sessionStatusManager.setBusy(this.id, this.eventBus)
 
     try {
+      // Process any queued messages first, coalescing with current input
+      const queued = this.messageQueue.dequeueAll()
+      const finalInput = queued ? `${queued.content}\n\nAlso: ${input}` : input
+
       // Delegate to service - it handles everything
-      const response = await this.llmService.completeTask(input, this.id, {
+      // Use trackingRequestId for backend metrics if provided, otherwise generate one
+      const response = await this.llmService.completeTask(finalInput, options?.trackingRequestId ?? '', {
         executionContext: options?.executionContext,
-        mode: options?.mode,
         signal: this.currentController.signal,
       })
 
@@ -172,22 +231,141 @@ export class ChatSession implements IChatSession {
       const errorMessage = error instanceof Error ? error.message : String(error)
       throw new LLMError(errorMessage, this.id)
     } finally {
+      this.isExecuting = false
       this.currentController = undefined
+      this.currentTaskId = undefined
+
+      // Update session status back to idle
+      sessionStatusManager.setIdle(this.id, this.eventBus)
+    }
+  }
+
+  /**
+   * Send a message, queuing if the session is busy executing.
+   * If the session is idle, executes immediately via run().
+   * If the session is busy, queues the message and returns the queue position.
+   *
+   * @param input - User message content
+   * @param options - Optional execution options and attachments
+   * @param options.executionContext - Optional execution context for the LLM
+   * @param options.fileData - Optional file attachment
+   * @param options.imageData - Optional image attachment
+   * @returns Response string if executed, or queue info if queued
+   */
+  public async sendMessage(
+    input: string,
+    options?: {
+      executionContext?: ExecutionContext
+      fileData?: FileData
+      imageData?: ImageData
+    },
+  ): Promise<string | {position: number; queued: true}> {
+    if (this.isExecuting) {
+      // Queue the message for later processing
+      const position = this.messageQueue.enqueue({
+        content: input,
+        fileData: options?.fileData,
+        imageData: options?.imageData,
+      })
+      return {position, queued: true}
+    }
+
+    // Execute immediately
+    return this.run(input, {executionContext: options?.executionContext})
+  }
+
+  /**
+   * Stream execution with real-time event emission.
+   * Unlike run(), this does not return a response directly - events are yielded via the agent's stream().
+   * Emits run:complete event when finished.
+   *
+   * @param input - User message
+   * @param options - Execution options with optional signal for cancellation
+   * @param options.executionContext - Optional execution context for the LLM
+   * @param options.signal - Optional AbortSignal for cancellation
+   * @param options.taskId - Optional task ID for concurrent task isolation
+   * @param options.trackingRequestId - Optional tracking request ID for backend metrics (random UUID per request)
+   */
+  public async streamRun(
+    input: string,
+    options?: {
+      executionContext?: ExecutionContext
+      signal?: AbortSignal
+      taskId?: string
+      trackingRequestId?: string
+    },
+  ): Promise<void> {
+    const startTime = Date.now()
+    let finishReason: 'cancelled' | 'error' | 'max-iterations' | 'stop' | 'timeout' = 'stop'
+    let error: Error | undefined
+
+    // Create abort controller for cancellation
+    this.currentController = new AbortController()
+    this.isExecuting = true
+
+    // Store taskId for event forwarding
+    this.currentTaskId = options?.taskId
+
+    // Update session status to busy
+    sessionStatusManager.setBusy(this.id, this.eventBus)
+
+    // Link external signal if provided (use {once: true} to prevent listener accumulation)
+    if (options?.signal) {
+      options.signal.addEventListener('abort', () => this.currentController?.abort(), {once: true})
+    }
+
+    try {
+      // Process any queued messages first, coalescing with current input
+      const queued = this.messageQueue.dequeueAll()
+      const finalInput = queued ? `${queued.content}\n\nAlso: ${input}` : input
+
+      // Delegate to service - it handles everything and emits events
+      // Use trackingRequestId for backend metrics if provided
+      await this.llmService.completeTask(finalInput, options?.trackingRequestId ?? '', {
+        executionContext: options?.executionContext,
+        signal: this.currentController.signal,
+      })
+    } catch (error_) {
+      // Check if cancelled
+      if (this.currentController.signal.aborted) {
+        finishReason = 'cancelled'
+      } else {
+        finishReason = 'error'
+        error = error_ instanceof Error ? error_ : new Error(String(error_))
+      }
+    } finally {
+      this.isExecuting = false
+      this.currentController = undefined
+      this.currentTaskId = undefined
+
+      // Update session status back to idle
+      sessionStatusManager.setIdle(this.id, this.eventBus)
+
+      // Emit run:complete event
+      const durationMs = Date.now() - startTime
+      this.eventBus.emit('run:complete', {
+        durationMs,
+        error,
+        finishReason,
+        stepCount: 0, // Can be enhanced later to track actual step count
+      })
     }
   }
 
   /**
    * Setup automatic event forwarding from SessionEventBus to AgentEventBus.
-   * All session events are forwarded with sessionId added to the payload.
-   *
-   * Following Dexto's pattern: event forwarding is built into the session.
+   * All session events are forwarded with sessionId and taskId added to the payload.
    */
   private setupEventForwarding(): void {
     for (const eventName of SESSION_EVENT_NAMES) {
       const forwarder = (payload?: unknown) => {
-        // Add sessionId to payload
-        const payloadWithSession =
-          payload && typeof payload === 'object' ? {...(payload as object), sessionId: this.id} : {sessionId: this.id}
+        // Add sessionId and taskId to payload
+        const basePayload = payload && typeof payload === 'object' ? (payload as object) : {}
+        const payloadWithSession = {
+          ...basePayload,
+          sessionId: this.id,
+          ...(this.currentTaskId && {taskId: this.currentTaskId}),
+        }
 
         // Forward to agent bus - eventName is properly typed from SESSION_EVENT_NAMES
         this.sharedServices.agentEventBus.emit(eventName, payloadWithSession)

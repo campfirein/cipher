@@ -1,5 +1,6 @@
 import type {TerminationReason} from '../../domain/cipher/agent/agent-state.js'
 import type {SessionMetadata} from '../../domain/cipher/storage/history-types.js'
+import type {GenerateResponse, StreamingEvent, StreamOptions} from '../../domain/cipher/streaming/types.js'
 import type {ConversationMetadata} from '../../domain/cipher/system-prompt/types.js'
 
 /**
@@ -8,7 +9,7 @@ import type {ConversationMetadata} from '../../domain/cipher/system-prompt/types
  */
 export interface ExecutionContext {
   /** Command type that initiated the execution (for command-specific prompt loading) */
-  commandType?: 'curate' | 'query'
+  commandType?: 'chat' | 'curate' | 'query'
 
   /** Metadata about the conversation (for JSON input mode) */
   conversationMetadata?: ConversationMetadata
@@ -63,6 +64,14 @@ export interface AgentState {
  */
 export interface ICipherAgent {
   /**
+   * Cancels the currently running turn for the agent's default session.
+   * Safe to call even if no run is in progress.
+   *
+   * @returns true if a run was in progress and was signaled to abort; false otherwise
+   */
+  cancel(): Promise<boolean>
+
+  /**
    * Delete a session completely (memory + history)
    * @param sessionId - Session ID to delete
    * @returns True if session existed and was deleted
@@ -70,12 +79,32 @@ export interface ICipherAgent {
   deleteSession(sessionId: string): Promise<boolean>
 
   /**
-   * Execute the agent with user input
+   * Execute the agent with user input.
+   * Uses the agent's default session (created during start()).
+   *
    * @param input - User input string
-   * @param sessionId - Optional session ID
+   * @param options - Optional execution options
+   * @param options.executionContext - Optional context for command-specific behavior (curate/query/chat)
+   * @param options.taskId - Optional task ID for event routing (required for concurrent task isolation)
+   * @param options.trackingRequestId - Optional tracking request ID for backend metrics (random UUID per request)
    * @returns Agent response
    */
-  execute(input: string, sessionId?: string): Promise<string>
+  execute(
+    input: string,
+    options?: {executionContext?: ExecutionContext; taskId?: string; trackingRequestId?: string},
+  ): Promise<string>
+
+  /**
+   * Generate a complete response (waits for full completion).
+   * Wrapper around stream() that collects all events and returns final result.
+   * Uses the agent's default session (created during start()).
+   *
+   * @param input - User message
+   * @param options - Optional configuration
+   * @param options.trackingRequestId - Optional tracking request ID for backend metrics (random UUID per request)
+   * @returns Complete response with content, usage, and tool calls
+   */
+  generate(input: string, options?: StreamOptions): Promise<GenerateResponse>
 
   /**
    * Get session metadata without loading full history
@@ -107,4 +136,15 @@ export interface ICipherAgent {
    * Must be called before execute()
    */
   start(): Promise<void>
+
+  /**
+   * Stream a response (yields events as they arrive).
+   * This is the recommended method for real-time streaming UI updates.
+   * Uses the agent's default session (created during start()).
+   *
+   * @param input - User message
+   * @param options - Optional configuration (signal for cancellation, trackingRequestId)
+   * @returns AsyncIterator that yields StreamingEvent objects
+   */
+  stream(input: string, options?: StreamOptions): Promise<AsyncIterableIterator<StreamingEvent>>
 }

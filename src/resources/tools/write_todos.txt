@@ -1,0 +1,29 @@
+Use this tool to create and manage a structured task list for the current session. This helps track progress, organize complex tasks, and demonstrate thoroughness to the user.
+
+## When to Use This Tool
+Always use this tool proactively when curating the context tree:
+1. Based on the context that needs to be queried, create a plan
+2. Start with the `glob_files` and `grep_content` tools to examine the current tree structure located at `.brv/context-tree/ related to the context that needs to be curated, such as domains, topics, and subtopics
+3. Read to understand important context if necessary using the `read_file` tool
+4. Run the `curator` tool to determine the necessary operations
+5. Curate using the tools: `write_file` to add, `edit_file` to update or merge, and `bash_exec` to remove context (delete operations) 
+
+## Task States
+- **pending**: Task not yet started
+- **in_progress**: Currently working on (limit to ONE task at a time)
+- **completed**: Task finished successfully
+- **cancelled**: Task no longer needed
+
+## Important Rules
+- ONLY ONE task can be "in_progress" at any time
+- Mark tasks complete IMMEDIATELY after finishing (don't batch completions)
+- Each todo must have a unique **id** for tracking
+- Task descriptions need both forms:
+  - content: Imperative form (e.g., "Run tests")
+  - activeForm: Present continuous form (e.g., "Running tests")
+
+## Todo Item Fields
+- **id**: Unique identifier for the todo item (required)
+- **content**: Imperative description (e.g., "Run tests")
+- **activeForm**: Present continuous form (e.g., "Running tests")
+- **status**: pending, in_progress, completed, or cancelled

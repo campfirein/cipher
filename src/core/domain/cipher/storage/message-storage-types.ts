@@ -129,20 +129,103 @@ export interface StoredMessage {
   updatedAt: number
 }
 
+// ==================== STORED PART TOOL STATE ====================
+
+/**
+ * Tool state as stored in StoredPart.
+ * Mirrors the ToolState types from message-types.ts but optimized for storage.
+ */
+export interface StoredToolState {
+  /** Attachments produced by the tool (images, files) */
+  attachments?: Array<{
+    /** Base64-encoded data or data URL */
+    data: string
+    /** Original filename if available */
+    filename?: string
+    /** MIME type of the attachment */
+    mime: string
+    /** Attachment type */
+    type: 'file' | 'image'
+  }>
+
+  /** Unique identifier for this tool call */
+  callId: string
+
+  /** Unix timestamp when execution completed */
+  completedAt?: number
+
+  /** Error message (only for 'error' status) */
+  error?: string
+
+  /** Parsed input arguments */
+  input?: Record<string, unknown>
+
+  /** Tool output content (only for 'completed' status) */
+  output?: string
+
+  /** Unix timestamp when execution started */
+  startedAt?: number
+
+  /** Current status of the tool call */
+  status: 'completed' | 'error' | 'pending' | 'running'
+
+  /** Human-readable title for display */
+  title?: string
+}
+
+/**
+ * Reasoning summary as stored in StoredPart.
+ */
+export interface StoredReasoningSummary {
+  /** Detailed description of the thought */
+  description: string
+  /** Brief subject of the thought */
+  subject: string
+}
+
+/**
+ * Part-level metadata as stored in StoredPart.
+ */
+export interface StoredPartMetadata {
+  /** Custom metadata fields */
+  [key: string]: unknown
+  /** Anthropic cache control hint */
+  cacheControl?: {type: 'ephemeral' | 'permanent'}
+  /** Whether this is auto-generated content */
+  synthetic?: boolean
+}
+
+// ==================== STORED PART ====================
+
 /**
  * Message part stored at ["part", messageId, partId].
  *
  * Parts contain content that may be pruned independently:
  * - Tool outputs (large, can be marked as compacted)
+ * - Tool calls with state machine (pending → running → completed/error)
  * - File attachments
  * - Image data
+ * - Reasoning/thinking traces
  *
  * Parts are stored separately to enable:
  * - Selective pruning of old tool outputs
  * - Lazy loading of large content
  * - Efficient streaming without loading all content
+ * - Tool state tracking with full lifecycle
+ *
+ * Blob references:
+ * - Large binary content (>5KB) can be stored in blob storage
+ * - When stored as blob, content contains "@blob:{id}" reference
+ * - Blob refs are resolved lazily at format-time via BlobReferenceResolver
  */
 export interface StoredPart {
+  /**
+   * Blob reference ID (without @ prefix) when content is stored externally.
+   * Present when isBlob is true. The actual data can be retrieved from
+   * blob storage using this ID.
+   */
+  blobRef?: string
+
   /**
    * Unix timestamp when this part was marked as compacted.
    * If set, the original content has been cleared to save space,
@@ -153,11 +236,14 @@ export interface StoredPart {
   /**
    * The actual content of the part.
    * - Tool output: string (JSON or text)
-   * - File: base64 encoded data or file path
+   * - File: base64 encoded data, file path, or blob reference (@blob:id)
    * - Text: raw text content
-   * - Image: base64 encoded data
+   * - Image: base64 encoded data or blob reference (@blob:id)
+   * - Reasoning: thinking text from the model
+   * - Tool: empty (state stored in toolState)
    *
    * When compactedAt is set, this will be empty or contain a placeholder.
+   * When isBlob is true, this contains the blob reference string.
    */
   content: string
 
@@ -170,11 +256,30 @@ export interface StoredPart {
   /** Unique part identifier (UUID) */
   id: string
 
+  /**
+   * Whether the content field contains a blob reference.
+   * When true, content should be resolved via BlobReferenceResolver
+   * before use (at format-time for LLM requests).
+   */
+  isBlob?: boolean
+
   /** ID of the message this part belongs to */
   messageId: string
 
+  /**
+   * Part-level metadata for cache hints and custom data.
+   * Follows OpenCode's pattern for part metadata.
+   */
+  metadata?: StoredPartMetadata
+
   /** MIME type for file and image parts */
   mimeType?: string
+
+  /**
+   * Reasoning summary for 'reasoning' type parts.
+   * Contains parsed subject and description for display.
+   */
+  reasoningSummary?: StoredReasoningSummary
 
   /**
    * For tool_output parts, the name of the tool.
@@ -182,8 +287,18 @@ export interface StoredPart {
    */
   toolName?: string
 
-  /** Type of part content */
-  type: 'compaction' | 'file' | 'image' | 'text' | 'tool_output'
+  /**
+   * Tool state for 'tool' type parts.
+   * Tracks the full lifecycle: pending → running → completed/error.
+   * Only present when type is 'tool'.
+   */
+  toolState?: StoredToolState
+
+  /**
+   * Type of part content.
+   * Extended with 'tool' for tool calls with state machine and 'reasoning' for thinking traces.
+   */
+  type: 'compaction' | 'file' | 'image' | 'reasoning' | 'text' | 'tool' | 'tool_output'
 }
 
 /**
@@ -240,9 +355,23 @@ export interface PruneToolOutputsOptions {
   /**
    * Target token count to keep in tool outputs.
    * Tool outputs beyond this (from oldest) will be marked as compacted.
-   * Default: 40000 (same as OpenCode)
+   * Default: 40000 (same as OpenCode PRUNE_PROTECT)
    */
   keepTokens?: number
+
+  /**
+   * Minimum tokens that must be recoverable to perform pruning.
+   * If pruning would save less than this, skip it entirely.
+   * Default: 20000 (same as OpenCode PRUNE_MINIMUM)
+   */
+  minimumTokens?: number
+
+  /**
+   * Number of recent user turns to protect from pruning.
+   * Tool outputs in these turns will not be compacted.
+   * Default: 2
+   */
+  protectedTurns?: number
 
   /**
    * Session ID to prune tool outputs from.

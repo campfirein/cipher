@@ -33,11 +33,6 @@ describe('ToolManager', () => {
       parameters: {properties: {}, type: 'object'},
     },
     // eslint-disable-next-line camelcase
-    find_knowledge_topics: {
-      description: 'Find knowledge topics',
-      parameters: {properties: {}, type: 'object'},
-    },
-    // eslint-disable-next-line camelcase
     glob_files: {
       description: 'Glob files',
       parameters: {properties: {}, type: 'object'},
@@ -45,6 +40,11 @@ describe('ToolManager', () => {
     // eslint-disable-next-line camelcase
     grep_content: {
       description: 'Grep content',
+      parameters: {properties: {}, type: 'object'},
+    },
+    // eslint-disable-next-line camelcase
+    list_directory: {
+      description: 'List directory',
       parameters: {properties: {}, type: 'object'},
     },
     // eslint-disable-next-line camelcase
@@ -224,7 +224,7 @@ describe('ToolManager', () => {
     it('should return query tools for query command', () => {
       const names = toolManager.getToolNamesForCommand('query')
 
-      expect(names).to.include.members(['find_knowledge_topics', 'read_file', 'grep_content', 'glob_files'])
+      expect(names).to.include.members(['read_file', 'grep_content', 'glob_files'])
       expect(names).to.not.include('curate')
       expect(names).to.not.include('detect_domains')
       expect(names).to.not.include('bash_exec')
@@ -235,7 +235,6 @@ describe('ToolManager', () => {
 
       expect(names).to.include.members([
         'detect_domains',
-        'find_knowledge_topics',
         'read_file',
         'grep_content',
         'glob_files',
@@ -262,7 +261,7 @@ describe('ToolManager', () => {
       const names = toolManager.getToolNamesForCommand('query')
 
       expect(names).to.not.include('glob_files')
-      expect(names).to.include('find_knowledge_topics')
+      expect(names).to.include('read_file')
     })
   })
 
@@ -274,7 +273,6 @@ describe('ToolManager', () => {
     it('should return query tools for query command', () => {
       const tools = toolManager.getToolsForCommand('query')
 
-      expect(tools).to.have.property('find_knowledge_topics')
       expect(tools).to.have.property('read_file')
       expect(tools).to.have.property('grep_content')
       expect(tools).to.have.property('glob_files')
@@ -287,7 +285,6 @@ describe('ToolManager', () => {
       const tools = toolManager.getToolsForCommand('curate')
 
       expect(tools).to.have.property('detect_domains')
-      expect(tools).to.have.property('find_knowledge_topics')
       expect(tools).to.have.property('read_file')
       expect(tools).to.have.property('grep_content')
       expect(tools).to.have.property('glob_files')
@@ -310,7 +307,7 @@ describe('ToolManager', () => {
     it('should only include tools that exist in allTools', () => {
       const limitedTools: ToolSet = {
         // eslint-disable-next-line camelcase
-        find_knowledge_topics: mockTools.find_knowledge_topics!,
+        glob_files: mockTools.glob_files!,
         // eslint-disable-next-line camelcase
         read_file: mockTools.read_file!,
       }
@@ -319,7 +316,7 @@ describe('ToolManager', () => {
       const tools = toolManager.getToolsForCommand('query')
 
       expect(Object.keys(tools)).to.have.length(2)
-      expect(tools).to.have.property('find_knowledge_topics')
+      expect(tools).to.have.property('glob_files')
       expect(tools).to.have.property('read_file')
       expect(tools).to.not.have.property('grep_content')
     })

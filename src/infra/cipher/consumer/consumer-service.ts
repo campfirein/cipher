@@ -1,3 +1,5 @@
+// TODO(v0.5.0): Remove this file. ConsumerService is replaced by CoreProcess → TaskProcessor.
+
 import {ProjectConfigStore} from '../../config/file-config-store.js'
 import {KeychainTokenStore} from '../../storage/keychain-token-store.js'
 import {closeAgentStorage} from '../storage/agent-storage.js'

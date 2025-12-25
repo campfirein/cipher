@@ -86,10 +86,19 @@ export function ScrollableList<T>({
   const maxOffset = useMemo(() => {
     if (totalItems === 0) return 0
 
-    // Find the minimum start index that shows the last item
-    let maxStart = totalItems - 1
     const indicatorSpace = showIndicator ? 2 : 0
     const contentHeight = Math.max(1, availableHeight - indicatorSpace)
+
+    // Calculate total height of all items
+    const totalHeight = items.reduce((sum, item, index) => sum + estimateItemHeight(item, index), 0)
+
+    // If all items fit, maxOffset should be 0
+    if (totalHeight <= contentHeight) {
+      return 0
+    }
+
+    // Find the minimum start index that shows the last item
+    let maxStart = totalItems - 1
     let accumulatedHeight = 0
 
     for (let i = totalItems - 1; i >= 0; i--) {

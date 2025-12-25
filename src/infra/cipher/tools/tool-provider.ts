@@ -2,7 +2,8 @@ import { ZodError } from 'zod'
 
 import type { Tool, ToolExecutionContext, ToolSet } from '../../../core/domain/cipher/tools/types.js'
 import type { IToolProvider } from '../../../core/interfaces/cipher/i-tool-provider.js'
-import type { SimplePromptFactory } from '../system-prompt/simple-prompt-factory.js'
+import type { SystemPromptManager } from '../system-prompt/system-prompt-manager.js'
+import type { ToolDescriptionLoader } from './tool-description-loader.js'
 import type { ToolServices } from './tool-registry.js'
 
 import {
@@ -25,21 +26,28 @@ import { convertZodToJsonSchema } from './utils/schema-converter.js'
  * 2. Execution phase (via invocation)
  */
 export class ToolProvider implements IToolProvider {
+  private readonly descriptionLoader?: ToolDescriptionLoader
   private initialized: boolean = false
   private invocationBuilder?: ToolInvocationBuilder
-  private readonly promptFactory?: SimplePromptFactory
-  private readonly services: ToolServices
+  private services: ToolServices
+  private readonly systemPromptManager?: SystemPromptManager
   private readonly toolMarkers: Set<string> = new Set()
   private readonly tools: Map<string, Tool> = new Map()
 
   /**
    * Creates a new tool provider
    * @param services - Services available to tools
-   * @param promptFactory - Optional prompt factory for tool output guidance
+   * @param systemPromptManager - Optional system prompt manager for tool output guidance
+   * @param descriptionLoader - Optional loader for external tool descriptions
    */
-  public constructor(services: ToolServices, promptFactory?: SimplePromptFactory) {
+  public constructor(
+    services: ToolServices,
+    systemPromptManager?: SystemPromptManager,
+    descriptionLoader?: ToolDescriptionLoader,
+  ) {
     this.services = services
-    this.promptFactory = promptFactory
+    this.systemPromptManager = systemPromptManager
+    this.descriptionLoader = descriptionLoader
   }
 
   /**
@@ -52,6 +60,7 @@ export class ToolProvider implements IToolProvider {
    * @param toolName - Name of the tool to execute
    * @param args - Tool arguments
    * @param sessionId - Optional session ID for context
+   * @param context - Optional execution context (includes metadata callback for streaming)
    * @returns Tool execution result
    * @throws ToolNotFoundError if tool doesn't exist
    * @throws ToolValidationError if input validation fails
@@ -61,6 +70,7 @@ export class ToolProvider implements IToolProvider {
     toolName: string,
     args: Record<string, unknown>,
     sessionId?: string,
+    context?: ToolExecutionContext,
   ): Promise<unknown> {
     this.ensureInitialized()
 
@@ -70,12 +80,16 @@ export class ToolProvider implements IToolProvider {
 
     try {
       // Phase 1: Build and validate invocation
-      const context: ToolExecutionContext = {sessionId}
+      // Merge sessionId into context for backward compatibility
+      const effectiveContext: ToolExecutionContext = {
+        ...context,
+        sessionId: context?.sessionId ?? sessionId,
+      }
       const invocation = this.invocationBuilder.build(
         `tool_call_${Date.now()}`, // Generate unique ID
         toolName,
         args,
-        context
+        effectiveContext
       )
 
       // Phase 2: Execute validated invocation
@@ -97,8 +111,8 @@ export class ToolProvider implements IToolProvider {
 
       // Check if this tool has output guidance configured
       const registryEntry = TOOL_REGISTRY[toolName as keyof typeof TOOL_REGISTRY]
-      if (registryEntry?.outputGuidance && this.promptFactory) {
-        const guidance = this.promptFactory.getToolOutputGuidance(registryEntry.outputGuidance)
+      if (registryEntry?.outputGuidance && this.systemPromptManager) {
+        const guidance = this.systemPromptManager.getToolOutputGuidance(registryEntry.outputGuidance)
 
         if (guidance) {
           // Return structured result with guidance
@@ -208,6 +222,7 @@ export class ToolProvider implements IToolProvider {
   /**
    * Initialize the tool provider.
    * Registers all tools whose required services are available.
+   * If a description loader is provided, tool descriptions are loaded from external files.
    */
   public async initialize(): Promise<void> {
     if (this.initialized) {
@@ -216,25 +231,7 @@ export class ToolProvider implements IToolProvider {
 
     // Register tools from registry
     for (const [toolName, entry] of Object.entries(TOOL_REGISTRY)) {
-      // Check if all required services are available
-      const allServicesAvailable = entry.requiredServices.every(
-        (serviceName) => this.services[serviceName] !== undefined,
-      )
-
-      if (allServicesAvailable) {
-        try {
-          const tool = entry.factory(this.services)
-          this.tools.set(toolName, tool)
-
-          // Collect markers from registered tools
-          for (const marker of entry.markers) {
-            this.toolMarkers.add(marker)
-          }
-        } catch (error) {
-          // Log error but don't fail initialization
-          console.error(`Failed to register tool ${toolName}:`, error)
-        }
-      }
+      this.registerToolIfAvailable(toolName, entry)
     }
 
     // Initialize invocation builder with registered tools
@@ -244,12 +241,87 @@ export class ToolProvider implements IToolProvider {
   }
 
   /**
+   * Update services and re-register tools that depend on newly available services.
+   * This is used to inject services that are created after ToolProvider initialization
+   * (e.g., SessionManager which is created after ToolProvider).
+   *
+   * @param additionalServices - Additional services to add
+   */
+  public updateServices(additionalServices: Partial<ToolServices>): void {
+    // Merge new services into existing services
+    this.services = {...this.services, ...additionalServices}
+
+    // Re-register tools that may now have their required services available
+    for (const [toolName, entry] of Object.entries(TOOL_REGISTRY)) {
+      // Skip if tool is already registered
+      if (this.tools.has(toolName)) {
+        continue
+      }
+
+      this.registerToolIfAvailable(toolName, entry)
+    }
+
+    // Update invocation builder with any newly registered tools
+    if (this.initialized && this.invocationBuilder) {
+      this.invocationBuilder = new ToolInvocationBuilder(this.tools)
+    }
+  }
+
+  /**
    * Ensures the provider is initialized.
    * @throws ToolProviderNotInitializedError if not initialized
    */
   private ensureInitialized(): void {
     if (!this.initialized) {
       throw new ToolProviderNotInitializedError()
+    }
+  }
+
+  /**
+   * Loads description from external file if configured.
+   * @param descriptionFile - The description file name (without .txt extension)
+   * @returns The loaded description or undefined if not available
+   */
+  private loadExternalDescription(descriptionFile: string | undefined): string | undefined {
+    if (!descriptionFile || !this.descriptionLoader) {
+      return undefined
+    }
+
+    return this.descriptionLoader.load(descriptionFile)
+  }
+
+  /**
+   * Registers a single tool if all required services are available.
+   * @param toolName - Name of the tool to register
+   * @param entry - Registry entry for the tool
+   */
+  private registerToolIfAvailable(toolName: string, entry: (typeof TOOL_REGISTRY)[keyof typeof TOOL_REGISTRY]): void {
+    const allServicesAvailable = entry.requiredServices.every(
+      (serviceName) => this.services[serviceName] !== undefined,
+    )
+
+    if (!allServicesAvailable) {
+      return
+    }
+
+    try {
+      const tool = entry.factory(this.services)
+
+      // Override description from external file if available
+      const fileDescription = this.loadExternalDescription(entry.descriptionFile)
+      if (fileDescription) {
+        tool.description = fileDescription
+      }
+
+      this.tools.set(toolName, tool)
+
+      // Collect markers from registered tools
+      for (const marker of entry.markers) {
+        this.toolMarkers.add(marker)
+      }
+    } catch (error) {
+      // Log error but don't fail initialization
+      console.error(`Failed to register tool ${toolName}:`, error)
     }
   }
 }

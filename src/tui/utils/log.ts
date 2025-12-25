@@ -1,4 +1,76 @@
 /**
+ * Log utility functions for height calculations
+ */
+
+import type {MessageItemHeights} from '../hooks/index.js'
+import type {ActivityLog} from '../types.js'
+
+/**
+ * Calculate the actual rendered height of a log item.
+ * This reflects the real space the item takes up when rendered.
+ *
+ * @param log - The activity log to analyze
+ * @param baseHeights - Base height configuration from breakpoint (maxContentLines is optional)
+ * @returns Total height in lines that this log item will occupy
+ */
+export function calculateActualLogHeight(
+  log: ActivityLog,
+  baseHeights: MessageItemHeights,
+): number {
+  let totalLines = 0
+
+  // Header: always 1 line
+  totalLines += baseHeights.header
+
+  // Input: always present
+  totalLines += baseHeights.input
+
+  // Progress: only if there are progress items
+  const actualProgress = log.progress?.length ?? 0
+  if (actualProgress > 0) {
+    totalLines += Math.min(actualProgress, baseHeights.maxProgressItems)
+  }
+
+  // Status: always 1 line (from ExecutionStatus)
+  totalLines += 1
+
+  // Content: only for completed/failed
+  if (log.status === 'completed' || log.status === 'failed') {
+    const contentText = log.content ?? ''
+    const contentLineCount = contentText.split('\n').length
+    totalLines += Math.min(contentLineCount, baseHeights.maxContentLines ?? 10)
+    totalLines += baseHeights.contentBottomMargin
+  }
+
+  // Changes: only for completed
+  if (log.status === 'completed') {
+    const actualCreated = log.changes.created.length
+    const actualUpdated = log.changes.updated.length
+
+    // Created section
+    if (actualCreated > 0) {
+      const createdOverflow = actualCreated > baseHeights.maxChanges.created
+      const createdItemsMax = createdOverflow ? baseHeights.maxChanges.created - 1 : baseHeights.maxChanges.created
+      const displayedCreated = Math.min(actualCreated, createdItemsMax)
+      totalLines += displayedCreated + (createdOverflow ? 1 : 0)
+    }
+
+    // Updated section
+    if (actualUpdated > 0) {
+      const updatedOverflow = actualUpdated > baseHeights.maxChanges.updated
+      const updatedItemsMax = updatedOverflow ? baseHeights.maxChanges.updated - 1 : baseHeights.maxChanges.updated
+      const displayedUpdated = Math.min(actualUpdated, updatedItemsMax)
+      totalLines += displayedUpdated + (updatedOverflow ? 1 : 0)
+    }
+  }
+
+  // Bottom margin
+  totalLines += baseHeights.bottomMargin
+
+  return totalLines
+}
+
+/**
  * Calculate dynamic space usage for each part of a log
  * Returns array showing how many lines each field uses
  *
@@ -7,9 +79,6 @@
  * @param baseHeights - Base height configuration from breakpoint
  * @returns Array of { field, lines } showing space breakdown, including calculated content lines
  */
-
-import type {MessageItemHeights} from '../hooks/index.js'
-import type {ActivityLog} from '../types.js'
 
 export function calculateLogContentLimit(
   log: ActivityLog,

@@ -1,8 +1,11 @@
-import type {ToolSet} from '../../../core/domain/cipher/tools/types.js'
+import type {ToolExecutionContext, ToolSet} from '../../../core/domain/cipher/tools/types.js'
+import type {ToolHookContext} from '../../../core/interfaces/cipher/i-tool-plugin.js'
 import type {IToolProvider} from '../../../core/interfaces/cipher/i-tool-provider.js'
 import type {IToolScheduler} from '../../../core/interfaces/cipher/i-tool-scheduler.js'
+import type {ToolPluginManager} from './plugins/plugin-manager.js'
 import type {ToolMarker} from './tool-markers.js'
 
+import {getAgentRegistry} from '../../../core/domain/cipher/agent/agent-registry.js'
 import {ToolError, ToolErrorType, ToolErrorUtils, type ToolExecutionResult} from '../../../core/domain/cipher/tools/tool-error.js'
 
 /**
@@ -13,12 +16,18 @@ import {ToolError, ToolErrorType, ToolErrorUtils, type ToolExecutionResult} from
  *
  * Features:
  * - Optional scheduler integration for policy-based execution
+ * - Optional plugin system for before/after execution hooks
  * - Tool caching for performance
  * - Structured error handling with classification
  *
  * When a scheduler is provided, tool execution flows through:
  * 1. Policy check (ALLOW/DENY)
  * 2. Execution (if allowed)
+ *
+ * When a plugin manager is provided, execution flows through:
+ * 1. Before hooks (can modify args or block execution)
+ * 2. Tool execution
+ * 3. After hooks (for logging, auditing, etc.)
  *
  * Without a scheduler, tools execute directly via the provider.
  */
@@ -28,7 +37,6 @@ export class ToolManager {
    */
   private static readonly CURATE_TOOL_NAMES = [
     'detect_domains',
-    'find_knowledge_topics',
     'read_file',
     'grep_content',
     'glob_files',
@@ -38,12 +46,14 @@ export class ToolManager {
    * Read-only tools allowed for query operations
    */
   private static readonly QUERY_TOOL_NAMES = [
-    'find_knowledge_topics',
     'read_file',
     'grep_content',
     'glob_files',
+    'task',
   ] as const
   private cacheValid: boolean = false
+  private callIdCounter: number = 0
+  private readonly pluginManager?: ToolPluginManager
   private readonly scheduler?: IToolScheduler
   private readonly toolProvider: IToolProvider
   private toolsCache: ToolSet = {}
@@ -53,10 +63,16 @@ export class ToolManager {
    *
    * @param toolProvider - Tool provider instance
    * @param scheduler - Optional tool scheduler for policy-based execution
+   * @param pluginManager - Optional plugin manager for before/after hooks
    */
-  public constructor(toolProvider: IToolProvider, scheduler?: IToolScheduler) {
+  public constructor(
+    toolProvider: IToolProvider,
+    scheduler?: IToolScheduler,
+    pluginManager?: ToolPluginManager,
+  ) {
     this.toolProvider = toolProvider
     this.scheduler = scheduler
+    this.pluginManager = pluginManager
   }
 
   /**
@@ -66,7 +82,12 @@ export class ToolManager {
    * error classification, and metadata. This enables better error handling
    * and provides actionable feedback to the LLM.
    *
-   * When a scheduler is configured, execution flows through:
+   * When a plugin manager is configured, execution flows through:
+   * 1. Before hooks (can modify args or block execution)
+   * 2. Tool execution (via scheduler or provider)
+   * 3. After hooks (for logging, auditing, etc.)
+   *
+   * When a scheduler is configured, tool execution flows through:
    * 1. Policy check (ALLOW/DENY)
    * 2. Execution (if allowed)
    *
@@ -75,14 +96,28 @@ export class ToolManager {
    * @param toolName - Name of the tool to execute
    * @param args - Tool arguments (validated by provider)
    * @param sessionId - Optional session ID for context
+   * @param context - Optional execution context (includes metadata callback for streaming)
    * @returns Structured tool execution result
    */
   public async executeTool(
     toolName: string,
     args: Record<string, unknown>,
     sessionId?: string,
+    context?: ToolExecutionContext,
   ): Promise<ToolExecutionResult> {
     const startTime = Date.now()
+    const callId = this.generateCallId()
+    const hookContext: ToolHookContext = {
+      callId,
+      sessionId: sessionId ?? 'default',
+      toolName,
+    }
+
+    // Merge sessionId into context if not already present
+    const effectiveContext: ToolExecutionContext = {
+      ...context,
+      sessionId: context?.sessionId ?? sessionId,
+    }
 
     try {
       // Check if tool exists before execution
@@ -95,23 +130,58 @@ export class ToolManager {
         )
       }
 
+      // Run before hooks (can modify args or block execution)
+      let effectiveArgs = args
+      if (this.pluginManager) {
+        const beforeResult = await this.pluginManager.triggerBefore(hookContext, args)
+        if (!beforeResult.proceed) {
+          const errorResult = ToolErrorUtils.createErrorResult(
+            new ToolError(
+              beforeResult.reason ?? 'Execution blocked by plugin',
+              ToolErrorType.PERMISSION_DENIED,
+              toolName
+            ),
+            {durationMs: Date.now() - startTime}
+          )
+          await this.pluginManager.triggerAfter(hookContext, args, errorResult)
+
+          return errorResult
+        }
+
+        effectiveArgs = beforeResult.args
+      }
+
       // Execute tool via scheduler (with policy check) or directly via provider
       const result = this.scheduler
-        ? await this.scheduler.execute(toolName, args, {sessionId: sessionId ?? 'default'})
-        : await this.toolProvider.executeTool(toolName, args, sessionId)
+        ? await this.scheduler.execute(toolName, effectiveArgs, {sessionId: sessionId ?? 'default'})
+        : await this.toolProvider.executeTool(toolName, effectiveArgs, sessionId, effectiveContext)
 
       const durationMs = Date.now() - startTime
 
-      // Return success result
-      return ToolErrorUtils.createSuccess(result, {durationMs})
+      // Create success result
+      const successResult = ToolErrorUtils.createSuccess(result, {durationMs})
+
+      // Run after hooks
+      if (this.pluginManager) {
+        await this.pluginManager.triggerAfter(hookContext, effectiveArgs, successResult)
+      }
+
+      return successResult
     } catch (error) {
       const durationMs = Date.now() - startTime
 
       // Classify error
       const toolError = ToolErrorUtils.classify(error, toolName)
 
-      // Return error result
-      return ToolErrorUtils.createErrorResult(toolError, {durationMs})
+      // Create error result
+      const errorResult = ToolErrorUtils.createErrorResult(toolError, {durationMs})
+
+      // Run after hooks even on error
+      if (this.pluginManager) {
+        await this.pluginManager.triggerAfter(hookContext, args, errorResult)
+      }
+
+      return errorResult
     }
   }
 
@@ -196,6 +266,53 @@ export class ToolManager {
   }
 
   /**
+   * Get filtered tools based on agent configuration.
+   * Uses the agent registry to determine which tools are enabled/disabled for the agent.
+   *
+   * Tool filtering rules from agent.tools config:
+   * - `{ '*': false }` - Disable all tools
+   * - `{ '*': false, 'tool_name': true }` - Only enable specific tools
+   * - `{ 'tool_name': false }` - Disable specific tools, keep others enabled
+   * - `{}` or undefined - All tools enabled (default)
+   *
+   * @param agentName - The agent name (e.g., 'plan', 'query', 'curate')
+   * @returns Filtered tool set based on agent configuration
+   */
+  public getToolsForAgent(agentName: string): ToolSet {
+    const registry = getAgentRegistry()
+    const agent = registry.get(agentName)
+
+    if (!agent) {
+      // Unknown agent - return all tools
+      return this.getAllTools()
+    }
+
+    const allTools = this.getAllTools()
+    const toolConfig = agent.tools
+
+    // If no tool config or empty, return all tools
+    if (!toolConfig || Object.keys(toolConfig).length === 0) {
+      return allTools
+    }
+
+    // Check for wildcard disable
+    const wildcardValue = toolConfig['*']
+
+    const filteredTools: ToolSet = {}
+
+    for (const [toolName, toolDef] of Object.entries(allTools)) {
+      // Get specific config for this tool, or use wildcard, or default to true
+      const isEnabled = toolConfig[toolName] ?? wildcardValue ?? true
+
+      if (isEnabled) {
+        filteredTools[toolName] = toolDef
+      }
+    }
+
+    return filteredTools
+  }
+
+  /**
    * Get filtered tools based on command type.
    * For 'query' command, returns only read-only discovery tools.
    * For 'curate' command, returns only curate-specific tools.
@@ -265,6 +382,15 @@ export class ToolManager {
    */
   public refresh(): void {
     this.invalidateCache()
+  }
+
+  /**
+   * Generates a unique call ID for tool execution.
+   */
+  private generateCallId(): string {
+    this.callIdCounter++
+
+    return `call_${Date.now()}_${this.callIdCounter}`
   }
 
   /**
