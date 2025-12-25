@@ -539,4 +539,162 @@ describe('Curate Tool', () => {
       expect(result.applied.length).to.equal(3)
     })
   })
+
+  describe('Empty Directory Prevention (ENG-764)', () => {
+    it('should NOT create empty directories when ADD operation fails due to invalid path', async () => {
+      const tool = createCurateTool()
+
+      // Attempt to add with invalid path (only one segment)
+      const result = (await tool.execute({
+        basePath,
+        operations: [
+          {
+            content: {snippets: ['test']},
+            path: 'invalid', // Invalid path - only one segment
+            reason: 'testing',
+            title: 'Test',
+            type: 'ADD',
+          },
+        ],
+      })) as CurateOutput
+
+      expect(result.applied[0].status).to.equal('failed')
+
+      // Verify no directories were created
+      const entries = await fs.readdir(basePath).catch(() => [])
+      expect(entries.length).to.equal(0, 'No directories should be created on failed operation')
+    })
+
+    it('should NOT create empty directories when ADD operation fails due to missing title', async () => {
+      const tool = createCurateTool()
+
+      const result = (await tool.execute({
+        basePath,
+        operations: [
+          {
+            content: {snippets: ['test']},
+            path: 'code_style/new_topic',
+            reason: 'testing',
+            type: 'ADD',
+            // Missing title
+          },
+        ],
+      })) as CurateOutput
+
+      expect(result.applied[0].status).to.equal('failed')
+
+      // Verify code_style directory was not created
+      const codeStyleExists = await fs
+        .access(path.join(basePath, 'code_style'))
+        .then(() => true)
+        .catch(() => false)
+      expect(codeStyleExists).to.be.false
+    })
+
+    it('should NOT create empty directories when ADD operation fails due to missing content', async () => {
+      const tool = createCurateTool()
+
+      const result = (await tool.execute({
+        basePath,
+        operations: [
+          {
+            path: 'design/patterns',
+            reason: 'testing',
+            title: 'Test',
+            type: 'ADD',
+            // Missing content
+          },
+        ],
+      })) as CurateOutput
+
+      expect(result.applied[0].status).to.equal('failed')
+
+      // Verify design directory was not created
+      const designExists = await fs
+        .access(path.join(basePath, 'design'))
+        .then(() => true)
+        .catch(() => false)
+      expect(designExists).to.be.false
+    })
+
+    it('should NOT create empty directories when exceeding custom domain limit', async () => {
+      const tool = createCurateTool()
+
+      // First create 3 custom domains
+      for (let i = 1; i <= 3; i++) {
+        await tool.execute({
+          basePath,
+          operations: [
+            {
+              content: {snippets: ['test']},
+              path: `custom_domain_${i}/topic`,
+              reason: 'testing',
+              title: 'Test',
+              type: 'ADD',
+            },
+          ],
+        })
+      }
+
+      // Try to create 4th custom domain (should fail)
+      const result = (await tool.execute({
+        basePath,
+        operations: [
+          {
+            content: {snippets: ['test']},
+            path: 'custom_domain_4/topic',
+            reason: 'testing',
+            title: 'Test',
+            type: 'ADD',
+          },
+        ],
+      })) as CurateOutput
+
+      expect(result.applied[0].status).to.equal('failed')
+
+      // Verify custom_domain_4 directory was NOT created
+      const domain4Exists = await fs
+        .access(path.join(basePath, 'custom_domain_4'))
+        .then(() => true)
+        .catch(() => false)
+      expect(domain4Exists).to.be.false
+    })
+
+    it('should only create directories when file is successfully written', async () => {
+      const tool = createCurateTool()
+
+      // Fresh base path - no directories exist yet
+      const freshBasePath = path.join(tmpDir, '.brv/fresh-context-tree')
+
+      const result = (await tool.execute({
+        basePath: freshBasePath,
+        operations: [
+          {
+            content: {snippets: ['test content']},
+            path: 'code_style/error_handling/logging',
+            reason: 'testing directory creation',
+            title: 'Logging Guide',
+            type: 'ADD',
+          },
+        ],
+      })) as CurateOutput
+
+      expect(result.applied[0].status).to.equal('success')
+
+      // Verify the file exists
+      const filePath = path.join(freshBasePath, 'code_style/error_handling/logging/logging_guide.md')
+      const fileExists = await fs
+        .access(filePath)
+        .then(() => true)
+        .catch(() => false)
+      expect(fileExists).to.be.true
+
+      // Verify parent directories exist (they should be created along with the file)
+      const loggingDirExists = await fs
+        .access(path.join(freshBasePath, 'code_style/error_handling/logging'))
+        .then(() => true)
+        .catch(() => false)
+      expect(loggingDirExists).to.be.true
+    })
+  })
 })

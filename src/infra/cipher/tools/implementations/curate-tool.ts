@@ -229,25 +229,13 @@ async function executeAdd(
       }
     }
 
-    // Ensure base structure exists
-    await DirectoryManager.ensureKnowledgeStructure(basePath)
-
-    // Create domain folder (auto-create if doesn't exist) - using snake_case
+    // Build the final folder path (topic or subtopic)
     const domainPath = join(basePath, toSnakeCase(parsed.domain))
-    await DirectoryManager.createOrUpdateDomain(domainPath)
-
-    // Create topic folder - using snake_case
     const topicPath = join(domainPath, toSnakeCase(parsed.topic))
-    await DirectoryManager.createOrUpdateTopic(topicPath)
-
-    // Determine final folder path (topic or subtopic)
-    let finalPath = topicPath
-    if (parsed.subtopic) {
-      finalPath = join(topicPath, toSnakeCase(parsed.subtopic))
-      await DirectoryManager.createOrUpdateTopic(finalPath)
-    }
+    const finalPath = parsed.subtopic ? join(topicPath, toSnakeCase(parsed.subtopic)) : topicPath
 
     // Generate and write {title}.md (snake_case filename)
+    // Note: writeFileAtomic creates parent directories as needed, avoiding empty folder creation
     const contextContent = MarkdownWriter.generateContext({
       name: title,
       relations: content.relations,
