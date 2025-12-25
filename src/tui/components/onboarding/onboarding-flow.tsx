@@ -270,7 +270,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({availableHeight})
       setInitError(result.content)
       setIsRunningInit(false)
     }
-  }, [handleSlashCommand, isRunningInit, reloadAuth])
+  }, [handleSlashCommand, isRunningInit, reloadAuth, client])
 
   // Process streaming messages to handle action_start/action_stop pairs
   const processedStreamingMessages = useMemo(() => processMessagesForActions(streamingMessages), [streamingMessages])
