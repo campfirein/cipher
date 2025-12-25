@@ -8,10 +8,8 @@
 import {Box, Spacer, Text, useApp} from 'ink'
 import Spinner from 'ink-spinner'
 import TextInput from 'ink-text-input'
-import {randomUUID} from 'node:crypto'
 import React, {useCallback, useEffect, useMemo, useState} from 'react'
 
-import type {StreamingEvent} from '../../core/domain/cipher/streaming/types.js'
 import type {CommandMessage, PromptRequest, StreamingMessage} from '../types.js'
 
 import {stopQueuePollingService} from '../../infra/cipher/consumer/queue-polling-service.js'
@@ -23,67 +21,12 @@ import {
   InlineSearch,
   InlineSelect,
 } from '../components/inline-prompts/index.js'
-import {useAuth, useChat, useTasks, useTransport} from '../contexts/index.js'
+import {useAuth, useTasks, useTransport} from '../contexts/index.js'
 import {useCommands, useMode, useTerminalBreakpoint, useTheme, useUIHeights} from '../hooks/index.js'
 import {getVisualLineCount} from '../utils/line.js'
 
 /** Max visible items in InlineSearch */
 const INLINE_SEARCH_MAX_ITEMS = 7
-
-/**
- * Map streaming events from CipherAgent to StreamingMessage for display
- */
-function mapEventToStreamingMessage(event: StreamingEvent): null | StreamingMessage {
-  switch (event.name) {
-    case 'llmservice:chunk': {
-      if (event.type === 'text') {
-        return {content: event.content, id: randomUUID(), type: 'output'}
-      }
-
-      return null
-    }
-
-    case 'llmservice:error': {
-      return {content: event.error, id: randomUUID(), type: 'error'}
-    }
-
-    case 'llmservice:response': {
-      // Final response - always display it since llmservice:chunk events
-      // are not emitted by the current LLM service implementation
-      if (event.content) {
-        return {content: event.content, id: randomUUID(), type: 'output'}
-      }
-
-      return null
-    }
-
-    case 'llmservice:toolCall': {
-      return {
-        actionId: event.callId,
-        content: `Calling ${event.toolName}...`,
-        id: randomUUID(),
-        type: 'action_start',
-      }
-    }
-
-    case 'llmservice:toolResult': {
-      return {
-        actionId: event.callId,
-        content: event.success ? 'done' : 'failed',
-        id: randomUUID(),
-        type: 'action_stop',
-      }
-    }
-
-    case 'llmservice:warning': {
-      return {content: event.message, id: randomUUID(), type: 'warning'}
-    }
-
-    default: {
-      return null
-    }
-  }
-}
 
 /**
  * Calculate visual line count for a message
@@ -341,7 +284,6 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
   const {reloadAuth, reloadBrvConfig} = useAuth()
   const {client} = useTransport()
   const {clearTasks} = useTasks()
-  const {enterChatMode, exitChatMode, isInChatMode, isProcessing: isChatProcessing, sendMessage} = useChat()
   const [command, setCommand] = useState('')
   const [inputKey, setInputKey] = useState(0)
   const [messages, setMessages] = useState<CommandMessage[]>([])
@@ -406,59 +348,6 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
       if (result && result.type === 'quit') {
         stopQueuePollingService()
         exit()
-      }
-
-      // Handle enter chat mode
-      if (result && result.type === 'enter_chat_mode') {
-        try {
-          await enterChatMode()
-          setMessages((prev) => {
-            const updated = [...prev]
-            const lastIndex = updated.length - 1
-            if (lastIndex >= 0 && updated[lastIndex].type === 'command') {
-              updated[lastIndex] = {
-                ...updated[lastIndex],
-                output: [{content: 'Entered chat mode. Type your message or /exit to leave.', id: 'chat-enter', type: 'output'}],
-              }
-            }
-
-            return updated
-          })
-        } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : String(error)
-          setMessages((prev) => {
-            const updated = [...prev]
-            const lastIndex = updated.length - 1
-            if (lastIndex >= 0 && updated[lastIndex].type === 'command') {
-              updated[lastIndex] = {
-                ...updated[lastIndex],
-                output: [{content: `Failed to enter chat mode: ${errorMessage}`, id: 'chat-error', type: 'error'}],
-              }
-            }
-
-            return updated
-          })
-        }
-
-        return
-      }
-
-      // Handle exit chat mode
-      if (result && result.type === 'exit_chat_mode') {
-        exitChatMode()
-        setMessages((prev) => {
-          const updated = [...prev]
-          const lastIndex = updated.length - 1
-          if (lastIndex >= 0 && updated[lastIndex].type === 'command') {
-            updated[lastIndex] = {
-              ...updated[lastIndex],
-              output: [{content: 'Exited chat mode.', id: 'chat-exit', type: 'output'}],
-            }
-          }
-
-          return updated
-        })
-        return
       }
 
       if (result && result.type === 'streaming') {
@@ -528,80 +417,16 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
         }
       }
     },
-    [clearTasks, client, enterChatMode, exit, exitChatMode, handleSlashCommand, reloadAuth, reloadBrvConfig],
-  )
-
-  /**
-   * Handle chat message - send to Cipher agent and stream response
-   */
-  const handleChatMessage = useCallback(
-    async (input: string) => {
-      const trimmed = input.trim()
-      if (!trimmed) return
-
-      // Clear command input immediately
-      setCommand('')
-
-      // Add user message to display
-      setMessages((prev) => [
-        ...prev,
-        {
-          content: '',
-          fromCommand: trimmed,
-          type: 'command',
-        },
-      ])
-
-      setIsStreaming(true)
-      setStreamingMessages([])
-
-      const collectedMessages: StreamingMessage[] = []
-
-      try {
-        const iterator = await sendMessage(trimmed)
-
-        for await (const event of iterator) {
-          const msg = mapEventToStreamingMessage(event)
-          if (msg) {
-            collectedMessages.push(msg)
-            setStreamingMessages((prev) => [...prev, msg])
-          }
-        }
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error)
-        const errorMsg: StreamingMessage = {
-          content: `Error: ${errorMessage}`,
-          id: `error-${Date.now()}`,
-          type: 'error',
-        }
-        collectedMessages.push(errorMsg)
-        setStreamingMessages((prev) => [...prev, errorMsg])
-      } finally {
-        // Store output with the message
-        setMessages((prev) => {
-          const updated = [...prev]
-          const lastIndex = updated.length - 1
-          if (lastIndex >= 0 && updated[lastIndex].type === 'command') {
-            updated[lastIndex] = {...updated[lastIndex], output: collectedMessages}
-          }
-
-          return updated
-        })
-        setStreamingMessages([])
-        setIsStreaming(false)
-      }
-    },
-    [sendMessage],
+    [clearTasks, client, exit, handleSlashCommand, reloadAuth, reloadBrvConfig],
   )
 
   const handleSubmit = useCallback(
     async (value: string) => {
-      if (mode === 'console' && !isStreaming && !isChatProcessing) {
-        // In chat mode, route non-slash input to chat handler
-        await (isInChatMode && !value.trim().startsWith('/') ? handleChatMessage(value) : executeCommand(value));
+      if (mode === 'console' && !isStreaming) {
+        await executeCommand(value)
       }
     },
-    [executeCommand, handleChatMessage, isChatProcessing, isInChatMode, isStreaming, mode],
+    [executeCommand, isStreaming, mode],
   )
 
   const handleSelect = useCallback(
@@ -929,7 +754,7 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
             key={inputKey}
             onChange={setCommand}
             onSubmit={handleSubmit}
-            placeholder={isStreaming || isChatProcessing ? 'Processing...' : isInChatMode ? 'Type your message...' : 'Use / to view commands'}
+            placeholder={isStreaming ? 'Processing...' : 'Use / to view commands'}
             value={command}
           />
         </Box>

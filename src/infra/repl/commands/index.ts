@@ -1,8 +1,6 @@
 import {SlashCommand} from '../../../tui/types.js'
-import {chatCommand} from './chat-command.js'
 import {clearCommand} from './clear-command.js'
 import {curateCommand} from './curate-command.js'
-import {exitCommand} from './exit-command.js'
 import {genRulesCommand} from './gen-rules-command.js'
 import {initCommand} from './init-command.js'
 import {loginCommand} from './login-command.js'
@@ -22,7 +20,6 @@ import {statusCommand} from './status-command.js'
 export const load: () => SlashCommand[] = () => [
   // Core workflow - most frequently used
   statusCommand, // Quick check current state
-  chatCommand, // Enter persistent chat mode
   curateCommand, // Add context (primary action)
   queryCommand, // Query context tree
 
@@ -43,7 +40,4 @@ export const load: () => SlashCommand[] = () => [
   // Auth
   loginCommand, // Sign in
   logoutCommand, // Sign out
-
-  // Chat mode
-  exitCommand, // Exit chat mode
 ]
