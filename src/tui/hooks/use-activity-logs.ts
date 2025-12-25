@@ -4,7 +4,6 @@
  * Transforms tasks from transport events into ActivityLog format for display.
  */
 
-import {join} from 'node:path'
 import {useMemo} from 'react'
 import {array as zArray, object as zObject, string as zString} from 'zod'
 
@@ -12,7 +11,6 @@ import type {ExecutionStatus, ToolCallStatus} from '../../core/domain/cipher/que
 import type {Task, ToolCallEvent} from '../contexts/tasks-context.js'
 import type {ActivityLog} from '../types.js'
 
-import {BRV_DIR, CONTEXT_TREE_DIR} from '../../constants.js'
 import {useTasks} from '../contexts/tasks-context.js'
 
 const ExecutionInputSchema = zObject({
@@ -23,6 +21,7 @@ const CurateResultSchema = zObject({
   result: zObject({
     applied: zArray(
       zObject({
+        filePath: zString(),
         path: zString(),
         status: zString(),
         type: zString(),
@@ -47,7 +46,6 @@ export function parseExecutionContent(input: string): string {
  */
 function composeChangesFromToolCalls(toolCalls: ToolCallEvent[]): {created: string[]; updated: string[]} {
   const changes: {created: string[]; updated: string[]} = {created: [], updated: []}
-  const contextTreeDir = join(BRV_DIR, CONTEXT_TREE_DIR)
 
   for (const tc of toolCalls) {
     if (tc.status !== 'completed' || tc.toolName !== 'curate' || !tc.result) {
@@ -75,12 +73,10 @@ function composeChangesFromToolCalls(toolCalls: ToolCallEvent[]): {created: stri
         continue
       }
 
-      const contextPath = join(contextTreeDir, operation.path, 'context.md')
-
       if (operation.type === 'ADD') {
-        changes.created.push(contextPath)
+        changes.created.push(operation.filePath)
       } else if (operation.type === 'UPDATE') {
-        changes.updated.push(contextPath)
+        changes.updated.push(operation.filePath)
       }
     }
   }
