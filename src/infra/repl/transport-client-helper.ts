@@ -37,6 +37,7 @@ const TRANSPORT_EVENTS = [
   TransportTaskEventNames.STARTED,
   TransportTaskEventNames.COMPLETED,
   TransportTaskEventNames.ERROR,
+  TransportTaskEventNames.CANCELLED,
   // LLM events (using constants from schemas)
   ...TransportLlmEventList,
   // Connection events (internal)

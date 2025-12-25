@@ -526,4 +526,114 @@ describe('SessionManager', () => {
       expect(result).to.be.false
     })
   })
+
+  describe('dispose() - Memory Leak Prevention', () => {
+    beforeEach(() => {
+      manager = new TestableSessionManager(mockSharedServices, mockHttpConfig, llmConfig)
+      manager.mockCreateSessionServices = mockCreateSessionServices
+    })
+
+    it('should dispose all sessions when called', async () => {
+      mockCreateSessionServices.returns({
+        llmService: createMockLLMService(sandbox),
+        sessionEventBus: new SessionEventBus(),
+      })
+
+      // Create multiple sessions
+      const session1 = await manager.createSession('session-1')
+      const session2 = await manager.createSession('session-2')
+      const session3 = await manager.createSession('session-3')
+
+      // Spy on dispose for each session
+      const disposeSpy1 = sandbox.spy(session1 as ChatSession, 'dispose')
+      const disposeSpy2 = sandbox.spy(session2 as ChatSession, 'dispose')
+      const disposeSpy3 = sandbox.spy(session3 as ChatSession, 'dispose')
+
+      expect(manager.getSessionCount()).to.equal(3)
+
+      // Dispose the manager
+      manager.dispose()
+
+      // All sessions should be disposed
+      expect(disposeSpy1.calledOnce).to.be.true
+      expect(disposeSpy2.calledOnce).to.be.true
+      expect(disposeSpy3.calledOnce).to.be.true
+
+      // Session count should be 0
+      expect(manager.getSessionCount()).to.equal(0)
+    })
+
+    it('should clear all metadata maps when disposed', async () => {
+      mockCreateSessionServices.returns({
+        llmService: createMockLLMService(sandbox),
+        sessionEventBus: new SessionEventBus(),
+      })
+
+      // Create sessions to populate metadata maps
+      await manager.createSession('session-1')
+      await manager.createSession('session-2')
+
+      expect(manager.getSessionCount()).to.equal(2)
+
+      // Dispose
+      manager.dispose()
+
+      // Should be able to create new sessions (maps are cleared)
+      mockCreateSessionServices.returns({
+        llmService: createMockLLMService(sandbox),
+        sessionEventBus: new SessionEventBus(),
+      })
+
+      // Re-create manager (in real usage, you'd create a new one)
+      // Here we just verify the old manager is cleaned up
+      expect(manager.getSessionCount()).to.equal(0)
+      expect(manager.listSessions()).to.be.empty
+    })
+
+    it('should handle dispose when no sessions exist', () => {
+      // Should not throw when disposing empty manager
+      expect(() => manager.dispose()).to.not.throw()
+      expect(manager.getSessionCount()).to.equal(0)
+    })
+
+    it('should clear cleanup timer when disposed', () => {
+      // Access private cleanupTimer to verify it's cleared
+      // @ts-expect-error - accessing private property for testing
+      expect(manager.cleanupTimer).to.exist
+
+      manager.dispose()
+
+      // @ts-expect-error - accessing private property for testing
+      expect(manager.cleanupTimer).to.be.undefined
+    })
+
+    it('should handle dispose after 100 session create/dispose cycles (stress test)', async function () {
+      // Increase timeout for stress test
+      this.timeout(10_000)
+
+      for (let i = 0; i < 100; i++) {
+        // Create a fresh manager for each cycle
+        const cycleManager = new TestableSessionManager(mockSharedServices, mockHttpConfig, llmConfig)
+        cycleManager.mockCreateSessionServices = mockCreateSessionServices
+
+        mockCreateSessionServices.returns({
+          llmService: createMockLLMService(sandbox),
+          sessionEventBus: new SessionEventBus(),
+        })
+
+        // Create some sessions
+        await cycleManager.createSession(`cycle-${i}-session-1`)
+        await cycleManager.createSession(`cycle-${i}-session-2`)
+
+        // Dispose
+        cycleManager.dispose()
+
+        // Verify cleanup
+        expect(cycleManager.getSessionCount()).to.equal(0)
+      }
+
+      // If we got here without running out of memory, the test passed
+      expect(true).to.be.true
+    })
+  })
 })

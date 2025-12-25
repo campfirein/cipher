@@ -31,6 +31,8 @@ export interface TaskQueueStats {
 
 export interface TaskQueueManagerConfig {
   curate: QueueConfig
+  /** Optional callback for executor errors (for logging/debugging) */
+  onExecutorError?: (taskId: string, error: unknown) => void
   query: QueueConfig
 }
 
@@ -54,18 +56,21 @@ export type TaskExecutor = (task: TaskExecute) => Promise<void>
 export class TaskQueueManager {
   private activeCurateTasks = 0
   private activeQueryTasks = 0
-  private readonly config: TaskQueueManagerConfig
+  private readonly config: Omit<TaskQueueManagerConfig, 'onExecutorError'> & {curate: QueueConfig; query: QueueConfig}
   private readonly curateQueue: TaskExecute[] = []
   /** Maps taskId → taskType for tracking (replaces Set for type awareness) */
   private readonly knownTasks = new Map<string, TaskType>()
+  private readonly onExecutorError?: (taskId: string, error: unknown) => void
   private readonly queryQueue: TaskExecute[] = []
   private taskExecutor: TaskExecutor | undefined
 
   constructor(config?: Partial<TaskQueueManagerConfig>) {
     this.config = {
       curate: {maxConcurrent: config?.curate?.maxConcurrent ?? 2},
-      query: {maxConcurrent: config?.query?.maxConcurrent ?? 2},
+      // Query tasks are unlimited (Infinity) - lightweight and fast
+      query: {maxConcurrent: config?.query?.maxConcurrent ?? Infinity},
     }
+    this.onExecutorError = config?.onExecutorError
   }
 
   /**
@@ -212,13 +217,21 @@ export class TaskQueueManager {
   setExecutor(executor: TaskExecutor): void {
     this.taskExecutor = executor
     // Process any tasks that were queued before executor was set
-    // Loop to start up to maxConcurrent tasks for each queue
-    for (let i = 0; i < this.config.curate.maxConcurrent; i++) {
-      this.tryProcessNext('curate')
-    }
+    // Use queue length as upper bound to handle Infinity maxConcurrent safely
+    this.drainQueue('curate')
+    this.drainQueue('query')
+  }
 
-    for (let i = 0; i < this.config.query.maxConcurrent; i++) {
-      this.tryProcessNext('query')
+  /**
+   * Process all possible tasks from a queue (up to maxConcurrent).
+   * Handles Infinity maxConcurrent safely by using queue length as bound.
+   */
+  private drainQueue(type: TaskType): void {
+    const state = this.getQueueState(type)
+    // Process up to queue length (safe for Infinity maxConcurrent)
+    const toProcess = Math.min(state.queue.length, state.config.maxConcurrent)
+    for (let i = 0; i < toProcess; i++) {
+      this.tryProcessNext(type)
     }
   }
 
@@ -228,8 +241,10 @@ export class TaskQueueManager {
 
   private executeTask(task: TaskExecute, type: TaskType): void {
     this.taskExecutor!(task)
-      .catch(() => {
-        // Error handling is executor's responsibility
+      .catch((error: unknown) => {
+        // Notify caller of executor error (for logging/debugging)
+        // Primary error handling is executor's responsibility
+        this.onExecutorError?.(task.taskId, error)
       })
       .finally(() => {
         this.markCompleted(task.taskId, type)

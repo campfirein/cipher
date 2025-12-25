@@ -293,12 +293,32 @@ export class SessionManager {
   /**
    * Stop cleanup timer and dispose of all resources.
    * Call this when shutting down the session manager.
+   *
+   * IMPORTANT: This method now properly disposes all sessions to prevent
+   * memory leaks from event forwarders and other session resources.
    */
   public dispose(): void {
+    // Clear cleanup timer
     if (this.cleanupTimer) {
       clearInterval(this.cleanupTimer)
       this.cleanupTimer = undefined
     }
+
+    // Dispose all sessions (prevents event forwarder leaks)
+    for (const session of this.sessions.values()) {
+      // ChatSession.dispose() removes event forwarders
+      ;(session as ChatSession).dispose()
+    }
+
+    this.sessions.clear()
+
+    // Clear all metadata maps
+    this.sessionCreatedAt.clear()
+    this.sessionLastActivity.clear()
+    this.sessionTitles.clear()
+    this.sessionAgentNames.clear()
+    this.sessionParentIds.clear()
+    this.pendingCreations.clear()
   }
 
   /**
@@ -503,12 +523,9 @@ export class SessionManager {
     const overriddenPolicyEngine = new PolicyEngine({defaultDecision: 'ALLOW'})
     overriddenPolicyEngine.addRules(DEFAULT_POLICY_RULES)
 
-    const overriddenToolScheduler = new CoreToolScheduler(
-      overriddenToolProvider,
-      overriddenPolicyEngine,
-      undefined,
-      {verbose: false},
-    )
+    const overriddenToolScheduler = new CoreToolScheduler(overriddenToolProvider, overriddenPolicyEngine, undefined, {
+      verbose: false,
+    })
 
     // Create a new ToolManager with the overridden ToolProvider
     const overriddenToolManager = new ToolManager(overriddenToolProvider, overriddenToolScheduler)

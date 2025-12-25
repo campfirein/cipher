@@ -455,7 +455,14 @@ export class ProcessManager {
     if (!agentProcess) return
 
     return new Promise((resolve) => {
+      const cleanup = (): void => {
+        clearTimeout(timeout)
+        agentProcess.off('message', onMessage)
+        agentProcess.off('exit', onExit)
+      }
+
       const timeout = setTimeout(() => {
+        cleanup()
         agentProcess.kill('SIGKILL')
         this.state.agentProcess = undefined
         resolve()
@@ -463,14 +470,14 @@ export class ProcessManager {
 
       const onMessage = (message: AgentIPCResponse): void => {
         if (message.type === 'stopped') {
-          clearTimeout(timeout)
+          cleanup()
           this.state.agentProcess = undefined
           resolve()
         }
       }
 
       const onExit = (): void => {
-        clearTimeout(timeout)
+        cleanup()
         this.state.agentProcess = undefined
         resolve()
       }
@@ -501,7 +508,14 @@ export class ProcessManager {
     if (!transportProcess) return
 
     return new Promise((resolve) => {
+      const cleanup = (): void => {
+        clearTimeout(timeout)
+        transportProcess.off('message', onMessage)
+        transportProcess.off('exit', onExit)
+      }
+
       const timeout = setTimeout(() => {
+        cleanup()
         transportProcess.kill('SIGKILL')
         this.state.transportProcess = undefined
         resolve()
@@ -509,14 +523,14 @@ export class ProcessManager {
 
       const onMessage = (message: TransportIPCResponse): void => {
         if (message.type === 'stopped') {
-          clearTimeout(timeout)
+          cleanup()
           this.state.transportProcess = undefined
           resolve()
         }
       }
 
       const onExit = (): void => {
-        clearTimeout(timeout)
+        cleanup()
         this.state.transportProcess = undefined
         resolve()
       }

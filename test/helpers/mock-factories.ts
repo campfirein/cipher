@@ -16,7 +16,7 @@
  * - But the cast is centralized and documented, not scattered throughout tests
  */
 
-import type {SinonSandbox} from 'sinon'
+import type {SinonSandbox, SinonStub} from 'sinon'
 
 import type {CipherAgentServices} from '../../src/core/interfaces/cipher/cipher-services.js'
 import type {IBlobStorage} from '../../src/core/interfaces/cipher/i-blob-storage.js'
@@ -26,6 +26,7 @@ import type {ILLMService} from '../../src/core/interfaces/cipher/i-llm-service.j
 import type {PolicyEvaluationResult, PolicyRule} from '../../src/core/interfaces/cipher/i-policy-engine.js'
 import type {ScheduledToolExecution, ToolSchedulerContext} from '../../src/core/interfaces/cipher/i-tool-scheduler.js'
 import type {ITerminal} from '../../src/core/interfaces/i-terminal.js'
+import type {ITransportClient} from '../../src/core/interfaces/transport/i-transport-client.js'
 import type {AgentEventBus} from '../../src/infra/cipher/events/event-emitter.js'
 import type {FileSystemService} from '../../src/infra/cipher/file-system/file-system-service.js'
 import type {ContextManager} from '../../src/infra/cipher/llm/context/context-manager.js'
@@ -34,6 +35,7 @@ import type {ProcessService} from '../../src/infra/cipher/process/process-servic
 import type {SystemPromptManager} from '../../src/infra/cipher/system-prompt/system-prompt-manager.js'
 import type {ToolManager} from '../../src/infra/cipher/tools/tool-manager.js'
 import type {ToolProvider} from '../../src/infra/cipher/tools/tool-provider.js'
+import type {ConnectionResult} from '../../src/infra/transport/transport-client-factory.js'
 
 /**
  * Type aliases for service mocks - balances type safety with readability.
@@ -396,5 +398,138 @@ export function createMockTerminal(overrides: Partial<ITerminal> = {}): ITermina
     },
     warn() {},
     ...overrides,
+  }
+}
+
+/**
+ * Event handler storage for mock transport client.
+ * Allows tests to simulate server events by calling registered handlers.
+ */
+export type MockEventHandlers = Map<string, Array<(data: unknown) => void>>
+
+/**
+ * Extended mock transport client with event simulation capabilities.
+ */
+export type MockTransportClient = ITransportClient & {
+  /**
+   * Access to registered event handlers for simulating server events.
+   */
+  _handlers: MockEventHandlers
+  /**
+   * Simulates a server event by calling all registered handlers for the event.
+   * @param event - The event name
+   * @param data - The event payload
+   */
+  _simulateEvent: <T>(event: string, data: T) => void
+}
+
+/**
+ * Creates a mock ITransportClient with commonly-used methods stubbed.
+ * Includes event simulation capabilities for testing event handlers.
+ *
+ * @param sandbox - Sinon sandbox for creating stubs
+ * @param overrides - Optional overrides for specific methods
+ * @returns Mock ITransportClient with event simulation
+ *
+ * @example
+ * ```ts
+ * const mockClient = createMockTransportClient(sandbox)
+ *
+ * // Simulate server events
+ * mockClient._simulateEvent('task:completed', { taskId: 'test-id' })
+ *
+ * // Override specific methods
+ * const mockClient = createMockTransportClient(sandbox, {
+ *   request: sandbox.stub().rejects(new Error('Connection failed')),
+ * })
+ * ```
+ */
+export function createMockTransportClient(
+  sandbox: SinonSandbox,
+  overrides?: Partial<ITransportClient>,
+): MockTransportClient {
+  const handlers: MockEventHandlers = new Map()
+
+  // Create on() stub that registers handlers and returns unsubscribe function
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const onImpl = (event: string, handler: (data: any) => void): (() => void) => {
+    if (!handlers.has(event)) {
+      handlers.set(event, [])
+    }
+
+    handlers.get(event)!.push(handler)
+
+    // Return unsubscribe function
+    return () => {
+      const eventHandlers = handlers.get(event)
+      if (eventHandlers) {
+        const index = eventHandlers.indexOf(handler)
+        if (index !== -1) {
+          eventHandlers.splice(index, 1)
+        }
+      }
+    }
+  }
+
+  const mock: MockTransportClient = {
+    _handlers: handlers,
+    _simulateEvent<T>(event: string, data: T) {
+      const eventHandlers = handlers.get(event)
+      if (eventHandlers) {
+        for (const handler of eventHandlers) {
+          handler(data)
+        }
+      }
+    },
+    connect: sandbox.stub().resolves(),
+    disconnect: sandbox.stub().resolves(),
+    getClientId: sandbox.stub().returns('mock-client-id'),
+    getState: sandbox.stub().returns('connected'),
+    joinRoom: sandbox.stub().resolves(),
+    leaveRoom: sandbox.stub().resolves(),
+    on: onImpl,
+    once: sandbox.stub(),
+    onStateChange: sandbox.stub().returns(() => {}),
+    request: sandbox.stub().resolves({taskId: 'mock-task-id'}),
+    ...overrides,
+  }
+
+  return mock
+}
+
+/**
+ * Mock transport factory interface matching TransportClientFactory.
+ */
+export type MockTransportFactory = {
+  connect: SinonStub<[fromDir?: string], Promise<ConnectionResult>>
+}
+
+/**
+ * Creates a mock TransportClientFactory for testing use cases.
+ *
+ * @param sandbox - Sinon sandbox for creating stubs
+ * @param mockClient - The mock transport client to return from connect()
+ * @param projectRoot - Optional project root to return (default: '/mock/project')
+ * @returns Mock factory with connect() stub
+ *
+ * @example
+ * ```ts
+ * const mockClient = createMockTransportClient(sandbox)
+ * const mockFactory = createMockTransportFactory(sandbox, mockClient)
+ *
+ * // Override to throw error
+ * mockFactory.connect.rejects(new NoInstanceRunningError())
+ * ```
+ */
+export function createMockTransportFactory(
+  sandbox: SinonSandbox,
+  mockClient: ITransportClient,
+  projectRoot = '/mock/project',
+): MockTransportFactory {
+  return {
+    connect: sandbox.stub<[fromDir?: string], Promise<ConnectionResult>>().resolves({
+      client: mockClient,
+      projectRoot,
+    }),
   }
 }

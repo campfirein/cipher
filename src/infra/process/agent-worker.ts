@@ -18,25 +18,25 @@
  * - Sends: 'task:started', 'task:chunk', 'task:completed', 'task:error', 'task:toolCall', 'task:toolResult'
  */
 
-import {AsyncLocalStorage} from 'node:async_hooks'
 import {randomUUID} from 'node:crypto'
 
+import type {AgentEventMap} from '../../core/domain/cipher/agent-events/types.js'
 import type {TaskCancel, TaskExecute} from '../../core/domain/transport/schemas.js'
 import type {ICipherAgent} from '../../core/interfaces/cipher/i-cipher-agent.js'
 import type {ITransportClient} from '../../core/interfaces/transport/i-transport-client.js'
 import type {AgentIPCResponse, IPCCommand} from './ipc-types.js'
 
 import {getCurrentConfig} from '../../config/environment.js'
-import {PROJECT} from '../../constants.js'
+import {DEFAULT_LLM_MODEL, PROJECT} from '../../constants.js'
 import {NotAuthenticatedError, ProcessorNotInitError, serializeTaskError} from '../../core/domain/errors/task-error.js'
 import {agentLog} from '../../utils/process-logger.js'
 import {CipherAgent} from '../cipher/agent/index.js'
 import {ProjectConfigStore} from '../config/file-config-store.js'
+import {CurateExecutor} from '../core/executors/curate-executor.js'
+import {QueryExecutor} from '../core/executors/query-executor.js'
 import {createTaskProcessor, TaskProcessor} from '../core/task-processor.js'
 import {KeychainTokenStore} from '../storage/keychain-token-store.js'
 import {createTransportClient} from '../transport/transport-factory.js'
-import {CurateUseCaseV2} from '../usecase/curate-use-case-v2.js'
-import {QueryUseCaseV2} from '../usecase/query-use-case-v2.js'
 import {TaskQueueManager} from './task-queue-manager.js'
 
 // IPC types imported from ./ipc-types.ts
@@ -67,30 +67,26 @@ let transportClient: ITransportClient | undefined
 let taskProcessor: TaskProcessor | undefined
 let cipherAgent: ICipherAgent | undefined
 
-/**
- * Task context using AsyncLocalStorage for concurrent task isolation.
- * This ensures each task's events are routed correctly even when
- * multiple curate tasks run concurrently (MAX_CONCURRENT_CURATE = 2).
- */
-type TaskContext = {taskId: string}
-const taskContext = new AsyncLocalStorage<TaskContext>()
-
-/**
- * Get current task ID from AsyncLocalStorage context.
- * Returns undefined if called outside of a task execution context.
- */
-function getCurrentTaskId(): string | undefined {
-  return taskContext.getStore()?.taskId
-}
-
 /** ChatSession ID - created once when agent starts, used for all tasks */
 let chatSessionId: string | undefined
 /** Whether the agent is fully initialized (has auth + config) */
 let isAgentInitialized = false
 /** Initialization error if agent couldn't be initialized */
 let initializationError: Error | undefined
-/** Config identity from last initialization (teamId:spaceId) - for change detection */
-let lastConfigIdentity: string | undefined
+/** Guard: prevent concurrent initialization attempts */
+let isInitializing = false
+/** Guard: prevent double cleanup */
+let isCleaningUp = false
+
+/**
+ * Stored event forwarder references for cleanup on reinit.
+ * Prevents memory leaks from accumulating listeners.
+ */
+type EventForwarder = {
+  event: string
+  handler: (payload: unknown) => void
+}
+let eventForwarders: EventForwarder[] = []
 
 // ============================================================================
 // Task Queue Manager (replaces inline queue logic)
@@ -106,7 +102,10 @@ let lastConfigIdentity: string | undefined
  */
 const taskQueueManager = new TaskQueueManager({
   curate: {maxConcurrent: 2},
-  query: {maxConcurrent: 2},
+  onExecutorError(taskId, error) {
+    agentLog(`Executor error for task ${taskId}: ${error}`)
+  },
+  query: {maxConcurrent: Infinity},
 })
 
 /**
@@ -127,37 +126,70 @@ function getTransportPort(): number {
 }
 
 /**
+ * Cleanup event forwarders from previous agent instance.
+ * Prevents memory leaks when agent is reinitialized.
+ */
+function cleanupAgentEventForwarding(): void {
+  if (eventForwarders.length === 0) {
+    return
+  }
+
+  // Get the old agent's event bus (if still available)
+  // Cast to CipherAgent to access agentEventBus property
+  const eventBus = (cipherAgent as CipherAgent | undefined)?.agentEventBus
+  if (eventBus) {
+    for (const {event, handler} of eventForwarders) {
+      eventBus.off(event as 'llmservice:thinking', handler as () => void)
+    }
+  }
+
+  // Clear the stored references
+  eventForwarders = []
+  agentLog('Event forwarders cleaned up')
+}
+
+/**
  * Setup event forwarding from CipherAgent to Transport.
  * agent-worker subscribes directly to agentEventBus (owns the agent).
  * Events are forwarded with currentTaskId.
+ *
+ * IMPORTANT: This function now stores handler references and cleans up
+ * old handlers on reinit to prevent memory leaks.
  */
 function setupAgentEventForwarding(agent: CipherAgent): void {
+  // Clean up old forwarders first (prevents accumulation on reinit)
+  cleanupAgentEventForwarding()
+
   const eventBus = agent.agentEventBus
   if (!eventBus) {
     agentLog('No agentEventBus available for event forwarding')
     return
   }
 
+  // Helper to register and track event forwarder
+  const registerForwarder = <T>(event: string, handler: (payload: T) => void): void => {
+    eventBus.on(event as 'llmservice:thinking', handler as () => void)
+    eventForwarders.push({event, handler: handler as (payload: unknown) => void})
+  }
+
   // Forward llmservice:thinking
-  // Transport type: AgentEventMap['llmservice:thinking'] & { taskId: string }
-  eventBus.on('llmservice:thinking', (payload) => {
-    const taskId = getCurrentTaskId()
-    if (taskId) {
-      transportClient?.request('llmservice:thinking', {sessionId: payload.sessionId, taskId}).catch(logTransportError)
+  registerForwarder('llmservice:thinking', (payload: AgentEventMap['llmservice:thinking']) => {
+    if (payload.taskId) {
+      transportClient
+        ?.request('llmservice:thinking', {sessionId: payload.sessionId, taskId: payload.taskId})
+        .catch(logTransportError)
     }
   })
 
   // Forward llmservice:chunk
-  // Transport type: AgentEventMap['llmservice:chunk'] & { taskId: string }
-  eventBus.on('llmservice:chunk', (payload) => {
-    const taskId = getCurrentTaskId()
-    if (taskId) {
+  registerForwarder('llmservice:chunk', (payload: AgentEventMap['llmservice:chunk']) => {
+    if (payload.taskId) {
       transportClient
         ?.request('llmservice:chunk', {
           content: payload.content,
           isComplete: payload.isComplete,
           sessionId: payload.sessionId,
-          taskId,
+          taskId: payload.taskId,
           type: payload.type,
         })
         .catch(logTransportError)
@@ -165,10 +197,8 @@ function setupAgentEventForwarding(agent: CipherAgent): void {
   })
 
   // Forward llmservice:response
-  // Transport type: AgentEventMap['llmservice:response'] & { taskId: string }
-  eventBus.on('llmservice:response', (payload) => {
-    const taskId = getCurrentTaskId()
-    if (taskId && payload.content) {
+  registerForwarder('llmservice:response', (payload: AgentEventMap['llmservice:response']) => {
+    if (payload.taskId && payload.content) {
       transportClient
         ?.request('llmservice:response', {
           content: payload.content,
@@ -177,7 +207,7 @@ function setupAgentEventForwarding(agent: CipherAgent): void {
           provider: payload.provider,
           reasoning: payload.reasoning,
           sessionId: payload.sessionId,
-          taskId,
+          taskId: payload.taskId,
           tokenUsage: payload.tokenUsage,
         })
         .catch(logTransportError)
@@ -185,16 +215,14 @@ function setupAgentEventForwarding(agent: CipherAgent): void {
   })
 
   // Forward llmservice:toolCall
-  // Transport type: AgentEventMap['llmservice:toolCall'] & { taskId: string }
-  eventBus.on('llmservice:toolCall', (payload) => {
-    const taskId = getCurrentTaskId()
-    if (taskId && payload.callId) {
+  registerForwarder('llmservice:toolCall', (payload: AgentEventMap['llmservice:toolCall']) => {
+    if (payload.taskId && payload.callId) {
       transportClient
         ?.request('llmservice:toolCall', {
           args: payload.args,
           callId: payload.callId,
           sessionId: payload.sessionId,
-          taskId,
+          taskId: payload.taskId,
           toolName: payload.toolName,
         })
         .catch(logTransportError)
@@ -202,10 +230,8 @@ function setupAgentEventForwarding(agent: CipherAgent): void {
   })
 
   // Forward llmservice:toolResult
-  // Transport type: AgentEventMap['llmservice:toolResult'] & { taskId: string }
-  eventBus.on('llmservice:toolResult', (payload) => {
-    const taskId = getCurrentTaskId()
-    if (taskId && payload.callId) {
+  registerForwarder('llmservice:toolResult', (payload: AgentEventMap['llmservice:toolResult']) => {
+    if (payload.taskId && payload.callId) {
       transportClient
         ?.request('llmservice:toolResult', {
           callId: payload.callId,
@@ -215,7 +241,7 @@ function setupAgentEventForwarding(agent: CipherAgent): void {
           result: payload.result,
           sessionId: payload.sessionId,
           success: payload.success,
-          taskId,
+          taskId: payload.taskId,
           toolName: payload.toolName,
         })
         .catch(logTransportError)
@@ -223,38 +249,37 @@ function setupAgentEventForwarding(agent: CipherAgent): void {
   })
 
   // Forward llmservice:error
-  // Transport type: AgentEventMap['llmservice:error'] & { taskId: string }
-  eventBus.on('llmservice:error', (payload) => {
-    const taskId = getCurrentTaskId()
-    if (taskId) {
+  registerForwarder('llmservice:error', (payload: AgentEventMap['llmservice:error']) => {
+    if (payload.taskId) {
       transportClient
         ?.request('llmservice:error', {
           code: payload.code,
           error: payload.error,
           sessionId: payload.sessionId,
-          taskId,
+          taskId: payload.taskId,
         })
         .catch(logTransportError)
     }
   })
 
   // Forward llmservice:unsupportedInput
-  // Transport type: AgentEventMap['llmservice:unsupportedInput'] & { taskId: string }
-  eventBus.on('llmservice:unsupportedInput', (payload) => {
-    const taskId = getCurrentTaskId()
-    if (taskId) {
+  registerForwarder('llmservice:unsupportedInput', (payload: AgentEventMap['llmservice:unsupportedInput']) => {
+    if (payload.taskId) {
       transportClient
         ?.request('llmservice:unsupportedInput', {
           reason: payload.reason,
           sessionId: payload.sessionId,
-          taskId,
+          taskId: payload.taskId,
         })
         .catch(logTransportError)
     }
   })
 
-  agentLog('Event forwarding setup complete')
+  agentLog(`Event forwarding setup complete (${eventForwarders.length} forwarders registered)`)
 }
+
+/** Task execution timeout: 5 minutes */
+const TASK_EXECUTION_TIMEOUT_MS = 5 * 60 * 1000
 
 /**
  * Setup the task executor for TaskQueueManager.
@@ -266,12 +291,35 @@ function setupTaskExecutor(): void {
     const stats = taskQueueManager.getStats(type)
     agentLog(`Processing task ${taskId} (${type}), ${stats.queued} queued, ${stats.active} active`)
 
+    // Create timeout promise that rejects after 5 minutes
+    let timeoutId: NodeJS.Timeout | undefined
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(() => {
+        reject(new Error('TASK_TIMEOUT'))
+      }, TASK_EXECUTION_TIMEOUT_MS)
+    })
+
     try {
-      await handleTaskExecute(task)
+      // Race between task execution and timeout
+      await Promise.race([handleTaskExecute(task), timeoutPromise])
     } catch (error) {
+      // Handle timeout specifically
+      if (error instanceof Error && error.message === 'TASK_TIMEOUT') {
+        agentLog(`Task ${taskId} timed out after 5 minutes`)
+        const errorData = serializeTaskError(new Error('Task exceeded 5 minute timeout'))
+        transportClient?.request('task:error', {error: errorData, taskId}).catch(logTransportError)
+        return
+      }
+
+      // Handle other errors
       agentLog(`Task execution failed: ${error}`)
       const errorData = serializeTaskError(error)
       transportClient?.request('task:error', {error: errorData, taskId}).catch(logTransportError)
+    } finally {
+      // Always clear timeout to prevent memory leak
+      if (timeoutId) {
+        clearTimeout(timeoutId)
+      }
     }
   })
 
@@ -286,96 +334,107 @@ function setupTaskExecutor(): void {
  * @param forceReinit - Force reinitialization even if already initialized (for config reload)
  */
 async function tryInitializeAgent(forceReinit = false): Promise<boolean> {
+  // Guard: prevent concurrent initialization
+  if (isInitializing) {
+    agentLog('Initialization already in progress, skipping')
+    return false
+  }
+
   // Already initialized and not forcing reinit
   if (!forceReinit && isAgentInitialized && cipherAgent && taskProcessor) {
     return true
   }
 
-  // If forcing reinit, stop existing agent first
-  if (forceReinit && cipherAgent) {
-    agentLog('Reinitializing with new config...')
-    try {
-      await (cipherAgent as CipherAgent).stop()
-    } catch (error) {
-      agentLog(`Error stopping previous agent: ${error}`)
+  isInitializing = true
+
+  try {
+    // If forcing reinit, stop existing agent first
+    if (forceReinit && cipherAgent) {
+      agentLog('Reinitializing with new config...')
+      try {
+        await (cipherAgent as CipherAgent).stop()
+      } catch (error) {
+        agentLog(`Error stopping previous agent: ${error}`)
+      }
+
+      cipherAgent = undefined
+      taskProcessor = undefined
+      isAgentInitialized = false
     }
 
-    cipherAgent = undefined
-    taskProcessor = undefined
-    isAgentInitialized = false
+    const tokenStore = new KeychainTokenStore()
+    const configStore = new ProjectConfigStore()
+
+    const authToken = await tokenStore.load()
+    const brvConfig = await configStore.read()
+
+    // Need at least authToken to initialize
+    if (!authToken) {
+      initializationError = new NotAuthenticatedError()
+      agentLog('Cannot initialize - no auth token')
+      return false
+    }
+
+    // Create Executors
+    const curateExecutor = new CurateExecutor()
+    const queryExecutor = new QueryExecutor()
+
+    // Initialize CipherAgent
+    const envConfig = getCurrentConfig()
+    const agentConfig = {
+      accessToken: authToken.accessToken,
+      apiBaseUrl: envConfig.llmApiBaseUrl,
+      fileSystem: {workingDirectory: process.cwd()},
+      llm: {
+        maxIterations: 10,
+        maxTokens: 4096,
+        temperature: 0.7,
+        topK: 10,
+        topP: 0.95,
+        verbose: false,
+      },
+      model: DEFAULT_LLM_MODEL,
+      projectId: PROJECT,
+      sessionKey: authToken.sessionKey,
+    }
+
+    const agent = new CipherAgent(agentConfig, brvConfig ?? undefined)
+    await agent.start()
+    agentLog('CipherAgent started')
+
+    // Create ChatSession
+    chatSessionId = `agent-session-${randomUUID()}`
+    await agent.createSession(chatSessionId)
+    agentLog(`ChatSession created: ${chatSessionId}`)
+
+    // Setup event forwarding
+    setupAgentEventForwarding(agent)
+    cipherAgent = agent
+
+    // Create TaskProcessor
+    taskProcessor = createTaskProcessor({
+      curateExecutor,
+      queryExecutor,
+    })
+    taskProcessor.setAgent(cipherAgent)
+
+    // Setup task executor for queue manager (enables processing)
+    setupTaskExecutor()
+
+    // Mark as initialized
+    isAgentInitialized = true
+    initializationError = undefined
+
+    if (brvConfig) {
+      agentLog(`Fully initialized with auth and config (team=${brvConfig.teamId}, space=${brvConfig.spaceId})`)
+    } else {
+      agentLog('Initialized with auth only (no project config yet - will reinit when config available)')
+    }
+
+    return true
+  } finally {
+    isInitializing = false
   }
-
-  const tokenStore = new KeychainTokenStore()
-  const configStore = new ProjectConfigStore()
-
-  const authToken = await tokenStore.load()
-  const brvConfig = await configStore.read()
-
-  // Need at least authToken to initialize
-  if (!authToken) {
-    initializationError = new NotAuthenticatedError()
-    agentLog('Cannot initialize - no auth token')
-    return false
-  }
-
-  // Create V2 UseCases
-  const curateUseCase = new CurateUseCaseV2()
-  const queryUseCase = new QueryUseCaseV2()
-
-  // Initialize CipherAgent
-  const envConfig = getCurrentConfig()
-  const agentConfig = {
-    accessToken: authToken.accessToken,
-    apiBaseUrl: envConfig.llmApiBaseUrl,
-    fileSystem: {workingDirectory: process.cwd()},
-    llm: {
-      maxIterations: 10,
-      maxTokens: 4096,
-      temperature: 0.7,
-      topK: 10,
-      topP: 0.95,
-      verbose: false,
-    },
-    model: 'gemini-2.5-pro',
-    projectId: PROJECT,
-    sessionKey: authToken.sessionKey,
-  }
-
-  const agent = new CipherAgent(agentConfig, brvConfig ?? undefined)
-  await agent.start()
-  agentLog('CipherAgent started')
-
-  // Create ChatSession
-  chatSessionId = `agent-session-${randomUUID()}`
-  await agent.createSession(chatSessionId)
-  agentLog(`ChatSession created: ${chatSessionId}`)
-
-  // Setup event forwarding
-  setupAgentEventForwarding(agent)
-  cipherAgent = agent
-
-  // Create TaskProcessor
-  taskProcessor = createTaskProcessor({
-    curateUseCase,
-    queryUseCase,
-  })
-  taskProcessor.setAgent(cipherAgent)
-
-  // Setup task executor for queue manager (enables processing)
-  setupTaskExecutor()
-
-  // Mark as initialized and track config identity for change detection
-  isAgentInitialized = true
-  initializationError = undefined
-  lastConfigIdentity = brvConfig ? `${brvConfig.teamId}:${brvConfig.spaceId}` : undefined
-
-  if (brvConfig) {
-    agentLog(`Fully initialized with auth and config (team=${brvConfig.teamId}, space=${brvConfig.spaceId})`)
-  } else {
-    agentLog('Initialized with auth only (no project config yet - will reinit when config available)')
-  }
-
-  return true
 }
 
 /**
@@ -400,32 +459,8 @@ async function handleTaskExecute(data: TaskExecute): Promise<void> {
     agentLog('Lazy initialization successful!')
   }
 
-  // Check if config has changed (new config or updated team/space)
-  // This handles: user completes /init or re-inits with different team/space
-  if (isAgentInitialized) {
-    const configStore = new ProjectConfigStore()
-    const brvConfig = await configStore.read()
-    const currentConfigIdentity = brvConfig ? `${brvConfig.teamId}:${brvConfig.spaceId}` : undefined
-
-    // Reinit if: config appeared (was undefined) OR config changed (different team/space)
-    if (currentConfigIdentity !== lastConfigIdentity) {
-      const reason =
-        lastConfigIdentity === undefined
-          ? 'config now available'
-          : `config changed (${lastConfigIdentity} → ${currentConfigIdentity})`
-      agentLog(`${reason}, reinitializing...`)
-
-      const reinitialized = await tryInitializeAgent(true)
-      if (!reinitialized) {
-        agentLog('Reinitialization with new config failed')
-        const error = serializeTaskError(initializationError ?? new ProcessorNotInitError())
-        transportClient?.request('task:error', {error, taskId}).catch(logTransportError)
-        return
-      }
-
-      agentLog('Reinitialization successful!')
-    }
-  }
+  // NOTE: Config change detection removed - use explicit agent:restart event instead
+  // (triggered by /init command via TransportHandlers)
 
   if (!taskProcessor) {
     agentLog('TaskProcessor not initialized')
@@ -434,34 +469,30 @@ async function handleTaskExecute(data: TaskExecute): Promise<void> {
     return
   }
 
-  // Run task within AsyncLocalStorage context for proper event routing.
-  // This ensures concurrent curate tasks each have their own taskId context,
-  // fixing the race condition where events from Task A could be routed to Task B.
-  await taskContext.run({taskId}, async () => {
-    try {
-      // Notify task started
-      transportClient?.request('task:started', {taskId}).catch(logTransportError)
+  // Notify task started
+  transportClient?.request('task:started', {taskId}).catch(logTransportError)
 
-      // Process task - events stream via agentEventBus subscription
-      // Response is forwarded via llmservice:response event (no manual send needed)
-      // Agent uses its default session (Single-Session pattern)
-      // File validation is handled by UseCase (business logic belongs there)
-      const result = await taskProcessor!.process({
-        content,
-        files,
-        taskId,
-        type,
-      })
+  try {
+    // Process task - events stream via agentEventBus subscription
+    // Response is forwarded via llmservice:response event (no manual send needed)
+    // Agent uses its default session (Single-Session pattern)
+    // File validation is handled by UseCase (business logic belongs there)
+    // Note: taskId is passed to UseCase → CipherAgent → ChatSession, which adds it to all events
+    const result = await taskProcessor.process({
+      content,
+      files,
+      taskId,
+      type,
+    })
 
-      // Notify completion with result (required by TaskCompletedEventSchema)
-      agentLog(`Task completed: ${taskId}`)
-      transportClient?.request('task:completed', {result, taskId}).catch(logTransportError)
-    } catch (error) {
-      const errorData = serializeTaskError(error)
-      agentLog(`Task error: ${taskId} - [${errorData.name}] ${errorData.message}`)
-      transportClient?.request('task:error', {error: errorData, taskId}).catch(logTransportError)
-    }
-  })
+    // Notify completion with result (required by TaskCompletedEventSchema)
+    agentLog(`Task completed: ${taskId}`)
+    transportClient?.request('task:completed', {result, taskId}).catch(logTransportError)
+  } catch (error) {
+    const errorData = serializeTaskError(error)
+    agentLog(`Task error: ${taskId} - [${errorData.name}] ${errorData.message}`)
+    transportClient?.request('task:error', {error: errorData, taskId}).catch(logTransportError)
+  }
 }
 
 /**
@@ -573,23 +604,39 @@ async function startAgent(): Promise<void> {
  * Stop Agent Process.
  */
 async function stopAgent(): Promise<void> {
-  // Clear task queue
-  taskQueueManager.clear()
-
-  // Stop CipherAgent first
-  if (cipherAgent) {
-    await (cipherAgent as CipherAgent).stop()
-    cipherAgent = undefined
-    agentLog('CipherAgent stopped')
+  // Guard: prevent double cleanup
+  if (isCleaningUp) {
+    agentLog('Cleanup already in progress, skipping')
+    return
   }
 
-  if (transportClient) {
-    await transportClient.disconnect()
-    transportClient = undefined
-  }
+  isCleaningUp = true
 
-  taskProcessor = undefined
-  agentLog('Stopped')
+  try {
+    // Clear task queue
+    taskQueueManager.clear()
+
+    // Cleanup event forwarders before stopping agent
+    cleanupAgentEventForwarding()
+
+    // Stop CipherAgent first
+    if (cipherAgent) {
+      await (cipherAgent as CipherAgent).stop()
+      cipherAgent = undefined
+      agentLog('CipherAgent stopped')
+    }
+
+    if (transportClient) {
+      await transportClient.disconnect()
+      transportClient = undefined
+    }
+
+    taskProcessor = undefined
+    isAgentInitialized = false
+    agentLog('Stopped')
+  } finally {
+    isCleaningUp = false
+  }
 }
 
 // ============================================================================
@@ -629,7 +676,7 @@ async function runWorker(): Promise<void> {
 
   process.once('SIGTERM', cleanup)
   process.once('SIGINT', cleanup)
-  process.on('disconnect', cleanup)
+  process.once('disconnect', cleanup)
 }
 
 // ============================================================================

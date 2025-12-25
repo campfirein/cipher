@@ -1,26 +1,24 @@
 import {randomUUID} from 'node:crypto'
 
-import type {ICipherAgent} from '../../core/interfaces/cipher/i-cipher-agent.js'
-import type {CurateExecuteOptionsV2, ICurateUseCaseV2} from '../../core/interfaces/usecase/i-curate-use-case-v2.js'
+import type {ICipherAgent} from '../../../core/interfaces/cipher/i-cipher-agent.js'
+import type {CurateExecuteOptions, ICurateExecutor} from '../../../core/interfaces/executor/i-curate-executor.js'
 
-import {FileValidationError} from '../../core/domain/errors/task-error.js'
-import {validateFileForCurate} from '../../utils/file-validator.js'
-import {getAgentStorage} from '../cipher/storage/agent-storage.js'
+import {FileValidationError} from '../../../core/domain/errors/task-error.js'
+import {validateFileForCurate} from '../../../utils/file-validator.js'
+import {getAgentStorage} from '../../cipher/storage/agent-storage.js'
 
 /**
- * CurateUseCaseV2 - Simplified curate use case for v0.5.0 architecture.
+ * CurateExecutor - Executes curate tasks with an injected CipherAgent.
  *
- * Key differences from v1:
- * - Only executeWithAgent method (no run() for REPL mode)
- * - No terminal/tracking dependencies (handled by caller)
- * - Pure business logic execution
+ * This is NOT a UseCase (which orchestrates business logic).
+ * It's an Executor that wraps agent.execute() with curate-specific options.
  *
- * This class is designed for Transport-based task execution where:
+ * Architecture:
  * - TaskProcessor injects the long-lived CipherAgent
  * - Event streaming is handled by agent-worker (subscribes to agentEventBus)
- * - UseCase focuses solely on curate business logic
+ * - Executor focuses solely on curate execution
  */
-export class CurateUseCaseV2 implements ICurateUseCaseV2 {
+export class CurateExecutor implements ICurateExecutor {
   /**
    * Maximum number of files allowed in --files flag
    */
@@ -33,7 +31,7 @@ export class CurateUseCaseV2 implements ICurateUseCaseV2 {
    * @param options - Execution options (content, file references)
    * @returns Result string from agent execution
    */
-  public async executeWithAgent(agent: ICipherAgent, options: CurateExecuteOptionsV2): Promise<string> {
+  public async executeWithAgent(agent: ICipherAgent, options: CurateExecuteOptions): Promise<string> {
     const {content, files, taskId} = options
 
     // Initialize storage for execution tracking
@@ -103,8 +101,8 @@ export class CurateUseCaseV2 implements ICurateUseCaseV2 {
 
     // Truncate if exceeds max files
     let processedPaths = filePaths
-    if (filePaths.length > CurateUseCaseV2.MAX_FILES) {
-      processedPaths = filePaths.slice(0, CurateUseCaseV2.MAX_FILES)
+    if (filePaths.length > CurateExecutor.MAX_FILES) {
+      processedPaths = filePaths.slice(0, CurateExecutor.MAX_FILES)
     }
 
     // Get project root (current directory)

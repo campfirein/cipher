@@ -183,7 +183,7 @@ async function runWorker(): Promise<void> {
 
   process.once('SIGTERM', cleanup)
   process.once('SIGINT', cleanup)
-  process.on('disconnect', cleanup)
+  process.once('disconnect', cleanup)
 }
 
 // ============================================================================

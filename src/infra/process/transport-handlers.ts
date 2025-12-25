@@ -4,7 +4,7 @@
  * Architecture v0.5.0:
  * - Routes messages between clients (TUI, external CLIs) and Agent
  * - Agent is a special client that registers via 'agent:register'
- * - Transport generates taskId, tracks clientId for direct messaging
+ * - Client UseCase generates taskId, Transport validates and routes
  * - NO TaskProcessor, NO business logic (just routing)
  *
  * Event naming convention:
@@ -12,7 +12,7 @@
  * - llmservice:* events are forwarded from Agent with ORIGINAL names
  *
  * Message flows:
- * 1. Client → Transport: task:create {type, content}
+ * 1. Client → Transport: task:create {taskId, type, content}
  *    Transport → Agent: task:execute {taskId, type, content, clientId}
  *    Transport → Client: task:ack {taskId}
  *    Transport → broadcast-room: task:created {taskId, type, content, files?}
@@ -30,8 +30,6 @@
  * - agent:connected / agent:disconnected: Broadcast to all clients
  * - broadcast-room: TUI joins this room to monitor all events
  */
-
-import {randomUUID} from 'node:crypto'
 
 import type {
   AgentRestartRequest,
@@ -223,12 +221,17 @@ export class TransportHandlers {
 
   /**
    * Handle task:create request from client.
-   * Generate taskId, add client to room, forward to Agent.
+   * Validate taskId from client, add to tracking, forward to Agent.
    */
   private handleTaskCreate(data: TaskCreateRequest, clientId: string): TaskCreateResponse {
-    const taskId = randomUUID()
+    const {taskId} = data
 
-    transportLog(`Task created: ${taskId} (type=${data.type}, client=${clientId})`)
+    // Duplicate check - reject if taskId already exists
+    if (this.tasks.has(taskId)) {
+      throw new Error(`Task ${taskId} already exists`)
+    }
+
+    transportLog(`Task accepted: ${taskId} (type=${data.type}, client=${clientId})`)
 
     // Track task (clientId used for direct messaging)
     this.tasks.set(taskId, {
@@ -262,14 +265,12 @@ export class TransportHandlers {
       }
       this.transport.sendTo(this.agentClientId, TransportTaskEventNames.EXECUTE, executeMsg)
     } else {
-      // No Agent connected - send error to client AND broadcast-room, then cleanup
-      console.warn(`[Transport] No Agent connected, cannot process task ${taskId}`)
+      // No Agent connected - send error immediately to client AND broadcast-room, then cleanup
+      transportLog(`No Agent connected, cannot process task ${taskId}`)
       const error = serializeTaskError(new AgentNotAvailableError())
-      setTimeout(() => {
-        this.transport.sendTo(clientId, TransportTaskEventNames.ERROR, {error, taskId})
-        this.transport.broadcastTo('broadcast-room', TransportTaskEventNames.ERROR, {error, taskId})
-        this.tasks.delete(taskId)
-      }, 100)
+      this.transport.sendTo(clientId, TransportTaskEventNames.ERROR, {error, taskId})
+      this.transport.broadcastTo('broadcast-room', TransportTaskEventNames.ERROR, {error, taskId})
+      this.tasks.delete(taskId)
     }
 
     return {taskId}
