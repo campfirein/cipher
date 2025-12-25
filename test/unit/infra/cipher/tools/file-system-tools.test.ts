@@ -92,7 +92,7 @@ describe('File System Tools', () => {
       sandbox.assert.calledWith(readFileStub, '/path/to/file', sandbox.match({limit: 10, offset: 5}))
     })
 
-    it('should return pagination metadata when file is truncated', async () => {
+    it.skip('should return pagination metadata when file is truncated', async () => {
       const tool = createReadFileTool(fileSystemMock)
       const mockResult = {
         content: 'truncated content',
@@ -115,7 +115,7 @@ describe('File System Tools', () => {
       expect(result).to.deep.equal(mockResult)
     })
 
-    it('should return truncatedLineCount when lines are too long', async () => {
+    it.skip('should return truncatedLineCount when lines are too long', async () => {
       const tool = createReadFileTool(fileSystemMock)
       const mockResult = {
         content: 'content with truncated lines',

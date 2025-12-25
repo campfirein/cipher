@@ -649,7 +649,7 @@ export class FileSystemService implements IFileSystem {
         size: stats.size,
         totalLines,
         truncated,
-        truncatedLineCount: truncatedLineCount > 0 ? truncatedLineCount : undefined,
+        truncatedLineCount: truncatedLines.length,
       }
     } catch (error) {
       // Re-throw known errors
