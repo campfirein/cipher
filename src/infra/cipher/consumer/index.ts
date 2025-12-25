@@ -1,7 +1,9 @@
+// TODO(v0.5.0): Remove this entire module. Replaced by CoreProcess + TaskProcessor + Transport events.
+
 /**
  * Consumer Module - Public API for queue processing and UI monitoring
  *
- * Architecture:
+ * Architecture (legacy):
  * - ConsumerService: Singleton background worker (start once in main)
  * - QueuePollingService: UI subscribes here for real-time updates
  * - Both communicate via AgentStorage (SQLite DB)

@@ -10,10 +10,17 @@ import type {ILLMService} from '../../../core/interfaces/cipher/i-llm-service.js
 import type {ILogger} from '../../../core/interfaces/cipher/i-logger.js'
 import type {IMessageFormatter} from '../../../core/interfaces/cipher/i-message-formatter.js'
 import type {ITokenizer} from '../../../core/interfaces/cipher/i-tokenizer.js'
-import type {InternalMessage, ToolCall} from '../../../core/interfaces/cipher/message-types.js'
+import type {
+  InternalMessage,
+  ToolCall,
+  ToolStateCompleted,
+  ToolStateError,
+  ToolStateRunning,
+} from '../../../core/interfaces/cipher/message-types.js'
 import type {MemoryManager} from '../memory/memory-manager.js'
-import type {SimplePromptFactory} from '../system-prompt/simple-prompt-factory.js'
+import type {SystemPromptManager} from '../system-prompt/system-prompt-manager.js'
 import type {ToolManager} from '../tools/tool-manager.js'
+import type {CompactionService} from './context/compaction/compaction-service.js'
 
 import {AgentStateMachine} from '../../../core/domain/cipher/agent/agent-state-machine.js'
 import {AgentState, TerminationReason} from '../../../core/domain/cipher/agent/agent-state.js'
@@ -22,9 +29,18 @@ import {
   LlmMaxIterationsError,
   LlmResponseParsingError,
 } from '../../../core/domain/cipher/errors/llm-error.js'
+import {
+  getEffectiveMaxInputTokens,
+  getMaxInputTokensForModel,
+  getProviderFromModel,
+  isValidProviderModel,
+  safeParseLLMConfig,
+} from '../../../core/domain/cipher/llm/index.js'
 import {NoOpLogger} from '../../../core/interfaces/cipher/i-logger.js'
 import {getErrorMessage} from '../../../utils/error-helpers.js'
 import {SessionEventBus} from '../events/event-emitter.js'
+import {EnvironmentContextBuilder} from '../system-prompt/environment-context-builder.js'
+import {ToolMetadataHandler} from '../tools/streaming/metadata-handler.js'
 import {ContextManager, type FileData, type ImageData} from './context/context-manager.js'
 import {LoopDetector} from './context/loop-detector.js'
 import {ClaudeMessageFormatter} from './formatters/claude-formatter.js'
@@ -87,6 +103,16 @@ export interface LLMServiceConfig {
 }
 
 /**
+ * Options for building generation request
+ */
+interface BuildGenerateContentRequestOptions {
+  executionContext?: ExecutionContext
+  systemPrompt: string
+  tools: ToolSet
+  trackingRequestId: string
+}
+
+/**
  * ByteRover LLM Service.
  *
  * Orchestrates the agentic loop using IContentGenerator for LLM calls.
@@ -104,6 +130,7 @@ export interface LLMServiceConfig {
  * - Handle retry logic (handled by RetryableContentGenerator decorator)
  */
 export class ByteRoverLLMService implements ILLMService {
+  private readonly compactionService?: CompactionService
   private readonly config: {
     maxInputTokens: number
     maxIterations: number
@@ -115,17 +142,21 @@ export class ByteRoverLLMService implements ILLMService {
     verbose: boolean
   }
   private readonly contextManager: ContextManager<Content | MessageParam>
+  private readonly environmentBuilder: EnvironmentContextBuilder
   private readonly formatter: IMessageFormatter<Content | MessageParam>
   private readonly generator: IContentGenerator
   private readonly logger: ILogger
   private readonly loopDetector: LoopDetector
   private readonly memoryManager?: MemoryManager
+  private readonly metadataHandler: ToolMetadataHandler
   private readonly outputProcessor: ToolOutputProcessor
-  private readonly promptFactory: SimplePromptFactory
   private readonly providerType: 'claude' | 'gemini'
   private readonly sessionEventBus: SessionEventBus
+  private readonly sessionId: string
+  private readonly systemPromptManager: SystemPromptManager
   private readonly tokenizer: ITokenizer
   private readonly toolManager: ToolManager
+  private readonly workingDirectory: string
 
   /**
    * Initialize a new ByteRover LLM service instance.
@@ -144,9 +175,10 @@ export class ByteRoverLLMService implements ILLMService {
    * @param config - LLM service configuration (model, tokens, temperature)
    * @param options - Service dependencies
    * @param options.toolManager - Tool manager for executing agent tools
-   * @param options.promptFactory - Simple prompt factory for building system prompts
+   * @param options.systemPromptManager - System prompt manager for building system prompts
    * @param options.memoryManager - Memory manager for agent memories
    * @param options.sessionEventBus - Event bus for session lifecycle events
+   * @param options.compactionService - Optional compaction service for context overflow management
    * @param options.historyStorage - Optional history storage for persistence
    * @param options.logger - Optional logger for structured logging
    */
@@ -155,35 +187,48 @@ export class ByteRoverLLMService implements ILLMService {
     generator: IContentGenerator,
     config: ByteRoverLLMServiceConfig,
     options: {
+      compactionService?: CompactionService
       historyStorage?: IHistoryStorage
       logger?: ILogger
       memoryManager?: MemoryManager
-      promptFactory: SimplePromptFactory
       sessionEventBus: SessionEventBus
+      systemPromptManager: SystemPromptManager
       toolManager: ToolManager
     },
   ) {
+    this.sessionId = sessionId
     this.generator = generator
+    this.compactionService = options.compactionService
     this.toolManager = options.toolManager
-    this.promptFactory = options.promptFactory
+    this.systemPromptManager = options.systemPromptManager
     this.memoryManager = options.memoryManager
     this.sessionEventBus = options.sessionEventBus
     this.logger = options.logger ?? new NoOpLogger()
     this.outputProcessor = new ToolOutputProcessor(config.truncationConfig)
     this.loopDetector = new LoopDetector()
+    this.environmentBuilder = new EnvironmentContextBuilder()
+    this.metadataHandler = new ToolMetadataHandler(this.sessionEventBus)
+    this.workingDirectory = process.cwd()
+    // Detect provider type from model name (needed for validation)
+    const modelName = config.model ?? 'claude-haiku-4-5@20251001'
+    this.providerType = this.detectProviderType(modelName)
+
+    // Validate core LLM config using Zod schema (logs warning if invalid)
+    this.validateConfig(modelName, config.maxInputTokens)
+
+    // Get effective max input tokens from registry (respects model limits)
+    const effectiveMaxInputTokens = getEffectiveMaxInputTokens(this.providerType, modelName, config.maxInputTokens)
+
     this.config = {
-      maxInputTokens: config.maxInputTokens ?? 1_000_000,
+      maxInputTokens: effectiveMaxInputTokens,
       maxIterations: config.maxIterations ?? 50,
       maxTokens: config.maxTokens ?? 8192,
-      model: config.model ?? 'claude-haiku-4-5@20251001',
+      model: modelName,
       temperature: config.temperature ?? 0.7,
       thinkingConfig: config.thinkingConfig,
       timeout: config.timeout,
       verbose: config.verbose ?? false,
     }
-
-    // Detect provider type from model name
-    this.providerType = this.detectProviderType(this.config.model)
 
     // Initialize formatter and tokenizer based on provider type
     if (this.providerType === 'claude') {
@@ -214,30 +259,28 @@ export class ByteRoverLLMService implements ILLMService {
    * 3. Returning final response when no more tool calls
    *
    * @param textInput - User input text
-   * @param sessionId - Session ID for tracking the llm request in a command session
+   * @param trackingRequestId - Tracking request ID for backend metrics (random UUID per request)
    * @param options - Execution options
    * @param options.executionContext - Optional execution context
    * @param options.signal - Optional abort signal for cancellation
    * @param options.imageData - Optional image data
    * @param options.fileData - Optional file data
    * @param options.stream - Whether to stream response (not implemented yet)
-   * @param options.mode - Optional mode for system prompt ('autonomous' enables autonomous mode)
    * @returns Final assistant response
    */
   public async completeTask(
     textInput: string,
-    sessionId: string,
+    trackingRequestId: string,
     options?: {
       executionContext?: ExecutionContext
       fileData?: FileData
       imageData?: ImageData
-      mode?: 'autonomous' | 'default' | 'query'
       signal?: AbortSignal
       stream?: boolean
     },
   ): Promise<string> {
     // Extract options with defaults
-    const {executionContext, fileData, imageData, mode, signal} = options ?? {}
+    const {executionContext, fileData, imageData, signal} = options ?? {}
 
     // Add user message to context
     await this.contextManager.addUserMessage(textInput, imageData, fileData)
@@ -269,9 +312,8 @@ export class ByteRoverLLMService implements ILLMService {
         const result = await this.executeAgenticIteration({
           executionContext,
           iterationCount: stateMachine.getContext().turnCount,
-          mode,
-          sessionId,
           tools: toolSet,
+          trackingRequestId,
         })
 
         if (result !== null) {
@@ -319,10 +361,13 @@ export class ByteRoverLLMService implements ILLMService {
    * @returns Service configuration object with model info and constraints
    */
   public getConfig(): LLMServiceConfig {
+    // Get model's actual max tokens from registry
+    const modelMaxTokens = getMaxInputTokensForModel(this.providerType, this.config.model)
+
     return {
       configuredMaxInputTokens: this.config.maxInputTokens,
       model: this.config.model,
-      modelMaxInputTokens: this.config.maxInputTokens,
+      modelMaxInputTokens: modelMaxTokens,
       provider: 'byterover',
       router: 'in-built',
     }
@@ -368,12 +413,10 @@ export class ByteRoverLLMService implements ILLMService {
 
     if (!toolResult) {
       // This shouldn't happen, but handle gracefully
-      await this.contextManager.addToolResult(
-        toolCall.id,
-        toolCall.function.name,
-        'Error: No tool result available',
-        {errorType: 'NO_RESULT', success: false},
-      )
+      await this.contextManager.addToolResult(toolCall.id, toolCall.function.name, 'Error: No tool result available', {
+        errorType: 'NO_RESULT',
+        success: false,
+      })
       return
     }
 
@@ -389,20 +432,14 @@ export class ByteRoverLLMService implements ILLMService {
    *
    * Converts internal context to the standardized GenerateContentRequest format.
    *
-   * @param sessionId - Session ID for tracking the llm request in a command session
-   * @param systemPrompt - System prompt text
-   * @param tools - Available tools for function calling
-   * @param mode - Optional mode for system prompt
-   * @param executionContext - Optional execution context
+   * @param options - Request options
+   * @param options.trackingRequestId - Tracking request ID for backend metrics (random UUID per request)
+   * @param options.systemPrompt - System prompt text
+   * @param options.tools - Available tools for function calling
+   * @param options.executionContext - Optional execution context
    * @returns GenerateContentRequest for the generator
    */
-  private buildGenerateContentRequest(
-    sessionId: string,
-    systemPrompt: string,
-    tools: ToolSet,
-    mode?: 'autonomous' | 'default' | 'query',
-    executionContext?: ExecutionContext,
-  ): GenerateContentRequest {
+  private buildGenerateContentRequest(options: BuildGenerateContentRequestOptions): GenerateContentRequest {
     // Get internal messages from context manager
     const messages = this.contextManager.getMessages()
 
@@ -412,12 +449,11 @@ export class ByteRoverLLMService implements ILLMService {
         temperature: this.config.temperature,
       },
       contents: messages,
-      executionContext,
-      mode,
+      executionContext: options.executionContext,
       model: this.config.model,
-      sessionId,
-      systemPrompt,
-      tools,
+      systemPrompt: options.systemPrompt,
+      tools: options.tools,
+      trackingRequestId: options.trackingRequestId,
     }
   }
 
@@ -464,12 +500,119 @@ export class ByteRoverLLMService implements ILLMService {
   }
 
   /**
-   * Detect provider type from model name.
+   * Check for context overflow and trigger compaction if needed.
+   * Called after each assistant response and after tool execution batches.
+   *
+   * Follows OpenCode's compaction patterns:
+   * - First tries pruning tool outputs (if overflow > 85%)
+   * - Then tries full compaction with LLM summary (if overflow > 95%)
+   *
+   * @param trackingRequestId - Tracking request ID for backend metrics (passed from caller)
+   */
+  private async checkAndTriggerCompaction(trackingRequestId: string): Promise<void> {
+    if (!this.compactionService) return
+
+    // Calculate current token usage
+    const messages = this.contextManager.getMessages()
+    const messagesTokens = messages.reduce(
+      (total, msg) =>
+        total +
+        this.generator.estimateTokensSync(typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)),
+      0,
+    )
+
+    // Estimate system prompt tokens (rough estimate since we don't have full context here)
+    // Using a conservative estimate of 2000 tokens for system prompt
+    const estimatedSystemPromptTokens = 2000
+    const currentTokens = estimatedSystemPromptTokens + messagesTokens
+
+    // Check overflow
+    const overflowResult = this.compactionService.checkOverflow(currentTokens, this.config.maxInputTokens)
+
+    if (!overflowResult.isOverflow) return
+
+    // Emit context overflow event
+    const utilizationPercent = Math.round((currentTokens / this.config.maxInputTokens) * 100)
+    this.sessionEventBus.emit('llmservice:contextOverflow', {
+      currentTokens,
+      maxTokens: this.config.maxInputTokens,
+      utilizationPercent,
+    })
+
+    if (overflowResult.recommendation === 'prune') {
+      // Try pruning tool outputs first
+      const pruneResult = await this.compactionService.pruneToolOutputs(this.sessionId)
+
+      if (this.config.verbose && pruneResult.compactedCount > 0) {
+        console.log(
+          `[Compaction] Pruned ${pruneResult.compactedCount} tool outputs, saved ~${pruneResult.tokensSaved} tokens`,
+        )
+      }
+
+      // Emit context pruned event
+      if (pruneResult.compactedCount > 0) {
+        this.sessionEventBus.emit('llmservice:contextPruned', {
+          pruneCount: pruneResult.compactedCount,
+          reason: 'overflow',
+          tokensSaved: pruneResult.tokensSaved,
+        })
+
+        // Also emit warning for backward compatibility
+        this.sessionEventBus.emit('llmservice:warning', {
+          message: `Context compaction: pruned ${pruneResult.compactedCount} old tool outputs (~${pruneResult.tokensSaved} tokens)`,
+        })
+      }
+    } else if (overflowResult.recommendation === 'compact') {
+      const originalTokens = currentTokens
+
+      // Full compaction needed - generate LLM summary
+      // Use the same trackingRequestId from caller (all LLM calls in a request share the same tracking ID)
+      const summary = await this.compactionService.generateSummary(
+        this.generator,
+        messages,
+        trackingRequestId,
+        this.config.model,
+      )
+
+      await this.compactionService.createCompactionBoundary(this.sessionId, summary)
+
+      if (this.config.verbose) {
+        console.log('[Compaction] Created compaction boundary with LLM-generated summary')
+      }
+
+      // Emit context compressed event
+      // Estimate compressed tokens (summary is much smaller than original)
+      const compressedTokens = this.generator.estimateTokensSync(summary)
+      this.sessionEventBus.emit('llmservice:contextCompressed', {
+        compressedTokens,
+        originalTokens,
+        strategy: 'summary',
+      })
+
+      // Also emit warning for backward compatibility
+      this.sessionEventBus.emit('llmservice:warning', {
+        message: 'Context compaction: created summary boundary for conversation history',
+      })
+    }
+  }
+
+  /**
+   * Detect provider type from model name using the LLM registry.
+   *
+   * Uses the centralized registry to determine provider from model name.
+   * Falls back to string prefix matching if model is not in registry.
    *
    * @param model - Model identifier
    * @returns Provider type ('claude' or 'gemini')
    */
   private detectProviderType(model: string): 'claude' | 'gemini' {
+    // Use registry to detect provider
+    const registryProvider = getProviderFromModel(model)
+    if (registryProvider === 'claude' || registryProvider === 'gemini') {
+      return registryProvider
+    }
+
+    // Fallback to string prefix matching for unknown models
     return model.toLowerCase().startsWith('claude') ? 'claude' : 'gemini'
   }
 
@@ -489,7 +632,7 @@ export class ByteRoverLLMService implements ILLMService {
    */
   private determineReflectionType(
     iterationCount: number,
-    commandType?: 'curate' | 'query',
+    commandType?: 'chat' | 'curate' | 'query',
   ): 'completion_check' | 'final_iteration' | 'mid_point_check' | 'near_max_iterations' | undefined {
     const isQuery = commandType === 'query'
     const isLastIteration = iterationCount === this.config.maxIterations - 1
@@ -526,21 +669,19 @@ export class ByteRoverLLMService implements ILLMService {
    *
    * @param options - Iteration options
    * @param options.iterationCount - Current iteration number
-   * @param options.sessionId - Session ID for tracking the llm request in a command session
+   * @param options.trackingRequestId - Tracking request ID for backend metrics (random UUID per request)
    * @param options.tools - Available tools for this iteration
-   * @param options.mode - Optional mode for system prompt
    * @param options.executionContext - Optional execution context
    * @returns Final response string if complete, null if more iterations needed
    */
   private async executeAgenticIteration(options: {
     executionContext?: ExecutionContext
     iterationCount: number
-    mode?: 'autonomous' | 'default' | 'query'
-    sessionId: string
     tools: ToolSet
+    trackingRequestId: string
   }): Promise<null | string> {
-    const {executionContext, iterationCount, mode, sessionId, tools} = options
-    // Build system prompt using SimplePromptFactory (before compression for correct token accounting)
+    const {executionContext, iterationCount, tools, trackingRequestId} = options
+    // Build system prompt using SystemPromptManager (before compression for correct token accounting)
     // Use filtered tool names based on command type (e.g., only read-only tools for 'query')
     const availableTools = this.toolManager.getToolNamesForCommand(executionContext?.commandType)
     const markersSet = this.toolManager.getAvailableMarkers()
@@ -550,14 +691,23 @@ export class ByteRoverLLMService implements ILLMService {
       availableMarkers[marker] = marker
     }
 
-    let systemPrompt = await this.promptFactory.buildSystemPrompt({
+    // Build environment context for system prompt
+    const environmentContext = await this.environmentBuilder.build({
+      includeBrvStructure: true,
+      includeFileTree: true,
+      maxFileTreeDepth: 3,
+      maxFileTreeEntries: 100,
+      workingDirectory: this.workingDirectory,
+    })
+
+    let systemPrompt = await this.systemPromptManager.build({
       availableMarkers,
       availableTools,
       commandType: executionContext?.commandType,
       conversationMetadata: executionContext?.conversationMetadata,
+      environmentContext,
       fileReferenceInstructions: executionContext?.fileReferenceInstructions,
       memoryManager: this.memoryManager,
-      mode,
     })
 
     // Determine which reflection prompt to add (only highest priority is chosen)
@@ -565,7 +715,7 @@ export class ByteRoverLLMService implements ILLMService {
 
     // Add reflection prompt if eligible (hierarchical: only one reflection per iteration)
     if (reflectionType) {
-      const reflectionPrompt = this.promptFactory.buildReflectionPrompt({
+      const reflectionPrompt = this.systemPromptManager.buildReflectionPrompt({
         currentIteration: iterationCount + 1,
         maxIterations: this.config.maxIterations,
         type: reflectionType,
@@ -619,18 +769,31 @@ export class ByteRoverLLMService implements ILLMService {
     }
 
     // Build generation request
-    const request = this.buildGenerateContentRequest(sessionId, systemPrompt, toolsForThisIteration, mode, executionContext)
+    const request = this.buildGenerateContentRequest({
+      executionContext,
+      systemPrompt,
+      tools: toolsForThisIteration,
+      trackingRequestId,
+    })
 
     // Call LLM via generator (retry + logging handled by decorators)
     const lastMessage = await this.callLLMAndParseResponse(request)
 
     // Check if there are tool calls
     if (!lastMessage.toolCalls || lastMessage.toolCalls.length === 0) {
-      return this.handleFinalResponse(lastMessage)
+      const response = await this.handleFinalResponse(lastMessage)
+
+      // Auto-compaction check after assistant response
+      await this.checkAndTriggerCompaction(trackingRequestId)
+
+      return response
     }
 
     // Has tool calls - handle them
     await this.handleToolCalls(lastMessage)
+
+    // Auto-compaction check after tool execution batch
+    await this.checkAndTriggerCompaction(trackingRequestId)
 
     return null
   }
@@ -651,18 +814,29 @@ export class ByteRoverLLMService implements ILLMService {
       const loopResult = await this.loopDetector.recordAndCheck(toolName, toolArgs)
 
       if (loopResult.isLoop) {
-        // Emit warning event
+        // Emit dedicated doom loop event for observability
+        this.sessionEventBus.emit('llmservice:doomLoopDetected', {
+          args: toolArgs,
+          loopType: loopResult.loopType!,
+          repeatCount: loopResult.repeatCount ?? 0,
+          toolName,
+        })
+
+        // Also emit warning event for backward compatibility
         this.sessionEventBus.emit('llmservice:warning', {
-          message: `Loop detected: ${loopResult.loopType} - tool "${toolName}" repeated ${loopResult.repeatCount} times`,
+          message: `Doom loop detected: ${loopResult.loopType} - tool "${toolName}" repeated ${loopResult.repeatCount} times. Auto-denying to prevent infinite loop.`,
         })
 
         return {
           toolCall,
           toolResult: {
             errorType: 'LOOP_DETECTED',
-            metadata: {},
+            metadata: {
+              loopType: loopResult.loopType,
+              repeatCount: loopResult.repeatCount,
+            },
             processedOutput: {
-              content: `⚠️ LOOP DETECTED: ${loopResult.suggestion}\n\nPlease try a different approach to accomplish your goal.`,
+              content: `⚠️ DOOM LOOP DETECTED: ${loopResult.suggestion}\n\nThe tool call has been automatically rejected to prevent an infinite loop. Please try a different approach to accomplish your goal.`,
             },
             success: false,
           },
@@ -676,8 +850,13 @@ export class ByteRoverLLMService implements ILLMService {
         toolName,
       })
 
+      // Create metadata callback for streaming tool output
+      const metadataCallback = this.metadataHandler.createCallback(toolCall.id, toolName)
+
       // Execute tool via ToolManager (returns structured result)
-      const result: ToolExecutionResult = await this.toolManager.executeTool(toolName, toolArgs)
+      const result: ToolExecutionResult = await this.toolManager.executeTool(toolName, toolArgs, this.sessionId, {
+        metadata: metadataCallback,
+      })
 
       // Process output (truncation and file saving if needed)
       const processedOutput = await this.outputProcessor.processOutput(toolName, result.content)
@@ -908,7 +1087,8 @@ export class ByteRoverLLMService implements ILLMService {
 
   /**
    * Handle tool calls from LLM response.
-   * Executes tools in parallel for performance, but adds results to context in order.
+   * Uses tool parts with state machine: pending → running → completed/error.
+   * Executes tools in parallel for performance, but updates state in order.
    *
    * @param lastMessage - Last message containing tool calls
    */
@@ -924,33 +1104,126 @@ export class ByteRoverLLMService implements ILLMService {
     const assistantContent = this.extractTextContent(lastMessage)
     await this.contextManager.addAssistantMessage(assistantContent, lastMessage.toolCalls)
 
-    // Execute all tool calls in parallel
+    // Step 1: Create pending tool parts for all tool calls
+    for (const toolCall of lastMessage.toolCalls) {
+      const toolArgs = JSON.parse(toolCall.function.arguments)
+      this.contextManager.addToolCallPending(toolCall.id, toolCall.function.name, toolArgs)
+    }
+
+    // Step 2: Transition all to running state
+    const startTime = Date.now()
+    for (const toolCall of lastMessage.toolCalls) {
+      const runningState: ToolStateRunning = {
+        input: JSON.parse(toolCall.function.arguments),
+        startedAt: startTime,
+        status: 'running',
+      }
+      this.contextManager.updateToolCallState(toolCall.id, runningState)
+    }
+
+    // Step 3: Execute all tool calls in parallel
     const parallelResults = await Promise.allSettled(
       lastMessage.toolCalls.map((toolCall) => this.executeToolCallParallel(toolCall)),
     )
 
-    // Add results to context IN ORDER (preserves conversation flow)
+    // Step 4: Update tool part states with results (in order)
+    const endTime = Date.now()
     // eslint-disable-next-line unicorn/no-for-loop -- Need index to access both parallelResults and toolCalls in parallel
     for (let i = 0; i < parallelResults.length; i++) {
       const settledResult = parallelResults[i]
       const toolCall = lastMessage.toolCalls[i]
+      const toolArgs = JSON.parse(toolCall.function.arguments)
 
       if (settledResult.status === 'fulfilled') {
         const result = settledResult.value
+
+        if (result.toolResult?.success) {
+          // Transition to completed state
+          const completedState: ToolStateCompleted = {
+            attachments: result.toolResult.processedOutput.attachments,
+            input: toolArgs,
+            metadata: result.toolResult.metadata,
+            output: result.toolResult.processedOutput.content,
+            status: 'completed',
+            time: {end: endTime, start: startTime},
+            title: result.toolResult.processedOutput.title,
+          }
+          this.contextManager.updateToolCallState(toolCall.id, completedState)
+        } else {
+          // Transition to error state
+          const errorState: ToolStateError = {
+            error: result.toolResult?.processedOutput.content ?? result.error ?? 'Unknown error',
+            input: toolArgs,
+            status: 'error',
+            time: {end: endTime, start: startTime},
+          }
+          this.contextManager.updateToolCallState(toolCall.id, errorState)
+        }
+
+        // Also add to context as tool result message (for backward compatibility)
         // eslint-disable-next-line no-await-in-loop -- Must add results in order
         await this.addParallelToolResultToContext(result)
       } else {
-        // Handle unexpected Promise rejection (should be rare since executeToolCallParallel catches errors)
+        // Handle unexpected Promise rejection
         const errorMessage = getErrorMessage(settledResult.reason)
         this.logger.error('Unexpected error in parallel tool execution', {
           error: settledResult.reason,
           toolCallId: toolCall.id,
           toolName: toolCall.function.name,
         })
+
+        // Transition to error state
+        const errorState: ToolStateError = {
+          error: errorMessage,
+          input: toolArgs,
+          status: 'error',
+          time: {end: endTime, start: startTime},
+        }
+        this.contextManager.updateToolCallState(toolCall.id, errorState)
+
+        // Also add to context as tool result message (for backward compatibility)
         // eslint-disable-next-line no-await-in-loop -- Must add results in order
         await this.contextManager.addToolResult(toolCall.id, toolCall.function.name, `Error: ${errorMessage}`, {
           errorType: 'UNEXPECTED_ERROR',
           success: false,
+        })
+      }
+    }
+  }
+
+  /**
+   * Validate LLM configuration using Zod schema.
+   *
+   * Performs validation against the centralized LLM config schema.
+   * Logs warnings for invalid configurations but doesn't throw to maintain
+   * backward compatibility with existing code.
+   *
+   * @param model - Model name to validate
+   * @param maxInputTokens - Optional max input tokens to validate
+   */
+  private validateConfig(model: string, maxInputTokens?: number): void {
+    const result = safeParseLLMConfig({
+      maxInputTokens,
+      maxIterations: this.config?.maxIterations ?? 50,
+      model,
+      provider: this.providerType,
+    })
+
+    if (!result.success) {
+      // Log validation warnings but don't throw (backward compatibility)
+      const issues = result.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join('; ')
+
+      this.logger.warn('LLM config validation warning', {
+        issues,
+        model,
+        provider: this.providerType,
+      })
+
+      // Also check if model is valid in registry
+      if (!isValidProviderModel(this.providerType, model)) {
+        this.logger.info('Model not in registry, using fallback defaults', {
+          model,
+          provider: this.providerType,
         })
       }
     }

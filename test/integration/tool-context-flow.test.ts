@@ -13,7 +13,7 @@ import {GeminiTokenizer} from '../../src/infra/cipher/llm/tokenizers/gemini-toke
  *
  * This test simulates the agentic loop:
  * 1. User asks a question
- * 2. LLM calls find_knowledge_topics tool
+ * 2. LLM calls grep_content tool
  * 3. Tool result is added to context
  * 4. LLM sees the result and can use it for next iteration
  */
@@ -39,14 +39,14 @@ describe('Tool Context Flow Integration', () => {
   describe('Tool Result Storage and Retrieval', () => {
     it('should store tool results in conversation history', async () => {
       // Simulate user message
-      await contextManager.addUserMessage('Find all topics about testing')
+      await contextManager.addUserMessage('Find all files about testing')
 
-      // Simulate assistant calling find_knowledge_topics tool
+      // Simulate assistant calling grep_content tool
       await contextManager.addAssistantMessage('', [
         {
           function: {
-            arguments: JSON.stringify({topicPattern: 'test'}),
-            name: 'find_knowledge_topics',
+            arguments: JSON.stringify({pattern: 'test'}),
+            name: 'grep_content',
           },
           id: 'call_123',
           type: 'function',
@@ -55,40 +55,40 @@ describe('Tool Context Flow Integration', () => {
 
       // Simulate tool result
       const toolResult = {
-        results: [
-          {domain: 'testing', path: '.brv/context-tree/testing/unit_tests/context.md', topic: 'unit_tests'},
-          {domain: 'testing', path: '.brv/context-tree/testing/integration_tests/context.md', topic: 'integration_tests'},
+        matches: [
+          {content: 'describe("unit tests", () => {', file: 'src/testing/unit_tests.ts', line: 10},
+          {content: 'describe("integration tests", () => {', file: 'src/testing/integration_tests.ts', line: 5},
         ],
         total: 2,
       }
 
-      await contextManager.addToolResult('call_123', 'find_knowledge_topics', toolResult, {success: true})
+      await contextManager.addToolResult('call_123', 'grep_content', toolResult, {success: true})
 
       // Verify the result is in the message history
       const messages = contextManager.getMessages()
 
       expect(messages).to.have.length(3)
       expect(messages[2].role).to.equal('tool')
-      expect(messages[2].name).to.equal('find_knowledge_topics')
+      expect(messages[2].name).to.equal('grep_content')
       expect(messages[2].toolCallId).to.equal('call_123')
 
       // Verify the content is properly serialized
       const content = messages[2].content as string
       expect(content).to.include('unit_tests')
       expect(content).to.include('integration_tests')
-      expect(content).to.include('.brv/context-tree/testing/unit_tests/context.md')
+      expect(content).to.include('src/testing/unit_tests.ts')
     })
 
     it('should make tool results available in formatted messages', async () => {
       // Add user message
-      await contextManager.addUserMessage('Find testing topics')
+      await contextManager.addUserMessage('Find testing files')
 
       // Add assistant tool call
       await contextManager.addAssistantMessage('', [
         {
           function: {
-            arguments: JSON.stringify({domain: 'testing'}),
-            name: 'find_knowledge_topics',
+            arguments: JSON.stringify({pattern: 'testing'}),
+            name: 'grep_content',
           },
           id: 'call_456',
           type: 'function',
@@ -97,10 +97,10 @@ describe('Tool Context Flow Integration', () => {
 
       // Add tool result
       const toolResult = {
-        results: [{domain: 'testing', path: '.brv/context-tree/testing/unit_tests/context.md', topic: 'unit_tests'}],
+        matches: [{content: 'Unit testing module', file: 'src/testing/unit_tests.ts', line: 1}],
         total: 1,
       }
-      await contextManager.addToolResult('call_456', 'find_knowledge_topics', toolResult, {success: true})
+      await contextManager.addToolResult('call_456', 'grep_content', toolResult, {success: true})
 
       // Get formatted messages (as would be sent to LLM)
       const {formattedMessages} = await contextManager.getFormattedMessagesWithCompression()
@@ -113,35 +113,35 @@ describe('Tool Context Flow Integration', () => {
       expect(toolResultMessage.role).to.equal('user') // Gemini formats tool results as user messages
       expect(toolResultMessage.parts).to.exist
       expect(toolResultMessage.parts?.[0].functionResponse).to.exist
-      expect(toolResultMessage.parts?.[0].functionResponse?.name).to.equal('find_knowledge_topics')
+      expect(toolResultMessage.parts?.[0].functionResponse?.name).to.equal('grep_content')
     })
 
     it('should preserve tool results through multiple iterations', async () => {
-      // Iteration 1: Find topics
-      await contextManager.addUserMessage('Find testing topics and read the first one')
+      // Iteration 1: Find files
+      await contextManager.addUserMessage('Find testing files and read the first one')
 
       await contextManager.addAssistantMessage('', [
         {
           function: {
-            arguments: JSON.stringify({domain: 'testing'}),
-            name: 'find_knowledge_topics',
+            arguments: JSON.stringify({pattern: 'testing'}),
+            name: 'grep_content',
           },
           id: 'call_1',
           type: 'function',
         },
       ])
 
-      const findResult = {
-        results: [{domain: 'testing', path: '.brv/context-tree/testing/unit_tests/context.md', topic: 'unit_tests'}],
+      const grepResult = {
+        matches: [{content: 'Unit testing module', file: 'src/testing/unit_tests.ts', line: 1}],
         total: 1,
       }
-      await contextManager.addToolResult('call_1', 'find_knowledge_topics', findResult, {success: true})
+      await contextManager.addToolResult('call_1', 'grep_content', grepResult, {success: true})
 
-      // Iteration 2: Read file (uses result from find_knowledge_topics)
+      // Iteration 2: Read file (uses result from grep_content)
       await contextManager.addAssistantMessage('', [
         {
           function: {
-            arguments: JSON.stringify({path: '.brv/context-tree/testing/unit_tests/context.md'}),
+            arguments: JSON.stringify({path: 'src/testing/unit_tests.ts'}),
             name: 'read_file',
           },
           id: 'call_2',
@@ -157,8 +157,8 @@ describe('Tool Context Flow Integration', () => {
 
       // Should have:
       // 1. User message
-      // 2. Assistant with find_knowledge_topics call
-      // 3. Tool result for find_knowledge_topics
+      // 2. Assistant with grep_content call
+      // 3. Tool result for grep_content
       // 4. Assistant with read_file call
       // 5. Tool result for read_file
       expect(messages).to.have.length(5)
@@ -168,7 +168,7 @@ describe('Tool Context Flow Integration', () => {
       expect(toolMessages).to.have.length(2)
 
       // First tool result
-      expect(toolMessages[0].name).to.equal('find_knowledge_topics')
+      expect(toolMessages[0].name).to.equal('grep_content')
       expect(toolMessages[0].content).to.include('unit_tests')
 
       // Second tool result
@@ -177,11 +177,11 @@ describe('Tool Context Flow Integration', () => {
     })
 
     it('should handle structured tool results with output guidance', async () => {
-      await contextManager.addUserMessage('List available topics')
+      await contextManager.addUserMessage('List available files')
 
       await contextManager.addAssistantMessage('', [
         {
-          function: {arguments: JSON.stringify({}), name: 'find_knowledge_topics'},
+          function: {arguments: JSON.stringify({}), name: 'glob_files'},
           id: 'call_789',
           type: 'function',
         },
@@ -190,17 +190,17 @@ describe('Tool Context Flow Integration', () => {
       // Simulate tool result with guidance (as returned by ToolProvider)
       const toolResultWithGuidance = {
         guidance:
-          'You have retrieved knowledge topics. Consider if you need to:\n- Read specific topic content\n- Filter further',
+          'You have retrieved file paths. Consider if you need to:\n- Read specific file content\n- Filter further',
         result: {
-          results: [
-            {domain: 'testing', path: '.brv/context-tree/testing/unit_tests/context.md', topic: 'unit_tests'},
-            {domain: 'architecture', path: '.brv/context-tree/architecture/patterns/context.md', topic: 'patterns'},
+          files: [
+            'src/testing/unit_tests.ts',
+            'src/architecture/patterns.ts',
           ],
           total: 2,
         },
       }
 
-      await contextManager.addToolResult('call_789', 'find_knowledge_topics', toolResultWithGuidance, {
+      await contextManager.addToolResult('call_789', 'glob_files', toolResultWithGuidance, {
         success: true,
       })
 
@@ -211,7 +211,7 @@ describe('Tool Context Flow Integration', () => {
       expect(toolMessage).to.exist
       const content = toolMessage!.content as string
       expect(content).to.include('guidance')
-      expect(content).to.include('Read specific topic content')
+      expect(content).to.include('Read specific file content')
       expect(content).to.include('unit_tests')
       expect(content).to.include('patterns')
     })
@@ -221,7 +221,7 @@ describe('Tool Context Flow Integration', () => {
 
       await contextManager.addAssistantMessage('', [
         {
-          function: {arguments: JSON.stringify({}), name: 'find_knowledge_topics'},
+          function: {arguments: JSON.stringify({}), name: 'glob_files'},
           id: 'call_large',
           type: 'function',
         },
@@ -229,14 +229,13 @@ describe('Tool Context Flow Integration', () => {
 
       // Create a very large result (>50K characters)
       const largeArray = Array.from({length: 10_000}).map((_, i) => ({
-        domain: `domain_${i}`,
-        path: `domain_${i}/topic_${i}`,
-        topic: `topic_${i}`,
+        file: `file_${i}.ts`,
+        path: `src/domain_${i}/file_${i}.ts`,
       }))
 
-      const largeResult = {results: largeArray, total: 10_000}
+      const largeResult = {files: largeArray, total: 10_000}
 
-      await contextManager.addToolResult('call_large', 'find_knowledge_topics', largeResult, {success: true})
+      await contextManager.addToolResult('call_large', 'glob_files', largeResult, {success: true})
 
       // Verify the content is truncated
       const messages = contextManager.getMessages()
@@ -251,20 +250,20 @@ describe('Tool Context Flow Integration', () => {
     })
 
     it('should handle tool execution errors gracefully', async () => {
-      await contextManager.addUserMessage('Find topics')
+      await contextManager.addUserMessage('Find files')
 
       await contextManager.addAssistantMessage('', [
         {
-          function: {arguments: JSON.stringify({invalid: 'params'}), name: 'find_knowledge_topics'},
+          function: {arguments: JSON.stringify({invalid: 'params'}), name: 'grep_content'},
           id: 'call_error',
           type: 'function',
         },
       ])
 
       // Simulate error result
-      const errorMessage = 'Error: Invalid parameter "invalid". Expected one of: domain, domainPattern, topicPattern'
+      const errorMessage = 'Error: Invalid parameter "invalid". Expected one of: pattern, path'
 
-      await contextManager.addToolResult('call_error', 'find_knowledge_topics', errorMessage, {success: false})
+      await contextManager.addToolResult('call_error', 'grep_content', errorMessage, {success: false})
 
       // Verify error is stored
       const messages = contextManager.getMessages()
@@ -278,13 +277,13 @@ describe('Tool Context Flow Integration', () => {
 
   describe('Tool Chaining Simulation', () => {
     it('should support sequential tool calls with dependent data', async () => {
-      // User wants to find and read topics
-      await contextManager.addUserMessage('Find all testing topics and show me the content of unit_tests')
+      // User wants to find and read files
+      await contextManager.addUserMessage('Find all testing files and show me the content of unit_tests')
 
-      // Step 1: find_knowledge_topics
-      await contextManager.addAssistantMessage('Let me find the testing topics first', [
+      // Step 1: grep_content
+      await contextManager.addAssistantMessage('Let me find the testing files first', [
         {
-          function: {arguments: JSON.stringify({domain: 'testing', includeSubtopics: true}), name: 'find_knowledge_topics'},
+          function: {arguments: JSON.stringify({includeLineNumbers: true, pattern: 'testing'}), name: 'grep_content'},
           id: 'call_find',
           type: 'function',
         },
@@ -292,14 +291,14 @@ describe('Tool Context Flow Integration', () => {
 
       await contextManager.addToolResult(
         'call_find',
-        'find_knowledge_topics',
+        'grep_content',
         {
-          results: [
+          matches: [
             {
-              domain: 'testing',
-              path: '.brv/context-tree/testing/unit_tests/context.md',
-              subtopics: [{name: 'mocking', path: '.brv/context-tree/testing/unit_tests/mocking/context.md'}],
-              topic: 'unit_tests',
+              content: 'Unit testing module',
+              file: 'src/testing/unit_tests.ts',
+              line: 1,
+              related: [{name: 'mocking', path: 'src/testing/mocking.ts'}],
             },
           ],
           total: 1,
@@ -311,7 +310,7 @@ describe('Tool Context Flow Integration', () => {
       await contextManager.addAssistantMessage('Now let me read the unit_tests content', [
         {
           function: {
-            arguments: JSON.stringify({path: '.brv/context-tree/testing/unit_tests/context.md'}),
+            arguments: JSON.stringify({path: 'src/testing/unit_tests.ts'}),
             name: 'read_file',
           },
           id: 'call_read',
@@ -328,18 +327,18 @@ describe('Tool Context Flow Integration', () => {
 
       // Step 3: Final response (synthesizes both results)
       await contextManager.addAssistantMessage(
-        'Based on the knowledge structure, here is what I found:\n\n' +
-          'The testing domain has a unit_tests topic with a mocking subtopic. ' +
+        'Based on the search results, here is what I found:\n\n' +
+          'The testing directory has a unit_tests file with a mocking module. ' +
           'The unit testing guidelines emphasize using the AAA pattern and mocking external dependencies.',
       )
 
       // Verify complete conversation flow
       const messages = contextManager.getMessages()
 
-      // Should have 7 messages:
+      // Should have 6 messages:
       // 1. User
-      // 2. Assistant with find call
-      // 3. find result
+      // 2. Assistant with grep call
+      // 3. grep result
       // 4. Assistant with read call
       // 5. read result
       // 6. Final assistant response
@@ -350,7 +349,7 @@ describe('Tool Context Flow Integration', () => {
       expect(messages[1].role).to.equal('assistant')
       expect(messages[1].toolCalls).to.have.length(1)
       expect(messages[2].role).to.equal('tool')
-      expect(messages[2].name).to.equal('find_knowledge_topics')
+      expect(messages[2].name).to.equal('grep_content')
       expect(messages[3].role).to.equal('assistant')
       expect(messages[3].toolCalls).to.have.length(1)
       expect(messages[4].role).to.equal('tool')

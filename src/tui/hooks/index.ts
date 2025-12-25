@@ -2,15 +2,13 @@
  * TUI Hooks
  */
 
-export {CommandsProvider, useCommands} from '../contexts/use-commands.js'
-export {ModeProvider, useMode} from '../contexts/use-mode.js'
-export {ThemeProvider, useTheme} from '../contexts/use-theme.js'
-export {composeChangesFromToolCalls, parseExecutionContent, useActivityLogs} from './use-activity-logs.js'
+export {CommandsProvider, useCommands} from '../contexts/commands-context.js'
+export {ModeProvider, useMode} from '../contexts/mode-context.js'
+export {ThemeProvider, useTheme} from '../contexts/theme-context.js'
+export {parseExecutionContent, useActivityLogs} from './use-activity-logs.js'
 export type {UseActivityLogsReturn} from './use-activity-logs.js'
-export {useConsumer} from './use-consumer.js'
 export {useOnboarding} from './use-onboarding.js'
 export type {OnboardingStep, UseOnboardingReturn} from './use-onboarding.js'
-export {useQueuePolling, useQueuePollingCleanup} from './use-queue-polling.js'
 export {useSlashCommandProcessor} from './use-slash-command-processor.js'
 export {useSlashCompletion} from './use-slash-completion.js'
 export {useTabNavigation} from './use-tab-navigation.js'

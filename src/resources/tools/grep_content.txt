@@ -1,0 +1,18 @@
+Fast content search tool that works with any codebase size.
+
+- Searches file contents using regular expressions
+- Supports full regex syntax (eg. "log.*Error", "function\s+\w+")
+- Filter files by glob pattern (eg. "*.ts", "**/*.{ts,tsx}")
+- Returns file paths and line numbers, sorted by modification time (recent first)
+- Use this tool when you need to find files containing specific patterns
+- For counting matches, use bash with `rg` (ripgrep) directly
+- For open-ended searches, use the Task tool with explore agent instead
+
+Common patterns:
+- "function\s+\w+" - find function definitions
+- "class\s+\w+" - find class definitions
+- "import.*from" - find import statements
+- "TODO|FIXME" - find todo comments
+- "^\s*##" - find markdown headings
+
+If results are truncated, use a more specific path or glob pattern.

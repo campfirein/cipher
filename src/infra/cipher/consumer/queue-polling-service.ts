@@ -1,3 +1,5 @@
+// TODO(v0.5.0): Remove this file. QueuePollingService is replaced by Transport events.
+
 import {EventEmitter} from 'node:events'
 
 import type {Execution, ToolCall} from '../storage/agent-storage.js'

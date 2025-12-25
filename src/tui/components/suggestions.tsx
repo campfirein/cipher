@@ -10,8 +10,8 @@
 import {Box, Text, useInput} from 'ink'
 import React, {useEffect, useMemo, useRef} from 'react'
 
-import {useMode} from '../contexts/use-mode.js'
-import {useTheme} from '../contexts/use-theme.js'
+import {useMode} from '../contexts/mode-context.js'
+import {useTheme} from '../contexts/theme-context.js'
 import {useSlashCompletion} from '../hooks/index.js'
 import {CommandDetails} from './command-details.js'
 

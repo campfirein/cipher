@@ -1,0 +1,22 @@
+Curate knowledge topics with atomic operations. This tool manages the knowledge structure using four operation types:
+
+**Operations:**
+1. **ADD** - Create new domain/topic/subtopic with context.md
+   - Requires: path, content (snippets and/or relations), reason
+   - Example: { type: "ADD", path: "code_style/error-handling", content: { snippets: ["..."], relations: ["logging/basics"] }, reason: "New pattern identified" }
+
+2. **UPDATE** - Modify existing context.md (full replacement)
+   - Requires: path, content, reason
+   - Example: { type: "UPDATE", path: "code_style/error-handling", content: { snippets: ["Updated content"] }, reason: "Improved guidance" }
+
+3. **MERGE** - Combine source topic into target, delete source
+   - Requires: path (source), mergeTarget (destination), reason
+   - Example: { type: "MERGE", path: "code_style/old-topic", mergeTarget: "code_style/new-topic", reason: "Consolidating duplicates" }
+
+4. **DELETE** - Remove topic/subtopic folder recursively
+   - Requires: path, reason
+   - Example: { type: "DELETE", path: "code_style/deprecated-topic", reason: "No longer relevant" }
+
+**Path format:** domain/topic or domain/topic/subtopic
+
+**Output:** Returns applied operations with status (success/failed) and a summary of counts.

@@ -2,9 +2,9 @@ import {expect} from 'chai'
 import {createSandbox, type SinonSandbox} from 'sinon'
 
 import type {CipherAgentServices} from '../../../../src/core/interfaces/cipher/cipher-services.js'
-import type {ByteRoverHttpConfig} from '../../../../src/infra/cipher/agent-service-factory.js'
+import type {ByteRoverHttpConfig} from '../../../../src/infra/cipher/agent/service-initializer.js'
 
-import {createSessionServices} from '../../../../src/infra/cipher/agent-service-factory.js'
+import {createSessionServices} from '../../../../src/infra/cipher/agent/service-initializer.js'
 import {AgentEventBus, SessionEventBus} from '../../../../src/infra/cipher/events/event-emitter.js'
 import {setupEventForwarding} from '../../../../src/infra/cipher/session/session-event-forwarder.js'
 import {SessionManager} from '../../../../src/infra/cipher/session/session-manager.js'

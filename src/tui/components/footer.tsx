@@ -5,8 +5,8 @@
 import { Box, Text } from 'ink'
 import React from 'react'
 
-import { useMode } from '../contexts/use-mode.js'
-import { useTheme } from '../contexts/use-theme.js'
+import { useMode } from '../contexts/mode-context.js'
+import { useTheme } from '../contexts/theme-context.js'
 
 export const Footer: React.FC = () => {
   const { shortcuts } = useMode()

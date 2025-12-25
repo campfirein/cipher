@@ -111,35 +111,92 @@ export interface SearchOptions {
 }
 
 /**
+ * Options for listing directory contents.
+ */
+export interface ListDirectoryOptions {
+  /** Additional glob patterns to ignore (merged with defaults) */
+  ignore?: string[]
+
+  /** Maximum number of files to return (default: 100) */
+  maxResults?: number
+}
+
+/**
+ * Entry in directory listing.
+ */
+export interface DirectoryEntry {
+  /** Whether this is a directory */
+  isDirectory: boolean
+
+  /** Entry name (file or directory name, not full path) */
+  name: string
+
+  /** Relative path from the listed directory */
+  path: string
+}
+
+/**
+ * Result of a directory listing operation.
+ */
+export interface ListDirectoryResult {
+  /** Total number of entries found */
+  count: number
+
+  /** Array of directory entries */
+  entries: DirectoryEntry[]
+
+  /** Formatted tree output string */
+  tree: string
+
+  /** Whether results were truncated */
+  truncated: boolean
+}
+
+/**
+ * Attachment data for binary files (images, PDFs).
+ * Used to return base64-encoded content for multimodal LLM consumption.
+ */
+export interface FileAttachment {
+  /** Base64-encoded file content */
+  base64: string
+
+  /** Original file name */
+  fileName: string
+
+  /** MIME type (e.g., 'image/png', 'application/pdf') */
+  mimeType: string
+}
+
+/**
  * Result of a file read operation.
  */
 export interface FileContent {
+  /** Attachment data for binary files (images, PDFs) */
+  attachment?: FileAttachment
+
   /** File content as string */
   content: string
 
   /** Character encoding used */
   encoding: string
 
+  /** Formatted content with line numbers (00001| content format) */
+  formattedContent: string
+
   /** Total number of lines in the returned content */
   lines: number
 
-  /** Pagination metadata for truncated files */
-  pagination?: {
-    /** Hint message for LLM on how to continue reading */
-    hint: string
-    
-    /** Line range being displayed [start, end] (1-based) */
-    linesShown: [number, number]
-    
-    /** Offset to use for reading next chunk */
-    nextOffset: number
-    
-    /** Total number of lines in the file */
-    totalLines: number
-  }
+  /** Human-readable message about file status (truncation info, etc.) */
+  message: string
+
+  /** Preview of content (first 20 lines) for UI display */
+  preview?: string
 
   /** File size in bytes */
   size: number
+
+  /** Total lines in the entire file */
+  totalLines: number
 
   /** Whether content was truncated due to size/line limits */
   truncated: boolean
@@ -237,6 +294,9 @@ export interface SearchMatch {
 
   /** Line number (1-based) */
   lineNumber: number
+
+  /** File modification time in milliseconds (for sorting by recency) */
+  mtime?: number
 }
 
 /**

@@ -17,3 +17,6 @@ export {ChatSession} from './chat-session.js'
 
 // Session manager
 export {SessionManager} from './session-manager.js'
+
+// Session status
+export {SessionStatusManager, sessionStatusManager} from './session-status.js'

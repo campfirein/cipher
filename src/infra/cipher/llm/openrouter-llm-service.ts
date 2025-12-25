@@ -9,7 +9,7 @@ import type {ILLMService} from '../../../core/interfaces/cipher/i-llm-service.js
 import type {ILogger} from '../../../core/interfaces/cipher/i-logger.js'
 import type {InternalMessage, ToolCall} from '../../../core/interfaces/cipher/message-types.js'
 import type {MemoryManager} from '../memory/memory-manager.js'
-import type {SimplePromptFactory} from '../system-prompt/simple-prompt-factory.js'
+import type {SystemPromptManager} from '../system-prompt/system-prompt-manager.js'
 import type {ToolManager} from '../tools/tool-manager.js'
 
 import {
@@ -95,8 +95,8 @@ export class OpenRouterLLMService implements ILLMService {
   private readonly formatter: OpenRouterMessageFormatter
   private readonly logger: ILogger
   private readonly memoryManager?: MemoryManager
-  private readonly promptFactory: SimplePromptFactory
   private readonly sessionEventBus: SessionEventBus
+  private readonly systemPromptManager: SystemPromptManager
   private readonly tokenizer: OpenRouterTokenizer
   private readonly toolManager: ToolManager
 
@@ -121,12 +121,12 @@ export class OpenRouterLLMService implements ILLMService {
       logger?: ILogger
       memoryManager?: MemoryManager
       sessionEventBus: SessionEventBus
-      systemPromptManager: SimplePromptFactory
+      systemPromptManager: SystemPromptManager
       toolManager: ToolManager
     },
   ) {
     this.toolManager = options.toolManager
-    this.promptFactory = options.systemPromptManager
+    this.systemPromptManager = options.systemPromptManager
     this.memoryManager = options.memoryManager
     this.sessionEventBus = options.sessionEventBus
     this.logger = options.logger ?? new NoOpLogger()
@@ -179,30 +179,28 @@ export class OpenRouterLLMService implements ILLMService {
    * 3. Returning final response when no more tool calls
    *
    * @param textInput - User input text
-   * @param sessionId - Session ID for tracking the conversation
+   * @param trackingRequestId - Tracking request ID for backend metrics (random UUID per request)
    * @param options - Execution options
    * @param options.signal - Optional abort signal for cancellation
    * @param options.imageData - Optional image data
    * @param options.fileData - Optional file data
    * @param options.stream - Whether to stream response (not implemented yet)
    * @param options.executionContext - Optional execution context (for JSON input mode, etc.)
-   * @param options.mode - Optional mode for system prompt ('json-input' enables autonomous mode)
    * @returns Final assistant response
    */
   public async completeTask(
     textInput: string,
-    sessionId: string,
+    trackingRequestId: string,
     options?: {
       executionContext?: ExecutionContext
       fileData?: FileData
       imageData?: ImageData
-      mode?: 'autonomous' | 'default' | 'query'
       signal?: AbortSignal
       stream?: boolean
     },
   ): Promise<string> {
     // Extract options with defaults
-    const {executionContext, fileData, imageData, mode, signal} = options ?? {}
+    const {executionContext, fileData, imageData, signal} = options ?? {}
 
     // Add user message to context
     await this.contextManager.addUserMessage(textInput, imageData, fileData)
@@ -229,7 +227,7 @@ export class OpenRouterLLMService implements ILLMService {
 
       try {
         // eslint-disable-next-line no-await-in-loop -- Sequential iterations required for agentic loop
-        const result = await this.executeAgenticIteration(iterationCount, tools, executionContext, mode)
+        const result = await this.executeAgenticIteration(iterationCount, tools, executionContext)
 
         if (result !== null) {
           return result
@@ -323,32 +321,29 @@ export class OpenRouterLLMService implements ILLMService {
    * @param iterationCount - Current iteration number
    * @param tools - Available tools for this iteration
    * @param executionContext - Optional execution context
-   * @param mode - Optional mode for system prompt
    * @returns Final response string if complete, null if more iterations needed
    */
   private async executeAgenticIteration(
     iterationCount: number,
     tools: OpenAIToolDefinition[],
     executionContext: ExecutionContext | undefined,
-    mode?: 'autonomous' | 'default' | 'query',
   ): Promise<null | string> {
-    // Build system prompt using SimplePromptFactory (before compression for correct token accounting)
+    // Build system prompt using SystemPromptManager (before compression for correct token accounting)
     const availableTools = this.toolManager.getToolNames()
     const markersSet = this.toolManager.getAvailableMarkers()
 
-    // Convert Set<string> to Record<string, string> for SimplePromptFactory
+    // Convert Set<string> to Record<string, string> for SystemPromptManager
     const availableMarkers: Record<string, string> = {}
     for (const marker of markersSet) {
       availableMarkers[marker] = marker
     }
 
-    const systemPrompt = await this.promptFactory.buildSystemPrompt({
+    const systemPrompt = await this.systemPromptManager.build({
       availableMarkers,
       availableTools,
       commandType: executionContext?.commandType,
       conversationMetadata: executionContext?.conversationMetadata,
       memoryManager: this.memoryManager,
-      mode,
     })
 
     // Verbose debug: Show complete system prompt

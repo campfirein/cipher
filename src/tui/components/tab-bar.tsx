@@ -8,7 +8,7 @@ import React from 'react'
 import type { TabId } from '../types.js'
 
 import { TABS } from '../constants.js'
-import { useTheme } from '../contexts/use-theme.js'
+import { useTheme } from '../contexts/theme-context.js'
 
 interface TabBarProps {
   activeTab: TabId

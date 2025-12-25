@@ -1,0 +1,28 @@
+Executes multiple independent tool calls concurrently to reduce latency. Best used for gathering context (reads, searches, listings).
+
+Payload Format (JSON array):
+[{"tool": "read_file", "parameters": {"filePath": "/path/to/file"}},
+ {"tool": "grep_content", "parameters": {"pattern": "TODO", "path": "src/"}},
+ {"tool": "glob_files", "parameters": {"pattern": "**/*.ts"}}]
+
+Rules:
+- 1–10 tool calls per batch
+- All calls start in parallel; ordering NOT guaranteed
+- Partial failures do not stop others
+- Each call's result is returned individually
+
+Disallowed Tools:
+- batch (no nesting)
+- edit_file (run edits separately for proper conflict handling)
+- write_todos (call directly – lightweight)
+
+When NOT to Use:
+- Operations that depend on prior tool output (e.g., create then read same file)
+- Ordered stateful mutations where sequence matters
+
+Good Use Cases:
+- Read multiple files at once
+- grep + glob + read combos
+- Multiple lightweight bash introspection commands
+
+Performance Tip: Group independent reads/searches for 2–5x efficiency gain.

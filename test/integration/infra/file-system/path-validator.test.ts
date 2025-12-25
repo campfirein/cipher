@@ -321,4 +321,178 @@ describe('PathValidator', () => {
       }
     })
   })
+
+  describe('validate - path duplication prevention (ENG-711)', () => {
+    it('should prevent path duplication when working directory ends with file path prefix', async () => {
+      // Simulate the exact bug scenario from ENG-711:
+      // workingDirectory = /project/.brv/context-tree
+      // filePath = .brv/context-tree/structure/authentication/context.md
+      // Expected: /project/.brv/context-tree/structure/authentication/context.md (NOT duplicated)
+      const contextTreeDir = join(testDir, '.brv', 'context-tree')
+      await mkdir(contextTreeDir, {recursive: true})
+
+      // Create nested structure
+      const structureDir = join(contextTreeDir, 'structure', 'authentication')
+      await mkdir(structureDir, {recursive: true})
+      await writeFile(join(structureDir, 'context.md'), 'test content')
+
+      // Configure with working directory at context-tree level
+      const contextTreeConfig = {
+        ...config,
+        allowedPaths: [contextTreeDir],
+        workingDirectory: contextTreeDir,
+      }
+
+      const validator = new PathValidator(contextTreeConfig)
+
+      // This is the exact path pattern that was causing the bug
+      const result = validator.validate('.brv/context-tree/structure/authentication/context.md', 'read')
+
+      expect(result.valid).to.be.true
+      if (result.valid) {
+        // The path should NOT contain duplicate .brv/context-tree segments
+        const pathParts = result.normalizedPath.split(path.sep)
+        const contextTreeOccurrences = pathParts.filter(
+          (_, i) => pathParts[i] === '.brv' && pathParts[i + 1] === 'context-tree',
+        ).length
+        expect(contextTreeOccurrences).to.equal(1, 'Path should only contain .brv/context-tree once')
+
+        // Verify the path resolves to the actual file
+        expect(result.normalizedPath).to.include('structure')
+        expect(result.normalizedPath).to.include('authentication')
+        expect(result.normalizedPath).to.include('context.md')
+      }
+    })
+
+    it('should handle single segment path duplication', async () => {
+      // workingDirectory = /project/src
+      // filePath = src/file.ts
+      // Expected: /project/src/file.ts (NOT /project/src/src/file.ts)
+      const srcDir = join(testDir, 'src')
+      await mkdir(srcDir, {recursive: true})
+      await writeFile(join(srcDir, 'file.ts'), 'content')
+
+      const srcConfig = {
+        ...config,
+        allowedPaths: [srcDir],
+        workingDirectory: srcDir,
+      }
+
+      const validator = new PathValidator(srcConfig)
+      const result = validator.validate('src/file.ts', 'read')
+
+      expect(result.valid).to.be.true
+      if (result.valid) {
+        // Count 'src' occurrences - should only appear once in the actual path after testDir
+        const relativePath = path.relative(testDir, result.normalizedPath)
+        const srcCount = relativePath.split(path.sep).filter((s) => s === 'src').length
+        expect(srcCount).to.equal(1, 'Path should only contain src once')
+      }
+    })
+
+    it('should not modify paths when no duplication would occur', async () => {
+      // Normal case: workingDirectory = /project
+      // filePath = .brv/context-tree/file.md
+      // Expected: /project/.brv/context-tree/file.md (normal resolution)
+      const brvDir = join(testDir, '.brv', 'context-tree')
+      await mkdir(brvDir, {recursive: true})
+      const filePath = join(brvDir, 'file.md')
+      await writeFile(filePath, 'content')
+
+      // Working directory at project root (not at context-tree level)
+      const projectConfig = {
+        ...config,
+        allowedPaths: [testDir],
+        workingDirectory: testDir,
+      }
+
+      const validator = new PathValidator(projectConfig)
+      const result = validator.validate('.brv/context-tree/file.md', 'read')
+
+      expect(result.valid).to.be.true
+      if (result.valid) {
+        // Use realpath to get the expected path with symlinks resolved
+        const {realpathSync} = await import('node:fs')
+        const expectedPath = realpathSync.native(filePath)
+        expect(result.normalizedPath).to.equal(expectedPath)
+      }
+    })
+
+    it('should handle multi-level duplication correctly', async () => {
+      // workingDirectory = /project/a/b/c
+      // filePath = a/b/c/d/file.txt
+      // Expected: /project/a/b/c/d/file.txt (NOT /project/a/b/c/a/b/c/d/file.txt)
+      const nestedDir = join(testDir, 'a', 'b', 'c', 'd')
+      await mkdir(nestedDir, {recursive: true})
+      const filePath = join(nestedDir, 'file.txt')
+      await writeFile(filePath, 'content')
+
+      const abcDir = join(testDir, 'a', 'b', 'c')
+      const nestedConfig = {
+        ...config,
+        allowedPaths: [abcDir],
+        workingDirectory: abcDir,
+      }
+
+      const validator = new PathValidator(nestedConfig)
+      const result = validator.validate('a/b/c/d/file.txt', 'read')
+
+      expect(result.valid).to.be.true
+      if (result.valid) {
+        // Verify the path is correct
+        expect(result.normalizedPath).to.include(path.join('d', 'file.txt'))
+        // Use realpath on testDir for consistent comparison
+        const {realpathSync} = await import('node:fs')
+        const realTestDir = realpathSync.native(testDir)
+        const relativePath = path.relative(realTestDir, result.normalizedPath)
+        expect(relativePath).to.equal(path.join('a', 'b', 'c', 'd', 'file.txt'))
+      }
+    })
+
+    it('should handle partial segment matches correctly (no false positives)', async () => {
+      // workingDirectory = /project/src-test
+      // filePath = src/file.ts
+      // These should NOT be considered duplicates (src-test != src)
+      const srcTestDir = join(testDir, 'src-test')
+      const srcDir = join(srcTestDir, 'src')
+      await mkdir(srcDir, {recursive: true})
+      const filePath = join(srcDir, 'file.ts')
+      await writeFile(filePath, 'content')
+
+      const partialConfig = {
+        ...config,
+        allowedPaths: [srcTestDir],
+        workingDirectory: srcTestDir,
+      }
+
+      const validator = new PathValidator(partialConfig)
+      const result = validator.validate('src/file.ts', 'read')
+
+      expect(result.valid).to.be.true
+      if (result.valid) {
+        // Should resolve normally: /project/src-test/src/file.ts
+        // Use realpath for consistent comparison
+        const {realpathSync} = await import('node:fs')
+        const expectedPath = realpathSync.native(filePath)
+        expect(result.normalizedPath).to.equal(expectedPath)
+      }
+    })
+
+    it('should handle absolute paths correctly', async () => {
+      // Absolute paths should be normalized directly without any duplication logic
+      const absPath = join(testDir, 'absolute-file.txt')
+      await writeFile(absPath, 'content')
+
+      const validator = new PathValidator(config)
+      const result = validator.validate(absPath, 'read')
+
+      expect(result.valid).to.be.true
+      if (result.valid) {
+        // Use realpath for consistent comparison (symlinks like /var -> /private/var)
+        const {realpathSync} = await import('node:fs')
+        const expectedPath = realpathSync.native(absPath)
+        expect(result.normalizedPath).to.equal(expectedPath)
+      }
+    })
+  })
 })

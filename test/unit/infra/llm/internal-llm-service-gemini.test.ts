@@ -8,7 +8,7 @@ import {SessionEventBus} from '../../../../src/infra/cipher/events/event-emitter
 import {ByteRoverLlmHttpService} from '../../../../src/infra/cipher/http/internal-llm-http-service.js'
 import {ByteRoverContentGenerator} from '../../../../src/infra/cipher/llm/generators/byterover-content-generator.js'
 import {ByteRoverLLMService} from '../../../../src/infra/cipher/llm/internal-llm-service.js'
-import {SimplePromptFactory} from '../../../../src/infra/cipher/system-prompt/simple-prompt-factory.js'
+import {SystemPromptManager} from '../../../../src/infra/cipher/system-prompt/system-prompt-manager.js'
 import {ToolManager} from '../../../../src/infra/cipher/tools/tool-manager.js'
 import {createMockToolProvider} from '../../../helpers/mock-factories.js'
 
@@ -35,7 +35,7 @@ function createContentGenerator(model = 'gemini-2.5-flash') {
  */
 describe('ByteRoverLLMService - Gemini Integration', () => {
   let sessionEventBus: SessionEventBus
-  let promptFactory: SimplePromptFactory
+  let systemPromptManager: SystemPromptManager
   let toolManager: ToolManager
   let sandbox: sinon.SinonSandbox
 
@@ -43,7 +43,7 @@ describe('ByteRoverLLMService - Gemini Integration', () => {
     sinon.stub(console, 'log')
     sandbox = sinon.createSandbox()
     sessionEventBus = new SessionEventBus()
-    promptFactory = new SimplePromptFactory()
+    systemPromptManager = new SystemPromptManager()
     const mockToolProvider = createMockToolProvider(sandbox, {
       getAllTools: sandbox.stub().returns({}),
       getAvailableMarkers: sandbox.stub().returns(new Set<string>()),
@@ -68,8 +68,8 @@ describe('ByteRoverLLMService - Gemini Integration', () => {
           model: 'gemini-2.5-flash',
         },
         {
-          promptFactory,
           sessionEventBus,
+          systemPromptManager,
           toolManager,
         },
       )
@@ -88,8 +88,8 @@ describe('ByteRoverLLMService - Gemini Integration', () => {
           model: 'gemini-2.0-flash',
         },
         {
-          promptFactory,
           sessionEventBus,
+          systemPromptManager,
           toolManager,
         },
       )
@@ -107,8 +107,8 @@ describe('ByteRoverLLMService - Gemini Integration', () => {
           model: 'gemini-1.5-flash',
         },
         {
-          promptFactory,
           sessionEventBus,
+          systemPromptManager,
           toolManager,
         },
       )
@@ -126,8 +126,8 @@ describe('ByteRoverLLMService - Gemini Integration', () => {
           model: 'gemini-1.5-pro',
         },
         {
-          promptFactory,
           sessionEventBus,
+          systemPromptManager,
           toolManager,
         },
       )
@@ -147,8 +147,8 @@ describe('ByteRoverLLMService - Gemini Integration', () => {
           model: 'gemini-2.5-flash',
         },
         {
-          promptFactory,
           sessionEventBus,
+          systemPromptManager,
           toolManager,
         },
       )
@@ -171,8 +171,8 @@ describe('ByteRoverLLMService - Gemini Integration', () => {
           model: 'gemini-2.5-flash',
         },
         {
-          promptFactory,
           sessionEventBus,
+          systemPromptManager,
           toolManager,
         },
       )
@@ -194,8 +194,8 @@ describe('ByteRoverLLMService - Gemini Integration', () => {
           model: 'gemini-2.5-flash',
         },
         {
-          promptFactory,
           sessionEventBus,
+          systemPromptManager,
           toolManager,
         },
       )
@@ -214,8 +214,8 @@ describe('ByteRoverLLMService - Gemini Integration', () => {
           model: 'gemini-2.5-flash',
         },
         {
-          promptFactory,
           sessionEventBus,
+          systemPromptManager,
           toolManager,
         },
       )
@@ -239,8 +239,8 @@ describe('ByteRoverLLMService - Gemini Integration', () => {
           },
         },
         {
-          promptFactory,
           sessionEventBus,
+          systemPromptManager,
           toolManager,
         },
       )
@@ -262,8 +262,8 @@ describe('ByteRoverLLMService - Gemini Integration', () => {
           },
         },
         {
-          promptFactory,
           sessionEventBus,
+          systemPromptManager,
           toolManager,
         },
       )
@@ -281,8 +281,8 @@ describe('ByteRoverLLMService - Gemini Integration', () => {
           // No thinking config
         },
         {
-          promptFactory,
           sessionEventBus,
+          systemPromptManager,
           toolManager,
         },
       )
@@ -302,8 +302,8 @@ describe('ByteRoverLLMService - Gemini Integration', () => {
           model: 'gemini-2.5-flash',
         },
         {
-          promptFactory,
           sessionEventBus,
+          systemPromptManager,
           toolManager,
         },
       )
@@ -365,8 +365,8 @@ describe('ByteRoverLLMService - Gemini Integration', () => {
           model: 'gemini-2.5-flash',
         },
         {
-          promptFactory,
           sessionEventBus,
+          systemPromptManager,
           toolManager,
         },
       )
@@ -436,8 +436,8 @@ describe('ByteRoverLLMService - Gemini Integration', () => {
           model: 'gemini-2.5-flash',
         },
         {
-          promptFactory,
           sessionEventBus,
+          systemPromptManager,
           toolManager,
         },
       )
@@ -472,8 +472,8 @@ describe('ByteRoverLLMService - Gemini Integration', () => {
           model: 'gemini-2.5-flash',
         },
         {
-          promptFactory,
           sessionEventBus,
+          systemPromptManager,
           toolManager,
         },
       )
@@ -537,8 +537,8 @@ describe('ByteRoverLLMService - Gemini Integration', () => {
           model: 'gemini-1.5-pro',
         },
         {
-          promptFactory,
           sessionEventBus,
+          systemPromptManager,
           toolManager,
         },
       )
@@ -556,8 +556,8 @@ describe('ByteRoverLLMService - Gemini Integration', () => {
           temperature: 0.1, // Very low temperature for deterministic output
         },
         {
-          promptFactory,
           sessionEventBus,
+          systemPromptManager,
           toolManager,
         },
       )
@@ -575,8 +575,8 @@ describe('ByteRoverLLMService - Gemini Integration', () => {
           model: 'gemini-2.5-flash',
         },
         {
-          promptFactory,
           sessionEventBus,
+          systemPromptManager,
           toolManager,
         },
       )
@@ -594,8 +594,8 @@ describe('ByteRoverLLMService - Gemini Integration', () => {
           timeout: 30_000, // 30 second timeout
         },
         {
-          promptFactory,
           sessionEventBus,
+          systemPromptManager,
           toolManager,
         },
       )
@@ -614,8 +614,8 @@ describe('ByteRoverLLMService - Gemini Integration', () => {
           model: 'gemini-2.5-flash',
         },
         {
-          promptFactory,
           sessionEventBus,
+          systemPromptManager,
           toolManager,
         },
       )
@@ -628,8 +628,8 @@ describe('ByteRoverLLMService - Gemini Integration', () => {
           model: 'claude-3-5-sonnet',
         },
         {
-          promptFactory,
           sessionEventBus,
+          systemPromptManager,
           toolManager,
         },
       )
@@ -650,8 +650,8 @@ describe('ByteRoverLLMService - Gemini Integration', () => {
           model: 'gemini-2.5-flash',
         },
         {
-          promptFactory,
           sessionEventBus,
+          systemPromptManager,
           toolManager,
         },
       )
@@ -664,8 +664,8 @@ describe('ByteRoverLLMService - Gemini Integration', () => {
           model: 'claude-3-5-sonnet',
         },
         {
-          promptFactory,
           sessionEventBus,
+          systemPromptManager,
           toolManager,
         },
       )
@@ -686,8 +686,8 @@ describe('ByteRoverLLMService - Gemini Integration', () => {
           model: 'gemini-2.5-flash',
         },
         {
-          promptFactory,
           sessionEventBus,
+          systemPromptManager,
           toolManager,
         },
       )
@@ -715,8 +715,8 @@ describe('ByteRoverLLMService - Gemini Integration', () => {
           model: 'gemini-2.5-flash',
         },
         {
-          promptFactory,
           sessionEventBus,
+          systemPromptManager,
           toolManager,
         },
       )

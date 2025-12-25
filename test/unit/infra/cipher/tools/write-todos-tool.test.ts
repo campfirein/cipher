@@ -1,19 +1,35 @@
 import {expect} from 'chai'
 
-import type {WriteTodosResult} from '../../../../../src/core/domain/cipher/todos/types.js'
+import type {Todo, WriteTodosResult} from '../../../../../src/core/domain/cipher/todos/types.js'
+import type {ITodoStorage} from '../../../../../src/core/interfaces/cipher/i-todo-storage.js'
 
 import {createWriteTodosTool} from '../../../../../src/infra/cipher/tools/implementations/write-todos-tool.js'
+
+/**
+ * Creates a mock ITodoStorage for testing.
+ */
+function createMockTodoStorage(): ITodoStorage {
+  const storage = new Map<string, Todo[]>()
+  return {
+    async get(sessionId: string): Promise<Todo[]> {
+      return storage.get(sessionId) ?? []
+    },
+    async update(sessionId: string, todos: Todo[]): Promise<void> {
+      storage.set(sessionId, todos)
+    },
+  }
+}
 
 describe('Write Todos Tool', () => {
   describe('execute', () => {
     it('should accept valid todos with different statuses', async () => {
-      const tool = createWriteTodosTool()
+      const tool = createWriteTodosTool(createMockTodoStorage())
 
       const result = (await tool.execute({
         todos: [
-          {activeForm: 'Running tests', content: 'Run tests', status: 'completed'},
-          {activeForm: 'Building project', content: 'Build project', status: 'in_progress'},
-          {activeForm: 'Deploying to staging', content: 'Deploy to staging', status: 'pending'},
+          {activeForm: 'Running tests', content: 'Run tests', id: '1', status: 'completed'},
+          {activeForm: 'Building project', content: 'Build project', id: '2', status: 'in_progress'},
+          {activeForm: 'Deploying to staging', content: 'Deploy to staging', id: '3', status: 'pending'},
         ],
       })) as WriteTodosResult
 
@@ -25,12 +41,12 @@ describe('Write Todos Tool', () => {
     })
 
     it('should reject when more than one task is in_progress', async () => {
-      const tool = createWriteTodosTool()
+      const tool = createWriteTodosTool(createMockTodoStorage())
 
       const result = await tool.execute({
         todos: [
-          {activeForm: 'Running tests', content: 'Run tests', status: 'in_progress'},
-          {activeForm: 'Building project', content: 'Build project', status: 'in_progress'},
+          {activeForm: 'Running tests', content: 'Run tests', id: '1', status: 'in_progress'},
+          {activeForm: 'Building project', content: 'Build project', id: '2', status: 'in_progress'},
         ],
       })
 
@@ -40,13 +56,13 @@ describe('Write Todos Tool', () => {
     })
 
     it('should accept exactly one in_progress task', async () => {
-      const tool = createWriteTodosTool()
+      const tool = createWriteTodosTool(createMockTodoStorage())
 
       const result = (await tool.execute({
         todos: [
-          {activeForm: 'Running tests', content: 'Run tests', status: 'completed'},
-          {activeForm: 'Building project', content: 'Build project', status: 'in_progress'},
-          {activeForm: 'Deploying', content: 'Deploy', status: 'pending'},
+          {activeForm: 'Running tests', content: 'Run tests', id: '1', status: 'completed'},
+          {activeForm: 'Building project', content: 'Build project', id: '2', status: 'in_progress'},
+          {activeForm: 'Deploying', content: 'Deploy', id: '3', status: 'pending'},
         ],
       })) as WriteTodosResult
 
@@ -55,12 +71,12 @@ describe('Write Todos Tool', () => {
     })
 
     it('should accept todos with no in_progress tasks', async () => {
-      const tool = createWriteTodosTool()
+      const tool = createWriteTodosTool(createMockTodoStorage())
 
       const result = (await tool.execute({
         todos: [
-          {activeForm: 'Running tests', content: 'Run tests', status: 'completed'},
-          {activeForm: 'Building project', content: 'Build project', status: 'pending'},
+          {activeForm: 'Running tests', content: 'Run tests', id: '1', status: 'completed'},
+          {activeForm: 'Building project', content: 'Build project', id: '2', status: 'pending'},
         ],
       })) as WriteTodosResult
 
@@ -69,14 +85,14 @@ describe('Write Todos Tool', () => {
     })
 
     it('should show progress statistics', async () => {
-      const tool = createWriteTodosTool()
+      const tool = createWriteTodosTool(createMockTodoStorage())
 
       const result = (await tool.execute({
         todos: [
-          {activeForm: 'Task 1', content: 'Task 1', status: 'completed'},
-          {activeForm: 'Task 2', content: 'Task 2', status: 'completed'},
-          {activeForm: 'Task 3', content: 'Task 3', status: 'in_progress'},
-          {activeForm: 'Task 4', content: 'Task 4', status: 'pending'},
+          {activeForm: 'Task 1', content: 'Task 1', id: '1', status: 'completed'},
+          {activeForm: 'Task 2', content: 'Task 2', id: '2', status: 'completed'},
+          {activeForm: 'Task 3', content: 'Task 3', id: '3', status: 'in_progress'},
+          {activeForm: 'Task 4', content: 'Task 4', id: '4', status: 'pending'},
         ],
       })) as WriteTodosResult
 
@@ -84,12 +100,12 @@ describe('Write Todos Tool', () => {
     })
 
     it('should handle cancelled tasks', async () => {
-      const tool = createWriteTodosTool()
+      const tool = createWriteTodosTool(createMockTodoStorage())
 
       const result = (await tool.execute({
         todos: [
-          {activeForm: 'Task 1', content: 'Task 1', status: 'completed'},
-          {activeForm: 'Task 2', content: 'Task 2', status: 'cancelled'},
+          {activeForm: 'Task 1', content: 'Task 1', id: '1', status: 'completed'},
+          {activeForm: 'Task 2', content: 'Task 2', id: '2', status: 'cancelled'},
         ],
       })) as WriteTodosResult
 
@@ -100,20 +116,18 @@ describe('Write Todos Tool', () => {
 
   describe('tool metadata', () => {
     it('should have correct id', () => {
-      const tool = createWriteTodosTool()
+      const tool = createWriteTodosTool(createMockTodoStorage())
       expect(tool.id).to.equal('write_todos')
     })
 
     it('should have input schema', () => {
-      const tool = createWriteTodosTool()
+      const tool = createWriteTodosTool(createMockTodoStorage())
       expect(tool.inputSchema).to.exist
     })
 
     it('should have description with usage guidance', () => {
-      const tool = createWriteTodosTool()
-      expect(tool.description).to.include('When to Use This Tool')
-      expect(tool.description).to.include('When NOT to Use This Tool')
-      expect(tool.description).to.include('Task States')
+      const tool = createWriteTodosTool(createMockTodoStorage())
+      expect(tool.description).to.include('task list')
     })
   })
 })

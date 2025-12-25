@@ -1,39 +1,43 @@
 import type {ITokenizer} from '../../../../core/interfaces/cipher/i-tokenizer.js'
 
+import {DEFAULT_CHARS_PER_TOKEN, getCharsPerToken} from '../../../../core/domain/cipher/llm/index.js'
+
 /**
- * Tokenizer for Google Gemini models - CURRENTLY USING APPROXIMATION.
+ * Tokenizer for Google Gemini models.
+ *
+ * Uses the LLM registry for model-specific character-per-token ratios,
+ * providing better estimation accuracy across different Gemini models.
  *
  * This implementation uses a character-based approximation rather than
- * accurate token counting. This is a temporary solution due to the
- * asynchronous nature of the official Gemini countTokens API.
+ * accurate token counting. The ratio is now model-aware via the registry.
  *
  * TODO: Consider these improvements:
  * 1. Use the official @google/genai countTokens method (requires async handling)
  * 2. Implement a WASM-based tokenizer for accurate synchronous counting
  * 3. Cache token counts for frequently used text
- * 4. Model-specific adjustments based on actual Gemini tokenization patterns
  */
 export class GeminiTokenizer implements ITokenizer {
-  private readonly modelName: string
+  private readonly charsPerToken: number
 
   /**
    * Creates a new Gemini tokenizer instance.
    *
-   * @param model - The Gemini model name (e.g., 'gemini-2.5-flash', 'gemini-pro')
-   *                Currently not used for approximation, but stored for future improvements
+   * @param model - The Gemini model name (e.g., 'gemini-2.0-flash', 'gemini-1.5-pro')
+   *                Used to look up model-specific token ratio from registry
    */
   public constructor(model: string) {
-    this.modelName = model
+    // Look up model-specific ratio from registry, fallback to default
+    this.charsPerToken = getCharsPerToken('gemini', model) ?? DEFAULT_CHARS_PER_TOKEN
   }
 
   /**
    * Approximates the token count for Google Gemini models.
    *
-   * Uses a rough character-based approximation: ~4 characters per token.
-   * This is based on common estimates for English text with modern tokenizers.
+   * Uses model-specific character-per-token ratio from the LLM registry.
+   * Default for Gemini models is ~4 characters per token.
    *
-   * IMPORTANT: This is NOT accurate for Gemini models and should be replaced
-   * with a proper implementation when possible.
+   * IMPORTANT: This is still an approximation. The actual token count can vary
+   * based on language, content type (code vs prose), and special characters.
    *
    * @param text - Text content to count tokens for
    * @returns Approximate number of tokens
@@ -43,8 +47,6 @@ export class GeminiTokenizer implements ITokenizer {
       return 0
     }
 
-    // Rough approximation: ~4 characters per token
-    // This is a simplified heuristic and varies by language and content type
-    return Math.ceil(text.length / 4)
+    return Math.ceil(text.length / this.charsPerToken)
   }
 }

@@ -5,6 +5,8 @@ import type {
   FileContent,
   GlobOptions,
   GlobResult,
+  ListDirectoryOptions,
+  ListDirectoryResult,
   ReadFileOptions,
   SearchOptions,
   SearchResult,
@@ -47,6 +49,18 @@ export interface IFileSystem {
    * Performs setup and validation of configuration.
    */
   initialize(): Promise<void>
+
+  /**
+   * List files and directories in a path.
+   * Returns a tree structure with default ignore patterns for build artifacts.
+   *
+   * @param dirPath - Path to directory (relative or absolute)
+   * @param options - List options (ignore patterns, max results)
+   * @returns Directory listing with tree structure
+   * @throws DirectoryNotFoundError if directory doesn't exist
+   * @throws PathNotAllowedError if path is not in allowed paths
+   */
+  listDirectory(dirPath: string, options?: ListDirectoryOptions): Promise<ListDirectoryResult>
 
   /**
    * Read the contents of a file.

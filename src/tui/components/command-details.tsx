@@ -10,7 +10,7 @@ import React from 'react'
 
 import type {CommandArg, CommandFlag, CommandSubcommandInfo, CommandSuggestion} from '../types.js'
 
-import {useTheme} from '../contexts/use-theme.js'
+import {useTheme} from '../contexts/theme-context.js'
 
 interface CommandDetailsProps {
   labelWidth: number

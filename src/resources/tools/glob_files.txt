@@ -1,0 +1,20 @@
+Fast file pattern matching tool that works with any codebase size.
+
+- Supports glob patterns like "**/*.md" or "src/**/*.md"
+- Returns matching file paths sorted by modification time (recent files first)
+- Use this tool when you need to find files by name patterns
+- When doing an open-ended search that may require multiple rounds of globbing and grepping, use the batch tool instead
+- You can speculatively perform multiple searches in a single batch for efficiency (2-5x performance gain)
+
+Common patterns:
+- "**/*.txt" - all text files recursively
+- "**/*.md" - all markdown files recursively
+- "**/*.{txt,md}" - all text and markdown files recursively
+- "resources/**/*.{txt,md}" - all text and markdown files under resources/
+- "**/README.md" - all README files
+- "docs/**/*.md" - all markdown files under docs/
+- "**/tools/*.txt" - all tool description files
+- "*.txt" - text files in current directory only
+- "*.md" - markdown files in current directory only
+
+If results are truncated, consider using a more specific path or pattern to narrow results.

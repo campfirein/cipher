@@ -1,0 +1,1 @@
+Write content to agent memory as a scratch pad. Use this to store intermediate results, findings, or context that should persist across tool calls. Memories can be tagged and pinned for easy retrieval.

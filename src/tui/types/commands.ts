@@ -193,6 +193,20 @@ export interface RefreshAuthActionReturn {
 }
 
 /**
+ * Command action return type for entering chat mode
+ */
+export interface EnterChatModeActionReturn {
+  type: 'enter_chat_mode'
+}
+
+/**
+ * Command action return type for exiting chat mode
+ */
+export interface ExitChatModeActionReturn {
+  type: 'exit_chat_mode'
+}
+
+/**
  * Union of all possible command action return types
  */
 export type SlashCommandActionReturn =
@@ -200,6 +214,8 @@ export type SlashCommandActionReturn =
   | ConfirmActionReturn
   | CurateDialogActionReturn
   | CustomDialogActionReturn
+  | EnterChatModeActionReturn
+  | ExitChatModeActionReturn
   | MessageActionReturn
   | QueryDialogActionReturn
   | QuitActionReturn
