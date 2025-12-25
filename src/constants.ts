@@ -43,3 +43,6 @@ export const TRANSPORT_PING_TIMEOUT_MS = 10_000 // 10s timeout - avoid false dis
 // WebSocket-only transport to avoid HTTP polling issues in sandboxed environments (Cursor, etc.)
 // HTTP polling may be blocked by IDE sandboxes causing "xhr poll error"
 export const TRANSPORT_DEFAULT_TRANSPORTS: ('polling' | 'websocket')[] = ['websocket']
+
+// LLM Model defaults
+export const DEFAULT_LLM_MODEL = 'gemini-2.5-pro'

@@ -1,10 +1,10 @@
 import type {ICipherAgent} from '../cipher/i-cipher-agent.js'
 
 /**
- * Options for executing curate with an injected agent (v0.5.0 architecture).
+ * Options for executing curate with an injected agent.
  * Agent uses its default session (Single-Session pattern).
  */
-export interface CurateExecuteOptionsV2 {
+export interface CurateExecuteOptions {
   /** Context content to curate */
   content: string
   /** Optional file paths for --files flag */
@@ -14,19 +14,17 @@ export interface CurateExecuteOptionsV2 {
 }
 
 /**
- * ICurateUseCaseV2 - Simplified curate use case for v0.5.0 architecture.
+ * ICurateExecutor - Executes curate tasks with an injected CipherAgent.
  *
- * Key differences from v1:
- * - Only executeWithAgent method (no run() for REPL mode)
- * - No terminal/tracking dependencies (handled by caller)
- * - Pure business logic execution
+ * This is NOT a UseCase (which orchestrates business logic).
+ * It's an Executor that wraps agent.execute() with curate-specific options.
  *
- * This interface is designed for Transport-based task execution where:
+ * Architecture:
  * - TaskProcessor injects the long-lived CipherAgent
  * - Event streaming is handled by agent-worker (subscribes to agentEventBus)
- * - UseCase focuses solely on curate business logic
+ * - Executor focuses solely on curate execution
  */
-export interface ICurateUseCaseV2 {
+export interface ICurateExecutor {
   /**
    * Execute curate with an injected agent.
    *
@@ -34,5 +32,5 @@ export interface ICurateUseCaseV2 {
    * @param options - Execution options (content, file references)
    * @returns Result string from agent execution
    */
-  executeWithAgent(agent: ICipherAgent, options: CurateExecuteOptionsV2): Promise<string>
+  executeWithAgent(agent: ICipherAgent, options: CurateExecuteOptions): Promise<string>
 }

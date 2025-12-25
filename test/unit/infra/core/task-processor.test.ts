@@ -5,11 +5,11 @@
  * - Basic task execution (curate and query)
  * - Agent configuration requirements
  * - Task cancellation behavior
- * - Error propagation from use cases
+ * - Error propagation from executors
  * - Running task tracking
  * - Files parameter handling
  *
- * Architecture: TaskProcessor receives tasks and delegates to use cases
+ * Architecture: TaskProcessor receives tasks and delegates to executors
  * with an injected CipherAgent reference.
  */
 
@@ -19,27 +19,27 @@ import {expect} from 'chai'
 import {createSandbox, type SinonSandbox, type SinonStub} from 'sinon'
 
 import type {ICipherAgent} from '../../../../src/core/interfaces/cipher/i-cipher-agent.js'
-import type {ICurateUseCaseV2} from '../../../../src/core/interfaces/usecase/i-curate-use-case-v2.js'
-import type {IQueryUseCaseV2} from '../../../../src/core/interfaces/usecase/i-query-use-case-v2.js'
+import type {ICurateExecutor} from '../../../../src/core/interfaces/executor/i-curate-executor.js'
+import type {IQueryExecutor} from '../../../../src/core/interfaces/executor/i-query-executor.js'
 
 import {createTaskProcessor, type TaskInput, TaskProcessor} from '../../../../src/infra/core/task-processor.js'
 
 describe('TaskProcessor', () => {
   let sandbox: SinonSandbox
-  let mockCurateUseCase: ICurateUseCaseV2
-  let mockQueryUseCase: IQueryUseCaseV2
+  let mockCurateExecutor: ICurateExecutor
+  let mockQueryExecutor: IQueryExecutor
   let mockAgent: ICipherAgent
   let processor: TaskProcessor
 
   beforeEach(() => {
     sandbox = createSandbox()
 
-    // Create mock use cases
-    mockCurateUseCase = {
+    // Create mock executors
+    mockCurateExecutor = {
       executeWithAgent: sandbox.stub().resolves('curate result'),
     }
 
-    mockQueryUseCase = {
+    mockQueryExecutor = {
       executeWithAgent: sandbox.stub().resolves('query result'),
     }
 
@@ -66,8 +66,8 @@ describe('TaskProcessor', () => {
 
     // Create processor
     processor = createTaskProcessor({
-      curateUseCase: mockCurateUseCase,
-      queryUseCase: mockQueryUseCase,
+      curateExecutor: mockCurateExecutor,
+      queryExecutor: mockQueryExecutor,
     })
   })
 
@@ -78,8 +78,8 @@ describe('TaskProcessor', () => {
   describe('createTaskProcessor factory', () => {
     it('should create a TaskProcessor instance', () => {
       const proc = createTaskProcessor({
-        curateUseCase: mockCurateUseCase,
-        queryUseCase: mockQueryUseCase,
+        curateExecutor: mockCurateExecutor,
+        queryExecutor: mockQueryExecutor,
       })
       expect(proc).to.be.instanceOf(TaskProcessor)
     })
@@ -116,9 +116,9 @@ describe('TaskProcessor', () => {
       const result = await processor.process(input)
 
       expect(result).to.equal('curate result')
-      expect((mockCurateUseCase.executeWithAgent as SinonStub).calledOnce).to.be.true
-      expect((mockCurateUseCase.executeWithAgent as SinonStub).firstCall.args[0]).to.equal(mockAgent)
-      expect((mockCurateUseCase.executeWithAgent as SinonStub).firstCall.args[1]).to.deep.include({
+      expect((mockCurateExecutor.executeWithAgent as SinonStub).calledOnce).to.be.true
+      expect((mockCurateExecutor.executeWithAgent as SinonStub).firstCall.args[0]).to.equal(mockAgent)
+      expect((mockCurateExecutor.executeWithAgent as SinonStub).firstCall.args[1]).to.deep.include({
         content: 'Test curate content',
         taskId: 'task-001',
       })
@@ -136,9 +136,9 @@ describe('TaskProcessor', () => {
       const result = await processor.process(input)
 
       expect(result).to.equal('query result')
-      expect((mockQueryUseCase.executeWithAgent as SinonStub).calledOnce).to.be.true
-      expect((mockQueryUseCase.executeWithAgent as SinonStub).firstCall.args[0]).to.equal(mockAgent)
-      expect((mockQueryUseCase.executeWithAgent as SinonStub).firstCall.args[1]).to.deep.equal({
+      expect((mockQueryExecutor.executeWithAgent as SinonStub).calledOnce).to.be.true
+      expect((mockQueryExecutor.executeWithAgent as SinonStub).firstCall.args[0]).to.equal(mockAgent)
+      expect((mockQueryExecutor.executeWithAgent as SinonStub).firstCall.args[1]).to.deep.equal({
         query: 'Test query content',
         taskId: 'task-002',
       })
@@ -156,7 +156,7 @@ describe('TaskProcessor', () => {
 
       await processor.process(input)
 
-      expect((mockCurateUseCase.executeWithAgent as SinonStub).firstCall.args[1]).to.deep.include({
+      expect((mockCurateExecutor.executeWithAgent as SinonStub).firstCall.args[1]).to.deep.include({
         content: 'Curate with files',
         files: ['/path/to/file1.ts', '/path/to/file2.ts'],
         taskId: 'task-003',
@@ -174,7 +174,7 @@ describe('TaskProcessor', () => {
 
       await processor.process(input)
 
-      const callArgs = (mockCurateUseCase.executeWithAgent as SinonStub).firstCall.args[1]
+      const callArgs = (mockCurateExecutor.executeWithAgent as SinonStub).firstCall.args[1]
       expect(callArgs.files).to.be.undefined
     })
   })
@@ -220,7 +220,7 @@ describe('TaskProcessor', () => {
   describe('process() - Error Propagation', () => {
     it('should propagate error from curate use case', async () => {
       processor.setAgent(mockAgent)
-      ;(mockCurateUseCase.executeWithAgent as SinonStub).rejects(new Error('Curate failed'))
+      ;(mockCurateExecutor.executeWithAgent as SinonStub).rejects(new Error('Curate failed'))
 
       const input: TaskInput = {
         content: 'Error content',
@@ -238,7 +238,7 @@ describe('TaskProcessor', () => {
 
     it('should propagate error from query use case', async () => {
       processor.setAgent(mockAgent)
-      ;(mockQueryUseCase.executeWithAgent as SinonStub).rejects(new Error('Query failed'))
+      ;(mockQueryExecutor.executeWithAgent as SinonStub).rejects(new Error('Query failed'))
 
       const input: TaskInput = {
         content: 'Error content',
@@ -256,7 +256,7 @@ describe('TaskProcessor', () => {
 
     it('should clean up runningTasks map after error', async () => {
       processor.setAgent(mockAgent)
-      ;(mockCurateUseCase.executeWithAgent as SinonStub).rejects(new Error('Cleanup test'))
+      ;(mockCurateExecutor.executeWithAgent as SinonStub).rejects(new Error('Cleanup test'))
 
       const input: TaskInput = {
         content: 'Error content',
@@ -281,7 +281,7 @@ describe('TaskProcessor', () => {
 
       // Create a task that takes time
       let resolveTask: (value: string) => void
-      ;(mockCurateUseCase.executeWithAgent as SinonStub).returns(
+      ;(mockCurateExecutor.executeWithAgent as SinonStub).returns(
         new Promise((resolve) => {
           resolveTask = resolve
         }),
@@ -326,7 +326,7 @@ describe('TaskProcessor', () => {
       processor.setAgent(mockAgent)
 
       let resolveTask: (value: string) => void
-      ;(mockCurateUseCase.executeWithAgent as SinonStub).returns(
+      ;(mockCurateExecutor.executeWithAgent as SinonStub).returns(
         new Promise((resolve) => {
           resolveTask = resolve
         }),
@@ -374,7 +374,7 @@ describe('TaskProcessor', () => {
       processor.setAgent(mockAgent)
 
       let resolveTask: (value: string) => void
-      ;(mockCurateUseCase.executeWithAgent as SinonStub).returns(
+      ;(mockCurateExecutor.executeWithAgent as SinonStub).returns(
         new Promise((resolve) => {
           resolveTask = resolve
         }),
@@ -416,7 +416,7 @@ describe('TaskProcessor', () => {
 
     it('should return false after task errors', async () => {
       processor.setAgent(mockAgent)
-      ;(mockCurateUseCase.executeWithAgent as SinonStub).rejects(new Error('Test error'))
+      ;(mockCurateExecutor.executeWithAgent as SinonStub).rejects(new Error('Test error'))
 
       const input: TaskInput = {
         content: 'Error check',
@@ -439,13 +439,13 @@ describe('TaskProcessor', () => {
       processor.setAgent(mockAgent)
 
       const resolvers: Array<(value: string) => void> = []
-      ;(mockCurateUseCase.executeWithAgent as SinonStub).callsFake(
+      ;(mockCurateExecutor.executeWithAgent as SinonStub).callsFake(
         () =>
           new Promise((resolve) => {
             resolvers.push(resolve)
           }),
       )
-      ;(mockQueryUseCase.executeWithAgent as SinonStub).callsFake(
+      ;(mockQueryExecutor.executeWithAgent as SinonStub).callsFake(
         () =>
           new Promise((resolve) => {
             resolvers.push(resolve)
@@ -524,8 +524,8 @@ describe('TaskProcessor', () => {
       }
 
       // Verify use case calls
-      const curateCallCount = (mockCurateUseCase.executeWithAgent as SinonStub).callCount
-      const queryCallCount = (mockQueryUseCase.executeWithAgent as SinonStub).callCount
+      const curateCallCount = (mockCurateExecutor.executeWithAgent as SinonStub).callCount
+      const queryCallCount = (mockQueryExecutor.executeWithAgent as SinonStub).callCount
 
       expect(curateCallCount).to.equal(50) // Even indices
       expect(queryCallCount).to.equal(50) // Odd indices
@@ -535,7 +535,7 @@ describe('TaskProcessor', () => {
       processor.setAgent(mockAgent)
 
       const resolvers: Map<string, (value: string) => void> = new Map()
-      ;(mockCurateUseCase.executeWithAgent as SinonStub).callsFake(
+      ;(mockCurateExecutor.executeWithAgent as SinonStub).callsFake(
         (_agent: ICipherAgent, options: {taskId: string}) =>
           new Promise((resolve) => {
             resolvers.set(options.taskId, resolve)
@@ -619,13 +619,19 @@ describe('TaskProcessor', () => {
       })
 
       expect(result).to.equal('curate result')
-      expect((mockCurateUseCase.executeWithAgent as SinonStub).firstCall.args[1].content).to.have.length(100_000)
+      expect((mockCurateExecutor.executeWithAgent as SinonStub).firstCall.args[1].content).to.have.length(100_000)
     })
 
     it('should handle special characters in taskId', async () => {
       processor.setAgent(mockAgent)
 
-      const specialIds = ['task-with-dash', 'task_with_underscore', 'task.with.dot', 'task:with:colon', 'task/with/slash']
+      const specialIds = [
+        'task-with-dash',
+        'task_with_underscore',
+        'task.with.dot',
+        'task:with:colon',
+        'task/with/slash',
+      ]
 
       for (const taskId of specialIds) {
         const result = await processor.process({
@@ -648,7 +654,7 @@ describe('TaskProcessor', () => {
         type: 'curate',
       })
 
-      expect((mockCurateUseCase.executeWithAgent as SinonStub).firstCall.args[1].content).to.equal(unicodeContent)
+      expect((mockCurateExecutor.executeWithAgent as SinonStub).firstCall.args[1].content).to.equal(unicodeContent)
     })
   })
 })

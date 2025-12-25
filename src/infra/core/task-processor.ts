@@ -1,7 +1,7 @@
 import type {ICipherAgent} from '../../core/interfaces/cipher/i-cipher-agent.js'
 import type {ILogger} from '../../core/interfaces/cipher/i-logger.js'
-import type {ICurateUseCaseV2} from '../../core/interfaces/usecase/i-curate-use-case-v2.js'
-import type {IQueryUseCaseV2} from '../../core/interfaces/usecase/i-query-use-case-v2.js'
+import type {ICurateExecutor} from '../../core/interfaces/executor/i-curate-executor.js'
+import type {IQueryExecutor} from '../../core/interfaces/executor/i-query-executor.js'
 
 import {NoOpLogger} from '../../core/interfaces/cipher/i-logger.js'
 
@@ -24,40 +24,40 @@ export type TaskInput = {
  * Configuration for TaskProcessor.
  */
 export type TaskProcessorConfig = {
-  /** Curate use case V2 instance (injected by CoreProcess) */
-  curateUseCase: ICurateUseCaseV2
+  /** Curate executor instance (injected by agent-worker) */
+  curateExecutor: ICurateExecutor
   /** Logger instance */
   logger?: ILogger
-  /** Query use case V2 instance (injected by CoreProcess) */
-  queryUseCase: IQueryUseCaseV2
+  /** Query executor instance (injected by agent-worker) */
+  queryExecutor: IQueryExecutor
 }
 
 /**
- * TaskProcessor - Processes tasks directly (no SQLite queue).
+ * TaskProcessor - Coordinates task execution with injected executors.
  *
- * Architecture v0.5.0:
+ * Architecture:
  * - TaskProcessor receives single agent reference via setAgent()
- * - TaskProcessor passes agent to UseCase.executeWithAgent()
- * - UseCase contains business logic (validation, prompt building)
+ * - TaskProcessor passes agent to Executor.executeWithAgent()
+ * - Executor handles execution (validation, prompt building)
  * - Event streaming handled by agent-worker (subscribes to agentEventBus)
  *
- * Flow: agent-worker → TaskProcessor.process() → UseCase.executeWithAgent()
+ * Flow: agent-worker → TaskProcessor.process() → Executor.executeWithAgent()
  */
 export class TaskProcessor {
   /**
    * Single CipherAgent reference from agent-worker.
    */
   private agent: ICipherAgent | undefined
-  private readonly curateUseCase: ICurateUseCaseV2
+  private readonly curateExecutor: ICurateExecutor
   private readonly logger: ILogger
-  private readonly queryUseCase: IQueryUseCaseV2
+  private readonly queryExecutor: IQueryExecutor
   /** Track running tasks for cancellation */
   private readonly runningTasks = new Map<string, {abort: () => void}>()
 
   constructor(config: TaskProcessorConfig) {
     this.logger = config.logger ?? new NoOpLogger()
-    this.curateUseCase = config.curateUseCase
-    this.queryUseCase = config.queryUseCase
+    this.curateExecutor = config.curateExecutor
+    this.queryExecutor = config.queryExecutor
   }
 
   /**
@@ -84,8 +84,8 @@ export class TaskProcessor {
   /**
    * Process a task and return the result.
    *
-   * Architecture v0.5.0:
-   * - Calls UseCase.executeWithAgent() with long-lived agent
+   * Architecture:
+   * - Calls Executor.executeWithAgent() with long-lived agent
    * - Returns result string
    * - Event streaming handled by agent-worker (agentEventBus)
    */
@@ -143,7 +143,7 @@ export class TaskProcessor {
     switch (type) {
       case 'curate': {
         // Agent uses its default session (Single-Session pattern)
-        return this.curateUseCase.executeWithAgent(this.agent, {
+        return this.curateExecutor.executeWithAgent(this.agent, {
           content,
           files: input.files,
           taskId,
@@ -152,7 +152,7 @@ export class TaskProcessor {
 
       case 'query': {
         // Agent uses its default session (Single-Session pattern)
-        return this.queryUseCase.executeWithAgent(this.agent, {query: content, taskId})
+        return this.queryExecutor.executeWithAgent(this.agent, {query: content, taskId})
       }
     }
   }

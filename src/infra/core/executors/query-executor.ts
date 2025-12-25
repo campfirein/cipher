@@ -1,24 +1,22 @@
 import {randomUUID} from 'node:crypto'
 
-import type {ICipherAgent} from '../../core/interfaces/cipher/i-cipher-agent.js'
-import type {IQueryUseCaseV2, QueryExecuteOptionsV2} from '../../core/interfaces/usecase/i-query-use-case-v2.js'
+import type {ICipherAgent} from '../../../core/interfaces/cipher/i-cipher-agent.js'
+import type {IQueryExecutor, QueryExecuteOptions} from '../../../core/interfaces/executor/i-query-executor.js'
 
-import {getAgentStorage} from '../cipher/storage/agent-storage.js'
+import {getAgentStorage} from '../../cipher/storage/agent-storage.js'
 
 /**
- * QueryUseCaseV2 - Simplified query use case for v0.5.0 architecture.
+ * QueryExecutor - Executes query tasks with an injected CipherAgent.
  *
- * Key differences from v1:
- * - Only executeWithAgent method (no run() for REPL mode)
- * - No terminal/tracking dependencies (handled by caller)
- * - Pure business logic execution
+ * This is NOT a UseCase (which orchestrates business logic).
+ * It's an Executor that wraps agent.execute() with query-specific options.
  *
- * This class is designed for Transport-based task execution where:
+ * Architecture:
  * - TaskProcessor injects the long-lived CipherAgent
  * - Event streaming is handled by agent-worker (subscribes to agentEventBus)
- * - UseCase focuses solely on query business logic
+ * - Executor focuses solely on query execution
  */
-export class QueryUseCaseV2 implements IQueryUseCaseV2 {
+export class QueryExecutor implements IQueryExecutor {
   /**
    * Execute query with an injected agent.
    *
@@ -26,7 +24,7 @@ export class QueryUseCaseV2 implements IQueryUseCaseV2 {
    * @param options - Execution options (query)
    * @returns Result string from agent execution
    */
-  public async executeWithAgent(agent: ICipherAgent, options: QueryExecuteOptionsV2): Promise<string> {
+  public async executeWithAgent(agent: ICipherAgent, options: QueryExecuteOptions): Promise<string> {
     const {query, taskId} = options
 
     // Initialize storage for execution tracking

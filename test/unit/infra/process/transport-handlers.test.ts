@@ -15,7 +15,8 @@
 /* eslint-disable no-promise-executor-return */
 
 import {expect} from 'chai'
-import {createSandbox, type SinonSandbox, type SinonStub} from 'sinon'
+import {randomUUID} from 'node:crypto'
+import {createSandbox, match, type SinonSandbox, type SinonStub} from 'sinon'
 
 import type {ITransportServer, RequestHandler} from '../../../../src/core/interfaces/transport/i-transport-server.js'
 
@@ -100,7 +101,7 @@ describe('TransportHandlers', () => {
   })
 
   describe('Task Creation', () => {
-    it('should create task and send ack to client', () => {
+    it('should accept task with client-generated taskId and send ack', () => {
       const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
       expect(createHandler).to.exist
 
@@ -108,24 +109,32 @@ describe('TransportHandlers', () => {
       const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
       registerHandler!({}, 'agent-001')
 
-      const result = createHandler!({content: 'Test task', type: 'curate'}, 'client-001')
+      const taskId = randomUUID()
+      const result = createHandler!({content: 'Test task', taskId, type: 'curate'}, 'client-001')
 
-      expect(result).to.have.property('taskId')
-      expect((result as {taskId: string}).taskId).to.be.a('string')
+      // Should return the same taskId that was sent
+      expect(result).to.deep.equal({taskId})
 
-      // Verify ack was sent to client
-      expect((mockTransport.sendTo as SinonStub).calledWith('client-001', TransportTaskEventNames.ACK)).to.be.true
+      // Verify ack was sent to client with the same taskId
+      expect((mockTransport.sendTo as SinonStub).calledWith('client-001', TransportTaskEventNames.ACK, {taskId})).to.be
+        .true
     })
 
-    it('should generate unique taskIds for each task', () => {
+    it('should reject duplicate taskId with error', () => {
       const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
       const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
       registerHandler!({}, 'agent-001')
 
-      const result1 = createHandler!({content: 'Task 1', type: 'curate'}, 'client-001') as {taskId: string}
-      const result2 = createHandler!({content: 'Task 2', type: 'query'}, 'client-001') as {taskId: string}
+      const taskId = randomUUID()
 
-      expect(result1.taskId).to.not.equal(result2.taskId)
+      // First creation succeeds
+      const result1 = createHandler!({content: 'Task 1', taskId, type: 'curate'}, 'client-001')
+      expect(result1).to.deep.equal({taskId})
+
+      // Second creation with same taskId should throw
+      expect(() => createHandler!({content: 'Task 2', taskId, type: 'curate'}, 'client-002')).to.throw(
+        `Task ${taskId} already exists`,
+      )
     })
 
     it('should broadcast task:created to broadcast-room', () => {
@@ -133,23 +142,25 @@ describe('TransportHandlers', () => {
       const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
       registerHandler!({}, 'agent-001')
 
-      createHandler!({content: 'Broadcast test', type: 'query'}, 'client-001')
+      const taskId = randomUUID()
+      createHandler!({content: 'Broadcast test', taskId, type: 'query'}, 'client-001')
 
       expect(
         (mockTransport.broadcastTo as SinonStub).calledWith(
           'broadcast-room',
           TransportTaskEventNames.CREATED,
-          sandbox.match({content: 'Broadcast test', type: 'query'}),
+          sandbox.match({content: 'Broadcast test', taskId, type: 'query'}),
         ),
       ).to.be.true
     })
 
-    it('should forward task:execute to agent', () => {
+    it('should forward task:execute to agent with client-provided taskId', () => {
       const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
       const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
       registerHandler!({}, 'agent-001')
 
-      const result = createHandler!({content: 'Execute test', type: 'curate'}, 'client-001') as {taskId: string}
+      const taskId = randomUUID()
+      createHandler!({content: 'Execute test', taskId, type: 'curate'}, 'client-001')
 
       expect(
         (mockTransport.sendTo as SinonStub).calledWith(
@@ -158,7 +169,7 @@ describe('TransportHandlers', () => {
           sandbox.match({
             clientId: 'client-001',
             content: 'Execute test',
-            taskId: result.taskId,
+            taskId,
             type: 'curate',
           }),
         ),
@@ -170,13 +181,14 @@ describe('TransportHandlers', () => {
       const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
       registerHandler!({}, 'agent-001')
 
-      createHandler!({content: 'Files test', files: ['/file1.ts', '/file2.ts'], type: 'curate'}, 'client-001')
+      const taskId = randomUUID()
+      createHandler!({content: 'Files test', files: ['/file1.ts', '/file2.ts'], taskId, type: 'curate'}, 'client-001')
 
       expect(
         (mockTransport.sendTo as SinonStub).calledWith(
           'agent-001',
           TransportTaskEventNames.EXECUTE,
-          sandbox.match({files: ['/file1.ts', '/file2.ts']}),
+          sandbox.match({files: ['/file1.ts', '/file2.ts'], taskId}),
         ),
       ).to.be.true
     })
@@ -187,9 +199,12 @@ describe('TransportHandlers', () => {
       const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
 
       // Don't register any agent
-      const result = createHandler!({content: 'No agent test', type: 'curate'}, 'client-001') as {taskId: string}
+      const taskId = randomUUID()
+      const result = createHandler!({content: 'No agent test', taskId, type: 'curate'}, 'client-001') as {
+        taskId: string
+      }
 
-      expect(result.taskId).to.be.a('string')
+      expect(result.taskId).to.equal(taskId)
 
       // Wait for setTimeout to execute
       await new Promise((resolve) => setTimeout(resolve, 150))
@@ -199,7 +214,7 @@ describe('TransportHandlers', () => {
         (mockTransport.sendTo as SinonStub).calledWith(
           'client-001',
           TransportTaskEventNames.ERROR,
-          sandbox.match({taskId: result.taskId}),
+          sandbox.match({taskId}),
         ),
       ).to.be.true
 
@@ -208,7 +223,7 @@ describe('TransportHandlers', () => {
         (mockTransport.broadcastTo as SinonStub).calledWith(
           'broadcast-room',
           TransportTaskEventNames.ERROR,
-          sandbox.match({taskId: result.taskId}),
+          sandbox.match({taskId}),
         ),
       ).to.be.true
     })
@@ -221,16 +236,17 @@ describe('TransportHandlers', () => {
       const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
       registerHandler!({}, 'agent-001')
 
-      const createResult = createHandler!({content: 'Complete test', type: 'curate'}, 'client-001') as {taskId: string}
+      const taskId = randomUUID()
+      createHandler!({content: 'Complete test', taskId, type: 'curate'}, 'client-001')
 
       // Simulate task completed from agent
       const completedHandler = requestHandlers.get(TransportTaskEventNames.COMPLETED)
-      completedHandler!({result: 'Task done!', taskId: createResult.taskId}, 'agent-001')
+      completedHandler!({result: 'Task done!', taskId}, 'agent-001')
 
       expect(
         (mockTransport.sendTo as SinonStub).calledWith('client-001', TransportTaskEventNames.COMPLETED, {
           result: 'Task done!',
-          taskId: createResult.taskId,
+          taskId,
         }),
       ).to.be.true
     })
@@ -240,17 +256,16 @@ describe('TransportHandlers', () => {
       const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
       registerHandler!({}, 'agent-001')
 
-      const createResult = createHandler!({content: 'Broadcast complete', type: 'query'}, 'client-001') as {
-        taskId: string
-      }
+      const taskId = randomUUID()
+      createHandler!({content: 'Broadcast complete', taskId, type: 'query'}, 'client-001')
 
       const completedHandler = requestHandlers.get(TransportTaskEventNames.COMPLETED)
-      completedHandler!({result: 'Done', taskId: createResult.taskId}, 'agent-001')
+      completedHandler!({result: 'Done', taskId}, 'agent-001')
 
       expect(
         (mockTransport.broadcastTo as SinonStub).calledWith('broadcast-room', TransportTaskEventNames.COMPLETED, {
           result: 'Done',
-          taskId: createResult.taskId,
+          taskId,
         }),
       ).to.be.true
     })
@@ -260,11 +275,12 @@ describe('TransportHandlers', () => {
       const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
       registerHandler!({}, 'agent-001')
 
-      const createResult = createHandler!({content: 'Cleanup test', type: 'curate'}, 'client-001') as {taskId: string}
+      const taskId = randomUUID()
+      createHandler!({content: 'Cleanup test', taskId, type: 'curate'}, 'client-001')
 
       // Complete the task
       const completedHandler = requestHandlers.get(TransportTaskEventNames.COMPLETED)
-      completedHandler!({result: 'Done', taskId: createResult.taskId}, 'agent-001')
+      completedHandler!({result: 'Done', taskId}, 'agent-001')
 
       // Try to send an LLM event for the completed task - should be dropped
       const responseHandler = requestHandlers.get(LlmEventNames.RESPONSE)
@@ -272,7 +288,7 @@ describe('TransportHandlers', () => {
         {
           content: 'Late response',
           sessionId: 'session-001',
-          taskId: createResult.taskId,
+          taskId,
         },
         'agent-001',
       )
@@ -282,7 +298,7 @@ describe('TransportHandlers', () => {
       const lateResponseCall = sendToCalls.find(
         (call) =>
           call.args[1] === LlmEventNames.RESPONSE &&
-          call.args[2]?.taskId === createResult.taskId &&
+          call.args[2]?.taskId === taskId &&
           call.args[2]?.content === 'Late response',
       )
       expect(lateResponseCall).to.be.undefined
@@ -295,13 +311,14 @@ describe('TransportHandlers', () => {
       const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
       registerHandler!({}, 'agent-001')
 
-      const createResult = createHandler!({content: 'Error test', type: 'curate'}, 'client-001') as {taskId: string}
+      const taskId = randomUUID()
+      createHandler!({content: 'Error test', taskId, type: 'curate'}, 'client-001')
 
       const errorHandler = requestHandlers.get(TransportTaskEventNames.ERROR)
       errorHandler!(
         {
           error: {code: 'TEST_ERROR', message: 'Test error', name: 'TestError'},
-          taskId: createResult.taskId,
+          taskId,
         },
         'agent-001',
       )
@@ -310,7 +327,7 @@ describe('TransportHandlers', () => {
         (mockTransport.sendTo as SinonStub).calledWith(
           'client-001',
           TransportTaskEventNames.ERROR,
-          sandbox.match({taskId: createResult.taskId}),
+          sandbox.match({taskId}),
         ),
       ).to.be.true
     })
@@ -320,15 +337,14 @@ describe('TransportHandlers', () => {
       const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
       registerHandler!({}, 'agent-001')
 
-      const createResult = createHandler!({content: 'Broadcast error', type: 'query'}, 'client-001') as {
-        taskId: string
-      }
+      const taskId = randomUUID()
+      createHandler!({content: 'Broadcast error', taskId, type: 'query'}, 'client-001')
 
       const errorHandler = requestHandlers.get(TransportTaskEventNames.ERROR)
       errorHandler!(
         {
           error: {code: 'BROADCAST_ERROR', message: 'Test', name: 'Error'},
-          taskId: createResult.taskId,
+          taskId,
         },
         'agent-001',
       )
@@ -337,7 +353,7 @@ describe('TransportHandlers', () => {
         (mockTransport.broadcastTo as SinonStub).calledWith(
           'broadcast-room',
           TransportTaskEventNames.ERROR,
-          sandbox.match({taskId: createResult.taskId}),
+          sandbox.match({taskId}),
         ),
       ).to.be.true
     })
@@ -347,14 +363,15 @@ describe('TransportHandlers', () => {
       const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
       registerHandler!({}, 'agent-001')
 
-      const createResult = createHandler!({content: 'Error cleanup', type: 'curate'}, 'client-001') as {taskId: string}
+      const taskId = randomUUID()
+      createHandler!({content: 'Error cleanup', taskId, type: 'curate'}, 'client-001')
 
       const errorHandler = requestHandlers.get(TransportTaskEventNames.ERROR)
-      errorHandler!({error: {message: 'Test', name: 'Error'}, taskId: createResult.taskId}, 'agent-001')
+      errorHandler!({error: {message: 'Test', name: 'Error'}, taskId}, 'agent-001')
 
       // Subsequent events should be dropped
       const responseHandler = requestHandlers.get(LlmEventNames.RESPONSE)
-      responseHandler!({content: 'After error', sessionId: 's1', taskId: createResult.taskId}, 'agent-001')
+      responseHandler!({content: 'After error', sessionId: 's1', taskId}, 'agent-001')
 
       // Should not forward after error cleanup
       const postErrorCalls = (mockTransport.sendTo as SinonStub)
@@ -370,38 +387,38 @@ describe('TransportHandlers', () => {
       const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
       registerHandler!({}, 'agent-001')
 
-      const createResult = createHandler!({content: 'Cancel test', type: 'curate'}, 'client-001') as {taskId: string}
+      const taskId = randomUUID()
+      createHandler!({content: 'Cancel test', taskId, type: 'curate'}, 'client-001')
 
       const cancelHandler = requestHandlers.get(TransportTaskEventNames.CANCEL)
-      const result = cancelHandler!({taskId: createResult.taskId}, 'client-001')
+      const result = cancelHandler!({taskId}, 'client-001')
 
       expect(result).to.deep.equal({success: true})
       expect(
         (mockTransport.sendTo as SinonStub).calledWith('agent-001', TransportTaskEventNames.CANCEL, {
-          taskId: createResult.taskId,
+          taskId,
         }),
       ).to.be.true
     })
 
-    it('should cancel locally when agent not connected', () => {
+    it('should return "not found" when cancelling task created without agent (already errored)', () => {
       const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
 
       // Create task WITHOUT registering agent first (no agent scenario)
-      // This simulates the case where task is created but agent hasn't connected yet
-      const createResult = createHandler!({content: 'Local cancel', type: 'curate'}, 'client-001') as {taskId: string}
+      // Without an agent, the task immediately errors and is cleaned up
+      const taskId = randomUUID()
+      createHandler!({content: 'No agent task', taskId, type: 'curate'}, 'client-001')
 
-      // Wait for the async error to be sent
-      // The task is created with a setTimeout error, so we need to cancel before that fires
-
+      // Task was immediately cleaned up after error, so cancel should fail
       const cancelHandler = requestHandlers.get(TransportTaskEventNames.CANCEL)
-      const result = cancelHandler!({taskId: createResult.taskId}, 'client-001')
+      const result = cancelHandler!({taskId}, 'client-001')
 
-      // Cancel should succeed (task exists locally, will be cancelled before error timeout)
-      expect(result).to.deep.equal({success: true})
+      // Cancel should fail because task was already cleaned up after immediate error
+      expect(result).to.deep.equal({error: 'Task not found', success: false})
+
+      // Verify the error was sent immediately (not task:cancelled)
       expect(
-        (mockTransport.sendTo as SinonStub).calledWith('client-001', TransportTaskEventNames.CANCELLED, {
-          taskId: createResult.taskId,
-        }),
+        (mockTransport.sendTo as SinonStub).calledWith('client-001', TransportTaskEventNames.ERROR, match({taskId})),
       ).to.be.true
     })
 
@@ -417,20 +434,21 @@ describe('TransportHandlers', () => {
       const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
       registerHandler!({}, 'agent-001')
 
-      const createResult = createHandler!({content: 'Agent cancel', type: 'curate'}, 'client-001') as {taskId: string}
+      const taskId = randomUUID()
+      createHandler!({content: 'Agent cancel', taskId, type: 'curate'}, 'client-001')
 
       const cancelledHandler = requestHandlers.get(TransportTaskEventNames.CANCELLED)
-      cancelledHandler!({taskId: createResult.taskId}, 'agent-001')
+      cancelledHandler!({taskId}, 'agent-001')
 
       expect(
         (mockTransport.sendTo as SinonStub).calledWith('client-001', TransportTaskEventNames.CANCELLED, {
-          taskId: createResult.taskId,
+          taskId,
         }),
       ).to.be.true
 
       expect(
         (mockTransport.broadcastTo as SinonStub).calledWith('broadcast-room', TransportTaskEventNames.CANCELLED, {
-          taskId: createResult.taskId,
+          taskId,
         }),
       ).to.be.true
     })
@@ -442,14 +460,15 @@ describe('TransportHandlers', () => {
       const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
       registerHandler!({}, 'agent-001')
 
-      const createResult = createHandler!({content: 'Started test', type: 'curate'}, 'client-001') as {taskId: string}
+      const taskId = randomUUID()
+      createHandler!({content: 'Started test', taskId, type: 'curate'}, 'client-001')
 
       const startedHandler = requestHandlers.get(TransportTaskEventNames.STARTED)
-      startedHandler!({taskId: createResult.taskId}, 'agent-001')
+      startedHandler!({taskId}, 'agent-001')
 
       expect(
         (mockTransport.sendTo as SinonStub).calledWith('client-001', TransportTaskEventNames.STARTED, {
-          taskId: createResult.taskId,
+          taskId,
         }),
       ).to.be.true
     })
@@ -459,13 +478,11 @@ describe('TransportHandlers', () => {
       const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
       registerHandler!({}, 'agent-001')
 
-      const createResult = createHandler!(
-        {content: 'Broadcast started', files: ['/test.ts'], type: 'curate'},
-        'client-001',
-      ) as {taskId: string}
+      const taskId = randomUUID()
+      createHandler!({content: 'Broadcast started', files: ['/test.ts'], taskId, type: 'curate'}, 'client-001')
 
       const startedHandler = requestHandlers.get(TransportTaskEventNames.STARTED)
-      startedHandler!({taskId: createResult.taskId}, 'agent-001')
+      startedHandler!({taskId}, 'agent-001')
 
       expect(
         (mockTransport.broadcastTo as SinonStub).calledWith(
@@ -474,7 +491,7 @@ describe('TransportHandlers', () => {
           sandbox.match({
             content: 'Broadcast started',
             files: ['/test.ts'],
-            taskId: createResult.taskId,
+            taskId,
             type: 'curate',
           }),
         ),
@@ -512,8 +529,10 @@ describe('TransportHandlers', () => {
       registerHandler!({}, 'agent-001')
 
       // Create multiple tasks
-      const task1 = createHandler!({content: 'Task 1', type: 'curate'}, 'client-001') as {taskId: string}
-      const task2 = createHandler!({content: 'Task 2', type: 'query'}, 'client-002') as {taskId: string}
+      const taskId1 = randomUUID()
+      const taskId2 = randomUUID()
+      createHandler!({content: 'Task 1', taskId: taskId1, type: 'curate'}, 'client-001')
+      createHandler!({content: 'Task 2', taskId: taskId2, type: 'query'}, 'client-002')
 
       // Disconnect agent
       disconnectionHandler!('agent-001')
@@ -523,7 +542,7 @@ describe('TransportHandlers', () => {
         (mockTransport.sendTo as SinonStub).calledWith(
           'client-001',
           TransportTaskEventNames.ERROR,
-          sandbox.match({taskId: task1.taskId}),
+          sandbox.match({taskId: taskId1}),
         ),
       ).to.be.true
 
@@ -531,7 +550,7 @@ describe('TransportHandlers', () => {
         (mockTransport.sendTo as SinonStub).calledWith(
           'client-002',
           TransportTaskEventNames.ERROR,
-          sandbox.match({taskId: task2.taskId}),
+          sandbox.match({taskId: taskId2}),
         ),
       ).to.be.true
     })
@@ -541,7 +560,8 @@ describe('TransportHandlers', () => {
       const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
       registerHandler!({}, 'agent-001')
 
-      const task = createHandler!({content: 'Broadcast error', type: 'curate'}, 'client-001') as {taskId: string}
+      const taskId = randomUUID()
+      createHandler!({content: 'Broadcast error', taskId, type: 'curate'}, 'client-001')
 
       disconnectionHandler!('agent-001')
 
@@ -549,7 +569,7 @@ describe('TransportHandlers', () => {
         (mockTransport.broadcastTo as SinonStub).calledWith(
           'broadcast-room',
           TransportTaskEventNames.ERROR,
-          sandbox.match({taskId: task.taskId}),
+          sandbox.match({taskId}),
         ),
       ).to.be.true
     })
@@ -559,7 +579,8 @@ describe('TransportHandlers', () => {
       const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
       registerHandler!({}, 'agent-001')
 
-      createHandler!({content: 'Clear test', type: 'curate'}, 'client-001')
+      const taskId = randomUUID()
+      createHandler!({content: 'Clear test', taskId, type: 'curate'}, 'client-001')
 
       disconnectionHandler!('agent-001')
 
@@ -579,7 +600,8 @@ describe('TransportHandlers', () => {
       const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
       registerHandler!({}, 'agent-001')
 
-      const task = createHandler!({content: 'Non-agent test', type: 'curate'}, 'client-001') as {taskId: string}
+      const taskId = randomUUID()
+      createHandler!({content: 'Non-agent test', taskId, type: 'curate'}, 'client-001')
 
       // Disconnect a regular client
       disconnectionHandler!('client-001')
@@ -587,7 +609,7 @@ describe('TransportHandlers', () => {
       // Agent should still be connected, task should still exist
       // Cancel should still work
       const cancelHandler = requestHandlers.get(TransportTaskEventNames.CANCEL)
-      const result = cancelHandler!({taskId: task.taskId}, 'client-002')
+      const result = cancelHandler!({taskId}, 'client-002')
 
       expect(result).to.deep.equal({success: true})
     })
@@ -599,14 +621,15 @@ describe('TransportHandlers', () => {
       const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
       registerHandler!({}, 'agent-001')
 
-      const task = createHandler!({content: 'Response test', type: 'curate'}, 'client-001') as {taskId: string}
+      const taskId = randomUUID()
+      createHandler!({content: 'Response test', taskId, type: 'curate'}, 'client-001')
 
       const responseHandler = requestHandlers.get(LlmEventNames.RESPONSE)
       responseHandler!(
         {
           content: 'Hello from LLM',
           sessionId: 'session-001',
-          taskId: task.taskId,
+          taskId,
         },
         'agent-001',
       )
@@ -615,7 +638,7 @@ describe('TransportHandlers', () => {
         (mockTransport.sendTo as SinonStub).calledWith(
           'client-001',
           LlmEventNames.RESPONSE,
-          sandbox.match({content: 'Hello from LLM', taskId: task.taskId}),
+          sandbox.match({content: 'Hello from LLM', taskId}),
         ),
       ).to.be.true
     })
@@ -625,16 +648,17 @@ describe('TransportHandlers', () => {
       const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
       registerHandler!({}, 'agent-001')
 
-      const task = createHandler!({content: 'Broadcast LLM', type: 'curate'}, 'client-001') as {taskId: string}
+      const taskId = randomUUID()
+      createHandler!({content: 'Broadcast LLM', taskId, type: 'curate'}, 'client-001')
 
       const responseHandler = requestHandlers.get(LlmEventNames.RESPONSE)
-      responseHandler!({content: 'Broadcast content', sessionId: 's1', taskId: task.taskId}, 'agent-001')
+      responseHandler!({content: 'Broadcast content', sessionId: 's1', taskId}, 'agent-001')
 
       expect(
         (mockTransport.broadcastTo as SinonStub).calledWith(
           'broadcast-room',
           LlmEventNames.RESPONSE,
-          sandbox.match({taskId: task.taskId}),
+          sandbox.match({taskId}),
         ),
       ).to.be.true
     })
@@ -644,14 +668,15 @@ describe('TransportHandlers', () => {
       const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
       registerHandler!({}, 'agent-001')
 
-      const task = createHandler!({content: 'Tool test', type: 'curate'}, 'client-001') as {taskId: string}
+      const taskId = randomUUID()
+      createHandler!({content: 'Tool test', taskId, type: 'curate'}, 'client-001')
 
       const toolCallHandler = requestHandlers.get(LlmEventNames.TOOL_CALL)
       toolCallHandler!(
         {
           args: {path: '/test.ts'},
           sessionId: 's1',
-          taskId: task.taskId,
+          taskId,
           toolName: 'read_file',
         },
         'agent-001',
@@ -666,12 +691,50 @@ describe('TransportHandlers', () => {
       ).to.be.true
     })
 
+    it('should preserve toolName field (not name) in llmservice:toolCall routing', () => {
+      // Regression test: Ensure toolName is preserved and 'name' field is NOT added
+      const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
+      registerHandler!({}, 'agent-001')
+
+      const taskId = randomUUID()
+      const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
+      createHandler!({content: 'test', taskId, type: 'query'}, 'client-001')
+
+      // Simulate toolCall with ONLY toolName (no name field)
+      const toolCallHandler = requestHandlers.get(LlmEventNames.TOOL_CALL)
+      toolCallHandler!(
+        {
+          args: {pattern: 'test'},
+          callId: 'call-123',
+          sessionId: 'session-1',
+          taskId,
+          toolName: 'grep_content',
+        },
+        'agent-001',
+      )
+
+      // Verify: sendTo should have toolName, NOT name
+      const sendToCalls = (mockTransport.sendTo as SinonStub).getCalls()
+      const sendToCall = sendToCalls.find((c) => c.args[1] === LlmEventNames.TOOL_CALL)
+      expect(sendToCall).to.exist
+      expect(sendToCall!.args[2].toolName).to.equal('grep_content')
+      expect(sendToCall!.args[2]).to.not.have.property('name')
+
+      // Verify: broadcastTo should also have toolName, NOT name
+      const broadcastCalls = (mockTransport.broadcastTo as SinonStub).getCalls()
+      const broadcastCall = broadcastCalls.find((c) => c.args[1] === LlmEventNames.TOOL_CALL)
+      expect(broadcastCall).to.exist
+      expect(broadcastCall!.args[2].toolName).to.equal('grep_content')
+      expect(broadcastCall!.args[2]).to.not.have.property('name')
+    })
+
     it('should route llmservice:toolResult correctly', () => {
       const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
       const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
       registerHandler!({}, 'agent-001')
 
-      const task = createHandler!({content: 'Tool result test', type: 'curate'}, 'client-001') as {taskId: string}
+      const taskId = randomUUID()
+      createHandler!({content: 'Tool result test', taskId, type: 'curate'}, 'client-001')
 
       const toolResultHandler = requestHandlers.get(LlmEventNames.TOOL_RESULT)
       toolResultHandler!(
@@ -679,7 +742,7 @@ describe('TransportHandlers', () => {
           result: 'file contents',
           sessionId: 's1',
           success: true,
-          taskId: task.taskId,
+          taskId,
           toolName: 'read_file',
         },
         'agent-001',
@@ -699,14 +762,15 @@ describe('TransportHandlers', () => {
       const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
       registerHandler!({}, 'agent-001')
 
-      const task = createHandler!({content: 'Chunk test', type: 'curate'}, 'client-001') as {taskId: string}
+      const taskId = randomUUID()
+      createHandler!({content: 'Chunk test', taskId, type: 'curate'}, 'client-001')
 
       const chunkHandler = requestHandlers.get(LlmEventNames.CHUNK)
       chunkHandler!(
         {
           content: 'Streaming chunk',
           sessionId: 's1',
-          taskId: task.taskId,
+          taskId,
           type: 'text',
         },
         'agent-001',
@@ -726,17 +790,14 @@ describe('TransportHandlers', () => {
       const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
       registerHandler!({}, 'agent-001')
 
-      const task = createHandler!({content: 'Thinking test', type: 'curate'}, 'client-001') as {taskId: string}
+      const taskId = randomUUID()
+      createHandler!({content: 'Thinking test', taskId, type: 'curate'}, 'client-001')
 
       const thinkingHandler = requestHandlers.get(LlmEventNames.THINKING)
-      thinkingHandler!({sessionId: 's1', taskId: task.taskId}, 'agent-001')
+      thinkingHandler!({sessionId: 's1', taskId}, 'agent-001')
 
       expect(
-        (mockTransport.sendTo as SinonStub).calledWith(
-          'client-001',
-          LlmEventNames.THINKING,
-          sandbox.match({taskId: task.taskId}),
-        ),
+        (mockTransport.sendTo as SinonStub).calledWith('client-001', LlmEventNames.THINKING, sandbox.match({taskId})),
       ).to.be.true
     })
   })
@@ -761,17 +822,18 @@ describe('TransportHandlers', () => {
       const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
       registerHandler!({}, 'agent-001')
 
-      const task = createHandler!({content: 'Completed task', type: 'curate'}, 'client-001') as {taskId: string}
+      const taskId = randomUUID()
+      createHandler!({content: 'Completed task', taskId, type: 'curate'}, 'client-001')
 
       // Complete the task
       const completedHandler = requestHandlers.get(TransportTaskEventNames.COMPLETED)
-      completedHandler!({result: 'Done', taskId: task.taskId}, 'agent-001')
+      completedHandler!({result: 'Done', taskId}, 'agent-001')
       ;(mockTransport.sendTo as SinonStub).resetHistory()
       ;(mockTransport.broadcastTo as SinonStub).resetHistory()
 
       // Send late event
       const responseHandler = requestHandlers.get(LlmEventNames.RESPONSE)
-      responseHandler!({content: 'Late event', sessionId: 's1', taskId: task.taskId}, 'agent-001')
+      responseHandler!({content: 'Late event', sessionId: 's1', taskId}, 'agent-001')
 
       // No LLM events should be forwarded
       expect((mockTransport.sendTo as SinonStub).called).to.be.false
@@ -849,7 +911,8 @@ describe('TransportHandlers', () => {
       const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
       registerHandler!({}, 'agent-001')
 
-      createHandler!({content: 'Cleanup test', type: 'curate'}, 'client-001')
+      const taskId = randomUUID()
+      createHandler!({content: 'Cleanup test', taskId, type: 'curate'}, 'client-001')
 
       handlers.cleanup()
 
@@ -886,13 +949,12 @@ describe('TransportHandlers', () => {
 
       const tasks: Array<{clientId: string; taskId: string}> = []
 
-      // Create 50 tasks from different clients
+      // Create 50 tasks from different clients with unique taskIds
       for (let i = 0; i < 50; i++) {
         const clientId = `client-${i % 10}`
-        const result = createHandler!({content: `Task ${i}`, type: i % 2 === 0 ? 'curate' : 'query'}, clientId) as {
-          taskId: string
-        }
-        tasks.push({clientId, taskId: result.taskId})
+        const taskId = randomUUID()
+        createHandler!({content: `Task ${i}`, taskId, type: i % 2 === 0 ? 'curate' : 'query'}, clientId)
+        tasks.push({clientId, taskId})
       }
 
       // Complete all tasks
@@ -918,8 +980,9 @@ describe('TransportHandlers', () => {
       registerHandler!({}, 'agent-001')
 
       for (let i = 0; i < 20; i++) {
-        const result = createHandler!({content: `Rapid ${i}`, type: 'curate'}, 'client-001') as {taskId: string}
-        const cancelResult = cancelHandler!({taskId: result.taskId}, 'client-001')
+        const taskId = randomUUID()
+        createHandler!({content: `Rapid ${i}`, taskId, type: 'curate'}, 'client-001')
+        const cancelResult = cancelHandler!({taskId}, 'client-001')
         expect(cancelResult).to.deep.equal({success: true})
       }
     })

@@ -1,4 +1,5 @@
 import {expect} from 'chai'
+import {randomUUID} from 'node:crypto'
 
 import {TransportHandlers} from '../../src/infra/process/transport-handlers.js'
 import {SocketIOTransportClient} from '../../src/infra/transport/socket-io-transport-client.js'
@@ -10,17 +11,17 @@ const delay = (ms: number): Promise<void> => new Promise((resolve) => {
 })
 
 /**
- * E2E Tests for TaskId Flow through Transport + Agent
+ * Integration Tests for TaskId Flow through Transport + Agent
  *
  * Tests the complete taskId lifecycle:
- * 1. Client sends task:create (no taskId)
- * 2. Transport generates taskId, sends task:execute to Agent
+ * 1. Client UseCase generates taskId and sends task:create with taskId
+ * 2. Transport validates taskId, sends task:execute to Agent
  * 3. Agent sends llmservice:* events with taskId
  * 4. Transport routes events to correct client based on taskId
  *
  * This simulates the real 3-process architecture without actually forking processes.
  */
-describe('TaskId E2E Flow', () => {
+describe('TaskId Integration Flow', () => {
   let server: SocketIOTransportServer
   let handlers: TransportHandlers
   let mockAgent: SocketIOTransportClient
@@ -68,7 +69,7 @@ describe('TaskId E2E Flow', () => {
   })
 
   describe('TaskId generation and propagation', () => {
-    it('should generate taskId in Transport and include it in task:execute to Agent', async () => {
+    it('should accept client-generated taskId and include it in task:execute to Agent', async () => {
       // Track what Agent receives
       let receivedTaskExecute: undefined | {content: string; taskId: string; type: string}
 
@@ -76,22 +77,23 @@ describe('TaskId E2E Flow', () => {
         receivedTaskExecute = data as {content: string; taskId: string; type: string}
       })
 
-      // Client creates task (NO taskId in request)
+      // Client generates taskId and creates task
+      const taskId = randomUUID()
       const response = await client.request<{taskId: string}>('task:create', {
         content: 'Test content',
+        taskId,
         type: 'curate',
       })
 
       // Wait for Agent to receive
       await delay(20)
 
-      // Verify Transport generated taskId
-      expect(response.taskId).to.be.a('string')
-      expect(response.taskId).to.have.length(36) // UUID format
+      // Verify Transport accepted client's taskId
+      expect(response.taskId).to.equal(taskId)
 
       // Verify Agent received same taskId
       expect(receivedTaskExecute).to.not.be.undefined
-      expect(receivedTaskExecute!.taskId).to.equal(response.taskId)
+      expect(receivedTaskExecute!.taskId).to.equal(taskId)
       expect(receivedTaskExecute!.type).to.equal('curate')
       expect(receivedTaskExecute!.content).to.equal('Test content')
     })
@@ -122,9 +124,11 @@ describe('TaskId E2E Flow', () => {
         clientEvents.push({event: 'completed', taskId: d.taskId})
       })
 
-      // Create task
-      const {taskId} = await directClient.request<{taskId: string}>('task:create', {
+      // Create task with client-generated taskId
+      const taskId = randomUUID()
+      await directClient.request<{taskId: string}>('task:create', {
         content: 'Test',
+        taskId,
         type: 'query',
       })
 
@@ -177,13 +181,17 @@ describe('TaskId E2E Flow', () => {
         client2Events.push({content: d.content, taskId: d.taskId})
       })
 
-      // Create two tasks from different clients
-      const task1 = await client.request<{taskId: string}>('task:create', {
+      // Create two tasks from different clients with client-generated taskIds
+      const taskId1 = randomUUID()
+      const taskId2 = randomUUID()
+      await client.request<{taskId: string}>('task:create', {
         content: 'Task 1',
+        taskId: taskId1,
         type: 'curate',
       })
-      const task2 = await client2.request<{taskId: string}>('task:create', {
+      await client2.request<{taskId: string}>('task:create', {
         content: 'Task 2',
+        taskId: taskId2,
         type: 'curate',
       })
 
@@ -193,25 +201,25 @@ describe('TaskId E2E Flow', () => {
       await mockAgent.request('llmservice:chunk', {
         content: 'Task1-msg1',
         sessionId: 's1',
-        taskId: task1.taskId,
+        taskId: taskId1,
         type: 'text',
       })
       await mockAgent.request('llmservice:chunk', {
         content: 'Task2-msg1',
         sessionId: 's2',
-        taskId: task2.taskId,
+        taskId: taskId2,
         type: 'text',
       })
       await mockAgent.request('llmservice:chunk', {
         content: 'Task1-msg2',
         sessionId: 's1',
-        taskId: task1.taskId,
+        taskId: taskId1,
         type: 'text',
       })
       await mockAgent.request('llmservice:chunk', {
         content: 'Task2-msg2',
         sessionId: 's2',
-        taskId: task2.taskId,
+        taskId: taskId2,
         type: 'text',
       })
 
@@ -222,8 +230,8 @@ describe('TaskId E2E Flow', () => {
       const allEvents = [...client1Events, ...client2Events]
 
       // Filter by taskId (as TUI would do)
-      const task1EventsFiltered = allEvents.filter((e) => e.taskId === task1.taskId)
-      const task2EventsFiltered = allEvents.filter((e) => e.taskId === task2.taskId)
+      const task1EventsFiltered = allEvents.filter((e) => e.taskId === taskId1)
+      const task2EventsFiltered = allEvents.filter((e) => e.taskId === taskId2)
 
       expect(task1EventsFiltered.map((e) => e.content)).to.include.members(['Task1-msg1', 'Task1-msg2'])
       expect(task2EventsFiltered.map((e) => e.content)).to.include.members(['Task2-msg1', 'Task2-msg2'])
@@ -255,9 +263,11 @@ describe('TaskId E2E Flow', () => {
 
       mockAgent.on('task:cancel', handleCancelRequest)
 
-      // Create and immediately cancel a task
-      const {taskId} = await cancelClient.request<{taskId: string}>('task:create', {
+      // Create and immediately cancel a task with client-generated taskId
+      const taskId = randomUUID()
+      await cancelClient.request<{taskId: string}>('task:create', {
         content: 'Cancel me',
+        taskId,
         type: 'curate',
       })
 
@@ -282,9 +292,11 @@ describe('TaskId E2E Flow', () => {
         errorEvent = {error: d.error, taskId: d.taskId}
       })
 
-      // Create task
-      const {taskId} = await client.request<{taskId: string}>('task:create', {
+      // Create task with client-generated taskId
+      const taskId = randomUUID()
+      await client.request<{taskId: string}>('task:create', {
         content: 'Error task',
+        taskId,
         type: 'query',
       })
 
@@ -324,21 +336,25 @@ describe('TaskId E2E Flow', () => {
         eventsByTask.get(d.taskId)!.push(d.content)
       })
 
-      // Create 3 curate tasks (maxConcurrent=2, so 1 will queue)
+      // Create 3 curate tasks with client-generated taskIds
       for (let i = 0; i < 3; i++) {
+        const taskId = randomUUID()
         // eslint-disable-next-line no-await-in-loop
-        const {taskId} = await stressClient.request<{taskId: string}>('task:create', {
+        await stressClient.request<{taskId: string}>('task:create', {
           content: `Curate ${i}`,
+          taskId,
           type: 'curate',
         })
         curateTasks.push({taskId, type: 'curate'})
       }
 
-      // Create 2 query tasks (unlimited concurrency)
+      // Create 2 query tasks with client-generated taskIds
       for (let i = 0; i < 2; i++) {
+        const taskId = randomUUID()
         // eslint-disable-next-line no-await-in-loop
-        const {taskId} = await stressClient.request<{taskId: string}>('task:create', {
+        await stressClient.request<{taskId: string}>('task:create', {
           content: `Query ${i}`,
+          taskId,
           type: 'query',
         })
         queryTasks.push({taskId, type: 'query'})

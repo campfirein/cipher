@@ -27,16 +27,16 @@ import type {ITransportClient} from '../../core/interfaces/transport/i-transport
 import type {AgentIPCResponse, IPCCommand} from './ipc-types.js'
 
 import {getCurrentConfig} from '../../config/environment.js'
-import {PROJECT} from '../../constants.js'
+import {DEFAULT_LLM_MODEL, PROJECT} from '../../constants.js'
 import {NotAuthenticatedError, ProcessorNotInitError, serializeTaskError} from '../../core/domain/errors/task-error.js'
 import {agentLog} from '../../utils/process-logger.js'
 import {CipherAgent} from '../cipher/agent/index.js'
 import {ProjectConfigStore} from '../config/file-config-store.js'
+import {CurateExecutor} from '../core/executors/curate-executor.js'
+import {QueryExecutor} from '../core/executors/query-executor.js'
 import {createTaskProcessor, TaskProcessor} from '../core/task-processor.js'
 import {KeychainTokenStore} from '../storage/keychain-token-store.js'
 import {createTransportClient} from '../transport/transport-factory.js'
-import {CurateUseCaseV2} from '../usecase/curate-use-case-v2.js'
-import {QueryUseCaseV2} from '../usecase/query-use-case-v2.js'
 import {TaskQueueManager} from './task-queue-manager.js'
 
 // IPC types imported from ./ipc-types.ts
@@ -102,7 +102,10 @@ let eventForwarders: EventForwarder[] = []
  */
 const taskQueueManager = new TaskQueueManager({
   curate: {maxConcurrent: 2},
-  query: {maxConcurrent: 2},
+  onExecutorError(taskId, error) {
+    agentLog(`Executor error for task ${taskId}: ${error}`)
+  },
+  query: {maxConcurrent: Infinity},
 })
 
 /**
@@ -275,6 +278,9 @@ function setupAgentEventForwarding(agent: CipherAgent): void {
   agentLog(`Event forwarding setup complete (${eventForwarders.length} forwarders registered)`)
 }
 
+/** Task execution timeout: 5 minutes */
+const TASK_EXECUTION_TIMEOUT_MS = 5 * 60 * 1000
+
 /**
  * Setup the task executor for TaskQueueManager.
  * Called after agent is initialized.
@@ -285,12 +291,35 @@ function setupTaskExecutor(): void {
     const stats = taskQueueManager.getStats(type)
     agentLog(`Processing task ${taskId} (${type}), ${stats.queued} queued, ${stats.active} active`)
 
+    // Create timeout promise that rejects after 5 minutes
+    let timeoutId: NodeJS.Timeout | undefined
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(() => {
+        reject(new Error('TASK_TIMEOUT'))
+      }, TASK_EXECUTION_TIMEOUT_MS)
+    })
+
     try {
-      await handleTaskExecute(task)
+      // Race between task execution and timeout
+      await Promise.race([handleTaskExecute(task), timeoutPromise])
     } catch (error) {
+      // Handle timeout specifically
+      if (error instanceof Error && error.message === 'TASK_TIMEOUT') {
+        agentLog(`Task ${taskId} timed out after 5 minutes`)
+        const errorData = serializeTaskError(new Error('Task exceeded 5 minute timeout'))
+        transportClient?.request('task:error', {error: errorData, taskId}).catch(logTransportError)
+        return
+      }
+
+      // Handle other errors
       agentLog(`Task execution failed: ${error}`)
       const errorData = serializeTaskError(error)
       transportClient?.request('task:error', {error: errorData, taskId}).catch(logTransportError)
+    } finally {
+      // Always clear timeout to prevent memory leak
+      if (timeoutId) {
+        clearTimeout(timeoutId)
+      }
     }
   })
 
@@ -346,9 +375,9 @@ async function tryInitializeAgent(forceReinit = false): Promise<boolean> {
       return false
     }
 
-    // Create V2 UseCases
-    const curateUseCase = new CurateUseCaseV2()
-    const queryUseCase = new QueryUseCaseV2()
+    // Create Executors
+    const curateExecutor = new CurateExecutor()
+    const queryExecutor = new QueryExecutor()
 
     // Initialize CipherAgent
     const envConfig = getCurrentConfig()
@@ -364,7 +393,7 @@ async function tryInitializeAgent(forceReinit = false): Promise<boolean> {
         topP: 0.95,
         verbose: false,
       },
-      model: 'gemini-2.5-pro',
+      model: DEFAULT_LLM_MODEL,
       projectId: PROJECT,
       sessionKey: authToken.sessionKey,
     }
@@ -384,8 +413,8 @@ async function tryInitializeAgent(forceReinit = false): Promise<boolean> {
 
     // Create TaskProcessor
     taskProcessor = createTaskProcessor({
-      curateUseCase,
-      queryUseCase,
+      curateExecutor,
+      queryExecutor,
     })
     taskProcessor.setAgent(cipherAgent)
 
@@ -449,7 +478,7 @@ async function handleTaskExecute(data: TaskExecute): Promise<void> {
     // Agent uses its default session (Single-Session pattern)
     // File validation is handled by UseCase (business logic belongs there)
     // Note: taskId is passed to UseCase → CipherAgent → ChatSession, which adds it to all events
-    const result = await taskProcessor!.process({
+    const result = await taskProcessor.process({
       content,
       files,
       taskId,
@@ -647,7 +676,7 @@ async function runWorker(): Promise<void> {
 
   process.once('SIGTERM', cleanup)
   process.once('SIGINT', cleanup)
-  process.on('disconnect', cleanup)
+  process.once('disconnect', cleanup)
 }
 
 // ============================================================================

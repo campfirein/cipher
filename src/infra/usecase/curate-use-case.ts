@@ -1,13 +1,20 @@
+import {randomUUID} from 'node:crypto'
+
 import type {ITerminal} from '../../core/interfaces/i-terminal.js'
 import type {CurateUseCaseRunOptions, ICurateUseCase} from '../../core/interfaces/usecase/i-curate-use-case.js'
 
-import {ConnectionError, ConnectionFailedError, InstanceCrashedError, NoInstanceRunningError} from '../../core/domain/errors/connection-error.js'
+import {
+  ConnectionError,
+  ConnectionFailedError,
+  InstanceCrashedError,
+  NoInstanceRunningError,
+} from '../../core/domain/errors/connection-error.js'
 import {TaskCreateResponse} from '../../core/domain/transport/index.js'
 import {ITrackingService} from '../../core/interfaces/i-tracking-service.js'
 import {ITransportClient} from '../../core/interfaces/transport/index.js'
 import {formatError} from '../../utils/error-handler.js'
 import {getSandboxEnvironmentName, isSandboxEnvironment, isSandboxNetworkError} from '../../utils/sandbox-detector.js'
-import {createTransportClientFactory} from '../transport/transport-client-factory.js'
+import {createTransportClientFactory, TransportClientFactory} from '../transport/transport-client-factory.js'
 
 export interface CurateUseCaseOptions {
   terminal: ITerminal
@@ -23,6 +30,13 @@ export class CurateUseCase implements ICurateUseCase {
     this.trackingService = options.trackingService
   }
 
+  /**
+   * Create transport client factory. Protected to allow test overrides.
+   */
+  protected createTransportFactory(): TransportClientFactory {
+    return createTransportClientFactory()
+  }
+
   public async run({context, files, verbose = false}: CurateUseCaseRunOptions): Promise<void> {
     await this.trackingService.track('mem:curate', {status: 'started'})
     if (!context) {
@@ -34,7 +48,7 @@ export class CurateUseCase implements ICurateUseCase {
     let client: ITransportClient | undefined
 
     try {
-      const factory = createTransportClientFactory()
+      const factory = this.createTransportFactory()
 
       if (verbose) {
         this.terminal.log('Discovering running instance...')
@@ -47,10 +61,14 @@ export class CurateUseCase implements ICurateUseCase {
         this.terminal.log(`Connected to instance (clientId: ${client.getClientId()})`)
       }
 
+      // Generate taskId in UseCase (Application layer owns task creation)
+      const taskId = randomUUID()
+
       // Send task:create - Transport routes to Agent, UseCase handles logic
       await client.request<TaskCreateResponse>('task:create', {
         content: context,
         ...(files?.length ? {files} : {}),
+        taskId,
         type: 'curate',
       })
 

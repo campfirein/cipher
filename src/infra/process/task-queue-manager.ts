@@ -31,6 +31,8 @@ export interface TaskQueueStats {
 
 export interface TaskQueueManagerConfig {
   curate: QueueConfig
+  /** Optional callback for executor errors (for logging/debugging) */
+  onExecutorError?: (taskId: string, error: unknown) => void
   query: QueueConfig
 }
 
@@ -54,10 +56,11 @@ export type TaskExecutor = (task: TaskExecute) => Promise<void>
 export class TaskQueueManager {
   private activeCurateTasks = 0
   private activeQueryTasks = 0
-  private readonly config: TaskQueueManagerConfig
+  private readonly config: Omit<TaskQueueManagerConfig, 'onExecutorError'> & {curate: QueueConfig; query: QueueConfig}
   private readonly curateQueue: TaskExecute[] = []
   /** Maps taskId → taskType for tracking (replaces Set for type awareness) */
   private readonly knownTasks = new Map<string, TaskType>()
+  private readonly onExecutorError?: (taskId: string, error: unknown) => void
   private readonly queryQueue: TaskExecute[] = []
   private taskExecutor: TaskExecutor | undefined
 
@@ -67,6 +70,7 @@ export class TaskQueueManager {
       // Query tasks are unlimited (Infinity) - lightweight and fast
       query: {maxConcurrent: config?.query?.maxConcurrent ?? Infinity},
     }
+    this.onExecutorError = config?.onExecutorError
   }
 
   /**
@@ -237,8 +241,10 @@ export class TaskQueueManager {
 
   private executeTask(task: TaskExecute, type: TaskType): void {
     this.taskExecutor!(task)
-      .catch(() => {
-        // Error handling is executor's responsibility
+      .catch((error: unknown) => {
+        // Notify caller of executor error (for logging/debugging)
+        // Primary error handling is executor's responsibility
+        this.onExecutorError?.(task.taskId, error)
       })
       .finally(() => {
         this.markCompleted(task.taskId, type)

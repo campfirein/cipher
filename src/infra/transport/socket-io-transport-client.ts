@@ -44,6 +44,8 @@ type StoredEventHandler = (data: unknown) => void
 export class SocketIOTransportClient implements ITransportClient {
   private readonly config: Required<TransportClientConfig>
   private eventHandlers: Map<string, Set<StoredEventHandler>> = new Map()
+  /** Track which events have socket listeners registered (prevents duplicates on reconnect) */
+  private registeredSocketEvents: Set<string> = new Set()
   private socket: Socket | undefined
   private state: ConnectionState = 'disconnected'
   private stateHandlers: Set<ConnectionStateHandler> = new Set()
@@ -125,6 +127,10 @@ export class SocketIOTransportClient implements ITransportClient {
 
       this.socket.io.on('reconnect', () => {
         this.setState('connected')
+        // Re-register event handlers after reconnect
+        // Clear tracking first since socket listeners were reset during reconnect
+        this.registeredSocketEvents.clear()
+        this.registerPendingEventHandlers()
       })
 
       this.socket.io.on('reconnect_failed', () => {
@@ -146,7 +152,10 @@ export class SocketIOTransportClient implements ITransportClient {
       socket.disconnect()
       this.socket = undefined
       this.setState('disconnected')
+      // Clear all tracking state to prevent leaks
       this.eventHandlers.clear()
+      this.registeredSocketEvents.clear()
+      this.stateHandlers.clear()
       resolve()
     })
   }
@@ -206,29 +215,25 @@ export class SocketIOTransportClient implements ITransportClient {
   on<T = unknown>(event: string, handler: EventHandler<T>): () => void {
     if (!this.eventHandlers.has(event)) {
       this.eventHandlers.set(event, new Set())
-
-      // Register with socket if connected
-      const {socket} = this
-      if (socket) {
-        socket.on(event, (data: T) => {
-          const handlers = this.eventHandlers.get(event)
-          if (handlers) {
-            for (const h of handlers) {
-              h(data)
-            }
-          }
-        })
-      }
     }
+
+    // Register socket listener if connected and not already registered
+    // Use registeredSocketEvents to prevent duplicates across reconnects
+    this.registerSocketEventIfNeeded(event)
 
     // Wrap handler to store without type assertion
     const wrappedHandler: StoredEventHandler = (data) => handler(data as T)
     const handlers = this.eventHandlers.get(event)
     handlers?.add(wrappedHandler)
 
-    // Return unsubscribe function
+    // Return unsubscribe function that also cleans up socket listener if no handlers remain
     return () => {
       handlers?.delete(wrappedHandler)
+      // Clean up socket listener and map entry if no handlers remain
+      if (handlers && handlers.size === 0) {
+        this.eventHandlers.delete(event)
+        this.removeSocketEventListener(event)
+      }
     }
   }
 
@@ -286,22 +291,41 @@ export class SocketIOTransportClient implements ITransportClient {
    * Called after successful connection to handle handlers added before connect().
    */
   private registerPendingEventHandlers(): void {
-    const {socket} = this
-    if (!socket) return
+    for (const event of this.eventHandlers.keys()) {
+      this.registerSocketEventIfNeeded(event)
+    }
+  }
 
-    for (const [event, handlers] of this.eventHandlers) {
-      // Check if this event is already registered on socket
-      // by checking if socket has listeners for it
-      if (socket.listeners(event).length === 0 && handlers.size > 0) {
-        socket.on(event, (data: unknown) => {
-          const currentHandlers = this.eventHandlers.get(event)
-          if (currentHandlers) {
-            for (const h of currentHandlers) {
-              h(data)
-            }
-          }
-        })
+  /**
+   * Register a socket listener for an event if not already registered.
+   * Uses registeredSocketEvents set to prevent duplicates.
+   */
+  private registerSocketEventIfNeeded(event: string): void {
+    const {socket} = this
+    if (!socket || this.registeredSocketEvents.has(event)) {
+      return
+    }
+
+    // Register the dispatch listener on socket
+    socket.on(event, (data: unknown) => {
+      const handlers = this.eventHandlers.get(event)
+      if (handlers) {
+        for (const h of handlers) {
+          h(data)
+        }
       }
+    })
+    this.registeredSocketEvents.add(event)
+  }
+
+  /**
+   * Remove socket listener for an event and clear tracking.
+   */
+  private removeSocketEventListener(event: string): void {
+    const {socket} = this
+    if (socket && this.registeredSocketEvents.has(event)) {
+      socket.off(event)
+      this.registeredSocketEvents.delete(event)
     }
   }
 
