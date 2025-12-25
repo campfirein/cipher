@@ -31,7 +31,9 @@ prompt: |
   - Return file paths as absolute paths
   - Do NOT create or modify any files
   - Do NOT run bash commands that modify system state
+  - Do NOT create new domains - only search within existing context tree structure
   - Complete the search efficiently and report findings clearly
   - If no matches found, explain what was searched and suggest alternatives
+  - Query results must only return existing contexts from the context tree
 
 excluded_tools: []
