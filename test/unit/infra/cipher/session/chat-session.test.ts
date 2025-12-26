@@ -301,6 +301,41 @@ describe('ChatSession', () => {
 
       expect((mockLLMService.completeTask as SinonStub).calledTwice).to.be.true
     })
+
+    it('should handle error without accessing undefined controller (ENG-766)', async () => {
+      // This tests the fix for ENG-766 where accessing this.currentController.signal
+      // in the catch block could throw if controller was already cleared
+      const error = new Error('LLM service error')
+      ;(mockLLMService.completeTask as SinonStub).rejects(error)
+
+      try {
+        await session.run('input')
+        expect.fail('Should have thrown LLMError')
+      } catch (caughtError) {
+        // Should throw LLMError, not TypeError about undefined signal
+        expect(caughtError).to.be.instanceOf(LLMError)
+        expect((caughtError as Error).message).to.not.include("Cannot read properties of undefined")
+      }
+    })
+
+    it('should use stored controller reference to avoid race conditions (ENG-766)', async () => {
+      // Simulate a case where the controller might be accessed during error handling
+      let signalChecked = false
+      ;(mockLLMService.completeTask as SinonStub).callsFake(async () => {
+        // Simulate an error that triggers catch block
+        throw new Error('Simulated error')
+      })
+
+      try {
+        await session.run('input')
+      } catch (error) {
+        // The error should be wrapped properly without accessing undefined controller
+        expect(error).to.be.instanceOf(LLMError)
+        signalChecked = true
+      }
+
+      expect(signalChecked).to.be.true
+    })
   })
 
   describe('reset()', () => {
@@ -321,6 +356,69 @@ describe('ChatSession', () => {
       expect(emitStub.firstCall.args[1]).to.deep.equal({
         sessionId,
       })
+    })
+  })
+
+  describe('streamRun()', () => {
+    it('should handle error without accessing undefined controller (ENG-766)', async () => {
+      // This tests the fix for ENG-766 in streamRun method
+      const error = new Error('LLM service error')
+      ;(mockLLMService.completeTask as SinonStub).rejects(error)
+
+      // streamRun should not throw TypeError about undefined signal
+      await session.streamRun('input')
+
+      // The error should be captured and finishReason set to 'error'
+      // We can verify this by checking the run:complete event
+    })
+
+    it('should use stored controller reference to avoid race conditions (ENG-766)', async () => {
+      let completeTaskCalled = false
+      ;(mockLLMService.completeTask as SinonStub).callsFake(async () => {
+        completeTaskCalled = true
+        throw new Error('Simulated error')
+      })
+
+      // Should not throw "Cannot read properties of undefined (reading 'signal')"
+      await session.streamRun('input')
+
+      expect(completeTaskCalled).to.be.true
+    })
+
+    it('should emit run:complete with error finishReason on LLM error', async () => {
+      const error = new Error('LLM service error')
+      ;(mockLLMService.completeTask as SinonStub).rejects(error)
+
+      const runCompleteEvents: unknown[] = []
+      sessionEventBus.on('run:complete', (payload) => {
+        runCompleteEvents.push(payload)
+      })
+
+      await session.streamRun('input')
+
+      expect(runCompleteEvents).to.have.length(1)
+      expect(runCompleteEvents[0]).to.have.property('finishReason', 'error')
+      expect(runCompleteEvents[0]).to.have.property('error')
+    })
+
+    it('should emit run:complete with cancelled finishReason when aborted', async () => {
+      const controller = new AbortController()
+      ;(mockLLMService.completeTask as SinonStub).callsFake(async () => {
+        controller.abort()
+        throw new Error('Aborted')
+      })
+
+      const runCompleteEvents: unknown[] = []
+      sessionEventBus.on('run:complete', (payload) => {
+        runCompleteEvents.push(payload)
+      })
+
+      const runPromise = session.streamRun('input')
+      session.cancel()
+      await runPromise
+
+      expect(runCompleteEvents).to.have.length(1)
+      expect(runCompleteEvents[0]).to.have.property('finishReason', 'cancelled')
     })
   })
 

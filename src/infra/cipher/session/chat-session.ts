@@ -208,6 +208,10 @@ export class ChatSession implements IChatSession {
     // Update session status to busy
     sessionStatusManager.setBusy(this.id, this.eventBus)
 
+    // Store reference to controller for use in catch/finally blocks
+    // This prevents race conditions where currentController might be undefined
+    const controller = this.currentController
+
     try {
       // Process any queued messages first, coalescing with current input
       const queued = this.messageQueue.dequeueAll()
@@ -217,13 +221,13 @@ export class ChatSession implements IChatSession {
       // Use trackingRequestId for backend metrics if provided, otherwise generate one
       const response = await this.llmService.completeTask(finalInput, options?.trackingRequestId ?? '', {
         executionContext: options?.executionContext,
-        signal: this.currentController.signal,
+        signal: controller.signal,
       })
 
       return response
     } catch (error) {
-      // Check if cancelled
-      if (this.currentController.signal.aborted) {
+      // Check if cancelled - use stored controller reference to avoid undefined access
+      if (controller.signal.aborted) {
         throw new SessionCancelledError(this.id)
       }
 
@@ -309,9 +313,13 @@ export class ChatSession implements IChatSession {
     // Update session status to busy
     sessionStatusManager.setBusy(this.id, this.eventBus)
 
+    // Store reference to controller for use in catch/finally blocks
+    // This prevents race conditions where currentController might be undefined
+    const controller = this.currentController
+
     // Link external signal if provided (use {once: true} to prevent listener accumulation)
     if (options?.signal) {
-      options.signal.addEventListener('abort', () => this.currentController?.abort(), {once: true})
+      options.signal.addEventListener('abort', () => controller?.abort(), {once: true})
     }
 
     try {
@@ -323,11 +331,11 @@ export class ChatSession implements IChatSession {
       // Use trackingRequestId for backend metrics if provided
       await this.llmService.completeTask(finalInput, options?.trackingRequestId ?? '', {
         executionContext: options?.executionContext,
-        signal: this.currentController.signal,
+        signal: controller.signal,
       })
     } catch (error_) {
-      // Check if cancelled
-      if (this.currentController.signal.aborted) {
+      // Check if cancelled - use stored controller reference to avoid undefined access
+      if (controller.signal.aborted) {
         finishReason = 'cancelled'
       } else {
         finishReason = 'error'
