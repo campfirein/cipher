@@ -16,6 +16,8 @@ export const PROJECT = 'byterover'
 // Context Tree directory structure constants
 export const CONTEXT_TREE_DIR = 'context-tree'
 export const CONTEXT_FILE = 'context.md'
+export const CONTEXT_FILE_EXTENSION = '.md'
+export const README_FILE = 'README.md'
 export const SNAPSHOT_FILE = '.snapshot.json'
 
 /**
