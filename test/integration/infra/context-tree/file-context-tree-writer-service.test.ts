@@ -1,5 +1,5 @@
 import {expect} from 'chai'
-import {mkdir, readFile, rm, writeFile} from 'node:fs/promises'
+import {access, mkdir, readFile, rm, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import * as sinon from 'sinon'
@@ -342,6 +342,21 @@ describe('FileContextTreeWriterService', () => {
 
         const content = await readFile(join(contextTreeDir, 'test/context.md'), 'utf8')
         expect(content).to.equal('# Test')
+      })
+    })
+
+    describe('Enhanced path normalization', () => {
+      it('should normalize backslashes from API responses', async () => {
+        // Simulate a path with backslashes (as might come from a Windows API response)
+        const files = [createFile(String.raw`auth\jwt\context.md`, '# Auth JWT')]
+
+        await service.sync({files})
+
+        // File should be created with forward slash path
+        const expectedPath = join(contextTreeDir, 'auth', 'jwt', 'context.md')
+        await access(expectedPath) // Throws if file doesn't exist
+        const content = await readFile(expectedPath, 'utf8')
+        expect(content).to.equal('# Auth JWT')
       })
     })
   })

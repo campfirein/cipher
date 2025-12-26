@@ -11,6 +11,7 @@ import {
   ContextTreeSnapshotJson,
   FileState,
 } from '../../core/domain/entities/context-tree-snapshot.js'
+import {toUnixPath} from './path-utils.js'
 
 export type ContextTreeSnapshotServiceConfig = {
   baseDirectory?: string
@@ -115,7 +116,7 @@ export class FileContextTreeSnapshotService implements IContextTreeSnapshotServi
    * Processes a single file and adds it to the files map.
    */
   private async processFile(fullPath: string, rootDir: string, files: Map<string, FileState>): Promise<void> {
-    const relativePath = relative(rootDir, fullPath)
+    const relativePath = toUnixPath(relative(rootDir, fullPath))
     const [content, fileStat] = await Promise.all([readFile(fullPath), stat(fullPath)])
 
     files.set(relativePath, {
