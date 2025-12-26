@@ -321,5 +321,6 @@ export function useTasks(): TasksContextValue {
   if (!context) {
     throw new Error('useTasks must be used within a TasksProvider')
   }
+
   return context
 }
