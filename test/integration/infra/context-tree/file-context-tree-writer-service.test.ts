@@ -346,7 +346,7 @@ describe('FileContextTreeWriterService', () => {
     })
 
     describe('Enhanced path normalization', () => {
-      it('should normalize backslashes from API responses', async () => {
+      it('should normalize backslashes from API responses (Windows-style paths)', async () => {
         // Simulate a path with backslashes (as might come from a Windows API response)
         const files = [createFile(String.raw`auth\jwt\context.md`, '# Auth JWT')]
 
@@ -357,6 +357,41 @@ describe('FileContextTreeWriterService', () => {
         await access(expectedPath) // Throws if file doesn't exist
         const content = await readFile(expectedPath, 'utf8')
         expect(content).to.equal('# Auth JWT')
+      })
+
+      it('should handle Unix-style forward slashes (no conversion needed)', async () => {
+        // Unix-style paths should work as-is
+        const files = [createFile('api/endpoints/context.md', '# API Endpoints')]
+
+        await service.sync({files})
+
+        const expectedPath = join(contextTreeDir, 'api', 'endpoints', 'context.md')
+        await access(expectedPath)
+        const content = await readFile(expectedPath, 'utf8')
+        expect(content).to.equal('# API Endpoints')
+      })
+
+      it('should handle mixed slashes in path', async () => {
+        // Some APIs might return mixed slashes
+        const files = [createFile(String.raw`config\settings/context.md`, '# Config')]
+
+        await service.sync({files})
+
+        const expectedPath = join(contextTreeDir, 'config', 'settings', 'context.md')
+        await access(expectedPath)
+        const content = await readFile(expectedPath, 'utf8')
+        expect(content).to.equal('# Config')
+      })
+
+      it('should handle deeply nested Windows-style paths', async () => {
+        const files = [createFile(String.raw`a\b\c\d\e\context.md`, '# Deep')]
+
+        await service.sync({files})
+
+        const expectedPath = join(contextTreeDir, 'a', 'b', 'c', 'd', 'e', 'context.md')
+        await access(expectedPath)
+        const content = await readFile(expectedPath, 'utf8')
+        expect(content).to.equal('# Deep')
       })
     })
   })
