@@ -78,25 +78,32 @@ describe('FileContextTreeSnapshotService', () => {
       expect(state.size).to.equal(0)
     })
 
-    it('should detect context.md files only', async () => {
+    it('should detect all .md files', async () => {
       const domainDir = join(contextTreeDir, 'test_domain')
       await mkdir(domainDir, {recursive: true})
       await writeFile(join(domainDir, 'context.md'), '# Test')
+      await writeFile(join(domainDir, 'best_practices.md'), '# Best Practices')
 
       const state = await service.getCurrentState()
-      expect(state.size).to.equal(1)
+      expect(state.size).to.equal(2)
       expect(state.has('test_domain/context.md')).to.be.true
+      expect(state.has('test_domain/best_practices.md')).to.be.true
     })
 
-    it('should ignore non-context.md files', async () => {
+    it('should ignore non-.md files but detect all .md files (except README)', async () => {
       const domainDir = join(contextTreeDir, 'test_domain')
       await mkdir(domainDir, {recursive: true})
       await writeFile(join(domainDir, 'other.txt'), 'content')
-      await writeFile(join(domainDir, 'readme.md'), '# Readme')
+      await writeFile(join(domainDir, 'data.json'), '{}')
+      await writeFile(join(domainDir, 'context.md'), '# Context')
       await writeFile(join(domainDir, 'notes.md'), '# Notes')
 
       const state = await service.getCurrentState()
-      expect(state.size).to.equal(0)
+      expect(state.size).to.equal(2)
+      expect(state.has('test_domain/context.md')).to.be.true
+      expect(state.has('test_domain/notes.md')).to.be.true
+      expect(state.has('test_domain/other.txt')).to.be.false
+      expect(state.has('test_domain/data.json')).to.be.false
     })
 
     it('should track context.md in hidden directories', async () => {
@@ -109,13 +116,14 @@ describe('FileContextTreeSnapshotService', () => {
       expect(state.has('.hidden/context.md')).to.be.true
     })
 
-    it('should ignore hidden files that are not context.md', async () => {
+    it('should detect hidden .md files', async () => {
       const domainDir = join(contextTreeDir, 'test_domain')
       await mkdir(domainDir, {recursive: true})
       await writeFile(join(domainDir, '.hidden.md'), '# Hidden')
 
       const state = await service.getCurrentState()
-      expect(state.size).to.equal(0)
+      expect(state.size).to.equal(1)
+      expect(state.has('test_domain/.hidden.md')).to.be.true
     })
 
     it('should ignore snapshot file', async () => {
@@ -199,7 +207,7 @@ describe('FileContextTreeSnapshotService', () => {
       expect(state.size).to.equal(0)
     })
 
-    it('should only track context.md even when multiple files exist in same directory', async () => {
+    it('should track all .md files when multiple files exist in same directory', async () => {
       const domainDir = join(contextTreeDir, 'design')
       await mkdir(domainDir, {recursive: true})
       await writeFile(join(domainDir, 'overview.md'), '# Overview')
@@ -207,9 +215,9 @@ describe('FileContextTreeSnapshotService', () => {
       await writeFile(join(domainDir, 'context.md'), '# Context')
 
       const state = await service.getCurrentState()
-      expect(state.size).to.equal(1)
-      expect(state.has('design/overview.md')).to.be.false
-      expect(state.has('design/details.md')).to.be.false
+      expect(state.size).to.equal(3)
+      expect(state.has('design/overview.md')).to.be.true
+      expect(state.has('design/details.md')).to.be.true
       expect(state.has('design/context.md')).to.be.true
     })
 
@@ -229,6 +237,58 @@ describe('FileContextTreeSnapshotService', () => {
       expect(state.has('design/context.md')).to.be.true
       expect(state.has('code/context.md')).to.be.true
       expect(state.has('testing/context.md')).to.be.true
+    })
+
+    it('should track README.md in subdirectories', async () => {
+      const domainDir = join(contextTreeDir, 'test_domain')
+      await mkdir(domainDir, {recursive: true})
+      await writeFile(join(domainDir, 'README.md'), '# Readme - should be tracked in subdirectory')
+      await writeFile(join(domainDir, 'context.md'), '# Context')
+
+      const state = await service.getCurrentState()
+      expect(state.size).to.equal(2)
+      expect(state.has('test_domain/context.md')).to.be.true
+      expect(state.has('test_domain/README.md')).to.be.true
+    })
+
+    it('should track README.md in multiple subdirectories', async () => {
+      const dir1 = join(contextTreeDir, 'domain1')
+      const dir2 = join(contextTreeDir, 'domain2')
+      await mkdir(dir1, {recursive: true})
+      await mkdir(dir2, {recursive: true})
+      await writeFile(join(dir1, 'README.md'), '# Readme 1')
+      await writeFile(join(dir1, 'best_practices.md'), '# Best Practices')
+      await writeFile(join(dir2, 'README.md'), '# Readme 2')
+      await writeFile(join(dir2, 'jwt_tokens.md'), '# JWT Tokens')
+
+      const state = await service.getCurrentState()
+      expect(state.size).to.equal(4)
+      expect(state.has('domain1/best_practices.md')).to.be.true
+      expect(state.has('domain2/jwt_tokens.md')).to.be.true
+      expect(state.has('domain1/README.md')).to.be.true
+      expect(state.has('domain2/README.md')).to.be.true
+    })
+
+    it('should ignore README.md at root of context-tree', async () => {
+      await writeFile(join(contextTreeDir, 'README.md'), '# Root Readme')
+      const domainDir = join(contextTreeDir, 'design')
+      await mkdir(domainDir, {recursive: true})
+      await writeFile(join(domainDir, 'context.md'), '# Design')
+
+      const state = await service.getCurrentState()
+      expect(state.size).to.equal(1)
+      expect(state.has('design/context.md')).to.be.true
+      expect(state.has('README.md')).to.be.false
+    })
+
+    it('should track lowercase readme.md (only README.md is ignored)', async () => {
+      const domainDir = join(contextTreeDir, 'test_domain')
+      await mkdir(domainDir, {recursive: true})
+      await writeFile(join(domainDir, 'readme.md'), '# lowercase readme')
+
+      const state = await service.getCurrentState()
+      expect(state.size).to.equal(1)
+      expect(state.has('test_domain/readme.md')).to.be.true
     })
   })
 
@@ -312,6 +372,168 @@ describe('FileContextTreeSnapshotService', () => {
       expect(changes.modified).to.include('design/context.md')
       expect(changes.deleted).to.include('code_style/context.md')
       expect(changes.added).to.include('testing/context.md')
+    })
+
+    it('should detect added dynamic filename (e.g., best_practices.md)', async () => {
+      await service.saveSnapshot()
+
+      const domainDir = join(contextTreeDir, 'code_style')
+      await mkdir(domainDir, {recursive: true})
+      await writeFile(join(domainDir, 'best_practices.md'), '# Best Practices')
+
+      const changes = await service.getChanges()
+      expect(changes.added).to.include('code_style/best_practices.md')
+      expect(changes.modified).to.be.empty
+      expect(changes.deleted).to.be.empty
+    })
+
+    it('should detect modified dynamic filename', async () => {
+      const domainDir = join(contextTreeDir, 'auth')
+      await mkdir(domainDir, {recursive: true})
+      await writeFile(join(domainDir, 'jwt_tokens.md'), '# Original JWT')
+
+      await service.saveSnapshot()
+
+      await writeFile(join(domainDir, 'jwt_tokens.md'), '# Modified JWT with refresh tokens')
+
+      const changes = await service.getChanges()
+      expect(changes.added).to.be.empty
+      expect(changes.modified).to.include('auth/jwt_tokens.md')
+      expect(changes.deleted).to.be.empty
+    })
+
+    it('should detect deleted dynamic filename', async () => {
+      const domainDir = join(contextTreeDir, 'patterns')
+      await mkdir(domainDir, {recursive: true})
+      await writeFile(join(domainDir, 'repository_pattern.md'), '# Repository Pattern')
+
+      await service.saveSnapshot()
+
+      await rm(join(domainDir, 'repository_pattern.md'))
+
+      const changes = await service.getChanges()
+      expect(changes.added).to.be.empty
+      expect(changes.modified).to.be.empty
+      expect(changes.deleted).to.include('patterns/repository_pattern.md')
+    })
+
+    it('should detect changes in mixed context.md and dynamic filenames', async () => {
+      const domainDir = join(contextTreeDir, 'architecture')
+      await mkdir(domainDir, {recursive: true})
+      await writeFile(join(domainDir, 'context.md'), '# Architecture Overview')
+      await writeFile(join(domainDir, 'hexagonal.md'), '# Hexagonal Architecture')
+
+      await service.saveSnapshot()
+
+      // Modify context.md, add new dynamic file, delete hexagonal.md
+      await writeFile(join(domainDir, 'context.md'), '# Architecture Overview - Updated')
+      await writeFile(join(domainDir, 'clean_architecture.md'), '# Clean Architecture')
+      await rm(join(domainDir, 'hexagonal.md'))
+
+      const changes = await service.getChanges()
+      expect(changes.modified).to.include('architecture/context.md')
+      expect(changes.added).to.include('architecture/clean_architecture.md')
+      expect(changes.deleted).to.include('architecture/hexagonal.md')
+    })
+
+    it('should detect README.md in subdirectory as added', async () => {
+      await service.saveSnapshot()
+
+      const domainDir = join(contextTreeDir, 'test_domain')
+      await mkdir(domainDir, {recursive: true})
+      await writeFile(join(domainDir, 'README.md'), '# This should be tracked in subdirectory')
+      await writeFile(join(domainDir, 'actual_content.md'), '# This should be detected')
+
+      const changes = await service.getChanges()
+      expect(changes.added).to.have.lengthOf(2)
+      expect(changes.added).to.include('test_domain/actual_content.md')
+      expect(changes.added).to.include('test_domain/README.md')
+    })
+
+    it('should detect README.md in subdirectory as modified', async () => {
+      const domainDir = join(contextTreeDir, 'test_domain')
+      await mkdir(domainDir, {recursive: true})
+      await writeFile(join(domainDir, 'README.md'), '# Original')
+      await writeFile(join(domainDir, 'context.md'), '# Context')
+
+      await service.saveSnapshot()
+
+      // Modify README.md
+      await writeFile(join(domainDir, 'README.md'), '# Modified README')
+
+      const changes = await service.getChanges()
+      expect(changes.added).to.be.empty
+      expect(changes.modified).to.include('test_domain/README.md')
+      expect(changes.deleted).to.be.empty
+    })
+
+    it('should detect README.md in subdirectory as deleted', async () => {
+      const domainDir = join(contextTreeDir, 'test_domain')
+      await mkdir(domainDir, {recursive: true})
+      await writeFile(join(domainDir, 'README.md'), '# Readme')
+      await writeFile(join(domainDir, 'context.md'), '# Context')
+
+      await service.saveSnapshot()
+
+      // Delete README.md
+      await rm(join(domainDir, 'README.md'))
+
+      const changes = await service.getChanges()
+      expect(changes.added).to.be.empty
+      expect(changes.modified).to.be.empty
+      expect(changes.deleted).to.include('test_domain/README.md')
+    })
+
+    it('should NOT detect root README.md as added', async () => {
+      await service.saveSnapshot()
+
+      // Add README.md at root - should be ignored
+      await writeFile(join(contextTreeDir, 'README.md'), '# Root README - ignored')
+      // Add file in subdirectory - should be detected
+      const domainDir = join(contextTreeDir, 'test_domain')
+      await mkdir(domainDir, {recursive: true})
+      await writeFile(join(domainDir, 'content.md'), '# This should be detected')
+
+      const changes = await service.getChanges()
+      expect(changes.added).to.have.lengthOf(1)
+      expect(changes.added).to.include('test_domain/content.md')
+      expect(changes.added).to.not.include('README.md')
+    })
+
+    it('should NOT detect root README.md as modified', async () => {
+      // Create root README.md first (though it won't be tracked)
+      await writeFile(join(contextTreeDir, 'README.md'), '# Original Root')
+      const domainDir = join(contextTreeDir, 'test_domain')
+      await mkdir(domainDir, {recursive: true})
+      await writeFile(join(domainDir, 'context.md'), '# Context')
+
+      await service.saveSnapshot()
+
+      // Modify root README.md - should not trigger change
+      await writeFile(join(contextTreeDir, 'README.md'), '# Modified Root README')
+
+      const changes = await service.getChanges()
+      expect(changes.added).to.be.empty
+      expect(changes.modified).to.be.empty
+      expect(changes.deleted).to.be.empty
+    })
+
+    it('should NOT detect root README.md as deleted', async () => {
+      // Create root README.md first (though it won't be tracked)
+      await writeFile(join(contextTreeDir, 'README.md'), '# Root README')
+      const domainDir = join(contextTreeDir, 'test_domain')
+      await mkdir(domainDir, {recursive: true})
+      await writeFile(join(domainDir, 'context.md'), '# Context')
+
+      await service.saveSnapshot()
+
+      // Delete root README.md - should not trigger change
+      await rm(join(contextTreeDir, 'README.md'))
+
+      const changes = await service.getChanges()
+      expect(changes.added).to.be.empty
+      expect(changes.modified).to.be.empty
+      expect(changes.deleted).to.be.empty
     })
   })
 

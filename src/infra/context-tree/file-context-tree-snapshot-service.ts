@@ -4,7 +4,7 @@ import {join, relative} from 'node:path'
 
 import type {IContextTreeSnapshotService} from '../../core/interfaces/i-context-tree-snapshot-service.js'
 
-import {BRV_DIR, CONTEXT_FILE, CONTEXT_TREE_DIR, SNAPSHOT_FILE} from '../../constants.js'
+import {BRV_DIR, CONTEXT_FILE_EXTENSION, CONTEXT_TREE_DIR, README_FILE, SNAPSHOT_FILE} from '../../constants.js'
 import {
   ContextTreeChanges,
   ContextTreeSnapshot,
@@ -142,8 +142,13 @@ export class FileContextTreeSnapshotService implements IContextTreeSnapshotServi
 
       if (entry.isDirectory()) {
         tasks.push(this.scanDirectory(fullPath, rootDir, files))
-      } else if (entry.isFile() && entry.name === CONTEXT_FILE) {
-        tasks.push(this.processFile(fullPath, rootDir, files))
+      } else if (entry.isFile() && entry.name.endsWith(CONTEXT_FILE_EXTENSION)) {
+        // Only ignore README.md at root level, track it in subdirectories
+        const isRoot = currentDir === rootDir
+        const isReadmeAtRoot = entry.name === README_FILE && isRoot
+        if (!isReadmeAtRoot) {
+          tasks.push(this.processFile(fullPath, rootDir, files))
+        }
       }
     }
 
