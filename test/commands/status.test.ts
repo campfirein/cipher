@@ -2,7 +2,6 @@ import type {Config} from '@oclif/core'
 
 import {Config as OclifConfig} from '@oclif/core'
 import {expect} from 'chai'
-import {sep} from 'node:path'
 import sinon, {restore, stub} from 'sinon'
 
 import type {IContextTreeService} from '../../src/core/interfaces/i-context-tree-service.js'
@@ -327,8 +326,8 @@ describe('Status Command', () => {
       await command.run()
 
       expect(loggedMessages.some((m) => m.includes('Context Tree Changes'))).to.be.true
-      expect(loggedMessages.some((m) => m.includes('new file:') && m.includes(`design${sep}context.md`))).to.be.true
-      expect(loggedMessages.some((m) => m.includes('new file:') && m.includes(`testing${sep}context.md`))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('new file:') && m.includes('design/context.md'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('new file:') && m.includes('testing/context.md'))).to.be.true
     })
 
     it('should display modified files', async () => {
@@ -348,7 +347,7 @@ describe('Status Command', () => {
 
       await command.run()
 
-      expect(loggedMessages.some((m) => m.includes('modified:') && m.includes(`structure${sep}context.md`))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('modified:') && m.includes('structure/context.md'))).to.be.true
     })
 
     it('should display deleted files', async () => {
@@ -368,7 +367,7 @@ describe('Status Command', () => {
 
       await command.run()
 
-      expect(loggedMessages.some((m) => m.includes('deleted:') && m.includes(`old${sep}context.md`))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('deleted:') && m.includes('old/context.md'))).to.be.true
     })
 
     it('should display all change types sorted by path', async () => {
