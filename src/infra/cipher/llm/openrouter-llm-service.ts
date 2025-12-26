@@ -205,8 +205,8 @@ export class OpenRouterLLMService implements ILLMService {
     // Add user message to context
     await this.contextManager.addUserMessage(textInput, imageData, fileData)
 
-    // Get all available tools
-    const toolSet = this.toolManager.getAllTools()
+    // Get filtered tools based on command type (e.g., only read-only tools for 'query')
+    const toolSet = this.toolManager.getToolsForCommand(executionContext?.commandType)
     const tools = Object.entries(toolSet).map(([name, schema]) => ({
       function: {
         description: schema.description ?? '',
@@ -329,7 +329,8 @@ export class OpenRouterLLMService implements ILLMService {
     executionContext: ExecutionContext | undefined,
   ): Promise<null | string> {
     // Build system prompt using SystemPromptManager (before compression for correct token accounting)
-    const availableTools = this.toolManager.getToolNames()
+    // Use filtered tool names based on command type (e.g., only read-only tools for 'query')
+    const availableTools = this.toolManager.getToolNamesForCommand(executionContext?.commandType)
     const markersSet = this.toolManager.getAvailableMarkers()
 
     // Convert Set<string> to Record<string, string> for SystemPromptManager
