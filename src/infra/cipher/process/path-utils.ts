@@ -58,28 +58,33 @@ export function isWindowsAbsolute(inputPath: string): boolean {
 }
 
 /**
- * Normalize path for comparison (lowercase drive letter, forward slashes).
+ * Normalize path for comparison (lowercase drive letter on Windows, forward slashes on all platforms).
  * Useful when comparing paths that may have different separator styles.
  *
+ * Always converts backslashes to forward slashes regardless of platform,
+ * since paths from external sources (APIs, configs) may contain Windows-style
+ * separators even when running on Unix.
+ *
  * @param inputPath - Path to normalize for comparison
- * @returns Normalized path with lowercase drive and forward slashes (Windows only)
+ * @returns Normalized path with forward slashes (and lowercase drive on Windows)
  *
  * @example
  * // On Windows
  * normalizeForComparison('C:\\Users\\Name') // Returns 'c:/Users/Name'
  *
  * @example
- * // On Unix, returns unchanged
- * normalizeForComparison('/home/user') // Returns '/home/user'
+ * // On Unix (also converts backslashes)
+ * normalizeForComparison('auth\\jwt\\context.md') // Returns 'auth/jwt/context.md'
  */
 export function normalizeForComparison(inputPath: string): string {
-  if (process.platform !== 'win32') {
-    return inputPath
+  let result = inputPath.replaceAll('\\', '/')
+
+  // Lowercase drive letter on Windows only
+  if (process.platform === 'win32') {
+    result = result.replace(/^([A-Z]):/, (_, drive: string) => `${drive.toLowerCase()}:`)
   }
 
-  return inputPath
-    .replace(/^([A-Z]):/, (_, drive: string) => `${drive.toLowerCase()}:`)
-    .replaceAll('\\', '/')
+  return result
 }
 
 /**
