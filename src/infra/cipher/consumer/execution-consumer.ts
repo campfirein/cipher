@@ -314,7 +314,10 @@ ${fileReferenceSection}
 - Always query first to understand existing context before curating
 - Provide clear, detailed prompts when delegating to subagents
 - Summarize the results of each phase before proceeding to the next
-- Report the final outcome: what topics were created or updated`
+
+## Response Format
+
+IMPORTANT: Your final response must be a brief summary (1-2 sentences) of what was done. Do NOT include any file paths, directory paths, or specific location details in your response. The system will automatically display the created/updated file paths separately.`
 
       const response = await agent.execute(prompt, {
         executionContext: {
