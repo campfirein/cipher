@@ -182,9 +182,16 @@ export class ProcessManager {
 
   /**
    * Get directory for worker files.
+   * In dev mode (tsx), import.meta.url points to src/ but workers need compiled .js from dist/
    */
   private getWorkerDir(): string {
-    return path.dirname(fileURLToPath(import.meta.url))
+    const currentDir = path.dirname(fileURLToPath(import.meta.url))
+    // If running from src/ (dev mode with tsx), redirect to dist/
+    if (currentDir.includes(`${path.sep}src${path.sep}`)) {
+      return currentDir.replace(`${path.sep}src${path.sep}`, `${path.sep}dist${path.sep}`)
+    }
+    
+    return currentDir
   }
 
   /**
