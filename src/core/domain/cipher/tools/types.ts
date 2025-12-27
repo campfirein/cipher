@@ -197,11 +197,4 @@ export interface JSONSchema7 {
 /**
  * JSON Schema type names.
  */
-export type JSONSchema7TypeName =
-  | 'array'
-  | 'boolean'
-  | 'integer'
-  | 'null'
-  | 'number'
-  | 'object'
-  | 'string'
+export type JSONSchema7TypeName = 'array' | 'boolean' | 'integer' | 'null' | 'number' | 'object' | 'string'

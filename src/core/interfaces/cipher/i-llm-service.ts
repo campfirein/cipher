@@ -22,7 +22,6 @@ export interface ILLMService {
    * - Returning final response
    *
    * @param textInput - User input text
-   * @param trackingRequestId - Tracking request ID for backend metrics (random UUID per request)
    * @param options - Execution options
    * @param options.signal - Optional abort signal for cancellation
    * @param options.imageData - Optional image data
@@ -34,7 +33,6 @@ export interface ILLMService {
    */
   completeTask(
     textInput: string,
-    trackingRequestId: string,
     options?: {
       executionContext?: ExecutionContext
       fileData?: FileData

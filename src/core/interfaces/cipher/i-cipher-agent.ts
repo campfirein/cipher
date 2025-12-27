@@ -86,12 +86,11 @@ export interface ICipherAgent {
    * @param options - Optional execution options
    * @param options.executionContext - Optional context for command-specific behavior (curate/query/chat)
    * @param options.taskId - Optional task ID for event routing (required for concurrent task isolation)
-   * @param options.trackingRequestId - Optional tracking request ID for backend metrics (random UUID per request)
    * @returns Agent response
    */
   execute(
     input: string,
-    options?: {executionContext?: ExecutionContext; taskId?: string; trackingRequestId?: string},
+    options?: {executionContext?: ExecutionContext; taskId?: string},
   ): Promise<string>
 
   /**
@@ -100,8 +99,7 @@ export interface ICipherAgent {
    * Uses the agent's default session (created during start()).
    *
    * @param input - User message
-   * @param options - Optional configuration
-   * @param options.trackingRequestId - Optional tracking request ID for backend metrics (random UUID per request)
+   * @param options - Optional configuration (signal for cancellation, taskId for billing)
    * @returns Complete response with content, usage, and tool calls
    */
   generate(input: string, options?: StreamOptions): Promise<GenerateResponse>
@@ -143,7 +141,7 @@ export interface ICipherAgent {
    * Uses the agent's default session (created during start()).
    *
    * @param input - User message
-   * @param options - Optional configuration (signal for cancellation, trackingRequestId)
+   * @param options - Optional configuration (signal for cancellation, taskId for billing)
    * @returns AsyncIterator that yields StreamingEvent objects
    */
   stream(input: string, options?: StreamOptions): Promise<AsyncIterableIterator<StreamingEvent>>

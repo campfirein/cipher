@@ -195,11 +195,10 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
    * @param options - Optional execution options
    * @param options.executionContext - Optional execution context
    * @param options.taskId - Optional task ID for concurrent task isolation
-   * @param options.trackingRequestId - Optional tracking request ID for backend metrics (random UUID per request)
    */
   public async execute(
     input: string,
-    options?: {executionContext?: ExecutionContext; taskId?: string; trackingRequestId?: string},
+    options?: {executionContext?: ExecutionContext; taskId?: string},
   ): Promise<string> {
     this.ensureStarted()
 
@@ -207,7 +206,6 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
     const response = await this.generate(input, {
       executionContext: options?.executionContext,
       taskId: options?.taskId,
-      // trackingRequestId: options?.trackingRequestId,
     })
 
     return response.content
@@ -219,7 +217,7 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
    * Uses the agent's default session (created during start()).
    *
    * @param input - User message
-   * @param options - Optional configuration (includes trackingRequestId for backend metrics)
+   * @param options - Optional configuration (signal for cancellation, taskId for billing)
    * @returns Complete response with content, usage, and tool calls
    */
   public async generate(input: string, options?: StreamOptions): Promise<GenerateResponse> {
@@ -440,7 +438,7 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
    * Uses the agent's default session (created during start()).
    *
    * @param input - User message
-   * @param options - Optional configuration (signal for cancellation, trackingRequestId for backend metrics)
+   * @param options - Optional configuration (signal for cancellation, taskId for billing)
    * @returns AsyncIterator that yields StreamingEvent objects
    */
   public async stream(input: string, options?: StreamOptions): Promise<AsyncIterableIterator<StreamingEvent>> {
@@ -449,7 +447,6 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
     const sessionId = this.getSessionIdInternal()
 
     const signal = options?.signal
-    // const trackingRequestId = options?.trackingRequestId
 
     // Event queue for aggregation
     const eventQueue: StreamingEvent[] = []
@@ -534,13 +531,11 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
         this.getStateManager().incrementIteration()
 
         // Call session.streamRun() which emits events and run:complete
-        // Pass trackingRequestId for backend metrics (separate from session memory)
         // Pass taskId for concurrent task isolation (included in all emitted events)
         await session.streamRun(input, {
           executionContext: options?.executionContext,
           signal,
           taskId: options?.taskId,
-          // trackingRequestId,
         })
       } catch (error_) {
         // Emit error event if something goes wrong

@@ -185,8 +185,8 @@ export function createTaskTool(dependencies: TaskToolDependencies): Tool {
         const agentPromptSection = agent.promptFile
           ? `\n\n[Agent: ${agent.name}]\nUsing prompt from: ${agent.promptFile}`
           : agent.prompt
-            ? `\n\n[Agent: ${agent.name}]\n${agent.prompt}`
-            : ''
+          ? `\n\n[Agent: ${agent.name}]\n${agent.prompt}`
+          : ''
 
         // Construct the full message for the subagent
         const fullPrompt = `${agentPromptSection}\n\n## Task\n${prompt}`

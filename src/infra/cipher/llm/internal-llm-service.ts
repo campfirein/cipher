@@ -110,7 +110,6 @@ interface BuildGenerateContentRequestOptions {
   systemPrompt: string
   taskId?: string
   tools: ToolSet
-  trackingRequestId: string
 }
 
 /**
@@ -260,7 +259,6 @@ export class ByteRoverLLMService implements ILLMService {
    * 3. Returning final response when no more tool calls
    *
    * @param textInput - User input text
-   * @param trackingRequestId - Tracking request ID for backend metrics (random UUID per request)
    * @param options - Execution options
    * @param options.executionContext - Optional execution context
    * @param options.signal - Optional abort signal for cancellation
@@ -272,7 +270,6 @@ export class ByteRoverLLMService implements ILLMService {
    */
   public async completeTask(
     textInput: string,
-    trackingRequestId: string,
     options?: {
       executionContext?: ExecutionContext
       fileData?: FileData
@@ -317,7 +314,6 @@ export class ByteRoverLLMService implements ILLMService {
           iterationCount: stateMachine.getContext().turnCount,
           taskId,
           tools: toolSet,
-          trackingRequestId,
         })
 
         if (result !== null) {
@@ -437,7 +433,6 @@ export class ByteRoverLLMService implements ILLMService {
    * Converts internal context to the standardized GenerateContentRequest format.
    *
    * @param options - Request options
-   * @param options.trackingRequestId - Tracking request ID for backend metrics (random UUID per request)
    * @param options.systemPrompt - System prompt text
    * @param options.tools - Available tools for function calling
    * @param options.executionContext - Optional execution context
@@ -571,12 +566,7 @@ export class ByteRoverLLMService implements ILLMService {
 
       // Full compaction needed - generate LLM summary
       // Use the same taskId from caller for billing tracking
-      const summary = await this.compactionService.generateSummary(
-        this.generator,
-        messages,
-        taskId,
-        this.config.model,
-      )
+      const summary = await this.compactionService.generateSummary(this.generator, messages, taskId, this.config.model)
 
       await this.compactionService.createCompactionBoundary(this.sessionId, summary)
 
@@ -674,7 +664,6 @@ export class ByteRoverLLMService implements ILLMService {
    * @param options - Iteration options
    * @param options.iterationCount - Current iteration number
    * @param options.taskId - Task ID from usecase for billing tracking
-   * @param options.trackingRequestId - Tracking request ID for backend metrics (random UUID per request)
    * @param options.tools - Available tools for this iteration
    * @param options.executionContext - Optional execution context
    * @returns Final response string if complete, null if more iterations needed
@@ -684,9 +673,8 @@ export class ByteRoverLLMService implements ILLMService {
     iterationCount: number
     taskId?: string
     tools: ToolSet
-    trackingRequestId: string
   }): Promise<null | string> {
-    const {executionContext, iterationCount, taskId, tools, trackingRequestId} = options
+    const {executionContext, iterationCount, taskId, tools} = options
     // Build system prompt using SystemPromptManager (before compression for correct token accounting)
     // Use filtered tool names based on command type (e.g., only read-only tools for 'query')
     const availableTools = this.toolManager.getToolNamesForCommand(executionContext?.commandType)
@@ -780,7 +768,6 @@ export class ByteRoverLLMService implements ILLMService {
       systemPrompt,
       taskId,
       tools: toolsForThisIteration,
-      trackingRequestId,
     })
 
     // Call LLM via generator (retry + logging handled by decorators)
