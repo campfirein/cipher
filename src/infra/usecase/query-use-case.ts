@@ -37,14 +37,14 @@ export interface QueryUseCaseOptions {
 }
 
 export class QueryUseCase implements IQueryUseCase {
-  private readonly createFactory: TransportClientFactoryCreator
   private readonly terminal: ITerminal
   private readonly trackingService: ITrackingService
+  private readonly transportClientFactoryCreator: TransportClientFactoryCreator
 
   constructor(options: QueryUseCaseOptions) {
     this.terminal = options.terminal
     this.trackingService = options.trackingService
-    this.createFactory = options.transportClientFactoryCreator ?? createTransportClientFactory
+    this.transportClientFactoryCreator = options.transportClientFactoryCreator ?? createTransportClientFactory
   }
 
   /**
@@ -77,13 +77,13 @@ export class QueryUseCase implements IQueryUseCase {
     let client: ITransportClient | undefined
 
     try {
-      const factory = this.createFactory()
+      const transportClientFactory = this.transportClientFactoryCreator()
 
       if (verbose) {
         this.terminal.log('Discovering running instance...')
       }
 
-      const {client: connectedClient} = await factory.connect()
+      const {client: connectedClient} = await transportClientFactory.connect()
       client = connectedClient
 
       if (verbose) {

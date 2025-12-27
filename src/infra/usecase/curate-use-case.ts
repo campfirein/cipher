@@ -19,14 +19,14 @@ export interface CurateUseCaseOptions {
 }
 
 export class CurateUseCase implements ICurateUseCase {
-  private readonly createFactory: TransportClientFactoryCreator
   private readonly terminal: ITerminal
   private readonly trackingService: ITrackingService
+  private readonly transportClientFactoryCreator: TransportClientFactoryCreator
 
   constructor(options: CurateUseCaseOptions) {
     this.terminal = options.terminal
     this.trackingService = options.trackingService
-    this.createFactory = options.transportClientFactoryCreator ?? createTransportClientFactory
+    this.transportClientFactoryCreator = options.transportClientFactoryCreator ?? createTransportClientFactory
   }
 
   public async run({context, files, verbose = false}: CurateUseCaseRunOptions): Promise<void> {
@@ -40,13 +40,13 @@ export class CurateUseCase implements ICurateUseCase {
     let client: ITransportClient | undefined
 
     try {
-      const factory = this.createFactory()
+      const transportClientFactory = this.transportClientFactoryCreator()
 
       if (verbose) {
         this.terminal.log('Discovering running instance...')
       }
 
-      const {client: connectedClient} = await factory.connect()
+      const {client: connectedClient} = await transportClientFactory.connect()
       client = connectedClient
 
       if (verbose) {
