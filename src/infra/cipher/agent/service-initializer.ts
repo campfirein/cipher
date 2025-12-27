@@ -37,6 +37,7 @@ import {DualFormatHistoryStorage} from '../storage/dual-format-history-storage.j
 import {GranularHistoryStorage} from '../storage/granular-history-storage.js'
 import {MessageStorageService} from '../storage/message-storage-service.js'
 import {SqliteKeyStorage} from '../storage/sqlite-key-storage.js'
+import {ContextTreeStructureContributor} from '../system-prompt/contributors/context-tree-structure-contributor.js'
 import {SystemPromptManager} from '../system-prompt/system-prompt-manager.js'
 import {CoreToolScheduler} from '../tools/core-tool-scheduler.js'
 import {DEFAULT_POLICY_RULES} from '../tools/default-policy-rules.js'
@@ -155,6 +156,15 @@ export async function createCipherAgentServices(
     {enabled: true, id: 'memories', priority: 20, type: 'memory'},
     {enabled: true, id: 'datetime', priority: 30, type: 'dateTime'},
   ])
+
+  // Register context tree structure contributor for query/curate commands
+  // This injects the .brv/context-tree structure into the system prompt,
+  // giving agents immediate awareness of available curated knowledge.
+  // Priority 15 ensures it appears after environment but before memories.
+  const contextTreeContributor = new ContextTreeStructureContributor('contextTree', 15, {
+    workingDirectory,
+  })
+  systemPromptManager.registerContributor(contextTreeContributor)
 
   // 7. Tool provider (depends on FileSystemService, ProcessService, MemoryManager, SystemPromptManager)
   const verbose = config.llm.verbose ?? false
