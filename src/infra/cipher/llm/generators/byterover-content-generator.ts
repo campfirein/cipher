@@ -14,7 +14,7 @@ import type {
 } from '@anthropic-ai/sdk/resources/messages'
 
 import {type Content, FunctionCallingConfigMode, type GenerateContentConfig} from '@google/genai'
-import {appendFileSync} from 'node:fs'
+// import {appendFileSync} from 'node:fs'
 
 import type {ToolSet} from '../../../../core/domain/cipher/tools/types.js'
 import type {
@@ -132,8 +132,8 @@ export class ByteRoverContentGenerator implements IContentGenerator {
       ...(request.executionContext && {executionContext: request.executionContext}),
     }
 
-    // Debug: Log taskId for tracking
-    appendFileSync('debug-taskid.log', `[${new Date().toISOString()}] taskId from request: "${request.taskId}"\n`)
+    // // Debug: Log taskId for tracking
+    // appendFileSync('debug-taskid.log', `[${new Date().toISOString()}] taskId from request: "${request.taskId}"\n`)
 
     const rawResponse = await this.httpService.generateContent(
       contents as Content[] | MessageCreateParamsNonStreaming,
