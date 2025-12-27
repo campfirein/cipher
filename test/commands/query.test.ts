@@ -1,7 +1,7 @@
 /// <reference types="mocha" />
 
 import {expect} from 'chai'
-import sinon, {restore, stub} from 'sinon'
+import sinon, {match, restore, stub} from 'sinon'
 
 import type {ITerminal} from '../../src/core/interfaces/i-terminal.js'
 import type {ITrackingService} from '../../src/core/interfaces/i-tracking-service.js'
@@ -167,7 +167,7 @@ describe('Query Command', () => {
       await useCase.run({query: 'test query', verbose: false})
 
       expect(loggedMessages.some((m) => m.includes('No ByteRover instance is running'))).to.be.true
-      expect(trackingService.track.calledWith('mem:query', sinon.match({status: 'error'}))).to.be.true
+      expect(trackingService.track.calledWith('mem:query', match({status: 'error'}))).to.be.true
     })
 
     it('should handle InstanceCrashedError', async () => {
@@ -183,7 +183,7 @@ describe('Query Command', () => {
       await useCase.run({query: 'test query', verbose: false})
 
       expect(loggedMessages.some((m) => m.includes('ByteRover instance has crashed'))).to.be.true
-      expect(trackingService.track.calledWith('mem:query', sinon.match({status: 'error'}))).to.be.true
+      expect(trackingService.track.calledWith('mem:query', match({status: 'error'}))).to.be.true
     })
 
     it('should handle ConnectionFailedError', async () => {
@@ -199,7 +199,7 @@ describe('Query Command', () => {
       await useCase.run({query: 'test query', verbose: false})
 
       expect(loggedMessages.some((m) => m.includes('Failed to connect'))).to.be.true
-      expect(trackingService.track.calledWith('mem:query', sinon.match({status: 'error'}))).to.be.true
+      expect(trackingService.track.calledWith('mem:query', match({status: 'error'}))).to.be.true
     })
   })
 })

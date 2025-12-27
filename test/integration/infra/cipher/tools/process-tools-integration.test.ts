@@ -53,6 +53,7 @@ describe('Process Tools Integration', () => {
     await mkdir(testDir, {recursive: true})
 
     processService = new ProcessService({
+      killGracePeriod: 50, // Fast grace period for tests (default 500ms for production)
       securityLevel: 'permissive', // Allow all commands for testing
       workingDirectory: testDir,
     })
@@ -124,9 +125,9 @@ describe('Process Tools Integration', () => {
       const killTool = createKillProcessTool(processService)
       const outputTool = createBashOutputTool(processService)
 
-      // Start long running process
+      // Start long running process (short duration for fast test)
       const startResult = await execTool.execute({
-        command: 'sleep 10',
+        command: 'sleep 0.2',
         runInBackground: true,
       })
       assertBashExecBackgroundResult(startResult)
