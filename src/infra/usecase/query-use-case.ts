@@ -90,13 +90,16 @@ export class QueryUseCase implements IQueryUseCase {
         this.terminal.log(`Connected to instance (clientId: ${client.getClientId()})`)
       }
 
+      // Generate taskId in UseCase (Application layer owns task creation)
+      const taskId = randomUUID()
+
       // Send task:create request
-      const response = await client.request<TaskCreateResponse>('task:create', {
+      await client.request<TaskCreateResponse>('task:create', {
         content: options.query,
+        taskId,
         type: 'query',
       })
-
-      const {taskId} = response
+      // Note: response.taskId confirms what we sent (no longer extracting)
 
       if (verbose) {
         this.terminal.log(`Task created: ${taskId}`)
