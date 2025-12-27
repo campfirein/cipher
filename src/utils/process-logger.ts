@@ -1,60 +1,73 @@
 /**
  * Unified Process Logger - Single log file per session.
  *
- * All logs go to ~/.brv/logs/brv-{timestamp}.log:
- * - Process logs (Transport, Agent, ProcessManager)
- * - Transport events
- * - Errors and crashes
+ * Logs are stored following platform conventions:
+ * - Windows: %LOCALAPPDATA%/brv/logs/brv-{timestamp}.log
+ * - macOS: ~/Library/Logs/brv/brv-{timestamp}.log
+ * - Linux: $XDG_STATE_HOME/brv/logs/brv-{timestamp}.log
  *
  * Each session creates a new log file with timestamp.
  */
 
-import {appendFileSync, existsSync, mkdirSync, writeFileSync} from 'node:fs'
-import {homedir, platform} from 'node:os'
+import {appendFileSync, existsSync, mkdirSync, readdirSync, statSync, unlinkSync, writeFileSync} from 'node:fs'
 import {join} from 'node:path'
+
+import {getGlobalLogsDir} from './global-logs-path.js'
 
 /** Current session's log file path (set on init) */
 let sessionLogPath: string | undefined
 
 /**
- * Returns the BRV home directory path following platform conventions:
- * - macOS/Linux: ~/.brv
- * - Windows: %LOCALAPPDATA%/brv (falls back to %USERPROFILE%/.brv)
- */
-function getBrvHomeDir(): string {
-  const currentPlatform = platform()
-
-  if (currentPlatform === 'win32') {
-    const localAppData = process.env.LOCALAPPDATA
-    if (localAppData !== undefined) {
-      return join(localAppData, 'brv')
-    }
-
-    const appData = process.env.APPDATA
-    if (appData !== undefined) {
-      return join(appData, 'brv')
-    }
-
-    return join(homedir(), '.brv')
-  }
-
-  return join(homedir(), '.brv')
-}
-
-/**
  * Get the logs directory path.
  */
 function getLogsDir(): string {
-  return join(getBrvHomeDir(), 'logs')
+  return getGlobalLogsDir()
 }
 
 /**
  * Ensure logs directory exists.
+ * Silently ignores errors to prevent crashes.
  */
 function ensureLogDir(): void {
-  const logsDir = getLogsDir()
-  if (!existsSync(logsDir)) {
-    mkdirSync(logsDir, {recursive: true})
+  try {
+    const logsDir = getLogsDir()
+    if (!existsSync(logsDir)) {
+      mkdirSync(logsDir, {recursive: true})
+    }
+  } catch {
+    // Silently ignore - directory creation may fail due to permissions
+    // Logging will fail gracefully later when trying to write
+  }
+}
+
+/** Max age for log files in milliseconds (30 days) */
+const LOG_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000
+
+/**
+ * Clean up log files older than 30 days.
+ * Runs silently - errors are ignored to not affect the main process.
+ */
+function cleanupOldLogs(): void {
+  try {
+    const logsDir = getLogsDir()
+    if (!existsSync(logsDir)) return
+
+    const now = Date.now()
+    const files = readdirSync(logsDir)
+
+    for (const file of files) {
+      if (!file.endsWith('.log')) continue
+
+      const filePath = join(logsDir, file)
+      const stats = statSync(filePath)
+      const age = now - stats.mtimeMs
+
+      if (age > LOG_MAX_AGE_MS) {
+        unlinkSync(filePath)
+      }
+    }
+  } catch {
+    // Silently ignore - don't crash the process
   }
 }
 
@@ -86,7 +99,15 @@ function getLogPath(): string {
     if (envLogPath) {
       sessionLogPath = envLogPath
     } else {
-      ensureLogDir()
+      // Try to create log directory, but don't crash if it fails
+      // getLogsDir() has its own fallback to tmpdir() via getGlobalLogsDir()
+      try {
+        ensureLogDir()
+      } catch {
+        // Directory creation failed - subsequent writes will also fail silently
+        // This prevents crash when getSessionLogPath() is called from process-manager
+      }
+
       sessionLogPath = join(getLogsDir(), generateSessionLogFilename())
     }
   }
@@ -103,6 +124,7 @@ export function initSessionLog(): void {
 
   try {
     ensureLogDir()
+    cleanupOldLogs()
     sessionLogPath = join(getLogsDir(), generateSessionLogFilename())
 
     const timestamp = formatTimestamp()
@@ -186,16 +208,19 @@ export function errorLog(error: Error | string, context?: string): void {
 /**
  * Log a crash with full environment details.
  * Everything goes to the session log file.
+ * Never throws - always returns a log path (even if logging failed).
  *
  * @returns The path to the log file (for user feedback)
  */
 export function crashLog(error: Error | string, contextStr = 'Unknown'): string {
-  const errorMessage = error instanceof Error ? error.message : error
-  const errorStack = error instanceof Error ? error.stack : undefined
-  const timestamp = formatTimestamp()
-  const logPath = getLogPath()
+  let logPath: string
 
   try {
+    const errorMessage = error instanceof Error ? error.message : error
+    const errorStack = error instanceof Error ? error.stack : undefined
+    const timestamp = formatTimestamp()
+    logPath = getLogPath()
+
     ensureLogDir()
 
     const crashContent = [
@@ -229,7 +254,8 @@ export function crashLog(error: Error | string, contextStr = 'Unknown'): string 
 
     appendFileSync(logPath, crashContent)
   } catch {
-    // If we can't write, at least try to return something useful
+    // If we can't write or get path, return a fallback path for user feedback
+    logPath = logPath! || join(getGlobalLogsDir(), 'brv-crash.log')
   }
 
   return logPath
@@ -237,7 +263,13 @@ export function crashLog(error: Error | string, contextStr = 'Unknown'): string 
 
 /**
  * Get the path to the current session's log file.
+ * Never throws - returns fallback path if session path unavailable.
  */
 export function getSessionLogPath(): string {
-  return getLogPath()
+  try {
+    return getLogPath()
+  } catch {
+    // Fallback to a predictable path if getLogPath fails
+    return join(getGlobalLogsDir(), 'brv-session.log')
+  }
 }

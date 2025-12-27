@@ -9,6 +9,7 @@ import path from 'node:path'
 
 import type {ITransportClient} from '../../core/interfaces/transport/i-transport-client.js'
 
+import {isDevelopment} from '../../config/environment.js'
 import {BRV_DIR} from '../../constants.js'
 import {
   TransportAgentEventNames,
@@ -54,6 +55,8 @@ function formatTimestamp(): string {
 }
 
 function logEvent(eventName: string, data: unknown): void {
+  if (!isDevelopment()) return
+
   const line = JSON.stringify({data, event: eventName, timestamp: formatTimestamp()}, null, 2) + '\n'
   try {
     fs.appendFileSync(TRANSPORT_LOG_FILE, line)
@@ -66,10 +69,12 @@ function logEvent(eventName: string, data: unknown): void {
  * Connect to Transport and join TUI room for event monitoring.
  */
 export async function connectTransportClient(): Promise<ITransportClient | null> {
-  try {
-    fs.writeFileSync(TRANSPORT_LOG_FILE, `# Transport Events - ${formatTimestamp()}\n`)
-  } catch {
-    // Ignore
+  if (isDevelopment()) {
+    try {
+      fs.writeFileSync(TRANSPORT_LOG_FILE, `# Transport Events - ${formatTimestamp()}\n`)
+    } catch {
+      // Ignore
+    }
   }
 
   try {
