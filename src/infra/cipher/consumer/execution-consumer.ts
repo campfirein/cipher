@@ -284,9 +284,6 @@ export class ExecutionConsumer {
     await agent.start()
 
     try {
-      // Generate tracking request ID for backend metrics (separate from sessionId)
-      const trackingRequestId = randomUUID()
-
       // Setup event listeners for tool call tracking
       this.setupToolCallTracking(agent, execution.id)
 
@@ -325,7 +322,6 @@ IMPORTANT: Your final response must be a brief summary (1-2 sentences) of what w
           commandType: 'curate',
           fileReferenceInstructions: input.fileReferenceInstructions,
         },
-        trackingRequestId,
       })
 
       // Mark completed
