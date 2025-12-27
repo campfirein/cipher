@@ -170,7 +170,7 @@ export class InitUseCase implements IInitUseCase {
   }
 
   protected async fetchAndSelectSpace(token: AuthToken, team: Team): Promise<Space | undefined> {
-    this.terminal.actionStart('\nFetching all spaces')
+    this.terminal.actionStart('Fetching all spaces')
     const {spaces} = await this.spaceService.getSpaces(token.accessToken, token.sessionKey, team.id, {fetchAll: true})
     this.terminal.actionStop()
 
@@ -552,7 +552,7 @@ export class InitUseCase implements IInitUseCase {
     token: AuthToken
   }): Promise<void> {
     // Pull from remote - fail if network/API error
-    this.terminal.log('\nSyncing from ByteRover...')
+    this.terminal.actionStart('Syncing from ByteRover...')
     try {
       const coGitSnapshot = await this.cogitPullService.pull({
         accessToken: params.token.accessToken,
@@ -585,6 +585,8 @@ export class InitUseCase implements IInitUseCase {
       throw new Error(syncFailureErr
       )
     }
+
+    this.terminal.actionStop()
   }
 
   /**
