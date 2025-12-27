@@ -1,22 +1,24 @@
 /**
  * Copyable Prompt Component
  *
- * Displays a bordered prompt with keyboard shortcut to copy to clipboard.
+ * Renders a customizable button that copies text to clipboard on ctrl+y.
  * Shows visual feedback when copied.
  */
 
-import {Box, Text, useInput} from 'ink'
+import {Text, useInput} from 'ink'
 import {execSync} from 'node:child_process'
 import {platform} from 'node:os'
-import React, {useCallback, useEffect, useState} from 'react'
+import React, {useCallback } from 'react'
 
 import {useTheme} from '../../hooks/index.js'
 
 interface CopyablePromptProps {
+  /** Button label/content to display */
+  buttonLabel?: string
   /** Whether keyboard input is active for this component */
   isActive?: boolean
-  /** The prompt text to display and copy */
-  prompt: string
+  /** The text to copy to clipboard */
+  textToCopy: string
 }
 
 /**
@@ -44,28 +46,18 @@ function copyToClipboard(text: string): boolean {
   }
 }
 
-export const CopyablePrompt: React.FC<CopyablePromptProps> = ({isActive = true, prompt}) => {
+export const CopyablePrompt: React.FC<CopyablePromptProps> = ({
+  buttonLabel = 'Press ctrl+y to copy',
+  isActive = true,
+  textToCopy,
+}) => {
   const {
     theme: {colors},
   } = useTheme()
-  const [copied, setCopied] = useState(false)
-
-  // Reset copied state after 2 seconds
-  useEffect(() => {
-    if (copied) {
-      const timer = setTimeout(() => {
-        setCopied(false)
-      }, 2000)
-      return () => clearTimeout(timer)
-    }
-  }, [copied])
 
   const handleCopy = useCallback(() => {
-    const success = copyToClipboard(prompt)
-    if (success) {
-      setCopied(true)
-    }
-  }, [prompt])
+    copyToClipboard(textToCopy)
+  }, [textToCopy])
 
   useInput(
     (input, key) => {
@@ -78,20 +70,8 @@ export const CopyablePrompt: React.FC<CopyablePromptProps> = ({isActive = true, 
   )
 
   return (
-    <Box flexDirection="column">
-      <Box borderColor={colors.border} borderStyle="round" paddingX={1}>
-        <Text>{prompt}</Text>
-      </Box>
-      <Box marginTop={1}>
-        <Text color={colors.dimText}>
-          Press{' '}
-          <Text backgroundColor={colors.primary} color="black">
-            {' ctrl+y '}
-          </Text>{' '}
-          to copy
-        </Text>
-        {copied && <Text color={colors.secondary}> Copied!</Text>}
-      </Box>
-    </Box>
+    <Text color={colors.dimText}>
+      {buttonLabel}
+    </Text>
   )
 }
