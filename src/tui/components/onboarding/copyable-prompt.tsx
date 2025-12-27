@@ -8,7 +8,7 @@
 import {Text, useInput} from 'ink'
 import {execSync} from 'node:child_process'
 import {platform} from 'node:os'
-import React, {useCallback } from 'react'
+import React, {useCallback, useEffect, useState} from 'react'
 
 import {useTheme} from '../../hooks/index.js'
 
@@ -54,9 +54,22 @@ export const CopyablePrompt: React.FC<CopyablePromptProps> = ({
   const {
     theme: {colors},
   } = useTheme()
+  const [copied, setCopied] = useState(false)
+
+  useEffect(() => {
+    if (copied) {
+      const timer = setTimeout(() => {
+        setCopied(false)
+      }, 2000)
+      return () => clearTimeout(timer)
+    }
+  }, [copied])
 
   const handleCopy = useCallback(() => {
-    copyToClipboard(textToCopy)
+    const success = copyToClipboard(textToCopy)
+    if (success) {
+      setCopied(true)
+    }
   }, [textToCopy])
 
   useInput(
@@ -70,8 +83,8 @@ export const CopyablePrompt: React.FC<CopyablePromptProps> = ({
   )
 
   return (
-    <Text color={colors.dimText}>
-      {buttonLabel}
+    <Text color={copied ? colors.primary : colors.dimText}>
+      {copied ? "Copied!" : buttonLabel}
     </Text>
   )
 }
