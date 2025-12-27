@@ -192,12 +192,8 @@ export class ChatSession implements IChatSession {
    * @param options - Execution options
    * @param options.executionContext - Optional execution context
    * @param options.taskId - Optional task ID for concurrent task isolation
-   * @param options.trackingRequestId - Optional tracking request ID for backend metrics (random UUID per request)
    */
-  public async run(
-    input: string,
-    options?: {executionContext?: ExecutionContext; taskId?: string; trackingRequestId?: string},
-  ): Promise<string> {
+  public async run(input: string, options?: {executionContext?: ExecutionContext; taskId?: string}): Promise<string> {
     // Create abort controller for cancellation
     this.currentController = new AbortController()
     this.isExecuting = true
@@ -218,10 +214,11 @@ export class ChatSession implements IChatSession {
       const finalInput = queued ? `${queued.content}\n\nAlso: ${input}` : input
 
       // Delegate to service - it handles everything
-      // Use trackingRequestId for backend metrics if provided, otherwise generate one
-      const response = await this.llmService.completeTask(finalInput, options?.trackingRequestId ?? '', {
+      // Pass taskId for billing tracking
+      const response = await this.llmService.completeTask(finalInput, {
         executionContext: options?.executionContext,
         signal: controller.signal,
+        taskId: options?.taskId,
       })
 
       return response
@@ -288,7 +285,6 @@ export class ChatSession implements IChatSession {
    * @param options.executionContext - Optional execution context for the LLM
    * @param options.signal - Optional AbortSignal for cancellation
    * @param options.taskId - Optional task ID for concurrent task isolation
-   * @param options.trackingRequestId - Optional tracking request ID for backend metrics (random UUID per request)
    */
   public async streamRun(
     input: string,
@@ -296,7 +292,6 @@ export class ChatSession implements IChatSession {
       executionContext?: ExecutionContext
       signal?: AbortSignal
       taskId?: string
-      trackingRequestId?: string
     },
   ): Promise<void> {
     const startTime = Date.now()
@@ -328,10 +323,11 @@ export class ChatSession implements IChatSession {
       const finalInput = queued ? `${queued.content}\n\nAlso: ${input}` : input
 
       // Delegate to service - it handles everything and emits events
-      // Use trackingRequestId for backend metrics if provided
-      await this.llmService.completeTask(finalInput, options?.trackingRequestId ?? '', {
+      // Pass taskId for billing tracking
+      await this.llmService.completeTask(finalInput, {
         executionContext: options?.executionContext,
         signal: controller.signal,
+        taskId: options?.taskId,
       })
     } catch (error_) {
       // Check if cancelled - use stored controller reference to avoid undefined access
@@ -344,18 +340,22 @@ export class ChatSession implements IChatSession {
     } finally {
       this.isExecuting = false
       this.currentController = undefined
+
+      // Save taskId before clearing for run:complete event
+      const completedTaskId = this.currentTaskId
       this.currentTaskId = undefined
 
       // Update session status back to idle
       sessionStatusManager.setIdle(this.id, this.eventBus)
 
-      // Emit run:complete event
+      // Emit run:complete event with taskId for billing tracking
       const durationMs = Date.now() - startTime
       this.eventBus.emit('run:complete', {
         durationMs,
         error,
         finishReason,
         stepCount: 0, // Can be enhanced later to track actual step count
+        ...(completedTaskId && {taskId: completedTaskId}),
       })
     }
   }

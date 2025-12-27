@@ -179,24 +179,24 @@ export class OpenRouterLLMService implements ILLMService {
    * 3. Returning final response when no more tool calls
    *
    * @param textInput - User input text
-   * @param trackingRequestId - Tracking request ID for backend metrics (random UUID per request)
    * @param options - Execution options
    * @param options.signal - Optional abort signal for cancellation
    * @param options.imageData - Optional image data
    * @param options.fileData - Optional file data
    * @param options.stream - Whether to stream response (not implemented yet)
    * @param options.executionContext - Optional execution context (for JSON input mode, etc.)
+   * @param options.taskId - Task ID for billing tracking
    * @returns Final assistant response
    */
   public async completeTask(
     textInput: string,
-    trackingRequestId: string,
     options?: {
       executionContext?: ExecutionContext
       fileData?: FileData
       imageData?: ImageData
       signal?: AbortSignal
       stream?: boolean
+      taskId?: string
     },
   ): Promise<string> {
     // Extract options with defaults

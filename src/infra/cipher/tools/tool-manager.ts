@@ -153,7 +153,10 @@ export class ToolManager {
 
       // Execute tool via scheduler (with policy check) or directly via provider
       const result = this.scheduler
-        ? await this.scheduler.execute(toolName, effectiveArgs, {sessionId: sessionId ?? 'default'})
+        ? await this.scheduler.execute(toolName, effectiveArgs, {
+            sessionId: sessionId ?? 'default',
+            taskId: effectiveContext.taskId,
+          })
         : await this.toolProvider.executeTool(toolName, effectiveArgs, sessionId, effectiveContext)
 
       const durationMs = Date.now() - startTime

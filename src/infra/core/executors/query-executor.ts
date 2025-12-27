@@ -37,12 +37,10 @@ export class QueryExecutor implements IQueryExecutor {
 
       // Execute with query commandType
       // Agent uses its default session (created during start())
-      const trackingRequestId = randomUUID()
       const prompt = `Search the context tree for: ${query}`
       const response = await agent.execute(prompt, {
         executionContext: {commandType: 'query'},
         taskId,
-        trackingRequestId,
       })
 
       // Mark execution as completed
