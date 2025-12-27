@@ -207,7 +207,7 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
     const response = await this.generate(input, {
       executionContext: options?.executionContext,
       taskId: options?.taskId,
-      trackingRequestId: options?.trackingRequestId,
+      // trackingRequestId: options?.trackingRequestId,
     })
 
     return response.content
@@ -449,7 +449,7 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
     const sessionId = this.getSessionIdInternal()
 
     const signal = options?.signal
-    const trackingRequestId = options?.trackingRequestId
+    // const trackingRequestId = options?.trackingRequestId
 
     // Event queue for aggregation
     const eventQueue: StreamingEvent[] = []
@@ -540,7 +540,7 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
           executionContext: options?.executionContext,
           signal,
           taskId: options?.taskId,
-          trackingRequestId,
+          // trackingRequestId,
         })
       } catch (error_) {
         // Emit error event if something goes wrong

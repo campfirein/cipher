@@ -110,8 +110,6 @@ export interface StreamOptions {
   signal?: AbortSignal
   /** Task ID for concurrent task isolation (included in all emitted events) */
   taskId?: string
-  /** Tracking request ID for backend metrics (random UUID per request, NOT related to session memory) */
-  trackingRequestId?: string
 }
 
 /**

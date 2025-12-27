@@ -108,6 +108,7 @@ export interface LLMServiceConfig {
 interface BuildGenerateContentRequestOptions {
   executionContext?: ExecutionContext
   systemPrompt: string
+  taskId?: string
   tools: ToolSet
   trackingRequestId: string
 }
@@ -266,6 +267,7 @@ export class ByteRoverLLMService implements ILLMService {
    * @param options.imageData - Optional image data
    * @param options.fileData - Optional file data
    * @param options.stream - Whether to stream response (not implemented yet)
+   * @param options.taskId - Task ID from usecase for billing tracking
    * @returns Final assistant response
    */
   public async completeTask(
@@ -277,10 +279,11 @@ export class ByteRoverLLMService implements ILLMService {
       imageData?: ImageData
       signal?: AbortSignal
       stream?: boolean
+      taskId?: string
     },
   ): Promise<string> {
     // Extract options with defaults
-    const {executionContext, fileData, imageData, signal} = options ?? {}
+    const {executionContext, fileData, imageData, signal, taskId} = options ?? {}
 
     // Add user message to context
     await this.contextManager.addUserMessage(textInput, imageData, fileData)
@@ -312,6 +315,7 @@ export class ByteRoverLLMService implements ILLMService {
         const result = await this.executeAgenticIteration({
           executionContext,
           iterationCount: stateMachine.getContext().turnCount,
+          taskId,
           tools: toolSet,
           trackingRequestId,
         })
@@ -452,8 +456,8 @@ export class ByteRoverLLMService implements ILLMService {
       executionContext: options.executionContext,
       model: this.config.model,
       systemPrompt: options.systemPrompt,
+      taskId: options.taskId ?? '',
       tools: options.tools,
-      trackingRequestId: options.trackingRequestId,
     }
   }
 
@@ -507,9 +511,9 @@ export class ByteRoverLLMService implements ILLMService {
    * - First tries pruning tool outputs (if overflow > 85%)
    * - Then tries full compaction with LLM summary (if overflow > 95%)
    *
-   * @param trackingRequestId - Tracking request ID for backend metrics (passed from caller)
+   * @param taskId - Task ID from usecase for billing tracking (passed from caller)
    */
-  private async checkAndTriggerCompaction(trackingRequestId: string): Promise<void> {
+  private async checkAndTriggerCompaction(taskId: string): Promise<void> {
     if (!this.compactionService) return
 
     // Calculate current token usage
@@ -566,11 +570,11 @@ export class ByteRoverLLMService implements ILLMService {
       const originalTokens = currentTokens
 
       // Full compaction needed - generate LLM summary
-      // Use the same trackingRequestId from caller (all LLM calls in a request share the same tracking ID)
+      // Use the same taskId from caller for billing tracking
       const summary = await this.compactionService.generateSummary(
         this.generator,
         messages,
-        trackingRequestId,
+        taskId,
         this.config.model,
       )
 
@@ -669,6 +673,7 @@ export class ByteRoverLLMService implements ILLMService {
    *
    * @param options - Iteration options
    * @param options.iterationCount - Current iteration number
+   * @param options.taskId - Task ID from usecase for billing tracking
    * @param options.trackingRequestId - Tracking request ID for backend metrics (random UUID per request)
    * @param options.tools - Available tools for this iteration
    * @param options.executionContext - Optional execution context
@@ -677,10 +682,11 @@ export class ByteRoverLLMService implements ILLMService {
   private async executeAgenticIteration(options: {
     executionContext?: ExecutionContext
     iterationCount: number
+    taskId?: string
     tools: ToolSet
     trackingRequestId: string
   }): Promise<null | string> {
-    const {executionContext, iterationCount, tools, trackingRequestId} = options
+    const {executionContext, iterationCount, taskId, tools, trackingRequestId} = options
     // Build system prompt using SystemPromptManager (before compression for correct token accounting)
     // Use filtered tool names based on command type (e.g., only read-only tools for 'query')
     const availableTools = this.toolManager.getToolNamesForCommand(executionContext?.commandType)
@@ -772,6 +778,7 @@ export class ByteRoverLLMService implements ILLMService {
     const request = this.buildGenerateContentRequest({
       executionContext,
       systemPrompt,
+      taskId,
       tools: toolsForThisIteration,
       trackingRequestId,
     })
@@ -784,16 +791,16 @@ export class ByteRoverLLMService implements ILLMService {
       const response = await this.handleFinalResponse(lastMessage)
 
       // Auto-compaction check after assistant response
-      await this.checkAndTriggerCompaction(trackingRequestId)
+      await this.checkAndTriggerCompaction(taskId ?? '')
 
       return response
     }
 
-    // Has tool calls - handle them
-    await this.handleToolCalls(lastMessage)
+    // Has tool calls - handle them (pass taskId for subagent billing)
+    await this.handleToolCalls(lastMessage, taskId)
 
     // Auto-compaction check after tool execution batch
-    await this.checkAndTriggerCompaction(trackingRequestId)
+    await this.checkAndTriggerCompaction(taskId ?? '')
 
     return null
   }
@@ -803,9 +810,10 @@ export class ByteRoverLLMService implements ILLMService {
    * Returns all information needed to add the result to context later.
    *
    * @param toolCall - Tool call to execute
+   * @param taskId - Task ID from usecase for billing tracking (passed to subagents)
    * @returns Parallel tool result with all execution data
    */
-  private async executeToolCallParallel(toolCall: ToolCall): Promise<ParallelToolResult> {
+  private async executeToolCallParallel(toolCall: ToolCall, taskId?: string): Promise<ParallelToolResult> {
     const toolName = toolCall.function.name
     const toolArgs = JSON.parse(toolCall.function.arguments)
 
@@ -854,8 +862,10 @@ export class ByteRoverLLMService implements ILLMService {
       const metadataCallback = this.metadataHandler.createCallback(toolCall.id, toolName)
 
       // Execute tool via ToolManager (returns structured result)
+      // Pass taskId in context for subagent billing tracking
       const result: ToolExecutionResult = await this.toolManager.executeTool(toolName, toolArgs, this.sessionId, {
         metadata: metadataCallback,
+        taskId,
       })
 
       // Process output (truncation and file saving if needed)
@@ -1091,8 +1101,9 @@ export class ByteRoverLLMService implements ILLMService {
    * Executes tools in parallel for performance, but updates state in order.
    *
    * @param lastMessage - Last message containing tool calls
+   * @param taskId - Task ID from usecase for billing tracking (passed to subagents)
    */
-  private async handleToolCalls(lastMessage: InternalMessage): Promise<void> {
+  private async handleToolCalls(lastMessage: InternalMessage, taskId?: string): Promise<void> {
     if (!lastMessage.toolCalls || lastMessage.toolCalls.length === 0) {
       return
     }
@@ -1121,9 +1132,9 @@ export class ByteRoverLLMService implements ILLMService {
       this.contextManager.updateToolCallState(toolCall.id, runningState)
     }
 
-    // Step 3: Execute all tool calls in parallel
+    // Step 3: Execute all tool calls in parallel (pass taskId for subagent billing)
     const parallelResults = await Promise.allSettled(
-      lastMessage.toolCalls.map((toolCall) => this.executeToolCallParallel(toolCall)),
+      lastMessage.toolCalls.map((toolCall) => this.executeToolCallParallel(toolCall, taskId)),
     )
 
     // Step 4: Update tool part states with results (in order)

@@ -42,10 +42,10 @@ export interface GenerateContentRequest {
   model: string
   /** Optional system prompt */
   systemPrompt?: string
+  /** Tracking task ID for backend billing metrics (random UUID per request) */
+  taskId: string
   /** Available tools for function calling */
   tools?: ToolSet
-  /** Tracking request ID for backend metrics (random UUID per request) */
-  trackingRequestId: string
 }
 
 /**

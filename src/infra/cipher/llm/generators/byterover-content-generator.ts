@@ -126,7 +126,8 @@ export class ByteRoverContentGenerator implements IContentGenerator {
 
     // Build execution metadata from request
     const executionMetadata = {
-      trackingRequestId: request.trackingRequestId,
+      sessionId: request.taskId,
+      taskId: request.taskId,
       ...(request.executionContext && {executionContext: request.executionContext}),
     }
 

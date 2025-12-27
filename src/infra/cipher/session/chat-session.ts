@@ -219,9 +219,11 @@ export class ChatSession implements IChatSession {
 
       // Delegate to service - it handles everything
       // Use trackingRequestId for backend metrics if provided, otherwise generate one
+      // Pass taskId for billing tracking
       const response = await this.llmService.completeTask(finalInput, options?.trackingRequestId ?? '', {
         executionContext: options?.executionContext,
         signal: controller.signal,
+        taskId: options?.taskId,
       })
 
       return response
@@ -329,9 +331,11 @@ export class ChatSession implements IChatSession {
 
       // Delegate to service - it handles everything and emits events
       // Use trackingRequestId for backend metrics if provided
+      // Pass taskId for billing tracking
       await this.llmService.completeTask(finalInput, options?.trackingRequestId ?? '', {
         executionContext: options?.executionContext,
         signal: controller.signal,
+        taskId: options?.taskId,
       })
     } catch (error_) {
       // Check if cancelled - use stored controller reference to avoid undefined access

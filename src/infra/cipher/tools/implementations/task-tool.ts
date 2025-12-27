@@ -200,8 +200,8 @@ export function createTaskTool(dependencies: TaskToolDependencies): Tool {
           })
         }
 
-        // Execute the subagent session
-        const response = await session.run(fullPrompt)
+        // Execute the subagent session with parent's taskId for billing tracking
+        const response = await session.run(fullPrompt, {taskId: context?.taskId})
 
         // Stream completion update
         if (context?.metadata) {

@@ -29,6 +29,7 @@ export interface ILLMService {
    * @param options.fileData - Optional file data
    * @param options.stream - Whether to stream the response (optional)
    * @param options.executionContext - Optional execution context
+   * @param options.taskId - Task ID from usecase for billing tracking
    * @returns Final assistant response
    */
   completeTask(
@@ -40,6 +41,7 @@ export interface ILLMService {
       imageData?: ImageData
       signal?: AbortSignal
       stream?: boolean
+      taskId?: string
     },
   ): Promise<string>
 

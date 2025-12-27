@@ -112,6 +112,9 @@ export interface ToolExecutionContext {
    * Tools should check this signal periodically and abort gracefully.
    */
   signal?: AbortSignal
+
+  /** Task ID from usecase for billing tracking */
+  taskId?: string
 }
 
 /**
