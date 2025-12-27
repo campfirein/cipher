@@ -2,21 +2,21 @@
  * Tab Bar Component
  */
 
-import { Box, Text } from 'ink'
+import {Box, Text} from 'ink'
 import React from 'react'
 
-import type { TabId } from '../types.js'
+import type {Tab, TabId} from '../types.js'
 
-import { TABS } from '../constants.js'
-import { useTheme } from '../contexts/theme-context.js'
+import {useTheme} from '../contexts/theme-context.js'
 
 interface TabBarProps {
   activeTab: TabId
+  tabs: Tab[]
 }
 
-export const TabBar: React.FC<TabBarProps> = ({ activeTab }) => {
+export const TabBar: React.FC<TabBarProps> = ({activeTab, tabs = []}) => {
   const {
-    theme: { colors },
+    theme: {colors},
   } = useTheme()
 
   return (
@@ -30,7 +30,7 @@ export const TabBar: React.FC<TabBarProps> = ({ activeTab }) => {
         width={2}
       />
 
-      {TABS.map((tab) => (
+      {tabs.map((tab) => (
         <React.Fragment key={tab.id}>
           <Box
             borderBottomColor={activeTab === tab.id ? colors.primary : colors.border}
