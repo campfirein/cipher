@@ -19,7 +19,7 @@ export const App: React.FC = () => {
   const {appBottomPadding, footer, header, tab} = useUIHeights()
 
   const {isAuthorized} = useAuth()
-  const {activeTab} = useTabNavigation()
+  const {activeTab, tabs} = useTabNavigation()
   const {stats: taskStats} = useTasks()
 
   const contentHeight = Math.max(1, terminalHeight - header - tab - footer)
@@ -28,17 +28,13 @@ export const App: React.FC = () => {
     <Box flexDirection="column" height={terminalHeight} paddingBottom={appBottomPadding} width={terminalWidth}>
       {/* Header - always shown, but no taskStats when unauthorized */}
       <Box flexShrink={0}>
-        <Header
-          compact={isAuthorized}
-          showTransportStats={isAuthorized}
-          taskStats={taskStats}
-        />
+        <Header compact={isAuthorized} showTransportStats={isAuthorized} taskStats={taskStats} />
       </Box>
 
       {isAuthorized ? (
         <>
           <Box flexShrink={0}>
-            <TabBar activeTab={activeTab} />
+            <TabBar activeTab={activeTab} tabs={tabs} />
           </Box>
 
           <Box flexGrow={1} paddingX={1}>
