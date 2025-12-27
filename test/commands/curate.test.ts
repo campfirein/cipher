@@ -83,30 +83,33 @@ describe('Curate Command', () => {
       expect(trackingService.track.calledWith('mem:curate', {status: 'started'})).to.be.true
     })
 
-    it('should send task:create request with context', async () => {
+    it('should send task:create request with context and taskId', async () => {
       const useCase = new CurateUseCase(createUseCaseOptions())
 
       await useCase.run({context: 'test context'})
 
       expect(mockClient.request.calledOnce).to.be.true
-      expect(mockClient.request.calledWith('task:create', {content: 'test context', type: 'curate'})).to.be.true
+      const [event, payload] = (mockClient.request as sinon.SinonStub).firstCall.args
+      expect(event).to.equal('task:create')
+      expect(payload).to.have.property('content', 'test context')
+      expect(payload).to.have.property('type', 'curate')
+      expect(payload).to.have.property('taskId').that.is.a('string')
       expect(loggedMessages).to.include('✓ Context queued for processing.')
       expect(trackingService.track.calledWith('mem:curate', {status: 'finished'})).to.be.true
     })
 
-    it('should send task:create request with context and files', async () => {
+    it('should send task:create request with context, files, and taskId', async () => {
       const useCase = new CurateUseCase(createUseCaseOptions())
 
       await useCase.run({context: 'test context', files: ['file1.ts', 'file2.ts']})
 
       expect(mockClient.request.calledOnce).to.be.true
-      expect(
-        mockClient.request.calledWith('task:create', {
-          content: 'test context',
-          files: ['file1.ts', 'file2.ts'],
-          type: 'curate',
-        }),
-      ).to.be.true
+      const [event, payload] = (mockClient.request as sinon.SinonStub).firstCall.args
+      expect(event).to.equal('task:create')
+      expect(payload).to.have.property('content', 'test context')
+      expect(payload).to.have.property('files').that.deep.equals(['file1.ts', 'file2.ts'])
+      expect(payload).to.have.property('type', 'curate')
+      expect(payload).to.have.property('taskId').that.is.a('string')
     })
 
     it('should log verbose messages when verbose is true', async () => {
