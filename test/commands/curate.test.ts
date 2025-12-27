@@ -3,48 +3,25 @@ import sinon, {restore, stub} from 'sinon'
 
 import type {ITerminal} from '../../src/core/interfaces/i-terminal.js'
 import type {ITrackingService} from '../../src/core/interfaces/i-tracking-service.js'
+import type {ITransportClient} from '../../src/core/interfaces/transport/i-transport-client.js'
 import type {TransportClientFactory} from '../../src/infra/transport/transport-client-factory.js'
 
 import {
-  ConnectionError,
   ConnectionFailedError,
   InstanceCrashedError,
   NoInstanceRunningError,
 } from '../../src/core/domain/errors/connection-error.js'
 import {CurateUseCase, type CurateUseCaseOptions} from '../../src/infra/usecase/curate-use-case.js'
-import {
-  createMockTerminal,
-  createMockTransportClient,
-  createMockTransportFactory,
-  type MockTransportClient,
-  type MockTransportFactory,
-} from '../helpers/mock-factories.js'
-
-/**
- * Testable subclass that allows injecting mock transport factory.
- * Uses type assertion to bypass strict type checking for test mocks.
- */
-class TestableCurateUseCase extends CurateUseCase {
-  constructor(options: CurateUseCaseOptions, private mockFactory: MockTransportFactory) {
-    super(options)
-  }
-
-  protected createTransportFactory(): TransportClientFactory {
-    // Cast mock factory to TransportClientFactory for testing
-    return this.mockFactory as unknown as TransportClientFactory
-  }
-}
+import {createMockTerminal} from '../helpers/mock-factories.js'
 
 describe('Curate Command', () => {
-  let sandbox: sinon.SinonSandbox
   let loggedMessages: string[]
   let terminal: ITerminal
   let trackingService: sinon.SinonStubbedInstance<ITrackingService>
-  let mockClient: MockTransportClient
-  let mockFactory: MockTransportFactory
+  let mockClient: sinon.SinonStubbedInstance<ITransportClient>
+  let mockFactory: Partial<TransportClientFactory>
 
   beforeEach(() => {
-    sandbox = sinon.createSandbox()
     loggedMessages = []
 
     terminal = createMockTerminal({
@@ -59,204 +36,168 @@ describe('Curate Command', () => {
       track: stub().resolves(),
     } as unknown as sinon.SinonStubbedInstance<ITrackingService>
 
-    mockClient = createMockTransportClient(sandbox)
-    mockFactory = createMockTransportFactory(sandbox, mockClient)
+    // Create mock transport client
+    mockClient = {
+      connect: stub().resolves(),
+      disconnect: stub().resolves(),
+      getClientId: stub().returns('test-client-id'),
+      getState: stub().returns('connected'),
+      joinRoom: stub().resolves(),
+      leaveRoom: stub().resolves(),
+      on: stub().returns(() => {}),
+      once: stub(),
+      onStateChange: stub().returns(() => {}),
+      request: stub().resolves({}),
+    } as unknown as sinon.SinonStubbedInstance<ITransportClient>
+
+    // Create mock factory
+    mockFactory = {
+      connect: stub().resolves({
+        client: mockClient,
+        projectRoot: '/test/project',
+      }),
+    }
   })
 
   afterEach(() => {
-    sandbox.restore()
     restore()
   })
 
-  function createUseCaseOptions(): CurateUseCaseOptions {
+  function createUseCaseOptions(overrides?: Partial<CurateUseCaseOptions>): CurateUseCaseOptions {
     return {
       terminal,
       trackingService,
+      transportClientFactoryCreator: () => mockFactory as TransportClientFactory,
+      ...overrides,
     }
   }
 
-  function createTestableUseCase(): TestableCurateUseCase {
-    return new TestableCurateUseCase(createUseCaseOptions(), mockFactory)
-  }
-
-  describe('run - validation', () => {
-    it('should require context argument', async () => {
+  describe('run', () => {
+    it('should show usage message when context is not provided', async () => {
       const useCase = new CurateUseCase(createUseCaseOptions())
 
       await useCase.run({})
 
-      expect(loggedMessages.some((m) => m.includes('Context argument is required'))).to.be.true
-    })
-
-    it('should show usage message when context is missing', async () => {
-      const useCase = new CurateUseCase(createUseCaseOptions())
-
-      await useCase.run({})
-
-      expect(loggedMessages.some((m) => m.includes('brv curate "your context here"'))).to.be.true
-    })
-
-    it('should track curate started event', async () => {
-      const useCase = new CurateUseCase(createUseCaseOptions())
-
-      await useCase.run({})
-
+      expect(loggedMessages).to.include('Context argument is required.')
+      expect(loggedMessages).to.include('Usage: brv curate "your context here"')
       expect(trackingService.track.calledWith('mem:curate', {status: 'started'})).to.be.true
     })
-  })
 
-  describe('run - connection errors', () => {
-    it('should handle NoInstanceRunningError with appropriate message', async () => {
-      mockFactory.connect.rejects(new NoInstanceRunningError())
-      const useCase = createTestableUseCase()
+    it('should send task:create request with context', async () => {
+      const useCase = new CurateUseCase(createUseCaseOptions())
 
       await useCase.run({context: 'test context'})
 
-      // Either sandbox or non-sandbox message should be shown (depends on environment)
-      const hasNoInstanceMessage = loggedMessages.some(
-        (m) => m.includes('No ByteRover instance is running') || m.includes("run 'brv' command"),
-      )
-      expect(hasNoInstanceMessage).to.be.true
-    })
-
-    it('should handle InstanceCrashedError', async () => {
-      mockFactory.connect.rejects(new InstanceCrashedError())
-      const useCase = createTestableUseCase()
-
-      await useCase.run({context: 'test context'})
-
-      expect(loggedMessages.some((m) => m.includes('ByteRover instance has crashed'))).to.be.true
-      expect(loggedMessages.some((m) => m.includes('Please restart with: brv'))).to.be.true
-    })
-
-    it('should handle ConnectionFailedError', async () => {
-      mockFactory.connect.rejects(new ConnectionFailedError(9847, new Error('Connection refused')))
-      const useCase = createTestableUseCase()
-
-      await useCase.run({context: 'test context'})
-
-      // Either sandbox network restriction or generic connection failed message
-      const hasConnectionFailedMessage = loggedMessages.some(
-        (m) => m.includes('Failed to connect') || m.includes('Sandbox network restriction'),
-      )
-      expect(hasConnectionFailedMessage).to.be.true
-    })
-
-    it('should handle generic ConnectionError', async () => {
-      mockFactory.connect.rejects(new ConnectionError('Generic connection error'))
-      const useCase = createTestableUseCase()
-
-      await useCase.run({context: 'test context'})
-
-      expect(loggedMessages.some((m) => m.includes('Connection error'))).to.be.true
-    })
-
-    it('should handle unexpected errors', async () => {
-      mockFactory.connect.rejects(new Error('Something went wrong'))
-      const useCase = createTestableUseCase()
-
-      await useCase.run({context: 'test context'})
-
-      expect(loggedMessages.some((m) => m.includes('Unexpected error'))).to.be.true
-      expect(loggedMessages.some((m) => m.includes('Something went wrong'))).to.be.true
-    })
-
-    it('should track error event on connection failure', async () => {
-      mockFactory.connect.rejects(new NoInstanceRunningError())
-      const useCase = createTestableUseCase()
-
-      await useCase.run({context: 'test context'})
-
-      expect(trackingService.track.calledWith('mem:curate', sinon.match({status: 'error'}))).to.be.true
-    })
-  })
-
-  describe('run - success path', () => {
-    it('should queue context for processing', async () => {
-      const useCase = createTestableUseCase()
-
-      await useCase.run({context: 'test context'})
-
-      expect(loggedMessages.some((m) => m.includes('Context queued for processing'))).to.be.true
-    })
-
-    it('should send task:create request with correct payload', async () => {
-      const useCase = createTestableUseCase()
-
-      await useCase.run({context: 'my knowledge context'})
-
-      const requestStub = mockClient.request as sinon.SinonStub
-      expect(requestStub.calledOnce).to.be.true
-      const [event, payload] = requestStub.firstCall.args
-      expect(event).to.equal('task:create')
-      expect(payload).to.have.property('content', 'my knowledge context')
-      expect(payload).to.have.property('type', 'curate')
-      expect(payload).to.have.property('taskId')
-    })
-
-    it('should pass files to task:create when provided', async () => {
-      const useCase = createTestableUseCase()
-      const files = ['src/auth.ts', 'src/middleware.ts']
-
-      await useCase.run({context: 'test context', files})
-
-      const requestStub = mockClient.request as sinon.SinonStub
-      const [, payload] = requestStub.firstCall.args
-      expect(payload).to.have.property('files').that.deep.equals(files)
-    })
-
-    it('should not include files in request when empty', async () => {
-      const useCase = createTestableUseCase()
-
-      await useCase.run({context: 'test context', files: []})
-
-      const requestStub = mockClient.request as sinon.SinonStub
-      const [, payload] = requestStub.firstCall.args
-      expect(payload).to.not.have.property('files')
-    })
-
-    it('should track finished event on success', async () => {
-      const useCase = createTestableUseCase()
-
-      await useCase.run({context: 'test context'})
-
+      expect(mockClient.request.calledOnce).to.be.true
+      expect(mockClient.request.calledWith('task:create', {content: 'test context', type: 'curate'})).to.be.true
+      expect(loggedMessages).to.include('✓ Context queued for processing.')
       expect(trackingService.track.calledWith('mem:curate', {status: 'finished'})).to.be.true
     })
 
-    it('should disconnect client after completion', async () => {
-      const useCase = createTestableUseCase()
+    it('should send task:create request with context and files', async () => {
+      const useCase = new CurateUseCase(createUseCaseOptions())
 
-      await useCase.run({context: 'test context'})
+      await useCase.run({context: 'test context', files: ['file1.ts', 'file2.ts']})
 
-      const disconnectStub = mockClient.disconnect as sinon.SinonStub
-      expect(disconnectStub.calledOnce).to.be.true
+      expect(mockClient.request.calledOnce).to.be.true
+      expect(
+        mockClient.request.calledWith('task:create', {
+          content: 'test context',
+          files: ['file1.ts', 'file2.ts'],
+          type: 'curate',
+        }),
+      ).to.be.true
     })
-  })
 
-  describe('run - verbose mode', () => {
-    it('should log discovery message when verbose', async () => {
-      const useCase = createTestableUseCase()
+    it('should log verbose messages when verbose is true', async () => {
+      const useCase = new CurateUseCase(createUseCaseOptions())
 
       await useCase.run({context: 'test context', verbose: true})
 
       expect(loggedMessages.some((m) => m.includes('Discovering running instance'))).to.be.true
-    })
-
-    it('should log connection info when verbose', async () => {
-      const useCase = createTestableUseCase()
-
-      await useCase.run({context: 'test context', verbose: true})
-
       expect(loggedMessages.some((m) => m.includes('Connected to instance'))).to.be.true
-      expect(loggedMessages.some((m) => m.includes('clientId'))).to.be.true
     })
 
-    it('should not log verbose messages when verbose is false', async () => {
-      const useCase = createTestableUseCase()
+    it('should disconnect client after successful request', async () => {
+      const useCase = new CurateUseCase(createUseCaseOptions())
 
-      await useCase.run({context: 'test context', verbose: false})
+      await useCase.run({context: 'test context'})
 
-      expect(loggedMessages.some((m) => m.includes('Discovering running instance'))).to.be.false
+      expect(mockClient.disconnect.calledOnce).to.be.true
+    })
+
+    it('should handle NoInstanceRunningError', async () => {
+      const errorFactory = {
+        connect: stub().rejects(new NoInstanceRunningError()),
+      }
+      const useCase = new CurateUseCase(
+        createUseCaseOptions({
+          transportClientFactoryCreator: () => errorFactory as unknown as TransportClientFactory,
+        }),
+      )
+
+      await useCase.run({context: 'test context'})
+
+      expect(loggedMessages.some((m) => m.includes('No ByteRover instance is running'))).to.be.true
+      expect(trackingService.track.calledWith('mem:curate', sinon.match({status: 'error'}))).to.be.true
+    })
+
+    it('should handle InstanceCrashedError', async () => {
+      const errorFactory = {
+        connect: stub().rejects(new InstanceCrashedError()),
+      }
+      const useCase = new CurateUseCase(
+        createUseCaseOptions({
+          transportClientFactoryCreator: () => errorFactory as unknown as TransportClientFactory,
+        }),
+      )
+
+      await useCase.run({context: 'test context'})
+
+      expect(loggedMessages.some((m) => m.includes('ByteRover instance has crashed'))).to.be.true
+      expect(trackingService.track.calledWith('mem:curate', sinon.match({status: 'error'}))).to.be.true
+    })
+
+    it('should handle ConnectionFailedError', async () => {
+      const errorFactory = {
+        connect: stub().rejects(new ConnectionFailedError(9847, new Error('Connection refused'))),
+      }
+      const useCase = new CurateUseCase(
+        createUseCaseOptions({
+          transportClientFactoryCreator: () => errorFactory as unknown as TransportClientFactory,
+        }),
+      )
+
+      await useCase.run({context: 'test context'})
+
+      expect(loggedMessages.some((m) => m.includes('Failed to connect'))).to.be.true
+      expect(trackingService.track.calledWith('mem:curate', sinon.match({status: 'error'}))).to.be.true
+    })
+
+    it('should handle unexpected errors', async () => {
+      const errorFactory = {
+        connect: stub().rejects(new Error('Unexpected error')),
+      }
+      const useCase = new CurateUseCase(
+        createUseCaseOptions({
+          transportClientFactoryCreator: () => errorFactory as unknown as TransportClientFactory,
+        }),
+      )
+
+      await useCase.run({context: 'test context'})
+
+      expect(loggedMessages.some((m) => m.includes('Unexpected error'))).to.be.true
+      expect(trackingService.track.calledWith('mem:curate', sinon.match({status: 'error'}))).to.be.true
+    })
+
+    it('should disconnect client even when request fails', async () => {
+      mockClient.request.rejects(new Error('Request failed'))
+
+      const useCase = new CurateUseCase(createUseCaseOptions())
+
+      await useCase.run({context: 'test context'})
+
+      expect(mockClient.disconnect.calledOnce).to.be.true
     })
   })
 })

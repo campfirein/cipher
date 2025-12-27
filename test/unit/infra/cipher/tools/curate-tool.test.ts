@@ -1,8 +1,7 @@
+import {expect} from 'chai'
 import * as fs from 'node:fs/promises'
 import * as os from 'node:os'
 import * as path from 'node:path'
-
-import {expect} from 'chai'
 
 import {createCurateTool} from '../../../../../src/infra/cipher/tools/implementations/curate-tool.js'
 
