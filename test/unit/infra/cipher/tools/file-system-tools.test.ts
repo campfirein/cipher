@@ -73,10 +73,13 @@ describe('File System Tools', () => {
 
       sandbox.assert.calledWith(readFileStub, '/path/to/file', sandbox.match({limit: undefined, offset: undefined}))
       // Tool returns formattedContent as content, plus message and totalLines
+      // Also includes attachment and preview fields (undefined when not applicable)
       expect(result).to.deep.equal({
+        attachment: undefined,
         content: '00001| file content',
         lines: 1,
         message: 'File read successfully',
+        preview: undefined,
         size: 12,
         totalLines: 1,
         truncated: false,

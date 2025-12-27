@@ -22,23 +22,29 @@ import {
   TaskStartedEvent,
 } from '../../core/domain/transport/schemas.js'
 import {ITransportClient} from '../../core/interfaces/transport/i-transport-client.js'
-import {formatError} from '../../utils/error-handler.js'
+import { formatError } from '../../utils/error-handler.js'
 import {getSandboxEnvironmentName, isSandboxEnvironment, isSandboxNetworkError} from '../../utils/sandbox-detector.js'
 import {CipherAgent} from '../cipher/agent/index.js'
-import {createTransportClientFactory, TransportClientFactory} from '../transport/transport-client-factory.js'
+import {createTransportClientFactory, type TransportClientFactory} from '../transport/transport-client-factory.js'
+
+export type TransportClientFactoryCreator = () => TransportClientFactory
 
 export interface QueryUseCaseOptions {
   terminal: ITerminal
   trackingService: ITrackingService
+  /** Optional factory creator for dependency injection (defaults to createTransportClientFactory) */
+  transportClientFactoryCreator?: TransportClientFactoryCreator
 }
 
 export class QueryUseCase implements IQueryUseCase {
   private readonly terminal: ITerminal
   private readonly trackingService: ITrackingService
+  private readonly transportClientFactoryCreator: TransportClientFactoryCreator
 
   constructor(options: QueryUseCaseOptions) {
     this.terminal = options.terminal
     this.trackingService = options.trackingService
+    this.transportClientFactoryCreator = options.transportClientFactoryCreator ?? createTransportClientFactory
   }
 
   /**
@@ -47,13 +53,6 @@ export class QueryUseCase implements IQueryUseCase {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   protected createCipherAgent(llmConfig: any, brvConfig: BrvConfig): CipherAgent {
     return new CipherAgent(llmConfig, brvConfig)
-  }
-
-  /**
-   * Create transport client factory. Protected to allow test overrides.
-   */
-  protected createTransportFactory(): TransportClientFactory {
-    return createTransportClientFactory()
   }
 
   /**
@@ -78,29 +77,26 @@ export class QueryUseCase implements IQueryUseCase {
     let client: ITransportClient | undefined
 
     try {
-      const factory = this.createTransportFactory()
+      const transportClientFactory = this.transportClientFactoryCreator()
 
       if (verbose) {
         this.terminal.log('Discovering running instance...')
       }
 
-      const {client: connectedClient} = await factory.connect()
+      const {client: connectedClient} = await transportClientFactory.connect()
       client = connectedClient
 
       if (verbose) {
         this.terminal.log(`Connected to instance (clientId: ${client.getClientId()})`)
       }
 
-      // Generate taskId in UseCase (Application layer owns task creation)
-      const taskId = randomUUID()
-
       // Send task:create request
-      await client.request<TaskCreateResponse>('task:create', {
+      const response = await client.request<TaskCreateResponse>('task:create', {
         content: options.query,
-        taskId,
         type: 'query',
       })
-      // Note: response.taskId confirms what we sent (no longer extracting)
+
+      const {taskId} = response
 
       if (verbose) {
         this.terminal.log(`Task created: ${taskId}`)
@@ -137,8 +133,8 @@ export class QueryUseCase implements IQueryUseCase {
       return `${(obj.matches as unknown[]).length} matches`
     }
 
-    if ('filesSearched' in obj && typeof obj.filesSearched === 'number') {
-      const files = obj.filesSearched
+    if ('filesSearched' in obj) {
+      const files = obj.filesSearched as number
       const matches = Array.isArray(obj.matches) ? obj.matches.length : 0
       return `${files} files searched, ${matches} matches`
     }
@@ -155,7 +151,8 @@ export class QueryUseCase implements IQueryUseCase {
 
     // read_file returns {content: string, ...}
     if ('content' in obj && typeof obj.content === 'string') {
-      const lines = obj.content.split('\n').length
+      const content = obj.content as string
+      const lines = content.split('\n').length
       return `${lines} lines`
     }
 
@@ -318,13 +315,16 @@ export class QueryUseCase implements IQueryUseCase {
       let resultPrinted = false // Track if we've already printed the result
 
       // Timeout after 5 minutes
-      const timeout = setTimeout(() => {
-        if (!completed) {
-          completed = true
-          cleanup()
-          reject(new Error('Task timed out after 5 minutes'))
-        }
-      }, 5 * 60 * 1000)
+      const timeout = setTimeout(
+        () => {
+          if (!completed) {
+            completed = true
+            cleanup()
+            reject(new Error('Task timed out after 5 minutes'))
+          }
+        },
+        5 * 60 * 1000,
+      )
 
       // Setup all event handlers
       const unsubscribers = [

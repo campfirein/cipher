@@ -16,7 +16,6 @@ import type {ITrackingService} from '../../core/interfaces/i-tracking-service.js
 
 import {
   AuthProvider,
-  ChatProvider,
   CommandsProvider,
   ModeProvider,
   OnboardingProvider,
@@ -56,19 +55,17 @@ export function AppProviders({
       version={version}
     >
       <AuthProvider initialAuthToken={initialAuthToken} initialBrvConfig={initialBrvConfig}>
-        <ChatProvider>
-          <ThemeProvider>
-            <CommandsProvider>
-              <ModeProvider>
-                <TransportProvider>
-                  <TasksProvider>
-                    <OnboardingProvider>{children}</OnboardingProvider>
-                  </TasksProvider>
-                </TransportProvider>
-              </ModeProvider>
-            </CommandsProvider>
-          </ThemeProvider>
-        </ChatProvider>
+        <ThemeProvider>
+          <CommandsProvider>
+            <ModeProvider>
+              <TransportProvider>
+                <TasksProvider>
+                  <OnboardingProvider>{children}</OnboardingProvider>
+                </TasksProvider>
+              </TransportProvider>
+            </ModeProvider>
+          </CommandsProvider>
+        </ThemeProvider>
       </AuthProvider>
     </ServicesProvider>
   )

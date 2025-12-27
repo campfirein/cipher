@@ -29,6 +29,7 @@ prompt: |
      - The current domain and text segments from the user's input data
      - The existing context in the context tree
      Use the `curate` tool to create new knowledge topics or update existing ones. Ensure that:
+     - **Domain selection**: Always prefer predefined domains (code_style, design, structure, compliance, testing, bug_fixes). Only create custom domains if content clearly doesn't fit any predefined domain. Maximum 3 custom domains allowed.
      - The context is well-structured and MUST meet **Context quality requirements**
      - There is no duplication with existing context
      - The information is clear and easy to understand
@@ -43,15 +44,20 @@ prompt: |
      - Include names of functions, classes, patterns, or key concepts
 
    AVOID vague contexts like:
-       - "Hook system" 
-       - "Error handling" 
+       - "Hook system"
+       - "Error handling"
 
    WRITE detailed contexts like:
-       - "The hook system allows registering callbacks for lifecycle events. Register hooks using 
-        `HookRegistry.register(hookName, callback)` and trigger them with `HookRegistry.trigger(hookName, context)`. Hooks are used to: 
-        support async callbacks and are commonly used for: pre/post tool execution, agent lifecycle events, and custom 
-        integrations." 
+       - "The hook system allows registering callbacks for lifecycle events. Register hooks using
+        `HookRegistry.register(hookName, callback)` and trigger them with `HookRegistry.trigger(hookName, context)`. Hooks are used to:
+        support async callbacks and are commonly used for: pre/post tool execution, agent lifecycle events, and custom
+        integrations."
 
-       - "Error handling follows a custom error class pattern. All custom errors extend `BaseError` and include: error 
-        code, message, context object, and optional cause. Use `ErrorHandler.wrap(fn)` for consistent error boundaries across 
-        async operations." 
+       - "Error handling follows a custom error class pattern. All custom errors extend `BaseError` and include: error
+        code, message, context object, and optional cause. Use `ErrorHandler.wrap(fn)` for consistent error boundaries across
+        async operations."
+
+  6. **Response Format**:
+     - Your final response must be a brief summary (1-2 sentences) describing what knowledge was curated
+     - Do NOT include any file paths, directory paths, or specific location details in your response
+     - The system will automatically display created/updated file paths in a separate section 

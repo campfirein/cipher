@@ -1,12 +1,25 @@
+import * as fs from 'node:fs/promises'
 import {join} from 'node:path'
 import {z} from 'zod'
 
 import type {Tool, ToolExecutionContext} from '../../../../core/domain/cipher/tools/types.js'
 
+import {DEFAULT_CONTEXT_TREE_DOMAINS} from '../../../../config/context-tree-domains.js'
 import {ToolName} from '../../../../core/domain/cipher/tools/constants.js'
 import {DirectoryManager} from '../../../../core/domain/knowledge/directory-manager.js'
 import {MarkdownWriter} from '../../../../core/domain/knowledge/markdown-writer.js'
 import {toSnakeCase} from '../../../../utils/file-helpers.js'
+
+/**
+ * Predefined domain names from configuration.
+ */
+const PREDEFINED_DOMAIN_NAMES = DEFAULT_CONTEXT_TREE_DOMAINS.map((domain) => domain.name)
+
+/**
+ * Maximum number of custom domains allowed beyond predefined domains.
+ * This prevents excessive domain proliferation which degrades query quality.
+ */
+const MAX_CUSTOM_DOMAINS = 3
 
 /**
  * Operation types for curating knowledge topics.
@@ -55,6 +68,8 @@ type CurateInput = z.infer<typeof CurateInputSchema>
  * Result of a single operation.
  */
 interface OperationResult {
+  /** Full filesystem path to the created/modified file (for ADD/UPDATE/MERGE) */
+  filePath?: string
   message?: string
   path: string
   status: 'failed' | 'success'
@@ -89,6 +104,60 @@ function parsePath(path: string): null | {domain: string; subtopic?: string; top
     subtopic: parts[2],
     topic: parts[1],
   }
+}
+
+/**
+ * Get existing domain names from the context tree.
+ * Returns domain folder names that exist in the context tree.
+ */
+async function getExistingDomains(basePath: string): Promise<string[]> {
+  try {
+    const entries = await fs.readdir(basePath, {withFileTypes: true})
+    return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name)
+  } catch {
+    // Directory doesn't exist yet
+    return []
+  }
+}
+
+/**
+ * Check if a domain is valid (either predefined or existing in context tree).
+ * Also enforces the maximum custom domains limit.
+ */
+async function validateDomain(
+  basePath: string,
+  domainName: string,
+): Promise<{allowed: boolean; existingDomains: string[]; reason?: string}> {
+  const normalizedDomain = toSnakeCase(domainName)
+  const existingDomains = await getExistingDomains(basePath)
+
+  // Check if it's a predefined domain - always allowed
+  if (PREDEFINED_DOMAIN_NAMES.includes(normalizedDomain)) {
+    return {allowed: true, existingDomains}
+  }
+
+  // Check if it already exists in context tree - always allowed
+  if (existingDomains.includes(normalizedDomain)) {
+    return {allowed: true, existingDomains}
+  }
+
+  // Count how many custom domains already exist
+  const customDomains = existingDomains.filter((domain) => !PREDEFINED_DOMAIN_NAMES.includes(domain))
+
+  // Check if we've exceeded the custom domain limit
+  if (customDomains.length >= MAX_CUSTOM_DOMAINS) {
+    return {
+      allowed: false,
+      existingDomains,
+      reason:
+        `Cannot create new domain "${normalizedDomain}". Maximum of ${MAX_CUSTOM_DOMAINS} custom domains allowed. ` +
+        `Existing custom domains: ${customDomains.join(', ')}. ` +
+        `Please use one of the predefined domains (${PREDEFINED_DOMAIN_NAMES.join(', ')}) or existing domains.`,
+    }
+  }
+
+  // New custom domain within limit - allowed
+  return {allowed: true, existingDomains}
 }
 
 /**
@@ -149,25 +218,24 @@ async function executeAdd(
       }
     }
 
-    // Ensure base structure exists
-    await DirectoryManager.ensureKnowledgeStructure(basePath)
-
-    // Create domain folder (auto-create if doesn't exist) - using snake_case
-    const domainPath = join(basePath, toSnakeCase(parsed.domain))
-    await DirectoryManager.createOrUpdateDomain(domainPath)
-
-    // Create topic folder - using snake_case
-    const topicPath = join(domainPath, toSnakeCase(parsed.topic))
-    await DirectoryManager.createOrUpdateTopic(topicPath)
-
-    // Determine final folder path (topic or subtopic)
-    let finalPath = topicPath
-    if (parsed.subtopic) {
-      finalPath = join(topicPath, toSnakeCase(parsed.subtopic))
-      await DirectoryManager.createOrUpdateTopic(finalPath)
+    // Validate domain before creating
+    const domainValidation = await validateDomain(basePath, parsed.domain)
+    if (!domainValidation.allowed) {
+      return {
+        message: domainValidation.reason,
+        path,
+        status: 'failed',
+        type: 'ADD',
+      }
     }
 
+    // Build the final folder path (topic or subtopic)
+    const domainPath = join(basePath, toSnakeCase(parsed.domain))
+    const topicPath = join(domainPath, toSnakeCase(parsed.topic))
+    const finalPath = parsed.subtopic ? join(topicPath, toSnakeCase(parsed.subtopic)) : topicPath
+
     // Generate and write {title}.md (snake_case filename)
+    // Note: writeFileAtomic creates parent directories as needed, avoiding empty folder creation
     const contextContent = MarkdownWriter.generateContext({
       name: title,
       relations: content.relations,
@@ -178,6 +246,7 @@ async function executeAdd(
     await DirectoryManager.writeFileAtomic(contextPath, contextContent)
 
     return {
+      filePath: contextPath,
       message: `Created ${path}/${filename} with ${content.snippets?.length || 0} snippets. Reason: ${reason}`,
       path,
       status: 'success',
@@ -245,6 +314,7 @@ async function executeUpdate(
     await DirectoryManager.writeFileAtomic(contextPath, contextContent)
 
     return {
+      filePath: contextPath,
       message: `Updated ${path}/${filename}. Reason: ${reason}`,
       path,
       status: 'success',
@@ -340,6 +410,7 @@ async function executeMerge(
     await DirectoryManager.deleteFile(sourceContextPath)
 
     return {
+      filePath: targetContextPath,
       message: `Merged ${path}/${sourceFilename} into ${mergeTarget}/${targetFilename}. Reason: ${reason}`,
       path,
       status: 'success',
@@ -533,9 +604,14 @@ export function createCurateTool(): Tool {
 
 **Path format:** domain/topic or domain/topic/subtopic (uses snake_case automatically)
 **File naming:** Titles are converted to snake_case (e.g., "Best Practices" -> "best_practices.md")
-**Auto-create:** Domains and topics are automatically created if they don't exist
 
-**Output:** Returns applied operations with status (success/failed) and a summary of counts.`,
+**Domain constraints:**
+- Predefined domains: code_style, design, structure, compliance, testing, bug_fixes
+- Up to 3 additional custom domains are allowed
+- Always prefer predefined domains when possible
+- Creating new domains beyond the limit will fail
+
+**Output:** Returns applied operations with status (success/failed), filePath (for created/modified files), and a summary of counts.`,
 
     execute: executeCurate,
 

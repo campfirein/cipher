@@ -22,8 +22,8 @@ import {CopyablePrompt} from './copyable-prompt.js'
 import {OnboardingStep} from './onboarding-step.js'
 
 /** Example prompts for curate and query steps */
-const CURATE_PROMPT = 'run brv curate "Auth uses JWT with 24h expiry. Tokens stored in httpOnly cookies"'
-const QUERY_PROMPT = 'run brv query "How is authentication implemented?"'
+const CURATE_PROMPT = 'run `brv curate "Auth uses JWT with 24h expiry. Tokens stored in httpOnly cookies"`'
+const QUERY_PROMPT = 'run `brv query "How is authentication implemented?"`'
 
 /** Minimum output lines to show before truncation */
 const MIN_OUTPUT_LINES = 3
@@ -290,7 +290,6 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({availableHeight})
 
         return (
           <Text color={colors.text} key={msg.id}>
-            {msg.content}
             {msg.stopMessage ? `... ${msg.stopMessage}` : ''}
           </Text>
         )
@@ -420,7 +419,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({availableHeight})
   // Render init step content
   const renderInitContent = () => {
     if (isRunningInit) {
-      const {displayMessages: liveMessages, skippedLines} = getMessagesFromEnd(
+      const {displayMessages: liveMessages} = getMessagesFromEnd(
         processedStreamingMessages,
         maxOutputLines,
       )
@@ -430,18 +429,12 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({availableHeight})
           {/* Live streaming output */}
           <Box
             borderColor={colors.border}
-            borderStyle="round"
+            borderStyle="single"
             flexDirection="column"
             paddingX={1}
             paddingY={0}
             width="100%"
           >
-            {/* Show skipped lines indicator at the top */}
-            {skippedLines > 0 && (
-              <Text color={colors.secondary} dimColor>
-                ↑ {skippedLines} more lines above
-              </Text>
-            )}
             {liveMessages.map((streamMsg) => renderStreamingMessage(streamMsg))}
             {/* Active prompt */}
             {renderActivePrompt()}
@@ -493,16 +486,25 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({availableHeight})
 
     // Show copyable prompt when waiting
     return (
-      <Box flexDirection="column">
-        <Text color={colors.dimText} wrap="wrap">
-          Copy this command and paste it to your AI agent:
+      <Box backgroundColor={colors.bg2} flexDirection="column" padding={1} width="100%">
+        <Text color={colors.text} wrap="wrap">
+          Try saying this to your AI Agent: 
         </Text>
-        <CopyablePrompt isActive={mode === 'activity' && currentStep === 'curate'} prompt={CURATE_PROMPT} />
+        <Box marginBottom={1} paddingLeft={4}>
+          <Text color={colors.primary} wrap="wrap">{CURATE_PROMPT}</Text>
+        </Box>
+        <Text>
+          <CopyablePrompt
+            buttonLabel='[ctrl+y] to copy'
+            isActive={mode === 'activity' && currentStep === 'curate'}
+            textToCopy={CURATE_PROMPT}
+          />
+          <Text color={colors.dimText}> | [Esc] to skip onboarding</Text>
+        </Text>
         <Box marginTop={1}>
           <Text color={colors.dimText}>
-            <Spinner type="dots" /> Waiting for curate...
+            Waiting for curate...
           </Text>
-          <Text color={colors.dimText}> (Press Esc to skip)</Text>
         </Box>
       </Box>
     )
@@ -529,16 +531,25 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({availableHeight})
 
     // Show copyable prompt when waiting
     return (
-      <Box flexDirection="column">
-        <Text color={colors.dimText} wrap="wrap">
-          Copy this command and paste it to your AI agent:
+      <Box backgroundColor={colors.bg2} flexDirection="column" padding={1} width="100%">
+        <Text color={colors.text} wrap="wrap">
+          You can now query your memory:
         </Text>
-        <CopyablePrompt isActive={mode === 'activity' && currentStep === 'query'} prompt={QUERY_PROMPT} />
+        <Box marginBottom={1} paddingLeft={4}>
+          <Text color={colors.primary} wrap="wrap">{QUERY_PROMPT}</Text>
+        </Box>
+        <Text>
+          <CopyablePrompt
+            buttonLabel='[ctrl+y] to copy'
+            isActive={mode === 'activity' && currentStep === 'query'}
+            textToCopy={QUERY_PROMPT}
+          />
+          <Text color={colors.dimText}> | [Esc] to skip onboarding</Text>
+        </Text>
         <Box marginTop={1}>
           <Text color={colors.dimText}>
-            <Spinner type="dots" /> Waiting for query...
+            Waiting for query...
           </Text>
-          <Text color={colors.dimText}> (Press Esc to skip)</Text>
         </Box>
       </Box>
     )
