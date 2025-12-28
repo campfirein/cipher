@@ -48,7 +48,7 @@ export const ENV_CONFIG: Record<Environment, EnvironmentConfig> = {
   production: {
     apiBaseUrl: 'https://iam.byterover.dev/api/v1',
     authorizationUrl: 'https://iam.byterover.dev/api/v1/oidc/authorize',
-    clientId: 'byterover-cli',
+    clientId: 'byterover-cli-client',
     cogitApiBaseUrl: 'https://v3-cgit.byterover.dev',
     issuerUrl: 'https://iam.byterover.dev/api/v1/oidc',
     llmApiBaseUrl: 'https://llm.byterover.dev',
