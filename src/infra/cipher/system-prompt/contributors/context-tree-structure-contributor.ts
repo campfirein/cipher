@@ -1,0 +1,245 @@
+import fs from 'node:fs'
+import path from 'node:path'
+
+import type {ContributorContext, SystemPromptContributor} from '../../../../core/domain/cipher/system-prompt/types.js'
+
+/**
+ * Options for context tree structure contributor.
+ */
+export interface ContextTreeStructureContributorOptions {
+  /** Maximum depth for traversing the context tree (default: 5) */
+  maxDepth?: number
+  /** Maximum number of entries to include (default: 200) */
+  maxEntries?: number
+  /** Working directory path (default: process.cwd()) */
+  workingDirectory?: string
+}
+
+/**
+ * Context tree structure contributor that injects the .brv/context-tree structure
+ * into the system prompt for query and curate commands.
+ *
+ * This gives the plan agent and sub-agents immediate awareness of available
+ * context files before performing any search operations.
+ *
+ * Based on Anthropic's best practices for context engineering:
+ * - Pre-injecting structural context reduces search iterations
+ * - Agents can make better decisions about where to look
+ * - Reduces token waste from exploratory searches
+ */
+export class ContextTreeStructureContributor implements SystemPromptContributor {
+  public readonly id: string
+  public readonly priority: number
+  private readonly maxDepth: number
+  private readonly maxEntries: number
+  private readonly workingDirectory: string
+
+  /**
+   * Creates a new context tree structure contributor.
+   *
+   * @param id - Unique identifier for this contributor
+   * @param priority - Execution priority (lower = first)
+   * @param options - Configuration options
+   */
+  public constructor(id: string, priority: number, options: ContextTreeStructureContributorOptions = {}) {
+    this.id = id
+    this.priority = priority
+    this.maxDepth = options.maxDepth ?? 5
+    this.maxEntries = options.maxEntries ?? 200
+    this.workingDirectory = options.workingDirectory ?? process.cwd()
+  }
+
+  /**
+   * Generates the context tree structure content.
+   *
+   * Only generates content for query and curate commands where
+   * context tree awareness is important for the agent's operation.
+   *
+   * @param context - Contributor context with command type
+   * @returns Formatted context tree structure, or empty string if not applicable
+   */
+  public async getContent(context: ContributorContext): Promise<string> {
+    // Only inject for query and curate commands
+    if (context.commandType !== 'query' && context.commandType !== 'curate') {
+      return ''
+    }
+
+    const contextTreePath = path.join(this.workingDirectory, '.brv', 'context-tree')
+
+    // Check if context tree exists
+    if (!fs.existsSync(contextTreePath)) {
+      return this.buildNoContextTreeMessage()
+    }
+
+    return this.buildContextTreeStructure(contextTreePath)
+  }
+
+  /**
+   * Builds the context tree structure as a formatted string.
+   *
+   * @param contextTreePath - Path to the context tree directory
+   * @returns Formatted context tree structure
+   */
+  private buildContextTreeStructure(contextTreePath: string): string {
+    const entriesCount = {value: 0}
+    const truncatedCount = {value: 0}
+    const lines: string[] = []
+
+    // Build the tree
+    this.traverseContextTree({
+      currentDepth: 0,
+      dir: contextTreePath,
+      entriesCount,
+      lines,
+      maxDepth: this.maxDepth,
+      maxEntries: this.maxEntries,
+      relativePath: '',
+      truncatedCount,
+    })
+
+    if (lines.length === 0) {
+      return this.buildEmptyContextTreeMessage()
+    }
+
+    // Build the final output
+    const parts: string[] = [
+      '<context-tree-structure>',
+      '## Current Context Tree Structure',
+      '',
+      'The following is the current hierarchy of curated knowledge in `.brv/context-tree/`:',
+      '',
+      '```',
+      '.brv/context-tree/',
+      ...lines,
+      '```',
+    ]
+
+    if (truncatedCount.value > 0) {
+      parts.push('', `[${truncatedCount.value} additional entries not shown]`)
+    }
+
+    parts.push(
+      '',
+      '## Structure Guide',
+      '- Each top-level folder is a **domain** (e.g., `code_style/`, `design/`, `structure/`)',
+      '- Inside domains are **topics** as `.md` files or subfolders with `context.md`',
+      '- `context.md` files contain the curated knowledge content',
+      '',
+      '## Usage',
+      '- **Query commands**: Search ONLY within this context tree structure',
+      '- **Curate commands**: Check existing content here before creating new topics',
+      '</context-tree-structure>',
+    )
+
+    return parts.join('\n')
+  }
+
+  /**
+   * Builds a message when the context tree is empty.
+   */
+  private buildEmptyContextTreeMessage(): string {
+    return [
+      '<context-tree-structure>',
+      '## Context Tree Status: Empty',
+      '',
+      'The context tree at `.brv/context-tree/` exists but contains no curated content yet.',
+      '',
+      '**For curate commands**: You can create new knowledge topics in any domain.',
+      '**For query commands**: No context is available to search.',
+      '</context-tree-structure>',
+    ].join('\n')
+  }
+
+  /**
+   * Builds a message when no context tree exists.
+   */
+  private buildNoContextTreeMessage(): string {
+    return [
+      '<context-tree-structure>',
+      '## Context Tree Status: Not Initialized',
+      '',
+      'The `.brv/context-tree/` directory does not exist.',
+      'Run `/init` to initialize the ByteRover project and create the context tree.',
+      '</context-tree-structure>',
+    ].join('\n')
+  }
+
+  /**
+   * Recursively traverses the context tree and builds the structure lines.
+   */
+  private traverseContextTree(options: TraverseOptions): void {
+    const {currentDepth, dir, entriesCount, lines, maxDepth, maxEntries, relativePath, truncatedCount} = options
+
+    if (currentDepth >= maxDepth) {
+      return
+    }
+
+    let entries: fs.Dirent[]
+    try {
+      entries = fs.readdirSync(dir, {withFileTypes: true})
+    } catch {
+      return
+    }
+
+    // Filter and sort: directories first, then alphabetically
+    const filteredEntries = entries
+      .filter((entry) => !entry.name.startsWith('.'))
+      .sort((a, b) => {
+        if (a.isDirectory() && !b.isDirectory()) return -1
+        if (!a.isDirectory() && b.isDirectory()) return 1
+        return a.name.localeCompare(b.name)
+      })
+
+    const indent = '  '.repeat(currentDepth + 1)
+
+    for (const entry of filteredEntries) {
+      if (entriesCount.value >= maxEntries) {
+        truncatedCount.value += filteredEntries.length - filteredEntries.indexOf(entry)
+        break
+      }
+
+      entriesCount.value++
+      const entryRelativePath = relativePath ? `${relativePath}/${entry.name}` : entry.name
+
+      if (entry.isDirectory()) {
+        lines.push(`${indent}${entry.name}/`)
+        this.traverseContextTree({
+          currentDepth: currentDepth + 1,
+          dir: path.join(dir, entry.name),
+          entriesCount,
+          lines,
+          maxDepth,
+          maxEntries,
+          relativePath: entryRelativePath,
+          truncatedCount,
+        })
+      } else {
+        // Add annotation for context.md files
+        const annotation = entry.name === 'context.md' ? ' (knowledge content)' : ''
+        lines.push(`${indent}${entry.name}${annotation}`)
+      }
+    }
+  }
+}
+
+/**
+ * Options for directory traversal.
+ */
+interface TraverseOptions {
+  /** Current traversal depth */
+  currentDepth: number
+  /** Current directory path */
+  dir: string
+  /** Counter for entries added (mutable object) */
+  entriesCount: {value: number}
+  /** Array to append lines to */
+  lines: string[]
+  /** Maximum depth to traverse */
+  maxDepth: number
+  /** Maximum entries to include */
+  maxEntries: number
+  /** Relative path from context-tree root */
+  relativePath: string
+  /** Counter for truncated entries (mutable object) */
+  truncatedCount: {value: number}
+}

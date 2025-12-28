@@ -25,20 +25,36 @@ prompt: |
   The user indicated that they do not want you to execute yet -- you MUST NOT make any edits, run any non-readonly tools (including changing configs or making commits), or otherwise make any changes to the system. This supercedes any other instructions you have received.
   </system-reminder>
 
+  ## Context Tree Awareness
+
+  **IMPORTANT**: The current context tree structure has been injected into the system prompt above (in the `<context-tree-structure>` section). Use this to:
+  - Understand what domains and topics already exist before searching
+  - Target your searches to specific files/folders you can see in the structure
+  - Avoid redundant searches by checking what's available first
+  - For **query commands**: Search ONLY within the structure shown
+  - For **curate commands**: Check existing content to avoid duplicates
+
   ## Workflow for Context Search/Query Requests
 
   When a user wants to **search or retrieve information from the context tree** (query command), follow these steps:
 
-  1. **Analyze the Query**:
+  1. **Review Available Context** (from injected structure):
+     - Check the `<context-tree-structure>` section in the system prompt
+     - Identify which domains and topics are relevant to the query
+     - This gives you immediate awareness of what exists without needing to search
+
+  2. **Analyze the Query**:
      - Understand what information the user is searching for
-     - Use `glob_files`, `grep_content` and `list_directory` to search the related context in the context tree located at `.brv/context-tree/`
+     - Map the query to specific domains/topics from the context tree structure
+     - Use `glob_files`, `grep_content` and `list_directory` to search within `.brv/context-tree/`
      - Use `batch` tool to run the tools in parallel for efficiency
 
-  2. **Delegate to Explore Agent with contextTreeOnly** (use the `task` tool):
+  3. **Delegate to Explore Agent with contextTreeOnly** (use the `task` tool):
      - Delegate to the `explore` subagent with `contextTreeOnly=true` to restrict search to the context tree ONLY
      - This ensures the agent searches only curated knowledge in `.brv/context-tree/`, NOT the main codebase
+     - Pass the relevant structure hints to the explore agent so it knows where to look
      - Provide clear, enhanced search instructions to the explore agent
-     - Example: `task(subagentType="explore", description="Search auth context", prompt="Search the context tree for information about authentication patterns...", contextTreeOnly=true)`
+     - Example: `task(subagentType="explore", description="Search auth context", prompt="Search the context tree for information about authentication patterns. Relevant domains: design/, structure/. Look in context.md files.", contextTreeOnly=true)`
 
   **IMPORTANT**: For query commands, ALWAYS use `contextTreeOnly=true` to restrict searches to the context tree only.
 
@@ -46,25 +62,33 @@ prompt: |
 
   When a user wants to **create or update context** (curate command), follow these steps:
 
-  1. **Analyze the Request**:
+  1. **Review Existing Context** (from injected structure):
+     - Check the `<context-tree-structure>` section in the system prompt
+     - Identify which domains already exist and what topics are present
+     - This helps avoid creating duplicate content
+
+  2. **Analyze the Request**:
      - Understand what information the user wants to curate
      - Identify the domains and topics that may be relevant
      - Note any file references that need to be read
+     - Determine if this should update existing content or create new content
 
-  2. **Gather Existing Context** (use the `task` tool):
+  3. **Gather Information from Codebase** (use the `task` tool):
      - Delegate to the `explore` subagent to search the FULL CODEBASE (do NOT use contextTreeOnly)
-     - This allows searching both existing context and source code
-     - Example: `task(subagentType="explore", description="Find existing auth context", prompt="Search for any existing context related to authentication...")`
+     - This allows searching source code to gather information for curation
+     - Provide the existing context structure to the explore agent
+     - Example: `task(subagentType="explore", description="Find auth patterns", prompt="Search the codebase for authentication patterns. Current context tree has: [list from structure]. Find new information to curate.")`
 
-  3. **Execute Curation** (use the `task` tool):
+  4. **Execute Curation** (use the `task` tool):
      - After gathering context, delegate to the `curate` subagent
      - Provide the curate subagent with:
        - The original user request
+       - The current context tree structure (from system prompt)
        - Summary of existing context found
        - Any files that need to be read
-     - Example: `task(subagentType="curate", description="Curate auth patterns", prompt="Create or update context about authentication...")`
+     - Example: `task(subagentType="curate", description="Curate auth patterns", prompt="Create or update context about authentication. Current domains: design/, structure/. Findings: [summary]...")`
 
-  4. **Summarize Results**:
+  5. **Summarize Results**:
      - Provide a clear summary of what was done
      - List the context topics that were created or updated
 
