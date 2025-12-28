@@ -61,6 +61,7 @@ describe('ChatSession', () => {
 
   describe('constructor', () => {
     it('should setup event forwarding for all SESSION_EVENT_NAMES', () => {
+      // These are the events that ChatSession actually forwards (defined in chat-session.ts)
       const eventNames = [
         'llmservice:thinking',
         'llmservice:chunk',
@@ -69,6 +70,8 @@ describe('ChatSession', () => {
         'llmservice:toolResult',
         'llmservice:error',
         'llmservice:unsupportedInput',
+        'message:queued',
+        'message:dequeued',
       ]
 
       const agentEmitStub = sandbox.stub(agentEventBus, 'emit')
@@ -220,16 +223,13 @@ describe('ChatSession', () => {
       expect(result).to.equal('test response')
       expect((mockLLMService.completeTask as SinonStub).calledOnce).to.be.true
       expect((mockLLMService.completeTask as SinonStub).firstCall.args[0]).to.equal('test input')
-      expect((mockLLMService.completeTask as SinonStub).firstCall.args[1]).to.equal(sessionId)
-      expect((mockLLMService.completeTask as SinonStub).firstCall.args[2]).to.deep.include({
-        mode: undefined,
-      })
-      expect((mockLLMService.completeTask as SinonStub).firstCall.args[2].signal).to.be.instanceOf(AbortSignal)
+      // Second arg is options object with signal
+      expect((mockLLMService.completeTask as SinonStub).firstCall.args[1].signal).to.be.instanceOf(AbortSignal)
     })
 
     it('should pass signal to completeTask', async () => {
       const signalSpy = sandbox.spy()
-      ;(mockLLMService.completeTask as SinonStub).callsFake((_input, _sessionId, options) => {
+      ;(mockLLMService.completeTask as SinonStub).callsFake((_input, options) => {
         signalSpy(options?.signal)
         return Promise.resolve('response')
       })
@@ -240,16 +240,16 @@ describe('ChatSession', () => {
       expect(signalSpy.firstCall.args[0]).to.be.instanceOf(AbortSignal)
     })
 
-    it('should support mode query', async () => {
-      await session.run('input', {mode: 'query'})
+    it('should support executionContext with commandType query', async () => {
+      await session.run('input', {executionContext: {commandType: 'query'}})
 
       expect((mockLLMService.completeTask as SinonStub).calledOnce).to.be.true
       expect((mockLLMService.completeTask as SinonStub).firstCall.args[0]).to.equal('input')
-      expect((mockLLMService.completeTask as SinonStub).firstCall.args[1]).to.equal(sessionId)
-      expect((mockLLMService.completeTask as SinonStub).firstCall.args[2]).to.deep.include({
-        mode: 'query',
+      // Second arg is options object
+      expect((mockLLMService.completeTask as SinonStub).firstCall.args[1]).to.deep.include({
+        executionContext: {commandType: 'query'},
       })
-      expect((mockLLMService.completeTask as SinonStub).firstCall.args[2].signal).to.be.instanceOf(AbortSignal)
+      expect((mockLLMService.completeTask as SinonStub).firstCall.args[1].signal).to.be.instanceOf(AbortSignal)
     })
 
     it('should throw SessionCancelledError when cancelled', async () => {
@@ -299,6 +299,41 @@ describe('ChatSession', () => {
 
       expect((mockLLMService.completeTask as SinonStub).calledTwice).to.be.true
     })
+
+    it('should handle error without accessing undefined controller (ENG-766)', async () => {
+      // This tests the fix for ENG-766 where accessing this.currentController.signal
+      // in the catch block could throw if controller was already cleared
+      const error = new Error('LLM service error')
+      ;(mockLLMService.completeTask as SinonStub).rejects(error)
+
+      try {
+        await session.run('input')
+        expect.fail('Should have thrown LLMError')
+      } catch (caughtError) {
+        // Should throw LLMError, not TypeError about undefined signal
+        expect(caughtError).to.be.instanceOf(LLMError)
+        expect((caughtError as Error).message).to.not.include("Cannot read properties of undefined")
+      }
+    })
+
+    it('should use stored controller reference to avoid race conditions (ENG-766)', async () => {
+      // Simulate a case where the controller might be accessed during error handling
+      let signalChecked = false
+      ;(mockLLMService.completeTask as SinonStub).callsFake(async () => {
+        // Simulate an error that triggers catch block
+        throw new Error('Simulated error')
+      })
+
+      try {
+        await session.run('input')
+      } catch (error) {
+        // The error should be wrapped properly without accessing undefined controller
+        expect(error).to.be.instanceOf(LLMError)
+        signalChecked = true
+      }
+
+      expect(signalChecked).to.be.true
+    })
   })
 
   describe('reset()', () => {
@@ -322,10 +357,73 @@ describe('ChatSession', () => {
     })
   })
 
+  describe('streamRun()', () => {
+    it('should handle error without accessing undefined controller (ENG-766)', async () => {
+      // This tests the fix for ENG-766 in streamRun method
+      const error = new Error('LLM service error')
+      ;(mockLLMService.completeTask as SinonStub).rejects(error)
+
+      // streamRun should not throw TypeError about undefined signal
+      await session.streamRun('input')
+
+      // The error should be captured and finishReason set to 'error'
+      // We can verify this by checking the run:complete event
+    })
+
+    it('should use stored controller reference to avoid race conditions (ENG-766)', async () => {
+      let completeTaskCalled = false
+      ;(mockLLMService.completeTask as SinonStub).callsFake(async () => {
+        completeTaskCalled = true
+        throw new Error('Simulated error')
+      })
+
+      // Should not throw "Cannot read properties of undefined (reading 'signal')"
+      await session.streamRun('input')
+
+      expect(completeTaskCalled).to.be.true
+    })
+
+    it('should emit run:complete with error finishReason on LLM error', async () => {
+      const error = new Error('LLM service error')
+      ;(mockLLMService.completeTask as SinonStub).rejects(error)
+
+      const runCompleteEvents: unknown[] = []
+      sessionEventBus.on('run:complete', (payload) => {
+        runCompleteEvents.push(payload)
+      })
+
+      await session.streamRun('input')
+
+      expect(runCompleteEvents).to.have.length(1)
+      expect(runCompleteEvents[0]).to.have.property('finishReason', 'error')
+      expect(runCompleteEvents[0]).to.have.property('error')
+    })
+
+    it('should emit run:complete with cancelled finishReason when aborted', async () => {
+      const controller = new AbortController()
+      ;(mockLLMService.completeTask as SinonStub).callsFake(async () => {
+        controller.abort()
+        throw new Error('Aborted')
+      })
+
+      const runCompleteEvents: unknown[] = []
+      sessionEventBus.on('run:complete', (payload) => {
+        runCompleteEvents.push(payload)
+      })
+
+      const runPromise = session.streamRun('input')
+      session.cancel()
+      await runPromise
+
+      expect(runCompleteEvents).to.have.length(1)
+      expect(runCompleteEvents[0]).to.have.property('finishReason', 'cancelled')
+    })
+  })
+
   describe('cancel()', () => {
     it('should abort currentController when it exists', async () => {
       const abortSpy = sandbox.spy()
-      ;(mockLLMService.completeTask as SinonStub).callsFake(async (_input, _sessionId, options) => {
+      ;(mockLLMService.completeTask as SinonStub).callsFake(async (_input, options) => {
         const signal = options?.signal as AbortSignal
         signal.addEventListener('abort', abortSpy)
         await new Promise((resolve) => {
@@ -355,8 +453,8 @@ describe('ChatSession', () => {
 
       session.dispose()
 
-      // Should call off for each event name
-      expect(offStub.callCount).to.equal(7) // 7 SESSION_EVENT_NAMES
+      // Should call off for each event name (14 events in ChatSession's SESSION_EVENT_NAMES)
+      expect(offStub.callCount).to.equal(14)
     })
 
     it('should clear forwarders map', () => {
@@ -378,6 +476,169 @@ describe('ChatSession', () => {
       const service = session.getLLMService()
 
       expect(service).to.equal(mockLLMService)
+    })
+  })
+
+  describe('taskId propagation (ENG-713)', () => {
+    it('should include taskId in forwarded events when provided to run()', async () => {
+      const taskId = 'test-task-123'
+      const agentEmitStub = sandbox.stub(agentEventBus, 'emit')
+
+      // Setup completeTask to trigger some events
+      ;(mockLLMService.completeTask as SinonStub).callsFake(async () => {
+        // Emit a thinking event during execution
+        sessionEventBus.emit('llmservice:thinking')
+        return 'response'
+      })
+
+      await session.run('test input', {taskId})
+
+      // Find the thinking event
+      const thinkingCall = agentEmitStub.getCalls().find((call) => call.args[0] === 'llmservice:thinking')
+
+      expect(thinkingCall).to.exist
+      expect(thinkingCall!.args[1]).to.deep.include({
+        sessionId,
+        taskId,
+      })
+    })
+
+    it('should include taskId in forwarded events when provided to streamRun()', async () => {
+      const taskId = 'stream-task-456'
+      const agentEmitStub = sandbox.stub(agentEventBus, 'emit')
+
+      // Setup completeTask to trigger some events
+      ;(mockLLMService.completeTask as SinonStub).callsFake(async () => {
+        // Emit a toolCall event during execution
+        sessionEventBus.emit('llmservice:toolCall', {
+          args: {path: '/test'},
+          callId: 'call-1',
+          toolName: 'read_file',
+        })
+        return 'response'
+      })
+
+      await session.streamRun('test input', {taskId})
+
+      // Find the toolCall event
+      const toolCallEvent = agentEmitStub.getCalls().find((call) => call.args[0] === 'llmservice:toolCall')
+
+      expect(toolCallEvent).to.exist
+      expect(toolCallEvent!.args[1]).to.deep.include({
+        sessionId,
+        taskId,
+        toolName: 'read_file',
+      })
+    })
+
+    it('should NOT include taskId in forwarded events when not provided', async () => {
+      const agentEmitStub = sandbox.stub(agentEventBus, 'emit')
+
+      // Setup completeTask to trigger some events
+      ;(mockLLMService.completeTask as SinonStub).callsFake(async () => {
+        sessionEventBus.emit('llmservice:thinking')
+        return 'response'
+      })
+
+      await session.run('test input') // No taskId provided
+
+      // Find the thinking event
+      const thinkingCall = agentEmitStub.getCalls().find((call) => call.args[0] === 'llmservice:thinking')
+
+      expect(thinkingCall).to.exist
+      expect(thinkingCall!.args[1]).to.have.property('sessionId', sessionId)
+      expect(thinkingCall!.args[1]).to.not.have.property('taskId')
+    })
+
+    it('should clear taskId after run() completes', async () => {
+      const taskId = 'transient-task-789'
+      const agentEmitStub = sandbox.stub(agentEventBus, 'emit')
+
+      // First run with taskId
+      ;(mockLLMService.completeTask as SinonStub).resolves('response')
+      await session.run('first input', {taskId})
+
+      agentEmitStub.resetHistory()
+
+      // Second run without taskId - events should NOT have the previous taskId
+      ;(mockLLMService.completeTask as SinonStub).callsFake(async () => {
+        sessionEventBus.emit('llmservice:thinking')
+        return 'response'
+      })
+      await session.run('second input') // No taskId
+
+      const thinkingCall = agentEmitStub.getCalls().find((call) => call.args[0] === 'llmservice:thinking')
+
+      expect(thinkingCall).to.exist
+      expect(thinkingCall!.args[1]).to.not.have.property('taskId')
+    })
+
+    it('should clear taskId after streamRun() completes', async () => {
+      const taskId = 'transient-stream-task-789'
+      const agentEmitStub = sandbox.stub(agentEventBus, 'emit')
+
+      // First streamRun with taskId
+      ;(mockLLMService.completeTask as SinonStub).resolves('response')
+      await session.streamRun('first input', {taskId})
+
+      agentEmitStub.resetHistory()
+
+      // Second streamRun without taskId
+      ;(mockLLMService.completeTask as SinonStub).callsFake(async () => {
+        sessionEventBus.emit('llmservice:response', {content: 'response'})
+        return 'response'
+      })
+      await session.streamRun('second input') // No taskId
+
+      const responseCall = agentEmitStub.getCalls().find((call) => call.args[0] === 'llmservice:response')
+
+      expect(responseCall).to.exist
+      expect(responseCall!.args[1]).to.not.have.property('taskId')
+    })
+
+    it('should include taskId in all forwarded session events', async () => {
+      const taskId = 'all-events-task'
+      const agentEmitStub = sandbox.stub(agentEventBus, 'emit')
+
+      // Setup completeTask to trigger multiple events
+      ;(mockLLMService.completeTask as SinonStub).callsFake(async () => {
+        sessionEventBus.emit('llmservice:thinking')
+        sessionEventBus.emit('llmservice:chunk', {content: 'test', type: 'text'})
+        sessionEventBus.emit('llmservice:toolCall', {
+          args: {},
+          callId: 'call-1',
+          toolName: 'test_tool',
+        })
+        sessionEventBus.emit('llmservice:toolResult', {
+          callId: 'call-1',
+          result: 'success',
+          success: true,
+          toolName: 'test_tool',
+        })
+        sessionEventBus.emit('llmservice:response', {content: 'final response'})
+        return 'response'
+      })
+
+      await session.run('test input', {taskId})
+
+      // Check all relevant events include taskId
+      const eventsToCheck = [
+        'llmservice:thinking',
+        'llmservice:chunk',
+        'llmservice:toolCall',
+        'llmservice:toolResult',
+        'llmservice:response',
+      ]
+
+      for (const eventName of eventsToCheck) {
+        const eventCall = agentEmitStub.getCalls().find((call) => call.args[0] === eventName)
+        expect(eventCall, `Event ${eventName} should be forwarded`).to.exist
+        expect(eventCall!.args[1], `Event ${eventName} should include taskId`).to.have.property('taskId', taskId)
+        expect(eventCall!.args[1], `Event ${eventName} should include sessionId`).to.have.property(
+          'sessionId',
+          sessionId,
+        )
+      }
     })
   })
 })

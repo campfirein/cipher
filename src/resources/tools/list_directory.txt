@@ -1,0 +1,16 @@
+Lists files and directories in a given path with a tree structure.
+
+- The path parameter must be absolute; omit it to use the current workspace directory
+- Automatically ignores common build artifacts: node_modules, dist, .git, __pycache__, etc.
+- You can provide additional ignore patterns via the `ignore` parameter
+- Returns up to 100 files by default (adjustable via `maxResults`)
+- You should generally prefer the glob_files and grep_content tools if you know which directories to search
+- Use this tool to get an overview of a directory structure
+
+Default ignored patterns:
+- node_modules/, dist/, build/, target/, vendor/
+- .git/, .idea/, .vscode/
+- __pycache__/, .venv/, venv/, env/
+- coverage/, .cache/, cache/, logs/, tmp/, temp/
+
+If results are truncated, consider using glob_files with a specific pattern instead.

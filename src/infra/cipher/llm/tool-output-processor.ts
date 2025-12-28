@@ -3,11 +3,18 @@
  *
  * Handles truncation and file saving for large tool outputs.
  * Prevents context overflow by truncating outputs while preserving critical information.
+ *
+ * Enhanced with:
+ * - Attachment extraction from structured/MCP-style outputs
+ * - Title extraction for display
+ * - Support for image and file attachments
  */
 
 import {existsSync, promises as fsPromises, mkdirSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
+
+import type {AttachmentPart} from '../../../core/interfaces/cipher/message-types.js'
 
 /**
  * Configuration for output truncation behavior
@@ -43,6 +50,11 @@ export interface TruncationConfig {
  */
 export interface ProcessedOutput {
   /**
+   * Attachments extracted from tool output (images, files)
+   */
+  attachments?: AttachmentPart[]
+
+  /**
    * Processed content (truncated if necessary)
    */
   content: string
@@ -66,6 +78,35 @@ export interface ProcessedOutput {
      */
     truncated?: boolean
   }
+
+  /**
+   * Human-readable title for display
+   */
+  title?: string
+}
+
+/**
+ * MCP-style content item (text or image)
+ */
+interface McpContentItem {
+  data?: string
+  mimeType?: string
+  text?: string
+  type: 'image' | 'text'
+}
+
+/**
+ * Structured tool output with potential attachments
+ */
+interface StructuredToolOutput {
+  attachments?: Array<{
+    data: string
+    filename?: string
+    mimeType: string
+    type: 'file' | 'image'
+  }>
+  content?: McpContentItem[] | string
+  title?: string
 }
 
 /**
@@ -95,6 +136,8 @@ export class ToolOutputProcessor {
       ...config,
     }
   }
+
+  // ==================== PUBLIC METHODS ====================
 
   /**
    * Process tool output with truncation and file saving
@@ -137,6 +180,165 @@ export class ToolOutputProcessor {
   }
 
   /**
+   * Process structured tool output that may contain attachments.
+   *
+   * Handles:
+   * - MCP-style responses with content array (text + image items)
+   * - Structured outputs with explicit attachments array
+   * - Title extraction for display
+   *
+   * @param toolName - Name of the tool that produced the output
+   * @param output - Raw tool output (structured or plain)
+   * @returns Processed output with attachments and title
+   */
+  async processStructuredOutput(toolName: string, output: unknown): Promise<ProcessedOutput> {
+    // Try to detect structured output
+    if (this.isStructuredOutput(output)) {
+      const structured = output as StructuredToolOutput
+      const attachments = this.extractAttachments(structured)
+      const textContent = this.extractTextContent(structured)
+
+      // Process the text content with truncation
+      const processed = await this.processOutput(toolName, textContent)
+
+      return {
+        ...processed,
+        attachments: attachments.length > 0 ? attachments : undefined,
+        title: structured.title,
+      }
+    }
+
+    // Try to detect MCP-style content array
+    if (this.isMcpContentArray(output)) {
+      const contentArray = output as McpContentItem[]
+      const attachments = this.extractMcpAttachments(contentArray)
+      const textContent = this.extractMcpTextContent(contentArray)
+
+      // Process the text content with truncation
+      const processed = await this.processOutput(toolName, textContent)
+
+      return {
+        ...processed,
+        attachments: attachments.length > 0 ? attachments : undefined,
+      }
+    }
+
+    // Fall back to regular processing
+    return this.processOutput(toolName, output)
+  }
+
+  // ==================== PRIVATE METHODS (alphabetical order) ====================
+
+  /**
+   * Extract attachments from structured output.
+   */
+  private extractAttachments(structured: StructuredToolOutput): AttachmentPart[] {
+    const attachments: AttachmentPart[] = []
+
+    // Extract from explicit attachments array
+    if (structured.attachments) {
+      for (const att of structured.attachments) {
+        attachments.push({
+          data: att.data,
+          filename: att.filename,
+          mime: att.mimeType,
+          type: att.type,
+        })
+      }
+    }
+
+    // Extract images from MCP-style content array
+    if (Array.isArray(structured.content)) {
+      for (const item of structured.content) {
+        if (item.type === 'image' && item.data && item.mimeType) {
+          attachments.push({
+            data: `data:${item.mimeType};base64,${item.data}`,
+            mime: item.mimeType,
+            type: 'image',
+          })
+        }
+      }
+    }
+
+    return attachments
+  }
+
+  /**
+   * Extract attachments from MCP-style content array.
+   */
+  private extractMcpAttachments(content: McpContentItem[]): AttachmentPart[] {
+    const attachments: AttachmentPart[] = []
+
+    for (const item of content) {
+      if (item.type === 'image' && item.data && item.mimeType) {
+        attachments.push({
+          data: `data:${item.mimeType};base64,${item.data}`,
+          mime: item.mimeType,
+          type: 'image',
+        })
+      }
+    }
+
+    return attachments
+  }
+
+  /**
+   * Extract text content from MCP-style content array.
+   */
+  private extractMcpTextContent(content: McpContentItem[]): string {
+    return content
+      .filter((item) => item.type === 'text' && item.text)
+      .map((item) => item.text)
+      .join('\n')
+  }
+
+  /**
+   * Extract text content from structured output.
+   */
+  private extractTextContent(structured: StructuredToolOutput): string {
+    if (typeof structured.content === 'string') {
+      return structured.content
+    }
+
+    if (Array.isArray(structured.content)) {
+      return structured.content
+        .filter((item) => item.type === 'text' && item.text)
+        .map((item) => item.text)
+        .join('\n')
+    }
+
+    return ''
+  }
+
+  /**
+   * Check if output is an MCP-style content array.
+   */
+  private isMcpContentArray(output: unknown): output is McpContentItem[] {
+    if (!Array.isArray(output)) {
+      return false
+    }
+
+    // Check if all items have a type field
+    return output.every(
+      (item) => typeof item === 'object' && item !== null && 'type' in item && (item.type === 'text' || item.type === 'image'),
+    )
+  }
+
+  /**
+   * Check if output is a structured output with potential attachments.
+   */
+  private isStructuredOutput(output: unknown): output is StructuredToolOutput {
+    if (typeof output !== 'object' || output === null) {
+      return false
+    }
+
+    const obj = output as Record<string, unknown>
+
+    // Must have at least one of: content, attachments, or title
+    return 'content' in obj || 'attachments' in obj || 'title' in obj
+  }
+
+  /**
    * Save content to a temporary file
    *
    * Creates a unique temp file for storing full tool output.
@@ -150,7 +352,7 @@ export class ToolOutputProcessor {
     const tempDir = join(tmpdir(), 'byterover-tool-outputs')
 
     if (!existsSync(tempDir)) {
-      mkdirSync(tempDir, { recursive: true })
+      mkdirSync(tempDir, {recursive: true})
     }
 
     // Generate unique filename
@@ -194,7 +396,7 @@ export class ToolOutputProcessor {
 
           return val
         },
-        2
+        2,
       )
     } catch {
       // Fallback to String() if JSON.stringify fails

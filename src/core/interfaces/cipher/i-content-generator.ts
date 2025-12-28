@@ -36,16 +36,14 @@ export interface GenerateContentRequest {
   config: GenerationConfig
   /** Conversation history */
   contents: InternalMessage[]
-  /** Optional execution context (for autonomous mode, etc.) */
+  /** Optional execution context */
   executionContext?: ExecutionContext
-  /** Optional mode for system prompt ('autonomous' enables autonomous mode) */
-  mode?: 'autonomous' | 'default' | 'query'
   /** Model identifier */
   model: string
-  /** Session identifier */
-  sessionId: string
   /** Optional system prompt */
   systemPrompt?: string
+  /** Tracking task ID for backend billing metrics (random UUID per request) */
+  taskId: string
   /** Available tools for function calling */
   tools?: ToolSet
 }

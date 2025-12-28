@@ -5,7 +5,7 @@
  * Uses item-based slicing with dynamic height calculation.
  */
 
-import {Box, Text, useInput} from 'ink'
+import {Box, Spacer, Text, useInput} from 'ink'
 import React, {useCallback, useEffect, useMemo, useState} from 'react'
 
 export interface ScrollableListProps<T> {
@@ -54,11 +54,7 @@ export function ScrollableList<T>({
     }
 
     // Calculate heights of all items
-    const itemHeights: number[] = []
-    for (let i = 0; i < totalItems; i++) {
-      const h = estimateItemHeight(items[i], i)
-      itemHeights.push(h)
-    }
+    const itemHeights = items.map((item, index) => estimateItemHeight(item, index))
 
     // Reserve space for indicators (1 line each)
     const indicatorSpace = showIndicator ? 2 : 0
@@ -90,10 +86,19 @@ export function ScrollableList<T>({
   const maxOffset = useMemo(() => {
     if (totalItems === 0) return 0
 
-    // Find the minimum start index that shows the last item
-    let maxStart = totalItems - 1
     const indicatorSpace = showIndicator ? 2 : 0
     const contentHeight = Math.max(1, availableHeight - indicatorSpace)
+
+    // Calculate total height of all items
+    const totalHeight = items.reduce((sum, item, index) => sum + estimateItemHeight(item, index), 0)
+
+    // If all items fit, maxOffset should be 0
+    if (totalHeight <= contentHeight) {
+      return 0
+    }
+
+    // Find the minimum start index that shows the last item
+    let maxStart = totalItems - 1
     let accumulatedHeight = 0
 
     for (let i = totalItems - 1; i >= 0; i--) {
@@ -170,7 +175,7 @@ export function ScrollableList<T>({
   const itemsBelow = totalItems - visibleEndIndex
 
   return (
-    <Box flexDirection="column" width="100%">
+    <Box flexDirection="column" height={availableHeight} justifyContent="space-between" overflowY="hidden" width="100%">
       {/* Scroll up indicator */}
       {showIndicator && canScrollUp && (
         <Box justifyContent="center">
@@ -183,6 +188,8 @@ export function ScrollableList<T>({
         const actualIndex = visibleStartIndex + idx
         return <React.Fragment key={keyExtractor(item, actualIndex)}>{renderItem(item, actualIndex)}</React.Fragment>
       })}
+      
+      <Spacer />
 
       {/* Scroll down indicator */}
       {showIndicator && canScrollDown && (

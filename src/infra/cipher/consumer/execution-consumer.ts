@@ -1,3 +1,5 @@
+// TODO(v0.5.0): Remove this file. ExecutionConsumer is replaced by TaskProcessor.
+
 import {randomUUID} from 'node:crypto'
 
 import type {BrvConfig} from '../../../core/domain/entities/brv-config.js'
@@ -5,7 +7,7 @@ import type {Execution} from '../storage/agent-storage.js'
 
 import {getCurrentConfig} from '../../../config/environment.js'
 import {PROJECT} from '../../../constants.js'
-import {CipherAgent} from '../cipher-agent.js'
+import {CipherAgent} from '../agent/index.js'
 import {AgentStorage, closeAgentStorage, getAgentStorage, getAgentStorageSync} from '../storage/agent-storage.js'
 
 // Heartbeat interval for consumer liveness detection (10 seconds)
@@ -224,17 +226,23 @@ export class ExecutionConsumer {
   }
 
   /**
-   * Execute a curate job
+   * Execute a curate job using the Plan Agent for orchestration.
+   *
+   * The Plan Agent orchestrates the curation workflow by:
+   * 1. Analyzing the user's request
+   * 2. Delegating to Query subagent to find existing context
+   * 3. Delegating to Curate subagent to create/update topics
    */
   private async executeCurate(execution: Execution): Promise<void> {
     const storage = getAgentStorageSync()
 
-    // Parse input
+    // Parse input - support both JSON format (legacy/v2) and plain text
     let input: CurateInput
     try {
       input = JSON.parse(execution.input) as CurateInput
     } catch {
-      throw new Error('Invalid curate input: failed to parse JSON')
+      // Plain text format - wrap in CurateInput
+      input = {content: execution.input}
     }
 
     if (!input.content) {
@@ -246,50 +254,82 @@ export class ExecutionConsumer {
       throw new Error('No auth token available. Consumer needs authentication.')
     }
 
-    // Create LLM config
+    // Create LLM config with Plan Agent settings
+    // Plan Agent has read-only permissions and orchestrates via TaskTool
     const model = input.flags?.model ?? (input.flags?.apiKey ? 'google/gemini-2.5-pro' : 'gemini-2.5-pro')
     const envConfig = getCurrentConfig()
 
     const llmConfig = {
       accessToken: this.authToken.accessToken,
       apiBaseUrl: envConfig.llmApiBaseUrl,
-      fileSystemConfig: {workingDirectory: process.cwd()},
-      maxIterations: 10,
-      maxTokens: 8192,
+      fileSystem: {workingDirectory: process.cwd()},
+      llm: {
+        // Plan Agent uses more iterations to coordinate subagents
+        maxIterations: 15,
+        maxTokens: 8192,
+        temperature: 0.7,
+        verbose: input.flags?.verbose ?? false,
+      },
       model,
       openRouterApiKey: input.flags?.apiKey,
       projectId: PROJECT,
       sessionKey: this.authToken.sessionKey,
       teamId: this.brvConfig?.teamId ?? '',
-      temperature: 0.7,
-      verbose: input.flags?.verbose ?? false,
     }
 
     // Create and start CipherAgent
+    // Agent creates its default session during start() (Single-Session pattern)
+    // Create and start CipherAgent (will use Plan Agent's tools and prompt)
     const agent = new CipherAgent(llmConfig, this.brvConfig)
     await agent.start()
 
     try {
-      const sessionId = randomUUID()
-
       // Setup event listeners for tool call tracking
       this.setupToolCallTracking(agent, execution.id)
 
-      // Execute with autonomous mode
-      const prompt = `Add the following context to the context tree:\n\n${input.content}`
-      const response = await agent.execute(prompt, sessionId, {
+      // Build the prompt for the Plan Agent
+      // The Plan Agent will orchestrate Query and Curate subagents via TaskTool
+      const fileReferenceSection = input.fileReferenceInstructions ? `\n${input.fileReferenceInstructions}` : ''
+
+      const prompt = `You are the Plan Agent orchestrating a context curation workflow.
+
+The user wants to add the following context to the context tree:
+
+---
+${input.content}
+---
+${fileReferenceSection}
+
+## Your Workflow
+
+1. **Query Phase**: Use the \`task\` tool with subagent_type="query" to search for existing related knowledge topics in the context tree. This helps avoid duplicates and understand the current context structure.
+
+2. **Curate Phase**: Based on the query results, use the \`task\` tool with subagent_type="curate" to create or update knowledge topics with the user's context.
+
+## Important Guidelines
+
+- Always query first to understand existing context before curating
+- Provide clear, detailed prompts when delegating to subagents
+- Summarize the results of each phase before proceeding to the next
+
+## Response Format
+
+IMPORTANT: Your final response must be a brief summary (1-2 sentences) of what was done. Do NOT include any file paths, directory paths, or specific location details in your response. The system will automatically display the created/updated file paths separately.`
+
+      const response = await agent.execute(prompt, {
         executionContext: {
+          // Use 'plan' command type to get Plan Agent's tool set
           commandType: 'curate',
           fileReferenceInstructions: input.fileReferenceInstructions,
         },
-        mode: 'autonomous',
       })
 
       // Mark completed
       storage.updateExecutionStatus(execution.id, 'completed', response)
       console.log(`[Consumer] Execution ${execution.id} completed`)
     } finally {
-      // Agent cleanup (if needed in future)
+      // Stop agent to cleanup resources
+      await agent.stop()
     }
   }
 

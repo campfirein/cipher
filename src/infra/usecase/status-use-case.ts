@@ -113,7 +113,7 @@ export class StatusUseCase implements IStatusUseCase {
 
       this.terminal.log('Context Tree Changes:')
       for (const change of allChanges) {
-        this.terminal.log(`\t${change.color(`${change.status.padEnd(10)} ${formatPath(change.path)}`)}`)
+        this.terminal.log(`   ${change.color(`${change.status.padEnd(10)} ${formatPath(change.path)}`)}`)
       }
 
       // Track status

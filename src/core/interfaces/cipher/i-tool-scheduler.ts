@@ -74,6 +74,10 @@ export interface ToolSchedulerContext {
    * Session ID for the current session.
    */
   sessionId: string
+  /**
+   * Task ID for billing tracking (passed from usecase to subagents).
+   */
+  taskId?: string
 }
 
 /**

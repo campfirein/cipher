@@ -1,0 +1,16 @@
+Terminate a background process started by bash_exec.
+
+Features:
+- Graceful shutdown: Sends SIGTERM first to allow cleanup
+- Force kill: Escalates to SIGKILL after 5 seconds if still running
+- Idempotent: Safe to call on already-terminated processes
+
+Signal handling:
+1. Sends SIGTERM (allows process to cleanup gracefully)
+2. Waits 5 seconds
+3. Sends SIGKILL if process still running (force terminate)
+
+Use cases:
+- Stop long-running commands that are no longer needed
+- Cancel background processes that are taking too long
+- Clean up processes before starting new ones

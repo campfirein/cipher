@@ -33,11 +33,7 @@ type BashOutputInput = z.infer<typeof BashOutputInputSchema>
  */
 export function createBashOutputTool(processService: IProcessService): Tool {
   return {
-    description: `Retrieve output from a background process started by bash_exec.
-
-Returns new output since last read (incremental). Reading output clears the buffer, so output is returned only once. Shows process status (running/completed/failed) and includes exit code and duration when completed.
-
-**IMPORTANT:** Output is truncated if it exceeds buffer limit (default 1MB). Process is automatically cleaned up 1 hour after completion.`,
+    description: `Retrieve output from a background process started by bash_exec.`,
 
     async execute(input: unknown, _context?: ToolExecutionContext) {
       const {processId} = input as BashOutputInput

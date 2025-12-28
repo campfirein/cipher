@@ -58,24 +58,26 @@ type BashExecInput = z.infer<typeof BashExecInputSchema>
  *
  * Executes shell commands with security validation and approval for dangerous commands.
  * Supports both foreground (wait for completion) and background (return immediately) execution.
+ * When a metadata callback is provided, streams output updates in real-time.
  *
  * @param processService - Process service for command execution
  * @returns bash_exec tool instance
  */
 export function createBashExecTool(processService: IProcessService): Tool {
   return {
-    description: `Execute a shell command and return its output.
+    description: `Execute a shell command and return its output.`,
 
-If there is a memory about suggested commands, read that first.
-
-**IMPORTANT:** Do not use this tool to start any process that is not intended to terminate quickly, or requires user interaction.
-
-Examples of inappropriate use:
-- Long-running processes (e.g. servers) that are not intended to terminate quickly
-- Processes that require user interaction`,
-
-    async execute(input: unknown, _context?: ToolExecutionContext) {
+    async execute(input: unknown, context?: ToolExecutionContext) {
       const {command, cwd, description, runInBackground, timeout} = input as BashExecInput
+
+      // Stream initial status via metadata callback if available
+      if (context?.metadata) {
+        context.metadata({
+          description: description ?? `Executing: ${command.slice(0, 50)}${command.length > 50 ? '...' : ''}`,
+          output: '',
+          progress: 0,
+        })
+      }
 
       // Execute command via process service
       const result = await processService.executeCommand(command, {
@@ -87,6 +89,15 @@ Examples of inappropriate use:
 
       // Return based on execution mode
       if ('stdout' in result) {
+        // Stream final output via metadata callback if available
+        if (context?.metadata) {
+          context.metadata({
+            description: description ?? 'Command completed',
+            output: result.stdout + (result.stderr ? `\n[stderr]\n${result.stderr}` : ''),
+            progress: 100,
+          })
+        }
+
         // Foreground execution result
         return {
           duration: result.duration,
@@ -94,6 +105,15 @@ Examples of inappropriate use:
           stderr: result.stderr,
           stdout: result.stdout,
         }
+      }
+
+      // Stream background process info via metadata callback if available
+      if (context?.metadata) {
+        context.metadata({
+          description: `Background process started: ${result.processId}`,
+          output: `Process started with PID ${result.pid}`,
+          progress: 100,
+        })
       }
 
       // Background execution handle

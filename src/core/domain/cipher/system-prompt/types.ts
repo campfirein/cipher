@@ -1,3 +1,6 @@
+import type {MemoryManager} from '../../../../infra/cipher/memory/memory-manager.js'
+import type {EnvironmentContext} from '../../../../infra/cipher/system-prompt/environment-context-builder.js'
+
 /**
  * Conversation metadata for execution context
  */
@@ -28,6 +31,55 @@ export interface SystemPromptContext {
 
   /** Whether running in JSON input mode (headless with conversation history) */
   isJsonInputMode?: boolean
+}
+
+/**
+ * Extended context for contributor execution.
+ * Includes runtime dependencies needed by contributors.
+ */
+export interface ContributorContext {
+  /** Available markers and their descriptions */
+  availableMarkers?: Record<string, string>
+
+  /** List of available tool names */
+  availableTools?: string[]
+
+  /** Type of command being executed */
+  commandType?: 'chat' | 'curate' | 'query'
+
+  /** Metadata about the current conversation */
+  conversationMetadata?: {conversationId?: string; title?: string}
+
+  /** Environment context with working directory, git status, file tree, etc. */
+  environmentContext?: EnvironmentContext
+
+  /** Instructions for file reference handling */
+  fileReferenceInstructions?: string
+
+  /** Memory manager instance for accessing memories */
+  memoryManager?: MemoryManager
+}
+
+/**
+ * Interface for system prompt contributors.
+ *
+ * Contributors generate portions of the system prompt that are
+ * combined by the SystemPromptManager.
+ */
+export interface SystemPromptContributor {
+  /**
+   * Generate the content for this contributor.
+   *
+   * @param context - Runtime context with dependencies
+   * @returns Prompt content string
+   */
+  getContent(context: ContributorContext): Promise<string>
+
+  /** Unique identifier for this contributor */
+  id: string
+
+  /** Priority for ordering (lower = higher priority) */
+  priority: number
 }
 
 /**

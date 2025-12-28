@@ -6,9 +6,10 @@
 // File System Tool Results
 export type ReadFileResult = {
   content: string
-  encoding: string
   lines: number
+  message: string
   size: number
+  totalLines: number
   truncated: boolean
 }
 

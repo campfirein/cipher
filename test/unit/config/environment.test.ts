@@ -50,8 +50,8 @@ describe('Environment Configuration', () => {
       const {getCurrentConfig} = await import(`../../../src/config/environment.js?t=${Date.now()}`)
       const config = getCurrentConfig()
 
-      expect(config.clientId).to.equal('byterover-cli')
-      expect(config.issuerUrl).to.equal('https://beta-iam.byterover.dev/api/v1/oidc')
+      expect(config.clientId).to.equal('byterover-cli-client')
+      expect(config.issuerUrl).to.equal('https://iam.byterover.dev/api/v1/oidc')
       expect(config.scopes).to.include('read')
       expect(config.scopes).to.include('write')
       expect(config.scopes).to.not.include('debug')

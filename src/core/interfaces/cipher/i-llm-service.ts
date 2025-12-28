@@ -22,26 +22,24 @@ export interface ILLMService {
    * - Returning final response
    *
    * @param textInput - User input text
-   * @param sessionId - Session ID for tracking the conversation
    * @param options - Execution options
    * @param options.signal - Optional abort signal for cancellation
    * @param options.imageData - Optional image data
    * @param options.fileData - Optional file data
    * @param options.stream - Whether to stream the response (optional)
-   * @param options.executionContext - Optional execution context (for autonomous mode, etc.)
-   * @param options.mode - Optional mode for system prompt ('autonomous' enables autonomous mode)
+   * @param options.executionContext - Optional execution context
+   * @param options.taskId - Task ID from usecase for billing tracking
    * @returns Final assistant response
    */
   completeTask(
     textInput: string,
-    sessionId: string,
     options?: {
       executionContext?: ExecutionContext
       fileData?: FileData
       imageData?: ImageData
-      mode?: 'autonomous' | 'default' | 'query'
       signal?: AbortSignal
       stream?: boolean
+      taskId?: string
     },
   ): Promise<string>
 

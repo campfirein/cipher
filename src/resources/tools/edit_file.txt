@@ -1,0 +1,1 @@
+Edit a file by replacing text. By default requires unique match (set replaceAll=true for multiple replacements).

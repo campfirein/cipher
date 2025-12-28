@@ -21,13 +21,12 @@ export const ExecutionInput: React.FC<ExecutionInputProps> = ({input}) => {
   } = useTheme()
   const {stdout} = useStdout()
   const contentWidth = (stdout?.columns ?? 80) - 8 // 8 is for padding
-  const {remainingLines, truncatedContent} = truncateContent(input, 1, contentWidth)
+  const {truncatedContent} = truncateContent(input, 1, contentWidth)
 
   return (
     <Box borderColor={colors.border} borderStyle="single" flexDirection="column">
       <Text>
         {truncatedContent}
-        {remainingLines > 1 ? '...' : ''}
       </Text>
     </Box>
   )

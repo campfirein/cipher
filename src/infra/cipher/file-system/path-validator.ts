@@ -26,13 +26,28 @@ export class PathValidator {
    * @param config - File system configuration
    */
   public constructor(config: FileSystemConfig) {
-    this.workingDirectory = path.resolve(config.workingDirectory)
+    // Resolve working directory, trying to resolve symlinks for consistency
+    const resolvedWorkingDir = path.resolve(config.workingDirectory)
+    try {
+      this.workingDirectory = realpathSync.native(resolvedWorkingDir)
+    } catch {
+      this.workingDirectory = resolvedWorkingDir
+    }
+
     this.blockedExtensions = new Set(config.blockedExtensions.map((ext) => ext.toLowerCase()))
 
     // Normalize and resolve all allowed paths to absolute paths
-    this.normalizedAllowedPaths = config.allowedPaths.map((allowedPath) =>
-      path.resolve(this.workingDirectory, allowedPath),
-    )
+    // Also try to resolve symlinks for consistent comparison with realpathSync results
+    this.normalizedAllowedPaths = config.allowedPaths.map((allowedPath) => {
+      const resolved = path.resolve(this.workingDirectory, allowedPath)
+      try {
+        // Try to get the real path (resolving symlinks like /var -> /private/var on macOS)
+        return realpathSync.native(resolved)
+      } catch {
+        // Path might not exist yet, use resolved path as-is
+        return resolved
+      }
+    })
 
     // Normalize blocked paths
     this.normalizedBlockedPaths = config.blockedPaths.map((blockedPath) =>
@@ -187,22 +202,117 @@ export class PathValidator {
    * Normalizes and resolves a file path to an absolute path.
    * Uses realpath to resolve symlinks if the path exists.
    *
+   * Handles path duplication prevention:
+   * - If the working directory ends with a path segment that matches the start
+   *   of the relative file path, the resolution is adjusted to prevent duplication.
+   * - Example: workingDir = "/project/.brv/context-tree", filePath = ".brv/context-tree/domain/file.md"
+   *   Without fix: "/project/.brv/context-tree/.brv/context-tree/domain/file.md" (WRONG)
+   *   With fix: "/project/.brv/context-tree/domain/file.md" (CORRECT)
+   *
    * @param filePath - Path to normalize
    * @returns Normalized absolute path
    */
   private normalizeAndResolve(filePath: string): string {
-    // First resolve relative to working directory
-    let normalizedPath = path.resolve(this.workingDirectory, filePath)
+    // If the path is already absolute, just normalize it.
+    // For relative paths, check for potential path duplication.
+    // This can happen when:
+    // 1. workingDirectory ends with a subdirectory like ".brv/context-tree"
+    // 2. filePath starts with the same subdirectory ".brv/context-tree/..."
+    // In this case, we should resolve from the parent to avoid duplication.
+    let normalizedPath = path.isAbsolute(filePath)
+      ? path.normalize(filePath)
+      : this.resolveWithoutDuplication(filePath)
 
     // Try to resolve symlinks if path exists
     try {
       // Use native variant to preserve casing on Windows
       normalizedPath = realpathSync.native(normalizedPath)
     } catch {
-      // Path doesn't exist yet (e.g., for writes) - use resolved path as-is
-      normalizedPath = path.normalize(normalizedPath)
+      // Path doesn't exist yet (e.g., for writes)
+      // Try to resolve the parent directory's real path for consistency
+      normalizedPath = this.resolveParentRealPath(normalizedPath)
     }
 
     return normalizedPath
+  }
+
+  /**
+   * For non-existent files, try to resolve the parent directory's real path
+   * and append the filename. This ensures consistency with existing paths
+   * when symlinks are involved (e.g., /var -> /private/var on macOS).
+   *
+   * @param filePath - Absolute path to a potentially non-existent file
+   * @returns Path with parent directory symlinks resolved
+   */
+  private resolveParentRealPath(filePath: string): string {
+    const dir = path.dirname(filePath)
+    const base = path.basename(filePath)
+
+    try {
+      // Try to resolve the parent directory
+      const realDir = realpathSync.native(dir)
+      return path.join(realDir, base)
+    } catch {
+      // Parent doesn't exist either, try grandparent
+      const grandparentDir = path.dirname(dir)
+      const parentBase = path.basename(dir)
+
+      try {
+        const realGrandparent = realpathSync.native(grandparentDir)
+        return path.join(realGrandparent, parentBase, base)
+      } catch {
+        // Give up and return normalized path
+        return path.normalize(filePath)
+      }
+    }
+  }
+
+  /**
+   * Resolves a relative path against the working directory while preventing
+   * path segment duplication.
+   *
+   * @param filePath - Relative path to resolve
+   * @returns Resolved absolute path
+   */
+  private resolveWithoutDuplication(filePath: string): string {
+    // Normalize the file path to handle different separators
+    const normalizedFilePath = path.normalize(filePath)
+
+    // Split both paths into segments for comparison
+    const workingDirSegments = this.workingDirectory.split(path.sep).filter(Boolean)
+    const filePathSegments = normalizedFilePath.split(path.sep).filter(Boolean)
+
+    // Try to find a matching suffix of workingDirectory that matches
+    // the prefix of filePath to detect potential duplication
+    for (let suffixLen = Math.min(workingDirSegments.length, filePathSegments.length); suffixLen > 0; suffixLen--) {
+      const workingDirSuffix = workingDirSegments.slice(-suffixLen)
+      const filePathPrefix = filePathSegments.slice(0, suffixLen)
+
+      // Check if the suffix of working dir matches the prefix of file path
+      if (this.segmentsMatch(workingDirSuffix, filePathPrefix)) {
+        // Found a match! Remove the duplicate prefix from file path
+        // and resolve from working directory
+        const remainingSegments = filePathSegments.slice(suffixLen)
+        return path.join(this.workingDirectory, ...remainingSegments)
+      }
+    }
+
+    // No duplication detected, resolve normally
+    return path.resolve(this.workingDirectory, filePath)
+  }
+
+  /**
+   * Checks if two arrays of path segments match.
+   *
+   * @param segments1 - First array of path segments
+   * @param segments2 - Second array of path segments
+   * @returns True if all segments match
+   */
+  private segmentsMatch(segments1: string[], segments2: string[]): boolean {
+    if (segments1.length !== segments2.length) {
+      return false
+    }
+
+    return segments1.every((seg, i) => seg === segments2[i])
   }
 }
