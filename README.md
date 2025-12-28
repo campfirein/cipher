@@ -6,14 +6,6 @@ Command-line interface for ByteRover, featuring an interactive REPL with a moder
 [![Downloads/week](https://img.shields.io/npm/dw/byterover-cli.svg)](https://npmjs.org/package/byterover-cli)
 [![Node](https://img.shields.io/badge/node-%3E%3D20.0.0-brightgreen.svg)](https://nodejs.org)
 
-## Important
-
-Starting with version **0.2.0**, the ByteRover CLI command has been renamed from `br` to `brv` to avoid conflicts with [broot](https://github.com/Canop/broot), another popular CLI tool that also uses the `br` command.
-
-This is a **breaking change** that requires action from existing users.
-
-Please check the migration guide [here](https://docs.byterover.dev/beta/migration-br-brv).
-
 ## Table of Contents
 
 * [Installation](#installation)
@@ -284,7 +276,7 @@ If you encounter issues or have questions:
 
 1. Check the command help in the REPL
 2. Run `/status` to review your project state
-3. Visit [ByteRover Docs](https://docs.byterover.dev/beta)
+3. Visit [ByteRover Docs](https://docs.byterover.dev)
 4. Contact ByteRover support
 
 ---
