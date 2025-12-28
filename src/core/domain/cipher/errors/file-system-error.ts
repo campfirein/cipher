@@ -27,9 +27,10 @@ export class FileNotFoundError extends FileSystemError {
   /**
    * Creates a new file not found error
    * @param path - Path to the file that was not found
+   * @param customMessage - Optional custom message (e.g., with suggestions)
    */
-  public constructor(path: string) {
-    super(`File not found: ${path}`, 'FILE_NOT_FOUND', {path})
+  public constructor(path: string, customMessage?: string) {
+    super(customMessage ?? `File not found: ${path}`, 'FILE_NOT_FOUND', {path})
     this.name = 'FileNotFoundError'
   }
 }

@@ -1,8 +1,10 @@
 import type {AgentEventBus, SessionEventBus} from '../../../infra/cipher/events/event-emitter.js'
 import type {FileSystemService} from '../../../infra/cipher/file-system/file-system-service.js'
+import type {CompactionService} from '../../../infra/cipher/llm/context/compaction/compaction-service.js'
 import type {MemoryManager} from '../../../infra/cipher/memory/memory-manager.js'
 import type {ProcessService} from '../../../infra/cipher/process/process-service.js'
-import type {SimplePromptFactory} from '../../../infra/cipher/system-prompt/simple-prompt-factory.js'
+import type {MessageStorageService} from '../../../infra/cipher/storage/message-storage-service.js'
+import type {SystemPromptManager} from '../../../infra/cipher/system-prompt/system-prompt-manager.js'
 import type {ToolManager} from '../../../infra/cipher/tools/tool-manager.js'
 import type {ToolProvider} from '../../../infra/cipher/tools/tool-provider.js'
 import type {IBlobStorage} from './i-blob-storage.js'
@@ -20,7 +22,7 @@ import type {IToolScheduler} from './i-tool-scheduler.js'
  * - ToolManager: Manages tool registration and execution (stateless)
  * - ToolScheduler: Orchestrates tool execution with policy checks
  * - PolicyEngine: Rule-based ALLOW/DENY decisions for tools
- * - SimplePromptFactory: Builds system prompts from simple YAML templates
+ * - SystemPromptManager: Builds system prompts using contributor pattern
  * - FileSystemService: File system operations
  * - ProcessService: Command execution
  * - BlobStorage: Binary data storage
@@ -33,12 +35,22 @@ export interface CipherAgentServices {
   agentEventBus: AgentEventBus
   blobStorage: IBlobStorage
   codingAgentLogWatcher?: ICodingAgentLogWatcher
+  /**
+   * CompactionService for context overflow management.
+   * Only available when granular storage is enabled (useGranularStorage: true).
+   */
+  compactionService?: CompactionService
   fileSystemService: FileSystemService
   historyStorage: IHistoryStorage
   memoryManager: MemoryManager
+  /**
+   * MessageStorageService for direct granular message access.
+   * Only available when granular storage is enabled (useGranularStorage: true).
+   */
+  messageStorageService?: MessageStorageService
   policyEngine: IPolicyEngine
   processService: ProcessService
-  promptFactory: SimplePromptFactory
+  systemPromptManager: SystemPromptManager
   toolManager: ToolManager
   toolProvider: ToolProvider
   toolScheduler: IToolScheduler

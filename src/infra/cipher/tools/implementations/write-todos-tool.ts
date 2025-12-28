@@ -2,6 +2,7 @@ import {z} from 'zod'
 
 import type {Todo, WriteTodosResult} from '../../../../core/domain/cipher/todos/types.js'
 import type {Tool, ToolExecutionContext} from '../../../../core/domain/cipher/tools/types.js'
+import type {ITodoStorage} from '../../../../core/interfaces/cipher/i-todo-storage.js'
 
 import {TODO_STATUSES} from '../../../../core/domain/cipher/todos/types.js'
 import {ToolName} from '../../../../core/domain/cipher/tools/constants.js'
@@ -15,6 +16,7 @@ const TodoSchema = z.object({
     .min(1)
     .describe('Present continuous form shown during execution (e.g., "Running tests")'),
   content: z.string().min(1).describe('Imperative description of the task (e.g., "Run tests")'),
+  id: z.string().min(1).describe('Unique identifier for the todo item'),
   status: z
     .enum(TODO_STATUSES)
     .describe('Task status: pending, in_progress (only ONE at a time), completed, or cancelled'),
@@ -38,38 +40,7 @@ type WriteTodosInput = z.infer<typeof WriteTodosInputSchema>
  * Tool description with detailed usage guidance.
  * This helps the LLM understand when to use the tool and how.
  */
-const TOOL_DESCRIPTION = `Use this tool to create and manage a structured task list for the current session. This helps track progress, organize complex tasks, and demonstrate thoroughness to the user.
-
-## When to Use This Tool
-Use this tool proactively in these scenarios:
-
-1. **Complex multi-step tasks** - When a task requires 3 or more distinct steps
-2. **Non-trivial and complex tasks** - Tasks that require careful planning or multiple operations
-3. **User explicitly requests todo list** - When the user directly asks to use the todo list
-4. **User provides multiple tasks** - When users provide a list of things to be done
-5. **After receiving new instructions** - Immediately capture user requirements as todos
-6. **When you start working on a task** - Mark it as in_progress BEFORE beginning work
-7. **After completing a task** - Mark it as completed and add any follow-up tasks
-
-## When NOT to Use This Tool
-Skip using this tool when:
-1. There is only a single, straightforward task
-2. The task is trivial and tracking provides no organizational benefit
-3. The task can be completed in less than 3 trivial steps
-4. The task is purely conversational or informational
-
-## Task States
-- **pending**: Task not yet started
-- **in_progress**: Currently working on (limit to ONE task at a time)
-- **completed**: Task finished successfully
-- **cancelled**: Task no longer needed
-
-## Important Rules
-- ONLY ONE task can be "in_progress" at any time
-- Mark tasks complete IMMEDIATELY after finishing (don't batch completions)
-- Task descriptions need both forms:
-  - content: Imperative form (e.g., "Run tests")
-  - activeForm: Present continuous form (e.g., "Running tests")`
+const TOOL_DESCRIPTION = `Use this tool to create and manage a structured task list for the current session.`
 
 /**
  * Validates that only one todo is in_progress.
@@ -88,6 +59,7 @@ function validateSingleInProgress(todos: Todo[]): null | string {
 
 /**
  * Formats the todo list for LLM response.
+ * Uses opencode-style status icons: [✓] for completed, [ ] for others.
  *
  * @param todos - Array of todos
  * @returns Formatted string representation
@@ -96,15 +68,13 @@ function formatTodosForLLM(todos: Todo[]): string {
   const lines = ['Todo list updated:']
 
   for (const todo of todos) {
-    const statusIcon = getStatusIcon(todo.status)
-    lines.push(`${statusIcon} [${todo.status}] ${todo.content}`)
+    const checkbox = todo.status === 'completed' ? '[✓]' : '[ ]'
+    const statusLabel = todo.status === 'in_progress' ? ' (in_progress)' : ''
+    lines.push(`${checkbox} ${todo.content}${statusLabel}`)
   }
 
   const stats = getTodoStats(todos)
-  const progressLines = [
-    '',
-    `Progress: ${stats.completed}/${stats.total} completed`,
-  ]
+  const progressLines = ['', `Progress: ${stats.completed}/${stats.total} completed`]
 
   if (stats.inProgress > 0) {
     const currentTask = todos.find((t) => t.status === 'in_progress')
@@ -114,32 +84,6 @@ function formatTodosForLLM(todos: Todo[]): string {
   }
 
   return [...lines, ...progressLines].join('\n')
-}
-
-/**
- * Gets icon for todo status.
- *
- * @param status - Todo status
- * @returns Status icon
- */
-function getStatusIcon(status: Todo['status']): string {
-  switch (status) {
-    case 'cancelled': {
-      return '⊘'
-    }
-
-    case 'completed': {
-      return '✓'
-    }
-
-    case 'in_progress': {
-      return '→'
-    }
-
-    case 'pending': {
-      return '○'
-    }
-  }
 }
 
 /**
@@ -169,13 +113,15 @@ function getTodoStats(todos: Todo[]): {
  *
  * Manages a structured task list for planning-based execution.
  * Validates that only one task is in_progress at any time.
+ * Stores todos in session-based storage.
  *
+ * @param todoStorage - Storage service for persisting todos
  * @returns Configured write todos tool
  */
-export function createWriteTodosTool(): Tool {
+export function createWriteTodosTool(todoStorage: ITodoStorage): Tool {
   return {
     description: TOOL_DESCRIPTION,
-    async execute(input: unknown, _context?: ToolExecutionContext): Promise<string | WriteTodosResult> {
+    async execute(input: unknown, context?: ToolExecutionContext): Promise<string | WriteTodosResult> {
       const {todos} = input as WriteTodosInput
 
       // Validate only one in_progress
@@ -184,13 +130,22 @@ export function createWriteTodosTool(): Tool {
         return validationError
       }
 
+      // Store todos in session storage
+      const sessionId = context?.sessionId ?? 'default'
+      await todoStorage.update(sessionId, todos)
+
       // Format response for LLM
       const llmContent = formatTodosForLLM(todos)
 
-      // Return both LLM content and display content
+      // Calculate incomplete count for smart title
+      const incompleteCount = todos.filter((t) => t.status !== 'completed').length
+
+      // Return both LLM content and display content with metadata
       return {
         llmContent,
+        metadata: {todos},
         returnDisplay: {todos},
+        title: `${incompleteCount} todos`,
       }
     },
     id: ToolName.WRITE_TODOS,

@@ -33,6 +33,7 @@ export interface RetryPolicy {
  * - 2x exponential backoff
  * - 25% jitter
  * - Retries on common transient errors (429, 500, 502, 503, 504)
+ * - Retries on empty/incomplete LLM responses (transient API issues)
  */
 export const DEFAULT_RETRY_POLICY: RetryPolicy = {
   backoffMultiplier: 2,
@@ -50,6 +51,11 @@ export const DEFAULT_RETRY_POLICY: RetryPolicy = {
     'capacity',
     'timeout',
     'temporarily unavailable',
+    // LLM empty/incomplete response errors (transient API issues)
+    'neither content nor tool calls',
+    'no content',
+    'empty response',
+    'no messages',
   ],
   retryableStatusCodes: [429, 500, 502, 503, 504],
 }
@@ -75,6 +81,11 @@ export const AGGRESSIVE_RETRY_POLICY: RetryPolicy = {
     'capacity',
     'timeout',
     'temporarily unavailable',
+    // LLM empty/incomplete response errors (transient API issues)
+    'neither content nor tool calls',
+    'no content',
+    'empty response',
+    'no messages',
   ],
   retryableStatusCodes: [429, 500, 502, 503, 504],
 }

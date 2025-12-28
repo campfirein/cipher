@@ -159,7 +159,6 @@ export function useSlashCommandProcessor(
           name: commandNameForContext,
           raw: input,
         },
-        slashCommands: commands,
       }
 
       setIsProcessing(true)

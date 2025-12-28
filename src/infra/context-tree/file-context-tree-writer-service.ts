@@ -10,6 +10,7 @@ import type {
 } from '../../core/interfaces/i-context-tree-writer-service.js'
 
 import {BRV_DIR, CONTEXT_TREE_DIR} from '../../constants.js'
+import {toUnixPath} from './path-utils.js'
 
 export type ContextTreeWriterServiceConfig = {
   baseDirectory?: string
@@ -79,11 +80,12 @@ export class FileContextTreeWriterService implements IContextTreeWriterService {
   }
 
   /**
-   * Normalizes a file path by removing leading slashes.
-   * Retained for backwards compatibility with legacy API responses
-   * that may still include leading slashes in paths.
+   * Normalizes a file path by converting backslashes to forward slashes
+   * and removing leading slashes.
+   * Ensures cross-platform compatibility and handles legacy API responses
+   * that may include leading slashes or Windows-style backslashes.
    */
   private normalizePath(path: string): string {
-    return path.replace(/^\/+/, '')
+    return toUnixPath(path).replace(/^\/+/, '')
   }
 }

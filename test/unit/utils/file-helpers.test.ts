@@ -4,7 +4,7 @@ import {mkdir, rm, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
-import {clearDirectory, listDirectoryChildren, sanitizeFolderName} from '../../../src/utils/file-helpers.js'
+import {clearDirectory, listDirectoryChildren, sanitizeFolderName, toSnakeCase} from '../../../src/utils/file-helpers.js'
 
 describe('file-helpers', () => {
   describe('clearDirectory()', () => {
@@ -312,6 +312,63 @@ describe('file-helpers', () => {
       const nonExistentDir = join(testDir, 'does-not-exist')
 
       expect(() => listDirectoryChildren(nonExistentDir)).to.throw()
+    })
+  })
+
+  describe('toSnakeCase()', () => {
+    it('should convert spaces to underscores and lowercase', () => {
+      expect(toSnakeCase('Best Practices')).to.equal('best_practices')
+      expect(toSnakeCase('Error Handling')).to.equal('error_handling')
+    })
+
+    it('should convert hyphens to underscores', () => {
+      expect(toSnakeCase('error-handling')).to.equal('error_handling')
+      expect(toSnakeCase('Best-Practices')).to.equal('best_practices')
+    })
+
+    it('should handle mixed case and convert to lowercase', () => {
+      expect(toSnakeCase('QuickSort Optimizations')).to.equal('quicksort_optimizations')
+      expect(toSnakeCase('MyTopic')).to.equal('mytopic')
+      expect(toSnakeCase('CamelCase')).to.equal('camelcase')
+    })
+
+    it('should collapse multiple underscores', () => {
+      expect(toSnakeCase('too   many   spaces')).to.equal('too_many_spaces')
+      expect(toSnakeCase('too---many---hyphens')).to.equal('too_many_hyphens')
+      expect(toSnakeCase('mixed   ---   chars')).to.equal('mixed_chars')
+    })
+
+    it('should remove leading and trailing underscores', () => {
+      expect(toSnakeCase(' leading space')).to.equal('leading_space')
+      expect(toSnakeCase('trailing space ')).to.equal('trailing_space')
+      expect(toSnakeCase('  both sides  ')).to.equal('both_sides')
+    })
+
+    it('should handle empty string', () => {
+      expect(toSnakeCase('')).to.equal('')
+    })
+
+    it('should handle special characters', () => {
+      expect(toSnakeCase('test@topic#name')).to.equal('test_topic_name')
+      expect(toSnakeCase('topic (v1.0)')).to.equal('topic_v1_0')
+      expect(toSnakeCase('file!name?here')).to.equal('file_name_here')
+    })
+
+    it('should handle already snake_case strings', () => {
+      expect(toSnakeCase('already_snake_case')).to.equal('already_snake_case')
+      expect(toSnakeCase('simple_name')).to.equal('simple_name')
+    })
+
+    it('should handle strings with numbers', () => {
+      expect(toSnakeCase('version 2.0')).to.equal('version_2_0')
+      expect(toSnakeCase('test123name')).to.equal('test123name')
+      expect(toSnakeCase('123 start with number')).to.equal('123_start_with_number')
+    })
+
+    it('should handle complex mixed scenarios', () => {
+      expect(toSnakeCase('My Project (v1.0) - Final!')).to.equal('my_project_v1_0_final')
+      expect(toSnakeCase('API Response Handler')).to.equal('api_response_handler')
+      expect(toSnakeCase('user-input_validation')).to.equal('user_input_validation')
     })
   })
 })

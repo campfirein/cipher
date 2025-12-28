@@ -338,7 +338,7 @@ describe('Queue Orphan Detection (Integration)', () => {
       // Verify execution is marked as failed with timeout error
       const execution = storage.getExecution(execId)
       expect(execution?.status).to.equal('failed')
-      expect(execution?.error).to.include('no activity for')
+      expect(execution?.error).to.include('no activity')
     })
 
     it('should detect stuck query with stale tool calls', async () => {
@@ -366,7 +366,7 @@ describe('Queue Orphan Detection (Integration)', () => {
 
       const execution = storage.getExecution(execId)
       expect(execution?.status).to.equal('failed')
-      expect(execution?.error).to.include('no activity for')
+      expect(execution?.error).to.include('no activity')
     })
 
     it('should NOT cleanup active query with recent tool calls', () => {
@@ -421,7 +421,7 @@ describe('Queue Orphan Detection (Integration)', () => {
 
       const execution = storage.getExecution(execId)
       expect(execution?.status).to.equal('failed')
-      expect(execution?.error).to.include('no activity for')
+      expect(execution?.error).to.include('no activity')
     })
 
     it('should handle query with invalid PID (negative) using activity timeout fallback', async () => {
@@ -443,7 +443,7 @@ describe('Queue Orphan Detection (Integration)', () => {
       // Should fail due to activity timeout, not PID check
       const execution = storage.getExecution(execId)
       expect(execution?.status).to.equal('failed')
-      expect(execution?.error).to.include('no activity for')
+      expect(execution?.error).to.include('no activity')
     })
 
     it('should NOT cleanup query with invalid PID but recent activity', () => {

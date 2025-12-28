@@ -1,9 +1,33 @@
 import type {CommandValidation, ProcessConfig} from '../../../core/domain/cipher/process/types.js'
 
+import {normalizePath} from './path-utils.js'
+
 /**
  * Maximum allowed command length (characters).
  */
 const MAX_COMMAND_LENGTH = 10_000
+
+/**
+ * Commands that operate on file paths and need path validation.
+ * These commands take file/directory paths as arguments.
+ */
+const PATH_SENSITIVE_COMMANDS = new Set([
+  'cat',
+  'cd',
+  'chmod',
+  'chown',
+  'cp',
+  'head',
+  'less',
+  'ln',
+  'mkdir',
+  'more',
+  'mv',
+  'rm',
+  'rmdir',
+  'tail',
+  'touch',
+])
 
 /**
  * Dangerous patterns that should always be blocked or require approval.
@@ -160,6 +184,66 @@ export class CommandValidator {
     config: Pick<ProcessConfig, 'allowedCommands' | 'blockedCommands' | 'securityLevel'>,
   ) {
     this.config = config
+  }
+
+  /**
+   * Extract file path arguments from a command.
+   *
+   * Identifies commands that operate on file paths and extracts
+   * the path arguments for validation. Filters out flags (arguments
+   * starting with -) and special arguments like chmod modes.
+   *
+   * @param command - Command string to parse
+   * @returns Array of path arguments (normalized for the current platform)
+   *
+   * @example
+   * extractPathArguments('rm -rf /home/user/file.txt')
+   * // Returns ['/home/user/file.txt']
+   *
+   * @example
+   * extractPathArguments('cp src/file.txt dest/file.txt')
+   * // Returns ['src/file.txt', 'dest/file.txt']
+   *
+   * @example
+   * extractPathArguments('chmod 755 script.sh')
+   * // Returns ['script.sh'] (755 is filtered as chmod mode)
+   */
+  public extractPathArguments(command: string): string[] {
+    const trimmed = command.trim()
+    const parts = trimmed.split(/\s+/)
+    const commandName = parts[0]
+
+    // Only extract paths from path-sensitive commands
+    if (!PATH_SENSITIVE_COMMANDS.has(commandName)) {
+      return []
+    }
+
+    return parts.slice(1).filter((arg) => {
+      // Skip flags (arguments starting with -)
+      if (arg.startsWith('-')) {
+        return false
+      }
+
+      // Skip chmod numeric modes (e.g., 755, 0644) and symbolic modes (e.g., +x, u+rwx)
+      if (commandName === 'chmod') {
+        // Numeric mode: 3-4 octal digits
+        if (/^[0-7]{3,4}$/.test(arg)) {
+          return false
+        }
+
+        // Symbolic mode: starts with +, -, or contains = with permission letters
+        if (/^[ugoa]*[+-=][rwxXstugo]+$/.test(arg)) {
+          return false
+        }
+      }
+
+      // Skip chown user:group specifiers (contains : but not a path separator pattern)
+      if (commandName === 'chown' && /^[^/]+:[^/]*$/.test(arg) && !arg.includes('/')) {
+        return false
+      }
+
+      return true
+    }).map((path) => normalizePath(path))
   }
 
   /**

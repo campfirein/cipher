@@ -1,120 +1,92 @@
+/// <reference types="mocha" />
+
 import {expect} from 'chai'
 import sinon, {restore, stub} from 'sinon'
 
-import type {BrvConfig} from '../../src/core/domain/entities/brv-config.js'
-import type {IProjectConfigStore} from '../../src/core/interfaces/i-project-config-store.js'
 import type {ITerminal} from '../../src/core/interfaces/i-terminal.js'
-import type {ITokenStore} from '../../src/core/interfaces/i-token-store.js'
 import type {ITrackingService} from '../../src/core/interfaces/i-tracking-service.js'
+import type {ITransportClient} from '../../src/core/interfaces/transport/i-transport-client.js'
+import type {TransportClientFactory} from '../../src/infra/transport/transport-client-factory.js'
 
-import {BRV_CONFIG_VERSION} from '../../src/constants.js'
-import {AuthToken} from '../../src/core/domain/entities/auth-token.js'
-import {BrvConfig as BrvConfigImpl} from '../../src/core/domain/entities/brv-config.js'
-import {CipherAgent} from '../../src/infra/cipher/cipher-agent.js'
+import {
+  ConnectionFailedError,
+  InstanceCrashedError,
+  NoInstanceRunningError,
+} from '../../src/core/domain/errors/connection-error.js'
 import {QueryUseCase, type QueryUseCaseOptions} from '../../src/infra/usecase/query-use-case.js'
 import {createMockTerminal} from '../helpers/mock-factories.js'
 
-// ==================== Mock CipherAgent ====================
-
-class MockCipherAgent {
-  public agentEventBus = {
-    on: stub(),
-  }
-  public executeCalled = false
-  public executeResponse = 'Mock query response'
-  public startCalled = false
-
-  async execute(_prompt: string, _sessionId: string, _options: unknown): Promise<string> {
-    this.executeCalled = true
-    return this.executeResponse
-  }
-
-  async start(): Promise<void> {
-    this.startCalled = true
-  }
-}
-
-// ==================== TestableQueryUseCase ====================
-
-interface TestableQueryUseCaseOptions extends QueryUseCaseOptions {
-  mockCipherAgent?: MockCipherAgent
-}
-
-class TestableQueryUseCase extends QueryUseCase {
-  private readonly mockCipherAgent?: MockCipherAgent
-
-  constructor(options: TestableQueryUseCaseOptions) {
-    super(options)
-    this.mockCipherAgent = options.mockCipherAgent
-  }
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  protected createCipherAgent(_llmConfig: any, _brvConfig: BrvConfig): CipherAgent {
-    return this.mockCipherAgent as unknown as CipherAgent
-  }
-
-  protected generateSessionId(): string {
-    return 'test-session-id'
-  }
-}
-
-// ==================== Tests ====================
-
 describe('Query Command', () => {
-  let configStore: sinon.SinonStubbedInstance<IProjectConfigStore>
   let loggedMessages: string[]
-  let mockCipherAgent: MockCipherAgent
   let terminal: ITerminal
-  let tokenStore: sinon.SinonStubbedInstance<ITokenStore>
   let trackingService: sinon.SinonStubbedInstance<ITrackingService>
-  let validToken: AuthToken
-  let testConfig: BrvConfigImpl
+  let mockClient: sinon.SinonStubbedInstance<ITransportClient>
+  let mockFactory: Partial<TransportClientFactory>
 
   beforeEach(() => {
     loggedMessages = []
 
     terminal = createMockTerminal({
-      log: (msg) => msg && loggedMessages.push(msg),
+      log(message?: string) {
+        if (message) {
+          loggedMessages.push(message)
+        }
+      },
     })
-
-    tokenStore = {
-      clear: stub(),
-      load: stub(),
-      save: stub(),
-    }
 
     trackingService = {
-      track: stub<Parameters<ITrackingService['track']>, ReturnType<ITrackingService['track']>>().resolves(),
+      track: stub().resolves(),
+    } as unknown as sinon.SinonStubbedInstance<ITrackingService>
+
+    // Create mock transport client with event handlers
+    const eventHandlers: Map<string, Array<(data: unknown) => void>> = new Map()
+
+    mockClient = {
+      connect: stub().resolves(),
+      disconnect: stub().resolves(),
+      getClientId: stub().returns('test-client-id'),
+      getState: stub().returns('connected'),
+      joinRoom: stub().resolves(),
+      leaveRoom: stub().resolves(),
+      on: stub().callsFake((event: string, handler: (data: unknown) => void) => {
+        if (!eventHandlers.has(event)) {
+          eventHandlers.set(event, [])
+        }
+
+        eventHandlers.get(event)!.push(handler)
+        return () => {
+          const handlers = eventHandlers.get(event)
+          if (handlers) {
+            const index = handlers.indexOf(handler)
+            if (index !== -1) handlers.splice(index, 1)
+          }
+        }
+      }),
+      once: stub(),
+      onStateChange: stub().returns(() => {}),
+      request: stub().resolves({taskId: 'test-task-id'}),
+    } as unknown as sinon.SinonStubbedInstance<ITransportClient>
+
+    // Create mock factory
+    mockFactory = {
+      connect: stub().resolves({
+        client: mockClient,
+        projectRoot: '/test/project',
+      }),
     }
 
-    configStore = {
-      exists: stub(),
-      read: stub(),
-      write: stub(),
-    }
-
-    mockCipherAgent = new MockCipherAgent()
-
-    validToken = new AuthToken({
-      accessToken: 'access-token',
-      expiresAt: new Date(Date.now() + 3600 * 1000),
-      refreshToken: 'refresh-token',
-      sessionKey: 'session-key',
-      tokenType: 'Bearer',
-      userEmail: 'user@example.com',
-      userId: 'user-123',
-    })
-
-    testConfig = new BrvConfigImpl({
-      chatLogPath: 'chat.log',
-      createdAt: new Date().toISOString(),
-      cwd: '/test/cwd',
-      ide: 'Claude Code',
-      spaceId: 'space-1',
-      spaceName: 'backend-api',
-      teamId: 'team-1',
-      teamName: 'acme-corp',
-      version: BRV_CONFIG_VERSION,
+    // Capture taskId from request and simulate task completion
+    ;(mockClient.request as sinon.SinonStub).callsFake(async (_event: string, payload: {taskId: string}) => {
+      // Simulate task completion after a short delay with the client-generated taskId
+      setTimeout(() => {
+        const handlers = eventHandlers.get('task:completed')
+        if (handlers) {
+          for (const handler of handlers) {
+            handler({result: 'Mock query response', taskId: payload.taskId})
+          }
+        }
+      }, 10)
+      return {taskId: payload.taskId}
     })
   })
 
@@ -122,70 +94,119 @@ describe('Query Command', () => {
     restore()
   })
 
-  function createTestUseCase(): TestableQueryUseCase {
-    return new TestableQueryUseCase({
-      mockCipherAgent,
-      projectConfigStore: configStore,
+  function createUseCaseOptions(overrides?: Partial<QueryUseCaseOptions>): QueryUseCaseOptions {
+    return {
       terminal,
-      tokenStore,
       trackingService,
-    })
+      transportClientFactoryCreator: () => mockFactory as TransportClientFactory,
+      ...overrides,
+    }
   }
 
-  describe('authentication', () => {
-    it('should exit early if not authenticated', async () => {
-      tokenStore.load.resolves()
+  describe('run', () => {
+    it('should show usage message when query is empty', async () => {
+      const useCase = new QueryUseCase(createUseCaseOptions())
 
-      const useCase = createTestUseCase()
+      await useCase.run({query: '', verbose: false})
 
-      await useCase.run({query: 'test query', verbose: false})
-
-      expect(tokenStore.load.calledOnce).to.be.true
-      expect(loggedMessages.some((m) => m.includes('Authentication required'))).to.be.true
-      expect(mockCipherAgent.startCalled).to.be.false
+      expect(loggedMessages).to.include('Query argument is required.')
+      expect(loggedMessages).to.include('Usage: brv query "your question here"')
+      expect(trackingService.track.calledWith('mem:query', {status: 'started'})).to.be.true
     })
-  })
 
-  describe('project configuration', () => {
-    it('should exit early if project is not initialized', async () => {
-      tokenStore.load.resolves(validToken)
-      configStore.read.resolves()
+    it('should show usage message when query is whitespace only', async () => {
+      const useCase = new QueryUseCase(createUseCaseOptions())
 
-      const useCase = createTestUseCase()
+      await useCase.run({query: '   ', verbose: false})
 
-      await useCase.run({query: 'test query', verbose: false})
-
-      expect(configStore.read.calledOnce).to.be.true
-      expect(loggedMessages.some((m) => m.includes('Project not initialized'))).to.be.true
-      expect(mockCipherAgent.startCalled).to.be.false
+      expect(loggedMessages).to.include('Query argument is required.')
     })
-  })
 
-  describe('query execution', () => {
-    it('should execute query successfully', async () => {
-      tokenStore.load.resolves(validToken)
-      configStore.read.resolves(testConfig)
-
-      const useCase = createTestUseCase()
+    it('should send task:create request with query and taskId', async () => {
+      const useCase = new QueryUseCase(createUseCaseOptions())
 
       await useCase.run({query: 'What is the architecture?', verbose: false})
 
-      expect(mockCipherAgent.startCalled).to.be.true
-      expect(mockCipherAgent.executeCalled).to.be.true
-      expect(loggedMessages.some((m) => m.includes('Querying context tree'))).to.be.true
-      expect(loggedMessages.some((m) => m.includes('Query Results'))).to.be.true
-      expect(loggedMessages.some((m) => m.includes('Mock query response'))).to.be.true
+      expect(mockClient.request.calledOnce).to.be.true
+      const [event, payload] = (mockClient.request as sinon.SinonStub).firstCall.args
+      expect(event).to.equal('task:create')
+      expect(payload).to.have.property('content', 'What is the architecture?')
+      expect(payload).to.have.property('type', 'query')
+      expect(payload).to.have.property('taskId').that.is.a('string')
     })
 
     it('should track query after successful execution', async () => {
-      tokenStore.load.resolves(validToken)
-      configStore.read.resolves(testConfig)
-
-      const useCase = createTestUseCase()
+      const useCase = new QueryUseCase(createUseCaseOptions())
 
       await useCase.run({query: 'What is the architecture?', verbose: false})
 
-      expect(trackingService.track.calledWith('mem:query')).to.be.true
+      expect(trackingService.track.calledWith('mem:query', {status: 'started'})).to.be.true
+      expect(trackingService.track.calledWith('mem:query', {status: 'finished'})).to.be.true
+    })
+
+    it('should log verbose messages when verbose is true', async () => {
+      const useCase = new QueryUseCase(createUseCaseOptions())
+
+      await useCase.run({query: 'test query', verbose: true})
+
+      expect(loggedMessages.some((m) => m.includes('Discovering running instance'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('Connected to instance'))).to.be.true
+    })
+
+    it('should disconnect client after request', async () => {
+      const useCase = new QueryUseCase(createUseCaseOptions())
+
+      await useCase.run({query: 'test query', verbose: false})
+
+      expect(mockClient.disconnect.calledOnce).to.be.true
+    })
+
+    it('should handle NoInstanceRunningError', async () => {
+      const errorFactory = {
+        connect: stub().rejects(new NoInstanceRunningError()),
+      }
+      const useCase = new QueryUseCase(
+        createUseCaseOptions({
+          transportClientFactoryCreator: () => errorFactory as unknown as TransportClientFactory,
+        }),
+      )
+
+      await useCase.run({query: 'test query', verbose: false})
+
+      expect(loggedMessages.some((m) => m.includes('No ByteRover instance is running'))).to.be.true
+      expect(trackingService.track.calledWith('mem:query', sinon.match({status: 'error'}))).to.be.true
+    })
+
+    it('should handle InstanceCrashedError', async () => {
+      const errorFactory = {
+        connect: stub().rejects(new InstanceCrashedError()),
+      }
+      const useCase = new QueryUseCase(
+        createUseCaseOptions({
+          transportClientFactoryCreator: () => errorFactory as unknown as TransportClientFactory,
+        }),
+      )
+
+      await useCase.run({query: 'test query', verbose: false})
+
+      expect(loggedMessages.some((m) => m.includes('ByteRover instance has crashed'))).to.be.true
+      expect(trackingService.track.calledWith('mem:query', sinon.match({status: 'error'}))).to.be.true
+    })
+
+    it('should handle ConnectionFailedError', async () => {
+      const errorFactory = {
+        connect: stub().rejects(new ConnectionFailedError(9847, new Error('Connection refused'))),
+      }
+      const useCase = new QueryUseCase(
+        createUseCaseOptions({
+          transportClientFactoryCreator: () => errorFactory as unknown as TransportClientFactory,
+        }),
+      )
+
+      await useCase.run({query: 'test query', verbose: false})
+
+      expect(loggedMessages.some((m) => m.includes('Failed to connect'))).to.be.true
+      expect(trackingService.track.calledWith('mem:query', sinon.match({status: 'error'}))).to.be.true
     })
   })
 })

@@ -6,6 +6,7 @@ import path from 'node:path'
 
 import type {
   BufferEncoding,
+  DirectoryEntry,
   EditFileOptions,
   EditOperation,
   EditResult,
@@ -14,6 +15,8 @@ import type {
   FileSystemConfig,
   GlobOptions,
   GlobResult,
+  ListDirectoryOptions,
+  ListDirectoryResult,
   ReadFileOptions,
   SearchMatch,
   SearchOptions,
@@ -43,9 +46,125 @@ import {
   WriteOperationError,
 } from '../../../core/domain/cipher/errors/file-system-error.js'
 import {getErrorMessage} from '../../../utils/error-helpers.js'
+import {getMimeType, isBinaryFile, isMediaFile, isPdfFile} from './binary-utils.js'
 import {createGitignoreFilter} from './gitignore-filter.js'
 import {collectFileMetadata, escapeIfExactMatch, extractPaths, sortFilesByRecency} from './glob-utils.js'
 import {PathValidator} from './path-validator.js'
+
+/**
+ * Maximum line length for search results.
+ * Prevents context overflow from minified files or long lines.
+ */
+const MAX_LINE_LENGTH = 2000
+
+/**
+ * Default number of lines to read when no limit specified.
+ * Prevents context overflow while providing enough content.
+ */
+const DEFAULT_READ_LIMIT = 2000
+
+/**
+ * Number of lines to include in the preview.
+ */
+const PREVIEW_LINES = 20
+
+/**
+ * Buffer size for binary file detection (4KB sample).
+ */
+const BINARY_DETECTION_BUFFER_SIZE = 4096
+
+/**
+ * Whitelist of .env file patterns that are safe to read.
+ * These are typically example/template files without real secrets.
+ */
+const ENV_WHITELIST = ['.env.sample', '.env.example', '.env.template', '.env.defaults']
+
+/**
+ * Truncates a line to MAX_LINE_LENGTH, adding ellipsis if truncated.
+ */
+function truncateLine(line: string): string {
+  if (line.length <= MAX_LINE_LENGTH) {
+    return line
+  }
+
+  return line.slice(0, MAX_LINE_LENGTH) + '...'
+}
+
+/**
+ * Formats content with line numbers in 00001| format.
+ * @param lines - Array of lines to format
+ * @param startLine - Starting line number (1-based)
+ * @returns Formatted string with line numbers
+ */
+function formatWithLineNumbers(lines: string[], startLine: number): string {
+  return lines
+    .map((line, index) => {
+      const lineNum = (startLine + index).toString().padStart(5, '0')
+      return `${lineNum}| ${line}`
+    })
+    .join('\n')
+}
+
+/**
+ * Finds similar files in a directory for "Did you mean?" suggestions.
+ * @param dirPath - Directory to search in
+ * @param fileName - File name to find similar matches for
+ * @returns Array of suggested file paths (max 3)
+ */
+async function findSimilarFiles(dirPath: string, fileName: string): Promise<string[]> {
+  try {
+    const entries = await fs.readdir(dirPath)
+    const lowerFileName = fileName.toLowerCase()
+
+    const suggestions = entries
+      .filter((entry) => {
+        const lowerEntry = entry.toLowerCase()
+        return lowerEntry.includes(lowerFileName) || lowerFileName.includes(lowerEntry)
+      })
+      .slice(0, 3)
+      .map((entry) => path.join(dirPath, entry))
+
+    return suggestions
+  } catch {
+    return []
+  }
+}
+
+/**
+ * Default patterns to ignore when listing directories.
+ * Common build artifacts, caches, and IDE directories.
+ */
+const DEFAULT_IGNORE_PATTERNS = [
+  'node_modules/',
+  '__pycache__/',
+  '.git/',
+  'dist/',
+  'build/',
+  'target/',
+  'vendor/',
+  'bin/',
+  'obj/',
+  '.idea/',
+  '.vscode/',
+  '.zig-cache/',
+  'zig-out/',
+  '.coverage/',
+  'coverage/',
+  'tmp/',
+  'temp/',
+  '.cache/',
+  'cache/',
+  'logs/',
+  '.venv/',
+  'venv/',
+  'env/',
+  '.byterover/',
+]
+
+/**
+ * Maximum number of files for directory listing.
+ */
+const LIST_DIRECTORY_LIMIT = 100
 
 /**
  * File system service implementation.
@@ -279,18 +398,130 @@ export class FileSystemService implements IFileSystem {
   }
 
   /**
+   * List files and directories in a path.
+   */
+  public async listDirectory(
+    dirPath: string,
+    options: ListDirectoryOptions = {},
+  ): Promise<ListDirectoryResult> {
+    this.ensureInitialized()
+
+    // Resolve path
+    const resolvedPath = path.resolve(this.config.workingDirectory, dirPath || '.')
+
+    // Validate path
+    const validation = this.pathValidator.validate(resolvedPath, 'read')
+    if (!validation.valid) {
+      this.throwValidationError(resolvedPath, validation.error)
+    }
+
+    const {normalizedPath} = validation
+
+    // Verify directory exists
+    try {
+      const stats = await fs.stat(normalizedPath)
+      if (!stats.isDirectory()) {
+        throw new DirectoryNotFoundError(normalizedPath)
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        throw new DirectoryNotFoundError(normalizedPath)
+      }
+
+      throw error
+    }
+
+    const maxResults = options.maxResults ?? LIST_DIRECTORY_LIMIT
+    const ignorePatterns = [...DEFAULT_IGNORE_PATTERNS, ...(options.ignore ?? [])]
+
+    // Use glob with ** pattern to get all files
+    const files = await glob('**/*', {
+      absolute: false,
+      cwd: normalizedPath,
+      follow: false,
+      ignore: ignorePatterns.map((p) => `**/${p}**`),
+      nodir: true,
+    })
+
+    // Limit results
+    const truncated = files.length > maxResults
+    const limitedFiles = files.slice(0, maxResults)
+
+    // Build directory structure
+    const dirs = new Set<string>()
+    const filesByDir = new Map<string, string[]>()
+
+    for (const file of limitedFiles) {
+      const dir = path.dirname(file)
+      const parts = dir === '.' ? [] : dir.split('/')
+
+      // Add all parent directories
+      for (let i = 0; i <= parts.length; i++) {
+        const currentDirPath = i === 0 ? '.' : parts.slice(0, i).join('/')
+        dirs.add(currentDirPath)
+      }
+
+      // Add file to its directory
+      if (!filesByDir.has(dir)) {
+        filesByDir.set(dir, [])
+      }
+
+      filesByDir.get(dir)!.push(path.basename(file))
+    }
+
+    // Build entries array
+    const entries: DirectoryEntry[] = limitedFiles.map((file) => ({
+      isDirectory: false,
+      name: path.basename(file),
+      path: file,
+    }))
+
+    // Render tree
+    const tree = this.renderDirectoryTree(normalizedPath, dirs, filesByDir)
+
+    return {
+      count: limitedFiles.length,
+      entries,
+      tree,
+      truncated,
+    }
+  }
+
+  /**
    * Read the contents of a file.
+   *
+   * Features:
+   * - Relative path support (resolved against working directory)
+   * - Image/PDF files returned as base64 attachments
+   * - Binary file detection and rejection
+   * - .env file blocking with whitelist for example files
+   * - XML-wrapped output for clearer LLM parsing
+   * - Preview metadata (first 20 lines)
    */
   public async readFile(filePath: string, options: ReadFileOptions = {}): Promise<FileContent> {
     this.ensureInitialized()
 
+    // Resolve relative paths against working directory
+    let resolvedPath = filePath
+    if (!path.isAbsolute(filePath)) {
+      resolvedPath = path.resolve(this.config.workingDirectory, filePath)
+    }
+
     // Validate path
-    const validation = this.pathValidator.validate(filePath, 'read')
+    const validation = this.pathValidator.validate(resolvedPath, 'read')
     if (!validation.valid) {
-      this.throwValidationError(filePath, validation.error)
+      this.throwValidationError(resolvedPath, validation.error)
     }
 
     const {normalizedPath} = validation
+
+    // Check .env file whitelist (allow .env.sample, .env.example, etc.)
+    const fileName = path.basename(normalizedPath).toLowerCase()
+    const isEnvFile = fileName.includes('.env')
+    const isWhitelisted = ENV_WHITELIST.some((w) => fileName.endsWith(w))
+    if (isEnvFile && !isWhitelisted) {
+      throw new PathBlockedError(normalizedPath, 'Environment files are blocked for security. Only example files (.env.sample, .env.example) are allowed.')
+    }
 
     try {
       // Check if file exists
@@ -299,6 +530,18 @@ export class FileSystemService implements IFileSystem {
         stats = await fs.stat(normalizedPath)
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+          // Try to find similar files for suggestions
+          const dirPath = path.dirname(normalizedPath)
+          const baseName = path.basename(normalizedPath)
+          const suggestions = await findSimilarFiles(dirPath, baseName)
+
+          if (suggestions.length > 0) {
+            throw new FileNotFoundError(
+              normalizedPath,
+              `File not found: ${normalizedPath}\n\nDid you mean one of these?\n${suggestions.join('\n')}`,
+            )
+          }
+
           throw new FileNotFoundError(normalizedPath)
         }
 
@@ -310,36 +553,94 @@ export class FileSystemService implements IFileSystem {
         throw new FileTooLargeError(normalizedPath, stats.size, this.config.maxFileSize)
       }
 
-      // Read file
-      const encoding = (options.encoding ?? 'utf8') as BufferEncoding
-      const content = await fs.readFile(normalizedPath, encoding)
+      // Handle image/PDF files - return as base64 attachment
+      if (isMediaFile(normalizedPath)) {
+        const buffer = await fs.readFile(normalizedPath)
+        const mimeType = getMimeType(normalizedPath) ?? 'application/octet-stream'
+        const fileType = isPdfFile(normalizedPath) ? 'PDF' : 'Image'
+        const baseName = path.basename(normalizedPath)
 
-      // Handle pagination
-      const lines = content.split('\n')
-
-      let selectedLines: string[]
-      let truncated = false
-
-      // Apply offset (1-based, like text editors)
-      const {limit, offset: offset1} = options
-
-      if (offset1 !== undefined || limit !== undefined) {
-        const start = offset1 !== undefined && offset1 > 0 ? Math.max(0, offset1 - 1) : 0
-        const end = limit === undefined ? lines.length : start + limit
-
-        selectedLines = lines.slice(start, end)
-        truncated = end < lines.length
-      } else {
-        selectedLines = lines
+        return {
+          attachment: {
+            base64: buffer.toString('base64'),
+            fileName: baseName,
+            mimeType,
+          },
+          content: `[${fileType} file: ${baseName}]`,
+          encoding: 'base64',
+          formattedContent: `<file>\n[${fileType} file: ${baseName} (${stats.size} bytes)]\n</file>`,
+          lines: 1,
+          message: `${fileType} file read successfully. Content available as base64 attachment.`,
+          size: stats.size,
+          totalLines: 1,
+          truncated: false,
+        }
       }
 
-      const selectedContent = selectedLines.join('\n')
+      // Check for binary files (read first 4KB for detection)
+      const handle = await fs.open(normalizedPath, 'r')
+      const sampleBuffer = Buffer.alloc(BINARY_DETECTION_BUFFER_SIZE)
+      const {bytesRead} = await handle.read(sampleBuffer, 0, BINARY_DETECTION_BUFFER_SIZE, 0)
+      await handle.close()
+
+      if (isBinaryFile(normalizedPath, sampleBuffer.subarray(0, bytesRead))) {
+        throw new ReadOperationError(normalizedPath, 'Cannot read binary file. Use a hex editor or appropriate tool for binary files.')
+      }
+
+      // Read text file
+      const encoding = (options.encoding ?? 'utf8') as BufferEncoding
+      const rawContent = await fs.readFile(normalizedPath, encoding)
+
+      // Split into lines
+      const allLines = rawContent.split('\n')
+      const totalLines = allLines.length
+
+      // Apply offset and limit (with default limit of 2000)
+      const offset = options.offset !== undefined && options.offset > 0 ? options.offset - 1 : 0
+      const limit = options.limit ?? DEFAULT_READ_LIMIT
+      const endLine = Math.min(offset + limit, totalLines)
+
+      const selectedLines = allLines.slice(offset, endLine)
+      const truncated = endLine < totalLines
+
+      // Truncate long lines
+      const truncatedLines = selectedLines.map((line) => truncateLine(line))
+
+      // Format with line numbers
+      const numberedContent = formatWithLineNumbers(truncatedLines, offset + 1)
+
+      // Build informative message
+      const lastReadLine = offset + selectedLines.length
+      let message: string
+      if (truncated) {
+        const remainingLines = totalLines - lastReadLine
+        message =
+          `Read lines ${offset + 1}-${lastReadLine} of ${totalLines} total lines. ` +
+          `${remainingLines} more lines available. Use offset=${lastReadLine + 1} to continue reading.`
+      } else {
+        message = `End of file - read ${selectedLines.length} lines (${totalLines} total).`
+      }
+
+      // Generate preview (first N lines of selected content)
+      const previewLines = truncatedLines.slice(0, PREVIEW_LINES)
+      const preview = previewLines.join('\n')
+
+      // Wrap in XML tags for clearer LLM parsing
+      const truncationNote = truncated
+        ? `\n\n(File has more lines. Use offset=${lastReadLine + 1} to continue)`
+        : `\n\n(End of file - ${totalLines} lines)`
+
+      const formattedContent = `<file>\n${numberedContent}${truncationNote}\n</file>`
 
       return {
-        content: selectedContent,
+        content: truncatedLines.join('\n'),
         encoding,
+        formattedContent,
         lines: selectedLines.length,
+        message,
+        preview,
         size: stats.size,
+        totalLines,
         truncated,
       }
     } catch (error) {
@@ -349,7 +650,8 @@ export class FileSystemService implements IFileSystem {
         error instanceof FileTooLargeError ||
         error instanceof PathNotAllowedError ||
         error instanceof PathTraversalError ||
-        error instanceof PathBlockedError
+        error instanceof PathBlockedError ||
+        error instanceof ReadOperationError
       ) {
         throw error
       }
@@ -389,13 +691,28 @@ export class FileSystemService implements IFileSystem {
         return this.searchContentJS(pattern, options)
       }
 
+      // Collect file modification times for sorting (recent files first)
+      const matchesWithMtime = await Promise.all(
+        matches.map(async (match) => {
+          try {
+            const stats = await fs.stat(match.file)
+            return {...match, mtime: stats.mtime.getTime()}
+          } catch {
+            return {...match, mtime: 0}
+          }
+        }),
+      )
+
+      // Sort by modification time (newest first)
+      matchesWithMtime.sort((a, b) => (b.mtime ?? 0) - (a.mtime ?? 0))
+
       // Apply maxResults limit
-      const truncated = matches.length > maxResults
+      const truncated = matchesWithMtime.length > maxResults
 
       return {
-        filesSearched: new Set(matches.map((m) => m.file)).size,
-        matches: matches.slice(0, maxResults),
-        totalMatches: matches.length,
+        filesSearched: new Set(matchesWithMtime.map((m) => m.file)).size,
+        matches: matchesWithMtime.slice(0, maxResults),
+        totalMatches: matchesWithMtime.length,
         truncated,
       }
     } catch (error) {
@@ -495,12 +812,12 @@ export class FileSystemService implements IFileSystem {
     if (contextLines > 0) {
       // Lines before
       for (let j = Math.max(0, lineIndex - contextLines); j < lineIndex; j++) {
-        before.push(lines[j])
+        before.push(truncateLine(lines[j]))
       }
 
       // Lines after
       for (let j = lineIndex + 1; j < Math.min(lines.length, lineIndex + 1 + contextLines); j++) {
-        after.push(lines[j])
+        after.push(truncateLine(lines[j]))
       }
     }
 
@@ -630,13 +947,49 @@ export class FileSystemService implements IFileSystem {
       if (!Number.isNaN(lineNumber)) {
         results.push({
           file: path.resolve(basePath, filePath),
-          line: content,
+          line: truncateLine(content),
           lineNumber,
         })
       }
     }
 
     return results
+  }
+
+  /**
+   * Renders a directory tree as a string.
+   */
+  private renderDirectoryTree(
+    basePath: string,
+    dirs: Set<string>,
+    filesByDir: Map<string, string[]>,
+  ): string {
+    const renderDir = (dirPath: string, depth: number): string => {
+      const indent = '  '.repeat(depth)
+      let output = ''
+
+      if (depth > 0) {
+        output += `${indent}${path.basename(dirPath)}/\n`
+      }
+
+      const childIndent = '  '.repeat(depth + 1)
+      const children = [...dirs].filter((d) => path.dirname(d) === dirPath && d !== dirPath).sort()
+
+      // Render subdirectories first
+      for (const child of children) {
+        output += renderDir(child, depth + 1)
+      }
+
+      // Render files
+      const files = filesByDir.get(dirPath) ?? []
+      for (const file of files.sort()) {
+        output += `${childIndent}${file}\n`
+      }
+
+      return output
+    }
+
+    return `${basePath}/\n${renderDir('.', 0)}`
   }
 
   /**
@@ -700,7 +1053,7 @@ export class FileSystemService implements IFileSystem {
         matches.push({
           context: contextLines > 0 ? context : undefined,
           file: filePath,
-          line,
+          line: truncateLine(line),
           lineNumber: i + 1, // 1-based line numbers
         })
       }
@@ -765,7 +1118,7 @@ export class FileSystemService implements IFileSystem {
       const chunks: Buffer[] = []
 
       if (signal) {
-        signal.addEventListener('abort', () => child.kill())
+        signal.addEventListener('abort', () => child.kill(), {once: true})
       }
 
       child.stdout.on('data', (chunk: Buffer) => chunks.push(chunk))
@@ -784,29 +1137,29 @@ export class FileSystemService implements IFileSystem {
   /**
    * Throws the appropriate error based on validation error message.
    */
-  private throwValidationError(path: string, error: string): never {
+  private throwValidationError(filePath: string, error: string): never {
     if (error.includes('empty')) {
-      throw new InvalidPathError(path, error)
+      throw new InvalidPathError(filePath, error)
     }
 
     if (error.includes('traversal')) {
-      throw new PathTraversalError(path)
+      throw new PathTraversalError(filePath)
     }
 
     if (error.includes('not in allowed paths')) {
-      throw new PathNotAllowedError(path, this.config.allowedPaths)
+      throw new PathNotAllowedError(filePath, this.config.allowedPaths)
     }
 
     if (error.includes('blocked')) {
-      throw new PathBlockedError(path, error)
+      throw new PathBlockedError(filePath, error)
     }
 
     if (error.includes('extension')) {
-      const ext = path.split('.').pop() ?? ''
-      throw new InvalidExtensionError(path, ext)
+      const ext = filePath.split('.').pop() ?? ''
+      throw new InvalidExtensionError(filePath, ext)
     }
 
     // Fallback
-    throw new InvalidPathError(path, error)
+    throw new InvalidPathError(filePath, error)
   }
 }

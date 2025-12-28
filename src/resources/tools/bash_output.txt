@@ -1,0 +1,40 @@
+Retrieve output from a background process started by bash_exec.
+
+Returns new output since last read (incremental). Reading output clears the buffer, so output is returned only once. Shows process status (running/completed/failed) and includes exit code and duration when completed.
+
+**IMPORTANT:** Output is truncated if it exceeds buffer limit (default 1MB). Process is automatically cleaned up 1 hour after completion.
+
+## Usage Pattern
+
+1. Start a background process with `bash_exec` using `runInBackground: true`
+2. Save the returned `processId`
+3. Poll with `bash_output` using the `processId` to check progress
+4. Continue polling until status is "completed" or "failed"
+
+## Process Status Values
+
+- **running**: Process is still executing
+- **completed**: Process finished successfully (exit code 0)
+- **failed**: Process terminated with error or non-zero exit code
+
+## Example Workflow
+
+```
+// Start background process
+bash_exec({ command: "npm test", runInBackground: true })
+// Returns: { processId: "abc123", ... }
+
+// Check progress
+bash_output({ processId: "abc123" })
+// Returns: { status: "running", stdout: "Running tests...", ... }
+
+// Check again later
+bash_output({ processId: "abc123" })
+// Returns: { status: "completed", exitCode: 0, stdout: "All tests passed", duration: 45000 }
+```
+
+## Notes
+
+- Each read clears the buffer (destructive read)
+- Output is accumulated until read, then cleared
+- Use `kill_process` to terminate a running background process

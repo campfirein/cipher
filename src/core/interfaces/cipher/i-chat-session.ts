@@ -14,11 +14,18 @@ export interface IChatSession {
   cancel(): void
 
   /**
-   * Dispose of the session and clean up resources.
-   * Removes event listeners to prevent memory leaks.
-   * Should be called when session is no longer needed.
+   * Cleanup session resources but preserve history for later restoration.
+   * Call this when ending a session temporarily (e.g., user navigates away).
+   * History remains persisted; event listeners stay for potential reactivation.
    */
-  dispose?(): void
+  cleanup(): void
+
+  /**
+   * Dispose of the session completely and clean up all resources.
+   * Removes event listeners to prevent memory leaks.
+   * Should be called when session is permanently no longer needed.
+   */
+  dispose(): void
 
   /**
    * Get the conversation history.
@@ -57,8 +64,8 @@ export interface IChatSession {
    *
    * @param input - User message content
    * @param options - Optional execution options
-   * @param options.mode - Optional mode for system prompt ('autonomous' enables autonomous mode)
    * @param options.executionContext - Optional execution context
+   * @param options.taskId - Optional task ID for concurrent task isolation (included in all emitted events)
    * @returns Assistant response
    * @throws SessionCancelledError if operation is cancelled
    * @throws MaxIterationsExceededError if tool loop exceeds maximum iterations
@@ -68,7 +75,48 @@ export interface IChatSession {
     input: string,
     options?: {
       executionContext?: ExecutionContext
-      mode?: 'autonomous' | 'default' | 'query'
+      taskId?: string
     },
   ): Promise<string>
+
+  /**
+   * Send a message, queuing if the session is busy executing.
+   * If the session is idle, executes immediately via run().
+   * If the session is busy, queues the message and returns the queue position.
+   *
+   * @param input - User message content
+   * @param options - Optional execution options and attachments
+   * @param options.executionContext - Optional execution context for the LLM
+   * @param options.fileData - Optional file attachment
+   * @param options.imageData - Optional image attachment
+   * @returns Response string if executed, or queue info if queued
+   */
+  sendMessage(
+    input: string,
+    options?: {
+      executionContext?: ExecutionContext
+      fileData?: unknown
+      imageData?: unknown
+    },
+  ): Promise<string | {position: number; queued: true}>
+
+  /**
+   * Stream execution with real-time event emission.
+   * Unlike run(), this does not return a response directly - events are yielded via the agent's stream().
+   * Emits run:complete event when finished.
+   *
+   * @param input - User message
+   * @param options - Execution options with optional signal for cancellation
+   * @param options.executionContext - Optional execution context for the LLM
+   * @param options.signal - Optional AbortSignal for cancellation
+   * @param options.taskId - Optional task ID for concurrent task isolation (included in all emitted events)
+   */
+  streamRun(
+    input: string,
+    options?: {
+      executionContext?: ExecutionContext
+      signal?: AbortSignal
+      taskId?: string
+    },
+  ): Promise<void>
 }

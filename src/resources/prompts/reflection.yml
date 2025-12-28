@@ -1,4 +1,4 @@
-# Reflection prompts for task completion checking
+ # Reflection prompts for task completion checking
 # These prompts help the agent assess progress and determine when tasks are complete
 description: Reflection prompts for task completion self-assessment
 prompt: "Reflection prompts for task completion"

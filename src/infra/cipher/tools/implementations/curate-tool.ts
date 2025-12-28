@@ -1,12 +1,25 @@
+import * as fs from 'node:fs/promises'
 import {join} from 'node:path'
 import {z} from 'zod'
 
 import type {Tool, ToolExecutionContext} from '../../../../core/domain/cipher/tools/types.js'
 
+import {DEFAULT_CONTEXT_TREE_DOMAINS} from '../../../../config/context-tree-domains.js'
 import {ToolName} from '../../../../core/domain/cipher/tools/constants.js'
 import {DirectoryManager} from '../../../../core/domain/knowledge/directory-manager.js'
 import {MarkdownWriter} from '../../../../core/domain/knowledge/markdown-writer.js'
-import {sanitizeFolderName} from '../../../../utils/file-helpers.js'
+import {toSnakeCase} from '../../../../utils/file-helpers.js'
+
+/**
+ * Predefined domain names from configuration.
+ */
+const PREDEFINED_DOMAIN_NAMES = DEFAULT_CONTEXT_TREE_DOMAINS.map((domain) => domain.name)
+
+/**
+ * Maximum number of custom domains allowed beyond predefined domains.
+ * This prevents excessive domain proliferation which degrades query quality.
+ */
+const MAX_CUSTOM_DOMAINS = 3
 
 /**
  * Operation types for curating knowledge topics.
@@ -32,8 +45,10 @@ const ContentSchema = z.object({
 const OperationSchema = z.object({
   content: ContentSchema.optional().describe('Content for ADD/UPDATE operations'),
   mergeTarget: z.string().optional().describe('Target path for MERGE operation'),
+  mergeTargetTitle: z.string().optional().describe('Title of the target file for MERGE operation'),
   path: z.string().describe('Path: domain/topic or domain/topic/subtopic'),
   reason: z.string().describe('Reasoning for this operation'),
+  title: z.string().optional().describe('Title for the context file (saved as {title}.md in snake_case). Required for ADD/UPDATE/MERGE, optional for DELETE'),
   type: OperationType.describe('Operation type: ADD, UPDATE, MERGE, or DELETE'),
 })
 
@@ -53,6 +68,8 @@ type CurateInput = z.infer<typeof CurateInputSchema>
  * Result of a single operation.
  */
 interface OperationResult {
+  /** Full filesystem path to the created/modified file (for ADD/UPDATE/MERGE) */
+  filePath?: string
   message?: string
   path: string
   status: 'failed' | 'success'
@@ -90,7 +107,62 @@ function parsePath(path: string): null | {domain: string; subtopic?: string; top
 }
 
 /**
+ * Get existing domain names from the context tree.
+ * Returns domain folder names that exist in the context tree.
+ */
+async function getExistingDomains(basePath: string): Promise<string[]> {
+  try {
+    const entries = await fs.readdir(basePath, {withFileTypes: true})
+    return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name)
+  } catch {
+    // Directory doesn't exist yet
+    return []
+  }
+}
+
+/**
+ * Check if a domain is valid (either predefined or existing in context tree).
+ * Also enforces the maximum custom domains limit.
+ */
+async function validateDomain(
+  basePath: string,
+  domainName: string,
+): Promise<{allowed: boolean; existingDomains: string[]; reason?: string}> {
+  const normalizedDomain = toSnakeCase(domainName)
+  const existingDomains = await getExistingDomains(basePath)
+
+  // Check if it's a predefined domain - always allowed
+  if (PREDEFINED_DOMAIN_NAMES.includes(normalizedDomain)) {
+    return {allowed: true, existingDomains}
+  }
+
+  // Check if it already exists in context tree - always allowed
+  if (existingDomains.includes(normalizedDomain)) {
+    return {allowed: true, existingDomains}
+  }
+
+  // Count how many custom domains already exist
+  const customDomains = existingDomains.filter((domain) => !PREDEFINED_DOMAIN_NAMES.includes(domain))
+
+  // Check if we've exceeded the custom domain limit
+  if (customDomains.length >= MAX_CUSTOM_DOMAINS) {
+    return {
+      allowed: false,
+      existingDomains,
+      reason:
+        `Cannot create new domain "${normalizedDomain}". Maximum of ${MAX_CUSTOM_DOMAINS} custom domains allowed. ` +
+        `Existing custom domains: ${customDomains.join(', ')}. ` +
+        `Please use one of the predefined domains (${PREDEFINED_DOMAIN_NAMES.join(', ')}) or existing domains.`,
+    }
+  }
+
+  // New custom domain within limit - allowed
+  return {allowed: true, existingDomains}
+}
+
+/**
  * Build the full filesystem path from base path and knowledge path.
+ * Returns the folder path (not including filename).
  */
 function buildFullPath(basePath: string, knowledgePath: string): string {
   const parsed = parsePath(knowledgePath)
@@ -98,24 +170,33 @@ function buildFullPath(basePath: string, knowledgePath: string): string {
     throw new Error(`Invalid path format: ${knowledgePath}`)
   }
 
-  const domainPath = join(basePath, sanitizeFolderName(parsed.domain))
-  const topicPath = join(domainPath, sanitizeFolderName(parsed.topic))
+  const domainPath = join(basePath, toSnakeCase(parsed.domain))
+  const topicPath = join(domainPath, toSnakeCase(parsed.topic))
 
   if (parsed.subtopic) {
-    return join(topicPath, sanitizeFolderName(parsed.subtopic))
+    return join(topicPath, toSnakeCase(parsed.subtopic))
   }
 
   return topicPath
 }
 
 /**
- * Execute ADD operation - create new domain/topic/subtopic with context.md
+ * Execute ADD operation - create new domain/topic/subtopic with {title}.md
  */
 async function executeAdd(
   basePath: string,
   operation: Operation,
 ): Promise<OperationResult> {
-  const {content, path, reason} = operation
+  const {content, path, reason, title} = operation
+
+  if (!title) {
+    return {
+      message: 'ADD operation requires a title',
+      path,
+      status: 'failed',
+      type: 'ADD',
+    }
+  }
 
   if (!content) {
     return {
@@ -137,35 +218,36 @@ async function executeAdd(
       }
     }
 
-    // Ensure base structure exists
-    await DirectoryManager.ensureKnowledgeStructure(basePath)
-
-    // Create domain folder
-    const domainPath = join(basePath, sanitizeFolderName(parsed.domain))
-    await DirectoryManager.createOrUpdateDomain(domainPath)
-
-    // Create topic folder
-    const topicPath = join(domainPath, sanitizeFolderName(parsed.topic))
-    await DirectoryManager.createOrUpdateTopic(topicPath)
-
-    // Determine final path (topic or subtopic)
-    let finalPath = topicPath
-    if (parsed.subtopic) {
-      finalPath = join(topicPath, sanitizeFolderName(parsed.subtopic))
-      await DirectoryManager.createOrUpdateTopic(finalPath)
+    // Validate domain before creating
+    const domainValidation = await validateDomain(basePath, parsed.domain)
+    if (!domainValidation.allowed) {
+      return {
+        message: domainValidation.reason,
+        path,
+        status: 'failed',
+        type: 'ADD',
+      }
     }
 
-    // Generate and write context.md
+    // Build the final folder path (topic or subtopic)
+    const domainPath = join(basePath, toSnakeCase(parsed.domain))
+    const topicPath = join(domainPath, toSnakeCase(parsed.topic))
+    const finalPath = parsed.subtopic ? join(topicPath, toSnakeCase(parsed.subtopic)) : topicPath
+
+    // Generate and write {title}.md (snake_case filename)
+    // Note: writeFileAtomic creates parent directories as needed, avoiding empty folder creation
     const contextContent = MarkdownWriter.generateContext({
-      name: parsed.subtopic || parsed.topic,
+      name: title,
       relations: content.relations,
       snippets: content.snippets || [],
     })
-    const contextPath = join(finalPath, 'context.md')
+    const filename = `${toSnakeCase(title)}.md`
+    const contextPath = join(finalPath, filename)
     await DirectoryManager.writeFileAtomic(contextPath, contextContent)
 
     return {
-      message: `Created ${path} with ${content.snippets?.length || 0} snippets. Reason: ${reason}`,
+      filePath: contextPath,
+      message: `Created ${path}/${filename} with ${content.snippets?.length || 0} snippets. Reason: ${reason}`,
       path,
       status: 'success',
       type: 'ADD',
@@ -181,13 +263,22 @@ async function executeAdd(
 }
 
 /**
- * Execute UPDATE operation - modify existing context.md
+ * Execute UPDATE operation - modify existing {title}.md
  */
 async function executeUpdate(
   basePath: string,
   operation: Operation,
 ): Promise<OperationResult> {
-  const {content, path, reason} = operation
+  const {content, path, reason, title} = operation
+
+  if (!title) {
+    return {
+      message: 'UPDATE operation requires a title',
+      path,
+      status: 'failed',
+      type: 'UPDATE',
+    }
+  }
 
   if (!content) {
     return {
@@ -200,30 +291,31 @@ async function executeUpdate(
 
   try {
     const fullPath = buildFullPath(basePath, path)
-    const contextPath = join(fullPath, 'context.md')
+    const filename = `${toSnakeCase(title)}.md`
+    const contextPath = join(fullPath, filename)
 
-    // Check if topic exists
+    // Check if the specific titled file exists
     const exists = await DirectoryManager.fileExists(contextPath)
     if (!exists) {
       return {
-        message: `Topic does not exist: ${path}`,
+        message: `File does not exist: ${path}/${filename}`,
         path,
         status: 'failed',
         type: 'UPDATE',
       }
     }
 
-    // Generate and write updated context.md (full replacement)
-    const parsed = parsePath(path)
+    // Generate and write updated content (full replacement)
     const contextContent = MarkdownWriter.generateContext({
-      name: parsed?.subtopic || parsed?.topic || path,
+      name: title,
       relations: content.relations,
       snippets: content.snippets || [],
     })
     await DirectoryManager.writeFileAtomic(contextPath, contextContent)
 
     return {
-      message: `Updated ${path}. Reason: ${reason}`,
+      filePath: contextPath,
+      message: `Updated ${path}/${filename}. Reason: ${reason}`,
       path,
       status: 'success',
       type: 'UPDATE',
@@ -239,13 +331,22 @@ async function executeUpdate(
 }
 
 /**
- * Execute MERGE operation - combine source into target, delete source
+ * Execute MERGE operation - combine source file into target file, delete source file
  */
 async function executeMerge(
   basePath: string,
   operation: Operation,
 ): Promise<OperationResult> {
-  const {mergeTarget, path, reason} = operation
+  const {mergeTarget, mergeTargetTitle, path, reason, title} = operation
+
+  if (!title) {
+    return {
+      message: 'MERGE operation requires a title (source file)',
+      path,
+      status: 'failed',
+      type: 'MERGE',
+    }
+  }
 
   if (!mergeTarget) {
     return {
@@ -256,19 +357,32 @@ async function executeMerge(
     }
   }
 
-  try {
-    const sourcePath = buildFullPath(basePath, path)
-    const targetPath = buildFullPath(basePath, mergeTarget)
-    const sourceContextPath = join(sourcePath, 'context.md')
-    const targetContextPath = join(targetPath, 'context.md')
+  if (!mergeTargetTitle) {
+    return {
+      message: 'MERGE operation requires mergeTargetTitle',
+      path,
+      status: 'failed',
+      type: 'MERGE',
+    }
+  }
 
-    // Check if both exist
+  try {
+    const sourceFolderPath = buildFullPath(basePath, path)
+    const targetFolderPath = buildFullPath(basePath, mergeTarget)
+
+    const sourceFilename = `${toSnakeCase(title)}.md`
+    const targetFilename = `${toSnakeCase(mergeTargetTitle)}.md`
+
+    const sourceContextPath = join(sourceFolderPath, sourceFilename)
+    const targetContextPath = join(targetFolderPath, targetFilename)
+
+    // Check if both files exist
     const sourceExists = await DirectoryManager.fileExists(sourceContextPath)
     const targetExists = await DirectoryManager.fileExists(targetContextPath)
 
     if (!sourceExists) {
       return {
-        message: `Source topic does not exist: ${path}`,
+        message: `Source file does not exist: ${path}/${sourceFilename}`,
         path,
         status: 'failed',
         type: 'MERGE',
@@ -277,26 +391,27 @@ async function executeMerge(
 
     if (!targetExists) {
       return {
-        message: `Target topic does not exist: ${mergeTarget}`,
+        message: `Target file does not exist: ${mergeTarget}/${targetFilename}`,
         path,
         status: 'failed',
         type: 'MERGE',
       }
     }
 
-    // Read both contexts
+    // Read both files
     const sourceContent = await DirectoryManager.readFile(sourceContextPath)
     const targetContent = await DirectoryManager.readFile(targetContextPath)
 
-    // Merge the contexts using MarkdownWriter
+    // Merge the contents using MarkdownWriter
     const mergedContent = MarkdownWriter.mergeContexts(sourceContent, targetContent)
     await DirectoryManager.writeFileAtomic(targetContextPath, mergedContent)
 
-    // Delete source folder
-    await DirectoryManager.deleteTopicRecursive(sourcePath)
+    // Delete source file (not the entire folder, just the file)
+    await DirectoryManager.deleteFile(sourceContextPath)
 
     return {
-      message: `Merged ${path} into ${mergeTarget}. Reason: ${reason}`,
+      filePath: targetContextPath,
+      message: `Merged ${path}/${sourceFilename} into ${mergeTarget}/${targetFilename}. Reason: ${reason}`,
       path,
       status: 'success',
       type: 'MERGE',
@@ -312,34 +427,58 @@ async function executeMerge(
 }
 
 /**
- * Execute DELETE operation - remove topic/subtopic folder recursively
+ * Execute DELETE operation - remove specific file or entire folder
+ * If title is provided, deletes specific file; if omitted, deletes entire folder
  */
 async function executeDelete(
   basePath: string,
   operation: Operation,
 ): Promise<OperationResult> {
-  const {path, reason} = operation
+  const {path, reason, title} = operation
 
   try {
     const fullPath = buildFullPath(basePath, path)
-    const contextPath = join(fullPath, 'context.md')
 
-    // Check if topic exists
-    const exists = await DirectoryManager.fileExists(contextPath)
+    if (title) {
+      // Delete specific file
+      const filename = `${toSnakeCase(title)}.md`
+      const filePath = join(fullPath, filename)
+
+      const exists = await DirectoryManager.fileExists(filePath)
+      if (!exists) {
+        return {
+          message: `File does not exist: ${path}/${filename}`,
+          path,
+          status: 'failed',
+          type: 'DELETE',
+        }
+      }
+
+      await DirectoryManager.deleteFile(filePath)
+
+      return {
+        message: `Deleted ${path}/${filename}. Reason: ${reason}`,
+        path,
+        status: 'success',
+        type: 'DELETE',
+      }
+    }
+
+    // Delete entire folder (when no title provided)
+    const exists = await DirectoryManager.folderExists(fullPath)
     if (!exists) {
       return {
-        message: `Topic does not exist: ${path}`,
+        message: `Folder does not exist: ${path}`,
         path,
         status: 'failed',
         type: 'DELETE',
       }
     }
 
-    // Delete folder recursively
     await DirectoryManager.deleteTopicRecursive(fullPath)
 
     return {
-      message: `Deleted ${path}. Reason: ${reason}`,
+      message: `Deleted folder ${path}. Reason: ${reason}`,
       path,
       status: 'success',
       type: 'DELETE',
@@ -444,25 +583,35 @@ export function createCurateTool(): Tool {
     description: `Curate knowledge topics with atomic operations. This tool manages the knowledge structure using four operation types:
 
 **Operations:**
-1. **ADD** - Create new domain/topic/subtopic with context.md
-   - Requires: path, content (snippets and/or relations), reason
-   - Example: { type: "ADD", path: "code_style/error-handling", content: { snippets: ["..."], relations: ["logging/basics"] }, reason: "New pattern identified" }
+1. **ADD** - Create new titled context file in domain/topic/subtopic
+   - Requires: path, title, content (snippets and/or relations), reason
+   - Example: { type: "ADD", path: "code_style/error_handling", title: "Best Practices", content: { snippets: ["..."], relations: ["logging/basics"] }, reason: "New pattern" }
+   - Creates: code_style/error_handling/best_practices.md
 
-2. **UPDATE** - Modify existing context.md (full replacement)
-   - Requires: path, content, reason
-   - Example: { type: "UPDATE", path: "code_style/error-handling", content: { snippets: ["Updated content"] }, reason: "Improved guidance" }
+2. **UPDATE** - Modify existing titled context file (full replacement)
+   - Requires: path, title, content, reason
+   - Example: { type: "UPDATE", path: "code_style/error_handling", title: "Best Practices", content: { snippets: ["Updated"] }, reason: "Improved" }
 
-3. **MERGE** - Combine source topic into target, delete source
-   - Requires: path (source), mergeTarget (destination), reason
-   - Example: { type: "MERGE", path: "code_style/old-topic", mergeTarget: "code_style/new-topic", reason: "Consolidating duplicates" }
+3. **MERGE** - Combine source file into target file, delete source
+   - Requires: path (source), title (source file), mergeTarget (destination path), mergeTargetTitle (destination file), reason
+   - Example: { type: "MERGE", path: "code_style/old_topic", title: "Old Guide", mergeTarget: "code_style/new_topic", mergeTargetTitle: "New Guide", reason: "Consolidating" }
 
-4. **DELETE** - Remove topic/subtopic folder recursively
-   - Requires: path, reason
-   - Example: { type: "DELETE", path: "code_style/deprecated-topic", reason: "No longer relevant" }
+4. **DELETE** - Remove specific file or entire folder
+   - Requires: path, title (optional), reason
+   - With title: deletes specific file; without title: deletes entire folder
+   - Example (file): { type: "DELETE", path: "code_style/deprecated", title: "Old Guide", reason: "No longer relevant" }
+   - Example (folder): { type: "DELETE", path: "code_style/deprecated", title: "", reason: "Removing topic" }
 
-**Path format:** domain/topic or domain/topic/subtopic
+**Path format:** domain/topic or domain/topic/subtopic (uses snake_case automatically)
+**File naming:** Titles are converted to snake_case (e.g., "Best Practices" -> "best_practices.md")
 
-**Output:** Returns applied operations with status (success/failed) and a summary of counts.`,
+**Domain constraints:**
+- Predefined domains: code_style, design, structure, compliance, testing, bug_fixes
+- Up to 3 additional custom domains are allowed
+- Always prefer predefined domains when possible
+- Creating new domains beyond the limit will fail
+
+**Output:** Returns applied operations with status (success/failed), filePath (for created/modified files), and a summary of counts.`,
 
     execute: executeCurate,
 

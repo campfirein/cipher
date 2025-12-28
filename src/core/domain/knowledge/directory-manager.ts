@@ -62,6 +62,22 @@ export const DirectoryManager = {
   },
 
   /**
+   * Delete a single file.
+   *
+   * @param filePath - Path to file to delete
+   * @returns Whether the file was deleted
+   */
+  async deleteFile(filePath: string): Promise<{deleted: boolean}> {
+    try {
+      await fs.access(filePath)
+      await fs.unlink(filePath)
+      return {deleted: true}
+    } catch {
+      return {deleted: false}
+    }
+  },
+
+  /**
    * Delete a topic/subtopic folder recursively.
    * Removes the folder and all its contents.
    *
@@ -123,6 +139,21 @@ export const DirectoryManager = {
     try {
       await fs.access(filePath)
       return true
+    } catch {
+      return false
+    }
+  },
+
+  /**
+   * Check if a folder exists.
+   *
+   * @param folderPath - Path to folder
+   * @returns true if folder exists and is a directory, false otherwise
+   */
+  async folderExists(folderPath: string): Promise<boolean> {
+    try {
+      const stat = await fs.stat(folderPath)
+      return stat.isDirectory()
     } catch {
       return false
     }

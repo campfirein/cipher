@@ -1,19 +1,14 @@
 import type {ITokenizer} from '../../../../core/interfaces/cipher/i-tokenizer.js'
-import type {InternalMessage} from '../../../../core/interfaces/cipher/message-types.js'
+import type {InternalMessage, MessagePart} from '../../../../core/interfaces/cipher/message-types.js'
 
 /**
  * Count tokens for a single content part
  *
- * @param part - Content part
- * @param part.text - Text content (for text type)
- * @param part.type - Type of content part
+ * @param part - Content part (text, image, file, reasoning, or tool)
  * @param tokenizer - Tokenizer for counting
  * @returns Token count for the part
  */
-function countPartTokens(
-  part: {text?: string; type: 'file' | 'image' | 'text'},
-  tokenizer: ITokenizer,
-): number {
+function countPartTokens(part: MessagePart, tokenizer: ITokenizer): number {
   switch (part.type) {
     case 'file': {
       // File content - rough estimate
@@ -28,9 +23,26 @@ function countPartTokens(
       return 100
     }
 
+    case 'reasoning': {
+      // Reasoning/thinking content - use tokenizer
+      return tokenizer.countTokens(part.text)
+    }
+
     case 'text': {
       // Text content - use tokenizer
-      return tokenizer.countTokens(part.text ?? '')
+      return tokenizer.countTokens(part.text)
+    }
+
+    case 'tool': {
+      // Tool call part - count input + output tokens
+      let tokens = tokenizer.countTokens(JSON.stringify(part.state.input))
+      if (part.state.status === 'completed') {
+        tokens += tokenizer.countTokens(part.state.output)
+      } else if (part.state.status === 'error') {
+        tokens += tokenizer.countTokens(part.state.error)
+      }
+
+      return tokens
     }
 
     default: {

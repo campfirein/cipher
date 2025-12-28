@@ -1,0 +1,1 @@
+Search conversation history. Supports searching messages or sessions. Can filter by role and session.

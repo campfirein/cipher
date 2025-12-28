@@ -1,3 +1,5 @@
+// TODO(v0.5.0): Remove this file. Consumer locking is no longer needed (one CoreProcess per TUI).
+
 import {getAgentStorage, getAgentStorageSync} from '../storage/agent-storage.js'
 
 // Consumer is considered stale after 30 seconds without heartbeat

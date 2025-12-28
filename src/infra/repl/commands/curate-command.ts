@@ -2,7 +2,6 @@ import {randomUUID} from 'node:crypto'
 
 import {isDevelopment} from '../../../config/environment.js'
 import {type CommandContext, CommandKind, type SlashCommand} from '../../../tui/types.js'
-import {ProjectConfigStore} from '../../config/file-config-store.js'
 import {FileGlobalConfigStore} from "../../storage/file-global-config-store.js";
 import {KeychainTokenStore} from '../../storage/keychain-token-store.js'
 import {ReplTerminal} from '../../terminal/repl-terminal.js'
@@ -44,22 +43,18 @@ export const curateCommand: SlashCommand = {
         }
 
         const terminal = new ReplTerminal({onMessage, onPrompt})
-
         const tokenStore = new KeychainTokenStore()
         const globalConfigStore = new FileGlobalConfigStore()
+
         const useCase = new CurateUseCase({
-          projectConfigStore: new ProjectConfigStore(),
           terminal,
-          tokenStore,
           trackingService: new MixpanelTrackingService({globalConfigStore, tokenStore}),
         })
 
         // Run the use case - mode determined by whether context is provided
         await useCase.run({
-          apiKey: flags.apiKey,
           context: contextText,
           files: files.length > 0 ? files : undefined,
-          model: flags.model,
           verbose: flags.verbose,
         })
 

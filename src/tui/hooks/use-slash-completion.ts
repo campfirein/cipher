@@ -4,7 +4,7 @@ import {useCallback, useEffect, useMemo, useRef, useState} from 'react'
 
 import type {CommandSuggestion, SlashCommand} from '../types.js'
 
-import {useCommands} from '../contexts/use-commands.js'
+import {useCommands} from '../contexts/commands-context.js'
 
 /**
  * Generate file suggestions based on @ prefix
