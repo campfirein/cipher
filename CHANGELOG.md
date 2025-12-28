@@ -2,7 +2,7 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
-## [1.0.0]
+## [1.0.1]
 
 ### Added
 
