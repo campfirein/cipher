@@ -375,6 +375,13 @@ async function tryInitializeAgent(forceReinit = false): Promise<boolean> {
       return false
     }
 
+    // Check if token is expired - fail early with clear message instead of 401 later
+    if (authToken.isExpired()) {
+      initializationError = new NotAuthenticatedError()
+      agentLog('Cannot initialize - token expired (please run /login to re-authenticate)')
+      return false
+    }
+
     // Create Executors
     const curateExecutor = new CurateExecutor()
     const queryExecutor = new QueryExecutor()

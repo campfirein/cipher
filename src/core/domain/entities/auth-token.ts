@@ -36,9 +36,12 @@ export class AuthToken {
    * @returns An instance of AuthToken, or undefined if required fields are missing
    */
   public static fromJson(json: Record<string, string>): AuthToken | undefined {
-    // Validate that new required fields exist (for backward compatibility with old tokens)
-    if (!json.userId || !json.userEmail) {
-      return undefined
+    // Validate ALL required fields exist (prevents corrupted/incomplete tokens from being loaded)
+    const requiredFields = ['accessToken', 'sessionKey', 'refreshToken', 'userId', 'userEmail', 'expiresAt']
+    for (const field of requiredFields) {
+      if (!json[field]) {
+        return undefined
+      }
     }
 
     return new AuthToken({
