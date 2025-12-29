@@ -30,7 +30,7 @@ export class CurateExecutor implements ICurateExecutor {
    * @returns Result string from agent execution
    */
   public async executeWithAgent(agent: ICipherAgent, options: CurateExecuteOptions): Promise<string> {
-    const {content, files, taskId} = options
+    const {content, cwd, files, taskId} = options
 
     // Initialize storage for execution tracking
     const storage = await getAgentStorage()
@@ -38,7 +38,8 @@ export class CurateExecutor implements ICurateExecutor {
 
     try {
       // Process file references if provided (validation + instructions)
-      const fileReferenceInstructions = this.processFileReferences(files ?? [])
+      // Use client's cwd if provided, otherwise fall back to agent's cwd
+      const fileReferenceInstructions = this.processFileReferences(files ?? [], cwd)
       if (fileReferenceInstructions === undefined) {
         throw new FileValidationError()
       }
@@ -87,10 +88,11 @@ export class CurateExecutor implements ICurateExecutor {
    * Process file paths from --files flag.
    *
    * @param filePaths - Array of file paths (relative or absolute)
+   * @param clientCwd - Client's working directory for file validation (optional, defaults to process.cwd())
    * @returns Formatted instructions for the agent to read the specified files,
    *          or undefined if validation fails
    */
-  private processFileReferences(filePaths: string[]): string | undefined {
+  private processFileReferences(filePaths: string[], clientCwd?: string): string | undefined {
     if (!filePaths || filePaths.length === 0) {
       return ''
     }
@@ -101,8 +103,10 @@ export class CurateExecutor implements ICurateExecutor {
       processedPaths = filePaths.slice(0, CurateExecutor.MAX_FILES)
     }
 
-    // Get project root (current directory)
-    const projectRoot = process.cwd()
+    // Use client's working directory if provided, otherwise fall back to agent's cwd
+    // This fixes the bug where files are validated against the agent's cwd instead of
+    // the client's cwd when 'brv curate' is called from a different directory
+    const projectRoot = clientCwd ?? process.cwd()
 
     // Validate each file and collect errors
     const validPaths: string[] = []

@@ -12,6 +12,8 @@ import {NoOpLogger} from '../../core/interfaces/cipher/i-logger.js'
 export type TaskInput = {
   /** Task content/prompt */
   content: string
+  /** Client's working directory for file validation */
+  cwd?: string
   /** Optional file paths for curate --files */
   files?: string[]
   /** Task ID */
@@ -145,6 +147,7 @@ export class TaskProcessor {
         // Agent uses its default session (Single-Session pattern)
         return this.curateExecutor.executeWithAgent(this.agent, {
           content,
+          cwd: input.cwd,
           files: input.files,
           taskId,
         })

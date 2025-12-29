@@ -59,8 +59,10 @@ export class CurateUseCase implements ICurateUseCase {
       const taskId = randomUUID()
 
       // Send task:create - Transport routes to Agent, UseCase handles logic
+      // Include cwd so Agent can validate files against the client's working directory
       await client.request<TaskCreateResponse>('task:create', {
         content: context,
+        cwd: process.cwd(),
         ...(files?.length ? {files} : {}),
         taskId,
         type: 'curate',
