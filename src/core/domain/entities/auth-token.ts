@@ -37,7 +37,7 @@ export class AuthToken {
    */
   public static fromJson(json: Record<string, string>): AuthToken | undefined {
     // Validate ALL required fields exist (prevents corrupted/incomplete tokens from being loaded)
-    const requiredFields = ['accessToken', 'sessionKey', 'refreshToken', 'userId', 'userEmail', 'expiresAt']
+    const requiredFields = ['accessToken', 'expiresAt', 'refreshToken', 'sessionKey', 'userEmail', 'userId'] as const satisfies readonly (keyof AuthToken)[]
     for (const field of requiredFields) {
       if (!json[field]) {
         return undefined
