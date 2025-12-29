@@ -204,6 +204,66 @@ describe('AuthToken', () => {
       expect(token).to.be.undefined
     })
 
+    it('should return undefined when accessToken is missing (corrupted token)', () => {
+      const json = {
+        expiresAt: '2024-12-31T23:59:59.000Z',
+        refreshToken: 'refresh-token',
+        sessionKey: 'session-abc135',
+        tokenType: 'Bearer',
+        userEmail: 'user@example.com',
+        userId: 'user-id-135',
+      }
+
+      const token = AuthToken.fromJson(json)
+
+      expect(token).to.be.undefined
+    })
+
+    it('should return undefined when sessionKey is missing (corrupted token)', () => {
+      const json = {
+        accessToken: 'access-token',
+        expiresAt: '2024-12-31T23:59:59.000Z',
+        refreshToken: 'refresh-token',
+        tokenType: 'Bearer',
+        userEmail: 'user@example.com',
+        userId: 'user-id-136',
+      }
+
+      const token = AuthToken.fromJson(json)
+
+      expect(token).to.be.undefined
+    })
+
+    it('should return undefined when refreshToken is missing (corrupted token)', () => {
+      const json = {
+        accessToken: 'access-token',
+        expiresAt: '2024-12-31T23:59:59.000Z',
+        sessionKey: 'session-abc137',
+        tokenType: 'Bearer',
+        userEmail: 'user@example.com',
+        userId: 'user-id-137',
+      }
+
+      const token = AuthToken.fromJson(json)
+
+      expect(token).to.be.undefined
+    })
+
+    it('should return undefined when expiresAt is missing (corrupted token)', () => {
+      const json = {
+        accessToken: 'access-token',
+        refreshToken: 'refresh-token',
+        sessionKey: 'session-abc138',
+        tokenType: 'Bearer',
+        userEmail: 'user@example.com',
+        userId: 'user-id-138',
+      }
+
+      const token = AuthToken.fromJson(json)
+
+      expect(token).to.be.undefined
+    })
+
     it('should round-trip serialize and deserialize correctly', () => {
       const expiresAt = new Date('2024-12-31T23:59:59.000Z')
       const originalToken = new AuthToken({

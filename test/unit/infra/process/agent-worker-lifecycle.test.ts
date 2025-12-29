@@ -39,10 +39,11 @@ describe('Agent Worker Lifecycle', () => {
     class InitializationStateMachine {
       public initializationError: Error | undefined
       public isAgentInitialized = false
-private initCount = 0
+      private initCount = 0
       private isInitializing = false
       private mockAuthToken: undefined | {accessToken: string; sessionKey: string}
       private mockBrvConfig: undefined | {spaceId: string; teamId: string}
+      private mockTokenExpired = false
 
       constructor() {
         // Default to having auth token
@@ -59,6 +60,10 @@ private initCount = 0
 
       setConfig(config: undefined | {spaceId: string; teamId: string}): void {
         this.mockBrvConfig = config
+      }
+
+      setTokenExpired(expired: boolean): void {
+        this.mockTokenExpired = expired
       }
 
       async tryInitializeAgent(forceReinit = false): Promise<boolean> {
@@ -83,6 +88,12 @@ private initCount = 0
           // Simulate auth check
           if (!this.mockAuthToken) {
             this.initializationError = new Error('NotAuthenticatedError')
+            return false
+          }
+
+          // Simulate expired token check (mirrors agent-worker.ts behavior)
+          if (this.mockTokenExpired) {
+            this.initializationError = new Error('NotAuthenticatedError: Session expired')
             return false
           }
 
@@ -141,6 +152,34 @@ private initCount = 0
       expect(result).to.be.false
       expect(state.isAgentInitialized).to.be.false
       expect(state.initializationError?.message).to.equal('NotAuthenticatedError')
+    })
+
+    it('should fail initialization when token is expired', async () => {
+      const state = new InitializationStateMachine()
+      state.setTokenExpired(true)
+
+      const result = await state.tryInitializeAgent()
+
+      expect(result).to.be.false
+      expect(state.isAgentInitialized).to.be.false
+      expect(state.initializationError?.message).to.include('expired')
+    })
+
+    it('should clear expired state and initialize after fresh login', async () => {
+      const state = new InitializationStateMachine()
+
+      // First: token is expired
+      state.setTokenExpired(true)
+      let result = await state.tryInitializeAgent()
+      expect(result).to.be.false
+
+      // After fresh login: token is valid
+      state.setTokenExpired(false)
+      result = await state.tryInitializeAgent()
+
+      expect(result).to.be.true
+      expect(state.isAgentInitialized).to.be.true
+      expect(state.initializationError).to.be.undefined
     })
 
     // NOTE: Config change detection tests removed - use explicit agent:restart event instead
