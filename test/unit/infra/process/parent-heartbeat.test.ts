@@ -267,23 +267,13 @@ describe('Parent Heartbeat Mechanism (Recursive setTimeout)', () => {
 
     it('should be called in all exit scenarios', () => {
       const exitScenarios = ['SIGTERM', 'SIGINT', 'disconnect', 'parentDeath', 'gracefulShutdown']
-      const heartbeatStopped = new Map<string, boolean>()
 
+      // Each exit scenario should trigger heartbeat stop
+      // After stopHeartbeat() is called, running becomes false
       for (const scenario of exitScenarios) {
         let running = true
-
-        const stopHeartbeat = (): void => {
-          running = false
-        }
-
-        // Simulate exit scenario
-        stopHeartbeat()
-        heartbeatStopped.set(scenario, !running)
-      }
-
-      // All scenarios should have stopped the heartbeat
-      for (const scenario of exitScenarios) {
-        expect(heartbeatStopped.get(scenario)).to.be.true
+        running = false // Simulates stopHeartbeat() being called
+        expect(!running, `${scenario} should stop heartbeat`).to.be.true
       }
     })
   })
@@ -319,7 +309,8 @@ describe('Parent Heartbeat Mechanism (Recursive setTimeout)', () => {
     })
 
     it('should handle parentPid being undefined', () => {
-      let parentPid: number | undefined
+      // Explicitly set to undefined to test guard clause behavior
+      const parentPid: number | undefined = undefined
       let checkExecuted = false
 
       const checkParent = (): void => {
