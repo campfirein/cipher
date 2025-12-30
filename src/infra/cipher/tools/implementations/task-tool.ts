@@ -13,6 +13,16 @@ import {createContextTreeFileSystem} from '../../file-system/context-tree-file-s
 /** Cache for loaded agent prompts. */
 const agentPromptCache = new Map<string, string>()
 
+/** Type predicate to check if parsed YAML has a prompt field. */
+function hasPromptField(value: unknown): value is {prompt: string} {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'prompt' in value &&
+    typeof (value as {prompt: unknown}).prompt === 'string'
+  )
+}
+
 /** Load agent prompt from YAML file with caching. */
 function loadAgentPrompt(promptFile: string): string {
   if (agentPromptCache.has(promptFile)) {
@@ -29,8 +39,8 @@ function loadAgentPrompt(promptFile: string): string {
     }
 
     const yamlContent = fs.readFileSync(fullPath, 'utf8')
-    const parsed = loadYaml(yamlContent) as {prompt?: string}
-    const prompt = parsed?.prompt ?? ''
+    const parsed = loadYaml(yamlContent)
+    const prompt = hasPromptField(parsed) ? parsed.prompt : ''
     agentPromptCache.set(promptFile, prompt)
 
     return prompt
