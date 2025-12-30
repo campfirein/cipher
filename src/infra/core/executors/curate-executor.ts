@@ -22,13 +22,6 @@ export class CurateExecutor implements ICurateExecutor {
    */
   private static readonly MAX_FILES = 5
 
-  /**
-   * Execute curate with an injected agent.
-   *
-   * @param agent - Long-lived CipherAgent (managed by caller)
-   * @param options - Execution options (content, file references)
-   * @returns Result string from agent execution
-   */
   public async executeWithAgent(agent: ICipherAgent, options: CurateExecuteOptions): Promise<string> {
     const {clientCwd, content, files, taskId} = options
 

@@ -14,13 +14,6 @@ import type {IQueryExecutor, QueryExecuteOptions} from '../../../core/interfaces
  * - Executor focuses solely on query execution
  */
 export class QueryExecutor implements IQueryExecutor {
-  /**
-   * Execute query with an injected agent.
-   *
-   * @param agent - Long-lived CipherAgent (managed by caller)
-   * @param options - Execution options (query)
-   * @returns Result string from agent execution
-   */
   public async executeWithAgent(agent: ICipherAgent, options: QueryExecuteOptions): Promise<string> {
     const {query, taskId} = options
 

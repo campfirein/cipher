@@ -22,7 +22,6 @@ import {randomUUID} from 'node:crypto'
 
 import type {AgentEventMap} from '../../core/domain/cipher/agent-events/types.js'
 import type {TaskCancel, TaskExecute} from '../../core/domain/transport/schemas.js'
-import type {ICipherAgent} from '../../core/interfaces/cipher/i-cipher-agent.js'
 import type {ITransportClient} from '../../core/interfaces/transport/i-transport-client.js'
 import type {AgentIPCResponse, IPCCommand} from './ipc-types.js'
 
@@ -65,7 +64,7 @@ function logTransportError(error: unknown): void {
 
 let transportClient: ITransportClient | undefined
 let taskProcessor: TaskProcessor | undefined
-let cipherAgent: ICipherAgent | undefined
+let cipherAgent: CipherAgent | undefined
 
 /** ChatSession ID - created once when agent starts, used for all tasks */
 let chatSessionId: string | undefined
@@ -142,8 +141,7 @@ function cleanupAgentEventForwarding(): void {
   }
 
   // Get the old agent's event bus (if still available)
-  // Cast to CipherAgent to access agentEventBus property
-  const eventBus = (cipherAgent as CipherAgent | undefined)?.agentEventBus
+  const eventBus = cipherAgent?.agentEventBus
   if (eventBus) {
     for (const {event, handler} of eventForwarders) {
       eventBus.off(event as 'llmservice:thinking', handler as () => void)
@@ -359,7 +357,7 @@ async function tryInitializeAgent(forceReinit = false): Promise<boolean> {
     if (forceReinit && cipherAgent) {
       agentLog('Reinitializing with new config...')
       try {
-        await (cipherAgent as CipherAgent).stop()
+        await cipherAgent.stop()
       } catch (error) {
         agentLog(`Error stopping previous agent: ${error}`)
       }
@@ -708,7 +706,7 @@ async function stopAgent(): Promise<void> {
 
     // Stop CipherAgent first
     if (cipherAgent) {
-      await (cipherAgent as CipherAgent).stop()
+      await cipherAgent.stop()
       cipherAgent = undefined
       agentLog('CipherAgent stopped')
     }
