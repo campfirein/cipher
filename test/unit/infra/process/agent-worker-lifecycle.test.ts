@@ -39,10 +39,11 @@ describe('Agent Worker Lifecycle', () => {
     class InitializationStateMachine {
       public initializationError: Error | undefined
       public isAgentInitialized = false
-private initCount = 0
+      private initCount = 0
       private isInitializing = false
       private mockAuthToken: undefined | {accessToken: string; sessionKey: string}
       private mockBrvConfig: undefined | {spaceId: string; teamId: string}
+      private shouldThrowOnStart: Error | undefined
 
       constructor() {
         // Default to having auth token
@@ -57,8 +58,16 @@ private initCount = 0
         return this.initCount
       }
 
+      getIsInitializing(): boolean {
+        return this.isInitializing
+      }
+
       setConfig(config: undefined | {spaceId: string; teamId: string}): void {
         this.mockBrvConfig = config
+      }
+
+      setThrowOnStart(error: Error | undefined): void {
+        this.shouldThrowOnStart = error
       }
 
       async tryInitializeAgent(forceReinit = false): Promise<boolean> {
@@ -86,12 +95,22 @@ private initCount = 0
             return false
           }
 
+          // Simulate agent.start() throwing (e.g., SQLite module mismatch)
+          if (this.shouldThrowOnStart) {
+            throw this.shouldThrowOnStart
+          }
+
           // Simulate agent creation
           this.initCount++
 
           this.isAgentInitialized = true
           this.initializationError = undefined
           return true
+        } catch (error) {
+          // NEW: Catch errors and return false instead of throwing
+          // This matches the fix in agent-worker.ts
+          this.initializationError = error instanceof Error ? error : new Error(String(error))
+          return false
         } finally {
           this.isInitializing = false
         }
@@ -144,6 +163,69 @@ private initCount = 0
     })
 
     // NOTE: Config change detection tests removed - use explicit agent:restart event instead
+
+    describe('Error Handling on Init Failure (ENG-805 fix)', () => {
+      it('should return false when agent.start() throws (instead of crashing)', async () => {
+        const state = new InitializationStateMachine()
+        const sqliteError = new Error('SQLite module version mismatch: NODE_MODULE_VERSION 127 vs 141')
+        state.setThrowOnStart(sqliteError)
+
+        // This should NOT throw - it should return false
+        const result = await state.tryInitializeAgent()
+
+        expect(result).to.be.false
+        expect(state.isAgentInitialized).to.be.false
+      })
+
+      it('should set initializationError when agent.start() throws', async () => {
+        const state = new InitializationStateMachine()
+        const blobError = new Error('Blob storage initialization error: SQLite native module failed')
+        state.setThrowOnStart(blobError)
+
+        await state.tryInitializeAgent()
+
+        expect(state.initializationError).to.not.be.undefined
+        expect(state.initializationError?.message).to.equal(blobError.message)
+      })
+
+      it('should reset isInitializing flag even when error occurs', async () => {
+        const state = new InitializationStateMachine()
+        state.setThrowOnStart(new Error('Any initialization error'))
+
+        await state.tryInitializeAgent()
+
+        // isInitializing should be reset to false in finally block
+        expect(state.getIsInitializing()).to.be.false
+      })
+
+      it('should allow retry after initialization error', async () => {
+        const state = new InitializationStateMachine()
+
+        // First attempt fails
+        state.setThrowOnStart(new Error('Temporary error'))
+        const result1 = await state.tryInitializeAgent()
+        expect(result1).to.be.false
+        expect(state.initializationError?.message).to.equal('Temporary error')
+
+        // Fix the issue and retry
+        state.setThrowOnStart(undefined) // Clear the error condition
+        const result2 = await state.tryInitializeAgent()
+        expect(result2).to.be.true
+        expect(state.isAgentInitialized).to.be.true
+        expect(state.initializationError).to.be.undefined
+      })
+
+      it('should handle non-Error thrown objects', async () => {
+        const state = new InitializationStateMachine()
+        // Test with a string thrown (edge case)
+        state.setThrowOnStart({message: 'String error thrown'} as Error)
+
+        const result = await state.tryInitializeAgent()
+
+        expect(result).to.be.false
+        expect(state.initializationError).to.be.instanceOf(Error)
+      })
+    })
   })
 
   describe('Concurrent Initialization Guard', () => {

@@ -78,6 +78,13 @@ let isInitializing = false
 /** Guard: prevent double cleanup */
 let isCleaningUp = false
 
+/** Parent process PID for heartbeat monitoring */
+let parentPid: number | undefined
+/** Parent heartbeat running flag (for recursive setTimeout pattern) */
+let parentHeartbeatRunning = false
+/** Parent heartbeat check interval in milliseconds */
+const PARENT_HEARTBEAT_INTERVAL_MS = 2000
+
 /**
  * Stored event forwarder references for cleanup on reinit.
  * Prevents memory leaks from accumulating listeners.
@@ -432,6 +439,12 @@ async function tryInitializeAgent(forceReinit = false): Promise<boolean> {
     }
 
     return true
+  } catch (error) {
+    // Catch errors and return false instead of throwing
+    // This allows lazy init to retry when tasks arrive
+    initializationError = error instanceof Error ? error : new Error(String(error))
+    agentLog(`Agent initialization failed: ${error}`)
+    return false
   } finally {
     isInitializing = false
   }
@@ -601,6 +614,76 @@ async function startAgent(): Promise<void> {
   agentLog('Ready to process tasks')
 }
 
+// ============================================================================
+// Parent Heartbeat Monitoring
+// ============================================================================
+
+/**
+ * Setup parent process heartbeat monitoring.
+ *
+ * Why this is needed:
+ * - When main process receives SIGKILL, it dies immediately
+ * - SIGKILL cannot be caught, so no cleanup happens
+ * - IPC 'disconnect' event may not fire
+ * - Child processes become orphans (PPID = 1)
+ *
+ * This function periodically checks if parent is still alive.
+ * If parent dies, child self-terminates to prevent zombie processes.
+ */
+function setupParentHeartbeat(): void {
+  // Already running - don't start another
+  if (parentHeartbeatRunning) return
+
+  parentHeartbeatRunning = true
+  parentPid = process.ppid
+
+  /**
+   * Recursive setTimeout pattern - safer than setInterval:
+   * - No callback overlap possible
+   * - Clean cancellation (just set flag = false)
+   * - No orphan timers
+   */
+  const checkParent = (): void => {
+    // Stopped - don't schedule next check
+    if (!parentHeartbeatRunning || !parentPid) return
+
+    // Check if parent is still alive using signal 0
+    // Signal 0 doesn't send any signal, just checks if process exists
+    try {
+      process.kill(parentPid, 0)
+    } catch {
+      // Parent is dead - self-terminate
+      agentLog(`Parent process (${parentPid}) died - shutting down to prevent zombie`)
+      parentHeartbeatRunning = false
+      // Stop agent and exit
+      stopAgent()
+        .catch(() => {})
+        .finally(() => {
+          // eslint-disable-next-line n/no-process-exit, unicorn/no-process-exit
+          process.exit(0)
+        })
+      return
+    }
+
+    // Schedule next check (only if still running)
+    if (parentHeartbeatRunning) {
+      setTimeout(checkParent, PARENT_HEARTBEAT_INTERVAL_MS)
+    }
+  }
+
+  // Start first check after delay
+  setTimeout(checkParent, PARENT_HEARTBEAT_INTERVAL_MS)
+  agentLog(`Parent heartbeat monitoring started (PPID: ${parentPid})`)
+}
+
+/**
+ * Stop the parent heartbeat monitoring.
+ * With recursive setTimeout, just set flag to false - next check won't schedule.
+ */
+function stopParentHeartbeat(): void {
+  parentHeartbeatRunning = false
+}
+
 /**
  * Stop Agent Process.
  */
@@ -614,6 +697,9 @@ async function stopAgent(): Promise<void> {
   isCleaningUp = true
 
   try {
+    // Stop parent heartbeat first
+    stopParentHeartbeat()
+
     // Clear task queue
     taskQueueManager.clear()
 
@@ -648,10 +734,16 @@ async function runWorker(): Promise<void> {
   try {
     await startAgent()
     sendToParent({type: 'ready'})
+
+    // Start parent heartbeat monitoring after ready
+    // This ensures we self-terminate if parent dies (SIGKILL scenario)
+    setupParentHeartbeat()
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     agentLog(`Failed to start: ${message}`)
     sendToParent({error: message, type: 'error'})
+    // Cleanup before exit to release any acquired resources
+    await stopAgent().catch(() => {})
     // eslint-disable-next-line n/no-process-exit, unicorn/no-process-exit
     process.exit(1)
   }
@@ -678,6 +770,21 @@ async function runWorker(): Promise<void> {
   process.once('SIGTERM', cleanup)
   process.once('SIGINT', cleanup)
   process.once('disconnect', cleanup)
+
+  // Global exception handlers - ensure cleanup on unexpected errors
+  process.on('uncaughtException', async (error) => {
+    agentLog(`Uncaught exception: ${error}`)
+    await stopAgent().catch(() => {})
+    // eslint-disable-next-line n/no-process-exit
+    process.exit(1)
+  })
+
+  process.on('unhandledRejection', async (reason) => {
+    agentLog(`Unhandled rejection: ${reason}`)
+    await stopAgent().catch(() => {})
+    // eslint-disable-next-line n/no-process-exit
+    process.exit(1)
+  })
 }
 
 // ============================================================================
@@ -688,6 +795,8 @@ try {
   await runWorker()
 } catch (error) {
   agentLog(`Fatal error: ${error}`)
+  // Cleanup before exit to release any acquired resources
+  await stopAgent().catch(() => {})
   // eslint-disable-next-line n/no-process-exit, unicorn/no-process-exit
   process.exit(1)
 }
