@@ -441,7 +441,7 @@ async function tryInitializeAgent(forceReinit = false): Promise<boolean> {
  * Handle task:execute from Transport.
  */
 async function handleTaskExecute(data: TaskExecute): Promise<void> {
-  const {content, cwd, files, taskId, type} = data
+  const {clientCwd, content, files, taskId, type} = data
 
   agentLog(`Processing task: ${taskId} (type=${type})`)
 
@@ -479,8 +479,8 @@ async function handleTaskExecute(data: TaskExecute): Promise<void> {
     // File validation is handled by UseCase (business logic belongs there)
     // Note: taskId is passed to UseCase → CipherAgent → ChatSession, which adds it to all events
     const result = await taskProcessor.process({
+      clientCwd,
       content,
-      cwd,
       files,
       taskId,
       type,

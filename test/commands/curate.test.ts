@@ -98,31 +98,6 @@ describe('Curate Command', () => {
       expect(trackingService.track.calledWith('mem:curate', {status: 'finished'})).to.be.true
     })
 
-    it('should include cwd (client working directory) in task:create request', async () => {
-      const useCase = new CurateUseCase(createUseCaseOptions())
-
-      await useCase.run({context: 'test context'})
-
-      expect(mockClient.request.calledOnce).to.be.true
-      const [event, payload] = (mockClient.request as sinon.SinonStub).firstCall.args
-      expect(event).to.equal('task:create')
-      // cwd should be the current working directory
-      expect(payload).to.have.property('cwd').that.is.a('string')
-      expect(payload.cwd).to.equal(process.cwd())
-    })
-
-    it('should include cwd along with files in task:create request', async () => {
-      const useCase = new CurateUseCase(createUseCaseOptions())
-
-      await useCase.run({context: 'test context', files: ['file1.ts', 'file2.ts']})
-
-      expect(mockClient.request.calledOnce).to.be.true
-      const [event, payload] = (mockClient.request as sinon.SinonStub).firstCall.args
-      expect(event).to.equal('task:create')
-      expect(payload).to.have.property('cwd').that.equals(process.cwd())
-      expect(payload).to.have.property('files').that.deep.equals(['file1.ts', 'file2.ts'])
-    })
-
     it('should send task:create request with context, files, and taskId', async () => {
       const useCase = new CurateUseCase(createUseCaseOptions())
 

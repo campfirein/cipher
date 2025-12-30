@@ -13,7 +13,7 @@ export type TaskInput = {
   /** Task content/prompt */
   content: string
   /** Client's working directory for file validation */
-  cwd?: string
+  clientCwd?: string
   /** Optional file paths for curate --files */
   files?: string[]
   /** Task ID */
@@ -146,8 +146,8 @@ export class TaskProcessor {
       case 'curate': {
         // Agent uses its default session (Single-Session pattern)
         return this.curateExecutor.executeWithAgent(this.agent, {
+          clientCwd: input.clientCwd,
           content,
-          cwd: input.cwd,
           files: input.files,
           taskId,
         })

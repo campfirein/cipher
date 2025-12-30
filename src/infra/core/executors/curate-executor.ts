@@ -30,16 +30,14 @@ export class CurateExecutor implements ICurateExecutor {
    * @returns Result string from agent execution
    */
   public async executeWithAgent(agent: ICipherAgent, options: CurateExecuteOptions): Promise<string> {
-    const {content, cwd, files, taskId} = options
+    const {clientCwd, content, files, taskId} = options
 
     // Initialize storage for execution tracking
     const storage = await getAgentStorage()
     let executionId: null | string = null
 
     try {
-      // Process file references if provided (validation + instructions)
-      // Use client's cwd if provided, otherwise fall back to agent's cwd
-      const fileReferenceInstructions = this.processFileReferences(files ?? [], cwd)
+      const fileReferenceInstructions = this.processFileReferences(files ?? [], clientCwd)
       if (fileReferenceInstructions === undefined) {
         throw new FileValidationError()
       }
@@ -103,9 +101,6 @@ export class CurateExecutor implements ICurateExecutor {
       processedPaths = filePaths.slice(0, CurateExecutor.MAX_FILES)
     }
 
-    // Use client's working directory if provided, otherwise fall back to agent's cwd
-    // This fixes the bug where files are validated against the agent's cwd instead of
-    // the client's cwd when 'brv curate' is called from a different directory
     const projectRoot = clientCwd ?? process.cwd()
 
     // Validate each file and collect errors

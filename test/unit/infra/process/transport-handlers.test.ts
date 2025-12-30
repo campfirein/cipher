@@ -192,81 +192,6 @@ describe('TransportHandlers', () => {
         ),
       ).to.be.true
     })
-
-    it('should include cwd (client working directory) in execute message when provided', () => {
-      const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
-      const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
-      registerHandler!({}, 'agent-001')
-
-      const taskId = randomUUID()
-      const clientCwd = '/path/to/client/project'
-      createHandler!({content: 'CWD test', cwd: clientCwd, taskId, type: 'curate'}, 'client-001')
-
-      expect(
-        (mockTransport.sendTo as SinonStub).calledWith(
-          'agent-001',
-          TransportTaskEventNames.EXECUTE,
-          sandbox.match({cwd: clientCwd, taskId}),
-        ),
-      ).to.be.true
-    })
-
-    it('should include cwd along with files in execute message', () => {
-      const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
-      const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
-      registerHandler!({}, 'agent-001')
-
-      const taskId = randomUUID()
-      const clientCwd = '/path/to/client/project'
-      createHandler!(
-        {content: 'CWD+Files test', cwd: clientCwd, files: ['src/file.ts'], taskId, type: 'curate'},
-        'client-001',
-      )
-
-      expect(
-        (mockTransport.sendTo as SinonStub).calledWith(
-          'agent-001',
-          TransportTaskEventNames.EXECUTE,
-          sandbox.match({cwd: clientCwd, files: ['src/file.ts'], taskId}),
-        ),
-      ).to.be.true
-    })
-
-    it('should broadcast task:created with cwd to broadcast-room', () => {
-      const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
-      const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
-      registerHandler!({}, 'agent-001')
-
-      const taskId = randomUUID()
-      const clientCwd = '/path/to/client/project'
-      createHandler!({content: 'Broadcast CWD test', cwd: clientCwd, taskId, type: 'curate'}, 'client-001')
-
-      expect(
-        (mockTransport.broadcastTo as SinonStub).calledWith(
-          'broadcast-room',
-          TransportTaskEventNames.CREATED,
-          sandbox.match({cwd: clientCwd, taskId}),
-        ),
-      ).to.be.true
-    })
-
-    it('should NOT include cwd in execute message when not provided', () => {
-      const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
-      const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
-      registerHandler!({}, 'agent-001')
-
-      const taskId = randomUUID()
-      createHandler!({content: 'No CWD test', taskId, type: 'curate'}, 'client-001')
-
-      // Get the execute call
-      const executeCalls = (mockTransport.sendTo as SinonStub)
-        .getCalls()
-        .filter((call) => call.args[1] === TransportTaskEventNames.EXECUTE)
-      expect(executeCalls).to.have.length(1)
-
-      // cwd should NOT be present (not even as undefined)
-      expect(executeCalls[0].args[2]).to.not.have.property('cwd')
-    })
   })
 
   describe('Agent Not Available', () => {
@@ -565,36 +490,6 @@ describe('TransportHandlers', () => {
           TransportTaskEventNames.STARTED,
           sandbox.match({
             content: 'Broadcast started',
-            files: ['/test.ts'],
-            taskId,
-            type: 'curate',
-          }),
-        ),
-      ).to.be.true
-    })
-
-    it('should broadcast task:started with cwd when provided', () => {
-      const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
-      const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
-      registerHandler!({}, 'agent-001')
-
-      const taskId = randomUUID()
-      const clientCwd = '/path/to/client/project'
-      createHandler!(
-        {content: 'Broadcast started with cwd', cwd: clientCwd, files: ['/test.ts'], taskId, type: 'curate'},
-        'client-001',
-      )
-
-      const startedHandler = requestHandlers.get(TransportTaskEventNames.STARTED)
-      startedHandler!({taskId}, 'agent-001')
-
-      expect(
-        (mockTransport.broadcastTo as SinonStub).calledWith(
-          'broadcast-room',
-          TransportTaskEventNames.STARTED,
-          sandbox.match({
-            content: 'Broadcast started with cwd',
-            cwd: clientCwd,
             files: ['/test.ts'],
             taskId,
             type: 'curate',

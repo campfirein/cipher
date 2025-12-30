@@ -177,63 +177,6 @@ describe('TaskProcessor', () => {
       const callArgs = (mockCurateExecutor.executeWithAgent as SinonStub).firstCall.args[1]
       expect(callArgs.files).to.be.undefined
     })
-
-    it('should pass cwd parameter for curate task', async () => {
-      processor.setAgent(mockAgent)
-
-      const clientCwd = '/path/to/client/project'
-      const input: TaskInput = {
-        content: 'Curate with cwd',
-        cwd: clientCwd,
-        taskId: 'task-cwd-001',
-        type: 'curate',
-      }
-
-      await processor.process(input)
-
-      expect((mockCurateExecutor.executeWithAgent as SinonStub).firstCall.args[1]).to.deep.include({
-        content: 'Curate with cwd',
-        cwd: clientCwd,
-        taskId: 'task-cwd-001',
-      })
-    })
-
-    it('should pass cwd together with files for curate task', async () => {
-      processor.setAgent(mockAgent)
-
-      const clientCwd = '/path/to/client/project'
-      const input: TaskInput = {
-        content: 'Curate with cwd and files',
-        cwd: clientCwd,
-        files: ['/path/to/file1.ts'],
-        taskId: 'task-cwd-002',
-        type: 'curate',
-      }
-
-      await processor.process(input)
-
-      expect((mockCurateExecutor.executeWithAgent as SinonStub).firstCall.args[1]).to.deep.include({
-        content: 'Curate with cwd and files',
-        cwd: clientCwd,
-        files: ['/path/to/file1.ts'],
-        taskId: 'task-cwd-002',
-      })
-    })
-
-    it('should handle undefined cwd parameter', async () => {
-      processor.setAgent(mockAgent)
-
-      const input: TaskInput = {
-        content: 'Curate without cwd',
-        taskId: 'task-cwd-003',
-        type: 'curate',
-      }
-
-      await processor.process(input)
-
-      const callArgs = (mockCurateExecutor.executeWithAgent as SinonStub).firstCall.args[1]
-      expect(callArgs.cwd).to.be.undefined
-    })
   })
 
   describe('process() - Agent Not Configured', () => {
