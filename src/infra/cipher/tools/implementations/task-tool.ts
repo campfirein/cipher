@@ -1,3 +1,7 @@
+import {load as loadYaml} from 'js-yaml'
+import fs from 'node:fs'
+import path from 'node:path'
+import {fileURLToPath} from 'node:url'
 import {z} from 'zod'
 
 import type {Tool, ToolExecutionContext} from '../../../../core/domain/cipher/tools/types.js'
@@ -5,6 +9,35 @@ import type {SessionManager} from '../../session/session-manager.js'
 
 import {AgentRegistry, getAgentRegistry} from '../../../../core/domain/cipher/agent/agent-registry.js'
 import {createContextTreeFileSystem} from '../../file-system/context-tree-file-system-factory.js'
+
+/** Cache for loaded agent prompts. */
+const agentPromptCache = new Map<string, string>()
+
+/** Load agent prompt from YAML file with caching. */
+function loadAgentPrompt(promptFile: string): string {
+  if (agentPromptCache.has(promptFile)) {
+    return agentPromptCache.get(promptFile)!
+  }
+
+  try {
+    const currentDir = path.dirname(fileURLToPath(import.meta.url))
+    const promptsDir = path.join(currentDir, '../../../../resources/prompts')
+    const fullPath = path.join(promptsDir, promptFile)
+
+    if (!fs.existsSync(fullPath)) {
+      return ''
+    }
+
+    const yamlContent = fs.readFileSync(fullPath, 'utf8')
+    const parsed = loadYaml(yamlContent) as {prompt?: string}
+    const prompt = parsed?.prompt ?? ''
+    agentPromptCache.set(promptFile, prompt)
+
+    return prompt
+  } catch {
+    return ''
+  }
+}
 
 /**
  * Tool name constant for task tool.
@@ -181,14 +214,20 @@ export function createTaskTool(dependencies: TaskToolDependencies): Tool {
         }
 
         // Build the system prompt for the subagent
-        // The agent's promptFile will be used by the SystemPromptManager
-        const agentPromptSection = agent.promptFile
-          ? `\n\n[Agent: ${agent.name}]\nUsing prompt from: ${agent.promptFile}`
-          : agent.prompt
-          ? `\n\n[Agent: ${agent.name}]\n${agent.prompt}`
-          : ''
+        // Load the agent's prompt from YAML file or use inline prompt
+        let agentPromptContent = ''
+        if (agent.promptFile) {
+          // Load the actual prompt content from the YAML file
+          agentPromptContent = loadAgentPrompt(agent.promptFile)
+        } else if (agent.prompt) {
+          // Use inline prompt if no promptFile is specified
+          agentPromptContent = agent.prompt
+        }
 
-        // Construct the full message for the subagent
+        // Construct the full message for the subagent with agent instructions
+        const agentPromptSection = agentPromptContent
+          ? `\n\n## Agent Instructions (${agent.name})\n${agentPromptContent}`
+          : ''
         const fullPrompt = `${agentPromptSection}\n\n## Task\n${prompt}`
 
         // Stream progress update
