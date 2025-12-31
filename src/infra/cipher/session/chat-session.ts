@@ -209,12 +209,12 @@ export class ChatSession implements IChatSession {
     const controller = this.currentController
 
     try {
-      // Process any queued messages first, coalescing with current input
-      const queued = this.messageQueue.dequeueAll()
-      const finalInput = queued ? `${queued.content}\n\nAlso: ${input}` : input
+      let finalInput = input
+      if (!options?.taskId) {
+        const queued = this.messageQueue.dequeueAll()
+        finalInput = queued ? `${queued.content}\n\nAlso: ${input}` : input
+      }
 
-      // Delegate to service - it handles everything
-      // Pass taskId for billing tracking
       const response = await this.llmService.completeTask(finalInput, {
         executionContext: options?.executionContext,
         signal: controller.signal,
@@ -318,12 +318,12 @@ export class ChatSession implements IChatSession {
     }
 
     try {
-      // Process any queued messages first, coalescing with current input
-      const queued = this.messageQueue.dequeueAll()
-      const finalInput = queued ? `${queued.content}\n\nAlso: ${input}` : input
+      let finalInput = input
+      if (!options?.taskId) {
+        const queued = this.messageQueue.dequeueAll()
+        finalInput = queued ? `${queued.content}\n\nAlso: ${input}` : input
+      }
 
-      // Delegate to service - it handles everything and emits events
-      // Pass taskId for billing tracking
       await this.llmService.completeTask(finalInput, {
         executionContext: options?.executionContext,
         signal: controller.signal,

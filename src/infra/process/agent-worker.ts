@@ -75,6 +75,10 @@ let isAgentInitialized = false
 let initializationError: Error | undefined
 /** Guard: prevent concurrent initialization attempts */
 let isInitializing = false
+/** Timeout ID for initialization - prevents stuck isInitializing flag */
+let initializationTimeoutId: NodeJS.Timeout | undefined
+/** Initialization timeout: 30 seconds */
+const INITIALIZATION_TIMEOUT_MS = 30 * 1000
 /** Guard: prevent double cleanup */
 let isCleaningUp = false
 
@@ -347,6 +351,18 @@ async function tryInitializeAgent(forceReinit = false): Promise<boolean> {
 
   isInitializing = true
 
+  if (initializationTimeoutId) {
+    clearTimeout(initializationTimeoutId)
+  }
+
+  initializationTimeoutId = setTimeout(() => {
+    if (isInitializing) {
+      agentLog('Initialization timeout - resetting flag to allow retry')
+      isInitializing = false
+      initializationError = new Error('Initialization timed out after 30 seconds')
+    }
+  }, INITIALIZATION_TIMEOUT_MS)
+
   try {
     // If forcing reinit, stop existing agent first
     if (forceReinit && cipherAgent) {
@@ -441,6 +457,11 @@ async function tryInitializeAgent(forceReinit = false): Promise<boolean> {
     return true
   } finally {
     isInitializing = false
+    // Clear timeout since we're done
+    if (initializationTimeoutId) {
+      clearTimeout(initializationTimeoutId)
+      initializationTimeoutId = undefined
+    }
   }
 }
 
