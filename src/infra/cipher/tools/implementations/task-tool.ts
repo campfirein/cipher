@@ -18,8 +18,9 @@ function hasPromptField(value: unknown): value is {prompt: string} {
   return (
     typeof value === 'object' &&
     value !== null &&
+      value !== undefined &&
     'prompt' in value &&
-    typeof (value as {prompt: unknown}).prompt === 'string'
+      typeof value.prompt === 'string'
   )
 }
 
@@ -225,13 +226,15 @@ export function createTaskTool(dependencies: TaskToolDependencies): Tool {
 
         // Build the system prompt for the subagent
         // Load the agent's prompt from YAML file or use inline prompt
-        let agentPromptContent = ''
+        let agentPromptContent: string
         if (agent.promptFile) {
           // Load the actual prompt content from the YAML file
           agentPromptContent = loadAgentPrompt(agent.promptFile)
         } else if (agent.prompt) {
           // Use inline prompt if no promptFile is specified
           agentPromptContent = agent.prompt
+        } else {
+          agentPromptContent = ''
         }
 
         // Construct the full message for the subagent with agent instructions
