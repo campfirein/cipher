@@ -35,7 +35,7 @@ import {ProjectConfigStore} from '../config/file-config-store.js'
 import {CurateExecutor} from '../core/executors/curate-executor.js'
 import {QueryExecutor} from '../core/executors/query-executor.js'
 import {createTaskProcessor, TaskProcessor} from '../core/task-processor.js'
-import {KeychainTokenStore} from '../storage/keychain-token-store.js'
+import {createTokenStore} from '../storage/token-store.js'
 import {createTransportClient} from '../transport/transport-factory.js'
 import {TaskQueueManager} from './task-queue-manager.js'
 
@@ -362,7 +362,7 @@ async function tryInitializeAgent(forceReinit = false): Promise<boolean> {
       isAgentInitialized = false
     }
 
-    const tokenStore = new KeychainTokenStore()
+    const tokenStore = createTokenStore()
     const configStore = new ProjectConfigStore()
 
     const authToken = await tokenStore.load()

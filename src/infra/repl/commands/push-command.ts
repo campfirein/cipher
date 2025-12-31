@@ -6,7 +6,7 @@ import {ProjectConfigStore} from '../../config/file-config-store.js'
 import {FileContextFileReader} from '../../context-tree/file-context-file-reader.js'
 import {FileContextTreeSnapshotService} from '../../context-tree/file-context-tree-snapshot-service.js'
 import {FileGlobalConfigStore} from "../../storage/file-global-config-store.js";
-import {KeychainTokenStore} from '../../storage/keychain-token-store.js'
+import {createTokenStore} from '../../storage/token-store.js'
 import {ReplTerminal} from '../../terminal/repl-terminal.js'
 import {MixpanelTrackingService} from '../../tracking/mixpanel-tracking-service.js'
 import {PushUseCase} from '../../usecase/push-use-case.js'
@@ -38,7 +38,7 @@ export const pushCommand: SlashCommand = {
         const parsed = await parseReplArgs(args, {flags: pushFlags, strict: false})
 
         const envConfig = getCurrentConfig()
-        const tokenStore = new KeychainTokenStore()
+        const tokenStore = createTokenStore()
         const globalConfigStore = new FileGlobalConfigStore()
         const trackingService = new MixpanelTrackingService({globalConfigStore, tokenStore})
 

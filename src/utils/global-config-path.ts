@@ -1,7 +1,7 @@
 import {homedir, platform} from 'node:os'
 import {join} from 'node:path'
 
-import {GLOBAL_CONFIG_DIR, GLOBAL_CONFIG_FILE} from '../constants.js'
+import {GLOBAL_CONFIG_DIR, GLOBAL_CONFIG_FILE, GLOBAL_DATA_DIR} from '../constants.js'
 
 /**
  * Returns the global config directory path following platform conventions:
@@ -60,20 +60,20 @@ export const getGlobalDataDir = (): string => {
   if (currentPlatform === 'win32') {
     const localAppData = process.env.LOCALAPPDATA
     if (localAppData !== undefined) {
-      return join(localAppData, GLOBAL_CONFIG_DIR)
+      return join(localAppData, GLOBAL_DATA_DIR)
     }
 
-    return join(homedir(), 'AppData', 'Local', GLOBAL_CONFIG_DIR)
+    return join(homedir(), 'AppData', 'Local', GLOBAL_DATA_DIR)
   }
 
   // Linux: respect XDG_DATA_HOME if set
   if (currentPlatform === 'linux') {
     const xdgDataHome = process.env.XDG_DATA_HOME
     if (xdgDataHome !== undefined) {
-      return join(xdgDataHome, GLOBAL_CONFIG_DIR)
+      return join(xdgDataHome, GLOBAL_DATA_DIR)
     }
   }
 
   // Linux (default) and macOS: use ~/.local/share/brv
-  return join(homedir(), '.local', 'share', GLOBAL_CONFIG_DIR)
+  return join(homedir(), '.local', 'share', GLOBAL_DATA_DIR)
 }

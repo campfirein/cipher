@@ -2,7 +2,7 @@ import {getCurrentConfig} from '../../../../config/environment.js'
 import {type CommandContext, CommandKind, type SlashCommand} from '../../../../tui/types.js'
 import {ProjectConfigStore} from '../../../config/file-config-store.js'
 import {HttpSpaceService} from '../../../space/http-space-service.js'
-import {KeychainTokenStore} from '../../../storage/keychain-token-store.js'
+import {createTokenStore} from '../../../storage/token-store.js'
 import {ReplTerminal} from '../../../terminal/repl-terminal.js'
 import {SpaceListUseCase} from '../../../usecase/space-list-use-case.js'
 import {Flags, parseReplArgs, toCommandFlags} from '../arg-parser.js'
@@ -59,7 +59,7 @@ export const listCommand: SlashCommand = {
           projectConfigStore: new ProjectConfigStore(),
           spaceService: new HttpSpaceService({apiBaseUrl: envConfig.apiBaseUrl}),
           terminal,
-          tokenStore: new KeychainTokenStore(),
+          tokenStore: createTokenStore(),
         })
 
         await useCase.run()

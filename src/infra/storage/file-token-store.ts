@@ -32,6 +32,9 @@ const defaultDeps: FileTokenStoreDeps = {
 /**
  * File-based token store for WSL2 environments.
  *
+ * Note: This class should not be used directly. Use createTokenStore() instead,
+ * which handles platform detection and selects the appropriate backend.
+ *
  * Security:
  * - Random 32-byte key stored in ~/.local/share/brv/.token-key (created once, reused)
  * - AES-256-GCM authenticated encryption for token data

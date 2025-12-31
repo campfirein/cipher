@@ -1,17 +1,15 @@
 /**
- * WSL2 Token Store Integration Test
+ * TokenStore Integration Test
  *
- * This test verifies that token storage works correctly on WSL2 environments
- * where keychain is not available.
+ * This test verifies that token storage works correctly across platforms.
+ * TokenStore automatically selects the appropriate backend:
+ * - WSL2: FileTokenStore (file-based encryption, keychain not available)
+ * - macOS/Linux/Windows: KeychainTokenStore (system keychain via keytar)
  *
  * HOW TO RUN:
- * 1. Open WSL2 terminal
- * 2. cd to project directory
- * 3. Run: npx mocha --forbid-only "test/integration/infra/storage/wsl2-token-store.test.ts"
+ * 1. Run: npx mocha --forbid-only "test/integration/infra/storage/wsl2-token-store.test.ts"
  *
- * EXPECTED BEHAVIOR:
- * - On WSL2: Uses FileTokenStore (file-based encryption)
- * - On macOS/Linux with keychain: Uses keytar
+ * On WSL2, you can also test file-based storage specifically.
  */
 
 import {expect} from 'chai'
@@ -20,8 +18,10 @@ import {rm} from 'node:fs/promises'
 import {homedir} from 'node:os'
 import {join} from 'node:path'
 
+import type {ITokenStore} from '../../../../src/core/interfaces/i-token-store'
+
 import {AuthToken} from '../../../../src/core/domain/entities/auth-token'
-import {KeychainTokenStore} from '../../../../src/infra/storage/keychain-token-store'
+import {createTokenStore} from '../../../../src/infra/storage/token-store'
 import {isWSL2} from '../../../../src/utils/environment-detector'
 
 function createTestToken(): AuthToken {
@@ -31,8 +31,8 @@ function createTestToken(): AuthToken {
     refreshToken: `test-refresh-${Date.now()}`,
     sessionKey: `test-session-${Date.now()}`,
     tokenType: 'Bearer',
-    userEmail: 'wsl2-test@example.com',
-    userId: 'wsl2-test-user',
+    userEmail: 'integration-test@example.com',
+    userId: 'integration-test-user',
   })
 }
 
@@ -40,14 +40,14 @@ const dataDir = join(homedir(), '.local', 'share', 'brv')
 const keyPath = join(dataDir, '.token-key')
 const credentialsPath = join(dataDir, 'credentials')
 
-describe('KeychainTokenStore WSL2 Integration', function () {
+describe('TokenStore Integration', function () {
   // Increase timeout for keychain operations
   this.timeout(10_000)
 
-  let store: KeychainTokenStore
+  let store: ITokenStore
 
   beforeEach(() => {
-    store = new KeychainTokenStore()
+    store = createTokenStore()
   })
 
   afterEach(async () => {
@@ -92,7 +92,7 @@ describe('KeychainTokenStore WSL2 Integration', function () {
       await store.save(token)
 
       // Create new store instance
-      const newStore = new KeychainTokenStore()
+      const newStore = createTokenStore()
       const loaded = await newStore.load()
 
       expect(loaded).to.not.be.undefined
