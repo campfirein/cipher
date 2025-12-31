@@ -61,7 +61,11 @@ const SESSION_EVENT_NAMES: readonly [
 export class ChatSession implements IChatSession {
   public readonly eventBus: SessionEventBus
   public readonly id: string
+  /** Map of taskId -> AbortController for concurrent task cancellation */
+  private readonly activeControllers = new Map<string, AbortController>()
+  /** Fallback controller for non-task executions (interactive mode) */
   private currentController?: AbortController
+  /** Fallback taskId for non-task executions - DEPRECATED: use activeControllers */
   private currentTaskId?: string
   private readonly forwarders = new Map<string, (payload?: unknown) => void>()
   private isExecuting: boolean = false
@@ -88,10 +92,17 @@ export class ChatSession implements IChatSession {
   }
 
   /**
-   * Cancel the current operation.
+   * Cancel the current operation or a specific task.
+   * @param taskId - Optional taskId to cancel specific task, otherwise cancels fallback controller
    */
-  public cancel(): void {
-    if (this.currentController) {
+  public cancel(taskId?: string): void {
+    if (taskId) {
+      const controller = this.activeControllers.get(taskId)
+      if (controller) {
+        controller.abort()
+        this.activeControllers.delete(taskId)
+      }
+    } else if (this.currentController) {
       this.currentController.abort()
     }
   }
@@ -102,7 +113,13 @@ export class ChatSession implements IChatSession {
    * History remains in ContextManager for persistence; event listeners stay for potential reactivation.
    */
   public cleanup(): void {
-    // Cancel any in-flight operation
+    // Cancel all active task controllers
+    for (const controller of this.activeControllers.values()) {
+      controller.abort()
+    }
+    this.activeControllers.clear()
+
+    // Cancel fallback controller
     if (this.currentController) {
       this.currentController.abort()
       this.currentController = undefined
@@ -194,23 +211,24 @@ export class ChatSession implements IChatSession {
    * @param options.taskId - Optional task ID for concurrent task isolation
    */
   public async run(input: string, options?: {executionContext?: ExecutionContext; taskId?: string}): Promise<string> {
-    // Create abort controller for cancellation
-    this.currentController = new AbortController()
+    const taskId = options?.taskId
+    const controller = new AbortController()
+
+    // Track controller per-task for concurrent execution support
+    if (taskId) {
+      this.activeControllers.set(taskId, controller)
+    } else {
+      this.currentController = controller
+    }
+
+    // Store taskId for event forwarding (last-write-wins for concurrent tasks)
+    this.currentTaskId = taskId
     this.isExecuting = true
-
-    // Store taskId for event forwarding
-    this.currentTaskId = options?.taskId
-
-    // Update session status to busy
     sessionStatusManager.setBusy(this.id, this.eventBus)
-
-    // Store reference to controller for use in catch/finally blocks
-    // This prevents race conditions where currentController might be undefined
-    const controller = this.currentController
 
     try {
       let finalInput = input
-      if (!options?.taskId) {
+      if (!taskId) {
         const queued = this.messageQueue.dequeueAll()
         finalInput = queued ? `${queued.content}\n\nAlso: ${input}` : input
       }
@@ -218,26 +236,34 @@ export class ChatSession implements IChatSession {
       const response = await this.llmService.completeTask(finalInput, {
         executionContext: options?.executionContext,
         signal: controller.signal,
-        taskId: options?.taskId,
+        taskId,
       })
 
       return response
     } catch (error) {
-      // Check if cancelled - use stored controller reference to avoid undefined access
       if (controller.signal.aborted) {
         throw new SessionCancelledError(this.id)
       }
 
-      // Wrap other errors - pass message as-is since it's already formatted
       const errorMessage = error instanceof Error ? error.message : String(error)
       throw new LLMError(errorMessage, this.id)
     } finally {
-      this.isExecuting = false
-      this.currentController = undefined
-      this.currentTaskId = undefined
+      if (taskId) {
+        this.activeControllers.delete(taskId)
+      } else {
+        this.currentController = undefined
+      }
 
-      // Update session status back to idle
-      sessionStatusManager.setIdle(this.id, this.eventBus)
+      // Clear taskId if this was the active one
+      if (this.currentTaskId === taskId) {
+        this.currentTaskId = undefined
+      }
+
+      // Only mark idle if no active tasks
+      if (this.activeControllers.size === 0) {
+        this.isExecuting = false
+        sessionStatusManager.setIdle(this.id, this.eventBus)
+      }
     }
   }
 
@@ -295,31 +321,31 @@ export class ChatSession implements IChatSession {
     },
   ): Promise<void> {
     const startTime = Date.now()
+    const taskId = options?.taskId
+    const controller = new AbortController()
     let finishReason: 'cancelled' | 'error' | 'max-iterations' | 'stop' | 'timeout' = 'stop'
     let error: Error | undefined
 
-    // Create abort controller for cancellation
-    this.currentController = new AbortController()
+    // Track controller per-task for concurrent execution support
+    if (taskId) {
+      this.activeControllers.set(taskId, controller)
+    } else {
+      this.currentController = controller
+    }
+
+    // Store taskId for event forwarding (last-write-wins for concurrent tasks)
+    this.currentTaskId = taskId
     this.isExecuting = true
-
-    // Store taskId for event forwarding
-    this.currentTaskId = options?.taskId
-
-    // Update session status to busy
     sessionStatusManager.setBusy(this.id, this.eventBus)
 
-    // Store reference to controller for use in catch/finally blocks
-    // This prevents race conditions where currentController might be undefined
-    const controller = this.currentController
-
-    // Link external signal if provided (use {once: true} to prevent listener accumulation)
+    // Link external signal if provided
     if (options?.signal) {
-      options.signal.addEventListener('abort', () => controller?.abort(), {once: true})
+      options.signal.addEventListener('abort', () => controller.abort(), {once: true})
     }
 
     try {
       let finalInput = input
-      if (!options?.taskId) {
+      if (!taskId) {
         const queued = this.messageQueue.dequeueAll()
         finalInput = queued ? `${queued.content}\n\nAlso: ${input}` : input
       }
@@ -327,10 +353,9 @@ export class ChatSession implements IChatSession {
       await this.llmService.completeTask(finalInput, {
         executionContext: options?.executionContext,
         signal: controller.signal,
-        taskId: options?.taskId,
+        taskId,
       })
     } catch (error_) {
-      // Check if cancelled - use stored controller reference to avoid undefined access
       if (controller.signal.aborted) {
         finishReason = 'cancelled'
       } else {
@@ -338,24 +363,31 @@ export class ChatSession implements IChatSession {
         error = error_ instanceof Error ? error_ : new Error(String(error_))
       }
     } finally {
-      this.isExecuting = false
-      this.currentController = undefined
+      if (taskId) {
+        this.activeControllers.delete(taskId)
+      } else {
+        this.currentController = undefined
+      }
 
-      // Save taskId before clearing for run:complete event
-      const completedTaskId = this.currentTaskId
-      this.currentTaskId = undefined
+      // Clear taskId if this was the active one
+      if (this.currentTaskId === taskId) {
+        this.currentTaskId = undefined
+      }
 
-      // Update session status back to idle
-      sessionStatusManager.setIdle(this.id, this.eventBus)
+      // Only mark idle if no active tasks
+      if (this.activeControllers.size === 0) {
+        this.isExecuting = false
+        sessionStatusManager.setIdle(this.id, this.eventBus)
+      }
 
-      // Emit run:complete event with taskId for billing tracking
+      // Emit run:complete event with taskId
       const durationMs = Date.now() - startTime
       this.eventBus.emit('run:complete', {
         durationMs,
         error,
         finishReason,
-        stepCount: 0, // Can be enhanced later to track actual step count
-        ...(completedTaskId && {taskId: completedTaskId}),
+        stepCount: 0,
+        ...(taskId && {taskId}),
       })
     }
   }
