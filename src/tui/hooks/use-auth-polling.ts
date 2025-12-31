@@ -4,6 +4,7 @@
  * Periodically checks auth state and refreshes token when needed.
  */
 
+import {isAxiosError} from 'axios'
 import {useEffect, useRef} from 'react'
 
 import type {AuthToken} from '../../core/domain/entities/auth-token.js'
@@ -12,6 +13,7 @@ import type {ITokenStore} from '../../core/interfaces/i-token-store.js'
 import {getAuthConfig} from '../../config/auth.config.js'
 import {getCurrentConfig} from '../../config/environment.js'
 import {AuthToken as AuthTokenClass} from '../../core/domain/entities/auth-token.js'
+import {ITrackingService} from '../../core/interfaces/i-tracking-service.js'
 import {OAuthService} from '../../infra/auth/oauth-service.js'
 import {OidcDiscoveryService} from '../../infra/auth/oidc-discovery-service.js'
 import {HttpUserService} from '../../infra/user/http-user-service.js'
@@ -26,6 +28,8 @@ export interface UseAuthPollingOptions {
   onTokenChange: (token?: AuthToken) => void
   /** Token store for persistence */
   tokenStore: ITokenStore
+  /** Tracking service for analytics */
+  trackingService: ITrackingService
 }
 
 /**
@@ -36,7 +40,7 @@ export interface UseAuthPollingOptions {
  * - Refreshes token if validation fails
  * - Clears auth state if refresh fails
  */
-export function useAuthPolling({authToken, onTokenChange, tokenStore}: UseAuthPollingOptions): void {
+export function useAuthPolling({authToken, onTokenChange, tokenStore, trackingService}: UseAuthPollingOptions): void {
   // Track if validation/refresh is in progress to prevent concurrent operations
   const isProcessingRef = useRef(false)
 
@@ -59,6 +63,13 @@ export function useAuthPolling({authToken, onTokenChange, tokenStore}: UseAuthPo
         const isValid = await validateToken(authToken)
 
         if (!isValid) {
+          // Track token invalid event
+          await trackingService.track('auth:token_invalid', {
+            expiresAt: authToken.expiresAt.toUTCString(),
+            sessionKey: authToken.sessionKey,
+            userId: authToken.userId,
+          })
+
           // Token invalid - attempt refresh
           await refreshToken(authToken, tokenStore, onTokenChange)
         }
@@ -81,18 +92,26 @@ export function useAuthPolling({authToken, onTokenChange, tokenStore}: UseAuthPo
 
 /**
  * Validate token by calling user API
- * @returns true if token is valid, false otherwise
+ * @returns true if token is valid, false if 401 unauthorized
+ * @throws on network errors (token validity unknown)
  */
 async function validateToken(authToken: AuthToken): Promise<boolean> {
-  try {
-    const config = getCurrentConfig()
-    const userService = new HttpUserService({apiBaseUrl: config.apiBaseUrl})
+  const config = getCurrentConfig()
+  const userService = new HttpUserService({apiBaseUrl: config.apiBaseUrl})
 
-    // Try to get current user - if this fails, token is invalid
+  try {
+    // Try to get current user - if this fails with 401, token is invalid
     await userService.getCurrentUser(authToken.accessToken, authToken.sessionKey)
     return true
-  } catch {
-    return false
+  } catch (error) {
+    // Only treat 401 as invalid token - network errors should not trigger refresh
+    if (isAxiosError(error) && error.response?.status === 401) {
+      return false
+    }
+
+    // For network errors or other issues, assume token is still valid
+    // to avoid unnecessary refresh attempts
+    return true
   }
 }
 

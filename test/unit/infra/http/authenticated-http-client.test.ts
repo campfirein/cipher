@@ -1,3 +1,4 @@
+import {isAxiosError} from 'axios'
 import {expect} from 'chai'
 import nock from 'nock'
 
@@ -68,8 +69,11 @@ describe('AuthenticatedHttpClient', () => {
         await client.get(`${baseUrl}/test`)
         expect.fail('Should have thrown an error')
       } catch (error) {
-        expect(error).to.be.instanceOf(Error)
-        expect((error as Error).message).to.include('401')
+        // 401 errors are returned as raw AxiosError to allow callers to distinguish from network errors
+        expect(isAxiosError(error)).to.be.true
+        if (isAxiosError(error)) {
+          expect(error.response?.status).to.equal(401)
+        }
       }
     })
 

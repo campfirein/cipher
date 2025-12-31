@@ -1,3 +1,4 @@
+import {isAxiosError} from 'axios'
 import {expect} from 'chai'
 import nock from 'nock'
 
@@ -55,9 +56,11 @@ describe('HttpUserService', () => {
         await service.getCurrentUser(accessToken, sessionKey)
         expect.fail('Should have thrown an error')
       } catch (error) {
-        expect(error).to.be.instanceOf(Error)
-        expect((error as Error).message).to.include('Failed to fetch user information')
-        expect((error as Error).message).to.include('401')
+        // 401 errors are returned as raw AxiosError to allow callers to distinguish from network errors
+        expect(isAxiosError(error)).to.be.true
+        if (isAxiosError(error)) {
+          expect(error.response?.status).to.equal(401)
+        }
       }
     })
 
@@ -73,7 +76,6 @@ describe('HttpUserService', () => {
         expect.fail('Should have thrown an error')
       } catch (error) {
         expect(error).to.be.instanceOf(Error)
-        expect((error as Error).message).to.include('Failed to fetch user information')
         expect((error as Error).message).to.include('404')
       }
     })
@@ -90,7 +92,6 @@ describe('HttpUserService', () => {
         expect.fail('Should have thrown an error')
       } catch (error) {
         expect(error).to.be.instanceOf(Error)
-        expect((error as Error).message).to.include('Failed to fetch user information')
         expect((error as Error).message).to.include('500')
       }
     })
@@ -103,7 +104,6 @@ describe('HttpUserService', () => {
         expect.fail('Should have thrown an error')
       } catch (error) {
         expect(error).to.be.instanceOf(Error)
-        expect((error as Error).message).to.include('Failed to fetch user information')
         expect((error as Error).message).to.include('Network error')
       }
     })
@@ -118,7 +118,7 @@ describe('HttpUserService', () => {
         expect.fail('Should have thrown an error')
       } catch (error) {
         expect(error).to.be.instanceOf(Error)
-        expect((error as Error).message).to.include('Failed to fetch user information')
+        expect((error as Error).message).to.include('timeout')
       }
     })
   })
