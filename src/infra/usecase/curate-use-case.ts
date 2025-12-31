@@ -58,8 +58,8 @@ export class CurateUseCase implements ICurateUseCase {
       // Generate taskId in UseCase (Application layer owns task creation)
       const taskId = randomUUID()
 
-      // Send task:create - Transport routes to Agent, UseCase handles logic
       await client.request<TaskCreateResponse>('task:create', {
+        clientCwd: process.cwd(),
         content: context,
         ...(files?.length ? {files} : {}),
         taskId,

@@ -7,6 +7,8 @@ import type {ICipherAgent} from '../cipher/i-cipher-agent.js'
 export interface CurateExecuteOptions {
   /** Context content to curate */
   content: string
+  /** Client's working directory for file validation (defaults to process.cwd() if not provided) */
+  clientCwd?: string
   /** Optional file paths for --files flag */
   files?: string[]
   /** Task ID for event routing (required for concurrent task isolation) */

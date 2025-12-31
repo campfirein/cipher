@@ -30,15 +30,14 @@ export class CurateExecutor implements ICurateExecutor {
    * @returns Result string from agent execution
    */
   public async executeWithAgent(agent: ICipherAgent, options: CurateExecuteOptions): Promise<string> {
-    const {content, files, taskId} = options
+    const {clientCwd, content, files, taskId} = options
 
     // Initialize storage for execution tracking
     const storage = await getAgentStorage()
     let executionId: null | string = null
 
     try {
-      // Process file references if provided (validation + instructions)
-      const fileReferenceInstructions = this.processFileReferences(files ?? [])
+      const fileReferenceInstructions = this.processFileReferences(files ?? [], clientCwd)
       if (fileReferenceInstructions === undefined) {
         throw new FileValidationError()
       }
@@ -87,10 +86,11 @@ export class CurateExecutor implements ICurateExecutor {
    * Process file paths from --files flag.
    *
    * @param filePaths - Array of file paths (relative or absolute)
+   * @param clientCwd - Client's working directory for file validation (optional, defaults to process.cwd())
    * @returns Formatted instructions for the agent to read the specified files,
    *          or undefined if validation fails
    */
-  private processFileReferences(filePaths: string[]): string | undefined {
+  private processFileReferences(filePaths: string[], clientCwd?: string): string | undefined {
     if (!filePaths || filePaths.length === 0) {
       return ''
     }
@@ -101,8 +101,7 @@ export class CurateExecutor implements ICurateExecutor {
       processedPaths = filePaths.slice(0, CurateExecutor.MAX_FILES)
     }
 
-    // Get project root (current directory)
-    const projectRoot = process.cwd()
+    const projectRoot = clientCwd ?? process.cwd()
 
     // Validate each file and collect errors
     const validPaths: string[] = []

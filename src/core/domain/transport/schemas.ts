@@ -322,6 +322,8 @@ export const TransportSessionEventNames = {
 export const TaskExecuteSchema = z.object({
   /** Client ID that created the task (for response routing) */
   clientId: z.string(),
+  /** Client's working directory for file validation */
+  clientCwd: z.string().optional(),
   /** Task content/prompt */
   content: z.string(),
   /** Optional file paths for curate --files */
@@ -435,6 +437,8 @@ export const TaskAckSchema = z.object({
  * Sent to broadcast-room for TUI monitoring
  */
 export const TaskCreatedSchema = z.object({
+  /** Client's working directory for file validation */
+  clientCwd: z.string().optional(),
   /** Task content/prompt */
   content: z.string(),
   /** Optional file paths for curate --files */
@@ -448,9 +452,11 @@ export const TaskCreatedSchema = z.object({
 /**
  * task:started - Agent begins processing the task
  * Direct send: {taskId} only
- * Broadcast: {taskId, content, type, files?}
+ * Broadcast: {taskId, content, type, files?, clientCwd?}
  */
 export const TaskStartedEventSchema = z.object({
+  /** Client's working directory for file validation */
+  clientCwd: z.string().optional(),
   /** Task content/prompt */
   content: z.string().optional(),
   /** Optional file paths for curate --files */
@@ -559,6 +565,8 @@ export const TaskTypeSchema = z.enum(['curate', 'query'])
  * Request to create a new task
  */
 export const TaskCreateRequestSchema = z.object({
+  /** Client's working directory for file validation */
+  clientCwd: z.string().optional(),
   /** Task content/prompt */
   content: z.string().min(1),
   /** Optional file paths for curate --files (max 5) */
