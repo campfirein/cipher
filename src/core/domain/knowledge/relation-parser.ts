@@ -116,6 +116,25 @@ export function formatRelation(domain: string, topic: string, subtopic?: string)
 }
 
 /**
+ * Normalize a relation path by removing the @ prefix.
+ *
+ * @param relation - Relation path to normalize
+ * @returns Normalized relation path
+ *
+ * @example
+ * ```ts
+ * normalizeRelation('code_style/error-handling') // 'code_style/error-handling'
+ * normalizeRelation('@code_style/error-handling') // 'code_style/error-handling'
+ * normalizeRelation('code_style/error-handling/title.md') // 'code_style/error-handling/title.md'
+ * normalizeRelation('@code_style/error-handling/title.md') // 'code_style/error-handling/title.md'
+ * ```
+ */
+
+export function normalizeRelation(relation: string): string {
+  return relation.startsWith('@') ? relation.slice(1) : relation
+}
+
+/**
  * Generate the Relations section for context.md.
  * Returns empty string if no relations provided.
  *
@@ -137,7 +156,7 @@ export function generateRelationsSection(relations: string[]): string {
   }
 
   const formattedRelations = relations
-    .map(rel => `@${rel}`)
+    .map(rel => `@${normalizeRelation(rel)}`)
     .join('\n')
 
   return `\n## Relations\n${formattedRelations}\n`
