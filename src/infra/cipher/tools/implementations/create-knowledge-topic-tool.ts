@@ -11,12 +11,12 @@ import {sanitizeFolderName} from '../../../../utils/file-helpers.js'
 const CreateKnowledgeTopicInputSchema = z.object({
   // Base path for knowledge storage
   basePath: z.string().default('.brv/context-tree'),
-  domains: z.array(z.string()).describe('Array of domain names'),
+  domains: z.array(z.string()).describe('Array of domain names (dynamically created based on content)'),
   // Manual topics (optional)
   topics: z
     .array(
       z.object({
-        domain: z.string().describe('Domain category name from predefined list'),
+        domain: z.string().describe('Domain category name (can be any semantically meaningful name)'),
         name: z.string().describe('Topic name'),
         relations: z
           .array(z.string())
@@ -156,27 +156,34 @@ async function executeCreateKnowledgeTopic(
  */
 export function createCreateKnowledgeTopicTool(): Tool {
   return {
-    description: `Create organized knowledge topics within domain folders. This tool structures knowledge by creating topic and subtopic folders, each containing a context.md file with relevant snippets and optional relations.
+    description: `Create organized knowledge topics within dynamically-created domain folders. This tool structures knowledge by creating domain, topic, and subtopic folders, each containing a context.md file with relevant snippets and optional relations.
 
-Use this tool after detecting domains to organize extracted knowledge into a hierarchical structure:
-- Domain folders (e.g., .brv/context-tree/domain-name/)
-- Topic folders (e.g., .brv/context-tree/domain-name/topic-name/)
-- Topic context.md files (e.g., .brv/context-tree/domain-name/topic-name/context.md)
-- Subtopic folders (e.g., .brv/context-tree/domain-name/topic-name/subtopic-name/)
-- Subtopic context.md files (e.g., .brv/context-tree/domain-name/topic-name/subtopic-name/context.md)
+**Dynamic Domain Creation:**
+Domains are created dynamically based on the content being organized. Choose domain names that:
+- Are semantically meaningful and descriptive (e.g., "authentication", "api_design", "data_models")
+- Use snake_case format (1-3 words)
+- Group related concepts together
+- Avoid overly generic names (e.g., "misc", "other") or overly specific names
 
-Each topic should include:
+**Hierarchical Structure:**
+- Domain folders (e.g., .brv/context-tree/authentication/)
+- Topic folders (e.g., .brv/context-tree/authentication/oauth_flow/)
+- Topic context.md files (e.g., .brv/context-tree/authentication/oauth_flow/context.md)
+- Subtopic folders (e.g., .brv/context-tree/authentication/oauth_flow/token_refresh/)
+- Subtopic context.md files (e.g., .brv/context-tree/authentication/oauth_flow/token_refresh/context.md)
+
+**Each topic should include:**
 1. A clear topic name
 2. Relevant code/text snippets that demonstrate the knowledge
 3. Optional relations to other topics using @domain/topic or @domain/topic/subtopic notation
 4. Subtopics (optional) that break down the topic into smaller pieces
 
-Relations enhance knowledge discovery by linking related contexts. Example:
-- relations: ['code_style/error-handling', 'structure/api-endpoints/validation']
+**Relations** enhance knowledge discovery by linking related contexts. Example:
+- relations: ['authentication/session_management', 'api_design/endpoints/validation']
 
-The tool automatically:
+**The tool automatically:**
 - Creates the base knowledge structure if it doesn't exist
-- Creates topic and subtopic folders as needed
+- Creates domain, topic, and subtopic folders as needed
 - Generates context.md files with snippets and relations
 - Handles existing topics gracefully (updates instead of recreating)`,
 
