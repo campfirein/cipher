@@ -49,5 +49,9 @@ export type {
   SelectPromptRequest,
 } from './prompts.js'
 
+// Status types
+export {STATUS_DISMISS_TIMES} from './status.js'
+export type {StatusEvent, StatusEventType} from './status.js'
+
 // UI types
 export type {AuthState, ConsumerStatus, Tab, TabId, TaskStats} from './ui.js'
