@@ -66,7 +66,7 @@ export class TaskQueueManager {
 
   constructor(config?: Partial<TaskQueueManagerConfig>) {
     this.config = {
-      curate: {maxConcurrent: config?.curate?.maxConcurrent ?? 2},
+      curate: {maxConcurrent: config?.curate?.maxConcurrent ?? 1},
       // Query tasks are unlimited (Infinity) - lightweight and fast
       query: {maxConcurrent: config?.query?.maxConcurrent ?? Infinity},
     }

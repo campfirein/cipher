@@ -101,7 +101,7 @@ let eventForwarders: EventForwarder[] = []
  * - FIFO processing order
  */
 const taskQueueManager = new TaskQueueManager({
-  curate: {maxConcurrent: 2},
+  curate: {maxConcurrent: 1},
   onExecutorError(taskId, error) {
     agentLog(`Executor error for task ${taskId}: ${error}`)
   },
