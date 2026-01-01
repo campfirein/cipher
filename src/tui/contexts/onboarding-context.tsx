@@ -84,10 +84,12 @@ export function OnboardingProvider({children}: OnboardingProviderProps): React.R
   // Check if user has dismissed onboarding before (based on existence of lastDismissedAt)
   useEffect(() => {
     const checkDismissed = async () => {
-      const lastDismissedAt = await onboardingPreferenceStore.getLastDismissedAt()
-      // If lastDismissedAt exists, user has dismissed before
-      setHasDismissed(Boolean(lastDismissedAt))
-      setIsLoadingDismissed(false)
+      try {
+        const lastDismissedAt = await onboardingPreferenceStore.getLastDismissedAt()
+        setHasDismissed(Boolean(lastDismissedAt))
+      } finally {
+        setIsLoadingDismissed(false)
+      }
     }
 
     checkDismissed()
