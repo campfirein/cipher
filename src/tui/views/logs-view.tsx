@@ -7,7 +7,7 @@
 import {Box, Text} from 'ink'
 import React, {useCallback} from 'react'
 
-import {LogItem, OnboardingFlow, ScrollableList} from '../components/index.js'
+import {LogItem, OnboardingFlow, ScrollableList, WelcomeBox} from '../components/index.js'
 import {useActivityLogs, useMode, useTheme, useUIHeights} from '../hooks/index.js'
 import {useOnboarding} from '../hooks/use-onboarding.js'
 import {ActivityLog} from '../types.js'
@@ -109,15 +109,7 @@ export const LogsView: React.FC<LogsViewProps> = ({availableHeight}) => {
           />
         </Box>
       ) : (
-        <>
-          <Text color={colors.primary}>Welcome to ByteRover!</Text>
-          <Text color={colors.text}>Start by telling your AI Agent what to save or retrieve.</Text>
-          <Box marginTop={1}>
-            <Text color={colors.text} dimColor>
-              Press [Tab] to switch to commands view
-            </Text>
-          </Box>
-        </>
+        <WelcomeBox isCopyActive={mode === 'activity' && logs.length === 0} />
       )}
     </Box>
   )

@@ -11,6 +11,7 @@ import type {MessageItemHeights} from '../../hooks/index.js'
 import type {ActivityLog} from '../../types.js'
 
 import {useTheme} from '../../hooks/index.js'
+import {formatTime} from '../../utils/index.js'
 import {ExecutionChanges} from './execution-changes.js'
 import {ExecutionContent} from './execution-content.js'
 import {ExecutionInput} from './execution-input.js'
@@ -29,11 +30,7 @@ export const LogItem: React.FC<LogItemProps> = ({heights, log}) => {
     theme: {colors},
   } = useTheme()
 
-  // Format timestamp as local time HH:MM:SS
-  const hours = log.timestamp.getHours().toString().padStart(2, '0')
-  const minutes = log.timestamp.getMinutes().toString().padStart(2, '0')
-  const seconds = log.timestamp.getSeconds().toString().padStart(2, '0')
-  const displayTime = `${hours}:${minutes}:${seconds}`
+  const displayTime = formatTime(log.timestamp)
 
   return (
     <Box flexDirection="column" marginBottom={1} width="100%">
