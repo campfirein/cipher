@@ -15,6 +15,29 @@ npm run lint                                     # ESLint
 
 **Test dirs**: `test/commands/`, `test/unit/`, `test/integration/`, `test/hooks/`, `test/learning/`
 
+## Development Standards
+
+**Code Quality**:
+- Follow clean code principles strictly
+- Apply proper OOP design and design patterns where appropriate
+- Apply functional programming principles where appropriate
+- Avoid over-engineering; keep solutions simple and focused
+
+**TypeScript**:
+- Avoid `as Type` assertions - use type guards or proper typing instead
+- Avoid `any` type - use `unknown` with type narrowing or proper generics
+- Functions with >3 parameters must use object parameters
+
+**CLI & API**:
+- Follow CLI building best practices (consistent flags, helpful error messages, proper exit codes)
+- Follow API integration best practices (proper error handling, retries, timeouts)
+- Consider security risks (input validation, secrets handling, injection prevention)
+
+**Testing**:
+- Apply TDD; 50% coverage minimum, critical paths must be covered
+- Run `npm run test` after each approved edit
+- Suppress console logging in tests to keep output clean
+
 ## Architecture
 
 ### REPL + TUI Architecture
