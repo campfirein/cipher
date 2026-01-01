@@ -6,20 +6,20 @@ import {createTokenStore} from '../../../../src/infra/storage/token-store'
 
 describe('createTokenStore', () => {
   describe('platform detection', () => {
-    it('should return FileTokenStore when isWSL2() returns true', () => {
+    it('should return FileTokenStore when isWsl() returns true', () => {
       const store = createTokenStore(() => true)
       expect(store).to.be.instanceOf(FileTokenStore)
     })
 
-    it('should return KeychainTokenStore when isWSL2() returns false', () => {
+    it('should return KeychainTokenStore when isWsl() returns false', () => {
       const store = createTokenStore(() => false)
       expect(store).to.be.instanceOf(KeychainTokenStore)
     })
   })
 
   describe('default behavior', () => {
-    it('should use default isWSL2 function when not provided', () => {
-      // Default behavior - returns one of the two implementations
+    it('should use default isWsl function when not provided', () => {
+      /** Default behavior - returns one of the two implementations */
       const store = createTokenStore()
       const isFileStore = store instanceof FileTokenStore
       const isKeychainStore = store instanceof KeychainTokenStore
@@ -31,7 +31,7 @@ describe('createTokenStore', () => {
     it('should return object implementing ITokenStore interface', () => {
       const store = createTokenStore(() => false)
 
-      // Verify ITokenStore interface methods exist
+      /** Verify ITokenStore interface methods exist */
       expect(store).to.have.property('save').that.is.a('function')
       expect(store).to.have.property('load').that.is.a('function')
       expect(store).to.have.property('clear').that.is.a('function')

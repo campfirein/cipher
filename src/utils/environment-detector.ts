@@ -1,9 +1,5 @@
 import {readFileSync} from 'node:fs'
 
-// =============================================================================
-// WSL Detection (covers both WSL1 and WSL2)
-// =============================================================================
-
 let wslCached: boolean | undefined
 
 /**
@@ -15,12 +11,10 @@ function detectWSL(): boolean {
     return false
   }
 
-  // Method 1: Check WSL-specific environment variables (most reliable)
   if (process.env.WSL_DISTRO_NAME !== undefined || process.env.WSLENV !== undefined) {
     return true
   }
 
-  // Method 2: Check /proc/version for microsoft/wsl patterns (fallback)
   try {
     const version = readFileSync('/proc/version', 'utf8')
     return /microsoft|wsl/i.test(version)
@@ -33,17 +27,10 @@ function detectWSL(): boolean {
  * Check if running in WSL environment (cached).
  * Detects both WSL1 and WSL2. Result is cached after first call for performance.
  */
-export function isWSL2(): boolean {
+export function isWsl(): boolean {
   if (wslCached === undefined) {
     wslCached = detectWSL()
   }
 
   return wslCached
-}
-
-/**
- * Reset WSL detection cache (for testing purposes).
- */
-export function resetWSL2Cache(): void {
-  wslCached = undefined
 }

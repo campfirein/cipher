@@ -22,7 +22,7 @@ import type {ITokenStore} from '../../../../src/core/interfaces/i-token-store'
 
 import {AuthToken} from '../../../../src/core/domain/entities/auth-token'
 import {createTokenStore} from '../../../../src/infra/storage/token-store'
-import {isWSL2} from '../../../../src/utils/environment-detector'
+import {isWsl} from '../../../../src/utils/environment-detector'
 
 function createTestToken(): AuthToken {
   return new AuthToken({
@@ -41,7 +41,7 @@ const keyPath = join(dataDir, '.token-key')
 const credentialsPath = join(dataDir, 'credentials')
 
 describe('TokenStore Integration', function () {
-  // Increase timeout for keychain operations
+  /** Increase timeout for keychain operations */
   this.timeout(10_000)
 
   let store: ITokenStore
@@ -51,22 +51,21 @@ describe('TokenStore Integration', function () {
   })
 
   afterEach(async () => {
-    // Clean up token
     await store.clear()
 
-    // On WSL2, also clean up file-based storage for clean tests
-    if (isWSL2()) {
+    /** On WSL, also clean up file-based storage for clean tests */
+    if (isWsl()) {
       try {
         await rm(credentialsPath, {force: true})
       } catch {
-        // Ignore
+        /** Ignore */
       }
     }
   })
 
   describe('environment detection', () => {
     it('should detect WSL2 environment correctly', () => {
-      const detected = isWSL2()
+      const detected = isWsl()
       expect(typeof detected).to.equal('boolean')
     })
   })
@@ -91,7 +90,7 @@ describe('TokenStore Integration', function () {
 
       await store.save(token)
 
-      // Create new store instance
+      /** Create new store instance */
       const newStore = createTokenStore()
       const loaded = await newStore.load()
 
@@ -112,8 +111,8 @@ describe('TokenStore Integration', function () {
     })
   })
 
-  // WSL2-specific tests
-  if (isWSL2()) {
+  /** WSL2-specific tests */
+  if (isWsl()) {
     describe('WSL2-specific: file-based storage', () => {
       it('should create encrypted credentials file', async () => {
         const token = createTestToken()
@@ -122,10 +121,10 @@ describe('TokenStore Integration', function () {
 
         expect(existsSync(credentialsPath)).to.be.true
 
-        // Read and verify it's encrypted
+        /** Read and verify it's encrypted */
         const encrypted = readFileSync(credentialsPath, 'utf8')
         expect(encrypted).to.not.include(token.accessToken)
-        expect(encrypted.split(':').length).to.equal(3) // iv:authTag:data format
+        expect(encrypted.split(':').length).to.equal(3) /* iv:authTag:data format */
       })
 
       it('should create encryption key file', async () => {
@@ -135,7 +134,7 @@ describe('TokenStore Integration', function () {
 
         expect(existsSync(keyPath)).to.be.true
 
-        // Key should be 32 bytes
+        /** Key should be 32 bytes */
         const key = readFileSync(keyPath)
         expect(key.length).to.equal(32)
       })

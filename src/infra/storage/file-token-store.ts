@@ -54,7 +54,7 @@ export class FileTokenStore implements ITokenStore {
         await unlink(credentialsPath)
       }
     } catch {
-      // Ignore errors
+      /** Ignore errors */
     }
   }
 
@@ -85,7 +85,6 @@ export class FileTokenStore implements ITokenStore {
 
     await mkdir(dataDir, {recursive: true})
 
-    // Generate new key if not exists
     let key: Buffer
     if (existsSync(keyPath)) {
       key = await readFile(keyPath)
@@ -95,7 +94,6 @@ export class FileTokenStore implements ITokenStore {
       await chmod(keyPath, 0o600)
     }
 
-    // Encrypt and save token
     const plaintext = JSON.stringify(token.toJson())
     const encrypted = this.encrypt(plaintext, key)
 
@@ -125,7 +123,7 @@ export class FileTokenStore implements ITokenStore {
     const encrypted = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()])
     const authTag = cipher.getAuthTag()
 
-    // Format: iv:authTag:data (all base64)
+    /** Format: iv:authTag:data (all base64) */
     return `${iv.toString('base64')}:${authTag.toString('base64')}:${encrypted.toString('base64')}`
   }
 }
