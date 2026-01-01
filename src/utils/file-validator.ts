@@ -8,12 +8,12 @@ import path from 'node:path'
  * @param filePath - The file path to normalize
  * @returns Normalized absolute path
  */
-function normalizeFilePath(filePath: string): string {
+function normalizeFilePath(filePath: string, baseDir?: string): string {
   // Expand tilde to home directory
   const expanded = filePath.startsWith('~') ? filePath.replace(/^~/, os.homedir()) : filePath
 
-  // Resolve to absolute path
-  const absolute = path.resolve(expanded)
+  // Resolve to absolute path using baseDir for relative paths
+  const absolute = path.isAbsolute(expanded) ? expanded : path.resolve(baseDir ?? process.cwd(), expanded)
 
   // Resolve symlinks (only if file exists)
   try {
@@ -68,8 +68,8 @@ export function validateFileForCurate(
   normalizedPath?: string
   valid: boolean
 } {
-  // Normalize path
-  const normalized = normalizeFilePath(filePath)
+  // Normalize path using projectRoot as base for relative paths
+  const normalized = normalizeFilePath(filePath, projectRoot)
 
   // Check existence
   if (!fs.existsSync(normalized)) {
