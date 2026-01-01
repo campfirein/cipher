@@ -5,17 +5,17 @@
  * Handles step transitions and init command execution.
  */
 
-import {Box, Text, useInput} from 'ink'
-import React, {useMemo} from 'react'
+import { Box, Text, useInput } from 'ink'
+import React, { useMemo } from 'react'
 
-import {useActivityLogs, useMode, useTheme, useUIHeights} from '../../hooks/index.js'
-import {useOnboarding} from '../../hooks/use-onboarding.js'
-import {calculateLogContentLimit} from '../../utils/log.js'
-import {LogItem} from '../execution/index.js'
-import {EnterPrompt} from '../index.js'
-import {Init} from '../init.js'
-import {CopyablePrompt} from './copyable-prompt.js'
-import {OnboardingStep} from './onboarding-step.js'
+import { useActivityLogs, useMode, useTheme, useUIHeights } from '../../hooks/index.js'
+import { useOnboarding } from '../../hooks/use-onboarding.js'
+import { calculateLogContentLimit } from '../../utils/log.js'
+import { LogItem } from '../execution/index.js'
+import { EnterPrompt } from '../index.js'
+import { Init } from '../init.js'
+import { CopyablePrompt } from './copyable-prompt.js'
+import { OnboardingStep } from './onboarding-step.js'
 
 /** Example prompts for curate and query steps */
 const CURATE_PROMPT = 'run `brv curate "Auth uses JWT with 24h expiry. Tokens stored in httpOnly cookies"`'
@@ -53,9 +53,9 @@ interface OnboardingFlowProps {
   onInitComplete?: () => void
 }
 
-export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({availableHeight, onInitComplete}) => {
-  const {theme: {colors}} = useTheme()
-  const {mode} = useMode()
+export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ availableHeight, onInitComplete }) => {
+  const { theme: { colors } } = useTheme()
+  const { mode } = useMode()
   const {
     completeOnboarding,
     curateAcknowledged,
@@ -67,8 +67,8 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({availableHeight, 
     setQueryAcknowledged,
     totalSteps,
   } = useOnboarding()
-  const {logs} = useActivityLogs()
-  const {messageItem} = useUIHeights()
+  const { logs } = useActivityLogs()
+  const { messageItem } = useUIHeights()
 
   // Find running or queued curate/query logs
   const curateLog = useMemo(() => logs.find((log) => log.type === 'curate'), [logs])
@@ -104,7 +104,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({availableHeight, 
         completeOnboarding(true) // Pass true to indicate skipped
       }
     },
-    {isActive: isInWaitingState},
+    { isActive: isInWaitingState },
   )
 
   // Render curate step content
@@ -113,7 +113,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({availableHeight, 
     if (curateLog) {
       return (
         <Box flexDirection="column" width="100%">
-          <LogItem heights={{...messageItem, maxContentLines: maxOutputLines}} log={curateLog} />
+          <LogItem heights={{ ...messageItem, maxContentLines: maxOutputLines }} log={curateLog} />
           {/* Waiting for Enter to continue */}
           {hasCurated && !curateAcknowledged && (
             <EnterPrompt
@@ -158,7 +158,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({availableHeight, 
     if (queryLog) {
       return (
         <Box flexDirection="column" width="100%">
-          <LogItem heights={{...messageItem, maxContentLines: maxOutputLines}} log={queryLog} />
+          <LogItem heights={{ ...messageItem, maxContentLines: maxOutputLines }} log={queryLog} />
           {/* Waiting for Enter to continue */}
           {hasQueried && !queryAcknowledged && (
             <EnterPrompt
@@ -199,13 +199,23 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({availableHeight, 
 
   // Render complete step content
   const renderCompleteContent = () => (
-    <>
-      <EnterPrompt 
+    <Box flexDirection="column">
+      <Text color={colors.dimText} wrap="wrap">
+        Activity logs will appear here as you use brv curate and brv query.
+      </Text>
+      <Box flexDirection="column" marginY={1}>
+        <Text color={colors.dimText}>Tips:</Text>
+        <Text color={colors.dimText}>- Press [Tab] to switch to commands view</Text>
+        <Text color={colors.dimText}>- Use /push to sync your context to the cloud</Text>
+        <Text color={colors.dimText}>- Use /gen-rules to generate agent rules</Text>
+        <Text color={colors.dimText}>- Type / for available commands</Text>
+      </Box>
+      <EnterPrompt
         action="finish onboarding"
         active={mode === 'activity' && currentStep === 'complete'}
         onEnter={completeOnboarding}
       />
-    </>
+    </Box>
   )
 
   return (
