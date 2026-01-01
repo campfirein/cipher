@@ -256,7 +256,7 @@ export class ExecutionConsumer {
 
     // Create LLM config with Plan Agent settings
     // Plan Agent has read-only permissions and orchestrates via TaskTool
-    const model = input.flags?.model ?? (input.flags?.apiKey ? 'google/gemini-2.5-pro' : 'gemini-2.5-pro')
+    const model = input.flags?.model ?? (input.flags?.apiKey ? 'google/gemini-3-flash-preview' : 'gemini-3-flash-preview')
     const envConfig = getCurrentConfig()
 
     const llmConfig = {

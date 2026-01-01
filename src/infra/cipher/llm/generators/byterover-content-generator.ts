@@ -29,7 +29,7 @@ import type {InternalMessage} from '../../../../core/interfaces/cipher/message-t
 import type {ByteRoverLlmHttpService} from '../../http/internal-llm-http-service.js'
 
 import {ClaudeMessageFormatter} from '../formatters/claude-formatter.js'
-import {GeminiMessageFormatter} from '../formatters/gemini-formatter.js'
+import {ensureActiveLoopHasThoughtSignatures, GeminiMessageFormatter} from '../formatters/gemini-formatter.js'
 import {type ThinkingConfig, ThinkingConfigManager} from '../thought-parser.js'
 import {ClaudeTokenizer} from '../tokenizers/claude-tokenizer.js'
 import {GeminiTokenizer} from '../tokenizers/gemini-tokenizer.js'
@@ -116,7 +116,15 @@ export class ByteRoverContentGenerator implements IContentGenerator {
    */
   public async generateContent(request: GenerateContentRequest): Promise<GenerateContentResponse> {
     // Format messages for provider
-    const formattedMessages = this.formatter.format(request.contents)
+    let formattedMessages = this.formatter.format(request.contents)
+
+    // For Gemini 3+ models, ensure function calls in the active loop have thought signatures
+    if (this.providerType === 'gemini') {
+      formattedMessages = ensureActiveLoopHasThoughtSignatures(
+        formattedMessages as Content[],
+        this.config.model,
+      )
+    }
 
     // Build generation config
     const genConfig = this.buildGenerationConfig(request.tools ?? {}, request.systemPrompt ?? '', formattedMessages)

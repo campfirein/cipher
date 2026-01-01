@@ -3,6 +3,8 @@ import type {Content, FunctionCall, GenerateContentResponse, Part} from '@google
 import type {IMessageFormatter} from '../../../../core/interfaces/cipher/i-message-formatter.js'
 import type {InternalMessage, MessagePart, ToolCall} from '../../../../core/interfaces/cipher/message-types.js'
 
+import {isGemini3Model, SYNTHETIC_THOUGHT_SIGNATURE} from '../thought-parser.js'
+
 /**
  * Message formatter for Google Gemini API.
  *
@@ -80,7 +82,7 @@ export class GeminiMessageFormatter implements IMessageFormatter<Content> {
     }
 
     const textParts: string[] = []
-    const functionCalls: FunctionCall[] = []
+    const functionCallsWithSignatures: Array<{fc: FunctionCall; thoughtSignature?: string}> = []
 
     // Extract text and function calls from response parts
     for (const part of candidate.content.parts) {
@@ -89,20 +91,26 @@ export class GeminiMessageFormatter implements IMessageFormatter<Content> {
       }
 
       if ('functionCall' in part && part.functionCall) {
-        functionCalls.push(part.functionCall)
+        // Extract thoughtSignature if present (Gemini 3+ models)
+        const {thoughtSignature} = part as {thoughtSignature?: string}
+        functionCallsWithSignatures.push({
+          fc: part.functionCall,
+          thoughtSignature,
+        })
       }
     }
 
     // Convert to internal message format
     const toolCalls: ToolCall[] | undefined =
-      functionCalls.length > 0
-        ? functionCalls.map((fc) => ({
+      functionCallsWithSignatures.length > 0
+        ? functionCallsWithSignatures.map(({fc, thoughtSignature}) => ({
             function: {
               arguments: JSON.stringify(fc.args ?? {}),
               name: fc.name ?? '',
             },
             id: this.generateToolCallId(fc.name ?? ''),
-            type: 'function',
+            thoughtSignature,
+            type: 'function' as const,
           }))
         : undefined
 
@@ -129,6 +137,7 @@ export class GeminiMessageFormatter implements IMessageFormatter<Content> {
   /**
    * Formats assistant message to Gemini's Content format.
    * Maps 'assistant' role to 'model' and includes both text and tool calls.
+   * For Gemini 3+ models, includes thoughtSignature on function calls.
    */
   private formatAssistantMessage(msg: InternalMessage): Content {
     const parts: Part[] = []
@@ -141,12 +150,19 @@ export class GeminiMessageFormatter implements IMessageFormatter<Content> {
     // Add tool calls if present
     if (msg.toolCalls) {
       for (const tc of msg.toolCalls) {
-        parts.push({
+        const functionCallPart: Part & {thoughtSignature?: string} = {
           functionCall: {
             args: JSON.parse(tc.function.arguments),
             name: tc.function.name,
           },
-        })
+        }
+
+        // Include thoughtSignature if present (required for Gemini 3+ models)
+        if (tc.thoughtSignature) {
+          functionCallPart.thoughtSignature = tc.thoughtSignature
+        }
+
+        parts.push(functionCallPart)
       }
     }
 
@@ -285,4 +301,92 @@ export class GeminiMessageFormatter implements IMessageFormatter<Content> {
     const random = Math.random().toString(36).slice(2, 9)
     return `call_${timestamp}_${random}_${toolName}`
   }
+}
+
+/**
+ * Ensures that function calls in the active conversation loop have thought signatures.
+ * Required for Gemini 3+ preview models.
+ *
+ * The "active loop" starts from the last user text message in the conversation.
+ * Only the first function call in each model turn needs a thought signature.
+ *
+ * @param contents Array of Content objects formatted for Gemini API
+ * @param model The model being used (only applies to Gemini 3+ models)
+ * @returns Modified contents with thought signatures added where needed
+ */
+export function ensureActiveLoopHasThoughtSignatures(contents: Content[], model: string): Content[] {
+  // Only apply to Gemini 3+ models
+  if (!isGemini3Model(model)) {
+    return contents
+  }
+
+  // Find the last user turn with text message (start of active loop)
+  let activeLoopStartIndex = -1
+  for (let i = contents.length - 1; i >= 0; i--) {
+    const content = contents[i]
+    if (content.role === 'user' && content.parts?.some((part) => 'text' in part && part.text)) {
+      activeLoopStartIndex = i
+      break
+    }
+  }
+
+  // No user text message found - nothing to do
+  if (activeLoopStartIndex === -1) {
+    return contents
+  }
+
+  // Create shallow copy to avoid mutating original
+  const newContents = [...contents]
+
+  // Process each content from active loop start to end
+  for (let i = activeLoopStartIndex; i < newContents.length; i++) {
+    const content = newContents[i]
+
+    // Only process model turns with parts
+    if (content.role !== 'model' || !content.parts) {
+      continue
+    }
+
+    const newParts = [...content.parts]
+    const updatedContent = addThoughtSignatureToFirstFunctionCall(newParts, content)
+
+    if (updatedContent) {
+      newContents[i] = updatedContent
+    }
+  }
+
+  return newContents
+}
+
+/**
+ * Adds thought signature to the first function call in parts if missing.
+ * Returns updated content or null if no modification needed.
+ */
+function addThoughtSignatureToFirstFunctionCall(parts: Part[], content: Content): Content | null {
+  for (let j = 0; j < parts.length; j++) {
+    const part = parts[j]
+
+    if (!part || !('functionCall' in part) || !part.functionCall) {
+      continue
+    }
+
+    // Check if thoughtSignature already exists
+    const partWithSig = part as Part & {thoughtSignature?: string}
+    if (partWithSig.thoughtSignature) {
+      return null // Already has signature, no modification needed
+    }
+
+    // Add synthetic thought signature
+    parts[j] = {
+      ...part,
+      thoughtSignature: SYNTHETIC_THOUGHT_SIGNATURE,
+    } as Part & {thoughtSignature: string}
+
+    return {
+      ...content,
+      parts,
+    }
+  }
+
+  return null // No function call found
 }
