@@ -5,7 +5,7 @@
  */
 
 import {Box, Spacer, Text} from 'ink'
-import React from 'react'
+import React, {useMemo} from 'react'
 
 import {useTheme} from '../../hooks/index.js'
 import {formatTime} from '../../utils/time.js'
@@ -18,10 +18,20 @@ interface WelcomeBoxProps {
   isCopyActive: boolean
 }
 
+const welcomeExamplePrompts = [
+  'Save our API authentication patterns, use brv curate',
+  'How do we handle error responses?, use brv query',
+]
+
 export const WelcomeBox: React.FC<WelcomeBoxProps> = ({isCopyActive}) => {
   const {
     theme: {colors},
   } = useTheme()
+
+  const randomPrompt = useMemo(() => {
+    const randomIndex = Math.floor(Math.random() * welcomeExamplePrompts.length)
+    return welcomeExamplePrompts[randomIndex]
+  }, [])
 
   return (
     <Box flexDirection="column" marginBottom={1} width="100%">
@@ -45,12 +55,9 @@ export const WelcomeBox: React.FC<WelcomeBoxProps> = ({isCopyActive}) => {
           </Box>
           <Box flexDirection="column" paddingLeft={4}>
             <Text color={colors.text}>
-              brv curate "Add this as my first memory."{'    '}
-              <CopyablePrompt
-                buttonLabel="[ctrl+y] to copy"
-                isActive={isCopyActive}
-                textToCopy={`brv curate "Add this as my first memory."`}
-              />
+              {randomPrompt}
+              {'    '}
+              <CopyablePrompt buttonLabel="[ctrl+y] to copy" isActive={isCopyActive} textToCopy={randomPrompt} />
             </Text>
           </Box>
 
