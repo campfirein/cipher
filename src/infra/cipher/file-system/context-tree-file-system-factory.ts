@@ -17,8 +17,7 @@ export function createContextTreeFileSystem(baseWorkingDirectory: string): FileS
     allowedPaths: ['.'],
     // Use default blocked extensions
     blockedExtensions: ['.exe', '.dll', '.so', '.dylib'],
-    // Block any attempt to escape via parent directory traversal
-    blockedPaths: ['..', '../'],
+    blockedPaths: [],
     // Reasonable file size limit
     maxFileSize: 10 * 1024 * 1024, // 10MB
     // Restrict working directory to context tree
