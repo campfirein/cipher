@@ -32,6 +32,8 @@
  */
 
 import type {
+  AgentNewSessionRequest,
+  AgentNewSessionResponse,
   AgentRestartRequest,
   AgentRestartResponse,
   LlmChunkEvent,
@@ -74,11 +76,11 @@ import {eventLog, transportLog} from '../../utils/process-logger.js'
  * Internal task tracking (local to TransportHandlers).
  */
 type TaskInfo = {
+  /** Client's working directory for file validation */
+  clientCwd?: string
   clientId: string
   content: string
   createdAt: number
-  /** Client's working directory for file validation */
-  clientCwd?: string
   files?: string[]
   taskId: string
   type: string
@@ -393,6 +395,47 @@ export class TransportHandlers {
         this.transport.broadcast(TransportAgentEventNames.RESTARTED, {error: data.error, success: false})
       }
     })
+
+    // agent:newSession - Client requests a new session (ends current, starts fresh)
+    this.transport.onRequest<AgentNewSessionRequest, AgentNewSessionResponse>(
+      TransportAgentEventNames.NEW_SESSION,
+      (data, clientId) => {
+        transportLog(`New session requested by ${clientId}: ${data.reason ?? 'no reason'}`)
+
+        if (!this.agentClientId) {
+          return {error: 'Agent not connected', success: false}
+        }
+
+        // Forward new session command to Agent
+        this.transport.sendTo(this.agentClientId, TransportAgentEventNames.NEW_SESSION, {reason: data.reason})
+
+        // The actual response will come via agent:newSessionCreated event
+        // For now, return success to indicate the request was forwarded
+        return {success: true}
+      },
+    )
+
+    // agent:newSessionCreated - Agent reports new session creation result
+    this.transport.onRequest<AgentNewSessionResponse, void>(
+      TransportAgentEventNames.NEW_SESSION_CREATED,
+      (data) => {
+        if (data.success) {
+          transportLog(`New session created: ${data.sessionId}`)
+          eventLog('agent:newSessionCreated', {sessionId: data.sessionId, success: true})
+          this.transport.broadcast(TransportAgentEventNames.NEW_SESSION_CREATED, {
+            sessionId: data.sessionId,
+            success: true,
+          })
+        } else {
+          transportLog(`New session creation failed: ${data.error}`)
+          eventLog('agent:newSessionCreated', {error: data.error, success: false})
+          this.transport.broadcast(TransportAgentEventNames.NEW_SESSION_CREATED, {
+            error: data.error,
+            success: false,
+          })
+        }
+      },
+    )
   }
 
   /**

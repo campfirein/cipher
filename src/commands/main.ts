@@ -1,5 +1,8 @@
 import {Command} from '@oclif/core'
+import {randomUUID} from 'node:crypto'
 
+import {DEFAULT_SESSION_RETENTION} from '../core/domain/cipher/session/session-metadata.js'
+import {SessionMetadataStore} from '../infra/cipher/session/session-metadata-store.js'
 import {ProjectConfigStore} from '../infra/config/file-config-store.js'
 import {getProcessManager} from '../infra/process/index.js'
 import {startRepl} from '../infra/repl/repl-startup.js'
@@ -7,7 +10,7 @@ import {FileGlobalConfigStore} from '../infra/storage/file-global-config-store.j
 import {FileOnboardingPreferenceStore} from '../infra/storage/file-onboarding-preference-store.js'
 import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
 import {MixpanelTrackingService} from '../infra/tracking/mixpanel-tracking-service.js'
-import {initSessionLog} from '../utils/process-logger.js'
+import {initSessionLog, processManagerLog} from '../utils/process-logger.js'
 
 /**
  * Main command - Entry point for ByteRover CLI.
@@ -35,9 +38,14 @@ export default class Main extends Command {
       return
     }
 
+    // Resolve session ID (auto-resume or create new)
+    const sessionId = await this.resolveSessionId()
+    processManagerLog(`Session ID resolved: ${sessionId}`)
+
     // Start Transport and Agent processes (v0.5.0 architecture)
+    // Pass session ID to Agent via environment variable
     const processManager = getProcessManager()
-    await processManager.start()
+    await processManager.start({sessionId})
 
     const tokenStore = new KeychainTokenStore()
     const globalConfigStore = new FileGlobalConfigStore()
@@ -57,5 +65,57 @@ export default class Main extends Command {
     } finally {
       await processManager.stop()
     }
+  }
+
+  /**
+   * Resolve session ID for the agent.
+   *
+   * Strategy:
+   * 1. Check for active session in .brv/sessions/active.json
+   * 2. If active session exists and is valid (not stale), resume it
+   * 3. If stale (process crashed), mark as interrupted and create new
+   * 4. If no active session, create new session
+   * 5. Run session cleanup on startup
+   *
+   * @returns Session ID to use
+   */
+  private async resolveSessionId(): Promise<string> {
+    const sessionStore = new SessionMetadataStore()
+
+    // Run cleanup on startup (async, don't wait)
+    sessionStore.cleanupSessions(DEFAULT_SESSION_RETENTION).catch((error) => {
+      processManagerLog(`Session cleanup failed: ${error}`)
+    })
+
+    // Check for active session
+    const activeSession = await sessionStore.getActiveSession()
+
+    if (activeSession) {
+      // Check if the active session is stale (process not running)
+      const isStale = await sessionStore.isActiveSessionStale()
+
+      if (isStale) {
+        // Mark the old session as interrupted
+        processManagerLog(`Active session ${activeSession.sessionId} is stale, marking as interrupted`)
+        await sessionStore.markSessionInterrupted(activeSession.sessionId)
+      } else {
+        // Valid active session - resume it
+        processManagerLog(`Resuming active session: ${activeSession.sessionId}`)
+        return activeSession.sessionId
+      }
+    }
+
+    // Create new session
+    const newSessionId = `agent-session-${randomUUID()}`
+    processManagerLog(`Creating new session: ${newSessionId}`)
+
+    // Save session metadata
+    const metadata = sessionStore.createSessionMetadata(newSessionId)
+    await sessionStore.saveSession(metadata)
+
+    // Set as active session
+    await sessionStore.setActiveSession(newSessionId)
+
+    return newSessionId
   }
 }

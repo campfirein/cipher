@@ -117,6 +117,7 @@ export class ChatSession implements IChatSession {
     for (const controller of this.activeControllers.values()) {
       controller.abort()
     }
+
     this.activeControllers.clear()
 
     // Cancel fallback controller

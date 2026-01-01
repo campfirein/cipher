@@ -99,17 +99,17 @@ let eventForwarders: EventForwarder[] = []
 /**
  * Task queue manager handles:
  * - Separate queues for curate and query tasks
- * - Concurrency limits (max 2 concurrent per type)
+ * - Sequential processing (one task at a time per type)
  * - Task deduplication (same taskId can't be queued twice)
  * - Cancel tasks from queue before processing
  * - FIFO processing order
  */
 const taskQueueManager = new TaskQueueManager({
-  curate: {maxConcurrent: 2},
+  curate: {maxConcurrent: 1},
   onExecutorError(taskId, error) {
     agentLog(`Executor error for task ${taskId}: ${error}`)
   },
-  query: {maxConcurrent: Infinity},
+  query: {maxConcurrent: 1},
 })
 
 /**
@@ -425,8 +425,17 @@ async function tryInitializeAgent(forceReinit = false): Promise<boolean> {
     await agent.start()
     agentLog('CipherAgent started')
 
-    // Create ChatSession
-    chatSessionId = `agent-session-${randomUUID()}`
+    // Create ChatSession - use session ID from environment if provided (stateful sessions)
+    // Otherwise generate a new random session ID (legacy behavior)
+    const envSessionId = process.env.BYTEROVER_SESSION_ID
+    if (envSessionId) {
+      chatSessionId = envSessionId
+      agentLog(`Using persistent session ID from environment: ${chatSessionId}`)
+    } else {
+      chatSessionId = `agent-session-${randomUUID()}`
+      agentLog(`Generated new session ID: ${chatSessionId}`)
+    }
+
     await agent.createSession(chatSessionId)
     agentLog(`ChatSession created: ${chatSessionId}`)
 
@@ -623,6 +632,65 @@ async function startAgent(): Promise<void> {
       const message = error instanceof Error ? error.message : String(error)
       agentLog(`Agent reinitialization error: ${message}`)
       await transportClient?.request('agent:restarted', {error: message, success: false})
+    }
+  })
+
+  // Handle agent:newSession from Transport (triggered by /new command)
+  transportClient.on<{reason?: string}>('agent:newSession', async (data) => {
+    agentLog(`New session requested: ${data.reason ?? 'no reason'}`)
+
+    try {
+      // Import SessionMetadataStore dynamically to avoid circular deps
+      const {SessionMetadataStore} = await import('../cipher/session/session-metadata-store.js')
+      const sessionStore = new SessionMetadataStore()
+
+      // Mark current session as ended (if exists)
+      if (chatSessionId) {
+        agentLog(`Marking current session as ended: ${chatSessionId}`)
+        await sessionStore.markSessionEnded(chatSessionId)
+
+        // Delete the old session from CipherAgent's in-memory session manager
+        if (cipherAgent) {
+          (cipherAgent as CipherAgent).deleteSession(chatSessionId)
+          agentLog(`Deleted old session from CipherAgent: ${chatSessionId}`)
+        }
+      }
+
+      // Generate new session ID
+      const newSessionId = `agent-session-${randomUUID()}`
+      agentLog(`Creating new session: ${newSessionId}`)
+
+      // Create and save new session metadata
+      const metadata = sessionStore.createSessionMetadata(newSessionId)
+      await sessionStore.saveSession(metadata)
+
+      // Set as active session
+      await sessionStore.setActiveSession(newSessionId)
+
+      // Update the in-memory session ID
+      chatSessionId = newSessionId
+
+      // Clear task queue (fresh start)
+      taskQueueManager.clear()
+
+      // The new session will be created lazily when the next task arrives
+      // via cipherAgent.getOrCreateSession(chatSessionId)
+      agentLog(`New session ID set: ${newSessionId}`)
+
+      // Notify Transport that new session was created
+      await transportClient?.request('agent:newSessionCreated', {
+        sessionId: newSessionId,
+        success: true,
+      })
+
+      agentLog(`New session created successfully: ${newSessionId}`)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      agentLog(`New session creation failed: ${message}`)
+      await transportClient?.request('agent:newSessionCreated', {
+        error: message,
+        success: false,
+      })
     }
   })
 
