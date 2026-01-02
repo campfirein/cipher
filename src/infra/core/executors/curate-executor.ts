@@ -3,7 +3,6 @@ import type {CurateExecuteOptions, ICurateExecutor} from '../../../core/interfac
 
 import {FileValidationError} from '../../../core/domain/errors/task-error.js'
 import {validateFileForCurate} from '../../../utils/file-validator.js'
-import {getAgentStorage} from '../../cipher/storage/agent-storage.js'
 
 /**
  * CurateExecutor - Executes curate tasks with an injected CipherAgent.
@@ -14,6 +13,7 @@ import {getAgentStorage} from '../../cipher/storage/agent-storage.js'
  * Architecture:
  * - TaskProcessor injects the long-lived CipherAgent
  * - Event streaming is handled by agent-worker (subscribes to agentEventBus)
+ * - Transport handles task lifecycle (task:started, task:completed, task:error)
  * - Executor focuses solely on curate execution
  */
 export class CurateExecutor implements ICurateExecutor {
@@ -22,64 +22,26 @@ export class CurateExecutor implements ICurateExecutor {
    */
   private static readonly MAX_FILES = 5
 
-  /**
-   * Execute curate with an injected agent.
-   *
-   * @param agent - Long-lived CipherAgent (managed by caller)
-   * @param options - Execution options (content, file references)
-   * @returns Result string from agent execution
-   */
   public async executeWithAgent(agent: ICipherAgent, options: CurateExecuteOptions): Promise<string> {
     const {clientCwd, content, files, taskId} = options
 
-    // Initialize storage for execution tracking
-    const storage = await getAgentStorage()
-    let executionId: null | string = null
-
-    try {
-      const fileReferenceInstructions = this.processFileReferences(files ?? [], clientCwd)
-      if (fileReferenceInstructions === undefined) {
-        throw new FileValidationError()
-      }
-
-      // Create execution with status='running'
-      // Save in JSON format with all fields for tracking:
-      // - content: the context to curate
-      // - files: original file paths (if provided)
-      // - fileReferenceInstructions: generated instructions (if files provided and valid)
-      const executionInput = JSON.stringify({
-        content,
-        ...(fileReferenceInstructions ? {fileReferenceInstructions} : {}),
-        ...(files && files.length > 0 ? {files} : {}),
-      })
-      executionId = storage.createExecution('curate', executionInput)
-
-      // Build prompt with optional file reference instructions
-      const prompt = fileReferenceInstructions ? `${content}\n${fileReferenceInstructions}` : content
-
-      // Execute with curate commandType
-      // Agent uses its default session (created during start())
-      const response = await agent.execute(prompt, {
-        executionContext: {commandType: 'curate'},
-        taskId,
-      })
-
-      // Mark execution as completed
-      storage.updateExecutionStatus(executionId, 'completed', response)
-
-      // Cleanup old executions
-      storage.cleanupOldExecutions(100)
-
-      return response
-    } catch (error) {
-      // Mark execution as failed
-      if (executionId) {
-        const errorMessage = error instanceof Error ? error.message : String(error)
-        storage.updateExecutionStatus(executionId, 'failed', undefined, errorMessage)
-      }
-
-      throw error
+    const fileReferenceInstructions = this.processFileReferences(files ?? [], clientCwd)
+    if (fileReferenceInstructions === undefined) {
+      throw new FileValidationError()
     }
+
+    // Build prompt with optional file reference instructions
+    const prompt = fileReferenceInstructions ? `${content}\n${fileReferenceInstructions}` : content
+
+    // Execute with curate commandType
+    // Agent uses its default session (created during start())
+    // Task lifecycle is managed by Transport (task:started, task:completed, task:error)
+    const response = await agent.execute(prompt, {
+      executionContext: {commandType: 'curate'},
+      taskId,
+    })
+
+    return response
   }
 
   /**

@@ -162,6 +162,11 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
     if (this.stateManager) {
       this.stateManager.reset()
     }
+
+    // Close SQLite databases to release file handles and ensure clean shutdown
+    if (this.services?.blobStorage) {
+      this.services.blobStorage.close()
+    }
   }
 
   /**

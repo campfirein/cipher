@@ -7,7 +7,6 @@ import {useEffect, useMemo, useState} from 'react'
 
 import type {Tab, TabId} from '../types.js'
 
-import {stopQueuePollingService} from '../../infra/cipher/consumer/queue-polling-service.js'
 import {DEFAULT_TAB, TABS} from '../constants.js'
 import {useMode} from '../contexts/mode-context.js'
 import {useOnboarding} from './use-onboarding.js'
@@ -56,7 +55,6 @@ export function useTabNavigation(): UseTabNavigationResult {
 
       // Quit with Ctrl+C
       if (key.ctrl && input === 'c') {
-        stopQueuePollingService()
         exit()
       }
     },

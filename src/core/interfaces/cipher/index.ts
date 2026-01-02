@@ -6,7 +6,6 @@
 
 export type {BlobMetadata, StoredBlob} from '../../domain/cipher/blob/types.js'
 export * from './cipher-services.js'
-export type {IAgentStorage} from './i-agent-storage.js'
 export type {IBlobStorage} from './i-blob-storage.js'
 export type {IChatSession} from './i-chat-session.js'
 export type {ICipherAgent} from './i-cipher-agent.js'
