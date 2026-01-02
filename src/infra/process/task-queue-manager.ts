@@ -13,6 +13,8 @@
 
 import type {TaskExecute} from '../../core/domain/transport/schemas.js'
 
+import {CURATE_MAX_CONCURRENT} from './constants.js'
+
 export type TaskType = 'curate' | 'query'
 
 export interface QueueConfig {
@@ -66,7 +68,7 @@ export class TaskQueueManager {
 
   constructor(config?: Partial<TaskQueueManagerConfig>) {
     this.config = {
-      curate: {maxConcurrent: config?.curate?.maxConcurrent ?? 1},
+      curate: {maxConcurrent: config?.curate?.maxConcurrent ?? CURATE_MAX_CONCURRENT},
       // Query tasks are unlimited (Infinity) - lightweight and fast
       query: {maxConcurrent: config?.query?.maxConcurrent ?? Infinity},
     }
