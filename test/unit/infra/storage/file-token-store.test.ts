@@ -93,7 +93,7 @@ describe('FileTokenStore', () => {
       expect(stats.mode & 0o777).to.equal(0o600)
     })
 
-    it('should reuse existing key on subsequent saves', async () => {
+    it('should rotate key on each save (key rotation)', async () => {
       const token1 = createTestToken()
       const json = token1.toJson()
       const token2 = new AuthToken({
@@ -112,8 +112,8 @@ describe('FileTokenStore', () => {
       await store.save(token2)
       const key2 = await readFile(deps.getKeyPath())
 
-      // Key should NOT change between saves
-      expect(key1.equals(key2)).to.be.true
+      // Key SHOULD change between saves (rotation)
+      expect(key1.equals(key2)).to.be.false
     })
 
     it('should encrypt credentials (not plain text)', async () => {
@@ -197,14 +197,16 @@ describe('FileTokenStore', () => {
       expect(existsSync(deps.getCredentialsPath())).to.be.false
     })
 
-    it('should NOT delete key file', async () => {
+    it('should delete key file', async () => {
       const token = createTestToken()
       await store.save(token)
 
+      expect(existsSync(deps.getKeyPath())).to.be.true
+
       await store.clear()
 
-      // Key should still exist
-      expect(existsSync(deps.getKeyPath())).to.be.true
+      // Key should be deleted
+      expect(existsSync(deps.getKeyPath())).to.be.false
     })
 
     it('should not throw if credentials file does not exist', async () => {

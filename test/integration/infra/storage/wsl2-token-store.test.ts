@@ -139,7 +139,7 @@ describe('TokenStore Integration', function () {
         expect(key.length).to.equal(32)
       })
 
-      it('should reuse same key for subsequent saves', async () => {
+      it('should rotate key on each save', async () => {
         const token1 = createTestToken()
         await store.save(token1)
         const key1 = readFileSync(keyPath)
@@ -148,7 +148,8 @@ describe('TokenStore Integration', function () {
         await store.save(token2)
         const key2 = readFileSync(keyPath)
 
-        expect(key1.equals(key2)).to.be.true
+        // Key SHOULD change between saves (rotation)
+        expect(key1.equals(key2)).to.be.false
       })
     })
   }

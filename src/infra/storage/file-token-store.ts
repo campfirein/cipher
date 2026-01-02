@@ -5,7 +5,7 @@ import {chmod, mkdir, readFile, unlink, writeFile} from 'node:fs/promises'
 import type {ITokenStore} from '../../core/interfaces/i-token-store.js'
 
 import {AuthToken} from '../../core/domain/entities/auth-token.js'
-import {getGlobalDataDir} from '../../utils/global-config-path.js'
+import {getGlobalDataDir} from '../../utils/global-data-path.js'
 
 const KEY_FILE = '.token-key'
 const CREDENTIALS_FILE = 'credentials'
@@ -36,7 +36,7 @@ const defaultDeps: FileTokenStoreDeps = {
  * which handles platform detection and selects the appropriate backend.
  *
  * Security:
- * - Random 32-byte key stored in ~/.local/share/brv/.token-key (created once, reused)
+ * - Random 32-byte key stored in ~/.local/share/brv/.token-key (rotated on each save)
  * - AES-256-GCM authenticated encryption for token data
  * - Both files have 0600 permissions (owner read/write only)
  */
@@ -50,8 +50,14 @@ export class FileTokenStore implements ITokenStore {
   public async clear(): Promise<void> {
     try {
       const credentialsPath = this.deps.getCredentialsPath()
+      const keyPath = this.deps.getKeyPath()
+
       if (existsSync(credentialsPath)) {
         await unlink(credentialsPath)
+      }
+
+      if (existsSync(keyPath)) {
+        await unlink(keyPath)
       }
     } catch {
       /** Ignore errors */
@@ -85,14 +91,10 @@ export class FileTokenStore implements ITokenStore {
 
     await mkdir(dataDir, {recursive: true})
 
-    let key: Buffer
-    if (existsSync(keyPath)) {
-      key = await readFile(keyPath)
-    } else {
-      key = randomBytes(KEY_LENGTH)
-      await writeFile(keyPath, key)
-      await chmod(keyPath, 0o600)
-    }
+    // Always generate new key for rotation (security best practice)
+    const key = randomBytes(KEY_LENGTH)
+    await writeFile(keyPath, key)
+    await chmod(keyPath, 0o600)
 
     const plaintext = JSON.stringify(token.toJson())
     const encrypted = this.encrypt(plaintext, key)

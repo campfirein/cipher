@@ -6,7 +6,7 @@ let wslCached: boolean | undefined
  * Detect if running in WSL (Windows Subsystem for Linux) environment.
  * Checks WSL-specific environment variables first, then falls back to /proc/version.
  */
-function detectWSL(): boolean {
+function detectWsl(): boolean {
   if (process.platform !== 'linux') {
     return false
   }
@@ -29,7 +29,7 @@ function detectWSL(): boolean {
  */
 export function isWsl(): boolean {
   if (wslCached === undefined) {
-    wslCached = detectWSL()
+    wslCached = detectWsl()
   }
 
   return wslCached
