@@ -14,7 +14,7 @@ const RELATION_PATTERN = /@([\w-]+)\/([\w-]+)(?:\/([\w-]+))?/g
  * Extracts all @domain/topic or @domain/topic/subtopic references.
  *
  * @param content - Markdown content to parse
- * @returns Array of unique relation paths (without @ prefix)
+ * @returns Array of unique relation paths (with or without @ prefix)
  *
  * @example
  * ```ts
@@ -126,12 +126,12 @@ export function formatRelation(domain: string, topic: string, subtopic?: string)
  * normalizeRelation('code_style/error-handling') // 'code_style/error-handling'
  * normalizeRelation('@code_style/error-handling') // 'code_style/error-handling'
  * normalizeRelation('code_style/error-handling/title.md') // 'code_style/error-handling/title.md'
- * normalizeRelation('@code_style/error-handling/title.md') // 'code_style/error-handling/title.md'
+ * normalizeRelation('@@@code_style/error-handling/title.md') // 'code_style/error-handling/title.md'
  * ```
  */
 
 export function normalizeRelation(relation: string): string {
-  return relation.startsWith('@') ? relation.slice(1) : relation
+  return relation.replace(/^@+/, '')
 }
 
 /**

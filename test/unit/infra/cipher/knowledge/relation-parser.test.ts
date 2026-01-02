@@ -151,8 +151,11 @@ describe('relation-parser', () => {
       expect(normalizeRelation('')).to.equal('')
     })
 
-    it('should only remove first @ character', () => {
-      expect(normalizeRelation('@@double/prefix')).to.equal('@double/prefix')
+    it('should remove all @ characters', () => {
+      expect(normalizeRelation('@@double/prefix')).to.equal('double/prefix')
+      expect(normalizeRelation('@code_style/error-handling/title.md')).to.equal('code_style/error-handling/title.md')
+      expect(normalizeRelation('@@@@code_style/error-handling/title.md')).to.equal('code_style/error-handling/title.md')
+      expect(normalizeRelation('code_style/error-handling/title.md')).to.equal('code_style/error-handling/title.md')
     })
   })
 
