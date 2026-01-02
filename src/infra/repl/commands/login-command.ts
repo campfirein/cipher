@@ -6,7 +6,7 @@ import { OidcDiscoveryService } from '../../auth/oidc-discovery-service.js'
 import { SystemBrowserLauncher } from '../../browser/system-browser-launcher.js'
 import { CallbackHandler } from '../../http/callback-handler.js'
 import {FileGlobalConfigStore} from "../../storage/file-global-config-store.js";
-import { KeychainTokenStore } from '../../storage/keychain-token-store.js'
+import { createTokenStore } from '../../storage/token-store.js'
 import { ReplTerminal } from '../../terminal/repl-terminal.js'
 import { MixpanelTrackingService } from '../../tracking/mixpanel-tracking-service.js'
 import { LoginUseCase } from '../../usecase/login-use-case.js'
@@ -25,7 +25,7 @@ export const loginCommand: SlashCommand = {
 
       // Create services
       const config = getCurrentConfig()
-      const tokenStore = new KeychainTokenStore()
+      const tokenStore = createTokenStore()
       const globalConfigStore = new FileGlobalConfigStore()
       const trackingService = new MixpanelTrackingService({globalConfigStore, tokenStore})
       const discoveryService = new OidcDiscoveryService()

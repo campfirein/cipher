@@ -11,18 +11,8 @@ import {ToolName} from '../../../../core/domain/cipher/tools/constants.js'
 const ReadFileInputSchema = z
   .object({
     filePath: z.string().describe('Path to the file to read (absolute or relative to working directory)'),
-    limit: z
-      .number()
-      .int()
-      .positive()
-      .optional()
-      .describe('Maximum number of lines to read (optional, default: 2000)'),
-    offset: z
-      .number()
-      .int()
-      .min(1)
-      .optional()
-      .describe('Starting line number (1-based, optional)'),
+    limit: z.number().int().positive().optional().describe('Maximum number of lines to read (optional, default: 2000)'),
+    offset: z.number().int().min(1).optional().describe('Starting line number (1-based, optional)'),
   })
   .strict()
 
@@ -70,6 +60,7 @@ export function createReadFileTool(fileSystemService: IFileSystem): Tool {
         size: result.size,
         totalLines: result.totalLines,
         truncated: result.truncated,
+        truncatedLineCount: result.truncatedLineCount,
       }
     },
     id: ToolName.READ_FILE,

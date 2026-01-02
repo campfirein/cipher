@@ -10,7 +10,7 @@ import {LegacyRuleDetector} from '../../rule/legacy-rule-detector.js'
 import {RuleTemplateService} from '../../rule/rule-template-service.js'
 import {HttpSpaceService} from '../../space/http-space-service.js'
 import {FileGlobalConfigStore} from "../../storage/file-global-config-store.js";
-import {KeychainTokenStore} from '../../storage/keychain-token-store.js'
+import {createTokenStore} from '../../storage/token-store.js'
 import {HttpTeamService} from '../../team/http-team-service.js'
 import {FsTemplateLoader} from '../../template/fs-template-loader.js'
 import {ReplTerminal} from '../../terminal/repl-terminal.js'
@@ -41,7 +41,7 @@ export const initCommand: SlashCommand = {
 
         // Create services
         const envConfig = getCurrentConfig()
-        const tokenStore = new KeychainTokenStore()
+        const tokenStore = createTokenStore()
         const globalConfigStore = new FileGlobalConfigStore()
         const trackingService = new MixpanelTrackingService({globalConfigStore, tokenStore})
 

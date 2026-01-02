@@ -4,22 +4,10 @@ import {z} from 'zod'
 
 import type {Tool, ToolExecutionContext} from '../../../../core/domain/cipher/tools/types.js'
 
-import {DEFAULT_CONTEXT_TREE_DOMAINS} from '../../../../config/context-tree-domains.js'
 import {ToolName} from '../../../../core/domain/cipher/tools/constants.js'
 import {DirectoryManager} from '../../../../core/domain/knowledge/directory-manager.js'
 import {MarkdownWriter} from '../../../../core/domain/knowledge/markdown-writer.js'
 import {toSnakeCase} from '../../../../utils/file-helpers.js'
-
-/**
- * Predefined domain names from configuration.
- */
-const PREDEFINED_DOMAIN_NAMES = DEFAULT_CONTEXT_TREE_DOMAINS.map((domain) => domain.name)
-
-/**
- * Maximum number of custom domains allowed beyond predefined domains.
- * This prevents excessive domain proliferation which degrades query quality.
- */
-const MAX_CUSTOM_DOMAINS = 3
 
 /**
  * Operation types for curating knowledge topics.
@@ -35,7 +23,7 @@ const ContentSchema = z.object({
   relations: z
     .array(z.string())
     .optional()
-    .describe('Related topics using @domain/topic or @domain/topic/subtopic notation'),
+    .describe('Related topics using domain/topic or domain/topic/subtopic notation'),
   snippets: z.array(z.string()).optional().describe('Code/text snippets'),
 })
 
@@ -121,8 +109,9 @@ async function getExistingDomains(basePath: string): Promise<string[]> {
 }
 
 /**
- * Check if a domain is valid (either predefined or existing in context tree).
- * Also enforces the maximum custom domains limit.
+ * Validate domain name format.
+ * Dynamic domains are allowed - no predefined list or limits.
+ * The agent is responsible for creating semantically meaningful domains.
  */
 async function validateDomain(
   basePath: string,
@@ -131,32 +120,25 @@ async function validateDomain(
   const normalizedDomain = toSnakeCase(domainName)
   const existingDomains = await getExistingDomains(basePath)
 
-  // Check if it's a predefined domain - always allowed
-  if (PREDEFINED_DOMAIN_NAMES.includes(normalizedDomain)) {
-    return {allowed: true, existingDomains}
-  }
-
-  // Check if it already exists in context tree - always allowed
-  if (existingDomains.includes(normalizedDomain)) {
-    return {allowed: true, existingDomains}
-  }
-
-  // Count how many custom domains already exist
-  const customDomains = existingDomains.filter((domain) => !PREDEFINED_DOMAIN_NAMES.includes(domain))
-
-  // Check if we've exceeded the custom domain limit
-  if (customDomains.length >= MAX_CUSTOM_DOMAINS) {
+  // Validate domain name format (must be non-empty and valid for filesystem)
+  if (!normalizedDomain || normalizedDomain.length === 0) {
     return {
       allowed: false,
       existingDomains,
-      reason:
-        `Cannot create new domain "${normalizedDomain}". Maximum of ${MAX_CUSTOM_DOMAINS} custom domains allowed. ` +
-        `Existing custom domains: ${customDomains.join(', ')}. ` +
-        `Please use one of the predefined domains (${PREDEFINED_DOMAIN_NAMES.join(', ')}) or existing domains.`,
+      reason: 'Domain name cannot be empty.',
     }
   }
 
-  // New custom domain within limit - allowed
+  // Check for invalid characters in domain name
+  if (!/^[\w-]+$/.test(normalizedDomain)) {
+    return {
+      allowed: false,
+      existingDomains,
+      reason: `Domain name "${normalizedDomain}" contains invalid characters. Use only letters, numbers, underscores, and hyphens.`,
+    }
+  }
+
+  // All valid domain names are allowed - dynamic domain creation enabled
   return {allowed: true, existingDomains}
 }
 
@@ -605,11 +587,19 @@ export function createCurateTool(): Tool {
 **Path format:** domain/topic or domain/topic/subtopic (uses snake_case automatically)
 **File naming:** Titles are converted to snake_case (e.g., "Best Practices" -> "best_practices.md")
 
-**Domain constraints:**
-- Predefined domains: code_style, design, structure, compliance, testing, bug_fixes
-- Up to 3 additional custom domains are allowed
-- Always prefer predefined domains when possible
-- Creating new domains beyond the limit will fail
+**Dynamic Domain Creation:**
+- Domains are created dynamically based on the context being curated
+- Choose domain names that are semantically meaningful and descriptive
+- Domain names should be concise (1-3 words), use snake_case format
+- Examples of good domain names: authentication, api_design, data_models, error_handling, ui_components
+- Before creating a new domain, check if existing domains could be reused
+- Group related topics under the same domain for better organization
+
+**Domain Naming Guidelines:**
+- Use noun-based names that describe the category (e.g., "authentication" not "how_to_authenticate")
+- Avoid overly generic names (e.g., "misc", "other", "general")
+- Avoid overly specific names that only fit one topic
+- Keep domain count reasonable by consolidating related concepts
 
 **Output:** Returns applied operations with status (success/failed), filePath (for created/modified files), and a summary of counts.`,
 

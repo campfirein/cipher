@@ -28,7 +28,7 @@ export const App: React.FC = () => {
     <Box flexDirection="column" height={terminalHeight} paddingBottom={appBottomPadding} width={terminalWidth}>
       {/* Header - always shown, but no taskStats when unauthorized */}
       <Box flexShrink={0}>
-        <Header compact={isAuthorized} showTransportStats={isAuthorized} taskStats={taskStats} />
+        <Header compact={isAuthorized} showStatusLine={isAuthorized} taskStats={taskStats} />
       </Box>
 
       {isAuthorized ? (

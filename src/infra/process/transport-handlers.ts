@@ -77,6 +77,8 @@ type TaskInfo = {
   clientId: string
   content: string
   createdAt: number
+  /** Client's working directory for file validation */
+  clientCwd?: string
   files?: string[]
   taskId: string
   type: string
@@ -238,6 +240,7 @@ export class TransportHandlers {
       clientId,
       content: data.content,
       createdAt: Date.now(),
+      ...(data.clientCwd ? {clientCwd: data.clientCwd} : {}),
       ...(data.files?.length ? {files: data.files} : {}),
       taskId,
       type: data.type,
@@ -249,6 +252,7 @@ export class TransportHandlers {
     // Broadcast task:created to broadcast-room for TUI monitoring
     this.transport.broadcastTo('broadcast-room', TransportTaskEventNames.CREATED, {
       content: data.content,
+      ...(data.clientCwd ? {clientCwd: data.clientCwd} : {}),
       ...(data.files?.length ? {files: data.files} : {}),
       taskId,
       type: data.type,
@@ -259,6 +263,7 @@ export class TransportHandlers {
       const executeMsg: TaskExecute = {
         clientId,
         content: data.content,
+        ...(data.clientCwd ? {clientCwd: data.clientCwd} : {}),
         ...(data.files?.length ? {files: data.files} : {}),
         taskId,
         type: data.type as 'curate' | 'query',
@@ -309,6 +314,7 @@ export class TransportHandlers {
       // so it's not available at task:started time. It's saved to DB instead.
       this.transport.broadcastTo('broadcast-room', TransportTaskEventNames.STARTED, {
         content: task.content,
+        ...(task.clientCwd ? {clientCwd: task.clientCwd} : {}),
         ...(task.files?.length ? {files: task.files} : {}),
         taskId,
         type: task.type,

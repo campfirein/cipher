@@ -200,6 +200,9 @@ export interface FileContent {
 
   /** Whether content was truncated due to size/line limits */
   truncated: boolean
+
+  /** Number of lines that were truncated due to excessive length */
+  truncatedLineCount?: number
 }
 
 /**

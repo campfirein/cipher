@@ -14,6 +14,13 @@ export interface IBlobStorage {
   clear(): Promise<void>;
 
   /**
+   * Close the storage connection and release resources.
+   * Should be called when storage is no longer needed.
+   * Safe to call multiple times (idempotent).
+   */
+  close(): void;
+
+  /**
    * Delete a blob by its key
    *
    * @param key - The blob identifier

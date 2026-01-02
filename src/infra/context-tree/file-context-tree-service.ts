@@ -1,10 +1,9 @@
-import {access, mkdir, writeFile} from 'node:fs/promises'
+import {access, mkdir} from 'node:fs/promises'
 import {join} from 'node:path'
 
 import type {IContextTreeService} from '../../core/interfaces/i-context-tree-service.js'
 
-import {CONTEXT_TREE_DOMAINS} from '../../config/context-tree-domains.js'
-import {BRV_DIR, CONTEXT_FILE, CONTEXT_TREE_DIR} from '../../constants.js'
+import {BRV_DIR, CONTEXT_TREE_DIR} from '../../constants.js'
 
 export type ContextTreeServiceConfig = {
   baseDirectory?: string
@@ -39,26 +38,9 @@ export class FileContextTreeService implements IContextTreeService {
     const brvDir = join(baseDir, BRV_DIR)
     const contextTreeDir = join(brvDir, CONTEXT_TREE_DIR)
 
-    // Create .brv/context-tree/ directory
+    // Create .brv/context-tree/ directory only
+    // Domains are created dynamically by the agent based on curated content
     await mkdir(contextTreeDir, {recursive: true})
-
-    // Create domain folders and context.md files in parallel
-    await Promise.all(
-      CONTEXT_TREE_DOMAINS.map(async (domain) => {
-        const domainPath = join(contextTreeDir, domain.name)
-        await mkdir(domainPath, {recursive: true})
-
-        // Write context.md with domain description
-        const contextMdPath = join(domainPath, CONTEXT_FILE)
-        const contextContent = `# ${domain.name.replaceAll('_', ' ').replaceAll(/\b\w/g, (c) => c.toUpperCase())}\n\n${
-          domain.description
-        }\n`
-        await writeFile(contextMdPath, contextContent, 'utf8')
-      }),
-    )
-
-    // Note: index.json is no longer created as it's not actively used
-    // Context tree uses filesystem-based discovery instead
 
     return contextTreeDir
   }

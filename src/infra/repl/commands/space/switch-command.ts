@@ -2,7 +2,7 @@ import {getCurrentConfig} from '../../../../config/environment.js'
 import {type CommandContext, CommandKind, type SlashCommand} from '../../../../tui/types.js'
 import {ProjectConfigStore} from '../../../config/file-config-store.js'
 import {HttpSpaceService} from '../../../space/http-space-service.js'
-import {KeychainTokenStore} from '../../../storage/keychain-token-store.js'
+import {createTokenStore} from '../../../storage/token-store.js'
 import {HttpTeamService} from '../../../team/http-team-service.js'
 import {ReplTerminal} from '../../../terminal/repl-terminal.js'
 import {SpaceSwitchUseCase} from '../../../usecase/space-switch-use-case.js'
@@ -23,7 +23,7 @@ export const switchCommand: SlashCommand = {
           spaceService: new HttpSpaceService({apiBaseUrl: envConfig.apiBaseUrl}),
           teamService: new HttpTeamService({apiBaseUrl: envConfig.apiBaseUrl}),
           terminal,
-          tokenStore: new KeychainTokenStore(),
+          tokenStore: createTokenStore(),
           workspaceDetector: new WorkspaceDetectorService(),
         })
 
