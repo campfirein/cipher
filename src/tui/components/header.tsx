@@ -20,7 +20,7 @@ import {StatusBadge, StatusType} from './status-badge.js'
 interface HeaderProps {
   compact?: boolean
   connectedAgent?: string
-  showTransportStats?: boolean
+  showStatusLine?: boolean
   taskStats?: TaskStats
 }
 
@@ -29,7 +29,7 @@ interface StatusProps {
   type: StatusType
 }
 
-export const Header: React.FC<HeaderProps> = ({compact, showTransportStats, taskStats: transportStats}) => {
+export const Header: React.FC<HeaderProps> = ({compact, showStatusLine, taskStats: transportStats}) => {
   const {version} = useServices()
   const {theme} = useTheme()
   const {breakpoint} = useTerminalBreakpoint()
@@ -60,24 +60,24 @@ export const Header: React.FC<HeaderProps> = ({compact, showTransportStats, task
       <Logo compact={compact} version={version} />
 
       {/* Status line */}
-      <Box gap={2} justifyContent="space-between">
-        {/* Status state */}
-        <StatusBadge
-          label={displayStatus?.label ?? 'Idle'}
-          message={displayStatus?.message ?? 'Ready'}
-          type={displayStatus?.type ?? 'info'}
-        />
+      {showStatusLine && (
+        <Box gap={2} justifyContent="space-between">
+          {/* Status state */}
+          <StatusBadge
+            label={displayStatus?.label ?? 'Idle'}
+            message={displayStatus?.message ?? 'Ready'}
+            type={displayStatus?.type ?? 'info'}
+          />
 
-        {/* Transport Stats */}
-        {showTransportStats && (
+          {/* Transport Stats */}
           <Box flexShrink={0} paddingRight={1}>
             <Text>~ in queue: </Text>
             <Text color={theme.colors.warning}>{transportStats?.created ?? 0}</Text>
             <Text> | running: </Text>
             <Text color={theme.colors.primary}>{transportStats?.started ?? 0}</Text>
           </Box>
-        )}
-      </Box>
+        </Box>
+      )}
     </Box>
   )
 }
