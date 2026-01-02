@@ -3,7 +3,7 @@ import {Args, Command, Flags} from '@oclif/core'
 import {isDevelopment} from '../config/environment.js'
 import {ICurateUseCase} from '../core/interfaces/usecase/i-curate-use-case.js'
 import {FileGlobalConfigStore} from '../infra/storage/file-global-config-store.js'
-import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
+import {createTokenStore} from '../infra/storage/token-store.js'
 import {OclifTerminal} from '../infra/terminal/oclif-terminal.js'
 import {MixpanelTrackingService} from '../infra/tracking/mixpanel-tracking-service.js'
 import {CurateUseCase} from '../infra/usecase/curate-use-case.js'
@@ -59,7 +59,7 @@ Bad examples:
   }
 
   protected createUseCase(): ICurateUseCase {
-    const tokenStore = new KeychainTokenStore()
+    const tokenStore = createTokenStore()
     const globalConfigStore = new FileGlobalConfigStore()
     const terminal = new OclifTerminal(this)
     const trackingService = new MixpanelTrackingService({globalConfigStore, tokenStore})

@@ -9,6 +9,10 @@ export const GLOBAL_CONFIG_DIR = 'brv'
 export const GLOBAL_CONFIG_FILE = 'config.json'
 export const GLOBAL_CONFIG_VERSION = '0.0.1'
 
+// Global data directory name (for XDG_DATA_HOME - secrets, credentials, cache)
+// Same value as GLOBAL_CONFIG_DIR but different semantic purpose
+export const GLOBAL_DATA_DIR = 'brv'
+
 // ACE directory structure constants
 export const ACE_DIR = 'ace'
 export const PROJECT = 'byterover'

@@ -1,7 +1,7 @@
 // TODO(v0.5.0): Remove this file. ConsumerService is replaced by CoreProcess → TaskProcessor.
 
 import {ProjectConfigStore} from '../../config/file-config-store.js'
-import {KeychainTokenStore} from '../../storage/keychain-token-store.js'
+import {createTokenStore} from '../../storage/token-store.js'
 import {closeAgentStorage} from '../storage/agent-storage.js'
 import {createExecutionConsumer, ExecutionConsumer} from './execution-consumer.js'
 
@@ -117,7 +117,7 @@ export class ConsumerService {
     }
 
     // Load auth token
-    const tokenStore = new KeychainTokenStore()
+    const tokenStore = createTokenStore()
     const token = await tokenStore.load()
     if (!token) {
       throw new Error('Not authenticated. Please run "brv login" first.')
