@@ -23,7 +23,7 @@ const ContentSchema = z.object({
   relations: z
     .array(z.string())
     .optional()
-    .describe('Related topics using domain/topic or domain/topic/subtopic notation'),
+    .describe('Related topics using domain/topic/title or domain/topic/subtopic/title notation'),
   snippets: z.array(z.string()).optional().describe('Code/text snippets'),
 })
 
@@ -567,12 +567,14 @@ export function createCurateTool(): Tool {
 **Operations:**
 1. **ADD** - Create new titled context file in domain/topic/subtopic
    - Requires: path, title, content (snippets and/or relations), reason
-   - Example: { type: "ADD", path: "code_style/error_handling", title: "Best Practices", content: { snippets: ["..."], relations: ["logging/basics"] }, reason: "New pattern" }
+   - Relations must be in the format of "domain/topic/title" or "domain/topic/subtopic/title"
+   - Example: { type: "ADD", path: "code_style/error_handling", title: "Best Practices", content: { snippets: ["..."], relations: ["structure/api-endpoints/validation", "structure/api-endpoints/error-handling/retry-logic"] }, reason: "New pattern" }
    - Creates: code_style/error_handling/best_practices.md
 
 2. **UPDATE** - Modify existing titled context file (full replacement)
    - Requires: path, title, content, reason
-   - Example: { type: "UPDATE", path: "code_style/error_handling", title: "Best Practices", content: { snippets: ["Updated"] }, reason: "Improved" }
+   - Relations must be in the format of "domain/topic/title" or "domain/topic/subtopic/title"
+   - Example: { type: "UPDATE", path: "code_style/error_handling", title: "Best Practices", content: { snippets: ["Updated"], relations: ["structure/api-endpoints/validation", "structure/api-endpoints/error-handling/retry-logic"] }, reason: "Improved" }
 
 3. **MERGE** - Combine source file into target file, delete source
    - Requires: path (source), title (source file), mergeTarget (destination path), mergeTargetTitle (destination file), reason
