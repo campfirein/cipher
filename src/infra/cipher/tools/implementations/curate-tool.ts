@@ -23,7 +23,7 @@ const ContentSchema = z.object({
   relations: z
     .array(z.string())
     .optional()
-    .describe('Related topics using @domain/topic or @domain/topic/subtopic notation'),
+    .describe('Related topics using domain/topic or domain/topic/subtopic notation'),
   snippets: z.array(z.string()).optional().describe('Code/text snippets'),
 })
 

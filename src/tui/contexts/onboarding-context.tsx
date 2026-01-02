@@ -31,6 +31,8 @@ export interface OnboardingContextValue {
   hasQueried: boolean
   /** Whether the project is initialized (brvConfig exists) */
   isInitialized: boolean
+  /** Whether we're still loading the dismissed state */
+  isLoadingDismissed: boolean
   /** Whether user has acknowledged query completion */
   queryAcknowledged: boolean
   /** Set curate acknowledged state */
@@ -61,9 +63,6 @@ interface OnboardingProviderProps {
  * Onboarding starts when project is not initialized on mount and
  * continues until all steps are completed and dismissed.
  */
-/** Cooldown period in milliseconds (7 days) */
-const ONBOARDING_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000
-
 export function OnboardingProvider({children}: OnboardingProviderProps): React.ReactElement {
   const {brvConfig, isInitialConfigLoaded} = useAuth()
   const {tasks} = useTasks()
@@ -78,23 +77,22 @@ export function OnboardingProvider({children}: OnboardingProviderProps): React.R
   // This determines whether we're in onboarding mode for this session
   const wasNotInitializedRef = useRef(true)
 
-  // Track if onboarding is in cooldown (dismissed less than a week ago)
-  const [isInCooldown, setIsInCooldown] = useState(true) // Start true until we check
+  // Track if user has ever dismissed onboarding (persisted across sessions)
+  const [hasDismissed, setHasDismissed] = useState(false)
+  const [isLoadingDismissed, setIsLoadingDismissed] = useState(true)
 
-  // Check cooldown on mount
+  // Check if user has dismissed onboarding before (based on existence of lastDismissedAt)
   useEffect(() => {
-    const checkCooldown = async () => {
-      const lastDismissedAt = await onboardingPreferenceStore.getLastDismissedAt()
-      if (lastDismissedAt) {
-        const elapsed = Date.now() - lastDismissedAt
-        setIsInCooldown(elapsed < ONBOARDING_COOLDOWN_MS)
-      } else {
-        // Never dismissed before - not in cooldown
-        setIsInCooldown(false)
+    const checkDismissed = async () => {
+      try {
+        const lastDismissedAt = await onboardingPreferenceStore.getLastDismissedAt()
+        setHasDismissed(Boolean(lastDismissedAt))
+      } finally {
+        setIsLoadingDismissed(false)
       }
     }
 
-    checkCooldown()
+    checkDismissed()
   }, [onboardingPreferenceStore])
 
   // Update ref once initial config load completes (only once)
@@ -112,9 +110,6 @@ export function OnboardingProvider({children}: OnboardingProviderProps): React.R
   // Track acknowledgment for completed steps (user pressed Enter after seeing output)
   const [curateAcknowledged, setCurateAcknowledgedState] = useState(false)
   const [queryAcknowledged, setQueryAcknowledgedState] = useState(false)
-
-  // Track if user has dismissed the onboarding (pressed Enter on complete step)
-  const [onboardingDismissed, setOnboardingDismissed] = useState(false)
 
   // Track if init was completed during this onboarding session (to avoid duplicate tracking)
   const initTrackedRef = useRef(false)
@@ -185,14 +180,12 @@ export function OnboardingProvider({children}: OnboardingProviderProps): React.R
 
   // Show onboarding if:
   // 1. Project was not initialized after initial config check, AND
-  // 2. User has not dismissed the onboarding in this session, AND
-  // 3. Not in cooldown period (dismissed less than a week ago)
-  const shouldShowOnboarding = wasNotInitializedRef.current && !onboardingDismissed && !isInCooldown
+  // 2. User has never dismissed onboarding before (persisted)
+  const shouldShowOnboarding = wasNotInitializedRef.current && !hasDismissed
 
   const completeOnboarding = useCallback(
     (skipped = false) => {
-      setOnboardingDismissed(true)
-      // Save the dismissal timestamp to enforce cooldown period
+      setHasDismissed(true)
       onboardingPreferenceStore.setLastDismissedAt(Date.now())
       if (skipped) {
         trackingService.track('onboarding:skipped', {step: currentStep})
@@ -211,6 +204,7 @@ export function OnboardingProvider({children}: OnboardingProviderProps): React.R
       hasCurated,
       hasQueried,
       isInitialized,
+      isLoadingDismissed,
       queryAcknowledged,
       setCurateAcknowledged,
       setQueryAcknowledged,
@@ -223,8 +217,9 @@ export function OnboardingProvider({children}: OnboardingProviderProps): React.R
       currentStep,
       hasCurated,
       hasQueried,
-      isInCooldown,
+      hasDismissed,
       isInitialized,
+      isLoadingDismissed,
       queryAcknowledged,
       shouldShowOnboarding,
     ],

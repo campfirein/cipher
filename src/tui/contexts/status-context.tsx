@@ -7,6 +7,7 @@
 
 import React, {createContext, useCallback, useContext, useEffect, useRef, useState} from 'react'
 
+import {useOnboarding} from '../hooks/use-onboarding.js'
 import {STATUS_DISMISS_TIMES, StatusEvent} from '../types/status.js'
 import {TaskStatus, useTasks} from './tasks-context.js'
 
@@ -39,6 +40,7 @@ function generateId(): string {
  */
 export function StatusProvider({children}: {children: React.ReactNode}): React.ReactElement {
   const {tasks} = useTasks()
+  const {isInitialized} = useOnboarding()
   const [currentEvent, setCurrentEvent] = useState<null | StatusEvent>(null)
   const dismissTimerRef = useRef<NodeJS.Timeout | null>(null)
   // Track last known status per task to detect state changes
@@ -79,6 +81,25 @@ export function StatusProvider({children}: {children: React.ReactNode}): React.R
     },
     [clearDismissTimer],
   )
+
+  // Monitor initialization status
+  useEffect(() => {
+    if (!currentEvent && !isInitialized) {
+      // No current event and project not initialized - show persistent status
+      clearDismissTimer()
+      setCurrentEvent({
+        dismissAfter: 0,
+        id: generateId(),
+        label: 'Init',
+        message: 'Not configured',
+        timestamp: Date.now(),
+        type: 'warning',
+      })
+    } else if (currentEvent?.label === 'Init' && isInitialized) {
+      // Project is initialized but init status is showing - clear it
+      setCurrentEvent(null)
+    }
+  }, [isInitialized, currentEvent, clearDismissTimer])
 
   // Subscribe to task state changes
   useEffect(() => {

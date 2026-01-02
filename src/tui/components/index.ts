@@ -15,6 +15,8 @@ export {
 } from './execution/index.js'
 export {Footer} from './footer.js'
 export {Header} from './header.js'
+export {Init} from './init.js'
+export type {InitProps} from './init.js'
 export {Logo} from './logo.js'
 export type {LogoVariant} from './logo.js'
 export {MessageItem} from './message-item.js'

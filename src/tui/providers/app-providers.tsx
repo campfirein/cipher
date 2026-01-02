@@ -61,9 +61,11 @@ export function AppProviders({
             <ModeProvider>
               <TransportProvider>
                 <TasksProvider>
-                  <StatusProvider>
-                    <OnboardingProvider>{children}</OnboardingProvider>
-                  </StatusProvider>
+                  <OnboardingProvider>
+                    <StatusProvider>
+                      {children}
+                    </StatusProvider>
+                  </OnboardingProvider>
                 </TasksProvider>
               </TransportProvider>
             </ModeProvider>

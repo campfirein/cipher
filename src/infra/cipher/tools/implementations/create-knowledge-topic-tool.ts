@@ -21,7 +21,7 @@ const CreateKnowledgeTopicInputSchema = z.object({
         relations: z
           .array(z.string())
           .optional()
-          .describe('Related topics using @domain/topic or @domain/topic/subtopic notation'),
+          .describe('Related topics using domain/topic or domain/topic/subtopic notation'),
         snippets: z.array(z.string()).describe('Code/text snippets'),
         subtopics: z
           .array(
@@ -30,7 +30,7 @@ const CreateKnowledgeTopicInputSchema = z.object({
               relations: z
                 .array(z.string())
                 .optional()
-                .describe('Related topics using @domain/topic or @domain/topic/subtopic notation'),
+                .describe('Related topics using domain/topic or domain/topic/subtopic notation'),
               snippets: z.array(z.string()).describe('Code/text snippets'),
             }),
           )
@@ -175,7 +175,7 @@ Domains are created dynamically based on the content being organized. Choose dom
 **Each topic should include:**
 1. A clear topic name
 2. Relevant code/text snippets that demonstrate the knowledge
-3. Optional relations to other topics using @domain/topic or @domain/topic/subtopic notation
+3. Optional relations to other topics using domain/topic or domain/topic/subtopic notation
 4. Subtopics (optional) that break down the topic into smaller pieces
 
 **Relations** enhance knowledge discovery by linking related contexts. Example:
