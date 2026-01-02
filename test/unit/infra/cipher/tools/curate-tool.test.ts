@@ -1,7 +1,7 @@
 import {expect} from 'chai'
 import * as fs from 'node:fs/promises'
 import * as os from 'node:os'
-import * as path from 'node:path'
+import path from 'node:path'
 
 import {createCurateTool} from '../../../../../src/infra/cipher/tools/implementations/curate-tool.js'
 
@@ -74,6 +74,7 @@ describe('Curate Tool', () => {
         const tool = createCurateTool()
 
         // Create 3 custom domains
+        /* eslint-disable no-await-in-loop -- Sequential domain creation required for test */
         for (let i = 1; i <= 3; i++) {
           const result = (await tool.execute({
             basePath,
@@ -90,6 +91,7 @@ describe('Curate Tool', () => {
 
           expect(result.applied[0].status).to.equal('success', `Custom domain ${i} should succeed`)
         }
+        /* eslint-enable no-await-in-loop */
 
         // Verify all 3 domains exist
         const domains = await fs.readdir(basePath)
@@ -101,6 +103,7 @@ describe('Curate Tool', () => {
         const tool = createCurateTool()
 
         // First create 3 custom domains
+        /* eslint-disable no-await-in-loop -- Sequential domain creation required for test */
         for (let i = 1; i <= 3; i++) {
           await tool.execute({
             basePath,
@@ -115,6 +118,7 @@ describe('Curate Tool', () => {
             ],
           })
         }
+        /* eslint-enable no-await-in-loop */
 
         // Try to create 4th custom domain
         const result = (await tool.execute({
@@ -142,6 +146,7 @@ describe('Curate Tool', () => {
         const tool = createCurateTool()
 
         // Create 3 custom domains first
+        /* eslint-disable no-await-in-loop -- Sequential domain creation required for test */
         for (let i = 1; i <= 3; i++) {
           await tool.execute({
             basePath,
@@ -156,6 +161,7 @@ describe('Curate Tool', () => {
             ],
           })
         }
+        /* eslint-enable no-await-in-loop */
 
         // Should still be able to create in predefined domains
         const result = (await tool.execute({
@@ -178,6 +184,7 @@ describe('Curate Tool', () => {
         const tool = createCurateTool()
 
         // Create 3 custom domains
+        /* eslint-disable no-await-in-loop -- Sequential domain creation required for test */
         for (let i = 1; i <= 3; i++) {
           await tool.execute({
             basePath,
@@ -192,6 +199,7 @@ describe('Curate Tool', () => {
             ],
           })
         }
+        /* eslint-enable no-await-in-loop */
 
         // Should be able to add more content to existing custom domain
         const result = (await tool.execute({
@@ -620,6 +628,7 @@ describe('Curate Tool', () => {
       const tool = createCurateTool()
 
       // First create 3 custom domains
+      /* eslint-disable no-await-in-loop -- Sequential domain creation required for test */
       for (let i = 1; i <= 3; i++) {
         await tool.execute({
           basePath,
@@ -634,6 +643,7 @@ describe('Curate Tool', () => {
           ],
         })
       }
+      /* eslint-enable no-await-in-loop */
 
       // Try to create 4th custom domain (should fail)
       const result = (await tool.execute({

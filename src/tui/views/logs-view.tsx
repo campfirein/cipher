@@ -4,7 +4,7 @@
  * Activity log display using ScrollableList with dynamic height calculation
  */
 
-import {Box, Text} from 'ink'
+import {Box} from 'ink'
 import React, {useCallback} from 'react'
 
 import {LogItem, OnboardingFlow, ScrollableList, WelcomeBox} from '../components/index.js'

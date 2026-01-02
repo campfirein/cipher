@@ -9,8 +9,8 @@ export interface RawConcept {
 }
 
 export interface Narrative {
-  features?: string
   dependencies?: string
+  features?: string
   structure?: string
 }
 
@@ -252,22 +252,37 @@ function mergeNarratives(source?: Narrative, target?: Narrative): Narrative | un
 
 export const MarkdownWriter = {
   generateContext(data: ContextData): string {
-    const snippets = data.snippets || []
+    const snippets = (data.snippets || []).filter(s => s && s.trim())
     const relations = data.relations || []
 
     const relationsSection = generateRelationsSection(relations)
     const rawConceptSection = generateRawConceptSection(data.rawConcept)
     const narrativeSection = generateNarrativeSection(data.narrative)
 
-    const snippetsContent = snippets.length > 0
-      ? snippets.map(s => `${s}`).join('\n\n---\n\n')
-      : 'No context available.'
+    const hasSnippets = snippets.length > 0
 
-    const hasSections = relationsSection || rawConceptSection || narrativeSection
-    const sectionsSeparator = hasSections ? '\n---\n\n' : ''
+    // Build the content parts
+    const parts: string[] = []
 
-    return `${relationsSection}${rawConceptSection}${narrativeSection}${sectionsSeparator}${snippetsContent}
-`
+    // Add sections (relations, rawConcept, narrative)
+    const sectionsContent = `${relationsSection}${rawConceptSection}${narrativeSection}`.trim()
+    if (sectionsContent) {
+      parts.push(sectionsContent)
+    }
+
+    // Add snippets if present
+    if (hasSnippets) {
+      const snippetsContent = snippets.join('\n\n---\n\n')
+      parts.push(snippetsContent)
+    }
+
+    // If nothing at all, return empty (should not happen in practice)
+    if (parts.length === 0) {
+      return ''
+    }
+
+    // Join parts with separator only if we have both sections and snippets
+    return parts.join('\n\n---\n\n') + '\n'
   },
 
   mergeContexts(sourceContent: string, targetContent: string): string {
