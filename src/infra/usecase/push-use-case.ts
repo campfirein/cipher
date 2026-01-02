@@ -153,7 +153,7 @@ export class PushUseCase implements IPushUseCase {
 
     return this.terminal.confirm({
       default: false,
-      message: 'Push to ByteRover?',
+      message: 'Push to ByteRover',
     })
   }
 
