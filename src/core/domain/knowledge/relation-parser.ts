@@ -14,7 +14,7 @@ const RELATION_PATTERN = /@([\w-]+)\/([\w-]+)(?:\/([\w-]+))?/g
  * Extracts all @domain/topic or @domain/topic/subtopic references.
  *
  * @param content - Markdown content to parse
- * @returns Array of unique relation paths (with or without @ prefix)
+ * @returns Array of unique relation paths (without @ prefix)
  *
  * @example
  * ```ts
@@ -138,7 +138,7 @@ export function normalizeRelation(relation: string): string {
  * Generate the Relations section for context.md.
  * Returns empty string if no relations provided.
  *
- * @param relations - Array of relation paths (without @ prefix)
+ * @param relations - Array of relation paths (with or without @ prefix)
  * @returns Markdown formatted Relations section or empty string
  *
  * @example
