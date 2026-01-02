@@ -37,6 +37,7 @@ import {QueryExecutor} from '../core/executors/query-executor.js'
 import {createTaskProcessor, TaskProcessor} from '../core/task-processor.js'
 import {createTokenStore} from '../storage/token-store.js'
 import {createTransportClient} from '../transport/transport-factory.js'
+import {CURATE_MAX_CONCURRENT} from './constants.js'
 import {TaskQueueManager} from './task-queue-manager.js'
 
 // IPC types imported from ./ipc-types.ts
@@ -95,13 +96,13 @@ let eventForwarders: EventForwarder[] = []
 /**
  * Task queue manager handles:
  * - Separate queues for curate and query tasks
- * - Concurrency limits (max 2 concurrent per type)
+ * - Concurrency limits (max 1 concurrent per type)
  * - Task deduplication (same taskId can't be queued twice)
  * - Cancel tasks from queue before processing
  * - FIFO processing order
  */
 const taskQueueManager = new TaskQueueManager({
-  curate: {maxConcurrent: 2},
+  curate: {maxConcurrent: CURATE_MAX_CONCURRENT},
   onExecutorError(taskId, error) {
     agentLog(`Executor error for task ${taskId}: ${error}`)
   },
