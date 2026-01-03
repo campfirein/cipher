@@ -8,7 +8,7 @@
  * Matches: @domain/topic/title.md or @domain/topic/subtopic/title.md
  */
 const RELATION_PATTERN = /@([\w-]+\/[\w-]+(?:\/[\w-]+)?\/[\w-]+(?:\.[\w]+)?)(?![\w/-])/g
-const MAXIUM_LEVEL_OF_PATH = 4
+const MAXIMUM_LEVEL_OF_PATH = 4
 const MINIMUM_LEVEL_OF_PATH = 3
 
 /**
@@ -62,7 +62,7 @@ export function validateRelationPath(path: string): boolean {
   const parts = path.split('/')
 
   // Must have 3 or 4 parts: domain/topic/title.md or domain/topic/subtopic/title.md
-  if (parts.length < MINIMUM_LEVEL_OF_PATH || parts.length > MAXIUM_LEVEL_OF_PATH) {
+  if (parts.length < MINIMUM_LEVEL_OF_PATH || parts.length > MAXIMUM_LEVEL_OF_PATH) {
     return false
   }
 
