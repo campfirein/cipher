@@ -28,8 +28,8 @@ function verifyGeminiRequest() {
 
 function verifyContentsAndConfig(contents: unknown, config: unknown) {
   return (body: Record<string, unknown>) => {
-    expect((body.params as Record<string, unknown>).contents).to.equal(JSON.stringify(contents))
-    expect((body.params as Record<string, unknown>).config).to.equal(JSON.stringify(config))
+    expect((body.params as Record<string, unknown>).contents).to.deep.equal(contents)
+    expect((body.params as Record<string, unknown>).config).to.deep.equal(config)
     return true
   }
 }
@@ -75,7 +75,7 @@ function verifyRegionOnly(expectedRegion: string) {
 
 // Helper to create mock response
 function createMockResponse(data: unknown) {
-  return {data: JSON.stringify(data)}
+  return {data}
 }
 
 describe('ByteRoverLlmHttpService', () => {
