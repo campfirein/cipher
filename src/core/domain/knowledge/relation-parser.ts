@@ -8,9 +8,6 @@
  * Matches: @domain/topic/title.md or @domain/topic/subtopic/title.md
  */
 const RELATION_PATTERN = /@([\w-]+\/[\w-]+(?:\/[\w-]+)?\/[\w-]+(?:\.[\w]+)?)(?![\w/-])/g
-const MAXIMUM_LEVEL_OF_PATH = 4
-const MINIMUM_LEVEL_OF_PATH = 3
-
 /**
  * Parse relations from title.md content.
  * Extracts all @domain/topic/title.md or @domain/topic/subtopic/title.md references.
@@ -40,41 +37,6 @@ export function parseRelations(content: string): string[] {
   }
 
   return [...relations]
-}
-
-/**
- * Validate a relation path format.
- * Valid formats: domain/topic/title.md or domain/topic/subtopic/title.md
- *
- * @param path - Relation path to validate (without @ prefix)
- * @returns True if path format is valid
- *
- * @example
- * ```ts
- * validateRelationPath('code_style/error-handling/overview.md') // true
- * validateRelationPath('code_style/error-handling/try-catch/guide.md') // true
- * validateRelationPath('invalid') // false
- * validateRelationPath('code_style/error-handling') // false (missing title.md)
- * validateRelationPath('too/many/parts/here/extra.md') // false
- * ```
- */
-export function validateRelationPath(path: string): boolean {
-  const parts = path.split('/')
-
-  // Must have 3 or 4 parts: domain/topic/title.md or domain/topic/subtopic/title.md
-  if (parts.length < MINIMUM_LEVEL_OF_PATH || parts.length > MAXIMUM_LEVEL_OF_PATH) {
-    return false
-  }
-
-  // Each part except last must be non-empty and contain only valid characters
-  const validPartPattern = /^[\w-]+$/
-  // Last part must end with .md
-  const validTitlePattern = /^[\w-]+\.md$/
-
-  const allPartsExceptLast = parts.slice(0, -1)
-  const lastPart = parts.at(-1) ?? ''
-
-  return allPartsExceptLast.every(part => validPartPattern.test(part)) && validTitlePattern.test(lastPart)
 }
 
 /**

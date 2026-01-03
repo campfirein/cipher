@@ -6,7 +6,6 @@ import {
   normalizeRelation,
   parseRelations,
   resolveRelationPath,
-  validateRelationPath,
 } from '../../../../../src/core/domain/knowledge/relation-parser.js'
 /**
  * Unit tests for relation-parser.
@@ -71,48 +70,6 @@ describe('relation-parser', () => {
       const result = parseRelations(content)
 
       expect(result).to.deep.equal([])
-    })
-  })
-
-  describe('validateRelationPath', () => {
-    it('should return true for valid domain/topic/title path', () => {
-      expect(validateRelationPath('code_style/error-handling/overview.md')).to.be.true
-    })
-
-    it('should return true for valid domain/topic/subtopic/title path', () => {
-      expect(validateRelationPath('code_style/error-handling/try-catch/guide.md')).to.be.true
-    })
-
-    it('should return true for path with hyphens and underscores', () => {
-      expect(validateRelationPath('code_style/error-handling/overview.md')).to.be.true
-      expect(validateRelationPath('code-style/error_handling/guide.md')).to.be.true
-    })
-
-    it('should return false for single part path', () => {
-      expect(validateRelationPath('invalid')).to.be.false
-    })
-
-    it('should return false for two part path (missing title)', () => {
-      expect(validateRelationPath('code_style/error-handling')).to.be.false
-    })
-
-    it('should return false for path with too many parts', () => {
-      expect(validateRelationPath('too/many/parts/here/extra.md')).to.be.false
-    })
-
-    it('should return false for empty path', () => {
-      expect(validateRelationPath('')).to.be.false
-    })
-
-    it('should return false for path with empty parts', () => {
-      expect(validateRelationPath('/topic/title.md')).to.be.false
-      expect(validateRelationPath('domain//title.md')).to.be.false
-      expect(validateRelationPath('domain/topic/')).to.be.false
-    })
-
-    it('should return false for path with invalid characters', () => {
-      expect(validateRelationPath('domain/topic!/title.md')).to.be.false
-      expect(validateRelationPath('domain/topic with space/title.md')).to.be.false
     })
   })
 
