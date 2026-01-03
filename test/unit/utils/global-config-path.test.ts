@@ -12,10 +12,11 @@ describe('global-config-path', () => {
       const result = getGlobalConfigDir()
 
       // On all platforms, the path should start with root
-      expect(result).to.satisfy((p: string) => 
-        // Windows: starts with drive letter (C:\)
-        // Unix: starts with /
-         p.startsWith(sep) || /^[A-Za-z]:/.test(p)
+      expect(result).to.satisfy(
+        (p: string) =>
+          // Windows: starts with drive letter (C:\)
+          // Unix: starts with /
+          p.startsWith(sep) || /^[A-Za-z]:/.test(p),
       )
     })
 

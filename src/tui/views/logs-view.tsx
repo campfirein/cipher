@@ -5,13 +5,15 @@
  */
 
 import {Box} from 'ink'
-import React, {useCallback} from 'react'
+import React, {useCallback, useState} from 'react'
 
 import {LogItem, OnboardingFlow, ScrollableList, WelcomeBox} from '../components/index.js'
+import {useAuth} from '../contexts/index.js'
 import {useActivityLogs, useMode, useTheme, useUIHeights} from '../hooks/index.js'
 import {useOnboarding} from '../hooks/use-onboarding.js'
 import {ActivityLog} from '../types.js'
 import {calculateActualLogHeight, calculateLogContentLimit} from '../utils/log.js'
+import {InitView} from './init-view.js'
 
 interface LogsViewProps {
   /**
@@ -36,11 +38,19 @@ export const LogsView: React.FC<LogsViewProps> = ({availableHeight}) => {
   } = useTheme()
   const {mode} = useMode()
   const {logs} = useActivityLogs()
-  const {shouldShowOnboarding} = useOnboarding()
+  const {isLoadingDismissed, shouldShowOnboarding} = useOnboarding()
   const {messageItem} = useUIHeights()
+  const {brvConfig} = useAuth()
+
+  // Track if user has completed init flow
+  const [initFlowCompleted, setInitFlowCompleted] = useState(Boolean(brvConfig))
 
   // Calculate scrollable height for dynamic per-log calculations
   const scrollableHeight = Math.max(1, availableHeight)
+
+  const handleInitEnd = () => {
+    setInitFlowCompleted(true)
+  }
 
   const renderLogItem = useCallback(
     (log: ActivityLog) => {
@@ -80,9 +90,17 @@ export const LogsView: React.FC<LogsViewProps> = ({availableHeight}) => {
     [messageItem, scrollableHeight],
   )
 
-  // Show onboarding when project is not initialized
+  if (isLoadingDismissed) {
+    return null
+  }
+
   if (shouldShowOnboarding) {
-    return <OnboardingFlow availableHeight={availableHeight} />
+    return <OnboardingFlow availableHeight={availableHeight} onInitComplete={handleInitEnd} />
+  }
+
+  // Show init view if config doesn't exist and user hasn't completed init flow
+  if (!initFlowCompleted) {
+    return <InitView availableHeight={availableHeight} onInitComplete={handleInitEnd} />
   }
 
   return (

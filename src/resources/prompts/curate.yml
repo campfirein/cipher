@@ -7,7 +7,7 @@ prompt: |
   The information should be sufficient to understand what the user has provided to the coding assistant as the important context so that the coding assistant can use it to complete the task at hand. When organizing the context, keep in mind the hierarchical structure with a maximum of 2 levels: domain → topic → subtopic. If subtopics contain complex information, break them into separate topics rather than creating deeper nesting.
 
   The context tree captures:
-  - the domains of the context
+  - the domains of the context (dynamically created based on content)
   - the topics of the context
   - the subtopics of the context (maximum one level under topics)
   - the structured metadata (Raw Concept) and descriptive context (Narrative)
@@ -29,15 +29,28 @@ prompt: |
      - The current domain and text segments from the user's input data
      - The existing context in the context tree
      Use the `curate` tool to create new knowledge topics or update existing ones. Ensure that:
+     - **Dynamic Domain Creation**: Create domains that are semantically meaningful for the content being curated
+     - The context is well-structured and MUST meet **Context quality requirements**
      - **Domain selection**: Always prefer predefined domains (code_style, design, structure, compliance, testing, bug_fixes). Only create custom domains if content clearly doesn't fit any predefined domain. Maximum 3 custom domains allowed.
      - The context is well-structured and MUST use the **Two-Part Context Model**
      - There is no duplication with existing context
      - The information is clear and easy to understand
 
-  4. **Tool Execution Efficiency:**
+  4. **Domain Naming Guidelines** (CRITICAL for quality):
+     - Choose domain names that accurately describe the category of knowledge
+     - Use snake_case format with 1-3 words (e.g., `authentication`, `api_design`, `error_handling`)
+     - **Good examples**: `authentication`, `data_models`, `ui_components`, `testing_patterns`, `api_endpoints`, `security`, `configuration`, `logging`, `caching`, `performance`
+     - **Avoid**: Generic names like `misc`, `other`, `general`, `stuff`
+     - **Avoid**: Overly specific names that only fit one topic
+     - **Before creating a new domain**: Check if existing domains could accommodate the content
+     - **Consolidate related concepts**: Group similar topics under the same domain for better organization
+
+  5. **Tool Execution Efficiency:**
      - When multiple tools don't depend on each other's results, execute them in parallel with `batch`
      - Example: `glob_files`, `list_directory`, `grep_content` and `read_file` operations for different files can run together
 
+  6. **Context quality requirements**: Each context in the `contexts` array must:
+     - Important: Minimum 2-4 sentences per context. Otherwise, DO NOT add that context.
   5. **Two-Part Context Model (REQUIRED)**: When creating context using the `curate` tool, you MUST use the structured format with `rawConcept` and `narrative`:
 
      **rawConcept** - Captures essential metadata and technical footprint:
@@ -92,6 +105,21 @@ prompt: |
      - A developer should understand the concept without reading source code
      - Include names of functions, classes, patterns, or key concepts
 
+   AVOID vague contexts like:
+       - "Hook system"
+       - "Error handling"
+
+   WRITE detailed contexts like:
+       - "The hook system allows registering callbacks for lifecycle events. Register hooks using
+        `HookRegistry.register(hookName, callback)` and trigger them with `HookRegistry.trigger(hookName, context)`. Hooks are used to:
+        support async callbacks and are commonly used for: pre/post tool execution, agent lifecycle events, and custom
+        integrations."
+
+       - "Error handling follows a custom error class pattern. All custom errors extend `BaseError` and include: error
+        code, message, context object, and optional cause. Use `ErrorHandler.wrap(fn)` for consistent error boundaries across
+        async operations."
+
+  7. **Response Format**:
      AVOID incomplete contexts like:
        - Only snippets without rawConcept/narrative
        - Missing task description
