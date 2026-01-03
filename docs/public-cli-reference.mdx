@@ -27,17 +27,17 @@ brv
 This launches a persistent session with a React/Ink-based terminal interface where you can use slash commands:
 
 ```
-/login                  # Authenticate with ByteRover
-/init [-f]              # Initialize project (select team/space)
 /status                 # Show auth, config, and context tree state
-/curate [context] [@files]  # Add content to context tree
+/curate [context] [@files]  # Curate context to the context tree
 /query <query>          # Query information from context tree (alias: /q)
-/push [-b branch] [-y]  # Push context tree to cloud
-/pull [-b branch]       # Pull context tree from cloud
+/push [-b branch] [-y]  # Push context tree to ByteRover cloud storage
+/pull [-b branch]       # Pull context tree from ByteRover cloud storage
 /space list [-a] [-j]   # List all spaces
-/space switch           # Switch team or space
+/space switch           # Switch to a different space
 /gen-rules              # Generate agent rule files
-/clear [-y] [directory] # Reset context tree
+/clear [-y] [directory] # Reset context tree to default domains
+/init [-f]              # Initialize project (select team/space)
+/login                  # Authenticate with ByteRover
 /logout [-y]            # Log out
 ```
 
@@ -50,7 +50,7 @@ A few commands are also available as standalone CLI commands for scripting and q
 ```bash
 brv status                              # Show CLI and project status
 brv query "How is auth implemented?"    # Query context tree
-brv curate "JWT tokens expire in 24h"   # Add content to context tree
+brv curate "JWT tokens expire in 24h"   # Curate context to context tree
 ```
 
 ## CLI Commands
@@ -60,7 +60,7 @@ brv curate "JWT tokens expire in 24h"   # Add content to context tree
 | `brv`                                           | Start interactive REPL mode (recommended)    | `brv`                                              |
 | `brv status [DIRECTORY]`                        | Show CLI status and project information      | `brv status`                                       |
 | `brv query <QUERY>`                             | Query information from the context tree      | `brv query "How is auth implemented?"`             |
-| `brv curate [CONTEXT] [--files]`                | Add content to context tree                  | `brv curate "JWT tokens expire in 24h" --files src/auth.ts` |
+| `brv curate [CONTEXT] [--files]`                | Curate context to context tree               | `brv curate "JWT tokens expire in 24h" --files src/auth.ts` |
 
 > **Note:** Commands like `login`, `logout`, `init`, `push`, `pull`, `space`, `gen-rules`, and `clear` are only available as slash commands in REPL mode. Run `brv` to start REPL mode.
 
@@ -99,18 +99,18 @@ brv
 
 | Command | Description |
 | ------- | ----------- |
-| `/login` | Authenticate with ByteRover |
-| `/logout [-y]` | Log out and clear authentication |
-| `/init [-f]` | Initialize project with team/space selection |
-| `/status` | Show auth, config, and context tree state |
-| `/curate [context] [@files]` | Add content to context tree (use `@filepath` for file references) |
-| `/query <query>` (alias: `/q`) | Query information from context tree |
-| `/push [-b branch] [-y]` | Push context tree to cloud |
-| `/pull [-b branch]` | Pull context tree from cloud |
+| `/status` | Show CLI status and project information |
+| `/curate [context] [@files]` | Curate context to the context tree (use `@filepath` for file references) |
+| `/query <query>` (alias: `/q`) | Query and retrieve information from context tree |
+| `/push [-b branch] [-y]` | Push context tree to ByteRover cloud storage |
+| `/pull [-b branch]` | Pull context tree from ByteRover cloud storage |
 | `/space list [-a] [-j] [-l n] [-o n]` | List all spaces for current team |
-| `/space switch` | Switch to different team or space |
-| `/gen-rules` | Generate agent-specific rule files |
-| `/clear [-y] [directory]` | Reset context tree to default domains |
+| `/space switch` | Switch to a different space |
+| `/gen-rules` | Generate rule instructions for coding agents |
+| `/clear [-y] [directory]` | Reset context tree to 6 default domains |
+| `/init [-f]` | Initialize a project with ByteRover |
+| `/login` | Authenticate with ByteRover using OAuth 2.0 + PKCE |
+| `/logout [-y]` | Log out of ByteRover CLI and clear authentication |
 
 **Notes**
 
@@ -120,28 +120,6 @@ brv
 
 ### Slash Command Details
 
-#### `/login`
-
-Authenticate with ByteRover using OAuth 2.0 + PKCE. Opens your default browser for secure authentication.
-
-**Flags**: None
-
-#### `/logout`
-
-Log out and clear authentication credentials from the system keychain.
-
-| Flag | Description |
-| ---- | ----------- |
-| `-y, --yes` | Skip confirmation prompt |
-
-#### `/init`
-
-Initialize a project with ByteRover. Guides you through team and space selection and creates the context tree.
-
-| Flag | Description |
-| ---- | ----------- |
-| `-f, --force` | Force re-initialization without confirmation |
-
 #### `/status`
 
 Show CLI status including authentication state, project configuration, and context tree state.
@@ -150,11 +128,11 @@ Show CLI status including authentication state, project configuration, and conte
 
 #### `/curate`
 
-Add content to the context tree using interactive or autonomous mode.
+Curate context to the context tree using interactive or autonomous mode.
 
 | Argument | Type | Required | Description |
 | -------- | ---- | -------- | ----------- |
-| `context` | string | No | Content to add (triggers autonomous mode if provided) |
+| `context` | string | No | Knowledge context (triggers autonomous mode if provided) |
 
 **File References**: Use `@filepath` syntax to include files as context (up to 5 files).
 
@@ -177,7 +155,7 @@ Query and retrieve information from the context tree using natural language.
 
 | Argument | Type | Required | Description |
 | -------- | ---- | -------- | ----------- |
-| `query` | string | Yes | Natural language question about your project |
+| `query` | string | Yes | Natural language question about your codebase |
 
 **Examples**
 
@@ -192,7 +170,7 @@ Push context tree to ByteRover cloud storage.
 
 | Flag | Description | Default |
 | ---- | ----------- | ------- |
-| `-b, --branch <name>` | Branch name for cloud storage | `main` |
+| `-b, --branch <name>` | ByteRover branch name (not Git branch) | `main` |
 | `-y, --yes` | Skip confirmation prompt | - |
 
 **Examples**
@@ -209,7 +187,7 @@ Pull context tree from ByteRover cloud storage.
 
 | Flag | Description | Default |
 | ---- | ----------- | ------- |
-| `-b, --branch <name>` | Branch name to pull from | `main` |
+| `-b, --branch <name>` | ByteRover branch name (not Git branch) | `main` |
 
 **Examples**
 
@@ -226,29 +204,69 @@ List all spaces for the current team.
 | ---- | ----------- | ------- |
 | `-a, --all` | Fetch all spaces (may be slow for large teams) | - |
 | `-j, --json` | Output in JSON format | - |
-| `-l, --limit <n>` | Maximum spaces to fetch | `50` |
+| `-l, --limit <n>` | Maximum number of spaces to fetch | `50` |
 | `-o, --offset <n>` | Number of spaces to skip | `0` |
 
 #### `/space switch`
 
-Switch to a different team or space. Interactive mode only - prompts you to select from available options.
+Switch to a different space. Interactive mode only - prompts you to select from available options.
 
 **Flags**: None
 
 #### `/gen-rules`
 
-Generate rule instruction files for coding agents. Creates configuration files for:
+Generate rule instruction files for coding agents to work with ByteRover correctly. Creates configuration files for supported AI coding assistants.
 
-- Claude Code (`.claude/CLAUDE.md`)
-- Cursor (`.cursorrules`)
-- Windsurf (`.windsurfrules`)
-- GitHub Copilot (`.github/copilot-instructions.md`)
+**Supported Agents**
+
+| Agent | Rule File Path |
+| ----- | -------------- |
+| Claude Code | `CLAUDE.md` |
+| Cursor | `.cursor/rules/agent-context-engineering.mdc` |
+| Windsurf | `.windsurf/rules/agent-context-engineering.md` |
+| GitHub Copilot | `.github/copilot-instructions.md` |
+| Cline | `.clinerules/agent-context-engineering.md` |
+| Kiro | `.kiro/steering/agent-context-engineering.md` |
+| Amp | `AGENTS.md` |
+| Codex | `AGENTS.md` |
+| Augment Code | `.augment/rules/agent-context-engineering.md` |
+| Gemini CLI | `GEMINI.md` |
+| Junie | `.junie/guidelines.md` |
+| Kilo Code | `.kilocode/rules/agent-context-engineering.md` |
+| Qoder | `.qoder/rules/agent-context-engineering.md` |
+| Qwen Code | `QWEN.md` |
+| Roo Code | `.roo/rules/agent-context-engineering.md` |
+| Trae.ai | `project_rules.md` |
+| Warp | `WARP.md` |
+| Zed | `agent-context-engineering.rules` |
 
 **Flags**: None
 
+#### `/init`
+
+Initialize a project with ByteRover. Guides you through team and space selection and creates the context tree.
+
+| Flag | Description |
+| ---- | ----------- |
+| `-f, --force` | Force re-initialization without confirmation prompt |
+
+#### `/login`
+
+Authenticate with ByteRover using OAuth 2.0 + PKCE. Opens your default browser for secure authentication.
+
+**Flags**: None
+
+#### `/logout`
+
+Log out of ByteRover CLI and clear authentication credentials from the system keychain.
+
+| Flag | Description |
+| ---- | ----------- |
+| `-y, --yes` | Skip confirmation prompt |
+
 #### `/clear`
 
-Reset context tree to the 6 default domains. This is a destructive operation.
+Reset the current context tree and start with 6 default domains. This is a destructive operation.
 
 | Argument | Type | Required | Description |
 | -------- | ---- | -------- | ----------- |
@@ -346,19 +364,19 @@ brv query "What testing strategies are used?"
 
 ### `brv curate`
 
-Add content to the context tree using interactive or autonomous mode.
+Curate context to the context tree using interactive or autonomous mode.
 
 **Arguments**
 
 | Argument  | Type   | Required | Description                                            |
 | --------- | ------ | -------- | ------------------------------------------------------ |
-| `CONTEXT` | string | No       | Content to add (triggers autonomous mode if provided) |
+| `CONTEXT` | string | No       | Knowledge context (triggers autonomous mode if provided) |
 
 **Flags**
 
 | Flag | Description | Default |
 | ---- | ----------- | ------- |
-| `-f, --files <paths>` | Include file references (max 5 files). Use comma-separated paths or multiple `-f` flags | None |
+| `-f, --files <paths>` | Include specific file paths for critical context (max 5 files). Use multiple `-f` flags for multiple files | None |
 
 **Examples**
 
@@ -372,7 +390,7 @@ brv curate "React components follow atomic design pattern"
 
 # Include file references for context
 brv curate "This module handles user sessions" -f src/auth/session.ts
-brv curate "API rate limiting" --files src/middleware/rate-limit.ts,src/config/limits.ts
+brv curate "JWT authentication implementation" --files src/auth/jwt.ts --files docs/auth.md
 brv curate "Auth logic" -f src/auth.ts -f src/middleware/auth.ts
 ```
 
