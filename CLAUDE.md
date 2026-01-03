@@ -13,7 +13,7 @@ npm run lint                                     # ESLint
 ./bin/run.js [command]                          # Prod mode
 ```
 
-**Test dirs**: `test/commands/`, `test/unit/`, `test/integration/`, `test/hooks/`, `test/learning/`
+**Test dirs**: `test/commands/`, `test/unit/`, `test/integration/`, `test/hooks/`, `test/learning/`, `test/helpers/`, `test/shared/`
 
 ## Development Standards
 
@@ -130,12 +130,12 @@ All have `toJson()`/`fromJson()`, immutable readonly properties
 
 **Cipher** (`src/infra/cipher/`) - LLM agent system:
 
-- `llm/` - Multi-provider support (Claude, Gemini, OpenRouter), tokenizers, context compression
-- `tools/` - 24+ tool implementations:
+- `llm/` - Multi-provider support (ByteRover internal, OpenRouter), tokenizers, context compression
+- `tools/` - 22 tool implementations:
   - File: `read-file`, `write-file`, `edit-file`, `list-directory`, `glob-files`, `grep-content`
   - Bash: `bash-exec`, `bash-output`, `kill-process`
   - Memory: `read-memory`, `write-memory`, `edit-memory`, `delete-memory`, `list-memories`
-  - Knowledge: `read-knowledge-topic`, `create-knowledge-topic`
+  - Knowledge: `create-knowledge-topic`
   - Todos: `read-todos`, `write-todos`
   - Other: `curate`, `task`, `batch`, `search-history`, `spec-analyze`
 - `tools/policy-engine.ts` - Tool execution policy (ALLOW/DENY)

@@ -69,12 +69,12 @@ describe('Curate Tool', () => {
       }
     })
 
-    describe('Custom Domain Limits', () => {
-      it('should allow up to 3 custom domains', async () => {
+    describe('Dynamic Domain Creation', () => {
+      it('should allow creating multiple custom domains without limit', async () => {
         const tool = createCurateTool()
 
-        // Create 3 custom domains
-        for (let i = 1; i <= 3; i++) {
+        // Create 5 custom domains - no limit anymore
+        for (let i = 1; i <= 5; i++) {
           const result = (await tool.execute({
             basePath,
             operations: [
@@ -91,115 +91,63 @@ describe('Curate Tool', () => {
           expect(result.applied[0].status).to.equal('success', `Custom domain ${i} should succeed`)
         }
 
-        // Verify all 3 domains exist
+        // Verify all 5 domains exist
         const domains = await fs.readdir(basePath)
         const customDomains = domains.filter((d) => d.startsWith('custom_domain_'))
-        expect(customDomains.length).to.equal(3)
+        expect(customDomains.length).to.equal(5)
       })
 
-      it('should reject 4th custom domain with descriptive error', async () => {
+      it('should allow creating semantically meaningful domain names', async () => {
         const tool = createCurateTool()
 
-        // First create 3 custom domains
-        for (let i = 1; i <= 3; i++) {
-          await tool.execute({
+        const meaningfulDomains = ['authentication', 'api_design', 'data_models', 'error_handling', 'ui_components']
+
+        for (const domain of meaningfulDomains) {
+          const result = (await tool.execute({
             basePath,
             operations: [
               {
-                content: {snippets: ['test']},
-                path: `custom_domain_${i}/topic`,
-                reason: 'testing',
+                content: {snippets: ['test content']},
+                path: `${domain}/topic`,
+                reason: 'testing semantic domain',
                 title: 'Test',
                 type: 'ADD',
               },
             ],
-          })
+          })) as CurateOutput
+
+          expect(result.applied[0].status).to.equal('success', `Domain ${domain} should succeed`)
         }
 
-        // Try to create 4th custom domain
-        const result = (await tool.execute({
+        // Verify all domains exist
+        const domains = await fs.readdir(basePath)
+        expect(domains).to.include.members(meaningfulDomains)
+      })
+
+      it('should allow reusing existing domains', async () => {
+        const tool = createCurateTool()
+
+        // Create a domain
+        await tool.execute({
           basePath,
           operations: [
             {
               content: {snippets: ['test']},
-              path: 'custom_domain_4/topic',
+              path: 'authentication/login',
               reason: 'testing',
               title: 'Test',
               type: 'ADD',
             },
           ],
-        })) as CurateOutput
+        })
 
-        expect(result.applied[0].status).to.equal('failed')
-        expect(result.applied[0].message).to.include('Maximum of 3 custom domains allowed')
-        expect(result.applied[0].message).to.include('custom_domain_1')
-        expect(result.applied[0].message).to.include('custom_domain_2')
-        expect(result.applied[0].message).to.include('custom_domain_3')
-        expect(result.summary.failed).to.equal(1)
-      })
-
-      it('should allow predefined domains even after 3 custom domains exist', async () => {
-        const tool = createCurateTool()
-
-        // Create 3 custom domains first
-        for (let i = 1; i <= 3; i++) {
-          await tool.execute({
-            basePath,
-            operations: [
-              {
-                content: {snippets: ['test']},
-                path: `custom_domain_${i}/topic`,
-                reason: 'testing',
-                title: 'Test',
-                type: 'ADD',
-              },
-            ],
-          })
-        }
-
-        // Should still be able to create in predefined domains
-        const result = (await tool.execute({
-          basePath,
-          operations: [
-            {
-              content: {snippets: ['code style rules']},
-              path: 'code_style/formatting',
-              reason: 'testing predefined after custom',
-              title: 'Code Style Rules',
-              type: 'ADD',
-            },
-          ],
-        })) as CurateOutput
-
-        expect(result.applied[0].status).to.equal('success')
-      })
-
-      it('should allow reusing existing custom domains even at limit', async () => {
-        const tool = createCurateTool()
-
-        // Create 3 custom domains
-        for (let i = 1; i <= 3; i++) {
-          await tool.execute({
-            basePath,
-            operations: [
-              {
-                content: {snippets: ['test']},
-                path: `custom_domain_${i}/topic`,
-                reason: 'testing',
-                title: 'Test',
-                type: 'ADD',
-              },
-            ],
-          })
-        }
-
-        // Should be able to add more content to existing custom domain
+        // Should be able to add more content to existing domain
         const result = (await tool.execute({
           basePath,
           operations: [
             {
               content: {snippets: ['more content']},
-              path: 'custom_domain_1/another_topic',
+              path: 'authentication/logout',
               reason: 'testing reuse',
               title: 'Another Test',
               type: 'ADD',
@@ -616,48 +564,6 @@ describe('Curate Tool', () => {
       expect(designExists).to.be.false
     })
 
-    it('should NOT create empty directories when exceeding custom domain limit', async () => {
-      const tool = createCurateTool()
-
-      // First create 3 custom domains
-      for (let i = 1; i <= 3; i++) {
-        await tool.execute({
-          basePath,
-          operations: [
-            {
-              content: {snippets: ['test']},
-              path: `custom_domain_${i}/topic`,
-              reason: 'testing',
-              title: 'Test',
-              type: 'ADD',
-            },
-          ],
-        })
-      }
-
-      // Try to create 4th custom domain (should fail)
-      const result = (await tool.execute({
-        basePath,
-        operations: [
-          {
-            content: {snippets: ['test']},
-            path: 'custom_domain_4/topic',
-            reason: 'testing',
-            title: 'Test',
-            type: 'ADD',
-          },
-        ],
-      })) as CurateOutput
-
-      expect(result.applied[0].status).to.equal('failed')
-
-      // Verify custom_domain_4 directory was NOT created
-      const domain4Exists = await fs
-        .access(path.join(basePath, 'custom_domain_4'))
-        .then(() => true)
-        .catch(() => false)
-      expect(domain4Exists).to.be.false
-    })
 
     it('should only create directories when file is successfully written', async () => {
       const tool = createCurateTool()

@@ -12,7 +12,6 @@ import React, {useCallback, useEffect, useMemo, useState} from 'react'
 
 import type {CommandMessage, PromptRequest, StreamingMessage} from '../types.js'
 
-import {stopQueuePollingService} from '../../infra/cipher/consumer/queue-polling-service.js'
 import {MessageItem, ScrollableList, Suggestions} from '../components/index.js'
 import {
   InlineConfirm,
@@ -346,7 +345,6 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
       }
 
       if (result && result.type === 'quit') {
-        stopQueuePollingService()
         exit()
       }
 

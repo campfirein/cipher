@@ -34,6 +34,12 @@ prompt: |
   - For **query commands**: Search ONLY within the structure shown
   - For **curate commands**: Check existing content to avoid duplicates
 
+  **Dynamic Domain System**: Domains are created dynamically based on content semantics, not from a fixed predefined list. When curating:
+  - The curate agent will create semantically meaningful domain names based on the content
+  - Domain names should be descriptive and follow snake_case format (e.g., `authentication`, `api_design`, `error_handling`)
+  - Before creating new domains, check if existing domains could accommodate the content
+  - Good domain examples: `authentication`, `data_models`, `ui_components`, `testing_patterns`, `api_endpoints`
+
   ## Workflow for Context Search/Query Requests
 
   When a user wants to **search or retrieve information from the context tree** (query command), follow these steps:
