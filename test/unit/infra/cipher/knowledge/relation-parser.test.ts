@@ -154,22 +154,24 @@ describe('relation-parser', () => {
     })
 
     it('should handle path with subtopic without @ prefix', () => {
-      expect(normalizeRelation('code_style/error-handling/title.md')).to.equal('code_style/error-handling/title.md')
+      expect(normalizeRelation('code_style/error-handling/title.md')).to.equal('code_style/error-handling/title')
     })
 
     it('should handle path with subtopic with @ prefix', () => {
-      expect(normalizeRelation('@code_style/error-handling/title.md')).to.equal('code_style/error-handling/title.md')
+      expect(normalizeRelation('@code_style/error-handling/title.md')).to.equal('code_style/error-handling/title')
     })
 
     it('should handle empty string', () => {
       expect(normalizeRelation('')).to.equal('')
     })
 
-    it('should remove all @ characters', () => {
+    it('should remove all @ characters and file extensions', () => {
       expect(normalizeRelation('@@double/prefix')).to.equal('double/prefix')
-      expect(normalizeRelation('@code_style/error-handling/title.md')).to.equal('code_style/error-handling/title.md')
-      expect(normalizeRelation('@@@@code_style/error-handling/title.md')).to.equal('code_style/error-handling/title.md')
-      expect(normalizeRelation('code_style/error-handling/title.md')).to.equal('code_style/error-handling/title.md')
+      expect(normalizeRelation('@code_style/error-handling/title.md')).to.equal('code_style/error-handling/title')
+      expect(normalizeRelation('@@@@code_style/error-handling/title.md')).to.equal('code_style/error-handling/title')
+      expect(normalizeRelation('code_style/error-handling/title.md')).to.equal('code_style/error-handling/title')
+      expect(normalizeRelation('code_style/error-handling/title.py')).to.equal('code_style/error-handling/title')
+      expect(normalizeRelation('code_style/error-handling/title.abc')).to.equal('code_style/error-handling/title')
     })
   })
 

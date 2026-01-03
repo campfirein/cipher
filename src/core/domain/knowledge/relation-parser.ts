@@ -7,7 +7,7 @@
  * Regular expression to match relation paths in markdown content.
  * Matches: @domain/topic/title.md or @domain/topic/subtopic/title.md
  */
-const RELATION_PATTERN = /@([\w-]+\/[\w-]+(?:\/[\w-]+)?\/[\w-]+\.md)/g
+const RELATION_PATTERN = /@([\w-]+\/[\w-]+(?:\/[\w-]+)?\/[\w-]+(?:\.[\w]+)?)(?![\w/-])/g
 const MAXIUM_LEVEL_OF_PATH = 4
 const MINIMUM_LEVEL_OF_PATH = 3
 
@@ -36,7 +36,7 @@ export function parseRelations(content: string): string[] {
 
   for (const match of matches) {
     const [, fullPath] = match
-    relations.add(fullPath)
+    relations.add(fullPath.trim())
   }
 
   return [...relations]
@@ -122,22 +122,23 @@ export function formatRelation(domain: string, topic: string, title: string, sub
 }
 
 /**
- * Normalize a relation path by removing the @ prefix.
+ * Normalize a relation path by removing the @ prefix and file extensions.
  *
  * @param relation - Relation path to normalize
- * @returns Normalized relation path
+ * @returns Normalized relation path without @ prefix and file extension
  *
  * @example
  * ```ts
  * normalizeRelation('code_style/error-handling') // 'code_style/error-handling'
  * normalizeRelation('@code_style/error-handling') // 'code_style/error-handling'
- * normalizeRelation('code_style/error-handling/title.md') // 'code_style/error-handling/title.md'
- * normalizeRelation('@@@code_style/error-handling/title.md') // 'code_style/error-handling/title.md'
+ * normalizeRelation('code_style/error-handling/title.md') // 'code_style/error-handling/title'
+ * normalizeRelation('@@@code_style/error-handling/title.py') // 'code_style/error-handling/title'
+ * normalizeRelation('code_style/error-handling/file.abc') // 'code_style/error-handling/file'
  * ```
  */
 
 export function normalizeRelation(relation: string): string {
-  return relation.replace(/^@+/, '')
+  return relation.replace(/^@+/, '').replace(/\.[^.]+$/, '')
 }
 
 /**
