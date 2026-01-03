@@ -12,8 +12,8 @@ import {AuthenticatedHttpClient} from '../../http/authenticated-http-client.js'
  * Note: contents and config are sent as JSON strings for proper serialization.
  */
 type GenerateParams = {
-  config: string
-  contents: string
+  config: GenerateContentConfig | RequestOptions
+  contents: Content[] | MessageCreateParamsNonStreaming
   model: string
 }
 
@@ -34,7 +34,7 @@ type GenerateRequest = {
  * Generate response from ByteRover REST API.
  */
 type GenerateResponse = {
-  data: string
+  data: GenerateContentResponse
 }
 
 
@@ -122,8 +122,8 @@ export class ByteRoverLlmHttpService {
     const request: GenerateRequest = {
       executionMetadata: JSON.stringify(executionMetadata ?? {}),
       params: {
-        config: JSON.stringify(config),
-        contents: JSON.stringify(contents),
+        config,
+        contents,
         model,
       },
       project_id: this.config.projectId,
@@ -153,9 +153,7 @@ export class ByteRoverLlmHttpService {
       timeout: this.config.timeout,
     })
 
-    // Parse the JSON string response
-    const content = JSON.parse(response.data) as GenerateContentResponse
-    return content
+    return response.data
   }
 
   /**
