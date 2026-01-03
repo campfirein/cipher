@@ -175,9 +175,8 @@ export class InitUseCase implements IInitUseCase {
     this.terminal.actionStop()
 
     if (spaces.length === 0) {
-      this.terminal.log(`No spaces found in team "${team.getDisplayName()}"`)
-      this.terminal.log(
-        `Please visit ${getCurrentConfig().webAppUrl} to create your first space for ${team.getDisplayName()}.`,
+      this.terminal.error(
+        `No spaces found in team "${team.getDisplayName()}"\nPlease visit ${getCurrentConfig().webAppUrl} to create your first space for ${team.getDisplayName()}.`,
       )
       return undefined
     }
@@ -192,8 +191,7 @@ export class InitUseCase implements IInitUseCase {
     this.terminal.actionStop()
 
     if (teams.length === 0) {
-      this.terminal.log('No teams found.')
-      this.terminal.log(`Please visit ${getCurrentConfig().webAppUrl} to create your first team.`)
+      this.terminal.error(`No teams found.\nPlease visit ${getCurrentConfig().webAppUrl} to create your first team.`)
       return undefined
     }
 

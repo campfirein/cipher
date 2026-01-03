@@ -2,6 +2,38 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [1.0.2]
+
+### Added
+
+- Long-living agent with persistent task execution and restart support
+- Responsive terminal UI with dynamic sizing and small-screen warnings
+- Cross-platform path normalization for context tree
+- Context tree structure injection into agent prompts
+- Multimodal file reading support (images)
+- Visual feedback when copying text
+- Unified session logging across processes
+- System sleep/wake detection for reliability
+
+### Changed
+
+- Updated onboarding UI with new visual design
+- Context files use title-based naming with snake_case
+- Improved `/query` accuracy with mtime sorting
+
+### Removed
+
+- `/chat` command removed (use `/curate` and `/query` instead)
+
+### Fixed
+
+- `/status` command now correctly detects changes
+- Agent restart during onboarding
+- Path duplication in read_file tool
+- Empty directory creation during curation
+- Application resizing issues
+- Tab characters breaking terminal UI
+
 ## [0.4.1]
 
 ### Fixed

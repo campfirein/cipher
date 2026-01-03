@@ -75,15 +75,19 @@ describe('Query Command', () => {
       }),
     }
 
-    // Simulate task completion after a short delay
-    setTimeout(() => {
-      const handlers = eventHandlers.get('task:completed')
-      if (handlers) {
-        for (const handler of handlers) {
-          handler({result: 'Mock query response', taskId: 'test-task-id'})
+    // Capture taskId from request and simulate task completion
+    ;(mockClient.request as sinon.SinonStub).callsFake(async (_event: string, payload: {taskId: string}) => {
+      // Simulate task completion after a short delay with the client-generated taskId
+      setTimeout(() => {
+        const handlers = eventHandlers.get('task:completed')
+        if (handlers) {
+          for (const handler of handlers) {
+            handler({result: 'Mock query response', taskId: payload.taskId})
+          }
         }
-      }
-    }, 10)
+      }, 10)
+      return {taskId: payload.taskId}
+    })
   })
 
   afterEach(() => {
@@ -118,14 +122,17 @@ describe('Query Command', () => {
       expect(loggedMessages).to.include('Query argument is required.')
     })
 
-    it('should send task:create request with query', async () => {
+    it('should send task:create request with query and taskId', async () => {
       const useCase = new QueryUseCase(createUseCaseOptions())
 
       await useCase.run({query: 'What is the architecture?', verbose: false})
 
       expect(mockClient.request.calledOnce).to.be.true
-      expect(mockClient.request.calledWith('task:create', {content: 'What is the architecture?', type: 'query'})).to.be
-        .true
+      const [event, payload] = (mockClient.request as sinon.SinonStub).firstCall.args
+      expect(event).to.equal('task:create')
+      expect(payload).to.have.property('content', 'What is the architecture?')
+      expect(payload).to.have.property('type', 'query')
+      expect(payload).to.have.property('taskId').that.is.a('string')
     })
 
     it('should track query after successful execution', async () => {

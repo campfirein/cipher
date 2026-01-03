@@ -1,7 +1,6 @@
 /* eslint-disable unicorn/no-process-exit */
 /* eslint-disable n/no-process-exit */
 import chalk from 'chalk'
-import {randomUUID} from 'node:crypto'
 import readline from 'node:readline'
 
 import type {ICipherAgent} from '../../core/interfaces/cipher/i-cipher-agent.js'
@@ -302,11 +301,8 @@ async function executePrompt(
     // Mark execution started - prevents late thinking events from starting spinner
     isExecutingRef.value = true
 
-    // Generate tracking ID for backend metrics
-    const trackingRequestId = randomUUID()
-
     // Execute AI prompt (agent uses its default session)
-    const response = await agent.execute(prompt, {trackingRequestId})
+    const response = await agent.execute(prompt)
 
     // Mark execution finished - no more spinners allowed
     isExecutingRef.value = false

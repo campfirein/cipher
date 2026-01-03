@@ -187,14 +187,14 @@ export class CompactionService {
    *
    * @param generator - The content generator to use for LLM calls
    * @param messages - The conversation history to summarize
-   * @param trackingRequestId - Tracking request ID for backend metrics
+   * @param taskId - Task ID from usecase for billing tracking
    * @param model - The model ID to use for generation
    * @returns The generated summary text
    */
   async generateSummary(
     generator: IContentGenerator,
     messages: InternalMessage[],
-    trackingRequestId: string,
+    taskId: string,
     model: string,
   ): Promise<string> {
     const {systemPrompt, userMessage} = this.getSummaryPromptParts()
@@ -208,8 +208,8 @@ export class CompactionService {
         contents: [...messages, {content: userMessage, role: 'user'}],
         model,
         systemPrompt,
+        taskId,
         tools: {}, // No tools for summary generation
-        trackingRequestId,
       })
 
       return typeof response.content === 'string' ? response.content : '[Summary generation failed]'

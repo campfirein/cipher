@@ -121,7 +121,7 @@ describe('Session index exports', () => {
       // Type check
       // Type check - if this compiles, the interface is exported
       const service: ILLMService = {
-        async completeTask(_textInput, _sessionId, _options) {
+        async completeTask(_textInput: string, _options?: object) {
           return 'response'
         },
         async getAllTools() {
@@ -208,7 +208,7 @@ describe('Session index exports', () => {
         async streamRun() {},
       }
       const service: ILLMService = {
-        async completeTask(_textInput, _sessionId, _options) {
+        async completeTask(_textInput: string, _options?: object) {
           return 'response'
         },
         async getAllTools() {

@@ -5,6 +5,7 @@
  */
 
 import {useStdout} from 'ink'
+import {useEffect, useState} from 'react'
 
 export type TerminalBreakpoint = 'compact' | 'normal'
 
@@ -25,9 +26,27 @@ export interface TerminalBreakpointReturn {
  */
 export function useTerminalBreakpoint(): TerminalBreakpointReturn {
   const {stdout} = useStdout()
-  const rows = stdout?.rows ?? 24
-  const columns = stdout?.columns ?? 80
+  const [dimensions, setDimensions] = useState({
+    columns: stdout?.columns ?? 80,
+    rows: stdout?.rows ?? 24,
+  })
 
+  useEffect(() => {
+    const handleResize = () => {
+      setDimensions({
+        columns: process.stdout.columns,
+        rows: process.stdout.rows,
+      })
+    }
+
+    process.stdout.on('resize', handleResize)
+
+    return () => {
+      process.stdout.off('resize', handleResize)
+    }
+  }, [])
+
+  const {columns, rows} = dimensions
   const breakpoint: TerminalBreakpoint = rows >= 22 ? 'normal' : 'compact'
 
   return {breakpoint, columns, rows}

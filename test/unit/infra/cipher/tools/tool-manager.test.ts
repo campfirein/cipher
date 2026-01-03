@@ -154,7 +154,13 @@ describe('ToolManager', () => {
         const result = await toolManager.executeTool('read_file', {path: '/test'}, 'session-1')
 
         expect((mockScheduler.execute as SinonStub).calledOnce).to.be.true
-        expect((mockScheduler.execute as SinonStub).calledWith('read_file', {path: '/test'}, {sessionId: 'session-1'})).to.be.true
+        // Now passes taskId in context (undefined when not provided)
+        expect(
+          (mockScheduler.execute as SinonStub).calledWith('read_file', {path: '/test'}, {
+            sessionId: 'session-1',
+            taskId: undefined,
+          }),
+        ).to.be.true
         expect((mockToolProvider.executeTool as SinonStub).called).to.be.false
         expect(result.success).to.be.true
         expect(result.content).to.equal('scheduled result')
@@ -163,7 +169,8 @@ describe('ToolManager', () => {
       it('should use default sessionId when not provided', async () => {
         await toolManager.executeTool('read_file', {})
 
-        expect((mockScheduler.execute as SinonStub).calledWith('read_file', {}, {sessionId: 'default'})).to.be.true
+        // Now passes taskId in context (undefined when not provided)
+        expect((mockScheduler.execute as SinonStub).calledWith('read_file', {}, {sessionId: 'default', taskId: undefined})).to.be.true
       })
 
       it('should return error result when scheduler throws', async () => {

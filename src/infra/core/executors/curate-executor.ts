@@ -1,5 +1,3 @@
-import {randomUUID} from 'node:crypto'
-
 import type {ICipherAgent} from '../../../core/interfaces/cipher/i-cipher-agent.js'
 import type {CurateExecuteOptions, ICurateExecutor} from '../../../core/interfaces/executor/i-curate-executor.js'
 
@@ -62,11 +60,9 @@ export class CurateExecutor implements ICurateExecutor {
 
       // Execute with curate commandType
       // Agent uses its default session (created during start())
-      const trackingRequestId = randomUUID()
       const response = await agent.execute(prompt, {
         executionContext: {commandType: 'curate'},
         taskId,
-        trackingRequestId,
       })
 
       // Mark execution as completed

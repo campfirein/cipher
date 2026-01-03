@@ -7,6 +7,11 @@ ByteRover CLI (`brv`) is a command-line tool for managing your AI development wo
 
 For help with any command, run `brv --help` or `brv <command> --help`.
 
+## Prerequisites
+
+- **Node.js**: Version 20.0.0 or higher
+- **Supported platforms**: macOS, Windows, Linux
+
 ## Getting Started
 
 ByteRover CLI offers two ways to interact: **Interactive REPL mode** (recommended) and traditional CLI commands.
@@ -22,18 +27,18 @@ brv
 This launches a persistent session with a React/Ink-based terminal interface where you can use slash commands:
 
 ```
-/login              # Authenticate with ByteRover
-/init               # Initialize project (select team/space)
-/status             # Show auth, config, and context tree state
-/curate [context]   # Add content to context tree
-/query <query>      # Query information from context tree
-/push [--branch]    # Push context tree to cloud
-/pull [--branch]    # Pull context tree from cloud
-/space list         # List all spaces
-/space switch       # Switch team or space
-/gen-rules          # Generate agent rule files
-/clear              # Reset context tree
-/logout             # Log out
+/login                  # Authenticate with ByteRover
+/init [-f]              # Initialize project (select team/space)
+/status                 # Show auth, config, and context tree state
+/curate [context] [@files]  # Add content to context tree
+/query <query>          # Query information from context tree (alias: /q)
+/push [-b branch] [-y]  # Push context tree to cloud
+/pull [-b branch]       # Pull context tree from cloud
+/space list [-a] [-j]   # List all spaces
+/space switch           # Switch team or space
+/gen-rules              # Generate agent rule files
+/clear [-y] [directory] # Reset context tree
+/logout [-y]            # Log out
 ```
 
 First-time users will see an interactive onboarding flow. Press `Esc` at any time to skip onboarding.
@@ -58,6 +63,8 @@ brv curate "JWT tokens expire in 24h"   # Add content to context tree
 | `brv curate [CONTEXT] [--files]`                | Add content to context tree                  | `brv curate "JWT tokens expire in 24h" --files src/auth.ts` |
 
 > **Note:** Commands like `login`, `logout`, `init`, `push`, `pull`, `space`, `gen-rules`, and `clear` are only available as slash commands in REPL mode. Run `brv` to start REPL mode.
+
+> **Important:** The `brv query` and `brv curate` standalone commands require a running `brv` instance in the same directory. Start REPL mode with `brv` first, then run these commands in a separate terminal.
 
 ## Command Details
 
@@ -93,23 +100,171 @@ brv
 | Command | Description |
 | ------- | ----------- |
 | `/login` | Authenticate with ByteRover |
-| `/logout` | Log out and clear authentication |
-| `/init` | Initialize project with team/space selection |
+| `/logout [-y]` | Log out and clear authentication |
+| `/init [-f]` | Initialize project with team/space selection |
 | `/status` | Show auth, config, and context tree state |
-| `/curate [context] [--files <paths>]` | Add content to context tree |
-| `/query <query>` | Query information from context tree |
-| `/push [--branch <name>]` | Push context tree to cloud |
-| `/pull [--branch <name>]` | Pull context tree from cloud |
-| `/space list` | List all spaces for current team |
+| `/curate [context] [@files]` | Add content to context tree (use `@filepath` for file references) |
+| `/query <query>` (alias: `/q`) | Query information from context tree |
+| `/push [-b branch] [-y]` | Push context tree to cloud |
+| `/pull [-b branch]` | Pull context tree from cloud |
+| `/space list [-a] [-j] [-l n] [-o n]` | List all spaces for current team |
 | `/space switch` | Switch to different team or space |
 | `/gen-rules` | Generate agent-specific rule files |
-| `/clear` | Reset context tree to default domains |
+| `/clear [-y] [directory]` | Reset context tree to default domains |
 
 **Notes**
 
 - REPL mode is the primary way to use ByteRover CLI
 - Most commands (login, init, push, pull, etc.) are only available in REPL mode
 - Use `Ctrl+C` to exit REPL mode
+
+### Slash Command Details
+
+#### `/login`
+
+Authenticate with ByteRover using OAuth 2.0 + PKCE. Opens your default browser for secure authentication.
+
+**Flags**: None
+
+#### `/logout`
+
+Log out and clear authentication credentials from the system keychain.
+
+| Flag | Description |
+| ---- | ----------- |
+| `-y, --yes` | Skip confirmation prompt |
+
+#### `/init`
+
+Initialize a project with ByteRover. Guides you through team and space selection and creates the context tree.
+
+| Flag | Description |
+| ---- | ----------- |
+| `-f, --force` | Force re-initialization without confirmation |
+
+#### `/status`
+
+Show CLI status including authentication state, project configuration, and context tree state.
+
+**Flags**: None
+
+#### `/curate`
+
+Add content to the context tree using interactive or autonomous mode.
+
+| Argument | Type | Required | Description |
+| -------- | ---- | -------- | ----------- |
+| `context` | string | No | Content to add (triggers autonomous mode if provided) |
+
+**File References**: Use `@filepath` syntax to include files as context (up to 5 files).
+
+**Examples**
+
+```bash
+# Interactive mode (manually choose domain/topic)
+/curate
+
+# Autonomous mode with AI classification
+/curate "Authentication uses JWT with 24h expiry"
+
+# Include file references
+/curate "Session handling logic" @src/auth/session.ts @src/middleware/auth.ts
+```
+
+#### `/query` (alias: `/q`)
+
+Query and retrieve information from the context tree using natural language.
+
+| Argument | Type | Required | Description |
+| -------- | ---- | -------- | ----------- |
+| `query` | string | Yes | Natural language question about your project |
+
+**Examples**
+
+```bash
+/query "How is user authentication implemented?"
+/q "What testing strategies are used?"
+```
+
+#### `/push`
+
+Push context tree to ByteRover cloud storage.
+
+| Flag | Description | Default |
+| ---- | ----------- | ------- |
+| `-b, --branch <name>` | Branch name for cloud storage | `main` |
+| `-y, --yes` | Skip confirmation prompt | - |
+
+**Examples**
+
+```bash
+/push                    # Push to main branch
+/push -b feature-auth    # Push to feature-auth branch
+/push -y                 # Push without confirmation
+```
+
+#### `/pull`
+
+Pull context tree from ByteRover cloud storage.
+
+| Flag | Description | Default |
+| ---- | ----------- | ------- |
+| `-b, --branch <name>` | Branch name to pull from | `main` |
+
+**Examples**
+
+```bash
+/pull                    # Pull from main branch
+/pull -b feature-auth    # Pull from feature-auth branch
+```
+
+#### `/space list`
+
+List all spaces for the current team.
+
+| Flag | Description | Default |
+| ---- | ----------- | ------- |
+| `-a, --all` | Fetch all spaces (may be slow for large teams) | - |
+| `-j, --json` | Output in JSON format | - |
+| `-l, --limit <n>` | Maximum spaces to fetch | `50` |
+| `-o, --offset <n>` | Number of spaces to skip | `0` |
+
+#### `/space switch`
+
+Switch to a different team or space. Interactive mode only - prompts you to select from available options.
+
+**Flags**: None
+
+#### `/gen-rules`
+
+Generate rule instruction files for coding agents. Creates configuration files for:
+
+- Claude Code (`.claude/CLAUDE.md`)
+- Cursor (`.cursorrules`)
+- Windsurf (`.windsurfrules`)
+- GitHub Copilot (`.github/copilot-instructions.md`)
+
+**Flags**: None
+
+#### `/clear`
+
+Reset context tree to the 6 default domains. This is a destructive operation.
+
+| Argument | Type | Required | Description |
+| -------- | ---- | -------- | ----------- |
+| `directory` | string | No | Project directory (defaults to current directory) |
+
+| Flag | Description |
+| ---- | ----------- |
+| `-y, --yes` | Skip confirmation prompt |
+
+**Examples**
+
+```bash
+/clear                       # Reset with confirmation
+/clear -y                    # Reset without confirmation
+/clear -y /path/to/project   # Reset specific project
+```
 
 ---
 
@@ -181,6 +336,7 @@ brv query "What testing strategies are used?"
 
 **Notes**
 
+- **Requires a running `brv` instance** in the same directory (start with `brv` in another terminal)
 - Context tree must exist (run `/init` in REPL mode first)
 - Uses AI to search and analyze your context tree
 - Best results with specific, detailed questions
@@ -200,9 +356,9 @@ Add content to the context tree using interactive or autonomous mode.
 
 **Flags**
 
-| Flag                   | Description                                                    | Default |
-| ---------------------- | -------------------------------------------------------------- | ------- |
-| `--files <paths>`      | Include file references in autonomous curation (comma-separated or multiple flags) | None    |
+| Flag | Description | Default |
+| ---- | ----------- | ------- |
+| `-f, --files <paths>` | Include file references (max 5 files). Use comma-separated paths or multiple `-f` flags | None |
 
 **Examples**
 
@@ -210,21 +366,23 @@ Add content to the context tree using interactive or autonomous mode.
 # Interactive mode (manually choose domain/topic)
 brv curate
 
-# Autonomous mode with internal LLM (default)
+# Autonomous mode with AI classification
 brv curate "User authentication uses JWT tokens with 24h expiry"
 brv curate "React components follow atomic design pattern"
 
 # Include file references for context
-brv curate "This module handles user sessions" --files src/auth/session.ts
-brv curate "API rate limiting implementation" --files src/middleware/rate-limit.ts,src/config/limits.ts
+brv curate "This module handles user sessions" -f src/auth/session.ts
+brv curate "API rate limiting" --files src/middleware/rate-limit.ts,src/config/limits.ts
+brv curate "Auth logic" -f src/auth.ts -f src/middleware/auth.ts
 ```
 
 **Notes**
 
+- **Requires a running `brv` instance** in the same directory (start with `brv` in another terminal)
 - Context tree must exist (run `/init` in REPL mode first)
 - **Interactive mode**: Navigate context tree, select domain/topic, creates context.md file
 - **Autonomous mode**: ByteRover agent automatically determines best location and adds content
-- **File references**: Use `--files` or `@` to provide source files as additional context for the AI agent. Files must be text files within the project directory
+- **File references**: Up to 5 files. Use `--files` or `-f` flag for CLI mode, or `@filepath` syntax in REPL mode. Files must be text files within the project directory
 
 ---
 

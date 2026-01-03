@@ -18,10 +18,11 @@ import {OAuthService} from '../../infra/auth/oauth-service.js'
 import {OidcDiscoveryService} from '../../infra/auth/oidc-discovery-service.js'
 import {SystemBrowserLauncher} from '../../infra/browser/system-browser-launcher.js'
 import {CallbackHandler} from '../../infra/http/callback-handler.js'
-import {FileGlobalConfigStore} from "../../infra/storage/file-global-config-store.js";
+import {FileGlobalConfigStore} from '../../infra/storage/file-global-config-store.js'
 import {MixpanelTrackingService} from '../../infra/tracking/mixpanel-tracking-service.js'
 import {LoginUseCase} from '../../infra/usecase/login-use-case.js'
 import {HttpUserService} from '../../infra/user/http-user-service.js'
+import {useAuthPolling} from '../hooks/use-auth-polling.js'
 import {useServices} from './services-context.js'
 
 export interface AuthContextValue {
@@ -173,6 +174,13 @@ export function AuthProvider({children, initialAuthToken, initialBrvConfig}: Aut
     })
   }, [reloadBrvConfig])
 
+  // Auth state polling - check token validity and refresh if needed
+  useAuthPolling({
+    authToken,
+    onTokenChange: setAuthToken,
+    tokenStore,
+  })
+
   // Memoize context value
   const value = useMemo(
     () => ({
@@ -185,7 +193,7 @@ export function AuthProvider({children, initialAuthToken, initialBrvConfig}: Aut
       login,
       loginOutput,
       reloadAuth,
-      reloadBrvConfig
+      reloadBrvConfig,
     }),
     [authToken, brvConfig, isInitialConfigLoaded, isLoggingIn, loginOutput, authState, isAuthorized, login, reloadAuth],
   )

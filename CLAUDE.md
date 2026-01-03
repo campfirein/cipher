@@ -15,6 +15,29 @@ npm run lint                                     # ESLint
 
 **Test dirs**: `test/commands/`, `test/unit/`, `test/integration/`, `test/hooks/`, `test/learning/`
 
+## Development Standards
+
+**Code Quality**:
+- Follow clean code principles strictly
+- Apply proper OOP design and design patterns where appropriate
+- Apply functional programming principles where appropriate
+- Avoid over-engineering; keep solutions simple and focused
+
+**TypeScript**:
+- Avoid `as Type` assertions - use type guards or proper typing instead
+- Avoid `any` type - use `unknown` with type narrowing or proper generics
+- Functions with >3 parameters must use object parameters
+
+**CLI & API**:
+- Follow CLI building best practices (consistent flags, helpful error messages, proper exit codes)
+- Follow API integration best practices (proper error handling, retries, timeouts)
+- Consider security risks (input validation, secrets handling, injection prevention)
+
+**Testing**:
+- Apply TDD; 50% coverage minimum, critical paths must be covered
+- Run `npm run test` after each approved edit
+- Suppress console logging in tests to keep output clean
+
 ## Architecture
 
 ### REPL + TUI Architecture
@@ -22,7 +45,16 @@ npm run lint                                     # ESLint
 - `brv` (no args) starts interactive REPL (`src/infra/repl/repl-startup.tsx`)
 - React/Ink-based TUI (`src/tui/`) with streaming, dialogs, prompts
 - Slash commands (`/command`) in `src/infra/repl/commands/`
-- Few oclif commands remain: `status`, `curate`, `query`, `watch`, `cipher-agent/*`
+- Few oclif commands remain: `main` (default), `status`, `curate`, `query`, `watch` (dev-only)
+
+### Architecture v1.0.0 (Multi-Process)
+
+- Main process spawns Transport and Agent worker processes
+- All task communication via Socket.IO (no direct IPC)
+- Single instance per folder via lock file (`.brv/instance.lock`)
+- `src/infra/process/` - Worker threads, task queue, IPC handlers
+- `src/infra/transport/` - Socket.IO client/server, port utils
+- `src/infra/instance/` - Instance lock management (acquire/release)
 
 ### Core Interfaces (`src/core/interfaces/`)
 
@@ -57,6 +89,20 @@ npm run lint                                     # ESLint
 - `IOnboardingPreferenceStore` - Onboarding state persistence
 - `ITrackingService` - Event tracking (Mixpanel implementation)
 
+**Transport** (multi-process communication):
+
+- `ITransportClient` - Connect, disconnect, request/response, room events
+- `ITransportServer` - Broadcast, message handling, room management
+
+**Instance Management**:
+
+- `IInstanceManager` - Acquire/release instance locks (one folder = one server)
+- `IInstanceDiscovery` - Discover running instances by folder
+
+**Executors** (distinct from UseCases - wrap operations with agent injection):
+
+- `ICurateExecutor`, `IQueryExecutor` - Execute with injected agent for long-lived instances
+
 **Pagination**: `{fetchAll: true}` auto-paginates (100/page) or `{limit, offset}` manual
 
 ### Domain Entities (`src/core/domain/entities/`)
@@ -71,6 +117,9 @@ All have `toJson()`/`fromJson()`, immutable readonly properties
 - `GlobalConfig` - User-level config with device ID
 - `Event` - Tracking event definitions
 - `CogitSnapshot`, `CogitPushContext` - CoGit sync entities
+- `Parser` - Centralized parser types (raw + clean layers)
+- `Playbook` - Knowledge repository with bullets and sections
+- `PresignedUrl` - Blob storage presigned URLs
 
 ### Infrastructure (`src/infra/`)
 
@@ -82,7 +131,14 @@ All have `toJson()`/`fromJson()`, immutable readonly properties
 **Cipher** (`src/infra/cipher/`) - LLM agent system:
 
 - `llm/` - Multi-provider support (Claude, Gemini, OpenRouter), tokenizers, context compression
-- `tools/` - Tool implementations (bash, file ops, memory, grep, glob)
+- `tools/` - 24+ tool implementations:
+  - File: `read-file`, `write-file`, `edit-file`, `list-directory`, `glob-files`, `grep-content`
+  - Bash: `bash-exec`, `bash-output`, `kill-process`
+  - Memory: `read-memory`, `write-memory`, `edit-memory`, `delete-memory`, `list-memories`
+  - Knowledge: `read-knowledge-topic`, `create-knowledge-topic`
+  - Todos: `read-todos`, `write-todos`
+  - Other: `curate`, `task`, `batch`, `search-history`, `spec-analyze`
+- `tools/policy-engine.ts` - Tool execution policy (ALLOW/DENY)
 - `session/` - Chat session management
 - `memory/` - Memory persistence
 
@@ -101,9 +157,19 @@ All have `toJson()`/`fromJson()`, immutable readonly properties
 - `HttpCogitPushService` / `HttpCogitPullService` - Cloud sync
 - `context-tree-to-push-context-mapper.ts` - Maps context tree to push format
 
+**Knowledge** (`src/core/domain/knowledge/`):
+
+- `markdown-writer.ts` - Write knowledge to markdown files
+- `directory-manager.ts` - Knowledge directory management
+- `relation-parser.ts` - Parse knowledge relations
+
 **Tracking**:
 
 - `MixpanelTrackingService` - Analytics implementation
+
+**UseCases** (`src/infra/usecase/`) - Business logic orchestration:
+
+- 12 use cases matching REPL commands: `init`, `login`, `logout`, `status`, `curate`, `query`, `push`, `pull`, `clear`, `space-list`, `space-switch`, `generate-rules`
 
 ### Config
 
@@ -140,11 +206,6 @@ Commands prefixed with `/` in the REPL (`src/infra/repl/commands/`):
 - `/gen-rules` - Generate agent-specific rule files
 - `/clear` - Reset context tree (destructive)
 - `/query` - Query context tree
-
-**OAuth Flow**:
-
-- `redirectUri`: `http://localhost:{port}/callback` (built after server starts)
-- Login: `OAuthTokenData` → fetch User → `AuthToken` with `userId`/`userEmail`
 
 ## Testing
 
