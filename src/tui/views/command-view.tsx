@@ -5,14 +5,14 @@
  * Uses ScrollableList for message history with dynamic height calculation.
  */
 
-import {Box, Spacer, Text, useApp} from 'ink'
+import { Box, Spacer, Text, useApp } from 'ink'
 import Spinner from 'ink-spinner'
 import TextInput from 'ink-text-input'
-import React, {useCallback, useEffect, useMemo, useState} from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 
-import type {CommandMessage, PromptRequest, StreamingMessage} from '../types.js'
+import type { CommandMessage, PromptRequest, StreamingMessage } from '../types.js'
 
-import {MessageItem, ScrollableList, Suggestions} from '../components/index.js'
+import { MessageItem, ScrollableList, Suggestions } from '../components/index.js'
 import {
   InlineConfirm,
   InlineFileSelector,
@@ -20,9 +20,9 @@ import {
   InlineSearch,
   InlineSelect,
 } from '../components/inline-prompts/index.js'
-import {useAuth, useTasks, useTransport} from '../contexts/index.js'
-import {useCommands, useMode, useTerminalBreakpoint, useTheme, useUIHeights} from '../hooks/index.js'
-import {getVisualLineCount} from '../utils/line.js'
+import { useAuth, useTasks, useTransport } from '../contexts/index.js'
+import { useCommands, useMode, useTerminalBreakpoint, useTheme, useUIHeights } from '../hooks/index.js'
+import { getVisualLineCount } from '../utils/line.js'
 
 /** Max visible items in InlineSearch */
 const INLINE_SEARCH_MAX_ITEMS = 7
@@ -50,7 +50,7 @@ function truncateMessageFromEnd(
   message: StreamingMessage,
   availableLines: number,
   terminalWidth: number,
-): {content: string; usedLines: number} {
+): { content: string; usedLines: number } {
   const lines = message.content.split('\n')
   const truncatedLines: string[] = []
   let usedLines = 0
@@ -75,7 +75,7 @@ function truncateMessageFromEnd(
     }
   }
 
-  return {content: truncatedLines.join('\n'), usedLines}
+  return { content: truncatedLines.join('\n'), usedLines }
 }
 
 /**
@@ -85,11 +85,11 @@ function getMessagesFromEnd(
   messages: StreamingMessage[],
   maxLines: number,
   terminalWidth: number,
-): {displayMessages: StreamingMessage[]; skippedLines: number; totalLines: number} {
+): { displayMessages: StreamingMessage[]; skippedLines: number; totalLines: number } {
   const totalLines = countOutputLines(messages, terminalWidth)
 
   if (totalLines <= maxLines) {
-    return {displayMessages: messages, skippedLines: 0, totalLines}
+    return { displayMessages: messages, skippedLines: 0, totalLines }
   }
 
   const displayMessages: StreamingMessage[] = []
@@ -107,8 +107,8 @@ function getMessagesFromEnd(
       usedLines += msgLineCount
     } else if (availableLines > 0) {
       // Truncate message to fit
-      const {content, usedLines: truncatedLines} = truncateMessageFromEnd(msg, availableLines, terminalWidth)
-      displayMessages.unshift({...msg, content})
+      const { content, usedLines: truncatedLines } = truncateMessageFromEnd(msg, availableLines, terminalWidth)
+      displayMessages.unshift({ ...msg, content })
       usedLines += truncatedLines
       break
     }
@@ -118,7 +118,7 @@ function getMessagesFromEnd(
   if (displayMessages.length === 0 && messages.length > 0) {
     const lastMsg = messages.at(-1)!
     const lastLine = lastMsg.content.split('\n').at(-1) ?? ''
-    displayMessages.push({...lastMsg, content: lastLine})
+    displayMessages.push({ ...lastMsg, content: lastLine })
     usedLines = getVisualLineCount(lastLine, terminalWidth)
   }
 
@@ -234,7 +234,7 @@ interface MessageHeightOptions {
  * Estimate the line height of a command message
  */
 function estimateMessageHeight(msg: CommandMessage, options: MessageHeightOptions): number {
-  const {isLast = false, maxOutputLines, promptHeight = 0, streamingLines = 0, terminalWidth} = options
+  const { isLast = false, maxOutputLines, promptHeight = 0, streamingLines = 0, terminalWidth } = options
   let lines = 0
 
   if (msg.type === 'command') {
@@ -278,11 +278,11 @@ interface CommandViewProps {
   availableHeight: number
 }
 
-export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
-  const {exit} = useApp()
-  const {reloadAuth, reloadBrvConfig} = useAuth()
-  const {client} = useTransport()
-  const {clearTasks} = useTasks()
+export const CommandView: React.FC<CommandViewProps> = ({ availableHeight }) => {
+  const { exit } = useApp()
+  const { reloadAuth, reloadBrvConfig } = useAuth()
+  const { client } = useTransport()
+  const { clearTasks } = useTasks()
   const [command, setCommand] = useState('')
   const [inputKey, setInputKey] = useState(0)
   const [messages, setMessages] = useState<CommandMessage[]>([])
@@ -290,20 +290,20 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
   const [activePrompt, setActivePrompt] = useState<null | PromptRequest>(null)
   const [isStreaming, setIsStreaming] = useState(false)
   const {
-    theme: {colors},
+    theme: { colors },
   } = useTheme()
-  const {commandInput} = useUIHeights()
-  const {breakpoint, columns: terminalWidth} = useTerminalBreakpoint()
+  const { commandInput } = useUIHeights()
+  const { breakpoint, columns: terminalWidth } = useTerminalBreakpoint()
 
   // Process streaming messages to handle action_start/action_stop pairs
   const processedStreamingMessages = useMemo(() => processMessagesForActions(streamingMessages), [streamingMessages])
-  const {handleSlashCommand} = useCommands()
-  const {appendShortcuts, mode, removeShortcuts} = useMode()
+  const { handleSlashCommand } = useCommands()
+  const { appendShortcuts, mode, removeShortcuts } = useMode()
 
   // Append shortcuts for prompts
   useEffect(() => {
     if (activePrompt?.type === 'search' || activePrompt?.type === 'select') {
-      appendShortcuts([{description: 'select', key: 'enter'}])
+      appendShortcuts([{ description: 'select', key: 'enter' }])
 
       return () => {
         removeShortcuts(['enter'])
@@ -311,6 +311,7 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
     }
   }, [activePrompt?.type, appendShortcuts, removeShortcuts])
 
+  /* eslint-disable complexity -- Command execution requires handling multiple command types and states */
   const executeCommand = useCallback(
     async (value: string) => {
       const trimmed = value.trim()
@@ -380,7 +381,7 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
             const updated = [...prev]
             const lastIndex = updated.length - 1
             if (lastIndex >= 0 && updated[lastIndex].type === 'command') {
-              updated[lastIndex] = {...updated[lastIndex], output: collectedMessages}
+              updated[lastIndex] = { ...updated[lastIndex], output: collectedMessages }
             }
 
             return updated
@@ -395,11 +396,12 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
           // Handle /new command - create new session and clear messages
           if (needNewSession && client) {
             try {
-              const response = await client.request<{error?: string; sessionId?: string; success: boolean}>(
+              const response = await client.request<{ error?: string; sessionId?: string; success: boolean }>(
                 'agent:newSession',
-                {reason: 'User requested new session'},
+                { reason: 'User requested new session' },
               )
 
+              /* eslint-disable max-depth -- UI state handling requires this nesting level */
               if (response.success) {
                 // Clear the messages to start fresh
                 setMessages([])
@@ -408,6 +410,7 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
             } catch {
               // Error handling - the command already showed feedback
             }
+            /* eslint-enable max-depth */
           }
 
           // Refresh state after commands that change auth or project state
@@ -428,7 +431,7 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
 
               const reason = Object.entries(reasonMap).find(([cmd]) => trimmed.startsWith(cmd))?.[1] ?? 'Command executed'
 
-              await client.request('agent:restart', {reason})
+              await client.request('agent:restart', { reason })
             }
           }
         }
@@ -436,6 +439,7 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
     },
     [clearTasks, client, exit, handleSlashCommand, reloadAuth, reloadBrvConfig],
   )
+  /* eslint-enable complexity */
 
   const handleSubmit = useCallback(
     async (value: string) => {
@@ -503,7 +507,7 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
   )
 
   const handleFileSelectorResponse = useCallback(
-    (value: null | {isDirectory: boolean; name: string; path: string}) => {
+    (value: null | { isDirectory: boolean; name: string; path: string }) => {
       if (activePrompt?.type === 'file_selector') {
         activePrompt.onResponse(value)
         setActivePrompt(null)
@@ -648,7 +652,7 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
             {hasOutput &&
               (() => {
                 const processedOutput = processMessagesForActions(msg.output!)
-                const {displayMessages, skippedLines} = getMessagesFromEnd(processedOutput, maxOutputLines, contentWidth)
+                const { displayMessages, skippedLines } = getMessagesFromEnd(processedOutput, maxOutputLines, contentWidth)
                 return (
                   <Box
                     borderColor={colors.border}
@@ -669,7 +673,7 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
             {/* Live streaming output (while running) */}
             {showLiveOutput &&
               (() => {
-                const {displayMessages: liveMessages, skippedLines} = getMessagesFromEnd(
+                const { displayMessages: liveMessages, skippedLines } = getMessagesFromEnd(
                   processedStreamingMessages,
                   maxOutputLines,
                   contentWidth,
