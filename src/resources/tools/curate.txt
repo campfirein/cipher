@@ -1,22 +1,67 @@
-Curate knowledge topics with atomic operations. This tool manages the knowledge structure using four operation types:
+Curate knowledge topics with atomic operations. This tool manages the knowledge structure using four operation types and supports a two-part context model: Raw Concept + Narrative.
+
+**Content Structure (Two-Part Model):**
+- **rawConcept**: Captures essential metadata and technical footprint
+  - task: What is the task related to this concept
+  - changes: Array of changes induced in the codebase
+  - files: Array of related files
+  - flow: The execution flow of this concept
+  - timestamp: When created/modified (ISO 8601 format, e.g., 2025-03-18)
+- **narrative**: Captures descriptive and structural context
+  - structure: Code structure documentation (e.g., "clients/redis_client.go")
+  - dependencies: Dependency management information (e.g., "Singleton, init when service starts")
+  - features: Feature documentation (e.g., "User permission can be stale for up to 300 seconds")
+- **snippets**: Code/text snippets (legacy support, optional)
+- **relations**: Related topics using @domain/topic notation
 
 **Operations:**
-1. **ADD** - Create new domain/topic/subtopic with context.md
-   - Requires: path, content (snippets and/or relations), reason
-   - Example: { type: "ADD", path: "code_style/error-handling", content: { snippets: ["..."], relations: ["logging/basics"] }, reason: "New pattern identified" }
+1. **ADD** - Create new titled context file in domain/topic/subtopic
+   - Requires: path, title, content, reason
+   - Example with Raw Concept + Narrative:
+     {
+       type: "ADD",
+       path: "structure/caching",
+       title: "Redis User Permissions",
+       content: {
+         rawConcept: {
+           task: "Introduce Redis cache for getUserPermissions(userId)",
+           changes: ["Cached result using remote Redis", "Redis client: singleton"],
+           files: ["services/permission_service.go", "clients/redis_client.go"],
+           flow: "getUserPermissions -> check Redis -> on miss query DB -> store result -> return",
+           timestamp: "2025-03-18"
+         },
+         narrative: {
+           structure: "# Redis client\n- clients/redis_client.go",
+           dependencies: "# Redis client\n- Singleton, init when service starts",
+           features: "# Authorization\n- User permission can be stale for up to 300 seconds"
+         },
+         relations: ["@structure/database"]
+       },
+       reason: "New caching pattern"
+     }
+   - Creates: structure/caching/redis_user_permissions.md
 
-2. **UPDATE** - Modify existing context.md (full replacement)
-   - Requires: path, content, reason
-   - Example: { type: "UPDATE", path: "code_style/error-handling", content: { snippets: ["Updated content"] }, reason: "Improved guidance" }
+2. **UPDATE** - Modify existing titled context file (full replacement)
+   - Requires: path, title, content, reason
+   - Supports same content structure as ADD
 
-3. **MERGE** - Combine source topic into target, delete source
-   - Requires: path (source), mergeTarget (destination), reason
-   - Example: { type: "MERGE", path: "code_style/old-topic", mergeTarget: "code_style/new-topic", reason: "Consolidating duplicates" }
+3. **MERGE** - Combine source file into target file, delete source
+   - Requires: path (source), title (source file), mergeTarget (destination path), mergeTargetTitle (destination file), reason
+   - Example: { type: "MERGE", path: "code_style/old_topic", title: "Old Guide", mergeTarget: "code_style/new_topic", mergeTargetTitle: "New Guide", reason: "Consolidating" }
+   - Raw concepts and narratives are intelligently merged
 
-4. **DELETE** - Remove topic/subtopic folder recursively
-   - Requires: path, reason
-   - Example: { type: "DELETE", path: "code_style/deprecated-topic", reason: "No longer relevant" }
+4. **DELETE** - Remove specific file or entire folder
+   - Requires: path, title (optional), reason
+   - With title: deletes specific file; without title: deletes entire folder
 
-**Path format:** domain/topic or domain/topic/subtopic
+**Path format:** domain/topic or domain/topic/subtopic (uses snake_case automatically)
+**File naming:** Titles are converted to snake_case (e.g., "Best Practices" -> "best_practices.md")
 
-**Output:** Returns applied operations with status (success/failed) and a summary of counts.
+**Domain constraints:**
+- Predefined domains: code_style, design, structure, compliance, testing, bug_fixes
+- Up to 3 additional custom domains are allowed
+- Always prefer predefined domains when possible
+
+**Backward Compatibility:** Existing context entries using only snippets and relations continue to work.
+
+**Output:** Returns applied operations with status (success/failed), filePath (for created/modified files), and a summary of counts.
