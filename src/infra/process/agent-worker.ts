@@ -356,39 +356,71 @@ function setupTaskExecutor(): void {
       return
     }
 
-    // Create timeout promise that rejects after 5 minutes
-    let timeoutId: NodeJS.Timeout | undefined
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      timeoutId = setTimeout(() => {
-        reject(new Error('TASK_TIMEOUT'))
-      }, TASK_EXECUTION_TIMEOUT_MS)
-    })
+    // Track timeout state for error handling
+    let timedOut = false
+    const timeoutId = setTimeout(() => {
+      timedOut = true
+      agentLog(`Task ${taskId} timed out after 5 minutes - cancelling via CipherAgent`)
+      // Cancel via CipherAgent's existing cancel() method
+      // This aborts activeStreamControllers and session, causing generate() to throw
+      if (cipherAgent) {
+        cipherAgent.cancel().catch((error) => {
+          agentLog(`Error cancelling CipherAgent on timeout: ${error}`)
+        })
+      }
+    }, TASK_EXECUTION_TIMEOUT_MS)
 
     try {
-      // Race between task execution and timeout
-      await Promise.race([handleTaskExecute(task), timeoutPromise])
+      // Execute task - if timeout fires, cipherAgent.cancel() will cause this to throw
+      await handleTaskExecute(task)
     } catch (error) {
-      // Handle timeout specifically
-      if (error instanceof Error && error.message === 'TASK_TIMEOUT') {
-        agentLog(`Task ${taskId} timed out after 5 minutes`)
+      // Handle timeout-triggered cancellation
+      if (timedOut) {
+        agentLog(`Task ${taskId} cancelled due to timeout`)
         const errorData = serializeTaskError(new Error('Task exceeded 5 minute timeout'))
         transportClient?.request('task:error', {error: errorData, taskId}).catch(logTransportError)
         return
       }
 
-      // Handle other errors
+      // Handle other errors (not timeout)
       agentLog(`Task execution failed: ${error}`)
       const errorData = serializeTaskError(error)
       transportClient?.request('task:error', {error: errorData, taskId}).catch(logTransportError)
     } finally {
       // Always clear timeout to prevent memory leak
-      if (timeoutId) {
-        clearTimeout(timeoutId)
-      }
+      clearTimeout(timeoutId)
     }
   })
 
   agentLog('Task executor setup complete')
+}
+
+/**
+ * Timeout for CipherAgent initialization operations.
+ * This prevents isInitializing flag from getting stuck if agent.start() or createSession() hangs.
+ * ProcessManager has 30s timeout for startup, but runtime reinit needs its own protection.
+ */
+const AGENT_INIT_TIMEOUT_MS = 30_000
+
+/**
+ * Helper to wrap a promise with a timeout.
+ * Throws an error if the operation doesn't complete within the timeout.
+ */
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, operation: string): Promise<T> {
+  let timeoutId: NodeJS.Timeout | undefined
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(new Error(`${operation} timed out after ${timeoutMs}ms`))
+    }, timeoutMs)
+  })
+
+  try {
+    return await Promise.race([promise, timeoutPromise])
+  } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId)
+    }
+  }
 }
 
 /**
@@ -471,12 +503,13 @@ async function tryInitializeAgent(forceReinit = false): Promise<boolean> {
     }
 
     const agent = new CipherAgent(agentConfig, brvConfig ?? undefined)
-    await agent.start()
+    // Wrap agent.start() with timeout to prevent isInitializing from getting stuck
+    await withTimeout(agent.start(), AGENT_INIT_TIMEOUT_MS, 'CipherAgent.start()')
     agentLog('CipherAgent started')
 
-    // Create ChatSession
+    // Create ChatSession (also with timeout to prevent hanging)
     chatSessionId = `agent-session-${randomUUID()}`
-    await agent.createSession(chatSessionId)
+    await withTimeout(agent.createSession(chatSessionId), AGENT_INIT_TIMEOUT_MS, 'CipherAgent.createSession()')
     agentLog(`ChatSession created: ${chatSessionId}`)
 
     // Setup event forwarding
@@ -679,10 +712,19 @@ async function startAgent(): Promise<void> {
         agentLog('Agent reinitialized successfully')
         // Notify Transport that restart completed
         await transportClient?.request('agent:restarted', {success: true})
+      } else if (isInitializing) {
+        // Another initialization in progress (likely from credentials polling)
+        // This is fine - the agent will be reinitialized by the other call
+        agentLog('Agent reinitialization skipped - already in progress')
+        await transportClient?.request('agent:restarted', {
+          error: 'Initialization already in progress',
+          success: false,
+        })
       } else {
+        // Actual failure - missing auth or config
         agentLog('Agent reinitialization failed - config incomplete')
         await transportClient?.request('agent:restarted', {
-          error: 'Config incomplete (no auth token or config)',
+          error: initializationError?.message ?? 'Config incomplete (no auth token or config)',
           success: false,
         })
       }
@@ -912,6 +954,11 @@ async function pollCredentialsAndSync(): Promise<void> {
       case 'missing': {
         // Credentials gone - stop CipherAgent if running
         if (isAgentInitialized) {
+          if (hasPendingWork()) {
+            agentLog('Credentials missing but tasks in progress - deferring stop')
+            return
+          }
+
           agentLog('Credentials missing - stopping CipherAgent')
           await stopCipherAgent()
         }
@@ -922,6 +969,11 @@ async function pollCredentialsAndSync(): Promise<void> {
       case 'unchanged': {
         // No change - check if token expired (edge case)
         if (authToken?.isExpired() && isAgentInitialized) {
+          if (hasPendingWork()) {
+            agentLog('Token expired but tasks in progress - deferring stop')
+            return
+          }
+
           agentLog('Token expired - stopping CipherAgent')
           await stopCipherAgent()
         }

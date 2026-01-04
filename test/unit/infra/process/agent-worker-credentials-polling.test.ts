@@ -130,6 +130,14 @@ class CredentialsPollingStateMachine {
   }
 
   // ============================================================================
+  // Helper: Check Pending Work (mirrors agent-worker.ts:201-203)
+  // ============================================================================
+
+  hasPendingWork(): boolean {
+    return this.mockTaskQueueManager.hasActiveTasks() || this.mockTaskQueueManager.getQueuedCount() > 0
+  }
+
+  // ============================================================================
   // Polling (mirrors agent-worker.ts:837-907)
   // ============================================================================
 
@@ -181,6 +189,10 @@ class CredentialsPollingStateMachine {
         case 'missing': {
           // Credentials gone - stop CipherAgent if running
           if (this.isAgentInitialized) {
+            if (this.hasPendingWork()) {
+              return
+            }
+
             await this.stopCipherAgent()
           }
 
@@ -190,6 +202,10 @@ class CredentialsPollingStateMachine {
         case 'unchanged': {
           // No change - check if token expired (edge case)
           if (authToken?.isExpired() && this.isAgentInitialized) {
+            if (this.hasPendingWork()) {
+              return
+            }
+
             await this.stopCipherAgent()
           }
 
@@ -475,6 +491,40 @@ describe('Agent Worker Credentials Polling', () => {
       expect(state.isAgentInitialized).to.be.false
     })
 
+    it('should defer stop when credentials missing but tasks are active', async () => {
+      state.isAgentInitialized = true
+      state.mockTokenStore = {
+        load: async () => undefined, // No token = missing
+      }
+      state.mockTaskQueueManager = {
+        clear() {},
+        getQueuedCount: () => 0,
+        hasActiveTasks: () => true, // Active tasks
+      }
+
+      await state.pollCredentialsAndSync()
+
+      expect(state.stopCalled).to.be.false // Should NOT stop
+      expect(state.isAgentInitialized).to.be.true // Should remain initialized
+    })
+
+    it('should defer stop when credentials missing but tasks are queued', async () => {
+      state.isAgentInitialized = true
+      state.mockTokenStore = {
+        load: async () => undefined, // No token = missing
+      }
+      state.mockTaskQueueManager = {
+        clear() {},
+        getQueuedCount: () => 3, // Queued tasks
+        hasActiveTasks: () => false,
+      }
+
+      await state.pollCredentialsAndSync()
+
+      expect(state.stopCalled).to.be.false // Should NOT stop
+      expect(state.isAgentInitialized).to.be.true // Should remain initialized
+    })
+
     it('should do nothing when credentials unchanged', async () => {
       state.cachedCredentials = {
         accessToken: 'test-token',
@@ -509,6 +559,60 @@ describe('Agent Worker Credentials Polling', () => {
       await state.pollCredentialsAndSync()
 
       expect(state.stopCalled).to.be.true
+    })
+
+    it('should defer stop when token expired but tasks are active', async () => {
+      state.cachedCredentials = {
+        accessToken: 'test-token',
+        sessionKey: 'test-session',
+        spaceId: undefined,
+        teamId: undefined,
+      }
+      state.isAgentInitialized = true
+      state.mockTokenStore = {
+        load: async () => ({
+          accessToken: 'test-token',
+          isExpired: () => true, // Token expired
+          sessionKey: 'test-session',
+        }),
+      }
+      state.mockTaskQueueManager = {
+        clear() {},
+        getQueuedCount: () => 0,
+        hasActiveTasks: () => true, // Active tasks
+      }
+
+      await state.pollCredentialsAndSync()
+
+      expect(state.stopCalled).to.be.false // Should NOT stop
+      expect(state.isAgentInitialized).to.be.true // Should remain initialized
+    })
+
+    it('should defer stop when token expired but tasks are queued', async () => {
+      state.cachedCredentials = {
+        accessToken: 'test-token',
+        sessionKey: 'test-session',
+        spaceId: undefined,
+        teamId: undefined,
+      }
+      state.isAgentInitialized = true
+      state.mockTokenStore = {
+        load: async () => ({
+          accessToken: 'test-token',
+          isExpired: () => true, // Token expired
+          sessionKey: 'test-session',
+        }),
+      }
+      state.mockTaskQueueManager = {
+        clear() {},
+        getQueuedCount: () => 2, // Queued tasks
+        hasActiveTasks: () => false,
+      }
+
+      await state.pollCredentialsAndSync()
+
+      expect(state.stopCalled).to.be.false // Should NOT stop
+      expect(state.isAgentInitialized).to.be.true // Should remain initialized
     })
 
     it('should catch errors and continue without crashing', async () => {
@@ -760,6 +864,77 @@ describe('Agent Worker Credentials Polling', () => {
       await state.pollCredentialsAndSync()
       expect(state.reinitCalled).to.be.true
       expect(state.cachedCredentials?.spaceId).to.equal('space-2')
+    })
+  })
+
+  // ============================================================================
+  // isInitializing Flag Tests
+  // ============================================================================
+
+  describe('isInitializing Flag', () => {
+    let state: CredentialsPollingStateMachine
+
+    beforeEach(() => {
+      state = new CredentialsPollingStateMachine()
+    })
+
+    it('should skip polling when isInitializing is true', async () => {
+      state.isInitializing = true
+
+      await state.pollCredentialsAndSync()
+
+      // Polling should be skipped entirely
+      expect(state.pollCount).to.equal(0)
+      expect(state.isPolling).to.be.false
+    })
+
+    it('should skip polling when isCleaningUp is true', async () => {
+      state.isCleaningUp = true
+
+      await state.pollCredentialsAndSync()
+
+      // Polling should be skipped entirely
+      expect(state.pollCount).to.equal(0)
+      expect(state.isPolling).to.be.false
+    })
+
+    it('should allow polling after isInitializing becomes false', async () => {
+      // First poll with isInitializing = true
+      state.isInitializing = true
+      await state.pollCredentialsAndSync()
+      expect(state.pollCount).to.equal(0)
+
+      // Reset flag (simulating tryInitializeAgent() finally block)
+      state.isInitializing = false
+
+      // Now polling should proceed
+      await state.pollCredentialsAndSync()
+      expect(state.pollCount).to.equal(1)
+    })
+
+    it('should prevent concurrent polling via isPolling flag', async () => {
+      // Simulate concurrent poll attempts
+      const pollPromise1 = state.pollCredentialsAndSync()
+      const pollPromise2 = state.pollCredentialsAndSync()
+      const pollPromise3 = state.pollCredentialsAndSync()
+
+      await Promise.all([pollPromise1, pollPromise2, pollPromise3])
+
+      // Only one should have executed
+      expect(state.pollCount).to.equal(1)
+    })
+
+    it('should reset isPolling flag even when error occurs', async () => {
+      state.mockTokenStore = {
+        async load() {
+          throw new Error('Simulated error')
+        },
+      }
+
+      await state.pollCredentialsAndSync()
+
+      // isPolling should be reset in finally block
+      expect(state.isPolling).to.be.false
     })
   })
 })
