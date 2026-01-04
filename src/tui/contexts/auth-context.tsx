@@ -88,7 +88,7 @@ function createStateTerminal(appendOutput: (line: string) => void): ITerminal {
 }
 
 export function AuthProvider({children, initialAuthToken, initialBrvConfig}: AuthProviderProps): React.ReactElement {
-  const {projectConfigStore, tokenStore} = useServices()
+  const {projectConfigStore, tokenStore, trackingService} = useServices()
 
   // State
   const [authToken, setAuthToken] = useState<AuthToken | undefined>(initialAuthToken)
@@ -179,6 +179,7 @@ export function AuthProvider({children, initialAuthToken, initialBrvConfig}: Aut
     authToken,
     onTokenChange: setAuthToken,
     tokenStore,
+    trackingService,
   })
 
   // Memoize context value

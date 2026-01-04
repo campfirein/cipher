@@ -116,7 +116,6 @@ describe('HttpTeamService', () => {
       } catch (error) {
         expect(error).to.be.instanceOf(Error)
         expect((error as Error).message).to.include('401')
-        expect((error as Error).message).to.include('Unauthorized')
       }
     })
 

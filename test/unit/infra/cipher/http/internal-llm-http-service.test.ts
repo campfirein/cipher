@@ -1,4 +1,5 @@
 /* eslint-disable camelcase */
+import {isAxiosError} from 'axios'
 import {expect} from 'chai'
 import nock from 'nock'
 import {createSandbox, type SinonSandbox} from 'sinon'
@@ -322,8 +323,11 @@ describe('ByteRoverLlmHttpService', () => {
         await service.generateContent([{parts: [{text: 'Hello'}], role: 'user'}], {}, 'gemini-2.5-flash')
         expect.fail('Should have thrown an error')
       } catch (error) {
-        expect(error).to.be.instanceOf(Error)
-        expect((error as Error).message).to.equal(errorResponse.message)
+        // 401 errors are returned as raw AxiosError to allow callers to distinguish from network errors
+        expect(isAxiosError(error)).to.be.true
+        if (isAxiosError(error)) {
+          expect(error.response?.status).to.equal(401)
+        }
       }
     })
 

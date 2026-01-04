@@ -3,7 +3,7 @@ import {randomUUID} from 'node:crypto'
 import {isDevelopment} from '../../../config/environment.js'
 import {type CommandContext, CommandKind, type SlashCommand} from '../../../tui/types.js'
 import {FileGlobalConfigStore} from "../../storage/file-global-config-store.js";
-import {KeychainTokenStore} from '../../storage/keychain-token-store.js'
+import {createTokenStore} from '../../storage/token-store.js'
 import {ReplTerminal} from '../../terminal/repl-terminal.js'
 import {MixpanelTrackingService} from '../../tracking/mixpanel-tracking-service.js'
 import {CurateUseCase} from '../../usecase/curate-use-case.js'
@@ -43,7 +43,7 @@ export const curateCommand: SlashCommand = {
         }
 
         const terminal = new ReplTerminal({onMessage, onPrompt})
-        const tokenStore = new KeychainTokenStore()
+        const tokenStore = createTokenStore()
         const globalConfigStore = new FileGlobalConfigStore()
 
         const useCase = new CurateUseCase({

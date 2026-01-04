@@ -2,7 +2,6 @@ import axios, {type AxiosRequestConfig, isAxiosError} from 'axios'
 
 import type {HttpRequestConfig, IHttpClient} from '../../core/interfaces/i-http-client.js'
 
-
 /**
  * Standardized API error response from server.
  *
@@ -115,6 +114,12 @@ export class AuthenticatedHttpClient implements IHttpClient {
    * Preserves error information while abstracting axios-specific details.
    */
   private handleError(error: unknown): Error {
+    if (isAxiosError(error) && error.response?.status === 401) {
+      // IMPORTANT: Do not handle 401 errors here - let callers handle errors (e.g., distinguish 401 from network errors)
+      return error
+    }
+
+    // WARNING: isLLMServerError() matches any response with the standard ApiErrorResponse structure (IAM, Cogit, LLM services all use it)
     if (this.isLLMServerError(error)) {
       // Extract standardized API error message
       return new Error(this.parseHttpError(error))
@@ -145,9 +150,9 @@ export class AuthenticatedHttpClient implements IHttpClient {
     return new Error('Unknown error occurred')
   }
 
-   /**
-    * Type guard to check if error is an axios error with response.
-    */
+  /**
+   * Type guard to check if error is an axios error with response.
+   */
   private isLLMServerError(error: unknown): error is LLMServerError {
     return (
       typeof error === 'object' &&

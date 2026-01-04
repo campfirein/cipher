@@ -5,6 +5,7 @@ export const EVENT_VALUES = [
   'repl',
   'auth:sign_in',
   'auth:signed_out',
+  'auth:token_invalid',
   'space:init',
   'space:changed',
   'rule:generate',
@@ -18,7 +19,7 @@ export const EVENT_VALUES = [
   'onboarding:query_completed',
   'onboarding:skipped',
   'onboarding:completed',
-  'init'
+  'init',
 ] as const
 
 export type EventName = (typeof EVENT_VALUES)[number]

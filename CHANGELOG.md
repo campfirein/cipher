@@ -2,6 +2,33 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [1.0.4]
+
+### Added
+
+- Task lifecycle status display in header showing active/completed tasks
+- Initialization status indicator in header
+- Dynamic domain creation for context tree - create new knowledge domains on the fly
+- Step-based initialization UI with improved onboarding flow
+- Actionable welcome prompt with quick-start suggestions
+- Randomized example prompts in welcome screen
+- WSL (Windows Subsystem for Linux) support with file-based token storage fallback
+- Read-file tool pagination and line truncation for handling large files
+
+### Changed
+
+- Switched internal LLM service from gRPC to HTTP for improved reliability
+- Sequential execution for `brv curate` commands to prevent conflicts
+
+### Fixed
+
+- Security vulnerability in query string parsing
+- Double `@` prefix appearing in knowledge relations
+- File validation when running `brv curate` from different directories
+- Auth token validation now properly handles network errors
+- SQLite database connection cleanup
+- Agent initialization reliability improvements
+
 ## [1.0.2]
 
 ### Added

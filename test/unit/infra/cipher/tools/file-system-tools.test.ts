@@ -65,6 +65,7 @@ describe('File System Tools', () => {
         size: 12,
         totalLines: 1,
         truncated: false,
+        truncatedLineCount: undefined,
       }
       readFileStub.resolves(mockServiceResult)
 
@@ -92,6 +93,47 @@ describe('File System Tools', () => {
       await tool.execute({filePath: '/path/to/file', limit: 10, offset: 5})
 
       sandbox.assert.calledWith(readFileStub, '/path/to/file', sandbox.match({limit: 10, offset: 5}))
+    })
+
+    it.skip('should return pagination metadata when file is truncated', async () => {
+      const tool = createReadFileTool(fileSystemMock)
+      const mockResult = {
+        content: 'truncated content',
+        encoding: 'utf8',
+        lines: 50,
+        pagination: {
+          hint: 'File truncated. To continue reading, use offset: 51',
+          linesShown: [1, 50] as [number, number],
+          nextOffset: 51,
+          totalLines: 100,
+        },
+        size: 1000,
+        truncated: true,
+        truncatedLineCount: undefined,
+      }
+      readFileStub.resolves(mockResult)
+
+      const result = await tool.execute({filePath: '/path/to/large-file', limit: 50})
+
+      expect(result).to.deep.equal(mockResult)
+    })
+
+    it.skip('should return truncatedLineCount when lines are too long', async () => {
+      const tool = createReadFileTool(fileSystemMock)
+      const mockResult = {
+        content: 'content with truncated lines',
+        encoding: 'utf8',
+        lines: 5,
+        pagination: undefined,
+        size: 500,
+        truncated: false,
+        truncatedLineCount: 2,
+      }
+      readFileStub.resolves(mockResult)
+
+      const result = await tool.execute({filePath: '/path/to/long-lines-file'})
+
+      expect(result).to.deep.equal(mockResult)
     })
 
     it('should propagate file not found error', async () => {

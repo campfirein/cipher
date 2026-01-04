@@ -172,6 +172,10 @@ const LIST_DIRECTORY_LIMIT = 100
  * path validation, size limits, and allow/block list enforcement.
  */
 export class FileSystemService implements IFileSystem {
+  /**
+   * Maximum line length before truncation (2000 characters).
+   */
+  private static readonly MAX_LINE_LENGTH = 2000
   private readonly config: Required<FileSystemConfig>
   private initialized: boolean = false
   private readonly pathValidator: PathValidator
@@ -400,10 +404,7 @@ export class FileSystemService implements IFileSystem {
   /**
    * List files and directories in a path.
    */
-  public async listDirectory(
-    dirPath: string,
-    options: ListDirectoryOptions = {},
-  ): Promise<ListDirectoryResult> {
+  public async listDirectory(dirPath: string, options: ListDirectoryOptions = {}): Promise<ListDirectoryResult> {
     this.ensureInitialized()
 
     // Resolve path
@@ -520,7 +521,10 @@ export class FileSystemService implements IFileSystem {
     const isEnvFile = fileName.includes('.env')
     const isWhitelisted = ENV_WHITELIST.some((w) => fileName.endsWith(w))
     if (isEnvFile && !isWhitelisted) {
-      throw new PathBlockedError(normalizedPath, 'Environment files are blocked for security. Only example files (.env.sample, .env.example) are allowed.')
+      throw new PathBlockedError(
+        normalizedPath,
+        'Environment files are blocked for security. Only example files (.env.sample, .env.example) are allowed.',
+      )
     }
 
     try {
@@ -584,7 +588,10 @@ export class FileSystemService implements IFileSystem {
       await handle.close()
 
       if (isBinaryFile(normalizedPath, sampleBuffer.subarray(0, bytesRead))) {
-        throw new ReadOperationError(normalizedPath, 'Cannot read binary file. Use a hex editor or appropriate tool for binary files.')
+        throw new ReadOperationError(
+          normalizedPath,
+          'Cannot read binary file. Use a hex editor or appropriate tool for binary files.',
+        )
       }
 
       // Read text file
@@ -642,6 +649,7 @@ export class FileSystemService implements IFileSystem {
         size: stats.size,
         totalLines,
         truncated,
+        truncatedLineCount: truncatedLines.length,
       }
     } catch (error) {
       // Re-throw known errors
@@ -777,12 +785,7 @@ export class FileSystemService implements IFileSystem {
   /**
    * Builds a human-readable message for glob results.
    */
-  private buildGlobMessage(
-    returned: number,
-    total: number,
-    ignored: number,
-    truncated: boolean,
-  ): string {
+  private buildGlobMessage(returned: number, total: number, ignored: number, truncated: boolean): string {
     const parts: string[] = []
 
     if (truncated) {
@@ -850,11 +853,7 @@ export class FileSystemService implements IFileSystem {
    * Executes ripgrep (rg) for content search.
    * Returns null if rg is not available or fails.
    */
-  private async executeRipgrep(
-    pattern: string,
-    cwd: string,
-    options: SearchOptions,
-  ): Promise<null | SearchMatch[]> {
+  private async executeRipgrep(pattern: string, cwd: string, options: SearchOptions): Promise<null | SearchMatch[]> {
     if (!(await this.isCommandAvailable('rg'))) return null
 
     const args = ['-n', '--no-heading', '--with-filename']
@@ -880,11 +879,7 @@ export class FileSystemService implements IFileSystem {
    * Executes system grep for content search.
    * Returns null if grep is not available or fails.
    */
-  private async executeSystemGrep(
-    pattern: string,
-    cwd: string,
-    options: SearchOptions,
-  ): Promise<null | SearchMatch[]> {
+  private async executeSystemGrep(pattern: string, cwd: string, options: SearchOptions): Promise<null | SearchMatch[]> {
     if (!(await this.isCommandAvailable('grep'))) return null
 
     const args = ['-r', '-n', '-H', '-E', '-I']
@@ -959,11 +954,7 @@ export class FileSystemService implements IFileSystem {
   /**
    * Renders a directory tree as a string.
    */
-  private renderDirectoryTree(
-    basePath: string,
-    dirs: Set<string>,
-    filesByDir: Map<string, string[]>,
-  ): string {
+  private renderDirectoryTree(basePath: string, dirs: Set<string>, filesByDir: Map<string, string[]>): string {
     const renderDir = (dirPath: string, depth: number): string => {
       const indent = '  '.repeat(depth)
       let output = ''
