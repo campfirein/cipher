@@ -20,6 +20,7 @@ import {
   ModeProvider,
   OnboardingProvider,
   ServicesProvider,
+  StatusProvider,
   TasksProvider,
   ThemeProvider,
   TransportProvider,
@@ -60,7 +61,11 @@ export function AppProviders({
             <ModeProvider>
               <TransportProvider>
                 <TasksProvider>
-                  <OnboardingProvider>{children}</OnboardingProvider>
+                  <OnboardingProvider>
+                    <StatusProvider>
+                      {children}
+                    </StatusProvider>
+                  </OnboardingProvider>
                 </TasksProvider>
               </TransportProvider>
             </ModeProvider>

@@ -28,6 +28,7 @@ describe('MemoryManager - Unit Tests (Mocked)', () => {
   let clearStub: SinonStub
   let getMetadataStub: SinonStub
   let getStatsStub: SinonStub
+  let closeStub: SinonStub
 
   beforeEach(() => {
     // Create stubs for IBlobStorage methods
@@ -40,10 +41,12 @@ describe('MemoryManager - Unit Tests (Mocked)', () => {
     clearStub = stub()
     getMetadataStub = stub()
     getStatsStub = stub()
+    closeStub = stub()
 
     // Mock IBlobStorage
     mockBlobStorage = {
       clear: clearStub,
+      close: closeStub,
       delete: deleteStub,
       exists: existsStub,
       getMetadata: getMetadataStub,

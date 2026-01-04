@@ -8,7 +8,6 @@ import type {ITransportClient} from '../../core/interfaces/transport/i-transport
 
 import {App} from '../../tui/app.js'
 import {AppProviders} from '../../tui/providers/app-providers.js'
-import {stopQueuePollingService} from '../cipher/consumer/queue-polling-service.js'
 import {connectTransportClient, disconnectTransportClient} from './transport-client-helper.js'
 
 /** Broadcast client - joins broadcast-room to monitor all events */
@@ -72,6 +71,5 @@ export async function startRepl(options: ReplOptions): Promise<void> {
   // Cleanup
   await disconnectTransportClient(transportBroadcastClient)
   transportBroadcastClient = null
-  stopQueuePollingService()
   await trackingService.track('repl', {status: 'finished'})
 }

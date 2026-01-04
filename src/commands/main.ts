@@ -5,7 +5,7 @@ import {getProcessManager} from '../infra/process/index.js'
 import {startRepl} from '../infra/repl/repl-startup.js'
 import {FileGlobalConfigStore} from '../infra/storage/file-global-config-store.js'
 import {FileOnboardingPreferenceStore} from '../infra/storage/file-onboarding-preference-store.js'
-import {KeychainTokenStore} from '../infra/storage/keychain-token-store.js'
+import {createTokenStore} from '../infra/storage/token-store.js'
 import {MixpanelTrackingService} from '../infra/tracking/mixpanel-tracking-service.js'
 import {initSessionLog} from '../utils/process-logger.js'
 
@@ -39,7 +39,7 @@ export default class Main extends Command {
     const processManager = getProcessManager()
     await processManager.start()
 
-    const tokenStore = new KeychainTokenStore()
+    const tokenStore = createTokenStore()
     const globalConfigStore = new FileGlobalConfigStore()
     const trackingService = new MixpanelTrackingService({globalConfigStore, tokenStore})
     const onboardingPreferenceStore = new FileOnboardingPreferenceStore()
