@@ -4,37 +4,40 @@
  */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { expect } from 'chai'
+import {expect} from 'chai'
 import * as fs from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import * as sinon from 'sinon'
+import {tmpdir} from 'node:os'
+import {join} from 'node:path'
+import {restore, stub} from 'sinon'
 
-import { Agent } from '../../../../../src/core/domain/entities/agent.js'
-import { CopilotRawService } from '../../../../../src/infra/parsers/raw/raw-copilot-service.js'
+import {Agent} from '../../../../../src/core/domain/entities/agent.js'
+import {CopilotRawService} from '../../../../../src/infra/parsers/raw/raw-copilot-service.js'
 
 describe('CopilotRawService', () => {
   let service: CopilotRawService
   let tempDir: string
 
   beforeEach(() => {
+    stub(console, 'log')
+    stub(console, 'error')
+    stub(console, 'warn')
     service = new CopilotRawService('Github Copilot' as Agent)
     tempDir = join(tmpdir(), `test-copilot-${Date.now()}`)
   })
 
   afterEach(() => {
-    sinon.restore()
+    restore()
     if (fs.existsSync(tempDir)) {
-      fs.rmSync(tempDir, { recursive: true })
+      fs.rmSync(tempDir, {recursive: true})
     }
   })
 
   describe('calculateTotalDuration', () => {
     it('should calculate total duration from request timings', () => {
       const requests = [
-        { result: { timings: { totalElapsed: 100 } } },
-        { result: { timings: { totalElapsed: 200 } } },
-        { result: { timings: { totalElapsed: 150 } } }
+        {result: {timings: {totalElapsed: 100}}},
+        {result: {timings: {totalElapsed: 200}}},
+        {result: {timings: {totalElapsed: 150}}},
       ]
 
       const result = (service as any).calculateTotalDuration(requests)
@@ -42,10 +45,7 @@ describe('CopilotRawService', () => {
     })
 
     it('should handle requests without timings', () => {
-      const requests = [
-        { result: {} },
-        { result: { timings: { totalElapsed: 100 } } }
-      ]
+      const requests = [{result: {}}, {result: {timings: {totalElapsed: 100}}}]
 
       const result = (service as any).calculateTotalDuration(requests)
       expect(result).to.equal(100)
@@ -60,11 +60,7 @@ describe('CopilotRawService', () => {
   describe('extractAttachments', () => {
     it('should extract attachment names from variables', () => {
       const variableData = {
-        variables: [
-          { name: 'file1.ts' },
-          { name: 'file2.js' },
-          { name: 'folder/' }
-        ]
+        variables: [{name: 'file1.ts'}, {name: 'file2.js'}, {name: 'folder/'}],
       }
 
       const result = (service as any).extractAttachments(variableData)
@@ -78,7 +74,7 @@ describe('CopilotRawService', () => {
 
     it('should filter out variables without names', () => {
       const variableData = {
-        variables: [{ name: 'file.ts' }, {}, { name: 'other.ts' }]
+        variables: [{name: 'file.ts'}, {}, {name: 'other.ts'}],
       }
 
       const result = (service as any).extractAttachments(variableData)
@@ -88,8 +84,8 @@ describe('CopilotRawService', () => {
 
   describe('extractTitle', () => {
     it('should extract title from first message', () => {
-      const requests = [{ message: { text: 'How do I debug this?' } }]
-      const messages = [{ content: 'How do I debug this?', type: 'user' }]
+      const requests = [{message: {text: 'How do I debug this?'}}]
+      const messages = [{content: 'How do I debug this?', type: 'user'}]
 
       const result = (service as any).extractTitle(requests, messages)
       expect(result).to.equal('How do I debug this?')
@@ -97,7 +93,7 @@ describe('CopilotRawService', () => {
 
     it('should truncate long titles', () => {
       const longText = 'a'.repeat(200)
-      const messages = [{ content: longText, type: 'user' }]
+      const messages = [{content: longText, type: 'user'}]
 
       const result = (service as any).extractTitle([], messages)
       expect(result.length).to.equal(103) // TITLE_TRUNCATE_LENGTH (100) + '...' (3)
@@ -105,7 +101,7 @@ describe('CopilotRawService', () => {
     })
 
     it('should use request message if messages empty', () => {
-      const requests = [{ message: { text: 'Test message' } }]
+      const requests = [{message: {text: 'Test message'}}]
       const messages: any[] = []
 
       const result = (service as any).extractTitle(requests, messages)
@@ -123,11 +119,8 @@ describe('CopilotRawService', () => {
       const data = {
         initialLocation: '/src/app.ts',
         requesterUsername: 'testuser',
-        requests: [
-          { result: { timings: { totalElapsed: 100 } } },
-          { result: { timings: { totalElapsed: 200 } } }
-        ],
-        responderUsername: 'GitHub Copilot'
+        requests: [{result: {timings: {totalElapsed: 100}}}, {result: {timings: {totalElapsed: 200}}}],
+        responderUsername: 'GitHub Copilot',
       }
 
       const result = (service as any).extractMetadata(data, 'session-123', 'workspace-hash')
@@ -139,7 +132,7 @@ describe('CopilotRawService', () => {
     })
 
     it('should use default values for missing fields', () => {
-      const data = { requests: [] }
+      const data = {requests: []}
 
       const result = (service as any).extractMetadata(data, 'id', 'hash')
 
@@ -153,9 +146,9 @@ describe('CopilotRawService', () => {
     it('should convert requests to user and assistant messages', () => {
       const requests = [
         {
-          message: { text: 'Hello' },
-          response: [{ text: 'Hi there!', type: 'text' }]
-        }
+          message: {text: 'Hello'},
+          response: [{text: 'Hi there!', type: 'text'}],
+        },
       ]
 
       const result = (service as any).convertRequestsToMessages(requests)
@@ -165,7 +158,7 @@ describe('CopilotRawService', () => {
     })
 
     it('should handle requests without messages', () => {
-      const requests = [{ response: [{ text: 'Response', type: 'text' }] }]
+      const requests = [{response: [{text: 'Response', type: 'text'}]}]
 
       const result = (service as any).convertRequestsToMessages(requests)
       expect(result).to.have.lengthOf(1)
@@ -173,7 +166,7 @@ describe('CopilotRawService', () => {
     })
 
     it('should handle requests without responses', () => {
-      const requests = [{ message: { text: 'Question' } }]
+      const requests = [{message: {text: 'Question'}}]
 
       const result = (service as any).convertRequestsToMessages(requests)
       expect(result).to.have.lengthOf(1)
@@ -188,7 +181,7 @@ describe('CopilotRawService', () => {
     })
 
     it('should add kind field to block objects', () => {
-      const block = { kind: 'text_block', text: 'Hello', type: 'text' }
+      const block = {kind: 'text_block', text: 'Hello', type: 'text'}
       const result = (service as any).normalizeContentBlock(block)
 
       expect(result.kind).to.equal('text_block')
@@ -196,7 +189,7 @@ describe('CopilotRawService', () => {
     })
 
     it('should add default kind if missing', () => {
-      const block = { text: 'Hello', type: 'text' }
+      const block = {text: 'Hello', type: 'text'}
       const result = (service as any).normalizeContentBlock(block)
 
       expect(result.kind).to.equal('unknown')
@@ -211,17 +204,17 @@ describe('CopilotRawService', () => {
   describe('normalizeParsedRequest', () => {
     it('should normalize request data', () => {
       const request = {
-        message: { text: 'test' },
+        message: {text: 'test'},
         requestId: 'req-123',
-        response: [{ text: 'response', type: 'text' }],
+        response: [{text: 'response', type: 'text'}],
         responseId: 'res-123',
-        result: { status: 'success' }
+        result: {status: 'success'},
       }
 
       const result = (service as any).normalizeParsedRequest(request)
 
       expect(result.requestId).to.equal('req-123')
-      expect(result.message).to.deep.equal({ text: 'test' })
+      expect(result.message).to.deep.equal({text: 'test'})
       expect(result.response).to.be.an('array')
     })
 
@@ -242,16 +235,16 @@ describe('CopilotRawService', () => {
   describe('parseSessionFile', () => {
     it('should parse session file', () => {
       const sessionFile = join(tempDir, 'session-123.json')
-      fs.mkdirSync(tempDir, { recursive: true })
+      fs.mkdirSync(tempDir, {recursive: true})
 
       const sessionData = {
         requesterUsername: 'testuser',
         requests: [
           {
-            message: { text: 'Hello' },
-            response: [{ text: 'Hi', type: 'text' }]
-          }
-        ]
+            message: {text: 'Hello'},
+            response: [{text: 'Hi', type: 'text'}],
+          },
+        ],
       }
 
       fs.writeFileSync(sessionFile, JSON.stringify(sessionData))
@@ -265,7 +258,7 @@ describe('CopilotRawService', () => {
 
     it('should handle parse errors gracefully', () => {
       const sessionFile = join(tempDir, 'invalid.json')
-      fs.mkdirSync(tempDir, { recursive: true })
+      fs.mkdirSync(tempDir, {recursive: true})
       fs.writeFileSync(sessionFile, 'invalid json content')
 
       const result = (service as any).parseSessionFile(sessionFile, 'hash')
@@ -277,11 +270,11 @@ describe('CopilotRawService', () => {
     it('should parse sessions from direct workspace directory', async () => {
       const workspaceDir = join(tempDir, 'workspace')
       const chatSessionsDir = join(workspaceDir, 'chatSessions')
-      fs.mkdirSync(chatSessionsDir, { recursive: true })
+      fs.mkdirSync(chatSessionsDir, {recursive: true})
 
       const sessionData = {
         requesterUsername: 'user',
-        requests: []
+        requests: [],
       }
 
       fs.writeFileSync(join(chatSessionsDir, 'session-1.json'), JSON.stringify(sessionData))
@@ -294,9 +287,9 @@ describe('CopilotRawService', () => {
       const parentDir = join(tempDir, 'parent')
       const workspaceDir = join(parentDir, 'workspace-hash')
       const chatSessionsDir = join(workspaceDir, 'chatSessions')
-      fs.mkdirSync(chatSessionsDir, { recursive: true })
+      fs.mkdirSync(chatSessionsDir, {recursive: true})
 
-      const sessionData = { requesterUsername: 'user', requests: [] }
+      const sessionData = {requesterUsername: 'user', requests: []}
       fs.writeFileSync(join(chatSessionsDir, 'session-1.json'), JSON.stringify(sessionData))
 
       const result = await (service as any).parseFromDirectory(parentDir)
@@ -308,9 +301,9 @@ describe('CopilotRawService', () => {
     it('should parse all session files in workspace', async () => {
       const workspaceDir = join(tempDir, 'workspace')
       const chatSessionsDir = join(workspaceDir, 'chatSessions')
-      fs.mkdirSync(chatSessionsDir, { recursive: true })
+      fs.mkdirSync(chatSessionsDir, {recursive: true})
 
-      const sessionData = { requesterUsername: 'user', requests: [] }
+      const sessionData = {requesterUsername: 'user', requests: []}
       fs.writeFileSync(join(chatSessionsDir, 'session-1.json'), JSON.stringify(sessionData))
       fs.writeFileSync(join(chatSessionsDir, 'session-2.json'), JSON.stringify(sessionData))
 
@@ -320,7 +313,7 @@ describe('CopilotRawService', () => {
 
     it('should return empty array if chatSessions dir not found', async () => {
       const workspaceDir = join(tempDir, 'workspace')
-      fs.mkdirSync(workspaceDir, { recursive: true })
+      fs.mkdirSync(workspaceDir, {recursive: true})
 
       const result = await (service as any).parseWorkspaceDirectory(workspaceDir, 'hash')
       expect(result).to.have.lengthOf(0)
@@ -329,9 +322,9 @@ describe('CopilotRawService', () => {
     it('should skip non-JSON files', async () => {
       const workspaceDir = join(tempDir, 'workspace')
       const chatSessionsDir = join(workspaceDir, 'chatSessions')
-      fs.mkdirSync(chatSessionsDir, { recursive: true })
+      fs.mkdirSync(chatSessionsDir, {recursive: true})
 
-      const sessionData = { requesterUsername: 'user', requests: [] }
+      const sessionData = {requesterUsername: 'user', requests: []}
       fs.writeFileSync(join(chatSessionsDir, 'session.json'), JSON.stringify(sessionData))
       fs.writeFileSync(join(chatSessionsDir, 'readme.txt'), 'text file')
 
@@ -342,10 +335,10 @@ describe('CopilotRawService', () => {
 
   describe('extractWorkspacePath', () => {
     it('should try Tier 1A (SQLite) first', () => {
-      const data = { baseUri: { path: '/path/from/data' } }
+      const data = {baseUri: {path: '/path/from/data'}}
       // Mock Tier 1A to return null
-      sinon.stub(service as any, 'extractWorkspacePathTier1A').returns(null)
-      sinon.stub(service as any, 'extractWorkspacePathTier1B').returns('/fallback/path')
+      stub(service as any, 'extractWorkspacePathTier1A').returns(null)
+      stub(service as any, 'extractWorkspacePathTier1B').returns('/fallback/path')
 
       const result = (service as any).extractWorkspacePath(data, 'hash')
       expect(result).to.equal('/fallback/path')
@@ -353,8 +346,8 @@ describe('CopilotRawService', () => {
 
     it('should return null if both tiers fail', () => {
       const data = {}
-      sinon.stub(service as any, 'extractWorkspacePathTier1A').returns(null)
-      sinon.stub(service as any, 'extractWorkspacePathTier1B').returns(null)
+      stub(service as any, 'extractWorkspacePathTier1A').returns(null)
+      stub(service as any, 'extractWorkspacePathTier1B').returns(null)
 
       const result = (service as any).extractWorkspacePath(data, 'hash')
       expect(result).to.be.null
@@ -366,9 +359,9 @@ describe('CopilotRawService', () => {
       const data = {
         some: {
           nested: {
-            baseUri: { path: '/Users/test/workspace' }
-          }
-        }
+            baseUri: {path: '/Users/test/workspace'},
+          },
+        },
       }
 
       const result = (service as any).extractWorkspacePathTier1B(data)
@@ -376,7 +369,7 @@ describe('CopilotRawService', () => {
     })
 
     it('should return null if no baseUri found', () => {
-      const data = { other: 'data' }
+      const data = {other: 'data'}
 
       const result = (service as any).extractWorkspacePathTier1B(data)
       expect(result).to.be.null
@@ -387,10 +380,10 @@ describe('CopilotRawService', () => {
         level1: {
           level2: {
             level3: {
-              baseUri: { path: '/deep/path' }
-            }
-          }
-        }
+              baseUri: {path: '/deep/path'},
+            },
+          },
+        },
       }
 
       const result = (service as any).extractWorkspacePathTier1B(data)

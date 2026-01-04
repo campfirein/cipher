@@ -21,6 +21,7 @@ describe('cipher/process', () => {
         allowedCommands: ['git', 'npm'],
         blockedCommands: ['rm -rf', 'format'],
         environment: {NODE_ENV: 'production'},
+        killGracePeriod: 500,
         maxConcurrentProcesses: 5,
         maxOutputBuffer: 1_048_576,
         maxTimeout: 600_000,
@@ -31,6 +32,7 @@ describe('cipher/process', () => {
       expectTypeOf<string[]>(config.allowedCommands)
       expectTypeOf<string[]>(config.blockedCommands)
       expectTypeOf<Record<string, string>>(config.environment)
+      expectTypeOf<number>(config.killGracePeriod)
       expectTypeOf<number>(config.maxConcurrentProcesses)
       expectTypeOf<number>(config.maxOutputBuffer)
       expectTypeOf<number>(config.maxTimeout)
@@ -53,6 +55,7 @@ describe('cipher/process', () => {
         allowedCommands: [],
         blockedCommands: [],
         environment: {},
+        killGracePeriod: 500,
         maxConcurrentProcesses: 5,
         maxOutputBuffer: 1_048_576,
         maxTimeout: 600_000,

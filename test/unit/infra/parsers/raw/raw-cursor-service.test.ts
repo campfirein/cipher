@@ -4,28 +4,31 @@
  */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { expect } from 'chai'
+import {expect} from 'chai'
 import * as fs from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import * as sinon from 'sinon'
+import {tmpdir} from 'node:os'
+import {join} from 'node:path'
+import {restore, stub} from 'sinon'
 
-import { Agent } from '../../../../../src/core/domain/entities/agent.js'
-import { CursorRawService } from '../../../../../src/infra/parsers/raw/raw-cursor-service.js'
+import {Agent} from '../../../../../src/core/domain/entities/agent.js'
+import {CursorRawService} from '../../../../../src/infra/parsers/raw/raw-cursor-service.js'
 
 describe('CursorRawService', () => {
   let service: CursorRawService
   let tempDir: string
 
   beforeEach(() => {
+    stub(console, 'log')
+    stub(console, 'error')
+    stub(console, 'warn')
     service = new CursorRawService('Cursor' as Agent)
     tempDir = join(tmpdir(), `test-cursor-${Date.now()}`)
   })
 
   afterEach(() => {
-    sinon.restore()
+    restore()
     if (fs.existsSync(tempDir)) {
-      fs.rmSync(tempDir, { recursive: true })
+      fs.rmSync(tempDir, {recursive: true})
     }
   })
 
@@ -54,8 +57,8 @@ describe('CursorRawService', () => {
       const bubble = {
         codeBlocks: {
           'file.js': 'const y = 2;',
-          'file.ts': 'const x = 1;'
-        }
+          'file.ts': 'const x = 1;',
+        },
       }
 
       const result = (service as any).extractCodeBlocks(bubble)
@@ -69,7 +72,7 @@ describe('CursorRawService', () => {
     })
 
     it('should return undefined for empty code blocks', () => {
-      const bubble = { codeBlocks: {} }
+      const bubble = {codeBlocks: {}}
       const result = (service as any).extractCodeBlocks(bubble)
       expect(result).to.be.undefined
     })
@@ -78,11 +81,7 @@ describe('CursorRawService', () => {
   describe('extractConsoleLogs', () => {
     it('should extract console logs from bubble', () => {
       const bubble = {
-        consoleLogs: [
-          'log1',
-          'log2',
-          'log3'
-        ]
+        consoleLogs: ['log1', 'log2', 'log3'],
       }
 
       const result = (service as any).extractConsoleLogs(bubble)
@@ -96,7 +95,7 @@ describe('CursorRawService', () => {
     })
 
     it('should return undefined for empty console logs array', () => {
-      const bubble = { consoleLogs: [] }
+      const bubble = {consoleLogs: []}
       const result = (service as any).extractConsoleLogs(bubble)
       expect(result).to.be.undefined
     })
@@ -109,10 +108,10 @@ describe('CursorRawService', () => {
           diffId: 'diff-1',
           filePath: '/src/app.ts',
           newModelDiffWrtV0: 'new code',
-          originalModelDiffWrtV0: 'old code'
-        }
+          originalModelDiffWrtV0: 'old code',
+        },
       ]
-      const codeBlockDiffMap = { 'bubble-123': diffs }
+      const codeBlockDiffMap = {'bubble-123': diffs}
 
       const result = (service as any).extractCodeDiffs('bubble-123', codeBlockDiffMap)
       expect(result).to.have.lengthOf(1)
@@ -125,7 +124,7 @@ describe('CursorRawService', () => {
     })
 
     it('should return undefined if bubble has no diffs', () => {
-      const codeBlockDiffMap = { 'other-bubble': [] }
+      const codeBlockDiffMap = {'other-bubble': []}
       const result = (service as any).extractCodeDiffs('bubble-123', codeBlockDiffMap)
       expect(result).to.be.undefined
     })
@@ -143,8 +142,8 @@ describe('CursorRawService', () => {
           status: 'success',
           tool: 1,
           toolCallId: 'call-123',
-          toolIndex: 0
-        }
+          toolIndex: 0,
+        },
       }
 
       const result = (service as any).extractToolResults(bubble)
@@ -161,7 +160,7 @@ describe('CursorRawService', () => {
 
     it('should return undefined if missing required fields', () => {
       const bubble = {
-        toolFormerData: { name: 'test' } // Missing status
+        toolFormerData: {name: 'test'}, // Missing status
       }
       const result = (service as any).extractToolResults(bubble)
       expect(result).to.be.undefined
@@ -173,8 +172,8 @@ describe('CursorRawService', () => {
           name: 'tool',
           params: 'not json',
           result: 'also not json',
-          status: 'success'
-        }
+          status: 'success',
+        },
       }
 
       const result = (service as any).extractToolResults(bubble)
@@ -187,7 +186,7 @@ describe('CursorRawService', () => {
     it('should extract context from bubble', () => {
       const bubble = {
         attachedFoldersListDirResults: ['folder1', 'folder2'],
-        cursorRules: ['rule1']
+        cursorRules: ['rule1'],
       }
 
       const result = (service as any).extractContextInfo(bubble)
@@ -206,9 +205,9 @@ describe('CursorRawService', () => {
             gitStatusRaw: 'modified files',
             knowledgeItems: ['item'],
             terminalFiles: ['file'],
-            todos: ['todo']
-          }
-        ]
+            todos: ['todo'],
+          },
+        ],
       }
 
       const result = (service as any).extractContextInfo(bubble, messageContextMap, 'bubble-1')
@@ -223,9 +222,9 @@ describe('CursorRawService', () => {
     })
 
     it('should merge context from both bubble and message context', () => {
-      const bubble = { cursorRules: ['bubble-rule'] }
+      const bubble = {cursorRules: ['bubble-rule']}
       const messageContextMap = {
-        'bubble-1': [{ gitStatusRaw: 'status' }]
+        'bubble-1': [{gitStatusRaw: 'status'}],
       }
 
       const result = (service as any).extractContextInfo(bubble, messageContextMap, 'bubble-1')
@@ -241,9 +240,9 @@ describe('CursorRawService', () => {
         checkpointId: 'checkpoint-1',
         files: ['file1.ts', 'file2.ts'],
         newlyCreatedFolders: ['folder1'],
-        nonExistentFiles: []
+        nonExistentFiles: [],
       }
-      const checkpointMap = { 'bubble-1': checkpoint }
+      const checkpointMap = {'bubble-1': checkpoint}
 
       const result = (service as any).extractFileCheckpoint('bubble-1', checkpointMap)
       expect(result?.files).to.have.lengthOf(2)
@@ -251,7 +250,7 @@ describe('CursorRawService', () => {
     })
 
     it('should return undefined if no checkpoint for bubble', () => {
-      const checkpointMap = { 'other-bubble': {} }
+      const checkpointMap = {'other-bubble': {}}
       const result = (service as any).extractFileCheckpoint('bubble-1', checkpointMap)
       expect(result).to.be.undefined
     })
@@ -266,7 +265,7 @@ describe('CursorRawService', () => {
     it('should parse valid JSON strings', () => {
       const input = '{"key": "value"}'
       const result = (service as any).safeParseJSON(input)
-      expect(result).to.deep.equal({ key: 'value' })
+      expect(result).to.deep.equal({key: 'value'})
     })
 
     it('should return original string if JSON parsing fails', () => {
@@ -277,7 +276,7 @@ describe('CursorRawService', () => {
 
     it('should return non-string values as-is', () => {
       expect((service as any).safeParseJSON(123)).to.equal(123)
-      expect((service as any).safeParseJSON({ obj: 'ect' })).to.deep.equal({ obj: 'ect' })
+      expect((service as any).safeParseJSON({obj: 'ect'})).to.deep.equal({obj: 'ect'})
       expect((service as any).safeParseJSON(null)).to.be.null
     })
   })
@@ -288,16 +287,10 @@ describe('CursorRawService', () => {
         attachedFoldersListDirResults: ['folder'],
         consoleLogs: ['log1'],
         text: 'Hello',
-        toolFormerData: { name: 'tool', status: 'success' }
+        toolFormerData: {name: 'tool', status: 'success'},
       }
 
-      const result = (service as any).createEnhancedBubble(
-        'user',
-        'Hello',
-        1_234_567_890,
-        bubble,
-        'bubble-1'
-      )
+      const result = (service as any).createEnhancedBubble('user', 'Hello', 1_234_567_890, bubble, 'bubble-1')
 
       expect(result.type).to.equal('user')
       expect(result.text).to.equal('Hello')
@@ -307,15 +300,9 @@ describe('CursorRawService', () => {
     })
 
     it('should create minimal enhanced bubble', () => {
-      const bubble = { text: 'Hi' }
+      const bubble = {text: 'Hi'}
 
-      const result = (service as any).createEnhancedBubble(
-        'ai',
-        'Hi',
-        1_234_567_890,
-        bubble,
-        'bubble-1'
-      )
+      const result = (service as any).createEnhancedBubble('ai', 'Hi', 1_234_567_890, bubble, 'bubble-1')
 
       expect(result.type).to.equal('ai')
       expect(result.text).to.equal('Hi')
@@ -326,15 +313,20 @@ describe('CursorRawService', () => {
     it('should export conversations to JSON files', () => {
       const outputDir = `${tempDir}/output`
       try {
-        (service as any).exportConversations([
-          {
-            bubbles: [{ text: 'Hello', type: 'user' }],
-            composerId: 'composer-1',
-            name: 'Test Conversation',
-            timestamp: 1_234_567_890,
-            workspacePath: '/test/path'
-          }
-        ] as any, outputDir, 'workspace-hash', tempDir)
+        ;(service as any).exportConversations(
+          [
+            {
+              bubbles: [{text: 'Hello', type: 'user'}],
+              composerId: 'composer-1',
+              name: 'Test Conversation',
+              timestamp: 1_234_567_890,
+              workspacePath: '/test/path',
+            },
+          ] as any,
+          outputDir,
+          'workspace-hash',
+          tempDir,
+        )
       } catch {
         // Directory creation may fail, that's OK for this test
       }
@@ -346,7 +338,7 @@ describe('CursorRawService', () => {
     it('should create workspace directory if not exists', () => {
       const outputDir2 = `${tempDir}/nonexistent`
       try {
-        (service as any).exportConversations([], outputDir2, 'hash', tempDir)
+        ;(service as any).exportConversations([], outputDir2, 'hash', tempDir)
       } catch {
         // Directory creation may fail, that's OK for this test
       }
@@ -359,23 +351,16 @@ describe('CursorRawService', () => {
   describe('processBubbleHeaders', () => {
     it('should process conversation headers and create bubbles', () => {
       const headers = [
-        { bubbleId: 'bubble-1', type: 1 },
-        { bubbleId: 'bubble-2', type: 0 }
+        {bubbleId: 'bubble-1', type: 1},
+        {bubbleId: 'bubble-2', type: 0},
       ]
       const bubbles = {
-        'bubble-1': { text: 'User message', timestamp: 1000 },
-        'bubble-2': { text: 'AI message', timestamp: 2000 }
+        'bubble-1': {text: 'User message', timestamp: 1000},
+        'bubble-2': {text: 'AI message', timestamp: 2000},
       }
-      const bubbleWorkspaceMap = { 'bubble-1': 'ws-1', 'bubble-2': 'ws-1' }
+      const bubbleWorkspaceMap = {'bubble-1': 'ws-1', 'bubble-2': 'ws-1'}
 
-      const result = (service as any).processBubbleHeaders(
-        headers,
-        bubbles,
-        bubbleWorkspaceMap,
-        {},
-        {},
-        {}
-      )
+      const result = (service as any).processBubbleHeaders(headers, bubbles, bubbleWorkspaceMap, {}, {}, {})
 
       expect(result.bubbles).to.have.lengthOf(2)
       expect(result.bubbles[0].type).to.equal('user')
@@ -383,37 +368,21 @@ describe('CursorRawService', () => {
     })
 
     it('should skip headers without matching bubbles', () => {
-      const headers = [
-        { bubbleId: 'nonexistent', type: 1 }
-      ]
+      const headers = [{bubbleId: 'nonexistent', type: 1}]
       const bubbles = {}
       const bubbleWorkspaceMap = {}
 
-      const result = (service as any).processBubbleHeaders(
-        headers,
-        bubbles,
-        bubbleWorkspaceMap,
-        {},
-        {},
-        {}
-      )
+      const result = (service as any).processBubbleHeaders(headers, bubbles, bubbleWorkspaceMap, {}, {}, {})
 
       expect(result.bubbles).to.have.lengthOf(0)
     })
 
     it('should track used workspaces', () => {
-      const headers = [{ bubbleId: 'bubble-1', type: 1 }]
-      const bubbles = { 'bubble-1': { text: 'test', timestamp: 1000 } }
-      const bubbleWorkspaceMap = { 'bubble-1': 'workspace-1' }
+      const headers = [{bubbleId: 'bubble-1', type: 1}]
+      const bubbles = {'bubble-1': {text: 'test', timestamp: 1000}}
+      const bubbleWorkspaceMap = {'bubble-1': 'workspace-1'}
 
-      const result = (service as any).processBubbleHeaders(
-        headers,
-        bubbles,
-        bubbleWorkspaceMap,
-        {},
-        {},
-        {}
-      )
+      const result = (service as any).processBubbleHeaders(headers, bubbles, bubbleWorkspaceMap, {}, {}, {})
 
       expect(result.usedWorkspaces.has('workspace-1')).to.be.true
     })
@@ -425,11 +394,11 @@ describe('CursorRawService', () => {
       const workspaceDbPath = join(customDir, 'state.vscdb')
       const outputDir = join(tempDir, 'output')
 
-      fs.mkdirSync(customDir, { recursive: true })
+      fs.mkdirSync(customDir, {recursive: true})
       fs.writeFileSync(workspaceDbPath, '')
 
       // Mock database operations
-      sinon.stub(service as any, 'loadWorkspaceComposers').returns(new Set())
+      stub(service as any, 'loadWorkspaceComposers').returns(new Set())
 
       const result = await service.parseFromDirectory(customDir, outputDir)
       expect(result).to.be.a('boolean')
@@ -438,7 +407,7 @@ describe('CursorRawService', () => {
     it('should handle missing database gracefully', async () => {
       const customDir = join(tempDir, 'workspace')
       const outputDir = join(tempDir, 'output')
-      fs.mkdirSync(customDir, { recursive: true })
+      fs.mkdirSync(customDir, {recursive: true})
 
       const result = await service.parseFromDirectory(customDir, outputDir)
       expect(result).to.be.false
