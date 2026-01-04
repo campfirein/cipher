@@ -4,28 +4,31 @@
  */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { expect } from 'chai'
+import {expect} from 'chai'
 import * as fs from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import * as sinon from 'sinon'
+import {tmpdir} from 'node:os'
+import {join} from 'node:path'
+import {restore, spy, stub} from 'sinon'
 
-import { Agent } from '../../../../../src/core/domain/entities/agent.js'
-import { ClaudeCleanService } from '../../../../../src/infra/parsers/clean/clean-claude-service.js'
+import {Agent} from '../../../../../src/core/domain/entities/agent.js'
+import {ClaudeCleanService} from '../../../../../src/infra/parsers/clean/clean-claude-service.js'
 
 describe('ClaudeCleanService', () => {
   let service: ClaudeCleanService
   let tempDir: string
 
   beforeEach(() => {
+    stub(console, 'log')
+    stub(console, 'error')
+    stub(console, 'warn')
     service = new ClaudeCleanService('Claude Code' as Agent)
     tempDir = join(tmpdir(), `test-claude-clean-${Date.now()}`)
   })
 
   afterEach(() => {
-    sinon.restore()
+    restore()
     if (fs.existsSync(tempDir)) {
-      fs.rmSync(tempDir, { recursive: true })
+      fs.rmSync(tempDir, {recursive: true})
     }
   })
 
@@ -33,7 +36,7 @@ describe('ClaudeCleanService', () => {
     it('should return array of CleanSession for valid sessions', async () => {
       const inputDir = join(tempDir, 'raw')
       const workspaceDir = join(inputDir, 'workspace-hash')
-      fs.mkdirSync(workspaceDir, { recursive: true })
+      fs.mkdirSync(workspaceDir, {recursive: true})
 
       // Create a sample session file
       const sessionData = {
@@ -42,22 +45,19 @@ describe('ClaudeCleanService', () => {
           {
             content: 'Hello',
             timestamp: new Date().toISOString(),
-            type: 'user'
+            type: 'user',
           },
           {
             content: 'Hi there!',
             timestamp: new Date().toISOString(),
-            type: 'assistant'
-          }
+            type: 'assistant',
+          },
         ],
         timestamp: Date.now(),
-        title: 'Test Session'
+        title: 'Test Session',
       }
 
-      fs.writeFileSync(
-        join(workspaceDir, 'session-1.json'),
-        JSON.stringify(sessionData)
-      )
+      fs.writeFileSync(join(workspaceDir, 'session-1.json'), JSON.stringify(sessionData))
 
       const result = await service.parse(inputDir)
 
@@ -77,7 +77,7 @@ describe('ClaudeCleanService', () => {
 
     it('should return empty array for directory with no sessions', async () => {
       const inputDir = join(tempDir, 'raw')
-      fs.mkdirSync(inputDir, { recursive: true })
+      fs.mkdirSync(inputDir, {recursive: true})
 
       const result = await service.parse(inputDir)
 
@@ -88,25 +88,19 @@ describe('ClaudeCleanService', () => {
     it('should skip invalid JSON files and continue parsing', async () => {
       const inputDir = join(tempDir, 'raw')
       const workspaceDir = join(inputDir, 'workspace-hash')
-      fs.mkdirSync(workspaceDir, { recursive: true })
+      fs.mkdirSync(workspaceDir, {recursive: true})
 
       // Create invalid JSON file
-      fs.writeFileSync(
-        join(workspaceDir, 'invalid.json'),
-        'invalid json'
-      )
+      fs.writeFileSync(join(workspaceDir, 'invalid.json'), 'invalid json')
 
       // Create valid session file
       const validSessionData = {
         id: 'session-2',
         messages: [{content: 'Test', timestamp: new Date().toISOString(), type: 'user'}],
         timestamp: Date.now(),
-        title: 'Valid Session'
+        title: 'Valid Session',
       }
-      fs.writeFileSync(
-        join(workspaceDir, 'session-2.json'),
-        JSON.stringify(validSessionData)
-      )
+      fs.writeFileSync(join(workspaceDir, 'session-2.json'), JSON.stringify(validSessionData))
 
       // Parse should skip invalid and return valid sessions
       const result = await service.parse(inputDir)
@@ -117,22 +111,19 @@ describe('ClaudeCleanService', () => {
     it('should not write files to disk', async () => {
       const inputDir = join(tempDir, 'raw')
       const workspaceDir = join(inputDir, 'workspace-hash')
-      fs.mkdirSync(workspaceDir, { recursive: true })
+      fs.mkdirSync(workspaceDir, {recursive: true})
 
       // Create a sample session file
       const sessionData = {
         id: 'session-3',
         messages: [{content: 'Test', timestamp: new Date().toISOString(), type: 'user'}],
         timestamp: Date.now(),
-        title: 'Test Session'
+        title: 'Test Session',
       }
-      fs.writeFileSync(
-        join(workspaceDir, 'session-3.json'),
-        JSON.stringify(sessionData)
-      )
+      fs.writeFileSync(join(workspaceDir, 'session-3.json'), JSON.stringify(sessionData))
 
       // Spy on writeFile to ensure it's NOT called
-      const writeFileSpy = sinon.spy(fs.promises, 'writeFile')
+      const writeFileSpy = spy(fs.promises, 'writeFile')
 
       await service.parse(inputDir)
 
@@ -143,18 +134,12 @@ describe('ClaudeCleanService', () => {
 
   describe('calculateSimilarity', () => {
     it('should calculate string similarity score', () => {
-      const result = (service as any).calculateSimilarity(
-        'Hello world test',
-        'Hello world'
-      )
+      const result = (service as any).calculateSimilarity('Hello world test', 'Hello world')
       expect(result).to.be.greaterThan(0)
     })
 
     it('should return 0 for very different strings', () => {
-      const result = (service as any).calculateSimilarity(
-        'Hello world',
-        'xyz abc'
-      )
+      const result = (service as any).calculateSimilarity('Hello world', 'xyz abc')
       expect(result).to.equal(0)
     })
 
@@ -171,22 +156,25 @@ describe('ClaudeCleanService', () => {
           content: [
             {
               id: 'tool-1',
-              input: { description: 'Test task' },
+              input: {description: 'Test task'},
               name: 'Task',
-              type: 'tool_use'
-            }
+              type: 'tool_use',
+            },
           ],
-          type: 'assistant'
-        }
+          type: 'assistant',
+        },
       ]
 
       const agentSessions = new Map([
-        ['agent-1', {
-          id: 'agent-1',
-          messages: [],
-          timestamp: Date.now(),
-          title: 'Test task'
-        }]
+        [
+          'agent-1',
+          {
+            id: 'agent-1',
+            messages: [],
+            timestamp: Date.now(),
+            title: 'Test task',
+          },
+        ],
       ])
 
       const result = (service as any).identifyTaskToolIds(messages, agentSessions)
@@ -201,11 +189,11 @@ describe('ClaudeCleanService', () => {
               id: 'tool-1',
               input: {},
               name: 'SomethingElse',
-              type: 'tool_use'
-            }
+              type: 'tool_use',
+            },
           ],
-          type: 'assistant'
-        }
+          type: 'assistant',
+        },
       ]
 
       const agentSessions = new Map()
@@ -217,30 +205,25 @@ describe('ClaudeCleanService', () => {
   describe('findMatchingAgentSession', () => {
     it('should find matching agent session by similarity', () => {
       const agentSessions = new Map([
-        ['agent-1', {
-          id: 'agent-1',
-          messages: [],
-          timestamp: new Date().toISOString(),
-          title: 'Test description here'
-        }]
+        [
+          'agent-1',
+          {
+            id: 'agent-1',
+            messages: [],
+            timestamp: new Date().toISOString(),
+            title: 'Test description here',
+          },
+        ],
       ])
 
-      const result = (service as any).findMatchingAgentSession(
-        'Test description here',
-        Date.now(),
-        agentSessions
-      )
+      const result = (service as any).findMatchingAgentSession('Test description here', Date.now(), agentSessions)
 
       expect(result).to.not.be.null
     })
 
     it('should return null for no matching sessions', () => {
       const agentSessions = new Map()
-      const result = (service as any).findMatchingAgentSession(
-        'Some description',
-        Date.now(),
-        agentSessions
-      )
+      const result = (service as any).findMatchingAgentSession('Some description', Date.now(), agentSessions)
 
       expect(result).to.be.null
     })
@@ -255,28 +238,31 @@ describe('ClaudeCleanService', () => {
             content: [
               {
                 id: 'tool-1',
-                input: { description: 'Run agent' },
+                input: {description: 'Run agent'},
                 name: 'Task',
-                type: 'tool_use'
-              }
+                type: 'tool_use',
+              },
             ],
-            type: 'assistant'
-          }
+            type: 'assistant',
+          },
         ],
-        title: 'Main'
+        title: 'Main',
       }
 
       const agentSessions = new Map([
-        ['agent-1', {
-          id: 'agent-1',
-          messages: [
-            {
-              content: 'Do something',
-              type: 'user'
-            }
-          ],
-          title: 'Run agent'
-        }]
+        [
+          'agent-1',
+          {
+            id: 'agent-1',
+            messages: [
+              {
+                content: 'Do something',
+                type: 'user',
+              },
+            ],
+            title: 'Run agent',
+          },
+        ],
       ])
 
       const result = await (service as any).consolidateAgentSessions(mainSession, agentSessions)
@@ -287,7 +273,7 @@ describe('ClaudeCleanService', () => {
       const mainSession = {
         id: 'main',
         messages: [],
-        title: 'Main'
+        title: 'Main',
       }
 
       const agentSessions = new Map()
@@ -299,19 +285,13 @@ describe('ClaudeCleanService', () => {
   describe('loadSessions', () => {
     it('should load and organize session files', async () => {
       const workspaceDir = join(tempDir, 'workspace')
-      fs.mkdirSync(workspaceDir, { recursive: true })
+      fs.mkdirSync(workspaceDir, {recursive: true})
 
-      const sessionData = { id: 'main-1', messages: [] }
-      const agentData = { id: 'agent-1', messages: [] }
+      const sessionData = {id: 'main-1', messages: []}
+      const agentData = {id: 'agent-1', messages: []}
 
-      fs.writeFileSync(
-        join(workspaceDir, 'main-session.json'),
-        JSON.stringify(sessionData)
-      )
-      fs.writeFileSync(
-        join(workspaceDir, 'agent-session.json'),
-        JSON.stringify(agentData)
-      )
+      fs.writeFileSync(join(workspaceDir, 'main-session.json'), JSON.stringify(sessionData))
+      fs.writeFileSync(join(workspaceDir, 'agent-session.json'), JSON.stringify(agentData))
 
       const result = await (service as any).loadSessions(workspaceDir, ['main-session.json', 'agent-session.json'])
 
@@ -321,12 +301,9 @@ describe('ClaudeCleanService', () => {
 
     it('should skip invalid JSON files', async () => {
       const workspaceDir = join(tempDir, 'workspace')
-      fs.mkdirSync(workspaceDir, { recursive: true })
+      fs.mkdirSync(workspaceDir, {recursive: true})
 
-      fs.writeFileSync(
-        join(workspaceDir, 'invalid.json'),
-        'invalid json'
-      )
+      fs.writeFileSync(join(workspaceDir, 'invalid.json'), 'invalid json')
 
       const result = await (service as any).loadSessions(workspaceDir, ['invalid.json'])
 
@@ -338,12 +315,15 @@ describe('ClaudeCleanService', () => {
   describe('processMainSessions', () => {
     it('should process and return main sessions', async () => {
       const allSessions = new Map([
-        ['session-1', {
-          id: 'session-1',
-          messages: [],
-          timestamp: Date.now(),
-          title: 'Test Session'
-        }]
+        [
+          'session-1',
+          {
+            id: 'session-1',
+            messages: [],
+            timestamp: Date.now(),
+            title: 'Test Session',
+          },
+        ],
       ])
 
       const agentSessions = new Map()
@@ -362,27 +342,24 @@ describe('ClaudeCleanService', () => {
             {
               id: 'tool-1',
               name: 'Task',
-              type: 'tool_use'
-            }
+              type: 'tool_use',
+            },
           ],
-          type: 'assistant'
-        }
+          type: 'assistant',
+        },
       ]
 
       const taskToolUseIds = new Set(['tool-1'])
       const agentSessions = new Map([
-        ['agent-1', {
-          messages: [
-            { content: 'Task message', type: 'user' }
-          ]
-        }]
+        [
+          'agent-1',
+          {
+            messages: [{content: 'Task message', type: 'user'}],
+          },
+        ],
       ])
 
-      const result = (service as any).flattenMessagesWithAgentSessions(
-        messages,
-        taskToolUseIds,
-        agentSessions
-      )
+      const result = (service as any).flattenMessagesWithAgentSessions(messages, taskToolUseIds, agentSessions)
 
       expect(result).to.be.an('array')
     })
