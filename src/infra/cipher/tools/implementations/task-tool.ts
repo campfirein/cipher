@@ -1,26 +1,26 @@
-import {load as loadYaml} from 'js-yaml'
+import { load as loadYaml } from 'js-yaml'
 import fs from 'node:fs'
 import path from 'node:path'
-import {fileURLToPath} from 'node:url'
-import {z} from 'zod'
+import { fileURLToPath } from 'node:url'
+import { z } from 'zod'
 
-import type {Tool, ToolExecutionContext} from '../../../../core/domain/cipher/tools/types.js'
-import type {SessionManager} from '../../session/session-manager.js'
+import type { Tool, ToolExecutionContext } from '../../../../core/domain/cipher/tools/types.js'
+import type { SessionManager } from '../../session/session-manager.js'
 
-import {AgentRegistry, getAgentRegistry} from '../../../../core/domain/cipher/agent/agent-registry.js'
-import {createContextTreeFileSystem} from '../../file-system/context-tree-file-system-factory.js'
+import { AgentRegistry, getAgentRegistry } from '../../../../core/domain/cipher/agent/agent-registry.js'
+import { createContextTreeFileSystem } from '../../file-system/context-tree-file-system-factory.js'
 
 /** Cache for loaded agent prompts. */
 const agentPromptCache = new Map<string, string>()
 
 /** Type predicate to check if parsed YAML has a prompt field. */
-function hasPromptField(value: unknown): value is {prompt: string} {
+function hasPromptField(value: unknown): value is { prompt: string } {
   return (
     typeof value === 'object' &&
     value !== null &&
-      value !== undefined &&
+    value !== undefined &&
     'prompt' in value &&
-      typeof value.prompt === 'string'
+    typeof value.prompt === 'string'
   )
 }
 
@@ -149,15 +149,16 @@ export interface TaskToolDependencies {
  * @returns task tool instance
  */
 export function createTaskTool(dependencies: TaskToolDependencies): Tool {
-  const {getSessionManager} = dependencies
+  const { getSessionManager } = dependencies
   const registry = getAgentRegistry()
 
   return {
     description: buildTaskToolDescription(registry),
 
+    // eslint-disable-next-line complexity -- Inherent complexity: validates agent, manages sessions, handles errors
     async execute(input: unknown, context?: ToolExecutionContext): Promise<TaskResult> {
       const params = input as TaskInput
-      const {contextTreeOnly, description, prompt, sessionId, subagentType} = params
+      const { contextTreeOnly, description, prompt, sessionId, subagentType } = params
 
       // Get session manager (lazy loaded)
       const sessionManager = getSessionManager()
@@ -218,7 +219,7 @@ export function createTaskTool(dependencies: TaskToolDependencies): Tool {
             context?.sessionId ?? 'parent',
             agent.name,
             subagentSessionId,
-            {fileSystemService: restrictedFs},
+            { fileSystemService: restrictedFs },
           )
         } else {
           session = await sessionManager.createSession(subagentSessionId)
@@ -253,7 +254,7 @@ export function createTaskTool(dependencies: TaskToolDependencies): Tool {
         }
 
         // Execute the subagent session with parent's taskId for billing tracking
-        const response = await session.run(fullPrompt, {taskId: context?.taskId})
+        const response = await session.run(fullPrompt, { taskId: context?.taskId })
 
         // Stream completion update
         if (context?.metadata) {

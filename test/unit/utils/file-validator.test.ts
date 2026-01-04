@@ -118,9 +118,11 @@ describe('file-validator', () => {
         // Should fail because home directory is outside testDir
         expect(result.valid).to.be.false
         // Error message should show the expanded path or indicate it's outside project
+        /* eslint-disable max-nested-callbacks -- Chai assertion syntax requires callback */
         expect(result.error).to.satisfy(
           (err: string) => err.includes('does not exist') || err.includes('outside project directory')
         )
+        /* eslint-enable max-nested-callbacks */
       })
     })
 
@@ -189,9 +191,11 @@ describe('file-validator', () => {
 
         expect(result.valid).to.be.false
         // Either "does not exist" or "outside project directory"
+        /* eslint-disable max-nested-callbacks -- Chai assertion syntax requires callback */
         expect(result.error).to.satisfy(
           (err: string) => err.includes('does not exist') || err.includes('outside project directory')
         )
+        /* eslint-enable max-nested-callbacks */
       })
 
       it('should accept files at project root', () => {
