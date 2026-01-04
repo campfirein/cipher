@@ -34,6 +34,7 @@
 import type {
   AgentRestartRequest,
   AgentRestartResponse,
+  AgentStatus,
   LlmChunkEvent,
   LlmErrorEvent,
   LlmResponseEvent,
@@ -56,9 +57,11 @@ import type {ITransportServer} from '../../core/interfaces/transport/i-transport
 import {
   AgentDisconnectedError,
   AgentNotAvailableError,
+  AgentNotInitializedError,
   serializeTaskError,
 } from '../../core/domain/errors/task-error.js'
 import {
+  AgentStatusEventNames,
   LlmEventNames,
   TransportAgentEventNames,
   TransportLlmEventList,
@@ -74,11 +77,10 @@ import {eventLog, transportLog} from '../../utils/process-logger.js'
  * Internal task tracking (local to TransportHandlers).
  */
 type TaskInfo = {
+  clientCwd?: string
   clientId: string
   content: string
   createdAt: number
-  /** Client's working directory for file validation */
-  clientCwd?: string
   files?: string[]
   taskId: string
   type: string
@@ -114,6 +116,8 @@ type LlmEventPayloadMap = {
 export class TransportHandlers {
   /** The Agent's client ID (set when Agent registers) */
   private agentClientId: string | undefined
+  /** Cached agent status from last status:changed broadcast */
+  private cachedAgentStatus: AgentStatus | undefined
   /** Track active tasks */
   private tasks: Map<string, TaskInfo> = new Map()
   /** Transport server reference */
@@ -129,6 +133,7 @@ export class TransportHandlers {
   cleanup(): void {
     this.tasks.clear()
     this.agentClientId = undefined
+    this.cachedAgentStatus = undefined
   }
 
   /**
@@ -260,6 +265,20 @@ export class TransportHandlers {
 
     // Forward to Agent
     if (this.agentClientId) {
+      // Pre-task check: verify cipher is initialized before forwarding
+      // Reject if: (1) no status cached yet, OR (2) status shows not initialized
+      // This prevents race condition where task arrives before agent broadcasts initial status
+      if (!this.cachedAgentStatus || !this.cachedAgentStatus.isInitialized) {
+        transportLog(`Agent not initialized, cannot process task ${taskId}`)
+        const error = serializeTaskError(
+          new AgentNotInitializedError(this.cachedAgentStatus?.lastError ?? 'Agent status unknown'),
+        )
+        this.transport.sendTo(clientId, TransportTaskEventNames.ERROR, {error, taskId})
+        this.transport.broadcastTo('broadcast-room', TransportTaskEventNames.ERROR, {error, taskId})
+        this.tasks.delete(taskId)
+        return {taskId}
+      }
+
       const executeMsg: TaskExecute = {
         clientId,
         content: data.content,
@@ -430,6 +449,16 @@ export class TransportHandlers {
     for (const eventName of TransportLlmEventList) {
       this.registerLlmEvent(eventName)
     }
+
+    // Agent status events
+    // agent:status:changed - Agent broadcasts status changes
+    this.transport.onRequest<AgentStatus, void>(AgentStatusEventNames.STATUS_CHANGED, (data) => {
+      transportLog(`Agent status changed: initialized=${data.isInitialized}, auth=${data.hasAuth}, config=${data.hasConfig}`)
+      // Cache status for pre-task check
+      this.cachedAgentStatus = data
+      // Broadcast status change to all clients
+      this.transport.broadcast(AgentStatusEventNames.STATUS_CHANGED, data)
+    })
   }
 
   /**
@@ -463,6 +492,7 @@ export class TransportHandlers {
       if (clientId === this.agentClientId) {
         transportLog('Agent disconnected!')
         this.agentClientId = undefined
+        this.cachedAgentStatus = undefined
 
         // Broadcast to all clients
         this.transport.broadcast(TransportAgentEventNames.DISCONNECTED, {})

@@ -21,13 +21,18 @@
 import {randomUUID} from 'node:crypto'
 
 import type {AgentEventMap} from '../../core/domain/cipher/agent-events/types.js'
-import type {TaskCancel, TaskExecute} from '../../core/domain/transport/schemas.js'
+import type {AgentStatus, TaskCancel, TaskExecute} from '../../core/domain/transport/schemas.js'
 import type {ITransportClient} from '../../core/interfaces/transport/i-transport-client.js'
 import type {AgentIPCResponse, IPCCommand} from './ipc-types.js'
 
 import {getCurrentConfig} from '../../config/environment.js'
 import {DEFAULT_LLM_MODEL, PROJECT} from '../../constants.js'
-import {NotAuthenticatedError, ProcessorNotInitError, serializeTaskError} from '../../core/domain/errors/task-error.js'
+import {
+  AgentNotInitializedError,
+  NotAuthenticatedError,
+  ProcessorNotInitError,
+  serializeTaskError,
+} from '../../core/domain/errors/task-error.js'
 import {agentLog} from '../../utils/process-logger.js'
 import {CipherAgent} from '../cipher/agent/index.js'
 import {ProjectConfigStore} from '../config/file-config-store.js'
@@ -84,6 +89,41 @@ let parentPid: number | undefined
 let parentHeartbeatRunning = false
 /** Parent heartbeat check interval in milliseconds */
 const PARENT_HEARTBEAT_INTERVAL_MS = 2000
+
+// ============================================================================
+// Credentials Polling (detects auth/config changes)
+// ============================================================================
+
+/**
+ * Credentials polling interval in milliseconds.
+ *
+ * 5 seconds balances:
+ * - Responsiveness: User expects agent to react within ~5s after login/logout/space switch
+ * - Efficiency: Polling every 5s has minimal CPU/IO overhead (reads 2 small files)
+ * - UX: Faster than explicit restart, acceptable latency for credential changes
+ */
+const CREDENTIALS_POLL_INTERVAL_MS = 5000
+
+/** Cached credentials for change detection */
+interface CachedCredentials {
+  accessToken: string
+  sessionKey: string
+  spaceId: string | undefined
+  teamId: string | undefined
+}
+
+/** Current cached credentials (set after successful init) */
+let cachedCredentials: CachedCredentials | undefined
+
+/** Guard: prevent concurrent polling checks */
+let isPolling = false
+
+/** Credentials polling running flag */
+let credentialsPollingRunning = false
+
+/** Module-level cached stores for polling (avoid creating new instances every 5 seconds) */
+const pollingTokenStore = createTokenStore()
+const pollingConfigStore = new ProjectConfigStore()
 
 /**
  * Stored event forwarder references for cleanup on reinit.
@@ -152,6 +192,14 @@ function cleanupAgentEventForwarding(): void {
   // Clear the stored references
   eventForwarders = []
   agentLog('Event forwarders cleaned up')
+}
+
+/**
+ * Check if there is pending work that would be disrupted by reinit.
+ * Returns true if tasks are active (running) OR queued (waiting).
+ */
+function hasPendingWork(): boolean {
+  return taskQueueManager.hasActiveTasks() || taskQueueManager.getQueuedCount() > 0
 }
 
 /**
@@ -297,6 +345,17 @@ function setupTaskExecutor(): void {
     const stats = taskQueueManager.getStats(type)
     agentLog(`Processing task ${taskId} (${type}), ${stats.queued} queued, ${stats.active} active`)
 
+    // Pre-execution guard: Verify agent is ready right before execution
+    // This catches the race condition where credentials polling stopped the agent
+    // between when the task was dequeued and when execution starts.
+    // Note: This checks AGENT state, not queue state (different from hasPendingWork)
+    if (!isAgentInitialized || !taskProcessor) {
+      agentLog(`Task ${taskId} rejected - agent stopped during queue wait`)
+      const error = serializeTaskError(new AgentNotInitializedError('Agent stopped during execution wait'))
+      transportClient?.request('task:error', {error, taskId}).catch(logTransportError)
+      return
+    }
+
     // Create timeout promise that rejects after 5 minutes
     let timeoutId: NodeJS.Timeout | undefined
     const timeoutPromise = new Promise<never>((_, reject) => {
@@ -438,11 +497,21 @@ async function tryInitializeAgent(forceReinit = false): Promise<boolean> {
     isAgentInitialized = true
     initializationError = undefined
 
+    // Cache credentials for change detection polling
+    updateCachedCredentials(
+      authToken.accessToken,
+      authToken.sessionKey,
+      brvConfig ? {spaceId: brvConfig.spaceId, teamId: brvConfig.teamId} : undefined,
+    )
+
     if (brvConfig) {
       agentLog(`Fully initialized with auth and config (team=${brvConfig.teamId}, space=${brvConfig.spaceId})`)
     } else {
       agentLog('Initialized with auth only (no project config yet - will reinit when config available)')
     }
+
+    // Broadcast status change to Transport (init success)
+    broadcastStatusChange()
 
     return true
   } catch (error) {
@@ -450,6 +519,10 @@ async function tryInitializeAgent(forceReinit = false): Promise<boolean> {
     // This allows lazy init to retry when tasks arrive
     initializationError = error instanceof Error ? error : new Error(String(error))
     agentLog(`Agent initialization failed: ${error}`)
+
+    // Broadcast status change to Transport (init failed)
+    broadcastStatusChange()
+
     return false
   } finally {
     isInitializing = false
@@ -559,7 +632,10 @@ async function startAgent(): Promise<void> {
   await transportClient.request('agent:register', {})
   agentLog('Registered with Transport')
 
-  // Try to initialize agent (may fail if no auth yet - that's OK, will lazy init later)
+  // Try to initialize agent (may fail if no auth yet - that's OK)
+  // tryInitializeAgent() broadcasts status on both success and failure,
+  // so Transport will have cached status before any task can arrive.
+  // If init fails, lazy init will retry when tasks arrive.
   const initialized = await tryInitializeAgent()
   if (!initialized) {
     agentLog('Initial setup incomplete - will retry when tasks arrive (lazy init)')
@@ -690,6 +766,247 @@ function stopParentHeartbeat(): void {
   parentHeartbeatRunning = false
 }
 
+// ============================================================================
+// Credentials Polling Functions
+// ============================================================================
+
+/**
+ * Stop CipherAgent only (does NOT exit process or disconnect transport).
+ * Used when credentials are missing/invalid but we want to keep polling.
+ */
+async function stopCipherAgent(): Promise<void> {
+  // Cleanup event forwarders
+  cleanupAgentEventForwarding()
+
+  // Clear task queue (can't process without agent)
+  taskQueueManager.clear()
+
+  // Stop CipherAgent
+  if (cipherAgent) {
+    try {
+      await cipherAgent.stop()
+    } catch (error) {
+      agentLog(`Error stopping CipherAgent: ${error}`)
+    }
+
+    cipherAgent = undefined
+  }
+
+  taskProcessor = undefined
+  chatSessionId = undefined
+  isAgentInitialized = false
+  cachedCredentials = undefined
+
+  agentLog('CipherAgent stopped (credentials missing or invalid)')
+
+  // Broadcast status change to Transport (cipher stopped)
+  broadcastStatusChange()
+}
+
+/**
+ * Update cached credentials after successful initialization.
+ */
+function updateCachedCredentials(
+  accessToken: string,
+  sessionKey: string,
+  config: undefined | {spaceId: string; teamId: string},
+): void {
+  cachedCredentials = {
+    accessToken,
+    sessionKey,
+    spaceId: config?.spaceId,
+    teamId: config?.teamId,
+  }
+}
+
+/**
+ * Check if credentials have changed compared to cache.
+ */
+function credentialsChanged(
+  currentToken: undefined | {accessToken: string; sessionKey: string},
+  currentConfig: undefined | {spaceId: string; teamId: string},
+): 'changed' | 'missing' | 'unchanged' {
+  // No cached credentials = first run or was stopped
+  if (!cachedCredentials) {
+    return currentToken ? 'changed' : 'missing'
+  }
+
+  // Token missing = credentials gone
+  if (!currentToken) {
+    return 'missing'
+  }
+
+  // Compare token
+  if (
+    currentToken.accessToken !== cachedCredentials.accessToken ||
+    currentToken.sessionKey !== cachedCredentials.sessionKey
+  ) {
+    return 'changed'
+  }
+
+  // Compare config (spaceId/teamId)
+  const currentSpaceId = currentConfig?.spaceId
+  const currentTeamId = currentConfig?.teamId
+
+  if (currentSpaceId !== cachedCredentials.spaceId || currentTeamId !== cachedCredentials.teamId) {
+    return 'changed'
+  }
+
+  return 'unchanged'
+}
+
+/**
+ * Poll credentials and sync CipherAgent state.
+ *
+ * Called periodically to detect auth/config changes:
+ * - If credentials MISSING → stop CipherAgent
+ * - If credentials CHANGED → reinit CipherAgent
+ * - If UNCHANGED → do nothing
+ */
+async function pollCredentialsAndSync(): Promise<void> {
+  // Guard: prevent concurrent polling
+  if (isPolling) {
+    return
+  }
+
+  // Guard: don't poll during cleanup or initialization
+  if (isCleaningUp || isInitializing) {
+    return
+  }
+
+  isPolling = true
+
+  try {
+    // Use module-level cached stores (avoid creating new instances every poll)
+    const authToken = await pollingTokenStore.load()
+    const brvConfig = await pollingConfigStore.read()
+
+    // Detect change
+    const tokenInfo = authToken ? {accessToken: authToken.accessToken, sessionKey: authToken.sessionKey} : undefined
+    const configInfo = brvConfig ? {spaceId: brvConfig.spaceId, teamId: brvConfig.teamId} : undefined
+
+    const changeStatus = credentialsChanged(tokenInfo, configInfo)
+
+    switch (changeStatus) {
+      case 'changed': {
+        // Check RIGHT BEFORE reinit - after all awaits, to catch tasks added during awaits
+        // Must check BOTH active (running) AND queued tasks to prevent race condition
+        // where task is enqueued after this check but before stopCipherAgent() clears taskProcessor
+        if (hasPendingWork()) {
+          agentLog('Credentials changed but tasks in progress or queued - deferring reinit to next poll')
+          return
+        }
+
+        // Credentials changed - reinit CipherAgent
+        agentLog('Credentials changed - reinitializing CipherAgent')
+        const success = await tryInitializeAgent(true) // forceReinit
+        if (success) {
+          agentLog('CipherAgent reinitialized with new credentials')
+        } else {
+          agentLog('CipherAgent reinitialization failed')
+        }
+
+        break
+      }
+
+      case 'missing': {
+        // Credentials gone - stop CipherAgent if running
+        if (isAgentInitialized) {
+          agentLog('Credentials missing - stopping CipherAgent')
+          await stopCipherAgent()
+        }
+
+        break
+      }
+
+      case 'unchanged': {
+        // No change - check if token expired (edge case)
+        if (authToken?.isExpired() && isAgentInitialized) {
+          agentLog('Token expired - stopping CipherAgent')
+          await stopCipherAgent()
+        }
+
+        break
+      }
+    }
+  } catch (error) {
+    // Don't crash on poll errors - just log and continue
+    agentLog(`Credentials poll error: ${error}`)
+  } finally {
+    isPolling = false
+  }
+}
+
+/**
+ * Start credentials polling.
+ * Uses recursive setTimeout pattern (same as parent heartbeat).
+ */
+function startCredentialsPolling(): void {
+  if (credentialsPollingRunning) {
+    return
+  }
+
+  credentialsPollingRunning = true
+
+  const poll = (): void => {
+    if (!credentialsPollingRunning) {
+      return
+    }
+
+    pollCredentialsAndSync()
+      .catch((error) => {
+        agentLog(`Credentials poll failed: ${error}`)
+      })
+      .finally(() => {
+        // Schedule next poll (only if still running)
+        if (credentialsPollingRunning) {
+          setTimeout(poll, CREDENTIALS_POLL_INTERVAL_MS)
+        }
+      })
+  }
+
+  // Start first poll after delay
+  setTimeout(poll, CREDENTIALS_POLL_INTERVAL_MS)
+  agentLog('Credentials polling started')
+}
+
+/**
+ * Stop credentials polling.
+ */
+function stopCredentialsPolling(): void {
+  credentialsPollingRunning = false
+}
+
+// ============================================================================
+// Agent Status Reporting
+// ============================================================================
+
+/**
+ * Get current agent status for health check.
+ * Used by Transport to check if agent is ready before forwarding tasks.
+ */
+function getAgentStatus(): AgentStatus {
+  return {
+    activeTasks: taskQueueManager.getActiveCount(),
+    hasAuth: cachedCredentials !== undefined,
+    // spaceId and teamId are set atomically during /init, so checking one is sufficient
+    hasConfig: cachedCredentials?.spaceId !== undefined,
+    isInitialized: isAgentInitialized,
+    lastError: initializationError?.message,
+    queuedTasks: taskQueueManager.getQueuedCount(),
+  }
+}
+
+/**
+ * Broadcast status change to Transport.
+ * Called when cipher state changes (init success/fail, stop, credentials change).
+ * Transport will forward to all connected clients.
+ */
+function broadcastStatusChange(): void {
+  const status = getAgentStatus()
+  transportClient?.request('agent:status:changed', status).catch(logTransportError)
+}
+
 /**
  * Stop Agent Process.
  */
@@ -703,7 +1020,8 @@ async function stopAgent(): Promise<void> {
   isCleaningUp = true
 
   try {
-    // Stop parent heartbeat first
+    // Stop polling and heartbeat first
+    stopCredentialsPolling()
     stopParentHeartbeat()
 
     // Clear task queue
@@ -744,6 +1062,10 @@ async function runWorker(): Promise<void> {
     // Start parent heartbeat monitoring after ready
     // This ensures we self-terminate if parent dies (SIGKILL scenario)
     setupParentHeartbeat()
+
+    // Start credentials polling to detect auth/config changes
+    // This ensures CipherAgent stays in sync with user's login state
+    startCredentialsPolling()
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     agentLog(`Failed to start: ${message}`)
