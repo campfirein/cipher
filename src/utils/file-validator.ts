@@ -68,30 +68,33 @@ export function validateFileForCurate(
   normalizedPath?: string
   valid: boolean
 } {
-  // Normalize path using projectRoot as base for relative paths
-  const normalized = normalizeFilePath(filePath, projectRoot)
+  // Normalize projectRoot first to ensure consistent behavior
+  // This handles cases where projectRoot might be relative
+  const normalizedProjectRoot = normalizeFilePath(projectRoot)
+
+  // Normalize file path using normalizedProjectRoot as base for relative paths
+  const normalized = normalizeFilePath(filePath, normalizedProjectRoot)
 
   // Check existence
   if (!fs.existsSync(normalized)) {
-    return {error: `File does not exist: ${filePath}`, valid: false}
+    return { error: `File does not exist: ${filePath}`, valid: false }
   }
 
   // Check if it's a file (not a directory)
   const stats = fs.statSync(normalized)
   if (!stats.isFile()) {
-    return {error: `Path is not a file: ${filePath}`, valid: false}
+    return { error: `Path is not a file: ${filePath}`, valid: false }
   }
 
-  // Check within project (normalized paths for reliable comparison)
-  const normalizedProjectRoot = normalizeFilePath(projectRoot)
+  // Check within project (both paths are already normalized)
   if (!normalized.startsWith(normalizedProjectRoot + path.sep) && normalized !== normalizedProjectRoot) {
-    return {error: `File is outside project directory: ${filePath}`, valid: false}
+    return { error: `File is outside project directory: ${filePath}`, valid: false }
   }
 
   // Check is text file
   if (!isTextFile(normalized)) {
-    return {error: `File is not a text/code file (binary detected): ${filePath}`, valid: false}
+    return { error: `File is not a text/code file (binary detected): ${filePath}`, valid: false }
   }
 
-  return {normalizedPath: normalized, valid: true}
+  return { normalizedPath: normalized, valid: true }
 }
