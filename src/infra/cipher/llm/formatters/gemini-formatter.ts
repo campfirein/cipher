@@ -1,9 +1,25 @@
-import type {Content, FunctionCall, GenerateContentResponse, Part} from '@google/genai'
+import type { Content, FunctionCall, GenerateContentResponse, Part } from '@google/genai'
 
-import type {IMessageFormatter} from '../../../../core/interfaces/cipher/i-message-formatter.js'
-import type {InternalMessage, MessagePart, ToolCall} from '../../../../core/interfaces/cipher/message-types.js'
+import type { IMessageFormatter } from '../../../../core/interfaces/cipher/i-message-formatter.js'
+import type { InternalMessage, MessagePart, ToolCall } from '../../../../core/interfaces/cipher/message-types.js'
 
-import {isGemini3Model, SYNTHETIC_THOUGHT_SIGNATURE} from '../thought-parser.js'
+import { isGemini3Model, SYNTHETIC_THOUGHT_SIGNATURE } from '../thought-parser.js'
+
+/**
+ * Extended Part type that includes thoughtSignature for Gemini 3+ models.
+ * This property is not part of the official @google/genai types but is
+ * required for proper function call handling in Gemini 3+ preview models.
+ */
+interface PartWithThoughtSignature extends Part {
+  thoughtSignature?: string
+}
+
+/**
+ * Type guard to check if a part has a thoughtSignature property.
+ */
+function hasThoughtSignature(part: Part): part is PartWithThoughtSignature {
+  return 'thoughtSignature' in part
+}
 
 /**
  * Message formatter for Google Gemini API.
@@ -32,7 +48,7 @@ export class GeminiMessageFormatter implements IMessageFormatter<Content> {
     // Gemini doesn't have a separate system role
     if (systemPrompt) {
       contents.push({
-        parts: [{text: `System: ${systemPrompt}`}],
+        parts: [{ text: `System: ${systemPrompt}` }],
         role: 'user',
       })
     }
@@ -82,7 +98,7 @@ export class GeminiMessageFormatter implements IMessageFormatter<Content> {
     }
 
     const textParts: string[] = []
-    const functionCallsWithSignatures: Array<{fc: FunctionCall; thoughtSignature?: string}> = []
+    const functionCallsWithSignatures: Array<{ fc: FunctionCall; thoughtSignature?: string }> = []
 
     // Extract text and function calls from response parts
     for (const part of candidate.content.parts) {
@@ -92,7 +108,7 @@ export class GeminiMessageFormatter implements IMessageFormatter<Content> {
 
       if ('functionCall' in part && part.functionCall) {
         // Extract thoughtSignature if present (Gemini 3+ models)
-        const {thoughtSignature} = part as {thoughtSignature?: string}
+        const thoughtSignature = hasThoughtSignature(part) ? part.thoughtSignature : undefined
         functionCallsWithSignatures.push({
           fc: part.functionCall,
           thoughtSignature,
@@ -103,15 +119,15 @@ export class GeminiMessageFormatter implements IMessageFormatter<Content> {
     // Convert to internal message format
     const toolCalls: ToolCall[] | undefined =
       functionCallsWithSignatures.length > 0
-        ? functionCallsWithSignatures.map(({fc, thoughtSignature}) => ({
-            function: {
-              arguments: JSON.stringify(fc.args ?? {}),
-              name: fc.name ?? '',
-            },
-            id: this.generateToolCallId(fc.name ?? ''),
-            thoughtSignature,
-            type: 'function' as const,
-          }))
+        ? functionCallsWithSignatures.map(({ fc, thoughtSignature }) => ({
+          function: {
+            arguments: JSON.stringify(fc.args ?? {}),
+            name: fc.name ?? '',
+          },
+          id: this.generateToolCallId(fc.name ?? ''),
+          thoughtSignature,
+          type: 'function' as const,
+        }))
         : undefined
 
     return [
@@ -144,13 +160,13 @@ export class GeminiMessageFormatter implements IMessageFormatter<Content> {
 
     // Add text content if present
     if (msg.content) {
-      parts.push({text: String(msg.content)})
+      parts.push({ text: String(msg.content) })
     }
 
     // Add tool calls if present
     if (msg.toolCalls) {
       for (const tc of msg.toolCalls) {
-        const functionCallPart: Part & {thoughtSignature?: string} = {
+        const functionCallPart: PartWithThoughtSignature = {
           functionCall: {
             args: JSON.parse(tc.function.arguments),
             name: tc.function.name,
@@ -183,7 +199,7 @@ export class GeminiMessageFormatter implements IMessageFormatter<Content> {
 
       case 'system': {
         return {
-          parts: [{text: `System: ${String(msg.content || '')}`}],
+          parts: [{ text: `System: ${String(msg.content || '')}` }],
           role: 'user',
         }
       }
@@ -194,7 +210,7 @@ export class GeminiMessageFormatter implements IMessageFormatter<Content> {
 
       default: {
         return {
-          parts: [{text: String(msg.content || '')}],
+          parts: [{ text: String(msg.content || '') }],
           role: 'user',
         }
       }
@@ -218,20 +234,20 @@ export class GeminiMessageFormatter implements IMessageFormatter<Content> {
       if (typeof msg.content === 'string') {
         responseObject = JSON.parse(msg.content) as Record<string, unknown>
       } else if (msg.content === null) {
-        responseObject = {result: null}
+        responseObject = { result: null }
       } else if (Array.isArray(msg.content)) {
         // Array content (e.g., MessagePart[]) - wrap in result
-        responseObject = {result: msg.content}
+        responseObject = { result: msg.content }
       } else if (typeof msg.content === 'object') {
         // Already an object (shouldn't happen with current implementation, but handle it)
         responseObject = msg.content as Record<string, unknown>
       } else {
         // Primitive types - wrap them
-        responseObject = {result: msg.content}
+        responseObject = { result: msg.content }
       }
     } catch {
       // If parsing fails, wrap the string as-is
-      responseObject = {result: msg.content}
+      responseObject = { result: msg.content }
     }
 
     return {
@@ -248,21 +264,21 @@ export class GeminiMessageFormatter implements IMessageFormatter<Content> {
    */
   private formatUserContentPart(part: MessagePart): Part {
     if (part.type === 'text') {
-      return {text: part.text}
+      return { text: part.text }
     }
 
     if (part.type === 'image') {
       // Image support not yet implemented for Gemini
       // Gemini supports inline images via inlineData or fileData
-      return {text: '[Image not yet supported]'}
+      return { text: '[Image not yet supported]' }
     }
 
     if (part.type === 'file') {
       // File support not yet implemented for Gemini
-      return {text: '[File not yet supported]'}
+      return { text: '[File not yet supported]' }
     }
 
-    return {text: '[Unknown content type]'}
+    return { text: '[Unknown content type]' }
   }
 
   /**
@@ -274,7 +290,7 @@ export class GeminiMessageFormatter implements IMessageFormatter<Content> {
 
     if (typeof msg.content === 'string') {
       // Simple text message
-      parts.push({text: msg.content})
+      parts.push({ text: msg.content })
     } else if (Array.isArray(msg.content)) {
       // Multimodal content (text, images, files)
       for (const part of msg.content) {
@@ -370,17 +386,17 @@ function addThoughtSignatureToFirstFunctionCall(parts: Part[], content: Content)
       continue
     }
 
-    // Check if thoughtSignature already exists
-    const partWithSig = part as Part & {thoughtSignature?: string}
-    if (partWithSig.thoughtSignature) {
+    // Check if thoughtSignature already exists using type guard
+    if (hasThoughtSignature(part) && part.thoughtSignature) {
       return null // Already has signature, no modification needed
     }
 
     // Add synthetic thought signature
-    parts[j] = {
+    const partWithSignature: PartWithThoughtSignature = {
       ...part,
       thoughtSignature: SYNTHETIC_THOUGHT_SIGNATURE,
-    } as Part & {thoughtSignature: string}
+    }
+    parts[j] = partWithSignature
 
     return {
       ...content,

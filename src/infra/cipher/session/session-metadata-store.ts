@@ -9,9 +9,10 @@
  */
 
 import * as fs from 'node:fs/promises'
-import {join} from 'node:path'
+import { randomUUID } from 'node:crypto'
+import { join } from 'node:path'
 
-import type {ISessionPersistence, SessionCleanupResult, SessionRetentionConfig} from '../../../core/interfaces/cipher/i-session-persistence.js'
+import type { ISessionPersistence, SessionCleanupResult, SessionRetentionConfig } from '../../../core/interfaces/cipher/i-session-persistence.js'
 
 import {
   ACTIVE_SESSION_FILE,
@@ -41,6 +42,33 @@ function isProcessRunning(pid: number): boolean {
   } catch {
     return false
   }
+}
+
+/**
+ * Session ID prefix used in the application.
+ */
+const SESSION_ID_PREFIX = 'agent-session-'
+
+/**
+ * Unique token for this process instance.
+ * Used to detect PID reuse: different process instance = different token,
+ * even if the OS assigned the same PID after the original process crashed.
+ */
+const PROCESS_TOKEN = randomUUID()
+
+/**
+ * Extract the UUID portion from a session ID.
+ *
+ * Session IDs have format: "agent-session-<UUID>" or just "<UUID>"
+ * This function handles both formats for backward compatibility.
+ *
+ * @param sessionId - The full session ID
+ * @returns The UUID portion without the prefix
+ */
+function extractUuidFromSessionId(sessionId: string): string {
+  return sessionId.startsWith(SESSION_ID_PREFIX)
+    ? sessionId.slice(SESSION_ID_PREFIX.length)
+    : sessionId
 }
 
 /**
@@ -82,8 +110,15 @@ export class SessionMetadataStore implements ISessionPersistence {
         (f) => f.startsWith(SESSION_FILE_PREFIX) && f.endsWith('.json'),
       )
 
+      // IMPORTANT: Capture the active session ID as an immutable primitive BEFORE
+      // any file mutations. This prevents race conditions where concurrent cleanup
+      // operations could modify the active session pointer while we're iterating.
+      // Using a primitive string (not object reference) ensures we have a stable
+      // value to check against throughout the entire cleanup operation.
       const active = await this.getActiveSession()
-      const validSessions: {file: string; metadata: SessionMetadata}[] = []
+      const activeSessionId = active?.sessionId
+
+      const validSessions: { file: string; metadata: SessionMetadata }[] = []
 
       // First pass: identify corrupted files and valid sessions
       for (const file of sessionFiles) {
@@ -103,7 +138,7 @@ export class SessionMetadataStore implements ISessionPersistence {
             continue
           }
 
-          validSessions.push({file, metadata: parseResult.data as SessionMetadata})
+          validSessions.push({ file, metadata: parseResult.data as SessionMetadata })
         } catch {
           // Can't read/parse - delete it
           try {
@@ -125,9 +160,9 @@ export class SessionMetadataStore implements ISessionPersistence {
       const maxAgeMs = config.maxAgeDays * 24 * 60 * 60 * 1000
 
       // Second pass: apply retention policies
-      for (const [i, {file, metadata}] of validSessions.entries()) {
-        // Never delete the current active session
-        if (active && metadata.sessionId === active.sessionId) {
+      for (const [i, { file, metadata }] of validSessions.entries()) {
+        // Never delete the current active session (uses captured primitive ID)
+        if (activeSessionId && metadata.sessionId === activeSessionId) {
           continue
         }
 
@@ -210,7 +245,10 @@ export class SessionMetadataStore implements ISessionPersistence {
         }
 
         const parsed = parseSessionFilename(file)
-        if (parsed && sessionId.startsWith(parsed.uuidPrefix)) {
+        // Extract UUID from sessionId (removes "agent-session-" prefix if present)
+        // then compare with the filename's uuid prefix
+        const uuid = extractUuidFromSessionId(sessionId)
+        if (parsed && uuid.startsWith(parsed.uuidPrefix)) {
           // eslint-disable-next-line no-await-in-loop
           await fs.unlink(join(this.sessionsDir, file))
           return true
@@ -277,7 +315,19 @@ export class SessionMetadataStore implements ISessionPersistence {
       return false
     }
 
-    return !isProcessRunning(active.pid)
+    // If the process is not running, the session is definitely stale
+    if (!isProcessRunning(active.pid)) {
+      return true
+    }
+
+    // If process is running but token is missing or doesn't match,
+    // it's either an old session file or a different process with the same PID.
+    // Both cases indicate a stale session.
+    if (!active.processToken || active.processToken !== PROCESS_TOKEN) {
+      return true
+    }
+
+    return false
   }
 
   async isSessionForCurrentProject(sessionId: string): Promise<boolean> {
@@ -389,7 +439,9 @@ export class SessionMetadataStore implements ISessionPersistence {
         }
 
         const parsed = parseSessionFilename(f)
-        return parsed && metadata.sessionId.startsWith(parsed.uuidPrefix)
+        // Extract UUID from sessionId and compare with filename's uuid prefix
+        const uuid = extractUuidFromSessionId(metadata.sessionId)
+        return parsed && uuid.startsWith(parsed.uuidPrefix)
       })
 
       filename = existingFile ?? generateSessionFilename(metadata.sessionId)
@@ -407,6 +459,7 @@ export class SessionMetadataStore implements ISessionPersistence {
     const pointer: ActiveSessionPointer = {
       activatedAt: new Date().toISOString(),
       pid: process.pid,
+      processToken: PROCESS_TOKEN,
       sessionId,
     }
 
@@ -437,6 +490,6 @@ export class SessionMetadataStore implements ISessionPersistence {
    * Ensure the sessions directory exists.
    */
   private async ensureSessionsDir(): Promise<void> {
-    await fs.mkdir(this.sessionsDir, {recursive: true})
+    await fs.mkdir(this.sessionsDir, { recursive: true })
   }
 }
