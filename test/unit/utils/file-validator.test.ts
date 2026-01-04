@@ -46,16 +46,26 @@ describe('file-validator', () => {
         expect(result.normalizedPath).to.equal(fileInSubdir)
       })
 
-      it('should correctly validate relative path when projectRoot differs from process.cwd()', () => {
+      it('should NOT use process.cwd() for relative path resolution', () => {
         // This is the core ENG-846 scenario:
         // - Client is in /Users/foo/project (clientCwd)
         // - Agent might be running from different directory
         // - Relative paths should resolve against clientCwd, not agent's cwd
 
-        const result = validateFileForCurate('test-file.txt', testDir)
+        // Create file in testDir
+        const file = path.join(testDir, 'myfile.txt')
+        writeFileSync(file, 'content')
+
+        // Precondition: Verify the file would NOT be found if resolved against process.cwd()
+        // This ensures our test actually validates the fix
+        const cwdResolved = path.resolve(process.cwd(), 'myfile.txt')
+        expect(cwdResolved).to.not.equal(file)
+
+        // Now verify our function correctly resolves against projectRoot
+        const result = validateFileForCurate('myfile.txt', testDir)
 
         expect(result.valid).to.be.true
-        expect(result.normalizedPath).to.equal(testFile)
+        expect(result.normalizedPath).to.equal(file)
       })
 
       it('should handle nested relative paths correctly', () => {
