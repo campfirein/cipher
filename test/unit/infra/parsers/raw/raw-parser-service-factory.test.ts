@@ -4,18 +4,29 @@
  */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { expect } from 'chai'
+import {expect} from 'chai'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
+import {restore, stub} from 'sinon'
 
-import { Agent } from '../../../../../src/core/domain/entities/agent.js'
-import { ClaudeRawService } from '../../../../../src/infra/parsers/raw/raw-claude-service.js'
-import { CodexRawService } from '../../../../../src/infra/parsers/raw/raw-codex-service.js'
-import { CopilotRawService } from '../../../../../src/infra/parsers/raw/raw-copilot-service.js'
-import { CursorRawService } from '../../../../../src/infra/parsers/raw/raw-cursor-service.js'
-import { RawParserServiceFactory } from '../../../../../src/infra/parsers/raw/raw-parser-service-factory.js'
+import {Agent} from '../../../../../src/core/domain/entities/agent.js'
+import {ClaudeRawService} from '../../../../../src/infra/parsers/raw/raw-claude-service.js'
+import {CodexRawService} from '../../../../../src/infra/parsers/raw/raw-codex-service.js'
+import {CopilotRawService} from '../../../../../src/infra/parsers/raw/raw-copilot-service.js'
+import {CursorRawService} from '../../../../../src/infra/parsers/raw/raw-cursor-service.js'
+import {RawParserServiceFactory} from '../../../../../src/infra/parsers/raw/raw-parser-service-factory.js'
 
 describe('RawParserServiceFactory', () => {
+  beforeEach(() => {
+    stub(console, 'log')
+    stub(console, 'error')
+    stub(console, 'warn')
+  })
+
+  afterEach(() => {
+    restore()
+  })
+
   describe('createRawParserService', () => {
     it('should create ClaudeRawService for Claude Code IDE', () => {
       const service = RawParserServiceFactory.createRawParserService('Claude Code' as Agent)

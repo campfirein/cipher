@@ -4,6 +4,24 @@ import {join, sep} from 'node:path'
 
 import {getGlobalLogsDir} from '../../../src/utils/global-logs-path.js'
 
+/**
+ * Helper to check if a path is absolute.
+ * Extracted to avoid nested callback lint errors.
+ */
+function isAbsolutePath(p: string): boolean {
+  // Windows: starts with drive letter (C:\)
+  // Unix: starts with /
+  return p.startsWith(sep) || /^[A-Za-z]:/.test(p)
+}
+
+/**
+ * Helper function wrapper for getGlobalLogsDir.
+ * Used with expect().to.not.throw() to avoid nested callback.
+ */
+function callGetGlobalLogsDir(): string {
+  return getGlobalLogsDir()
+}
+
 describe('global-logs-path', () => {
   describe('getGlobalLogsDir()', () => {
     const currentPlatform = platform()
@@ -12,12 +30,7 @@ describe('global-logs-path', () => {
       const result = getGlobalLogsDir()
 
       // On all platforms, the path should start with root
-      expect(result).to.satisfy(
-        (p: string) =>
-          // Windows: starts with drive letter (C:\)
-          // Unix: starts with /
-          p.startsWith(sep) || /^[A-Za-z]:/.test(p),
-      )
+      expect(result).to.satisfy(isAbsolutePath)
     })
 
     it('should end with brv directory (logs parent)', () => {
@@ -119,7 +132,7 @@ describe('global-logs-path', () => {
       it('should never throw an error', () => {
         // This test ensures the function always returns a valid path
         // even in edge cases
-        expect(() => getGlobalLogsDir()).to.not.throw()
+        expect(callGetGlobalLogsDir).to.not.throw()
       })
 
       it('should always return a valid brv logs path', () => {
@@ -129,7 +142,7 @@ describe('global-logs-path', () => {
         expect(result).to.include('brv')
 
         // The path should be absolute
-        expect(result).to.satisfy((p: string) => p.startsWith(sep) || /^[A-Za-z]:/.test(p))
+        expect(result).to.satisfy(isAbsolutePath)
       })
     })
   })
