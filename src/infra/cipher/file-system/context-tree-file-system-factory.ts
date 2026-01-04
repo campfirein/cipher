@@ -1,6 +1,6 @@
 import path from 'node:path'
 
-import {FileSystemService} from './file-system-service.js'
+import { FileSystemService } from './file-system-service.js'
 
 /**
  * Creates a FileSystemService restricted to the context tree directory.
@@ -17,6 +17,8 @@ export function createContextTreeFileSystem(baseWorkingDirectory: string): FileS
     allowedPaths: ['.'],
     // Use default blocked extensions
     blockedExtensions: ['.exe', '.dll', '.so', '.dylib'],
+    // No additional blocked paths needed - path traversal outside .brv/context-tree/
+    // is prevented by PathValidator.isPathTraversal() and isPathAllowed()
     blockedPaths: [],
     // Reasonable file size limit
     maxFileSize: 10 * 1024 * 1024, // 10MB
