@@ -53,6 +53,7 @@ interface OnboardingFlowProps {
   onInitComplete?: () => void
 }
 
+// eslint-disable-next-line complexity -- React component renders multiple onboarding steps with conditional logic
 export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ availableHeight, onInitComplete }) => {
   const { theme: { colors } } = useTheme()
   const { mode } = useMode()

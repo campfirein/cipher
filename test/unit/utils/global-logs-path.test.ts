@@ -1,8 +1,8 @@
-import {expect} from 'chai'
-import {homedir, platform} from 'node:os'
-import {join, sep} from 'node:path'
+import { expect } from 'chai'
+import { homedir, platform } from 'node:os'
+import { join, sep } from 'node:path'
 
-import {getGlobalLogsDir} from '../../../src/utils/global-logs-path.js'
+import { getGlobalLogsDir } from '../../../src/utils/global-logs-path.js'
 
 describe('global-logs-path', () => {
   describe('getGlobalLogsDir()', () => {
@@ -119,6 +119,7 @@ describe('global-logs-path', () => {
       it('should never throw an error', () => {
         // This test ensures the function always returns a valid path
         // even in edge cases
+        // eslint-disable-next-line max-nested-callbacks
         expect(() => getGlobalLogsDir()).to.not.throw()
       })
 
@@ -129,6 +130,7 @@ describe('global-logs-path', () => {
         expect(result).to.include('brv')
 
         // The path should be absolute
+        // eslint-disable-next-line max-nested-callbacks
         expect(result).to.satisfy((p: string) => p.startsWith(sep) || /^[A-Za-z]:/.test(p))
       })
     })

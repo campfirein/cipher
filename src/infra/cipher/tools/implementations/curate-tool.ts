@@ -1,14 +1,13 @@
 import * as fs from 'node:fs/promises'
-import {join} from 'node:path'
-import {z} from 'zod'
+import { join } from 'node:path'
+import { z } from 'zod'
 
-import type {Tool, ToolExecutionContext} from '../../../../core/domain/cipher/tools/types.js'
-import type {Narrative, RawConcept} from '../../../../core/domain/knowledge/markdown-writer.js'
+import type { Tool, ToolExecutionContext } from '../../../../core/domain/cipher/tools/types.js'
 
-import {ToolName} from '../../../../core/domain/cipher/tools/constants.js'
-import {DirectoryManager} from '../../../../core/domain/knowledge/directory-manager.js'
-import {MarkdownWriter} from '../../../../core/domain/knowledge/markdown-writer.js'
-import {toSnakeCase} from '../../../../utils/file-helpers.js'
+import { ToolName } from '../../../../core/domain/cipher/tools/constants.js'
+import { DirectoryManager } from '../../../../core/domain/knowledge/directory-manager.js'
+import { MarkdownWriter } from '../../../../core/domain/knowledge/markdown-writer.js'
+import { toSnakeCase } from '../../../../utils/file-helpers.js'
 
 /**
  * Operation types for curating knowledge topics.
@@ -73,8 +72,6 @@ const CurateInputSchema = z.object({
   operations: z.array(OperationSchema).describe('Array of curate operations to apply'),
 })
 
-type CurateInput = z.infer<typeof CurateInputSchema>
-
 /**
  * Result of a single operation.
  */
@@ -104,7 +101,7 @@ interface CurateOutput {
 /**
  * Parse a path into domain, topic, and optional subtopic.
  */
-function parsePath(path: string): null | {domain: string; subtopic?: string; topic: string} {
+function parsePath(path: string): null | { domain: string; subtopic?: string; topic: string } {
   const parts = path.split('/')
   if (parts.length < 2 || parts.length > 3) {
     return null
@@ -123,7 +120,7 @@ function parsePath(path: string): null | {domain: string; subtopic?: string; top
  */
 async function getExistingDomains(basePath: string): Promise<string[]> {
   try {
-    const entries = await fs.readdir(basePath, {withFileTypes: true})
+    const entries = await fs.readdir(basePath, { withFileTypes: true })
     return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name)
   } catch {
     // Directory doesn't exist yet
@@ -139,7 +136,7 @@ async function getExistingDomains(basePath: string): Promise<string[]> {
 async function validateDomain(
   basePath: string,
   domainName: string,
-): Promise<{allowed: boolean; existingDomains: string[]; reason?: string}> {
+): Promise<{ allowed: boolean; existingDomains: string[]; reason?: string }> {
   const normalizedDomain = toSnakeCase(domainName)
   const existingDomains = await getExistingDomains(basePath)
 
@@ -162,7 +159,7 @@ async function validateDomain(
   }
 
   // All valid domain names are allowed - dynamic domain creation enabled
-  return {allowed: true, existingDomains}
+  return { allowed: true, existingDomains }
 }
 
 /**
@@ -192,7 +189,7 @@ async function executeAdd(
   basePath: string,
   operation: Operation,
 ): Promise<OperationResult> {
-  const {content, path, reason, title} = operation
+  const { content, path, reason, title } = operation
 
   if (!title) {
     return {
@@ -243,10 +240,10 @@ async function executeAdd(
     // Note: writeFileAtomic creates parent directories as needed, avoiding empty folder creation
     const contextContent = MarkdownWriter.generateContext({
       name: title,
-      narrative: content.narrative as Narrative | undefined,
-      rawConcept: content.rawConcept as RawConcept | undefined,
+      narrative: content.narrative,
+      rawConcept: content.rawConcept,
       relations: content.relations,
-      snippets: content.snippets || [],
+      snippets: content.snippets ?? [],
     })
     const filename = `${toSnakeCase(title)}.md`
     const contextPath = join(finalPath, filename)
@@ -276,7 +273,7 @@ async function executeUpdate(
   basePath: string,
   operation: Operation,
 ): Promise<OperationResult> {
-  const {content, path, reason, title} = operation
+  const { content, path, reason, title } = operation
 
   if (!title) {
     return {
@@ -315,10 +312,10 @@ async function executeUpdate(
     // Generate and write updated content (full replacement)
     const contextContent = MarkdownWriter.generateContext({
       name: title,
-      narrative: content.narrative as Narrative | undefined,
-      rawConcept: content.rawConcept as RawConcept | undefined,
+      narrative: content.narrative,
+      rawConcept: content.rawConcept,
       relations: content.relations,
-      snippets: content.snippets || [],
+      snippets: content.snippets ?? [],
     })
     await DirectoryManager.writeFileAtomic(contextPath, contextContent)
 
@@ -346,7 +343,7 @@ async function executeMerge(
   basePath: string,
   operation: Operation,
 ): Promise<OperationResult> {
-  const {mergeTarget, mergeTargetTitle, path, reason, title} = operation
+  const { mergeTarget, mergeTargetTitle, path, reason, title } = operation
 
   if (!title) {
     return {
@@ -443,7 +440,7 @@ async function executeDelete(
   basePath: string,
   operation: Operation,
 ): Promise<OperationResult> {
-  const {path, reason, title} = operation
+  const { path, reason, title } = operation
 
   try {
     const fullPath = buildFullPath(basePath, path)
@@ -509,7 +506,26 @@ async function executeCurate(
   input: unknown,
   _context?: ToolExecutionContext,
 ): Promise<CurateOutput> {
-  const {basePath, operations} = input as CurateInput
+  const parseResult = CurateInputSchema.safeParse(input)
+  if (!parseResult.success) {
+    return {
+      applied: [{
+        message: `Invalid input: ${parseResult.error.message}`,
+        path: '',
+        status: 'failed',
+        type: 'ADD',
+      }],
+      summary: {
+        added: 0,
+        deleted: 0,
+        failed: 1,
+        merged: 0,
+        updated: 0,
+      },
+    }
+  }
+
+  const { basePath, operations } = parseResult.data
 
   const applied: OperationResult[] = []
   const summary = {
@@ -559,8 +575,10 @@ async function executeCurate(
       }
 
       default: {
+        // Exhaustive type check - TypeScript will error if any case is missed
+        const exhaustiveCheck: never = operation.type
         result = {
-          message: `Unknown operation type: ${(operation as Operation).type}`,
+          message: `Unknown operation type: ${exhaustiveCheck}`,
           path: operation.path,
           status: 'failed',
           type: operation.type,
@@ -576,7 +594,7 @@ async function executeCurate(
   }
   /* eslint-enable no-await-in-loop */
 
-  return {applied, summary}
+  return { applied, summary }
 }
 
 /**

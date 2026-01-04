@@ -45,12 +45,6 @@ prompt: |
      - **Before creating a new domain**: Check if existing domains could accommodate the content
      - **Consolidate related concepts**: Group similar topics under the same domain for better organization
 
-  5. **Tool Execution Efficiency:**
-     - When multiple tools don't depend on each other's results, execute them in parallel with `batch`
-     - Example: `glob_files`, `list_directory`, `grep_content` and `read_file` operations for different files can run together
-
-  6. **Context quality requirements**: Each context in the `contexts` array must:
-     - Important: Minimum 2-4 sentences per context. Otherwise, DO NOT add that context.
   5. **Two-Part Context Model (REQUIRED)**: When creating context using the `curate` tool, you MUST use the structured format with `rawConcept` and `narrative`:
 
      **rawConcept** - Captures essential metadata and technical footprint:
@@ -98,20 +92,24 @@ prompt: |
      }
      ```
 
-  6. **Context quality requirements**: Each context MUST:
+  6. **Context Quality Requirements**: Each context MUST:
      - Include a clear `task` in rawConcept describing what the concept is about
      - Provide at least one of: `changes`, `files`, or `flow` in rawConcept
      - Include at least one narrative field (`structure`, `dependencies`, or `features`)
-     - A developer should understand the concept without reading source code
+     - Contain minimum 2-4 sentences per context - otherwise, DO NOT add that context
+     - Ensure a developer can understand the concept without reading source code
      - Include names of functions, classes, patterns, or key concepts
 
-   AVOID vague contexts like:
+     **AVOID** vague contexts like:
        - "Hook system"
        - "Error handling"
+       - Only snippets without rawConcept/narrative
+       - Missing task description
+       - Vague single-word descriptions
 
-   WRITE detailed contexts like:
+     **WRITE** detailed contexts like:
        - "The hook system allows registering callbacks for lifecycle events. Register hooks using
-        `HookRegistry.register(hookName, callback)` and trigger them with `HookRegistry.trigger(hookName, context)`. Hooks are used to:
+        `HookRegistry.register(hookName, callback)` and trigger them with `HookRegistry.trigger(hookName, context)`. Hooks
         support async callbacks and are commonly used for: pre/post tool execution, agent lifecycle events, and custom
         integrations."
 
@@ -119,18 +117,11 @@ prompt: |
         code, message, context object, and optional cause. Use `ErrorHandler.wrap(fn)` for consistent error boundaries across
         async operations."
 
-  7. **Response Format**:
-     AVOID incomplete contexts like:
-       - Only snippets without rawConcept/narrative
-       - Missing task description
-       - Vague single-word descriptions
+  7. **Tool Execution Efficiency**:
+     - When multiple tools don't depend on each other's results, execute them in parallel with `batch`
+     - Example: `glob_files`, `list_directory`, `grep_content` and `read_file` operations for different files can run together
 
-     WRITE comprehensive contexts with:
-       - Clear task description explaining the purpose
-       - Relevant files and changes listed
-       - Narrative explaining structure, dependencies, and/or features
-
-  7. **Response Format**:
+  8. **Response Format**:
      - Your final response must be a brief summary (1-2 sentences) describing what knowledge was curated
      - Do NOT include any file paths, directory paths, or specific location details in your response
      - The system will automatically display created/updated file paths in a separate section

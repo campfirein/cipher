@@ -1,4 +1,4 @@
-import {generateRelationsSection, parseRelations} from './relation-parser.js'
+import { generateRelationsSection, parseRelations } from './relation-parser.js'
 
 export interface RawConcept {
   changes?: string[]
@@ -83,7 +83,8 @@ function generateNarrativeSection(narrative?: Narrative): string {
 }
 
 function parseRawConceptSection(content: string): RawConcept | undefined {
-  const rawConceptMatch = content.match(/## Raw Concept\n([\s\S]*?)(?=\n## |\n---\n|$)/)
+  // Forgiving regex: allows optional whitespace after "## Raw Concept"
+  const rawConceptMatch = content.match(/##\s*Raw Concept\s*\n([\s\S]*?)(?=\n##\s|\n---\n|$)/i)
   if (!rawConceptMatch) {
     return undefined
   }
@@ -91,12 +92,13 @@ function parseRawConceptSection(content: string): RawConcept | undefined {
   const sectionContent = rawConceptMatch[1]
   const rawConcept: RawConcept = {}
 
-  const taskMatch = sectionContent.match(/\*\*Task:\*\*\n([\s\S]*?)(?=\n\*\*|\n##|$)/)
+  // Forgiving: allows whitespace around "Task:" and after the newline
+  const taskMatch = sectionContent.match(/\*\*\s*Task\s*:\s*\*\*\s*\n([\s\S]*?)(?=\n\*\*|\n##|$)/i)
   if (taskMatch) {
     rawConcept.task = taskMatch[1].trim()
   }
 
-  const changesMatch = sectionContent.match(/\*\*Changes:\*\*\n([\s\S]*?)(?=\n\*\*|\n##|$)/)
+  const changesMatch = sectionContent.match(/\*\*\s*Changes\s*:\s*\*\*\s*\n([\s\S]*?)(?=\n\*\*|\n##|$)/i)
   if (changesMatch) {
     rawConcept.changes = changesMatch[1]
       .split('\n')
@@ -104,7 +106,7 @@ function parseRawConceptSection(content: string): RawConcept | undefined {
       .map(line => line.trim().slice(2))
   }
 
-  const filesMatch = sectionContent.match(/\*\*Files:\*\*\n([\s\S]*?)(?=\n\*\*|\n##|$)/)
+  const filesMatch = sectionContent.match(/\*\*\s*Files\s*:\s*\*\*\s*\n([\s\S]*?)(?=\n\*\*|\n##|$)/i)
   if (filesMatch) {
     rawConcept.files = filesMatch[1]
       .split('\n')
@@ -112,12 +114,13 @@ function parseRawConceptSection(content: string): RawConcept | undefined {
       .map(line => line.trim().slice(2))
   }
 
-  const flowMatch = sectionContent.match(/\*\*Flow:\*\*\n([\s\S]*?)(?=\n\*\*|\n##|$)/)
+  const flowMatch = sectionContent.match(/\*\*\s*Flow\s*:\s*\*\*\s*\n([\s\S]*?)(?=\n\*\*|\n##|$)/i)
   if (flowMatch) {
     rawConcept.flow = flowMatch[1].trim()
   }
 
-  const timestampMatch = sectionContent.match(/\*\*Timestamp:\*\* (.+)/)
+  // Timestamp can be inline, so more flexible pattern
+  const timestampMatch = sectionContent.match(/\*\*\s*Timestamp\s*:\s*\*\*\s*(.+)/i)
   if (timestampMatch) {
     rawConcept.timestamp = timestampMatch[1].trim()
   }
@@ -130,7 +133,8 @@ function parseRawConceptSection(content: string): RawConcept | undefined {
 }
 
 function parseNarrativeSection(content: string): Narrative | undefined {
-  const narrativeMatch = content.match(/## Narrative\n([\s\S]*?)(?=\n## [^#]|\n---\n|$)/)
+  // Forgiving regex: allows optional whitespace after "## Narrative"
+  const narrativeMatch = content.match(/##\s*Narrative\s*\n([\s\S]*?)(?=\n##\s[^#]|\n---\n|$)/i)
   if (!narrativeMatch) {
     return undefined
   }
@@ -138,17 +142,18 @@ function parseNarrativeSection(content: string): Narrative | undefined {
   const sectionContent = narrativeMatch[1]
   const narrative: Narrative = {}
 
-  const structureMatch = sectionContent.match(/### Structure\n([\s\S]*?)(?=\n### |\n## |$)/)
+  // Forgiving: allows whitespace after "### Structure"
+  const structureMatch = sectionContent.match(/###\s*Structure\s*\n([\s\S]*?)(?=\n###\s|\n##\s|$)/i)
   if (structureMatch) {
     narrative.structure = structureMatch[1].trim()
   }
 
-  const dependenciesMatch = sectionContent.match(/### Dependencies\n([\s\S]*?)(?=\n### |\n## |$)/)
+  const dependenciesMatch = sectionContent.match(/###\s*Dependencies\s*\n([\s\S]*?)(?=\n###\s|\n##\s|$)/i)
   if (dependenciesMatch) {
     narrative.dependencies = dependenciesMatch[1].trim()
   }
 
-  const featuresMatch = sectionContent.match(/### Features\n([\s\S]*?)(?=\n### |\n## |$)/)
+  const featuresMatch = sectionContent.match(/###\s*Features\s*\n([\s\S]*?)(?=\n###\s|\n##\s|$)/i)
   if (featuresMatch) {
     narrative.features = featuresMatch[1].trim()
   }
@@ -163,17 +168,18 @@ function parseNarrativeSection(content: string): Narrative | undefined {
 function extractSnippetsFromContent(content: string): string[] {
   let snippetContent = content
 
-  const relationsMatch = content.match(/## Relations[\s\S]*?(?=\n[^@\n]|$)/)
+  // Forgiving regex patterns for section removal
+  const relationsMatch = content.match(/##\s*Relations[\s\S]*?(?=\n[^@\n]|$)/i)
   if (relationsMatch) {
     snippetContent = snippetContent.replace(relationsMatch[0], '').trim()
   }
 
-  const rawConceptMatch = snippetContent.match(/## Raw Concept[\s\S]*?(?=\n## |\n---\n|$)/)
+  const rawConceptMatch = snippetContent.match(/##\s*Raw Concept[\s\S]*?(?=\n##\s|\n---\n|$)/i)
   if (rawConceptMatch) {
     snippetContent = snippetContent.replace(rawConceptMatch[0], '').trim()
   }
 
-  const narrativeMatch = snippetContent.match(/## Narrative[\s\S]*?(?=\n## |\n---\n|$)/)
+  const narrativeMatch = snippetContent.match(/##\s*Narrative[\s\S]*?(?=\n##\s|\n---\n|$)/i)
   if (narrativeMatch) {
     snippetContent = snippetContent.replace(narrativeMatch[0], '').trim()
   }
@@ -186,6 +192,21 @@ function extractSnippetsFromContent(content: string): string[] {
   return snippets
 }
 
+/**
+ * Merges two RawConcept objects with the following strategy:
+ *
+ * **Scalars (task, flow, timestamp)**: Source wins (source.X || target.X)
+ * - Rationale: The source represents "new" or "incoming" data that should
+ *   take precedence over existing target data for singular values.
+ *
+ * **Arrays (changes, files)**: Concatenated and deduplicated (target first, then source)
+ * - Rationale: For lists, we want to accumulate all entries rather than
+ *   replacing them. Target entries are placed first to preserve order.
+ *
+ * @param source - The incoming/new RawConcept to merge (takes precedence for scalars)
+ * @param target - The existing/base RawConcept to merge into
+ * @returns Merged RawConcept or undefined if both inputs are empty
+ */
 function mergeRawConcepts(source?: RawConcept, target?: RawConcept): RawConcept | undefined {
   if (!source && !target) {
     return undefined
@@ -196,8 +217,12 @@ function mergeRawConcepts(source?: RawConcept, target?: RawConcept): RawConcept 
 
   const merged: RawConcept = {}
 
+  // Scalars: source wins (newer data takes precedence)
   merged.task = source.task || target.task
+  merged.flow = source.flow || target.flow
+  merged.timestamp = source.timestamp || target.timestamp
 
+  // Arrays: concatenate and deduplicate (target first, then source)
   const allChanges = [...(target.changes || []), ...(source.changes || [])]
   if (allChanges.length > 0) {
     merged.changes = [...new Set(allChanges)]
@@ -207,9 +232,6 @@ function mergeRawConcepts(source?: RawConcept, target?: RawConcept): RawConcept 
   if (allFiles.length > 0) {
     merged.files = [...new Set(allFiles)]
   }
-
-  merged.flow = source.flow || target.flow
-  merged.timestamp = source.timestamp || target.timestamp
 
   if (Object.keys(merged).length === 0) {
     return undefined

@@ -1,9 +1,9 @@
-import {expect} from 'chai'
+import { expect } from 'chai'
 import * as fs from 'node:fs/promises'
 import * as os from 'node:os'
 import path from 'node:path'
 
-import {createCurateTool} from '../../../../../src/infra/cipher/tools/implementations/curate-tool.js'
+import { createCurateTool } from '../../../../../src/infra/cipher/tools/implementations/curate-tool.js'
 
 interface CurateOutput {
   applied: Array<{
@@ -30,13 +30,13 @@ describe('Curate Tool', () => {
     // Create a unique temp directory for each test
     tmpDir = path.join(os.tmpdir(), `curate-test-${Date.now()}-${Math.random().toString(36).slice(2)}`)
     basePath = path.join(tmpDir, '.brv/context-tree')
-    await fs.mkdir(basePath, {recursive: true})
+    await fs.mkdir(basePath, { recursive: true })
   })
 
   afterEach(async () => {
     // Cleanup
     try {
-      await fs.rm(tmpDir, {force: true, recursive: true})
+      await fs.rm(tmpDir, { force: true, recursive: true })
     } catch {
       // Ignore cleanup errors
     }
@@ -53,7 +53,7 @@ describe('Curate Tool', () => {
             basePath,
             operations: [
               {
-                content: {snippets: ['test snippet']},
+                content: { snippets: ['test snippet'] },
                 path: `${domain}/test_topic`,
                 reason: 'testing predefined domain',
                 title: 'Test Context',
@@ -73,14 +73,14 @@ describe('Curate Tool', () => {
       it('should allow creating multiple custom domains without limit', async () => {
         const tool = createCurateTool()
 
-        // Create 3 custom domains
+        // Create 5 custom domains - no limit enforced
         /* eslint-disable no-await-in-loop -- Sequential domain creation required for test */
-        for (let i = 1; i <= 3; i++) {
+        for (let i = 1; i <= 5; i++) {
           const result = (await tool.execute({
             basePath,
             operations: [
               {
-                content: {snippets: ['test']},
+                content: { snippets: ['test'] },
                 path: `custom_domain_${i}/topic`,
                 reason: 'testing custom domain',
                 title: 'Test',
@@ -95,64 +95,53 @@ describe('Curate Tool', () => {
 
         // Verify all 5 domains exist
         const domains = await fs.readdir(basePath)
+        // eslint-disable-next-line max-nested-callbacks
         const customDomains = domains.filter((d) => d.startsWith('custom_domain_'))
         expect(customDomains.length).to.equal(5)
       })
 
       it('should allow creating semantically meaningful domain names', async () => {
         const tool = createCurateTool()
+        const semanticDomains = ['authentication', 'api_design', 'error_handling', 'caching']
 
-        // First create 3 custom domains
+        // Create multiple semantically meaningful domains
         /* eslint-disable no-await-in-loop -- Sequential domain creation required for test */
-        for (let i = 1; i <= 3; i++) {
-          await tool.execute({
+        for (const domain of semanticDomains) {
+          const result = (await tool.execute({
             basePath,
             operations: [
               {
-                content: {snippets: ['test content']},
+                content: { snippets: ['test content'] },
                 path: `${domain}/topic`,
                 reason: 'testing semantic domain',
                 title: 'Test',
                 type: 'ADD',
               },
             ],
-          })
+          })) as CurateOutput
+
+          expect(result.applied[0].status).to.equal('success', `Domain ${domain} should succeed`)
         }
         /* eslint-enable no-await-in-loop */
 
-        // Try to create 4th custom domain
-        const result = (await tool.execute({
-          basePath,
-          operations: [
-            {
-              content: {snippets: ['test']},
-              path: 'authentication/login',
-              reason: 'testing',
-              title: 'Test',
-              type: 'ADD',
-            },
-          ],
-        })
-
-        expect(result.applied[0].status).to.equal('failed')
-        expect(result.applied[0].message).to.include('Maximum of 3 custom domains allowed')
-        expect(result.applied[0].message).to.include('custom_domain_1')
-        expect(result.applied[0].message).to.include('custom_domain_2')
-        expect(result.applied[0].message).to.include('custom_domain_3')
-        expect(result.summary.failed).to.equal(1)
+        // Verify all semantic domains exist
+        const domains = await fs.readdir(basePath)
+        for (const domain of semanticDomains) {
+          expect(domains).to.include(domain)
+        }
       })
 
-      it('should allow predefined domains even after 3 custom domains exist', async () => {
+      it('should allow predefined domains alongside custom domains', async () => {
         const tool = createCurateTool()
 
-        // Create 3 custom domains first
+        // Create some custom domains first
         /* eslint-disable no-await-in-loop -- Sequential domain creation required for test */
         for (let i = 1; i <= 3; i++) {
           await tool.execute({
             basePath,
             operations: [
               {
-                content: {snippets: ['test']},
+                content: { snippets: ['test'] },
                 path: `custom_domain_${i}/topic`,
                 reason: 'testing',
                 title: 'Test',
@@ -163,12 +152,12 @@ describe('Curate Tool', () => {
         }
         /* eslint-enable no-await-in-loop */
 
-        // Should still be able to create in predefined domains
+        // Should be able to create in predefined domains
         const result = (await tool.execute({
           basePath,
           operations: [
             {
-              content: {snippets: ['code style rules']},
+              content: { snippets: ['code style rules'] },
               path: 'code_style/formatting',
               reason: 'testing predefined after custom',
               title: 'Code Style Rules',
@@ -180,42 +169,43 @@ describe('Curate Tool', () => {
         expect(result.applied[0].status).to.equal('success')
       })
 
-      it('should allow reusing existing custom domains even at limit', async () => {
+      it('should allow adding multiple topics to existing custom domains', async () => {
         const tool = createCurateTool()
 
-        // Create 3 custom domains
-        /* eslint-disable no-await-in-loop -- Sequential domain creation required for test */
-        for (let i = 1; i <= 3; i++) {
-          await tool.execute({
-            basePath,
-            operations: [
-              {
-                content: {snippets: ['test']},
-                path: `custom_domain_${i}/topic`,
-                reason: 'testing',
-                title: 'Test',
-                type: 'ADD',
-              },
-            ],
-          })
-        }
-        /* eslint-enable no-await-in-loop */
+        // Create a custom domain
+        await tool.execute({
+          basePath,
+          operations: [
+            {
+              content: { snippets: ['test'] },
+              path: 'authentication/login',
+              reason: 'testing',
+              title: 'Login Flow',
+              type: 'ADD',
+            },
+          ],
+        })
 
-        // Should be able to add more content to existing custom domain
+        // Should be able to add more topics to the same custom domain
         const result = (await tool.execute({
           basePath,
           operations: [
             {
-              content: {snippets: ['more content']},
+              content: { snippets: ['logout content'] },
               path: 'authentication/logout',
-              reason: 'testing reuse',
-              title: 'Another Test',
+              reason: 'testing additional topic',
+              title: 'Logout Flow',
               type: 'ADD',
             },
           ],
         })) as CurateOutput
 
         expect(result.applied[0].status).to.equal('success')
+
+        // Verify both topics exist under authentication
+        const authDir = await fs.readdir(path.join(basePath, 'authentication'))
+        expect(authDir).to.include('login')
+        expect(authDir).to.include('logout')
       })
     })
 
@@ -227,7 +217,7 @@ describe('Curate Tool', () => {
           basePath,
           operations: [
             {
-              content: {snippets: ['test']},
+              content: { snippets: ['test'] },
               path: 'Code Style/error-handling',
               reason: 'testing normalization',
               title: 'Best Practices',
@@ -240,7 +230,9 @@ describe('Curate Tool', () => {
         // Should create in normalized path
         const exists = await fs
           .access(path.join(basePath, 'code_style/error_handling/best_practices.md'))
+          // eslint-disable-next-line max-nested-callbacks
           .then(() => true)
+          // eslint-disable-next-line max-nested-callbacks
           .catch(() => false)
         expect(exists).to.be.true
       })
@@ -255,7 +247,7 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
-            content: {snippets: ['test snippet']},
+            content: { snippets: ['test snippet'] },
             path: 'code_style/formatting',
             reason: 'testing filePath',
             title: 'Formatting Rules',
@@ -279,7 +271,7 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
-            content: {snippets: ['original']},
+            content: { snippets: ['original'] },
             path: 'code_style/formatting',
             reason: 'create',
             title: 'Formatting Rules',
@@ -293,7 +285,7 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
-            content: {snippets: ['updated']},
+            content: { snippets: ['updated'] },
             path: 'code_style/formatting',
             reason: 'update',
             title: 'Formatting Rules',
@@ -314,14 +306,14 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
-            content: {snippets: ['source content']},
+            content: { snippets: ['source content'] },
             path: 'code_style/old_topic',
             reason: 'create source',
             title: 'Old Guide',
             type: 'ADD',
           },
           {
-            content: {snippets: ['target content']},
+            content: { snippets: ['target content'] },
             path: 'code_style/new_topic',
             reason: 'create target',
             title: 'New Guide',
@@ -358,7 +350,7 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
-            content: {snippets: ['updated']},
+            content: { snippets: ['updated'] },
             path: 'code_style/nonexistent',
             reason: 'update',
             title: 'Nonexistent',
@@ -380,7 +372,7 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
-            content: {snippets: ['test']},
+            content: { snippets: ['test'] },
             path: 'code_style/error_handling',
             reason: 'testing naming',
             title: 'Best Practices for Errors',
@@ -407,7 +399,7 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
-            content: {snippets: ['test']},
+            content: { snippets: ['test'] },
             path: 'code_style/formatting',
             reason: 'testing special chars',
             title: 'Error-Handling & Best_Practices',
@@ -430,7 +422,7 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
-            content: {snippets: ['subtopic content']},
+            content: { snippets: ['subtopic content'] },
             path: 'code_style/error_handling/logging',
             reason: 'testing subtopic',
             title: 'Logging Best Practices',
@@ -459,7 +451,7 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
-            content: {snippets: ['test']},
+            content: { snippets: ['test'] },
             path: 'code_style/topic',
             reason: 'testing',
             type: 'ADD',
@@ -497,7 +489,7 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
-            content: {snippets: ['test']},
+            content: { snippets: ['test'] },
             path: 'invalid', // Only one segment
             reason: 'testing',
             title: 'Test',
@@ -519,14 +511,14 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
-            content: {snippets: ['first']},
+            content: { snippets: ['first'] },
             path: 'code_style/topic1',
             reason: 'add 1',
             title: 'First',
             type: 'ADD',
           },
           {
-            content: {snippets: ['second']},
+            content: { snippets: ['second'] },
             path: 'design/topic2',
             reason: 'add 2',
             title: 'Second',
@@ -556,7 +548,7 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
-            content: {snippets: ['test']},
+            content: { snippets: ['test'] },
             path: 'invalid', // Invalid path - only one segment
             reason: 'testing',
             title: 'Test',
@@ -579,7 +571,7 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
-            content: {snippets: ['test']},
+            content: { snippets: ['test'] },
             path: 'code_style/new_topic',
             reason: 'testing',
             type: 'ADD',
@@ -624,35 +616,17 @@ describe('Curate Tool', () => {
       expect(designExists).to.be.false
     })
 
-    it('should NOT create empty directories when exceeding custom domain limit', async () => {
+    it('should NOT create empty directories when ADD fails due to empty domain name', async () => {
       const tool = createCurateTool()
 
-      // First create 3 custom domains
-      /* eslint-disable no-await-in-loop -- Sequential domain creation required for test */
-      for (let i = 1; i <= 3; i++) {
-        await tool.execute({
-          basePath,
-          operations: [
-            {
-              content: {snippets: ['test']},
-              path: `custom_domain_${i}/topic`,
-              reason: 'testing',
-              title: 'Test',
-              type: 'ADD',
-            },
-          ],
-        })
-      }
-      /* eslint-enable no-await-in-loop */
-
-      // Try to create 4th custom domain (should fail)
+      // Try to add with an empty domain path segment (should fail)
       const result = (await tool.execute({
         basePath,
         operations: [
           {
-            content: {snippets: ['test']},
-            path: 'custom_domain_4/topic',
-            reason: 'testing',
+            content: { snippets: ['test'] },
+            path: '/topic', // Invalid - empty domain
+            reason: 'testing empty domain',
             title: 'Test',
             type: 'ADD',
           },
@@ -661,12 +635,9 @@ describe('Curate Tool', () => {
 
       expect(result.applied[0].status).to.equal('failed')
 
-      // Verify custom_domain_4 directory was NOT created
-      const domain4Exists = await fs
-        .access(path.join(basePath, 'custom_domain_4'))
-        .then(() => true)
-        .catch(() => false)
-      expect(domain4Exists).to.be.false
+      // Verify no directories were created
+      const entries = await fs.readdir(basePath).catch(() => [])
+      expect(entries.length).to.equal(0, 'No directories should be created on failed operation')
     })
 
     it('should only create directories when file is successfully written', async () => {
@@ -679,7 +650,7 @@ describe('Curate Tool', () => {
         basePath: freshBasePath,
         operations: [
           {
-            content: {snippets: ['test content']},
+            content: { snippets: ['test content'] },
             path: 'code_style/error_handling/logging',
             reason: 'testing directory creation',
             title: 'Logging Guide',
