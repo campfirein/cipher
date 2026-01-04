@@ -1,5 +1,3 @@
-/// <reference types="mocha" />
-
 import { expect } from 'chai'
 import sinon, { match, restore, stub } from 'sinon'
 

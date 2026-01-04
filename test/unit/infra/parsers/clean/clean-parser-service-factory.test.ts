@@ -4,15 +4,26 @@
  */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { expect } from 'chai'
+import {expect} from 'chai'
+import {restore, stub} from 'sinon'
 
-import { ClaudeCleanService } from '../../../../../src/infra/parsers/clean/clean-claude-service.js'
-import { CodexCleanService } from '../../../../../src/infra/parsers/clean/clean-codex-service.js'
-import { CopilotCleanService } from '../../../../../src/infra/parsers/clean/clean-copilot-service.js'
-import { CursorCleanService } from '../../../../../src/infra/parsers/clean/clean-cursor-service.js'
-import { CleanParserServiceFactory } from '../../../../../src/infra/parsers/clean/clean-parser-service-factory.js'
+import {ClaudeCleanService} from '../../../../../src/infra/parsers/clean/clean-claude-service.js'
+import {CodexCleanService} from '../../../../../src/infra/parsers/clean/clean-codex-service.js'
+import {CopilotCleanService} from '../../../../../src/infra/parsers/clean/clean-copilot-service.js'
+import {CursorCleanService} from '../../../../../src/infra/parsers/clean/clean-cursor-service.js'
+import {CleanParserServiceFactory} from '../../../../../src/infra/parsers/clean/clean-parser-service-factory.js'
 
 describe('CleanParserServiceFactory', () => {
+  beforeEach(() => {
+    stub(console, 'log')
+    stub(console, 'error')
+    stub(console, 'warn')
+  })
+
+  afterEach(() => {
+    restore()
+  })
+
   describe('createCleanParserService', () => {
     it('should create ClaudeCleanService for Claude Code IDE', () => {
       const service = CleanParserServiceFactory.createCleanParserService('Claude Code')
@@ -178,7 +189,7 @@ describe('CleanParserServiceFactory', () => {
         claudeService.constructor.name,
         codexService.constructor.name,
         copilotService.constructor.name,
-        cursorService.constructor.name
+        cursorService.constructor.name,
       ])
 
       expect(constructorNames.size).to.equal(4)

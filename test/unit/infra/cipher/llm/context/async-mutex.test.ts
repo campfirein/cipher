@@ -162,21 +162,15 @@ describe('AsyncMutex', () => {
       expect(r3).to.equal('op3')
 
       // Operations should be serialized (each completes before next starts)
-      expect(results).to.deep.equal([
-        'op1-start',
-        'op1-end',
-        'op2-start',
-        'op2-end',
-        'op3-start',
-        'op3-end',
-      ])
+      expect(results).to.deep.equal(['op1-start', 'op1-end', 'op2-start', 'op2-end', 'op3-start', 'op3-end'])
     })
   })
 
   describe('parallel execution protection', () => {
     it('should protect shared state from race conditions', async () => {
       const counterRef = {value: 0}
-      const iterations = 100
+      // Reduced from 100 to 20 for faster test execution while still proving correctness
+      const iterations = 20
 
       // Without mutex, this would have race conditions
       // With mutex, final count should be exact

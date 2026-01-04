@@ -1,7 +1,7 @@
 import { expect } from 'chai'
 import * as fs from 'node:fs/promises'
-import * as os from 'node:os'
-import path from 'node:path'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 import { createCurateTool } from '../../../../../src/infra/cipher/tools/implementations/curate-tool.js'
 
@@ -22,14 +22,37 @@ interface CurateOutput {
   }
 }
 
+/**
+ * Helper to check if a file/directory exists.
+ * Extracted to avoid nested callback lint errors.
+ */
+async function pathExists(path: string): Promise<boolean> {
+  return fs
+    .access(path)
+    .then(() => true)
+    .catch(() => false)
+}
+
+/**
+ * Count directories matching a prefix using for...of (avoids nested callback).
+ */
+function countByPrefix(items: string[], prefix: string): number {
+  let count = 0
+  for (const item of items) {
+    if (item.startsWith(prefix)) count++
+  }
+
+  return count
+}
+
 describe('Curate Tool', () => {
   let tmpDir: string
   let basePath: string
 
   beforeEach(async () => {
     // Create a unique temp directory for each test
-    tmpDir = path.join(os.tmpdir(), `curate-test-${Date.now()}-${Math.random().toString(36).slice(2)}`)
-    basePath = path.join(tmpDir, '.brv/context-tree')
+    tmpDir = join(tmpdir(), `curate-test-${Date.now()}-${Math.random().toString(36).slice(2)}`)
+    basePath = join(tmpDir, '.brv/context-tree')
     await fs.mkdir(basePath, { recursive: true })
   })
 
@@ -73,56 +96,67 @@ describe('Curate Tool', () => {
       it('should allow creating multiple custom domains without limit', async () => {
         const tool = createCurateTool()
 
-        // Create 5 custom domains - no limit enforced
-        /* eslint-disable no-await-in-loop -- Sequential domain creation required for test */
-        for (let i = 1; i <= 5; i++) {
-          const result = (await tool.execute({
-            basePath,
-            operations: [
-              {
-                content: { snippets: ['test'] },
-                path: `custom_domain_${i}/topic`,
-                reason: 'testing custom domain',
-                title: 'Test',
-                type: 'ADD',
-              },
-            ],
-          })) as CurateOutput
-
-          expect(result.applied[0].status).to.equal('success', `Custom domain ${i} should succeed`)
+        // Build promise array imperatively to avoid nested callbacks
+        const domainIndices = [1, 2, 3, 4, 5]
+        const promises: Array<ReturnType<typeof tool.execute>> = []
+        for (const i of domainIndices) {
+          promises.push(
+            tool.execute({
+              basePath,
+              operations: [
+                {
+                  content: { snippets: ['test'] },
+                  path: `custom_domain_${i}/topic`,
+                  reason: 'testing custom domain',
+                  title: 'Test',
+                  type: 'ADD',
+                },
+              ],
+            }),
+          )
         }
-        /* eslint-enable no-await-in-loop */
+
+        const results = (await Promise.all(promises)) as CurateOutput[]
+
+        // Verify all operations succeeded
+        for (const [idx, result] of results.entries()) {
+          expect(result.applied[0].status).to.equal('success', `Custom domain ${domainIndices[idx]} should succeed`)
+        }
 
         // Verify all 5 domains exist
         const domains = await fs.readdir(basePath)
-        // eslint-disable-next-line max-nested-callbacks
-        const customDomains = domains.filter((d) => d.startsWith('custom_domain_'))
-        expect(customDomains.length).to.equal(5)
+        expect(countByPrefix(domains, 'custom_domain_')).to.equal(5)
       })
 
       it('should allow creating semantically meaningful domain names', async () => {
         const tool = createCurateTool()
         const semanticDomains = ['authentication', 'api_design', 'error_handling', 'caching']
 
-        // Create multiple semantically meaningful domains
-        /* eslint-disable no-await-in-loop -- Sequential domain creation required for test */
+        // Build promise array imperatively to avoid nested callbacks
+        const promises: Array<ReturnType<typeof tool.execute>> = []
         for (const domain of semanticDomains) {
-          const result = (await tool.execute({
-            basePath,
-            operations: [
-              {
-                content: { snippets: ['test content'] },
-                path: `${domain}/topic`,
-                reason: 'testing semantic domain',
-                title: 'Test',
-                type: 'ADD',
-              },
-            ],
-          })) as CurateOutput
-
-          expect(result.applied[0].status).to.equal('success', `Domain ${domain} should succeed`)
+          promises.push(
+            tool.execute({
+              basePath,
+              operations: [
+                {
+                  content: { snippets: ['test content'] },
+                  path: `${domain}/topic`,
+                  reason: 'testing semantic domain',
+                  title: 'Test',
+                  type: 'ADD',
+                },
+              ],
+            }),
+          )
         }
-        /* eslint-enable no-await-in-loop */
+
+        const results = (await Promise.all(promises)) as CurateOutput[]
+
+        // Verify all operations succeeded
+        for (const [idx, result] of results.entries()) {
+          expect(result.applied[0].status).to.equal('success', `Domain ${semanticDomains[idx]} should succeed`)
+        }
 
         // Verify all semantic domains exist
         const domains = await fs.readdir(basePath)
@@ -203,7 +237,7 @@ describe('Curate Tool', () => {
         expect(result.applied[0].status).to.equal('success')
 
         // Verify both topics exist under authentication
-        const authDir = await fs.readdir(path.join(basePath, 'authentication'))
+        const authDir = await fs.readdir(join(basePath, 'authentication'))
         expect(authDir).to.include('login')
         expect(authDir).to.include('logout')
       })
@@ -228,12 +262,7 @@ describe('Curate Tool', () => {
 
         expect(result.applied[0].status).to.equal('success')
         // Should create in normalized path
-        const exists = await fs
-          .access(path.join(basePath, 'code_style/error_handling/best_practices.md'))
-          // eslint-disable-next-line max-nested-callbacks
-          .then(() => true)
-          // eslint-disable-next-line max-nested-callbacks
-          .catch(() => false)
+        const exists = await pathExists(join(basePath, 'code_style/error_handling/best_practices.md'))
         expect(exists).to.be.true
       })
     })
@@ -384,11 +413,8 @@ describe('Curate Tool', () => {
       expect(result.applied[0].status).to.equal('success')
 
       // Verify file was created with correct name
-      const expectedPath = path.join(basePath, 'code_style/error_handling/best_practices_for_errors.md')
-      const exists = await fs
-        .access(expectedPath)
-        .then(() => true)
-        .catch(() => false)
+      const expectedPath = join(basePath, 'code_style/error_handling/best_practices_for_errors.md')
+      const exists = await pathExists(expectedPath)
       expect(exists).to.be.true
     })
 
@@ -434,11 +460,8 @@ describe('Curate Tool', () => {
       expect(result.applied[0].status).to.equal('success')
 
       // Verify nested structure
-      const expectedPath = path.join(basePath, 'code_style/error_handling/logging/logging_best_practices.md')
-      const exists = await fs
-        .access(expectedPath)
-        .then(() => true)
-        .catch(() => false)
+      const expectedPath = join(basePath, 'code_style/error_handling/logging/logging_best_practices.md')
+      const exists = await pathExists(expectedPath)
       expect(exists).to.be.true
     })
   })
@@ -583,10 +606,7 @@ describe('Curate Tool', () => {
       expect(result.applied[0].status).to.equal('failed')
 
       // Verify code_style directory was not created
-      const codeStyleExists = await fs
-        .access(path.join(basePath, 'code_style'))
-        .then(() => true)
-        .catch(() => false)
+      const codeStyleExists = await pathExists(join(basePath, 'code_style'))
       expect(codeStyleExists).to.be.false
     })
 
@@ -609,10 +629,7 @@ describe('Curate Tool', () => {
       expect(result.applied[0].status).to.equal('failed')
 
       // Verify design directory was not created
-      const designExists = await fs
-        .access(path.join(basePath, 'design'))
-        .then(() => true)
-        .catch(() => false)
+      const designExists = await pathExists(join(basePath, 'design'))
       expect(designExists).to.be.false
     })
 
@@ -644,7 +661,7 @@ describe('Curate Tool', () => {
       const tool = createCurateTool()
 
       // Fresh base path - no directories exist yet
-      const freshBasePath = path.join(tmpDir, '.brv/fresh-context-tree')
+      const freshBasePath = join(tmpDir, '.brv/fresh-context-tree')
 
       const result = (await tool.execute({
         basePath: freshBasePath,
@@ -662,18 +679,12 @@ describe('Curate Tool', () => {
       expect(result.applied[0].status).to.equal('success')
 
       // Verify the file exists
-      const filePath = path.join(freshBasePath, 'code_style/error_handling/logging/logging_guide.md')
-      const fileExists = await fs
-        .access(filePath)
-        .then(() => true)
-        .catch(() => false)
+      const filePath = join(freshBasePath, 'code_style/error_handling/logging/logging_guide.md')
+      const fileExists = await pathExists(filePath)
       expect(fileExists).to.be.true
 
       // Verify parent directories exist (they should be created along with the file)
-      const loggingDirExists = await fs
-        .access(path.join(freshBasePath, 'code_style/error_handling/logging'))
-        .then(() => true)
-        .catch(() => false)
+      const loggingDirExists = await pathExists(join(freshBasePath, 'code_style/error_handling/logging'))
       expect(loggingDirExists).to.be.true
     })
   })

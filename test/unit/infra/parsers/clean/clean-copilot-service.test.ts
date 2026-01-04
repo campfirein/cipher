@@ -4,28 +4,31 @@
  */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { expect } from 'chai'
+import {expect} from 'chai'
 import * as fs from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import * as sinon from 'sinon'
+import {tmpdir} from 'node:os'
+import {join} from 'node:path'
+import {restore, stub} from 'sinon'
 
-import { Agent } from '../../../../../src/core/domain/entities/agent.js'
-import { CopilotCleanService } from '../../../../../src/infra/parsers/clean/clean-copilot-service.js'
+import {Agent} from '../../../../../src/core/domain/entities/agent.js'
+import {CopilotCleanService} from '../../../../../src/infra/parsers/clean/clean-copilot-service.js'
 
 describe('CopilotCleanService', () => {
   let service: CopilotCleanService
   let tempDir: string
 
   beforeEach(() => {
+    stub(console, 'log')
+    stub(console, 'error')
+    stub(console, 'warn')
     service = new CopilotCleanService('Github Copilot' as Agent)
     tempDir = join(tmpdir(), `test-copilot-clean-${Date.now()}`)
   })
 
   afterEach(() => {
-    sinon.restore()
+    restore()
     if (fs.existsSync(tempDir)) {
-      fs.rmSync(tempDir, { recursive: true })
+      fs.rmSync(tempDir, {recursive: true})
     }
   })
 
@@ -33,24 +36,21 @@ describe('CopilotCleanService', () => {
     it('should successfully parse raw directory with sessions', async () => {
       const inputDir = join(tempDir, 'raw')
       const wsDir = join(inputDir, 'workspace-hash')
-      fs.mkdirSync(wsDir, { recursive: true })
+      fs.mkdirSync(wsDir, {recursive: true})
 
       const sessionData = {
         id: 'session-1',
         requests: [
           {
-            message: { text: 'Hello' },
-            response: [{ text: 'Hi there!', type: 'text' }]
-          }
+            message: {text: 'Hello'},
+            response: [{text: 'Hi there!', type: 'text'}],
+          },
         ],
         timestamp: Date.now(),
-        title: 'Test Session'
+        title: 'Test Session',
       }
 
-      fs.writeFileSync(
-        join(wsDir, 'session-1.json'),
-        JSON.stringify(sessionData)
-      )
+      fs.writeFileSync(join(wsDir, 'session-1.json'), JSON.stringify(sessionData))
 
       const result = await service.parse(inputDir)
       expect(Array.isArray(result)).to.be.true
@@ -60,7 +60,7 @@ describe('CopilotCleanService', () => {
     it('should handle directory with no sessions', async () => {
       const inputDir = join(tempDir, 'raw')
       const wsDir = join(inputDir, 'workspace-hash')
-      fs.mkdirSync(wsDir, { recursive: true })
+      fs.mkdirSync(wsDir, {recursive: true})
 
       const result = await service.parse(inputDir)
       expect(Array.isArray(result)).to.be.true
@@ -70,7 +70,7 @@ describe('CopilotCleanService', () => {
     it('should skip summary.json files', async () => {
       const inputDir = join(tempDir, 'raw')
       const wsDir = join(inputDir, 'workspace-hash')
-      fs.mkdirSync(wsDir, { recursive: true })
+      fs.mkdirSync(wsDir, {recursive: true})
 
       fs.writeFileSync(join(wsDir, 'summary.json'), '{}')
 
@@ -82,7 +82,7 @@ describe('CopilotCleanService', () => {
     it('should handle parse errors gracefully', async () => {
       const inputDir = join(tempDir, 'raw')
       const wsDir = join(inputDir, 'workspace-hash')
-      fs.mkdirSync(wsDir, { recursive: true })
+      fs.mkdirSync(wsDir, {recursive: true})
 
       fs.writeFileSync(join(wsDir, 'invalid.json'), 'invalid json')
 
@@ -98,12 +98,12 @@ describe('CopilotCleanService', () => {
         id: 'session-1',
         requests: [
           {
-            message: { text: 'Hello' },
-            response: [{ kind: 'unknown', value: 'Hi there!' }]
-          }
+            message: {text: 'Hello'},
+            response: [{kind: 'unknown', value: 'Hi there!'}],
+          },
         ],
         timestamp: Date.now(),
-        title: 'Test'
+        title: 'Test',
       }
 
       const result = (service as any).transformCopilotToClaudeFormat(session)
@@ -118,11 +118,11 @@ describe('CopilotCleanService', () => {
         id: 'session-1',
         requests: [
           {
-            response: [{ text: 'Response only', type: 'text' }]
-          }
+            response: [{text: 'Response only', type: 'text'}],
+          },
         ],
         timestamp: Date.now(),
-        title: 'Test'
+        title: 'Test',
       }
 
       const result = (service as any).transformCopilotToClaudeFormat(session)
@@ -136,7 +136,7 @@ describe('CopilotCleanService', () => {
         requests: [],
         timestamp: Date.now(),
         title: 'Test',
-        workspacePath: '/Users/test/project'
+        workspacePath: '/Users/test/project',
       }
 
       const result = (service as any).transformCopilotToClaudeFormat(session)
@@ -150,11 +150,11 @@ describe('CopilotCleanService', () => {
         id: 'session-1',
         metadata: {
           messageCount: 2,
-          requesterUsername: 'user1'
+          requesterUsername: 'user1',
         },
         requests: [],
         timestamp: 1_234_567_890,
-        title: 'Test Session'
+        title: 'Test Session',
       }
 
       const result = (service as any).transformCopilotToClaudeFormat(session)
@@ -167,7 +167,7 @@ describe('CopilotCleanService', () => {
   describe('createUserMessageFromRequest', () => {
     it('should create user message from request', () => {
       const request = {
-        message: { text: 'Hello world' }
+        message: {text: 'Hello world'},
       }
 
       const result = (service as any).createUserMessageFromRequest(request)
@@ -180,12 +180,10 @@ describe('CopilotCleanService', () => {
 
     it('should add attachments if present', () => {
       const request = {
-        message: { text: 'Check this file' },
+        message: {text: 'Check this file'},
         variableData: {
-          variables: [
-            { kind: 'file', name: 'package.json' }
-          ]
-        }
+          variables: [{kind: 'file', name: 'package.json'}],
+        },
       }
 
       const result = (service as any).createUserMessageFromRequest(request)
@@ -195,7 +193,7 @@ describe('CopilotCleanService', () => {
     })
 
     it('should return null if no message', () => {
-      const request = { response: [] }
+      const request = {response: []}
       const result = (service as any).createUserMessageFromRequest(request)
 
       expect(result).to.be.null
@@ -205,9 +203,7 @@ describe('CopilotCleanService', () => {
   describe('createAssistantMessageFromRequest', () => {
     it('should create assistant message from response', () => {
       const request = {
-        response: [
-          { kind: 'unknown', value: 'Response text' }
-        ]
+        response: [{kind: 'unknown', value: 'Response text'}],
       }
 
       const result = (service as any).createAssistantMessageFromRequest(request)
@@ -218,7 +214,7 @@ describe('CopilotCleanService', () => {
     })
 
     it('should handle requests without response', () => {
-      const request = { message: { text: 'Just a question' } }
+      const request = {message: {text: 'Just a question'}}
       const result = (service as any).createAssistantMessageFromRequest(request)
 
       expect(result).to.be.null
@@ -226,20 +222,16 @@ describe('CopilotCleanService', () => {
 
     it('should extract tool invocations from response', () => {
       const request = {
-        response: [
-          { kind: 'toolInvocationSerialized', toolCallId: 'call-1', toolId: 'bash' }
-        ],
+        response: [{kind: 'toolInvocationSerialized', toolCallId: 'call-1', toolId: 'bash'}],
         result: {
           metadata: {
             toolCallRounds: [
               {
-                toolCalls: [
-                  { arguments: '{}', id: 'call-1' }
-                ]
-              }
-            ]
-          }
-        }
+                toolCalls: [{arguments: '{}', id: 'call-1'}],
+              },
+            ],
+          },
+        },
       }
 
       const result = (service as any).createAssistantMessageFromRequest(request)
@@ -251,9 +243,7 @@ describe('CopilotCleanService', () => {
 
   describe('extractCopilotResponseText', () => {
     it('should extract text from response items', () => {
-      const responseItems = [
-        { kind: 'unknown', value: 'Response text' }
-      ]
+      const responseItems = [{kind: 'unknown', value: 'Response text'}]
 
       const result = (service as any).extractCopilotResponseText(responseItems)
 
@@ -262,8 +252,8 @@ describe('CopilotCleanService', () => {
 
     it('should skip prepareToolInvocation items', () => {
       const responseItems = [
-        { kind: 'prepareToolInvocation', value: 'ignored' },
-        { kind: 'unknown', value: 'text' }
+        {kind: 'prepareToolInvocation', value: 'ignored'},
+        {kind: 'unknown', value: 'text'},
       ]
 
       const result = (service as any).extractCopilotResponseText(responseItems)
@@ -274,8 +264,8 @@ describe('CopilotCleanService', () => {
 
     it('should join multiple text parts', () => {
       const responseItems = [
-        { kind: 'unknown', value: 'Part 1' },
-        { kind: 'unknown', value: 'Part 2' }
+        {kind: 'unknown', value: 'Part 1'},
+        {kind: 'unknown', value: 'Part 2'},
       ]
 
       const result = (service as any).extractCopilotResponseText(responseItems)
@@ -289,30 +279,24 @@ describe('CopilotCleanService', () => {
     it('should extract tool invocations with results', () => {
       const responseItems = [
         {
-          invocationMessage: { value: 'ls -la' },
+          invocationMessage: {value: 'ls -la'},
           kind: 'toolInvocationSerialized',
           toolCallId: 'call-1',
-          toolId: 'bash'
-        }
+          toolId: 'bash',
+        },
       ]
 
       const toolCallRounds = [
         {
-          toolCalls: [
-            { arguments: '{}', id: 'call-1' }
-          ]
-        }
+          toolCalls: [{arguments: '{}', id: 'call-1'}],
+        },
       ]
 
       const toolCallResults = {
-        'call-1': { content: [{ value: 'file list' }] }
+        'call-1': {content: [{value: 'file list'}]},
       }
 
-      const result = (service as any).extractCopilotToolInvocations(
-        responseItems,
-        toolCallRounds,
-        toolCallResults
-      )
+      const result = (service as any).extractCopilotToolInvocations(responseItems, toolCallRounds, toolCallResults)
 
       expect(result).to.be.an('array')
       expect(result.length).to.be.greaterThan(0)
@@ -324,8 +308,8 @@ describe('CopilotCleanService', () => {
         {
           kind: 'toolInvocationSerialized',
           toolCallId: 'call-1',
-          toolId: 'bash'
-        }
+          toolId: 'bash',
+        },
       ]
 
       const result = (service as any).extractCopilotToolInvocations(responseItems)
@@ -335,12 +319,12 @@ describe('CopilotCleanService', () => {
 
     it('should skip non-tool items', () => {
       const responseItems = [
-        { kind: 'other', value: 'data' },
+        {kind: 'other', value: 'data'},
         {
           kind: 'toolInvocationSerialized',
           toolCallId: 'call-1',
-          toolId: 'bash'
-        }
+          toolId: 'bash',
+        },
       ]
 
       const result = (service as any).extractCopilotToolInvocations(responseItems)
@@ -353,9 +337,9 @@ describe('CopilotCleanService', () => {
     it('should extract file attachments', () => {
       const variableData = {
         variables: [
-          { kind: 'file', name: 'package.json' },
-          { kind: 'file', name: 'tsconfig.json' }
-        ]
+          {kind: 'file', name: 'package.json'},
+          {kind: 'file', name: 'tsconfig.json'},
+        ],
       }
 
       const result = (service as any).extractCopilotAttachments(variableData)
@@ -367,9 +351,9 @@ describe('CopilotCleanService', () => {
     it('should skip non-file variables', () => {
       const variableData = {
         variables: [
-          { kind: 'folder', name: 'src' },
-          { kind: 'file', name: 'app.ts' }
-        ]
+          {kind: 'folder', name: 'src'},
+          {kind: 'file', name: 'app.ts'},
+        ],
       }
 
       const result = (service as any).extractCopilotAttachments(variableData)
@@ -389,10 +373,7 @@ describe('CopilotCleanService', () => {
   describe('extractToolResultContent', () => {
     it('should extract text from array content', () => {
       const result = {
-        content: [
-          { value: 'line 1' },
-          { value: 'line 2' }
-        ]
+        content: [{value: 'line 1'}, {value: 'line 2'}],
       }
 
       const extracted = (service as any).extractToolResultContent(result)
@@ -404,8 +385,8 @@ describe('CopilotCleanService', () => {
     it('should extract text from nested object', () => {
       const result = {
         content: {
-          text: 'nested content'
-        }
+          text: 'nested content',
+        },
       }
 
       const extracted = (service as any).extractToolResultContent(result)
@@ -414,7 +395,7 @@ describe('CopilotCleanService', () => {
     })
 
     it('should handle empty content', () => {
-      const result = { content: [] }
+      const result = {content: []}
       const extracted = (service as any).extractToolResultContent(result)
 
       expect(typeof extracted).to.equal('string')
@@ -426,9 +407,9 @@ describe('CopilotCleanService', () => {
       const session = {
         some: {
           nested: {
-            baseUri: { path: '/Users/test/workspace' }
-          }
-        }
+            baseUri: {path: '/Users/test/workspace'},
+          },
+        },
       }
 
       const result = (service as any).extractWorkspacePathFromCopilot(session)
@@ -437,7 +418,7 @@ describe('CopilotCleanService', () => {
     })
 
     it('should handle missing baseUri', () => {
-      const session = { other: 'data' }
+      const session = {other: 'data'}
 
       const result = (service as any).extractWorkspacePathFromCopilot(session)
 
@@ -446,8 +427,8 @@ describe('CopilotCleanService', () => {
 
     it('should not duplicate paths', () => {
       const session = {
-        first: { baseUri: { path: '/path1' } },
-        second: { baseUri: { path: '/path1' } }
+        first: {baseUri: {path: '/path1'}},
+        second: {baseUri: {path: '/path1'}},
       }
 
       const result = (service as any).extractWorkspacePathFromCopilot(session)
@@ -458,9 +439,9 @@ describe('CopilotCleanService', () => {
 
   describe('isValidCopilotSession', () => {
     it('should validate session with requests', async () => {
-      fs.mkdirSync(tempDir, { recursive: true })
+      fs.mkdirSync(tempDir, {recursive: true})
       const filePath = join(tempDir, 'valid.json')
-      const data = { requests: [{ message: { text: 'test' } }] }
+      const data = {requests: [{message: {text: 'test'}}]}
       fs.writeFileSync(filePath, JSON.stringify(data))
 
       const result = await (service as any).isValidCopilotSession(filePath)
@@ -469,9 +450,9 @@ describe('CopilotCleanService', () => {
     })
 
     it('should reject session with empty requests', async () => {
-      fs.mkdirSync(tempDir, { recursive: true })
+      fs.mkdirSync(tempDir, {recursive: true})
       const filePath = join(tempDir, 'empty.json')
-      const data = { requests: [] }
+      const data = {requests: []}
       fs.writeFileSync(filePath, JSON.stringify(data))
 
       const result = await (service as any).isValidCopilotSession(filePath)
@@ -480,9 +461,9 @@ describe('CopilotCleanService', () => {
     })
 
     it('should reject file without requests', async () => {
-      fs.mkdirSync(tempDir, { recursive: true })
+      fs.mkdirSync(tempDir, {recursive: true})
       const filePath = join(tempDir, 'invalid.json')
-      const data = { other: 'data' }
+      const data = {other: 'data'}
       fs.writeFileSync(filePath, JSON.stringify(data))
 
       try {
@@ -502,14 +483,14 @@ describe('CopilotCleanService', () => {
         messages: [
           {
             content: [
-              { text: 'Text 1', type: 'text' },
-              { text: 'Text 2', type: 'text' }
+              {text: 'Text 1', type: 'text'},
+              {text: 'Text 2', type: 'text'},
             ],
             timestamp: '2024-01-01T10:00:00Z',
-            type: 'assistant'
-          }
+            type: 'assistant',
+          },
         ],
-        title: 'Test'
+        title: 'Test',
       }
 
       const result = (service as any).splitAllCopilotContent(session)
@@ -523,14 +504,12 @@ describe('CopilotCleanService', () => {
         id: 'test',
         messages: [
           {
-            content: [
-              { text: 'User input', type: 'text' }
-            ],
+            content: [{text: 'User input', type: 'text'}],
             timestamp: '2024-01-01T10:00:00Z',
-            type: 'user'
-          }
+            type: 'user',
+          },
         ],
-        title: 'Test'
+        title: 'Test',
       }
 
       const result = (service as any).splitAllCopilotContent(session)
@@ -545,14 +524,14 @@ describe('CopilotCleanService', () => {
         messages: [
           {
             content: [
-              { text: 'Part 1', type: 'text' },
-              { text: 'Part 2', type: 'text' }
+              {text: 'Part 1', type: 'text'},
+              {text: 'Part 2', type: 'text'},
             ],
             timestamp: '2024-01-01T10:00:00Z',
-            type: 'assistant'
-          }
+            type: 'assistant',
+          },
         ],
-        title: 'Test'
+        title: 'Test',
       }
 
       const result = (service as any).splitAllCopilotContent(session)
@@ -566,7 +545,7 @@ describe('CopilotCleanService', () => {
 
   describe('normalizeWorkspacePaths', () => {
     it('should handle string workspace path', () => {
-      const session = { workspacePath: '/Users/test/project' }
+      const session = {workspacePath: '/Users/test/project'}
 
       const result = (service as any).normalizeWorkspacePaths(session)
 
@@ -575,7 +554,7 @@ describe('CopilotCleanService', () => {
     })
 
     it('should handle array workspace paths', () => {
-      const session = { workspacePath: ['/Users/test/project1', '/Users/test/project2'] }
+      const session = {workspacePath: ['/Users/test/project1', '/Users/test/project2']}
 
       const result = (service as any).normalizeWorkspacePaths(session)
 
@@ -584,7 +563,7 @@ describe('CopilotCleanService', () => {
     })
 
     it('should return empty array if no path', () => {
-      const session = { other: 'data' }
+      const session = {other: 'data'}
 
       const result = (service as any).normalizeWorkspacePaths(session)
 
@@ -596,16 +575,16 @@ describe('CopilotCleanService', () => {
   describe('buildSessionMetadata', () => {
     it('should build metadata from session and messages', () => {
       const messages = [
-        { content: [], type: 'user' },
-        { content: [], type: 'assistant' }
+        {content: [], type: 'user'},
+        {content: [], type: 'assistant'},
       ]
 
       const session = {
         metadata: {
           messageCount: 5,
           requestCount: 3,
-          requesterUsername: 'user1'
-        }
+          requesterUsername: 'user1',
+        },
       }
 
       const result = (service as any).buildSessionMetadata(messages, session)

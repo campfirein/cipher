@@ -39,6 +39,12 @@ const DEFAULT_MAX_CONCURRENT_PROCESSES = 5
 const DEFAULT_MAX_OUTPUT_BUFFER = 1024 * 1024 // 1MB
 
 /**
+ * Default grace period for SIGTERM before SIGKILL (milliseconds).
+ * 5 seconds gives processes ample time to clean up gracefully.
+ */
+const DEFAULT_KILL_GRACE_PERIOD = 5000
+
+/**
  * Process service implementation.
  *
  * Provides secure command execution with:
@@ -66,6 +72,7 @@ export class ProcessService implements IProcessService {
       allowedCommands: config.allowedCommands || [],
       blockedCommands: config.blockedCommands || [],
       environment: config.environment || {},
+      killGracePeriod: config.killGracePeriod ?? DEFAULT_KILL_GRACE_PERIOD,
       maxConcurrentProcesses: config.maxConcurrentProcesses || DEFAULT_MAX_CONCURRENT_PROCESSES,
       maxOutputBuffer: config.maxOutputBuffer || DEFAULT_MAX_OUTPUT_BUFFER,
       maxTimeout: config.maxTimeout || DEFAULT_MAX_TIMEOUT,
@@ -104,10 +111,7 @@ export class ProcessService implements IProcessService {
    * @param options - Execution options
    * @returns Process result or handle
    */
-  public async executeCommand(
-    command: string,
-    options: ExecuteOptions = {},
-  ): Promise<ProcessHandle | ProcessResult> {
+  public async executeCommand(command: string, options: ExecuteOptions = {}): Promise<ProcessHandle | ProcessResult> {
     if (!this.initialized) {
       throw ProcessError.notInitialized()
     }
@@ -124,10 +128,7 @@ export class ProcessService implements IProcessService {
     // Validate timeout
     const timeout = options.timeout || DEFAULT_TIMEOUT
     if (timeout > this.config.maxTimeout) {
-      throw ProcessError.invalidCommand(
-        command,
-        `Timeout ${timeout}ms exceeds maximum ${this.config.maxTimeout}ms`,
-      )
+      throw ProcessError.invalidCommand(command, `Timeout ${timeout}ms exceeds maximum ${this.config.maxTimeout}ms`)
     }
 
     // Resolve working directory
@@ -328,9 +329,7 @@ export class ProcessService implements IProcessService {
         }
 
         if (signal) {
-          reject(
-            ProcessError.executionFailed(command, `Process terminated by signal: ${signal}`),
-          )
+          reject(ProcessError.executionFailed(command, `Process terminated by signal: ${signal}`))
           return
         }
 
@@ -378,9 +377,7 @@ export class ProcessService implements IProcessService {
     },
   ): Promise<ProcessHandle> {
     // Check concurrent process limit
-    const runningCount = [...this.backgroundProcesses.values()].filter(
-      p => p.status === 'running',
-    ).length
+    const runningCount = [...this.backgroundProcesses.values()].filter((p) => p.status === 'running').length
 
     if (runningCount >= this.config.maxConcurrentProcesses) {
       throw ProcessError.tooManyProcesses(runningCount, this.config.maxConcurrentProcesses)
@@ -529,9 +526,11 @@ export class ProcessService implements IProcessService {
     }
 
     // Unix: kill process group using negative PID
+    // Grace period allows processes to clean up gracefully before SIGKILL
+    const gracePeriodMs = this.config.killGracePeriod
     try {
       process.kill(-targetPid, 'SIGTERM')
-      await this.sleep(5000)
+      await this.sleep(gracePeriodMs)
       try {
         process.kill(-targetPid, 'SIGKILL')
       } catch {
@@ -541,7 +540,7 @@ export class ProcessService implements IProcessService {
       // Fallback to direct kill if process group kill fails
       // (e.g., process wasn't started with detached: true)
       child.kill('SIGTERM')
-      await this.sleep(5000)
+      await this.sleep(gracePeriodMs)
       if (child.exitCode === null) {
         child.kill('SIGKILL')
       }
@@ -576,10 +575,7 @@ export class ProcessService implements IProcessService {
     const isOutsideBase = relativePath.startsWith('..') || isAbsolute(relativePath)
 
     if (isOutsideBase) {
-      throw ProcessError.invalidWorkingDirectory(
-        cwd,
-        `Working directory must be within ${baseDir}`,
-      )
+      throw ProcessError.invalidWorkingDirectory(cwd, `Working directory must be within ${baseDir}`)
     }
 
     return candidatePath
