@@ -17,7 +17,7 @@ export default class Query extends Command {
   }
   public static description = `Query and retrieve information from the context tree (connects to running brv instance)
 
-Requires a running brv instance. Start one with: brv start
+Requires a running brv instance. Start one with: brv
 
 Good:
 - "How is user authentication implemented?"

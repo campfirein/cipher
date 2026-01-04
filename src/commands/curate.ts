@@ -23,7 +23,7 @@ export default class Curate extends Command {
   }
   public static description = `Curate context to the context tree (connects to running brv instance)
 
-Requires a running brv instance. Start one with: brv start
+Requires a running brv instance. Start one with: brv
 
 Good examples:
 - "Auth uses JWT with 24h expiry. Tokens stored in httpOnly cookies via authMiddleware.ts"
