@@ -12,11 +12,9 @@
  * - Cleanup behavior
  */
 
-/* eslint-disable no-promise-executor-return */
-
 import {expect} from 'chai'
 import {randomUUID} from 'node:crypto'
-import {createSandbox, match, type SinonSandbox, type SinonStub} from 'sinon'
+import {createSandbox, match, type SinonFakeTimers, type SinonSandbox, type SinonStub} from 'sinon'
 
 import type {ITransportServer, RequestHandler} from '../../../../src/core/interfaces/transport/i-transport-server.js'
 
@@ -196,6 +194,9 @@ describe('TransportHandlers', () => {
 
   describe('Agent Not Available', () => {
     it('should send error when no agent registered', async () => {
+      // Use fake timers to avoid real delays
+      const clock: SinonFakeTimers = sandbox.useFakeTimers()
+
       const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
 
       // Don't register any agent
@@ -206,8 +207,8 @@ describe('TransportHandlers', () => {
 
       expect(result.taskId).to.equal(taskId)
 
-      // Wait for setTimeout to execute
-      await new Promise((resolve) => setTimeout(resolve, 150))
+      // Advance time to trigger the setTimeout (100ms in implementation + buffer)
+      await clock.tickAsync(150)
 
       // Error should be sent to client
       expect(
@@ -226,6 +227,8 @@ describe('TransportHandlers', () => {
           sandbox.match({taskId}),
         ),
       ).to.be.true
+
+      clock.restore()
     })
   })
 

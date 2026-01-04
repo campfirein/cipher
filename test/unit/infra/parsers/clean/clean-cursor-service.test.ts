@@ -4,28 +4,31 @@
  */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { expect } from 'chai'
+import {expect} from 'chai'
 import * as fs from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import * as sinon from 'sinon'
+import {tmpdir} from 'node:os'
+import {join} from 'node:path'
+import {restore, stub} from 'sinon'
 
-import { Agent } from '../../../../../src/core/domain/entities/agent.js'
-import { CursorCleanService } from '../../../../../src/infra/parsers/clean/clean-cursor-service.js'
+import {Agent} from '../../../../../src/core/domain/entities/agent.js'
+import {CursorCleanService} from '../../../../../src/infra/parsers/clean/clean-cursor-service.js'
 
 describe('CursorCleanService', () => {
   let service: CursorCleanService
   let tempDir: string
 
   beforeEach(() => {
+    stub(console, 'log')
+    stub(console, 'error')
+    stub(console, 'warn')
     service = new CursorCleanService('Cursor' as Agent)
     tempDir = join(tmpdir(), `test-cursor-clean-${Date.now()}`)
   })
 
   afterEach(() => {
-    sinon.restore()
+    restore()
     if (fs.existsSync(tempDir)) {
-      fs.rmSync(tempDir, { recursive: true })
+      fs.rmSync(tempDir, {recursive: true})
     }
   })
 
@@ -33,21 +36,16 @@ describe('CursorCleanService', () => {
     it('should successfully parse raw directory with sessions', async () => {
       const inputDir = join(tempDir, 'raw')
       const wsDir = join(inputDir, 'workspace-hash')
-      fs.mkdirSync(wsDir, { recursive: true })
+      fs.mkdirSync(wsDir, {recursive: true})
 
       const sessionData = {
-        bubbles: [
-          { text: 'Hello', timestamp: Date.now(), type: 'user' }
-        ],
+        bubbles: [{text: 'Hello', timestamp: Date.now(), type: 'user'}],
         id: 'session-1',
         timestamp: Date.now(),
-        title: 'Test Session'
+        title: 'Test Session',
       }
 
-      fs.writeFileSync(
-        join(wsDir, 'session-1.json'),
-        JSON.stringify(sessionData)
-      )
+      fs.writeFileSync(join(wsDir, 'session-1.json'), JSON.stringify(sessionData))
 
       const result = await service.parse(inputDir)
       expect(Array.isArray(result)).to.be.true
@@ -57,7 +55,7 @@ describe('CursorCleanService', () => {
     it('should handle directory with no sessions', async () => {
       const inputDir = join(tempDir, 'raw')
       const wsDir = join(inputDir, 'workspace-hash')
-      fs.mkdirSync(wsDir, { recursive: true })
+      fs.mkdirSync(wsDir, {recursive: true})
 
       const result = await service.parse(inputDir)
       expect(Array.isArray(result)).to.be.true
@@ -67,7 +65,7 @@ describe('CursorCleanService', () => {
     it('should handle parse errors gracefully', async () => {
       const inputDir = join(tempDir, 'raw')
       const wsDir = join(inputDir, 'workspace-hash')
-      fs.mkdirSync(wsDir, { recursive: true })
+      fs.mkdirSync(wsDir, {recursive: true})
 
       fs.writeFileSync(join(wsDir, 'invalid.json'), 'invalid json')
 
@@ -79,7 +77,7 @@ describe('CursorCleanService', () => {
     it('should skip non-JSON files', async () => {
       const inputDir = join(tempDir, 'raw')
       const wsDir = join(inputDir, 'workspace-hash')
-      fs.mkdirSync(wsDir, { recursive: true })
+      fs.mkdirSync(wsDir, {recursive: true})
 
       fs.writeFileSync(join(wsDir, 'readme.txt'), 'text file')
 
@@ -93,12 +91,12 @@ describe('CursorCleanService', () => {
     it('should transform bubbles to messages', () => {
       const session = {
         bubbles: [
-          { text: 'Hello', timestamp: Date.now(), type: 'user' },
-          { text: 'Hi there!', timestamp: Date.now(), type: 'ai' }
+          {text: 'Hello', timestamp: Date.now(), type: 'user'},
+          {text: 'Hi there!', timestamp: Date.now(), type: 'ai'},
         ],
         id: 'session-1',
         timestamp: Date.now(),
-        title: 'Test'
+        title: 'Test',
       }
 
       const result = (service as any).transformCursorToClaudeFormat(session, 'hash')
@@ -112,9 +110,9 @@ describe('CursorCleanService', () => {
       const session = {
         bubbles: [],
         id: 'session-1',
-        metadata: { workspacePath: '/Users/test/project' },
+        metadata: {workspacePath: '/Users/test/project'},
         timestamp: Date.now(),
-        title: 'Test'
+        title: 'Test',
       }
 
       const result = (service as any).transformCursorToClaudeFormat(session, 'hash')
@@ -128,7 +126,7 @@ describe('CursorCleanService', () => {
         bubbles: [],
         id: 'session-1',
         timestamp: Date.now(),
-        title: 'Test'
+        title: 'Test',
       }
 
       const result = (service as any).transformCursorToClaudeFormat(session, 'workspace-hash')
@@ -142,7 +140,7 @@ describe('CursorCleanService', () => {
       const bubble = {
         text: 'Hello world',
         timestamp: Date.now(),
-        type: 'user'
+        type: 'user',
       }
 
       const result = (service as any).transformCursorBubbleToClaudeMessage(bubble)
@@ -157,7 +155,7 @@ describe('CursorCleanService', () => {
       const bubble = {
         text: 'I can help',
         timestamp: Date.now(),
-        type: 'ai'
+        type: 'ai',
       }
 
       const result = (service as any).transformCursorBubbleToClaudeMessage(bubble)
@@ -172,11 +170,11 @@ describe('CursorCleanService', () => {
         timestamp: Date.now(),
         toolResults: {
           name: 'bash',
-          params: { command: 'ls' },
-          result: { output: 'file list' },
-          toolCallId: 'tool-1'
+          params: {command: 'ls'},
+          result: {output: 'file list'},
+          toolCallId: 'tool-1',
         },
-        type: 'ai'
+        type: 'ai',
       }
 
       const result = (service as any).transformCursorBubbleToClaudeMessage(bubble)
@@ -187,12 +185,10 @@ describe('CursorCleanService', () => {
 
     it('should add code blocks if present', () => {
       const bubble = {
-        codeBlocks: [
-          { content: 'const x = 1;', languageId: 'javascript' }
-        ],
+        codeBlocks: [{content: 'const x = 1;', languageId: 'javascript'}],
         text: 'Here is code',
         timestamp: Date.now(),
-        type: 'ai'
+        type: 'ai',
       }
 
       const result = (service as any).transformCursorBubbleToClaudeMessage(bubble)
@@ -204,7 +200,7 @@ describe('CursorCleanService', () => {
     it('should handle bubble with no text', () => {
       const bubble = {
         timestamp: Date.now(),
-        type: 'user'
+        type: 'user',
       }
 
       const result = (service as any).transformCursorBubbleToClaudeMessage(bubble)
@@ -217,9 +213,9 @@ describe('CursorCleanService', () => {
     it('should extract and simplify tool result', () => {
       const toolResults = {
         name: 'bash',
-        params: { command: 'ls -la' },
-        result: { output: 'file list' },
-        toolCallId: 'tool-1'
+        params: {command: 'ls -la'},
+        result: {output: 'file list'},
+        toolCallId: 'tool-1',
       }
 
       const result = (service as any).extractCursorToolResult(toolResults)
@@ -233,8 +229,8 @@ describe('CursorCleanService', () => {
     it('should handle tool without result', () => {
       const toolResults = {
         name: 'bash',
-        params: { command: 'ls' },
-        toolCallId: 'tool-1'
+        params: {command: 'ls'},
+        toolCallId: 'tool-1',
       }
 
       const result = (service as any).extractCursorToolResult(toolResults)
@@ -252,7 +248,7 @@ describe('CursorCleanService', () => {
 
   describe('simplifyToolInput', () => {
     it('should simplify codebase_search input', () => {
-      const input = { codeResults: [], query: 'function foo' }
+      const input = {codeResults: [], query: 'function foo'}
       const result = (service as any).simplifyToolInput('codebase_search', input)
 
       expect(result).to.have.property('query')
@@ -260,14 +256,14 @@ describe('CursorCleanService', () => {
     })
 
     it('should simplify read_file input', () => {
-      const input = { targetFile: '/path/to/file.ts' }
+      const input = {targetFile: '/path/to/file.ts'}
       const result = (service as any).simplifyToolInput('read_file', input)
 
       expect(result).to.have.property('targetFile')
     })
 
     it('should simplify write_file input', () => {
-      const input = { content: 'code', targetFile: '/path/file.ts' }
+      const input = {content: 'code', targetFile: '/path/file.ts'}
       const result = (service as any).simplifyToolInput('write_file', input)
 
       expect(result).to.have.property('targetFile')
@@ -275,7 +271,7 @@ describe('CursorCleanService', () => {
     })
 
     it('should simplify run_terminal_cmd input', () => {
-      const input = { command: 'npm test', timeout: 30_000 }
+      const input = {command: 'npm test', timeout: 30_000}
       const result = (service as any).simplifyToolInput('run_terminal_cmd', input)
 
       expect(result).to.have.property('command')
@@ -283,7 +279,7 @@ describe('CursorCleanService', () => {
     })
 
     it('should return all params for unknown tools', () => {
-      const input = { param1: 'value1', param2: 'value2' }
+      const input = {param1: 'value1', param2: 'value2'}
       const result = (service as any).simplifyToolInput('unknown_tool', input)
 
       expect(result).to.deep.equal(input)
@@ -292,7 +288,7 @@ describe('CursorCleanService', () => {
 
   describe('simplifyToolOutput', () => {
     it('should simplify codebase_search output', () => {
-      const output = { codeResults: [{ file: 'test.ts' }] }
+      const output = {codeResults: [{file: 'test.ts'}]}
       const result = (service as any).simplifyToolOutput('codebase_search', output)
 
       expect(result).to.have.property('type', 'tool_result')
@@ -300,7 +296,7 @@ describe('CursorCleanService', () => {
     })
 
     it('should simplify read_file output', () => {
-      const output = { contents: 'file content' }
+      const output = {contents: 'file content'}
       const result = (service as any).simplifyToolOutput('read_file', output)
 
       expect(result.type).to.equal('tool_result')
@@ -308,7 +304,7 @@ describe('CursorCleanService', () => {
     })
 
     it('should simplify run_terminal_cmd output', () => {
-      const output = { output: 'command result' }
+      const output = {output: 'command result'}
       const result = (service as any).simplifyToolOutput('run_terminal_cmd', output)
 
       expect(result.type).to.equal('tool_result')
@@ -316,7 +312,7 @@ describe('CursorCleanService', () => {
     })
 
     it('should handle file operation success', () => {
-      const output = { message: 'File created', success: true }
+      const output = {message: 'File created', success: true}
       const result = (service as any).simplifyToolOutput('create_folder', output)
 
       expect(result.type).to.equal('tool_result')
@@ -334,7 +330,7 @@ describe('CursorCleanService', () => {
     it('should extract workspace path from metadata', () => {
       const session = {
         bubbles: [],
-        metadata: { workspacePath: '/Users/test/project' }
+        metadata: {workspacePath: '/Users/test/project'},
       }
 
       const result = (service as any).extractWorkspacePathsFromCursor(session)
@@ -347,10 +343,10 @@ describe('CursorCleanService', () => {
         bubbles: [
           {
             toolResults: {
-              output: '/Users/test/src/app.ts file modified'
-            }
-          }
-        ]
+              output: '/Users/test/src/app.ts file modified',
+            },
+          },
+        ],
       }
 
       const result = (service as any).extractWorkspacePathsFromCursor(session)
@@ -361,7 +357,7 @@ describe('CursorCleanService', () => {
     it('should handle array workspace paths', () => {
       const session = {
         bubbles: [],
-        workspacePath: ['/project1', '/project2']
+        workspacePath: ['/project1', '/project2'],
       }
 
       const result = (service as any).extractWorkspacePathsFromCursor(session)
@@ -371,7 +367,7 @@ describe('CursorCleanService', () => {
     })
 
     it('should return empty array if no paths found', () => {
-      const session = { bubbles: [] }
+      const session = {bubbles: []}
 
       const result = (service as any).extractWorkspacePathsFromCursor(session)
 
