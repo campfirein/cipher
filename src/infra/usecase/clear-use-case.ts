@@ -30,7 +30,7 @@ export class ClearUseCase implements IClearUseCase {
     return this.terminal.confirm({
       default: false,
       message:
-        'Are you sure you want to reset the context tree? This will remove all existing context and restore default domains.',
+        'Are you sure you want to reset the context tree? This will remove all existing context and restore default domains',
     })
   }
 

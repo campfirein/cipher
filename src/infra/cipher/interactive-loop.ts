@@ -342,7 +342,7 @@ export async function startInteractiveLoop(
   },
 ): Promise<void> {
   // Display welcome message
-  displayWelcome(options?.sessionId ?? 'cipher-agent-session', options?.model ?? 'gemini-2.5-pro', options?.eventBus)
+  displayWelcome(options?.sessionId ?? 'cipher-agent-session', options?.model ?? 'gemini-3-flash-preview', options?.eventBus)
 
   // Create readline interface
   const rl = readline.createInterface({

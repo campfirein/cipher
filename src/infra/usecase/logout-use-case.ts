@@ -27,7 +27,7 @@ export class LogoutUseCase implements ILogoutUseCase {
   protected async confirmLogout(userEmail: string): Promise<boolean> {
     return this.terminal.confirm({
       default: true,
-      message: `Logging out ${userEmail}. Are you sure?`,
+      message: `Logging out ${userEmail}. Are you sure`,
     });
   }
 

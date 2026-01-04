@@ -181,11 +181,14 @@ export class ContextManager<T> {
       toolCalls,
     }
 
-    this.messages.push(message)
+    await this.mutex.withLock(async () => {
+      this.messages.push(message)
 
-    // Auto-save to persistent storage (non-blocking)
-    this.persistHistory().catch((error: Error) => {
-      this.logger.error('Failed to persist history after assistant message', {error, sessionId: this.sessionId})
+      try {
+        await this.persistHistory()
+      } catch (error) {
+        this.logger.error('Failed to persist history after assistant message', {error, sessionId: this.sessionId})
+      }
     })
   }
 
@@ -200,11 +203,14 @@ export class ContextManager<T> {
       role: 'system',
     }
 
-    this.messages.push(message)
+    await this.mutex.withLock(async () => {
+      this.messages.push(message)
 
-    // Auto-save to persistent storage (non-blocking)
-    this.persistHistory().catch((error: Error) => {
-      this.logger.error('Failed to persist history after system message', {error, sessionId: this.sessionId})
+      try {
+        await this.persistHistory()
+      } catch (error) {
+        this.logger.error('Failed to persist history after system message', {error, sessionId: this.sessionId})
+      }
     })
   }
 
@@ -286,18 +292,19 @@ export class ContextManager<T> {
    * @param _fileData - Optional file data (not yet implemented)
    */
   public async addUserMessage(content: string, _imageData?: ImageData, _fileData?: FileData): Promise<void> {
-    // Simple implementation: just use text content
-    // Image and file support can be added later
     const message: InternalMessage = {
       content,
       role: 'user',
     }
 
-    this.messages.push(message)
+    await this.mutex.withLock(async () => {
+      this.messages.push(message)
 
-    // Auto-save to persistent storage (non-blocking)
-    this.persistHistory().catch((error: Error) => {
-      this.logger.error('Failed to persist history after user message', {error, sessionId: this.sessionId})
+      try {
+        await this.persistHistory()
+      } catch (error) {
+        this.logger.error('Failed to persist history after user message', {error, sessionId: this.sessionId})
+      }
     })
   }
 

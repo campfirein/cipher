@@ -33,6 +33,8 @@ export interface ModelCapabilities {
   supportsAudio: boolean
   /** Whether the model supports image input */
   supportsImages: boolean
+  /** Whether the model supports multimodal data in function responses (Gemini 3+) */
+  supportsMultimodalFunctionResponse?: boolean
   /** Whether the model supports PDF input */
   supportsPdf: boolean
   /** Whether the model supports streaming responses */
