@@ -34,33 +34,15 @@ async function pathExists(path: string): Promise<boolean> {
 }
 
 /**
- * Helper to filter custom domains from a list of directories.
- * Extracted to avoid nested callback lint errors.
+ * Count directories matching a prefix using for...of (avoids nested callback).
  */
-function filterCustomDomains(domains: string[]): string[] {
-  return domains.filter((name) => name.startsWith('custom_domain_'))
-}
-
-/**
- * Helper to create N custom domains for testing.
- * Extracted to avoid await-in-loop lint errors in tests.
- */
-async function createCustomDomains(tool: ReturnType<typeof createCurateTool>, basePath: string, count: number) {
-  for (let i = 1; i <= count; i++) {
-    // eslint-disable-next-line no-await-in-loop
-    await tool.execute({
-      basePath,
-      operations: [
-        {
-          content: {snippets: ['test']},
-          path: `custom_domain_${i}/topic`,
-          reason: 'testing',
-          title: 'Test',
-          type: 'ADD',
-        },
-      ],
-    })
+function countByPrefix(items: string[], prefix: string): number {
+  let count = 0
+  for (const item of items) {
+    if (item.startsWith(prefix)) count++
   }
+
+  return count
 }
 
 describe('Curate Tool', () => {
@@ -114,28 +96,36 @@ describe('Curate Tool', () => {
       it('should allow creating multiple custom domains without limit', async () => {
         const tool = createCurateTool()
 
-        // Create 5 custom domains - no limit anymore
-        for (let i = 1; i <= 5; i++) {
-          const result = (await tool.execute({
-            basePath,
-            operations: [
-              {
-                content: {snippets: ['test']},
-                path: `custom_domain_${i}/topic`,
-                reason: 'testing custom domain',
-                title: 'Test',
-                type: 'ADD',
-              },
-            ],
-          })) as CurateOutput
+        // Build promise array imperatively to avoid nested callbacks
+        const domainIndices = [1, 2, 3, 4, 5]
+        const promises: Array<ReturnType<typeof tool.execute>> = []
+        for (const i of domainIndices) {
+          promises.push(
+            tool.execute({
+              basePath,
+              operations: [
+                {
+                  content: {snippets: ['test']},
+                  path: `custom_domain_${i}/topic`,
+                  reason: 'testing custom domain',
+                  title: 'Test',
+                  type: 'ADD',
+                },
+              ],
+            }),
+          )
+        }
 
-          expect(result.applied[0].status).to.equal('success', `Custom domain ${i} should succeed`)
+        const results = (await Promise.all(promises)) as CurateOutput[]
+
+        // Verify all operations succeeded
+        for (const [idx, result] of results.entries()) {
+          expect(result.applied[0].status).to.equal('success', `Custom domain ${domainIndices[idx]} should succeed`)
         }
 
         // Verify all 5 domains exist
         const domains = await fs.readdir(basePath)
-        const customDomains = domains.filter((d) => d.startsWith('custom_domain_'))
-        expect(customDomains.length).to.equal(5)
+        expect(countByPrefix(domains, 'custom_domain_')).to.equal(5)
       })
 
       it('should allow creating semantically meaningful domain names', async () => {
@@ -143,21 +133,30 @@ describe('Curate Tool', () => {
 
         const meaningfulDomains = ['authentication', 'api_design', 'data_models', 'error_handling', 'ui_components']
 
+        // Build promise array imperatively to avoid nested callbacks
+        const promises: Array<ReturnType<typeof tool.execute>> = []
         for (const domain of meaningfulDomains) {
-          const result = (await tool.execute({
-            basePath,
-            operations: [
-              {
-                content: {snippets: ['test content']},
-                path: `${domain}/topic`,
-                reason: 'testing semantic domain',
-                title: 'Test',
-                type: 'ADD',
-              },
-            ],
-          })) as CurateOutput
+          promises.push(
+            tool.execute({
+              basePath,
+              operations: [
+                {
+                  content: {snippets: ['test content']},
+                  path: `${domain}/topic`,
+                  reason: 'testing semantic domain',
+                  title: 'Test',
+                  type: 'ADD',
+                },
+              ],
+            }),
+          )
+        }
 
-          expect(result.applied[0].status).to.equal('success', `Domain ${domain} should succeed`)
+        const results = (await Promise.all(promises)) as CurateOutput[]
+
+        // Verify all operations succeeded
+        for (const [idx, result] of results.entries()) {
+          expect(result.applied[0].status).to.equal('success', `Domain ${meaningfulDomains[idx]} should succeed`)
         }
 
         // Verify all domains exist
