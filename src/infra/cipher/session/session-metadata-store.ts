@@ -8,8 +8,8 @@
  * Design adapted from gemini-cli's ChatRecordingService pattern.
  */
 
-import * as fs from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
+import * as fs from 'node:fs/promises'
 import { join } from 'node:path'
 
 import type { ISessionPersistence, SessionCleanupResult, SessionRetentionConfig } from '../../../core/interfaces/cipher/i-session-persistence.js'

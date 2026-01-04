@@ -1,9 +1,9 @@
-import {expect} from 'chai'
+import { expect } from 'chai'
 import * as fs from 'node:fs/promises'
 import * as os from 'node:os'
-import * as path from 'node:path'
+import { join } from 'node:path'
 
-import {createCurateTool} from '../../../../../src/infra/cipher/tools/implementations/curate-tool.js'
+import { createCurateTool } from '../../../../../src/infra/cipher/tools/implementations/curate-tool.js'
 
 interface CurateOutput {
   applied: Array<{
@@ -28,15 +28,15 @@ describe('Curate Tool', () => {
 
   beforeEach(async () => {
     // Create a unique temp directory for each test
-    tmpDir = path.join(os.tmpdir(), `curate-test-${Date.now()}-${Math.random().toString(36).slice(2)}`)
-    basePath = path.join(tmpDir, '.brv/context-tree')
-    await fs.mkdir(basePath, {recursive: true})
+    tmpDir = join(os.tmpdir(), `curate-test-${Date.now()}-${Math.random().toString(36).slice(2)}`)
+    basePath = join(tmpDir, '.brv/context-tree')
+    await fs.mkdir(basePath, { recursive: true })
   })
 
   afterEach(async () => {
     // Cleanup
     try {
-      await fs.rm(tmpDir, {force: true, recursive: true})
+      await fs.rm(tmpDir, { force: true, recursive: true })
     } catch {
       // Ignore cleanup errors
     }
@@ -53,7 +53,7 @@ describe('Curate Tool', () => {
             basePath,
             operations: [
               {
-                content: {snippets: ['test snippet']},
+                content: { snippets: ['test snippet'] },
                 path: `${domain}/test_topic`,
                 reason: 'testing predefined domain',
                 title: 'Test Context',
@@ -74,20 +74,26 @@ describe('Curate Tool', () => {
         const tool = createCurateTool()
 
         // Create 5 custom domains - no limit anymore
-        for (let i = 1; i <= 5; i++) {
-          const result = (await tool.execute({
-            basePath,
-            operations: [
-              {
-                content: {snippets: ['test']},
-                path: `custom_domain_${i}/topic`,
-                reason: 'testing custom domain',
-                title: 'Test',
-                type: 'ADD',
-              },
-            ],
-          })) as CurateOutput
+        const results = await Promise.all(
+          Array.from({ length: 5 }, async (_, index) => {
+            const i = index + 1
+            const result = (await tool.execute({
+              basePath,
+              operations: [
+                {
+                  content: { snippets: ['test'] },
+                  path: `custom_domain_${i}/topic`,
+                  reason: 'testing custom domain',
+                  title: 'Test',
+                  type: 'ADD',
+                },
+              ],
+            })) as CurateOutput
+            return { i, result }
+          }),
+        )
 
+        for (const { i, result } of results) {
           expect(result.applied[0].status).to.equal('success', `Custom domain ${i} should succeed`)
         }
 
@@ -102,20 +108,25 @@ describe('Curate Tool', () => {
 
         const meaningfulDomains = ['authentication', 'api_design', 'data_models', 'error_handling', 'ui_components']
 
-        for (const domain of meaningfulDomains) {
-          const result = (await tool.execute({
-            basePath,
-            operations: [
-              {
-                content: {snippets: ['test content']},
-                path: `${domain}/topic`,
-                reason: 'testing semantic domain',
-                title: 'Test',
-                type: 'ADD',
-              },
-            ],
-          })) as CurateOutput
+        const results = await Promise.all(
+          meaningfulDomains.map(async (domain) => {
+            const result = (await tool.execute({
+              basePath,
+              operations: [
+                {
+                  content: { snippets: ['test content'] },
+                  path: `${domain}/topic`,
+                  reason: 'testing semantic domain',
+                  title: 'Test',
+                  type: 'ADD',
+                },
+              ],
+            })) as CurateOutput
+            return { domain, result }
+          }),
+        )
 
+        for (const { domain, result } of results) {
           expect(result.applied[0].status).to.equal('success', `Domain ${domain} should succeed`)
         }
 
@@ -132,7 +143,7 @@ describe('Curate Tool', () => {
           basePath,
           operations: [
             {
-              content: {snippets: ['test']},
+              content: { snippets: ['test'] },
               path: 'authentication/login',
               reason: 'testing',
               title: 'Test',
@@ -146,7 +157,7 @@ describe('Curate Tool', () => {
           basePath,
           operations: [
             {
-              content: {snippets: ['more content']},
+              content: { snippets: ['more content'] },
               path: 'authentication/logout',
               reason: 'testing reuse',
               title: 'Another Test',
@@ -167,7 +178,7 @@ describe('Curate Tool', () => {
           basePath,
           operations: [
             {
-              content: {snippets: ['test']},
+              content: { snippets: ['test'] },
               path: 'Code Style/error-handling',
               reason: 'testing normalization',
               title: 'Best Practices',
@@ -179,7 +190,7 @@ describe('Curate Tool', () => {
         expect(result.applied[0].status).to.equal('success')
         // Should create in normalized path
         const exists = await fs
-          .access(path.join(basePath, 'code_style/error_handling/best_practices.md'))
+          .access(join(basePath, 'code_style/error_handling/best_practices.md'))
           .then(() => true)
           .catch(() => false)
         expect(exists).to.be.true
@@ -195,7 +206,7 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
-            content: {snippets: ['test snippet']},
+            content: { snippets: ['test snippet'] },
             path: 'code_style/formatting',
             reason: 'testing filePath',
             title: 'Formatting Rules',
@@ -219,7 +230,7 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
-            content: {snippets: ['original']},
+            content: { snippets: ['original'] },
             path: 'code_style/formatting',
             reason: 'create',
             title: 'Formatting Rules',
@@ -233,7 +244,7 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
-            content: {snippets: ['updated']},
+            content: { snippets: ['updated'] },
             path: 'code_style/formatting',
             reason: 'update',
             title: 'Formatting Rules',
@@ -254,14 +265,14 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
-            content: {snippets: ['source content']},
+            content: { snippets: ['source content'] },
             path: 'code_style/old_topic',
             reason: 'create source',
             title: 'Old Guide',
             type: 'ADD',
           },
           {
-            content: {snippets: ['target content']},
+            content: { snippets: ['target content'] },
             path: 'code_style/new_topic',
             reason: 'create target',
             title: 'New Guide',
@@ -298,7 +309,7 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
-            content: {snippets: ['updated']},
+            content: { snippets: ['updated'] },
             path: 'code_style/nonexistent',
             reason: 'update',
             title: 'Nonexistent',
@@ -320,7 +331,7 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
-            content: {snippets: ['test']},
+            content: { snippets: ['test'] },
             path: 'code_style/error_handling',
             reason: 'testing naming',
             title: 'Best Practices for Errors',
@@ -332,7 +343,7 @@ describe('Curate Tool', () => {
       expect(result.applied[0].status).to.equal('success')
 
       // Verify file was created with correct name
-      const expectedPath = path.join(basePath, 'code_style/error_handling/best_practices_for_errors.md')
+      const expectedPath = join(basePath, 'code_style/error_handling/best_practices_for_errors.md')
       const exists = await fs
         .access(expectedPath)
         .then(() => true)
@@ -347,7 +358,7 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
-            content: {snippets: ['test']},
+            content: { snippets: ['test'] },
             path: 'code_style/formatting',
             reason: 'testing special chars',
             title: 'Error-Handling & Best_Practices',
@@ -370,7 +381,7 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
-            content: {snippets: ['subtopic content']},
+            content: { snippets: ['subtopic content'] },
             path: 'code_style/error_handling/logging',
             reason: 'testing subtopic',
             title: 'Logging Best Practices',
@@ -382,7 +393,7 @@ describe('Curate Tool', () => {
       expect(result.applied[0].status).to.equal('success')
 
       // Verify nested structure
-      const expectedPath = path.join(basePath, 'code_style/error_handling/logging/logging_best_practices.md')
+      const expectedPath = join(basePath, 'code_style/error_handling/logging/logging_best_practices.md')
       const exists = await fs
         .access(expectedPath)
         .then(() => true)
@@ -399,7 +410,7 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
-            content: {snippets: ['test']},
+            content: { snippets: ['test'] },
             path: 'code_style/topic',
             reason: 'testing',
             type: 'ADD',
@@ -437,7 +448,7 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
-            content: {snippets: ['test']},
+            content: { snippets: ['test'] },
             path: 'invalid', // Only one segment
             reason: 'testing',
             title: 'Test',
@@ -459,14 +470,14 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
-            content: {snippets: ['first']},
+            content: { snippets: ['first'] },
             path: 'code_style/topic1',
             reason: 'add 1',
             title: 'First',
             type: 'ADD',
           },
           {
-            content: {snippets: ['second']},
+            content: { snippets: ['second'] },
             path: 'design/topic2',
             reason: 'add 2',
             title: 'Second',
@@ -496,7 +507,7 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
-            content: {snippets: ['test']},
+            content: { snippets: ['test'] },
             path: 'invalid', // Invalid path - only one segment
             reason: 'testing',
             title: 'Test',
@@ -519,7 +530,7 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
-            content: {snippets: ['test']},
+            content: { snippets: ['test'] },
             path: 'code_style/new_topic',
             reason: 'testing',
             type: 'ADD',
@@ -532,7 +543,7 @@ describe('Curate Tool', () => {
 
       // Verify code_style directory was not created
       const codeStyleExists = await fs
-        .access(path.join(basePath, 'code_style'))
+        .access(join(basePath, 'code_style'))
         .then(() => true)
         .catch(() => false)
       expect(codeStyleExists).to.be.false
@@ -558,7 +569,7 @@ describe('Curate Tool', () => {
 
       // Verify design directory was not created
       const designExists = await fs
-        .access(path.join(basePath, 'design'))
+        .access(join(basePath, 'design'))
         .then(() => true)
         .catch(() => false)
       expect(designExists).to.be.false
@@ -569,13 +580,13 @@ describe('Curate Tool', () => {
       const tool = createCurateTool()
 
       // Fresh base path - no directories exist yet
-      const freshBasePath = path.join(tmpDir, '.brv/fresh-context-tree')
+      const freshBasePath = join(tmpDir, '.brv/fresh-context-tree')
 
       const result = (await tool.execute({
         basePath: freshBasePath,
         operations: [
           {
-            content: {snippets: ['test content']},
+            content: { snippets: ['test content'] },
             path: 'code_style/error_handling/logging',
             reason: 'testing directory creation',
             title: 'Logging Guide',
@@ -587,7 +598,7 @@ describe('Curate Tool', () => {
       expect(result.applied[0].status).to.equal('success')
 
       // Verify the file exists
-      const filePath = path.join(freshBasePath, 'code_style/error_handling/logging/logging_guide.md')
+      const filePath = join(freshBasePath, 'code_style/error_handling/logging/logging_guide.md')
       const fileExists = await fs
         .access(filePath)
         .then(() => true)
@@ -596,7 +607,7 @@ describe('Curate Tool', () => {
 
       // Verify parent directories exist (they should be created along with the file)
       const loggingDirExists = await fs
-        .access(path.join(freshBasePath, 'code_style/error_handling/logging'))
+        .access(join(freshBasePath, 'code_style/error_handling/logging'))
         .then(() => true)
         .catch(() => false)
       expect(loggingDirExists).to.be.true
