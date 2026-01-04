@@ -10,10 +10,10 @@ import {NoOpLogger} from '../../core/interfaces/cipher/i-logger.js'
  * Agent uses its default session (Single-Session pattern).
  */
 export type TaskInput = {
-  /** Task content/prompt */
-  content: string
   /** Client's working directory for file validation */
   clientCwd?: string
+  /** Task content/prompt */
+  content: string
   /** Optional file paths for curate --files */
   files?: string[]
   /** Task ID */
