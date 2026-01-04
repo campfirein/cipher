@@ -1,9 +1,9 @@
-import {realpathSync} from 'node:fs'
+import { realpathSync } from 'node:fs'
 import path from 'node:path'
 
-import type {FileSystemConfig, ValidationResult} from '../../../core/domain/cipher/file-system/types.js'
+import type { FileSystemConfig, ValidationResult } from '../../../core/domain/cipher/file-system/types.js'
 
-import {getErrorMessage} from '../../../utils/error-helpers.js'
+import { getErrorMessage } from '../../../utils/error-helpers.js'
 
 /**
  * Validates file paths against security policies.
