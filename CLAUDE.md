@@ -13,7 +13,30 @@ npm run lint                                     # ESLint
 ./bin/run.js [command]                          # Prod mode
 ```
 
-**Test dirs**: `test/commands/`, `test/unit/`, `test/integration/`, `test/hooks/`, `test/learning/`
+**Test dirs**: `test/commands/`, `test/unit/`, `test/integration/`, `test/hooks/`, `test/learning/`, `test/helpers/`, `test/shared/`
+
+## Development Standards
+
+**Code Quality**:
+- Follow clean code principles strictly
+- Apply proper OOP design and design patterns where appropriate
+- Apply functional programming principles where appropriate
+- Avoid over-engineering; keep solutions simple and focused
+
+**TypeScript**:
+- Avoid `as Type` assertions - use type guards or proper typing instead
+- Avoid `any` type - use `unknown` with type narrowing or proper generics
+- Functions with >3 parameters must use object parameters
+
+**CLI & API**:
+- Follow CLI building best practices (consistent flags, helpful error messages, proper exit codes)
+- Follow API integration best practices (proper error handling, retries, timeouts)
+- Consider security risks (input validation, secrets handling, injection prevention)
+
+**Testing**:
+- Apply TDD; 50% coverage minimum, critical paths must be covered
+- Run `npm run test` after each approved edit
+- Suppress console logging in tests to keep output clean
 
 ## Architecture
 
@@ -107,12 +130,12 @@ All have `toJson()`/`fromJson()`, immutable readonly properties
 
 **Cipher** (`src/infra/cipher/`) - LLM agent system:
 
-- `llm/` - Multi-provider support (Claude, Gemini, OpenRouter), tokenizers, context compression
-- `tools/` - 24+ tool implementations:
+- `llm/` - Multi-provider support (ByteRover internal, OpenRouter), tokenizers, context compression
+- `tools/` - 22 tool implementations:
   - File: `read-file`, `write-file`, `edit-file`, `list-directory`, `glob-files`, `grep-content`
   - Bash: `bash-exec`, `bash-output`, `kill-process`
   - Memory: `read-memory`, `write-memory`, `edit-memory`, `delete-memory`, `list-memories`
-  - Knowledge: `read-knowledge-topic`, `create-knowledge-topic`
+  - Knowledge: `create-knowledge-topic`
   - Todos: `read-todos`, `write-todos`
   - Other: `curate`, `task`, `batch`, `search-history`, `spec-analyze`
 - `tools/policy-engine.ts` - Tool execution policy (ALLOW/DENY)

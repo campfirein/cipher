@@ -1,9 +1,8 @@
 import {expect} from 'chai'
-import {readdir, readFile, rm} from 'node:fs/promises'
+import {readdir, rm} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
-import {CONTEXT_TREE_DOMAINS} from '../../../../src/config/context-tree-domains.js'
 import {FileContextTreeService} from '../../../../src/infra/context-tree/file-context-tree-service.js'
 
 describe('FileContextTreeService', () => {
@@ -26,46 +25,25 @@ describe('FileContextTreeService', () => {
   })
 
   describe('initialize', () => {
-    it('should create directory structure', async () => {
+    it('should create empty context-tree directory structure', async () => {
       const contextTreePath = await service.initialize(testDir)
 
       // Verify path structure
       expect(contextTreePath).to.include('.brv/context-tree')
 
-      // Verify all domain directories exist
+      // Verify directory is empty (domains are created dynamically)
       const domainDirs = await readdir(contextTreePath)
-      expect(domainDirs).to.have.lengthOf(CONTEXT_TREE_DOMAINS.length)
+      expect(domainDirs).to.have.lengthOf(0)
     })
 
-    it('should create all domain folders with context.md files', async () => {
+    it('should create directory that can hold dynamically created domains', async () => {
       const contextTreePath = await service.initialize(testDir)
 
-      // Verify all domain directories exist
-      const domainDirs = await readdir(contextTreePath)
-      expect(domainDirs).to.have.lengthOf(CONTEXT_TREE_DOMAINS.length)
-
-      // Verify each domain has context.md
-      await Promise.all(
-        CONTEXT_TREE_DOMAINS.map(async (domain) => {
-          const contextMdPath = join(contextTreePath, domain.name, 'context.md')
-          const contextContent = await readFile(contextMdPath, 'utf8')
-
-          // Verify context.md contains the domain description
-          expect(contextContent).to.include(domain.description)
-        }),
-      )
-    })
-
-    it('should create context.md files with proper formatting', async () => {
-      const contextTreePath = await service.initialize(testDir)
-
-      // Check one domain specifically
-      const codeStylePath = join(contextTreePath, 'code_style', 'context.md')
-      const content = await readFile(codeStylePath, 'utf8')
-
-      // Should have title and description
-      expect(content).to.include('# Code Style')
-      expect(content).to.include('Ensure all code follows style guidelines and quality standards')
+      // Verify the directory exists and is accessible
+      const entries = await readdir(contextTreePath)
+      expect(entries).to.be.an('array')
+      // No predefined domains - they are created dynamically by the agent
+      expect(entries.length).to.equal(0)
     })
 
     it('should use baseDirectory from config if directory not provided', async () => {

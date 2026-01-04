@@ -121,13 +121,18 @@ export class ContextTreeStructureContributor implements SystemPromptContributor 
     parts.push(
       '',
       '## Structure Guide',
-      '- Each top-level folder is a **domain** (e.g., `code_style/`, `design/`, `structure/`)',
+      '- Each top-level folder is a **domain** (dynamically created based on content)',
       '- Inside domains are **topics** as `.md` files or subfolders with `context.md`',
       '- `context.md` files contain the curated knowledge content',
       '',
+      '## Dynamic Domains',
+      '- Domains are created dynamically based on the semantics of curated content',
+      '- Domain names should be descriptive, use snake_case (e.g., `authentication`, `api_design`)',
+      '- Before creating a new domain, check if existing domains could accommodate the content',
+      '',
       '## Usage',
       '- **Query commands**: Search ONLY within this context tree structure',
-      '- **Curate commands**: Check existing content here before creating new topics',
+      '- **Curate commands**: Check existing domains/topics before creating new ones',
       '</context-tree-structure>',
     )
 
@@ -144,7 +149,9 @@ export class ContextTreeStructureContributor implements SystemPromptContributor 
       '',
       'The context tree at `.brv/context-tree/` exists but contains no curated content yet.',
       '',
-      '**For curate commands**: You can create new knowledge topics in any domain.',
+      '**For curate commands**: Create new domains and topics dynamically based on content.',
+      '- Choose semantically meaningful domain names (e.g., `authentication`, `api_design`, `data_models`)',
+      '- Use snake_case format for domain names',
       '**For query commands**: No context is available to search.',
       '</context-tree-structure>',
     ].join('\n')

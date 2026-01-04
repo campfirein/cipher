@@ -39,7 +39,7 @@ export const OnboardingStep: React.FC<OnboardingStepProps> = ({
   } = useTheme()
 
   return (
-    <Box flexDirection="column" paddingX={2}>
+    <Box flexDirection="column" paddingLeft={1} paddingTop={1} rowGap={1}>
       {/* Title */}
       <Text bold color={colors.primary}>
         {title}{' '}
@@ -54,7 +54,7 @@ export const OnboardingStep: React.FC<OnboardingStepProps> = ({
       <Text>{description}</Text>
 
       {/* Content */}
-      {children && <Box marginTop={1}>{children}</Box>}
+      {children && <Box>{children}</Box>}
     </Box>
   )
 }

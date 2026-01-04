@@ -1,6 +1,6 @@
 # ByteRover CLI
 
-Command-line interface for ByteRover, featuring an interactive REPL with a modern terminal UI for managing your project's context tree and memory storage.
+Command-line interface for ByteRover, featuring an interactive REPL with a modern React/Ink terminal UI for managing your project's context tree and knowledge storage. Seamlessly integrate with AI coding agents like Claude Code, Cursor, Windsurf, and GitHub Copilot.
 
 [![Version](https://img.shields.io/npm/v/byterover-cli.svg)](https://npmjs.org/package/byterover-cli)
 [![Downloads/week](https://img.shields.io/npm/dw/byterover-cli.svg)](https://npmjs.org/package/byterover-cli)
@@ -15,6 +15,7 @@ Command-line interface for ByteRover, featuring an interactive REPL with a moder
 * [Slash Commands Reference](#slash-commands-reference)
 * [Authentication](#authentication)
 * [Configuration](#configuration)
+* [Troubleshooting](#troubleshooting)
 * [Getting Help](#getting-help)
 
 ## Installation
@@ -90,6 +91,16 @@ brv
 
 Running `brv` without arguments starts the interactive REPL. The REPL requires an interactive terminal (TTY).
 
+### TUI Features
+
+The terminal UI includes:
+
+- **Tab Navigation**: Switch between Chat and Activity views using `Tab`
+- **Command Completion**: Type `/` to see available commands with auto-completion
+- **Activity Log**: Real-time task status and execution progress
+- **Streaming Output**: Live responses from AI-powered operations
+- **File References**: Type `@` in curate mode to browse and attach files
+
 ### Using Commands
 
 In the REPL, use slash commands (commands prefixed with `/`) to interact with ByteRover:
@@ -104,24 +115,33 @@ Commands support tab completion for quick navigation.
 
 ## What is Context Tree?
 
-The **Context Tree** is ByteRover's structured memory system that helps you and your coding agents organize, store, and retrieve project knowledge efficiently.
+The **Context Tree** is ByteRover's structured knowledge system that helps you and your AI coding agents organize, store, and retrieve project context efficiently.
 
 ### Why Use Context Tree?
 
 - **Organized Knowledge**: Structure your project knowledge by domain and topic
 - **Easy Retrieval**: Find relevant context quickly when you need it
 - **Persistent Memory**: Maintain project-specific knowledge across sessions
-- **Agent-Friendly**: Works seamlessly with coding agents like Claude Code, Cursor, and others
-- **Version Control**: Push and sync your context to ByteRover's cloud storage
+- **Agent-Friendly**: Works seamlessly with AI coding agents like Claude Code, Cursor, Windsurf, and GitHub Copilot
+- **Cloud Sync**: Push and sync your context tree to ByteRover's cloud storage for backup and team collaboration
+- **Dynamic Domains**: Automatically creates new domains as your knowledge grows
 
 ### How It Works
 
 The context tree organizes knowledge into:
-- **Domains**: High-level categories (e.g., Architecture, API, Frontend)
+- **Domains**: High-level categories (e.g., Architecture, API, Frontend) — created automatically or manually
 - **Topics**: Specific subjects within domains (e.g., Authentication, Components)
 - **Context Files**: Markdown files containing your actual knowledge
 
-For comprehensive instructions for coding agents, use `/gen-rules` to generate rule files.
+### Integrating with Coding Agents
+
+Use `/gen-rules` to generate rule instruction files that help your AI coding agents understand and work with ByteRover:
+
+```
+/gen-rules
+```
+
+This creates agent-specific rule files (e.g., `CLAUDE.md`, `.cursorrules`) that instruct the agent how to read from and contribute to your context tree.
 
 ## Slash Commands Reference
 
@@ -150,8 +170,8 @@ For comprehensive instructions for coding agents, use `/gen-rules` to generate r
 
 | Command | Description |
 |---------|-------------|
-| `/push [-b branch] [-y]` | Push context tree to ByteRover memory storage |
-| `/pull [-b branch]` | Pull context tree from ByteRover memory storage |
+| `/push [-b branch] [-y]` | Push context tree to ByteRover cloud storage |
+| `/pull [-b branch]` | Pull context tree from ByteRover cloud storage |
 
 **Options:**
 - `-b, --branch <name>`: ByteRover branch name (default: `main`)
@@ -182,7 +202,7 @@ For comprehensive instructions for coding agents, use `/gen-rules` to generate r
 
 | Command | Description |
 |---------|-------------|
-| `/gen-rules` | Generate rule instructions for coding agents |
+| `/gen-rules` | Generate rule files for AI coding agents (Claude Code, Cursor, etc.) |
 | `/clear [-y] [directory]` | Reset context tree to default domains |
 
 **Clear options:**
@@ -232,6 +252,16 @@ When you run `/init`, a configuration file is created at `.brv/config.json` in y
 - **User information**: Your user ID and email
 - **Project settings**: Project-specific configuration
 
+### Global Configuration
+
+User-level configuration is stored at `~/.config/brv/`:
+
+```
+~/.config/brv/
+├── config.json    # Global settings and device ID
+└── logs/          # Session logs for debugging
+```
+
 ### Context Tree Structure
 
 The context tree is stored in `.brv/context-tree/`:
@@ -255,7 +285,29 @@ The context tree is stored in `.brv/context-tree/`:
         └── context.md
 ```
 
-**Note**: When you run `/push`, your context tree is uploaded to ByteRover's memory storage for version control and team collaboration.
+**Note**: When you run `/push`, your context tree is uploaded to ByteRover's cloud storage for version control and team collaboration.
+
+## Troubleshooting
+
+### Session Logs
+
+If you encounter issues, session logs are stored at `~/.config/brv/logs/`. Each session creates a timestamped log file (e.g., `brv-2024-01-15T10-30-00.log`) that can help diagnose problems.
+
+### Instance Lock
+
+ByteRover CLI ensures only one instance runs per project folder. If you see an "instance already running" message:
+
+1. Check for another terminal with `brv` running in the same directory
+2. If no other instance is visible, the lock file may be stale — it will auto-release on the next start
+
+### Common Issues
+
+| Issue | Solution |
+|-------|----------|
+| "REPL requires an interactive terminal" | Run `brv` directly in a terminal, not through piped commands |
+| Authentication expires frequently | Run `/login` to refresh your session |
+| Context tree not syncing | Check `/status` for sync status, then try `/push` or `/pull` |
+| Rule files not generated | Ensure you're in a project directory with `.brv/` initialized |
 
 ## Getting Help
 

@@ -8,14 +8,17 @@ const SERVICE_NAME = 'byterover-cli'
 const ACCOUNT_NAME = 'auth-token'
 
 /**
- * Token store implementation using the system keychain via the keytar library.
+ * Token store using system keychain via keytar.
+ *
+ * Note: This class should not be used directly. Use createTokenStore() instead,
+ * which handles platform detection and selects the appropriate backend.
  */
 export class KeychainTokenStore implements ITokenStore {
   public async clear(): Promise<void> {
     try {
       await keytar.deletePassword(SERVICE_NAME, ACCOUNT_NAME)
     } catch {
-      // Ignore errors - token might not exist or keychain might be unavailable
+      // Ignore errors (token may not exist, permissions, etc.)
     }
   }
 
@@ -29,14 +32,13 @@ export class KeychainTokenStore implements ITokenStore {
       const deserialized = JSON.parse(data)
       return AuthToken.fromJson(deserialized)
     } catch {
-      // Return undefined on any error (missing token, invalid JSON, keychain errors)
       return undefined
     }
   }
 
   public async save(token: AuthToken): Promise<void> {
     try {
-      const data = JSON.stringify(token)
+      const data = JSON.stringify(token.toJson())
       await keytar.setPassword(SERVICE_NAME, ACCOUNT_NAME, data)
     } catch (error) {
       throw new Error(`Failed to save token to keychain: ${error instanceof Error ? error.message : 'Unknown error'}`)
