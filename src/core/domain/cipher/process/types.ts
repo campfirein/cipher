@@ -22,6 +22,14 @@ export interface ProcessConfig {
   environment: Record<string, string>
 
   /**
+   * Grace period in milliseconds to wait after SIGTERM before sending SIGKILL.
+   * Allows processes time to clean up gracefully.
+   *
+   * @default 5000 (5 seconds)
+   */
+  killGracePeriod: number
+
+  /**
    * Maximum number of concurrent background processes.
    * @default 5
    */

@@ -4,28 +4,31 @@
  */
 /* eslint-disable @typescript-eslint/no-explicit-any, camelcase */
 
-import { expect } from 'chai'
+import {expect} from 'chai'
 import * as fs from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import * as sinon from 'sinon'
+import {tmpdir} from 'node:os'
+import {join} from 'node:path'
+import {restore, stub} from 'sinon'
 
-import { Agent } from '../../../../../src/core/domain/entities/agent.js'
-import { CodexCleanService } from '../../../../../src/infra/parsers/clean/clean-codex-service.js'
+import {Agent} from '../../../../../src/core/domain/entities/agent.js'
+import {CodexCleanService} from '../../../../../src/infra/parsers/clean/clean-codex-service.js'
 
 describe('CodexCleanService', () => {
   let service: CodexCleanService
   let tempDir: string
 
   beforeEach(() => {
+    stub(console, 'log')
+    stub(console, 'error')
+    stub(console, 'warn')
     service = new CodexCleanService('Codex' as Agent)
     tempDir = join(tmpdir(), `test-codex-clean-${Date.now()}`)
   })
 
   afterEach(() => {
-    sinon.restore()
+    restore()
     if (fs.existsSync(tempDir)) {
-      fs.rmSync(tempDir, { recursive: true })
+      fs.rmSync(tempDir, {recursive: true})
     }
   })
 
@@ -33,31 +36,26 @@ describe('CodexCleanService', () => {
     it('should successfully parse raw directory with sessions', async () => {
       const inputDir = join(tempDir, 'raw')
       const dateDir = join(inputDir, '2024-01-01')
-      fs.mkdirSync(dateDir, { recursive: true })
+      fs.mkdirSync(dateDir, {recursive: true})
 
       const sessionData = {
         id: 'session-1',
         rawEntries: [
           {
             payload: {
-              content: [
-                { text: 'Hello', type: 'text' }
-              ],
+              content: [{text: 'Hello', type: 'text'}],
               role: 'user',
-              type: 'message'
+              type: 'message',
             },
             timestamp: Date.now(),
-            type: 'response_item'
-          }
+            type: 'response_item',
+          },
         ],
         timestamp: Date.now(),
-        title: 'Test Session'
+        title: 'Test Session',
       }
 
-      fs.writeFileSync(
-        join(dateDir, 'session-1.json'),
-        JSON.stringify(sessionData)
-      )
+      fs.writeFileSync(join(dateDir, 'session-1.json'), JSON.stringify(sessionData))
 
       const result = await service.parse(inputDir)
       expect(Array.isArray(result)).to.be.true
@@ -67,7 +65,7 @@ describe('CodexCleanService', () => {
     it('should handle directory with no sessions', async () => {
       const inputDir = join(tempDir, 'raw')
       const dateDir = join(inputDir, '2024-01-01')
-      fs.mkdirSync(dateDir, { recursive: true })
+      fs.mkdirSync(dateDir, {recursive: true})
 
       const result = await service.parse(inputDir)
       expect(Array.isArray(result)).to.be.true
@@ -77,12 +75,9 @@ describe('CodexCleanService', () => {
     it('should handle parse errors gracefully', async () => {
       const inputDir = join(tempDir, 'raw')
       const dateDir = join(inputDir, '2024-01-01')
-      fs.mkdirSync(dateDir, { recursive: true })
+      fs.mkdirSync(dateDir, {recursive: true})
 
-      fs.writeFileSync(
-        join(dateDir, 'invalid.json'),
-        'invalid json'
-      )
+      fs.writeFileSync(join(dateDir, 'invalid.json'), 'invalid json')
 
       const result = await service.parse(inputDir)
       expect(Array.isArray(result)).to.be.true
@@ -92,7 +87,7 @@ describe('CodexCleanService', () => {
     it('should skip non-JSON files', async () => {
       const inputDir = join(tempDir, 'raw')
       const dateDir = join(inputDir, '2024-01-01')
-      fs.mkdirSync(dateDir, { recursive: true })
+      fs.mkdirSync(dateDir, {recursive: true})
 
       fs.writeFileSync(join(dateDir, 'readme.txt'), 'text file')
 
@@ -111,22 +106,22 @@ describe('CodexCleanService', () => {
             payload: {
               cli_version: '1.0.0',
               model_provider: 'openai',
-              source: 'web'
+              source: 'web',
             },
-            type: 'session_meta'
+            type: 'session_meta',
           },
           {
             payload: {
-              content: [{ text: 'Hello', type: 'text' }],
+              content: [{text: 'Hello', type: 'text'}],
               role: 'user',
-              type: 'message'
+              type: 'message',
             },
             timestamp: '2024-01-01T10:00:00Z',
-            type: 'response_item'
-          }
+            type: 'response_item',
+          },
         ],
         timestamp: 1_234_567_890,
-        title: 'Test Session'
+        title: 'Test Session',
       }
 
       const result = (service as any).normalizeCodexSession(session)
@@ -145,14 +140,14 @@ describe('CodexCleanService', () => {
             payload: {
               cwd: '/Users/test/project',
               type: 'message',
-              writable_roots: ['/Users/test/project/src']
+              writable_roots: ['/Users/test/project/src'],
             },
             timestamp: '2024-01-01T10:00:00Z',
-            type: 'response_item'
-          }
+            type: 'response_item',
+          },
         ],
         timestamp: Date.now(),
-        title: 'Test'
+        title: 'Test',
       }
 
       const result = (service as any).normalizeCodexSession(session)
@@ -166,7 +161,7 @@ describe('CodexCleanService', () => {
         id: 'session-1',
         rawEntries: [],
         timestamp: Date.now(),
-        title: 'Test'
+        title: 'Test',
       }
 
       const result = (service as any).normalizeCodexSession(session)
@@ -181,11 +176,11 @@ describe('CodexCleanService', () => {
       const block = 'Hello world'
       const result = (service as any).normalizeCodexContentBlock(block)
 
-      expect(result).to.deep.equal({ text: 'Hello world', type: 'text' })
+      expect(result).to.deep.equal({text: 'Hello world', type: 'text'})
     })
 
     it('should normalize text blocks', () => {
-      const block = { text: 'Hello', type: 'text' }
+      const block = {text: 'Hello', type: 'text'}
       const result = (service as any).normalizeCodexContentBlock(block)
 
       expect(result.type).to.equal('text')
@@ -193,7 +188,7 @@ describe('CodexCleanService', () => {
     })
 
     it('should normalize thinking blocks', () => {
-      const block = { thinking: 'Analyzing...', type: 'thinking' }
+      const block = {thinking: 'Analyzing...', type: 'thinking'}
       const result = (service as any).normalizeCodexContentBlock(block)
 
       expect(result.type).to.equal('thinking')
@@ -203,9 +198,9 @@ describe('CodexCleanService', () => {
     it('should normalize tool_use blocks', () => {
       const block = {
         id: 'tool-1',
-        input: { command: 'ls' },
+        input: {command: 'ls'},
         name: 'bash',
-        type: 'tool_use'
+        type: 'tool_use',
       }
 
       const result = (service as any).normalizeCodexContentBlock(block)
@@ -219,7 +214,7 @@ describe('CodexCleanService', () => {
       const block = {
         content: 'result output',
         tool_use_id: 'tool-1',
-        type: 'tool_result'
+        type: 'tool_result',
       }
 
       const result = (service as any).normalizeCodexContentBlock(block)
@@ -237,7 +232,7 @@ describe('CodexCleanService', () => {
     })
 
     it('should normalize input_text blocks (Codex format)', () => {
-      const block = { text: 'User input', type: 'input_text' }
+      const block = {text: 'User input', type: 'input_text'}
       const result = (service as any).normalizeCodexContentBlock(block)
 
       expect(result.type).to.equal('text')
@@ -245,7 +240,7 @@ describe('CodexCleanService', () => {
     })
 
     it('should normalize output_text blocks (Codex format)', () => {
-      const block = { text: 'Model output', type: 'output_text' }
+      const block = {text: 'Model output', type: 'output_text'}
       const result = (service as any).normalizeCodexContentBlock(block)
 
       expect(result.type).to.equal('text')
@@ -258,22 +253,22 @@ describe('CodexCleanService', () => {
       const entries = [
         {
           payload: {
-            content: [{ text: 'Hello', type: 'text' }],
+            content: [{text: 'Hello', type: 'text'}],
             role: 'user',
-            type: 'message'
+            type: 'message',
           },
           timestamp: '2024-01-01T10:00:00Z',
-          type: 'response_item'
+          type: 'response_item',
         },
         {
           payload: {
-            content: [{ text: 'Hi there!', type: 'text' }],
+            content: [{text: 'Hi there!', type: 'text'}],
             role: 'assistant',
-            type: 'message'
+            type: 'message',
           },
           timestamp: '2024-01-01T10:01:00Z',
-          type: 'response_item'
-        }
+          type: 'response_item',
+        },
       ]
 
       const result = (service as any).transformCodexEntries(entries)
@@ -287,17 +282,17 @@ describe('CodexCleanService', () => {
     it('should filter out event_msg entries', () => {
       const entries = [
         {
-          payload: { data: 'event' },
-          type: 'event_msg'
+          payload: {data: 'event'},
+          type: 'event_msg',
         },
         {
           payload: {
-            content: [{ text: 'Message', type: 'text' }],
-            type: 'message'
+            content: [{text: 'Message', type: 'text'}],
+            type: 'message',
           },
           timestamp: '2024-01-01T10:00:00Z',
-          type: 'response_item'
-        }
+          type: 'response_item',
+        },
       ]
 
       const result = (service as any).transformCodexEntries(entries)
@@ -311,22 +306,22 @@ describe('CodexCleanService', () => {
         {
           payload: {
             call_id: 'tool-1',
-            input: { command: 'ls' },
+            input: {command: 'ls'},
             name: 'bash',
-            type: 'custom_tool_call'
+            type: 'custom_tool_call',
           },
           timestamp: '2024-01-01T10:00:00Z',
-          type: 'response_item'
+          type: 'response_item',
         },
         {
           payload: {
             call_id: 'tool-1',
-            output: JSON.stringify({ output: 'file list' }),
-            type: 'custom_tool_call_output'
+            output: JSON.stringify({output: 'file list'}),
+            type: 'custom_tool_call_output',
           },
           timestamp: '2024-01-01T10:01:00Z',
-          type: 'response_item'
-        }
+          type: 'response_item',
+        },
       ]
 
       const result = (service as any).transformCodexEntries(entries)
@@ -339,20 +334,20 @@ describe('CodexCleanService', () => {
       const entries = [
         {
           payload: {
-            content: [{ text: 'Message 1', type: 'text' }],
-            type: 'message'
+            content: [{text: 'Message 1', type: 'text'}],
+            type: 'message',
           },
           timestamp: '2024-01-01T10:00:00Z',
-          type: 'response_item'
+          type: 'response_item',
         },
         {
           payload: {
-            content: [{ text: 'Message 2', type: 'text' }],
-            type: 'message'
+            content: [{text: 'Message 2', type: 'text'}],
+            type: 'message',
           },
           timestamp: '2024-01-01T10:01:00Z',
-          type: 'response_item'
-        }
+          type: 'response_item',
+        },
       ]
 
       const result = (service as any).transformCodexEntries(entries)
@@ -368,20 +363,20 @@ describe('CodexCleanService', () => {
       const entries = [
         {
           payload: {
-            content: [{ text: 'Second', type: 'text' }],
-            type: 'message'
+            content: [{text: 'Second', type: 'text'}],
+            type: 'message',
           },
           timestamp: '2024-01-01T10:02:00Z',
-          type: 'response_item'
+          type: 'response_item',
         },
         {
           payload: {
-            content: [{ text: 'First', type: 'text' }],
-            type: 'message'
+            content: [{text: 'First', type: 'text'}],
+            type: 'message',
           },
           timestamp: '2024-01-01T10:00:00Z',
-          type: 'response_item'
-        }
+          type: 'response_item',
+        },
       ]
 
       const result = (service as any).transformCodexEntries(entries)
@@ -396,7 +391,7 @@ describe('CodexCleanService', () => {
 
   describe('extractWorkspacePathsFromPayload', () => {
     it('should extract cwd from payload', () => {
-      const payload = { cwd: '/Users/test/project' }
+      const payload = {cwd: '/Users/test/project'}
       const result = (service as any).extractWorkspacePathsFromPayload(payload)
 
       expect(result).to.include('/Users/test/project')
@@ -404,7 +399,7 @@ describe('CodexCleanService', () => {
 
     it('should extract writable_roots array', () => {
       const payload = {
-        writable_roots: ['/Users/test/src', '/Users/test/tests']
+        writable_roots: ['/Users/test/src', '/Users/test/tests'],
       }
 
       const result = (service as any).extractWorkspacePathsFromPayload(payload)
@@ -416,8 +411,8 @@ describe('CodexCleanService', () => {
     it('should extract writable_roots from sandbox_policy', () => {
       const payload = {
         sandbox_policy: {
-          writable_roots: ['/tmp/sandbox']
-        }
+          writable_roots: ['/tmp/sandbox'],
+        },
       }
 
       const result = (service as any).extractWorkspacePathsFromPayload(payload)
@@ -426,14 +421,14 @@ describe('CodexCleanService', () => {
     })
 
     it('should handle string writable_roots', () => {
-      const payload = { writable_roots: '/Users/test' }
+      const payload = {writable_roots: '/Users/test'}
       const result = (service as any).extractWorkspacePathsFromPayload(payload)
 
       expect(result).to.include('/Users/test')
     })
 
     it('should return empty array when no paths found', () => {
-      const payload = { other: 'data' }
+      const payload = {other: 'data'}
       const result = (service as any).extractWorkspacePathsFromPayload(payload)
 
       expect(result).to.be.an('array')
@@ -443,38 +438,38 @@ describe('CodexCleanService', () => {
 
   describe('parseToolInput', () => {
     it('should handle custom_tool_call input', () => {
-      const payload = { input: 'command to run' }
+      const payload = {input: 'command to run'}
       const result = (service as any).parseToolInput(payload)
 
       expect(result).to.have.property('input', 'command to run')
     })
 
     it('should handle custom_tool_call with object input', () => {
-      const payload = { input: { args: ['-la'], command: 'ls' } }
+      const payload = {input: {args: ['-la'], command: 'ls'}}
       const result = (service as any).parseToolInput(payload)
 
       expect(result).to.have.property('command')
     })
 
     it('should handle function_call with JSON string arguments', () => {
-      const payload = { arguments: '{"param": "value"}' }
+      const payload = {arguments: '{"param": "value"}'}
       const result = (service as any).parseToolInput(payload)
 
       expect(result).to.have.property('param', 'value')
     })
 
     it('should handle function_call with object arguments', () => {
-      const payload = { arguments: { param: 'value' } }
+      const payload = {arguments: {param: 'value'}}
       const result = (service as any).parseToolInput(payload)
 
       expect(result).to.have.property('param', 'value')
     })
 
     it('should handle invalid JSON in function_call', () => {
-      const payload = { arguments: 'not json' }
+      const payload = {arguments: 'not json'}
       const result = (service as any).parseToolInput(payload)
 
-      expect(result).to.deep.equal({ arguments: 'not json' })
+      expect(result).to.deep.equal({arguments: 'not json'})
     })
 
     it('should return empty object when no input/arguments', () => {
@@ -487,21 +482,21 @@ describe('CodexCleanService', () => {
 
   describe('extractToolOutput', () => {
     it('should extract string output directly', () => {
-      const payload = { output: 'result text' }
+      const payload = {output: 'result text'}
       const result = (service as any).extractToolOutput(payload)
 
       expect(result).to.equal('result text')
     })
 
     it('should parse JSON string output', () => {
-      const payload = { output: JSON.stringify({ output: 'nested result' }) }
+      const payload = {output: JSON.stringify({output: 'nested result'})}
       const result = (service as any).extractToolOutput(payload)
 
       expect(result).to.equal('nested result')
     })
 
     it('should handle empty output', () => {
-      const payload = { output: '' }
+      const payload = {output: ''}
       const result = (service as any).extractToolOutput(payload)
 
       expect(result).to.equal('')
@@ -519,12 +514,12 @@ describe('CodexCleanService', () => {
     it('should process message type items', () => {
       const item = {
         payload: {
-          content: [{ text: 'Hello', type: 'text' }],
+          content: [{text: 'Hello', type: 'text'}],
           role: 'user',
-          type: 'message'
+          type: 'message',
         },
         timestamp: 1_234_567_890,
-        type: 'response_item'
+        type: 'response_item',
       }
 
       const result = (service as any).processResponseItem(item)
@@ -540,10 +535,10 @@ describe('CodexCleanService', () => {
           call_id: 'tool-1',
           input: 'ls',
           name: 'bash',
-          type: 'custom_tool_call'
+          type: 'custom_tool_call',
         },
         timestamp: 1_234_567_890,
-        type: 'response_item'
+        type: 'response_item',
       }
 
       const result = (service as any).processResponseItem(item)
@@ -556,13 +551,11 @@ describe('CodexCleanService', () => {
     it('should process reasoning items', () => {
       const item = {
         payload: {
-          summary: [
-            { text: 'Thinking about this...', type: 'summary_text' }
-          ],
-          type: 'reasoning'
+          summary: [{text: 'Thinking about this...', type: 'summary_text'}],
+          type: 'reasoning',
         },
         timestamp: 1_234_567_890,
-        type: 'response_item'
+        type: 'response_item',
       }
 
       const result = (service as any).processResponseItem(item)
@@ -576,10 +569,10 @@ describe('CodexCleanService', () => {
       const item = {
         payload: {
           content: [],
-          type: 'message'
+          type: 'message',
         },
         timestamp: 1_234_567_890,
-        type: 'response_item'
+        type: 'response_item',
       }
 
       const result = (service as any).processResponseItem(item)

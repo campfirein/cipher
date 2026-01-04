@@ -611,6 +611,8 @@ describe('SessionManager', () => {
       // Increase timeout for stress test
       this.timeout(10_000)
 
+      /* eslint-disable no-await-in-loop */
+      // Sequential execution is intentional for stress testing memory cleanup
       for (let i = 0; i < 100; i++) {
         // Create a fresh manager for each cycle
         const cycleManager = new TestableSessionManager(mockSharedServices, mockHttpConfig, llmConfig)
@@ -631,6 +633,7 @@ describe('SessionManager', () => {
         // Verify cleanup
         expect(cycleManager.getSessionCount()).to.equal(0)
       }
+      /* eslint-enable no-await-in-loop */
 
       // If we got here without running out of memory, the test passed
       expect(true).to.be.true

@@ -89,9 +89,8 @@ describe('CodingAgentLogWatcher Integration Test', () => {
     const initialCount = sessions.length
 
     await writeFile(join(testDir, 'new-file.log'), 'new log content')
-    // Might need to fine tune timeout based on file system speed (build machines can be slow)
-    // It's fine for integration tests to run a bit longer anyway.
-    await setTimeout(500)
+    // File system events are fast on modern systems
+    await setTimeout(50)
 
     expect(sessions.length).to.be.greaterThan(initialCount)
   })

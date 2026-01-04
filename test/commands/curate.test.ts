@@ -1,5 +1,5 @@
 import {expect} from 'chai'
-import sinon, {restore, stub} from 'sinon'
+import sinon, {match, restore, stub} from 'sinon'
 
 import type {ITerminal} from '../../src/core/interfaces/i-terminal.js'
 import type {ITrackingService} from '../../src/core/interfaces/i-tracking-service.js'
@@ -142,7 +142,7 @@ describe('Curate Command', () => {
       await useCase.run({context: 'test context'})
 
       expect(loggedMessages.some((m) => m.includes('No ByteRover instance is running'))).to.be.true
-      expect(trackingService.track.calledWith('mem:curate', sinon.match({status: 'error'}))).to.be.true
+      expect(trackingService.track.calledWith('mem:curate', match({status: 'error'}))).to.be.true
     })
 
     it('should handle InstanceCrashedError', async () => {
@@ -158,7 +158,7 @@ describe('Curate Command', () => {
       await useCase.run({context: 'test context'})
 
       expect(loggedMessages.some((m) => m.includes('ByteRover instance has crashed'))).to.be.true
-      expect(trackingService.track.calledWith('mem:curate', sinon.match({status: 'error'}))).to.be.true
+      expect(trackingService.track.calledWith('mem:curate', match({status: 'error'}))).to.be.true
     })
 
     it('should handle ConnectionFailedError', async () => {
@@ -174,7 +174,7 @@ describe('Curate Command', () => {
       await useCase.run({context: 'test context'})
 
       expect(loggedMessages.some((m) => m.includes('Failed to connect'))).to.be.true
-      expect(trackingService.track.calledWith('mem:curate', sinon.match({status: 'error'}))).to.be.true
+      expect(trackingService.track.calledWith('mem:curate', match({status: 'error'}))).to.be.true
     })
 
     it('should handle unexpected errors', async () => {
@@ -190,7 +190,7 @@ describe('Curate Command', () => {
       await useCase.run({context: 'test context'})
 
       expect(loggedMessages.some((m) => m.includes('Unexpected error'))).to.be.true
-      expect(trackingService.track.calledWith('mem:curate', sinon.match({status: 'error'}))).to.be.true
+      expect(trackingService.track.calledWith('mem:curate', match({status: 'error'}))).to.be.true
     })
 
     it('should disconnect client even when request fails', async () => {

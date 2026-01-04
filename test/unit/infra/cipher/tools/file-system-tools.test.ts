@@ -95,6 +95,7 @@ describe('File System Tools', () => {
       sandbox.assert.calledWith(readFileStub, '/path/to/file', sandbox.match({limit: 10, offset: 5}))
     })
 
+    // eslint-disable-next-line mocha/no-skipped-tests
     it.skip('should return pagination metadata when file is truncated', async () => {
       const tool = createReadFileTool(fileSystemMock)
       const mockResult = {
@@ -118,6 +119,7 @@ describe('File System Tools', () => {
       expect(result).to.deep.equal(mockResult)
     })
 
+    // eslint-disable-next-line mocha/no-skipped-tests
     it.skip('should return truncatedLineCount when lines are too long', async () => {
       const tool = createReadFileTool(fileSystemMock)
       const mockResult = {
