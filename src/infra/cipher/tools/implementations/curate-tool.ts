@@ -44,7 +44,7 @@ const ContentSchema = z.object({
   relations: z
     .array(z.string())
     .optional()
-    .describe('Related topics using domain/topic or domain/topic/subtopic notation'),
+    .describe('Related topics using domain/topic/title.md or domain/topic/subtopic/title.md notation'),
   snippets: z.array(z.string()).optional().describe('Code/text snippets'),
 })
 
@@ -55,7 +55,7 @@ const OperationSchema = z.object({
   content: ContentSchema.optional().describe('Content for ADD/UPDATE operations'),
   mergeTarget: z.string().optional().describe('Target path for MERGE operation'),
   mergeTargetTitle: z.string().optional().describe('Title of the target file for MERGE operation'),
-  path: z.string().describe('Path: domain/topic or domain/topic/subtopic'),
+  path: z.string().describe('Path: domain/topic/title.md or domain/topic/subtopic/title.md'),
   reason: z.string().describe('Reasoning for this operation'),
   title: z.string().optional().describe('Title for the context file (saved as {title}.md in snake_case). Required for ADD/UPDATE/MERGE, optional for DELETE'),
   type: OperationType.describe('Operation type: ADD, UPDATE, MERGE, or DELETE'),
@@ -604,7 +604,8 @@ export function createCurateTool(): Tool {
 
 **Operations:**
 1. **ADD** - Create new titled context file in domain/topic/subtopic
-   - Requires: path, title, content, reason
+   - Requires: path, title, content (snippets and/or relations), reason
+   - Relations must be in the format of "domain/topic/title.md" or "domain/topic/subtopic/title.md"
    - Example with Raw Concept + Narrative:
      {
        type: "ADD",
@@ -622,7 +623,8 @@ export function createCurateTool(): Tool {
            structure: "# Redis client\\n- clients/redis_client.go",
            dependencies: "# Redis client\\n- Singleton, init when service starts",
            features: "# Authorization\\n- User permission can be stale for up to 300 seconds"
-         }
+         },
+         relations: ["structure/api-endpoints/validation.md", "structure/api-endpoints/error-handling/retry-logic.md"]
        },
        reason: "New caching pattern"
      }
@@ -630,6 +632,7 @@ export function createCurateTool(): Tool {
 
 2. **UPDATE** - Modify existing titled context file (full replacement)
    - Requires: path, title, content, reason
+   - Relations must be in the format of "domain/topic/title.md" or "domain/topic/subtopic/title.md"
    - Supports same content structure as ADD
 
 3. **MERGE** - Combine source file into target file, delete source
@@ -641,7 +644,7 @@ export function createCurateTool(): Tool {
    - Requires: path, title (optional), reason
    - With title: deletes specific file; without title: deletes entire folder
 
-**Path format:** domain/topic or domain/topic/subtopic (uses snake_case automatically)
+**Path format:** domain/topic/title.md or domain/topic/subtopic/title.md (uses snake_case automatically)
 **File naming:** Titles are converted to snake_case (e.g., "Best Practices" -> "best_practices.md")
 
 **Dynamic Domain Creation:**
