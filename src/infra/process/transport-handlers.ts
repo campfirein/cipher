@@ -74,11 +74,11 @@ import {eventLog, transportLog} from '../../utils/process-logger.js'
  * Internal task tracking (local to TransportHandlers).
  */
 type TaskInfo = {
+  /** Client's working directory for file validation */
+  clientCwd?: string
   clientId: string
   content: string
   createdAt: number
-  /** Client's working directory for file validation */
-  clientCwd?: string
   files?: string[]
   taskId: string
   type: string
