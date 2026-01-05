@@ -64,7 +64,7 @@ export function resolveRelationPath(basePath: string, relation: string): string 
  *
  * @param domain - Domain name
  * @param topic - Topic name
- * @param title - Title with .md extension
+ * @param title - Title (with .md extension)
  * @param subtopic - Optional subtopic name
  * @returns Formatted relation string with @ prefix
  *
@@ -84,23 +84,23 @@ export function formatRelation(domain: string, topic: string, title: string, sub
 }
 
 /**
- * Normalize a relation path by removing the @ prefix and file extensions.
+ * Normalize a relation path by removing the @ prefix.
+ * Preserves file extensions (e.g., .md).
  *
  * @param relation - Relation path to normalize
- * @returns Normalized relation path without @ prefix and file extension
+ * @returns Normalized relation path without @ prefix (file extension preserved)
  *
  * @example
  * ```ts
- * normalizeRelation('code_style/error-handling') // 'code_style/error-handling'
- * normalizeRelation('@code_style/error-handling') // 'code_style/error-handling'
- * normalizeRelation('code_style/error-handling/title.md') // 'code_style/error-handling/title'
- * normalizeRelation('@@@code_style/error-handling/title.py') // 'code_style/error-handling/title'
- * normalizeRelation('code_style/error-handling/file.abc') // 'code_style/error-handling/file'
+ * normalizeRelation('code_style/error-handling.md') // 'code_style/error-handling.md'
+ * normalizeRelation('@code_style/error-handling.md') // 'code_style/error-handling.md'
+ * normalizeRelation('code_style/error-handling/title.md') // 'code_style/error-handling/title.md'
+ * normalizeRelation('code_style/error-handling/file.md') // 'code_style/error-handling/file.md'
  * ```
  */
 
 export function normalizeRelation(relation: string): string {
-  return relation.replace(/^@+/, '').replace(/\.[^.]+$/, '')
+  return relation.replace(/^@+/, '')
 }
 
 /**
@@ -112,7 +112,7 @@ export function normalizeRelation(relation: string): string {
  *
  * @example
  * ```ts
- * generateRelationsSection(['code_style/error-handling/overview', 'structure/api/rest'])
+ * generateRelationsSection(['code_style/error-handling/overview.md', 'structure/api/rest.md'])
  * // => '\n## Relations\n@code_style/error-handling/overview.md\n@structure/api/rest.md\n'
  *
  * generateRelationsSection([])
@@ -125,7 +125,12 @@ export function generateRelationsSection(relations: string[]): string {
   }
 
   const formattedRelations = relations
-    .map(rel => `@${normalizeRelation(rel)}.md`)
+    .map(rel => {
+      const normalized = normalizeRelation(rel)
+      // Ensure .md extension is present
+      const withExtension = normalized.endsWith('.md') ? normalized : `${normalized}.md`
+      return `@${withExtension}`
+    })
     .join('\n')
 
   return `\n## Relations\n${formattedRelations}\n`
