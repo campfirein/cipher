@@ -86,6 +86,14 @@ type TaskInfo = {
   type: string
 }
 
+/**
+ * Type guard for valid task types.
+ * Replaces unsafe `as` assertion per CLAUDE.md standards.
+ */
+function isValidTaskType(type: string): type is 'curate' | 'query' {
+  return type === 'curate' || type === 'query'
+}
+
 type LlmEventName = (typeof TransportLlmEventList)[number]
 
 type LlmEventPayloadMap = {
@@ -279,13 +287,23 @@ export class TransportHandlers {
         return {taskId}
       }
 
+      // Validate task type before forwarding (type guard replaces unsafe `as` assertion)
+      if (!isValidTaskType(data.type)) {
+        transportLog(`Invalid task type: ${data.type}`)
+        const error = serializeTaskError(new Error(`Invalid task type: ${data.type}`))
+        this.transport.sendTo(clientId, TransportTaskEventNames.ERROR, {error, taskId})
+        this.transport.broadcastTo('broadcast-room', TransportTaskEventNames.ERROR, {error, taskId})
+        this.tasks.delete(taskId)
+        return {taskId}
+      }
+
       const executeMsg: TaskExecute = {
         clientId,
         content: data.content,
         ...(data.clientCwd ? {clientCwd: data.clientCwd} : {}),
         ...(data.files?.length ? {files: data.files} : {}),
         taskId,
-        type: data.type as 'curate' | 'query',
+        type: data.type,
       }
       this.transport.sendTo(this.agentClientId, TransportTaskEventNames.EXECUTE, executeMsg)
     } else {

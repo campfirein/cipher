@@ -30,9 +30,9 @@ import type {AgentIPCResponse, IPCCommand, TransportIPCResponse} from './ipc-typ
 import {crashLog, getSessionLogPath, processManagerLog} from '../../utils/process-logger.js'
 
 // IPC types imported from ./ipc-types.ts
-// - IPCCommand: Parent → Child (ping, shutdown)
+// - IPCCommand: Parent → Child (ping, shutdown, health-check)
 // - TransportIPCResponse: Transport → Parent (ready with port, pong, stopped, error)
-// - AgentIPCResponse: Agent → Parent (ready, pong, stopped, error)
+// - AgentIPCResponse: Agent → Parent (ready, pong, stopped, error, health-check-result)
 
 /**
  * Process state tracking.
@@ -197,6 +197,7 @@ export class ProcessManager {
   /**
    * Handle system wake from sleep.
    * Verify processes are still alive and restart if needed.
+   * Fix #3: Also trigger health-check to verify Socket.IO connections are healthy.
    */
   private handleSystemWake(): void {
     const {agentProcess, transportProcess} = this.state
@@ -220,6 +221,13 @@ export class ProcessManager {
       }
     } else {
       processManagerLog('Processes healthy after wake')
+
+      // Fix #3: Trigger health-check on agent to verify Socket.IO connection
+      // Processes may be alive but Socket.IO connections could be stale after sleep
+      if (agentProcess) {
+        processManagerLog('Sending health-check to agent after wake')
+        this.sendToChild(agentProcess, {type: 'health-check'})
+      }
     }
   }
 

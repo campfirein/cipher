@@ -320,10 +320,10 @@ export const TransportSessionEventNames = {
  * Internal message, not exposed to external clients
  */
 export const TaskExecuteSchema = z.object({
-  /** Client ID that created the task (for response routing) */
-  clientId: z.string(),
   /** Client's working directory for file validation */
   clientCwd: z.string().optional(),
+  /** Client ID that created the task (for response routing) */
+  clientId: z.string(),
   /** Task content/prompt */
   content: z.string(),
   /** Optional file paths for curate --files */

@@ -9,8 +9,8 @@
  * - NO Socket.IO server (Transport is the only server)
  *
  * IPC messages:
- * - Receives: 'ping', 'shutdown'
- * - Sends: 'ready', 'pong', 'stopped', 'error'
+ * - Receives: 'ping', 'shutdown', 'health-check'
+ * - Sends: 'ready', 'pong', 'stopped', 'error', 'health-check-result'
  *
  * Socket.IO events (as client):
  * - Sends: 'agent:register' (identify as Agent)
@@ -120,6 +120,9 @@ let isPolling = false
 
 /** Credentials polling running flag */
 let credentialsPollingRunning = false
+
+/** Guard: prevent task enqueueing during reinit (fixes TOCTOU race condition) */
+let isReinitializing = false
 
 /** Module-level cached stores for polling (avoid creating new instances every 5 seconds) */
 const pollingTokenStore = createTokenStore()
@@ -337,7 +340,8 @@ const TASK_EXECUTION_TIMEOUT_MS = 5 * 60 * 1000
 
 /**
  * Setup the task executor for TaskQueueManager.
- * Called after agent is initialized.
+ * Fix #2: Now called unconditionally at startup (before tryInitializeAgent).
+ * Lazy init inside executor enables processing tasks even if initial init failed.
  */
 function setupTaskExecutor(): void {
   taskQueueManager.setExecutor(async (task: TaskExecute) => {
@@ -345,10 +349,26 @@ function setupTaskExecutor(): void {
     const stats = taskQueueManager.getStats(type)
     agentLog(`Processing task ${taskId} (${type}), ${stats.queued} queued, ${stats.active} active`)
 
-    // Pre-execution guard: Verify agent is ready right before execution
-    // This catches the race condition where credentials polling stopped the agent
-    // between when the task was dequeued and when execution starts.
-    // Note: This checks AGENT state, not queue state (different from hasPendingWork)
+    // Fix #2: Lazy initialization - if agent not ready, try to initialize now
+    // This enables processing tasks that arrived while init was failing
+    if (!isAgentInitialized) {
+      agentLog(`Task ${taskId} - agent not initialized, attempting lazy init...`)
+      const initialized = await tryInitializeAgent()
+      if (!initialized) {
+        agentLog(`Task ${taskId} rejected - lazy initialization failed`)
+        const error = serializeTaskError(
+          initializationError ?? new AgentNotInitializedError('Agent initialization failed'),
+        )
+        transportClient?.request('task:error', {error, taskId}).catch(logTransportError)
+        return
+      }
+
+      agentLog(`Task ${taskId} - lazy initialization successful, proceeding`)
+    }
+
+    // Pre-execution guard: Verify agent is still ready (catches race conditions)
+    // This catches the case where credentials polling stopped the agent
+    // between when lazy init succeeded and when execution starts.
     if (!isAgentInitialized || !taskProcessor) {
       agentLog(`Task ${taskId} rejected - agent stopped during queue wait`)
       const error = serializeTaskError(new AgentNotInitializedError('Agent stopped during execution wait'))
@@ -523,8 +543,8 @@ async function tryInitializeAgent(forceReinit = false): Promise<boolean> {
     })
     taskProcessor.setAgent(cipherAgent)
 
-    // Setup task executor for queue manager (enables processing)
-    setupTaskExecutor()
+    // NOTE: setupTaskExecutor() is called once in startAgent() before tryInitializeAgent()
+    // No need to call again here - executor is already set and handles lazy init
 
     // Mark as initialized
     isAgentInitialized = true
@@ -570,22 +590,8 @@ async function handleTaskExecute(data: TaskExecute): Promise<void> {
 
   agentLog(`Processing task: ${taskId} (type=${type})`)
 
-  // If not initialized, try to initialize now (lazy init for post-onboarding)
-  if (!isAgentInitialized) {
-    agentLog('Not initialized, attempting lazy initialization...')
-    const initialized = await tryInitializeAgent()
-    if (!initialized) {
-      agentLog('Lazy initialization failed')
-      const error = serializeTaskError(initializationError ?? new ProcessorNotInitError())
-      transportClient?.request('task:error', {error, taskId}).catch(logTransportError)
-      return
-    }
-
-    agentLog('Lazy initialization successful!')
-  }
-
-  // NOTE: Config change detection removed - use explicit agent:restart event instead
-  // (triggered by /init command via TransportHandlers)
+  // NOTE: Lazy initialization is handled in setupTaskExecutor() executor callback.
+  // By the time we reach here, agent is already initialized (executor does lazy init first).
 
   if (!taskProcessor) {
     agentLog('TaskProcessor not initialized')
@@ -665,10 +671,28 @@ async function startAgent(): Promise<void> {
   await transportClient.request('agent:register', {})
   agentLog('Registered with Transport')
 
+  // Fix #1: Re-register on Socket.IO reconnect
+  // When Socket.IO reconnects (e.g., after network blip), agent gets new socket.id
+  // but Transport cleared agentClientId on disconnect. Must re-register.
+  transportClient.on('connect', async () => {
+    agentLog('Socket.IO reconnected - re-registering with Transport')
+    try {
+      await transportClient?.request('agent:register', {})
+      broadcastStatusChange()
+      agentLog('Re-registered with Transport after reconnect')
+    } catch (error) {
+      agentLog(`Failed to re-register after reconnect: ${error}`)
+    }
+  })
+
+  // Fix #2: Setup task executor BEFORE init - enables lazy init when tasks arrive
+  // This ensures tasks don't get stuck in queue if initial init fails
+  setupTaskExecutor()
+
   // Try to initialize agent (may fail if no auth yet - that's OK)
   // tryInitializeAgent() broadcasts status on both success and failure,
   // so Transport will have cached status before any task can arrive.
-  // If init fails, lazy init will retry when tasks arrive.
+  // If init fails, lazy init will retry when tasks arrive (handled by executor).
   const initialized = await tryInitializeAgent()
   if (!initialized) {
     agentLog('Initial setup incomplete - will retry when tasks arrive (lazy init)')
@@ -676,6 +700,14 @@ async function startAgent(): Promise<void> {
 
   // Setup event handlers - TaskQueueManager handles queueing and deduplication
   transportClient.on<TaskExecute>('task:execute', (data) => {
+    // Reject tasks during reinit to prevent TOCTOU race condition
+    if (isReinitializing) {
+      agentLog(`Task ${data.taskId} rejected - agent reinitializing`)
+      const error = serializeTaskError(new AgentNotInitializedError('Agent is reinitializing'))
+      transportClient?.request('task:error', {error, taskId: data.taskId}).catch(logTransportError)
+      return
+    }
+
     const result = taskQueueManager.enqueue(data)
 
     if (result.success) {
@@ -934,18 +966,24 @@ async function pollCredentialsAndSync(): Promise<void> {
         // Check RIGHT BEFORE reinit - after all awaits, to catch tasks added during awaits
         // Must check BOTH active (running) AND queued tasks to prevent race condition
         // where task is enqueued after this check but before stopCipherAgent() clears taskProcessor
-        if (hasPendingWork()) {
-          agentLog('Credentials changed but tasks in progress or queued - deferring reinit to next poll')
+        if (hasPendingWork() || isReinitializing) {
+          agentLog('Credentials changed but tasks in progress, queued, or reinit in progress - deferring')
           return
         }
 
-        // Credentials changed - reinit CipherAgent
-        agentLog('Credentials changed - reinitializing CipherAgent')
-        const success = await tryInitializeAgent(true) // forceReinit
-        if (success) {
-          agentLog('CipherAgent reinitialized with new credentials')
-        } else {
-          agentLog('CipherAgent reinitialization failed')
+        // Set reinit flag to reject new tasks during reinit (fixes TOCTOU race condition)
+        isReinitializing = true
+        try {
+          // Credentials changed - reinit CipherAgent
+          agentLog('Credentials changed - reinitializing CipherAgent')
+          const success = await tryInitializeAgent(true) // forceReinit
+          if (success) {
+            agentLog('CipherAgent reinitialized with new credentials')
+          } else {
+            agentLog('CipherAgent reinitialization failed')
+          }
+        } finally {
+          isReinitializing = false
         }
 
         break
@@ -1042,7 +1080,7 @@ function getAgentStatus(): AgentStatus {
     activeTasks: taskQueueManager.getActiveCount(),
     hasAuth: cachedCredentials !== undefined,
     // spaceId and teamId are set atomically during /init, so checking one is sufficient
-    hasConfig: cachedCredentials?.spaceId !== undefined,
+    hasConfig: cachedCredentials?.spaceId !== undefined && cachedCredentials?.teamId !== undefined,
     isInitialized: isAgentInitialized,
     lastError: initializationError?.message,
     queuedTasks: taskQueueManager.getQueuedCount(),
@@ -1130,13 +1168,37 @@ async function runWorker(): Promise<void> {
 
   // IPC message handler
   process.on('message', async (msg: IPCCommand) => {
-    if (msg.type === 'ping') {
-      sendToParent({type: 'pong'})
-    } else if (msg.type === 'shutdown') {
-      await stopAgent()
-      sendToParent({type: 'stopped'})
-      // eslint-disable-next-line n/no-process-exit
-      process.exit(0)
+    switch (msg.type) {
+      case 'health-check': {
+        // Fix #3: Health-check after sleep/wake - verify and repair connection
+        agentLog('Received health-check from parent - verifying connection')
+        try {
+          // Re-register with Transport to ensure connection is alive
+          await transportClient?.request('agent:register', {})
+          broadcastStatusChange()
+          agentLog('Health-check passed - connection verified')
+          sendToParent({success: true, type: 'health-check-result'})
+        } catch (error) {
+          agentLog(`Health-check failed - connection may be stale: ${error}`)
+          sendToParent({success: false, type: 'health-check-result'})
+          // Socket.IO will attempt reconnection automatically
+        }
+
+        break
+      }
+
+      case 'ping': {
+        sendToParent({type: 'pong'})
+        break
+      }
+
+      case 'shutdown': {
+        await stopAgent()
+        sendToParent({type: 'stopped'})
+        // eslint-disable-next-line n/no-process-exit
+        process.exit(0)
+        // Note: break not reachable but included for switch statement completeness
+      }
     }
   })
 
