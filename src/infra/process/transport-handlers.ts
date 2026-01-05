@@ -77,6 +77,7 @@ import {eventLog, transportLog} from '../../utils/process-logger.js'
  * Internal task tracking (local to TransportHandlers).
  */
 type TaskInfo = {
+  /** Client's working directory for file validation */
   clientCwd?: string
   clientId: string
   content: string
@@ -471,7 +472,9 @@ export class TransportHandlers {
     // Agent status events
     // agent:status:changed - Agent broadcasts status changes
     this.transport.onRequest<AgentStatus, void>(AgentStatusEventNames.STATUS_CHANGED, (data) => {
-      transportLog(`Agent status changed: initialized=${data.isInitialized}, auth=${data.hasAuth}, config=${data.hasConfig}`)
+      transportLog(
+        `Agent status changed: initialized=${data.isInitialized}, auth=${data.hasAuth}, config=${data.hasConfig}`,
+      )
       // Cache status for pre-task check
       this.cachedAgentStatus = data
       // Broadcast status change to all clients

@@ -4,28 +4,31 @@
  */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { expect } from 'chai'
+import {expect} from 'chai'
 import * as fs from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import * as sinon from 'sinon'
+import {tmpdir} from 'node:os'
+import {join} from 'node:path'
+import {restore, stub} from 'sinon'
 
-import { Agent } from '../../../../../src/core/domain/entities/agent.js'
-import { ClaudeRawService } from '../../../../../src/infra/parsers/raw/raw-claude-service.js'
+import {Agent} from '../../../../../src/core/domain/entities/agent.js'
+import {ClaudeRawService} from '../../../../../src/infra/parsers/raw/raw-claude-service.js'
 
 describe('ClaudeRawService', () => {
   let service: ClaudeRawService
   let tempDir: string
 
   beforeEach(() => {
+    stub(console, 'log')
+    stub(console, 'error')
+    stub(console, 'warn')
     service = new ClaudeRawService('Claude Code' as Agent)
     tempDir = join(tmpdir(), `test-claude-${Date.now()}`)
   })
 
   afterEach(() => {
-    sinon.restore()
+    restore()
     if (fs.existsSync(tempDir)) {
-      fs.rmSync(tempDir, { recursive: true })
+      fs.rmSync(tempDir, {recursive: true})
     }
   })
 
@@ -52,11 +55,11 @@ describe('ClaudeRawService', () => {
   describe('validateLogFile', () => {
     it('should validate correct Claude log file path', async () => {
       const tempFile = join(tempDir, 'test.jsonl')
-      fs.mkdirSync(tempDir, { recursive: true })
+      fs.mkdirSync(tempDir, {recursive: true})
       fs.writeFileSync(tempFile, '')
 
       const fullPath = join(tempDir, '.claude/projects/-path/test.jsonl')
-      fs.mkdirSync(dirname(fullPath), { recursive: true })
+      fs.mkdirSync(dirname(fullPath), {recursive: true})
       fs.writeFileSync(fullPath, '')
 
       const result = await (service as any).validateLogFile(fullPath)
@@ -71,7 +74,7 @@ describe('ClaudeRawService', () => {
 
     it('should reject non-JSONL files', async () => {
       const fullPath = join(tempDir, '.claude/projects/-path/test.json')
-      fs.mkdirSync(dirname(fullPath), { recursive: true })
+      fs.mkdirSync(dirname(fullPath), {recursive: true})
       fs.writeFileSync(fullPath, '')
 
       const result = await (service as any).validateLogFile(fullPath)
@@ -88,24 +91,24 @@ describe('ClaudeRawService', () => {
   describe('parseSessionLog', () => {
     it('should parse valid JSONL session log', async () => {
       const fullPath = join(tempDir, '.claude/projects/-path/session.jsonl')
-      fs.mkdirSync(dirname(fullPath), { recursive: true })
+      fs.mkdirSync(dirname(fullPath), {recursive: true})
 
       /* eslint-disable camelcase */
       const entry1 = {
         message: {
           content: 'Hello',
-          usage: { input_tokens: 10, output_tokens: 5 }
+          usage: {input_tokens: 10, output_tokens: 5},
         },
         timestamp: '2024-01-01T10:00:00Z',
-        type: 'user'
+        type: 'user',
       }
       const entry2 = {
         message: {
           content: 'Hi there!',
-          usage: { input_tokens: 20, output_tokens: 15 }
+          usage: {input_tokens: 20, output_tokens: 15},
         },
         timestamp: '2024-01-01T10:01:00Z',
-        type: 'assistant'
+        type: 'assistant',
       }
       /* eslint-enable camelcase */
 
@@ -121,9 +124,9 @@ describe('ClaudeRawService', () => {
 
     it('should handle invalid JSONL entries gracefully', async () => {
       const fullPath = join(tempDir, '.claude/projects/-path/session.jsonl')
-      fs.mkdirSync(dirname(fullPath), { recursive: true })
+      fs.mkdirSync(dirname(fullPath), {recursive: true})
 
-      const validEntry = { message: { content: 'test' }, timestamp: '2024-01-01T10:00:00Z', type: 'user' }
+      const validEntry = {message: {content: 'test'}, timestamp: '2024-01-01T10:00:00Z', type: 'user'}
       const invalidJson = 'not valid json'
 
       fs.writeFileSync(fullPath, `${JSON.stringify(validEntry)}\n${invalidJson}`)
@@ -134,7 +137,7 @@ describe('ClaudeRawService', () => {
 
     it('should throw error for empty JSONL file', async () => {
       const fullPath = join(tempDir, '.claude/projects/-path/empty.jsonl')
-      fs.mkdirSync(dirname(fullPath), { recursive: true })
+      fs.mkdirSync(dirname(fullPath), {recursive: true})
       fs.writeFileSync(fullPath, '')
 
       try {
@@ -149,14 +152,14 @@ describe('ClaudeRawService', () => {
   describe('parseSessionDirectory', () => {
     it('should parse all JSONL files in directory', async () => {
       const dirPath = join(tempDir, 'sessions')
-      fs.mkdirSync(dirPath, { recursive: true })
+      fs.mkdirSync(dirPath, {recursive: true})
 
       // Create multiple session files
       const sessionPath1 = join(tempDir, '.claude/projects/-path/session1.jsonl')
       const sessionPath2 = join(tempDir, '.claude/projects/-path/session2.jsonl')
-      fs.mkdirSync(dirname(sessionPath1), { recursive: true })
+      fs.mkdirSync(dirname(sessionPath1), {recursive: true})
 
-      const entry = { message: { content: 'test' }, timestamp: '2024-01-01T10:00:00Z', type: 'user' }
+      const entry = {message: {content: 'test'}, timestamp: '2024-01-01T10:00:00Z', type: 'user'}
       fs.writeFileSync(sessionPath1, JSON.stringify(entry))
       fs.writeFileSync(sessionPath2, JSON.stringify(entry))
 
@@ -167,9 +170,9 @@ describe('ClaudeRawService', () => {
     it('should filter out combined files', async () => {
       // This test verifies combined files are excluded
       const dirPath = dirname(join(tempDir, '.claude/projects/-path/session-combined.jsonl'))
-      fs.mkdirSync(dirPath, { recursive: true })
+      fs.mkdirSync(dirPath, {recursive: true})
 
-      const entry = { message: { content: 'test' }, timestamp: '2024-01-01T10:00:00Z', type: 'user' }
+      const entry = {message: {content: 'test'}, timestamp: '2024-01-01T10:00:00Z', type: 'user'}
       fs.writeFileSync(join(dirPath, 'session-combined.jsonl'), JSON.stringify(entry))
       fs.writeFileSync(join(dirPath, 'session.jsonl'), JSON.stringify(entry))
 
@@ -191,10 +194,10 @@ describe('ClaudeRawService', () => {
     it('should convert user messages', () => {
       const entries = [
         {
-          message: { content: 'Hello' },
+          message: {content: 'Hello'},
           timestamp: '2024-01-01T10:00:00Z',
-          type: 'user'
-        }
+          type: 'user',
+        },
       ]
 
       const result = (service as any).convertToMessages(entries)
@@ -206,10 +209,10 @@ describe('ClaudeRawService', () => {
     it('should convert assistant messages', () => {
       const entries = [
         {
-          message: { content: 'Hi!' },
+          message: {content: 'Hi!'},
           timestamp: '2024-01-01T10:00:00Z',
-          type: 'assistant'
-        }
+          type: 'assistant',
+        },
       ]
 
       const result = (service as any).convertToMessages(entries)
@@ -222,8 +225,8 @@ describe('ClaudeRawService', () => {
         {
           content: 'System prompt',
           timestamp: '2024-01-01T10:00:00Z',
-          type: 'system'
-        }
+          type: 'system',
+        },
       ]
 
       const result = (service as any).convertToMessages(entries)
@@ -233,8 +236,8 @@ describe('ClaudeRawService', () => {
 
     it('should skip entries without messages', () => {
       const entries = [
-        { timestamp: '2024-01-01T10:00:00Z', type: 'user' },
-        { timestamp: '2024-01-01T10:00:00Z', type: 'assistant' }
+        {timestamp: '2024-01-01T10:00:00Z', type: 'user'},
+        {timestamp: '2024-01-01T10:00:00Z', type: 'assistant'},
       ]
 
       const result = (service as any).convertToMessages(entries)
@@ -247,13 +250,13 @@ describe('ClaudeRawService', () => {
       const content = 'Hello world'
       const result = (service as any).extractContentBlocks(content)
       expect(result).to.have.lengthOf(1)
-      expect(result[0]).to.deep.equal({ text: 'Hello world', type: 'text' })
+      expect(result[0]).to.deep.equal({text: 'Hello world', type: 'text'})
     })
 
     it('should handle array of blocks', () => {
       const content = [
-        { text: 'Hello', type: 'text' },
-        { text: 'World', type: 'text' }
+        {text: 'Hello', type: 'text'},
+        {text: 'World', type: 'text'},
       ]
       const result = (service as any).extractContentBlocks(content)
       expect(result).to.have.lengthOf(2)
@@ -268,7 +271,7 @@ describe('ClaudeRawService', () => {
     })
 
     it('should handle object content', () => {
-      const content = { text: 'Hello', type: 'text' }
+      const content = {text: 'Hello', type: 'text'}
       const result = (service as any).extractContentBlocks(content)
       expect(result).to.have.lengthOf(1)
     })
@@ -277,9 +280,9 @@ describe('ClaudeRawService', () => {
   describe('extractTimestamps', () => {
     it('should extract first and last timestamps', () => {
       const entries = [
-        { timestamp: '2024-01-01T10:00:00Z' },
-        { timestamp: '2024-01-01T10:01:00Z' },
-        { timestamp: '2024-01-01T10:02:00Z' }
+        {timestamp: '2024-01-01T10:00:00Z'},
+        {timestamp: '2024-01-01T10:01:00Z'},
+        {timestamp: '2024-01-01T10:02:00Z'},
       ]
 
       const result = (service as any).extractTimestamps(entries)
@@ -288,14 +291,14 @@ describe('ClaudeRawService', () => {
     })
 
     it('should handle entries without timestamps', () => {
-      const entries = [{ timestamp: '' }, { timestamp: '2024-01-01T10:00:00Z' }]
+      const entries = [{timestamp: ''}, {timestamp: '2024-01-01T10:00:00Z'}]
 
       const result = (service as any).extractTimestamps(entries)
       expect(result.startedAt).to.equal('2024-01-01T10:00:00Z')
     })
 
     it('should return current time if no valid timestamps', () => {
-      const entries = [{ timestamp: '' }, { timestamp: null }]
+      const entries = [{timestamp: ''}, {timestamp: null}]
 
       const result = (service as any).extractTimestamps(entries)
       expect(result.startedAt).to.be.a('string')
@@ -304,9 +307,7 @@ describe('ClaudeRawService', () => {
 
   describe('extractTitle', () => {
     it('should extract title from first user message', () => {
-      const messages = [
-        { content: 'Hello world\nSecond line', type: 'user' }
-      ]
+      const messages = [{content: 'Hello world\nSecond line', type: 'user'}]
 
       const result = (service as any).extractTitle(messages)
       expect(result).to.equal('Hello world')
@@ -314,7 +315,7 @@ describe('ClaudeRawService', () => {
 
     it('should truncate long titles', () => {
       const longText = 'a'.repeat(150)
-      const messages = [{ content: longText, type: 'user' }]
+      const messages = [{content: longText, type: 'user'}]
 
       const result = (service as any).extractTitle(messages)
       expect(result.length).to.equal(103) // MAX_LENGTH + '...'
@@ -322,14 +323,14 @@ describe('ClaudeRawService', () => {
     })
 
     it('should return default title if no user messages', () => {
-      const messages = [{ content: 'Hello', type: 'assistant' }]
+      const messages = [{content: 'Hello', type: 'assistant'}]
 
       const result = (service as any).extractTitle(messages)
       expect(result).to.equal('Claude Code Session')
     })
 
     it('should handle non-string content', () => {
-      const messages = [{ content: [{ text: 'Hello', type: 'text' }], type: 'user' }]
+      const messages = [{content: [{text: 'Hello', type: 'text'}], type: 'user'}]
 
       const result = (service as any).extractTitle(messages)
       expect(result).to.equal('Claude Code Session')

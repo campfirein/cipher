@@ -6,9 +6,10 @@ import {SocketIOTransportClient} from '../../src/infra/transport/socket-io-trans
 import {SocketIOTransportServer} from '../../src/infra/transport/socket-io-transport-server.js'
 
 // Helper for delays
-const delay = (ms: number): Promise<void> => new Promise((resolve) => {
-  setTimeout(resolve, ms)
-})
+const delay = (ms: number): Promise<void> =>
+  new Promise((resolve) => {
+    setTimeout(resolve, ms)
+  })
 
 /**
  * Integration Tests for TaskId Flow through Transport + Agent
@@ -95,7 +96,7 @@ describe('TaskId Integration Flow', () => {
       })
 
       // Wait for Agent to receive
-      await delay(20)
+      await delay(5)
 
       // Verify Transport accepted client's taskId
       expect(response.taskId).to.equal(taskId)
@@ -142,7 +143,7 @@ describe('TaskId Integration Flow', () => {
       })
 
       // Wait for task:execute to reach Agent
-      await delay(20)
+      await delay(5)
 
       // Simulate Agent sending events (as it would in real flow)
       await mockAgent.request('llmservice:thinking', {sessionId: 'sess-1', taskId})
@@ -161,7 +162,7 @@ describe('TaskId Integration Flow', () => {
       await mockAgent.request('task:completed', {result: 'Success', taskId})
 
       // Wait for events to propagate
-      await delay(30)
+      await delay(5)
 
       // Verify client received all events with correct taskId (direct routing only)
       expect(clientEvents).to.have.length(4)
@@ -204,7 +205,7 @@ describe('TaskId Integration Flow', () => {
         type: 'curate',
       })
 
-      await delay(20)
+      await delay(5)
 
       // Simulate Agent sending interleaved events for both tasks
       await mockAgent.request('llmservice:chunk', {
@@ -232,7 +233,7 @@ describe('TaskId Integration Flow', () => {
         type: 'text',
       })
 
-      await delay(30)
+      await delay(5)
 
       // Both clients receive ALL events (via broadcast-room)
       // But events have correct taskId for filtering
@@ -280,12 +281,12 @@ describe('TaskId Integration Flow', () => {
         type: 'curate',
       })
 
-      await delay(20)
+      await delay(5)
 
       // Cancel the task
       await cancelClient.request('task:cancel', {taskId})
 
-      await delay(50)
+      await delay(5)
 
       // Verify cancellation event was received with correct taskId
       expect(cancelledTaskId).to.equal(taskId)
@@ -309,7 +310,7 @@ describe('TaskId Integration Flow', () => {
         type: 'query',
       })
 
-      await delay(20)
+      await delay(5)
 
       // Simulate Agent sending error
       await mockAgent.request('task:error', {
@@ -317,7 +318,7 @@ describe('TaskId Integration Flow', () => {
         taskId,
       })
 
-      await delay(20)
+      await delay(5)
 
       expect(errorEvent).to.not.be.undefined
       expect(errorEvent!.taskId).to.equal(taskId)
@@ -369,7 +370,7 @@ describe('TaskId Integration Flow', () => {
         queryTasks.push({taskId, type: 'query'})
       }
 
-      await delay(30)
+      await delay(5)
 
       const allTasks = [...curateTasks, ...queryTasks]
 
@@ -386,7 +387,7 @@ describe('TaskId Integration Flow', () => {
         }
       }
 
-      await delay(50)
+      await delay(5)
 
       // Verify each task received exactly 2 events
       for (const task of allTasks) {
