@@ -203,9 +203,9 @@ This creates agent-specific rule files (e.g., `CLAUDE.md`, `.cursorrules`) that 
 | Command | Description |
 |---------|-------------|
 | `/gen-rules` | Generate rule files for AI coding agents (Claude Code, Cursor, etc.) |
-| `/clear [-y] [directory]` | Reset context tree to default domains |
+| `/reset [-y] [directory]` | Reset context tree to default domains |
 
-**Clear options:**
+**Reset options:**
 - `-y, --yes`: Skip confirmation prompt
 
 ### Project Setup
