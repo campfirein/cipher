@@ -1,5 +1,4 @@
 import {SlashCommand} from '../../../tui/types.js'
-import {clearCommand} from './clear-command.js'
 import {curateCommand} from './curate-command.js'
 import {genRulesCommand} from './gen-rules-command.js'
 import {initCommand} from './init-command.js'
@@ -8,6 +7,7 @@ import {logoutCommand} from './logout-command.js'
 import {pullCommand} from './pull-command.js'
 import {pushCommand} from './push-command.js'
 import {queryCommand} from './query-command.js'
+import {resetCommand} from './reset-command.js'
 import {spaceCommand} from './space/index.js'
 import {statusCommand} from './status-command.js'
 
@@ -32,7 +32,7 @@ export const load: () => SlashCommand[] = () => [
 
   // Context tree management
   genRulesCommand, // Generate rule files
-  clearCommand, // Reset context tree (destructive)
+  resetCommand, // Reset context tree (destructive)
 
   // Setup
   initCommand, // Project setup (once per project)
