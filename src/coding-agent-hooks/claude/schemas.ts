@@ -80,14 +80,9 @@ export const HookSessionSchema = z.object({
   transcriptPath: z.string(),
 })
 
-export const HookSessionDataSchema = z.object({
-  sessions: z.record(z.string(), HookSessionSchema),
-})
-
 /** Inferred types */
 export type HookInput = z.infer<typeof HookInputSchema>
 export type StopHookInput = z.infer<typeof StopHookInputSchema>
 export type ContentBlock = z.infer<typeof ContentBlockSchema>
 export type TranscriptEntry = z.infer<typeof TranscriptEntrySchema>
 export type HookSession = z.infer<typeof HookSessionSchema>
-export type HookSessionData = z.infer<typeof HookSessionDataSchema>
