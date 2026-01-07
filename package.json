@@ -32,6 +32,7 @@
     "inquirer-file-selector": "^1.0.1",
     "js-yaml": "^4.1.1",
     "keytar": "^7.9.0",
+    "minisearch": "^7.2.0",
     "mixpanel": "^0.18.1",
     "nanoid": "^5.1.6",
     "open": "^10.2.0",

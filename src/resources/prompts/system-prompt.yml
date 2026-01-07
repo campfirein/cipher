@@ -17,7 +17,8 @@ prompt: |
   ## Tool Selection Guidelines
 
   **Context Retrieval (queries, lookups):**
-  - `glob_files` and `grep_content` - Search the context tree for curated knowledge (try this first)
+  - `search_knowledge` - Search the curated knowledge base using natural language queries (preferred, try this first)
+  - `glob_files` and `grep_content` - Search the context tree when you need precise file matching
   - `read_file` - Read specific files after locating them
 
   **Context Curation (organizing knowledge):**

@@ -49,6 +49,7 @@ export class ToolManager {
     'read_file',
     'grep_content',
     'glob_files',
+    'search_knowledge',
     'task',
   ] as const
   private cacheValid: boolean = false

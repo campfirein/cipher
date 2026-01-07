@@ -3,6 +3,8 @@ import path from 'node:path'
 
 import type {ContributorContext, SystemPromptContributor} from '../../../../core/domain/cipher/system-prompt/types.js'
 
+import {ToolName} from '../../../../core/domain/cipher/tools/constants.js'
+
 /**
  * Options for context tree structure contributor.
  */
@@ -69,6 +71,12 @@ export class ContextTreeStructureContributor implements SystemPromptContributor 
     // Check if context tree exists
     if (!fs.existsSync(contextTreePath)) {
       return this.buildNoContextTreeMessage()
+    }
+
+    // If search_knowledge tool is available, provide compact instructions instead of full tree
+    const hasSearchKnowledgeTool = context.availableTools?.includes(ToolName.SEARCH_KNOWLEDGE)
+    if (hasSearchKnowledgeTool) {
+      return this.buildSearchKnowledgeInstructions(contextTreePath)
     }
 
     return this.buildContextTreeStructure(contextTreePath)
@@ -167,6 +175,52 @@ export class ContextTreeStructureContributor implements SystemPromptContributor 
       '',
       'The `.brv/context-tree/` directory does not exist.',
       'Run `/init` to initialize the ByteRover project and create the context tree.',
+      '</context-tree-structure>',
+    ].join('\n')
+  }
+
+  /**
+   * Builds instructions for using the search_knowledge tool.
+   * Used when the tool is available to reduce token consumption.
+   *
+   * @param contextTreePath - Path to the context tree directory
+   * @returns Instructions for using search_knowledge tool
+   */
+  private buildSearchKnowledgeInstructions(contextTreePath: string): string {
+    // Check if tree has content
+    let hasContent = false
+    try {
+      const entries = fs.readdirSync(contextTreePath, {withFileTypes: true})
+      hasContent = entries.some((entry) => !entry.name.startsWith('.'))
+    } catch {
+      hasContent = false
+    }
+
+    if (!hasContent) {
+      return this.buildEmptyContextTreeMessage()
+    }
+
+    return [
+      '<context-tree-structure>',
+      '## Knowledge Base Available',
+      '',
+      'Curated knowledge is stored in `.brv/context-tree/`. Use the `search_knowledge` tool to find relevant topics.',
+      '',
+      '### How to Search',
+      '- Use natural language queries: `search_knowledge({ query: "authentication design" })`',
+      '- Search is fuzzy and supports partial matches',
+      '- Results include file paths, titles, and relevant excerpts',
+      '- Use `read_file` on returned paths to view full content',
+      '',
+      '### Example Queries',
+      '- "API design patterns"',
+      '- "error handling"',
+      '- "database schema"',
+      '',
+      '### For Curate Commands',
+      '- Search existing topics before creating new ones',
+      '- Use descriptive domain names (snake_case)',
+      '- Avoid duplicating existing knowledge',
       '</context-tree-structure>',
     ].join('\n')
   }

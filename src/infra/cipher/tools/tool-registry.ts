@@ -26,6 +26,7 @@ import {createReadFileTool} from './implementations/read-file-tool.js'
 import {createReadMemoryTool} from './implementations/read-memory-tool.js'
 import {createReadTodosTool} from './implementations/read-todos-tool.js'
 import {createSearchHistoryTool} from './implementations/search-history-tool.js'
+import {createSearchKnowledgeTool} from './implementations/search-knowledge-tool.js'
 import {createSpecAnalyzeTool} from './implementations/spec-analyze-tool.js'
 import {createTaskTool} from './implementations/task-tool.js'
 import {createWriteFileTool} from './implementations/write-file-tool.js'
@@ -252,6 +253,13 @@ export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
     factory: (_services) => createSearchHistoryTool(),
     markers: [ToolMarker.ContextBuilding, ToolMarker.Discovery],
     requiredServices: [], // No services required yet (stub implementation)
+  },
+
+  [ToolName.SEARCH_KNOWLEDGE]: {
+    descriptionFile: 'search_knowledge',
+    factory: () => createSearchKnowledgeTool(),
+    markers: [ToolMarker.ContextBuilding, ToolMarker.Discovery],
+    requiredServices: [], // Uses file system directly for context tree access
   },
 
   [ToolName.SPEC_ANALYZE]: {
