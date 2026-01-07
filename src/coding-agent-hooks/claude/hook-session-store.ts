@@ -8,15 +8,20 @@
  * Location: ~/.local/share/brv/hook-sessions/{sessionId}.json
  */
 
-import {existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync} from 'node:fs'
+import {existsSync} from 'node:fs'
+import {mkdir, readdir, readFile, stat, unlink, writeFile} from 'node:fs/promises'
 import {join} from 'node:path'
 
+import type {IHookSessionStore} from '../../core/interfaces/hooks/i-hook-session-store.js'
 import type {HookSession} from './schemas.js'
 
 import {getGlobalDataDir} from '../../utils/global-data-path.js'
-import {debugLog} from '../shared/debug-logger.js'
+import {debugLog, hookErrorLog} from '../shared/debug-logger.js'
 import {MAX_AGE_MS} from './constants.js'
 import {HookSessionSchema} from './schemas.js'
+
+/** Re-export interface for convenience */
+export type {IHookSessionStore} from '../../core/interfaces/hooks/i-hook-session-store.js'
 
 /**
  * One-file-per-session store for Claude Code hooks.
@@ -26,11 +31,15 @@ import {HookSessionSchema} from './schemas.js'
  * - No concurrency issues: UserPromptSubmit and Stop are sequential per session
  * - Cleanup: Delete files older than 24 hours by modification time
  */
-export class HookSessionStore {
+export class HookSessionStore implements IHookSessionStore {
   private readonly sessionsDir: string
 
-  constructor() {
-    this.sessionsDir = join(getGlobalDataDir(), 'hook-sessions')
+  /**
+   * @param sessionsDir - Optional custom sessions directory (for testing).
+   *                      Defaults to ~/.local/share/brv/hook-sessions/
+   */
+  constructor(sessionsDir?: string) {
+    this.sessionsDir = sessionsDir ?? join(getGlobalDataDir(), 'hook-sessions')
   }
 
   /**
@@ -46,22 +55,32 @@ export class HookSessionStore {
       }
 
       const now = Date.now()
-      const files = readdirSync(this.sessionsDir)
-      let removedCount = 0
+      const files = await readdir(this.sessionsDir)
+      const jsonFiles = files.filter((file) => file.endsWith('.json'))
 
-      for (const file of files) {
-        if (!file.endsWith('.json')) continue
+      /** Process all files in parallel to avoid no-await-in-loop */
+      const results = await Promise.all(
+        jsonFiles.map(async (file) => {
+          const filePath = join(this.sessionsDir, file)
+          try {
+            const stats = await stat(filePath)
+            const age = now - stats.mtimeMs
 
-        const filePath = join(this.sessionsDir, file)
-        const stats = statSync(filePath)
-        const age = now - stats.mtimeMs
+            if (age > maxAgeMs) {
+              await unlink(filePath)
+              /** Successfully removed */
+              return true
+            }
+          } catch {
+            /** File may have been deleted by another process */
+          }
 
-        if (age > maxAgeMs) {
-          unlinkSync(filePath)
-          removedCount++
-        }
-      }
+          /** Not removed */
+          return false
+        }),
+      )
 
+      const removedCount = results.filter(Boolean).length
       if (removedCount > 0) {
         debugLog('SESSION', 'Cleaned up old sessions', {removedCount})
       }
@@ -86,7 +105,7 @@ export class HookSessionStore {
         return undefined
       }
 
-      const content = readFileSync(filePath, 'utf8')
+      const content = await readFile(filePath, 'utf8')
       const result = HookSessionSchema.safeParse(JSON.parse(content))
 
       return result.success ? result.data : undefined
@@ -107,34 +126,31 @@ export class HookSessionStore {
    */
   async write(session: HookSession): Promise<void> {
     try {
-      this.ensureSessionsDir()
+      await this.ensureSessionsDir()
 
       const filePath = this.getSessionFilePath(session.sessionId)
-      writeFileSync(filePath, JSON.stringify(session, null, 2), 'utf8')
+      await writeFile(filePath, JSON.stringify(session, null, 2), 'utf8')
 
-      // Opportunistic cleanup to prevent unbounded growth
-      // Run AFTER write to avoid blocking
+      /** Opportunistic cleanup to prevent unbounded growth. Run AFTER write to avoid blocking. */
       if (Math.random() < 0.1) {
-        // Fire and forget - don't block on cleanup
+        /** Fire and forget - don't block on cleanup */
         this.cleanup().catch(() => {
-          // Ignore cleanup errors
+          /** Ignore cleanup errors */
         })
       }
     } catch (error) {
-      debugLog('SESSION', 'Failed to write session', {
-        error: error instanceof Error ? error.message : String(error),
-        sessionId: session.sessionId,
-      })
-      // Silent fail - don't block hook execution
+      /** Use hookErrorLog (always-on) so users know when session persistence fails */
+      hookErrorLog('SESSION', error instanceof Error ? error : new Error(String(error)), `write:${session.sessionId}`)
+      /** Silent fail - don't block hook execution */
     }
   }
 
   /**
    * Ensure sessions directory exists.
    */
-  private ensureSessionsDir(): void {
+  private async ensureSessionsDir(): Promise<void> {
     if (!existsSync(this.sessionsDir)) {
-      mkdirSync(this.sessionsDir, {recursive: true})
+      await mkdir(this.sessionsDir, {recursive: true})
     }
   }
 
@@ -146,7 +162,7 @@ export class HookSessionStore {
    * @returns Full path to session file
    */
   private getSessionFilePath(sessionId: string): string {
-    // Sanitize session ID to prevent path traversal
+    /** Sanitize session ID to prevent path traversal */
     const sanitized = sessionId.replaceAll(/[^a-zA-Z0-9-_]/g, '-')
     return join(this.sessionsDir, `${sanitized}.json`)
   }

@@ -244,7 +244,7 @@ How do I implement authentication?`
       expect(MAX_PROMPT_LENGTH).to.be.greaterThan(0)
     })
 
-    it('should be a reasonable value (5000)', () => {
+    it('should be a reasonable value (25000)', () => {
       expect(MAX_PROMPT_LENGTH).to.equal(25_000)
     })
   })

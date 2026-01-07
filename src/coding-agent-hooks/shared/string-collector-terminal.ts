@@ -7,10 +7,27 @@
 import type {FileSelectorItem, ITerminal} from '../../core/interfaces/i-terminal.js'
 
 /**
+ * Interface for output collection capabilities.
+ * Extends ITerminal with methods to retrieve collected output.
+ */
+export interface IOutputCollector {
+  /**
+   * Clear all collected output.
+   */
+  clear(): void
+
+  /**
+   * Get all collected output as a single string.
+   * @returns Concatenated output with newline separators
+   */
+  getOutput(): string
+}
+
+/**
  * Terminal implementation that collects output as strings.
  * Used by Claude Code hooks which run non-interactively.
  */
-export class StringCollectorTerminal implements ITerminal {
+export class StringCollectorTerminal implements IOutputCollector, ITerminal {
   private output: string[] = []
 
   actionStart(): void {}

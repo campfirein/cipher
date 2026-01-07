@@ -8,67 +8,43 @@
 /* eslint-disable camelcase */
 import {z} from 'zod'
 
+/**
+ * Helper schema for nullable optional strings.
+ * Claude Code may send null, undefined, or string for optional fields.
+ * This normalizes them all to string | undefined.
+ */
+const nullableString = z
+  .string()
+  .optional()
+  .nullable()
+  .transform((v) => v ?? undefined)
+
+/**
+ * Helper schema for nullable optional booleans.
+ */
+const nullableBoolean = z
+  .boolean()
+  .optional()
+  .nullable()
+  .transform((v) => v ?? undefined)
+
 /** Hook input schema for UserPromptSubmit hook */
 export const HookInputSchema = z.object({
-  cwd: z
-    .string()
-    .optional()
-    .nullable()
-    .transform((v) => v ?? undefined),
-  hook_event_name: z
-    .string()
-    .optional()
-    .nullable()
-    .transform((v) => v ?? undefined),
-  permission_mode: z
-    .string()
-    .optional()
-    .nullable()
-    .transform((v) => v ?? undefined),
-  prompt: z
-    .string()
-    .optional()
-    .nullable()
-    .transform((v) => v ?? undefined),
-  session_id: z
-    .string()
-    .optional()
-    .nullable()
-    .transform((v) => v ?? undefined),
-  transcript_path: z
-    .string()
-    .optional()
-    .nullable()
-    .transform((v) => v ?? undefined),
+  cwd: nullableString,
+  hook_event_name: nullableString,
+  permission_mode: nullableString,
+  prompt: nullableString,
+  session_id: nullableString,
+  transcript_path: nullableString,
 })
 
 /** Stop hook input schema */
 export const StopHookInputSchema = z.object({
-  cwd: z
-    .string()
-    .optional()
-    .nullable()
-    .transform((v) => v ?? undefined),
-  hook_event_name: z
-    .string()
-    .optional()
-    .nullable()
-    .transform((v) => v ?? undefined),
-  session_id: z
-    .string()
-    .optional()
-    .nullable()
-    .transform((v) => v ?? undefined),
-  stop_hook_active: z
-    .boolean()
-    .optional()
-    .nullable()
-    .transform((v) => v ?? undefined),
-  transcript_path: z
-    .string()
-    .optional()
-    .nullable()
-    .transform((v) => v ?? undefined),
+  cwd: nullableString,
+  hook_event_name: nullableString,
+  session_id: nullableString,
+  stop_hook_active: nullableBoolean,
+  transcript_path: nullableString,
 })
 
 /** Claude Code transcript content block schema */
@@ -91,11 +67,16 @@ export const TranscriptEntrySchema = z.object({
   type: z.enum(['assistant', 'user', 'system', 'summary']),
 })
 
-/** Claude Code session schema for hook state persistence */
+/**
+ * Claude Code session schema for hook state persistence.
+ * Stores session info between UserPromptSubmit and Stop hooks.
+ */
 export const HookSessionSchema = z.object({
-  createdAt: z.number(),
+  /** Session ID from Claude Code */
   sessionId: z.string(),
+  /** Timestamp when session was saved (ms since epoch) */
   timestamp: z.number(),
+  /** Path to the Claude Code transcript file */
   transcriptPath: z.string(),
 })
 

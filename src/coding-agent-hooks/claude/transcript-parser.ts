@@ -29,26 +29,28 @@ export const expandTilde = (filePath: string): string =>
  * Validate that transcript path is within expected Claude directory.
  * This prevents potential path traversal attacks.
  *
- * Supports both:
+ * Platform-specific paths:
  * - Unix/macOS: ~/.claude/
- * - Windows: %APPDATA%/Roaming/Claude/
+ * - Windows: %APPDATA%\Claude\ (typically C:\Users\Name\AppData\Roaming\Claude)
  *
  * @param filePath - Path to validate (may contain ~)
- * @returns True if path is valid (within Claude directories and ends with .jsonl)
+ * @returns True if path is valid (within Claude directory and ends with .jsonl)
  */
 export const isValidTranscriptPath = (filePath: string): boolean => {
   try {
     const expanded = expandTilde(filePath)
     const normalized = path.resolve(expanded)
 
-    // Support both Unix and Windows paths
-    const claudeBasePosix = path.join(homedir(), '.claude')
-    const claudeBaseWin = path.join(homedir(), 'AppData', 'Roaming', 'Claude')
+    /**
+     * Use platform-specific Claude directory.
+     * NOTE: Windows path is untested - Claude Code may use different location.
+     */
+    const isWindows = process.platform === 'win32'
+    const claudeBase = isWindows
+      ? path.join(homedir(), 'AppData', 'Roaming', 'Claude')
+      : path.join(homedir(), '.claude')
 
-    const isValidBase =
-      normalized.startsWith(claudeBasePosix) || normalized.startsWith(claudeBaseWin)
-
-    return isValidBase && normalized.endsWith('.jsonl')
+    return normalized.startsWith(claudeBase) && normalized.endsWith('.jsonl')
   } catch {
     return false
   }
@@ -226,7 +228,10 @@ export const extractLastAssistantText = (entries: TranscriptEntry[]): string | u
  * @param afterTimestamp - Only include entries after this timestamp (ms since epoch)
  * @returns Last assistant text or undefined if none found
  */
-export const getLastAssistantResponse = async (jsonlPath: string, afterTimestamp: number): Promise<string | undefined> => {
+export const getLastAssistantResponse = async (
+  jsonlPath: string,
+  afterTimestamp: number,
+): Promise<string | undefined> => {
   const entries = await parseTranscriptAfterTimestamp(jsonlPath, afterTimestamp)
   return extractLastAssistantText(entries)
 }

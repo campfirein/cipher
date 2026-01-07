@@ -1,4 +1,7 @@
 import {expect} from 'chai'
+import {rm} from 'node:fs/promises'
+import {tmpdir} from 'node:os'
+import {join} from 'node:path'
 
 import {HookSessionStore} from '../../../../src/coding-agent-hooks/claude/hook-session-store.js'
 
@@ -6,29 +9,27 @@ import {HookSessionStore} from '../../../../src/coding-agent-hooks/claude/hook-s
  * Note: These tests use actual file operations since ES Modules cannot be stubbed.
  * Per CLAUDE.md: "ES modules cannot be stubbed with sinon. Test with real filesystem (tmpdir())"
  *
- * The HookSessionStore uses getGlobalDataDir() which returns ~/.local/share/brv
- * Architecture: One file per session in ~/.local/share/brv/hook-sessions/
- * - Each session stored as {sessionId}.json
- * - Cleanup uses file modification time (not createdAt field)
+ * IMPORTANT: Tests use tmpdir for isolation - NEVER touch user directories.
+ * This prevents tests from corrupting production session data.
  */
 describe('coding-agent-hooks/claude/hook-session-store', () => {
-  // We'll use the actual store which writes to ~/.local/share/brv/hook-sessions/{sessionId}.json
-  // Tests should clean up after themselves
+  // Use tmpdir for test isolation - NEVER touch user directories like ~/.local/share/brv/
+  const testDir = join(tmpdir(), 'brv-test-hook-sessions')
   const testSessionPrefix = 'test-hook-session-'
 
+  // Helper to create store with test directory
+  const createTestStore = () => new HookSessionStore(testDir)
+
   afterEach(async () => {
-    // Clean up all test sessions by removing with maxAge=0
-    const store = new HookSessionStore()
-    // Force cleanup of all sessions (maxAge = 0 means remove all)
-    await store.cleanup(0)
+    // Clean up test directory only - safe because it's in tmpdir
+    await rm(testDir, {force: true, recursive: true})
   })
 
   describe('write()', () => {
     it('should write a new session and read it back', async () => {
-      const store = new HookSessionStore()
+      const store = createTestStore()
       const sessionId = `${testSessionPrefix}write-1`
       const session = {
-        createdAt: Date.now(),
         sessionId,
         timestamp: Date.now(),
         transcriptPath: '~/.claude/projects/test.jsonl',
@@ -41,16 +42,14 @@ describe('coding-agent-hooks/claude/hook-session-store', () => {
     })
 
     it('should overwrite existing session', async () => {
-      const store = new HookSessionStore()
+      const store = createTestStore()
       const sessionId = `${testSessionPrefix}overwrite-1`
       const session1 = {
-        createdAt: 1000,
         sessionId,
         timestamp: 1000,
         transcriptPath: '~/.claude/old.jsonl',
       }
       const session2 = {
-        createdAt: 2000,
         sessionId,
         timestamp: 2000,
         transcriptPath: '~/.claude/new.jsonl',
@@ -65,17 +64,15 @@ describe('coding-agent-hooks/claude/hook-session-store', () => {
     })
 
     it('should preserve other sessions when writing', async () => {
-      const store = new HookSessionStore()
+      const store = createTestStore()
       const sessionId1 = `${testSessionPrefix}preserve-1`
       const sessionId2 = `${testSessionPrefix}preserve-2`
       const session1 = {
-        createdAt: Date.now(),
         sessionId: sessionId1,
         timestamp: Date.now(),
         transcriptPath: '~/.claude/1.jsonl',
       }
       const session2 = {
-        createdAt: Date.now(),
         sessionId: sessionId2,
         timestamp: Date.now(),
         transcriptPath: '~/.claude/2.jsonl',
@@ -91,11 +88,10 @@ describe('coding-agent-hooks/claude/hook-session-store', () => {
     })
 
     it('should handle session with all required fields', async () => {
-      const store = new HookSessionStore()
+      const store = createTestStore()
       const sessionId = `${testSessionPrefix}fields-1`
       const now = Date.now()
       const session = {
-        createdAt: now,
         sessionId,
         timestamp: now,
         transcriptPath: '~/.claude/projects/myproject/abc123.jsonl',
@@ -107,13 +103,12 @@ describe('coding-agent-hooks/claude/hook-session-store', () => {
       expect(result?.sessionId).to.equal(sessionId)
       expect(result?.transcriptPath).to.equal('~/.claude/projects/myproject/abc123.jsonl')
       expect(result?.timestamp).to.equal(now)
-      expect(result?.createdAt).to.equal(now)
     })
   })
 
   describe('read()', () => {
     it('should return undefined for non-existent session', async () => {
-      const store = new HookSessionStore()
+      const store = createTestStore()
 
       const result = await store.read('does-not-exist-xyz-123')
 
@@ -121,10 +116,9 @@ describe('coding-agent-hooks/claude/hook-session-store', () => {
     })
 
     it('should read session written in same test run', async () => {
-      const store = new HookSessionStore()
+      const store = createTestStore()
       const sessionId = `${testSessionPrefix}read-1`
       const session = {
-        createdAt: 12_345,
         sessionId,
         timestamp: 12_345,
         transcriptPath: '~/.claude/read.jsonl',
@@ -137,10 +131,9 @@ describe('coding-agent-hooks/claude/hook-session-store', () => {
     })
 
     it('should handle UUID-style session IDs', async () => {
-      const store = new HookSessionStore()
+      const store = createTestStore()
       const sessionId = `${testSessionPrefix}00893aaf-19fa-41d2-8238-13269b9b3ca0`
       const session = {
-        createdAt: Date.now(),
         sessionId,
         timestamp: Date.now(),
         transcriptPath: '~/.claude/uuid.jsonl',
@@ -155,14 +148,13 @@ describe('coding-agent-hooks/claude/hook-session-store', () => {
 
   describe('cleanup()', () => {
     it('should remove sessions older than maxAge based on file modification time', async () => {
-      const store = new HookSessionStore()
+      const store = createTestStore()
       const oldSessionId = `${testSessionPrefix}cleanup-old`
       const newSessionId = `${testSessionPrefix}cleanup-new`
       const now = Date.now()
 
       // Write old session
       const oldSession = {
-        createdAt: now,
         sessionId: oldSessionId,
         timestamp: now,
         transcriptPath: '~/.claude/old.jsonl',
@@ -176,7 +168,6 @@ describe('coding-agent-hooks/claude/hook-session-store', () => {
 
       // Write new session
       const newSession = {
-        createdAt: now,
         sessionId: newSessionId,
         timestamp: now,
         transcriptPath: '~/.claude/new.jsonl',
@@ -193,10 +184,9 @@ describe('coding-agent-hooks/claude/hook-session-store', () => {
     })
 
     it('should keep all sessions when none are old', async () => {
-      const store = new HookSessionStore()
+      const store = createTestStore()
       const sessionId = `${testSessionPrefix}cleanup-keep`
       const session = {
-        createdAt: Date.now(),
         sessionId,
         timestamp: Date.now(),
         transcriptPath: '~/.claude/recent.jsonl',
@@ -210,7 +200,7 @@ describe('coding-agent-hooks/claude/hook-session-store', () => {
     })
 
     it('should not throw when called multiple times', async () => {
-      const store = new HookSessionStore()
+      const store = createTestStore()
 
       // Should complete without throwing
       await store.cleanup()
@@ -219,10 +209,9 @@ describe('coding-agent-hooks/claude/hook-session-store', () => {
     })
 
     it('should handle cleanup with default maxAge', async () => {
-      const store = new HookSessionStore()
+      const store = createTestStore()
       const sessionId = `${testSessionPrefix}cleanup-default`
       const session = {
-        createdAt: Date.now(),
         sessionId,
         timestamp: Date.now(),
         transcriptPath: '~/.claude/default.jsonl',
@@ -239,14 +228,13 @@ describe('coding-agent-hooks/claude/hook-session-store', () => {
 
   describe('error handling', () => {
     it('should handle concurrent writes without throwing', async () => {
-      const store = new HookSessionStore()
+      const store = createTestStore()
       const now = Date.now()
 
       // Write multiple sessions concurrently
       const promises = []
       for (let i = 0; i < 5; i++) {
         const session = {
-          createdAt: now,
           sessionId: `${testSessionPrefix}concurrent-${i}`,
           timestamp: now,
           transcriptPath: `~/.claude/${i}.jsonl`,
@@ -259,10 +247,9 @@ describe('coding-agent-hooks/claude/hook-session-store', () => {
     })
 
     it('should handle rapid sequential reads', async () => {
-      const store = new HookSessionStore()
+      const store = createTestStore()
       const sessionId = `${testSessionPrefix}rapid-read`
       const session = {
-        createdAt: Date.now(),
         sessionId,
         timestamp: Date.now(),
         transcriptPath: '~/.claude/rapid.jsonl',
@@ -282,10 +269,9 @@ describe('coding-agent-hooks/claude/hook-session-store', () => {
     })
 
     it('should sanitize session ID with special characters', async () => {
-      const store = new HookSessionStore()
+      const store = createTestStore()
       const sessionIdWithSpecialChars = `${testSessionPrefix}../../../etc/passwd`
       const session = {
-        createdAt: Date.now(),
         sessionId: sessionIdWithSpecialChars,
         timestamp: Date.now(),
         transcriptPath: '~/.claude/safe.jsonl',
@@ -299,18 +285,16 @@ describe('coding-agent-hooks/claude/hook-session-store', () => {
     })
 
     it('should handle session isolation - different sessions in different files', async () => {
-      const store = new HookSessionStore()
+      const store = createTestStore()
       const sessionId1 = `${testSessionPrefix}isolation-1`
       const sessionId2 = `${testSessionPrefix}isolation-2`
 
       const session1 = {
-        createdAt: 1000,
         sessionId: sessionId1,
         timestamp: 1000,
         transcriptPath: '~/.claude/session1.jsonl',
       }
       const session2 = {
-        createdAt: 2000,
         sessionId: sessionId2,
         timestamp: 2000,
         transcriptPath: '~/.claude/session2.jsonl',

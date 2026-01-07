@@ -21,6 +21,11 @@ import {MAX_PROMPT_LENGTH} from './constants.js'
  *
  * Original newlines, tabs, and multiple spaces are preserved.
  *
+ * LIMITATION: Nested same-name metadata tags are not fully supported.
+ * Example: `<system>outer<system>inner</system>outer</system>` would leave
+ * `outer</system>` in the output. This is acceptable because Claude Code
+ * does not produce nested same-name metadata tags in practice.
+ *
  * @param text - Text to clean
  * @returns Text with XML tags removed
  *

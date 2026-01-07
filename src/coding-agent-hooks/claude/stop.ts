@@ -125,9 +125,13 @@ if (isDirectExecution) {
   try {
     await main()
   } catch (error) {
-    // Log errors but exit 0 to keep Claude Code IDE working
+    /**
+     * Log errors but exit 0 in production to keep Claude Code IDE working.
+     * In development, exit 1 to surface errors for debugging.
+     */
     hookErrorLog('HOOK', error instanceof Error ? error : new Error(String(error)), 'Stop')
+    const exitCode = process.env.BRV_ENV === 'development' ? 1 : 0
     // eslint-disable-next-line n/no-process-exit, unicorn/no-process-exit
-    process.exit(0)
+    process.exit(exitCode)
   }
 }

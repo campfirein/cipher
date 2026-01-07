@@ -24,7 +24,7 @@ import {FileGlobalConfigStore} from '../../infra/storage/file-global-config-stor
 import {createTokenStore} from '../../infra/storage/token-store.js'
 import {MixpanelTrackingService} from '../../infra/tracking/mixpanel-tracking-service.js'
 import {QueryUseCase} from '../../infra/usecase/query-use-case.js'
-import {MAX_PROMPT_LENGTH} from '../shared/constants.js'
+import {MAX_PRE_TRUNCATION_LENGTH} from '../shared/constants.js'
 import {debugLog, hookErrorLog} from '../shared/debug-logger.js'
 import {readStdin} from '../shared/stdin-reader.js'
 import {StringCollectorTerminal} from '../shared/string-collector-terminal.js'
@@ -40,7 +40,7 @@ import {HookInputSchema} from './schemas.js'
  * @returns Cleaned and truncated prompt
  */
 export const preprocessPrompt = (prompt: string): string => {
-  const preTruncated = prompt.slice(0, MAX_PROMPT_LENGTH * 2)
+  const preTruncated = prompt.slice(0, MAX_PRE_TRUNCATION_LENGTH)
   const cleaned = cleanXmlTags(preTruncated)
   return truncatePrompt(cleaned)
 }
@@ -117,7 +117,6 @@ const main = async (): Promise<void> => {
   if (data.session_id && data.transcript_path) {
     const sessionStore = new HookSessionStore()
     await sessionStore.write({
-      createdAt: Date.now(),
       sessionId: data.session_id,
       timestamp: Date.now(),
       transcriptPath: data.transcript_path,
@@ -154,9 +153,13 @@ if (isDirectExecution) {
   try {
     await main()
   } catch (error) {
-    // Log errors but exit 0 to keep Claude Code IDE working
+    /**
+     * Log errors but exit 0 in production to keep Claude Code IDE working.
+     * In development, exit 1 to surface errors for debugging.
+     */
     hookErrorLog('HOOK', error instanceof Error ? error : new Error(String(error)), 'UserPromptSubmit')
+    const exitCode = process.env.BRV_ENV === 'development' ? 1 : 0
     // eslint-disable-next-line n/no-process-exit, unicorn/no-process-exit
-    process.exit(0)
+    process.exit(exitCode)
   }
 }

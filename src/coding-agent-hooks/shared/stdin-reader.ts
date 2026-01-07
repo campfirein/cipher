@@ -5,7 +5,7 @@
  * Used by Claude Code hooks to receive JSON input from the IDE.
  */
 
-import {STDIN_TIMEOUT_MS} from './constants.js'
+import {MAX_STDIN_SIZE, STDIN_TIMEOUT_MS} from './constants.js'
 
 /**
  * Read all data from stdin with timeout and error handling.
@@ -44,6 +44,12 @@ export const readStdin = async (timeoutMs: number = STDIN_TIMEOUT_MS): Promise<s
     }
 
     const onData = (chunk: string) => {
+      if (data.length + chunk.length > MAX_STDIN_SIZE) {
+        cleanup()
+        reject(new Error(`stdin input exceeded maximum size of ${MAX_STDIN_SIZE} bytes`))
+        return
+      }
+
       data += chunk
     }
 
