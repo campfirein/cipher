@@ -9,6 +9,26 @@ import {BRV_DIR, CONTEXT_FILE_EXTENSION, CONTEXT_TREE_DIR} from '../../../../con
 import {ToolName} from '../../../../core/domain/cipher/tools/constants.js'
 
 /**
+ * Maximum number of files to index in the context tree.
+ */
+const MAX_CONTEXT_TREE_FILES = 10_000
+
+/**
+ * MiniSearch configuration options.
+ * Shared between empty index initialization and full index building.
+ */
+const MINISEARCH_OPTIONS = {
+  fields: ['title', 'content'] as string[],
+  idField: 'id' as const,
+  searchOptions: {
+    boost: {title: 2}, // Title matches are more important
+    fuzzy: 0.2, // Allow some typo tolerance
+    prefix: true, // Enable prefix matching
+  },
+  storeFields: ['title', 'path'] as string[],
+}
+
+/**
  * Input schema for search knowledge tool.
  */
 const SearchKnowledgeInputSchema = z
@@ -156,7 +176,7 @@ async function findMarkdownFilesWithMtime(
     const globResult = await fileSystem.globFiles(`**/*${CONTEXT_FILE_EXTENSION}`, {
       cwd: contextTreePath,
       includeMetadata: true, // Need metadata for mtime
-      maxResults: 10_000,
+      maxResults: MAX_CONTEXT_TREE_FILES,
       respectGitignore: false, // Context tree should not respect gitignore
     })
 
@@ -214,16 +234,7 @@ async function buildFreshIndex(
 ): Promise<CachedIndex> {
   // Early termination if no files found
   if (filesWithMtime.length === 0) {
-    const index = new MiniSearch<IndexedDocument>({
-      fields: ['title', 'content'],
-      idField: 'id',
-      searchOptions: {
-        boost: {title: 2},
-        fuzzy: 0.2,
-        prefix: true,
-      },
-      storeFields: ['title', 'path'],
-    })
+    const index = new MiniSearch<IndexedDocument>(MINISEARCH_OPTIONS)
     return {
       contextTreePath,
       documentMap: new Map(),
@@ -266,16 +277,7 @@ async function buildFreshIndex(
   }
 
   // Create search index with fuzzy matching
-  const index = new MiniSearch<IndexedDocument>({
-    fields: ['title', 'content'],
-    idField: 'id',
-    searchOptions: {
-      boost: {title: 2}, // Title matches are more important
-      fuzzy: 0.2, // Allow some typo tolerance
-      prefix: true, // Enable prefix matching
-    },
-    storeFields: ['title', 'path'],
-  })
+  const index = new MiniSearch<IndexedDocument>(MINISEARCH_OPTIONS)
 
   // Add all documents to the index
   index.addAll(documents)
