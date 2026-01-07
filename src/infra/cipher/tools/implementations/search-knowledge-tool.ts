@@ -101,10 +101,11 @@ function extractExcerpt(content: string, query: string, maxLength: number = 300)
   cleanContent = cleanContent.replace(/^# .+$/m, '').trim()
 
   // Try to find a section containing query terms
+  // Allow 2-char terms (e.g., "Go", "UI", "AI", "DB") but filter single chars
   const queryTerms = query
     .toLowerCase()
     .split(/\s+/)
-    .filter((t) => t.length > 2)
+    .filter((t) => t.length >= 2)
 
   const lines = cleanContent.split('\n')
   let bestStartIndex = 0
