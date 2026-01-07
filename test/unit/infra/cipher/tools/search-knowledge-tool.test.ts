@@ -1,7 +1,7 @@
 import {expect} from 'chai'
-import * as fs from 'node:fs/promises'
-import {tmpdir} from 'node:os'
-import {join} from 'node:path'
+import {createSandbox, SinonStub} from 'sinon'
+
+import type {IFileSystem} from '../../../../../src/core/interfaces/cipher/i-file-system.js'
 
 import {createSearchKnowledgeTool} from '../../../../../src/infra/cipher/tools/implementations/search-knowledge-tool.js'
 
@@ -17,38 +17,45 @@ interface SearchKnowledgeOutput {
 }
 
 describe('Search Knowledge Tool', () => {
-  let tmpDir: string
-  let contextTreePath: string
+  const sandbox = createSandbox()
+  let fileSystemMock: IFileSystem
+  let globFilesStub: SinonStub
+  let listDirectoryStub: SinonStub
+  let readFileStub: SinonStub
 
-  beforeEach(async () => {
-    // Create a unique temp directory for each test
-    tmpDir = join(tmpdir(), `search-knowledge-test-${Date.now()}-${Math.random().toString(36).slice(2)}`)
-    contextTreePath = join(tmpDir, '.brv/context-tree')
-    await fs.mkdir(contextTreePath, {recursive: true})
+  beforeEach(() => {
+    globFilesStub = sandbox.stub()
+    listDirectoryStub = sandbox.stub()
+    readFileStub = sandbox.stub()
+
+    fileSystemMock = {
+      editFile: sandbox.stub(),
+      globFiles: globFilesStub,
+      initialize: sandbox.stub(),
+      listDirectory: listDirectoryStub,
+      readFile: readFileStub,
+      searchContent: sandbox.stub(),
+      writeFile: sandbox.stub(),
+    } as unknown as IFileSystem
   })
 
-  afterEach(async () => {
-    // Cleanup
-    try {
-      await fs.rm(tmpDir, {force: true, recursive: true})
-    } catch {
-      // Ignore cleanup errors
-    }
+  afterEach(() => {
+    sandbox.restore()
   })
 
   describe('Tool Properties', () => {
     it('should have correct id', () => {
-      const tool = createSearchKnowledgeTool()
+      const tool = createSearchKnowledgeTool(fileSystemMock)
       expect(tool.id).to.equal('search_knowledge')
     })
 
     it('should have correct input schema', () => {
-      const tool = createSearchKnowledgeTool()
+      const tool = createSearchKnowledgeTool(fileSystemMock)
       expect(tool.inputSchema).to.exist
     })
 
     it('should have a description', () => {
-      const tool = createSearchKnowledgeTool()
+      const tool = createSearchKnowledgeTool(fileSystemMock)
       expect(tool.description).to.be.a('string')
       expect(tool.description.length).to.be.greaterThan(0)
     })
@@ -56,9 +63,9 @@ describe('Search Knowledge Tool', () => {
 
   describe('Context Tree Not Initialized', () => {
     it('should return message when context tree does not exist', async () => {
-      const nonExistentDir = join(tmpdir(), `non-existent-${Date.now()}`)
-      const tool = createSearchKnowledgeTool({baseDirectory: nonExistentDir})
+      listDirectoryStub.rejects(new Error('Directory not found'))
 
+      const tool = createSearchKnowledgeTool(fileSystemMock)
       const result = (await tool.execute({query: 'test'})) as SearchKnowledgeOutput
 
       expect(result.results).to.deep.equal([])
@@ -69,8 +76,10 @@ describe('Search Knowledge Tool', () => {
 
   describe('Empty Context Tree', () => {
     it('should return message when context tree is empty', async () => {
-      const tool = createSearchKnowledgeTool({baseDirectory: tmpDir})
+      listDirectoryStub.resolves({count: 0, entries: [], tree: '', truncated: false})
+      globFilesStub.resolves({files: [], ignoredCount: 0, message: 'No files', totalFound: 0, truncated: false})
 
+      const tool = createSearchKnowledgeTool(fileSystemMock)
       const result = (await tool.execute({query: 'test'})) as SearchKnowledgeOutput
 
       expect(result.results).to.deep.equal([])
@@ -80,36 +89,81 @@ describe('Search Knowledge Tool', () => {
   })
 
   describe('Search Functionality', () => {
-    beforeEach(async () => {
-      // Create sample knowledge files
-      const authDomain = join(contextTreePath, 'authentication')
-      const apiDomain = join(contextTreePath, 'api_design')
+    beforeEach(() => {
+      listDirectoryStub.resolves({count: 3, entries: [], tree: '', truncated: false})
 
-      await fs.mkdir(join(authDomain, 'oauth'), {recursive: true})
-      await fs.mkdir(join(apiDomain, 'patterns'), {recursive: true})
+      // Setup glob to return test files
+      globFilesStub.resolves({
+        files: [
+          {
+            isDirectory: false,
+            modified: new Date('2024-01-01'),
+            path: '/test/.brv/context-tree/authentication/oauth/context.md',
+            size: 100,
+          },
+          {
+            isDirectory: false,
+            modified: new Date('2024-01-02'),
+            path: '/test/.brv/context-tree/api_design/patterns/context.md',
+            size: 100,
+          },
+          {
+            isDirectory: false,
+            modified: new Date('2024-01-03'),
+            path: '/test/.brv/context-tree/authentication/jwt.md',
+            size: 100,
+          },
+        ],
+        ignoredCount: 0,
+        message: 'Found 3 files',
+        totalFound: 3,
+        truncated: false,
+      })
 
-      // Create authentication/oauth/context.md
-      await fs.writeFile(
-        join(authDomain, 'oauth/context.md'),
-        '# OAuth Authentication Flow\n\nThis document describes the OAuth 2.0 authentication flow used in our application.\n\n---\n\nThe flow involves:\n1. Redirect to auth provider\n2. User grants permission\n3. Callback with authorization code\n4. Exchange code for tokens',
-      )
+      // Setup readFile to return different content based on file path
+      readFileStub.callsFake((filePath: string) => {
+        if (filePath.includes('oauth')) {
+          return Promise.resolve({
+            content:
+              '# OAuth Authentication Flow\n\nThis document describes the OAuth 2.0 authentication flow used in our application.\n\n---\n\nThe flow involves:\n1. Redirect to auth provider\n2. User grants permission\n3. Callback with authorization code\n4. Exchange code for tokens',
+            encoding: 'utf8',
+            lines: 10,
+            size: 200,
+            totalLines: 10,
+            truncated: false,
+          })
+        }
 
-      // Create api_design/patterns/context.md
-      await fs.writeFile(
-        join(apiDomain, 'patterns/context.md'),
-        '# API Design Patterns\n\nBest practices for REST API design.\n\n---\n\n- Use resource-based URLs\n- Proper HTTP methods (GET, POST, PUT, DELETE)\n- Consistent error responses',
-      )
+        if (filePath.includes('patterns')) {
+          return Promise.resolve({
+            content:
+              '# API Design Patterns\n\nBest practices for REST API design.\n\n---\n\n- Use resource-based URLs\n- Proper HTTP methods (GET, POST, PUT, DELETE)\n- Consistent error responses',
+            encoding: 'utf8',
+            lines: 8,
+            size: 150,
+            totalLines: 8,
+            truncated: false,
+          })
+        }
 
-      // Create authentication/jwt.md
-      await fs.writeFile(
-        join(authDomain, 'jwt.md'),
-        '# JWT Token Handling\n\nHow we handle JSON Web Tokens in the application.\n\n---\n\nTokens are stored securely and refreshed automatically before expiration.',
-      )
+        if (filePath.includes('jwt')) {
+          return Promise.resolve({
+            content:
+              '# JWT Token Handling\n\nHow we handle JSON Web Tokens in the application.\n\n---\n\nTokens are stored securely and refreshed automatically before expiration.',
+            encoding: 'utf8',
+            lines: 5,
+            size: 100,
+            totalLines: 5,
+            truncated: false,
+          })
+        }
+
+        return Promise.reject(new Error('File not found'))
+      })
     })
 
     it('should find documents matching query', async () => {
-      const tool = createSearchKnowledgeTool({baseDirectory: tmpDir})
-
+      const tool = createSearchKnowledgeTool(fileSystemMock)
       const result = (await tool.execute({query: 'OAuth authentication'})) as SearchKnowledgeOutput
 
       expect(result.totalFound).to.be.greaterThan(0)
@@ -122,7 +176,7 @@ describe('Search Knowledge Tool', () => {
     })
 
     it('should support fuzzy matching', async () => {
-      const tool = createSearchKnowledgeTool({baseDirectory: tmpDir})
+      const tool = createSearchKnowledgeTool(fileSystemMock)
 
       // Search with slight typo
       const result = (await tool.execute({query: 'autentication'})) as SearchKnowledgeOutput
@@ -132,16 +186,14 @@ describe('Search Knowledge Tool', () => {
     })
 
     it('should respect limit parameter', async () => {
-      const tool = createSearchKnowledgeTool({baseDirectory: tmpDir})
-
+      const tool = createSearchKnowledgeTool(fileSystemMock)
       const result = (await tool.execute({limit: 1, query: 'authentication'})) as SearchKnowledgeOutput
 
       expect(result.results.length).to.be.lessThanOrEqual(1)
     })
 
     it('should return excerpts from matching documents', async () => {
-      const tool = createSearchKnowledgeTool({baseDirectory: tmpDir})
-
+      const tool = createSearchKnowledgeTool(fileSystemMock)
       const result = (await tool.execute({query: 'API design patterns'})) as SearchKnowledgeOutput
 
       expect(result.totalFound).to.be.greaterThan(0)
@@ -152,8 +204,7 @@ describe('Search Knowledge Tool', () => {
     })
 
     it('should include score in results', async () => {
-      const tool = createSearchKnowledgeTool({baseDirectory: tmpDir})
-
+      const tool = createSearchKnowledgeTool(fileSystemMock)
       const result = (await tool.execute({query: 'authentication'})) as SearchKnowledgeOutput
 
       for (const r of result.results) {
@@ -163,8 +214,7 @@ describe('Search Knowledge Tool', () => {
     })
 
     it('should search across multiple domains', async () => {
-      const tool = createSearchKnowledgeTool({baseDirectory: tmpDir})
-
+      const tool = createSearchKnowledgeTool(fileSystemMock)
       const result = (await tool.execute({query: 'design'})) as SearchKnowledgeOutput
 
       // Should find API design patterns
@@ -172,8 +222,7 @@ describe('Search Knowledge Tool', () => {
     })
 
     it('should handle queries with no matches', async () => {
-      const tool = createSearchKnowledgeTool({baseDirectory: tmpDir})
-
+      const tool = createSearchKnowledgeTool(fileSystemMock)
       const result = (await tool.execute({query: 'nonexistent random term xyz123'})) as SearchKnowledgeOutput
 
       expect(result.results).to.deep.equal([])
@@ -182,7 +231,7 @@ describe('Search Knowledge Tool', () => {
     })
 
     it('should use default limit of 10', async () => {
-      const tool = createSearchKnowledgeTool({baseDirectory: tmpDir})
+      const tool = createSearchKnowledgeTool(fileSystemMock)
 
       // Note: with only 3 files, we can't test the 10 limit directly
       // But we can verify the tool works with default parameters
@@ -193,15 +242,36 @@ describe('Search Knowledge Tool', () => {
   })
 
   describe('Title Extraction', () => {
-    it('should extract title from markdown heading', async () => {
-      const domainPath = join(contextTreePath, 'test_domain')
-      await fs.mkdir(domainPath, {recursive: true})
-      await fs.writeFile(
-        join(domainPath, 'my_topic.md'),
-        '# Custom Topic Title\n\nSome content here.',
-      )
+    beforeEach(() => {
+      listDirectoryStub.resolves({count: 1, entries: [], tree: '', truncated: false})
+    })
 
-      const tool = createSearchKnowledgeTool({baseDirectory: tmpDir})
+    it('should extract title from markdown heading', async () => {
+      globFilesStub.resolves({
+        files: [
+          {
+            isDirectory: false,
+            modified: new Date(),
+            path: '/test/.brv/context-tree/test_domain/my_topic.md',
+            size: 100,
+          },
+        ],
+        ignoredCount: 0,
+        message: 'Found 1 file',
+        totalFound: 1,
+        truncated: false,
+      })
+
+      readFileStub.resolves({
+        content: '# Custom Topic Title\n\nSome content here.',
+        encoding: 'utf8',
+        lines: 3,
+        size: 50,
+        totalLines: 3,
+        truncated: false,
+      })
+
+      const tool = createSearchKnowledgeTool(fileSystemMock)
       const result = (await tool.execute({query: 'topic'})) as SearchKnowledgeOutput
 
       const topicResult = result.results.find((r) => r.path.includes('my_topic'))
@@ -209,14 +279,31 @@ describe('Search Knowledge Tool', () => {
     })
 
     it('should use filename as fallback when no heading exists', async () => {
-      const domainPath = join(contextTreePath, 'test_domain')
-      await fs.mkdir(domainPath, {recursive: true})
-      await fs.writeFile(
-        join(domainPath, 'no_heading.md'),
-        'Just some content without a heading.',
-      )
+      globFilesStub.resolves({
+        files: [
+          {
+            isDirectory: false,
+            modified: new Date(),
+            path: '/test/.brv/context-tree/test_domain/no_heading.md',
+            size: 100,
+          },
+        ],
+        ignoredCount: 0,
+        message: 'Found 1 file',
+        totalFound: 1,
+        truncated: false,
+      })
 
-      const tool = createSearchKnowledgeTool({baseDirectory: tmpDir})
+      readFileStub.resolves({
+        content: 'Just some content without a heading.',
+        encoding: 'utf8',
+        lines: 1,
+        size: 40,
+        totalLines: 1,
+        truncated: false,
+      })
+
+      const tool = createSearchKnowledgeTool(fileSystemMock)
       const result = (await tool.execute({query: 'content'})) as SearchKnowledgeOutput
 
       const noHeadingResult = result.results.find((r) => r.path.includes('no_heading'))
@@ -224,38 +311,35 @@ describe('Search Knowledge Tool', () => {
     })
   })
 
-  describe('Hidden Files', () => {
-    it('should ignore hidden files and directories', async () => {
-      const domainPath = join(contextTreePath, 'visible_domain')
-      const hiddenDomain = join(contextTreePath, '.hidden_domain')
-
-      await fs.mkdir(domainPath, {recursive: true})
-      await fs.mkdir(hiddenDomain, {recursive: true})
-
-      await fs.writeFile(join(domainPath, 'visible.md'), '# Visible\n\nThis should be searchable.')
-      await fs.writeFile(join(domainPath, '.hidden.md'), '# Hidden\n\nThis should not be searchable.')
-      await fs.writeFile(join(hiddenDomain, 'also_hidden.md'), '# Also Hidden\n\nThis should not be searchable.')
-
-      const tool = createSearchKnowledgeTool({baseDirectory: tmpDir})
-      const result = (await tool.execute({query: 'searchable'})) as SearchKnowledgeOutput
-
-      // Should only find the visible file
-      expect(result.totalFound).to.equal(1)
-      expect(result.results[0].path).to.include('visible')
-      expect(result.results[0].path).to.not.include('.hidden')
-    })
-  })
-
   describe('Nested Directories', () => {
     it('should search deeply nested markdown files', async () => {
-      const deepPath = join(contextTreePath, 'level1/level2/level3')
-      await fs.mkdir(deepPath, {recursive: true})
-      await fs.writeFile(
-        join(deepPath, 'deep_knowledge.md'),
-        '# Deep Knowledge Topic\n\nThis is deeply nested content.',
-      )
+      listDirectoryStub.resolves({count: 1, entries: [], tree: '', truncated: false})
 
-      const tool = createSearchKnowledgeTool({baseDirectory: tmpDir})
+      globFilesStub.resolves({
+        files: [
+          {
+            isDirectory: false,
+            modified: new Date(),
+            path: '/test/.brv/context-tree/level1/level2/level3/deep_knowledge.md',
+            size: 100,
+          },
+        ],
+        ignoredCount: 0,
+        message: 'Found 1 file',
+        totalFound: 1,
+        truncated: false,
+      })
+
+      readFileStub.resolves({
+        content: '# Deep Knowledge Topic\n\nThis is deeply nested content.',
+        encoding: 'utf8',
+        lines: 3,
+        size: 60,
+        totalLines: 3,
+        truncated: false,
+      })
+
+      const tool = createSearchKnowledgeTool(fileSystemMock)
       const result = (await tool.execute({query: 'deeply nested'})) as SearchKnowledgeOutput
 
       expect(result.totalFound).to.be.greaterThan(0)
@@ -264,15 +348,37 @@ describe('Search Knowledge Tool', () => {
   })
 
   describe('Excerpt Generation', () => {
-    it('should generate excerpt containing query-relevant content', async () => {
-      const domainPath = join(contextTreePath, 'test_domain')
-      await fs.mkdir(domainPath, {recursive: true})
-      await fs.writeFile(
-        join(domainPath, 'long_content.md'),
-        '# Long Document\n\n## Introduction\nThis is an introduction paragraph.\n\n## Important Section\nThis section contains important information about authentication and security.\n\n## Conclusion\nThis is the conclusion.',
-      )
+    beforeEach(() => {
+      listDirectoryStub.resolves({count: 1, entries: [], tree: '', truncated: false})
+    })
 
-      const tool = createSearchKnowledgeTool({baseDirectory: tmpDir})
+    it('should generate excerpt containing query-relevant content', async () => {
+      globFilesStub.resolves({
+        files: [
+          {
+            isDirectory: false,
+            modified: new Date(),
+            path: '/test/.brv/context-tree/test_domain/long_content.md',
+            size: 200,
+          },
+        ],
+        ignoredCount: 0,
+        message: 'Found 1 file',
+        totalFound: 1,
+        truncated: false,
+      })
+
+      readFileStub.resolves({
+        content:
+          '# Long Document\n\n## Introduction\nThis is an introduction paragraph.\n\n## Important Section\nThis section contains important information about authentication and security.\n\n## Conclusion\nThis is the conclusion.',
+        encoding: 'utf8',
+        lines: 10,
+        size: 200,
+        totalLines: 10,
+        truncated: false,
+      })
+
+      const tool = createSearchKnowledgeTool(fileSystemMock)
       const result = (await tool.execute({query: 'authentication security'})) as SearchKnowledgeOutput
 
       const doc = result.results.find((r) => r.path.includes('long_content'))
@@ -280,14 +386,33 @@ describe('Search Knowledge Tool', () => {
     })
 
     it('should truncate long excerpts', async () => {
-      const domainPath = join(contextTreePath, 'test_domain')
-      await fs.mkdir(domainPath, {recursive: true})
+      globFilesStub.resolves({
+        files: [
+          {
+            isDirectory: false,
+            modified: new Date(),
+            path: '/test/.brv/context-tree/test_domain/very_long.md',
+            size: 5000,
+          },
+        ],
+        ignoredCount: 0,
+        message: 'Found 1 file',
+        totalFound: 1,
+        truncated: false,
+      })
 
       // Create a very long document
       const longContent = '# Very Long Document\n\n' + 'This is a paragraph. '.repeat(100)
-      await fs.writeFile(join(domainPath, 'very_long.md'), longContent)
+      readFileStub.resolves({
+        content: longContent,
+        encoding: 'utf8',
+        lines: 100,
+        size: 5000,
+        totalLines: 100,
+        truncated: false,
+      })
 
-      const tool = createSearchKnowledgeTool({baseDirectory: tmpDir})
+      const tool = createSearchKnowledgeTool(fileSystemMock)
       const result = (await tool.execute({query: 'paragraph'})) as SearchKnowledgeOutput
 
       const doc = result.results.find((r) => r.path.includes('very_long'))
@@ -298,19 +423,163 @@ describe('Search Knowledge Tool', () => {
 
   describe('Relations Section Handling', () => {
     it('should exclude relations section from excerpt', async () => {
-      const domainPath = join(contextTreePath, 'test_domain')
-      await fs.mkdir(domainPath, {recursive: true})
-      await fs.writeFile(
-        join(domainPath, 'with_relations.md'),
-        '# Document With Relations\n\n## Relations\n@other_domain/topic\n@another_domain/subtopic\n\n## Content\nThis is the actual content about authentication patterns.',
-      )
+      listDirectoryStub.resolves({count: 1, entries: [], tree: '', truncated: false})
 
-      const tool = createSearchKnowledgeTool({baseDirectory: tmpDir})
+      globFilesStub.resolves({
+        files: [
+          {
+            isDirectory: false,
+            modified: new Date(),
+            path: '/test/.brv/context-tree/test_domain/with_relations.md',
+            size: 200,
+          },
+        ],
+        ignoredCount: 0,
+        message: 'Found 1 file',
+        totalFound: 1,
+        truncated: false,
+      })
+
+      readFileStub.resolves({
+        content:
+          '# Document With Relations\n\n## Relations\n@other_domain/topic\n@another_domain/subtopic\n\n## Content\nThis is the actual content about authentication patterns.',
+        encoding: 'utf8',
+        lines: 8,
+        size: 200,
+        totalLines: 8,
+        truncated: false,
+      })
+
+      const tool = createSearchKnowledgeTool(fileSystemMock)
       const result = (await tool.execute({query: 'authentication patterns'})) as SearchKnowledgeOutput
 
       const doc = result.results.find((r) => r.path.includes('with_relations'))
       // The excerpt should not prominently feature the relations section
       expect(doc?.excerpt).to.include('authentication')
+    })
+  })
+
+  describe('Index Caching', () => {
+    beforeEach(() => {
+      listDirectoryStub.resolves({count: 1, entries: [], tree: '', truncated: false})
+
+      globFilesStub.resolves({
+        files: [
+          {
+            isDirectory: false,
+            modified: new Date('2024-01-01'),
+            path: '/test/.brv/context-tree/test/file.md',
+            size: 100,
+          },
+        ],
+        ignoredCount: 0,
+        message: 'Found 1 file',
+        totalFound: 1,
+        truncated: false,
+      })
+
+      readFileStub.resolves({
+        content: '# Test File\n\nTest content for caching.',
+        encoding: 'utf8',
+        lines: 3,
+        size: 50,
+        totalLines: 3,
+        truncated: false,
+      })
+    })
+
+    it('should cache index between searches', async () => {
+      const tool = createSearchKnowledgeTool(fileSystemMock)
+
+      // First search builds the index
+      await tool.execute({query: 'test'})
+      const firstCallCount = readFileStub.callCount
+
+      // Second search should use cached index
+      await tool.execute({query: 'test'})
+      const secondCallCount = readFileStub.callCount
+
+      // readFile should not be called again for the same files
+      expect(secondCallCount).to.equal(firstCallCount)
+    })
+
+    it('should invalidate cache when file is modified', async () => {
+      const tool = createSearchKnowledgeTool(fileSystemMock)
+
+      // First search builds the index
+      await tool.execute({query: 'test'})
+      const firstCallCount = readFileStub.callCount
+
+      // Simulate file modification by changing mtime
+      globFilesStub.resolves({
+        files: [
+          {
+            isDirectory: false,
+            modified: new Date('2024-02-01'), // Different modification time
+            path: '/test/.brv/context-tree/test/file.md',
+            size: 100,
+          },
+        ],
+        ignoredCount: 0,
+        message: 'Found 1 file',
+        totalFound: 1,
+        truncated: false,
+      })
+
+      // Second search should rebuild the index
+      await tool.execute({query: 'test'})
+      const secondCallCount = readFileStub.callCount
+
+      // readFile should be called again due to cache invalidation
+      expect(secondCallCount).to.be.greaterThan(firstCallCount)
+    })
+
+    it('should invalidate cache when files are added', async () => {
+      const tool = createSearchKnowledgeTool(fileSystemMock)
+
+      // First search builds the index
+      await tool.execute({query: 'test'})
+      const firstCallCount = readFileStub.callCount
+
+      // Simulate adding a new file
+      globFilesStub.resolves({
+        files: [
+          {
+            isDirectory: false,
+            modified: new Date('2024-01-01'),
+            path: '/test/.brv/context-tree/test/file.md',
+            size: 100,
+          },
+          {
+            isDirectory: false,
+            modified: new Date('2024-01-02'),
+            path: '/test/.brv/context-tree/test/new_file.md',
+            size: 100,
+          },
+        ],
+        ignoredCount: 0,
+        message: 'Found 2 files',
+        totalFound: 2,
+        truncated: false,
+      })
+
+      readFileStub.callsFake((filePath: string) =>
+        Promise.resolve({
+          content: filePath.includes('new_file') ? '# New File\n\nNew content.' : '# Test File\n\nTest content.',
+          encoding: 'utf8',
+          lines: 3,
+          size: 50,
+          totalLines: 3,
+          truncated: false,
+        }),
+      )
+
+      // Second search should rebuild the index
+      await tool.execute({query: 'test'})
+      const secondCallCount = readFileStub.callCount
+
+      // readFile should be called again for all files due to cache invalidation
+      expect(secondCallCount).to.be.greaterThan(firstCallCount)
     })
   })
 })

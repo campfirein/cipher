@@ -257,9 +257,10 @@ export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
 
   [ToolName.SEARCH_KNOWLEDGE]: {
     descriptionFile: 'search_knowledge',
-    factory: () => createSearchKnowledgeTool(),
+    factory: (services) =>
+      createSearchKnowledgeTool(getRequiredService(services.fileSystemService, 'fileSystemService')),
     markers: [ToolMarker.ContextBuilding, ToolMarker.Discovery],
-    requiredServices: [], // Uses file system directly for context tree access
+    requiredServices: ['fileSystemService'],
   },
 
   [ToolName.SPEC_ANALYZE]: {

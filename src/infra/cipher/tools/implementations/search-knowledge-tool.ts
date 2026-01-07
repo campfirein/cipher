@@ -1,47 +1,12 @@
-import {readdir, readFile, stat} from 'node:fs/promises'
+import MiniSearch from 'minisearch'
 import {join} from 'node:path'
 import {z} from 'zod'
 
 import type {Tool, ToolExecutionContext} from '../../../../core/domain/cipher/tools/types.js'
+import type {IFileSystem} from '../../../../core/interfaces/cipher/i-file-system.js'
 
 import {BRV_DIR, CONTEXT_FILE_EXTENSION, CONTEXT_TREE_DIR} from '../../../../constants.js'
 import {ToolName} from '../../../../core/domain/cipher/tools/constants.js'
-
-/**
- * MiniSearch type for the index instance.
- * We use a generic interface since the actual type varies between ESM/CJS.
- */
-interface MiniSearchIndex<T> {
-  addAll(documents: T[]): void
-  search(query: string, options?: {combineWith?: 'AND' | 'OR'}): Array<{id: string; score: number}>
-}
-
-/**
- * MiniSearch constructor type.
- */
-interface MiniSearchConstructor {
-  new <T>(options: {
-    fields: string[]
-    idField: string
-    searchOptions?: {
-      boost?: Record<string, number>
-      fuzzy?: boolean | number
-      prefix?: boolean
-    }
-    storeFields?: string[]
-  }): MiniSearchIndex<T>
-}
-
-/**
- * Dynamically import MiniSearch to handle ESM/CJS differences.
- */
-async function getMiniSearch(): Promise<MiniSearchConstructor> {
-  const module = await import('minisearch')
-  // Handle both ESM and CJS exports
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const MiniSearch = (module as any).default ?? module
-  return MiniSearch as MiniSearchConstructor
-}
 
 /**
  * Input schema for search knowledge tool.
@@ -59,7 +24,6 @@ const SearchKnowledgeInputSchema = z
   })
   .strict()
 
-
 /**
  * Represents an indexed document in the knowledge base.
  */
@@ -68,6 +32,8 @@ interface IndexedDocument {
   content: string
   /** Unique document ID (file path) */
   id: string
+  /** File modification time for cache invalidation */
+  mtime: number
   /** Relative path from context-tree root */
   path: string
   /** Extracted title from first heading or filename */
@@ -86,6 +52,20 @@ interface SearchResult {
   score: number
   /** Title of the knowledge topic */
   title: string
+}
+
+/**
+ * Cached index data with modification tracking.
+ */
+interface CachedIndex {
+  /** Context tree path this cache was built for */
+  contextTreePath: string
+  /** Map of document IDs to documents for O(1) lookup */
+  documentMap: Map<string, IndexedDocument>
+  /** Map of file paths to modification times for invalidation checking */
+  fileMtimes: Map<string, number>
+  /** MiniSearch index instance */
+  index: MiniSearch<IndexedDocument>
 }
 
 /**
@@ -121,7 +101,10 @@ function extractExcerpt(content: string, query: string, maxLength: number = 300)
   cleanContent = cleanContent.replace(/^# .+$/m, '').trim()
 
   // Try to find a section containing query terms
-  const queryTerms = query.toLowerCase().split(/\s+/).filter((t) => t.length > 2)
+  const queryTerms = query
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((t) => t.length > 2)
 
   const lines = cleanContent.split('\n')
   let bestStartIndex = 0
@@ -161,68 +144,125 @@ function extractExcerpt(content: string, query: string, maxLength: number = 300)
 }
 
 /**
- * Recursively finds all markdown files in a directory.
+ * Finds all markdown files in a directory using IFileSystem.
+ * Uses globFiles for file discovery and returns paths with modification times.
  */
-async function findMarkdownFiles(dir: string, basePath: string = ''): Promise<string[]> {
+async function findMarkdownFilesWithMtime(
+  fileSystem: IFileSystem,
+  contextTreePath: string,
+): Promise<Array<{mtime: number; path: string}>> {
   try {
-    const entries = await readdir(dir, {withFileTypes: true})
+    const globResult = await fileSystem.globFiles(`**/*${CONTEXT_FILE_EXTENSION}`, {
+      cwd: contextTreePath,
+      includeMetadata: true, // Need metadata for mtime
+      maxResults: 10_000,
+      respectGitignore: false, // Context tree should not respect gitignore
+    })
 
-    // Filter to non-hidden entries
-    const visibleEntries = entries.filter((entry) => !entry.name.startsWith('.'))
+    // Return relative paths with modification times
+    return globResult.files.map((f) => {
+      // globFiles returns absolute paths, convert to relative
+      let relativePath = f.path
+      if (f.path.startsWith(contextTreePath)) {
+        relativePath = f.path.slice(contextTreePath.length + 1)
+      }
 
-    // Process all entries concurrently
-    const results = await Promise.all(
-      visibleEntries.map(async (entry) => {
-        const fullPath = join(dir, entry.name)
-        const relativePath = basePath ? `${basePath}/${entry.name}` : entry.name
-
-        if (entry.isDirectory()) {
-          return findMarkdownFiles(fullPath, relativePath)
-        }
-
-        if (entry.name.endsWith(CONTEXT_FILE_EXTENSION)) {
-          return [relativePath]
-        }
-
-        return []
-      }),
-    )
-
-    return results.flat()
+      return {
+        mtime: f.modified?.getTime() ?? 0,
+        path: relativePath,
+      }
+    })
   } catch {
-    // Directory doesn't exist or can't be read
+    // Silently return empty array when glob fails (e.g., directory doesn't exist).
+    // This is intentional: the caller handles the empty case by showing "context tree empty" message.
     return []
   }
 }
 
 /**
- * Builds the search index from all markdown files in the context tree.
+ * Checks if the cached index is still valid by comparing file modification times.
+ *
+ * @param cache - The cached index
+ * @param currentFiles - Current files with their modification times
+ * @returns true if cache is valid, false if it needs to be rebuilt
  */
-async function buildIndex(contextTreePath: string): Promise<{documents: IndexedDocument[]; index: MiniSearchIndex<IndexedDocument>}> {
-  const MiniSearch = await getMiniSearch()
-  const files = await findMarkdownFiles(contextTreePath)
+function isCacheValid(cache: CachedIndex, currentFiles: Array<{mtime: number; path: string}>): boolean {
+  // Check if file count changed
+  if (cache.fileMtimes.size !== currentFiles.length) {
+    return false
+  }
+
+  // Check if any file was modified or new files were added
+  for (const file of currentFiles) {
+    const cachedMtime = cache.fileMtimes.get(file.path)
+    if (cachedMtime === undefined || cachedMtime !== file.mtime) {
+      return false
+    }
+  }
+
+  return true
+}
+
+/**
+ * Builds a fresh search index from all markdown files in the context tree.
+ */
+async function buildFreshIndex(
+  fileSystem: IFileSystem,
+  contextTreePath: string,
+  filesWithMtime: Array<{mtime: number; path: string}>,
+): Promise<CachedIndex> {
+  // Early termination if no files found
+  if (filesWithMtime.length === 0) {
+    const index = new MiniSearch<IndexedDocument>({
+      fields: ['title', 'content'],
+      idField: 'id',
+      searchOptions: {
+        boost: {title: 2},
+        fuzzy: 0.2,
+        prefix: true,
+      },
+      storeFields: ['title', 'path'],
+    })
+    return {
+      contextTreePath,
+      documentMap: new Map(),
+      fileMtimes: new Map(),
+      index,
+    }
+  }
 
   // Read all files concurrently
-  const documentPromises = files.map(async (filePath) => {
+  const documentPromises = filesWithMtime.map(async ({mtime, path: filePath}) => {
     try {
       const fullPath = join(contextTreePath, filePath)
-      const content = await readFile(fullPath, 'utf8')
+      const {content} = await fileSystem.readFile(fullPath)
       const title = extractTitle(content, filePath.replace(/\.md$/, '').split('/').pop() || filePath)
 
       return {
         content,
         id: filePath,
+        mtime,
         path: filePath,
         title,
       }
     } catch {
-      // Skip files that can't be read
+      // Skip unreadable files (e.g., permission denied, encoding issues).
+      // This is intentional: we prefer partial results over failing the entire search.
+      // The file will be retried on next search if the issue is transient.
       return null
     }
   })
 
   const results = await Promise.all(documentPromises)
   const documents = results.filter((doc): doc is IndexedDocument => doc !== null)
+
+  // Build maps for O(1) lookup and cache validation
+  const documentMap = new Map<string, IndexedDocument>()
+  const fileMtimes = new Map<string, number>()
+  for (const doc of documents) {
+    documentMap.set(doc.id, doc)
+    fileMtimes.set(doc.path, doc.mtime)
+  }
 
   // Create search index with fuzzy matching
   const index = new MiniSearch<IndexedDocument>({
@@ -239,7 +279,12 @@ async function buildIndex(contextTreePath: string): Promise<{documents: IndexedD
   // Add all documents to the index
   index.addAll(documents)
 
-  return {documents, index}
+  return {
+    contextTreePath,
+    documentMap,
+    fileMtimes,
+    index,
+  }
 }
 
 /**
@@ -249,10 +294,21 @@ async function buildIndex(contextTreePath: string): Promise<{documents: IndexedD
  * fuzzy/semantic search powered by MiniSearch. This allows agents to
  * find relevant topics without knowing exact file paths.
  *
+ * Features:
+ * - Fuzzy matching with typo tolerance
+ * - Title boosting (title matches rank higher)
+ * - Prefix matching for partial words
+ * - Index caching with file modification time checking
+ *
+ * @param fileSystem - File system service for file operations
  * @param config - Optional configuration
  * @returns Configured search knowledge tool
  */
-export function createSearchKnowledgeTool(config: SearchKnowledgeToolConfig = {}): Tool {
+export function createSearchKnowledgeTool(fileSystem: IFileSystem, config: SearchKnowledgeToolConfig = {}): Tool {
+  // In-memory cache for the search index
+  // Persists across multiple tool invocations within the same session
+  let cachedIndex: CachedIndex | null = null
+
   return {
     description:
       'Search the curated knowledge base in .brv/context-tree/ for relevant topics. ' +
@@ -265,9 +321,9 @@ export function createSearchKnowledgeTool(config: SearchKnowledgeToolConfig = {}
       const baseDir = config.baseDirectory ?? process.cwd()
       const contextTreePath = join(baseDir, BRV_DIR, CONTEXT_TREE_DIR)
 
-      // Check if context tree exists
+      // Check if context tree exists by attempting to list it
       try {
-        await stat(contextTreePath)
+        await fileSystem.listDirectory(contextTreePath)
       } catch {
         return {
           message: 'Context tree not initialized. Run /init to create it.',
@@ -276,10 +332,23 @@ export function createSearchKnowledgeTool(config: SearchKnowledgeToolConfig = {}
         }
       }
 
-      // Build the search index
-      const {documents, index} = await buildIndex(contextTreePath)
+      // Get current files with modification times
+      const currentFiles = await findMarkdownFilesWithMtime(fileSystem, contextTreePath)
 
-      if (documents.length === 0) {
+      // Check if we can use the cached index
+      let indexData: CachedIndex
+      if (cachedIndex && cachedIndex.contextTreePath === contextTreePath && isCacheValid(cachedIndex, currentFiles)) {
+        // Use cached index
+        indexData = cachedIndex
+      } else {
+        // Build fresh index and cache it
+        indexData = await buildFreshIndex(fileSystem, contextTreePath, currentFiles)
+        cachedIndex = indexData
+      }
+
+      const {documentMap, index} = indexData
+
+      if (documentMap.size === 0) {
         return {
           message: 'Context tree is empty. Use /curate to add knowledge.',
           results: [],
@@ -292,13 +361,13 @@ export function createSearchKnowledgeTool(config: SearchKnowledgeToolConfig = {}
         combineWith: 'OR',
       })
 
-      // Format results
+      // Format results using O(1) Map lookup
       const results: SearchResult[] = []
       const resultLimit = Math.min(limit, searchResults.length)
 
       for (let i = 0; i < resultLimit; i++) {
         const result = searchResults[i]
-        const document = documents.find((d) => d.id === result.id)
+        const document = documentMap.get(result.id)
 
         if (document) {
           results.push({
