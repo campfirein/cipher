@@ -20,7 +20,7 @@ export type ClaudeCodeHookEntry = {
 }
 
 /**
- * Cursor/Windsurf hook entry structure.
+ * Cursor hook entry structure.
  * Simpler flat structure with just a command.
  */
 export type SimpleHookEntry = {
@@ -83,13 +83,6 @@ export const AGENT_HOOK_CONFIGS: Record<HookSupportedAgent, AgentHookConfig> = {
     createHookEntry: (): SimpleHookEntry => ({command: HOOK_COMMAND}),
     defaultConfig: {hooks: {}, version: 1},
     hookEventKey: 'beforeSubmitPrompt',
-    isOurHook: isSimpleOurHook,
-  },
-  Windsurf: {
-    configPath: '.windsurf/hooks.json',
-    createHookEntry: (): SimpleHookEntry => ({command: HOOK_COMMAND}),
-    defaultConfig: {hooks: {}, version: 1},
-    hookEventKey: 'pre_prompt',
     isOurHook: isSimpleOurHook,
   },
 }

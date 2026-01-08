@@ -29,8 +29,7 @@ describe('FileHookManager', () => {
       const agents = hookManager.getSupportedAgents()
       expect(agents).to.include('Claude Code')
       expect(agents).to.include('Cursor')
-      expect(agents).to.include('Windsurf')
-      expect(agents).to.have.lengthOf(3)
+      expect(agents).to.have.lengthOf(2)
     })
   })
 
@@ -249,41 +248,6 @@ describe('FileHookManager', () => {
         const json = JSON.parse(content)
         expect(json.hooks.beforeSubmitPrompt).to.have.lengthOf(1)
         expect(json.hooks.beforeSubmitPrompt[0].command).to.equal('other-hook')
-      })
-    })
-  })
-
-  describe('Windsurf', () => {
-    const agent: HookSupportedAgent = 'Windsurf'
-    const configPath = '.windsurf/hooks.json'
-
-    describe('install', () => {
-      it('should create new config with version field', async () => {
-        const result = await hookManager.install(agent)
-
-        expect(result.success).to.be.true
-
-        const content = await fileService.read(path.join(testDir, configPath))
-        const json = JSON.parse(content)
-        expect(json.version).to.equal(1)
-        expect(json.hooks.pre_prompt).to.have.lengthOf(1)
-        expect(json.hooks.pre_prompt[0].command).to.equal(HOOK_COMMAND)
-      })
-    })
-
-    describe('status', () => {
-      it('should detect installed hook', async () => {
-        const existingConfig = {
-          hooks: {pre_prompt: [{command: HOOK_COMMAND}]}, // eslint-disable-line camelcase -- Windsurf API format
-          version: 1,
-        }
-        await mkdir(path.join(testDir, '.windsurf'), {recursive: true})
-        await writeFile(path.join(testDir, configPath), JSON.stringify(existingConfig))
-
-        const result = await hookManager.status(agent)
-
-        expect(result.configExists).to.be.true
-        expect(result.installed).to.be.true
       })
     })
   })
