@@ -84,8 +84,9 @@ export class FileHookManager implements IHookManager {
       }
 
       // File doesn't exist - create new config
+      // Use deep copy to avoid mutating the shared defaultConfig object
       const newConfig: Record<string, unknown> = config.defaultConfig
-        ? {...config.defaultConfig}
+        ? structuredClone(config.defaultConfig)
         : {}
 
       this.setHooksArray(newConfig, config.hookEventKey, [config.createHookEntry()])
@@ -147,6 +148,7 @@ export class FileHookManager implements IHookManager {
   async uninstall(agent: HookSupportedAgent): Promise<HookUninstallResult> {
     const config = AGENT_HOOK_CONFIGS[agent]
     const fullPath = path.join(this.projectRoot, config.configPath)
+    let wasInstalled = false
 
     try {
       const exists = await this.fileService.exists(fullPath)
@@ -166,7 +168,7 @@ export class FileHookManager implements IHookManager {
 
       // Get current hooks and filter out ours
       const hooks = this.getHooksArray(json, config.hookEventKey)
-      const wasInstalled = hooks.some((entry) => config.isOurHook(entry))
+      wasInstalled = hooks.some((entry) => config.isOurHook(entry))
 
       if (!wasInstalled) {
         return {
@@ -195,7 +197,7 @@ export class FileHookManager implements IHookManager {
         configPath: config.configPath,
         message: `Failed to uninstall hook for ${agent}: ${error instanceof Error ? error.message : String(error)}`,
         success: false,
-        wasInstalled: false,
+        wasInstalled,
       }
     }
   }
