@@ -1,4 +1,5 @@
 import {type HookSupportedAgent} from '../../core/interfaces/hooks/i-hook-manager.js'
+import {isRecord} from '../../utils/type-guards.js'
 
 /**
  * The command that ByteRover hooks execute.
@@ -40,13 +41,6 @@ export type AgentHookConfig = {
   hookEventKey: string
   /** Function to check if a hook entry is a ByteRover hook */
   isOurHook: (entry: unknown) => boolean
-}
-
-/**
- * Type guard to check if value is a non-null object.
- */
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 /**

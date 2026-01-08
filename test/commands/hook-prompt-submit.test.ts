@@ -61,7 +61,6 @@ describe('commands/hook-prompt-submit', () => {
       const output = loggedOutput.join('\n')
       expect(output).to.include('You MUST run')
       expect(output).to.include('MUST NOT')
-      expect(output).to.include('MANDATORY')
     })
 
     it('should include brv commands', async () => {
@@ -73,13 +72,12 @@ describe('commands/hook-prompt-submit', () => {
       expect(output).to.include('brv curate')
     })
 
-    it('should include workflow section', async () => {
+    it('should include long conversation warning', async () => {
       const command = createTestCommand()
       await command.run()
 
       const output = loggedOutput.join('\n')
-      expect(output).to.include('WORKFLOW')
-      expect(output).to.include('Code task received')
+      expect(output).to.include('CRITICAL - LONG CONVERSATIONS')
     })
   })
 

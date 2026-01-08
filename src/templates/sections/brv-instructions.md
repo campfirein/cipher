@@ -25,10 +25,12 @@ Example patterns (ANY language): add, create, build, fix, debug, refactor, updat
 **You MUST NOT query when:**
 - General programming concepts (not codebase-specific)
 - Meta tasks: "run tests", "build project", "commit changes", "create PR"
-- Continuing work from earlier in same conversation
-- Simple clarifications about your previous response
+- Simple clarifications about your previous response (not involving code)
 
-Example patterns: "what is a Promise", "explain async/await", "also add X", "what do you mean", "which file", "run the tests", "commit this"
+Example patterns: "what is a Promise", "explain async/await", "what do you mean", "which file", "run the tests", "commit this"
+
+**⚠️ CRITICAL - LONG CONVERSATIONS:**
+Even after 10, 50, or 100 prompts in the same conversation - if a NEW code task comes up, you MUST query again. Do NOT skip query just because you queried earlier. Each distinct code task = new query.
 
 ```bash
 brv query "What do I need to know about [relevant topic]?"
@@ -59,6 +61,9 @@ brv curate "Multi-file insight" -f file1.ts -f file2.ts
 **GOOD:** `brv curate "Auth uses JWT 24h expiry, refresh in httpOnly cookies" -f src/auth.ts`
 **BAD:** `brv curate "Fixed auth"` (too vague), `brv curate -f file.ts "text"` (wrong order)
 
+**⚠️ CRITICAL - LONG CONVERSATIONS:**
+If you modify code 10 times in a conversation, curate 10 times. Do NOT batch or skip. Each code change = immediate curate before moving on.
+
 ## Quick Reference Table
 
 | Task Type | Query? | Curate? |
@@ -73,7 +78,7 @@ brv curate "Multi-file insight" -f file1.ts -f file2.ts
 | General concept (Promise, async) | NO | NO |
 | Meta task (run tests, build) | NO | NO |
 | Git task (commit, PR, push) | NO | NO |
-| Follow-up in same conversation | NO | **MUST** if code changed |
+| Follow-up code task in same conversation | **MUST** | **MUST** |
 | Clarification ("which file?") | NO | NO |
 
 ## WORKFLOW

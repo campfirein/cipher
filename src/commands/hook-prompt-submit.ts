@@ -1,5 +1,6 @@
 import {Command} from '@oclif/core'
 
+import {isDevelopment} from '../config/environment.js'
 import {FsFileService} from '../infra/file/fs-file-service.js'
 import {FsTemplateLoader} from '../infra/template/fs-template-loader.js'
 
@@ -29,9 +30,11 @@ export default class HookPromptSubmit extends Command {
 
       // Output to stdout (Claude Code wraps in <system-reminder>)
       this.log(`<!-- ByteRover Context -->\n\n${instructions}`)
-    } catch {
-      // Silently fail - don't interrupt Claude Code workflow
-      // Template might be missing in dev environment or corrupted
+    } catch (error) {
+      // Silently fail in production - don't interrupt Claude Code workflow
+      if (isDevelopment()) {
+        console.error('[hook-prompt-submit] Template load failed:', error)
+      }
     }
   }
 }

@@ -8,14 +8,8 @@ import {
   type IHookManager,
 } from '../../core/interfaces/hooks/i-hook-manager.js'
 import {type IFileService} from '../../core/interfaces/i-file-service.js'
+import {isRecord} from '../../utils/type-guards.js'
 import {AGENT_HOOK_CONFIGS, HOOK_SUPPORTED_AGENTS} from './agent-hook-configs.js'
-
-/**
- * Type guard to check if value is a non-null object (Record).
- */
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
 
 /**
  * Parse JSON and validate it's a Record object.
