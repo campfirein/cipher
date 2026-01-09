@@ -159,6 +159,7 @@ describe('FileHookManager', () => {
 
         expect(result.configExists).to.be.false
         expect(result.installed).to.be.false
+        expect(result.error).to.be.undefined
       })
 
       it('should return installed true if hook exists', async () => {
@@ -174,6 +175,7 @@ describe('FileHookManager', () => {
 
         expect(result.configExists).to.be.true
         expect(result.installed).to.be.true
+        expect(result.error).to.be.undefined
       })
 
       it('should return installed false if hook not present', async () => {
@@ -185,6 +187,7 @@ describe('FileHookManager', () => {
 
         expect(result.configExists).to.be.true
         expect(result.installed).to.be.false
+        expect(result.error).to.be.undefined
       })
     })
   })
@@ -263,7 +266,7 @@ describe('FileHookManager', () => {
       expect(result.message).to.include('Failed to install')
     })
 
-    it('should handle malformed JSON gracefully on status', async () => {
+    it('should handle malformed JSON gracefully on status and report error', async () => {
       await mkdir(path.join(testDir, '.claude'), {recursive: true})
       await writeFile(path.join(testDir, '.claude/settings.local.json'), 'not valid json')
 
@@ -271,6 +274,8 @@ describe('FileHookManager', () => {
 
       expect(result.configExists).to.be.true
       expect(result.installed).to.be.false // can't determine, assume not installed
+      expect(result.error).to.be.a('string')
+      expect(result.error).to.include('Unexpected token')
     })
 
     it('should remove duplicate hooks on uninstall', async () => {

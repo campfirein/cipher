@@ -135,11 +135,12 @@ export class FileHookManager implements IHookManager {
         configPath: config.configPath,
         installed,
       }
-    } catch {
-      // If we can't read/parse the file, report as not installed
+    } catch (error) {
+      // Report the error so callers can distinguish between "not installed" and "check failed"
       return {
         configExists: true,
         configPath: config.configPath,
+        error: error instanceof Error ? error.message : String(error),
         installed: false,
       }
     }

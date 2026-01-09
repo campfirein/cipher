@@ -40,6 +40,8 @@ export type HookStatus = {
   configExists: boolean
   /** Path to the configuration file */
   configPath: string
+  /** Error message if status check failed (e.g., permission denied, malformed JSON) */
+  error?: string
   /** Whether the ByteRover hook is currently installed */
   installed: boolean
 }
