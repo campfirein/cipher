@@ -31,11 +31,11 @@ describe('commands/hook-prompt-submit', () => {
   }
 
   describe('output format', () => {
-    it('should output ByteRover context header', async () => {
+    it('should output STOP blockquote opener', async () => {
       const command = createTestCommand()
       await command.run()
 
-      expect(loggedOutput.some((m) => m.includes('<!-- ByteRover Context -->'))).to.be.true
+      expect(loggedOutput.some((m) => m.includes('**⚠️ STOP: Before responding'))).to.be.true
     })
 
     it('should include MANDATORY title', async () => {
@@ -43,15 +43,6 @@ describe('commands/hook-prompt-submit', () => {
       await command.run()
 
       expect(loggedOutput.some((m) => m.includes('# ByteRover Memory System - MANDATORY'))).to.be.true
-    })
-
-    it('should include BEGIN/END BYTEROVER RULES markers', async () => {
-      const command = createTestCommand()
-      await command.run()
-
-      const output = loggedOutput.join('\n')
-      expect(output).to.include('<!-- BEGIN BYTEROVER RULES -->')
-      expect(output).to.include('<!-- END BYTEROVER RULES -->')
     })
 
     it('should include MUST language for enforcement', async () => {
@@ -78,6 +69,14 @@ describe('commands/hook-prompt-submit', () => {
 
       const output = loggedOutput.join('\n')
       expect(output).to.include('CRITICAL - LONG CONVERSATIONS')
+    })
+
+    it('should include REMINDER blockquote closer', async () => {
+      const command = createTestCommand()
+      await command.run()
+
+      const output = loggedOutput.join('\n')
+      expect(output).to.include('**⚠️ REMINDER: Don\'t forget!')
     })
   })
 

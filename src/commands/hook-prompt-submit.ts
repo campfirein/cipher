@@ -24,7 +24,7 @@ export default class HookPromptSubmit extends Command {
       const instructions = await templateLoader.loadSection('brv-instructions')
 
       // Output to stdout (agent wraps in system context)
-      this.log(`<!-- ByteRover Context -->\n\n${instructions}`)
+      this.log(instructions)
     } catch (error) {
       // Silently fail in production - don't interrupt agent workflow
       if (isDevelopment()) {

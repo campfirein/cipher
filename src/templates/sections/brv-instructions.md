@@ -1,4 +1,7 @@
-<!-- BEGIN BYTEROVER RULES -->
+> **⚠️ STOP: Before responding, check if this is a code task.**
+> Code task? → `brv query` FIRST. Wrote code? → `brv curate` BEFORE done.
+
+---
 
 # ByteRover Memory System - MANDATORY
 
@@ -88,4 +91,8 @@ Code task received → brv query FIRST → Work → brv curate → Done
 Non-code task → Just respond normally
 ```
 
-<!-- END BYTEROVER RULES -->
+---
+
+> **⚠️ REMINDER: Don't forget!**
+> - `brv query` → BEFORE starting code task
+> - `brv curate` → AFTER each code change (don't batch!)

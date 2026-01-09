@@ -88,6 +88,8 @@ export const AGENT_HOOK_CONFIGS: Record<HookSupportedAgent, AgentHookConfig> = {
 }
 
 /**
- * Get list of all supported agents.
+ * List of all supported agents.
+ * Using explicit array with `as const satisfies` for type safety without `as Type` assertion.
+ * TypeScript will error if values don't match HookSupportedAgent type.
  */
-export const HOOK_SUPPORTED_AGENTS: HookSupportedAgent[] = Object.keys(AGENT_HOOK_CONFIGS) as HookSupportedAgent[]
+export const HOOK_SUPPORTED_AGENTS = ['Claude Code', 'Cursor'] as const satisfies readonly HookSupportedAgent[]
