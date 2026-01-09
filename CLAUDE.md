@@ -14,6 +14,7 @@ npm run lint                                     # ESLint
 ```
 
 **Test dirs**: `test/commands/`, `test/unit/`, `test/integration/`, `test/hooks/`, `test/learning/`, `test/helpers/`, `test/shared/`
+**Note**: Run tests from project root, not within test directories
 
 ## Development Standards
 
@@ -130,8 +131,8 @@ All have `toJson()`/`fromJson()`, immutable readonly properties
 
 **Cipher** (`src/infra/cipher/`) - LLM agent system:
 
-- `llm/` - Multi-provider support (ByteRover internal, OpenRouter), tokenizers, context compression
-- `tools/` - 22 tool implementations:
+- `llm/` - Multi-provider support (ByteRover internal, OpenRouter), tokenizers, context compression, streaming with thinking visualization
+- `tools/implementations/` - 22 tool implementations:
   - File: `read-file`, `write-file`, `edit-file`, `list-directory`, `glob-files`, `grep-content`
   - Bash: `bash-exec`, `bash-output`, `kill-process`
   - Memory: `read-memory`, `write-memory`, `edit-memory`, `delete-memory`, `list-memories`
@@ -169,7 +170,7 @@ All have `toJson()`/`fromJson()`, immutable readonly properties
 
 **UseCases** (`src/infra/usecase/`) - Business logic orchestration:
 
-- 12 use cases matching REPL commands: `init`, `login`, `logout`, `status`, `curate`, `query`, `push`, `pull`, `clear`, `space-list`, `space-switch`, `generate-rules`
+- 12 use cases matching REPL commands: `init`, `login`, `logout`, `status`, `curate`, `query`, `push`, `pull`, `reset`, `space-list`, `space-switch`, `generate-rules`
 
 ### Config
 
@@ -205,6 +206,7 @@ Commands prefixed with `/` in the REPL (`src/infra/repl/commands/`):
 - `/space list`, `/space switch` - Space management
 - `/gen-rules` - Generate agent-specific rule files
 - `/reset` - Reset context tree (destructive)
+- `/new [-y]` - Start fresh session (ends current, clears conversation history, NOT context tree)
 - `/query` - Query context tree
 
 ## Testing
