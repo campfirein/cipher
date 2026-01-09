@@ -126,9 +126,9 @@ describe('GenerateRulesUseCase', () => {
 
         await useCase.run()
 
-        expect((terminal.error as SinonStub).calledOnce).to.be.true
-        expect((terminal.error as SinonStub).firstCall.args[0]).to.include('restart')
-        expect((terminal.error as SinonStub).firstCall.args[0]).to.include('Claude Code')
+        expect((terminal.warn as SinonStub).calledOnce).to.be.true
+        expect((terminal.warn as SinonStub).firstCall.args[0]).to.include('restart')
+        expect((terminal.warn as SinonStub).firstCall.args[0]).to.include('Claude Code')
       })
 
       it('should ALWAYS show restart message even when hook already installed', async () => {
@@ -143,8 +143,8 @@ describe('GenerateRulesUseCase', () => {
         await useCase.run()
 
         // Always show restart message regardless of alreadyInstalled
-        expect((terminal.error as SinonStub).calledOnce).to.be.true
-        expect((terminal.error as SinonStub).firstCall.args[0]).to.include('restart')
+        expect((terminal.warn as SinonStub).calledOnce).to.be.true
+        expect((terminal.warn as SinonStub).firstCall.args[0]).to.include('restart')
       })
 
       it('should NOT show restart message when hook installation fails', async () => {
@@ -158,7 +158,7 @@ describe('GenerateRulesUseCase', () => {
 
         await useCase.run()
 
-        expect((terminal.error as SinonStub).called).to.be.false
+        expect((terminal.warn as SinonStub).called).to.be.false
       })
     })
 
@@ -169,7 +169,7 @@ describe('GenerateRulesUseCase', () => {
         await useCase.run()
 
         expect((hookManager.install as SinonStub).called).to.be.false
-        expect((terminal.error as SinonStub).called).to.be.false
+        expect((terminal.warn as SinonStub).called).to.be.false
       })
 
       it('should silently skip hook installation for Amp', async () => {
@@ -178,17 +178,21 @@ describe('GenerateRulesUseCase', () => {
         await useCase.run()
 
         expect((hookManager.install as SinonStub).called).to.be.false
-        expect((terminal.error as SinonStub).called).to.be.false
+        expect((terminal.warn as SinonStub).called).to.be.false
       })
     })
 
     describe('error handling', () => {
-      it('should silently ignore hook installation errors', async () => {
+      it('should show error but not interrupt rule generation when hook installation fails', async () => {
         const useCase = createUseCaseWithAgentSelection('Claude Code')
         ;(hookManager.install as SinonStub).rejects(new Error('Permission denied'))
 
         // Should not throw
         await useCase.run()
+
+        // Error should be shown
+        expect((terminal.error as SinonStub).calledOnce).to.be.true
+        expect((terminal.error as SinonStub).firstCall.args[0]).to.include('Permission denied')
 
         // Rule generation should still complete
         expect((terminal.log as SinonStub).called).to.be.true

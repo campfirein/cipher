@@ -28,9 +28,9 @@ export async function tryInstallHookWithRestartMessage(params: {
   try {
     const result = await hookManager.install(agent)
     if (result.success) {
-      terminal.error(`\n⚠️  Please restart ${agent} to apply the new rules.`)
+      terminal.warn(`\n⚠️  Please restart ${agent} to apply the new rules.`)
     }
-  } catch {
-    // Silently ignore - don't interrupt main workflow
+  } catch (error) {
+    terminal.error(`Failed to install hook for ${agent}: ${error instanceof Error ? error.message : String(error)}`)
   }
 }
