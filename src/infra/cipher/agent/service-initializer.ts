@@ -217,7 +217,7 @@ export async function createCipherAgentServices(
     historyStorage = new DualFormatHistoryStorage(blobHistoryStorage, granularStorage)
 
     // Create CompactionService for context overflow management
-    const tokenizer = new GeminiTokenizer(config.model ?? 'gemini-2.5-pro')
+    const tokenizer = new GeminiTokenizer(config.model ?? 'gemini-3-flash-preview')
     compactionService = new CompactionService(messageStorage, tokenizer, {
       overflowThreshold: 0.85, // 85% triggers compaction check
       protectedTurns: 2, // Protect first 2 user turns from pruning
@@ -293,7 +293,7 @@ export function createSessionServices(
         httpReferer: llmConfig.httpReferer,
         maxIterations: llmConfig.maxIterations ?? 50,
         maxTokens: llmConfig.maxTokens ?? 8192,
-        model: llmConfig.model ?? 'google/gemini-2.5-pro',
+        model: llmConfig.model ?? 'google/gemini-3-flash-preview',
         siteName: llmConfig.siteName,
         temperature: llmConfig.temperature ?? 0.7,
         verbose: llmConfig.verbose ?? false,
@@ -324,7 +324,7 @@ export function createSessionServices(
     // Step 2: Create base content generator
     let generator: IContentGenerator = new ByteRoverContentGenerator(httpService, {
       maxTokens: llmConfig.maxTokens ?? 8192,
-      model: llmConfig.model ?? 'gemini-2.5-pro',
+      model: llmConfig.model ?? 'gemini-3-flash-preview',
       temperature: llmConfig.temperature ?? 0.7,
     })
 
@@ -349,7 +349,7 @@ export function createSessionServices(
       {
         maxIterations: llmConfig.maxIterations ?? 50,
         maxTokens: llmConfig.maxTokens ?? 8192,
-        model: llmConfig.model ?? 'gemini-2.5-pro',
+        model: llmConfig.model ?? 'gemini-3-flash-preview',
         temperature: llmConfig.temperature ?? 0.7,
         verbose: llmConfig.verbose ?? false,
       },

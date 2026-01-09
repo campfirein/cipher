@@ -140,7 +140,7 @@ export class InitUseCase implements IInitUseCase {
     this.terminal.log('  - Regenerate rule instructions\n')
     return this.terminal.confirm({
       default: false,
-      message: 'Continue with re-initialization?',
+      message: 'Continue with re-initialization',
     })
   }
 
@@ -349,7 +349,7 @@ export class InitUseCase implements IInitUseCase {
 
     return this.terminal.confirm({
       default: true,
-      message: 'Remove the ACE folder and its contents?',
+      message: 'Remove the ACE folder and its contents',
     })
   }
 
@@ -412,7 +412,7 @@ export class InitUseCase implements IInitUseCase {
   protected async promptForFileCreation(agent: Agent, filePath: string): Promise<boolean> {
     return this.terminal.confirm({
       default: true,
-      message: `Rule file '${filePath}' doesn't exist. Create it with ByteRover rules?`,
+      message: `Rule file '${filePath}' doesn't exist. Create it with ByteRover rules`,
     })
   }
 
@@ -423,7 +423,7 @@ export class InitUseCase implements IInitUseCase {
   protected async promptForOverwriteConfirmation(agent: Agent): Promise<boolean> {
     return this.terminal.confirm({
       default: true,
-      message: `Rule file already exists for ${agent}. Overwrite?`,
+      message: `Rule file already exists for ${agent}. Overwrite`,
     })
   }
 

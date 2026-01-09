@@ -45,12 +45,42 @@ export interface ThinkingConfig {
 
 /**
  * Thinking levels for Gemini 3.x models
+ * Matches @google/genai ThinkingLevel enum values
  */
 export enum ThinkingLevel {
+  DISABLED = 'DISABLED',
   HIGH = 'HIGH',
   LOW = 'LOW',
   MEDIUM = 'MEDIUM',
   UNSPECIFIED = 'THINKING_LEVEL_UNSPECIFIED',
+}
+
+/**
+ * Check if model is a Gemini 2.x model
+ * @param model - Model identifier
+ * @returns True if model is Gemini 2.x
+ */
+export function isGemini2Model(model: string): boolean {
+  return /^gemini-2(\.|$)/.test(model)
+}
+
+/**
+ * Check if model is a Gemini 3.x model
+ * @param model - Model identifier
+ * @returns True if model is Gemini 3.x
+ */
+export function isGemini3Model(model: string): boolean {
+  return model.startsWith('gemini-3-')
+}
+
+/**
+ * Check if model supports multimodal function responses
+ * This is supported in Gemini 3+ models
+ * @param model - Model identifier
+ * @returns True if model supports multimodal function responses
+ */
+export function supportsMultimodalFunctionResponse(model: string): boolean {
+  return model.startsWith('gemini-3-')
 }
 
 /**

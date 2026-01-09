@@ -1,4 +1,4 @@
-import type {ChildProcess} from 'node:child_process'
+import type { ChildProcess } from 'node:child_process'
 
 /**
  * Process execution configuration.
@@ -245,17 +245,17 @@ export interface ProcessInfo {
  */
 export type CommandValidation =
   | {
-      /** Command is valid */
-      isValid: true
-      /** Normalized command string (trimmed, whitespace collapsed) */
-      normalizedCommand: string
-    }
+    /** Command is valid */
+    isValid: true
+    /** Normalized command string (trimmed, whitespace collapsed) */
+    normalizedCommand: string
+  }
   | {
-      /** Error message explaining why validation failed */
-      error: string
-      /** Command is invalid */
-      isValid: false
-    }
+    /** Error message explaining why validation failed */
+    error: string
+    /** Command is invalid */
+    isValid: false
+  }
 
 /**
  * Output buffer for background process.

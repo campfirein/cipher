@@ -7,10 +7,10 @@ import type {IContextTreeService} from '../../../src/core/interfaces/i-context-t
 import type {IContextTreeSnapshotService} from '../../../src/core/interfaces/i-context-tree-snapshot-service.js'
 import type {ITerminal} from '../../../src/core/interfaces/i-terminal.js'
 
-import {ClearUseCase} from '../../../src/infra/usecase/clear-use-case.js'
+import {ResetUseCase} from '../../../src/infra/usecase/reset-use-case.js'
 import {createMockTerminal} from '../../helpers/mock-factories.js'
 
-describe('ClearUseCase', () => {
+describe('ResetUseCase', () => {
   let contextTreeService: SinonStubbedInstance<IContextTreeService>
   let contextTreeSnapshotService: SinonStubbedInstance<IContextTreeSnapshotService>
   let errorMessages: string[]
@@ -44,8 +44,8 @@ describe('ClearUseCase', () => {
     restore()
   })
 
-  function createUseCase(): ClearUseCase {
-    return new ClearUseCase({
+  function createUseCase(): ResetUseCase {
+    return new ResetUseCase({
       contextTreeService,
       contextTreeSnapshotService,
       terminal,
@@ -103,7 +103,7 @@ describe('ClearUseCase', () => {
     // Verify initialize was not attempted
     expect(contextTreeService.initialize.called).to.be.false
     expect(contextTreeSnapshotService.initEmptySnapshot.called).to.be.false
-    expect(logMessages).to.include('No context tree found. Nothing to clear.')
+    expect(logMessages).to.include('No context tree found. Nothing to reset.')
   })
 
   it('should accept custom directory parameter', async () => {
