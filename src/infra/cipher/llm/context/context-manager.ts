@@ -1,20 +1,20 @@
-import type {IHistoryStorage} from '../../../../core/interfaces/cipher/i-history-storage.js'
-import type {ILogger} from '../../../../core/interfaces/cipher/i-logger.js'
-import type {IMessageFormatter} from '../../../../core/interfaces/cipher/i-message-formatter.js'
-import type {ITokenizer} from '../../../../core/interfaces/cipher/i-tokenizer.js'
+import type { IHistoryStorage } from '../../../../core/interfaces/cipher/i-history-storage.js'
+import type { ILogger } from '../../../../core/interfaces/cipher/i-logger.js'
+import type { IMessageFormatter } from '../../../../core/interfaces/cipher/i-message-formatter.js'
+import type { ITokenizer } from '../../../../core/interfaces/cipher/i-tokenizer.js'
 import type {
   InternalMessage,
   MessagePart,
   ToolPart,
   ToolState,
 } from '../../../../core/interfaces/cipher/message-types.js'
-import type {ICompressionStrategy} from './compression/types.js'
+import type { ICompressionStrategy } from './compression/types.js'
 
-import {NoOpLogger} from '../../../../core/interfaces/cipher/i-logger.js'
-import {getErrorMessage} from '../../../../utils/error-helpers.js'
-import {AsyncMutex} from './async-mutex.js'
-import {MiddleRemovalStrategy, OldestRemovalStrategy} from './compression/index.js'
-import {countMessagesTokens} from './utils.js'
+import { NoOpLogger } from '../../../../core/interfaces/cipher/i-logger.js'
+import { getErrorMessage } from '../../../../utils/error-helpers.js'
+import { AsyncMutex } from './async-mutex.js'
+import { MiddleRemovalStrategy, OldestRemovalStrategy } from './compression/index.js'
+import { countMessagesTokens } from './utils.js'
 
 /**
  * Configuration for persistence retry behavior.
@@ -163,8 +163,8 @@ export class ContextManager<T> {
 
     // Initialize compression strategies with defaults
     this.compressionStrategies = options.compressionStrategies ?? [
-      new MiddleRemovalStrategy({preserveEnd: 5, preserveStart: 4}),
-      new OldestRemovalStrategy({minMessagesToKeep: 4}),
+      new MiddleRemovalStrategy({ preserveEnd: 5, preserveStart: 4 }),
+      new OldestRemovalStrategy({ minMessagesToKeep: 4 }),
     ]
   }
 
@@ -185,7 +185,7 @@ export class ContextManager<T> {
 
     // Auto-save to persistent storage (non-blocking)
     this.persistHistory().catch((error: Error) => {
-      this.logger.error('Failed to persist history after assistant message', {error, sessionId: this.sessionId})
+      this.logger.error('Failed to persist history after assistant message', { error, sessionId: this.sessionId })
     })
   }
 
@@ -204,7 +204,7 @@ export class ContextManager<T> {
 
     // Auto-save to persistent storage (non-blocking)
     this.persistHistory().catch((error: Error) => {
-      this.logger.error('Failed to persist history after system message', {error, sessionId: this.sessionId})
+      this.logger.error('Failed to persist history after system message', { error, sessionId: this.sessionId })
     })
   }
 
@@ -219,7 +219,7 @@ export class ContextManager<T> {
   public addToolCallPending(callId: string, toolName: string, input: Record<string, unknown>): void {
     const toolPart: ToolPart = {
       callId,
-      state: {input, status: 'pending'},
+      state: { input, status: 'pending' },
       toolName,
       type: 'tool',
     }
@@ -227,7 +227,7 @@ export class ContextManager<T> {
     // Find the last assistant message and add the tool part
     const lastAssistantIdx = this.findLastAssistantMessageIndex()
     if (lastAssistantIdx === -1) {
-      this.logger.warn('No assistant message found to add tool call', {callId, sessionId: this.sessionId})
+      this.logger.warn('No assistant message found to add tool call', { callId, sessionId: this.sessionId })
       return
     }
 
@@ -251,7 +251,7 @@ export class ContextManager<T> {
     toolCallId: string,
     toolName: string,
     result: unknown,
-    _metadata: {errorType?: string; metadata?: Record<string, unknown>; success: boolean},
+    _metadata: { errorType?: string; metadata?: Record<string, unknown>; success: boolean },
   ): Promise<string> {
     // Sanitize result - convert to string representation (can be done outside lock)
     const sanitized = this.sanitizeToolResult(result)
@@ -271,7 +271,7 @@ export class ContextManager<T> {
       try {
         await this.persistHistory()
       } catch (error) {
-        this.logger.error('Failed to persist history after tool result', {error, sessionId: this.sessionId})
+        this.logger.error('Failed to persist history after tool result', { error, sessionId: this.sessionId })
       }
     })
 
@@ -297,7 +297,7 @@ export class ContextManager<T> {
 
     // Auto-save to persistent storage (non-blocking)
     this.persistHistory().catch((error: Error) => {
-      this.logger.error('Failed to persist history after user message', {error, sessionId: this.sessionId})
+      this.logger.error('Failed to persist history after user message', { error, sessionId: this.sessionId })
     })
   }
 
@@ -314,7 +314,7 @@ export class ContextManager<T> {
         await this.historyStorage.deleteHistory(this.sessionId)
         // Debug logging removed for cleaner user experience
       } catch (error) {
-        this.logger.error('Failed to clear persisted history', {error, sessionId: this.sessionId})
+        this.logger.error('Failed to clear persisted history', { error, sessionId: this.sessionId })
       }
     }
   }
@@ -439,7 +439,7 @@ export class ContextManager<T> {
    */
   public async initialize(): Promise<boolean> {
     if (this.isInitialized) {
-      this.logger.warn('ContextManager already initialized', {sessionId: this.sessionId})
+      this.logger.warn('ContextManager already initialized', { sessionId: this.sessionId })
       return false
     }
 
@@ -462,7 +462,7 @@ export class ContextManager<T> {
       // Debug logging removed for cleaner user experience
       return false
     } catch (error) {
-      this.logger.error('Failed to load history for session', {error, sessionId: this.sessionId})
+      this.logger.error('Failed to load history for session', { error, sessionId: this.sessionId })
       this.isInitialized = true
       return false
     }
@@ -505,7 +505,7 @@ export class ContextManager<T> {
       }
     }
 
-    this.logger.warn('Tool call not found for state update', {callId, sessionId: this.sessionId})
+    this.logger.warn('Tool call not found for state update', { callId, sessionId: this.sessionId })
   }
 
   // ==================== PRIVATE METHODS ====================
@@ -521,7 +521,7 @@ export class ContextManager<T> {
       newContent = [...message.content, toolPart]
     } else if (typeof message.content === 'string') {
       // Convert string content to array with text part + tool part
-      newContent = [{text: message.content, type: 'text'}, toolPart]
+      newContent = [{ text: message.content, type: 'text' }, toolPart]
     } else {
       // null content - just add tool part
       newContent = [toolPart]
@@ -680,7 +680,7 @@ export class ContextManager<T> {
       return
     }
 
-    const {baseDelayMs, maxRetries, multiplier} = this.persistenceRetry
+    const { baseDelayMs, maxRetries, multiplier } = this.persistenceRetry
     let lastError: Error | undefined
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -738,8 +738,29 @@ export class ContextManager<T> {
         return result
       }
 
-      // Convert to JSON string
-      const jsonString = JSON.stringify(result, null, 2)
+      // Convert to JSON string with special type handling
+      const jsonString = JSON.stringify(
+        result,
+        (_, val) => {
+          // Convert BigInt to string
+          if (typeof val === 'bigint') {
+            return val.toString()
+          }
+
+          // Convert functions to their string representation
+          if (typeof val === 'function') {
+            return `[Function: ${val.name || 'anonymous'}]`
+          }
+
+          // Convert Symbols to string
+          if (typeof val === 'symbol') {
+            return val.toString()
+          }
+
+          return val
+        },
+        2,
+      )
 
       // Limit size to prevent extremely large results
       const MAX_RESULT_LENGTH = 50_000
@@ -779,19 +800,19 @@ export class ContextManager<T> {
   private validateMessage(message: InternalMessage): MessageValidation {
     // Rule 1: Empty content check (skip for tool messages which always have content)
     if (message.role !== 'tool' && !message.content && (!message.toolCalls || message.toolCalls.length === 0)) {
-      return {isValid: false, reason: 'empty_content'}
+      return { isValid: false, reason: 'empty_content' }
     }
 
     // Rule 2: Tool result without corresponding call ID
     if (message.role === 'tool' && !message.toolCallId) {
-      return {isValid: false, reason: 'incomplete_tool_call'}
+      return { isValid: false, reason: 'incomplete_tool_call' }
     }
 
     // Rule 3: System messages with only noise (empty or whitespace)
     if (message.role === 'system' && this.isSystemNoise(message)) {
-      return {isValid: false, reason: 'system_noise'}
+      return { isValid: false, reason: 'system_noise' }
     }
 
-    return {isValid: true}
+    return { isValid: true }
   }
 }
