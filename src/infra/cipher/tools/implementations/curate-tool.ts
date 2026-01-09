@@ -1,12 +1,12 @@
-import { join } from 'node:path'
-import { z } from 'zod'
+import {join} from 'node:path'
+import {z} from 'zod'
 
-import type { Tool, ToolExecutionContext } from '../../../../core/domain/cipher/tools/types.js'
+import type {Tool, ToolExecutionContext} from '../../../../core/domain/cipher/tools/types.js'
 
-import { ToolName } from '../../../../core/domain/cipher/tools/constants.js'
-import { DirectoryManager } from '../../../../core/domain/knowledge/directory-manager.js'
-import { MarkdownWriter } from '../../../../core/domain/knowledge/markdown-writer.js'
-import { toSnakeCase } from '../../../../utils/file-helpers.js'
+import {ToolName} from '../../../../core/domain/cipher/tools/constants.js'
+import {DirectoryManager} from '../../../../core/domain/knowledge/directory-manager.js'
+import {MarkdownWriter} from '../../../../core/domain/knowledge/markdown-writer.js'
+import {toSnakeCase} from '../../../../utils/file-helpers.js'
 
 /**
  * Operation types for curating knowledge topics.
@@ -23,15 +23,28 @@ const RawConceptSchema = z.object({
   files: z.array(z.string()).optional().describe('Which files are related to this concept'),
   flow: z.string().optional().describe('What is the flow included in this concept'),
   task: z.string().optional().describe('What is the task related to this concept'),
-  timestamp: z.string().optional().describe('When the concept was created or modified (ISO 8601 format, e.g., 2025-03-18)'),
+  timestamp: z
+    .string()
+    .optional()
+    .describe('When the concept was created or modified (ISO 8601 format, e.g., 2025-03-18)'),
 })
 
 /**
  * Narrative schema for descriptive and structural context.
  */
 const NarrativeSchema = z.object({
-  dependencies: z.string().optional().describe('Dependency management information (e.g., "Singleton, init when service starts, hard dependency in smoke test")'),
-  features: z.string().optional().describe('Feature documentation for this concept (e.g., "User permission can be stale for up to 300 seconds due to Redis cache")'),
+  dependencies: z
+    .string()
+    .optional()
+    .describe(
+      'Dependency management information (e.g., "Singleton, init when service starts, hard dependency in smoke test")',
+    ),
+  features: z
+    .string()
+    .optional()
+    .describe(
+      'Feature documentation for this concept (e.g., "User permission can be stale for up to 300 seconds due to Redis cache")',
+    ),
   structure: z.string().optional().describe('Code structure documentation (e.g., "clients/redis_client.go")'),
 })
 
@@ -57,7 +70,12 @@ const OperationSchema = z.object({
   mergeTargetTitle: z.string().optional().describe('Title of the target file for MERGE operation'),
   path: z.string().describe('Path: domain/topic/title.md or domain/topic/subtopic/title.md'),
   reason: z.string().describe('Reasoning for this operation'),
-  title: z.string().optional().describe('Title for the context file (saved as {title}.md in snake_case). Required for ADD/UPDATE/MERGE, optional for DELETE'),
+  title: z
+    .string()
+    .optional()
+    .describe(
+      'Title for the context file (saved as {title}.md in snake_case). Required for ADD/UPDATE/MERGE, optional for DELETE',
+    ),
   type: OperationType.describe('Operation type: ADD, UPDATE, MERGE, or DELETE'),
 })
 
@@ -100,7 +118,7 @@ interface CurateOutput {
 /**
  * Parse a path into domain, topic, and optional subtopic.
  */
-function parsePath(path: string): null | { domain: string; subtopic?: string; topic: string } {
+function parsePath(path: string): null | {domain: string; subtopic?: string; topic: string} {
   const parts = path.split('/')
   if (parts.length < 2 || parts.length > 3) {
     return null
@@ -118,7 +136,7 @@ function parsePath(path: string): null | { domain: string; subtopic?: string; to
  * Dynamic domains are allowed - no predefined list or limits.
  * The agent is responsible for creating semantically meaningful domains.
  */
-function validateDomain(domainName: string): { allowed: boolean; reason?: string } {
+function validateDomain(domainName: string): {allowed: boolean; reason?: string} {
   const normalizedDomain = toSnakeCase(domainName)
 
   // Validate domain name format (must be non-empty and valid for filesystem)
@@ -138,7 +156,7 @@ function validateDomain(domainName: string): { allowed: boolean; reason?: string
   }
 
   // All valid domain names are allowed - dynamic domain creation enabled
-  return { allowed: true }
+  return {allowed: true}
 }
 
 /**
@@ -164,11 +182,8 @@ function buildFullPath(basePath: string, knowledgePath: string): string {
 /**
  * Execute ADD operation - create new domain/topic/subtopic with {title}.md
  */
-async function executeAdd(
-  basePath: string,
-  operation: Operation,
-): Promise<OperationResult> {
-  const { content, path, reason, title } = operation
+async function executeAdd(basePath: string, operation: Operation): Promise<OperationResult> {
+  const {content, path, reason, title} = operation
 
   if (!title) {
     return {
@@ -248,11 +263,8 @@ async function executeAdd(
 /**
  * Execute UPDATE operation - modify existing {title}.md
  */
-async function executeUpdate(
-  basePath: string,
-  operation: Operation,
-): Promise<OperationResult> {
-  const { content, path, reason, title } = operation
+async function executeUpdate(basePath: string, operation: Operation): Promise<OperationResult> {
+  const {content, path, reason, title} = operation
 
   if (!title) {
     return {
@@ -318,11 +330,8 @@ async function executeUpdate(
 /**
  * Execute MERGE operation - combine source file into target file, delete source file
  */
-async function executeMerge(
-  basePath: string,
-  operation: Operation,
-): Promise<OperationResult> {
-  const { mergeTarget, mergeTargetTitle, path, reason, title } = operation
+async function executeMerge(basePath: string, operation: Operation): Promise<OperationResult> {
+  const {mergeTarget, mergeTargetTitle, path, reason, title} = operation
 
   if (!title) {
     return {
@@ -415,11 +424,8 @@ async function executeMerge(
  * Execute DELETE operation - remove specific file or entire folder
  * If title is provided, deletes specific file; if omitted, deletes entire folder
  */
-async function executeDelete(
-  basePath: string,
-  operation: Operation,
-): Promise<OperationResult> {
-  const { path, reason, title } = operation
+async function executeDelete(basePath: string, operation: Operation): Promise<OperationResult> {
+  const {path, reason, title} = operation
 
   try {
     const fullPath = buildFullPath(basePath, path)
@@ -481,19 +487,18 @@ async function executeDelete(
 /**
  * Execute curate operations on knowledge topics.
  */
-async function executeCurate(
-  input: unknown,
-  _context?: ToolExecutionContext,
-): Promise<CurateOutput> {
+async function executeCurate(input: unknown, _context?: ToolExecutionContext): Promise<CurateOutput> {
   const parseResult = CurateInputSchema.safeParse(input)
   if (!parseResult.success) {
     return {
-      applied: [{
-        message: `Invalid input: ${parseResult.error.message}`,
-        path: '',
-        status: 'failed',
-        type: 'ADD',
-      }],
+      applied: [
+        {
+          message: `Invalid input: ${parseResult.error.message}`,
+          path: '',
+          status: 'failed',
+          type: 'ADD',
+        },
+      ],
       summary: {
         added: 0,
         deleted: 0,
@@ -504,7 +509,7 @@ async function executeCurate(
     }
   }
 
-  const { basePath, operations } = parseResult.data
+  const {basePath, operations} = parseResult.data
 
   const applied: OperationResult[] = []
   const summary = {
@@ -573,7 +578,7 @@ async function executeCurate(
   }
   /* eslint-enable no-await-in-loop */
 
-  return { applied, summary }
+  return {applied, summary}
 }
 
 /**

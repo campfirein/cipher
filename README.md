@@ -208,6 +208,17 @@ This creates agent-specific rule files (e.g., `CLAUDE.md`, `.cursorrules`) that 
 **Reset options:**
 - `-y, --yes`: Skip confirmation prompt
 
+### Session Management
+
+| Command | Description |
+|---------|-------------|
+| `/new [-y]` | Start a fresh session (ends current session, clears conversation) |
+
+**Options:**
+- `-y, --yes`: Skip confirmation prompt
+
+**Note:** This command does NOT affect the context tree—it only clears the conversation history and starts a new session.
+
 ### Project Setup
 
 | Command | Description |
