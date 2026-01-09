@@ -204,7 +204,7 @@ Commands prefixed with `/` in the REPL (`src/infra/repl/commands/`):
 - `/push [--branch <name>]`, `/pull [--branch <name>]` - Cloud sync (default branch: `main`)
 - `/space list`, `/space switch` - Space management
 - `/gen-rules` - Generate agent-specific rule files
-- `/clear` - Reset context tree (destructive)
+- `/reset` - Reset context tree (destructive)
 - `/query` - Query context tree
 
 ## Testing
