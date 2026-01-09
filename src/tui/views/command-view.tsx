@@ -390,6 +390,25 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
           setActivePrompt(null)
           const needReloadAuth = trimmed.startsWith('/login') || trimmed.startsWith('/logout')
           const needReloadBrvConfig = trimmed.startsWith('/space switch') || trimmed.startsWith('/init')
+          const needNewSession = trimmed.startsWith('/new')
+
+          // Handle /new command - create new session and clear messages
+          if (needNewSession && client) {
+            try {
+              const response = await client.request<{error?: string; sessionId?: string; success: boolean}>(
+                'agent:newSession',
+                {reason: 'User requested new session'},
+              )
+
+              if (response.success) {
+                // Clear the messages to start fresh
+                setMessages([])
+                clearTasks()
+              }
+            } catch {
+              // Error handling - the command already showed feedback
+            }
+          }
 
           // Refresh state after commands that change auth or project state
           if (needReloadAuth || needReloadBrvConfig) {
