@@ -30,12 +30,13 @@ This launches a persistent session with a React/Ink-based terminal interface whe
 /status                 # Show auth, config, and context tree state
 /curate [context] [@files]  # Curate context to the context tree
 /query <query>          # Query information from context tree (alias: /q)
-/push [-b branch] [-y]  # Push context tree to ByteRover cloud storage
-/pull [-b branch]       # Pull context tree from ByteRover cloud storage
+/push [-b branch] [-y]  # Push context tree to ByteRover memory storage
+/pull [-b branch]       # Pull context tree from ByteRover memory storage
 /space list [-a] [-j]   # List all spaces
 /space switch           # Switch to a different space
 /gen-rules              # Generate agent rule files
-/clear [-y] [directory] # Reset context tree to default domains
+/reset [-y] [directory] # Reset context tree to default domains
+/new [-y]               # Start fresh session (clears conversation)
 /init [-f]              # Initialize project (select team/space)
 /login                  # Authenticate with ByteRover
 /logout [-y]            # Log out
@@ -62,7 +63,7 @@ brv curate "JWT tokens expire in 24h"   # Curate context to context tree
 | `brv query <QUERY>`                             | Query information from the context tree      | `brv query "How is auth implemented?"`             |
 | `brv curate [CONTEXT] [--files]`                | Curate context to context tree               | `brv curate "JWT tokens expire in 24h" --files src/auth.ts` |
 
-> **Note:** Commands like `login`, `logout`, `init`, `push`, `pull`, `space`, `gen-rules`, and `clear` are only available as slash commands in REPL mode. Run `brv` to start REPL mode.
+> **Note:** Commands like `login`, `logout`, `init`, `push`, `pull`, `space`, `gen-rules`, `reset`, and `new` are only available as slash commands in REPL mode. Run `brv` to start REPL mode.
 
 > **Important:** The `brv query` and `brv curate` standalone commands require a running `brv` instance in the same directory. Start REPL mode with `brv` first, then run these commands in a separate terminal.
 
@@ -102,12 +103,13 @@ brv
 | `/status` | Show CLI status and project information |
 | `/curate [context] [@files]` | Curate context to the context tree (use `@filepath` for file references) |
 | `/query <query>` (alias: `/q`) | Query and retrieve information from context tree |
-| `/push [-b branch] [-y]` | Push context tree to ByteRover cloud storage |
-| `/pull [-b branch]` | Pull context tree from ByteRover cloud storage |
+| `/push [-b branch] [-y]` | Push context tree to ByteRover memory storage |
+| `/pull [-b branch]` | Pull context tree from ByteRover memory storage |
 | `/space list [-a] [-j] [-l n] [-o n]` | List all spaces for current team |
 | `/space switch` | Switch to a different space |
 | `/gen-rules` | Generate rule instructions for coding agents |
-| `/clear [-y] [directory]` | Reset context tree to 6 default domains |
+| `/reset [-y] [directory]` | Reset context tree to 6 default domains |
+| `/new [-y]` | Start a fresh session (ends current, clears conversation) |
 | `/init [-f]` | Initialize a project with ByteRover |
 | `/login` | Authenticate with ByteRover using OAuth 2.0 + PKCE |
 | `/logout [-y]` | Log out of ByteRover CLI and clear authentication |
@@ -166,7 +168,7 @@ Query and retrieve information from the context tree using natural language.
 
 #### `/push`
 
-Push context tree to ByteRover cloud storage.
+Push context tree to ByteRover memory storage.
 
 | Flag | Description | Default |
 | ---- | ----------- | ------- |
@@ -183,7 +185,7 @@ Push context tree to ByteRover cloud storage.
 
 #### `/pull`
 
-Pull context tree from ByteRover cloud storage.
+Pull context tree from ByteRover memory storage.
 
 | Flag | Description | Default |
 | ---- | ----------- | ------- |
@@ -221,23 +223,23 @@ Generate rule instruction files for coding agents to work with ByteRover correct
 
 | Agent | Rule File Path |
 | ----- | -------------- |
-| Claude Code | `CLAUDE.md` |
-| Cursor | `.cursor/rules/agent-context-engineering.mdc` |
-| Windsurf | `.windsurf/rules/agent-context-engineering.md` |
-| GitHub Copilot | `.github/copilot-instructions.md` |
-| Cline | `.clinerules/agent-context-engineering.md` |
-| Kiro | `.kiro/steering/agent-context-engineering.md` |
 | Amp | `AGENTS.md` |
-| Codex | `AGENTS.md` |
 | Augment Code | `.augment/rules/agent-context-engineering.md` |
+| Claude Code | `CLAUDE.md` |
+| Cline | `.clinerules/agent-context-engineering.md` |
+| Codex | `AGENTS.md` |
+| Cursor | `.cursor/rules/agent-context-engineering.mdc` |
 | Gemini CLI | `GEMINI.md` |
+| GitHub Copilot | `.github/copilot-instructions.md` |
 | Junie | `.junie/guidelines.md` |
 | Kilo Code | `.kilocode/rules/agent-context-engineering.md` |
+| Kiro | `.kiro/steering/agent-context-engineering.md` |
 | Qoder | `.qoder/rules/agent-context-engineering.md` |
 | Qwen Code | `QWEN.md` |
 | Roo Code | `.roo/rules/agent-context-engineering.md` |
 | Trae.ai | `project_rules.md` |
 | Warp | `WARP.md` |
+| Windsurf | `.windsurf/rules/agent-context-engineering.md` |
 | Zed | `agent-context-engineering.rules` |
 
 **Flags**: None
@@ -264,7 +266,7 @@ Log out of ByteRover CLI and clear authentication credentials from the system ke
 | ---- | ----------- |
 | `-y, --yes` | Skip confirmation prompt |
 
-#### `/clear`
+#### `/reset`
 
 Reset the current context tree and start with 6 default domains. This is a destructive operation.
 
@@ -279,9 +281,24 @@ Reset the current context tree and start with 6 default domains. This is a destr
 **Examples**
 
 ```bash
-/clear                       # Reset with confirmation
-/clear -y                    # Reset without confirmation
-/clear -y /path/to/project   # Reset specific project
+/reset                       # Reset with confirmation
+/reset -y                    # Reset without confirmation
+/reset -y /path/to/project   # Reset specific project
+```
+
+#### `/new`
+
+Start a fresh session. This ends the current session and clears conversation history but does NOT affect the context tree (use `/reset` for that).
+
+| Flag | Description |
+| ---- | ----------- |
+| `-y, --yes` | Skip confirmation prompt |
+
+**Examples**
+
+```bash
+/new                         # Start new session with confirmation
+/new -y                      # Start new session without confirmation
 ```
 
 ---
