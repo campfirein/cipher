@@ -1,18 +1,18 @@
-import {expect} from 'chai'
-import sinon, {match, restore, stub} from 'sinon'
+import { expect } from 'chai'
+import sinon, { match, restore, stub } from 'sinon'
 
-import type {ITerminal} from '../../src/core/interfaces/i-terminal.js'
-import type {ITrackingService} from '../../src/core/interfaces/i-tracking-service.js'
-import type {ITransportClient} from '../../src/core/interfaces/transport/i-transport-client.js'
-import type {TransportClientFactory} from '../../src/infra/transport/transport-client-factory.js'
+import type { ITerminal } from '../../src/core/interfaces/i-terminal.js'
+import type { ITrackingService } from '../../src/core/interfaces/i-tracking-service.js'
+import type { ITransportClient } from '../../src/core/interfaces/transport/i-transport-client.js'
+import type { TransportClientFactory } from '../../src/infra/transport/transport-client-factory.js'
 
 import {
   ConnectionFailedError,
   InstanceCrashedError,
   NoInstanceRunningError,
 } from '../../src/core/domain/errors/connection-error.js'
-import {CurateUseCase, type CurateUseCaseOptions} from '../../src/infra/usecase/curate-use-case.js'
-import {createMockTerminal} from '../helpers/mock-factories.js'
+import { CurateUseCase, type CurateUseCaseOptions } from '../../src/infra/usecase/curate-use-case.js'
+import { createMockTerminal } from '../helpers/mock-factories.js'
 
 describe('Curate Command', () => {
   let loggedMessages: string[]
@@ -44,9 +44,9 @@ describe('Curate Command', () => {
       getState: stub().returns('connected'),
       joinRoom: stub().resolves(),
       leaveRoom: stub().resolves(),
-      on: stub().returns(() => {}),
+      on: stub().returns(() => { }),
       once: stub(),
-      onStateChange: stub().returns(() => {}),
+      onStateChange: stub().returns(() => { }),
       request: stub().resolves({}),
     } as unknown as sinon.SinonStubbedInstance<ITransportClient>
 
@@ -80,13 +80,13 @@ describe('Curate Command', () => {
 
       expect(loggedMessages).to.include('Context argument is required.')
       expect(loggedMessages).to.include('Usage: brv curate "your context here"')
-      expect(trackingService.track.calledWith('mem:curate', {status: 'started'})).to.be.true
+      expect(trackingService.track.calledWith('mem:curate', { status: 'started' })).to.be.true
     })
 
     it('should send task:create request with context and taskId', async () => {
       const useCase = new CurateUseCase(createUseCaseOptions())
 
-      await useCase.run({context: 'test context'})
+      await useCase.run({ context: 'test context' })
 
       expect(mockClient.request.calledOnce).to.be.true
       const [event, payload] = (mockClient.request as sinon.SinonStub).firstCall.args
@@ -95,13 +95,13 @@ describe('Curate Command', () => {
       expect(payload).to.have.property('type', 'curate')
       expect(payload).to.have.property('taskId').that.is.a('string')
       expect(loggedMessages).to.include('✓ Context queued for processing.')
-      expect(trackingService.track.calledWith('mem:curate', {status: 'finished'})).to.be.true
+      expect(trackingService.track.calledWith('mem:curate', { status: 'finished' })).to.be.true
     })
 
     it('should send task:create request with context, files, and taskId', async () => {
       const useCase = new CurateUseCase(createUseCaseOptions())
 
-      await useCase.run({context: 'test context', files: ['file1.ts', 'file2.ts']})
+      await useCase.run({ context: 'test context', files: ['file1.ts', 'file2.ts'] })
 
       expect(mockClient.request.calledOnce).to.be.true
       const [event, payload] = (mockClient.request as sinon.SinonStub).firstCall.args
@@ -115,7 +115,7 @@ describe('Curate Command', () => {
     it('should log verbose messages when verbose is true', async () => {
       const useCase = new CurateUseCase(createUseCaseOptions())
 
-      await useCase.run({context: 'test context', verbose: true})
+      await useCase.run({ context: 'test context', verbose: true })
 
       expect(loggedMessages.some((m) => m.includes('Discovering running instance'))).to.be.true
       expect(loggedMessages.some((m) => m.includes('Connected to instance'))).to.be.true
@@ -124,7 +124,7 @@ describe('Curate Command', () => {
     it('should disconnect client after successful request', async () => {
       const useCase = new CurateUseCase(createUseCaseOptions())
 
-      await useCase.run({context: 'test context'})
+      await useCase.run({ context: 'test context' })
 
       expect(mockClient.disconnect.calledOnce).to.be.true
     })
@@ -139,10 +139,10 @@ describe('Curate Command', () => {
         }),
       )
 
-      await useCase.run({context: 'test context'})
+      await useCase.run({ context: 'test context' })
 
       expect(loggedMessages.some((m) => m.includes('No ByteRover instance is running'))).to.be.true
-      expect(trackingService.track.calledWith('mem:curate', match({status: 'error'}))).to.be.true
+      expect(trackingService.track.calledWith('mem:curate', match({ status: 'error' }))).to.be.true
     })
 
     it('should handle InstanceCrashedError', async () => {
@@ -155,10 +155,10 @@ describe('Curate Command', () => {
         }),
       )
 
-      await useCase.run({context: 'test context'})
+      await useCase.run({ context: 'test context' })
 
       expect(loggedMessages.some((m) => m.includes('ByteRover instance has crashed'))).to.be.true
-      expect(trackingService.track.calledWith('mem:curate', match({status: 'error'}))).to.be.true
+      expect(trackingService.track.calledWith('mem:curate', match({ status: 'error' }))).to.be.true
     })
 
     it('should handle ConnectionFailedError', async () => {
@@ -171,10 +171,10 @@ describe('Curate Command', () => {
         }),
       )
 
-      await useCase.run({context: 'test context'})
+      await useCase.run({ context: 'test context' })
 
       expect(loggedMessages.some((m) => m.includes('Failed to connect'))).to.be.true
-      expect(trackingService.track.calledWith('mem:curate', match({status: 'error'}))).to.be.true
+      expect(trackingService.track.calledWith('mem:curate', match({ status: 'error' }))).to.be.true
     })
 
     it('should handle unexpected errors', async () => {
@@ -187,10 +187,10 @@ describe('Curate Command', () => {
         }),
       )
 
-      await useCase.run({context: 'test context'})
+      await useCase.run({ context: 'test context' })
 
       expect(loggedMessages.some((m) => m.includes('Unexpected error'))).to.be.true
-      expect(trackingService.track.calledWith('mem:curate', match({status: 'error'}))).to.be.true
+      expect(trackingService.track.calledWith('mem:curate', match({ status: 'error' }))).to.be.true
     })
 
     it('should disconnect client even when request fails', async () => {
@@ -198,7 +198,7 @@ describe('Curate Command', () => {
 
       const useCase = new CurateUseCase(createUseCaseOptions())
 
-      await useCase.run({context: 'test context'})
+      await useCase.run({ context: 'test context' })
 
       expect(mockClient.disconnect.calledOnce).to.be.true
     })

@@ -2,11 +2,11 @@ import {type CommandContext, CommandKind, type SlashCommand} from '../../../tui/
 import {FileContextTreeService} from '../../context-tree/file-context-tree-service.js'
 import {FileContextTreeSnapshotService} from '../../context-tree/file-context-tree-snapshot-service.js'
 import {ReplTerminal} from '../../terminal/repl-terminal.js'
-import {ClearUseCase} from '../../usecase/clear-use-case.js'
+import {ResetUseCase} from '../../usecase/reset-use-case.js'
 import {Args, Flags, parseReplArgs, toCommandFlags} from './arg-parser.js'
 
 // Flags - defined once, used for both parsing and help display
-const clearFlags = {
+const resetFlags = {
   yes: Flags.boolean({
     char: 'y',
     default: false,
@@ -15,7 +15,7 @@ const clearFlags = {
 }
 
 // Args - defined once for parsing
-const clearArgs = {
+const resetArgs = {
   directory: Args.string({
     description: 'Project directory (defaults to current directory)',
     required: false,
@@ -23,21 +23,21 @@ const clearArgs = {
 }
 
 /**
- * clear command
+ * reset command
  */
-export const clearCommand: SlashCommand = {
+export const resetCommand: SlashCommand = {
   action(_context: CommandContext, args: string) {
     return {
       async execute(onMessage, onPrompt) {
         const terminal = new ReplTerminal({onMessage, onPrompt})
 
         const parsed = await parseReplArgs(args, {
-          args: clearArgs,
-          flags: clearFlags,
+          args: resetArgs,
+          flags: resetFlags,
           strict: false,
         })
 
-        const useCase = new ClearUseCase({
+        const useCase = new ResetUseCase({
           contextTreeService: new FileContextTreeService(),
           contextTreeSnapshotService: new FileContextTreeSnapshotService(),
           terminal,
@@ -61,7 +61,7 @@ export const clearCommand: SlashCommand = {
   ],
   autoExecute: true,
   description: 'Reset the current context tree and start with 6 default domains',
-  flags: toCommandFlags(clearFlags),
+  flags: toCommandFlags(resetFlags),
   kind: CommandKind.BUILT_IN,
-  name: 'clear',
+  name: 'reset',
 }

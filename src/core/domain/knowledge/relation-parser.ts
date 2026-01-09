@@ -1,17 +1,16 @@
 /**
  * Utilities for parsing and managing context relations.
- * Relations are expressed using @ notation: @domain/topic or @domain/topic/subtopic
+ * Relations are expressed using @ notation: @domain/topic/title.md or @domain/topic/subtopic/title.md
  */
 
 /**
  * Regular expression to match relation paths in markdown content.
- * Matches: @domain/topic or @domain/topic/subtopic
+ * Matches: @domain/topic/title.md or @domain/topic/subtopic/title.md
  */
-const RELATION_PATTERN = /@([\w-]+)\/([\w-]+)(?:\/([\w-]+))?/g
-
+const RELATION_PATTERN = /@([\w-]+\/[\w-]+(?:\/[\w-]+)?\/[\w-]+(?:\.[\w]+)?)(?![\w/-])/g
 /**
- * Parse relations from context.md content.
- * Extracts all @domain/topic or @domain/topic/subtopic references.
+ * Parse relations from title.md content.
+ * Extracts all @domain/topic/title.md or @domain/topic/subtopic/title.md references.
  *
  * @param content - Markdown content to parse
  * @returns Array of unique relation paths (without @ prefix)
@@ -20,76 +19,44 @@ const RELATION_PATTERN = /@([\w-]+)\/([\w-]+)(?:\/([\w-]+))?/g
  * ```ts
  * const content = `
  * ## Relations
- * @code_style/error-handling
- * @structure/api-endpoints
+ * @code_style/error-handling/overview.md
+ * @structure/api/endpoints/rest.md
  * `
- * parseRelations(content) // ['code_style/error-handling', 'structure/api-endpoints']
+ * parseRelations(content) // ['code_style/error-handling/overview.md', 'structure/api/endpoints/rest.md']
  * ```
  */
 export function parseRelations(content: string): string[] {
   const relations = new Set<string>()
 
-  // Extract all @domain/topic or @domain/topic/subtopic patterns
+  // Extract all @domain/topic/title.md or @domain/topic/subtopic/title.md patterns
   const matches = content.matchAll(RELATION_PATTERN)
 
   for (const match of matches) {
-    const [, domain, topic, subtopic] = match
-    const relation = subtopic
-      ? `${domain}/${topic}/${subtopic}`
-      : `${domain}/${topic}`
-    relations.add(relation)
+    const [, fullPath] = match
+    relations.add(fullPath.trim())
   }
 
   return [...relations]
 }
 
 /**
- * Validate a relation path format.
- * Valid formats: domain/topic or domain/topic/subtopic
- *
- * @param path - Relation path to validate (without @ prefix)
- * @returns True if path format is valid
- *
- * @example
- * ```ts
- * validateRelationPath('code_style/error-handling') // true
- * validateRelationPath('code_style/error-handling/try-catch') // true
- * validateRelationPath('invalid') // false
- * validateRelationPath('too/many/parts/here') // false
- * ```
- */
-export function validateRelationPath(path: string): boolean {
-  const parts = path.split('/')
-
-  // Must have 2 or 3 parts: domain/topic or domain/topic/subtopic
-  if (parts.length < 2 || parts.length > 3) {
-    return false
-  }
-
-  // Each part must be non-empty and contain only valid characters
-  const validPartPattern = /^[\w-]+$/
-  return parts.every(part => validPartPattern.test(part))
-}
-
-/**
  * Resolve a relation path to an absolute file system path.
  *
  * @param basePath - Base path to context tree (e.g., '.brv/context-tree')
- * @param relation - Relation path (e.g., 'domain/topic' or 'domain/topic/subtopic')
- * @returns Absolute path to the context.md file
+ * @param relation - Relation path (e.g., 'domain/topic/title.md' or 'domain/topic/subtopic/title.md')
+ * @returns Absolute path to the title.md file
  *
  * @example
  * ```ts
- * resolveRelationPath('.brv/context-tree', 'code_style/error-handling')
- * // => '.brv/context-tree/code_style/error-handling/context.md'
+ * resolveRelationPath('.brv/context-tree', 'code_style/error-handling/overview.md')
+ * // => '.brv/context-tree/code_style/error-handling/overview.md'
  *
- * resolveRelationPath('.brv/context-tree', 'structure/api/endpoints')
- * // => '.brv/context-tree/structure/api/endpoints/context.md'
+ * resolveRelationPath('.brv/context-tree', 'structure/api/endpoints/rest.md')
+ * // => '.brv/context-tree/structure/api/endpoints/rest.md'
  * ```
  */
 export function resolveRelationPath(basePath: string, relation: string): string {
-  const parts = relation.split('/')
-  return `${basePath}/${parts.join('/')}/context.md`
+  return `${basePath}/${relation}`
 }
 
 /**
@@ -97,36 +64,38 @@ export function resolveRelationPath(basePath: string, relation: string): string 
  *
  * @param domain - Domain name
  * @param topic - Topic name
+ * @param title - Title (with .md extension)
  * @param subtopic - Optional subtopic name
  * @returns Formatted relation string with @ prefix
  *
  * @example
  * ```ts
- * formatRelation('code_style', 'error-handling')
- * // => '@code_style/error-handling'
+ * formatRelation('code_style', 'error-handling', 'overview.md')
+ * // => '@code_style/error-handling/overview.md'
  *
- * formatRelation('structure', 'api', 'endpoints')
- * // => '@structure/api/endpoints'
+ * formatRelation('structure', 'api', 'endpoints', 'rest.md')
+ * // => '@structure/api/endpoints/rest.md'
  * ```
  */
-export function formatRelation(domain: string, topic: string, subtopic?: string): string {
+export function formatRelation(domain: string, topic: string, title: string, subtopic?: string): string {
   return subtopic
-    ? `@${domain}/${topic}/${subtopic}`
-    : `@${domain}/${topic}`
+    ? `@${domain}/${topic}/${subtopic}/${title}`
+    : `@${domain}/${topic}/${title}`
 }
 
 /**
  * Normalize a relation path by removing the @ prefix.
+ * Preserves file extensions (e.g., .md).
  *
  * @param relation - Relation path to normalize
- * @returns Normalized relation path
+ * @returns Normalized relation path without @ prefix (file extension preserved)
  *
  * @example
  * ```ts
- * normalizeRelation('code_style/error-handling') // 'code_style/error-handling'
- * normalizeRelation('@code_style/error-handling') // 'code_style/error-handling'
+ * normalizeRelation('code_style/error-handling.md') // 'code_style/error-handling.md'
+ * normalizeRelation('@code_style/error-handling.md') // 'code_style/error-handling.md'
  * normalizeRelation('code_style/error-handling/title.md') // 'code_style/error-handling/title.md'
- * normalizeRelation('@@@code_style/error-handling/title.md') // 'code_style/error-handling/title.md'
+ * normalizeRelation('code_style/error-handling/file.md') // 'code_style/error-handling/file.md'
  * ```
  */
 
@@ -143,8 +112,8 @@ export function normalizeRelation(relation: string): string {
  *
  * @example
  * ```ts
- * generateRelationsSection(['code_style/error-handling', 'structure/api'])
- * // => '\n## Relations\n@code_style/error-handling\n@structure/api\n'
+ * generateRelationsSection(['code_style/error-handling/overview.md', 'structure/api/rest.md'])
+ * // => '\n## Relations\n@code_style/error-handling/overview.md\n@structure/api/rest.md\n'
  *
  * generateRelationsSection([])
  * // => ''
@@ -156,7 +125,12 @@ export function generateRelationsSection(relations: string[]): string {
   }
 
   const formattedRelations = relations
-    .map(rel => `@${normalizeRelation(rel)}`)
+    .map(rel => {
+      const normalized = normalizeRelation(rel)
+      // Ensure .md extension is present
+      const withExtension = normalized.endsWith('.md') ? normalized : `${normalized}.md`
+      return `@${withExtension}`
+    })
     .join('\n')
 
   return `\n## Relations\n${formattedRelations}\n`
