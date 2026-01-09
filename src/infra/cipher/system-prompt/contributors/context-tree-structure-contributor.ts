@@ -1,4 +1,6 @@
-import fs from 'node:fs'
+import type {Dirent} from 'node:fs'
+
+import fs from 'node:fs/promises'
 import path from 'node:path'
 
 import type {ContributorContext, SystemPromptContributor} from '../../../../core/domain/cipher/system-prompt/types.js'
@@ -68,12 +70,12 @@ export class ContextTreeStructureContributor implements SystemPromptContributor 
 
     const contextTreePath = path.join(this.workingDirectory, '.brv', 'context-tree')
 
-    // Check if context tree exists
-    if (!fs.existsSync(contextTreePath)) {
+    try {
+      await fs.access(contextTreePath)
+    } catch {
       return this.buildNoContextTreeMessage()
     }
 
-    // If search_knowledge tool is available, provide compact instructions instead of full tree
     const hasSearchKnowledgeTool = context.availableTools?.includes(ToolName.SEARCH_KNOWLEDGE)
     if (hasSearchKnowledgeTool) {
       return this.buildSearchKnowledgeInstructions(contextTreePath)
@@ -82,19 +84,12 @@ export class ContextTreeStructureContributor implements SystemPromptContributor 
     return this.buildContextTreeStructure(contextTreePath)
   }
 
-  /**
-   * Builds the context tree structure as a formatted string.
-   *
-   * @param contextTreePath - Path to the context tree directory
-   * @returns Formatted context tree structure
-   */
-  private buildContextTreeStructure(contextTreePath: string): string {
+  private async buildContextTreeStructure(contextTreePath: string): Promise<string> {
     const entriesCount = {value: 0}
     const truncatedCount = {value: 0}
     const lines: string[] = []
 
-    // Build the tree
-    this.traverseContextTree({
+    await this.traverseContextTree({
       currentDepth: 0,
       dir: contextTreePath,
       entriesCount,
@@ -186,11 +181,10 @@ export class ContextTreeStructureContributor implements SystemPromptContributor 
    * @param contextTreePath - Path to the context tree directory
    * @returns Instructions for using search_knowledge tool
    */
-  private buildSearchKnowledgeInstructions(contextTreePath: string): string {
-    // Check if tree has content
+  private async buildSearchKnowledgeInstructions(contextTreePath: string): Promise<string> {
     let hasContent = false
     try {
-      const entries = fs.readdirSync(contextTreePath, {withFileTypes: true})
+      const entries = await fs.readdir(contextTreePath, {withFileTypes: true})
       hasContent = entries.some((entry) => !entry.name.startsWith('.'))
     } catch {
       hasContent = false
@@ -225,24 +219,20 @@ export class ContextTreeStructureContributor implements SystemPromptContributor 
     ].join('\n')
   }
 
-  /**
-   * Recursively traverses the context tree and builds the structure lines.
-   */
-  private traverseContextTree(options: TraverseOptions): void {
+  private async traverseContextTree(options: TraverseOptions): Promise<void> {
     const {currentDepth, dir, entriesCount, lines, maxDepth, maxEntries, relativePath, truncatedCount} = options
 
     if (currentDepth >= maxDepth) {
       return
     }
 
-    let entries: fs.Dirent[]
+    let entries: Dirent[]
     try {
-      entries = fs.readdirSync(dir, {withFileTypes: true})
+      entries = await fs.readdir(dir, {withFileTypes: true})
     } catch {
       return
     }
 
-    // Filter and sort: directories first, then alphabetically
     const filteredEntries = entries
       .filter((entry) => !entry.name.startsWith('.'))
       .sort((a, b) => {
@@ -264,7 +254,8 @@ export class ContextTreeStructureContributor implements SystemPromptContributor 
 
       if (entry.isDirectory()) {
         lines.push(`${indent}${entry.name}/`)
-        this.traverseContextTree({
+        // eslint-disable-next-line no-await-in-loop -- Sequential traversal required for ordered output
+        await this.traverseContextTree({
           currentDepth: currentDepth + 1,
           dir: path.join(dir, entry.name),
           entriesCount,
@@ -275,7 +266,6 @@ export class ContextTreeStructureContributor implements SystemPromptContributor 
           truncatedCount,
         })
       } else {
-        // Add annotation for context.md files
         const annotation = entry.name === 'context.md' ? ' (knowledge content)' : ''
         lines.push(`${indent}${entry.name}${annotation}`)
       }

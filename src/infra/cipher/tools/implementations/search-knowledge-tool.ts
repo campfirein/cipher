@@ -36,8 +36,6 @@ const SearchKnowledgeInputSchema = z
   })
   .strict()
 
-type SearchKnowledgeInput = z.infer<typeof SearchKnowledgeInputSchema>
-
 interface IndexedDocument {
   content: string
   id: string
@@ -228,7 +226,7 @@ async function buildFreshIndex(
 }
 
 export function createSearchKnowledgeTool(fileSystem: IFileSystem, config: SearchKnowledgeToolConfig = {}): Tool {
-  let cachedIndex: CachedIndex | null = null
+  let cachedIndex: CachedIndex | undefined
 
   return {
     description:
@@ -236,7 +234,7 @@ export function createSearchKnowledgeTool(fileSystem: IFileSystem, config: Searc
       'Use natural language queries to find knowledge about specific topics (e.g., "auth design", "API patterns"). ' +
       'Returns matching file paths, titles, and relevant excerpts.',
     async execute(input: unknown, _context?: ToolExecutionContext) {
-      const {limit = 10, query} = input as SearchKnowledgeInput
+      const {limit, query} = SearchKnowledgeInputSchema.parse(input)
       const baseDir = config.baseDirectory ?? process.cwd()
       const contextTreePath = join(baseDir, BRV_DIR, CONTEXT_TREE_DIR)
 
