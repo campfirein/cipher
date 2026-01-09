@@ -43,9 +43,6 @@ import {createTokenStore} from '../storage/token-store.js'
 import {createTransportClient} from '../transport/transport-factory.js'
 import {CURATE_MAX_CONCURRENT} from './constants.js'
 import {TaskQueueManager} from './task-queue-manager.js'
-// State machine for agent lifecycle (Phase 2 - to be integrated)
-// Currently kept for future use, flags still used for backwards compatibility
-// import {canTransitionTo, getAgentState, isReady, isStopped, transitionTo} from './agent-state.js'
 
 // IPC types imported from ./ipc-types.ts
 
