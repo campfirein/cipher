@@ -6,6 +6,7 @@ import {FileContextTreeService} from '../../context-tree/file-context-tree-servi
 import {FileContextTreeSnapshotService} from '../../context-tree/file-context-tree-snapshot-service.js'
 import {FileContextTreeWriterService} from '../../context-tree/file-context-tree-writer-service.js'
 import {FsFileService} from '../../file/fs-file-service.js'
+import {FileHookManager} from '../../hooks/file-hook-manager.js'
 import {LegacyRuleDetector} from '../../rule/legacy-rule-detector.js'
 import {RuleTemplateService} from '../../rule/rule-template-service.js'
 import {HttpSpaceService} from '../../space/http-space-service.js'
@@ -63,6 +64,7 @@ export const initCommand: SlashCommand = {
             snapshotService: contextTreeSnapshotService,
           }),
           fileService,
+          hookManager: new FileHookManager(fileService),
           legacyRuleDetector,
           projectConfigStore: new ProjectConfigStore(),
           spaceService: new HttpSpaceService({

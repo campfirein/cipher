@@ -4,6 +4,7 @@ import {join} from 'node:path'
 import type {AuthToken} from '../../core/domain/entities/auth-token.js'
 import type {Space} from '../../core/domain/entities/space.js'
 import type {Team} from '../../core/domain/entities/team.js'
+import type {IHookManager} from '../../core/interfaces/hooks/i-hook-manager.js'
 import type {ICogitPullService} from '../../core/interfaces/i-cogit-pull-service.js'
 import type {IContextTreeService} from '../../core/interfaces/i-context-tree-service.js'
 import type {IContextTreeSnapshotService} from '../../core/interfaces/i-context-tree-snapshot-service.js'
@@ -28,6 +29,7 @@ import {ACE_DIR, BRV_CONFIG_VERSION, BRV_DIR, DEFAULT_BRANCH, PROJECT_CONFIG_FIL
 import {type Agent, AGENT_VALUES} from '../../core/domain/entities/agent.js'
 import {BrvConfig} from '../../core/domain/entities/brv-config.js'
 import {BrvConfigVersionError} from '../../core/domain/errors/brv-config-version-error.js'
+import {tryInstallHookWithRestartMessage} from '../hooks/hook-install-helper.js'
 import {AGENT_RULE_CONFIGS} from '../rule/agent-rule-config.js'
 import {BRV_RULE_MARKERS, BRV_RULE_TAG} from '../rule/constants.js'
 import {WorkspaceDetectorService} from '../workspace/workspace-detector-service.js'
@@ -54,6 +56,7 @@ export interface InitUseCaseOptions {
   contextTreeSnapshotService: IContextTreeSnapshotService
   contextTreeWriterService: IContextTreeWriterService
   fileService: IFileService
+  hookManager?: IHookManager
   legacyRuleDetector: ILegacyRuleDetector
   projectConfigStore: IProjectConfigStore
   spaceService: ISpaceService
@@ -70,6 +73,7 @@ export class InitUseCase implements IInitUseCase {
   protected readonly contextTreeSnapshotService: IContextTreeSnapshotService
   protected readonly contextTreeWriterService: IContextTreeWriterService
   protected readonly fileService: IFileService
+  protected readonly hookManager?: IHookManager
   protected readonly legacyRuleDetector: ILegacyRuleDetector
   protected readonly projectConfigStore: IProjectConfigStore
   protected readonly spaceService: ISpaceService
@@ -85,6 +89,7 @@ export class InitUseCase implements IInitUseCase {
     this.contextTreeSnapshotService = options.contextTreeSnapshotService
     this.contextTreeWriterService = options.contextTreeWriterService
     this.fileService = options.fileService
+    this.hookManager = options.hookManager
     this.legacyRuleDetector = options.legacyRuleDetector
     this.projectConfigStore = options.projectConfigStore
     this.spaceService = options.spaceService
@@ -115,7 +120,9 @@ export class InitUseCase implements IInitUseCase {
       this.terminal.actionStop('✓')
     } catch (error) {
       this.terminal.actionStop('✗')
-      const brvDirRemovalErr = `Failed to remove ${BRV_DIR}/: ${error instanceof Error ? error.message : 'Unknown error'}`
+      const brvDirRemovalErr = `Failed to remove ${BRV_DIR}/: ${
+        error instanceof Error ? error.message : 'Unknown error'
+      }`
       await this.trackingService.track('init', {message: brvDirRemovalErr, status: 'error'})
       throw new Error(brvDirRemovalErr)
     }
@@ -176,7 +183,9 @@ export class InitUseCase implements IInitUseCase {
 
     if (spaces.length === 0) {
       this.terminal.error(
-        `No spaces found in team "${team.getDisplayName()}"\nPlease visit ${getCurrentConfig().webAppUrl} to create your first space for ${team.getDisplayName()}.`,
+        `No spaces found in team "${team.getDisplayName()}"\nPlease visit ${
+          getCurrentConfig().webAppUrl
+        } to create your first space for ${team.getDisplayName()}.`,
       )
       return undefined
     }
@@ -578,10 +587,11 @@ export class InitUseCase implements IInitUseCase {
         this.terminal.log(`✓ Synced ${coGitSnapshot.files.length} context files from remote`)
       }
     } catch (error) {
-      const syncFailureErr = `Failed to sync from ByteRover: ${error instanceof Error ? error.message : 'Unknown error'}. Please try again.`
+      const syncFailureErr = `Failed to sync from ByteRover: ${
+        error instanceof Error ? error.message : 'Unknown error'
+      }. Please try again.`
       await this.trackingService.track('init', {message: syncFailureErr, status: 'error'})
-      throw new Error(syncFailureErr
-      )
+      throw new Error(syncFailureErr)
     }
 
     this.terminal.actionStop()
@@ -599,6 +609,7 @@ export class InitUseCase implements IInitUseCase {
     await this.fileService.write(ruleContent, filePath, mode)
 
     this.terminal.log(`✅ Successfully added rule file for ${agent}`)
+    await tryInstallHookWithRestartMessage({agent, hookManager: this.hookManager, terminal: this.terminal})
   }
 
   /**
@@ -609,6 +620,7 @@ export class InitUseCase implements IInitUseCase {
     const ruleContent = await this.templateService.generateRuleContent(agent)
     await this.fileService.write(ruleContent, filePath, 'overwrite')
     this.terminal.log(`✅ Successfully created rule file for ${agent} at ${filePath}`)
+    await tryInstallHookWithRestartMessage({agent, hookManager: this.hookManager, terminal: this.terminal})
   }
 
   private async handleLegacyRulesCleanup(params: {agent: Agent; content: string; filePath: string}): Promise<void> {
@@ -696,6 +708,7 @@ export class InitUseCase implements IInitUseCase {
     this.terminal.log(`✅ Removed ${reliableMatches.length} old ByteRover section(s)`)
     this.terminal.log(`✅ Added new rules with boundary markers`)
     this.terminal.log(`\nYou can safely delete the backup file once verified.`)
+    await tryInstallHookWithRestartMessage({agent, hookManager: this.hookManager, terminal: this.terminal})
   }
 
   private async performManualCleanup(params: {
@@ -720,6 +733,7 @@ export class InitUseCase implements IInitUseCase {
     this.terminal.log('\nKeep only the section between:')
     this.terminal.log('  <!-- BEGIN BYTEROVER RULES -->')
     this.terminal.log('  <!-- END BYTEROVER RULES -->')
+    await tryInstallHookWithRestartMessage({agent, hookManager: this.hookManager, terminal: this.terminal})
   }
 
   /**
@@ -757,5 +771,6 @@ export class InitUseCase implements IInitUseCase {
     }
 
     this.terminal.log(`✅ Successfully updated rule file for ${agent}`)
+    await tryInstallHookWithRestartMessage({agent, hookManager: this.hookManager, terminal: this.terminal})
   }
 }
