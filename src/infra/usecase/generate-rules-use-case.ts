@@ -84,7 +84,7 @@ export class GenerateRulesUseCase implements IGenerateRulesUseCase {
   protected async promptForFileCreation(agent: Agent, filePath: string): Promise<boolean> {
     return this.terminal.confirm({
       default: true,
-      message: `Rule file '${filePath}' doesn't exist. Create it with ByteRover rules?`,
+      message: `Rule file '${filePath}' doesn't exist. Create it with ByteRover rules`,
     })
   }
 
@@ -97,7 +97,7 @@ export class GenerateRulesUseCase implements IGenerateRulesUseCase {
   protected async promptForOverwriteConfirmation(agent: Agent): Promise<boolean> {
     return this.terminal.confirm({
       default: true,
-      message: `Rule file already exists for ${agent}. Overwrite?`,
+      message: `Rule file already exists for ${agent}. Overwrite`,
     })
   }
 
