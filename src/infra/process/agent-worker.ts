@@ -508,6 +508,20 @@ async function shouldAbortInitForCleanup(agent: CipherAgent, phase: string): Pro
 }
 
 /**
+ * Stop a pending agent that was created but not yet assigned to cipherAgent.
+ * Used in catch block when timeout/error occurs during agent.start() or createSession().
+ */
+async function stopPendingAgent(agent: CipherAgent | undefined): Promise<void> {
+  if (!agent) return
+
+  try {
+    await agent.stop()
+  } catch (stopError) {
+    agentLog(`Error stopping pending agent: ${stopError}`)
+  }
+}
+
+/**
  * Stop existing agent during force reinit.
  */
 async function stopExistingAgentForReinit(): Promise<void> {
@@ -558,6 +572,9 @@ async function tryInitializeAgent(forceReinit = false): Promise<boolean> {
     isReinitializing = true
   }
 
+  // Declare outside try block so catch can cleanup on timeout/error
+  let pendingAgent: CipherAgent | undefined
+
   try {
     // If forcing reinit, drain queue and stop existing agent first
     if (forceReinit) {
@@ -606,29 +623,30 @@ async function tryInitializeAgent(forceReinit = false): Promise<boolean> {
       sessionKey: authToken.sessionKey,
     }
 
-    const agent = new CipherAgent(agentConfig, brvConfig ?? undefined)
+    pendingAgent = new CipherAgent(agentConfig, brvConfig ?? undefined)
     // Wrap agent.start() with timeout to prevent isInitializing from getting stuck
-    await withTimeout(agent.start(), AGENT_INIT_TIMEOUT_MS, 'CipherAgent.start()')
+    await withTimeout(pendingAgent.start(), AGENT_INIT_TIMEOUT_MS, 'CipherAgent.start()')
     agentLog('CipherAgent started')
 
     // Check if cleanup started during agent.start() (fixes zombie agent race)
-    if (await shouldAbortInitForCleanup(agent, 'agent.start()')) {
+    if (await shouldAbortInitForCleanup(pendingAgent, 'agent.start()')) {
       return false
     }
 
     // Create ChatSession (also with timeout to prevent hanging)
     chatSessionId = `agent-session-${randomUUID()}`
-    await withTimeout(agent.createSession(chatSessionId), AGENT_INIT_TIMEOUT_MS, 'CipherAgent.createSession()')
+    await withTimeout(pendingAgent.createSession(chatSessionId), AGENT_INIT_TIMEOUT_MS, 'CipherAgent.createSession()')
     agentLog(`ChatSession created: ${chatSessionId}`)
 
     // Check if cleanup started during createSession() (fixes zombie agent race)
-    if (await shouldAbortInitForCleanup(agent, 'createSession()')) {
+    if (await shouldAbortInitForCleanup(pendingAgent, 'createSession()')) {
       return false
     }
 
     // Setup event forwarding
-    setupAgentEventForwarding(agent)
-    cipherAgent = agent
+    setupAgentEventForwarding(pendingAgent)
+    cipherAgent = pendingAgent
+    pendingAgent = undefined // Clear local ref - cipherAgent now owns it
 
     // Create TaskProcessor
     taskProcessor = createTaskProcessor({
@@ -662,6 +680,11 @@ async function tryInitializeAgent(forceReinit = false): Promise<boolean> {
 
     return true
   } catch (error) {
+    // Stop pendingAgent if it was created but not yet assigned to cipherAgent
+    // This handles timeout/error during agent.start() or createSession()
+    await stopPendingAgent(pendingAgent)
+    pendingAgent = undefined
+
     // Cleanup partial state before recording error
     // This prevents stale refs from accumulating on repeated failures
     await cleanupPartialInit()
@@ -782,13 +805,15 @@ async function startAgent(): Promise<void> {
     if (state === 'disconnected' || state === 'reconnecting') {
       wasDisconnected = true
     } else if (state === 'connected' && wasDisconnected) {
-      wasDisconnected = false
       agentLog('Transport reconnected - re-registering with Transport')
       try {
         // Include status in register payload (Transport caches it atomically)
         await transportClient?.request('agent:register', {status: getAgentStatus()})
+        // Only clear flag after successful registration - if failed, next reconnect will retry
+        wasDisconnected = false
         agentLog('Re-registered with Transport after reconnect')
       } catch (error) {
+        // Keep wasDisconnected = true so next reconnect retries registration
         agentLog(`Failed to re-register after reconnect: ${error}`)
       }
     }
