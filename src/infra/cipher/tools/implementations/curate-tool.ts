@@ -1,4 +1,3 @@
-import * as fs from 'node:fs/promises'
 import {join} from 'node:path'
 import {z} from 'zod'
 
@@ -95,36 +94,17 @@ function parsePath(path: string): null | {domain: string; subtopic?: string; top
 }
 
 /**
- * Get existing domain names from the context tree.
- * Returns domain folder names that exist in the context tree.
- */
-async function getExistingDomains(basePath: string): Promise<string[]> {
-  try {
-    const entries = await fs.readdir(basePath, {withFileTypes: true})
-    return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name)
-  } catch {
-    // Directory doesn't exist yet
-    return []
-  }
-}
-
-/**
  * Validate domain name format.
  * Dynamic domains are allowed - no predefined list or limits.
  * The agent is responsible for creating semantically meaningful domains.
  */
-async function validateDomain(
-  basePath: string,
-  domainName: string,
-): Promise<{allowed: boolean; existingDomains: string[]; reason?: string}> {
+function validateDomain(domainName: string): {allowed: boolean; reason?: string} {
   const normalizedDomain = toSnakeCase(domainName)
-  const existingDomains = await getExistingDomains(basePath)
 
   // Validate domain name format (must be non-empty and valid for filesystem)
   if (!normalizedDomain || normalizedDomain.length === 0) {
     return {
       allowed: false,
-      existingDomains,
       reason: 'Domain name cannot be empty.',
     }
   }
@@ -133,13 +113,12 @@ async function validateDomain(
   if (!/^[\w-]+$/.test(normalizedDomain)) {
     return {
       allowed: false,
-      existingDomains,
       reason: `Domain name "${normalizedDomain}" contains invalid characters. Use only letters, numbers, underscores, and hyphens.`,
     }
   }
 
   // All valid domain names are allowed - dynamic domain creation enabled
-  return {allowed: true, existingDomains}
+  return {allowed: true}
 }
 
 /**
@@ -201,7 +180,7 @@ async function executeAdd(
     }
 
     // Validate domain before creating
-    const domainValidation = await validateDomain(basePath, parsed.domain)
+    const domainValidation = validateDomain(parsed.domain)
     if (!domainValidation.allowed) {
       return {
         message: domainValidation.reason,
