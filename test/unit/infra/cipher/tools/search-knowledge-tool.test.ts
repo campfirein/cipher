@@ -504,7 +504,8 @@ describe('Search Knowledge Tool', () => {
     })
 
     it('should invalidate cache when file is modified', async () => {
-      const tool = createSearchKnowledgeTool(fileSystemMock)
+      // Disable TTL to test mtime-based invalidation
+      const tool = createSearchKnowledgeTool(fileSystemMock, {cacheTtlMs: 0})
 
       // First search builds the index
       await tool.execute({query: 'test'})
@@ -535,7 +536,8 @@ describe('Search Knowledge Tool', () => {
     })
 
     it('should invalidate cache when files are added', async () => {
-      const tool = createSearchKnowledgeTool(fileSystemMock)
+      // Disable TTL to test mtime-based invalidation
+      const tool = createSearchKnowledgeTool(fileSystemMock, {cacheTtlMs: 0})
 
       // First search builds the index
       await tool.execute({query: 'test'})
@@ -580,6 +582,141 @@ describe('Search Knowledge Tool', () => {
 
       // readFile should be called again for all files due to cache invalidation
       expect(secondCallCount).to.be.greaterThan(firstCallCount)
+    })
+
+    it('should skip glob check within TTL window', async () => {
+      // Use a long TTL to ensure we stay within the window
+      const tool = createSearchKnowledgeTool(fileSystemMock, {cacheTtlMs: 60_000})
+
+      // First search builds the index
+      await tool.execute({query: 'test'})
+      const firstGlobCount = globFilesStub.callCount
+
+      // Second search within TTL should skip glob entirely
+      await tool.execute({query: 'test'})
+      const secondGlobCount = globFilesStub.callCount
+
+      // globFiles should NOT be called again (TTL fast path)
+      expect(secondGlobCount).to.equal(firstGlobCount)
+    })
+
+    it('should skip listDirectory when cache exists for same path', async () => {
+      // Disable TTL to ensure we go through the full validation path
+      const tool = createSearchKnowledgeTool(fileSystemMock, {cacheTtlMs: 0})
+
+      // First search - listDirectory is called
+      await tool.execute({query: 'test'})
+      const firstListDirCount = listDirectoryStub.callCount
+
+      // Second search - listDirectory should be skipped (cache exists for same path)
+      await tool.execute({query: 'test'})
+      const secondListDirCount = listDirectoryStub.callCount
+
+      // listDirectory should NOT be called again
+      expect(secondListDirCount).to.equal(firstListDirCount)
+    })
+  })
+
+  describe('Stop Word Filtering', () => {
+    beforeEach(() => {
+      listDirectoryStub.resolves({count: 1, entries: [], tree: '', truncated: false})
+
+      globFilesStub.resolves({
+        files: [
+          {
+            isDirectory: false,
+            modified: new Date(),
+            path: '/test/.brv/context-tree/auth/authentication.md',
+            size: 100,
+          },
+          {
+            isDirectory: false,
+            modified: new Date(),
+            path: '/test/.brv/context-tree/api/api_design.md',
+            size: 100,
+          },
+        ],
+        ignoredCount: 0,
+        message: 'Found 2 files',
+        totalFound: 2,
+        truncated: false,
+      })
+
+      readFileStub.callsFake((filePath: string) => {
+        if (filePath.includes('authentication')) {
+          return Promise.resolve({
+            content: '# Authentication System\n\nJWT-based authentication with refresh tokens.',
+            encoding: 'utf8',
+            lines: 3,
+            size: 80,
+            totalLines: 3,
+            truncated: false,
+          })
+        }
+
+        return Promise.resolve({
+          content: '# API Design Patterns\n\nRESTful API conventions.',
+          encoding: 'utf8',
+          lines: 3,
+          size: 60,
+          totalLines: 3,
+          truncated: false,
+        })
+      })
+    })
+
+    it('should filter stop words from natural language queries', async () => {
+      const tool = createSearchKnowledgeTool(fileSystemMock, {cacheTtlMs: 0})
+
+      // Natural language query with stop words
+      const result = (await tool.execute({
+        query: 'I want to know about authentication logic in this project',
+      })) as SearchKnowledgeOutput
+
+      // Should find authentication document despite stop words
+      expect(result.totalFound).to.be.greaterThan(0)
+      const authResult = result.results.find((r) => r.path.includes('authentication'))
+      expect(authResult).to.exist
+    })
+
+    it('should handle query with only stop words by using original query', async () => {
+      const tool = createSearchKnowledgeTool(fileSystemMock, {cacheTtlMs: 0})
+
+      // Query with mostly stop words - should fall back to original
+      const result = (await tool.execute({
+        query: 'the and or',
+      })) as SearchKnowledgeOutput
+
+      // Should not crash, may or may not find results
+      expect(result.results).to.be.an('array')
+    })
+
+    it('should preserve meaningful keywords in query', async () => {
+      const tool = createSearchKnowledgeTool(fileSystemMock, {cacheTtlMs: 0})
+
+      // Query with mix of stop words and meaningful terms
+      const result = (await tool.execute({
+        query: 'how does the JWT authentication work',
+      })) as SearchKnowledgeOutput
+
+      // Should find authentication (JWT is a meaningful term)
+      expect(result.totalFound).to.be.greaterThan(0)
+      const authResult = result.results.find((r) => r.path.includes('authentication'))
+      expect(authResult).to.exist
+    })
+
+    it('should handle API-related queries with stop words', async () => {
+      const tool = createSearchKnowledgeTool(fileSystemMock, {cacheTtlMs: 0})
+
+      // Natural language query about API
+      const result = (await tool.execute({
+        query: 'show me the API design patterns we use',
+      })) as SearchKnowledgeOutput
+
+      // Should find API design document
+      expect(result.totalFound).to.be.greaterThan(0)
+      const apiResult = result.results.find((r) => r.path.includes('api_design'))
+      expect(apiResult).to.exist
     })
   })
 })
