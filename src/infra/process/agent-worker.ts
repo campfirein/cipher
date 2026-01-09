@@ -42,6 +42,7 @@ import {createTaskProcessor, TaskProcessor} from '../core/task-processor.js'
 import {createTokenStore} from '../storage/token-store.js'
 import {createTransportClient} from '../transport/transport-factory.js'
 import {CURATE_MAX_CONCURRENT} from './constants.js'
+import {createParentHeartbeat} from './parent-heartbeat.js'
 import {TaskQueueManager} from './task-queue-manager.js'
 
 // IPC types imported from ./ipc-types.ts
@@ -83,12 +84,8 @@ let isInitializing = false
 /** Guard: prevent double cleanup */
 let isCleaningUp = false
 
-/** Parent process PID for heartbeat monitoring */
-let parentPid: number | undefined
-/** Parent heartbeat running flag (for recursive setTimeout pattern) */
-let parentHeartbeatRunning = false
-/** Parent heartbeat check interval in milliseconds */
-const PARENT_HEARTBEAT_INTERVAL_MS = 2000
+/** Parent heartbeat monitor - lazily initialized in runWorker() */
+let parentHeartbeat: ReturnType<typeof createParentHeartbeat> | undefined
 
 // ============================================================================
 // Credentials Polling (detects auth/config changes)
@@ -939,76 +936,6 @@ async function startAgent(): Promise<void> {
 }
 
 // ============================================================================
-// Parent Heartbeat Monitoring
-// ============================================================================
-
-/**
- * Setup parent process heartbeat monitoring.
- *
- * Why this is needed:
- * - When main process receives SIGKILL, it dies immediately
- * - SIGKILL cannot be caught, so no cleanup happens
- * - IPC 'disconnect' event may not fire
- * - Child processes become orphans (PPID = 1)
- *
- * This function periodically checks if parent is still alive.
- * If parent dies, child self-terminates to prevent zombie processes.
- */
-function setupParentHeartbeat(): void {
-  // Already running - don't start another
-  if (parentHeartbeatRunning) return
-
-  parentHeartbeatRunning = true
-  parentPid = process.ppid
-
-  /**
-   * Recursive setTimeout pattern - safer than setInterval:
-   * - No callback overlap possible
-   * - Clean cancellation (just set flag = false)
-   * - No orphan timers
-   */
-  const checkParent = (): void => {
-    // Stopped - don't schedule next check
-    if (!parentHeartbeatRunning || !parentPid) return
-
-    // Check if parent is still alive using signal 0
-    // Signal 0 doesn't send any signal, just checks if process exists
-    try {
-      process.kill(parentPid, 0)
-    } catch {
-      // Parent is dead - self-terminate
-      agentLog(`Parent process (${parentPid}) died - shutting down to prevent zombie`)
-      parentHeartbeatRunning = false
-      // Stop agent and exit
-      stopAgent()
-        .catch(() => {})
-        .finally(() => {
-          // eslint-disable-next-line n/no-process-exit, unicorn/no-process-exit
-          process.exit(0)
-        })
-      return
-    }
-
-    // Schedule next check (only if still running)
-    if (parentHeartbeatRunning) {
-      setTimeout(checkParent, PARENT_HEARTBEAT_INTERVAL_MS)
-    }
-  }
-
-  // Start first check after delay
-  setTimeout(checkParent, PARENT_HEARTBEAT_INTERVAL_MS)
-  agentLog(`Parent heartbeat monitoring started (PPID: ${parentPid})`)
-}
-
-/**
- * Stop the parent heartbeat monitoring.
- * With recursive setTimeout, just set flag to false - next check won't schedule.
- */
-function stopParentHeartbeat(): void {
-  parentHeartbeatRunning = false
-}
-
-// ============================================================================
 // Credentials Polling Functions
 // ============================================================================
 
@@ -1309,7 +1236,7 @@ async function stopAgent(): Promise<void> {
   try {
     // Stop polling and heartbeat first
     stopCredentialsPolling()
-    stopParentHeartbeat()
+    parentHeartbeat?.stop()
 
     // Clear task queue
     taskQueueManager.clear()
@@ -1348,7 +1275,11 @@ async function runWorker(): Promise<void> {
 
     // Start parent heartbeat monitoring after ready
     // This ensures we self-terminate if parent dies (SIGKILL scenario)
-    setupParentHeartbeat()
+    parentHeartbeat = createParentHeartbeat({
+      cleanup: stopAgent,
+      log: agentLog,
+    })
+    parentHeartbeat.start()
 
     // Start credentials polling to detect auth/config changes
     // This ensures CipherAgent stays in sync with user's login state
