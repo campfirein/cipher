@@ -158,10 +158,16 @@ export class TransportHandlers {
   /**
    * Handle Agent registration.
    * Agent connects as Socket.IO client and sends 'agent:register'.
+   * Fix #4: Accepts optional status in payload to cache atomically with registration.
    */
-  private handleAgentRegister(clientId: string): void {
+  private handleAgentRegister(clientId: string, data?: {status?: AgentStatus}): void {
     transportLog(`Agent registered: ${clientId}`)
     this.agentClientId = clientId
+
+    // Cache status if provided (prevents race window between register and status broadcast)
+    if (data?.status) {
+      this.cachedAgentStatus = data.status
+    }
 
     // Broadcast to all clients that Agent is online
     this.transport.broadcast(TransportAgentEventNames.CONNECTED, {})
@@ -439,10 +445,11 @@ export class TransportHandlers {
    */
   private setupAgentHandlers(): void {
     // Agent registration
-    this.transport.onRequest<Record<string, never>, {success: boolean}>(
+    // Fix #4: Accept optional status in payload for atomic caching
+    this.transport.onRequest<{status?: AgentStatus}, {success: boolean}>(
       TransportAgentEventNames.REGISTER,
-      (_data, clientId) => {
-        this.handleAgentRegister(clientId)
+      (data, clientId) => {
+        this.handleAgentRegister(clientId, data)
         return {success: true}
       },
     )

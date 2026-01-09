@@ -43,6 +43,9 @@ import {createTokenStore} from '../storage/token-store.js'
 import {createTransportClient} from '../transport/transport-factory.js'
 import {CURATE_MAX_CONCURRENT} from './constants.js'
 import {TaskQueueManager} from './task-queue-manager.js'
+// State machine for agent lifecycle (Phase 2 - to be integrated)
+// Currently kept for future use, flags still used for backwards compatibility
+// import {canTransitionTo, getAgentState, isReady, isStopped, transitionTo} from './agent-state.js'
 
 // IPC types imported from ./ipc-types.ts
 
@@ -203,6 +206,34 @@ function cleanupAgentEventForwarding(): void {
  */
 function hasPendingWork(): boolean {
   return taskQueueManager.hasActiveTasks() || taskQueueManager.getQueuedCount() > 0
+}
+
+/**
+ * Wait for active tasks to complete with a timeout.
+ * Used before reinit to allow in-flight tasks to finish gracefully.
+ */
+async function waitForActiveTasksToComplete(timeoutMs: number): Promise<void> {
+  const start = Date.now()
+  const checkInterval = 100
+
+  // Poll until no active tasks or timeout
+  const pollUntilDone = async (): Promise<void> => {
+    while (taskQueueManager.hasActiveTasks()) {
+      if (Date.now() - start >= timeoutMs) {
+        agentLog('Timeout waiting for active tasks - proceeding with reinit')
+        return
+      }
+
+      // eslint-disable-next-line no-await-in-loop
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, checkInterval)
+      })
+    }
+
+    agentLog('Task queue drained successfully')
+  }
+
+  await pollUntilDone()
 }
 
 /**
@@ -444,6 +475,60 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, operation:
 }
 
 /**
+ * Validate auth token for initialization.
+ * Returns the token if valid, undefined if invalid (also sets initializationError).
+ */
+function validateAuthToken(
+  authToken: Awaited<ReturnType<ReturnType<typeof createTokenStore>['load']>>,
+): typeof authToken {
+  if (!authToken) {
+    initializationError = new NotAuthenticatedError()
+    agentLog('Cannot initialize - no auth token')
+    return undefined
+  }
+
+  if (authToken.isExpired()) {
+    initializationError = new NotAuthenticatedError()
+    agentLog('Cannot initialize - token expired (please run /login to re-authenticate)')
+    return undefined
+  }
+
+  return authToken
+}
+
+/**
+ * Check if cleanup started during init and abort if so.
+ * Returns true if should abort (cleanup started), false otherwise.
+ */
+async function shouldAbortInitForCleanup(agent: CipherAgent, phase: string): Promise<boolean> {
+  if (isCleaningUp) {
+    agentLog(`Cleanup started during ${phase}, aborting`)
+    await agent.stop()
+    return true
+  }
+
+  return false
+}
+
+/**
+ * Stop existing agent during force reinit.
+ */
+async function stopExistingAgentForReinit(): Promise<void> {
+  if (!cipherAgent) return
+
+  agentLog('Reinitializing with new config...')
+  try {
+    await cipherAgent.stop()
+  } catch (error) {
+    agentLog(`Error stopping previous agent: ${error}`)
+  }
+
+  cipherAgent = undefined
+  taskProcessor = undefined
+  isAgentInitialized = false
+}
+
+/**
  * Try to initialize/reinitialize the CipherAgent.
  * Called on startup and lazily when tasks arrive but agent is not initialized.
  * This handles the case where user completes onboarding after agent starts.
@@ -451,9 +536,15 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, operation:
  * @param forceReinit - Force reinitialization even if already initialized (for config reload)
  */
 async function tryInitializeAgent(forceReinit = false): Promise<boolean> {
-  // Guard: prevent concurrent initialization
-  if (isInitializing) {
-    agentLog('Initialization already in progress, skipping')
+  // Guard: prevent initialization during cleanup or if already in progress
+  if (isCleaningUp || isInitializing) {
+    agentLog('Initialization blocked (cleanup or already in progress)')
+    // Clear isReinitializing if caller set it before this call (e.g., pollCredentialsAndSync)
+    // This handles the early return case where the finally block won't run
+    if (forceReinit) {
+      isReinitializing = false
+    }
+
     return false
   }
 
@@ -464,38 +555,34 @@ async function tryInitializeAgent(forceReinit = false): Promise<boolean> {
 
   isInitializing = true
 
-  try {
-    // If forcing reinit, stop existing agent first
-    if (forceReinit && cipherAgent) {
-      agentLog('Reinitializing with new config...')
-      try {
-        await cipherAgent.stop()
-      } catch (error) {
-        agentLog(`Error stopping previous agent: ${error}`)
-      }
+  // Set isReinitializing flag for forceReinit to reject tasks during reinit
+  // Note: caller (pollCredentialsAndSync) may have already set this - that's OK, we'll clear in finally
+  if (forceReinit) {
+    isReinitializing = true
+  }
 
-      cipherAgent = undefined
-      taskProcessor = undefined
-      isAgentInitialized = false
+  try {
+    // If forcing reinit, drain queue and stop existing agent first
+    if (forceReinit) {
+      // Drain task queue before reinit to prevent tasks executing with stale processor
+      agentLog('Draining task queue before reinit...')
+      taskQueueManager.clear() // Clear queued (not yet started) tasks
+
+      // Wait for active tasks to complete (with timeout)
+      await waitForActiveTasksToComplete(10_000)
+
+      await stopExistingAgentForReinit()
     }
 
     const tokenStore = createTokenStore()
     const configStore = new ProjectConfigStore()
 
-    const authToken = await tokenStore.load()
+    const rawToken = await tokenStore.load()
     const brvConfig = await configStore.read()
 
-    // Need at least authToken to initialize
+    // Validate auth token (sets initializationError if invalid)
+    const authToken = validateAuthToken(rawToken)
     if (!authToken) {
-      initializationError = new NotAuthenticatedError()
-      agentLog('Cannot initialize - no auth token')
-      return false
-    }
-
-    // Check if token is expired - fail early with clear message instead of 401 later
-    if (authToken.isExpired()) {
-      initializationError = new NotAuthenticatedError()
-      agentLog('Cannot initialize - token expired (please run /login to re-authenticate)')
       return false
     }
 
@@ -527,10 +614,20 @@ async function tryInitializeAgent(forceReinit = false): Promise<boolean> {
     await withTimeout(agent.start(), AGENT_INIT_TIMEOUT_MS, 'CipherAgent.start()')
     agentLog('CipherAgent started')
 
+    // Check if cleanup started during agent.start() (fixes zombie agent race)
+    if (await shouldAbortInitForCleanup(agent, 'agent.start()')) {
+      return false
+    }
+
     // Create ChatSession (also with timeout to prevent hanging)
     chatSessionId = `agent-session-${randomUUID()}`
     await withTimeout(agent.createSession(chatSessionId), AGENT_INIT_TIMEOUT_MS, 'CipherAgent.createSession()')
     agentLog(`ChatSession created: ${chatSessionId}`)
+
+    // Check if cleanup started during createSession() (fixes zombie agent race)
+    if (await shouldAbortInitForCleanup(agent, 'createSession()')) {
+      return false
+    }
 
     // Setup event forwarding
     setupAgentEventForwarding(agent)
@@ -568,6 +665,10 @@ async function tryInitializeAgent(forceReinit = false): Promise<boolean> {
 
     return true
   } catch (error) {
+    // Cleanup partial state before recording error
+    // This prevents stale refs from accumulating on repeated failures
+    await cleanupPartialInit()
+
     // Catch errors and return false instead of throwing
     // This allows lazy init to retry when tasks arrive
     initializationError = error instanceof Error ? error : new Error(String(error))
@@ -579,6 +680,10 @@ async function tryInitializeAgent(forceReinit = false): Promise<boolean> {
     return false
   } finally {
     isInitializing = false
+    // Clear isReinitializing flag (matches the set above for forceReinit)
+    if (forceReinit) {
+      isReinitializing = false
+    }
   }
 }
 
@@ -671,17 +776,24 @@ async function startAgent(): Promise<void> {
   await transportClient.request('agent:register', {})
   agentLog('Registered with Transport')
 
-  // Fix #1: Re-register on Socket.IO reconnect
-  // When Socket.IO reconnects (e.g., after network blip), agent gets new socket.id
-  // but Transport cleared agentClientId on disconnect. Must re-register.
-  transportClient.on('connect', async () => {
-    agentLog('Socket.IO reconnected - re-registering with Transport')
-    try {
-      await transportClient?.request('agent:register', {})
-      broadcastStatusChange()
-      agentLog('Re-registered with Transport after reconnect')
-    } catch (error) {
-      agentLog(`Failed to re-register after reconnect: ${error}`)
+  // Fix #1: Re-register on any reconnect (Socket.IO auto-reconnect OR force reconnect)
+  // When connection is restored, agent needs to re-register with Transport.
+  // Using onStateChange instead of 'connect' event to handle all reconnect types.
+  // Fix #4: Include status in register payload to prevent race condition window
+  let wasDisconnected = false
+  transportClient.onStateChange(async (state) => {
+    if (state === 'disconnected' || state === 'reconnecting') {
+      wasDisconnected = true
+    } else if (state === 'connected' && wasDisconnected) {
+      wasDisconnected = false
+      agentLog('Transport reconnected - re-registering with Transport')
+      try {
+        // Include status in register payload (Transport caches it atomically)
+        await transportClient?.request('agent:register', {status: getAgentStatus()})
+        agentLog('Re-registered with Transport after reconnect')
+      } catch (error) {
+        agentLog(`Failed to re-register after reconnect: ${error}`)
+      }
     }
   })
 
@@ -725,16 +837,43 @@ async function startAgent(): Promise<void> {
   // Handle shutdown from Transport
   transportClient.on('shutdown', () => {
     agentLog('Received shutdown from Transport')
-    stopAgent().then(() => {
-      sendToParent({type: 'stopped'})
-      // eslint-disable-next-line n/no-process-exit, unicorn/no-process-exit
-      process.exit(0)
-    })
+    stopAgent()
+      .then(() => {
+        sendToParent({type: 'stopped'})
+        // eslint-disable-next-line n/no-process-exit, unicorn/no-process-exit
+        process.exit(0)
+      })
+      .catch((error) => {
+        agentLog(`Error during shutdown: ${error}`)
+        sendToParent({type: 'stopped'})
+        // eslint-disable-next-line n/no-process-exit, unicorn/no-process-exit
+        process.exit(1)
+      })
   })
 
   // Handle agent:restart from Transport (triggered by client, e.g., after /init)
   transportClient.on<{reason?: string}>('agent:restart', async (data) => {
     agentLog(`Agent restart requested: ${data.reason ?? 'no reason'}`)
+
+    // Guard: reject if initialization already in progress (prevents concurrent reinit race condition)
+    if (isInitializing || isReinitializing) {
+      agentLog('Agent restart rejected - initialization already in progress')
+      await transportClient?.request('agent:restarted', {
+        error: 'Initialization already in progress',
+        success: false,
+      })
+      return
+    }
+
+    // Reject restart if tasks are in progress or queued (prevents killing active tasks)
+    if (hasPendingWork()) {
+      agentLog('Agent restart rejected - tasks in progress or queued')
+      await transportClient?.request('agent:restarted', {
+        error: 'Tasks in progress. Please wait for tasks to complete.',
+        success: false,
+      })
+      return
+    }
 
     try {
       // Reinitialize agent with fresh config
@@ -744,6 +883,13 @@ async function startAgent(): Promise<void> {
         agentLog('Agent reinitialized successfully')
         // Notify Transport that restart completed
         await transportClient?.request('agent:restarted', {success: true})
+      } else if (isCleaningUp) {
+        // Cleanup in progress - can't restart during shutdown
+        agentLog('Agent reinitialization rejected - cleanup in progress')
+        await transportClient?.request('agent:restarted', {
+          error: 'Agent is shutting down',
+          success: false,
+        })
       } else if (isInitializing) {
         // Another initialization in progress (likely from credentials polling)
         // This is fine - the agent will be reinitialized by the other call
@@ -878,6 +1024,37 @@ async function stopCipherAgent(): Promise<void> {
 }
 
 /**
+ * Cleanup partial state after failed initialization.
+ * Called when tryInitializeAgent() fails partway through.
+ * Does NOT broadcast status (caller handles that).
+ */
+async function cleanupPartialInit(): Promise<void> {
+  agentLog('Cleaning up partial initialization state...')
+
+  // Cleanup event forwarders (may have been partially set up)
+  cleanupAgentEventForwarding()
+
+  // Stop CipherAgent if it was partially started
+  if (cipherAgent) {
+    try {
+      await cipherAgent.stop()
+    } catch (error) {
+      agentLog(`Error stopping partial CipherAgent: ${error}`)
+    }
+
+    cipherAgent = undefined
+  }
+
+  // Clear partial state
+  taskProcessor = undefined
+  chatSessionId = undefined
+  // Note: DON'T clear cachedCredentials here - keep old credentials for comparison
+  // Note: DON'T set isAgentInitialized - it should already be false
+
+  agentLog('Partial initialization state cleaned up')
+}
+
+/**
  * Update cached credentials after successful initialization.
  */
 function updateCachedCredentials(
@@ -971,19 +1148,17 @@ async function pollCredentialsAndSync(): Promise<void> {
           return
         }
 
-        // Set reinit flag to reject new tasks during reinit (fixes TOCTOU race condition)
+        // Set flag IMMEDIATELY after check to close TOCTOU window
+        // tryInitializeAgent will manage the flag from here (set on entry, clear in finally)
         isReinitializing = true
-        try {
-          // Credentials changed - reinit CipherAgent
-          agentLog('Credentials changed - reinitializing CipherAgent')
-          const success = await tryInitializeAgent(true) // forceReinit
-          if (success) {
-            agentLog('CipherAgent reinitialized with new credentials')
-          } else {
-            agentLog('CipherAgent reinitialization failed')
-          }
-        } finally {
-          isReinitializing = false
+
+        // Credentials changed - reinit CipherAgent
+        agentLog('Credentials changed - reinitializing CipherAgent')
+        const success = await tryInitializeAgent(true) // forceReinit
+        if (success) {
+          agentLog('CipherAgent reinitialized with new credentials')
+        } else {
+          agentLog('CipherAgent reinitialization failed')
         }
 
         break
@@ -1079,7 +1254,7 @@ function getAgentStatus(): AgentStatus {
   return {
     activeTasks: taskQueueManager.getActiveCount(),
     hasAuth: cachedCredentials !== undefined,
-    // spaceId and teamId are set atomically during /init, so checking one is sufficient
+    // Check both spaceId and teamId for safety (both must be set after /init)
     hasConfig: cachedCredentials?.spaceId !== undefined && cachedCredentials?.teamId !== undefined,
     isInitialized: isAgentInitialized,
     lastError: initializationError?.message,
@@ -1174,8 +1349,8 @@ async function runWorker(): Promise<void> {
         agentLog('Received health-check from parent - verifying connection')
         try {
           // Re-register with Transport to ensure connection is alive
-          await transportClient?.request('agent:register', {})
-          broadcastStatusChange()
+          // Include status in register payload (Transport caches it atomically)
+          await transportClient?.request('agent:register', {status: getAgentStatus()})
           agentLog('Health-check passed - connection verified')
           sendToParent({success: true, type: 'health-check-result'})
         } catch (error) {
@@ -1197,7 +1372,7 @@ async function runWorker(): Promise<void> {
         sendToParent({type: 'stopped'})
         // eslint-disable-next-line n/no-process-exit
         process.exit(0)
-        // Note: break not reachable but included for switch statement completeness
+        // Note: break unreachable due to process.exit() above
       }
     }
   })

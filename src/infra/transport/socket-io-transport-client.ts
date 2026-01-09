@@ -34,18 +34,40 @@ import {
 type StoredEventHandler = (data: unknown) => void
 
 /**
+ * Force reconnect delays after Socket.IO gives up (exponential backoff).
+ * Used when all built-in reconnection attempts fail.
+ */
+const FORCE_RECONNECT_DELAYS = [5000, 10_000, 20_000, 30_000, 60_000] // 5s, 10s, 20s, 30s, 60s cap
+
+/**
+ * Maximum number of force reconnect attempts before giving up.
+ * After this, ProcessManager's periodic health check will detect the failure and restart.
+ */
+const MAX_FORCE_RECONNECT_ATTEMPTS = 10
+
+/**
  * Socket.IO implementation of ITransportClient.
  *
  * Architecture notes:
  * - Auto-reconnects with exponential backoff
  * - Request/response uses Socket.IO acknowledgements (callbacks)
  * - Connection state is tracked and exposed via onStateChange
+ * - Force reconnect after all built-in attempts fail (sleep/wake recovery)
+ * - Auto-rejoins rooms after reconnect
  */
 export class SocketIOTransportClient implements ITransportClient {
   private readonly config: Required<TransportClientConfig>
   private eventHandlers: Map<string, Set<StoredEventHandler>> = new Map()
+  /** Track force reconnect attempt count for backoff calculation */
+  private forceReconnectAttempt = 0
+  /** Timer for scheduled force reconnect */
+  private forceReconnectTimer?: NodeJS.Timeout
+  /** Track joined rooms for auto-rejoin after reconnect */
+  private joinedRooms: Set<string> = new Set()
   /** Track which events have socket listeners registered (prevents duplicates on reconnect) */
   private registeredSocketEvents: Set<string> = new Set()
+  /** Store server URL for force reconnect */
+  private serverUrl?: string
   private socket: Socket | undefined
   private state: ConnectionState = 'disconnected'
   private stateHandlers: Set<ConnectionStateHandler> = new Set()
@@ -66,6 +88,12 @@ export class SocketIOTransportClient implements ITransportClient {
     if (this.socket?.connected) {
       return
     }
+
+    // Store URL for force reconnect
+    this.serverUrl = url
+
+    // Cancel any pending force reconnect (we're connecting now)
+    this.cancelForceReconnect()
 
     return new Promise((resolve, reject) => {
       this.setState('connecting')
@@ -131,15 +159,23 @@ export class SocketIOTransportClient implements ITransportClient {
         // Clear tracking first since socket listeners were reset during reconnect
         this.registeredSocketEvents.clear()
         this.registerPendingEventHandlers()
+
+        // Auto-rejoin rooms after reconnect
+        this.rejoinRooms()
       })
 
       this.socket.io.on('reconnect_failed', () => {
         this.setState('disconnected')
+        // Start force reconnect loop after Socket.IO gives up
+        this.scheduleForceReconnect()
       })
     })
   }
 
   async disconnect(): Promise<void> {
+    // Cancel any pending force reconnect
+    this.cancelForceReconnect()
+
     const {socket} = this
     if (!socket) {
       return
@@ -156,6 +192,7 @@ export class SocketIOTransportClient implements ITransportClient {
       this.eventHandlers.clear()
       this.registeredSocketEvents.clear()
       this.stateHandlers.clear()
+      this.joinedRooms.clear()
       resolve()
     })
   }
@@ -182,6 +219,8 @@ export class SocketIOTransportClient implements ITransportClient {
       socket.emit('room:join', room, (response: {success: boolean}) => {
         clearTimeout(timer)
         if (response.success) {
+          // Track joined room for auto-rejoin after reconnect
+          this.joinedRooms.add(room)
           resolve()
         } else {
           reject(new TransportRoomError(room, 'join'))
@@ -204,6 +243,8 @@ export class SocketIOTransportClient implements ITransportClient {
       socket.emit('room:leave', room, (response: {success: boolean}) => {
         clearTimeout(timer)
         if (response.success) {
+          // Remove from tracked rooms
+          this.joinedRooms.delete(room)
           resolve()
         } else {
           reject(new TransportRoomError(room, 'leave'))
@@ -287,6 +328,58 @@ export class SocketIOTransportClient implements ITransportClient {
   }
 
   /**
+   * Attempt force reconnect after Socket.IO gives up.
+   * Creates a new socket and connects.
+   * Gives up after MAX_FORCE_RECONNECT_ATTEMPTS (ProcessManager will detect via periodic health check).
+   */
+  private async attemptForceReconnect(): Promise<void> {
+    if (!this.serverUrl || this.state === 'connected') {
+      return
+    }
+
+    // Check max attempts - give up if exceeded
+    // ProcessManager's periodic health check (30s) will detect and restart
+    if (this.forceReconnectAttempt >= MAX_FORCE_RECONNECT_ATTEMPTS) {
+      this.setState('disconnected')
+      return
+    }
+
+    try {
+      // Cleanup old socket completely
+      if (this.socket) {
+        this.socket.removeAllListeners()
+        this.socket.io.removeAllListeners()
+        this.socket.disconnect()
+        this.socket = undefined
+      }
+
+      // Reset tracking (will be re-populated on connect)
+      this.registeredSocketEvents.clear()
+
+      // Attempt to connect
+      await this.connect(this.serverUrl)
+
+      // Success - reset attempt counter
+      this.forceReconnectAttempt = 0
+    } catch {
+      // Failed - schedule next attempt
+      this.scheduleForceReconnect()
+    }
+  }
+
+  /**
+   * Cancel any pending force reconnect timer.
+   */
+  private cancelForceReconnect(): void {
+    if (this.forceReconnectTimer) {
+      clearTimeout(this.forceReconnectTimer)
+      this.forceReconnectTimer = undefined
+    }
+
+    this.forceReconnectAttempt = 0
+  }
+
+  /**
    * Register all pending event handlers on the socket.
    * Called after successful connection to handle handlers added before connect().
    */
@@ -319,6 +412,37 @@ export class SocketIOTransportClient implements ITransportClient {
   }
 
   /**
+   * Re-join all tracked rooms after reconnect.
+   * Retries failed room joins with exponential backoff.
+   */
+  private rejoinRooms(): void {
+    for (const room of this.joinedRooms) {
+      this.rejoinRoomWithRetry(room, 0)
+    }
+  }
+
+  /**
+   * Rejoin a single room with retry logic.
+   * Uses exponential backoff: 100ms, 200ms, 400ms (max 3 attempts).
+   */
+  private rejoinRoomWithRetry(room: string, attempt: number): void {
+    const MAX_REJOIN_ATTEMPTS = 3
+    const REJOIN_BASE_DELAY_MS = 100
+
+    if (attempt >= MAX_REJOIN_ATTEMPTS || !this.socket?.connected) {
+      return
+    }
+
+    this.socket.emit('room:join', room, (response: {success: boolean}) => {
+      if (!response?.success && attempt < MAX_REJOIN_ATTEMPTS - 1) {
+        // Retry with exponential backoff
+        const delay = REJOIN_BASE_DELAY_MS * 2 ** attempt
+        setTimeout(() => this.rejoinRoomWithRetry(room, attempt + 1), delay)
+      }
+    })
+  }
+
+  /**
    * Remove socket listener for an event and clear tracking.
    */
   private removeSocketEventListener(event: string): void {
@@ -327,6 +451,23 @@ export class SocketIOTransportClient implements ITransportClient {
       socket.off(event)
       this.registeredSocketEvents.delete(event)
     }
+  }
+
+  /**
+   * Schedule force reconnect with exponential backoff.
+   * Called after Socket.IO's built-in reconnection gives up.
+   */
+  private scheduleForceReconnect(): void {
+    if (!this.serverUrl) {
+      return
+    }
+
+    const delay = FORCE_RECONNECT_DELAYS[Math.min(this.forceReconnectAttempt, FORCE_RECONNECT_DELAYS.length - 1)]
+
+    this.forceReconnectTimer = setTimeout(() => {
+      this.forceReconnectAttempt++
+      this.attemptForceReconnect()
+    }, delay)
   }
 
   private setState(state: ConnectionState): void {
