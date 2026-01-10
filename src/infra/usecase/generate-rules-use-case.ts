@@ -1,4 +1,5 @@
 import type {Agent} from '../../core/domain/entities/agent.js'
+import type {IHookManager} from '../../core/interfaces/hooks/i-hook-manager.js'
 import type {IFileService, WriteMode} from '../../core/interfaces/i-file-service.js'
 import type {LegacyRuleMatch, UncertainMatch} from '../../core/interfaces/i-legacy-rule-detector.js'
 import type {IRuleTemplateService} from '../../core/interfaces/i-rule-template-service.js'
@@ -7,6 +8,7 @@ import type {ITrackingService} from '../../core/interfaces/i-tracking-service.js
 import type {IGenerateRulesUseCase} from '../../core/interfaces/usecase/i-generate-rules-use-case.js'
 
 import {AGENT_VALUES} from '../../core/domain/entities/agent.js'
+import {tryInstallHookWithRestartMessage} from '../hooks/hook-install-helper.js'
 import {AGENT_RULE_CONFIGS} from '../rule/agent-rule-config.js'
 import {BRV_RULE_MARKERS, BRV_RULE_TAG} from '../rule/constants.js'
 import {LegacyRuleDetector} from '../rule/legacy-rule-detector.js'
@@ -30,6 +32,7 @@ export class GenerateRulesUseCase implements IGenerateRulesUseCase {
     private readonly templateService: IRuleTemplateService,
     private readonly terminal: ITerminal,
     private readonly trackingService: ITrackingService,
+    private readonly hookManager?: IHookManager,
   ) {}
 
   /**
@@ -198,6 +201,7 @@ export class GenerateRulesUseCase implements IGenerateRulesUseCase {
     await fileService.write(ruleContent, filePath, mode)
 
     this.terminal.log(`✅ Successfully added rule file for ${agent}`)
+    await tryInstallHookWithRestartMessage({agent, hookManager: this.hookManager, terminal: this.terminal})
   }
 
   /**
@@ -213,6 +217,7 @@ export class GenerateRulesUseCase implements IGenerateRulesUseCase {
     const ruleContent = await templateService.generateRuleContent(agent)
     await fileService.write(ruleContent, filePath, 'overwrite')
     this.terminal.log(`✅ Successfully created rule file for ${agent} at ${filePath}`)
+    await tryInstallHookWithRestartMessage({agent, hookManager: this.hookManager, terminal: this.terminal})
   }
 
   /**
@@ -308,6 +313,7 @@ export class GenerateRulesUseCase implements IGenerateRulesUseCase {
     this.terminal.log(`✅ Removed ${reliableMatches.length} old ByteRover section(s)`)
     this.terminal.log(`✅ Added new rules with boundary markers`)
     this.terminal.log(`\nYou can safely delete the backup file once verified.`)
+    await tryInstallHookWithRestartMessage({agent, hookManager: this.hookManager, terminal: this.terminal})
   }
 
   private async performManualCleanup(params: {
@@ -334,6 +340,7 @@ export class GenerateRulesUseCase implements IGenerateRulesUseCase {
     this.terminal.log('\nKeep only the section between:')
     this.terminal.log('  <!-- BEGIN BYTEROVER RULES -->')
     this.terminal.log('  <!-- END BYTEROVER RULES -->')
+    await tryInstallHookWithRestartMessage({agent, hookManager: this.hookManager, terminal: this.terminal})
   }
 
   /**
@@ -372,5 +379,6 @@ export class GenerateRulesUseCase implements IGenerateRulesUseCase {
     }
 
     this.terminal.log(`✅ Successfully updated rule file for ${agent}`)
+    await tryInstallHookWithRestartMessage({agent, hookManager: this.hookManager, terminal: this.terminal})
   }
 }

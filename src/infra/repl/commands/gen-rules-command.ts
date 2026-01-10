@@ -1,8 +1,9 @@
 import {CommandKind, SlashCommand} from '../../../tui/types.js'
 import {FsFileService} from '../../file/fs-file-service.js'
+import {FileHookManager} from '../../hooks/file-hook-manager.js'
 import {LegacyRuleDetector} from '../../rule/legacy-rule-detector.js'
 import {RuleTemplateService} from '../../rule/rule-template-service.js'
-import {FileGlobalConfigStore} from "../../storage/file-global-config-store.js";
+import {FileGlobalConfigStore} from '../../storage/file-global-config-store.js'
 import {createTokenStore} from '../../storage/token-store.js'
 import {FsTemplateLoader} from '../../template/fs-template-loader.js'
 import {ReplTerminal} from '../../terminal/repl-terminal.js'
@@ -26,6 +27,7 @@ export const genRulesCommand: SlashCommand = {
       const templateService = new RuleTemplateService(templateLoader)
       const globalConfigStore = new FileGlobalConfigStore()
       const trackingService = new MixpanelTrackingService({globalConfigStore, tokenStore: createTokenStore()})
+      const hookManager = new FileHookManager(fileService)
 
       // Create and run UseCase
       const useCase = new GenerateRulesUseCase(
@@ -34,6 +36,7 @@ export const genRulesCommand: SlashCommand = {
         templateService,
         terminal,
         trackingService,
+        hookManager,
       )
 
       await useCase.run()
