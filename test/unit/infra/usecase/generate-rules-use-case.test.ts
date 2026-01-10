@@ -1,5 +1,7 @@
+import type {SinonStub} from 'sinon'
+
 import {expect} from 'chai'
-import sinon, {type SinonStub} from 'sinon'
+import * as sinon from 'sinon'
 
 import type {Agent} from '../../../../src/core/domain/entities/agent.js'
 import type {HookInstallResult, IHookManager} from '../../../../src/core/interfaces/hooks/i-hook-manager.js'
