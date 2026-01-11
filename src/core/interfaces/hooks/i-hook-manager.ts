@@ -1,8 +1,4 @@
-/**
- * Supported agents for hook management.
- * These agents have hook systems that can be configured programmatically.
- */
-export type HookSupportedAgent = 'Claude Code'
+import type {HookSupportedAgent} from '../../domain/entities/agent.js'
 
 /**
  * Result of a hook installation operation.

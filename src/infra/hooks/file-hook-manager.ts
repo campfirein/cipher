@@ -1,15 +1,17 @@
 import path from 'node:path'
 
-import {
-  type HookInstallResult,
-  type HookStatus,
-  type HookSupportedAgent,
-  type HookUninstallResult,
-  type IHookManager,
+import type {HookSupportedAgent} from '../../core/domain/entities/agent.js'
+import type {
+  HookInstallResult,
+  HookStatus,
+  HookUninstallResult,
+  IHookManager,
 } from '../../core/interfaces/hooks/i-hook-manager.js'
-import {type IFileService} from '../../core/interfaces/i-file-service.js'
+import type {IFileService} from '../../core/interfaces/i-file-service.js'
+
+import {HOOK_SUPPORTED_AGENTS} from '../../core/domain/entities/agent.js'
 import {isRecord} from '../../utils/type-guards.js'
-import {AGENT_HOOK_CONFIGS, HOOK_SUPPORTED_AGENTS} from './agent-hook-configs.js'
+import {AGENT_HOOK_CONFIGS} from './agent-hook-configs.js'
 
 /**
  * Parse JSON and validate it's a Record object.
@@ -34,10 +36,7 @@ function parseJsonAsRecord(content: string): Record<string, unknown> {
  * - Safe uninstall: Only removes ByteRover hooks by command match
  */
 export class FileHookManager implements IHookManager {
-  constructor(
-    private readonly fileService: IFileService,
-    private readonly projectRoot: string = process.cwd(),
-  ) {}
+  constructor(private readonly fileService: IFileService, private readonly projectRoot: string = process.cwd()) {}
 
   getSupportedAgents(): HookSupportedAgent[] {
     return [...HOOK_SUPPORTED_AGENTS]
@@ -85,9 +84,7 @@ export class FileHookManager implements IHookManager {
 
       // File doesn't exist - create new config
       // Use deep copy to avoid mutating the shared defaultConfig object
-      const newConfig: Record<string, unknown> = config.defaultConfig
-        ? structuredClone(config.defaultConfig)
-        : {}
+      const newConfig: Record<string, unknown> = config.defaultConfig ? structuredClone(config.defaultConfig) : {}
 
       this.setHooksArray(newConfig, config.hookEventKey, [config.createHookEntry()])
 

@@ -1,4 +1,5 @@
-import {type HookSupportedAgent} from '../../core/interfaces/hooks/i-hook-manager.js'
+import type {HookSupportedAgent} from '../../core/domain/entities/agent.js'
+
 import {isRecord} from '../../utils/type-guards.js'
 
 /**
@@ -66,10 +67,3 @@ export const AGENT_HOOK_CONFIGS: Record<HookSupportedAgent, AgentHookConfig> = {
     isOurHook: isClaudeCodeOurHook,
   },
 }
-
-/**
- * List of all supported agents.
- * Using explicit array with `as const satisfies` for type safety without `as Type` assertion.
- * TypeScript will error if values don't match HookSupportedAgent type.
- */
-export const HOOK_SUPPORTED_AGENTS = ['Claude Code'] as const satisfies readonly HookSupportedAgent[]

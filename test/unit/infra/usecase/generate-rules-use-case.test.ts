@@ -53,7 +53,7 @@ describe('GenerateRulesUseCase', () => {
     } as unknown as sinon.SinonStubbedInstance<ITrackingService>
 
     hookManager = {
-      getSupportedAgents: sinon.stub().returns(['Claude Code', 'Cursor']),
+      getSupportedAgents: sinon.stub().returns(['Claude Code']),
       install: sinon.stub(),
       status: sinon.stub(),
       uninstall: sinon.stub(),

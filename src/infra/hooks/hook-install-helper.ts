@@ -1,14 +1,17 @@
-import type {Agent} from '../../core/domain/entities/agent.js'
-import type {HookSupportedAgent, IHookManager} from '../../core/interfaces/hooks/i-hook-manager.js'
+import type {Agent, HookSupportedAgent} from '../../core/domain/entities/agent.js'
+import type {IHookManager} from '../../core/interfaces/hooks/i-hook-manager.js'
 import type {ITerminal} from '../../core/interfaces/i-terminal.js'
 
-import {HOOK_SUPPORTED_AGENTS} from './agent-hook-configs.js'
+import {HOOK_SUPPORTED_AGENTS} from '../../core/domain/entities/agent.js'
 
 /**
  * Type guard to check if an agent supports hooks.
+ * Uses .some() with callback to avoid type assertions while maintaining readability.
+ * Note: .includes() would require `as readonly string[]` assertion due to TypeScript's strict tuple typing.
  */
 export function isHookSupportedAgent(agent: Agent): agent is HookSupportedAgent {
-  return (HOOK_SUPPORTED_AGENTS as readonly string[]).includes(agent)
+  // eslint-disable-next-line unicorn/prefer-includes -- .includes() requires type assertion; .some() avoids it
+  return HOOK_SUPPORTED_AGENTS.some((supported) => supported === agent)
 }
 
 /**

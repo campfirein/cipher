@@ -3,7 +3,8 @@ import {mkdir, rm, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
 
-import {type HookSupportedAgent} from '../../../../src/core/interfaces/hooks/i-hook-manager.js'
+import type {HookSupportedAgent} from '../../../../src/core/domain/entities/agent.js'
+
 import {FsFileService} from '../../../../src/infra/file/fs-file-service.js'
 import {HOOK_COMMAND} from '../../../../src/infra/hooks/agent-hook-configs.js'
 import {FileHookManager} from '../../../../src/infra/hooks/file-hook-manager.js'
@@ -224,10 +225,7 @@ describe('FileHookManager', () => {
         },
       }
       await mkdir(path.join(testDir, '.claude'), {recursive: true})
-      await writeFile(
-        path.join(testDir, '.claude/settings.local.json'),
-        JSON.stringify(existingConfig),
-      )
+      await writeFile(path.join(testDir, '.claude/settings.local.json'), JSON.stringify(existingConfig))
 
       const result = await hookManager.uninstall('Claude Code')
 
