@@ -13,6 +13,11 @@ export interface McpServerConfig {
   workingDirectory: string
 }
 
+/** Reconnection configuration */
+const RECONNECT_DELAY_MS = 1000
+const RECONNECT_MAX_DELAY_MS = 30_000
+const RECONNECT_BACKOFF_MULTIPLIER = 1.5
+
 /**
  * ByteRover MCP Server.
  *
@@ -28,6 +33,9 @@ export interface McpServerConfig {
 export class ByteRoverMcpServer {
   private client: ITransportClient | undefined
   private readonly config: McpServerConfig
+  private currentReconnectDelay: number = RECONNECT_DELAY_MS
+  private isReconnecting: boolean = false
+  private reconnectTimer: NodeJS.Timeout | undefined
   private readonly server: McpServer
   private transport: StdioServerTransport | undefined
 
@@ -84,20 +92,8 @@ export class ByteRoverMcpServer {
     this.log(`Client ID: ${client.getClientId()}`)
     this.log(`Initial connection state: ${client.getState()}`)
 
-    // Monitor connection state changes
-    client.onStateChange((state) => {
-      const timestamp = new Date().toISOString()
-      this.log(`[${timestamp}] Connection state changed: ${state}`)
-      if (state === 'disconnected') {
-        this.log(`[${timestamp}] Socket disconnected from brv instance. Tools will fail until reconnected.`)
-        // Log stack trace to understand where disconnect is coming from
-        this.log(`[${timestamp}] Stack trace: ${new Error().stack}`)
-      } else if (state === 'reconnecting') {
-        this.log(`[${timestamp}] Attempting to reconnect to brv instance...`)
-      } else if (state === 'connected') {
-        this.log(`[${timestamp}] Reconnected to brv instance.`)
-      }
-    })
+    // Monitor connection state changes and handle reconnection
+    this.setupStateChangeHandler(client)
 
     // Start MCP server with stdio transport
     this.transport = new StdioServerTransport()
@@ -121,6 +117,13 @@ export class ByteRoverMcpServer {
    * Disconnects from the brv instance.
    */
   async stop(): Promise<void> {
+    // Clear any pending reconnection timer
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer)
+      this.reconnectTimer = undefined
+    }
+    this.isReconnecting = false
+
     if (this.client) {
       await this.client.disconnect()
       this.client = undefined
@@ -128,9 +131,85 @@ export class ByteRoverMcpServer {
   }
 
   /**
+   * Attempts to reconnect to the brv instance.
+   * Uses exponential backoff for retry delays.
+   */
+  private async attemptReconnect(): Promise<void> {
+    if (this.isReconnecting) {
+      this.log('Reconnection already in progress, skipping...')
+      return
+    }
+
+    this.isReconnecting = true
+    this.log(`Attempting to reconnect in ${this.currentReconnectDelay}ms...`)
+
+    this.reconnectTimer = setTimeout(async () => {
+      try {
+        const factory = createTransportClientFactory()
+        const result = await factory.connect(this.config.workingDirectory)
+
+        // Disconnect old client if it exists
+        if (this.client) {
+          try {
+            await this.client.disconnect()
+          } catch {
+            // Ignore disconnect errors on old client
+          }
+        }
+
+        this.client = result.client
+        this.log(`Reconnected successfully! Client ID: ${result.client.getClientId()}`)
+
+        // Reset backoff delay on successful connection
+        this.currentReconnectDelay = RECONNECT_DELAY_MS
+        this.isReconnecting = false
+
+        // Set up state change handler for the new client
+        this.setupStateChangeHandler(result.client)
+      } catch (error) {
+        this.log(`Reconnection failed: ${error instanceof Error ? error.message : String(error)}`)
+
+        // Increase delay with exponential backoff (capped at max)
+        this.currentReconnectDelay = Math.min(
+          this.currentReconnectDelay * RECONNECT_BACKOFF_MULTIPLIER,
+          RECONNECT_MAX_DELAY_MS,
+        )
+        this.isReconnecting = false
+
+        // Schedule next reconnection attempt
+        this.attemptReconnect()
+      }
+    }, this.currentReconnectDelay)
+  }
+
+  /**
    * Log to stderr (stdout is reserved for MCP protocol).
    */
   private log(msg: string): void {
     process.stderr.write(`[brv-mcp] ${msg}\n`)
+  }
+
+  /**
+   * Sets up the state change handler for a client.
+   * Handles disconnection by triggering auto-reconnect.
+   */
+  private setupStateChangeHandler(client: ITransportClient): void {
+    client.onStateChange((state) => {
+      const timestamp = new Date().toISOString()
+      this.log(`[${timestamp}] Connection state changed: ${state}`)
+
+      if (state === 'disconnected') {
+        this.log(`[${timestamp}] Socket disconnected from brv instance. Initiating reconnection...`)
+        // Trigger auto-reconnect
+        this.attemptReconnect()
+      } else if (state === 'reconnecting') {
+        this.log(`[${timestamp}] Socket.IO attempting to reconnect...`)
+      } else if (state === 'connected') {
+        this.log(`[${timestamp}] Connected to brv instance.`)
+        // Reset backoff delay on successful connection
+        this.currentReconnectDelay = RECONNECT_DELAY_MS
+        this.isReconnecting = false
+      }
+    })
   }
 }
