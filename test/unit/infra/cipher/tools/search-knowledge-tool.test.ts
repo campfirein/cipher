@@ -719,4 +719,230 @@ describe('Search Knowledge Tool', () => {
       expect(apiResult).to.exist
     })
   })
+
+  describe('Parallel Execution Safety', () => {
+    beforeEach(() => {
+      listDirectoryStub.resolves({count: 1, entries: [], tree: '', truncated: false})
+
+      globFilesStub.resolves({
+        files: [
+          {
+            isDirectory: false,
+            modified: new Date('2024-01-01'),
+            path: '/test/.brv/context-tree/test/file.md',
+            size: 100,
+          },
+        ],
+        ignoredCount: 0,
+        message: 'Found 1 file',
+        totalFound: 1,
+        truncated: false,
+      })
+
+      readFileStub.resolves({
+        content: '# Test File\n\nTest content for parallel execution.',
+        encoding: 'utf8',
+        lines: 3,
+        size: 50,
+        totalLines: 3,
+        truncated: false,
+      })
+    })
+
+    it('should prevent duplicate index builds when executed in parallel', async () => {
+      // Disable TTL to force index validation path
+      const tool = createSearchKnowledgeTool(fileSystemMock, {cacheTtlMs: 0})
+
+      // Add artificial delay to readFile to simulate slow I/O
+      readFileStub.callsFake(async () => {
+        await new Promise<void>((resolve) => {
+          setTimeout(resolve, 50)
+        })
+        return {
+          content: '# Test File\n\nTest content for parallel execution.',
+          encoding: 'utf8',
+          lines: 3,
+          size: 50,
+          totalLines: 3,
+          truncated: false,
+        }
+      })
+
+      // Execute 5 searches in parallel (simulating batch tool or concurrent agent calls)
+      const parallelResults = await Promise.all([
+        tool.execute({query: 'test'}),
+        tool.execute({query: 'content'}),
+        tool.execute({query: 'parallel'}),
+        tool.execute({query: 'file'}),
+        tool.execute({query: 'execution'}),
+      ])
+
+      // All results should be valid
+      for (const result of parallelResults) {
+        expect(result).to.have.property('results')
+        expect(result).to.have.property('totalFound')
+      }
+
+      // readFile should only be called once (not 5 times) due to promise-based locking
+      // The first call builds the index, subsequent parallel calls wait on the same promise
+      expect(readFileStub.callCount).to.equal(1)
+    })
+
+    it('should return same cached index to all parallel callers', async () => {
+      const tool = createSearchKnowledgeTool(fileSystemMock, {cacheTtlMs: 60_000})
+
+      // Add delay to make parallel execution overlap
+      readFileStub.callsFake(async () => {
+        await new Promise<void>((resolve) => {
+          setTimeout(resolve, 30)
+        })
+        return {
+          content: '# Test File\n\nTest content.',
+          encoding: 'utf8',
+          lines: 3,
+          size: 50,
+          totalLines: 3,
+          truncated: false,
+        }
+      })
+
+      // Execute searches in parallel
+      const [result1, result2, result3] = await Promise.all([
+        tool.execute({query: 'test'}),
+        tool.execute({query: 'test'}),
+        tool.execute({query: 'test'}),
+      ])
+
+      // All should get valid results
+      expect((result1 as SearchKnowledgeOutput).results).to.be.an('array')
+      expect((result2 as SearchKnowledgeOutput).results).to.be.an('array')
+      expect((result3 as SearchKnowledgeOutput).results).to.be.an('array')
+
+      // Only one index build should have happened
+      expect(readFileStub.callCount).to.equal(1)
+    })
+
+    it('should handle parallel execution when cache is invalidated mid-flight', async () => {
+      // Use short TTL to test cache validation
+      const tool = createSearchKnowledgeTool(fileSystemMock, {cacheTtlMs: 0})
+
+      let buildCount = 0
+      readFileStub.callsFake(async () => {
+        buildCount++
+        const currentBuild = buildCount
+        await new Promise<void>((resolve) => {
+          setTimeout(resolve, 20)
+        })
+        return {
+          content: `# Test File ${currentBuild}\n\nBuild number ${currentBuild}.`,
+          encoding: 'utf8',
+          lines: 3,
+          size: 50,
+          totalLines: 3,
+          truncated: false,
+        }
+      })
+
+      // First batch of parallel calls
+      const firstBatch = await Promise.all([
+        tool.execute({query: 'test'}),
+        tool.execute({query: 'test'}),
+      ])
+
+      // Both should succeed
+      expect((firstBatch[0] as SearchKnowledgeOutput).results).to.be.an('array')
+      expect((firstBatch[1] as SearchKnowledgeOutput).results).to.be.an('array')
+
+      // First batch should only trigger one build
+      const firstBatchBuildCount = readFileStub.callCount
+      expect(firstBatchBuildCount).to.equal(1)
+
+      // Simulate file modification
+      globFilesStub.resolves({
+        files: [
+          {
+            isDirectory: false,
+            modified: new Date('2024-02-01'), // Changed mtime
+            path: '/test/.brv/context-tree/test/file.md',
+            size: 100,
+          },
+        ],
+        ignoredCount: 0,
+        message: 'Found 1 file',
+        totalFound: 1,
+        truncated: false,
+      })
+
+      // Second batch - should rebuild due to changed mtime
+      const secondBatch = await Promise.all([
+        tool.execute({query: 'test'}),
+        tool.execute({query: 'test'}),
+      ])
+
+      expect((secondBatch[0] as SearchKnowledgeOutput).results).to.be.an('array')
+      expect((secondBatch[1] as SearchKnowledgeOutput).results).to.be.an('array')
+
+      // Second batch should trigger exactly one more build (not two)
+      expect(readFileStub.callCount).to.equal(2)
+    })
+
+    it('should not deadlock when multiple tools execute concurrently', async () => {
+      const tool = createSearchKnowledgeTool(fileSystemMock, {cacheTtlMs: 0})
+
+      // Simulate varying response times
+      let callIndex = 0
+      readFileStub.callsFake(async () => {
+        const delay = [10, 50, 30, 20, 40][callIndex++ % 5]
+        await new Promise<void>((resolve) => {
+          setTimeout(resolve, delay)
+        })
+        return {
+          content: '# Test\n\nContent.',
+          encoding: 'utf8',
+          lines: 3,
+          size: 30,
+          totalLines: 3,
+          truncated: false,
+        }
+      })
+
+      // Run many concurrent executions - should complete without deadlock
+      const manyPromises = Array.from({length: 10}, (_, i) =>
+        tool.execute({query: `query${i}`})
+      )
+
+      // Should complete within reasonable time (not hang)
+      const results = await Promise.race([
+        Promise.all(manyPromises),
+        new Promise<never>((_, reject) => {
+          setTimeout(() => {
+            reject(new Error('Timeout - possible deadlock'))
+          }, 5000)
+        }),
+      ])
+
+      expect(results).to.have.length(10)
+    })
+
+    it('should handle errors gracefully during parallel builds', async () => {
+      const tool = createSearchKnowledgeTool(fileSystemMock, {cacheTtlMs: 0})
+
+      // Make readFile fail
+      readFileStub.rejects(new Error('Simulated I/O error'))
+
+      // Execute in parallel - all should handle the error gracefully
+      const results = await Promise.all([
+        tool.execute({query: 'test'}),
+        tool.execute({query: 'test'}),
+        tool.execute({query: 'test'}),
+      ])
+
+      // All calls should return valid (empty) results, not throw
+      for (const result of results) {
+        expect(result).to.have.property('results')
+        expect((result as SearchKnowledgeOutput).results).to.deep.equal([])
+        expect((result as SearchKnowledgeOutput).message).to.include('empty')
+      }
+    })
+  })
 })

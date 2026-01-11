@@ -59,6 +59,17 @@ interface CachedIndex {
   lastValidatedAt: number
 }
 
+/**
+ * State for managing concurrent access to the search index.
+ * Uses a promise-based lock to prevent duplicate index builds during parallel execution.
+ */
+interface IndexState {
+  /** Promise for an in-progress index build, undefined if no build is in progress */
+  buildingPromise: Promise<CachedIndex> | undefined
+  /** Cached index data, undefined if not yet built */
+  cachedIndex: CachedIndex | undefined
+}
+
 export interface SearchKnowledgeToolConfig {
   baseDirectory?: string
   cacheTtlMs?: number
@@ -225,8 +236,113 @@ async function buildFreshIndex(
   }
 }
 
+/**
+ * Acquires the search index, using cached data when valid or building a fresh index.
+ * Uses promise-based locking to prevent duplicate builds during parallel execution.
+ *
+ * @param state - Mutable state object for caching and locking
+ * @param fileSystem - File system service
+ * @param contextTreePath - Path to the context tree directory
+ * @param ttlMs - Cache TTL in milliseconds
+ * @returns The cached index or an error result
+ */
+async function acquireIndex(
+  state: IndexState,
+  fileSystem: IFileSystem,
+  contextTreePath: string,
+  ttlMs: number,
+): Promise<CachedIndex | {error: true; result: {message: string; results: []; totalFound: 0}}> {
+  const now = Date.now()
+
+  // Fast path: TTL-based cache hit (no I/O needed)
+  if (
+    state.cachedIndex &&
+    state.cachedIndex.contextTreePath === contextTreePath &&
+    ttlMs > 0 &&
+    now - state.cachedIndex.lastValidatedAt < ttlMs
+  ) {
+    return state.cachedIndex
+  }
+
+  // If another call is already building the index, wait for it
+  if (state.buildingPromise) {
+    return state.buildingPromise
+  }
+
+  // Create and store the build promise SYNCHRONOUSLY before any await
+  // This prevents race conditions where multiple parallel calls all start building
+  const buildPromise = (async (): Promise<CachedIndex> => {
+    // Check if context tree exists (only if no cache or different path)
+    if (!state.cachedIndex || state.cachedIndex.contextTreePath !== contextTreePath) {
+      try {
+        await fileSystem.listDirectory(contextTreePath)
+      } catch {
+        // Return empty index to signal error - caller will handle
+        const emptyIndex = new MiniSearch<IndexedDocument>(MINISEARCH_OPTIONS)
+        return {
+          contextTreePath: '',
+          documentMap: new Map(),
+          fileMtimes: new Map(),
+          index: emptyIndex,
+          lastValidatedAt: 0,
+        }
+      }
+    }
+
+    const currentFiles = await findMarkdownFilesWithMtime(fileSystem, contextTreePath)
+
+    // Re-check cache validity after getting file list (another call may have finished)
+    if (
+      state.cachedIndex &&
+      state.cachedIndex.contextTreePath === contextTreePath &&
+      isCacheValid(state.cachedIndex, currentFiles)
+    ) {
+      // Update timestamp atomically by creating a new object
+      const updatedCache: CachedIndex = {
+        ...state.cachedIndex,
+        lastValidatedAt: Date.now(),
+      }
+      state.cachedIndex = updatedCache
+      return updatedCache
+    }
+
+    // Build fresh index
+    const freshIndex = await buildFreshIndex(fileSystem, contextTreePath, currentFiles)
+    state.cachedIndex = freshIndex
+    return freshIndex
+  })()
+
+  // Store promise IMMEDIATELY (synchronously) so parallel calls can wait on it
+  state.buildingPromise = buildPromise
+
+  try {
+    const result = await buildPromise
+
+    // Check for error signal (empty contextTreePath means listDirectory failed)
+    if (result.contextTreePath === '') {
+      return {
+        error: true,
+        result: {
+          message: 'Context tree not initialized. Run /init to create it.',
+          results: [],
+          totalFound: 0,
+        },
+      }
+    }
+
+    return result
+  } finally {
+    // Clear the lock after completion (success or failure)
+    state.buildingPromise = undefined
+  }
+}
+
 export function createSearchKnowledgeTool(fileSystem: IFileSystem, config: SearchKnowledgeToolConfig = {}): Tool {
-  let cachedIndex: CachedIndex | undefined
+  // Shared state for caching and locking across parallel executions
+  const state: IndexState = {
+    buildingPromise: undefined,
+    cachedIndex: undefined,
+  }
 
   return {
     description:
@@ -237,43 +353,17 @@ export function createSearchKnowledgeTool(fileSystem: IFileSystem, config: Searc
       const {limit, query} = SearchKnowledgeInputSchema.parse(input)
       const baseDir = config.baseDirectory ?? process.cwd()
       const contextTreePath = join(baseDir, BRV_DIR, CONTEXT_TREE_DIR)
-
-      const now = Date.now()
       const ttlMs = config.cacheTtlMs ?? CACHE_TTL_MS
-      let indexData: CachedIndex
 
-      if (
-        cachedIndex &&
-        cachedIndex.contextTreePath === contextTreePath &&
-        ttlMs > 0 &&
-        now - cachedIndex.lastValidatedAt < ttlMs
-      ) {
-        indexData = cachedIndex
-      } else {
-        if (!cachedIndex || cachedIndex.contextTreePath !== contextTreePath) {
-          try {
-            await fileSystem.listDirectory(contextTreePath)
-          } catch {
-            return {
-              message: 'Context tree not initialized. Run /init to create it.',
-              results: [],
-              totalFound: 0,
-            }
-          }
-        }
+      // Acquire index with parallel-safe locking
+      const indexResult = await acquireIndex(state, fileSystem, contextTreePath, ttlMs)
 
-        const currentFiles = await findMarkdownFilesWithMtime(fileSystem, contextTreePath)
-
-        if (cachedIndex && cachedIndex.contextTreePath === contextTreePath && isCacheValid(cachedIndex, currentFiles)) {
-          cachedIndex.lastValidatedAt = now
-          indexData = cachedIndex
-        } else {
-          indexData = await buildFreshIndex(fileSystem, contextTreePath, currentFiles)
-          cachedIndex = indexData
-        }
+      // Handle error case (context tree not initialized)
+      if ('error' in indexResult) {
+        return indexResult.result
       }
 
-      const {documentMap, index} = indexData
+      const {documentMap, index} = indexResult
 
       if (documentMap.size === 0) {
         return {
