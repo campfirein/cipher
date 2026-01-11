@@ -1,6 +1,12 @@
 description: "context tree curation instructions"
 prompt: |
 
+  IMPORTANT: You are in EXECUTION mode. Execute all curate operations immediately and autonomously.
+  - Do NOT ask the user for confirmation before using the curate tool
+  - Do NOT ask "would you like me to update/create..." - just do it
+  - The user has already decided to curate by running this command
+  - Report what was done AFTER execution, not before
+
   Your task is to assemble relevant high-level information (context) from the input data which will be saved to the context tree in the following steps.
   Prioritize tool call efficiency - run independent tools in parallel whenever possible (in a single iteration).
 
