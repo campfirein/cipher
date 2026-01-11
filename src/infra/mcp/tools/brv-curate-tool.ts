@@ -5,8 +5,6 @@ import { z } from 'zod'
 
 import type { ITransportClient } from '../../../core/interfaces/transport/index.js'
 
-import { waitForTaskResult } from './task-result-waiter.js'
-
 export const BrvCurateInputSchema = z.object({
   context: z.string().describe('Knowledge to store: patterns, decisions, errors, or insights about the codebase'),
   files: z
@@ -21,6 +19,9 @@ export const BrvCurateInputSchema = z.object({
  *
  * This tool allows coding agents to store context to the ByteRover context tree.
  * Use it to save patterns, architectural decisions, error solutions, or insights.
+ *
+ * Uses fire-and-forget pattern: returns immediately after queueing the task.
+ * The curation is processed asynchronously by the ByteRover agent.
  */
 export function registerBrvCurateTool(
   server: McpServer,
@@ -34,11 +35,11 @@ export function registerBrvCurateTool(
       inputSchema: BrvCurateInputSchema,
       title: 'ByteRover Curate',
     },
-    async ({context, files}: {context: string; files?: string[]}) => {
+    async ({ context, files }: { context: string; files?: string[] }) => {
       const client = getClient()
       if (!client) {
         return {
-          content: [{text: 'Error: Not connected to ByteRover instance. Run "brv" first.', type: 'text' as const}],
+          content: [{ text: 'Error: Not connected to ByteRover instance. Run "brv" first.', type: 'text' as const }],
           isError: true,
         }
       }
@@ -47,7 +48,7 @@ export function registerBrvCurateTool(
       const state = client.getState()
       if (state !== 'connected') {
         return {
-          content: [{text: `Error: Socket not connected. Current state: ${state}. Ensure "brv" is running.`, type: 'text' as const}],
+          content: [{ text: `Error: Socket not connected. Current state: ${state}. Ensure "brv" is running.`, type: 'text' as const }],
           isError: true,
         }
       }
@@ -61,14 +62,16 @@ export function registerBrvCurateTool(
           content: context,
           taskId,
           type: 'curate',
-          ...(files?.length ? {files} : {}),
+          ...(files?.length ? { files } : {}),
         })
 
-        // Wait for task completion and return result
-        const result = await waitForTaskResult(client, taskId)
-
+        // Fire-and-forget: return immediately after task is queued
+        // Curation is processed asynchronously by the ByteRover agent
         return {
-          content: [{ text: result || 'Context curated successfully.', type: 'text' as const }],
+          content: [{
+            text: `✓ Context queued for curation (taskId: ${taskId}). The curation will be processed asynchronously.`,
+            type: 'text' as const,
+          }],
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
