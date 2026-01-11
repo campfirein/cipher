@@ -16,6 +16,14 @@
 /** Parent heartbeat check interval in milliseconds */
 const PARENT_HEARTBEAT_INTERVAL_MS = 2000
 
+/**
+ * Type guard for NodeJS.ErrnoException.
+ * Used to safely access error.code without unsafe type assertions.
+ */
+function isNodeError(error: unknown): error is NodeJS.ErrnoException {
+  return error !== null && typeof error === 'object' && 'code' in error
+}
+
 /** State for the heartbeat monitor */
 interface HeartbeatState {
   isRunning: boolean
@@ -78,8 +86,21 @@ export function createParentHeartbeat(config: ParentHeartbeatConfig): {
     // Signal 0 doesn't send any signal, just checks if process exists
     try {
       process.kill(state.parentPid, 0)
-    } catch {
-      // Parent is dead - self-terminate
+    } catch (error: unknown) {
+      // Only exit on ESRCH (No such process) - parent is genuinely dead
+      // EPERM (Operation not permitted) means parent exists but different privileges
+      const code = isNodeError(error) ? error.code : undefined
+      if (code !== 'ESRCH') {
+        log(`Parent check failed with ${code ?? 'unknown'} (not ESRCH) - continuing`)
+        // Schedule next check (don't exit)
+        if (state.isRunning) {
+          setTimeout(checkParent, PARENT_HEARTBEAT_INTERVAL_MS)
+        }
+
+        return
+      }
+
+      // Parent is dead (ESRCH) - self-terminate
       log(`Parent process (${state.parentPid}) died - shutting down to prevent zombie`)
       state.isRunning = false
 

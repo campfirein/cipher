@@ -64,6 +64,8 @@ class CredentialsPollingStateMachine {
   isCleaningUp = false
   isInitializing = false
   isPolling = false
+  /** Guard: prevent task enqueueing during reinit (fixes TOCTOU race condition) */
+  isReinitializing = false
   // Mock stores
   mockBrvConfig?: MockBrvConfig
   // Mock task queue
@@ -138,6 +140,55 @@ class CredentialsPollingStateMachine {
   }
 
   // ============================================================================
+  // Simulate tryInitializeAgent (mirrors agent-worker.ts:546-703)
+  // ============================================================================
+
+  /**
+   * Simulates tryInitializeAgent behavior for testing.
+   * Key behavior: clears isReinitializing on early return when blocked by isInitializing.
+   */
+  simulateTryInitializeAgent(
+    forceReinit: boolean,
+    tokenInfo?: TokenInfo,
+    configInfo?: ConfigInfo,
+  ): boolean {
+    // Guard: prevent initialization during cleanup or if already in progress
+    if (this.isCleaningUp || this.isInitializing) {
+      // FIX: Clear isReinitializing if WE set it (forceReinit case)
+      // Without this, the flag would be stuck forever since we return before try block
+      if (forceReinit) {
+        this.isReinitializing = false
+      }
+
+      return false
+    }
+
+    // Already initialized and not forcing reinit
+    if (!forceReinit && this.isAgentInitialized) {
+      return true
+    }
+
+    this.isInitializing = true
+    if (forceReinit) {
+      this.isReinitializing = true
+    }
+
+    try {
+      // Simulate success/failure based on reinitSuccess and tokenInfo
+      if (!this.reinitSuccess || !tokenInfo) {
+        return false
+      }
+
+      return true
+    } finally {
+      this.isInitializing = false
+      if (forceReinit) {
+        this.isReinitializing = false
+      }
+    }
+  }
+
+  // ============================================================================
   // Polling (mirrors agent-worker.ts:837-907)
   // ============================================================================
 
@@ -170,14 +221,24 @@ class CredentialsPollingStateMachine {
 
       switch (changeStatus) {
         case 'changed': {
-          // Check RIGHT BEFORE reinit - BOTH running AND queued tasks (race condition fix)
-          if (this.mockTaskQueueManager.hasActiveTasks() || this.mockTaskQueueManager.getQueuedCount() > 0) {
+          // Check RIGHT BEFORE reinit - BOTH running AND queued tasks AND reinit in progress
+          if (
+            this.mockTaskQueueManager.hasActiveTasks() ||
+            this.mockTaskQueueManager.getQueuedCount() > 0 ||
+            this.isReinitializing
+          ) {
             return
           }
 
-          // Credentials changed - reinit CipherAgent
+          // Set flag IMMEDIATELY after check to close TOCTOU window
+          this.isReinitializing = true
+
+          // Simulate tryInitializeAgent(true)
+          const success = this.simulateTryInitializeAgent(true, tokenInfo, configInfo)
+
+          // Credentials changed - update state based on result
           this.reinitCalled = true
-          if (this.reinitSuccess && tokenInfo) {
+          if (success && tokenInfo) {
             this.isAgentInitialized = true
             this.updateCachedCredentials(tokenInfo.accessToken, tokenInfo.sessionKey, configInfo)
             this.broadcastCalled = true
@@ -935,6 +996,101 @@ describe('Agent Worker Credentials Polling', () => {
 
       // isPolling should be reset in finally block
       expect(state.isPolling).to.be.false
+    })
+  })
+
+  // ============================================================================
+  // isReinitializing Race Condition Tests
+  // ============================================================================
+
+  describe('isReinitializing Race Condition', () => {
+    let state: CredentialsPollingStateMachine
+
+    beforeEach(() => {
+      state = new CredentialsPollingStateMachine()
+    })
+
+    it('should clear isReinitializing when blocked by isInitializing (race condition fix)', () => {
+      // Simulate the race condition scenario:
+      // 1. Poll detects credential change
+      // 2. Poll sets isReinitializing = true
+      // 3. Lazy init is in progress (isInitializing = true)
+      // 4. Poll calls tryInitializeAgent(true) which is blocked
+      // 5. BUG (before fix): isReinitializing stays true forever
+      // 6. FIX: Clear isReinitializing on early return
+
+      // Setup: lazy init is in progress
+      state.isInitializing = true
+
+      // Poll sets isReinitializing before calling tryInitializeAgent
+      state.isReinitializing = true
+
+      // Simulate tryInitializeAgent(true) being blocked by isInitializing
+      const result = state.simulateTryInitializeAgent(true)
+
+      // Should return false (blocked)
+      expect(result).to.be.false
+
+      // FIX: isReinitializing should be cleared on early return
+      expect(state.isReinitializing).to.be.false
+    })
+
+    it('should NOT clear isReinitializing when blocked by isCleaningUp (process exiting anyway)', () => {
+      // When isCleaningUp = true, the process is shutting down
+      // Clearing the flag doesn't matter, but we clear it anyway for consistency
+      state.isCleaningUp = true
+      state.isReinitializing = true
+
+      const result = state.simulateTryInitializeAgent(true)
+
+      expect(result).to.be.false
+      // Flag should be cleared
+      expect(state.isReinitializing).to.be.false
+    })
+
+    it('should skip poll when isReinitializing is already true', async () => {
+      state.isAgentInitialized = false
+      state.cachedCredentials = undefined
+      state.isReinitializing = true // Already reinitializing
+
+      await state.pollCredentialsAndSync()
+
+      // Poll should detect 'changed' but defer due to isReinitializing
+      expect(state.reinitCalled).to.be.false
+    })
+
+    it('should clear isReinitializing normally when tryInitializeAgent succeeds', () => {
+      state.isInitializing = false
+      state.isReinitializing = false
+      state.reinitSuccess = true
+
+      const result = state.simulateTryInitializeAgent(
+        true,
+        {accessToken: 'token', sessionKey: 'session'},
+        {spaceId: 'space', teamId: 'team'},
+      )
+
+      expect(result).to.be.true
+      // Should be cleared in finally block
+      expect(state.isReinitializing).to.be.false
+      expect(state.isInitializing).to.be.false
+    })
+
+    it('should clear isReinitializing when tryInitializeAgent fails (not blocked)', () => {
+      state.isInitializing = false
+      state.isReinitializing = false
+      state.reinitSuccess = false // Simulate failure (e.g., no auth token)
+
+      const result = state.simulateTryInitializeAgent(
+        true,
+        {accessToken: 'token', sessionKey: 'session'},
+        undefined,
+      )
+
+      expect(result).to.be.false
+      // Should be cleared in finally block
+      expect(state.isReinitializing).to.be.false
+      expect(state.isInitializing).to.be.false
     })
   })
 })

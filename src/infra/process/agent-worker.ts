@@ -128,10 +128,13 @@ const pollingConfigStore = new ProjectConfigStore()
 /**
  * Stored event forwarder references for cleanup on reinit.
  * Prevents memory leaks from accumulating listeners.
+ *
+ * The handler type matches BaseTypedEventEmitter's fallback signature:
+ * `on(eventName: string | symbol, listener: (data?: unknown) => void): this`
  */
 type EventForwarder = {
   event: string
-  handler: (payload: unknown) => void
+  handler: (data?: unknown) => void
 }
 let eventForwarders: EventForwarder[] = []
 
@@ -185,7 +188,8 @@ function cleanupAgentEventForwarding(): void {
   const eventBus = cipherAgent?.agentEventBus
   if (eventBus) {
     for (const {event, handler} of eventForwarders) {
-      eventBus.off(event as 'llmservice:thinking', handler as () => void)
+      // Uses fallback signature: off(eventName: string, listener: (data?: unknown) => void)
+      eventBus.off(event, handler)
     }
   }
 
@@ -248,10 +252,19 @@ function setupAgentEventForwarding(agent: CipherAgent): void {
     return
   }
 
-  // Helper to register and track event forwarder
+  // Helper to register and track event forwarder.
+  // Wraps typed handler to match event bus fallback signature.
   const registerForwarder = <T>(event: string, handler: (payload: T) => void): void => {
-    eventBus.on(event as 'llmservice:thinking', handler as () => void)
-    eventForwarders.push({event, handler: handler as (payload: unknown) => void})
+    // Wrapper matches fallback: (data?: unknown) => void
+    // BOUNDARY CAST: Event bus delivers unknown data; handler expects T.
+    // Type guard not possible for generic T at runtime.
+    const wrappedHandler = (data?: unknown): void => {
+      handler(data as T)
+    }
+
+    // Uses fallback signature: on(eventName: string, listener: (data?: unknown) => void)
+    eventBus.on(event, wrappedHandler)
+    eventForwarders.push({event, handler: wrappedHandler})
   }
 
   // Forward llmservice:thinking
@@ -547,8 +560,9 @@ async function tryInitializeAgent(forceReinit = false): Promise<boolean> {
   // Guard: prevent initialization during cleanup or if already in progress
   if (isCleaningUp || isInitializing) {
     agentLog('Initialization blocked (cleanup or already in progress)')
-    // Clear isReinitializing if caller set it before this call (e.g., pollCredentialsAndSync)
-    // This handles the early return case where the finally block won't run
+    // Clear isReinitializing if WE set it (forceReinit case)
+    // Without this, the flag would be stuck forever since we return before try block
+    // and thus finally block never runs. Next poll will re-detect and retry.
     if (forceReinit) {
       isReinitializing = false
     }
@@ -1300,10 +1314,18 @@ async function runWorker(): Promise<void> {
       case 'health-check': {
         // Fix #3: Health-check after sleep/wake - verify and repair connection
         agentLog('Received health-check from parent - verifying connection')
+
+        // Guard: transportClient must exist for health check
+        if (!transportClient) {
+          agentLog('Health-check failed - transportClient not initialized')
+          sendToParent({success: false, type: 'health-check-result'})
+          break
+        }
+
         try {
           // Re-register with Transport to ensure connection is alive
           // Include status in register payload (Transport caches it atomically)
-          await transportClient?.request('agent:register', {status: getAgentStatus()})
+          await transportClient.request('agent:register', {status: getAgentStatus()})
           agentLog('Health-check passed - connection verified')
           sendToParent({success: true, type: 'health-check-result'})
         } catch (error) {

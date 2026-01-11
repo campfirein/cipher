@@ -89,11 +89,22 @@ export class SocketIOTransportClient implements ITransportClient {
       return
     }
 
+    // Cleanup existing socket if present but not connected
+    // This prevents resource leaks when connect() is called again after a failed connection
+    if (this.socket) {
+      this.socket.removeAllListeners()
+      this.socket.io.removeAllListeners()
+      this.socket.disconnect()
+      this.socket = undefined
+      this.registeredSocketEvents.clear()
+    }
+
     // Store URL for force reconnect
     this.serverUrl = url
 
-    // Cancel any pending force reconnect (we're connecting now)
-    this.cancelForceReconnect()
+    // Clear any pending force reconnect timer (we're connecting now)
+    // Do NOT reset counter - connection may still fail, need to preserve backoff
+    this.clearForceReconnectTimer()
 
     return new Promise((resolve, reject) => {
       this.setState('connecting')
@@ -188,10 +199,11 @@ export class SocketIOTransportClient implements ITransportClient {
       socket.disconnect()
       this.socket = undefined
       this.setState('disconnected')
-      // Clear all tracking state to prevent leaks
+      // Clear socket-specific tracking state to prevent leaks
+      // Note: stateHandlers are NOT cleared - subscriptions persist across disconnect/connect cycles
+      // Users can unsubscribe via the returned function from onStateChange()
       this.eventHandlers.clear()
       this.registeredSocketEvents.clear()
-      this.stateHandlers.clear()
       this.joinedRooms.clear()
       resolve()
     })
@@ -212,11 +224,19 @@ export class SocketIOTransportClient implements ITransportClient {
     }
 
     return new Promise((resolve, reject) => {
+      // Flag to prevent callback from executing after timeout
+      let resolved = false
+
       const timer = setTimeout(() => {
+        resolved = true
         reject(new TransportRoomTimeoutError(room, 'join', this.config.roomTimeoutMs))
       }, this.config.roomTimeoutMs)
 
       socket.emit('room:join', room, (response: {success: boolean}) => {
+        // Don't process if timeout already fired
+        if (resolved) return
+
+        resolved = true
         clearTimeout(timer)
         if (response.success) {
           // Track joined room for auto-rejoin after reconnect
@@ -236,11 +256,19 @@ export class SocketIOTransportClient implements ITransportClient {
     }
 
     return new Promise((resolve, reject) => {
+      // Flag to prevent callback from executing after timeout
+      let resolved = false
+
       const timer = setTimeout(() => {
+        resolved = true
         reject(new TransportRoomTimeoutError(room, 'leave', this.config.roomTimeoutMs))
       }, this.config.roomTimeoutMs)
 
       socket.emit('room:leave', room, (response: {success: boolean}) => {
+        // Don't process if timeout already fired
+        if (resolved) return
+
+        resolved = true
         clearTimeout(timer)
         if (response.success) {
           // Remove from tracked rooms
@@ -262,7 +290,9 @@ export class SocketIOTransportClient implements ITransportClient {
     // Use registeredSocketEvents to prevent duplicates across reconnects
     this.registerSocketEventIfNeeded(event)
 
-    // Wrap handler to store without type assertion
+    // Wrap handler to match StoredEventHandler signature.
+    // BOUNDARY CAST: Socket.IO delivers unknown data; caller specifies T via generic.
+    // Type guard not possible for generic T at runtime.
     const wrappedHandler: StoredEventHandler = (data) => handler(data as T)
     const handlers = this.eventHandlers.get(event)
     handlers?.add(wrappedHandler)
@@ -317,8 +347,9 @@ export class SocketIOTransportClient implements ITransportClient {
         if (response.success && response.data !== undefined) {
           resolve(response.data)
         } else if (response.success) {
-          // Response success but data is undefined - resolve with undefined cast
-          // This is a boundary case where server returns void
+          // BOUNDARY CAST: Server returned success without data (void response).
+          // Caller must specify TResponse=void for void endpoints.
+          // Type guard not applicable - void vs non-void is a type-level distinction.
           resolve(undefined as TResponse)
         } else {
           reject(new TransportRequestError(event, response.error))
@@ -368,15 +399,23 @@ export class SocketIOTransportClient implements ITransportClient {
   }
 
   /**
-   * Cancel any pending force reconnect timer.
+   * Cancel force reconnect completely (clears timer AND resets counter).
+   * Used when connection is stable or on disconnect().
    */
   private cancelForceReconnect(): void {
+    this.clearForceReconnectTimer()
+    this.forceReconnectAttempt = 0
+  }
+
+  /**
+   * Clear force reconnect timer only (does NOT reset counter).
+   * Used when initiating new connection attempt - counter preserved for backoff continuity.
+   */
+  private clearForceReconnectTimer(): void {
     if (this.forceReconnectTimer) {
       clearTimeout(this.forceReconnectTimer)
       this.forceReconnectTimer = undefined
     }
-
-    this.forceReconnectAttempt = 0
   }
 
   /**
@@ -461,6 +500,10 @@ export class SocketIOTransportClient implements ITransportClient {
     if (!this.serverUrl) {
       return
     }
+
+    // Clear existing timer to prevent duplicate timers (fixes concurrent reconnect race)
+    // This can happen when both 'connect_error' and 'reconnect_failed' schedule timers
+    this.clearForceReconnectTimer()
 
     const delay = FORCE_RECONNECT_DELAYS[Math.min(this.forceReconnectAttempt, FORCE_RECONNECT_DELAYS.length - 1)]
 
