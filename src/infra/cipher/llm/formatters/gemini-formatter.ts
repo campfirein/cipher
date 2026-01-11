@@ -160,7 +160,15 @@ export class GeminiMessageFormatter implements IMessageFormatter<Content> {
 
     // Add text content if present
     if (msg.content) {
-      parts.push({ text: String(msg.content) })
+      if (typeof msg.content === 'string') {
+        parts.push({ text: msg.content })
+      } else if (Array.isArray(msg.content)) {
+        for (const part of msg.content) {
+          if (part.type === 'text') {
+            parts.push({ text: part.text })
+          }
+        }
+      }
     }
 
     // Add tool calls if present
