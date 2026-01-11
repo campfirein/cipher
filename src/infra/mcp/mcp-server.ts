@@ -40,7 +40,11 @@ export class ByteRoverMcpServer {
 
     // Register tools with lazy client getter
     // Client will be set when start() is called
-    registerBrvQueryTool(this.server, () => this.client)
+    registerBrvQueryTool(
+      this.server,
+      () => this.client,
+      () => this.config.workingDirectory,
+    )
     registerBrvCurateTool(
       this.server,
       () => this.client,
@@ -73,7 +77,7 @@ export class ByteRoverMcpServer {
       throw error
     }
 
-    const {client, projectRoot} = connectionResult
+    const { client, projectRoot } = connectionResult
     this.client = client
 
     this.log(`Connected to brv instance at ${projectRoot}`)

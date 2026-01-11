@@ -20,6 +20,7 @@ export const BrvQueryInputSchema = z.object({
 export function registerBrvQueryTool(
   server: McpServer,
   getClient: () => ITransportClient | undefined,
+  getWorkingDirectory: () => string,
 ): void {
   server.registerTool(
     'brv-query',
@@ -28,7 +29,7 @@ export function registerBrvQueryTool(
       inputSchema: BrvQueryInputSchema,
       title: 'ByteRover Query',
     },
-    async ({query}: {query: string}) => {
+    async ({ query }: { query: string }) => {
       const timestamp = new Date().toISOString()
       process.stderr.write(`[brv-mcp] [${timestamp}] brv-query tool called with query: ${query.slice(0, 50)}...\n`)
 
@@ -38,7 +39,7 @@ export function registerBrvQueryTool(
       if (!client) {
         process.stderr.write(`[brv-mcp] [${timestamp}] ERROR: Client is undefined\n`)
         return {
-          content: [{text: 'Error: Not connected to ByteRover instance. Run "brv" first.', type: 'text' as const}],
+          content: [{ text: 'Error: Not connected to ByteRover instance. Run "brv" first.', type: 'text' as const }],
           isError: true,
         }
       }
@@ -50,7 +51,7 @@ export function registerBrvQueryTool(
       if (state !== 'connected') {
         process.stderr.write(`[brv-mcp] [${timestamp}] ERROR: Socket not connected\n`)
         return {
-          content: [{text: `Error: Socket not connected. Current state: ${state}. Ensure "brv" is running.`, type: 'text' as const}],
+          content: [{ text: `Error: Socket not connected. Current state: ${state}. Ensure "brv" is running.`, type: 'text' as const }],
           isError: true,
         }
       }
@@ -60,7 +61,8 @@ export function registerBrvQueryTool(
 
         // Create task via transport (same pattern as brv query command)
         await client.request('task:create', {
-          query,
+          clientCwd: getWorkingDirectory(),
+          content: query,
           taskId,
           type: 'query',
         })
