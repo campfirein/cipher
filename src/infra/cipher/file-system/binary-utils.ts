@@ -77,10 +77,14 @@ const MIME_TYPES: Record<string, string> = {
 }
 
 /**
- * Threshold for non-printable character ratio to consider a file binary.
- * If more than 30% of sampled bytes are non-printable, the file is binary.
+ * Threshold for control character ratio to consider a file binary.
  */
-const NON_PRINTABLE_THRESHOLD = 0.3
+const CONTROL_CHAR_THRESHOLD = 0.1
+
+/**
+ * Unicode replacement character - indicates invalid UTF-8 sequence.
+ */
+const REPLACEMENT_CHAR = '\uFFFD'
 
 /**
  * Checks if a file is binary based on extension and content analysis.
@@ -88,7 +92,8 @@ const NON_PRINTABLE_THRESHOLD = 0.3
  * Detection strategy:
  * 1. Fast path: Check against known binary extensions
  * 2. Check for null bytes (definitive binary indicator)
- * 3. Heuristic: If >30% non-printable characters, consider binary
+ * 3. UTF-8 aware: Check for invalid UTF-8 sequences (replacement character)
+ * 4. Heuristic: Check for excessive control characters
  *
  * @param filePath - Path to the file (used for extension check)
  * @param buffer - Buffer containing first N bytes of the file
@@ -102,9 +107,8 @@ export function isBinaryFile(filePath: string, buffer: Buffer): boolean {
     return true
   }
 
-  // Skip content check for known text-based formats
+  // Images and PDFs are binary but handled specially
   if (isImageFile(filePath) || isPdfFile(filePath)) {
-    // Images and PDFs are binary but handled specially
     return true
   }
 
@@ -113,24 +117,26 @@ export function isBinaryFile(filePath: string, buffer: Buffer): boolean {
     return false
   }
 
-  // Content-based detection
-  let nonPrintableCount = 0
+  // Null byte is a definitive binary indicator
+  if (buffer.includes(0)) {
+    return true
+  }
 
+  // UTF-8 aware detection: invalid UTF-8 sequences produce replacement character
+  const str = buffer.toString('utf8')
+  if (str.includes(REPLACEMENT_CHAR)) {
+    return true
+  }
+
+  // Count control characters (0x01-0x08, 0x0E-0x1F) - null bytes already handled above
+  let controlCharCount = 0
   for (const byte of buffer) {
-    // Null byte is a definitive binary indicator
-    if (byte === 0) {
-      return true
-    }
-
-    // Count non-printable characters
-    // Printable range: tab (9), newline (10), carriage return (13), space (32) to tilde (126)
-    if (byte < 9 || (byte > 13 && byte < 32) || byte > 126) {
-      nonPrintableCount++
+    if ((byte > 0 && byte < 9) || (byte > 13 && byte < 32)) {
+      controlCharCount++
     }
   }
 
-  // If more than 30% non-printable, consider binary
-  return nonPrintableCount / buffer.length > NON_PRINTABLE_THRESHOLD
+  return controlCharCount / buffer.length > CONTROL_CHAR_THRESHOLD
 }
 
 /**

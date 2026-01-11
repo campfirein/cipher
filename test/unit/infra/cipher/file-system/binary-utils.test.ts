@@ -50,22 +50,44 @@ describe('binary-utils', () => {
       expect(isBinaryFile('file.txt', utf8Buffer)).to.be.false
     })
 
-    it('should return true for buffer with >30% non-printable characters', () => {
-      // Create buffer with 50% non-printable (control characters 1-8)
+    it('should return false for UTF-8 text with emojis', () => {
+      const emojiBuffer = Buffer.from('# Status\n\n✅ Done\n❌ Failed\n⚠️ Warning\n🚀 Launched')
+      expect(isBinaryFile('file.md', emojiBuffer)).to.be.false
+    })
+
+    it('should return false for UTF-8 text with box-drawing characters', () => {
+      const boxDrawingBuffer = Buffer.from('├── src\n│   ├── index.ts\n│   └── utils\n└── tests')
+      expect(isBinaryFile('file.md', boxDrawingBuffer)).to.be.false
+    })
+
+    it('should return false for UTF-8 text with CJK characters', () => {
+      const cjkBuffer = Buffer.from('# 项目文档\n\n## 安装说明\n请使用 npm 安装依赖')
+      expect(isBinaryFile('file.md', cjkBuffer)).to.be.false
+    })
+
+    it('should return true for buffer with >10% control characters', () => {
+      // Create buffer with 50% control characters (0x01-0x08)
       const mixedBuffer = Buffer.from([
-        0x01, 0x02, 0x03, 0x04, 0x05, // 5 non-printable
+        0x01, 0x02, 0x03, 0x04, 0x05, // 5 control chars
         0x41, 0x42, 0x43, 0x44, 0x45, // 5 printable (A-E)
       ])
       expect(isBinaryFile('file.txt', mixedBuffer)).to.be.true
     })
 
-    it('should return false for buffer with <30% non-printable characters', () => {
-      // Create buffer with 20% non-printable
+    it('should return false for buffer with <10% control characters', () => {
+      // Create buffer with ~5% control characters
       const mostlyText = Buffer.from([
-        0x01, 0x02, // 2 non-printable
-        0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, // 8 printable
+        0x01, // 1 control char
+        0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x4a, // 10 printable
+        0x4b, 0x4c, 0x4d, 0x4e, 0x4f, 0x50, 0x51, 0x52, 0x53, // 9 more printable
       ])
       expect(isBinaryFile('file.txt', mostlyText)).to.be.false
+    })
+
+    it('should return true for invalid UTF-8 sequences', () => {
+      // Invalid UTF-8: 0xFF 0xFE are not valid UTF-8 bytes
+      const invalidUtf8 = Buffer.from([0x48, 0x65, 0x6c, 0x6c, 0x6f, 0xff, 0xfe, 0x57, 0x6f, 0x72, 0x6c, 0x64])
+      expect(isBinaryFile('file.txt', invalidUtf8)).to.be.true
     })
 
     it('should handle SVG files as text (not binary)', () => {
