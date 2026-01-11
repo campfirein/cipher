@@ -168,7 +168,7 @@ describe('PullUseCase', () => {
 
       await useCase.run({branch: 'main'})
 
-      expect(logMessages.some((msg) => msg.includes('Run "brv push" first'))).to.be.true
+      expect(logMessages.some((msg) => msg.includes('Run "/push" first'))).to.be.true
       expect(cogitPullService.pull.called).to.be.false
     })
 
@@ -181,7 +181,7 @@ describe('PullUseCase', () => {
 
       await useCase.run({branch: 'main'})
 
-      expect(logMessages.some((msg) => msg.includes('Run "brv push" first'))).to.be.true
+      expect(logMessages.some((msg) => msg.includes('Run "/push" first'))).to.be.true
       expect(cogitPullService.pull.called).to.be.false
     })
 
@@ -194,7 +194,7 @@ describe('PullUseCase', () => {
 
       await useCase.run({branch: 'main'})
 
-      expect(logMessages.some((msg) => msg.includes('Run "brv push" first'))).to.be.true
+      expect(logMessages.some((msg) => msg.includes('Run "/push" first'))).to.be.true
       expect(cogitPullService.pull.called).to.be.false
     })
 

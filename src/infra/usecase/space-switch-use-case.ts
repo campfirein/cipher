@@ -106,7 +106,7 @@ export class SpaceSwitchUseCase implements ISpaceSwitchUseCase {
     // Check project initialization (MUST exist for switch)
     const currentConfig = await this.projectConfigStore.read()
     if (!currentConfig) {
-      this.terminal.log('Project not initialized. Please run "brv init" first.')
+      this.terminal.log('Project not initialized. Please run "/init" first.')
       return
     }
 
@@ -119,12 +119,12 @@ export class SpaceSwitchUseCase implements ISpaceSwitchUseCase {
     // Validate authentication
     const token = await this.tokenStore.load()
     if (!token) {
-      this.terminal.log('Not authenticated. Please run "brv login" first.')
+      this.terminal.log('Not authenticated. Please run "/login" first.')
       return
     }
 
     if (!token.isValid()) {
-      this.terminal.log('Authentication token expired. Please run "brv login" again.')
+      this.terminal.log('Authentication token expired. Please run "/login" again.')
       return
     }
 
