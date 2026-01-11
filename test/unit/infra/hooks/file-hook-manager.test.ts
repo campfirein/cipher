@@ -25,11 +25,10 @@ describe('FileHookManager', () => {
   })
 
   describe('getSupportedAgents', () => {
-    it('should return all supported agents', () => {
+    it('should return only Claude Code as supported agent', () => {
       const agents = hookManager.getSupportedAgents()
-      expect(agents).to.include('Claude Code')
-      expect(agents).to.include('Cursor')
-      expect(agents).to.have.lengthOf(2)
+      expect(agents).to.deep.equal(['Claude Code'])
+      expect(agents).to.have.lengthOf(1)
     })
   })
 
@@ -188,69 +187,6 @@ describe('FileHookManager', () => {
         expect(result.configExists).to.be.true
         expect(result.installed).to.be.false
         expect(result.error).to.be.undefined
-      })
-    })
-  })
-
-  describe('Cursor', () => {
-    const agent: HookSupportedAgent = 'Cursor'
-    const configPath = '.cursor/hooks.json'
-
-    describe('install', () => {
-      it('should create new config with version field', async () => {
-        const result = await hookManager.install(agent)
-
-        expect(result.success).to.be.true
-
-        const content = await fileService.read(path.join(testDir, configPath))
-        const json = JSON.parse(content)
-        expect(json.version).to.equal(1)
-        expect(json.hooks.beforeSubmitPrompt).to.have.lengthOf(1)
-        expect(json.hooks.beforeSubmitPrompt[0].command).to.equal(HOOK_COMMAND)
-      })
-
-      it('should preserve other hooks', async () => {
-        const existingConfig = {
-          hooks: {
-            beforeShellCommand: [{command: 'shell-hook'}],
-            beforeSubmitPrompt: [{command: 'other-hook'}],
-          },
-          version: 1,
-        }
-        await mkdir(path.join(testDir, '.cursor'), {recursive: true})
-        await writeFile(path.join(testDir, configPath), JSON.stringify(existingConfig))
-
-        const result = await hookManager.install(agent)
-
-        expect(result.success).to.be.true
-
-        const content = await fileService.read(path.join(testDir, configPath))
-        const json = JSON.parse(content)
-        expect(json.hooks.beforeSubmitPrompt).to.have.lengthOf(2)
-        expect(json.hooks.beforeShellCommand).to.have.lengthOf(1) // preserved
-      })
-    })
-
-    describe('uninstall', () => {
-      it('should remove only our hook', async () => {
-        const existingConfig = {
-          hooks: {
-            beforeSubmitPrompt: [{command: 'other-hook'}, {command: HOOK_COMMAND}],
-          },
-          version: 1,
-        }
-        await mkdir(path.join(testDir, '.cursor'), {recursive: true})
-        await writeFile(path.join(testDir, configPath), JSON.stringify(existingConfig))
-
-        const result = await hookManager.uninstall(agent)
-
-        expect(result.success).to.be.true
-        expect(result.wasInstalled).to.be.true
-
-        const content = await fileService.read(path.join(testDir, configPath))
-        const json = JSON.parse(content)
-        expect(json.hooks.beforeSubmitPrompt).to.have.lengthOf(1)
-        expect(json.hooks.beforeSubmitPrompt[0].command).to.equal('other-hook')
       })
     })
   })

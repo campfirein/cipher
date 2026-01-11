@@ -2,7 +2,7 @@
  * Supported agents for hook management.
  * These agents have hook systems that can be configured programmatically.
  */
-export type HookSupportedAgent = 'Claude Code' | 'Cursor'
+export type HookSupportedAgent = 'Claude Code'
 
 /**
  * Result of a hook installation operation.

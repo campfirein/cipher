@@ -13,7 +13,7 @@ export function isHookSupportedAgent(agent: Agent): agent is HookSupportedAgent 
 
 /**
  * Attempts to install hook for the agent and shows restart message if successful.
- * Silently ignores errors to avoid interrupting the main workflow.
+ * Logs errors to terminal but does not throw to avoid interrupting the main workflow.
  */
 export async function tryInstallHookWithRestartMessage(params: {
   agent: Agent
@@ -27,8 +27,8 @@ export async function tryInstallHookWithRestartMessage(params: {
 
   try {
     const result = await hookManager.install(agent)
-    if (result.success) {
-      terminal.warn(`⚠️  Please restart ${agent} to apply the new rules.`)
+    if (result.success && !result.alreadyInstalled) {
+      terminal.warn(`⚠️  Please restart ${agent} to apply the new hooks.`)
     }
   } catch (error) {
     terminal.error(`Failed to install hook for ${agent}: ${error instanceof Error ? error.message : String(error)}`)

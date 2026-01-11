@@ -20,21 +20,13 @@ export type ClaudeCodeHookEntry = {
 }
 
 /**
- * Cursor hook entry structure.
- * Simpler flat structure with just a command.
- */
-export type SimpleHookEntry = {
-  command: string
-}
-
-/**
  * Configuration for each agent's hook system.
  */
 export type AgentHookConfig = {
   /** Path to the configuration file (relative to project root) */
   configPath: string
   /** Function to create a new hook entry for this agent */
-  createHookEntry: () => ClaudeCodeHookEntry | SimpleHookEntry
+  createHookEntry: () => ClaudeCodeHookEntry
   /** Default config structure for new files (optional) */
   defaultConfig?: Record<string, unknown>
   /** The key in the hooks object for the pre-prompt event */
@@ -60,11 +52,6 @@ const isClaudeCodeOurHook = (entry: unknown): boolean => {
 }
 
 /**
- * Check if an entry is a simple hook entry with our command.
- */
-const isSimpleOurHook = (entry: unknown): boolean => hasCommand(entry) && entry.command === HOOK_COMMAND
-
-/**
  * Agent-specific hook configurations.
  * Maps each supported agent to its configuration details.
  */
@@ -78,13 +65,6 @@ export const AGENT_HOOK_CONFIGS: Record<HookSupportedAgent, AgentHookConfig> = {
     hookEventKey: 'UserPromptSubmit',
     isOurHook: isClaudeCodeOurHook,
   },
-  Cursor: {
-    configPath: '.cursor/hooks.json',
-    createHookEntry: (): SimpleHookEntry => ({command: HOOK_COMMAND}),
-    defaultConfig: {hooks: {}, version: 1},
-    hookEventKey: 'beforeSubmitPrompt',
-    isOurHook: isSimpleOurHook,
-  },
 }
 
 /**
@@ -92,4 +72,4 @@ export const AGENT_HOOK_CONFIGS: Record<HookSupportedAgent, AgentHookConfig> = {
  * Using explicit array with `as const satisfies` for type safety without `as Type` assertion.
  * TypeScript will error if values don't match HookSupportedAgent type.
  */
-export const HOOK_SUPPORTED_AGENTS = ['Claude Code', 'Cursor'] as const satisfies readonly HookSupportedAgent[]
+export const HOOK_SUPPORTED_AGENTS = ['Claude Code'] as const satisfies readonly HookSupportedAgent[]

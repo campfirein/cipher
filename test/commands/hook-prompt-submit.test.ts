@@ -2,12 +2,58 @@ import type {Config} from '@oclif/core'
 
 import {Config as OclifConfig} from '@oclif/core'
 import {expect} from 'chai'
+import * as sinon from 'sinon'
 
-import HookPromptSubmit from '../../src/commands/hook-prompt-submit.js'
+import type {ITemplateLoader} from '../../src/core/interfaces/i-template-loader.js'
+
+import HookPromptSubmit, {type HookPromptSubmitDependencies} from '../../src/commands/hook-prompt-submit.js'
+
+// ==================== TestableHookPromptSubmitCommand ====================
+
+class TestableHookPromptSubmitCommand extends HookPromptSubmit {
+  constructor(private readonly dependencies: HookPromptSubmitDependencies, config: Config) {
+    super([], config)
+  }
+
+  protected createDependencies(): HookPromptSubmitDependencies {
+    return this.dependencies
+  }
+}
+
+// ==================== Mock Factory ====================
+
+function createMockTemplateLoader(): sinon.SinonStubbedInstance<ITemplateLoader> {
+  return {
+    loadSection: sinon.stub(),
+    loadTemplate: sinon.stub(),
+    substituteVariables: sinon.stub(),
+  }
+}
+
+// ==================== Test Content ====================
+
+const MOCK_INSTRUCTIONS = `> **⚠️ STOP: Before responding, check if this is a code task.**
+
+# ByteRover Memory System - MANDATORY
+
+You MUST run \`brv query\` before starting code tasks.
+You MUST NOT skip the query step.
+
+## CRITICAL - LONG CONVERSATIONS
+Even after many prompts, each new code task requires a fresh query.
+
+## Commands
+- \`brv query\` - Query context tree
+- \`brv curate\` - Add context to tree
+
+> **⚠️ REMINDER: Don't forget!**`
+
+// ==================== Tests ====================
 
 describe('commands/hook-prompt-submit', () => {
   let config: Config
   let loggedOutput: string[]
+  let templateLoader: sinon.SinonStubbedInstance<ITemplateLoader>
 
   before(async () => {
     config = await OclifConfig.load(import.meta.url)
@@ -15,14 +61,15 @@ describe('commands/hook-prompt-submit', () => {
 
   beforeEach(() => {
     loggedOutput = []
+    templateLoader = createMockTemplateLoader()
   })
 
-  /**
-   * Create a testable command that captures log output
-   */
-  function createTestCommand(): HookPromptSubmit {
-    const command = new HookPromptSubmit([], config)
-    // Override log to capture output
+  afterEach(() => {
+    sinon.restore()
+  })
+
+  function createTestCommand(): TestableHookPromptSubmitCommand {
+    const command = new TestableHookPromptSubmitCommand({templateLoader}, config)
     command.log = (msg?: string) => {
       if (msg) loggedOutput.push(msg)
     }
@@ -31,6 +78,10 @@ describe('commands/hook-prompt-submit', () => {
   }
 
   describe('output format', () => {
+    beforeEach(() => {
+      templateLoader.loadSection.resolves(MOCK_INSTRUCTIONS)
+    })
+
     it('should output STOP blockquote opener', async () => {
       const command = createTestCommand()
       await command.run()
@@ -76,7 +127,27 @@ describe('commands/hook-prompt-submit', () => {
       await command.run()
 
       const output = loggedOutput.join('\n')
-      expect(output).to.include('**⚠️ REMINDER: Don\'t forget!')
+      expect(output).to.include("**⚠️ REMINDER: Don't forget!")
+    })
+
+    it('should call templateLoader.loadSection with brv-instructions', async () => {
+      const command = createTestCommand()
+      await command.run()
+
+      expect(templateLoader.loadSection.calledOnceWith('brv-instructions')).to.be.true
+    })
+  })
+
+  describe('error handling', () => {
+    it('should silently fail when template loading throws in production', async () => {
+      templateLoader.loadSection.rejects(new Error('Template not found'))
+
+      const command = createTestCommand()
+
+      // Should not throw
+      await command.run()
+
+      expect(loggedOutput).to.be.empty
     })
   })
 

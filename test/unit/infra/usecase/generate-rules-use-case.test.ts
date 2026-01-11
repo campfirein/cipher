@@ -102,21 +102,6 @@ describe('GenerateRulesUseCase', () => {
         expect((hookManager.install as SinonStub).calledWith('Claude Code')).to.be.true
       })
 
-      it('should install hook for Cursor', async () => {
-        const useCase = createUseCaseWithAgentSelection('Cursor')
-        ;(hookManager.install as SinonStub).resolves({
-          alreadyInstalled: false,
-          configPath: '.cursor/hooks.json',
-          message: 'Installed',
-          success: true,
-        } satisfies HookInstallResult)
-
-        await useCase.run()
-
-        expect((hookManager.install as SinonStub).calledOnce).to.be.true
-        expect((hookManager.install as SinonStub).calledWith('Cursor')).to.be.true
-      })
-
       it('should show restart message when hook newly installed', async () => {
         const useCase = createUseCaseWithAgentSelection('Claude Code')
         ;(hookManager.install as SinonStub).resolves({
@@ -133,7 +118,7 @@ describe('GenerateRulesUseCase', () => {
         expect((terminal.warn as SinonStub).firstCall.args[0]).to.include('Claude Code')
       })
 
-      it('should ALWAYS show restart message even when hook already installed', async () => {
+      it('should NOT show restart message when hook already installed', async () => {
         const useCase = createUseCaseWithAgentSelection('Claude Code')
         ;(hookManager.install as SinonStub).resolves({
           alreadyInstalled: true,
@@ -144,9 +129,8 @@ describe('GenerateRulesUseCase', () => {
 
         await useCase.run()
 
-        // Always show restart message regardless of alreadyInstalled
-        expect((terminal.warn as SinonStub).calledOnce).to.be.true
-        expect((terminal.warn as SinonStub).firstCall.args[0]).to.include('restart')
+        // No restart needed when hook was already installed (nothing changed)
+        expect((terminal.warn as SinonStub).called).to.be.false
       })
 
       it('should NOT show restart message when hook installation fails', async () => {
