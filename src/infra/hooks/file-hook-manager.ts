@@ -14,6 +14,14 @@ import {isRecord} from '../../utils/type-guards.js'
 import {AGENT_HOOK_CONFIGS} from './agent-hook-configs.js'
 
 /**
+ * Options for constructing FileHookManager.
+ */
+type FileHookManagerOptions = {
+  fileService: IFileService
+  projectRoot: string
+}
+
+/**
  * Parse JSON and validate it's a Record object.
  * @throws Error if JSON is invalid or not an object
  */
@@ -36,7 +44,13 @@ function parseJsonAsRecord(content: string): Record<string, unknown> {
  * - Safe uninstall: Only removes ByteRover hooks by command match
  */
 export class FileHookManager implements IHookManager {
-  constructor(private readonly fileService: IFileService, private readonly projectRoot: string = process.cwd()) {}
+  private readonly fileService: IFileService
+  private readonly projectRoot: string
+
+  constructor(options: FileHookManagerOptions) {
+    this.fileService = options.fileService
+    this.projectRoot = options.projectRoot
+  }
 
   getSupportedAgents(): HookSupportedAgent[] {
     return [...HOOK_SUPPORTED_AGENTS]

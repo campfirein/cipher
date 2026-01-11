@@ -64,7 +64,10 @@ export const initCommand: SlashCommand = {
             snapshotService: contextTreeSnapshotService,
           }),
           fileService,
-          hookManager: new FileHookManager(fileService),
+          hookManager: new FileHookManager({
+            fileService,
+            projectRoot: process.cwd(),
+          }),
           legacyRuleDetector,
           projectConfigStore: new ProjectConfigStore(),
           spaceService: new HttpSpaceService({

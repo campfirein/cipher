@@ -18,7 +18,10 @@ describe('FileHookManager', () => {
     testDir = path.join(tmpdir(), `brv-hook-test-${Date.now()}`)
     await mkdir(testDir, {recursive: true})
     fileService = new FsFileService()
-    hookManager = new FileHookManager(fileService, testDir)
+    hookManager = new FileHookManager({
+      fileService,
+      projectRoot: testDir,
+    })
   })
 
   afterEach(async () => {
