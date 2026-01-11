@@ -128,10 +128,10 @@ export function isBinaryFile(filePath: string, buffer: Buffer): boolean {
     return true
   }
 
-  // Count control characters (0x01-0x08, 0x0E-0x1F) - not high bytes
+  // Count control characters (0x01-0x08, 0x0E-0x1F) - null bytes already handled above
   let controlCharCount = 0
   for (const byte of buffer) {
-    if (byte < 9 || (byte > 13 && byte < 32)) {
+    if ((byte > 0 && byte < 9) || (byte > 13 && byte < 32)) {
       controlCharCount++
     }
   }
