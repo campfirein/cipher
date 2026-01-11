@@ -8,6 +8,7 @@ import {
   isHookSupportedAgent,
   tryInstallHookWithRestartMessage,
 } from '../../../../src/infra/hooks/hook-install-helper.js'
+import {createMockTerminal} from '../../../helpers/mock-factories.js'
 
 describe('hook-install-helper', () => {
   describe('isHookSupportedAgent', () => {
@@ -34,7 +35,9 @@ describe('hook-install-helper', () => {
 
   describe('tryInstallHookWithRestartMessage', () => {
     let hookManager: sinon.SinonStubbedInstance<IHookManager>
-    let terminal: sinon.SinonStubbedInstance<ITerminal>
+    let terminal: ITerminal
+    let warnStub: sinon.SinonStub
+    let errorStub: sinon.SinonStub
 
     beforeEach(() => {
       hookManager = {
@@ -44,18 +47,12 @@ describe('hook-install-helper', () => {
         uninstall: sinon.stub(),
       }
 
-      terminal = {
-        actionStart: sinon.stub(),
-        actionStop: sinon.stub(),
-        confirm: sinon.stub(),
-        error: sinon.stub(),
-        fileSelector: sinon.stub(),
-        input: sinon.stub(),
-        log: sinon.stub(),
-        search: sinon.stub(),
-        select: sinon.stub(),
-        warn: sinon.stub(),
-      } as unknown as sinon.SinonStubbedInstance<ITerminal>
+      warnStub = sinon.stub()
+      errorStub = sinon.stub()
+      terminal = createMockTerminal({
+        error: errorStub,
+        warn: warnStub,
+      })
     })
 
     afterEach(() => {
@@ -70,8 +67,8 @@ describe('hook-install-helper', () => {
           terminal,
         })
 
-        expect(terminal.warn.called).to.be.false
-        expect(terminal.error.called).to.be.false
+        expect(warnStub.called).to.be.false
+        expect(errorStub.called).to.be.false
       })
     })
 
@@ -84,7 +81,7 @@ describe('hook-install-helper', () => {
         })
 
         expect(hookManager.install.called).to.be.false
-        expect(terminal.warn.called).to.be.false
+        expect(warnStub.called).to.be.false
       })
 
       it('should return early for Windsurf', async () => {
@@ -95,7 +92,7 @@ describe('hook-install-helper', () => {
         })
 
         expect(hookManager.install.called).to.be.false
-        expect(terminal.warn.called).to.be.false
+        expect(warnStub.called).to.be.false
       })
     })
 
@@ -115,11 +112,10 @@ describe('hook-install-helper', () => {
         })
 
         expect(hookManager.install.calledOnceWith('Claude Code')).to.be.true
-        expect(terminal.warn.calledOnce).to.be.true
-        expect(terminal.warn.firstCall.args[0]).to.include('restart')
-        expect(terminal.warn.firstCall.args[0]).to.include('Claude Code')
+        expect(warnStub.calledOnce).to.be.true
+        expect(warnStub.firstCall.args[0]).to.include('restart')
+        expect(warnStub.firstCall.args[0]).to.include('Claude Code')
       })
-
     })
 
     describe('when hook is already installed', () => {
@@ -138,7 +134,7 @@ describe('hook-install-helper', () => {
         })
 
         expect(hookManager.install.calledOnce).to.be.true
-        expect(terminal.warn.called).to.be.false
+        expect(warnStub.called).to.be.false
       })
     })
 
@@ -157,8 +153,8 @@ describe('hook-install-helper', () => {
           terminal,
         })
 
-        expect(terminal.warn.called).to.be.false
-        expect(terminal.error.called).to.be.false // No error on failure result
+        expect(warnStub.called).to.be.false
+        expect(errorStub.called).to.be.false // No error on failure result
       })
     })
 
@@ -172,12 +168,11 @@ describe('hook-install-helper', () => {
           terminal,
         })
 
-        expect(terminal.warn.called).to.be.false
-        expect(terminal.error.calledOnce).to.be.true
-        expect(terminal.error.firstCall.args[0]).to.include('Permission denied')
-        expect(terminal.error.firstCall.args[0]).to.include('Claude Code')
+        expect(warnStub.called).to.be.false
+        expect(errorStub.calledOnce).to.be.true
+        expect(errorStub.firstCall.args[0]).to.include('Permission denied')
+        expect(errorStub.firstCall.args[0]).to.include('Claude Code')
       })
-
     })
   })
 })
