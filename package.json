@@ -13,6 +13,7 @@
     "@google/genai": "^1.29.0",
     "@inkjs/ui": "^2.0.0",
     "@inquirer/prompts": "^7.9.0",
+    "@modelcontextprotocol/sdk": "^1.25.2",
     "@oclif/core": "^4",
     "@oclif/plugin-help": "^6",
     "@socket.io/admin-ui": "^0.5.1",
