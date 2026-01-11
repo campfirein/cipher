@@ -38,18 +38,18 @@ export class SpaceListUseCase implements ISpaceListUseCase {
     // Check project initialization
     const projectConfig = await this.projectConfigStore.read()
     if (!projectConfig) {
-      this.terminal.error('Project not initialized. Please run "brv init" first.')
+      this.terminal.error('Project not initialized. Please run "/init" first.')
       return
     }
 
     const token = await this.tokenStore.load()
     if (!token) {
-      this.terminal.error('Not authenticated. Please run "brv login" first.')
+      this.terminal.error('Not authenticated. Please run "/login" first.')
       return
     }
 
     if (!token.isValid()) {
-      this.terminal.error('Authentication token expired. Please run "brv login" again.')
+      this.terminal.error('Authentication token expired. Please run "/login" again.')
       return
     }
 
