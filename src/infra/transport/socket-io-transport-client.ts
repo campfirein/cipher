@@ -317,6 +317,14 @@ export class SocketIOTransportClient implements ITransportClient {
     socket.once(event, handler)
   }
 
+  /**
+   * Subscribe to connection state changes.
+   *
+   * Important: Subscriptions persist across disconnect/connect cycles. Call the returned
+   * function to unsubscribe when no longer needed to prevent memory leaks.
+   *
+   * @returns Unsubscribe function - call to remove the handler
+   */
   onStateChange(handler: ConnectionStateHandler): () => void {
     this.stateHandlers.add(handler)
     return () => {

@@ -140,55 +140,6 @@ class CredentialsPollingStateMachine {
   }
 
   // ============================================================================
-  // Simulate tryInitializeAgent (mirrors agent-worker.ts:546-703)
-  // ============================================================================
-
-  /**
-   * Simulates tryInitializeAgent behavior for testing.
-   * Key behavior: clears isReinitializing on early return when blocked by isInitializing.
-   */
-  simulateTryInitializeAgent(
-    forceReinit: boolean,
-    tokenInfo?: TokenInfo,
-    configInfo?: ConfigInfo,
-  ): boolean {
-    // Guard: prevent initialization during cleanup or if already in progress
-    if (this.isCleaningUp || this.isInitializing) {
-      // FIX: Clear isReinitializing if WE set it (forceReinit case)
-      // Without this, the flag would be stuck forever since we return before try block
-      if (forceReinit) {
-        this.isReinitializing = false
-      }
-
-      return false
-    }
-
-    // Already initialized and not forcing reinit
-    if (!forceReinit && this.isAgentInitialized) {
-      return true
-    }
-
-    this.isInitializing = true
-    if (forceReinit) {
-      this.isReinitializing = true
-    }
-
-    try {
-      // Simulate success/failure based on reinitSuccess and tokenInfo
-      if (!this.reinitSuccess || !tokenInfo) {
-        return false
-      }
-
-      return true
-    } finally {
-      this.isInitializing = false
-      if (forceReinit) {
-        this.isReinitializing = false
-      }
-    }
-  }
-
-  // ============================================================================
   // Polling (mirrors agent-worker.ts:837-907)
   // ============================================================================
 
@@ -281,10 +232,55 @@ class CredentialsPollingStateMachine {
   }
 
   // ============================================================================
+  // Simulate tryInitializeAgent (mirrors agent-worker.ts:546-703)
+  // ============================================================================
+
+  /**
+   * Simulates tryInitializeAgent behavior for testing.
+   * Key behavior: clears isReinitializing on early return when blocked by isInitializing.
+   */
+  simulateTryInitializeAgent(forceReinit: boolean, tokenInfo?: TokenInfo, _configInfo?: ConfigInfo): boolean {
+    // Guard: prevent initialization during cleanup or if already in progress
+    if (this.isCleaningUp || this.isInitializing) {
+      // FIX: Clear isReinitializing if WE set it (forceReinit case)
+      // Without this, the flag would be stuck forever since we return before try block
+      if (forceReinit) {
+        this.isReinitializing = false
+      }
+
+      return false
+    }
+
+    // Already initialized and not forcing reinit
+    if (!forceReinit && this.isAgentInitialized) {
+      return true
+    }
+
+    this.isInitializing = true
+    if (forceReinit) {
+      this.isReinitializing = true
+    }
+
+    try {
+      // Simulate success/failure based on reinitSuccess and tokenInfo
+      if (!this.reinitSuccess || !tokenInfo) {
+        return false
+      }
+
+      return true
+    } finally {
+      this.isInitializing = false
+      if (forceReinit) {
+        this.isReinitializing = false
+      }
+    }
+  }
+
+  // ============================================================================
   // Polling Lifecycle (mirrors agent-worker.ts:913-946)
   // ============================================================================
 
-  startCredentialsPolling(pollInterval: number, clock?: SinonFakeTimers): void {
+  startCredentialsPolling(pollInterval: number): void {
     if (this.credentialsPollingRunning) {
       return
     }
@@ -300,12 +296,7 @@ class CredentialsPollingStateMachine {
         .catch(() => {})
         .finally(() => {
           if (this.credentialsPollingRunning) {
-            if (clock) {
-              // Use fake timers in tests
-              setTimeout(poll, pollInterval)
-            } else {
-              setTimeout(poll, pollInterval)
-            }
+            setTimeout(poll, pollInterval)
           }
         })
     }
@@ -703,7 +694,7 @@ describe('Agent Worker Credentials Polling', () => {
     })
 
     it('should start polling with specified interval', async () => {
-      state.startCredentialsPolling(5000, clock)
+      state.startCredentialsPolling(5000)
 
       expect(state.credentialsPollingRunning).to.be.true
 
@@ -720,7 +711,7 @@ describe('Agent Worker Credentials Polling', () => {
     })
 
     it('should stop polling cleanly', () => {
-      state.startCredentialsPolling(5000, clock)
+      state.startCredentialsPolling(5000)
       clock.tick(5000)
       expect(state.pollCount).to.equal(1)
 
@@ -734,23 +725,23 @@ describe('Agent Worker Credentials Polling', () => {
     it('should prevent double start', () => {
       let startCount = 0
       const originalStart = state.startCredentialsPolling.bind(state)
-      state.startCredentialsPolling = (interval: number, fakeClock?: SinonFakeTimers) => {
+      state.startCredentialsPolling = (interval: number) => {
         if (!state.credentialsPollingRunning) {
           startCount++
         }
 
-        originalStart(interval, fakeClock)
+        originalStart(interval)
       }
 
-      state.startCredentialsPolling(5000, clock)
-      state.startCredentialsPolling(5000, clock)
-      state.startCredentialsPolling(5000, clock)
+      state.startCredentialsPolling(5000)
+      state.startCredentialsPolling(5000)
+      state.startCredentialsPolling(5000)
 
       expect(startCount).to.equal(1)
     })
 
     it('should not have orphan timers after stop', () => {
-      state.startCredentialsPolling(5000, clock)
+      state.startCredentialsPolling(5000)
       clock.tick(5000)
 
       state.stopCredentialsPolling()
@@ -1081,11 +1072,7 @@ describe('Agent Worker Credentials Polling', () => {
       state.isReinitializing = false
       state.reinitSuccess = false // Simulate failure (e.g., no auth token)
 
-      const result = state.simulateTryInitializeAgent(
-        true,
-        {accessToken: 'token', sessionKey: 'session'},
-        undefined,
-      )
+      const result = state.simulateTryInitializeAgent(true, {accessToken: 'token', sessionKey: 'session'}, undefined)
 
       expect(result).to.be.false
       // Should be cleared in finally block

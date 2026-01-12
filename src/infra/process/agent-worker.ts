@@ -121,9 +121,19 @@ let credentialsPollingRunning = false
 /** Guard: prevent task enqueueing during reinit (fixes TOCTOU race condition) */
 let isReinitializing = false
 
-/** Module-level cached stores for polling (avoid creating new instances every 5 seconds) */
-const pollingTokenStore = createTokenStore()
-const pollingConfigStore = new ProjectConfigStore()
+/**
+ * Lazy-initialized stores for credentials polling.
+ * Avoids side effects at import time (file system access).
+ * Created once on first poll, then reused (avoid creating new instances every 5 seconds).
+ */
+let pollingTokenStore: ReturnType<typeof createTokenStore> | undefined
+let pollingConfigStore: ProjectConfigStore | undefined
+
+function getPollingStores(): {pollingConfigStore: ProjectConfigStore; pollingTokenStore: ReturnType<typeof createTokenStore>} {
+  pollingTokenStore ??= createTokenStore()
+  pollingConfigStore ??= new ProjectConfigStore()
+  return {pollingConfigStore, pollingTokenStore}
+}
 
 /**
  * Stored event forwarder references for cleanup on reinit.
@@ -923,16 +933,10 @@ async function startAgent(): Promise<void> {
           error: 'Agent is shutting down',
           success: false,
         })
-      } else if (isInitializing) {
-        // Another initialization in progress (likely from credentials polling)
-        // This is fine - the agent will be reinitialized by the other call
-        agentLog('Agent reinitialization skipped - already in progress')
-        await transportClient?.request('agent:restarted', {
-          error: 'Initialization already in progress',
-          success: false,
-        })
       } else {
         // Actual failure - missing auth or config
+        // Note: isInitializing is guaranteed to be false here because tryInitializeAgent()
+        // always clears it in its finally block before returning
         agentLog('Agent reinitialization failed - config incomplete')
         await transportClient?.request('agent:restarted', {
           error: initializationError?.message ?? 'Config incomplete (no auth token or config)',
@@ -1091,9 +1095,10 @@ async function pollCredentialsAndSync(): Promise<void> {
   isPolling = true
 
   try {
-    // Use module-level cached stores (avoid creating new instances every poll)
-    const authToken = await pollingTokenStore.load()
-    const brvConfig = await pollingConfigStore.read()
+    // Use lazy-initialized cached stores (avoid creating new instances every poll)
+    const stores = getPollingStores()
+    const authToken = await stores.pollingTokenStore.load()
+    const brvConfig = await stores.pollingConfigStore.read()
 
     // Detect change
     const tokenInfo = authToken ? {accessToken: authToken.accessToken, sessionKey: authToken.sessionKey} : undefined
@@ -1314,6 +1319,13 @@ async function runWorker(): Promise<void> {
       case 'health-check': {
         // Fix #3: Health-check after sleep/wake - verify and repair connection
         agentLog('Received health-check from parent - verifying connection')
+
+        // Guard: skip health check during initialization (would interfere with startup sequence)
+        if (isInitializing) {
+          agentLog('Health-check skipped - initialization in progress')
+          sendToParent({success: true, type: 'health-check-result'})
+          break
+        }
 
         // Guard: transportClient must exist for health check
         if (!transportClient) {
