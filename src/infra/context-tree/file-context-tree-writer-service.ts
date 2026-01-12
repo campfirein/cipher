@@ -9,7 +9,7 @@ import type {
   SyncResult,
 } from '../../core/interfaces/i-context-tree-writer-service.js'
 
-import {BRV_DIR, CONTEXT_TREE_DIR} from '../../constants.js'
+import {BRV_DIR, CONTEXT_TREE_DIR, README_FILE} from '../../constants.js'
 import {toUnixPath} from './path-utils.js'
 
 export type ContextTreeWriterServiceConfig = {
@@ -40,8 +40,9 @@ export class FileContextTreeWriterService implements IContextTreeWriterService {
     // Get current local state
     const localState = await this.snapshotService.getCurrentState(params.directory)
 
-    // Build map of remote files (normalize paths - remove leading /)
-    const remoteFiles = new Map(params.files.map((file) => [this.normalizePath(file.path), file]))
+    // Build map of remote files, filtering out README.md at root level
+    // This matches getCurrentState behavior which also excludes root README.md
+    const remoteFiles = this.buildRemoteFilesMap(params.files)
 
     const added: string[] = []
     const edited: string[] = []
@@ -80,10 +81,29 @@ export class FileContextTreeWriterService implements IContextTreeWriterService {
   }
 
   /**
+   * Builds a map of remote files with normalized paths.
+   * Filters out README.md at root level to match getCurrentState behavior.
+   */
+  private buildRemoteFilesMap(files: SyncParams['files']): Map<string, SyncParams['files'][number]> {
+    const result = new Map<string, SyncParams['files'][number]>()
+
+    for (const file of files) {
+      const normalizedPath = this.normalizePath(file.path)
+
+      // Skip README.md at root level (matches getCurrentState behavior)
+      if (normalizedPath === README_FILE) {
+        continue
+      }
+
+      result.set(normalizedPath, file)
+    }
+
+    return result
+  }
+
+  /**
    * Normalizes a file path by converting backslashes to forward slashes
    * and removing leading slashes.
-   * Ensures cross-platform compatibility and handles legacy API responses
-   * that may include leading slashes or Windows-style backslashes.
    */
   private normalizePath(path: string): string {
     return toUnixPath(path).replace(/^\/+/, '')
