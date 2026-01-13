@@ -19,9 +19,14 @@ export default class Status extends Command {
     'Show CLI status and project information. Display local context tree managed by ByteRover CLI'
   public static examples = [
     '<%= config.bin %> <%= command.id %>',
-    '# Check status after login:\n<%= config.bin %> login\n<%= config.bin %> <%= command.id %>',
-    '# Verify project initialization:\n<%= config.bin %> init\n<%= config.bin %> <%= command.id %>',
-    '<%= config.bin %> <%= command.id %>',
+    '# Check status after login (in REPL):',
+    '/login',
+    '/status',
+    '',
+    '# Verify project initialization (in REPL):',
+    '/init',
+    '/status',
+    '',
     '<%= config.bin %> <%= command.id %> /path/to/project',
     '<%= config.bin %> <%= command.id %> --format json',
   ]
