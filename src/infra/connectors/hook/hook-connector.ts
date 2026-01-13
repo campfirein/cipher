@@ -1,22 +1,22 @@
 import path from 'node:path'
 
-import type {HookSupportedAgent} from '../../core/domain/entities/agent.js'
+import type {Agent} from '../../../core/domain/entities/agent.js'
 import type {
-  HookInstallResult,
-  HookStatus,
-  HookUninstallResult,
-  IHookManager,
-} from '../../core/interfaces/hooks/i-hook-manager.js'
-import type {IFileService} from '../../core/interfaces/i-file-service.js'
+  ConnectorInstallResult,
+  ConnectorStatus,
+  ConnectorUninstallResult,
+} from '../../../core/interfaces/connectors/connector-types.js'
+import type {IConnector} from '../../../core/interfaces/connectors/i-connector.js'
+import type {IFileService} from '../../../core/interfaces/i-file-service.js'
 
-import {HOOK_SUPPORTED_AGENTS} from '../../core/domain/entities/agent.js'
-import {isRecord} from '../../utils/type-guards.js'
-import {AGENT_HOOK_CONFIGS} from './agent-hook-configs.js'
+import {AGENT_CONNECTOR_CONFIG} from '../../../core/domain/entities/agent.js'
+import {isRecord} from '../../../utils/type-guards.js'
+import {HOOK_CONNECTOR_CONFIGS, type HookSupportedAgent} from './hook-connector-config.js'
 
 /**
- * Options for constructing FileHookManager.
+ * Options for constructing HookConnector.
  */
-type FileHookManagerOptions = {
+type HookConnectorOptions = {
   fileService: IFileService
   projectRoot: string
 }
@@ -35,29 +35,47 @@ function parseJsonAsRecord(content: string): Record<string, unknown> {
 }
 
 /**
- * File-based implementation of IHookManager.
- * Manages hook configurations stored in JSON files for various coding agents.
+ * Connector that integrates BRV with coding agents via hooks.
+ * Manages hook configurations stored in JSON files.
  *
  * Key safety features:
  * - Non-destructive: Preserves user's existing hooks
  * - No duplicates: Checks before adding new hooks
  * - Safe uninstall: Only removes ByteRover hooks by command match
  */
-export class FileHookManager implements IHookManager {
+export class HookConnector implements IConnector {
+  readonly type = 'hook' as const
   private readonly fileService: IFileService
   private readonly projectRoot: string
 
-  constructor(options: FileHookManagerOptions) {
+  constructor(options: HookConnectorOptions) {
     this.fileService = options.fileService
     this.projectRoot = options.projectRoot
   }
 
-  getSupportedAgents(): HookSupportedAgent[] {
-    return [...HOOK_SUPPORTED_AGENTS]
+  getConfigPath(agent: Agent): string {
+    if (!this.isSupported(agent)) {
+      throw new Error(`Hook connector does not support agent: ${agent}`)
+    }
+
+    return HOOK_CONNECTOR_CONFIGS[agent as HookSupportedAgent].configPath
   }
 
-  async install(agent: HookSupportedAgent): Promise<HookInstallResult> {
-    const config = AGENT_HOOK_CONFIGS[agent]
+  getSupportedAgents(): Agent[] {
+    return Object.keys(HOOK_CONNECTOR_CONFIGS) as Agent[]
+  }
+
+  async install(agent: Agent): Promise<ConnectorInstallResult> {
+    if (!this.isSupported(agent)) {
+      return {
+        alreadyInstalled: false,
+        configPath: '',
+        message: `Hook connector does not support agent: ${agent}`,
+        success: false,
+      }
+    }
+
+    const config = HOOK_CONNECTOR_CONFIGS[agent]
     const fullPath = path.join(this.projectRoot, config.configPath)
 
     try {
@@ -76,7 +94,7 @@ export class FileHookManager implements IHookManager {
           return {
             alreadyInstalled: true,
             configPath: config.configPath,
-            message: `ByteRover hook is already installed for ${agent}`,
+            message: `Hook connector is already installed for ${agent}`,
             success: true,
           }
         }
@@ -91,13 +109,12 @@ export class FileHookManager implements IHookManager {
         return {
           alreadyInstalled: false,
           configPath: config.configPath,
-          message: `ByteRover hook installed for ${agent}`,
+          message: `Hook connector installed for ${agent}`,
           success: true,
         }
       }
 
       // File doesn't exist - create new config
-      // Use deep copy to avoid mutating the shared defaultConfig object
       const newConfig: Record<string, unknown> = config.defaultConfig ? structuredClone(config.defaultConfig) : {}
 
       this.setHooksArray(newConfig, config.hookEventKey, [config.createHookEntry()])
@@ -107,21 +124,34 @@ export class FileHookManager implements IHookManager {
       return {
         alreadyInstalled: false,
         configPath: config.configPath,
-        message: `ByteRover hook installed for ${agent} (created ${config.configPath})`,
+        message: `Hook connector installed for ${agent} (created ${config.configPath})`,
         success: true,
       }
     } catch (error) {
       return {
         alreadyInstalled: false,
         configPath: config.configPath,
-        message: `Failed to install hook for ${agent}: ${error instanceof Error ? error.message : String(error)}`,
+        message: `Failed to install hook connector for ${agent}: ${error instanceof Error ? error.message : String(error)}`,
         success: false,
       }
     }
   }
 
-  async status(agent: HookSupportedAgent): Promise<HookStatus> {
-    const config = AGENT_HOOK_CONFIGS[agent]
+  isSupported(agent: Agent): agent is HookSupportedAgent {
+    return AGENT_CONNECTOR_CONFIG[agent].supported.includes('hook')
+  }
+
+  async status(agent: Agent): Promise<ConnectorStatus> {
+    if (!this.isSupported(agent)) {
+      return {
+        configExists: false,
+        configPath: '',
+        error: `Hook connector does not support agent: ${agent}`,
+        installed: false,
+      }
+    }
+
+    const config = HOOK_CONNECTOR_CONFIGS[agent]
     const fullPath = path.join(this.projectRoot, config.configPath)
 
     try {
@@ -147,7 +177,6 @@ export class FileHookManager implements IHookManager {
         installed,
       }
     } catch (error) {
-      // Report the error so callers can distinguish between "not installed" and "check failed"
       return {
         configExists: true,
         configPath: config.configPath,
@@ -157,8 +186,17 @@ export class FileHookManager implements IHookManager {
     }
   }
 
-  async uninstall(agent: HookSupportedAgent): Promise<HookUninstallResult> {
-    const config = AGENT_HOOK_CONFIGS[agent]
+  async uninstall(agent: Agent): Promise<ConnectorUninstallResult> {
+    if (!this.isSupported(agent)) {
+      return {
+        configPath: '',
+        message: `Hook connector does not support agent: ${agent}`,
+        success: false,
+        wasInstalled: false,
+      }
+    }
+
+    const config = HOOK_CONNECTOR_CONFIGS[agent]
     const fullPath = path.join(this.projectRoot, config.configPath)
     let wasInstalled = false
 
@@ -185,7 +223,7 @@ export class FileHookManager implements IHookManager {
       if (!wasInstalled) {
         return {
           configPath: config.configPath,
-          message: `ByteRover hook is not installed for ${agent}`,
+          message: `Hook connector is not installed for ${agent}`,
           success: true,
           wasInstalled: false,
         }
@@ -200,14 +238,14 @@ export class FileHookManager implements IHookManager {
 
       return {
         configPath: config.configPath,
-        message: `ByteRover hook uninstalled for ${agent}`,
+        message: `Hook connector uninstalled for ${agent}`,
         success: true,
         wasInstalled: true,
       }
     } catch (error) {
       return {
         configPath: config.configPath,
-        message: `Failed to uninstall hook for ${agent}: ${error instanceof Error ? error.message : String(error)}`,
+        message: `Failed to uninstall hook connector for ${agent}: ${error instanceof Error ? error.message : String(error)}`,
         success: false,
         wasInstalled,
       }
@@ -237,12 +275,10 @@ export class FileHookManager implements IHookManager {
    */
   private setHooksArray(config: Record<string, unknown>, eventKey: string, hooks: unknown[]): void {
     if (!isRecord(config.hooks)) {
-      // Create hooks object with the event key
       config.hooks = {[eventKey]: hooks}
       return
     }
 
-    // TypeScript now knows config.hooks is a Record
     config.hooks[eventKey] = hooks
   }
 }

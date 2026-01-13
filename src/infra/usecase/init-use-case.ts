@@ -4,19 +4,13 @@ import {join} from 'node:path'
 import type {AuthToken} from '../../core/domain/entities/auth-token.js'
 import type {Space} from '../../core/domain/entities/space.js'
 import type {Team} from '../../core/domain/entities/team.js'
-import type {IHookManager} from '../../core/interfaces/hooks/i-hook-manager.js'
+import type {IConnectorManager} from '../../core/interfaces/connectors/i-connector-manager.js'
 import type {ICogitPullService} from '../../core/interfaces/i-cogit-pull-service.js'
 import type {IContextTreeService} from '../../core/interfaces/i-context-tree-service.js'
 import type {IContextTreeSnapshotService} from '../../core/interfaces/i-context-tree-snapshot-service.js'
 import type {IContextTreeWriterService} from '../../core/interfaces/i-context-tree-writer-service.js'
-import type {IFileService, WriteMode} from '../../core/interfaces/i-file-service.js'
-import type {
-  ILegacyRuleDetector,
-  LegacyRuleMatch,
-  UncertainMatch,
-} from '../../core/interfaces/i-legacy-rule-detector.js'
+import type {IFileService} from '../../core/interfaces/i-file-service.js'
 import type {IProjectConfigStore} from '../../core/interfaces/i-project-config-store.js'
-import type {IRuleTemplateService} from '../../core/interfaces/i-rule-template-service.js'
 import type {ISpaceService} from '../../core/interfaces/i-space-service.js'
 import type {ITeamService} from '../../core/interfaces/i-team-service.js'
 import type {ITerminal} from '../../core/interfaces/i-terminal.js'
@@ -29,12 +23,7 @@ import {ACE_DIR, BRV_CONFIG_VERSION, BRV_DIR, DEFAULT_BRANCH, PROJECT_CONFIG_FIL
 import {type Agent, AGENT_VALUES} from '../../core/domain/entities/agent.js'
 import {BrvConfig} from '../../core/domain/entities/brv-config.js'
 import {BrvConfigVersionError} from '../../core/domain/errors/brv-config-version-error.js'
-import {tryInstallHookWithRestartMessage} from '../hooks/hook-install-helper.js'
-import {AGENT_RULE_CONFIGS} from '../rule/agent-rule-config.js'
-import {BRV_RULE_MARKERS, BRV_RULE_TAG} from '../rule/constants.js'
 import {WorkspaceDetectorService} from '../workspace/workspace-detector-service.js'
-
-type CleanupStrategy = 'automatic' | 'manual'
 
 /**
  * Represents a legacy config that exists but has version issues.
@@ -52,16 +41,14 @@ export type LegacyProjectConfigInfo = {
 
 export interface InitUseCaseOptions {
   cogitPullService: ICogitPullService
+  connectorManager: IConnectorManager
   contextTreeService: IContextTreeService
   contextTreeSnapshotService: IContextTreeSnapshotService
   contextTreeWriterService: IContextTreeWriterService
   fileService: IFileService
-  hookManager?: IHookManager
-  legacyRuleDetector: ILegacyRuleDetector
   projectConfigStore: IProjectConfigStore
   spaceService: ISpaceService
   teamService: ITeamService
-  templateService: IRuleTemplateService
   terminal: ITerminal
   tokenStore: ITokenStore
   trackingService: ITrackingService
@@ -69,32 +56,28 @@ export interface InitUseCaseOptions {
 
 export class InitUseCase implements IInitUseCase {
   protected readonly cogitPullService: ICogitPullService
+  protected readonly connectorManager: IConnectorManager
   protected readonly contextTreeService: IContextTreeService
   protected readonly contextTreeSnapshotService: IContextTreeSnapshotService
   protected readonly contextTreeWriterService: IContextTreeWriterService
   protected readonly fileService: IFileService
-  protected readonly hookManager?: IHookManager
-  protected readonly legacyRuleDetector: ILegacyRuleDetector
   protected readonly projectConfigStore: IProjectConfigStore
   protected readonly spaceService: ISpaceService
   protected readonly teamService: ITeamService
-  protected readonly templateService: IRuleTemplateService
   protected readonly terminal: ITerminal
   protected readonly tokenStore: ITokenStore
   protected readonly trackingService: ITrackingService
 
   constructor(options: InitUseCaseOptions) {
     this.cogitPullService = options.cogitPullService
+    this.connectorManager = options.connectorManager
     this.contextTreeService = options.contextTreeService
     this.contextTreeSnapshotService = options.contextTreeSnapshotService
     this.contextTreeWriterService = options.contextTreeWriterService
     this.fileService = options.fileService
-    this.hookManager = options.hookManager
-    this.legacyRuleDetector = options.legacyRuleDetector
     this.projectConfigStore = options.projectConfigStore
     this.spaceService = options.spaceService
     this.teamService = options.teamService
-    this.templateService = options.templateService
     this.terminal = options.terminal
     this.tokenStore = options.tokenStore
     this.trackingService = options.trackingService
@@ -208,90 +191,6 @@ export class InitUseCase implements IInitUseCase {
     return this.promptForTeamSelection(teams)
   }
 
-  protected async generateRulesForAgent(selectedAgent: Agent): Promise<void> {
-    this.terminal.log(`Generating rules for: ${selectedAgent}`)
-
-    // try {
-    //   await ruleWriterService.writeRule(agent, false)
-    //   this.log(`✅ Successfully generated rule file for ${agent}`)
-    // } catch (error) {
-    //   if (error instanceof RuleExistsError) {
-    //     const overwrite = await this.promptForOverwriteConfirmation(agent)
-
-    //     if (overwrite) {
-    //       await ruleWriterService.writeRule(agent, true)
-    //       this.log(`✅ Successfully generated rule file for ${agent}`)
-    //     } else {
-    //       this.log(`Skipping rule file generation for ${agent}`)
-    //     }
-    //   } else {
-    //     throw error
-    //   }
-    // }
-    const {filePath, writeMode} = AGENT_RULE_CONFIGS[selectedAgent]
-
-    // STEP 1: Check if file exists
-    const fileExists = await this.fileService.exists(filePath)
-
-    if (!fileExists) {
-      // Scenario A: File doesn't exist
-      const shouldCreate = await this.promptForFileCreation(selectedAgent, filePath)
-      if (!shouldCreate) {
-        this.terminal.log(`Skipped rule file creation for ${selectedAgent}`)
-        return
-      }
-
-      await this.createNewRuleFile({
-        agent: selectedAgent,
-        filePath,
-      })
-      return
-    }
-
-    // STEP 2: File exists - read content
-    const content = await this.fileService.read(filePath)
-
-    // STEP 3: Check for LEGACY rules (priority: clean these up first)
-    const hasFooterTag = content.includes(`${BRV_RULE_TAG} ${selectedAgent}`)
-    const hasBoundaryMarkers = content.includes(BRV_RULE_MARKERS.START) && content.includes(BRV_RULE_MARKERS.END)
-    const hasLegacyRules = hasFooterTag && !hasBoundaryMarkers
-
-    if (hasLegacyRules) {
-      // Scenario B: Legacy rules detected - handle cleanup
-      await this.handleLegacyRulesCleanup({
-        agent: selectedAgent,
-        content,
-        filePath,
-      })
-      return
-    }
-
-    // STEP 4: Check for NEW rules (boundary markers)
-    if (hasBoundaryMarkers) {
-      // Scenario C: New rules exist - prompt for overwrite
-      const shouldOverwrite = await this.promptForOverwriteConfirmation(selectedAgent)
-      if (!shouldOverwrite) {
-        this.terminal.log(`Skipped rule file update for ${selectedAgent}`)
-        return
-      }
-
-      await this.replaceExistingRules({
-        agent: selectedAgent,
-        content,
-        filePath,
-        writeMode,
-      })
-      return
-    }
-
-    // STEP 5: No ByteRover content - append rules
-    await this.appendRulesToFile({
-      agent: selectedAgent,
-      filePath,
-      writeMode,
-    })
-  }
-
   protected async getExistingConfig(): Promise<BrvConfig | LegacyProjectConfigInfo | undefined> {
     const exists = await this.projectConfigStore.exists()
     if (!exists) return undefined
@@ -332,6 +231,31 @@ export class InitUseCase implements IInitUseCase {
       this.terminal.log(`✓ ${name} initialized in ${path}`)
     } catch (error) {
       this.terminal.warn(`${name} initialization skipped: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  /**
+   * Installs the default connector for the selected agent.
+   * Uses ConnectorManager to handle the installation.
+   */
+  protected async installConnectorForAgent(selectedAgent: Agent): Promise<void> {
+    const defaultType = this.connectorManager.getDefaultConnectorType(selectedAgent)
+    const result = await this.connectorManager.installDefault(selectedAgent)
+
+    if (result.success) {
+      if (result.alreadyInstalled) {
+        this.terminal.log(`${selectedAgent} is already connected via ${defaultType}`)
+      } else {
+        this.terminal.log(`${selectedAgent} connected via ${defaultType}`)
+        this.terminal.log(`   Installed: ${result.configPath}`)
+
+        // Show restart message for hook connector
+        if (defaultType === 'hook') {
+          this.terminal.warn(`\n⚠️  Please restart ${selectedAgent} to apply the new hooks.`)
+        }
+      }
+    } else {
+      this.terminal.error(`Failed to install connector for ${selectedAgent}: ${result.message}`)
     }
   }
 
@@ -383,56 +307,6 @@ export class InitUseCase implements IInitUseCase {
             agent.value.toLowerCase().includes(input.toLowerCase()),
         )
       },
-    })
-  }
-
-  /**
-   * Prompts the user to choose cleanup strategy for legacy rules.
-   * This method is protected to allow test overrides.
-   * @returns The chosen cleanup strategy
-   */
-  protected async promptForCleanupStrategy(): Promise<CleanupStrategy> {
-    return this.terminal.select({
-      choices: [
-        {
-          description:
-            'New rules will be added with boundary markers. You manually remove old sections at your convenience.',
-          name: 'Manual cleanup (recommended)',
-          value: 'manual' as CleanupStrategy,
-        },
-        {
-          description:
-            '⚠️  We will remove all detected old sections. May cause content loss if detection is imperfect. A backup will be created.',
-          name: 'Automatic cleanup',
-          value: 'automatic' as CleanupStrategy,
-        },
-      ],
-      message: 'How would you like to proceed?',
-    })
-  }
-
-  /**
-   * Prompts the user to create a new rule file.
-   * This method is protected to allow test overrides.
-   * @param agent The agent for which the rule file doesn't exist
-   * @param filePath The path where the file would be created
-   * @returns True if the user wants to create the file, false otherwise
-   */
-  protected async promptForFileCreation(agent: Agent, filePath: string): Promise<boolean> {
-    return this.terminal.confirm({
-      default: true,
-      message: `Rule file '${filePath}' doesn't exist. Create it with ByteRover rules`,
-    })
-  }
-
-  /**
-   * Prompts the user to confirm overwriting an existing rule file.
-   * This method is protected to allow test overrides.
-   */
-  protected async promptForOverwriteConfirmation(agent: Agent): Promise<boolean> {
-    return this.terminal.confirm({
-      default: true,
-      message: `Rule file already exists for ${agent}. Overwrite`,
     })
   }
 
@@ -524,7 +398,6 @@ export class InitUseCase implements IInitUseCase {
       this.terminal.log()
       const selectedAgent = await this.promptForAgentSelection()
 
-      this.terminal.log('Detecting workspaces...')
       const {chatLogPath, cwd} = this.detectWorkspacesForAgent(selectedAgent)
       this.terminal.log(`✓ Detected workspace: ${cwd}`)
 
@@ -536,11 +409,9 @@ export class InitUseCase implements IInitUseCase {
       })
       await this.projectConfigStore.write(config)
 
-      this.terminal.log(`\nGenerate rule instructions for coding agents to work with ByteRover correctly`)
       this.terminal.log()
-      await this.generateRulesForAgent(selectedAgent)
+      await this.installConnectorForAgent(selectedAgent)
 
-      await this.trackingService.track('rule:generate')
       await this.trackingService.track('space:init')
 
       this.logSuccess(selectedSpace)
@@ -597,85 +468,6 @@ export class InitUseCase implements IInitUseCase {
     this.terminal.actionStop()
   }
 
-  /**
-   * Appends ByteRover rules to a file that has no ByteRover content.
-   */
-  private async appendRulesToFile(params: {agent: Agent; filePath: string; writeMode: WriteMode}): Promise<void> {
-    const {agent, filePath, writeMode} = params
-    const ruleContent = await this.templateService.generateRuleContent(agent)
-
-    // For dedicated ByteRover files, overwrite; for shared instruction files, append
-    const mode = writeMode === 'overwrite' ? 'overwrite' : 'append'
-    await this.fileService.write(ruleContent, filePath, mode)
-
-    this.terminal.log(`✅ Successfully added rule file for ${agent}`)
-    await tryInstallHookWithRestartMessage({agent, hookManager: this.hookManager, terminal: this.terminal})
-  }
-
-  /**
-   * Creates a new rule file with ByteRover rules.
-   */
-  private async createNewRuleFile(params: {agent: Agent; filePath: string}): Promise<void> {
-    const {agent, filePath} = params
-    const ruleContent = await this.templateService.generateRuleContent(agent)
-    await this.fileService.write(ruleContent, filePath, 'overwrite')
-    this.terminal.log(`✅ Successfully created rule file for ${agent} at ${filePath}`)
-    await tryInstallHookWithRestartMessage({agent, hookManager: this.hookManager, terminal: this.terminal})
-  }
-
-  private async handleLegacyRulesCleanup(params: {agent: Agent; content: string; filePath: string}): Promise<void> {
-    const {agent, content, filePath} = params
-    const detectionResult = this.legacyRuleDetector.detectLegacyRules(content, agent)
-    const {reliableMatches, uncertainMatches} = detectionResult
-
-    this.terminal.log(
-      `\n⚠️  Detected ${
-        reliableMatches.length + uncertainMatches.length
-      } old ByteRover rule section(s) in ${filePath}:\n`,
-    )
-
-    if (reliableMatches.length > 0) {
-      this.terminal.log('Reliable matches:')
-      for (const [index, match] of reliableMatches.entries()) {
-        this.terminal.log(`  Section ${index + 1}: lines ${match.startLine}-${match.endLine}`)
-      }
-
-      this.terminal.log()
-    }
-
-    if (uncertainMatches.length > 0) {
-      this.terminal.log('  ⚠️  Uncertain matches (cannot determine start):')
-      for (const match of uncertainMatches) {
-        this.terminal.log(`  Footer found at line ${match.footerLine}`)
-        this.terminal.log(`  Reason: ${match.reason}`)
-      }
-
-      this.terminal.log()
-      this.terminal.log('⚠️  Due to uncertain matches, only manual cleanup is available.\n')
-      await this.performManualCleanup({
-        agent,
-        filePath,
-        reliableMatches,
-        uncertainMatches,
-      })
-      return
-    }
-
-    const selectedStrategy = await this.promptForCleanupStrategy()
-    await (selectedStrategy === 'manual'
-      ? this.performManualCleanup({
-          agent,
-          filePath,
-          reliableMatches,
-          uncertainMatches,
-        })
-      : this.performAutomaticCleanup({
-          agent,
-          filePath,
-          reliableMatches,
-        }))
-  }
-
   private logSuccess(space: Space): void {
     this.terminal.log(`\n✓ Project initialized successfully!`)
     this.terminal.log(`✓ Connected to space: ${space.getDisplayName()}`)
@@ -683,94 +475,5 @@ export class InitUseCase implements IInitUseCase {
     this.terminal.log(
       "NOTE: It's recommended to add .brv/ to your .gitignore file since ByteRover already takes care of memory/context versioning for you.",
     )
-  }
-
-  private async performAutomaticCleanup(params: {
-    agent: Agent
-    filePath: string
-    reliableMatches: LegacyRuleMatch[]
-  }): Promise<void> {
-    const {agent, filePath, reliableMatches} = params
-    const backupPath = await this.fileService.createBackup(filePath)
-    this.terminal.log(`📦 Backup created: ${backupPath}`)
-    let content = await this.fileService.read(filePath)
-    // Remove all reliable matches (in reverse order to preserve line numbers)
-    const sortedMatches = [...reliableMatches].sort((a, b) => b.startLine - a.startLine)
-    for (const match of sortedMatches) {
-      content = content.replace(match.content, '')
-    }
-
-    // Write cleaned content
-    await this.fileService.write(content, filePath, 'overwrite')
-    // Append new rules
-    const ruleContent = await this.templateService.generateRuleContent(agent)
-    await this.fileService.write(ruleContent, filePath, 'append')
-    this.terminal.log(`✅ Removed ${reliableMatches.length} old ByteRover section(s)`)
-    this.terminal.log(`✅ Added new rules with boundary markers`)
-    this.terminal.log(`\nYou can safely delete the backup file once verified.`)
-    await tryInstallHookWithRestartMessage({agent, hookManager: this.hookManager, terminal: this.terminal})
-  }
-
-  private async performManualCleanup(params: {
-    agent: Agent
-    filePath: string
-    reliableMatches: LegacyRuleMatch[]
-    uncertainMatches: UncertainMatch[]
-  }): Promise<void> {
-    const {agent, filePath, reliableMatches, uncertainMatches} = params
-    const ruleContent = await this.templateService.generateRuleContent(agent)
-    await this.fileService.write(ruleContent, filePath, 'append')
-    this.terminal.log(`✅ New ByteRover rules added with boundary markers\n`)
-    this.terminal.log('Please manually remove old sections:')
-    for (const [index, match] of reliableMatches.entries()) {
-      this.terminal.log(`  - Section ${index + 1}: lines ${match.startLine}-${match.endLine} in ${filePath}`)
-    }
-
-    for (const match of uncertainMatches) {
-      this.terminal.log(`  - Section ending at line ${match.footerLine} in ${filePath}`)
-    }
-
-    this.terminal.log('\nKeep only the section between:')
-    this.terminal.log('  <!-- BEGIN BYTEROVER RULES -->')
-    this.terminal.log('  <!-- END BYTEROVER RULES -->')
-    await tryInstallHookWithRestartMessage({agent, hookManager: this.hookManager, terminal: this.terminal})
-  }
-
-  /**
-   * Replaces existing ByteRover rules (with boundary markers) with new rules.
-   */
-  private async replaceExistingRules(params: {
-    agent: Agent
-    content: string
-    filePath: string
-    writeMode: WriteMode
-  }): Promise<void> {
-    const {agent, content, filePath, writeMode} = params
-    const ruleContent = await this.templateService.generateRuleContent(agent)
-
-    if (writeMode === 'overwrite') {
-      // For dedicated ByteRover files, just overwrite the entire file
-      await this.fileService.write(ruleContent, filePath, 'overwrite')
-    } else {
-      // For shared instruction files, replace the section between markers
-      const startMarker = BRV_RULE_MARKERS.START
-      const endMarker = BRV_RULE_MARKERS.END
-      const startIndex = content.indexOf(startMarker)
-      const endIndex = content.indexOf(endMarker, startIndex)
-
-      if (startIndex === -1 || endIndex === -1) {
-        this.terminal.log('Could not find boundary markers in the file')
-        return
-      }
-
-      const before = content.slice(0, startIndex)
-      const after = content.slice(endIndex + endMarker.length)
-      const newContent = before + ruleContent + after
-
-      await this.fileService.write(newContent, filePath, 'overwrite')
-    }
-
-    this.terminal.log(`✅ Successfully updated rule file for ${agent}`)
-    await tryInstallHookWithRestartMessage({agent, hookManager: this.hookManager, terminal: this.terminal})
   }
 }

@@ -2,15 +2,14 @@ import {getCurrentConfig} from '../../../config/environment.js'
 import {CommandKind, SlashCommand} from '../../../tui/types.js'
 import {HttpCogitPullService} from '../../cogit/http-cogit-pull-service.js'
 import {ProjectConfigStore} from '../../config/file-config-store.js'
+import {ConnectorManager} from '../../connectors/connector-manager.js'
+import {RuleTemplateService} from '../../connectors/shared/template-service.js'
 import {FileContextTreeService} from '../../context-tree/file-context-tree-service.js'
 import {FileContextTreeSnapshotService} from '../../context-tree/file-context-tree-snapshot-service.js'
 import {FileContextTreeWriterService} from '../../context-tree/file-context-tree-writer-service.js'
 import {FsFileService} from '../../file/fs-file-service.js'
-import {FileHookManager} from '../../hooks/file-hook-manager.js'
-import {LegacyRuleDetector} from '../../rule/legacy-rule-detector.js'
-import {RuleTemplateService} from '../../rule/rule-template-service.js'
 import {HttpSpaceService} from '../../space/http-space-service.js'
-import {FileGlobalConfigStore} from "../../storage/file-global-config-store.js";
+import {FileGlobalConfigStore} from '../../storage/file-global-config-store.js'
 import {createTokenStore} from '../../storage/token-store.js'
 import {HttpTeamService} from '../../team/http-team-service.js'
 import {FsTemplateLoader} from '../../template/fs-template-loader.js'
@@ -48,27 +47,28 @@ export const initCommand: SlashCommand = {
 
         const fileService = new FsFileService()
         const templateLoader = new FsTemplateLoader(fileService)
-        const ruleTemplateService = new RuleTemplateService(templateLoader)
-
-        const legacyRuleDetector = new LegacyRuleDetector()
+        const templateService = new RuleTemplateService(templateLoader)
         const contextTreeSnapshotService = new FileContextTreeSnapshotService()
+
+        // Create ConnectorManager
+        const connectorManager = new ConnectorManager({
+          fileService,
+          projectRoot: process.cwd(),
+          templateService,
+        })
 
         // Create and run use case
         const useCase = new InitUseCase({
           cogitPullService: new HttpCogitPullService({
             apiBaseUrl: envConfig.cogitApiBaseUrl,
           }),
+          connectorManager,
           contextTreeService: new FileContextTreeService(),
           contextTreeSnapshotService,
           contextTreeWriterService: new FileContextTreeWriterService({
             snapshotService: contextTreeSnapshotService,
           }),
           fileService,
-          hookManager: new FileHookManager({
-            fileService,
-            projectRoot: process.cwd(),
-          }),
-          legacyRuleDetector,
           projectConfigStore: new ProjectConfigStore(),
           spaceService: new HttpSpaceService({
             apiBaseUrl: envConfig.apiBaseUrl,
@@ -76,7 +76,6 @@ export const initCommand: SlashCommand = {
           teamService: new HttpTeamService({
             apiBaseUrl: envConfig.apiBaseUrl,
           }),
-          templateService: ruleTemplateService,
           terminal,
           tokenStore,
           trackingService,

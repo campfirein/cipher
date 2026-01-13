@@ -1,12 +1,12 @@
-import type {Agent} from '../../core/domain/entities/agent.js'
+import type {Agent} from '../../../core/domain/entities/agent.js'
 import type {
   ILegacyRuleDetector,
   LegacyRuleDetectionResult,
   LegacyRuleMatch,
   UncertainMatch,
-} from '../../core/interfaces/i-legacy-rule-detector.js'
+} from '../../../core/interfaces/i-legacy-rule-detector.js'
 
-import {BRV_RULE_TAG} from './constants.js'
+import {BRV_RULE_TAG} from '../shared/constants.js'
 
 export class LegacyRuleDetector implements ILegacyRuleDetector {
   private static readonly SECTION_SEPARATOR_PATTERN = /^---\s*$/

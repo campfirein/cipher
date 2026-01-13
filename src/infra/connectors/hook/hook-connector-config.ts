@@ -1,6 +1,4 @@
-import type {HookSupportedAgent} from '../../core/domain/entities/agent.js'
-
-import {isRecord} from '../../utils/type-guards.js'
+import {isRecord} from '../../../utils/type-guards.js'
 
 /**
  * The command that ByteRover hooks execute.
@@ -23,7 +21,7 @@ export type ClaudeCodeHookEntry = {
 /**
  * Configuration for each agent's hook system.
  */
-export type AgentHookConfig = {
+export type HookConnectorConfig = {
   /** Path to the configuration file (relative to project root) */
   configPath: string
   /** Function to create a new hook entry for this agent */
@@ -55,8 +53,12 @@ const isClaudeCodeOurHook = (entry: unknown): boolean => {
 /**
  * Agent-specific hook configurations.
  * Maps each supported agent to its configuration details.
+ *
+ * To add hook support for a new agent:
+ * 1. Add the agent's config here
+ * 2. Add 'hook' to the agent's supported array in AGENT_CONNECTOR_CONFIG (agent.ts)
  */
-export const AGENT_HOOK_CONFIGS: Record<HookSupportedAgent, AgentHookConfig> = {
+const HOOK_CONNECTOR_CONFIGS_INTERNAL = {
   'Claude Code': {
     configPath: '.claude/settings.local.json',
     createHookEntry: (): ClaudeCodeHookEntry => ({
@@ -66,4 +68,14 @@ export const AGENT_HOOK_CONFIGS: Record<HookSupportedAgent, AgentHookConfig> = {
     hookEventKey: 'UserPromptSubmit',
     isOurHook: isClaudeCodeOurHook,
   },
-}
+} as const satisfies Record<string, HookConnectorConfig>
+
+/**
+ * Type for agents that have hook connector configurations.
+ */
+export type HookSupportedAgent = keyof typeof HOOK_CONNECTOR_CONFIGS_INTERNAL
+
+/**
+ * Agent-specific hook configurations.
+ */
+export const HOOK_CONNECTOR_CONFIGS: Record<HookSupportedAgent, HookConnectorConfig> = HOOK_CONNECTOR_CONFIGS_INTERNAL

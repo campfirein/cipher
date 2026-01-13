@@ -9,6 +9,8 @@ export const EVENT_VALUES = [
   'space:init',
   'space:changed',
   'rule:generate',
+  'connectors:configure',
+  'connector:install',
   'mem:status',
   'mem:curate',
   'mem:pull',

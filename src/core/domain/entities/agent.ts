@@ -1,3 +1,5 @@
+import type {ConnectorType} from './connector-type.js'
+
 /**
  * Array of all supported Agents.
  */
@@ -25,13 +27,36 @@ export const AGENT_VALUES = [
 export type Agent = (typeof AGENT_VALUES)[number]
 
 /**
- * Array of agents that support hook management.
- * Single source of truth - HookSupportedAgent type is derived from this.
+ * Connector availability configuration for an agent.
  */
-export const HOOK_SUPPORTED_AGENTS = ['Claude Code'] as const satisfies readonly Agent[]
+type AgentConnectorConfig = {
+  /** The default connector type for this agent */
+  default: ConnectorType
+  /** Connector types supported by this agent */
+  supported: readonly ConnectorType[]
+}
 
 /**
- * Type for agents that support hook management.
- * Derived from HOOK_SUPPORTED_AGENTS - add new agents to the array above.
+ * Single source of truth for agent connector configuration.
+ * Defines which connectors each agent supports and which is the default.
  */
-export type HookSupportedAgent = (typeof HOOK_SUPPORTED_AGENTS)[number]
+export const AGENT_CONNECTOR_CONFIG: Record<Agent, AgentConnectorConfig> = {
+  Amp: {default: 'rules', supported: ['rules']},
+  'Augment Code': {default: 'rules', supported: ['rules']},
+  'Claude Code': {default: 'hook', supported: ['rules', 'hook']},
+  Cline: {default: 'rules', supported: ['rules']},
+  Codex: {default: 'rules', supported: ['rules']},
+  Cursor: {default: 'rules', supported: ['rules']},
+  'Gemini CLI': {default: 'rules', supported: ['rules']},
+  'Github Copilot': {default: 'rules', supported: ['rules']},
+  Junie: {default: 'rules', supported: ['rules']},
+  'Kilo Code': {default: 'rules', supported: ['rules']},
+  Kiro: {default: 'rules', supported: ['rules']},
+  Qoder: {default: 'rules', supported: ['rules']},
+  'Qwen Code': {default: 'rules', supported: ['rules']},
+  'Roo Code': {default: 'rules', supported: ['rules']},
+  'Trae.ai': {default: 'rules', supported: ['rules']},
+  Warp: {default: 'rules', supported: ['rules']},
+  Windsurf: {default: 'rules', supported: ['rules']},
+  Zed: {default: 'rules', supported: ['rules']},
+}

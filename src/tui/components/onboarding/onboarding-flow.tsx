@@ -5,21 +5,21 @@
  * Handles step transitions and init command execution.
  */
 
-import { Box, Text, useInput } from 'ink'
-import React, { useMemo } from 'react'
+import {Box, Text, useInput} from 'ink'
+import React, {useMemo} from 'react'
 
-import { useActivityLogs, useMode, useTheme, useUIHeights } from '../../hooks/index.js'
-import { useOnboarding } from '../../hooks/use-onboarding.js'
-import { calculateLogContentLimit } from '../../utils/log.js'
-import { LogItem } from '../execution/index.js'
-import { EnterPrompt } from '../index.js'
-import { Init } from '../init.js'
-import { CopyablePrompt } from './copyable-prompt.js'
-import { OnboardingStep } from './onboarding-step.js'
+import {useActivityLogs, useMode, useTheme, useUIHeights} from '../../hooks/index.js'
+import {useOnboarding} from '../../hooks/use-onboarding.js'
+import {calculateLogContentLimit} from '../../utils/log.js'
+import {LogItem} from '../execution/index.js'
+import {EnterPrompt} from '../index.js'
+import {Init} from '../init.js'
+import {CopyablePrompt} from './copyable-prompt.js'
+import {OnboardingStep} from './onboarding-step.js'
 
 /** Example prompts for curate and query steps */
-const CURATE_PROMPT = 'run `brv curate "Auth uses JWT with 24h expiry. Tokens stored in httpOnly cookies"`'
-const QUERY_PROMPT = 'run `brv query "How is authentication implemented?"`'
+const CURATE_PROMPT = 'Save our API authentication patterns, use brv curate'
+const QUERY_PROMPT = 'How do we handle error responses?, use brv query'
 
 /** Minimum output lines to show before truncation */
 const MIN_OUTPUT_LINES = 3
@@ -53,23 +53,27 @@ interface OnboardingFlowProps {
   onInitComplete?: () => void
 }
 
-// eslint-disable-next-line complexity -- React component renders multiple onboarding steps with conditional logic
-export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ availableHeight, onInitComplete }) => {
-  const { theme: { colors } } = useTheme()
-  const { mode } = useMode()
+export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({availableHeight, onInitComplete}) => {
+  const {
+    theme: {colors},
+  } = useTheme()
+  const {mode} = useMode()
   const {
     completeOnboarding,
     curateAcknowledged,
     currentStep,
     hasCurated,
     hasQueried,
+    initAcknowledged,
+    isInitialized,
     queryAcknowledged,
     setCurateAcknowledged,
+    setInitAcknowledged,
     setQueryAcknowledged,
     totalSteps,
   } = useOnboarding()
-  const { logs } = useActivityLogs()
-  const { messageItem } = useUIHeights()
+  const {logs} = useActivityLogs()
+  const {messageItem} = useUIHeights()
 
   // Find running or queued curate/query logs
   const curateLog = useMemo(() => logs.find((log) => log.type === 'curate'), [logs])
@@ -78,8 +82,8 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ availableHeight,
   // Onboarding UI overhead: step title (1) + description (1) + content margin top (1)
   const onboardingOverhead = 3
   const enterPromptHeight =
-    ((currentStep === 'curate' && hasCurated && !curateAcknowledged) ||
-      (currentStep === 'query' && hasQueried && !queryAcknowledged))
+    (currentStep === 'curate' && hasCurated && !curateAcknowledged) ||
+    (currentStep === 'query' && hasQueried && !queryAcknowledged)
       ? 4
       : 0
 
@@ -105,7 +109,35 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ availableHeight,
         completeOnboarding(true) // Pass true to indicate skipped
       }
     },
-    { isActive: isInWaitingState },
+    {isActive: isInWaitingState},
+  )
+
+  const renderInitContent = () => (
+    <Box flexDirection="column" width="100%">
+      {!isInitialized && (
+        <Init
+          active={mode === 'activity' && currentStep === 'init'}
+          maxOutputLines={MIN_OUTPUT_LINES}
+          showIdleMessage={false}
+        />
+      )}
+
+      {/* Waiting for Enter to continue */}
+      {isInitialized && !initAcknowledged && (
+        <Box flexDirection="column" gap={1}>
+          <Text>Project initialized successfully!</Text>
+
+          <EnterPrompt
+            action="continue"
+            active={isInitialized && !initAcknowledged && mode === 'activity' && currentStep === 'init'}
+            onEnter={() => {
+              setInitAcknowledged(true)
+              onInitComplete?.()
+            }}
+          />
+        </Box>
+      )}
+    </Box>
   )
 
   // Render curate step content
@@ -114,7 +146,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ availableHeight,
     if (curateLog) {
       return (
         <Box flexDirection="column" width="100%">
-          <LogItem heights={{ ...messageItem, maxContentLines: maxOutputLines }} log={curateLog} />
+          <LogItem heights={{...messageItem, maxContentLines: maxOutputLines}} log={curateLog} />
           {/* Waiting for Enter to continue */}
           {hasCurated && !curateAcknowledged && (
             <EnterPrompt
@@ -134,20 +166,20 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ availableHeight,
           Try saying this to your AI Agent:
         </Text>
         <Box marginBottom={1} paddingLeft={4}>
-          <Text color={colors.primary} wrap="wrap">{CURATE_PROMPT}</Text>
+          <Text color={colors.primary} wrap="wrap">
+            {CURATE_PROMPT}
+          </Text>
         </Box>
         <Text>
           <CopyablePrompt
-            buttonLabel='[ctrl+y] to copy'
+            buttonLabel="[ctrl+y] to copy"
             isActive={mode === 'activity' && currentStep === 'curate'}
             textToCopy={CURATE_PROMPT}
           />
           <Text color={colors.dimText}> | [Esc] to skip onboarding</Text>
         </Text>
         <Box marginTop={1}>
-          <Text color={colors.dimText}>
-            Waiting for curate...
-          </Text>
+          <Text color={colors.dimText}>Waiting for curate...</Text>
         </Box>
       </Box>
     )
@@ -159,7 +191,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ availableHeight,
     if (queryLog) {
       return (
         <Box flexDirection="column" width="100%">
-          <LogItem heights={{ ...messageItem, maxContentLines: maxOutputLines }} log={queryLog} />
+          <LogItem heights={{...messageItem, maxContentLines: maxOutputLines}} log={queryLog} />
           {/* Waiting for Enter to continue */}
           {hasQueried && !queryAcknowledged && (
             <EnterPrompt
@@ -179,20 +211,20 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ availableHeight,
           You can now query your memory:
         </Text>
         <Box marginBottom={1} paddingLeft={4}>
-          <Text color={colors.primary} wrap="wrap">{QUERY_PROMPT}</Text>
+          <Text color={colors.primary} wrap="wrap">
+            {QUERY_PROMPT}
+          </Text>
         </Box>
         <Text>
           <CopyablePrompt
-            buttonLabel='[ctrl+y] to copy'
+            buttonLabel="[ctrl+y] to copy"
             isActive={mode === 'activity' && currentStep === 'query'}
             textToCopy={QUERY_PROMPT}
           />
           <Text color={colors.dimText}> | [Esc] to skip onboarding</Text>
         </Text>
         <Box marginTop={1}>
-          <Text color={colors.dimText}>
-            Waiting for query...
-          </Text>
+          <Text color={colors.dimText}>Waiting for query...</Text>
         </Box>
       </Box>
     )
@@ -238,12 +270,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ availableHeight,
             title="Welcome to ByteRover!"
             totalSteps={totalSteps}
           >
-            <Init
-              active={mode === 'activity' && currentStep === 'init'}
-              maxOutputLines={MIN_OUTPUT_LINES}
-              onInitComplete={onInitComplete}
-              showIdleMessage={false}
-            />
+            {renderInitContent()}
           </OnboardingStep>
         )}
 

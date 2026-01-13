@@ -3,22 +3,20 @@ import {mkdir, rm, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
 
-import type {HookSupportedAgent} from '../../../../src/core/domain/entities/agent.js'
+import {HOOK_COMMAND, type HookSupportedAgent} from '../../../../../src/infra/connectors/hook/hook-connector-config.js'
+import {HookConnector} from '../../../../../src/infra/connectors/hook/hook-connector.js'
+import {FsFileService} from '../../../../../src/infra/file/fs-file-service.js'
 
-import {FsFileService} from '../../../../src/infra/file/fs-file-service.js'
-import {HOOK_COMMAND} from '../../../../src/infra/hooks/agent-hook-configs.js'
-import {FileHookManager} from '../../../../src/infra/hooks/file-hook-manager.js'
-
-describe('FileHookManager', () => {
+describe('HookConnector', () => {
   let testDir: string
   let fileService: FsFileService
-  let hookManager: FileHookManager
+  let hookConnector: HookConnector
 
   beforeEach(async () => {
     testDir = path.join(tmpdir(), `brv-hook-test-${Date.now()}`)
     await mkdir(testDir, {recursive: true})
     fileService = new FsFileService()
-    hookManager = new FileHookManager({
+    hookConnector = new HookConnector({
       fileService,
       projectRoot: testDir,
     })
@@ -28,11 +26,41 @@ describe('FileHookManager', () => {
     await rm(testDir, {force: true, recursive: true})
   })
 
+  describe('type', () => {
+    it('should have type "hook"', () => {
+      expect(hookConnector.type).to.equal('hook')
+    })
+  })
+
   describe('getSupportedAgents', () => {
     it('should return only Claude Code as supported agent', () => {
-      const agents = hookManager.getSupportedAgents()
+      const agents = hookConnector.getSupportedAgents()
       expect(agents).to.deep.equal(['Claude Code'])
       expect(agents).to.have.lengthOf(1)
+    })
+  })
+
+  describe('isSupported', () => {
+    it('should return true for Claude Code', () => {
+      expect(hookConnector.isSupported('Claude Code')).to.be.true
+    })
+
+    it('should return false for Cursor', () => {
+      expect(hookConnector.isSupported('Cursor')).to.be.false
+    })
+
+    it('should return false for Github Copilot', () => {
+      expect(hookConnector.isSupported('Github Copilot')).to.be.false
+    })
+  })
+
+  describe('getConfigPath', () => {
+    it('should return config path for Claude Code', () => {
+      expect(hookConnector.getConfigPath('Claude Code')).to.equal('.claude/settings.local.json')
+    })
+
+    it('should throw for unsupported agent', () => {
+      expect(() => hookConnector.getConfigPath('Cursor')).to.throw('Hook connector does not support agent: Cursor')
     })
   })
 
@@ -42,7 +70,7 @@ describe('FileHookManager', () => {
 
     describe('install', () => {
       it('should create new config file if not exists', async () => {
-        const result = await hookManager.install(agent)
+        const result = await hookConnector.install(agent)
 
         expect(result.success).to.be.true
         expect(result.alreadyInstalled).to.be.false
@@ -59,7 +87,7 @@ describe('FileHookManager', () => {
         await mkdir(path.join(testDir, '.claude'), {recursive: true})
         await writeFile(path.join(testDir, configPath), JSON.stringify(existingConfig))
 
-        const result = await hookManager.install(agent)
+        const result = await hookConnector.install(agent)
 
         expect(result.success).to.be.true
         expect(result.alreadyInstalled).to.be.false
@@ -79,7 +107,7 @@ describe('FileHookManager', () => {
         await mkdir(path.join(testDir, '.claude'), {recursive: true})
         await writeFile(path.join(testDir, configPath), JSON.stringify(existingConfig))
 
-        const result = await hookManager.install(agent)
+        const result = await hookConnector.install(agent)
 
         expect(result.success).to.be.true
         expect(result.alreadyInstalled).to.be.false
@@ -100,16 +128,23 @@ describe('FileHookManager', () => {
         await mkdir(path.join(testDir, '.claude'), {recursive: true})
         await writeFile(path.join(testDir, configPath), JSON.stringify(existingConfig))
 
-        const result = await hookManager.install(agent)
+        const result = await hookConnector.install(agent)
 
         expect(result.success).to.be.true
         expect(result.alreadyInstalled).to.be.true
+      })
+
+      it('should return failure for unsupported agent', async () => {
+        const result = await hookConnector.install('Cursor')
+
+        expect(result.success).to.be.false
+        expect(result.message).to.include('does not support agent')
       })
     })
 
     describe('uninstall', () => {
       it('should return wasInstalled false if config not exists', async () => {
-        const result = await hookManager.uninstall(agent)
+        const result = await hookConnector.uninstall(agent)
 
         expect(result.success).to.be.true
         expect(result.wasInstalled).to.be.false
@@ -128,7 +163,7 @@ describe('FileHookManager', () => {
         await mkdir(path.join(testDir, '.claude'), {recursive: true})
         await writeFile(path.join(testDir, configPath), JSON.stringify(existingConfig))
 
-        const result = await hookManager.uninstall(agent)
+        const result = await hookConnector.uninstall(agent)
 
         expect(result.success).to.be.true
         expect(result.wasInstalled).to.be.true
@@ -149,16 +184,23 @@ describe('FileHookManager', () => {
         await mkdir(path.join(testDir, '.claude'), {recursive: true})
         await writeFile(path.join(testDir, configPath), JSON.stringify(existingConfig))
 
-        const result = await hookManager.uninstall(agent)
+        const result = await hookConnector.uninstall(agent)
 
         expect(result.success).to.be.true
         expect(result.wasInstalled).to.be.false
+      })
+
+      it('should return failure for unsupported agent', async () => {
+        const result = await hookConnector.uninstall('Cursor')
+
+        expect(result.success).to.be.false
+        expect(result.message).to.include('does not support agent')
       })
     })
 
     describe('status', () => {
       it('should return configExists false if file not exists', async () => {
-        const result = await hookManager.status(agent)
+        const result = await hookConnector.status(agent)
 
         expect(result.configExists).to.be.false
         expect(result.installed).to.be.false
@@ -174,7 +216,7 @@ describe('FileHookManager', () => {
         await mkdir(path.join(testDir, '.claude'), {recursive: true})
         await writeFile(path.join(testDir, configPath), JSON.stringify(existingConfig))
 
-        const result = await hookManager.status(agent)
+        const result = await hookConnector.status(agent)
 
         expect(result.configExists).to.be.true
         expect(result.installed).to.be.true
@@ -186,11 +228,19 @@ describe('FileHookManager', () => {
         await mkdir(path.join(testDir, '.claude'), {recursive: true})
         await writeFile(path.join(testDir, configPath), JSON.stringify(existingConfig))
 
-        const result = await hookManager.status(agent)
+        const result = await hookConnector.status(agent)
 
         expect(result.configExists).to.be.true
         expect(result.installed).to.be.false
         expect(result.error).to.be.undefined
+      })
+
+      it('should return error status for unsupported agent', async () => {
+        const result = await hookConnector.status('Cursor')
+
+        expect(result.configExists).to.be.false
+        expect(result.installed).to.be.false
+        expect(result.error).to.include('does not support agent')
       })
     })
   })
@@ -200,7 +250,7 @@ describe('FileHookManager', () => {
       await mkdir(path.join(testDir, '.claude'), {recursive: true})
       await writeFile(path.join(testDir, '.claude/settings.local.json'), 'not valid json')
 
-      const result = await hookManager.install('Claude Code')
+      const result = await hookConnector.install('Claude Code')
 
       expect(result.success).to.be.false
       expect(result.message).to.include('Failed to install')
@@ -210,7 +260,7 @@ describe('FileHookManager', () => {
       await mkdir(path.join(testDir, '.claude'), {recursive: true})
       await writeFile(path.join(testDir, '.claude/settings.local.json'), 'not valid json')
 
-      const result = await hookManager.status('Claude Code')
+      const result = await hookConnector.status('Claude Code')
 
       expect(result.configExists).to.be.true
       expect(result.installed).to.be.false // can't determine, assume not installed
@@ -230,7 +280,7 @@ describe('FileHookManager', () => {
       await mkdir(path.join(testDir, '.claude'), {recursive: true})
       await writeFile(path.join(testDir, '.claude/settings.local.json'), JSON.stringify(existingConfig))
 
-      const result = await hookManager.uninstall('Claude Code')
+      const result = await hookConnector.uninstall('Claude Code')
 
       expect(result.success).to.be.true
       expect(result.wasInstalled).to.be.true
