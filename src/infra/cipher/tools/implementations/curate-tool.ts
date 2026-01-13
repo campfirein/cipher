@@ -62,10 +62,42 @@ const ContentSchema = z.object({
 })
 
 /**
+ * Domain context schema for domain-level context.md files.
+ * Provides metadata about a domain's purpose, scope, ownership, and usage.
+ */
+const DomainContextSchema = z.object({
+  ownership: z
+    .string()
+    .optional()
+    .describe('Which system, team, or layer owns this domain (e.g., "Platform Security Team")'),
+  purpose: z
+    .string()
+    .describe(
+      'Describe what this domain represents and why it exists (e.g., "Contains all knowledge related to user and service authentication mechanisms")',
+    ),
+  scope: z.object({
+    excluded: z
+      .array(z.string())
+      .optional()
+      .describe('What does NOT belong in this domain (e.g., ["Authorization and permission models", "User profile management"])'),
+    included: z
+      .array(z.string())
+      .describe('What belongs in this domain (e.g., ["Login and signup flows", "Token-based authentication", "OAuth integrations"])'),
+  }).describe('Define what belongs and does not belong in this domain'),
+  usage: z
+    .string()
+    .optional()
+    .describe('How this domain should be used by agents and contributors'),
+})
+
+/**
  * Single operation schema for curating knowledge.
  */
 const OperationSchema = z.object({
   content: ContentSchema.optional().describe('Content for ADD/UPDATE operations'),
+  domainContext: DomainContextSchema.optional().describe(
+    'Domain-level context for new domains. When creating content in a NEW domain, provide this to auto-generate domain/context.md with purpose, scope, ownership, and usage. Only needed when the domain does not exist yet.',
+  ),
   mergeTarget: z.string().optional().describe('Target path for MERGE operation'),
   mergeTargetTitle: z.string().optional().describe('Title of the target file for MERGE operation'),
   path: z.string().describe('Path: domain/topic/title.md or domain/topic/subtopic/title.md'),
@@ -80,6 +112,7 @@ const OperationSchema = z.object({
 })
 
 type Operation = z.infer<typeof OperationSchema>
+type DomainContext = z.infer<typeof DomainContextSchema>
 
 /**
  * Input schema for curate tool.
@@ -113,6 +146,82 @@ interface CurateOutput {
     merged: number
     updated: number
   }
+}
+
+function generateDomainContextMarkdown(domainName: string, context: DomainContext): string {
+  const sections: string[] = [
+    `# Domain: ${domainName}`,
+    '',
+    '## Purpose',
+    context.purpose,
+    '',
+    '## Scope',
+  ]
+
+  if (context.scope.included.length > 0) {
+    sections.push(
+      'Included in this domain:',
+      ...context.scope.included.map((item) => `- ${item}`),
+      '',
+    )
+  }
+
+  if (context.scope.excluded && context.scope.excluded.length > 0) {
+    sections.push(
+      'Excluded from this domain:',
+      ...context.scope.excluded.map((item) => `- ${item}`),
+      '',
+    )
+  }
+
+  if (context.ownership) {
+    sections.push('## Ownership', context.ownership, '')
+  }
+
+  if (context.usage) {
+    sections.push('## Usage', context.usage, '')
+  }
+
+  return sections.join('\n')
+}
+
+function generateMinimalDomainContextMarkdown(domainName: string): string {
+  return `# Domain: ${domainName}
+
+## Purpose
+Describe what this domain represents and why it exists.
+
+## Scope
+Define what belongs in this domain and what does not.
+
+## Ownership
+Which system, team, or layer owns this domain.
+
+## Usage
+How this domain should be used by agents and contributors.
+`
+}
+
+async function createDomainContextIfMissing(
+  basePath: string,
+  domain: string,
+  domainContext?: DomainContext,
+): Promise<{created: boolean; path?: string}> {
+  const normalizedDomain = toSnakeCase(domain)
+  const contextPath = join(basePath, normalizedDomain, 'context.md')
+
+  const exists = await DirectoryManager.fileExists(contextPath)
+  if (exists) {
+    return {created: false}
+  }
+
+  const content = domainContext
+    ? generateDomainContextMarkdown(normalizedDomain, domainContext)
+    : generateMinimalDomainContextMarkdown(normalizedDomain)
+
+  await DirectoryManager.writeFileAtomic(contextPath, content)
+
+  return {created: true, path: contextPath}
 }
 
 /**
@@ -183,7 +292,7 @@ function buildFullPath(basePath: string, knowledgePath: string): string {
  * Execute ADD operation - create new domain/topic/subtopic with {title}.md
  */
 async function executeAdd(basePath: string, operation: Operation): Promise<OperationResult> {
-  const {content, path, reason, title} = operation
+  const {content, domainContext, path, reason, title} = operation
 
   if (!title) {
     return {
@@ -214,7 +323,6 @@ async function executeAdd(basePath: string, operation: Operation): Promise<Opera
       }
     }
 
-    // Validate domain before creating
     const domainValidation = validateDomain(parsed.domain)
     if (!domainValidation.allowed) {
       return {
@@ -225,13 +333,12 @@ async function executeAdd(basePath: string, operation: Operation): Promise<Opera
       }
     }
 
-    // Build the final folder path (topic or subtopic)
+    await createDomainContextIfMissing(basePath, parsed.domain, domainContext)
+
     const domainPath = join(basePath, toSnakeCase(parsed.domain))
     const topicPath = join(domainPath, toSnakeCase(parsed.topic))
     const finalPath = parsed.subtopic ? join(topicPath, toSnakeCase(parsed.subtopic)) : topicPath
 
-    // Generate and write {title}.md (snake_case filename)
-    // Note: writeFileAtomic creates parent directories as needed, avoiding empty folder creation
     const contextContent = MarkdownWriter.generateContext({
       name: title,
       narrative: content.narrative,
@@ -264,7 +371,7 @@ async function executeAdd(basePath: string, operation: Operation): Promise<Opera
  * Execute UPDATE operation - modify existing {title}.md
  */
 async function executeUpdate(basePath: string, operation: Operation): Promise<OperationResult> {
-  const {content, path, reason, title} = operation
+  const {content, domainContext, path, reason, title} = operation
 
   if (!title) {
     return {
@@ -285,11 +392,20 @@ async function executeUpdate(basePath: string, operation: Operation): Promise<Op
   }
 
   try {
+    const parsed = parsePath(path)
+    if (!parsed) {
+      return {
+        message: `Invalid path format: ${path}. Expected domain/topic or domain/topic/subtopic`,
+        path,
+        status: 'failed',
+        type: 'UPDATE',
+      }
+    }
+
     const fullPath = buildFullPath(basePath, path)
     const filename = `${toSnakeCase(title)}.md`
     const contextPath = join(fullPath, filename)
 
-    // Check if the specific titled file exists
     const exists = await DirectoryManager.fileExists(contextPath)
     if (!exists) {
       return {
@@ -300,7 +416,8 @@ async function executeUpdate(basePath: string, operation: Operation): Promise<Op
       }
     }
 
-    // Generate and write updated content (full replacement)
+    await createDomainContextIfMissing(basePath, parsed.domain, domainContext)
+
     const contextContent = MarkdownWriter.generateContext({
       name: title,
       narrative: content.narrative,
@@ -331,7 +448,7 @@ async function executeUpdate(basePath: string, operation: Operation): Promise<Op
  * Execute MERGE operation - combine source file into target file, delete source file
  */
 async function executeMerge(basePath: string, operation: Operation): Promise<OperationResult> {
-  const {mergeTarget, mergeTargetTitle, path, reason, title} = operation
+  const {domainContext, mergeTarget, mergeTargetTitle, path, reason, title} = operation
 
   if (!title) {
     return {
@@ -361,6 +478,18 @@ async function executeMerge(basePath: string, operation: Operation): Promise<Ope
   }
 
   try {
+    const sourceParsed = parsePath(path)
+    const targetParsed = parsePath(mergeTarget)
+
+    if (!sourceParsed || !targetParsed) {
+      return {
+        message: `Invalid path format. Expected domain/topic or domain/topic/subtopic`,
+        path,
+        status: 'failed',
+        type: 'MERGE',
+      }
+    }
+
     const sourceFolderPath = buildFullPath(basePath, path)
     const targetFolderPath = buildFullPath(basePath, mergeTarget)
 
@@ -370,7 +499,6 @@ async function executeMerge(basePath: string, operation: Operation): Promise<Ope
     const sourceContextPath = join(sourceFolderPath, sourceFilename)
     const targetContextPath = join(targetFolderPath, targetFilename)
 
-    // Check if both files exist
     const sourceExists = await DirectoryManager.fileExists(sourceContextPath)
     const targetExists = await DirectoryManager.fileExists(targetContextPath)
 
@@ -392,15 +520,15 @@ async function executeMerge(basePath: string, operation: Operation): Promise<Ope
       }
     }
 
-    // Read both files
+    await createDomainContextIfMissing(basePath, sourceParsed.domain, domainContext)
+    await createDomainContextIfMissing(basePath, targetParsed.domain, domainContext)
+
     const sourceContent = await DirectoryManager.readFile(sourceContextPath)
     const targetContent = await DirectoryManager.readFile(targetContextPath)
 
-    // Merge the contents using MarkdownWriter
     const mergedContent = MarkdownWriter.mergeContexts(sourceContent, targetContent)
     await DirectoryManager.writeFileAtomic(targetContextPath, mergedContent)
 
-    // Delete source file (not the entire folder, just the file)
     await DirectoryManager.deleteFile(sourceContextPath)
 
     return {
@@ -665,6 +793,34 @@ export function createCurateTool(): Tool {
 - Avoid overly generic names (e.g., "misc", "other", "general")
 - Avoid overly specific names that only fit one topic
 - Keep domain count reasonable by consolidating related concepts
+
+**Automatic Domain Context (context.md):**
+- When any operation (ADD/UPDATE/MERGE) touches a domain for the first time, a context.md file is automatically created at the domain root
+- This context.md describes the domain's purpose, scope, ownership, and usage guidelines
+- **IMPORTANT**: When creating content in a NEW domain, provide the \`domainContext\` field with:
+  - \`purpose\` (required): What this domain represents and why it exists
+  - \`scope.included\` (required): Array of what belongs in this domain
+  - \`scope.excluded\` (optional): Array of what does NOT belong in this domain
+  - \`ownership\` (optional): Which team/system owns this domain
+  - \`usage\` (optional): How this domain should be used
+- Example with domainContext:
+  {
+    type: "ADD",
+    path: "authentication/jwt",
+    title: "Token Handling",
+    content: { ... },
+    domainContext: {
+      purpose: "Contains all knowledge related to user and service authentication mechanisms used across the platform.",
+      scope: {
+        included: ["Login and signup flows", "Token-based authentication (JWT, refresh tokens)", "OAuth integrations", "Session handling"],
+        excluded: ["Authorization and permission models", "User profile management"]
+      },
+      ownership: "Platform Security Team",
+      usage: "Use this domain for documenting authentication flows, token handling, and identity verification patterns."
+    },
+    reason: "Documenting JWT token handling"
+  }
+- If domainContext is not provided for a new domain, a minimal template is created that can be updated later
 
 **Backward Compatibility:** Existing context entries using only snippets and relations continue to work.
 
