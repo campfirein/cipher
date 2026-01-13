@@ -68,27 +68,32 @@ export function validateFileForCurate(
     return { error: `File is outside project directory: ${filePath}`, valid: false }
   }
 
-  // Check file type using binary-utils (same logic as read_file tool)
-  // Allow media files (images/PDFs) - read_file can handle these
-  if (isMediaFile(normalized)) {
-    return { normalizedPath: normalized, valid: true }
-  }
-
-  // Read sample buffer for binary detection
+  // Read sample buffer for file type detection
+  let buffer: Buffer
+  let bytesRead: number
   try {
-    const buffer = Buffer.alloc(4096)
+    buffer = Buffer.alloc(4096)
     const fd = fs.openSync(normalized, 'r')
-    const bytesRead = fs.readSync(fd, buffer, 0, 4096, 0)
+    bytesRead = fs.readSync(fd, buffer, 0, 4096, 0)
     fs.closeSync(fd)
-
-    // Check if it's a binary file (using same logic as read_file tool)
-    if (isBinaryFile(normalized, buffer.subarray(0, bytesRead))) {
-      return { error: `File type not supported: ${filePath}`, valid: false }
-    }
   } catch {
     return { error: `Cannot read file: ${filePath}`, valid: false }
   }
 
-  // It's a text file or media file - both are supported
+  const sampleBuffer = buffer.subarray(0, bytesRead)
+
+  // Check file type using binary-utils (same logic as read_file tool)
+  // Allow media files (images/PDFs) - read_file can handle these
+  // For PDFs, also validate magic bytes to reject fake PDFs (e.g., binary.pdf)
+  if (isMediaFile(normalized, sampleBuffer)) {
+    return { normalizedPath: normalized, valid: true }
+  }
+
+  // Check if it's a binary file (using same logic as read_file tool)
+  if (isBinaryFile(normalized, sampleBuffer)) {
+    return { error: `File type not supported: ${filePath}`, valid: false }
+  }
+
+  // It's a text file - supported
   return { normalizedPath: normalized, valid: true }
 }

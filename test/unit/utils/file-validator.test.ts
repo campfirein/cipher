@@ -216,6 +216,47 @@ describe('file-validator', () => {
       })
     })
 
+    describe('PDF and media file validation', () => {
+      it('should accept valid PDF files with correct magic bytes', () => {
+        const pdfFile = path.join(testDir, 'document.pdf')
+        writeFileSync(pdfFile, Buffer.from([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x34, 0x0a]))
+
+        const result = validateFileForCurate('document.pdf', testDir)
+
+        expect(result.valid).to.be.true
+        expect(result.normalizedPath).to.equal(pdfFile)
+      })
+
+      it('should reject fake PDF files', () => {
+        const fakePdf = path.join(testDir, 'fake.pdf')
+        writeFileSync(fakePdf, Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x00, 0x00]))
+
+        const result = validateFileForCurate('fake.pdf', testDir)
+
+        expect(result.valid).to.be.false
+        expect(result.error).to.include('File type not supported')
+      })
+
+      it('should reject binary files renamed to .pdf', () => {
+        const binaryPdf = path.join(testDir, 'binary.pdf')
+        writeFileSync(binaryPdf, Buffer.from([0x00, 0x01, 0x02, 0x03, 0x00]))
+
+        const result = validateFileForCurate('binary.pdf', testDir)
+
+        expect(result.valid).to.be.false
+        expect(result.error).to.include('File type not supported')
+      })
+
+      it('should accept image files', () => {
+        const pngFile = path.join(testDir, 'image.png')
+        writeFileSync(pngFile, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+
+        const result = validateFileForCurate('image.png', testDir)
+
+        expect(result.valid).to.be.true
+      })
+    })
+
     describe('edge cases', () => {
       it('should handle empty string path', () => {
         const result = validateFileForCurate('', testDir)
