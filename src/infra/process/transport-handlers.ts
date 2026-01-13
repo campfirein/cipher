@@ -36,6 +36,7 @@ import type {
   AgentNewSessionResponse,
   AgentRestartRequest,
   AgentRestartResponse,
+  AgentStatus,
   LlmChunkEvent,
   LlmErrorEvent,
   LlmResponseEvent,
@@ -58,9 +59,11 @@ import type {ITransportServer} from '../../core/interfaces/transport/i-transport
 import {
   AgentDisconnectedError,
   AgentNotAvailableError,
+  AgentNotInitializedError,
   serializeTaskError,
 } from '../../core/domain/errors/task-error.js'
 import {
+  AgentStatusEventNames,
   LlmEventNames,
   TransportAgentEventNames,
   TransportLlmEventList,
@@ -84,6 +87,14 @@ type TaskInfo = {
   files?: string[]
   taskId: string
   type: string
+}
+
+/**
+ * Type guard for valid task types.
+ * Replaces unsafe `as` assertion per CLAUDE.md standards.
+ */
+function isValidTaskType(type: string): type is 'curate' | 'query' {
+  return type === 'curate' || type === 'query'
 }
 
 type LlmEventName = (typeof TransportLlmEventList)[number]
@@ -116,6 +127,8 @@ type LlmEventPayloadMap = {
 export class TransportHandlers {
   /** The Agent's client ID (set when Agent registers) */
   private agentClientId: string | undefined
+  /** Cached agent status from last status:changed broadcast */
+  private cachedAgentStatus: AgentStatus | undefined
   /** Track active tasks */
   private tasks: Map<string, TaskInfo> = new Map()
   /** Transport server reference */
@@ -131,6 +144,7 @@ export class TransportHandlers {
   cleanup(): void {
     this.tasks.clear()
     this.agentClientId = undefined
+    this.cachedAgentStatus = undefined
   }
 
   /**
@@ -146,10 +160,16 @@ export class TransportHandlers {
   /**
    * Handle Agent registration.
    * Agent connects as Socket.IO client and sends 'agent:register'.
+   * Fix #4: Accepts optional status in payload to cache atomically with registration.
    */
-  private handleAgentRegister(clientId: string): void {
+  private handleAgentRegister(clientId: string, data?: {status?: AgentStatus}): void {
     transportLog(`Agent registered: ${clientId}`)
     this.agentClientId = clientId
+
+    // Cache status if provided (prevents race window between register and status broadcast)
+    if (data?.status) {
+      this.cachedAgentStatus = data.status
+    }
 
     // Broadcast to all clients that Agent is online
     this.transport.broadcast(TransportAgentEventNames.CONNECTED, {})
@@ -262,13 +282,37 @@ export class TransportHandlers {
 
     // Forward to Agent
     if (this.agentClientId) {
+      // Pre-task check: verify cipher is initialized before forwarding
+      // Reject if: (1) no status cached yet, OR (2) status shows not initialized
+      // This prevents race condition where task arrives before agent broadcasts initial status
+      if (!this.cachedAgentStatus || !this.cachedAgentStatus.isInitialized) {
+        transportLog(`Agent not initialized, cannot process task ${taskId}`)
+        const error = serializeTaskError(
+          new AgentNotInitializedError(this.cachedAgentStatus?.lastError ?? 'Agent status unknown'),
+        )
+        this.transport.sendTo(clientId, TransportTaskEventNames.ERROR, {error, taskId})
+        this.transport.broadcastTo('broadcast-room', TransportTaskEventNames.ERROR, {error, taskId})
+        this.tasks.delete(taskId)
+        return {taskId}
+      }
+
+      // Validate task type before forwarding (type guard replaces unsafe `as` assertion)
+      if (!isValidTaskType(data.type)) {
+        transportLog(`Invalid task type: ${data.type}`)
+        const error = serializeTaskError(new Error(`Invalid task type: ${data.type}`))
+        this.transport.sendTo(clientId, TransportTaskEventNames.ERROR, {error, taskId})
+        this.transport.broadcastTo('broadcast-room', TransportTaskEventNames.ERROR, {error, taskId})
+        this.tasks.delete(taskId)
+        return {taskId}
+      }
+
       const executeMsg: TaskExecute = {
         clientId,
         content: data.content,
         ...(data.clientCwd ? {clientCwd: data.clientCwd} : {}),
         ...(data.files?.length ? {files: data.files} : {}),
         taskId,
-        type: data.type as 'curate' | 'query',
+        type: data.type,
       }
       this.transport.sendTo(this.agentClientId, TransportTaskEventNames.EXECUTE, executeMsg)
     } else {
@@ -444,10 +488,11 @@ export class TransportHandlers {
    */
   private setupAgentHandlers(): void {
     // Agent registration
-    this.transport.onRequest<Record<string, never>, {success: boolean}>(
+    // Fix #4: Accept optional status in payload for atomic caching
+    this.transport.onRequest<{status?: AgentStatus}, {success: boolean}>(
       TransportAgentEventNames.REGISTER,
-      (_data, clientId) => {
-        this.handleAgentRegister(clientId)
+      (data, clientId) => {
+        this.handleAgentRegister(clientId, data)
         return {success: true}
       },
     )
@@ -473,6 +518,18 @@ export class TransportHandlers {
     for (const eventName of TransportLlmEventList) {
       this.registerLlmEvent(eventName)
     }
+
+    // Agent status events
+    // agent:status:changed - Agent broadcasts status changes
+    this.transport.onRequest<AgentStatus, void>(AgentStatusEventNames.STATUS_CHANGED, (data) => {
+      transportLog(
+        `Agent status changed: initialized=${data.isInitialized}, auth=${data.hasAuth}, config=${data.hasConfig}`,
+      )
+      // Cache status for pre-task check
+      this.cachedAgentStatus = data
+      // Broadcast status change to all clients
+      this.transport.broadcast(AgentStatusEventNames.STATUS_CHANGED, data)
+    })
   }
 
   /**
@@ -506,6 +563,7 @@ export class TransportHandlers {
       if (clientId === this.agentClientId) {
         transportLog('Agent disconnected!')
         this.agentClientId = undefined
+        this.cachedAgentStatus = undefined
 
         // Broadcast to all clients
         this.transport.broadcast(TransportAgentEventNames.DISCONNECTED, {})
