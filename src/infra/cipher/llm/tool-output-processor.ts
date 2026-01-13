@@ -10,11 +10,11 @@
  * - Support for image and file attachments
  */
 
-import {existsSync, promises as fsPromises, mkdirSync} from 'node:fs'
-import {tmpdir} from 'node:os'
-import {join} from 'node:path'
+import { existsSync, promises as fsPromises, mkdirSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
-import type {AttachmentPart} from '../../../core/interfaces/cipher/message-types.js'
+import type { AttachmentPart } from '../../../core/interfaces/cipher/message-types.js'
 
 /**
  * Configuration for output truncation behavior
@@ -311,6 +311,67 @@ export class ToolOutputProcessor {
   }
 
   /**
+   * Fallback stringify for when JSON.stringify fails.
+   * Creates a meaningful string representation of objects/arrays.
+   *
+   * @param value - Value to stringify
+   * @param seen - Set to track circular references
+   * @param depth - Current depth for limiting recursion
+   * @returns String representation
+   */
+  private fallbackStringify(value: unknown, seen = new WeakSet(), depth = 0): string {
+    const MAX_DEPTH = 10
+
+    // Handle primitives
+    if (value === null) return 'null'
+    if (value === undefined) return 'undefined'
+    if (typeof value === 'string') return `"${value}"`
+    if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+    if (typeof value === 'bigint') return `${value}n`
+    if (typeof value === 'symbol') return value.toString()
+    if (typeof value === 'function') return `[Function: ${value.name || 'anonymous'}]`
+
+    // Handle objects and arrays
+    if (typeof value === 'object') {
+      // Check for circular reference
+      if (seen.has(value)) {
+        return '[Circular]'
+      }
+
+      seen.add(value)
+
+      // Depth limit
+      if (depth > MAX_DEPTH) {
+        return Array.isArray(value) ? '[Array]' : '[Object]'
+      }
+
+      // Handle arrays
+      if (Array.isArray(value)) {
+        const items = value.map((item) => this.fallbackStringify(item, seen, depth + 1))
+        return `[${items.join(', ')}]`
+      }
+
+      // Handle Date
+      if (value instanceof Date) {
+        return value.toISOString()
+      }
+
+      // Handle Error
+      if (value instanceof Error) {
+        return `[Error: ${value.message}]`
+      }
+
+      // Handle plain objects
+      const entries = Object.entries(value)
+        .map(([key, val]) => `"${key}": ${this.fallbackStringify(val, seen, depth + 1)}`)
+      return `{${entries.join(', ')}}`
+    }
+
+    // Unknown type
+    return '[Unknown]'
+  }
+
+  /**
    * Check if output is an MCP-style content array.
    */
   private isMcpContentArray(output: unknown): output is McpContentItem[] {
@@ -352,7 +413,7 @@ export class ToolOutputProcessor {
     const tempDir = join(tmpdir(), 'byterover-tool-outputs')
 
     if (!existsSync(tempDir)) {
-      mkdirSync(tempDir, {recursive: true})
+      mkdirSync(tempDir, { recursive: true })
     }
 
     // Generate unique filename
@@ -385,22 +446,38 @@ export class ToolOutputProcessor {
     }
 
     try {
-      // Try JSON.stringify with circular reference handling
+      // Try JSON.stringify with proper handling for special types
       return JSON.stringify(
         value,
         (_, val) => {
-          // Handle circular references by converting to string
-          if (typeof val === 'object' && val !== null) {
-            return val
+          // Convert BigInt to string
+          if (typeof val === 'bigint') {
+            return val.toString()
+          }
+
+          // Convert functions to their string representation
+          if (typeof val === 'function') {
+            return `[Function: ${val.name || 'anonymous'}]`
+          }
+
+          // Convert Symbols to string
+          if (typeof val === 'symbol') {
+            return val.toString()
           }
 
           return val
         },
         2,
       )
-    } catch {
-      // Fallback to String() if JSON.stringify fails
-      return String(value)
+    } catch (error) {
+      // Fallback: Try to create a meaningful string representation
+      // instead of [object Object]
+      try {
+        return this.fallbackStringify(value)
+      } catch {
+        // Last resort: Return error description
+        return `[Serialization failed: ${error instanceof Error ? error.message : 'Unknown error'}]`
+      }
     }
   }
 

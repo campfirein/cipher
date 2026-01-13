@@ -294,6 +294,8 @@ export const TransportLlmEventList = [
 export const TransportAgentEventNames = {
   CONNECTED: 'agent:connected',
   DISCONNECTED: 'agent:disconnected',
+  NEW_SESSION: 'agent:newSession',
+  NEW_SESSION_CREATED: 'agent:newSessionCreated',
   REGISTER: 'agent:register',
   RESTART: 'agent:restart',
   RESTARTED: 'agent:restarted',
@@ -707,6 +709,27 @@ export const AgentRestartResponseSchema = z.object({
   success: z.boolean(),
 })
 
+/**
+ * Request to create a new session (end current, start fresh).
+ * Used by /new command to start a fresh conversation.
+ */
+export const AgentNewSessionRequestSchema = z.object({
+  /** Optional reason for new session (for logging) */
+  reason: z.string().optional(),
+})
+
+/**
+ * Response after new session is created.
+ */
+export const AgentNewSessionResponseSchema = z.object({
+  /** Error message if session creation failed */
+  error: z.string().optional(),
+  /** The new session ID */
+  sessionId: z.string().optional(),
+  /** Whether the new session was created successfully */
+  success: z.boolean(),
+})
+
 // ============================================================================
 // Agent Status (health check)
 // ============================================================================
@@ -777,3 +800,5 @@ export type SessionSwitchedBroadcast = z.infer<typeof SessionSwitchedBroadcastSc
 
 export type AgentRestartRequest = z.infer<typeof AgentRestartRequestSchema>
 export type AgentRestartResponse = z.infer<typeof AgentRestartResponseSchema>
+export type AgentNewSessionRequest = z.infer<typeof AgentNewSessionRequestSchema>
+export type AgentNewSessionResponse = z.infer<typeof AgentNewSessionResponseSchema>

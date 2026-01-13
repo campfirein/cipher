@@ -8,12 +8,12 @@ import path from 'node:path'
  * @param filePath - The file path to normalize
  * @returns Normalized absolute path
  */
-function normalizeFilePath(filePath: string): string {
+function normalizeFilePath(filePath: string, baseDir?: string): string {
   // Expand tilde to home directory
   const expanded = filePath.startsWith('~') ? filePath.replace(/^~/, os.homedir()) : filePath
 
-  // Resolve to absolute path
-  const absolute = path.resolve(expanded)
+  // Resolve to absolute path using baseDir for relative paths
+  const absolute = path.isAbsolute(expanded) ? expanded : path.resolve(baseDir ?? process.cwd(), expanded)
 
   // Resolve symlinks (only if file exists)
   try {
@@ -68,30 +68,33 @@ export function validateFileForCurate(
   normalizedPath?: string
   valid: boolean
 } {
-  // Normalize path
-  const normalized = normalizeFilePath(filePath)
+  // Normalize projectRoot first to ensure consistent behavior
+  // This handles cases where projectRoot might be relative
+  const normalizedProjectRoot = normalizeFilePath(projectRoot)
+
+  // Normalize file path using normalizedProjectRoot as base for relative paths
+  const normalized = normalizeFilePath(filePath, normalizedProjectRoot)
 
   // Check existence
   if (!fs.existsSync(normalized)) {
-    return {error: `File does not exist: ${filePath}`, valid: false}
+    return { error: `File does not exist: ${filePath}`, valid: false }
   }
 
   // Check if it's a file (not a directory)
   const stats = fs.statSync(normalized)
   if (!stats.isFile()) {
-    return {error: `Path is not a file: ${filePath}`, valid: false}
+    return { error: `Path is not a file: ${filePath}`, valid: false }
   }
 
-  // Check within project (normalized paths for reliable comparison)
-  const normalizedProjectRoot = normalizeFilePath(projectRoot)
+  // Check within project (both paths are already normalized)
   if (!normalized.startsWith(normalizedProjectRoot + path.sep) && normalized !== normalizedProjectRoot) {
-    return {error: `File is outside project directory: ${filePath}`, valid: false}
+    return { error: `File is outside project directory: ${filePath}`, valid: false }
   }
 
   // Check is text file
   if (!isTextFile(normalized)) {
-    return {error: `File is not a text/code file (binary detected): ${filePath}`, valid: false}
+    return { error: `File is not a text/code file (binary detected): ${filePath}`, valid: false }
   }
 
-  return {normalizedPath: normalized, valid: true}
+  return { normalizedPath: normalized, valid: true }
 }

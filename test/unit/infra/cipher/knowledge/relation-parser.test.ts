@@ -6,45 +6,44 @@ import {
   normalizeRelation,
   parseRelations,
   resolveRelationPath,
-  validateRelationPath,
 } from '../../../../../src/core/domain/knowledge/relation-parser.js'
 /**
  * Unit tests for relation-parser.
  */
 describe('relation-parser', () => {
   describe('parseRelations', () => {
-    it('should parse domain/topic relations from content', () => {
+    it('should parse domain/topic/title.md relations from content', () => {
       const content = `
 ## Relations
-@code_style/error-handling
-@structure/api-endpoints
+@code_style/error-handling/overview.md
+@structure/api-endpoints/guide.md
 `
       const result = parseRelations(content)
 
-      expect(result).to.have.members(['code_style/error-handling', 'structure/api-endpoints'])
+      expect(result).to.have.members(['code_style/error-handling/overview.md', 'structure/api-endpoints/guide.md'])
     })
 
-    it('should parse domain/topic/subtopic relations from content', () => {
+    it('should parse domain/topic/subtopic/title.md relations from content', () => {
       const content = `
 ## Relations
-@code_style/error-handling/try-catch
-@structure/api/endpoints
+@code_style/error-handling/try-catch/guide.md
+@structure/api/endpoints/rest.md
 `
       const result = parseRelations(content)
 
-      expect(result).to.have.members(['code_style/error-handling/try-catch', 'structure/api/endpoints'])
+      expect(result).to.have.members(['code_style/error-handling/try-catch/guide.md', 'structure/api/endpoints/rest.md'])
     })
 
     it('should return unique relations', () => {
       const content = `
-@code_style/error-handling
-@code_style/error-handling
-@structure/api
+@code_style/error-handling/overview.md
+@code_style/error-handling/overview.md
+@structure/api/guide.md
 `
       const result = parseRelations(content)
 
       expect(result).to.have.lengthOf(2)
-      expect(result).to.have.members(['code_style/error-handling', 'structure/api'])
+      expect(result).to.have.members(['code_style/error-handling/overview.md', 'structure/api/guide.md'])
     })
 
     it('should return empty array for content without relations', () => {
@@ -56,77 +55,74 @@ describe('relation-parser', () => {
     })
 
     it('should parse relations embedded in text', () => {
-      const content = 'See @code_style/error-handling for more info'
+      const content = 'See @code_style/error-handling/overview.md for more info'
 
       const result = parseRelations(content)
 
-      expect(result).to.deep.equal(['code_style/error-handling'])
-    })
-  })
-
-  describe('validateRelationPath', () => {
-    it('should return true for valid domain/topic path', () => {
-      expect(validateRelationPath('code_style/error-handling')).to.be.true
+      expect(result).to.deep.equal(['code_style/error-handling/overview.md'])
     })
 
-    it('should return true for valid domain/topic/subtopic path', () => {
-      expect(validateRelationPath('code_style/error-handling/try-catch')).to.be.true
+    it('should not parse relations without title.md', () => {
+      const content = `
+@code_style/error-handling
+@structure/api
+`
+      const result = parseRelations(content)
+
+      expect(result).to.deep.equal([])
     })
 
-    it('should return true for path with hyphens and underscores', () => {
-      expect(validateRelationPath('code_style/error-handling')).to.be.true
-      expect(validateRelationPath('code-style/error_handling')).to.be.true
+    it('should parse relations with optional file extension', () => {
+      const content = `
+@code_style/error-handling/overview.md
+@structure/api/guide.txt
+@testing/unit/basics
+`
+      const result = parseRelations(content)
+
+      expect(result).to.have.members(['code_style/error-handling/overview.md', 'structure/api/guide.txt', 'testing/unit/basics'])
     })
 
-    it('should return false for single part path', () => {
-      expect(validateRelationPath('invalid')).to.be.false
+    it('should match relations even when @ is preceded by word characters', () => {
+      const content = 'email@code_style/error-handling/overview.md or @structure/api/guide.md'
+      const result = parseRelations(content)
+
+      expect(result).to.have.members(['code_style/error-handling/overview.md', 'structure/api/guide.md'])
     })
 
-    it('should return false for path with too many parts', () => {
-      expect(validateRelationPath('too/many/parts/here')).to.be.false
-    })
+    it('should handle relations with underscores and hyphens', () => {
+      const content = '@test-domain/my_topic/sub-topic/file-name.md'
+      const result = parseRelations(content)
 
-    it('should return false for empty path', () => {
-      expect(validateRelationPath('')).to.be.false
-    })
-
-    it('should return false for path with empty parts', () => {
-      expect(validateRelationPath('/topic')).to.be.false
-      expect(validateRelationPath('domain/')).to.be.false
-      expect(validateRelationPath('domain//subtopic')).to.be.false
-    })
-
-    it('should return false for path with invalid characters', () => {
-      expect(validateRelationPath('domain/topic!')).to.be.false
-      expect(validateRelationPath('domain/topic with space')).to.be.false
+      expect(result).to.deep.equal(['test-domain/my_topic/sub-topic/file-name.md'])
     })
   })
 
   describe('resolveRelationPath', () => {
-    it('should resolve domain/topic relation to file path', () => {
-      const result = resolveRelationPath('.brv/context-tree', 'code_style/error-handling')
+    it('should resolve domain/topic/title.md relation to file path', () => {
+      const result = resolveRelationPath('.brv/context-tree', 'code_style/error-handling/overview.md')
 
-      expect(result).to.equal('.brv/context-tree/code_style/error-handling/context.md')
+      expect(result).to.equal('.brv/context-tree/code_style/error-handling/overview.md')
     })
 
-    it('should resolve domain/topic/subtopic relation to file path', () => {
-      const result = resolveRelationPath('.brv/context-tree', 'structure/api/endpoints')
+    it('should resolve domain/topic/subtopic/title.md relation to file path', () => {
+      const result = resolveRelationPath('.brv/context-tree', 'structure/api/endpoints/rest.md')
 
-      expect(result).to.equal('.brv/context-tree/structure/api/endpoints/context.md')
+      expect(result).to.equal('.brv/context-tree/structure/api/endpoints/rest.md')
     })
   })
 
   describe('formatRelation', () => {
-    it('should format domain/topic as @domain/topic', () => {
-      const result = formatRelation('code_style', 'error-handling')
+    it('should format domain/topic/title as @domain/topic/title', () => {
+      const result = formatRelation('code_style', 'error-handling', 'overview.md')
 
-      expect(result).to.equal('@code_style/error-handling')
+      expect(result).to.equal('@code_style/error-handling/overview.md')
     })
 
-    it('should format domain/topic/subtopic as @domain/topic/subtopic', () => {
-      const result = formatRelation('structure', 'api', 'endpoints')
+    it('should format domain/topic/subtopic/title as @domain/topic/subtopic/title', () => {
+      const result = formatRelation('structure', 'api', 'rest.md', 'endpoints')
 
-      expect(result).to.equal('@structure/api/endpoints')
+      expect(result).to.equal('@structure/api/endpoints/rest.md')
     })
   })
 
@@ -139,11 +135,11 @@ describe('relation-parser', () => {
       expect(normalizeRelation('@code_style/error-handling')).to.equal('code_style/error-handling')
     })
 
-    it('should handle path with subtopic without @ prefix', () => {
+    it('should preserve .md extension when no @ prefix', () => {
       expect(normalizeRelation('code_style/error-handling/title.md')).to.equal('code_style/error-handling/title.md')
     })
 
-    it('should handle path with subtopic with @ prefix', () => {
+    it('should preserve .md extension when @ prefix is present', () => {
       expect(normalizeRelation('@code_style/error-handling/title.md')).to.equal('code_style/error-handling/title.md')
     })
 
@@ -151,19 +147,24 @@ describe('relation-parser', () => {
       expect(normalizeRelation('')).to.equal('')
     })
 
-    it('should remove all @ characters', () => {
+    it('should remove multiple leading @ characters', () => {
       expect(normalizeRelation('@@double/prefix')).to.equal('double/prefix')
-      expect(normalizeRelation('@code_style/error-handling/title.md')).to.equal('code_style/error-handling/title.md')
       expect(normalizeRelation('@@@@code_style/error-handling/title.md')).to.equal('code_style/error-handling/title.md')
+    })
+
+    it('should preserve all file extensions', () => {
       expect(normalizeRelation('code_style/error-handling/title.md')).to.equal('code_style/error-handling/title.md')
+      expect(normalizeRelation('@code_style/error-handling/title.md')).to.equal('code_style/error-handling/title.md')
+      expect(normalizeRelation('code_style/error-handling/file.txt')).to.equal('code_style/error-handling/file.txt')
+      expect(normalizeRelation('code_style/error-handling/file.py')).to.equal('code_style/error-handling/file.py')
     })
   })
 
   describe('generateRelationsSection', () => {
-    it('should generate relations section with @ prefix', () => {
-      const result = generateRelationsSection(['code_style/error-handling', 'structure/api'])
+    it('should generate relations section with @ prefix and .md suffix', () => {
+      const result = generateRelationsSection(['code_style/error-handling/overview', 'structure/api/guide'])
 
-      expect(result).to.equal('\n## Relations\n@code_style/error-handling\n@structure/api\n')
+      expect(result).to.equal('\n## Relations\n@code_style/error-handling/overview.md\n@structure/api/guide.md\n')
     })
 
     it('should return empty string for empty array', () => {
@@ -173,21 +174,57 @@ describe('relation-parser', () => {
     })
 
     it('should handle single relation', () => {
-      const result = generateRelationsSection(['code_style/error-handling'])
+      const result = generateRelationsSection(['code_style/error-handling/overview'])
 
-      expect(result).to.equal('\n## Relations\n@code_style/error-handling\n')
+      expect(result).to.equal('\n## Relations\n@code_style/error-handling/overview.md\n')
     })
 
     it('should not double prefix relations that already have @', () => {
-      const result = generateRelationsSection(['@code_style/error-handling', 'structure/api'])
+      const result = generateRelationsSection(['@code_style/error-handling/overview', 'structure/api/guide'])
 
-      expect(result).to.equal('\n## Relations\n@code_style/error-handling\n@structure/api\n')
+      expect(result).to.equal('\n## Relations\n@code_style/error-handling/overview.md\n@structure/api/guide.md\n')
     })
 
     it('should handle mixed prefixed and non-prefixed relations', () => {
-      const result = generateRelationsSection(['@code_style/error-handling', 'structure/api', '@testing/unit'])
+      const result = generateRelationsSection(['@code_style/error-handling/overview', 'structure/api/guide', '@testing/unit/basics'])
 
-      expect(result).to.equal('\n## Relations\n@code_style/error-handling\n@structure/api\n@testing/unit\n')
+      expect(result).to.equal('\n## Relations\n@code_style/error-handling/overview.md\n@structure/api/guide.md\n@testing/unit/basics.md\n')
+    })
+
+    it('should handle relations with .md extension already present', () => {
+      const result = generateRelationsSection(['code_style/error-handling/overview.md', 'structure/api/guide.md'])
+
+      expect(result).to.equal('\n## Relations\n@code_style/error-handling/overview.md\n@structure/api/guide.md\n')
+    })
+
+    it('should handle relations with subtopic', () => {
+      const result = generateRelationsSection(['code_style/error-handling/try-catch/guide', 'structure/api/endpoints/rest'])
+
+      expect(result).to.equal('\n## Relations\n@code_style/error-handling/try-catch/guide.md\n@structure/api/endpoints/rest.md\n')
+    })
+
+    it('should normalize relations before formatting', () => {
+      const result = generateRelationsSection(['@code_style/error-handling/overview.md', '@structure/api/guide.md'])
+
+      expect(result).to.equal('\n## Relations\n@code_style/error-handling/overview.md\n@structure/api/guide.md\n')
+    })
+
+    it('should add .md extension when relation is missing it', () => {
+      const result = generateRelationsSection(['backend/database/database_orm_and_services', 'structure/api/guide'])
+
+      expect(result).to.equal('\n## Relations\n@backend/database/database_orm_and_services.md\n@structure/api/guide.md\n')
+    })
+
+    it('should handle mixed relations with and without .md extension', () => {
+      const result = generateRelationsSection([
+        'backend/database/database_orm_and_services',
+        'structure/api/guide.md',
+        'testing/unit/basics',
+      ])
+
+      expect(result).to.equal(
+        '\n## Relations\n@backend/database/database_orm_and_services.md\n@structure/api/guide.md\n@testing/unit/basics.md\n',
+      )
     })
   })
 })
