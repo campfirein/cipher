@@ -1,4 +1,3 @@
-import * as fs from 'node:fs/promises'
 import {join} from 'node:path'
 import {z} from 'zod'
 
@@ -17,13 +16,48 @@ const OperationType = z.enum(['ADD', 'UPDATE', 'MERGE', 'DELETE'])
 type OperationType = z.infer<typeof OperationType>
 
 /**
+ * Raw Concept schema for structured metadata and technical footprint.
+ */
+const RawConceptSchema = z.object({
+  changes: z.array(z.string()).optional().describe('What changes in the codebase are induced by this concept'),
+  files: z.array(z.string()).optional().describe('Which files are related to this concept'),
+  flow: z.string().optional().describe('What is the flow included in this concept'),
+  task: z.string().optional().describe('What is the task related to this concept'),
+  timestamp: z
+    .string()
+    .optional()
+    .describe('When the concept was created or modified (ISO 8601 format, e.g., 2025-03-18)'),
+})
+
+/**
+ * Narrative schema for descriptive and structural context.
+ */
+const NarrativeSchema = z.object({
+  dependencies: z
+    .string()
+    .optional()
+    .describe(
+      'Dependency management information (e.g., "Singleton, init when service starts, hard dependency in smoke test")',
+    ),
+  features: z
+    .string()
+    .optional()
+    .describe(
+      'Feature documentation for this concept (e.g., "User permission can be stale for up to 300 seconds due to Redis cache")',
+    ),
+  structure: z.string().optional().describe('Code structure documentation (e.g., "clients/redis_client.go")'),
+})
+
+/**
  * Content structure for ADD and UPDATE operations.
  */
 const ContentSchema = z.object({
+  narrative: NarrativeSchema.optional().describe('Narrative section with descriptive and structural context'),
+  rawConcept: RawConceptSchema.optional().describe('Raw concept section with metadata and technical footprint'),
   relations: z
     .array(z.string())
     .optional()
-    .describe('Related topics using domain/topic or domain/topic/subtopic notation'),
+    .describe('Related topics using domain/topic/title.md or domain/topic/subtopic/title.md notation'),
   snippets: z.array(z.string()).optional().describe('Code/text snippets'),
 })
 
@@ -34,9 +68,14 @@ const OperationSchema = z.object({
   content: ContentSchema.optional().describe('Content for ADD/UPDATE operations'),
   mergeTarget: z.string().optional().describe('Target path for MERGE operation'),
   mergeTargetTitle: z.string().optional().describe('Title of the target file for MERGE operation'),
-  path: z.string().describe('Path: domain/topic or domain/topic/subtopic'),
+  path: z.string().describe('Path: domain/topic/title.md or domain/topic/subtopic/title.md'),
   reason: z.string().describe('Reasoning for this operation'),
-  title: z.string().optional().describe('Title for the context file (saved as {title}.md in snake_case). Required for ADD/UPDATE/MERGE, optional for DELETE'),
+  title: z
+    .string()
+    .optional()
+    .describe(
+      'Title for the context file (saved as {title}.md in snake_case). Required for ADD/UPDATE/MERGE, optional for DELETE',
+    ),
   type: OperationType.describe('Operation type: ADD, UPDATE, MERGE, or DELETE'),
 })
 
@@ -49,8 +88,6 @@ const CurateInputSchema = z.object({
   basePath: z.string().default('.brv/context-tree').describe('Base path for knowledge storage'),
   operations: z.array(OperationSchema).describe('Array of curate operations to apply'),
 })
-
-type CurateInput = z.infer<typeof CurateInputSchema>
 
 /**
  * Result of a single operation.
@@ -95,36 +132,17 @@ function parsePath(path: string): null | {domain: string; subtopic?: string; top
 }
 
 /**
- * Get existing domain names from the context tree.
- * Returns domain folder names that exist in the context tree.
- */
-async function getExistingDomains(basePath: string): Promise<string[]> {
-  try {
-    const entries = await fs.readdir(basePath, {withFileTypes: true})
-    return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name)
-  } catch {
-    // Directory doesn't exist yet
-    return []
-  }
-}
-
-/**
  * Validate domain name format.
  * Dynamic domains are allowed - no predefined list or limits.
  * The agent is responsible for creating semantically meaningful domains.
  */
-async function validateDomain(
-  basePath: string,
-  domainName: string,
-): Promise<{allowed: boolean; existingDomains: string[]; reason?: string}> {
+function validateDomain(domainName: string): {allowed: boolean; reason?: string} {
   const normalizedDomain = toSnakeCase(domainName)
-  const existingDomains = await getExistingDomains(basePath)
 
   // Validate domain name format (must be non-empty and valid for filesystem)
   if (!normalizedDomain || normalizedDomain.length === 0) {
     return {
       allowed: false,
-      existingDomains,
       reason: 'Domain name cannot be empty.',
     }
   }
@@ -133,13 +151,12 @@ async function validateDomain(
   if (!/^[\w-]+$/.test(normalizedDomain)) {
     return {
       allowed: false,
-      existingDomains,
       reason: `Domain name "${normalizedDomain}" contains invalid characters. Use only letters, numbers, underscores, and hyphens.`,
     }
   }
 
   // All valid domain names are allowed - dynamic domain creation enabled
-  return {allowed: true, existingDomains}
+  return {allowed: true}
 }
 
 /**
@@ -165,10 +182,7 @@ function buildFullPath(basePath: string, knowledgePath: string): string {
 /**
  * Execute ADD operation - create new domain/topic/subtopic with {title}.md
  */
-async function executeAdd(
-  basePath: string,
-  operation: Operation,
-): Promise<OperationResult> {
+async function executeAdd(basePath: string, operation: Operation): Promise<OperationResult> {
   const {content, path, reason, title} = operation
 
   if (!title) {
@@ -201,7 +215,7 @@ async function executeAdd(
     }
 
     // Validate domain before creating
-    const domainValidation = await validateDomain(basePath, parsed.domain)
+    const domainValidation = validateDomain(parsed.domain)
     if (!domainValidation.allowed) {
       return {
         message: domainValidation.reason,
@@ -220,8 +234,10 @@ async function executeAdd(
     // Note: writeFileAtomic creates parent directories as needed, avoiding empty folder creation
     const contextContent = MarkdownWriter.generateContext({
       name: title,
+      narrative: content.narrative,
+      rawConcept: content.rawConcept,
       relations: content.relations,
-      snippets: content.snippets || [],
+      snippets: content.snippets ?? [],
     })
     const filename = `${toSnakeCase(title)}.md`
     const contextPath = join(finalPath, filename)
@@ -247,10 +263,7 @@ async function executeAdd(
 /**
  * Execute UPDATE operation - modify existing {title}.md
  */
-async function executeUpdate(
-  basePath: string,
-  operation: Operation,
-): Promise<OperationResult> {
+async function executeUpdate(basePath: string, operation: Operation): Promise<OperationResult> {
   const {content, path, reason, title} = operation
 
   if (!title) {
@@ -290,8 +303,10 @@ async function executeUpdate(
     // Generate and write updated content (full replacement)
     const contextContent = MarkdownWriter.generateContext({
       name: title,
+      narrative: content.narrative,
+      rawConcept: content.rawConcept,
       relations: content.relations,
-      snippets: content.snippets || [],
+      snippets: content.snippets ?? [],
     })
     await DirectoryManager.writeFileAtomic(contextPath, contextContent)
 
@@ -315,10 +330,7 @@ async function executeUpdate(
 /**
  * Execute MERGE operation - combine source file into target file, delete source file
  */
-async function executeMerge(
-  basePath: string,
-  operation: Operation,
-): Promise<OperationResult> {
+async function executeMerge(basePath: string, operation: Operation): Promise<OperationResult> {
   const {mergeTarget, mergeTargetTitle, path, reason, title} = operation
 
   if (!title) {
@@ -412,10 +424,7 @@ async function executeMerge(
  * Execute DELETE operation - remove specific file or entire folder
  * If title is provided, deletes specific file; if omitted, deletes entire folder
  */
-async function executeDelete(
-  basePath: string,
-  operation: Operation,
-): Promise<OperationResult> {
+async function executeDelete(basePath: string, operation: Operation): Promise<OperationResult> {
   const {path, reason, title} = operation
 
   try {
@@ -478,11 +487,29 @@ async function executeDelete(
 /**
  * Execute curate operations on knowledge topics.
  */
-async function executeCurate(
-  input: unknown,
-  _context?: ToolExecutionContext,
-): Promise<CurateOutput> {
-  const {basePath, operations} = input as CurateInput
+async function executeCurate(input: unknown, _context?: ToolExecutionContext): Promise<CurateOutput> {
+  const parseResult = CurateInputSchema.safeParse(input)
+  if (!parseResult.success) {
+    return {
+      applied: [
+        {
+          message: `Invalid input: ${parseResult.error.message}`,
+          path: '',
+          status: 'failed',
+          type: 'ADD',
+        },
+      ],
+      summary: {
+        added: 0,
+        deleted: 0,
+        failed: 1,
+        merged: 0,
+        updated: 0,
+      },
+    }
+  }
+
+  const {basePath, operations} = parseResult.data
 
   const applied: OperationResult[] = []
   const summary = {
@@ -532,8 +559,10 @@ async function executeCurate(
       }
 
       default: {
+        // Exhaustive type check - TypeScript will error if any case is missed
+        const exhaustiveCheck: never = operation.type
         result = {
-          message: `Unknown operation type: ${(operation as Operation).type}`,
+          message: `Unknown operation type: ${exhaustiveCheck}`,
           path: operation.path,
           status: 'failed',
           type: operation.type,
@@ -562,29 +591,65 @@ async function executeCurate(
  */
 export function createCurateTool(): Tool {
   return {
-    description: `Curate knowledge topics with atomic operations. This tool manages the knowledge structure using four operation types:
+    description: `Curate knowledge topics with atomic operations. This tool manages the knowledge structure using four operation types and supports a two-part context model: Raw Concept + Narrative.
+
+**Content Structure (Two-Part Model):**
+- **rawConcept**: Captures essential metadata and technical footprint
+  - task: What is the task related to this concept
+  - changes: Array of changes induced in the codebase
+  - files: Array of related files
+  - flow: The execution flow of this concept
+  - timestamp: When created/modified (ISO 8601 format)
+- **narrative**: Captures descriptive and structural context
+  - structure: Code structure documentation
+  - dependencies: Dependency management information
+  - features: Feature documentation
+- **snippets**: Code/text snippets (legacy support)
+- **relations**: Related topics using @domain/topic notation
 
 **Operations:**
 1. **ADD** - Create new titled context file in domain/topic/subtopic
    - Requires: path, title, content (snippets and/or relations), reason
-   - Example: { type: "ADD", path: "code_style/error_handling", title: "Best Practices", content: { snippets: ["..."], relations: ["logging/basics"] }, reason: "New pattern" }
-   - Creates: code_style/error_handling/best_practices.md
+   - Relations must be in the format of "domain/topic/title.md" or "domain/topic/subtopic/title.md"
+   - Example with Raw Concept + Narrative:
+     {
+       type: "ADD",
+       path: "structure/caching",
+       title: "Redis User Permissions",
+       content: {
+         rawConcept: {
+           task: "Introduce Redis cache for getUserPermissions(userId)",
+           changes: ["Cached result using remote Redis", "Redis client: singleton"],
+           files: ["services/permission_service.go", "clients/redis_client.go"],
+           flow: "getUserPermissions -> check Redis -> on miss query DB -> store result -> return",
+           timestamp: "2025-03-18"
+         },
+         narrative: {
+           structure: "# Redis client\\n- clients/redis_client.go",
+           dependencies: "# Redis client\\n- Singleton, init when service starts",
+           features: "# Authorization\\n- User permission can be stale for up to 300 seconds"
+         },
+         relations: ["structure/api-endpoints/validation.md", "structure/api-endpoints/error-handling/retry-logic.md"]
+       },
+       reason: "New caching pattern"
+     }
+   - Creates: structure/caching/redis_user_permissions.md
 
 2. **UPDATE** - Modify existing titled context file (full replacement)
    - Requires: path, title, content, reason
-   - Example: { type: "UPDATE", path: "code_style/error_handling", title: "Best Practices", content: { snippets: ["Updated"] }, reason: "Improved" }
+   - Relations must be in the format of "domain/topic/title.md" or "domain/topic/subtopic/title.md"
+   - Supports same content structure as ADD
 
 3. **MERGE** - Combine source file into target file, delete source
    - Requires: path (source), title (source file), mergeTarget (destination path), mergeTargetTitle (destination file), reason
    - Example: { type: "MERGE", path: "code_style/old_topic", title: "Old Guide", mergeTarget: "code_style/new_topic", mergeTargetTitle: "New Guide", reason: "Consolidating" }
+   - Raw concepts and narratives are intelligently merged
 
 4. **DELETE** - Remove specific file or entire folder
    - Requires: path, title (optional), reason
    - With title: deletes specific file; without title: deletes entire folder
-   - Example (file): { type: "DELETE", path: "code_style/deprecated", title: "Old Guide", reason: "No longer relevant" }
-   - Example (folder): { type: "DELETE", path: "code_style/deprecated", title: "", reason: "Removing topic" }
 
-**Path format:** domain/topic or domain/topic/subtopic (uses snake_case automatically)
+**Path format:** domain/topic/title.md or domain/topic/subtopic/title.md (uses snake_case automatically)
 **File naming:** Titles are converted to snake_case (e.g., "Best Practices" -> "best_practices.md")
 
 **Dynamic Domain Creation:**
@@ -600,6 +665,8 @@ export function createCurateTool(): Tool {
 - Avoid overly generic names (e.g., "misc", "other", "general")
 - Avoid overly specific names that only fit one topic
 - Keep domain count reasonable by consolidating related concepts
+
+**Backward Compatibility:** Existing context entries using only snippets and relations continue to work.
 
 **Output:** Returns applied operations with status (success/failed), filePath (for created/modified files), and a summary of counts.`,
 

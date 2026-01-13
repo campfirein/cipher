@@ -203,10 +203,21 @@ This creates agent-specific rule files (e.g., `CLAUDE.md`, `.cursorrules`) that 
 | Command | Description |
 |---------|-------------|
 | `/gen-rules` | Generate rule files for AI coding agents (Claude Code, Cursor, etc.) |
-| `/clear [-y] [directory]` | Reset context tree to default domains |
+| `/reset [-y] [directory]` | Reset context tree to default domains |
 
-**Clear options:**
+**Reset options:**
 - `-y, --yes`: Skip confirmation prompt
+
+### Session Management
+
+| Command | Description |
+|---------|-------------|
+| `/new [-y]` | Start a fresh session (ends current session, clears conversation) |
+
+**Options:**
+- `-y, --yes`: Skip confirmation prompt
+
+**Note:** This command does NOT affect the context tree—it only clears the conversation history and starts a new session.
 
 ### Project Setup
 

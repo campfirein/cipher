@@ -48,10 +48,12 @@ export function InlineConfirm({
 
   return (
     <Box>
-      <Text color={colors.secondary}>? </Text>
-      <Text color={colors.text}>{message} </Text>
-      <Text color={colors.secondary}>{hint} </Text>
-      <TextInput onChange={setInput} onSubmit={handleSubmit} value={input} />
+      <Text color={colors.text}>
+        {message}?
+        {' '}
+        <Text color={colors.secondary}>{hint} </Text>
+        <TextInput onChange={setInput} onSubmit={handleSubmit} value={input} />
+      </Text>
     </Box>
   )
 }

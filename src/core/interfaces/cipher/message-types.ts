@@ -343,6 +343,13 @@ export interface ToolCall {
   id: string
 
   /**
+   * Thought signature for Gemini 3+ models.
+   * Required by Gemini 3 preview models to validate function calls.
+   * Uses 'skip_thought_signature_validator' as synthetic signature.
+   */
+  thoughtSignature?: string
+
+  /**
    * The type of tool call (currently only 'function' is supported)
    */
   type: 'function'

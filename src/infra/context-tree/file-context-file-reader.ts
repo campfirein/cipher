@@ -4,6 +4,7 @@ import {join} from 'node:path'
 import type {ContextFileContent, IContextFileReader} from '../../core/interfaces/i-context-file-reader.js'
 
 import {BRV_DIR, CONTEXT_TREE_DIR} from '../../constants.js'
+import {MarkdownWriter} from '../../core/domain/knowledge/markdown-writer.js'
 
 export type FileContextFileReaderConfig = {
   baseDirectory?: string
@@ -40,9 +41,13 @@ export class FileContextFileReader implements IContextFileReader {
       const content = await readFile(fullPath, 'utf8')
       const title = extractTitle(content, relativePath)
 
+      const parsedContent = MarkdownWriter.parseContent(content, title)
+
       return {
         content,
+        narrative: parsedContent.narrative,
         path: relativePath,
+        rawConcept: parsedContent.rawConcept,
         title,
       }
     } catch {

@@ -62,6 +62,14 @@ export type ProcessManagerConfig = {
   startupTimeoutMs?: number
 }
 
+/**
+ * Options for starting the process manager.
+ */
+export type ProcessStartOptions = {
+  /** Session ID to pass to Agent process (for stateful sessions) */
+  sessionId?: string
+}
+
 const DEFAULT_SHUTDOWN_TIMEOUT_MS = 5000
 const DEFAULT_STARTUP_TIMEOUT_MS = 30_000
 const HEALTH_CHECK_INTERVAL_MS = 5000 // Check every 5 seconds
@@ -86,6 +94,7 @@ function createSystemError(error: string, context: string): Error {
  * - Crash recovery: respawn on exit
  */
 export class ProcessManager {
+  private currentSessionId?: string
   private healthCheckInterval?: NodeJS.Timeout
   private lastHealthCheckTime: number = Date.now()
   private readonly shutdownTimeoutMs: number
@@ -131,12 +140,16 @@ export class ProcessManager {
    * 3. Start Agent Process with TRANSPORT_PORT env
    * 4. Wait for Agent 'ready'
    *
+   * @param options - Start options including session ID for stateful sessions
    * @throws Error if startup fails or times out
    */
-  async start(): Promise<void> {
+  async start(options?: ProcessStartOptions): Promise<void> {
     if (this.state.running) {
       return
     }
+
+    // Store session ID for use when spawning agent
+    this.currentSessionId = options?.sessionId
 
     // Step 1: Start Transport Process
     const port = await this.startTransportProcess()
@@ -301,12 +314,20 @@ export class ProcessManager {
     return new Promise((resolve, reject) => {
       const workerPath = path.resolve(this.getWorkerDir(), 'agent-worker.js')
 
+      // Build environment variables for agent
+      const agentEnv: Record<string, string | undefined> = {
+        ...process.env,
+        BRV_SESSION_LOG: getSessionLogPath(),
+        TRANSPORT_PORT: String(transportPort),
+      }
+
+      // Pass session ID if provided (for stateful sessions)
+      if (this.currentSessionId) {
+        agentEnv.BYTEROVER_SESSION_ID = this.currentSessionId
+      }
+
       const child = fork(workerPath, [], {
-        env: {
-          ...process.env,
-          BRV_SESSION_LOG: getSessionLogPath(),
-          TRANSPORT_PORT: String(transportPort),
-        },
+        env: agentEnv,
         stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
       })
 

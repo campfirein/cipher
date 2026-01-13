@@ -2,6 +2,30 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [1.0.5]
+
+### Added
+
+- Stateful sessions with auto-resume - sessions now persist and can be resumed after restart
+- `/new` command to start a fresh session (clears conversation history while preserving context tree)
+- Two-part context model for curation - contexts now include both raw concept and narrative sections
+
+### Changed
+
+- `/clear` command renamed to `/reset` to avoid confusion with Unix `clear` command
+- Upgraded default LLM to Gemini 3 Flash with thinking visualization support
+- Improved curate prompt quality and handling of empty code snippets
+- Knowledge relations now enforce consistent path format (`domain/topic/title.md`)
+
+### Fixed
+
+- File extension preserved correctly in knowledge relation paths
+- Relation parser now handles file extensions and pattern matching more reliably
+- Question marks removed from confirmation prompts for cleaner UI
+- File paths now resolve correctly relative to project root (not working directory)
+- Concurrent curation no longer gets stuck in queue state
+- Improved stability during concurrent task execution
+
 ## [1.0.4]
 
 ### Added
