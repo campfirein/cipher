@@ -155,8 +155,7 @@ describe('file-validator', () => {
         const result = validateFileForCurate('binary.bin', testDir)
 
         expect(result.valid).to.be.false
-        expect(result.error).to.include('not a text/code file')
-        expect(result.error).to.include('binary detected')
+        expect(result.error).to.include('File type not supported')
       })
 
       it('should accept text files', () => {

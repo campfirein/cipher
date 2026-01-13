@@ -3,6 +3,7 @@ import type {ILogger} from '../../../../core/interfaces/cipher/i-logger.js'
 import type {IMessageFormatter} from '../../../../core/interfaces/cipher/i-message-formatter.js'
 import type {ITokenizer} from '../../../../core/interfaces/cipher/i-tokenizer.js'
 import type {
+  AttachmentPart,
   InternalMessage,
   MessagePart,
   ToolPart,
@@ -258,12 +259,36 @@ export class ContextManager<T> {
     toolName: string,
     result: unknown,
     _metadata: {errorType?: string; metadata?: Record<string, unknown>; success: boolean},
+    attachments?: AttachmentPart[],
   ): Promise<string> {
     // Sanitize result - convert to string representation (can be done outside lock)
     const sanitized = this.sanitizeToolResult(result)
 
+    // Build content: if attachments exist, create MessagePart array
+    const content: Array<MessagePart> | string =
+      attachments && attachments.length > 0
+        ? [
+            {text: sanitized, type: 'text'},
+            ...attachments.map((att): MessagePart => {
+              if (att.type === 'image') {
+                return {
+                  image: att.data,
+                  mimeType: att.mime,
+                  type: 'image',
+                }
+              }
+              return {
+                data: att.data,
+                filename: att.filename,
+                mimeType: att.mime,
+                type: 'file',
+              }
+            }),
+          ]
+        : sanitized
+
     const message: InternalMessage = {
-      content: sanitized,
+      content,
       name: toolName,
       role: 'tool',
       toolCallId,
