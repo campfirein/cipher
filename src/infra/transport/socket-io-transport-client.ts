@@ -26,6 +26,14 @@ import {
   TransportRoomError,
   TransportRoomTimeoutError,
 } from '../../core/domain/errors/transport-error.js'
+import {processLog} from '../../utils/process-logger.js'
+
+/**
+ * Log transport client events for debugging reconnection issues.
+ */
+function clientLog(message: string): void {
+  processLog(`[TransportClient] ${message}`)
+}
 
 /**
  * Wrapper type for storing event handlers with unknown types.
@@ -46,6 +54,18 @@ const FORCE_RECONNECT_DELAYS = [5000, 10_000, 20_000, 30_000, 60_000] // 5s, 10s
 const MAX_FORCE_RECONNECT_ATTEMPTS = 10
 
 /**
+ * Interval for checking time jumps that indicate system wake from sleep.
+ * Uses a short interval so we detect wake quickly.
+ */
+const WAKE_DETECTION_INTERVAL_MS = 5000
+
+/**
+ * Time jump threshold to detect wake from sleep/hibernate.
+ * If the actual elapsed time exceeds expected by this amount, system likely woke from sleep.
+ */
+const WAKE_TIME_JUMP_THRESHOLD_MS = 10_000
+
+/**
  * Socket.IO implementation of ITransportClient.
  *
  * Architecture notes:
@@ -64,6 +84,8 @@ export class SocketIOTransportClient implements ITransportClient {
   private forceReconnectTimer?: NodeJS.Timeout
   /** Track joined rooms for auto-rejoin after reconnect */
   private joinedRooms: Set<string> = new Set()
+  /** Last time we checked for wake (for detecting time jumps) */
+  private lastWakeCheckTime = Date.now()
   /** Track which events have socket listeners registered (prevents duplicates on reconnect) */
   private registeredSocketEvents: Set<string> = new Set()
   /** Store server URL for force reconnect */
@@ -71,6 +93,8 @@ export class SocketIOTransportClient implements ITransportClient {
   private socket: Socket | undefined
   private state: ConnectionState = 'disconnected'
   private stateHandlers: Set<ConnectionStateHandler> = new Set()
+  /** Timer for wake detection */
+  private wakeDetectionTimer?: NodeJS.Timeout
 
   constructor(config?: TransportClientConfig) {
     this.config = {
@@ -127,6 +151,8 @@ export class SocketIOTransportClient implements ITransportClient {
         // This fixes the issue where on() called before connect() would not
         // actually register handlers on the socket.
         this.registerPendingEventHandlers()
+        // Start wake detection to handle sleep/hibernate recovery
+        this.startWakeDetection()
         resolve()
       }
 
@@ -155,7 +181,8 @@ export class SocketIOTransportClient implements ITransportClient {
       this.socket.once('connect_error', onConnectError)
 
       // Set up persistent event handlers
-      this.socket.on('disconnect', () => {
+      this.socket.on('disconnect', (reason) => {
+        clientLog(`Socket disconnected, reason: ${reason}, active: ${this.socket?.active}`)
         if (this.socket?.active) {
           // Socket.IO is attempting to reconnect
           this.setState('reconnecting')
@@ -164,7 +191,8 @@ export class SocketIOTransportClient implements ITransportClient {
         }
       })
 
-      this.socket.io.on('reconnect', () => {
+      this.socket.io.on('reconnect', (attemptNumber) => {
+        clientLog(`Socket.IO built-in reconnect succeeded after ${attemptNumber} attempts`)
         this.setState('connected')
         // Re-register event handlers after reconnect
         // Clear tracking first since socket listeners were reset during reconnect
@@ -172,10 +200,13 @@ export class SocketIOTransportClient implements ITransportClient {
         this.registerPendingEventHandlers()
 
         // Auto-rejoin rooms after reconnect
-        this.rejoinRooms()
+        // Use process.nextTick to ensure socket.connected is true
+        // (reconnect event fires before socket.connected is updated)
+        process.nextTick(() => this.rejoinRooms())
       })
 
       this.socket.io.on('reconnect_failed', () => {
+        clientLog('Socket.IO built-in reconnection failed after all attempts, starting force reconnect')
         this.setState('disconnected')
         // Start force reconnect loop after Socket.IO gives up
         this.scheduleForceReconnect()
@@ -186,6 +217,8 @@ export class SocketIOTransportClient implements ITransportClient {
   async disconnect(): Promise<void> {
     // Cancel any pending force reconnect
     this.cancelForceReconnect()
+    // Stop wake detection
+    this.stopWakeDetection()
 
     const {socket} = this
     if (!socket) {
@@ -379,9 +412,12 @@ export class SocketIOTransportClient implements ITransportClient {
     // Check max attempts - give up if exceeded
     // ProcessManager's periodic health check (30s) will detect and restart
     if (this.forceReconnectAttempt >= MAX_FORCE_RECONNECT_ATTEMPTS) {
+      clientLog(`Force reconnect gave up after ${MAX_FORCE_RECONNECT_ATTEMPTS} attempts`)
       this.setState('disconnected')
       return
     }
+
+    clientLog(`Force reconnect attempt ${this.forceReconnectAttempt + 1}/${MAX_FORCE_RECONNECT_ATTEMPTS}`)
 
     try {
       // Cleanup old socket completely
@@ -398,10 +434,18 @@ export class SocketIOTransportClient implements ITransportClient {
       // Attempt to connect
       await this.connect(this.serverUrl)
 
+      // Rejoin rooms after force reconnect (same as built-in reconnect)
+      // Without this, TUI REPL won't receive events from broadcast-room
+      // Use process.nextTick for consistency with built-in reconnect handler
+      clientLog(`Force reconnect succeeded, rejoining ${this.joinedRooms.size} rooms`)
+      process.nextTick(() => this.rejoinRooms())
+
       // Success - reset attempt counter
       this.forceReconnectAttempt = 0
-    } catch {
+    } catch (error) {
       // Failed - schedule next attempt
+      const errorMsg = error instanceof Error ? error.message : String(error)
+      clientLog(`Force reconnect failed: ${errorMsg}`)
       this.scheduleForceReconnect()
     }
   }
@@ -423,6 +467,26 @@ export class SocketIOTransportClient implements ITransportClient {
     if (this.forceReconnectTimer) {
       clearTimeout(this.forceReconnectTimer)
       this.forceReconnectTimer = undefined
+    }
+  }
+
+  /**
+   * Handle system wake from sleep/hibernate.
+   * Re-triggers reconnection if not connected and force reconnect has given up.
+   */
+  private handleWakeFromSleep(): void {
+    // Only take action if disconnected (force reconnect may have given up before sleep)
+    if (this.state === 'disconnected' && this.serverUrl) {
+      clientLog('handleWakeFromSleep: state is disconnected, restarting force reconnect')
+      // Reset attempt counter to get fresh tries after wake
+      this.forceReconnectAttempt = 0
+      this.scheduleForceReconnect()
+    } else if (this.state === 'connected' && this.socket && !this.socket.connected) {
+      // State says connected but socket isn't - stale state after wake
+      clientLog('handleWakeFromSleep: state mismatch (connected but socket disconnected), triggering reconnect')
+      this.setState('disconnected')
+      this.forceReconnectAttempt = 0
+      this.scheduleForceReconnect()
     }
   }
 
@@ -463,6 +527,7 @@ export class SocketIOTransportClient implements ITransportClient {
    * Retries failed room joins with exponential backoff.
    */
   private rejoinRooms(): void {
+    clientLog(`rejoinRooms: rejoining ${this.joinedRooms.size} rooms: [${[...this.joinedRooms].join(', ')}]`)
     for (const room of this.joinedRooms) {
       this.rejoinRoomWithRetry(room, 0)
     }
@@ -470,21 +535,38 @@ export class SocketIOTransportClient implements ITransportClient {
 
   /**
    * Rejoin a single room with retry logic.
-   * Uses exponential backoff: 100ms, 200ms, 400ms (max 3 attempts).
+   * Uses exponential backoff: 50ms, 100ms, 200ms, 400ms, 800ms (max 5 attempts).
+   * Retries BOTH when socket not connected AND when room:join fails.
    */
   private rejoinRoomWithRetry(room: string, attempt: number): void {
-    const MAX_REJOIN_ATTEMPTS = 3
-    const REJOIN_BASE_DELAY_MS = 100
+    const MAX_REJOIN_ATTEMPTS = 5
+    const REJOIN_BASE_DELAY_MS = 50
 
-    if (attempt >= MAX_REJOIN_ATTEMPTS || !this.socket?.connected) {
+    if (attempt >= MAX_REJOIN_ATTEMPTS) {
+      clientLog(`rejoinRoomWithRetry: gave up rejoining '${room}' after ${MAX_REJOIN_ATTEMPTS} attempts`)
       return
     }
 
+    // If socket not connected yet, retry with backoff (don't silent return!)
+    // This handles race condition where reconnect event fires before socket.connected is true
+    if (!this.socket?.connected) {
+      const delay = REJOIN_BASE_DELAY_MS * 2 ** attempt
+      clientLog(`rejoinRoomWithRetry: socket not connected, retrying '${room}' in ${delay}ms (attempt ${attempt + 1}/${MAX_REJOIN_ATTEMPTS})`)
+      setTimeout(() => this.rejoinRoomWithRetry(room, attempt + 1), delay)
+      return
+    }
+
+    clientLog(`rejoinRoomWithRetry: attempting to rejoin '${room}' (attempt ${attempt + 1}/${MAX_REJOIN_ATTEMPTS})`)
     this.socket.emit('room:join', room, (response: {success: boolean}) => {
-      if (!response?.success && attempt < MAX_REJOIN_ATTEMPTS - 1) {
+      if (response?.success) {
+        clientLog(`rejoinRoomWithRetry: successfully rejoined '${room}'`)
+      } else if (attempt < MAX_REJOIN_ATTEMPTS - 1) {
         // Retry with exponential backoff
         const delay = REJOIN_BASE_DELAY_MS * 2 ** attempt
+        clientLog(`rejoinRoomWithRetry: room:join failed for '${room}', retrying in ${delay}ms`)
         setTimeout(() => this.rejoinRoomWithRetry(room, attempt + 1), delay)
+      } else {
+        clientLog(`rejoinRoomWithRetry: failed to rejoin '${room}' on final attempt`)
       }
     })
   }
@@ -506,6 +588,7 @@ export class SocketIOTransportClient implements ITransportClient {
    */
   private scheduleForceReconnect(): void {
     if (!this.serverUrl) {
+      clientLog('scheduleForceReconnect: no serverUrl, skipping')
       return
     }
 
@@ -514,6 +597,7 @@ export class SocketIOTransportClient implements ITransportClient {
     this.clearForceReconnectTimer()
 
     const delay = FORCE_RECONNECT_DELAYS[Math.min(this.forceReconnectAttempt, FORCE_RECONNECT_DELAYS.length - 1)]
+    clientLog(`scheduleForceReconnect: scheduling attempt ${this.forceReconnectAttempt + 1} in ${delay}ms`)
 
     this.forceReconnectTimer = setTimeout(() => {
       this.forceReconnectAttempt++
@@ -523,10 +607,42 @@ export class SocketIOTransportClient implements ITransportClient {
 
   private setState(state: ConnectionState): void {
     if (this.state !== state) {
+      clientLog(`State change: ${this.state} -> ${state}`)
       this.state = state
       for (const handler of this.stateHandlers) {
         handler(state)
       }
+    }
+  }
+
+  /**
+   * Start wake detection timer.
+   * Periodically checks for time jumps that indicate system woke from sleep.
+   */
+  private startWakeDetection(): void {
+    this.stopWakeDetection()
+    this.lastWakeCheckTime = Date.now()
+
+    this.wakeDetectionTimer = setInterval(() => {
+      const now = Date.now()
+      const elapsed = now - this.lastWakeCheckTime
+      this.lastWakeCheckTime = now
+
+      // If elapsed time is much greater than interval, system likely woke from sleep
+      if (elapsed > WAKE_DETECTION_INTERVAL_MS + WAKE_TIME_JUMP_THRESHOLD_MS) {
+        clientLog(`Wake detected: time jump of ${elapsed}ms (expected ~${WAKE_DETECTION_INTERVAL_MS}ms)`)
+        this.handleWakeFromSleep()
+      }
+    }, WAKE_DETECTION_INTERVAL_MS)
+  }
+
+  /**
+   * Stop wake detection timer.
+   */
+  private stopWakeDetection(): void {
+    if (this.wakeDetectionTimer) {
+      clearInterval(this.wakeDetectionTimer)
+      this.wakeDetectionTimer = undefined
     }
   }
 }
