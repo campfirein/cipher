@@ -277,6 +277,7 @@ export class ContextManager<T> {
                   type: 'image',
                 }
               }
+
               return {
                 data: att.data,
                 filename: att.filename,

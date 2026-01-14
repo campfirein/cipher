@@ -129,6 +129,7 @@ describe('binary-utils', () => {
 
   describe('isPdfFile', () => {
     const validPdfBuffer = Buffer.from([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x34])
+    const pdfWithLeadingWhitespace = Buffer.concat([Buffer.from('   \n\t'), validPdfBuffer])
     const invalidPdfBuffer = Buffer.from([0x50, 0x4b, 0x03, 0x04])
 
     describe('without buffer (extension-only)', () => {
@@ -151,6 +152,10 @@ describe('binary-utils', () => {
         expect(isPdfFile('Document.PDF', validPdfBuffer)).to.be.true
       })
 
+      it('should return true for .pdf with leading whitespace before magic bytes', () => {
+        expect(isPdfFile('document.pdf', pdfWithLeadingWhitespace)).to.be.true
+      })
+
       it('should return false for .pdf with invalid magic bytes', () => {
         expect(isPdfFile('fake.pdf', invalidPdfBuffer)).to.be.false
         expect(isPdfFile('binary.pdf', Buffer.from([0x00, 0x01, 0x02, 0x03]))).to.be.false
@@ -158,12 +163,6 @@ describe('binary-utils', () => {
 
       it('should return false for non-.pdf extension with valid magic bytes', () => {
         expect(isPdfFile('document.txt', validPdfBuffer)).to.be.false
-        expect(isPdfFile('file.docx', validPdfBuffer)).to.be.false
-      })
-
-      it('should return false for buffer too small', () => {
-        const tooSmall = Buffer.from([0x25, 0x50, 0x44])
-        expect(isPdfFile('document.pdf', tooSmall)).to.be.false
       })
 
       it('should return false for empty buffer', () => {

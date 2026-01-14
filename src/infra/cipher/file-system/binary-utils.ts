@@ -61,6 +61,12 @@ const PDF_EXTENSION = '.pdf'
 const PDF_MAGIC_BYTES = Buffer.from([0x25, 0x50, 0x44, 0x46, 0x2d])
 
 /**
+ * Maximum offset to search for PDF magic bytes.
+ * PDFs may have whitespace or comments before the header.
+ */
+const PDF_MAGIC_SEARCH_LIMIT = 1024
+
+/**
  * SVG extension - treat as text, not image.
  */
 const SVG_EXTENSION = '.svg'
@@ -164,23 +170,19 @@ export function isImageFile(filePath: string): boolean {
 
 /**
  * Checks if a file is a PDF. When buffer is provided, validates magic bytes (%PDF-).
+ * Searches within first 1KB to handle PDFs with leading whitespace/comments.
  */
 export function isPdfFile(filePath: string, buffer?: Buffer): boolean {
-  const hasExtension = path.extname(filePath).toLowerCase() === PDF_EXTENSION
-
   if (!buffer) {
-    return hasExtension
+    return path.extname(filePath).toLowerCase() === PDF_EXTENSION
   }
 
-  if (!hasExtension) {
+  if (path.extname(filePath).toLowerCase() !== PDF_EXTENSION) {
     return false
   }
 
-  if (buffer.length < PDF_MAGIC_BYTES.length) {
-    return false
-  }
-
-  return buffer.subarray(0, PDF_MAGIC_BYTES.length).equals(PDF_MAGIC_BYTES)
+  const searchLimit = Math.min(buffer.length, PDF_MAGIC_SEARCH_LIMIT)
+  return buffer.subarray(0, searchLimit).includes(PDF_MAGIC_BYTES)
 }
 
 /**
