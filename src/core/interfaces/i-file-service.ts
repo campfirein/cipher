@@ -18,6 +18,14 @@ export interface IFileService {
   createBackup: (filePath: string) => Promise<string>
 
   /**
+   * Deletes a file at the specified path.
+   *
+   * @param filePath The path to the file to delete.
+   * @returns A promise that resolves when the file has been deleted.
+   */
+  delete: (filePath: string) => Promise<void>
+
+  /**
    * Checks if a file exists at the specified path.
    *
    * @param filePath The path to the file to check.

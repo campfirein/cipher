@@ -1,5 +1,5 @@
-import {type HookSupportedAgent} from '../../core/interfaces/hooks/i-hook-manager.js'
-import {isRecord} from '../../utils/type-guards.js'
+import {Agent} from '../../../core/domain/entities/agent.js'
+import {isRecord} from '../../../utils/type-guards.js'
 
 /**
  * The command that ByteRover hooks execute.
@@ -20,21 +20,13 @@ export type ClaudeCodeHookEntry = {
 }
 
 /**
- * Cursor hook entry structure.
- * Simpler flat structure with just a command.
- */
-export type SimpleHookEntry = {
-  command: string
-}
-
-/**
  * Configuration for each agent's hook system.
  */
-export type AgentHookConfig = {
+export type HookConnectorConfig = {
   /** Path to the configuration file (relative to project root) */
   configPath: string
   /** Function to create a new hook entry for this agent */
-  createHookEntry: () => ClaudeCodeHookEntry | SimpleHookEntry
+  createHookEntry: () => ClaudeCodeHookEntry
   /** Default config structure for new files (optional) */
   defaultConfig?: Record<string, unknown>
   /** The key in the hooks object for the pre-prompt event */
@@ -60,15 +52,14 @@ const isClaudeCodeOurHook = (entry: unknown): boolean => {
 }
 
 /**
- * Check if an entry is a simple hook entry with our command.
- */
-const isSimpleOurHook = (entry: unknown): boolean => hasCommand(entry) && entry.command === HOOK_COMMAND
-
-/**
  * Agent-specific hook configurations.
  * Maps each supported agent to its configuration details.
+ *
+ * To add hook support for a new agent:
+ * 1. Add the agent's config here
+ * 2. Add 'hook' to the agent's supported array in AGENT_CONNECTOR_CONFIG (agent.ts)
  */
-export const AGENT_HOOK_CONFIGS: Record<HookSupportedAgent, AgentHookConfig> = {
+export const HOOK_CONNECTOR_CONFIGS = {
   'Claude Code': {
     configPath: '.claude/settings.local.json',
     createHookEntry: (): ClaudeCodeHookEntry => ({
@@ -78,18 +69,10 @@ export const AGENT_HOOK_CONFIGS: Record<HookSupportedAgent, AgentHookConfig> = {
     hookEventKey: 'UserPromptSubmit',
     isOurHook: isClaudeCodeOurHook,
   },
-  Cursor: {
-    configPath: '.cursor/hooks.json',
-    createHookEntry: (): SimpleHookEntry => ({command: HOOK_COMMAND}),
-    defaultConfig: {hooks: {}, version: 1},
-    hookEventKey: 'beforeSubmitPrompt',
-    isOurHook: isSimpleOurHook,
-  },
-}
+} as const satisfies Partial<Record<Agent, HookConnectorConfig>>
 
 /**
- * List of all supported agents.
- * Using explicit array with `as const satisfies` for type safety without `as Type` assertion.
- * TypeScript will error if values don't match HookSupportedAgent type.
+ * Type representing agents that have hook connector support.
+ * Derived from the keys of HOOK_CONNECTOR_CONFIGS.
  */
-export const HOOK_SUPPORTED_AGENTS = ['Claude Code', 'Cursor'] as const satisfies readonly HookSupportedAgent[]
+export type HookSupportedAgent = keyof typeof HOOK_CONNECTOR_CONFIGS
