@@ -234,13 +234,13 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({availableHeight, 
   const renderCompleteContent = () => (
     <Box flexDirection="column">
       <Text color={colors.dimText} wrap="wrap">
-        Activity logs will appear here as you use brv curate and brv query.
+        Activity logs will appear here as you curate and query context.
       </Text>
       <Box flexDirection="column" marginY={1}>
         <Text color={colors.dimText}>Tips:</Text>
         <Text color={colors.dimText}>- Press [Tab] to switch to commands view</Text>
         <Text color={colors.dimText}>- Use /push to sync your context to the cloud</Text>
-        <Text color={colors.dimText}>- Use /gen-rules to generate agent rules</Text>
+        <Text color={colors.dimText}>- Use /connectors to connect more agents</Text>
         <Text color={colors.dimText}>- Type / for available commands</Text>
       </Box>
       <EnterPrompt

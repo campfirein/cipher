@@ -18,7 +18,7 @@ export type RulesConnectorConfig = {
 /**
  * Mapping of agents to their rule file configurations.
  */
-export const RULES_CONNECTOR_CONFIGS: Record<Agent, RulesConnectorConfig> = {
+export const RULES_CONNECTOR_CONFIGS = {
   Amp: {
     filePath: 'AGENTS.md',
     writeMode: 'append',
@@ -56,7 +56,7 @@ export const RULES_CONNECTOR_CONFIGS: Record<Agent, RulesConnectorConfig> = {
     writeMode: 'append',
   },
   'Kilo Code': {
-    filePath: '.kilocode/rules/agent-contextmd',
+    filePath: '.kilocode/rules/agent-context.md',
     writeMode: 'overwrite',
   },
   Kiro: {
@@ -91,4 +91,9 @@ export const RULES_CONNECTOR_CONFIGS: Record<Agent, RulesConnectorConfig> = {
     filePath: 'agent-context.rules',
     writeMode: 'overwrite',
   },
-}
+} as const satisfies Partial<Record<Agent, RulesConnectorConfig>>
+
+/**
+ * Type for agents that have rules connector configurations.
+ */
+export type RulesSupportedAgent = keyof typeof RULES_CONNECTOR_CONFIGS

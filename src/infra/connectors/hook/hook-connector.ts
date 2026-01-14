@@ -1,6 +1,7 @@
 import path from 'node:path'
 
 import type {Agent} from '../../../core/domain/entities/agent.js'
+import type {ConnectorType} from '../../../core/domain/entities/connector-type.js'
 import type {
   ConnectorInstallResult,
   ConnectorStatus,
@@ -11,7 +12,7 @@ import type {IFileService} from '../../../core/interfaces/i-file-service.js'
 
 import {AGENT_CONNECTOR_CONFIG} from '../../../core/domain/entities/agent.js'
 import {isRecord} from '../../../utils/type-guards.js'
-import {HOOK_CONNECTOR_CONFIGS, type HookSupportedAgent} from './hook-connector-config.js'
+import {HOOK_CONNECTOR_CONFIGS, type HookConnectorConfig, type HookSupportedAgent} from './hook-connector-config.js'
 
 /**
  * Options for constructing HookConnector.
@@ -44,13 +45,17 @@ function parseJsonAsRecord(content: string): Record<string, unknown> {
  * - Safe uninstall: Only removes ByteRover hooks by command match
  */
 export class HookConnector implements IConnector {
-  readonly type = 'hook' as const
+  readonly type: ConnectorType = 'hook' as const
   private readonly fileService: IFileService
   private readonly projectRoot: string
+  private readonly supportedAgents: Agent[]
 
   constructor(options: HookConnectorOptions) {
     this.fileService = options.fileService
     this.projectRoot = options.projectRoot
+    this.supportedAgents = Object.entries(AGENT_CONNECTOR_CONFIG)
+      .filter(([_, config]) => config.supported.includes(this.type))
+      .map(([agent]) => agent as Agent)
   }
 
   getConfigPath(agent: Agent): string {
@@ -58,11 +63,11 @@ export class HookConnector implements IConnector {
       throw new Error(`Hook connector does not support agent: ${agent}`)
     }
 
-    return HOOK_CONNECTOR_CONFIGS[agent as HookSupportedAgent].configPath
+    return HOOK_CONNECTOR_CONFIGS[agent].configPath
   }
 
   getSupportedAgents(): Agent[] {
-    return Object.keys(HOOK_CONNECTOR_CONFIGS) as Agent[]
+    return this.supportedAgents
   }
 
   async install(agent: Agent): Promise<ConnectorInstallResult> {
@@ -75,7 +80,7 @@ export class HookConnector implements IConnector {
       }
     }
 
-    const config = HOOK_CONNECTOR_CONFIGS[agent]
+    const config: HookConnectorConfig = HOOK_CONNECTOR_CONFIGS[agent]
     const fullPath = path.join(this.projectRoot, config.configPath)
 
     try {
@@ -138,7 +143,7 @@ export class HookConnector implements IConnector {
   }
 
   isSupported(agent: Agent): agent is HookSupportedAgent {
-    return AGENT_CONNECTOR_CONFIG[agent].supported.includes('hook')
+    return AGENT_CONNECTOR_CONFIG[agent].supported.includes(this.type)
   }
 
   async status(agent: Agent): Promise<ConnectorStatus> {

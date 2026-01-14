@@ -1,3 +1,4 @@
+import {Agent} from '../../../core/domain/entities/agent.js'
 import {isRecord} from '../../../utils/type-guards.js'
 
 /**
@@ -58,7 +59,7 @@ const isClaudeCodeOurHook = (entry: unknown): boolean => {
  * 1. Add the agent's config here
  * 2. Add 'hook' to the agent's supported array in AGENT_CONNECTOR_CONFIG (agent.ts)
  */
-const HOOK_CONNECTOR_CONFIGS_INTERNAL = {
+export const HOOK_CONNECTOR_CONFIGS = {
   'Claude Code': {
     configPath: '.claude/settings.local.json',
     createHookEntry: (): ClaudeCodeHookEntry => ({
@@ -68,14 +69,10 @@ const HOOK_CONNECTOR_CONFIGS_INTERNAL = {
     hookEventKey: 'UserPromptSubmit',
     isOurHook: isClaudeCodeOurHook,
   },
-} as const satisfies Record<string, HookConnectorConfig>
+} as const satisfies Partial<Record<Agent, HookConnectorConfig>>
 
 /**
- * Type for agents that have hook connector configurations.
+ * Type representing agents that have hook connector support.
+ * Derived from the keys of HOOK_CONNECTOR_CONFIGS.
  */
-export type HookSupportedAgent = keyof typeof HOOK_CONNECTOR_CONFIGS_INTERNAL
-
-/**
- * Agent-specific hook configurations.
- */
-export const HOOK_CONNECTOR_CONFIGS: Record<HookSupportedAgent, HookConnectorConfig> = HOOK_CONNECTOR_CONFIGS_INTERNAL
+export type HookSupportedAgent = keyof typeof HOOK_CONNECTOR_CONFIGS

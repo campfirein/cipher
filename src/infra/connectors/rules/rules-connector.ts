@@ -1,6 +1,7 @@
 import path from 'node:path'
 
 import type {Agent} from '../../../core/domain/entities/agent.js'
+import type {ConnectorType} from '../../../core/domain/entities/connector-type.js'
 import type {
   ConnectorInstallResult,
   ConnectorStatus,
@@ -10,7 +11,7 @@ import type {IConnector} from '../../../core/interfaces/connectors/i-connector.j
 import type {IFileService} from '../../../core/interfaces/i-file-service.js'
 import type {IRuleTemplateService} from '../../../core/interfaces/i-rule-template-service.js'
 
-import {AGENT_VALUES} from '../../../core/domain/entities/agent.js'
+import {AGENT_CONNECTOR_CONFIG} from '../../../core/domain/entities/agent.js'
 import {BRV_RULE_MARKERS, BRV_RULE_TAG} from '../shared/constants.js'
 import {RULES_CONNECTOR_CONFIGS} from './rules-connector-config.js'
 
@@ -28,15 +29,19 @@ type RulesConnectorOptions = {
  * Manages the installation, uninstallation, and status of rule files.
  */
 export class RulesConnector implements IConnector {
-  readonly type = 'rules' as const
+  readonly type: ConnectorType = 'rules' as const
   private readonly fileService: IFileService
   private readonly projectRoot: string
+  private readonly supportedAgents: Agent[]
   private readonly templateService: IRuleTemplateService
 
   constructor(options: RulesConnectorOptions) {
     this.fileService = options.fileService
     this.projectRoot = options.projectRoot
     this.templateService = options.templateService
+    this.supportedAgents = Object.entries(AGENT_CONNECTOR_CONFIG)
+      .filter(([_, config]) => config.supported.includes(this.type))
+      .map(([agent]) => agent as Agent)
   }
 
   getConfigPath(agent: Agent): string {
@@ -44,7 +49,7 @@ export class RulesConnector implements IConnector {
   }
 
   getSupportedAgents(): Agent[] {
-    return [...AGENT_VALUES]
+    return this.supportedAgents
   }
 
   async install(agent: Agent): Promise<ConnectorInstallResult> {
@@ -57,19 +62,6 @@ export class RulesConnector implements IConnector {
       if (exists) {
         const content = await this.fileService.read(fullPath)
         const hasMarkers = content.includes(BRV_RULE_MARKERS.START) && content.includes(BRV_RULE_MARKERS.END)
-
-        if (hasMarkers) {
-          // Already installed - check if it's current by looking for the agent tag
-          const hasAgentTag = content.includes(`${BRV_RULE_TAG} ${agent}`)
-          if (hasAgentTag) {
-            return {
-              alreadyInstalled: true,
-              configPath: config.filePath,
-              message: `Rules connector is already installed for ${agent}`,
-              success: true,
-            }
-          }
-        }
 
         // File exists but no BRV content or different agent - append or replace based on writeMode
         const ruleContent = await this.templateService.generateRuleContent(agent)
@@ -114,7 +106,7 @@ export class RulesConnector implements IConnector {
   }
 
   isSupported(agent: Agent): boolean {
-    return AGENT_VALUES.includes(agent)
+    return AGENT_CONNECTOR_CONFIG[agent].supported.includes(this.type)
   }
 
   async status(agent: Agent): Promise<ConnectorStatus> {
