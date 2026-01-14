@@ -649,8 +649,26 @@ export function createCurateTool(): Tool {
    - Requires: path, title (optional), reason
    - With title: deletes specific file; without title: deletes entire folder
 
-**Path format:** domain/topic/title.md or domain/topic/subtopic/title.md (uses snake_case automatically)
-**File naming:** Titles are converted to snake_case (e.g., "Best Practices" -> "best_practices.md")
+**CRITICAL - Path vs Title separation:**
+- "path" = folder location only (domain/topic or domain/topic/subtopic) - NEVER include file extension suffixes 
+- "title" = the context name (becomes {title}.md file automatically)
+- The system auto-generates the .md file from title - DO NOT put .md or _md anywhere in path
+
+**Path format:** domain/topic OR domain/topic/subtopic (2-3 segments, NO filename, NO extension)
+**File naming:** Title is auto-converted to snake_case and .md is auto-appended (e.g., title "Best Practices" -> best_practices.md)
+
+**Good path examples:**
+- path: "authentication/jwt", title: "Token Refresh" -> creates authentication/jwt/token_refresh.md
+- path: "api_design/error_handling", title: "Retry Logic" -> creates api_design/error_handling/retry_logic.md
+- path: "database/migrations/versioning", title: "Schema Changes" -> creates database/migrations/versioning/schema_changes.md
+
+**Bad path examples (NEVER DO THIS):**
+- "code_style/error_handling_md" - WRONG: _md suffix in path
+- "code_style/error_handling.md" - WRONG: .md extension in path
+- "authentication/jwt/token_refresh.md" - WRONG: filename in path (use title parameter instead)
+- "authentication/jwt/token_refresh_md" - WRONG: _md suffix (this is NOT how to specify filename)
+- "api/auth/jwt/tokens" - WRONG: 4 levels deep (max 3 allowed)
+- "a/b" - WRONG: too vague, use descriptive names
 
 **Dynamic Domain Creation:**
 - Domains are created dynamically based on the context being curated
