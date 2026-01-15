@@ -30,7 +30,7 @@ export class ResetUseCase implements IResetUseCase {
     return this.terminal.confirm({
       default: false,
       message:
-        'Are you sure you want to reset the context tree? This will remove all existing context and restore default domains',
+        'Are you sure you want to reset the context tree? This will remove all existing context. Your context tree will be empty.',
     })
   }
 
@@ -65,8 +65,7 @@ export class ResetUseCase implements IResetUseCase {
       // Re-initialize empty snapshot
       await this.contextTreeSnapshotService.initEmptySnapshot(options.directory)
 
-      this.terminal.log('✓ Context tree reset successfully.')
-      this.terminal.log('  6 default domains restored: code_style, design, structure, compliance, testing, bug_fixes')
+      this.terminal.log('✓ Context tree reset successfully. Your context tree is now empty.')
     } catch (error) {
       // Handle user cancelling the prompt (Ctrl+C or closing stdin)
       const errorMessage = error instanceof Error ? error.message : String(error)
