@@ -327,6 +327,25 @@ export class ContextManager<T> {
   }
 
   /**
+   * Compress messages by removing oldest messages until total tokens fit within the budget.
+   * This directly modifies the internal messages array by slicing from the beginning.
+   *
+   * @param maxTokens - Maximum token budget allowed
+   * @param messageTokens - Array of token counts corresponding to each message
+   */
+  public compressMessage(maxTokens: number, messageTokens: number[]): void {
+    let totalTokens = messageTokens.reduce((sum, tokens) => sum + tokens, 0)
+
+    let toRemoveIndex = 0
+    while (totalTokens > maxTokens && toRemoveIndex < messageTokens.length) {
+      totalTokens -= messageTokens[toRemoveIndex]
+      toRemoveIndex += 1
+    }
+
+    this.messages = this.messages.slice(toRemoveIndex)
+  }
+
+  /**
    * Flush any pending history writes to storage.
    * Provides explicit durability guarantee - ensures all messages
    * are persisted before the promise resolves.
