@@ -260,8 +260,10 @@ export class GeminiMessageFormatter implements IMessageFormatter<Content> {
       } else if (msg.content === null) {
         responseObject = { result: null }
       } else if (Array.isArray(msg.content)) {
-        // Array content (e.g., MessagePart[]) - wrap in result
-        responseObject = { result: msg.content }
+        // Array content (e.g., MessagePart[]) - filter out file/image parts
+        // File/image parts are sent separately as inlineData to avoid duplicate tokenization
+        const textParts = msg.content.filter((p) => p.type === 'text')
+        responseObject = textParts.length > 0 ? { result: textParts } : { result: 'Attachment processed' }
       } else if (typeof msg.content === 'object') {
         // Already an object (shouldn't happen with current implementation, but handle it)
         responseObject = msg.content as Record<string, unknown>
