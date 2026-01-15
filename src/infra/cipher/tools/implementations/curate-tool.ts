@@ -1,3 +1,6 @@
+import type {Dirent} from 'node:fs'
+
+import {readdir} from 'node:fs/promises'
 import {join} from 'node:path'
 import {z} from 'zod'
 
@@ -717,6 +720,44 @@ async function executeCurate(input: unknown, _context?: ToolExecutionContext): P
  *
  * @returns Configured curate tool
  */
+/**
+ * Backfill missing domain context.md files for existing domains.
+ */
+export async function backfillDomainContextFiles(basePath: string): Promise<string[]> {
+  const createdPaths: string[] = []
+
+  const baseExists = await DirectoryManager.folderExists(basePath)
+  if (!baseExists) {
+    return createdPaths
+  }
+
+  let entries: Dirent[]
+  try {
+    entries = await readdir(basePath, {withFileTypes: true})
+  } catch {
+    return createdPaths
+  }
+
+  const domains = entries.filter((entry: Dirent) => entry.isDirectory())
+
+  /* eslint-disable no-await-in-loop */
+  for (const domain of domains) {
+    const contextPath = join(basePath, domain.name, 'context.md')
+    const exists = await DirectoryManager.fileExists(contextPath)
+
+    if (!exists) {
+      const mdFiles = await DirectoryManager.listMarkdownFiles(join(basePath, domain.name))
+      if (mdFiles.length > 0) {
+        const content = generateMinimalDomainContextMarkdown(domain.name)
+        await DirectoryManager.writeFileAtomic(contextPath, content)
+        createdPaths.push(contextPath)
+      }
+    }
+  }
+
+  return createdPaths
+}
+
 export function createCurateTool(): Tool {
   return {
     description: `Curate knowledge topics with atomic operations. This tool manages the knowledge structure using four operation types and supports a two-part context model: Raw Concept + Narrative.

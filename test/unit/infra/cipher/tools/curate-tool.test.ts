@@ -3,7 +3,7 @@ import * as fs from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { createCurateTool } from '../../../../../src/infra/cipher/tools/implementations/curate-tool.js'
+import { backfillDomainContextFiles, createCurateTool } from '../../../../../src/infra/cipher/tools/implementations/curate-tool.js'
 
 interface CurateOutput {
   applied: Array<{
@@ -987,6 +987,109 @@ describe('Curate Tool', () => {
       // Verify parent directories exist (they should be created along with the file)
       const loggingDirExists = await pathExists(join(freshBasePath, 'code_style/error_handling/logging'))
       expect(loggingDirExists).to.be.true
+    })
+  })
+
+  describe('backfillDomainContextFiles', () => {
+    it('should return empty array when basePath does not exist', async () => {
+      const nonExistentPath = join(tmpDir, 'non-existent')
+      const result = await backfillDomainContextFiles(nonExistentPath)
+      expect(result).to.deep.equal([])
+    })
+
+    it('should return empty array when there are no domains', async () => {
+      const result = await backfillDomainContextFiles(basePath)
+      expect(result).to.deep.equal([])
+    })
+
+    it('should not create context.md for empty domains (no .md files)', async () => {
+      // Create an empty domain directory
+      await fs.mkdir(join(basePath, 'empty_domain'), { recursive: true })
+
+      const result = await backfillDomainContextFiles(basePath)
+      expect(result).to.deep.equal([])
+
+      // Verify no context.md was created
+      const contextMdExists = await pathExists(join(basePath, 'empty_domain/context.md'))
+      expect(contextMdExists).to.be.false
+    })
+
+    it('should create context.md for domains with content but missing context.md', async () => {
+      // Create a domain with content but no context.md
+      const domainPath = join(basePath, 'existing_domain/some_topic')
+      await fs.mkdir(domainPath, { recursive: true })
+      await fs.writeFile(join(domainPath, 'some_knowledge.md'), '# Some Knowledge\n\nContent here')
+
+      const result = await backfillDomainContextFiles(basePath)
+
+      expect(result).to.have.lengthOf(1)
+      expect(result[0]).to.equal(join(basePath, 'existing_domain/context.md'))
+
+      // Verify context.md was created with minimal template
+      const contextMdPath = join(basePath, 'existing_domain/context.md')
+      const contextMdExists = await pathExists(contextMdPath)
+      expect(contextMdExists).to.be.true
+
+      const content = await fs.readFile(contextMdPath, 'utf8')
+      expect(content).to.include('# Domain: existing_domain')
+      expect(content).to.include('## Purpose')
+      expect(content).to.include('## Scope')
+    })
+
+    it('should skip domains that already have context.md', async () => {
+      // Create a domain with existing context.md
+      const domainPath = join(basePath, 'complete_domain')
+      await fs.mkdir(domainPath, { recursive: true })
+      await fs.writeFile(join(domainPath, 'context.md'), '# Existing context')
+      await fs.mkdir(join(domainPath, 'topic'), { recursive: true })
+      await fs.writeFile(join(domainPath, 'topic/knowledge.md'), '# Knowledge')
+
+      const result = await backfillDomainContextFiles(basePath)
+      expect(result).to.deep.equal([])
+
+      // Verify original context.md is unchanged
+      const content = await fs.readFile(join(domainPath, 'context.md'), 'utf8')
+      expect(content).to.equal('# Existing context')
+    })
+
+    it('should backfill multiple domains missing context.md', async () => {
+      // Create multiple domains with content but no context.md
+      const domain1Path = join(basePath, 'domain_one/topic')
+      const domain2Path = join(basePath, 'domain_two/topic')
+      const domain3Path = join(basePath, 'domain_three')
+
+      await fs.mkdir(domain1Path, { recursive: true })
+      await fs.mkdir(domain2Path, { recursive: true })
+      await fs.mkdir(domain3Path, { recursive: true })
+
+      await fs.writeFile(join(domain1Path, 'knowledge.md'), '# Knowledge 1')
+      await fs.writeFile(join(domain2Path, 'knowledge.md'), '# Knowledge 2')
+      // domain_three has no .md files, should be skipped
+
+      const result = await backfillDomainContextFiles(basePath)
+
+      expect(result).to.have.lengthOf(2)
+      expect(result).to.include(join(basePath, 'domain_one/context.md'))
+      expect(result).to.include(join(basePath, 'domain_two/context.md'))
+    })
+
+    it('should handle mixed scenarios (some with context.md, some without)', async () => {
+      // Domain with context.md
+      const withContextPath = join(basePath, 'with_context')
+      await fs.mkdir(withContextPath, { recursive: true })
+      await fs.writeFile(join(withContextPath, 'context.md'), '# Has context')
+      await fs.mkdir(join(withContextPath, 'topic'), { recursive: true })
+      await fs.writeFile(join(withContextPath, 'topic/knowledge.md'), '# Knowledge')
+
+      // Domain without context.md
+      const withoutContextPath = join(basePath, 'without_context/topic')
+      await fs.mkdir(withoutContextPath, { recursive: true })
+      await fs.writeFile(join(withoutContextPath, 'knowledge.md'), '# Knowledge')
+
+      const result = await backfillDomainContextFiles(basePath)
+
+      expect(result).to.have.lengthOf(1)
+      expect(result[0]).to.equal(join(basePath, 'without_context/context.md'))
     })
   })
 })
