@@ -59,7 +59,7 @@ export class ResetUseCase implements IResetUseCase {
       const contextTreeDir = join(baseDir, BRV_DIR, CONTEXT_TREE_DIR)
       await rm(contextTreeDir, {force: true, recursive: true})
 
-      // Re-initialize context tree with default domains
+      // Re-initialize empty context tree
       await this.contextTreeService.initialize(options.directory)
 
       // Re-initialize empty snapshot
