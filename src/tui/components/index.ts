@@ -10,6 +10,7 @@ export {
   ExecutionInput,
   ExecutionProgress,
   ExecutionStatus,
+  ExpandedLogView,
   LogItem,
   truncateContent,
 } from './execution/index.js'

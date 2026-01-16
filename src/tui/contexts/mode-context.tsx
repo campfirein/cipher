@@ -36,7 +36,9 @@ export interface Shortcut {
  */
 const SHORTCUTS_BY_MODE = {
   activity: [
-    {description: 'scroll logs', key: '↑↓'},
+    {description: 'navigate', key: '↑↓/jk'},
+    {description: 'go to top/bottom', key: 'g/G'},
+    {description: 'expand/collapse item', key: 'ctrl+o'},
     {description: 'switch view', key: 'tab'},
     {description: 'quit', key: 'ctrl+c'},
   ],
