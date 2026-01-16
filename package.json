@@ -1,7 +1,7 @@
 {
   "name": "byterover-cli",
   "description": "ByteRover's CLI",
-  "version": "1.0.5",
+  "version": "1.1.0",
   "author": "ByteRover",
   "bin": {
     "brv": "./bin/run.js"

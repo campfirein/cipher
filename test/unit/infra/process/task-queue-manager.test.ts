@@ -537,9 +537,11 @@ describe('TaskQueueManager', () => {
       manager.enqueue(createTask('curate-1', 'curate'))
       manager.enqueue(createTask('curate-2', 'curate'))
       manager.enqueue(createTask('curate-3', 'curate'))
+      manager.enqueue(createTask('curate-4', 'curate'))
+      manager.enqueue(createTask('curate-5', 'curate'))
 
       expect(manager.hasActiveTasks()).to.be.true
-      expect(manager.getActiveCount()).to.equal(1)
+      expect(manager.getActiveCount()).to.equal(3)
       expect(manager.getQueuedCount()).to.equal(2)
 
       // Combined check should still defer reinit
