@@ -46,7 +46,7 @@ npm run lint                                     # ESLint
 - `brv` (no args) starts interactive REPL (`src/infra/repl/repl-startup.tsx`)
 - React/Ink-based TUI (`src/tui/`) with streaming, dialogs, prompts
 - Slash commands (`/command`) in `src/infra/repl/commands/`
-- Few oclif commands remain: `main` (default), `status`, `curate`, `query`, `watch` (dev-only)
+- Few oclif commands remain: `main` (default), `status`, `curate`, `query`, `watch` (dev-only), `hook-prompt-submit` (hidden, IDE integration)
 
 ### Architecture v1.0.0 (Multi-Process)
 
@@ -113,7 +113,7 @@ All have `toJson()`/`fromJson()`, immutable readonly properties
 - `AuthToken` - `accessToken`, `refreshToken`, `sessionKey`, `userId`, `userEmail`, `expiresAt`. `fromJson()` returns `undefined` for old tokens (forces re-login)
 - `OAuthTokenData` - OAuth response, no user info. Used before user fetch in login
 - `User`, `Team`, `Space` - `getDisplayName()` methods
-- `Agent` - Supported agents (Claude Code, Cursor, Windsurf, Copilot, etc.)
+- `Agent` - 18 supported agents with connector configs (Amp, Augment Code, Claude Code, Cline, Codex, Cursor, Gemini CLI, Github Copilot, Junie, Kilo Code, Kiro, Qoder, Qwen Code, Roo Code, Trae.ai, Warp, Windsurf, Zed)
 - `BrvConfig` - `.brv/config.json` with version validation
 - `GlobalConfig` - User-level config with device ID
 - `Event` - Tracking event definitions
@@ -132,11 +132,11 @@ All have `toJson()`/`fromJson()`, immutable readonly properties
 **Cipher** (`src/infra/cipher/`) - LLM agent system:
 
 - `llm/` - Multi-provider support (ByteRover internal, OpenRouter), tokenizers, context compression, streaming with thinking visualization
-- `tools/implementations/` - 22 tool implementations:
+- `tools/implementations/` - 23 tool implementations:
   - File: `read-file`, `write-file`, `edit-file`, `list-directory`, `glob-files`, `grep-content`
   - Bash: `bash-exec`, `bash-output`, `kill-process`
   - Memory: `read-memory`, `write-memory`, `edit-memory`, `delete-memory`, `list-memories`
-  - Knowledge: `create-knowledge-topic`
+  - Knowledge: `create-knowledge-topic`, `search-knowledge`
   - Todos: `read-todos`, `write-todos`
   - Other: `curate`, `task`, `batch`, `search-history`, `spec-analyze`
 - `tools/policy-engine.ts` - Tool execution policy (ALLOW/DENY)
@@ -158,6 +158,12 @@ All have `toJson()`/`fromJson()`, immutable readonly properties
 - `HttpCogitPushService` / `HttpCogitPullService` - Cloud sync
 - `context-tree-to-push-context-mapper.ts` - Maps context tree to push format
 
+**Connectors** (`src/infra/connectors/`):
+
+- `ConnectorManager` - Factory and orchestration for connectors
+- `hook/` - Hook-based integration (Claude Code via settings.local.json)
+- `rules/` - Rules-based integration (other agents via rule files)
+
 **Knowledge** (`src/core/domain/knowledge/`):
 
 - `markdown-writer.ts` - Write knowledge to markdown files
@@ -170,7 +176,7 @@ All have `toJson()`/`fromJson()`, immutable readonly properties
 
 **UseCases** (`src/infra/usecase/`) - Business logic orchestration:
 
-- 12 use cases matching REPL commands: `init`, `login`, `logout`, `status`, `curate`, `query`, `push`, `pull`, `reset`, `space-list`, `space-switch`, `generate-rules`
+- 12 use cases matching REPL commands: `init`, `login`, `logout`, `status`, `curate`, `query`, `push`, `pull`, `reset`, `space-list`, `space-switch`, `connectors`
 
 ### Config
 
@@ -204,7 +210,7 @@ Commands prefixed with `/` in the REPL (`src/infra/repl/commands/`):
 - `/curate` - Add context to context tree
 - `/push [--branch <name>]`, `/pull [--branch <name>]` - Cloud sync (default branch: `main`)
 - `/space list`, `/space switch` - Space management
-- `/gen-rules` - Generate agent-specific rule files
+- `/connectors` - Manage agent connectors (hook for Claude Code, rules for others)
 - `/reset` - Reset context tree (destructive)
 - `/new [-y]` - Start fresh session (ends current, clears conversation history, NOT context tree)
 - `/query` - Query context tree

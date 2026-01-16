@@ -199,14 +199,6 @@ export class TaskQueueManager {
   }
 
   /**
-   * Check if the task executor has been set.
-   * Useful for diagnostic logging to detect queue stalls.
-   */
-  hasExecutor(): boolean {
-    return this.taskExecutor !== undefined
-  }
-
-  /**
    * Check if a taskId is known (queued or processing).
    */
   isKnown(taskId: string): boolean {
