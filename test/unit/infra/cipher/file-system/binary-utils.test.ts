@@ -50,22 +50,44 @@ describe('binary-utils', () => {
       expect(isBinaryFile('file.txt', utf8Buffer)).to.be.false
     })
 
-    it('should return true for buffer with >30% non-printable characters', () => {
-      // Create buffer with 50% non-printable (control characters 1-8)
+    it('should return false for UTF-8 text with emojis', () => {
+      const emojiBuffer = Buffer.from('# Status\n\n✅ Done\n❌ Failed\n⚠️ Warning\n🚀 Launched')
+      expect(isBinaryFile('file.md', emojiBuffer)).to.be.false
+    })
+
+    it('should return false for UTF-8 text with box-drawing characters', () => {
+      const boxDrawingBuffer = Buffer.from('├── src\n│   ├── index.ts\n│   └── utils\n└── tests')
+      expect(isBinaryFile('file.md', boxDrawingBuffer)).to.be.false
+    })
+
+    it('should return false for UTF-8 text with CJK characters', () => {
+      const cjkBuffer = Buffer.from('# 项目文档\n\n## 安装说明\n请使用 npm 安装依赖')
+      expect(isBinaryFile('file.md', cjkBuffer)).to.be.false
+    })
+
+    it('should return true for buffer with >10% control characters', () => {
+      // Create buffer with 50% control characters (0x01-0x08)
       const mixedBuffer = Buffer.from([
-        0x01, 0x02, 0x03, 0x04, 0x05, // 5 non-printable
+        0x01, 0x02, 0x03, 0x04, 0x05, // 5 control chars
         0x41, 0x42, 0x43, 0x44, 0x45, // 5 printable (A-E)
       ])
       expect(isBinaryFile('file.txt', mixedBuffer)).to.be.true
     })
 
-    it('should return false for buffer with <30% non-printable characters', () => {
-      // Create buffer with 20% non-printable
+    it('should return false for buffer with <10% control characters', () => {
+      // Create buffer with ~5% control characters
       const mostlyText = Buffer.from([
-        0x01, 0x02, // 2 non-printable
-        0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, // 8 printable
+        0x01, // 1 control char
+        0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x4a, // 10 printable
+        0x4b, 0x4c, 0x4d, 0x4e, 0x4f, 0x50, 0x51, 0x52, 0x53, // 9 more printable
       ])
       expect(isBinaryFile('file.txt', mostlyText)).to.be.false
+    })
+
+    it('should return true for invalid UTF-8 sequences', () => {
+      // Invalid UTF-8: 0xFF 0xFE are not valid UTF-8 bytes
+      const invalidUtf8 = Buffer.from([0x48, 0x65, 0x6c, 0x6c, 0x6f, 0xff, 0xfe, 0x57, 0x6f, 0x72, 0x6c, 0x64])
+      expect(isBinaryFile('file.txt', invalidUtf8)).to.be.true
     })
 
     it('should handle SVG files as text (not binary)', () => {
@@ -106,16 +128,46 @@ describe('binary-utils', () => {
   })
 
   describe('isPdfFile', () => {
-    it('should return true for PDF files', () => {
-      expect(isPdfFile('document.pdf')).to.be.true
-      expect(isPdfFile('Document.PDF')).to.be.true
-      expect(isPdfFile('/path/to/file.pdf')).to.be.true
+    const validPdfBuffer = Buffer.from([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x34])
+    const pdfWithLeadingWhitespace = Buffer.concat([Buffer.from('   \n\t'), validPdfBuffer])
+    const invalidPdfBuffer = Buffer.from([0x50, 0x4b, 0x03, 0x04])
+
+    describe('without buffer (extension-only)', () => {
+      it('should return true for PDF files', () => {
+        expect(isPdfFile('document.pdf')).to.be.true
+        expect(isPdfFile('Document.PDF')).to.be.true
+        expect(isPdfFile('/path/to/file.pdf')).to.be.true
+      })
+
+      it('should return false for non-PDF files', () => {
+        expect(isPdfFile('document.docx')).to.be.false
+        expect(isPdfFile('image.png')).to.be.false
+        expect(isPdfFile('file.txt')).to.be.false
+      })
     })
 
-    it('should return false for non-PDF files', () => {
-      expect(isPdfFile('document.docx')).to.be.false
-      expect(isPdfFile('image.png')).to.be.false
-      expect(isPdfFile('file.txt')).to.be.false
+    describe('with buffer (magic byte validation)', () => {
+      it('should return true for .pdf with valid PDF magic bytes', () => {
+        expect(isPdfFile('document.pdf', validPdfBuffer)).to.be.true
+        expect(isPdfFile('Document.PDF', validPdfBuffer)).to.be.true
+      })
+
+      it('should return true for .pdf with leading whitespace before magic bytes', () => {
+        expect(isPdfFile('document.pdf', pdfWithLeadingWhitespace)).to.be.true
+      })
+
+      it('should return false for .pdf with invalid magic bytes', () => {
+        expect(isPdfFile('fake.pdf', invalidPdfBuffer)).to.be.false
+        expect(isPdfFile('binary.pdf', Buffer.from([0x00, 0x01, 0x02, 0x03]))).to.be.false
+      })
+
+      it('should return false for non-.pdf extension with valid magic bytes', () => {
+        expect(isPdfFile('document.txt', validPdfBuffer)).to.be.false
+      })
+
+      it('should return false for empty buffer', () => {
+        expect(isPdfFile('document.pdf', Buffer.from([]))).to.be.false
+      })
     })
   })
 
@@ -151,13 +203,24 @@ describe('binary-utils', () => {
   })
 
   describe('isMediaFile', () => {
+    const validPdfBuffer = Buffer.from([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x34])
+    const invalidPdfBuffer = Buffer.from([0x50, 0x4b, 0x03, 0x04])
+
     it('should return true for image files', () => {
       expect(isMediaFile('photo.png')).to.be.true
       expect(isMediaFile('image.jpg')).to.be.true
     })
 
-    it('should return true for PDF files', () => {
+    it('should return true for PDF files (extension-only)', () => {
       expect(isMediaFile('document.pdf')).to.be.true
+    })
+
+    it('should return true for PDF with valid magic bytes', () => {
+      expect(isMediaFile('document.pdf', validPdfBuffer)).to.be.true
+    })
+
+    it('should return false for fake PDF', () => {
+      expect(isMediaFile('fake.pdf', invalidPdfBuffer)).to.be.false
     })
 
     it('should return false for text files', () => {

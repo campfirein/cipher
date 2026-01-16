@@ -144,8 +144,24 @@ export class GeminiMessageFormatter implements IMessageFormatter<Content> {
    * Required by Gemini API when assistant made multiple tool calls.
    */
   private combineToolResults(toolMessages: InternalMessage[]): Content {
+    const parts: Part[] = []
+
+    for (const msg of toolMessages) {
+      // Add the tool result part
+      parts.push(this.formatToolResultPart(msg))
+
+      // Extract image/file parts from MessagePart[] content
+      if (Array.isArray(msg.content)) {
+        for (const part of msg.content) {
+          if (part.type === 'image' || part.type === 'file') {
+            parts.push(this.formatUserContentPart(part))
+          }
+        }
+      }
+    }
+
     return {
-      parts: toolMessages.map((msg) => this.formatToolResultPart(msg)),
+      parts,
       role: 'user',
     }
   }
@@ -160,7 +176,15 @@ export class GeminiMessageFormatter implements IMessageFormatter<Content> {
 
     // Add text content if present
     if (msg.content) {
-      parts.push({ text: String(msg.content) })
+      if (typeof msg.content === 'string') {
+        parts.push({ text: msg.content })
+      } else if (Array.isArray(msg.content)) {
+        for (const part of msg.content) {
+          if (part.type === 'text') {
+            parts.push({ text: part.text })
+          }
+        }
+      }
     }
 
     // Add tool calls if present
@@ -236,8 +260,10 @@ export class GeminiMessageFormatter implements IMessageFormatter<Content> {
       } else if (msg.content === null) {
         responseObject = { result: null }
       } else if (Array.isArray(msg.content)) {
-        // Array content (e.g., MessagePart[]) - wrap in result
-        responseObject = { result: msg.content }
+        // Array content (e.g., MessagePart[]) - filter out file/image parts
+        // File/image parts are sent separately as inlineData to avoid duplicate tokenization
+        const textParts = msg.content.filter((p) => p.type === 'text')
+        responseObject = textParts.length > 0 ? { result: textParts } : { result: 'Attachment processed' }
       } else if (typeof msg.content === 'object') {
         // Already an object (shouldn't happen with current implementation, but handle it)
         responseObject = msg.content as Record<string, unknown>
@@ -268,14 +294,31 @@ export class GeminiMessageFormatter implements IMessageFormatter<Content> {
     }
 
     if (part.type === 'image') {
-      // Image support not yet implemented for Gemini
-      // Gemini supports inline images via inlineData or fileData
-      return { text: '[Image not yet supported]' }
+      // Convert image to Gemini inlineData format
+      const imageData = typeof part.image === 'string' ? part.image : String(part.image)
+      // Remove data URL prefix if present (e.g., "data:image/jpeg;base64,")
+      const base64Data = imageData.includes(',') ? imageData.split(',')[1] : imageData
+
+      return {
+        inlineData: {
+          data: base64Data,
+          mimeType: part.mimeType ?? 'image/jpeg',
+        },
+      }
     }
 
     if (part.type === 'file') {
-      // File support not yet implemented for Gemini
-      return { text: '[File not yet supported]' }
+      // Convert file to Gemini inlineData format (supports PDFs)
+      const fileData = typeof part.data === 'string' ? part.data : String(part.data)
+      // Remove data URL prefix if present
+      const base64Data = fileData.includes(',') ? fileData.split(',')[1] : fileData
+
+      return {
+        inlineData: {
+          data: base64Data,
+          mimeType: part.mimeType ?? 'application/pdf',
+        },
+      }
     }
 
     return { text: '[Unknown content type]' }

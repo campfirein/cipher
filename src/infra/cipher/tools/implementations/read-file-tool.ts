@@ -4,6 +4,7 @@ import type {Tool, ToolExecutionContext} from '../../../../core/domain/cipher/to
 import type {IFileSystem} from '../../../../core/interfaces/cipher/i-file-system.js'
 
 import {ToolName} from '../../../../core/domain/cipher/tools/constants.js'
+import {isImageFile} from '../../file-system/binary-utils.js'
 
 /**
  * Input schema for read file tool.
@@ -44,23 +45,43 @@ export function createReadFileTool(fileSystemService: IFileSystem): Tool {
     async execute(input: unknown, _context?: ToolExecutionContext) {
       const {filePath, limit, offset} = input as ReadFileInput
 
-      // Call file system service
-      const result = await fileSystemService.readFile(filePath, {
-        limit,
-        offset,
-      })
+      try {
+        // Call file system service
+        const result = await fileSystemService.readFile(filePath, {
+          limit,
+          offset,
+        })
 
-      // Return formatted result with all metadata
-      return {
-        attachment: result.attachment,
-        content: result.formattedContent,
-        lines: result.lines,
-        message: result.message,
-        preview: result.preview,
-        size: result.size,
-        totalLines: result.totalLines,
-        truncated: result.truncated,
-        truncatedLineCount: result.truncatedLineCount,
+        // Transform attachment format (singular → plural array)
+        let attachments: Array<{data: string; filename: string; mimeType: string; type: 'file' | 'image'}> | undefined
+        if (result.attachment) {
+          const type = isImageFile(filePath) ? 'image' : 'file'
+          attachments = [{
+            data: result.attachment.base64,
+            filename: result.attachment.fileName,
+            mimeType: result.attachment.mimeType,
+            type,
+          }]
+        }
+
+        // Return formatted result with all metadata
+        return {
+          attachments,
+          content: result.formattedContent,
+          lines: result.lines,
+          message: result.message,
+          preview: result.preview,
+          size: result.size,
+          success: true,
+          totalLines: result.totalLines,
+          truncated: result.truncated,
+          truncatedLineCount: result.truncatedLineCount,
+        }
+      } catch (error) {
+        return {
+          error: error instanceof Error ? error.message : String(error),
+          success: false,
+        }
       }
     },
     id: ToolName.READ_FILE,

@@ -56,7 +56,7 @@ export class LogoutUseCase implements ILogoutUseCase {
       await this.tokenStore.clear();
       await this.onboardingPreferenceStore.clear();
       this.terminal.log("Successfully logged out.");
-      this.terminal.log("Run 'brv login' to authenticate again.");
+      this.terminal.log("Run '/login' to authenticate again.");
     } catch (error) {
       if (error instanceof Error && error.message.includes("keychain")) {
         this.terminal.error("Unable to access system keychain. Please check your system permissions and try again.");

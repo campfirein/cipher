@@ -1,12 +1,12 @@
-import type {CleanSession} from '../../../core/domain/entities/parser.js'
-import type {ICodingAgentLogParser} from '../../../core/interfaces/cipher/i-coding-agent-log-parser.js'
+import type { CleanSession } from '../../../core/domain/entities/parser.js'
+import type { ICodingAgentLogParser } from '../../../core/interfaces/cipher/i-coding-agent-log-parser.js'
 import type {
   CodingAgentLogWatcherOptions,
   ICodingAgentLogWatcher,
 } from '../../../core/interfaces/cipher/i-coding-agent-log-watcher.js'
-import type {FileEvent, IFileWatcherService} from '../../../core/interfaces/i-file-watcher-service.js'
+import type { FileEvent, IFileWatcherService } from '../../../core/interfaces/i-file-watcher-service.js'
 
-import {Agent} from '../../../core/domain/entities/agent.js'
+import { Agent } from '../../../core/domain/entities/agent.js'
 
 type OnSessionCallback = (session: CleanSession) => Promise<void>
 
@@ -72,6 +72,7 @@ export class CodingAgentLogWatcher implements ICodingAgentLogWatcher {
     }
   }
 
+  // eslint-disable-next-line no-warning-comments -- Intentional: tracking pending refactor work
   // TODO: This method is moved from CipherAgent to here as a point of reference for the logic. Will handle it later.
   /**
    * Processes a clean external session between user and coding agent into context tree by calling LLM service.

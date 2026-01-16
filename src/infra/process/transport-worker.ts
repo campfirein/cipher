@@ -29,6 +29,7 @@ import {transportLog} from '../../utils/process-logger.js'
 import {FileInstanceManager} from '../instance/file-instance-manager.js'
 import {findAvailablePort} from '../transport/port-utils.js'
 import {createTransportServer} from '../transport/transport-factory.js'
+import {createParentHeartbeat} from './parent-heartbeat.js'
 import {TransportHandlers} from './transport-handlers.js'
 
 // IPC types imported from ./ipc-types.ts
@@ -44,15 +45,11 @@ function sendToParent(message: TransportIPCResponse): void {
 let transportServer: ITransportServer | undefined
 let transportHandlers: TransportHandlers | undefined
 let instancePollingInterval: ReturnType<typeof setInterval> | undefined
-let parentHeartbeatRunning = false
-let parentPid: number | undefined
+let parentHeartbeat: ReturnType<typeof createParentHeartbeat> | undefined
 const instanceManager = new FileInstanceManager()
 
 /** Polling interval in milliseconds */
 const INSTANCE_POLLING_INTERVAL_MS = 2000
-
-/** Parent heartbeat check interval in milliseconds */
-const PARENT_HEARTBEAT_INTERVAL_MS = 2000
 
 /**
  * Setup polling to detect instance.json deletion and recreate it.
@@ -98,73 +95,6 @@ function stopInstancePolling(): void {
   }
 }
 
-/**
- * Setup parent process heartbeat monitoring.
- *
- * Why this is needed:
- * - When main process receives SIGKILL, it dies immediately
- * - SIGKILL cannot be caught, so no cleanup happens
- * - IPC 'disconnect' event may not fire
- * - Child processes become orphans (PPID = 1)
- *
- * This function periodically checks if parent is still alive.
- * If parent dies, child self-terminates to prevent zombie processes.
- */
-function setupParentHeartbeat(): void {
-  // Already running - don't start another
-  if (parentHeartbeatRunning) return
-
-  parentHeartbeatRunning = true
-  parentPid = process.ppid
-
-  /**
-   * Recursive setTimeout pattern - safer than setInterval:
-   * - No callback overlap possible
-   * - Clean cancellation (just set flag = false)
-   * - No orphan timers
-   */
-  const checkParent = (): void => {
-    // Stopped - don't schedule next check
-    if (!parentHeartbeatRunning || !parentPid) return
-
-    // Check if parent is still alive using signal 0
-    // Signal 0 doesn't send any signal, just checks if process exists
-    try {
-      process.kill(parentPid, 0)
-    } catch {
-      // Parent is dead - self-terminate
-      transportLog(`Parent process (${parentPid}) died - shutting down to prevent zombie`)
-      parentHeartbeatRunning = false
-      stopInstancePolling()
-      // Release instance lock and exit
-      stopTransport()
-        .catch(() => {})
-        .finally(() => {
-          // eslint-disable-next-line n/no-process-exit, unicorn/no-process-exit
-          process.exit(0)
-        })
-      return
-    }
-
-    // Schedule next check (only if still running)
-    if (parentHeartbeatRunning) {
-      setTimeout(checkParent, PARENT_HEARTBEAT_INTERVAL_MS)
-    }
-  }
-
-  // Start first check after delay
-  setTimeout(checkParent, PARENT_HEARTBEAT_INTERVAL_MS)
-  transportLog(`Parent heartbeat monitoring started (PPID: ${parentPid})`)
-}
-
-/**
- * Stop the parent heartbeat monitoring.
- * With recursive setTimeout, just set flag to false - next check won't schedule.
- */
-function stopParentHeartbeat(): void {
-  parentHeartbeatRunning = false
-}
-
 async function startTransport(): Promise<number> {
   // Create Socket.IO server
   transportServer = createTransportServer()
@@ -199,7 +129,7 @@ async function startTransport(): Promise<number> {
 
 async function stopTransport(): Promise<void> {
   // Stop heartbeat and polling first
-  stopParentHeartbeat()
+  parentHeartbeat?.stop()
   stopInstancePolling()
 
   // Release instance.json
@@ -230,7 +160,12 @@ async function runWorker(): Promise<void> {
 
     // Start parent heartbeat monitoring after ready
     // This ensures we self-terminate if parent dies (SIGKILL scenario)
-    setupParentHeartbeat()
+    parentHeartbeat = createParentHeartbeat({
+      cleanup: stopTransport,
+      log: transportLog,
+      preCleanup: stopInstancePolling,
+    })
+    parentHeartbeat.start()
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     transportLog(`Failed to start: ${message}`)

@@ -345,6 +345,96 @@ describe('FileContextTreeWriterService', () => {
       })
     })
 
+    describe('README.md filtering', () => {
+      it('should ignore README.md at root level in remote files', async () => {
+        const files = [
+          createFile('README.md', '# Root README - should be ignored'),
+          createFile('design/context.md', '# Design Guide'),
+        ]
+
+        const result = await service.sync({files})
+
+        // Only design/context.md should be added, README.md should be filtered out
+        expect(result.added).to.have.lengthOf(1)
+        expect(result.added).to.deep.equal(['design/context.md'])
+        expect(result.added).to.not.include('README.md')
+      })
+
+      it('should ignore README.md at root with leading slash', async () => {
+        const files = [
+          createFile('/README.md', '# Root README - should be ignored'),
+          createFile('/design/context.md', '# Design Guide'),
+        ]
+
+        const result = await service.sync({files})
+
+        expect(result.added).to.have.lengthOf(1)
+        expect(result.added).to.deep.equal(['design/context.md'])
+      })
+
+      it('should include README.md in subdirectories', async () => {
+        const files = [
+          createFile('design/README.md', '# Design README - should be included'),
+          createFile('api/README.md', '# API README - should be included'),
+        ]
+
+        const result = await service.sync({files})
+
+        expect(result.added).to.have.lengthOf(2)
+        expect(result.added).to.include('design/README.md')
+        expect(result.added).to.include('api/README.md')
+      })
+
+      it('should not delete local root README.md when not in remote', async () => {
+        // Create local README.md at root (not tracked by getCurrentState)
+        await writeFile(join(contextTreeDir, 'README.md'), '# Local README')
+
+        // Local state from getCurrentState excludes README.md at root
+        // So it won't be in the deletion candidates
+        const localState = new Map<string, FileState>()
+        localState.set('design/context.md', {hash: 'hash1', size: 10})
+        mockSnapshotService.getCurrentState.resolves(localState)
+
+        await mkdir(join(contextTreeDir, 'design'), {recursive: true})
+        await writeFile(join(contextTreeDir, 'design/context.md'), '# Design')
+
+        // Remote only has design/context.md (no README.md)
+        const files = [createFile('design/context.md', '# Design')]
+
+        const result = await service.sync({files})
+
+        // Nothing should be added, edited, or deleted
+        expect(result.added).to.be.empty
+        expect(result.edited).to.be.empty
+        expect(result.deleted).to.be.empty
+
+        // Local README.md should still exist
+        const readmeContent = await readFile(join(contextTreeDir, 'README.md'), 'utf8')
+        expect(readmeContent).to.equal('# Local README')
+      })
+
+      it('should not count root README.md as edited even if content differs', async () => {
+        // Setup: local state includes README.md (simulating if it was somehow tracked)
+        const localState = new Map<string, FileState>()
+        localState.set('README.md', {hash: 'oldhash', size: 10})
+        mockSnapshotService.getCurrentState.resolves(localState)
+
+        await writeFile(join(contextTreeDir, 'README.md'), '# Old README')
+
+        // Remote has README.md with different content
+        const files = [createFile('README.md', '# New README')]
+
+        const result = await service.sync({files})
+
+        // README.md should be filtered out from remote, so no edit
+        expect(result.edited).to.be.empty
+        expect(result.added).to.be.empty
+        // Note: It would show as deleted because it's in localState but not in filtered remoteFiles
+        // This is expected behavior - if somehow README.md was in localState, it would be considered deleted
+        expect(result.deleted).to.deep.equal(['README.md'])
+      })
+    })
+
     describe('Enhanced path normalization', () => {
       it('should normalize backslashes from API responses (Windows-style paths)', async () => {
         // Simulate a path with backslashes (as might come from a Windows API response)

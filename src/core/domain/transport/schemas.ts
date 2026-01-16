@@ -731,6 +731,39 @@ export const AgentNewSessionResponseSchema = z.object({
 })
 
 // ============================================================================
+// Agent Status (health check)
+// ============================================================================
+
+/**
+ * Agent status event names.
+ */
+export const AgentStatusEventNames = {
+  /** Status changed broadcast */
+  STATUS_CHANGED: 'agent:status:changed',
+} as const
+
+/**
+ * Agent health status for monitoring.
+ * Used by Transport to check if CipherAgent is ready before forwarding tasks.
+ */
+export const AgentStatusSchema = z.object({
+  /** Number of tasks currently processing */
+  activeTasks: z.number().int().nonnegative(),
+  /** Whether auth token is loaded and valid */
+  hasAuth: z.boolean(),
+  /** Whether BrvConfig is loaded */
+  hasConfig: z.boolean(),
+  /** Whether CipherAgent is initialized and ready */
+  isInitialized: z.boolean(),
+  /** Last initialization error message */
+  lastError: z.string().optional(),
+  /** Number of tasks waiting in queue */
+  queuedTasks: z.number().int().nonnegative(),
+})
+
+export type AgentStatus = z.infer<typeof AgentStatusSchema>
+
+// ============================================================================
 // Type Exports
 // ============================================================================
 

@@ -1,6 +1,7 @@
-import {type Agent} from '../../core/domain/entities/agent.js'
-import {type IRuleTemplateService} from '../../core/interfaces/i-rule-template-service.js'
-import {type ITemplateLoader} from '../../core/interfaces/i-template-loader.js'
+import type {Agent} from '../../../core/domain/entities/agent.js'
+import type {IRuleTemplateService} from '../../../core/interfaces/i-rule-template-service.js'
+import type {ITemplateLoader} from '../../../core/interfaces/i-template-loader.js'
+
 import {BRV_RULE_MARKERS, BRV_RULE_TAG} from './constants.js'
 
 /**
@@ -85,7 +86,7 @@ export class RuleTemplateService implements IRuleTemplateService {
       // Substitute variables and get content
       const content = this.templateLoader.substituteVariables(baseTemplate, context)
 
-      // Add agent-specific header if available (from develop branch)
+      // Add agent-specific header if available
       const header = guideHeaders.find((h) => h.agent === agent)?.value || ''
 
       return wrapContentWithBoundaryMarkers(content, agent, header)

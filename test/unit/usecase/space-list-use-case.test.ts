@@ -115,7 +115,7 @@ describe('SpaceListUseCase', () => {
 
       expect(errorMessages).to.have.lengthOf(1)
       expect(errorMessages[0]).to.include('Project not initialized')
-      expect(errorMessages[0]).to.include('brv init')
+      expect(errorMessages[0]).to.include('/init')
     })
   })
 

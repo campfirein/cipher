@@ -47,15 +47,15 @@ export const WelcomeBox: React.FC<WelcomeBoxProps> = ({isCopyActive}) => {
         </Text>
         <Box flexDirection="column" paddingLeft={2}>
           <Text color={colors.text}>
-            Tell your AI Agent what to save or retrieve. Just start your prompt with "
-            <Text color={colors.primary}>brv</Text>".
+            Tell your AI Agent what to save or retrieve. Just include "<Text color={colors.primary}>brv</Text>" in your
+            prompt.
           </Text>
           <Box marginTop={1}>
             <Text color={colors.text}>Try saying this to your AI Agent:</Text>
           </Box>
           <Box flexDirection="column" paddingLeft={4}>
             <Text color={colors.text}>
-              {randomPrompt}
+              <Text bold>"{randomPrompt}"</Text>
               {'    '}
               <CopyablePrompt buttonLabel="[ctrl+y] to copy" isActive={isCopyActive} textToCopy={randomPrompt} />
             </Text>
