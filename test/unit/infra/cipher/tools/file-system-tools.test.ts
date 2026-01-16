@@ -144,15 +144,10 @@ describe('File System Tools', () => {
       error.name = 'FileNotFoundError'
       readFileStub.rejects(error)
 
-      try {
-        await tool.execute({ filePath: '/missing/file' })
-        expect.fail('Should have thrown an error')
-      } catch (error: unknown) {
-        expect(error instanceof Error).to.be.true
-        if (error instanceof Error) {
-          expect(error.message).to.include('File not found')
-        }
-      }
+      const result = await tool.execute({ filePath: '/missing/file' })
+
+      expect(result).to.have.property('success', false)
+      expect(result).to.have.property('error').that.includes('File not found')
     })
 
     it('should propagate file too large error', async () => {
@@ -161,15 +156,10 @@ describe('File System Tools', () => {
       error.name = 'FileTooLargeError'
       readFileStub.rejects(error)
 
-      try {
-        await tool.execute({ filePath: '/large/file' })
-        expect.fail('Should have thrown an error')
-      } catch (error: unknown) {
-        expect(error instanceof Error).to.be.true
-        if (error instanceof Error) {
-          expect(error.message).to.include('File too large')
-        }
-      }
+      const result = await tool.execute({ filePath: '/large/file' })
+
+      expect(result).to.have.property('success', false)
+      expect(result).to.have.property('error').that.includes('File too large')
     })
 
     it('should propagate path not allowed error', async () => {
@@ -178,15 +168,10 @@ describe('File System Tools', () => {
       error.name = 'PathNotAllowedError'
       readFileStub.rejects(error)
 
-      try {
-        await tool.execute({ filePath: '/forbidden/path' })
-        expect.fail('Should have thrown an error')
-      } catch (error: unknown) {
-        expect(error instanceof Error).to.be.true
-        if (error instanceof Error) {
-          expect(error.message).to.include('Path not allowed')
-        }
-      }
+      const result = await tool.execute({ filePath: '/forbidden/path' })
+
+      expect(result).to.have.property('success', false)
+      expect(result).to.have.property('error').that.includes('Path not allowed')
     })
   })
 

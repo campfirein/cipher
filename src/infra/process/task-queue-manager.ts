@@ -11,9 +11,9 @@
  * This class is extracted from agent-worker.ts to enable unit testing.
  */
 
-import type {TaskExecute} from '../../core/domain/transport/schemas.js'
+import type { TaskExecute } from '../../core/domain/transport/schemas.js'
 
-import {CURATE_MAX_CONCURRENT} from './constants.js'
+import { CURATE_MAX_CONCURRENT } from './constants.js'
 
 export type TaskType = 'curate' | 'query'
 
@@ -41,14 +41,14 @@ export interface TaskQueueManagerConfig {
 /**
  * Result of attempting to enqueue a task.
  */
-export type EnqueueResult = {position: number; success: true} | {reason: 'duplicate' | 'unknown_type'; success: false}
+export type EnqueueResult = { position: number; success: true } | { reason: 'duplicate' | 'unknown_type'; success: false }
 
 /**
  * Result of attempting to cancel a task.
  */
 export type CancelResult =
-  | {reason: 'not_found'; success: false}
-  | {success: true; taskType: TaskType; wasQueued: boolean}
+  | { reason: 'not_found'; success: false }
+  | { success: true; taskType: TaskType; wasQueued: boolean }
 
 /**
  * Callback for when a task should be executed.
@@ -58,7 +58,7 @@ export type TaskExecutor = (task: TaskExecute) => Promise<void>
 export class TaskQueueManager {
   private activeCurateTasks = 0
   private activeQueryTasks = 0
-  private readonly config: Omit<TaskQueueManagerConfig, 'onExecutorError'> & {curate: QueueConfig; query: QueueConfig}
+  private readonly config: Omit<TaskQueueManagerConfig, 'onExecutorError'> & { curate: QueueConfig; query: QueueConfig }
   private readonly curateQueue: TaskExecute[] = []
   /** Maps taskId → taskType for tracking (replaces Set for type awareness) */
   private readonly knownTasks = new Map<string, TaskType>()
@@ -68,9 +68,9 @@ export class TaskQueueManager {
 
   constructor(config?: Partial<TaskQueueManagerConfig>) {
     this.config = {
-      curate: {maxConcurrent: config?.curate?.maxConcurrent ?? CURATE_MAX_CONCURRENT},
+      curate: { maxConcurrent: config?.curate?.maxConcurrent ?? CURATE_MAX_CONCURRENT },
       // Query tasks are unlimited (Infinity) - lightweight and fast
-      query: {maxConcurrent: config?.query?.maxConcurrent ?? Infinity},
+      query: { maxConcurrent: config?.query?.maxConcurrent ?? Infinity },
     }
     this.onExecutorError = config?.onExecutorError
   }
@@ -85,7 +85,7 @@ export class TaskQueueManager {
     if (curateIndex !== -1) {
       this.curateQueue.splice(curateIndex, 1)
       this.knownTasks.delete(taskId)
-      return {success: true, taskType: 'curate', wasQueued: true}
+      return { success: true, taskType: 'curate', wasQueued: true }
     }
 
     // Try to remove from query queue
@@ -93,17 +93,17 @@ export class TaskQueueManager {
     if (queryIndex !== -1) {
       this.queryQueue.splice(queryIndex, 1)
       this.knownTasks.delete(taskId)
-      return {success: true, taskType: 'query', wasQueued: true}
+      return { success: true, taskType: 'query', wasQueued: true }
     }
 
     // Check if task is currently processing - now we know the real taskType!
     const taskType = this.knownTasks.get(taskId)
     if (taskType) {
       // Task is processing - caller should handle cancellation via taskProcessor
-      return {success: true, taskType, wasQueued: false}
+      return { success: true, taskType, wasQueued: false }
     }
 
-    return {reason: 'not_found', success: false}
+    return { reason: 'not_found', success: false }
   }
 
   /**
@@ -125,12 +125,12 @@ export class TaskQueueManager {
   enqueue(task: TaskExecute): EnqueueResult {
     // Deduplication check
     if (this.knownTasks.has(task.taskId)) {
-      return {reason: 'duplicate', success: false}
+      return { reason: 'duplicate', success: false }
     }
 
     // Validate task type
     if (task.type !== 'curate' && task.type !== 'query') {
-      return {reason: 'unknown_type', success: false}
+      return { reason: 'unknown_type', success: false }
     }
 
     // Register with type and enqueue
@@ -139,12 +139,12 @@ export class TaskQueueManager {
     if (task.type === 'curate') {
       this.curateQueue.push(task)
       this.tryProcessNext('curate')
-      return {position: this.curateQueue.length, success: true}
+      return { position: this.curateQueue.length, success: true }
     }
 
     this.queryQueue.push(task)
     this.tryProcessNext('query')
-    return {position: this.queryQueue.length, success: true}
+    return { position: this.queryQueue.length, success: true }
   }
 
   /**
@@ -204,6 +204,7 @@ export class TaskQueueManager {
   isKnown(taskId: string): boolean {
     return this.knownTasks.has(taskId)
   }
+
 
   /**
    * Mark a task as completed (removes from known map).

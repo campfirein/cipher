@@ -118,9 +118,11 @@ describe('file-validator', () => {
         // Should fail because home directory is outside testDir
         expect(result.valid).to.be.false
         // Error message should show the expanded path or indicate it's outside project
+        /* eslint-disable max-nested-callbacks -- Chai assertion syntax requires callback */
         expect(result.error).to.satisfy(
           (err: string) => err.includes('does not exist') || err.includes('outside project directory')
         )
+        /* eslint-enable max-nested-callbacks */
       })
     })
 
@@ -153,8 +155,7 @@ describe('file-validator', () => {
         const result = validateFileForCurate('binary.bin', testDir)
 
         expect(result.valid).to.be.false
-        expect(result.error).to.include('not a text/code file')
-        expect(result.error).to.include('binary detected')
+        expect(result.error).to.include('File type not supported')
       })
 
       it('should accept text files', () => {
@@ -189,9 +190,11 @@ describe('file-validator', () => {
 
         expect(result.valid).to.be.false
         // Either "does not exist" or "outside project directory"
+        /* eslint-disable max-nested-callbacks -- Chai assertion syntax requires callback */
         expect(result.error).to.satisfy(
           (err: string) => err.includes('does not exist') || err.includes('outside project directory')
         )
+        /* eslint-enable max-nested-callbacks */
       })
 
       it('should accept files at project root', () => {
@@ -210,6 +213,60 @@ describe('file-validator', () => {
 
         expect(result.valid).to.be.true
         expect(result.normalizedPath).to.equal(utilFile)
+      })
+    })
+
+    describe('PDF and media file validation', () => {
+      it('should accept valid PDF files with correct magic bytes', () => {
+        const pdfFile = path.join(testDir, 'document.pdf')
+        writeFileSync(pdfFile, Buffer.from([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x34, 0x0a]))
+
+        const result = validateFileForCurate('document.pdf', testDir)
+
+        expect(result.valid).to.be.true
+        expect(result.normalizedPath).to.equal(pdfFile)
+      })
+
+      it('should accept PDF with leading whitespace before magic bytes', () => {
+        const pdfFile = path.join(testDir, 'whitespace.pdf')
+        const content = Buffer.concat([
+          Buffer.from('   \n\t'),
+          Buffer.from([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x34]),
+        ])
+        writeFileSync(pdfFile, content)
+
+        const result = validateFileForCurate('whitespace.pdf', testDir)
+
+        expect(result.valid).to.be.true
+      })
+
+      it('should reject fake PDF files', () => {
+        const fakePdf = path.join(testDir, 'fake.pdf')
+        writeFileSync(fakePdf, Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x00, 0x00]))
+
+        const result = validateFileForCurate('fake.pdf', testDir)
+
+        expect(result.valid).to.be.false
+        expect(result.error).to.include('File type not supported')
+      })
+
+      it('should reject binary files renamed to .pdf', () => {
+        const binaryPdf = path.join(testDir, 'binary.pdf')
+        writeFileSync(binaryPdf, Buffer.from([0x00, 0x01, 0x02, 0x03, 0x00]))
+
+        const result = validateFileForCurate('binary.pdf', testDir)
+
+        expect(result.valid).to.be.false
+        expect(result.error).to.include('File type not supported')
+      })
+
+      it('should accept image files', () => {
+        const pngFile = path.join(testDir, 'image.png')
+        writeFileSync(pngFile, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+
+        const result = validateFileForCurate('image.png', testDir)
+
+        expect(result.valid).to.be.true
       })
     })
 

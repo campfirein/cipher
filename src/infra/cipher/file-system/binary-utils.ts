@@ -56,6 +56,17 @@ const IMAGE_EXTENSIONS = new Set(['.bmp', '.gif', '.ico', '.jpeg', '.jpg', '.png
 const PDF_EXTENSION = '.pdf'
 
 /**
+ * PDF magic bytes: %PDF- (0x25 0x50 0x44 0x46 0x2D)
+ */
+const PDF_MAGIC_BYTES = Buffer.from([0x25, 0x50, 0x44, 0x46, 0x2d])
+
+/**
+ * Maximum offset to search for PDF magic bytes.
+ * PDFs may have whitespace or comments before the header.
+ */
+const PDF_MAGIC_SEARCH_LIMIT = 1024
+
+/**
  * SVG extension - treat as text, not image.
  */
 const SVG_EXTENSION = '.svg'
@@ -158,13 +169,20 @@ export function isImageFile(filePath: string): boolean {
 }
 
 /**
- * Checks if a file is a PDF based on its extension.
- *
- * @param filePath - Path to the file
- * @returns true if the file is a PDF
+ * Checks if a file is a PDF. When buffer is provided, validates magic bytes (%PDF-).
+ * Searches within first 1KB to handle PDFs with leading whitespace/comments.
  */
-export function isPdfFile(filePath: string): boolean {
-  return path.extname(filePath).toLowerCase() === PDF_EXTENSION
+export function isPdfFile(filePath: string, buffer?: Buffer): boolean {
+  if (!buffer) {
+    return path.extname(filePath).toLowerCase() === PDF_EXTENSION
+  }
+
+  if (path.extname(filePath).toLowerCase() !== PDF_EXTENSION) {
+    return false
+  }
+
+  const searchLimit = Math.min(buffer.length, PDF_MAGIC_SEARCH_LIMIT)
+  return buffer.subarray(0, searchLimit).includes(PDF_MAGIC_BYTES)
 }
 
 /**
@@ -179,12 +197,8 @@ export function getMimeType(filePath: string): null | string {
 }
 
 /**
- * Checks if a file is a media file (image or PDF) that should be
- * returned as a base64 attachment instead of text content.
- *
- * @param filePath - Path to the file
- * @returns true if the file should be returned as an attachment
+ * Checks if a file is a media file (image or PDF) for base64 attachment handling.
  */
-export function isMediaFile(filePath: string): boolean {
-  return isImageFile(filePath) || isPdfFile(filePath)
+export function isMediaFile(filePath: string, buffer?: Buffer): boolean {
+  return isImageFile(filePath) || isPdfFile(filePath, buffer)
 }
