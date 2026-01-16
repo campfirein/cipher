@@ -485,6 +485,55 @@ describe('TaskQueueManager', () => {
       expect(allStats.query.queued).to.equal(1)
       expect(allStats.query.active).to.equal(0)
     })
+
+    it('should report queued tasks correctly for reinit deferral', () => {
+      // This test verifies the fix for the race condition in agent-worker.ts:
+      // Credentials polling must check BOTH hasActiveTasks() AND getQueuedCount()
+      // to prevent reinit while tasks are queued but not yet running.
+
+      // Enqueue without executor (tasks stay queued, not active)
+      manager.enqueue(createTask('task-1', 'curate'))
+      manager.enqueue(createTask('task-2', 'query'))
+
+      // Tasks are queued but NOT active (no executor set)
+      expect(manager.hasActiveTasks()).to.be.false
+      expect(manager.getQueuedCount()).to.equal(2)
+
+      // The combined check used in pollCredentialsAndSync() should prevent reinit
+      const shouldDeferReinit = manager.hasActiveTasks() || manager.getQueuedCount() > 0
+      expect(shouldDeferReinit).to.be.true
+    })
+
+    it('should return zero queued count when all tasks are active', () => {
+      const {executor} = createBlockingExecutor()
+      manager.setExecutor(executor)
+
+      // Query tasks have unlimited concurrency - all become active immediately
+      manager.enqueue(createTask('query-1', 'query'))
+      manager.enqueue(createTask('query-2', 'query'))
+
+      expect(manager.hasActiveTasks()).to.be.true
+      expect(manager.getQueuedCount()).to.equal(0)
+      expect(manager.getActiveCount()).to.equal(2)
+    })
+
+    it('should track both active and queued for curate tasks', () => {
+      const {executor} = createBlockingExecutor()
+      manager.setExecutor(executor)
+
+      // Curate has maxConcurrent=1, so only first becomes active
+      manager.enqueue(createTask('curate-1', 'curate'))
+      manager.enqueue(createTask('curate-2', 'curate'))
+      manager.enqueue(createTask('curate-3', 'curate'))
+
+      expect(manager.hasActiveTasks()).to.be.true
+      expect(manager.getActiveCount()).to.equal(1)
+      expect(manager.getQueuedCount()).to.equal(2)
+
+      // Combined check should still defer reinit
+      const shouldDeferReinit = manager.hasActiveTasks() || manager.getQueuedCount() > 0
+      expect(shouldDeferReinit).to.be.true
+    })
   })
 
   // ============================================================================

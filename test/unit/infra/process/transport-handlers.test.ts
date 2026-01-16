@@ -19,6 +19,7 @@ import {createSandbox, match, type SinonFakeTimers, type SinonSandbox, type Sino
 import type {ITransportServer, RequestHandler} from '../../../../src/core/interfaces/transport/i-transport-server.js'
 
 import {
+  AgentStatusEventNames,
   LlmEventNames,
   TransportAgentEventNames,
   TransportTaskEventNames,
@@ -72,6 +73,28 @@ describe('TransportHandlers', () => {
     disconnectionHandler = undefined
   })
 
+  /**
+   * Helper: Register agent AND set up status (required for tasks to work).
+   * After Fix 5.1, tasks require cachedAgentStatus to be set.
+   */
+  function registerAgentWithStatus(agentClientId: string): void {
+    const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
+    registerHandler!({}, agentClientId)
+
+    // Simulate agent status broadcast (required for pre-task check)
+    const statusHandler = requestHandlers.get(AgentStatusEventNames.STATUS_CHANGED)
+    statusHandler!(
+      {
+        activeTasks: 0,
+        hasAuth: true,
+        hasConfig: true,
+        isInitialized: true,
+        queuedTasks: 0,
+      },
+      agentClientId,
+    )
+  }
+
   describe('Agent Registration', () => {
     it('should register agent on agent:register event', () => {
       const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
@@ -103,9 +126,8 @@ describe('TransportHandlers', () => {
       const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
       expect(createHandler).to.exist
 
-      // Register agent first
-      const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
-      registerHandler!({}, 'agent-001')
+      // Register agent with status (required for pre-task check)
+      registerAgentWithStatus('agent-001')
 
       const taskId = randomUUID()
       const result = createHandler!({content: 'Test task', taskId, type: 'curate'}, 'client-001')
@@ -120,8 +142,7 @@ describe('TransportHandlers', () => {
 
     it('should reject duplicate taskId with error', () => {
       const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
-      const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
-      registerHandler!({}, 'agent-001')
+      registerAgentWithStatus('agent-001')
 
       const taskId = randomUUID()
 
@@ -137,8 +158,7 @@ describe('TransportHandlers', () => {
 
     it('should broadcast task:created to broadcast-room', () => {
       const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
-      const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
-      registerHandler!({}, 'agent-001')
+      registerAgentWithStatus('agent-001')
 
       const taskId = randomUUID()
       createHandler!({content: 'Broadcast test', taskId, type: 'query'}, 'client-001')
@@ -154,8 +174,7 @@ describe('TransportHandlers', () => {
 
     it('should forward task:execute to agent with client-provided taskId', () => {
       const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
-      const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
-      registerHandler!({}, 'agent-001')
+      registerAgentWithStatus('agent-001')
 
       const taskId = randomUUID()
       createHandler!({content: 'Execute test', taskId, type: 'curate'}, 'client-001')
@@ -176,8 +195,7 @@ describe('TransportHandlers', () => {
 
     it('should include files in execute message when provided', () => {
       const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
-      const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
-      registerHandler!({}, 'agent-001')
+      registerAgentWithStatus('agent-001')
 
       const taskId = randomUUID()
       createHandler!({content: 'Files test', files: ['/file1.ts', '/file2.ts'], taskId, type: 'curate'}, 'client-001')
@@ -236,8 +254,7 @@ describe('TransportHandlers', () => {
     it('should route task:completed to task owner', () => {
       // Create a task first
       const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
-      const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
-      registerHandler!({}, 'agent-001')
+      registerAgentWithStatus('agent-001')
 
       const taskId = randomUUID()
       createHandler!({content: 'Complete test', taskId, type: 'curate'}, 'client-001')
@@ -256,8 +273,7 @@ describe('TransportHandlers', () => {
 
     it('should broadcast task:completed to broadcast-room', () => {
       const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
-      const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
-      registerHandler!({}, 'agent-001')
+      registerAgentWithStatus('agent-001')
 
       const taskId = randomUUID()
       createHandler!({content: 'Broadcast complete', taskId, type: 'query'}, 'client-001')
@@ -275,8 +291,7 @@ describe('TransportHandlers', () => {
 
     it('should clean up task from internal tracking after completion', () => {
       const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
-      const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
-      registerHandler!({}, 'agent-001')
+      registerAgentWithStatus('agent-001')
 
       const taskId = randomUUID()
       createHandler!({content: 'Cleanup test', taskId, type: 'curate'}, 'client-001')
@@ -311,8 +326,7 @@ describe('TransportHandlers', () => {
   describe('Task Error', () => {
     it('should route task:error to task owner', () => {
       const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
-      const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
-      registerHandler!({}, 'agent-001')
+      registerAgentWithStatus('agent-001')
 
       const taskId = randomUUID()
       createHandler!({content: 'Error test', taskId, type: 'curate'}, 'client-001')
@@ -337,8 +351,7 @@ describe('TransportHandlers', () => {
 
     it('should broadcast task:error to broadcast-room', () => {
       const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
-      const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
-      registerHandler!({}, 'agent-001')
+      registerAgentWithStatus('agent-001')
 
       const taskId = randomUUID()
       createHandler!({content: 'Broadcast error', taskId, type: 'query'}, 'client-001')
@@ -363,8 +376,7 @@ describe('TransportHandlers', () => {
 
     it('should clean up task after error', () => {
       const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
-      const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
-      registerHandler!({}, 'agent-001')
+      registerAgentWithStatus('agent-001')
 
       const taskId = randomUUID()
       createHandler!({content: 'Error cleanup', taskId, type: 'curate'}, 'client-001')
@@ -387,8 +399,7 @@ describe('TransportHandlers', () => {
   describe('Task Cancellation', () => {
     it('should forward cancel to agent when connected', () => {
       const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
-      const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
-      registerHandler!({}, 'agent-001')
+      registerAgentWithStatus('agent-001')
 
       const taskId = randomUUID()
       createHandler!({content: 'Cancel test', taskId, type: 'curate'}, 'client-001')
@@ -434,8 +445,7 @@ describe('TransportHandlers', () => {
 
     it('should handle task:cancelled from agent', () => {
       const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
-      const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
-      registerHandler!({}, 'agent-001')
+      registerAgentWithStatus('agent-001')
 
       const taskId = randomUUID()
       createHandler!({content: 'Agent cancel', taskId, type: 'curate'}, 'client-001')
@@ -460,8 +470,7 @@ describe('TransportHandlers', () => {
   describe('Task Started', () => {
     it('should route task:started to task owner', () => {
       const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
-      const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
-      registerHandler!({}, 'agent-001')
+      registerAgentWithStatus('agent-001')
 
       const taskId = randomUUID()
       createHandler!({content: 'Started test', taskId, type: 'curate'}, 'client-001')
@@ -478,8 +487,7 @@ describe('TransportHandlers', () => {
 
     it('should broadcast task:started with task info', () => {
       const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
-      const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
-      registerHandler!({}, 'agent-001')
+      registerAgentWithStatus('agent-001')
 
       const taskId = randomUUID()
       createHandler!({content: 'Broadcast started', files: ['/test.ts'], taskId, type: 'curate'}, 'client-001')
@@ -528,8 +536,7 @@ describe('TransportHandlers', () => {
 
     it('should fail all pending tasks on agent disconnect', () => {
       const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
-      const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
-      registerHandler!({}, 'agent-001')
+      registerAgentWithStatus('agent-001')
 
       // Create multiple tasks
       const taskId1 = randomUUID()
@@ -560,8 +567,7 @@ describe('TransportHandlers', () => {
 
     it('should broadcast errors to broadcast-room on agent disconnect', () => {
       const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
-      const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
-      registerHandler!({}, 'agent-001')
+      registerAgentWithStatus('agent-001')
 
       const taskId = randomUUID()
       createHandler!({content: 'Broadcast error', taskId, type: 'curate'}, 'client-001')
@@ -579,16 +585,15 @@ describe('TransportHandlers', () => {
 
     it('should clear tasks map after agent disconnect', () => {
       const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
-      const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
-      registerHandler!({}, 'agent-001')
+      registerAgentWithStatus('agent-001')
 
       const taskId = randomUUID()
       createHandler!({content: 'Clear test', taskId, type: 'curate'}, 'client-001')
 
       disconnectionHandler!('agent-001')
 
-      // Re-register agent
-      registerHandler!({}, 'agent-002')
+      // Re-register agent with status
+      registerAgentWithStatus('agent-002')
       ;(mockTransport.sendTo as SinonStub).resetHistory()
 
       // Try to cancel the old task - should fail (not found)
@@ -600,8 +605,7 @@ describe('TransportHandlers', () => {
 
     it('should not affect non-agent client disconnections', () => {
       const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
-      const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
-      registerHandler!({}, 'agent-001')
+      registerAgentWithStatus('agent-001')
 
       const taskId = randomUUID()
       createHandler!({content: 'Non-agent test', taskId, type: 'curate'}, 'client-001')
@@ -621,8 +625,7 @@ describe('TransportHandlers', () => {
   describe('LLM Event Routing', () => {
     it('should route llmservice:response to task owner', () => {
       const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
-      const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
-      registerHandler!({}, 'agent-001')
+      registerAgentWithStatus('agent-001')
 
       const taskId = randomUUID()
       createHandler!({content: 'Response test', taskId, type: 'curate'}, 'client-001')
@@ -648,8 +651,7 @@ describe('TransportHandlers', () => {
 
     it('should broadcast LLM events to broadcast-room', () => {
       const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
-      const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
-      registerHandler!({}, 'agent-001')
+      registerAgentWithStatus('agent-001')
 
       const taskId = randomUUID()
       createHandler!({content: 'Broadcast LLM', taskId, type: 'curate'}, 'client-001')
@@ -668,8 +670,7 @@ describe('TransportHandlers', () => {
 
     it('should route llmservice:toolCall correctly', () => {
       const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
-      const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
-      registerHandler!({}, 'agent-001')
+      registerAgentWithStatus('agent-001')
 
       const taskId = randomUUID()
       createHandler!({content: 'Tool test', taskId, type: 'curate'}, 'client-001')
@@ -696,8 +697,7 @@ describe('TransportHandlers', () => {
 
     it('should preserve toolName field (not name) in llmservice:toolCall routing', () => {
       // Regression test: Ensure toolName is preserved and 'name' field is NOT added
-      const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
-      registerHandler!({}, 'agent-001')
+      registerAgentWithStatus('agent-001')
 
       const taskId = randomUUID()
       const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
@@ -733,8 +733,7 @@ describe('TransportHandlers', () => {
 
     it('should route llmservice:toolResult correctly', () => {
       const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
-      const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
-      registerHandler!({}, 'agent-001')
+      registerAgentWithStatus('agent-001')
 
       const taskId = randomUUID()
       createHandler!({content: 'Tool result test', taskId, type: 'curate'}, 'client-001')
@@ -762,8 +761,7 @@ describe('TransportHandlers', () => {
 
     it('should route llmservice:chunk correctly', () => {
       const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
-      const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
-      registerHandler!({}, 'agent-001')
+      registerAgentWithStatus('agent-001')
 
       const taskId = randomUUID()
       createHandler!({content: 'Chunk test', taskId, type: 'curate'}, 'client-001')
@@ -790,8 +788,7 @@ describe('TransportHandlers', () => {
 
     it('should route llmservice:thinking correctly', () => {
       const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
-      const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
-      registerHandler!({}, 'agent-001')
+      registerAgentWithStatus('agent-001')
 
       const taskId = randomUUID()
       createHandler!({content: 'Thinking test', taskId, type: 'curate'}, 'client-001')
@@ -822,8 +819,7 @@ describe('TransportHandlers', () => {
 
     it('should drop events for already completed tasks', () => {
       const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
-      const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
-      registerHandler!({}, 'agent-001')
+      registerAgentWithStatus('agent-001')
 
       const taskId = randomUUID()
       createHandler!({content: 'Completed task', taskId, type: 'curate'}, 'client-001')
@@ -911,8 +907,7 @@ describe('TransportHandlers', () => {
   describe('Cleanup', () => {
     it('should clear tasks and agent on cleanup()', () => {
       const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
-      const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
-      registerHandler!({}, 'agent-001')
+      registerAgentWithStatus('agent-001')
 
       const taskId = randomUUID()
       createHandler!({content: 'Cleanup test', taskId, type: 'curate'}, 'client-001')
@@ -946,9 +941,8 @@ describe('TransportHandlers', () => {
   describe('Stress Tests', () => {
     it('should handle 50 concurrent tasks correctly', () => {
       const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
-      const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
       const completedHandler = requestHandlers.get(TransportTaskEventNames.COMPLETED)
-      registerHandler!({}, 'agent-001')
+      registerAgentWithStatus('agent-001')
 
       const tasks: Array<{clientId: string; taskId: string}> = []
 
@@ -979,8 +973,7 @@ describe('TransportHandlers', () => {
     it('should handle rapid create/cancel cycles', () => {
       const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
       const cancelHandler = requestHandlers.get(TransportTaskEventNames.CANCEL)
-      const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
-      registerHandler!({}, 'agent-001')
+      registerAgentWithStatus('agent-001')
 
       for (let i = 0; i < 20; i++) {
         const taskId = randomUUID()

@@ -148,6 +148,13 @@ export class TaskQueueManager {
   }
 
   /**
+   * Get total active task count across all queues.
+   */
+  getActiveCount(): number {
+    return this.activeCurateTasks + this.activeQueryTasks
+  }
+
+  /**
    * Get all queue statistics.
    */
   getAllStats(): Record<TaskType, TaskQueueStats> {
@@ -155,6 +162,13 @@ export class TaskQueueManager {
       curate: this.getStats('curate'),
       query: this.getStats('query'),
     }
+  }
+
+  /**
+   * Get total queued task count across all queues.
+   */
+  getQueuedCount(): number {
+    return this.curateQueue.length + this.queryQueue.length
   }
 
   /**
@@ -174,6 +188,14 @@ export class TaskQueueManager {
       maxConcurrent: this.config.query.maxConcurrent,
       queued: this.queryQueue.length,
     }
+  }
+
+  /**
+   * Check if there are any active tasks (currently being processed).
+   * Used to prevent reinit during task execution.
+   */
+  hasActiveTasks(): boolean {
+    return this.activeCurateTasks > 0 || this.activeQueryTasks > 0
   }
 
   /**
