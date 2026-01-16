@@ -1,6 +1,6 @@
 import {SlashCommand} from '../../../tui/types.js'
+import {connectorsCommand} from './connectors-command.js'
 import {curateCommand} from './curate-command.js'
-import {genRulesCommand} from './gen-rules-command.js'
 import {initCommand} from './init-command.js'
 import {loginCommand} from './login-command.js'
 import {logoutCommand} from './logout-command.js'
@@ -24,6 +24,9 @@ export const load: () => SlashCommand[] = () => [
   curateCommand, // Add context (primary action)
   queryCommand, // Query context tree
 
+  // Connectors management
+  connectorsCommand, // Manage agent connectors (rules/hook)
+
   // Sync operations
   pushCommand, // Push to cloud
   pullCommand, // Pull from cloud
@@ -32,7 +35,6 @@ export const load: () => SlashCommand[] = () => [
   spaceCommand, // Switch/list spaces
 
   // Context tree management
-  genRulesCommand, // Generate rule files
   resetCommand, // Reset context tree (destructive)
 
   // Session management

@@ -1,10 +1,10 @@
-import {type Agent} from '../../core/domain/entities/agent.js'
-import {type WriteMode} from '../../core/interfaces/i-file-service.js'
+import type {Agent} from '../../../core/domain/entities/agent.js'
+import type {WriteMode} from '../../../core/interfaces/i-file-service.js'
 
 /**
  * Configuration for agent-specific rule files.
  */
-export type AgentRuleConfig = {
+export type RulesConnectorConfig = {
   /**
    * The file path where the agent's rules should be written.
    */
@@ -18,13 +18,13 @@ export type AgentRuleConfig = {
 /**
  * Mapping of agents to their rule file configurations.
  */
-export const AGENT_RULE_CONFIGS: Record<Agent, AgentRuleConfig> = {
+export const RULES_CONNECTOR_CONFIGS = {
   Amp: {
     filePath: 'AGENTS.md',
     writeMode: 'append',
   },
   'Augment Code': {
-    filePath: '.augment/rules/agent-context-engineering.md',
+    filePath: '.augment/rules/agent-context.md',
     writeMode: 'overwrite',
   },
   'Claude Code': {
@@ -32,7 +32,7 @@ export const AGENT_RULE_CONFIGS: Record<Agent, AgentRuleConfig> = {
     writeMode: 'append',
   },
   Cline: {
-    filePath: '.clinerules/agent-context-engineering.md',
+    filePath: '.clinerules/agent-context.md',
     writeMode: 'overwrite',
   },
   Codex: {
@@ -40,7 +40,7 @@ export const AGENT_RULE_CONFIGS: Record<Agent, AgentRuleConfig> = {
     writeMode: 'append',
   },
   Cursor: {
-    filePath: '.cursor/rules/agent-context-engineering.mdc',
+    filePath: '.cursor/rules/agent-context.mdc',
     writeMode: 'overwrite',
   },
   'Gemini CLI': {
@@ -56,15 +56,15 @@ export const AGENT_RULE_CONFIGS: Record<Agent, AgentRuleConfig> = {
     writeMode: 'append',
   },
   'Kilo Code': {
-    filePath: '.kilocode/rules/agent-context-engineering.md',
+    filePath: '.kilocode/rules/agent-context.md',
     writeMode: 'overwrite',
   },
   Kiro: {
-    filePath: '.kiro/steering/agent-context-engineering.md',
+    filePath: '.kiro/steering/agent-context.md',
     writeMode: 'overwrite',
   },
   Qoder: {
-    filePath: '.qoder/rules/agent-context-engineering.md',
+    filePath: '.qoder/rules/agent-context.md',
     writeMode: 'overwrite',
   },
   'Qwen Code': {
@@ -72,7 +72,7 @@ export const AGENT_RULE_CONFIGS: Record<Agent, AgentRuleConfig> = {
     writeMode: 'append',
   },
   'Roo Code': {
-    filePath: '.roo/rules/agent-context-engineering.md',
+    filePath: '.roo/rules/agent-context.md',
     writeMode: 'overwrite',
   },
   'Trae.ai': {
@@ -84,11 +84,16 @@ export const AGENT_RULE_CONFIGS: Record<Agent, AgentRuleConfig> = {
     writeMode: 'append',
   },
   Windsurf: {
-    filePath: '.windsurf/rules/agent-context-engineering.md',
+    filePath: '.windsurf/rules/agent-context.md',
     writeMode: 'overwrite',
   },
   Zed: {
-    filePath: 'agent-context-engineering.rules',
+    filePath: 'agent-context.rules',
     writeMode: 'overwrite',
   },
-}
+} as const satisfies Partial<Record<Agent, RulesConnectorConfig>>
+
+/**
+ * Type for agents that have rules connector configurations.
+ */
+export type RulesSupportedAgent = keyof typeof RULES_CONNECTOR_CONFIGS

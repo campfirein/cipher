@@ -1,6 +1,6 @@
 import {expect} from 'chai'
 
-import {LegacyRuleDetector} from '../../../../src/infra/rule/legacy-rule-detector.js'
+import {LegacyRuleDetector} from '../../../../../src/infra/connectors/rules/legacy-rule-detector.js'
 
 describe('LegacyRuleDetector', () => {
   let detector: LegacyRuleDetector
