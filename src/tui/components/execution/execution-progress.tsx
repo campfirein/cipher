@@ -23,19 +23,45 @@ interface ProgressItem {
 }
 
 interface ExecutionProgressProps {
+  /** Whether content should be fully expanded (no truncation) */
+  isExpand?: boolean
   /** Maximum number of lines (rows) this component can use, including hint line (default: 3) */
   maxLines?: number
   /** Array of progress items */
   progress: ProgressItem[]
 }
 
-export const ExecutionProgress: React.FC<ExecutionProgressProps> = ({maxLines = DEFAULT_MAX_LINES, progress}) => {
+export const ExecutionProgress: React.FC<ExecutionProgressProps> = ({
+  isExpand = false,
+  maxLines = DEFAULT_MAX_LINES,
+  progress,
+}) => {
   const {
     theme: {colors},
   } = useTheme()
 
   if (!progress || progress.length === 0) {
     return null
+  }
+
+  // In expand mode, show all items without truncation
+  if (isExpand) {
+    return (
+      <Box flexDirection="column">
+        {progress.map((item) => (
+          <Box key={item.id}>
+            {item.status === 'completed' && <Text color={colors.primary}>✓ </Text>}
+            {item.status === 'running' && (
+              <Text color={colors.dimText}>
+                <Spinner type="dots" />{' '}
+              </Text>
+            )}
+            {item.status === 'failed' && <Text color={colors.errorText}>✗ </Text>}
+            <Text color={colors.dimText}>{item.toolCallName}</Text>
+          </Box>
+        ))}
+      </Box>
+    )
   }
 
   const hasMore = progress.length > maxLines

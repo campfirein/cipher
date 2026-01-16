@@ -12,6 +12,8 @@ import {useTheme} from '../../hooks/index.js'
 interface ExecutionChangesProps {
   /** List of created file paths */
   created: string[]
+  /** Whether content should be fully expanded (no truncation) */
+  isExpand?: boolean
   /** Maximum changes configuration */
   maxChanges?: {
     created: number // Max lines for created section (including header and indicator)
@@ -23,8 +25,9 @@ interface ExecutionChangesProps {
 
 export const ExecutionChanges: React.FC<ExecutionChangesProps> = ({
   created,
+  isExpand = false,
   updated,
-  maxChanges = {created: Infinity, updated: Infinity},
+  maxChanges = {created: Number.MAX_SAFE_INTEGER, updated: Number.MAX_SAFE_INTEGER},
 }) => {
   const {
     theme: {colors},
@@ -38,6 +41,34 @@ export const ExecutionChanges: React.FC<ExecutionChangesProps> = ({
 
   const hasCreated = created.length > 0
   const hasUpdated = updated.length > 0
+
+  // In expand mode, show all changes without truncation
+  if (isExpand) {
+    return (
+      <Box flexDirection="column">
+        {hasCreated && (
+          <Box columnGap={1}>
+            <Text color={colors.secondary}>created at:</Text>
+            <Box flexDirection="column">
+              {created.map((path) => (
+                <Text key={path}>{path}</Text>
+              ))}
+            </Box>
+          </Box>
+        )}
+        {hasUpdated && (
+          <Box columnGap={1}>
+            <Text color={colors.secondary}>updated at:</Text>
+            <Box flexDirection="column">
+              {updated.map((path) => (
+                <Text key={path}>{path}</Text>
+              ))}
+            </Box>
+          </Box>
+        )}
+      </Box>
+    )
+  }
 
   // Calculate overflow for each section
   // maxChanges represents total lines (items + indicator if overflow)
