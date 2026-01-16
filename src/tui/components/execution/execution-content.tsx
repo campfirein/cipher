@@ -4,11 +4,11 @@
  * Displays execution content (result or error) with truncation support.
  */
 
-import { Box, Text, useStdout } from 'ink'
+import {Box, Text, useStdout} from 'ink'
 import React from 'react'
 
-import { useTheme } from '../../hooks/index.js'
-import { getVisualLineCount } from '../../utils/line.js'
+import {useTheme} from '../../hooks/index.js'
+import {getVisualLineCount} from '../../utils/line.js'
 
 const DEFAULT_MAX_LINES = 5
 
@@ -20,8 +20,8 @@ export function truncateContent(
   content: string,
   maxLines: number,
   maxCharsPerLine?: number,
-): { remainingLines: number; totalLines: number; truncatedContent: string } {
-  const lines = (content ?? '').split('\n')
+): {remainingLines: number; totalLines: number; truncatedContent: string} {
+  const lines = content.split('\n')
 
   // Calculate total visual lines (accounting for wrapping)
   let totalVisualLines = 0
@@ -30,7 +30,7 @@ export function truncateContent(
   }
 
   if (totalVisualLines <= maxLines) {
-    return { remainingLines: 0, totalLines: totalVisualLines, truncatedContent: content }
+    return {remainingLines: 0, totalLines: totalVisualLines, truncatedContent: content}
   }
 
   // Build truncated content respecting visual line limit
@@ -97,9 +97,9 @@ export const ExecutionContent: React.FC<ExecutionContentProps> = ({
   maxLines = DEFAULT_MAX_LINES,
 }) => {
   const {
-    theme: { colors },
+    theme: {colors},
   } = useTheme()
-  const { stdout } = useStdout()
+  const {stdout} = useStdout()
   const contentWidth = (stdout?.columns ?? 80) - 4 // 4 is for padding
 
   if (!content) {
@@ -107,12 +107,12 @@ export const ExecutionContent: React.FC<ExecutionContentProps> = ({
   }
 
   // First check if content would overflow
-  const { totalLines } = truncateContent(content, maxLines, contentWidth)
+  const {totalLines} = truncateContent(content, maxLines, contentWidth)
   const hasOverflow = totalLines > maxLines
 
   // If overflow, reserve 1 line for indicator, show (maxLines - 1) lines of content
   const effectiveMaxLines = hasOverflow ? maxLines - 1 : maxLines
-  const { remainingLines, truncatedContent } = truncateContent(content, effectiveMaxLines, contentWidth)
+  const {remainingLines, truncatedContent} = truncateContent(content, effectiveMaxLines, contentWidth)
 
   return (
     <Box flexDirection="column" marginBottom={bottomMargin}>

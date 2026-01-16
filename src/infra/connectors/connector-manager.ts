@@ -13,6 +13,7 @@ import type {IRuleTemplateService} from '../../core/interfaces/i-rule-template-s
 import {AGENT_CONNECTOR_CONFIG, AGENT_VALUES} from '../../core/domain/entities/agent.js'
 import {CONNECTOR_TYPES} from '../../core/domain/entities/connector-type.js'
 import {HookConnector} from './hook/hook-connector.js'
+import {McpConnector} from './mcp/mcp-connector.js'
 import {RulesConnector} from './rules/rules-connector.js'
 
 /**
@@ -37,6 +38,7 @@ export class ConnectorManager implements IConnectorManager {
     // Create connector instances
     this.connectors = new Map<ConnectorType, IConnector>([
       ['hook', new HookConnector({fileService, projectRoot})],
+      ['mcp', new McpConnector({fileService, projectRoot, templateService})],
       ['rules', new RulesConnector({fileService, projectRoot, templateService})],
     ])
   }

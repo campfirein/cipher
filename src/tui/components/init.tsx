@@ -367,16 +367,24 @@ export const Init: React.FC<InitProps> = ({
     maxSearchItems,
   ])
 
-  // Running state - show streaming output
-  if (isRunningInit) {
-    const {displayMessages} = getMessagesFromEnd(
-      processedStreamingMessages,
-      maxOutputLines,
-    )
-
+  // Error state - show error with retry
+  if (initError) {
     return (
-      <Box flexDirection="column" width="100%">
-        {/* Live streaming output */}
+      <Box flexDirection="column" rowGap={1}>
+        <Text color={colors.errorText}>Error: {initError}</Text>
+        <EnterPrompt action="try again" active={active && !isRunningInit && !activePrompt} onEnter={runInit} />
+      </Box>
+    )
+  }
+
+  const {displayMessages} = getMessagesFromEnd(processedStreamingMessages, maxOutputLines)
+
+  return (
+    <Box flexDirection="column" rowGap={1}>
+      {showIdleMessage && <Text color={colors.text}>{idleMessage}</Text>}
+
+      {/* Live streaming output */}
+      {displayMessages.length > 0 && (
         <Box
           borderColor={colors.border}
           borderStyle="single"
@@ -389,36 +397,15 @@ export const Init: React.FC<InitProps> = ({
           {/* Active prompt */}
           {renderActivePrompt()}
         </Box>
-      </Box>
-    )
-  }
+      )}
 
-  // Error state - show error with retry
-  if (initError) {
-    return (
-      <Box flexDirection="column" rowGap={1}>
-        <Text color={colors.errorText}>Error: {initError}</Text>
+      {!isRunningInit && displayMessages.length === 0 && (
         <EnterPrompt
-          action="try again"
+          action="initialize your project"
           active={active && !isRunningInit && !activePrompt}
           onEnter={runInit}
         />
-      </Box>
-    )
-  }
-  
-  if (autoStart) {
-    return null
-  }
-
-  return (
-    <Box flexDirection="column" rowGap={1}>
-      {showIdleMessage && <Text color={colors.text}>{idleMessage}</Text>}
-      <EnterPrompt
-        action="initialize your project"
-        active={active && !isRunningInit && !activePrompt}
-        onEnter={runInit}
-      />
+      )}
     </Box>
   )
 }

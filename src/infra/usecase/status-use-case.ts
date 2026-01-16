@@ -1,19 +1,19 @@
 import chalk from 'chalk'
-import { join } from 'node:path'
+import {join} from 'node:path'
 
-import type { IContextTreeService } from '../../core/interfaces/i-context-tree-service.js'
-import type { IContextTreeSnapshotService } from '../../core/interfaces/i-context-tree-snapshot-service.js'
-import type { IInstanceDiscovery } from '../../core/interfaces/instance/i-instance-discovery.js'
-import type { IProjectConfigStore } from '../../core/interfaces/i-project-config-store.js'
-import type { ITerminal } from '../../core/interfaces/i-terminal.js'
-import type { ITokenStore } from '../../core/interfaces/i-token-store.js'
-import type { ITrackingService } from '../../core/interfaces/i-tracking-service.js'
-import type { IStatusUseCase } from '../../core/interfaces/usecase/i-status-use-case.js'
+import type {IContextTreeService} from '../../core/interfaces/i-context-tree-service.js'
+import type {IContextTreeSnapshotService} from '../../core/interfaces/i-context-tree-snapshot-service.js'
+import type {IProjectConfigStore} from '../../core/interfaces/i-project-config-store.js'
+import type {ITerminal} from '../../core/interfaces/i-terminal.js'
+import type {ITokenStore} from '../../core/interfaces/i-token-store.js'
+import type {ITrackingService} from '../../core/interfaces/i-tracking-service.js'
+import type {IInstanceDiscovery} from '../../core/interfaces/instance/i-instance-discovery.js'
+import type {IStatusUseCase} from '../../core/interfaces/usecase/i-status-use-case.js'
 
-import { BRV_DIR, CONTEXT_TREE_DIR } from '../../constants.js'
-import { FileInstanceDiscovery } from '../instance/file-instance-discovery.js'
-import { SocketIOTransportClient } from '../transport/socket-io-transport-client.js'
-import { getErrorMessage } from '../../utils/error-helpers.js'
+import {BRV_DIR, CONTEXT_TREE_DIR} from '../../constants.js'
+import {getErrorMessage} from '../../utils/error-helpers.js'
+import {FileInstanceDiscovery} from '../instance/file-instance-discovery.js'
+import {SocketIOTransportClient} from '../transport/socket-io-transport-client.js'
 
 export interface StatusUseCaseOptions {
   contextTreeService: IContextTreeService
@@ -44,7 +44,7 @@ export class StatusUseCase implements IStatusUseCase {
     this.trackingService = options.trackingService
   }
 
-  public async run(options: { cliVersion: string }): Promise<void> {
+  public async run(options: {cliVersion: string}): Promise<void> {
     this.terminal.log(`CLI Version: ${options.cliVersion}`)
 
     try {
@@ -114,10 +114,10 @@ export class StatusUseCase implements IStatusUseCase {
       const formatPath = (file: string) => join(contextTreeRelPath, file)
 
       // Build unified list with status, sort by path ascending
-      const allChanges: { color: (s: string) => string; path: string; status: string }[] = [
-        ...changes.modified.map((f) => ({ color: chalk.red, path: f, status: 'modified:' })),
-        ...changes.added.map((f) => ({ color: chalk.red, path: f, status: 'new file:' })),
-        ...changes.deleted.map((f) => ({ color: chalk.red, path: f, status: 'deleted:' })),
+      const allChanges: {color: (s: string) => string; path: string; status: string}[] = [
+        ...changes.modified.map((f) => ({color: chalk.red, path: f, status: 'modified:'})),
+        ...changes.added.map((f) => ({color: chalk.red, path: f, status: 'new file:'})),
+        ...changes.deleted.map((f) => ({color: chalk.red, path: f, status: 'deleted:'})),
       ].sort((a, b) => a.path.localeCompare(b.path))
 
       this.terminal.log('Context Tree Changes:')
@@ -150,10 +150,11 @@ export class StatusUseCase implements IStatusUseCase {
         } else {
           this.terminal.log(`MCP Status: ${chalk.yellow('No instance running')}`)
         }
+
         return
       }
 
-      const { instance, projectRoot } = discoveryResult
+      const {instance, projectRoot} = discoveryResult
       this.terminal.log(`MCP Status: Instance found (PID: ${instance.pid}, Port: ${instance.port})`)
 
       // Step 2: Connect to instance

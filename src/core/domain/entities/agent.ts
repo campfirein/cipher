@@ -41,22 +41,76 @@ type AgentConnectorConfig = {
  * Defines which connectors each agent supports and which is the default.
  */
 export const AGENT_CONNECTOR_CONFIG: Record<Agent, AgentConnectorConfig> = {
-  Amp: {default: 'rules', supported: ['rules']},
-  'Augment Code': {default: 'rules', supported: ['rules']},
-  'Claude Code': {default: 'hook', supported: ['rules', 'hook']},
-  Cline: {default: 'rules', supported: ['rules']},
-  Codex: {default: 'rules', supported: ['rules']},
-  Cursor: {default: 'rules', supported: ['rules']},
-  'Gemini CLI': {default: 'rules', supported: ['rules']},
-  'Github Copilot': {default: 'rules', supported: ['rules']},
-  Junie: {default: 'rules', supported: ['rules']},
-  'Kilo Code': {default: 'rules', supported: ['rules']},
-  Kiro: {default: 'rules', supported: ['rules']},
-  Qoder: {default: 'rules', supported: ['rules']},
-  'Qwen Code': {default: 'rules', supported: ['rules']},
-  'Roo Code': {default: 'rules', supported: ['rules']},
-  'Trae.ai': {default: 'rules', supported: ['rules']},
-  Warp: {default: 'rules', supported: ['rules']},
-  Windsurf: {default: 'rules', supported: ['rules']},
-  Zed: {default: 'rules', supported: ['rules']},
+  Amp: {
+    default: 'mcp',
+    supported: ['rules', 'mcp'],
+  },
+  'Augment Code': {
+    default: 'mcp',
+    supported: ['rules', 'mcp'],
+  },
+  'Claude Code': {
+    default: 'hook',
+    supported: ['rules', 'hook', 'mcp'],
+  },
+  Cline: {
+    default: 'mcp',
+    supported: ['rules', 'mcp'],
+  },
+  Codex: {
+    default: 'mcp',
+    supported: ['rules', 'mcp'],
+  },
+  Cursor: {
+    default: 'mcp',
+    supported: ['rules', 'mcp'],
+  },
+  'Gemini CLI': {
+    default: 'mcp',
+    supported: ['rules', 'mcp'],
+  },
+  'Github Copilot': {
+    default: 'mcp',
+    supported: ['rules', 'mcp'],
+  },
+  Junie: {
+    default: 'mcp',
+    supported: ['rules', 'mcp'],
+  },
+  'Kilo Code': {
+    default: 'mcp',
+    supported: ['rules', 'mcp'],
+  },
+  Kiro: {
+    default: 'mcp',
+    supported: ['rules', 'mcp'],
+  },
+  Qoder: {
+    default: 'mcp',
+    supported: ['rules', 'mcp'],
+  },
+  'Qwen Code': {
+    default: 'mcp',
+    supported: ['rules', 'mcp'],
+  },
+  'Roo Code': {
+    default: 'mcp',
+    supported: ['rules', 'mcp'],
+  },
+  'Trae.ai': {
+    default: 'mcp',
+    supported: ['rules', 'mcp'],
+  },
+  Warp: {
+    default: 'mcp',
+    supported: ['rules', 'mcp'],
+  },
+  Windsurf: {
+    default: 'mcp',
+    supported: ['rules', 'mcp'],
+  },
+  Zed: {
+    default: 'mcp',
+    supported: ['rules', 'mcp'],
+  },
 }
