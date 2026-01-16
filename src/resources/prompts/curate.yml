@@ -129,5 +129,6 @@ prompt: |
 
   8. **Response Format**:
      - Your final response must be a brief summary (1-2 sentences) describing what knowledge was curated
+     - Always mention the topic name, and include the subtopic name if a subtopic was created
      - Do NOT include any file paths, directory paths, or specific location details in your response
      - The system will automatically display created/updated file paths in a separate section
