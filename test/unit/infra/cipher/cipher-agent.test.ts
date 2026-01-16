@@ -205,6 +205,70 @@ describe('CipherAgent', () => {
     })
   })
 
+  describe('switchDefaultSession', () => {
+    it('should throw error when called before start', () => {
+      const agent = new CipherAgent(agentConfig)
+
+      try {
+        agent.switchDefaultSession('some-session-id')
+        expect.fail('Should have thrown error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(Error)
+        expect((error as Error).message).to.include('must be started')
+      }
+    })
+
+    it('should throw error when session does not exist', async () => {
+      const agent = new CipherAgent(agentConfig)
+      await agent.start()
+
+      try {
+        agent.switchDefaultSession('non-existent-session-id')
+        expect.fail('Should have thrown error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(Error)
+        expect((error as Error).message).to.include('does not exist')
+        expect((error as Error).message).to.include('non-existent-session-id')
+      }
+    })
+
+    it('should switch to existing session successfully', async () => {
+      const agent = new CipherAgent(agentConfig)
+      await agent.start()
+
+      // Get the initial default session ID
+      const initialSessionId = agent.sessionId
+      expect(initialSessionId).to.be.a('string')
+
+      // Create a new session
+      const newSession = await agent.createSession('new-test-session')
+      expect(newSession.id).to.equal('new-test-session')
+
+      // Switch to the new session
+      agent.switchDefaultSession('new-test-session')
+
+      // Verify the default session ID has changed
+      expect(agent.sessionId).to.equal('new-test-session')
+      expect(agent.sessionId).to.not.equal(initialSessionId)
+    })
+
+    it('should allow switching back to original session', async () => {
+      const agent = new CipherAgent(agentConfig)
+      await agent.start()
+
+      const originalSessionId = agent.sessionId!
+
+      // Create and switch to a new session
+      await agent.createSession('temp-session')
+      agent.switchDefaultSession('temp-session')
+      expect(agent.sessionId).to.equal('temp-session')
+
+      // Switch back to original
+      agent.switchDefaultSession(originalSessionId)
+      expect(agent.sessionId).to.equal(originalSessionId)
+    })
+  })
+
   describe('interface compliance', () => {
     it('should implement all ICipherAgent methods', () => {
       const agent = new CipherAgent(agentConfig)
@@ -214,6 +278,7 @@ describe('CipherAgent', () => {
       expect(agent).to.have.property('execute').that.is.a('function')
       expect(agent).to.have.property('getState').that.is.a('function')
       expect(agent).to.have.property('reset').that.is.a('function')
+      expect(agent).to.have.property('switchDefaultSession').that.is.a('function')
     })
 
     it('should expose agentEventBus after start', async () => {
