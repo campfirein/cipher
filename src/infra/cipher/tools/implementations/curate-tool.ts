@@ -642,6 +642,23 @@ async function executeCurate(input: unknown, _context?: ToolExecutionContext): P
 
   const {basePath, operations} = parseResult.data
 
+  const touchedDomains = new Set<string>()
+  for (const op of operations) {
+    const parsed = parsePath(op.path)
+    if (parsed) {
+      touchedDomains.add(toSnakeCase(parsed.domain))
+    }
+
+    if (op.type === 'MERGE' && op.mergeTarget) {
+      const targetParsed = parsePath(op.mergeTarget)
+      if (targetParsed) {
+        touchedDomains.add(toSnakeCase(targetParsed.domain))
+      }
+    }
+  }
+
+  await backfillDomainContextFiles(basePath, touchedDomains)
+
   const applied: OperationResult[] = []
   const summary = {
     added: 0,
@@ -650,8 +667,6 @@ async function executeCurate(input: unknown, _context?: ToolExecutionContext): P
     merged: 0,
     updated: 0,
   }
-
-  // Process operations sequentially to maintain consistency
   /* eslint-disable no-await-in-loop -- Sequential processing required for dependent operations */
   for (const operation of operations) {
     let result: OperationResult
@@ -712,18 +727,10 @@ async function executeCurate(input: unknown, _context?: ToolExecutionContext): P
   return {applied, summary}
 }
 
-/**
- * Creates the curate tool.
- *
- * This tool manages knowledge topics with atomic operations (ADD, UPDATE, MERGE, DELETE).
- * It applies patterns from the ACE Curator for intelligent knowledge curation.
- *
- * @returns Configured curate tool
- */
-/**
- * Backfill missing domain context.md files for existing domains.
- */
-export async function backfillDomainContextFiles(basePath: string): Promise<string[]> {
+export async function backfillDomainContextFiles(
+  basePath: string,
+  excludeDomains: Set<string> = new Set(),
+): Promise<string[]> {
   const createdPaths: string[] = []
 
   const baseExists = await DirectoryManager.folderExists(basePath)
@@ -742,6 +749,10 @@ export async function backfillDomainContextFiles(basePath: string): Promise<stri
 
   /* eslint-disable no-await-in-loop */
   for (const domain of domains) {
+    if (excludeDomains.has(domain.name)) {
+      continue
+    }
+
     const contextPath = join(basePath, domain.name, 'context.md')
     const exists = await DirectoryManager.fileExists(contextPath)
 

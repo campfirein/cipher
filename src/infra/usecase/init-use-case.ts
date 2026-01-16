@@ -24,11 +24,10 @@ import type {ITrackingService} from '../../core/interfaces/i-tracking-service.js
 import type {IInitUseCase} from '../../core/interfaces/usecase/i-init-use-case.js'
 
 import {getCurrentConfig} from '../../config/environment.js'
-import {ACE_DIR, BRV_CONFIG_VERSION, BRV_DIR, CONTEXT_TREE_DIR, DEFAULT_BRANCH, PROJECT_CONFIG_FILE} from '../../constants.js'
+import {ACE_DIR, BRV_CONFIG_VERSION, BRV_DIR, DEFAULT_BRANCH, PROJECT_CONFIG_FILE} from '../../constants.js'
 import {type Agent, AGENT_VALUES} from '../../core/domain/entities/agent.js'
 import {BrvConfig} from '../../core/domain/entities/brv-config.js'
 import {BrvConfigVersionError} from '../../core/domain/errors/brv-config-version-error.js'
-import {backfillDomainContextFiles} from '../cipher/tools/implementations/curate-tool.js'
 import {AGENT_RULE_CONFIGS} from '../rule/agent-rule-config.js'
 import {BRV_RULE_MARKERS, BRV_RULE_TAG} from '../rule/constants.js'
 import {WorkspaceDetectorService} from '../workspace/workspace-detector-service.js'
@@ -573,17 +572,9 @@ export class InitUseCase implements IInitUseCase {
         await this.contextTreeSnapshotService.initEmptySnapshot()
         this.terminal.log('✓ Context tree initialized')
       } else {
-        // Remote has real data - sync it to local
         await this.contextTreeWriterService.sync({files: [...coGitSnapshot.files]})
         await this.contextTreeSnapshotService.saveSnapshot()
         this.terminal.log(`✓ Synced ${coGitSnapshot.files.length} context files from remote`)
-
-        // Backfill missing domain context.md files for existing domains
-        const contextTreePath = join(process.cwd(), BRV_DIR, CONTEXT_TREE_DIR)
-        const backfilledPaths = await backfillDomainContextFiles(contextTreePath)
-        if (backfilledPaths.length > 0) {
-          this.terminal.log(`✓ Created ${backfilledPaths.length} missing domain context.md file(s)`)
-        }
       }
     } catch (error) {
       const syncFailureErr = `Failed to sync from ByteRover: ${error instanceof Error ? error.message : 'Unknown error'}. Please try again.`
