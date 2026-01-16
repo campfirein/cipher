@@ -1,0 +1,32 @@
+Search the curated knowledge base in `.brv/context-tree/` for relevant topics.
+
+This tool enables semantic/fuzzy search across all curated knowledge without needing to know exact file paths. Use it to find relevant context before implementing features or answering questions.
+
+**When to use:**
+- Finding relevant knowledge topics (e.g., "auth design", "API patterns", "error handling")
+- Discovering what knowledge exists about a specific area
+- Locating context files without knowing their exact paths
+
+**Parameters:**
+- `query` (required): Natural language search query
+- `limit` (optional): Maximum results to return (default: 10)
+
+**Returns:**
+- `results`: Array of matching topics with:
+  - `path`: File path relative to context-tree
+  - `title`: Topic title
+  - `excerpt`: Relevant content snippet
+  - `score`: Relevance score (higher is better)
+- `totalFound`: Total number of matches
+- `message`: Status message
+
+**Usage tips:**
+- Use descriptive queries: "authentication flow" works better than "auth"
+- Search is fuzzy: minor typos are tolerated
+- Results are ranked by relevance to your query
+- Use `read_file` on returned paths to view full content
+
+**Examples:**
+- Query: "API authentication" - finds topics about auth design
+- Query: "error handling patterns" - finds error-related knowledge
+- Query: "database schema" - finds data model documentation
