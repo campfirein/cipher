@@ -7,7 +7,7 @@
  */
 
 import {Box} from 'ink'
-import React from 'react'
+import React, {useState} from 'react'
 
 import {Footer, Header, TabBar} from './components/index.js'
 import {useAuth, useTasks} from './contexts/index.js'
@@ -21,6 +21,9 @@ export const App: React.FC = () => {
   const {isAuthorized} = useAuth()
   const {activeTab, tabs} = useTabNavigation()
   const {stats: taskStats} = useTasks()
+
+  const [selectedLogIndex, setSelectedLogIndex] = useState(0)
+  const [expandedViewLogId, setExpandedViewLogId] = useState<null | string>(null)
 
   const contentHeight = Math.max(1, terminalHeight - header - tab - footer)
 
@@ -38,9 +41,15 @@ export const App: React.FC = () => {
           </Box>
 
           <Box flexGrow={1} paddingX={1}>
-            <Box display={activeTab === 'activity' ? 'flex' : 'none'} height="100%" width="100%">
-              <LogsView availableHeight={contentHeight} />
-            </Box>
+            {activeTab === 'activity' && (
+              <LogsView
+                availableHeight={contentHeight}
+                expandedViewLogId={expandedViewLogId}
+                selectedLogIndex={selectedLogIndex}
+                setExpandedViewLogId={setExpandedViewLogId}
+                setSelectedLogIndex={setSelectedLogIndex}
+              />
+            )}
             <Box display={activeTab === 'console' ? 'flex' : 'none'} height="100%" width="100%">
               <CommandView availableHeight={contentHeight} />
             </Box>

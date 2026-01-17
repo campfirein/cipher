@@ -4,16 +4,16 @@
  * Activity log display using ScrollableList with dynamic height calculation
  */
 
-import {Box, useInput, useStdout} from 'ink'
-import {ScrollList, ScrollListRef} from 'ink-scroll-list'
-import React, {useCallback, useEffect, useRef, useState} from 'react'
+import { Box, useInput, useStdout } from 'ink'
+import { ScrollList, ScrollListRef } from 'ink-scroll-list'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 
-import {ExpandedLogView, LogItem, OnboardingFlow, WelcomeBox} from '../components/index.js'
-import {useAuth} from '../contexts/index.js'
-import {useActivityLogs, useMode, useTheme, useUIHeights} from '../hooks/index.js'
-import {useOnboarding} from '../hooks/use-onboarding.js'
-import {ActivityLog} from '../types.js'
-import {InitView} from './init-view.js'
+import { ExpandedLogView, LogItem, OnboardingFlow, WelcomeBox } from '../components/index.js'
+import { useAuth } from '../contexts/index.js'
+import { useActivityLogs, useMode, useTheme, useUIHeights } from '../hooks/index.js'
+import { useOnboarding } from '../hooks/use-onboarding.js'
+import { ActivityLog } from '../types.js'
+import { InitView } from './init-view.js'
 
 interface LogsViewProps {
   /**
@@ -30,22 +30,38 @@ interface LogsViewProps {
    * // availableHeight = 30 - 2 - 3 - 1 = 24 rows for content
    */
   availableHeight: number
+
+  /** ID of the currently expanded log */
+  expandedViewLogId: null | string
+
+  /** Currently selected log index */
+  selectedLogIndex: number
+
+  /** Setter for expandedViewLogId */
+  setExpandedViewLogId: (id: null | string) => void
+
+  /** Setter for selectedLogIndex */
+  setSelectedLogIndex: React.Dispatch<React.SetStateAction<number>>
 }
 
-export const LogsView: React.FC<LogsViewProps> = ({availableHeight}) => {
+export const LogsView: React.FC<LogsViewProps> = ({
+  availableHeight,
+  expandedViewLogId,
+  selectedLogIndex,
+  setExpandedViewLogId,
+  setSelectedLogIndex,
+}) => {
   const {
-    theme: {colors},
+    theme: { colors },
   } = useTheme()
-  const {mode} = useMode()
-  const {logs} = useActivityLogs()
-  const {isLoadingDismissed, shouldShowOnboarding} = useOnboarding()
-  const {messageItem} = useUIHeights()
-  const {brvConfig} = useAuth()
+  const { mode } = useMode()
+  const { logs } = useActivityLogs()
+  const { isLoadingDismissed, shouldShowOnboarding } = useOnboarding()
+  const { messageItem } = useUIHeights()
+  const { brvConfig } = useAuth()
   const [initFlowCompleted, setInitFlowCompleted] = useState(Boolean(brvConfig))
   const scrollListRef = useRef<ScrollListRef>(null)
-  const {stdout} = useStdout()
-  const [selectedIndex, setSelectedIndex] = useState(0)
-  const [expandedViewLogId, setExpandedViewLogId] = useState<null | string>(null)
+  const { stdout } = useStdout()
 
   // Calculate scrollable height for dynamic per-log calculations
   const scrollableHeight = Math.max(1, availableHeight)
@@ -68,41 +84,41 @@ export const LogsView: React.FC<LogsViewProps> = ({availableHeight}) => {
   // Auto-scroll to bottom when new logs are added
   useEffect(() => {
     if (logs.length === 0) return
-    setSelectedIndex(logs.length - 1)
-  }, [logs.length])
+    setSelectedLogIndex(logs.length - 1)
+  }, [logs.length, setSelectedLogIndex])
 
   // Navigation in list view
   useInput(
     (input, key) => {
       if (key.ctrl && input === 'o') {
-        const selectedLog = logs[selectedIndex]
+        const selectedLog = logs[selectedLogIndex]
         if (!selectedLog) return
 
         setExpandedViewLogId(selectedLog.id)
       }
 
       if (key.upArrow || input === 'k') {
-        setSelectedIndex((prev) => Math.max(0, prev - 1))
+        setSelectedLogIndex((prev) => Math.max(0, prev - 1))
       }
 
       if (key.downArrow || input === 'j') {
-        setSelectedIndex((prev) => Math.min(prev + 1, logs.length - 1))
+        setSelectedLogIndex((prev) => Math.min(prev + 1, logs.length - 1))
       }
 
       if (input === 'g') {
-        setSelectedIndex(0)
+        setSelectedLogIndex(0)
       }
 
       if (input === 'G') {
-        setSelectedIndex(logs.length - 1)
+        setSelectedLogIndex(logs.length - 1)
       }
     },
-    {isActive: mode === 'activity' && logs.length > 0 && !expandedViewLogId}
+    { isActive: mode === 'activity' && logs.length > 0 && !expandedViewLogId }
   )
 
   const renderLogItem = useCallback(
     (log: ActivityLog, index: number) => {
-      const isSelected = index === selectedIndex
+      const isSelected = index === selectedLogIndex
 
       return (
         <LogItem
@@ -116,7 +132,7 @@ export const LogsView: React.FC<LogsViewProps> = ({availableHeight}) => {
         />
       )
     },
-    [messageItem, selectedIndex]
+    [messageItem, selectedLogIndex]
   )
 
   // Find the expanded log
@@ -164,7 +180,7 @@ export const LogsView: React.FC<LogsViewProps> = ({availableHeight}) => {
             height={scrollableHeight}
             ref={scrollListRef}
             scrollAlignment="auto"
-            selectedIndex={selectedIndex}
+            selectedIndex={selectedLogIndex}
           >
             {logs.map((log, index) => (
               <Box key={log.id}>{renderLogItem(log, index)}</Box>
