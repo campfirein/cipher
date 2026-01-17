@@ -1,10 +1,10 @@
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
+import {McpServer} from '@modelcontextprotocol/sdk/server/mcp.js'
+import {StdioServerTransport} from '@modelcontextprotocol/sdk/server/stdio.js'
 
-import type { ITransportClient } from '../../core/interfaces/transport/index.js'
+import type {ITransportClient} from '../../core/interfaces/transport/index.js'
 
-import { createTransportClientFactory } from '../transport/transport-client-factory.js'
-import { registerBrvCurateTool, registerBrvQueryTool } from './tools/index.js'
+import {createTransportClientFactory} from '../transport/transport-client-factory.js'
+import {registerBrvCurateTool, registerBrvQueryTool} from './tools/index.js'
 
 export interface McpServerConfig {
   /** CLI version for MCP server identification */
@@ -85,7 +85,7 @@ export class ByteRoverMcpServer {
       throw error
     }
 
-    const { client, projectRoot } = connectionResult
+    const {client, projectRoot} = connectionResult
     this.client = client
 
     this.log(`Connected to brv instance at ${projectRoot}`)
@@ -122,6 +122,7 @@ export class ByteRoverMcpServer {
       clearTimeout(this.reconnectTimer)
       this.reconnectTimer = undefined
     }
+
     this.isReconnecting = false
 
     if (this.client) {
@@ -198,17 +199,26 @@ export class ByteRoverMcpServer {
       const timestamp = new Date().toISOString()
       this.log(`[${timestamp}] Connection state changed: ${state}`)
 
-      if (state === 'disconnected') {
-        this.log(`[${timestamp}] Socket disconnected from brv instance. Initiating reconnection...`)
-        // Trigger auto-reconnect
-        this.attemptReconnect()
-      } else if (state === 'reconnecting') {
-        this.log(`[${timestamp}] Socket.IO attempting to reconnect...`)
-      } else if (state === 'connected') {
-        this.log(`[${timestamp}] Connected to brv instance.`)
-        // Reset backoff delay on successful connection
-        this.currentReconnectDelay = RECONNECT_DELAY_MS
-        this.isReconnecting = false
+      switch (state) {
+        case 'connected': {
+          this.log(`[${timestamp}] Connected to brv instance.`)
+          // Reset backoff delay on successful connection
+          this.currentReconnectDelay = RECONNECT_DELAY_MS
+          this.isReconnecting = false
+          break
+        }
+
+        case 'disconnected': {
+          this.log(`[${timestamp}] Socket disconnected from brv instance. Initiating reconnection...`)
+          // Trigger auto-reconnect
+          this.attemptReconnect()
+          break
+        }
+
+        case 'reconnecting': {
+          this.log(`[${timestamp}] Socket.IO attempting to reconnect...`)
+          break
+        }
       }
     })
   }
