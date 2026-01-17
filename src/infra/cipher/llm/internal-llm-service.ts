@@ -50,6 +50,9 @@ import {ClaudeTokenizer} from './tokenizers/claude-tokenizer.js'
 import {GeminiTokenizer} from './tokenizers/gemini-tokenizer.js'
 import {type ProcessedOutput, ToolOutputProcessor, type TruncationConfig} from './tool-output-processor.js'
 
+/** Target utilization ratio for message tokens (leaves headroom for response) */
+const TARGET_MESSAGE_TOKEN_UTILIZATION = 0.7
+
 /**
  * Result of parallel tool execution (before adding to context).
  * Contains all information needed to add the result to context in order.
@@ -737,7 +740,19 @@ export class ByteRoverLLMService implements ILLMService {
 
     // Get token count for logging (using system prompt for token accounting)
     const systemPromptTokens = this.generator.estimateTokensSync(systemPrompt)
-    const messagesTokens = this.contextManager
+    const messages = this.contextManager.getMessages()
+    const messageTokenCounts = messages.map((msg) =>
+      this.generator.estimateTokensSync(typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)),
+    )
+
+    const maxMessageTokens = this.config.maxInputTokens - systemPromptTokens
+    // Target utilization to leave headroom for response
+    const targetMessageTokens = Math.floor(maxMessageTokens * TARGET_MESSAGE_TOKEN_UTILIZATION)
+
+    this.contextManager.compressMessage(targetMessageTokens, messageTokenCounts)
+
+    // Calculate tokens after compression
+    const compressedMessagesTokens = this.contextManager
       .getMessages()
       .reduce(
         (total, msg) =>
@@ -747,7 +762,8 @@ export class ByteRoverLLMService implements ILLMService {
           ),
         0,
       )
-    const tokensUsed = systemPromptTokens + messagesTokens
+    const tokensUsed = systemPromptTokens + compressedMessagesTokens
+
 
     // Verbose: Log messages that will be sent to LLM
     if (this.config.verbose) {

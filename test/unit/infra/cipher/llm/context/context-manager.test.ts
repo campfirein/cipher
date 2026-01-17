@@ -871,6 +871,119 @@ describe('ContextManager', () => {
     })
   })
 
+  describe('compressMessage', () => {
+    it('should not remove messages when total tokens are within budget', async () => {
+      await contextManager.addUserMessage('Message 1')
+      await contextManager.addUserMessage('Message 2')
+      await contextManager.addUserMessage('Message 3')
+
+      const messageTokens = [10, 20, 30] // Total: 60
+      contextManager.compressMessage(100, messageTokens) // Budget: 100
+
+      const messages = contextManager.getMessages()
+      expect(messages).to.have.lengthOf(3)
+    })
+
+    it('should remove oldest messages to fit within token budget', async () => {
+      await contextManager.addUserMessage('Message 1')
+      await contextManager.addUserMessage('Message 2')
+      await contextManager.addUserMessage('Message 3')
+      await contextManager.addUserMessage('Message 4')
+
+      const messageTokens = [30, 30, 30, 30] // Total: 120
+      contextManager.compressMessage(70, messageTokens) // Budget: 70, need to remove first 2
+
+      const messages = contextManager.getMessages()
+      expect(messages).to.have.lengthOf(2)
+      expect(messages[0].content).to.equal('Message 3')
+      expect(messages[1].content).to.equal('Message 4')
+    })
+
+    it('should remove all but one message if budget is very small', async () => {
+      await contextManager.addUserMessage('Message 1')
+      await contextManager.addUserMessage('Message 2')
+      await contextManager.addUserMessage('Message 3')
+
+      const messageTokens = [50, 50, 20] // Total: 120
+      contextManager.compressMessage(20, messageTokens) // Budget: 20, only last fits
+
+      const messages = contextManager.getMessages()
+      expect(messages).to.have.lengthOf(1)
+      expect(messages[0].content).to.equal('Message 3')
+    })
+
+    it('should remove all messages if budget is zero', async () => {
+      await contextManager.addUserMessage('Message 1')
+      await contextManager.addUserMessage('Message 2')
+
+      const messageTokens = [50, 50]
+      contextManager.compressMessage(0, messageTokens)
+
+      const messages = contextManager.getMessages()
+      expect(messages).to.have.lengthOf(0)
+    })
+
+    it('should handle empty messages array', () => {
+      contextManager.compressMessage(100, [])
+
+      const messages = contextManager.getMessages()
+      expect(messages).to.have.lengthOf(0)
+    })
+
+    it('should handle single message within budget', async () => {
+      await contextManager.addUserMessage('Single message')
+
+      const messageTokens = [50]
+      contextManager.compressMessage(100, messageTokens)
+
+      const messages = contextManager.getMessages()
+      expect(messages).to.have.lengthOf(1)
+      expect(messages[0].content).to.equal('Single message')
+    })
+
+    it('should handle single message exceeding budget', async () => {
+      await contextManager.addUserMessage('Single message')
+
+      const messageTokens = [150]
+      contextManager.compressMessage(100, messageTokens)
+
+      const messages = contextManager.getMessages()
+      expect(messages).to.have.lengthOf(0)
+    })
+
+    it('should remove exact number of messages needed', async () => {
+      await contextManager.addUserMessage('Message 1')
+      await contextManager.addUserMessage('Message 2')
+      await contextManager.addUserMessage('Message 3')
+      await contextManager.addUserMessage('Message 4')
+      await contextManager.addUserMessage('Message 5')
+
+      const messageTokens = [20, 20, 20, 20, 20] // Total: 100
+      contextManager.compressMessage(60, messageTokens) // Need to remove first 2 (40 tokens)
+
+      const messages = contextManager.getMessages()
+      expect(messages).to.have.lengthOf(3)
+      expect(messages[0].content).to.equal('Message 3')
+    })
+
+    it('should preserve message order after compression', async () => {
+      await contextManager.addUserMessage('First')
+      await contextManager.addAssistantMessage('Second')
+      await contextManager.addUserMessage('Third')
+      await contextManager.addAssistantMessage('Fourth')
+
+      const messageTokens = [25, 25, 25, 25] // Total: 100
+      contextManager.compressMessage(50, messageTokens) // Keep last 2
+
+      const messages = contextManager.getMessages()
+      expect(messages).to.have.lengthOf(2)
+      expect(messages[0].content).to.equal('Third')
+      expect(messages[0].role).to.equal('user')
+      expect(messages[1].content).to.equal('Fourth')
+      expect(messages[1].role).to.equal('assistant')
+    })
+  })
+
   describe('edge cases', () => {
     it('should handle very long conversation history', async () => {
       for (let i = 0; i < 1000; i++) {
