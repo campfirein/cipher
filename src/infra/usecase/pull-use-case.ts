@@ -49,7 +49,7 @@ export class PullUseCase implements IPullUseCase {
     const projectConfig = await this.projectConfigStore.read()
     if (projectConfig === undefined) {
       throw new WorkspaceNotInitializedError(
-        'Project not initialized. Please run "brv init" to select your team and workspace.',
+        'Project not initialized. Please run "/init" to select your team and workspace.',
         '.brv',
       )
     }
@@ -72,7 +72,7 @@ export class PullUseCase implements IPullUseCase {
       this.terminal.actionStop()
 
       if (hasLocalChanges) {
-        this.terminal.log('You have local changes that have not been pushed. Run "brv push" first.')
+        this.terminal.log('You have local changes that have not been pushed. Run "/push" first.')
         return
       }
 
@@ -105,7 +105,7 @@ export class PullUseCase implements IPullUseCase {
       // Stop action if it's in progress
       this.terminal.actionStop()
       if (error instanceof WorkspaceNotInitializedError) {
-        this.terminal.log('Project not initialized. Please run "brv init" to select your team and workspace.')
+        this.terminal.log('Project not initialized. Please run "/init" to select your team and workspace.')
         return
       }
 
@@ -118,12 +118,12 @@ export class PullUseCase implements IPullUseCase {
     const token = await this.tokenStore.load()
 
     if (token === undefined) {
-      this.terminal.error('Not authenticated. Run "brv login" first.')
+      this.terminal.error('Not authenticated. Run "/login" first.')
       return undefined
     }
 
     if (!token.isValid()) {
-      this.terminal.error('Authentication token expired. Run "brv login" again.')
+      this.terminal.error('Authentication token expired. Run "/login" again.')
       return undefined
     }
 

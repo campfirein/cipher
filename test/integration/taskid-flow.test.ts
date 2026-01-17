@@ -45,6 +45,15 @@ describe('TaskId Integration Flow', () => {
     // Register as Agent
     await mockAgent.request('agent:register', {})
 
+    // Broadcast agent status (required for pre-task check after Fix 5.1)
+    await mockAgent.request('agent:status:changed', {
+      activeTasks: 0,
+      hasAuth: true,
+      hasConfig: true,
+      isInitialized: true,
+      queuedTasks: 0,
+    })
+
     // Connect client (simulating TUI or CLI)
     client = new SocketIOTransportClient()
     await client.connect(`http://127.0.0.1:${port}`)

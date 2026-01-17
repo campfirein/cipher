@@ -34,8 +34,8 @@ This launches a persistent session with a React/Ink-based terminal interface whe
 /pull [-b branch]       # Pull context tree from ByteRover memory storage
 /space list [-a] [-j]   # List all spaces
 /space switch           # Switch to a different space
-/gen-rules              # Generate agent rule files
-/reset [-y] [directory] # Reset context tree to default domains
+/connectors             # Manage agent connectors (rules, hooks)
+/reset [-y] [directory] # Reset context tree to an empty state
 /new [-y]               # Start fresh session (clears conversation)
 /init [-f]              # Initialize project (select team/space)
 /login                  # Authenticate with ByteRover
@@ -63,7 +63,7 @@ brv curate "JWT tokens expire in 24h"   # Curate context to context tree
 | `brv query <QUERY>`                             | Query information from the context tree      | `brv query "How is auth implemented?"`             |
 | `brv curate [CONTEXT] [--files]`                | Curate context to context tree               | `brv curate "JWT tokens expire in 24h" --files src/auth.ts` |
 
-> **Note:** Commands like `login`, `logout`, `init`, `push`, `pull`, `space`, `gen-rules`, `reset`, and `new` are only available as slash commands in REPL mode. Run `brv` to start REPL mode.
+> **Note:** Commands like `login`, `logout`, `init`, `push`, `pull`, `space`, `connectors`, `reset`, and `new` are only available as slash commands in REPL mode. Run `brv` to start REPL mode.
 
 > **Important:** The `brv query` and `brv curate` standalone commands require a running `brv` instance in the same directory. Start REPL mode with `brv` first, then run these commands in a separate terminal.
 
@@ -107,8 +107,8 @@ brv
 | `/pull [-b branch]` | Pull context tree from ByteRover memory storage |
 | `/space list [-a] [-j] [-l n] [-o n]` | List all spaces for current team |
 | `/space switch` | Switch to a different space |
-| `/gen-rules` | Generate rule instructions for coding agents |
-| `/reset [-y] [directory]` | Reset context tree to 6 default domains |
+| `/connectors` | Manage agent connectors (rules, hooks) |
+| `/reset [-y] [directory]` | Reset context tree to an empty state |
 | `/new [-y]` | Start a fresh session (ends current, clears conversation) |
 | `/init [-f]` | Initialize a project with ByteRover |
 | `/login` | Authenticate with ByteRover using OAuth 2.0 + PKCE |
@@ -215,32 +215,35 @@ Switch to a different space. Interactive mode only - prompts you to select from 
 
 **Flags**: None
 
-#### `/gen-rules`
+#### `/connectors`
 
-Generate rule instruction files for coding agents to work with ByteRover correctly. Creates configuration files for supported AI coding assistants.
+Manage agent connectors for integrating ByteRover with AI coding assistants. Supports two connector types:
+
+- **Rules**: Generates markdown rule files that agents read for instructions
+- **Hook**: Uses agent-specific hook systems for tighter integration (Claude Code only)
 
 **Supported Agents**
 
-| Agent | Rule File Path |
-| ----- | -------------- |
-| Amp | `AGENTS.md` |
-| Augment Code | `.augment/rules/agent-context-engineering.md` |
-| Claude Code | `CLAUDE.md` |
-| Cline | `.clinerules/agent-context-engineering.md` |
-| Codex | `AGENTS.md` |
-| Cursor | `.cursor/rules/agent-context-engineering.mdc` |
-| Gemini CLI | `GEMINI.md` |
-| GitHub Copilot | `.github/copilot-instructions.md` |
-| Junie | `.junie/guidelines.md` |
-| Kilo Code | `.kilocode/rules/agent-context-engineering.md` |
-| Kiro | `.kiro/steering/agent-context-engineering.md` |
-| Qoder | `.qoder/rules/agent-context-engineering.md` |
-| Qwen Code | `QWEN.md` |
-| Roo Code | `.roo/rules/agent-context-engineering.md` |
-| Trae.ai | `project_rules.md` |
-| Warp | `WARP.md` |
-| Windsurf | `.windsurf/rules/agent-context-engineering.md` |
-| Zed | `agent-context-engineering.rules` |
+| Agent | Connector Type | File Path |
+| ----- | -------------- | --------- |
+| Amp | Rules | `AGENTS.md` |
+| Augment Code | Rules | `.augment/rules/agent-context.md` |
+| Claude Code | Hook (default) or Rules | Hook: `settings.local.json`, Rules: `CLAUDE.md` |
+| Cline | Rules | `.clinerules/agent-context.md` |
+| Codex | Rules | `AGENTS.md` |
+| Cursor | Rules | `.cursor/rules/agent-context.mdc` |
+| Gemini CLI | Rules | `GEMINI.md` |
+| GitHub Copilot | Rules | `.github/copilot-instructions.md` |
+| Junie | Rules | `.junie/guidelines.md` |
+| Kilo Code | Rules | `.kilocode/rules/agent-context.md` |
+| Kiro | Rules | `.kiro/steering/agent-context.md` |
+| Qoder | Rules | `.qoder/rules/agent-context.md` |
+| Qwen Code | Rules | `QWEN.md` |
+| Roo Code | Rules | `.roo/rules/agent-context.md` |
+| Trae.ai | Rules | `project_rules.md` |
+| Warp | Rules | `WARP.md` |
+| Windsurf | Rules | `.windsurf/rules/agent-context.md` |
+| Zed | Rules | `agent-context.rules` |
 
 **Flags**: None
 
@@ -268,7 +271,7 @@ Log out of ByteRover CLI and clear authentication credentials from the system ke
 
 #### `/reset`
 
-Reset the current context tree and start with 6 default domains. This is a destructive operation.
+Reset the current context tree to an empty state. This is a destructive operation.
 
 | Argument | Type | Required | Description |
 | -------- | ---- | -------- | ----------- |

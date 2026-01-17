@@ -23,6 +23,7 @@ export {createGlobFilesTool} from './implementations/glob-files-tool.js'
 export {createGrepContentTool} from './implementations/grep-content-tool.js'
 export {createReadFileTool} from './implementations/read-file-tool.js'
 export {createSearchHistoryTool} from './implementations/search-history-tool.js'
+export {createSearchKnowledgeTool} from './implementations/search-knowledge-tool.js'
 export {createSpecAnalyzeTool} from './implementations/spec-analyze-tool.js'
 export {createWriteFileTool} from './implementations/write-file-tool.js'
 

@@ -1,1 +1,1 @@
-export const CURATE_MAX_CONCURRENT = 1
+export const CURATE_MAX_CONCURRENT = 3

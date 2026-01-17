@@ -60,7 +60,7 @@ export const resetCommand: SlashCommand = {
     },
   ],
   autoExecute: true,
-  description: 'Reset the current context tree and start with 6 default domains',
+  description: 'Reset the current context tree to an empty state',
   flags: toCommandFlags(resetFlags),
   kind: CommandKind.BUILT_IN,
   name: 'reset',

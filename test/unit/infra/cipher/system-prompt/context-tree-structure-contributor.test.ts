@@ -210,4 +210,150 @@ describe('ContextTreeStructureContributor', () => {
       expect(contributor.priority).to.equal(15)
     })
   })
+
+  describe('search_knowledge tool integration', () => {
+    it('should return search instructions when search_knowledge tool is available', async () => {
+      // Create context tree with some content
+      const contextTreePath = path.join(tempDir, '.brv', 'context-tree')
+      const domainPath = path.join(contextTreePath, 'design')
+
+      fs.mkdirSync(domainPath, {recursive: true})
+      fs.writeFileSync(path.join(domainPath, 'context.md'), '# Design\n\nContent...')
+
+      contributor = new ContextTreeStructureContributor('test', 10, {
+        workingDirectory: tempDir,
+      })
+
+      const context: ContributorContext = {
+        availableTools: ['search_knowledge', 'read_file'],
+        commandType: 'query',
+      }
+
+      const result = await contributor.getContent(context)
+
+      // Should contain search instructions instead of full tree
+      expect(result).to.include('<context-tree-structure>')
+      expect(result).to.include('search_knowledge')
+      expect(result).to.include('Knowledge Base Available')
+      expect(result).to.include('How to Search')
+      // Should NOT contain full tree structure
+      expect(result).to.not.include('design/')
+      expect(result).to.not.include('context.md (knowledge content)')
+    })
+
+    it('should return full tree when search_knowledge tool is NOT available', async () => {
+      // Create context tree with some content
+      const contextTreePath = path.join(tempDir, '.brv', 'context-tree')
+      const domainPath = path.join(contextTreePath, 'design')
+
+      fs.mkdirSync(domainPath, {recursive: true})
+      fs.writeFileSync(path.join(domainPath, 'context.md'), '# Design\n\nContent...')
+
+      contributor = new ContextTreeStructureContributor('test', 10, {
+        workingDirectory: tempDir,
+      })
+
+      const context: ContributorContext = {
+        availableTools: ['read_file', 'write_file'], // No search_knowledge
+        commandType: 'query',
+      }
+
+      const result = await contributor.getContent(context)
+
+      // Should contain full tree structure
+      expect(result).to.include('<context-tree-structure>')
+      expect(result).to.include('design/')
+      expect(result).to.include('context.md')
+      expect(result).to.include('## Structure Guide')
+    })
+
+    it('should return full tree when availableTools is undefined', async () => {
+      // Create context tree with some content
+      const contextTreePath = path.join(tempDir, '.brv', 'context-tree')
+      const domainPath = path.join(contextTreePath, 'design')
+
+      fs.mkdirSync(domainPath, {recursive: true})
+      fs.writeFileSync(path.join(domainPath, 'context.md'), '# Design\n\nContent...')
+
+      contributor = new ContextTreeStructureContributor('test', 10, {
+        workingDirectory: tempDir,
+      })
+
+      const context: ContributorContext = {
+        commandType: 'query',
+        // availableTools not specified
+      }
+
+      const result = await contributor.getContent(context)
+
+      // Should contain full tree structure (fallback behavior)
+      expect(result).to.include('design/')
+      expect(result).to.include('context.md')
+    })
+
+    it('should return empty message when tree is empty even with search_knowledge available', async () => {
+      // Create empty context tree
+      const contextTreePath = path.join(tempDir, '.brv', 'context-tree')
+      fs.mkdirSync(contextTreePath, {recursive: true})
+
+      contributor = new ContextTreeStructureContributor('test', 10, {
+        workingDirectory: tempDir,
+      })
+
+      const context: ContributorContext = {
+        availableTools: ['search_knowledge'],
+        commandType: 'query',
+      }
+
+      const result = await contributor.getContent(context)
+
+      expect(result).to.include('Empty')
+    })
+
+    it('should include example queries in search instructions', async () => {
+      // Create context tree with some content
+      const contextTreePath = path.join(tempDir, '.brv', 'context-tree')
+      const domainPath = path.join(contextTreePath, 'design')
+
+      fs.mkdirSync(domainPath, {recursive: true})
+      fs.writeFileSync(path.join(domainPath, 'context.md'), '# Design\n\nContent...')
+
+      contributor = new ContextTreeStructureContributor('test', 10, {
+        workingDirectory: tempDir,
+      })
+
+      const context: ContributorContext = {
+        availableTools: ['search_knowledge'],
+        commandType: 'query',
+      }
+
+      const result = await contributor.getContent(context)
+
+      expect(result).to.include('Example Queries')
+      expect(result).to.include('API design patterns')
+    })
+
+    it('should include curate instructions when search_knowledge is available for curate command', async () => {
+      // Create context tree with some content
+      const contextTreePath = path.join(tempDir, '.brv', 'context-tree')
+      const domainPath = path.join(contextTreePath, 'design')
+
+      fs.mkdirSync(domainPath, {recursive: true})
+      fs.writeFileSync(path.join(domainPath, 'context.md'), '# Design\n\nContent...')
+
+      contributor = new ContextTreeStructureContributor('test', 10, {
+        workingDirectory: tempDir,
+      })
+
+      const context: ContributorContext = {
+        availableTools: ['search_knowledge'],
+        commandType: 'curate',
+      }
+
+      const result = await contributor.getContent(context)
+
+      expect(result).to.include('For Curate Commands')
+      expect(result).to.include('Search existing topics')
+    })
+  })
 })

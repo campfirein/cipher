@@ -1,6 +1,6 @@
 # ByteRover CLI
 
-Command-line interface for ByteRover, featuring an interactive REPL with a modern React/Ink terminal UI for managing your project's context tree and knowledge storage. Seamlessly integrate with AI coding agents like Claude Code, Cursor, Windsurf, and GitHub Copilot.
+Command-line interface for ByteRover, featuring an interactive REPL with a modern React/Ink terminal UI for managing your project's context tree and knowledge storage. Seamlessly integrate with 18+ AI coding agents including Claude Code, Cursor, Windsurf, GitHub Copilot, Cline, and more.
 
 [![Version](https://img.shields.io/npm/v/byterover-cli.svg)](https://npmjs.org/package/byterover-cli)
 [![Downloads/week](https://img.shields.io/npm/dw/byterover-cli.svg)](https://npmjs.org/package/byterover-cli)
@@ -46,7 +46,7 @@ brv --version
 
 ## Quick Start
 
-Visit [**ByteRover's Beta Docs**](https://docs.byterover.dev/beta) for more information.
+Visit [**ByteRover Docs**](https://docs.byterover.dev) for more information.
 
 Get started with ByteRover CLI in three simple steps:
 
@@ -122,7 +122,7 @@ The **Context Tree** is ByteRover's structured knowledge system that helps you a
 - **Organized Knowledge**: Structure your project knowledge by domain and topic
 - **Easy Retrieval**: Find relevant context quickly when you need it
 - **Persistent Memory**: Maintain project-specific knowledge across sessions
-- **Agent-Friendly**: Works seamlessly with AI coding agents like Claude Code, Cursor, Windsurf, and GitHub Copilot
+- **Agent-Friendly**: Works seamlessly with 18+ AI coding agents (Claude Code, Cursor, Windsurf, GitHub Copilot, Cline, and more) via rules-based or hook-based integration
 - **Cloud Sync**: Push and sync your context tree to ByteRover's cloud storage for backup and team collaboration
 - **Dynamic Domains**: Automatically creates new domains as your knowledge grows
 
@@ -135,13 +135,15 @@ The context tree organizes knowledge into:
 
 ### Integrating with Coding Agents
 
-Use `/gen-rules` to generate rule instruction files that help your AI coding agents understand and work with ByteRover:
+Use `/connectors` to manage integrations with your AI coding agents:
 
 ```
-/gen-rules
+/connectors
 ```
 
-This creates agent-specific rule files (e.g., `CLAUDE.md`, `.cursorrules`) that instruct the agent how to read from and contribute to your context tree.
+ByteRover supports two connector types:
+- **Hook integration** (Claude Code): Direct injection via IDE settings for seamless integration
+- **Rules-based** (all agents): Generates agent-specific rule files (e.g., `CLAUDE.md`, `.cursorrules`) that instruct the agent how to read from and contribute to your context tree
 
 ## Slash Commands Reference
 
@@ -198,12 +200,12 @@ This creates agent-specific rule files (e.g., `CLAUDE.md`, `.cursorrules`) that 
 - `-l, --limit <n>`: Maximum spaces to fetch (default: 50)
 - `-o, --offset <n>`: Number of spaces to skip
 
-### Context Tree Management
+### Connectors & Context Tree Management
 
 | Command | Description |
 |---------|-------------|
-| `/gen-rules` | Generate rule files for AI coding agents (Claude Code, Cursor, etc.) |
-| `/reset [-y] [directory]` | Reset context tree to default domains |
+| `/connectors` | Manage agent connectors (rules-based or hook integration) |
+| `/reset [-y] [directory]` | Reset context tree to empty state |
 
 **Reset options:**
 - `-y, --yes`: Skip confirmation prompt
@@ -339,7 +341,7 @@ If you encounter issues or have questions:
 
 1. Check the command help in the REPL
 2. Run `/status` to review your project state
-3. Visit [ByteRover Docs](https://docs.byterover.dev)
+3. Visit the [ByteRover Docs](https://docs.byterover.dev)
 4. Contact ByteRover support
 
 ---

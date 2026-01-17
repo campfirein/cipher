@@ -25,10 +25,8 @@ export class CurateExecutor implements ICurateExecutor {
   public async executeWithAgent(agent: ICipherAgent, options: CurateExecuteOptions): Promise<string> {
     const {clientCwd, content, files, taskId} = options
 
+    // Process file references (throws FileValidationError if validation fails)
     const fileReferenceInstructions = this.processFileReferences(files ?? [], clientCwd)
-    if (fileReferenceInstructions === undefined) {
-      throw new FileValidationError()
-    }
 
     // Build prompt with optional file reference instructions
     const prompt = fileReferenceInstructions ? `${content}\n${fileReferenceInstructions}` : content
@@ -49,10 +47,10 @@ export class CurateExecutor implements ICurateExecutor {
    *
    * @param filePaths - Array of file paths (relative or absolute)
    * @param clientCwd - Client's working directory for file validation (optional, defaults to process.cwd())
-   * @returns Formatted instructions for the agent to read the specified files,
-   *          or undefined if validation fails
+   * @returns Formatted instructions for the agent to read the specified files
+   * @throws {FileValidationError} If any file validation fails
    */
-  private processFileReferences(filePaths: string[], clientCwd?: string): string | undefined {
+  private processFileReferences(filePaths: string[], clientCwd?: string): string {
     if (!filePaths || filePaths.length === 0) {
       return ''
     }
@@ -79,9 +77,10 @@ export class CurateExecutor implements ICurateExecutor {
       }
     }
 
-    // If there are any validation errors, return undefined
+    // If there are any validation errors, throw with specific messages
     if (errors.length > 0) {
-      return undefined
+      const errorMessage = `File validation failed:\n${errors.map((e) => `  - ${e}`).join('\n')}`
+      throw new FileValidationError(errorMessage)
     }
 
     // Format instructions for the agent
@@ -96,6 +95,7 @@ export class CurateExecutor implements ICurateExecutor {
       '- You MUST use the `read_file` tool to read ALL of these files IN PARALLEL (in a single iteration) before proceeding to create knowledge topics',
       '- These files contain essential context that will help you create comprehensive and accurate knowledge topics',
       '- Read them in parallel to maximize efficiency - they do not depend on each other',
+      '- **CRITICAL:** Only curate files where `read_file` returns `success: true`. Files that return `success: false` are error messages and should not be curated.',
       '- After reading all files, proceed with the normal workflow: detect domains, find existing knowledge, and create/update topics',
       '',
     ]

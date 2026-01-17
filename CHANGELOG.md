@@ -2,6 +2,32 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [1.1.0]
+
+### Added
+
+- **IDE hook integration** - Support for injecting ByteRover context directly into Claude Code via hooks
+- **PDF file reading** - Read and analyze PDF files with proper validation and magic byte detection
+- **Knowledge search tool** - New `search_knowledge` tool for querying the context tree programmatically
+- **System sleep/wake detection** - Improved reliability when user's machines sleep and wake
+
+### Changed
+
+- **Increased curation concurrency** - Curation tasks now run with concurrency of 3 (up from 1)
+- **Improved query search** - Multi-perspective search strategy with few-shot examples and stop-word filtering
+- **Better curate responses** - Curate agent now includes subtopic names in generated context
+- **REPL-first error messages** - All error messages now reference REPL slash commands (e.g., `/init` instead of `brv init`)
+- **Updated documentation URL** - Docs now point to production URL instead of beta
+
+### Fixed
+
+- **Binary file detection** - Replaced byte-level heuristics with UTF-8 aware detection; fixes false positives for files with emojis, CJK text, and box-drawing characters
+- **PDF validation** - Reject fake PDFs (binary files with .pdf extension) using magic byte validation
+- **Process reconnection** - Fixed race conditions in agent restart and improved transport reconnection with exponential backoff
+- **Topic naming** - Fixed `_md` suffix appearing in topic and sub-topic names during curation
+- **Pull sync filtering** - README.md at context-tree root is now filtered during pull to avoid syncing incorrect files
+- **NPM security vulnerabilities** - Updated dependencies to address security issues
+
 ## [1.0.5]
 
 ### Added

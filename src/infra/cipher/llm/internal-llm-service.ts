@@ -423,11 +423,17 @@ export class ByteRoverLLMService implements ILLMService {
       return
     }
 
-    await this.contextManager.addToolResult(toolCall.id, toolCall.function.name, toolResult.processedOutput.content, {
-      errorType: toolResult.errorType,
-      metadata: toolResult.metadata,
-      success: toolResult.success,
-    })
+    await this.contextManager.addToolResult(
+      toolCall.id,
+      toolCall.function.name,
+      toolResult.processedOutput.content,
+      {
+        errorType: toolResult.errorType,
+        metadata: toolResult.metadata,
+        success: toolResult.success,
+      },
+      toolResult.processedOutput.attachments,
+    )
   }
 
   /**
@@ -872,7 +878,7 @@ export class ByteRoverLLMService implements ILLMService {
       })
 
       // Process output (truncation and file saving if needed)
-      const processedOutput = await this.outputProcessor.processOutput(toolName, result.content)
+      const processedOutput = await this.outputProcessor.processStructuredOutput(toolName, result.content)
 
       // Emit truncation event if output was truncated
       if (processedOutput.metadata?.truncated) {
