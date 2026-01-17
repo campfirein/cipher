@@ -649,6 +649,25 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
     return iterator
   }
 
+  /**
+   * Switch the default session to a different session ID.
+   * The session must already exist (created via createSession).
+   *
+   * @param sessionId - The session ID to switch to
+   * @throws Error if session does not exist
+   */
+  public switchDefaultSession(sessionId: string): void {
+    this.ensureStarted()
+
+    // Verify the session exists
+    const session = this.getSessionManagerInternal().getSession(sessionId)
+    if (!session) {
+      throw new Error(`Session ${sessionId} does not exist. Create it first with createSession().`)
+    }
+
+    this._sessionId = sessionId
+  }
+
   // === Private Helpers (alphabetical order) ===
 
   private getHistoryStorageInternal(): IHistoryStorage {
