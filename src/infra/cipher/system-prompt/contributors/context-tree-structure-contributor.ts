@@ -1,7 +1,11 @@
-import fs from 'node:fs'
+import type {Dirent} from 'node:fs'
+
+import fs from 'node:fs/promises'
 import path from 'node:path'
 
 import type {ContributorContext, SystemPromptContributor} from '../../../../core/domain/cipher/system-prompt/types.js'
+
+import {ToolName} from '../../../../core/domain/cipher/tools/constants.js'
 
 /**
  * Options for context tree structure contributor.
@@ -66,27 +70,26 @@ export class ContextTreeStructureContributor implements SystemPromptContributor 
 
     const contextTreePath = path.join(this.workingDirectory, '.brv', 'context-tree')
 
-    // Check if context tree exists
-    if (!fs.existsSync(contextTreePath)) {
+    try {
+      await fs.access(contextTreePath)
+    } catch {
       return this.buildNoContextTreeMessage()
+    }
+
+    const hasSearchKnowledgeTool = context.availableTools?.includes(ToolName.SEARCH_KNOWLEDGE)
+    if (hasSearchKnowledgeTool) {
+      return this.buildSearchKnowledgeInstructions(contextTreePath)
     }
 
     return this.buildContextTreeStructure(contextTreePath)
   }
 
-  /**
-   * Builds the context tree structure as a formatted string.
-   *
-   * @param contextTreePath - Path to the context tree directory
-   * @returns Formatted context tree structure
-   */
-  private buildContextTreeStructure(contextTreePath: string): string {
+  private async buildContextTreeStructure(contextTreePath: string): Promise<string> {
     const entriesCount = {value: 0}
     const truncatedCount = {value: 0}
     const lines: string[] = []
 
-    // Build the tree
-    this.traverseContextTree({
+    await this.traverseContextTree({
       currentDepth: 0,
       dir: contextTreePath,
       entriesCount,
@@ -172,23 +175,64 @@ export class ContextTreeStructureContributor implements SystemPromptContributor 
   }
 
   /**
-   * Recursively traverses the context tree and builds the structure lines.
+   * Builds instructions for using the search_knowledge tool.
+   * Used when the tool is available to reduce token consumption.
+   *
+   * @param contextTreePath - Path to the context tree directory
+   * @returns Instructions for using search_knowledge tool
    */
-  private traverseContextTree(options: TraverseOptions): void {
+  private async buildSearchKnowledgeInstructions(contextTreePath: string): Promise<string> {
+    let hasContent = false
+    try {
+      const entries = await fs.readdir(contextTreePath, {withFileTypes: true})
+      hasContent = entries.some((entry) => !entry.name.startsWith('.'))
+    } catch {
+      hasContent = false
+    }
+
+    if (!hasContent) {
+      return this.buildEmptyContextTreeMessage()
+    }
+
+    return [
+      '<context-tree-structure>',
+      '## Knowledge Base Available',
+      '',
+      'Curated knowledge is stored in `.brv/context-tree/`. Use the `search_knowledge` tool to find relevant topics.',
+      '',
+      '### How to Search',
+      '- Use natural language queries: `search_knowledge({ query: "authentication design" })`',
+      '- Search is fuzzy and supports partial matches',
+      '- Results include file paths, titles, and relevant excerpts',
+      '- Use `read_file` on returned paths to view full content',
+      '',
+      '### Example Queries',
+      '- "API design patterns"',
+      '- "error handling"',
+      '- "database schema"',
+      '',
+      '### For Curate Commands',
+      '- Search existing topics before creating new ones',
+      '- Use descriptive domain names (snake_case)',
+      '- Avoid duplicating existing knowledge',
+      '</context-tree-structure>',
+    ].join('\n')
+  }
+
+  private async traverseContextTree(options: TraverseOptions): Promise<void> {
     const {currentDepth, dir, entriesCount, lines, maxDepth, maxEntries, relativePath, truncatedCount} = options
 
     if (currentDepth >= maxDepth) {
       return
     }
 
-    let entries: fs.Dirent[]
+    let entries: Dirent[]
     try {
-      entries = fs.readdirSync(dir, {withFileTypes: true})
+      entries = await fs.readdir(dir, {withFileTypes: true})
     } catch {
       return
     }
 
-    // Filter and sort: directories first, then alphabetically
     const filteredEntries = entries
       .filter((entry) => !entry.name.startsWith('.'))
       .sort((a, b) => {
@@ -210,7 +254,8 @@ export class ContextTreeStructureContributor implements SystemPromptContributor 
 
       if (entry.isDirectory()) {
         lines.push(`${indent}${entry.name}/`)
-        this.traverseContextTree({
+        // eslint-disable-next-line no-await-in-loop -- Sequential traversal required for ordered output
+        await this.traverseContextTree({
           currentDepth: currentDepth + 1,
           dir: path.join(dir, entry.name),
           entriesCount,
@@ -221,7 +266,6 @@ export class ContextTreeStructureContributor implements SystemPromptContributor 
           truncatedCount,
         })
       } else {
-        // Add annotation for context.md files
         const annotation = entry.name === 'context.md' ? ' (knowledge content)' : ''
         lines.push(`${indent}${entry.name}${annotation}`)
       }

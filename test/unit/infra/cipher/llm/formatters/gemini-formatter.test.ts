@@ -383,7 +383,7 @@ describe('GeminiMessageFormatter', () => {
           {
             content: [
               {text: 'Look at this image:', type: 'text'},
-              {image: {data: 'base64data', mimeType: 'image/png'}, type: 'image'},
+              {image: 'base64data', mimeType: 'image/png', type: 'image'},
             ],
             role: 'user',
           },
@@ -394,15 +394,20 @@ describe('GeminiMessageFormatter', () => {
         const content = result[0] as Content
         expect(content.parts).to.have.lengthOf(2)
         expect(content.parts![0]).to.deep.equal({text: 'Look at this image:'})
-        // Image support not yet implemented, shows placeholder
-        expect(content.parts![1]).to.deep.equal({text: '[Image not yet supported]'})
+        // Image support implemented with inlineData
+        expect(content.parts![1]).to.deep.equal({
+          inlineData: {
+            data: 'base64data',
+            mimeType: 'image/png',
+          },
+        })
       })
 
       it('should handle file parts with placeholder', () => {
         const history = [
           {
             content: [
-              {file: {mimeType: 'text/plain', name: 'test.txt'}, type: 'file'},
+              {data: 'pdfbase64data', filename: 'test.pdf', mimeType: 'application/pdf', type: 'file'},
             ],
             role: 'user',
           },
@@ -411,7 +416,13 @@ describe('GeminiMessageFormatter', () => {
         const result = formatter.format(history)
 
         const content = result[0] as Content
-        expect(content.parts![0]).to.deep.equal({text: '[File not yet supported]'})
+        // File support implemented with inlineData
+        expect(content.parts![0]).to.deep.equal({
+          inlineData: {
+            data: 'pdfbase64data',
+            mimeType: 'application/pdf',
+          },
+        })
       })
 
       it('should handle unknown content type', () => {

@@ -1,4 +1,4 @@
-import {access, appendFile, copyFile, mkdir, readFile, writeFile} from 'node:fs/promises'
+import {access, appendFile, copyFile, mkdir, readFile, unlink, writeFile} from 'node:fs/promises'
 import {dirname} from 'node:path'
 
 import {type IFileService, type WriteMode} from '../../core/interfaces/i-file-service.js'
@@ -17,6 +17,22 @@ export class FsFileService implements IFileService {
     } catch (error) {
       throw new Error(
         `Failed to create backup file '${filePath}': ${error instanceof Error ? error.message : 'Unknown error'}`,
+      )
+    }
+  }
+
+  /**
+   * Deletes a file at the specified path.
+   *
+   * @param filePath The path to the file to delete.
+   * @returns A promise that resolves when the file has been deleted.
+   */
+  public async delete(filePath: string): Promise<void> {
+    try {
+      await unlink(filePath)
+    } catch (error) {
+      throw new Error(
+        `Failed to delete file '${filePath}': ${error instanceof Error ? error.message : 'Unknown error'}`,
       )
     }
   }

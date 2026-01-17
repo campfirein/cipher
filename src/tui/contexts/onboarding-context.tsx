@@ -29,6 +29,8 @@ export interface OnboardingContextValue {
   hasCurated: boolean
   /** Whether query has been completed at least once */
   hasQueried: boolean
+  /** Whether user has acknowledged init completion */
+  initAcknowledged: boolean
   /** Whether the project is initialized (brvConfig exists) */
   isInitialized: boolean
   /** Whether we're still loading the dismissed state */
@@ -37,6 +39,8 @@ export interface OnboardingContextValue {
   queryAcknowledged: boolean
   /** Set curate acknowledged state */
   setCurateAcknowledged: (value: boolean) => void
+  /** Set init acknowledged state */
+  setInitAcknowledged: (value: boolean) => void
   /** Set query acknowledged state */
   setQueryAcknowledged: (value: boolean) => void
   /** Whether onboarding should be shown */
@@ -108,6 +112,7 @@ export function OnboardingProvider({children}: OnboardingProviderProps): React.R
   }, [isInitialConfigLoaded, isInitialized])
 
   // Track acknowledgment for completed steps (user pressed Enter after seeing output)
+  const [initAcknowledged, setInitAcknowledgedState] = useState(false)
   const [curateAcknowledged, setCurateAcknowledgedState] = useState(false)
   const [queryAcknowledged, setQueryAcknowledgedState] = useState(false)
 
@@ -121,6 +126,14 @@ export function OnboardingProvider({children}: OnboardingProviderProps): React.R
       trackingService.track('onboarding:init_completed')
     }
   }, [isInitialized, trackingService])
+
+  // Wrapper for setInitAcknowledged that also tracks
+  const setInitAcknowledged = useCallback(
+    (value: boolean) => {
+      setInitAcknowledgedState(value)
+    },
+    [],
+  )
 
   // Wrapper for setCurateAcknowledged that also tracks
   const setCurateAcknowledged = useCallback(
@@ -166,9 +179,11 @@ export function OnboardingProvider({children}: OnboardingProviderProps): React.R
   }, [tasks])
 
   // Derive current step (considering acknowledgment)
-  // Stay on curate/query step until user acknowledges the completion
+  // Stay on each step until user acknowledges the completion
   const currentStep: OnboardingStep = useMemo(() => {
     if (!isInitialized) return 'init'
+    // isInitialized is true but not yet acknowledged -> stay on init
+    if (!initAcknowledged) return 'init'
     if (!hasCurated) return 'curate'
     // hasCurated is true but not yet acknowledged -> stay on curate
     if (!curateAcknowledged) return 'curate'
@@ -176,7 +191,7 @@ export function OnboardingProvider({children}: OnboardingProviderProps): React.R
     // hasQueried is true but not yet acknowledged -> stay on query
     if (!queryAcknowledged) return 'query'
     return 'complete'
-  }, [isInitialized, hasCurated, hasQueried, curateAcknowledged, queryAcknowledged])
+  }, [isInitialized, initAcknowledged, hasCurated, hasQueried, curateAcknowledged, queryAcknowledged])
 
   // Show onboarding if:
   // 1. Project was not initialized after initial config check, AND
@@ -203,10 +218,12 @@ export function OnboardingProvider({children}: OnboardingProviderProps): React.R
       currentStep,
       hasCurated,
       hasQueried,
+      initAcknowledged,
       isInitialized,
       isLoadingDismissed,
       queryAcknowledged,
       setCurateAcknowledged,
+      setInitAcknowledged,
       setQueryAcknowledged,
       shouldShowOnboarding,
       totalSteps: 3, // init, curate, query (complete is not counted)
@@ -218,9 +235,11 @@ export function OnboardingProvider({children}: OnboardingProviderProps): React.R
       hasCurated,
       hasQueried,
       hasDismissed,
+      initAcknowledged,
       isInitialized,
       isLoadingDismissed,
       queryAcknowledged,
+      setInitAcknowledged,
       shouldShowOnboarding,
     ],
   )

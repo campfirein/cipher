@@ -23,6 +23,7 @@ export type NarrowedUpdateNotifier = {
 export type UpdateNotifierDeps = {
   confirmPrompt: (options: {default: boolean; message: string}) => Promise<boolean>
   execSyncFn: (command: string, options: {stdio: 'inherit'}) => void
+  exitFn: (code: number) => never
   isTTY: boolean
   log: (message: string) => void
   notifier: NarrowedUpdateNotifier
@@ -32,13 +33,18 @@ export type UpdateNotifierDeps = {
  * Core update notification logic, extracted for testability
  */
 export async function handleUpdateNotification(deps: UpdateNotifierDeps): Promise<void> {
-  const {confirmPrompt, execSyncFn, isTTY, log, notifier} = deps
+  const {confirmPrompt, execSyncFn, exitFn, isTTY, log, notifier} = deps
 
   if (!notifier.update || !isTTY) {
     return
   }
 
   const {current, latest} = notifier.update
+
+  // Skip if already on latest version (handles stale cache after update)
+  if (current === latest) {
+    return
+  }
 
   const shouldUpdate = await confirmPrompt({
     default: true,
@@ -49,7 +55,11 @@ export async function handleUpdateNotification(deps: UpdateNotifierDeps): Promis
     log('Updating byterover-cli...')
     try {
       execSyncFn('npm update -g byterover-cli', {stdio: 'inherit'})
+      log('')
       log(`✓ Successfully updated to ${latest}`)
+      log('')
+      log(`The update will take effect on next launch. Run 'brv' when ready.`)
+      exitFn(0)
     } catch {
       log('⚠️  Automatic update failed. Please run manually: npm update -g byterover-cli')
     }
@@ -63,6 +73,7 @@ const hook: Hook<'init'> = async function (): Promise<void> {
   await handleUpdateNotification({
     confirmPrompt: confirm,
     execSyncFn: execSync,
+    exitFn: process.exit,
     isTTY: process.stdout.isTTY ?? false,
     log: this.log.bind(this),
     notifier,

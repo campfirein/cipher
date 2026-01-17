@@ -30,9 +30,9 @@ import type {AgentIPCResponse, IPCCommand, TransportIPCResponse} from './ipc-typ
 import {crashLog, getSessionLogPath, processManagerLog} from '../../utils/process-logger.js'
 
 // IPC types imported from ./ipc-types.ts
-// - IPCCommand: Parent → Child (ping, shutdown)
+// - IPCCommand: Parent → Child (ping, shutdown, health-check)
 // - TransportIPCResponse: Transport → Parent (ready with port, pong, stopped, error)
-// - AgentIPCResponse: Agent → Parent (ready, pong, stopped, error)
+// - AgentIPCResponse: Agent → Parent (ready, pong, stopped, error, health-check-result)
 
 /**
  * Process state tracking.
@@ -72,8 +72,11 @@ export type ProcessStartOptions = {
 
 const DEFAULT_SHUTDOWN_TIMEOUT_MS = 5000
 const DEFAULT_STARTUP_TIMEOUT_MS = 30_000
-const HEALTH_CHECK_INTERVAL_MS = 5000 // Check every 5 seconds
+const HEALTH_CHECK_INTERVAL_MS = 5000 // Check every 5 seconds for sleep detection
 const SLEEP_DETECTION_THRESHOLD_MS = 30_000 // If 30s passed when expecting 5s, likely slept
+const TRANSPORT_PING_TIMEOUT_MS = 5000 // Timeout for Transport ping response
+const AGENT_HEALTH_CHECK_TIMEOUT_MS = 5000 // Timeout for Agent health-check response
+const PERIODIC_HEALTH_CHECK_INTERVAL_MS = 30_000 // Periodic health check every 30s
 
 /**
  * Creates a system error with crash log.
@@ -94,9 +97,21 @@ function createSystemError(error: string, context: string): Error {
  * - Crash recovery: respawn on exit
  */
 export class ProcessManager {
+  /** Whether an Agent health-check is pending response */
+  private agentHealthCheckPending = false
+  /** Timeout for Agent health-check response */
+  private agentHealthCheckTimeout?: NodeJS.Timeout
   private currentSessionId?: string
   private healthCheckInterval?: NodeJS.Timeout
+  /** Guard to prevent concurrent Agent restarts */
+  private isRestartingAgent = false
+  /** Guard to prevent concurrent Transport restarts */
+  private isRestartingTransport = false
   private lastHealthCheckTime: number = Date.now()
+  /** Periodic health check interval (30s) */
+  private periodicHealthCheckInterval?: NodeJS.Timeout
+  /** Stored handler ref for idempotent listener setup (prevents accumulation on respawn) */
+  private runtimeMessageHandler?: (msg: AgentIPCResponse) => void
   private readonly shutdownTimeoutMs: number
   private readonly startupTimeoutMs: number
   private state: ProcessState = {
@@ -104,6 +119,12 @@ export class ProcessManager {
     running: false,
     transportReady: false,
   }
+  /** Stored handler ref for Transport runtime messages (prevents accumulation on respawn) */
+  private transportMessageHandler?: (msg: TransportIPCResponse) => void
+  /** Whether a Transport ping is pending response */
+  private transportPingPending = false
+  /** Timeout for Transport ping response */
+  private transportPingTimeout?: NodeJS.Timeout
 
   constructor(config?: ProcessManagerConfig) {
     this.startupTimeoutMs = config?.startupTimeoutMs ?? DEFAULT_STARTUP_TIMEOUT_MS
@@ -164,6 +185,9 @@ export class ProcessManager {
 
     // Step 3: Start health check for sleep/wake detection
     this.startHealthCheck()
+
+    // Step 4: Start periodic health check (30s) for zombie detection mid-session
+    this.startPeriodicHealthCheck()
   }
 
   /**
@@ -180,8 +204,9 @@ export class ProcessManager {
 
     this.state.running = false
 
-    // Stop health check first
+    // Stop health checks first
     this.stopHealthCheck()
+    this.stopPeriodicHealthCheck()
 
     // Step 1: Stop Agent Process
     await this.stopAgentProcess()
@@ -203,13 +228,40 @@ export class ProcessManager {
     if (currentDir.includes(`${path.sep}src${path.sep}`)) {
       return currentDir.replace(`${path.sep}src${path.sep}`, `${path.sep}dist${path.sep}`)
     }
-    
+
     return currentDir
+  }
+
+  /**
+   * Handle runtime IPC messages from Agent process.
+   * Called by the message event handler set up in setupAgentRuntimeHandlers.
+   */
+  private handleAgentRuntimeMessage(message: AgentIPCResponse): void {
+    if (message.type === 'health-check-result') {
+      // Clear pending flag and timeout (for periodic health check)
+      if (this.agentHealthCheckTimeout) {
+        clearTimeout(this.agentHealthCheckTimeout)
+        this.agentHealthCheckTimeout = undefined
+      }
+
+      this.agentHealthCheckPending = false
+
+      if (message.success) {
+        processManagerLog('Agent health-check passed')
+      } else {
+        processManagerLog('Agent health-check FAILED - Socket.IO connection stale, restarting agent')
+        // Restart agent to force reconnection
+        this.restartAgent().catch((error) => {
+          processManagerLog(`Failed to restart agent after health-check failure: ${error}`)
+        })
+      }
+    }
   }
 
   /**
    * Handle system wake from sleep.
    * Verify processes are still alive and restart if needed.
+   * Triggers immediate health checks on both Transport and Agent.
    */
   private handleSystemWake(): void {
     const {agentProcess, transportProcess} = this.state
@@ -232,7 +284,157 @@ export class ProcessManager {
         agentProcess.emit('exit', 1, null)
       }
     } else {
-      processManagerLog('Processes healthy after wake')
+      processManagerLog('Processes healthy after wake - triggering immediate health check')
+
+      // Trigger immediate health checks (reuse the timeout-based methods)
+      // Check Transport (if not already pinging)
+      if (this.state.transportReady && !this.transportPingPending) {
+        this.pingTransportWithTimeout()
+      }
+
+      // Check Agent (if not already checking)
+      if (this.state.agentReady && !this.agentHealthCheckPending) {
+        this.healthCheckAgentWithTimeout()
+      }
+    }
+  }
+
+  /**
+   * Handle runtime IPC messages from Transport process.
+   * Called by the message event handler set up in setupTransportRuntimeHandlers.
+   */
+  private handleTransportRuntimeMessage(message: TransportIPCResponse): void {
+    if (message.type === 'pong' && this.transportPingPending) {
+      // Clear timeout and flag
+      if (this.transportPingTimeout) {
+        clearTimeout(this.transportPingTimeout)
+        this.transportPingTimeout = undefined
+      }
+
+      this.transportPingPending = false
+      processManagerLog('Transport ping successful - process healthy')
+    }
+  }
+
+  /**
+   * Send health-check to Agent with timeout.
+   * If no response within timeout, Agent is considered stuck and restarted.
+   * Used by periodic health check and after system wake.
+   */
+  private healthCheckAgentWithTimeout(): void {
+    const {agentProcess} = this.state
+    if (!agentProcess || this.agentHealthCheckPending) return
+
+    this.agentHealthCheckPending = true
+    processManagerLog('Sending health-check to agent')
+    this.sendToChild(agentProcess, {type: 'health-check'})
+
+    this.agentHealthCheckTimeout = setTimeout(() => {
+      if (this.agentHealthCheckPending) {
+        processManagerLog('Agent health-check timeout - process may be stuck, restarting')
+        this.agentHealthCheckPending = false
+        this.agentHealthCheckTimeout = undefined
+        this.restartAgent().catch((error) => {
+          processManagerLog(`Failed to restart agent after health-check timeout: ${error}`)
+        })
+      }
+    }, AGENT_HEALTH_CHECK_TIMEOUT_MS)
+
+    // Don't block process exit
+    this.agentHealthCheckTimeout.unref()
+  }
+
+  /**
+   * Send ping to Transport with timeout.
+   * If no pong received within timeout, Transport is considered zombie and restarted.
+   */
+  private pingTransportWithTimeout(): void {
+    const {transportProcess} = this.state
+    if (!transportProcess || this.transportPingPending) return
+
+    this.transportPingPending = true
+    processManagerLog('Sending ping to transport after wake')
+    this.sendToChild(transportProcess, {type: 'ping'})
+
+    this.transportPingTimeout = setTimeout(() => {
+      if (this.transportPingPending) {
+        processManagerLog('Transport ping timeout - process may be zombie, restarting')
+        this.transportPingPending = false
+        this.transportPingTimeout = undefined
+        this.restartTransport().catch((error) => {
+          processManagerLog(`Failed to restart transport after ping timeout: ${error}`)
+        })
+      }
+    }, TRANSPORT_PING_TIMEOUT_MS)
+
+    // Don't block process exit
+    this.transportPingTimeout.unref()
+  }
+
+  /**
+   * Restart Agent process gracefully.
+   * Used when health-check fails after sleep/wake or periodic check.
+   * Guarded to prevent concurrent restart race conditions.
+   */
+  private async restartAgent(): Promise<void> {
+    // Guard: prevent concurrent restarts
+    if (!this.state.running || !this.state.port || this.isRestartingAgent) return
+
+    this.isRestartingAgent = true
+    try {
+      processManagerLog('Restarting agent process...')
+
+      // Stop existing agent
+      await this.stopAgentProcess()
+      this.state.agentReady = false
+
+      // Start new agent
+      await this.startAgentProcess(this.state.port)
+      this.state.agentReady = true
+
+      processManagerLog('Agent process restarted successfully')
+    } finally {
+      this.isRestartingAgent = false
+    }
+  }
+
+  /**
+   * Restart Transport process gracefully.
+   * Used when ping timeout detects zombie process after sleep/wake or periodic check.
+   * Note: Agent must also be restarted since Transport port changes.
+   * Guarded to prevent concurrent restart race conditions.
+   */
+  private async restartTransport(): Promise<void> {
+    // Guard: prevent concurrent restarts
+    if (!this.state.running || this.isRestartingTransport) return
+
+    this.isRestartingTransport = true
+    try {
+      processManagerLog('Restarting transport process...')
+
+      // Stop existing transport
+      await this.stopTransportProcess()
+      this.state.transportReady = false
+
+      // Start new transport (gets new port)
+      const newPort = await this.startTransportProcess()
+      this.state.port = newPort
+      this.state.transportReady = true
+
+      processManagerLog(`Transport process restarted on port ${newPort}`)
+
+      // Agent needs to reconnect to new port - restart Agent too
+      if (this.state.agentProcess) {
+        await this.stopAgentProcess()
+        this.state.agentReady = false
+        await this.startAgentProcess(newPort)
+        this.state.agentReady = true
+        processManagerLog('Agent reconnected to new Transport')
+      }
+
+      processManagerLog('Transport process restarted successfully')
+    } finally {
+      this.isRestartingTransport = false
     }
   }
 
@@ -269,6 +471,33 @@ export class ProcessManager {
           })
       }
     })
+
+    // Setup runtime message handler for health-check results
+    this.setupAgentRuntimeHandlers()
+  }
+
+  /**
+   * Setup runtime message handlers for Agent process.
+   * Handles IPC messages that arrive during normal operation (not just startup).
+   *
+   * IMPORTANT: Uses stored handler reference to prevent listener accumulation.
+   * Each respawn calls this method, so we must remove the old listener first.
+   */
+  private setupAgentRuntimeHandlers(): void {
+    const {agentProcess} = this.state
+    if (!agentProcess) return
+
+    // Remove old listener FIRST (prevents accumulation on respawn)
+    if (this.runtimeMessageHandler) {
+      agentProcess.off('message', this.runtimeMessageHandler)
+    }
+
+    // Create and store new handler
+    this.runtimeMessageHandler = (message: AgentIPCResponse) => {
+      this.handleAgentRuntimeMessage(message)
+    }
+
+    agentProcess.on('message', this.runtimeMessageHandler)
   }
 
   /**
@@ -305,6 +534,33 @@ export class ProcessManager {
           processManagerLog(`Failed to respawn Transport: ${error}`)
         })
     })
+
+    // Setup runtime message handler for ping/pong health checks
+    this.setupTransportRuntimeHandlers()
+  }
+
+  /**
+   * Setup runtime message handlers for Transport process.
+   * Handles IPC messages that arrive during normal operation (pong for health check).
+   *
+   * IMPORTANT: Uses stored handler reference to prevent listener accumulation.
+   * Each respawn calls this method, so we must remove the old listener first.
+   */
+  private setupTransportRuntimeHandlers(): void {
+    const {transportProcess} = this.state
+    if (!transportProcess) return
+
+    // Remove old listener FIRST (prevents accumulation on respawn)
+    if (this.transportMessageHandler) {
+      transportProcess.off('message', this.transportMessageHandler)
+    }
+
+    // Create and store new handler
+    this.transportMessageHandler = (message: TransportIPCResponse) => {
+      this.handleTransportRuntimeMessage(message)
+    }
+
+    transportProcess.on('message', this.transportMessageHandler)
   }
 
   /**
@@ -402,6 +658,30 @@ export class ProcessManager {
   }
 
   /**
+   * Start periodic health check for Transport and Agent.
+   * Runs every 30s to detect zombie processes mid-session (not just after wake).
+   */
+  private startPeriodicHealthCheck(): void {
+    this.periodicHealthCheckInterval = setInterval(() => {
+      if (!this.state.running) return
+
+      // Check Transport (if ready and not already pinging)
+      if (this.state.transportReady && !this.transportPingPending) {
+        this.pingTransportWithTimeout()
+      }
+
+      // Check Agent (if ready and not already checking)
+      if (this.state.agentReady && !this.agentHealthCheckPending) {
+        this.healthCheckAgentWithTimeout()
+      }
+    }, PERIODIC_HEALTH_CHECK_INTERVAL_MS)
+
+    // Don't prevent process exit
+    this.periodicHealthCheckInterval.unref()
+    processManagerLog('Periodic health check started (30s interval)')
+  }
+
+  /**
    * Start Transport Process.
    * @returns The port Transport is listening on
    */
@@ -487,6 +767,8 @@ export class ProcessManager {
         clearTimeout(timeout)
         agentProcess.off('message', onMessage)
         agentProcess.off('exit', onExit)
+        // Clear stored handler reference (prevents stale refs on respawn)
+        this.runtimeMessageHandler = undefined
       }
 
       const timeout = setTimeout(() => {
@@ -529,6 +811,25 @@ export class ProcessManager {
   }
 
   /**
+   * Stop periodic health check interval.
+   * Also clears any pending agent health check timeout.
+   */
+  private stopPeriodicHealthCheck(): void {
+    if (this.periodicHealthCheckInterval) {
+      clearInterval(this.periodicHealthCheckInterval)
+      this.periodicHealthCheckInterval = undefined
+    }
+
+    // Clear any pending agent health check
+    if (this.agentHealthCheckTimeout) {
+      clearTimeout(this.agentHealthCheckTimeout)
+      this.agentHealthCheckTimeout = undefined
+    }
+
+    this.agentHealthCheckPending = false
+  }
+
+  /**
    * Stop Transport Process.
    */
   private async stopTransportProcess(): Promise<void> {
@@ -540,6 +841,15 @@ export class ProcessManager {
         clearTimeout(timeout)
         transportProcess.off('message', onMessage)
         transportProcess.off('exit', onExit)
+        // Clear stored handler reference (prevents stale refs on respawn)
+        this.transportMessageHandler = undefined
+        // Clear ping state
+        if (this.transportPingTimeout) {
+          clearTimeout(this.transportPingTimeout)
+          this.transportPingTimeout = undefined
+        }
+
+        this.transportPingPending = false
       }
 
       const timeout = setTimeout(() => {

@@ -153,7 +153,6 @@ describe('ResetUseCase', () => {
 
     await useCase.run({skipConfirmation: false})
 
-    expect(logMessages).to.include('✓ Context tree reset successfully.')
-    expect(logMessages.some((msg) => msg.includes('6 default domains restored'))).to.be.true
+    expect(logMessages).to.include('✓ Context tree reset successfully. Your context tree is now empty.')
   })
 })

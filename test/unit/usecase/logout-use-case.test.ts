@@ -131,7 +131,7 @@ describe("LogoutUseCase", () => {
       const useCase = createUseCase();
       await useCase.run({skipConfirmation: true});
 
-      expect(logMessages.some((m) => m.includes("brv login"))).to.be.true;
+      expect(logMessages.some((m) => m.includes("/login"))).to.be.true;
     });
   });
 

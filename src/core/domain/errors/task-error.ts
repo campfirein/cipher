@@ -6,6 +6,7 @@ export const TaskErrorCode = {
   // Agent errors
   AGENT_DISCONNECTED: 'ERR_AGENT_DISCONNECTED',
   AGENT_NOT_AVAILABLE: 'ERR_AGENT_NOT_AVAILABLE',
+  AGENT_NOT_INITIALIZED: 'ERR_AGENT_NOT_INITIALIZED',
 
   // LLM errors
   LLM_ERROR: 'ERR_LLM_ERROR',
@@ -120,6 +121,16 @@ export class AgentDisconnectedError extends TaskError {
   public constructor() {
     super('Agent disconnected', TaskErrorCode.AGENT_DISCONNECTED)
     this.name = 'AgentDisconnectedError'
+  }
+}
+
+export class AgentNotInitializedError extends TaskError {
+  public constructor(reason?: string) {
+    super(
+      reason ? `Agent not initialized: ${reason}` : 'Agent not initialized. Please complete login and setup first.',
+      TaskErrorCode.AGENT_NOT_INITIALIZED,
+    )
+    this.name = 'AgentNotInitializedError'
   }
 }
 
