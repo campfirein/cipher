@@ -4,16 +4,16 @@
  * Activity log display using ScrollableList with dynamic height calculation
  */
 
-import { Box, useInput, useStdout } from 'ink'
-import { ScrollList, ScrollListRef } from 'ink-scroll-list'
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import {Box, useInput, useStdout} from 'ink'
+import {ScrollList, ScrollListRef} from 'ink-scroll-list'
+import React, {useCallback, useEffect, useRef, useState} from 'react'
 
-import { ExpandedLogView, LogItem, OnboardingFlow, WelcomeBox } from '../components/index.js'
-import { useAuth } from '../contexts/index.js'
-import { useActivityLogs, useMode, useTheme, useUIHeights } from '../hooks/index.js'
-import { useOnboarding } from '../hooks/use-onboarding.js'
-import { ActivityLog } from '../types.js'
-import { InitView } from './init-view.js'
+import {ExpandedLogView, LogItem, OnboardingFlow, WelcomeBox} from '../components/index.js'
+import {useAuth} from '../contexts/index.js'
+import {useActivityLogs, useMode, useTheme, useUIHeights} from '../hooks/index.js'
+import {useOnboarding} from '../hooks/use-onboarding.js'
+import {ActivityLog} from '../types.js'
+import {InitView} from './init-view.js'
 
 interface LogsViewProps {
   /**
@@ -52,16 +52,16 @@ export const LogsView: React.FC<LogsViewProps> = ({
   setSelectedLogIndex,
 }) => {
   const {
-    theme: { colors },
+    theme: {colors},
   } = useTheme()
-  const { mode } = useMode()
-  const { logs } = useActivityLogs()
-  const { isLoadingDismissed, shouldShowOnboarding } = useOnboarding()
-  const { messageItem } = useUIHeights()
-  const { brvConfig } = useAuth()
+  const {mode} = useMode()
+  const {logs} = useActivityLogs()
+  const {isLoadingDismissed, shouldShowOnboarding} = useOnboarding()
+  const {messageItem} = useUIHeights()
+  const {brvConfig} = useAuth()
   const [initFlowCompleted, setInitFlowCompleted] = useState(Boolean(brvConfig))
   const scrollListRef = useRef<ScrollListRef>(null)
-  const { stdout } = useStdout()
+  const {stdout} = useStdout()
 
   // Calculate scrollable height for dynamic per-log calculations
   const scrollableHeight = Math.max(1, availableHeight)
