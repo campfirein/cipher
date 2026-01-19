@@ -15,7 +15,7 @@ import {useTheme} from '../contexts/theme-context.js'
 import {useSlashCompletion} from '../hooks/index.js'
 import {CommandDetails} from './command-details.js'
 
-const MAX_VISIBLE_ITEMS = 5
+const MAX_VISIBLE_ITEMS = 7
 
 interface SuggestionsProps {
   input: string
@@ -182,7 +182,7 @@ export const Suggestions: React.FC<SuggestionsProps> = ({input, onInsert, onSele
   if (suggestions.length === 0) {
     if (isCommandAttempt && !hasMatchedCommand && input.trim().length > 1) {
       return (
-        <Box borderColor={colors.border} borderStyle="single" paddingX={1}>
+        <Box borderColor={colors.border} borderStyle="single" height={9} paddingX={1}>
           <Text color={colors.dimText}>No commands found</Text>
         </Box>
       )
@@ -203,7 +203,7 @@ export const Suggestions: React.FC<SuggestionsProps> = ({input, onInsert, onSele
   const hasMoreBelow = windowStart + visibleSuggestions.length < suggestions.length
 
   return (
-    <Box borderColor={colors.border} borderStyle="single" columnGap={1} paddingX={1}>
+    <Box borderColor={colors.border} borderStyle="single" columnGap={1} height={9} overflowY='hidden' paddingX={1}>
       <Box flexDirection='column' flexShrink={0}>
         {hasMoreAbove && (
           <Text color={colors.dimText} dimColor>
