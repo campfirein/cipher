@@ -7,7 +7,7 @@
 
 import {Box, Spacer, Text, useInput, useStdout} from 'ink'
 import {ScrollView, ScrollViewRef} from 'ink-scroll-view'
-import React, {useEffect, useRef} from 'react'
+import React, {useEffect, useRef, useState} from 'react'
 
 import type {ActivityLog} from '../../types.js'
 
@@ -40,11 +40,25 @@ export const ExpandedLogView: React.FC<ExpandedLogViewProps> = ({
   } = useTheme()
   const {stdout} = useStdout()
   const scrollViewRef = useRef<ScrollViewRef>(null)
+  const [hasMoreBelow, setHasMoreBelow] = useState(false)
+
+  const updateScrollIndicator = () => {
+    if (!scrollViewRef.current) return
+    const currentOffset = scrollViewRef.current.getScrollOffset()
+    const maxOffset = scrollViewRef.current.getBottomOffset()
+    setHasMoreBelow(currentOffset < maxOffset)
+  }
+
+  useEffect(() => {
+    const timer = setTimeout(updateScrollIndicator, 50)
+    return () => clearTimeout(timer)
+  }, [log])
 
   // Terminal resize handling
   useEffect(() => {
     const handleResize = () => {
       scrollViewRef.current?.remeasure()
+      updateScrollIndicator()
     }
 
     stdout?.on('resize', handleResize)
@@ -63,6 +77,7 @@ export const ExpandedLogView: React.FC<ExpandedLogViewProps> = ({
 
       if (key.upArrow || input === 'k') {
         scrollViewRef.current.scrollBy(-1)
+        updateScrollIndicator()
       }
 
       if (key.downArrow || input === 'j') {
@@ -70,14 +85,17 @@ export const ExpandedLogView: React.FC<ExpandedLogViewProps> = ({
         const maxOffset = scrollViewRef.current.getBottomOffset()
         const newOffset = Math.min(currentOffset + 1, maxOffset)
         scrollViewRef.current.scrollTo(newOffset)
+        updateScrollIndicator()
       }
 
       if (input === 'g') {
         scrollViewRef.current.scrollTo(0)
+        updateScrollIndicator()
       }
 
       if (input === 'G') {
         scrollViewRef.current.scrollTo(scrollViewRef.current.getBottomOffset())
+        updateScrollIndicator()
       }
     },
     {isActive}
@@ -98,7 +116,7 @@ export const ExpandedLogView: React.FC<ExpandedLogViewProps> = ({
 
       {/* Scrollable content area */}
       <Box borderColor={colors.border} borderStyle="single" flexDirection="column" height={availableHeight - 1}>
-        <ScrollView height={availableHeight - 1} ref={scrollViewRef}>
+        <ScrollView height={availableHeight - 2} ref={scrollViewRef}>
           {/* Input */}
           <Box marginBottom={1} paddingX={1}>
             <Text>{log.input}</Text>
@@ -140,6 +158,10 @@ export const ExpandedLogView: React.FC<ExpandedLogViewProps> = ({
             </Box>
           )}
         </ScrollView>
+        {/* More content indicator */}
+        <Box justifyContent="center">
+          <Text color={colors.dimText}>{hasMoreBelow ? '↓' : ' '}</Text>
+        </Box>
       </Box>
     </Box>
   )
