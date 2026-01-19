@@ -6,7 +6,7 @@ import * as sinon from 'sinon'
 
 import type {ITemplateLoader} from '../../src/core/interfaces/i-template-loader.js'
 
-import HookPromptSubmit, {type HookPromptSubmitDependencies} from '../../src/commands/hook-prompt-submit.js'
+import HookPromptSubmit, {type HookPromptSubmitDependencies} from '../../src/oclif/commands/hook-prompt-submit.js'
 
 // ==================== TestableHookPromptSubmitCommand ====================
 

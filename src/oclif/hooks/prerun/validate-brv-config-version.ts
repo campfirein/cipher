@@ -1,9 +1,9 @@
 import type {Hook} from '@oclif/core'
 
-import type {IProjectConfigStore} from '../../core/interfaces/i-project-config-store.js'
+import type {IProjectConfigStore} from '../../../core/interfaces/i-project-config-store.js'
 
-import {BrvConfigVersionError} from '../../core/domain/errors/brv-config-version-error.js'
-import {ProjectConfigStore} from '../../infra/config/file-config-store.js'
+import {BrvConfigVersionError} from '../../../core/domain/errors/brv-config-version-error.js'
+import {ProjectConfigStore} from '../../../infra/config/file-config-store.js'
 
 /**
  * Commands that should skip config version validation.

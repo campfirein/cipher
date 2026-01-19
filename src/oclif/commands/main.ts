@@ -1,16 +1,16 @@
 import {Command} from '@oclif/core'
 import {randomUUID} from 'node:crypto'
 
-import {DEFAULT_SESSION_RETENTION} from '../core/domain/cipher/session/session-metadata.js'
-import {SessionMetadataStore} from '../infra/cipher/session/session-metadata-store.js'
-import {ProjectConfigStore} from '../infra/config/file-config-store.js'
-import {getProcessManager} from '../infra/process/index.js'
-import {startRepl} from '../infra/repl/repl-startup.js'
-import {FileGlobalConfigStore} from '../infra/storage/file-global-config-store.js'
-import {FileOnboardingPreferenceStore} from '../infra/storage/file-onboarding-preference-store.js'
-import {createTokenStore} from '../infra/storage/token-store.js'
-import {MixpanelTrackingService} from '../infra/tracking/mixpanel-tracking-service.js'
-import {initSessionLog, processManagerLog} from '../utils/process-logger.js'
+import {DEFAULT_SESSION_RETENTION} from '../../core/domain/cipher/session/session-metadata.js'
+import {SessionMetadataStore} from '../../infra/cipher/session/session-metadata-store.js'
+import {ProjectConfigStore} from '../../infra/config/file-config-store.js'
+import {getProcessManager} from '../../infra/process/index.js'
+import {startRepl} from '../../infra/repl/repl-startup.js'
+import {FileGlobalConfigStore} from '../../infra/storage/file-global-config-store.js'
+import {FileOnboardingPreferenceStore} from '../../infra/storage/file-onboarding-preference-store.js'
+import {createTokenStore} from '../../infra/storage/token-store.js'
+import {MixpanelTrackingService} from '../../infra/tracking/mixpanel-tracking-service.js'
+import {initSessionLog, processManagerLog} from '../../utils/process-logger.js'
 
 /**
  * Main command - Entry point for ByteRover CLI.

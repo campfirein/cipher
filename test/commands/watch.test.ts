@@ -5,7 +5,7 @@ import {restore, SinonStubbedInstance, stub} from 'sinon'
 import type {IFileWatcherService} from '../../src/core/interfaces/i-file-watcher-service.js'
 import type {IProjectConfigStore} from '../../src/core/interfaces/i-project-config-store.js'
 
-import Watch from '../../src/commands/watch.js'
+import Watch from '../../src/oclif/commands/watch.js'
 import {createMockTerminal} from '../helpers/mock-factories.js'
 
 class TestableWatch extends Watch {

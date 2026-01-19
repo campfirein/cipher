@@ -1,9 +1,9 @@
 import {expect} from 'chai'
 import * as sinon from 'sinon'
 
-import type {NarrowedUpdateNotifier, UpdateNotifierDeps} from '../../../src/hooks/init/update-notifier.js'
+import type {NarrowedUpdateNotifier, UpdateNotifierDeps} from '../../../src/oclif/hooks/init/update-notifier.js'
 
-import {handleUpdateNotification, UPDATE_CHECK_INTERVAL_MS} from '../../../src/hooks/init/update-notifier.js'
+import {handleUpdateNotification, UPDATE_CHECK_INTERVAL_MS} from '../../../src/oclif/hooks/init/update-notifier.js'
 
 describe('update-notifier hook', () => {
   describe('UPDATE_CHECK_INTERVAL_MS', () => {

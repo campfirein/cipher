@@ -30,12 +30,6 @@ export const SNAPSHOT_FILE = '.snapshot.json'
  */
 export const DEFAULT_BRANCH = 'main'
 
-/**
- * ByteRover documentation URL.
- * Used in CLI help output to direct users to online documentation.
- */
-export const DOCS_URL = 'https://docs.byterover.dev'
-
 // Transport layer constants (optimized for localhost real-time)
 export const TRANSPORT_HOST = '127.0.0.1' // Use hostname for better sandbox compatibility
 export const TRANSPORT_REQUEST_TIMEOUT_MS = 10_000 // 10s - most operations complete quickly
