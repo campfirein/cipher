@@ -205,6 +205,25 @@ How this domain should be used by agents and contributors.
 `
 }
 
+function generateMinimalTopicContextMarkdown(topicName: string): string {
+  return `# Topic: ${topicName}
+
+## Overview
+Describe what this topic covers and its key concepts.
+
+## Related Topics
+List related topics and how they connect to this one.
+`
+}
+
+function generateMinimalSubtopicContextMarkdown(subtopicName: string): string {
+  return `# Subtopic: ${subtopicName}
+
+## Overview
+Describe what this subtopic covers and its specific focus.
+`
+}
+
 async function createDomainContextIfMissing(
   basePath: string,
   domain: string,
@@ -225,6 +244,85 @@ async function createDomainContextIfMissing(
   await DirectoryManager.writeFileAtomic(contextPath, content)
 
   return {created: true, path: contextPath}
+}
+
+async function ensureTopicContextMd(
+  basePath: string,
+  domain: string,
+  topic: string,
+): Promise<{created: boolean; path?: string}> {
+  const normalizedDomain = toSnakeCase(domain)
+  const normalizedTopic = toSnakeCase(topic)
+  const topicPath = join(basePath, normalizedDomain, normalizedTopic)
+  const contextPath = join(topicPath, 'context.md')
+
+  // Check if topic folder exists first
+  const folderExists = await DirectoryManager.folderExists(topicPath)
+  if (!folderExists) {
+    return {created: false}
+  }
+
+  // Check if context.md already exists
+  const exists = await DirectoryManager.fileExists(contextPath)
+  if (exists) {
+    return {created: false}
+  }
+
+  const content = generateMinimalTopicContextMarkdown(normalizedTopic)
+  await DirectoryManager.writeFileAtomic(contextPath, content)
+
+  return {created: true, path: contextPath}
+}
+
+/**
+ * Ensure context.md exists at subtopic level.
+ * Creates a minimal context.md if the subtopic folder exists but has no context.md.
+ */
+async function ensureSubtopicContextMd(
+  basePath: string,
+  domain: string,
+  topic: string,
+  subtopic: string,
+): Promise<{created: boolean; path?: string}> {
+  const normalizedDomain = toSnakeCase(domain)
+  const normalizedTopic = toSnakeCase(topic)
+  const normalizedSubtopic = toSnakeCase(subtopic)
+  const subtopicPath = join(basePath, normalizedDomain, normalizedTopic, normalizedSubtopic)
+  const contextPath = join(subtopicPath, 'context.md')
+
+  // Check if subtopic folder exists first
+  const folderExists = await DirectoryManager.folderExists(subtopicPath)
+  if (!folderExists) {
+    return {created: false}
+  }
+
+  // Check if context.md already exists
+  const exists = await DirectoryManager.fileExists(contextPath)
+  if (exists) {
+    return {created: false}
+  }
+
+  const content = generateMinimalSubtopicContextMarkdown(normalizedSubtopic)
+  await DirectoryManager.writeFileAtomic(contextPath, content)
+
+  return {created: true, path: contextPath}
+}
+
+/**
+ * Ensure context.md exists at all levels for a given path (topic and subtopic).
+ * This is called during ADD operations to backfill missing context.md files.
+ */
+async function ensureContextMd(
+  basePath: string,
+  parsed: {domain: string; subtopic?: string; topic: string},
+): Promise<void> {
+  // Ensure topic-level context.md exists
+  await ensureTopicContextMd(basePath, parsed.domain, parsed.topic)
+
+  // If subtopic exists, ensure subtopic-level context.md exists
+  if (parsed.subtopic) {
+    await ensureSubtopicContextMd(basePath, parsed.domain, parsed.topic, parsed.subtopic)
+  }
 }
 
 /**
@@ -353,6 +451,8 @@ async function executeAdd(basePath: string, operation: Operation): Promise<Opera
     const contextPath = join(finalPath, filename)
     await DirectoryManager.writeFileAtomic(contextPath, contextContent)
 
+    await ensureContextMd(basePath, parsed)
+
     return {
       filePath: contextPath,
       message: `Created ${path}/${filename} with ${content.snippets?.length || 0} snippets. Reason: ${reason}`,
@@ -429,6 +529,8 @@ async function executeUpdate(basePath: string, operation: Operation): Promise<Op
       snippets: content.snippets ?? [],
     })
     await DirectoryManager.writeFileAtomic(contextPath, contextContent)
+
+    await ensureContextMd(basePath, parsed)
 
     return {
       filePath: contextPath,
@@ -533,6 +635,9 @@ async function executeMerge(basePath: string, operation: Operation): Promise<Ope
     await DirectoryManager.writeFileAtomic(targetContextPath, mergedContent)
 
     await DirectoryManager.deleteFile(sourceContextPath)
+
+    await ensureContextMd(basePath, sourceParsed)
+    await ensureContextMd(basePath, targetParsed)
 
     return {
       filePath: targetContextPath,
