@@ -183,7 +183,7 @@ All have `toJson()`/`fromJson()`, immutable readonly properties
 - `environment.ts` - Dev/Prod config. Exports: `getCurrentConfig()`, `isDevelopment()`, `ENV_CONFIG`
 - `auth.config.ts` - OIDC discovery (1h cache, 3 retries, 5s timeout, hardcoded fallback)
 
-### Hooks (`src/hooks/`)
+### Hooks (`src/oclif/hooks/`)
 
 - `init/welcome.ts` - Node.js version check, ASCII banner on `--help`
 - `init/update-notifier.ts` - Auto-update notification (24h check interval)
