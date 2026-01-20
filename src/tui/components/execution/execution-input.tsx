@@ -4,10 +4,11 @@
  * Displays the input text in a bordered box.
  */
 
-import {Box, Text, useStdout} from 'ink'
+import {Box, useStdout} from 'ink'
 import React from 'react'
 
 import {useTheme} from '../../hooks/index.js'
+import {Markdown} from '../markdown.js'
 import {truncateContent} from './execution-content.js'
 
 interface ExecutionInputProps {
@@ -25,9 +26,7 @@ export const ExecutionInput: React.FC<ExecutionInputProps> = ({input}) => {
 
   return (
     <Box borderColor={colors.border} borderStyle="single" flexDirection="column">
-      <Text>
-        {truncatedContent}
-      </Text>
+      <Markdown>{truncatedContent}</Markdown>
     </Box>
   )
 }
