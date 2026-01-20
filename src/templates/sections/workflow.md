@@ -13,15 +13,6 @@ Core Rules:
 - Be contextual (mention module/service, constraints, links to source).
 - Include source (file + lines or commit) when possible.
 
-## Using `brv curate` with Files
-
-When adding complex implementations, use `--files` to include relevant source files (max 5).  Only text/code files from the current project directory are allowed. **CONTEXT argument must come BEFORE --files flag.** For multiple files, repeat the `--files` (or `-f`) flag for each file.
-
-Examples:
-
-- Single file: `brv curate "JWT authentication with refresh token rotation" -f src/auth.ts`
-- Multiple files: `brv curate "Authentication system" --files src/auth/jwt.ts --files src/auth/middleware.ts --files docs/auth.md`
-
 ## CLI Usage Notes
 
-- Use --help on any command to discover flags. Provide exact arguments for the scenario.
+- Run `brv <command> --help` for up-to-date usage, arguments, flags, and examples.
