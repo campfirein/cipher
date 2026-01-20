@@ -36,14 +36,16 @@ export interface Shortcut {
  */
 const SHORTCUTS_BY_MODE = {
   activity: [
-    {description: 'navigate', key: '↑↓/jk'},
+    {description: 'navigate', key: '↑↓'},
     {description: 'go to top/bottom', key: 'g/G'},
     {description: 'expand/collapse item', key: 'ctrl+o'},
     {description: 'switch view', key: 'tab'},
     {description: 'quit', key: 'ctrl+c'},
   ],
   console: [
-    {description: 'scroll', key: '↑↓'},
+    {description: 'navigate', key: '↑↓'},
+    {description: 'go to top/bottom', key: 'g/G'},
+    {description: 'expand/collapse item', key: 'ctrl+o'},
     {description: 'switch view', key: 'tab'},
     {description: 'quit', key: 'ctrl+c'},
   ],
