@@ -541,6 +541,7 @@ export class ByteRoverLLMService implements ILLMService {
     this.sessionEventBus.emit('llmservice:contextOverflow', {
       currentTokens,
       maxTokens: this.config.maxInputTokens,
+      taskId: taskId || undefined,
       utilizationPercent,
     })
 
@@ -559,12 +560,14 @@ export class ByteRoverLLMService implements ILLMService {
         this.sessionEventBus.emit('llmservice:contextPruned', {
           pruneCount: pruneResult.compactedCount,
           reason: 'overflow',
+          taskId: taskId || undefined,
           tokensSaved: pruneResult.tokensSaved,
         })
 
         // Also emit warning for backward compatibility
         this.sessionEventBus.emit('llmservice:warning', {
           message: `Context compaction: pruned ${pruneResult.compactedCount} old tool outputs (~${pruneResult.tokensSaved} tokens)`,
+          taskId: taskId || undefined,
         })
       }
     } else if (overflowResult.recommendation === 'compact') {
@@ -587,11 +590,13 @@ export class ByteRoverLLMService implements ILLMService {
         compressedTokens,
         originalTokens,
         strategy: 'summary',
+        taskId: taskId || undefined,
       })
 
       // Also emit warning for backward compatibility
       this.sessionEventBus.emit('llmservice:warning', {
         message: 'Context compaction: created summary boundary for conversation history',
+        taskId: taskId || undefined,
       })
     }
   }
@@ -815,19 +820,19 @@ export class ByteRoverLLMService implements ILLMService {
       const loopResult = await this.loopDetector.recordAndCheck(toolName, toolArgs)
 
       if (loopResult.isLoop) {
-        // Emit dedicated doom loop event for observability (include taskId for concurrent task support)
+        // Emit dedicated doom loop event for observability
         this.sessionEventBus.emit('llmservice:doomLoopDetected', {
           args: toolArgs,
           loopType: loopResult.loopType!,
           repeatCount: loopResult.repeatCount ?? 0,
-          taskId,
+          taskId: taskId || undefined,
           toolName,
         })
 
-        // Also emit warning event for backward compatibility (include taskId for concurrent task support)
+        // Also emit warning event for backward compatibility
         this.sessionEventBus.emit('llmservice:warning', {
           message: `Doom loop detected: ${loopResult.loopType} - tool "${toolName}" repeated ${loopResult.repeatCount} times. Auto-denying to prevent infinite loop.`,
-          taskId,
+          taskId: taskId || undefined,
         })
 
         return {
@@ -846,11 +851,11 @@ export class ByteRoverLLMService implements ILLMService {
         }
       }
 
-      // Emit tool call event (include taskId for concurrent task support)
+      // Emit tool call event
       this.sessionEventBus.emit('llmservice:toolCall', {
         args: toolArgs,
         callId: toolCall.id,
-        taskId,
+        taskId: taskId || undefined,
         toolName,
       })
 
@@ -872,11 +877,12 @@ export class ByteRoverLLMService implements ILLMService {
         this.sessionEventBus.emit('llmservice:outputTruncated', {
           originalLength: processedOutput.metadata.originalLength!,
           savedToFile: processedOutput.metadata.savedToFile!,
+          taskId: taskId || undefined,
           toolName,
         })
       }
 
-      // Emit tool result event with success/error info (include taskId for concurrent task support)
+      // Emit tool result event with success/error info
       this.sessionEventBus.emit('llmservice:toolResult', {
         callId: toolCall.id,
         error: result.errorMessage,
@@ -887,7 +893,7 @@ export class ByteRoverLLMService implements ILLMService {
         },
         result: processedOutput.content,
         success: result.success,
-        taskId,
+        taskId: taskId || undefined,
         toolName,
       })
 
@@ -972,12 +978,12 @@ export class ByteRoverLLMService implements ILLMService {
   private async handleFinalResponse(lastMessage: InternalMessage, taskId?: string): Promise<string> {
     const content = this.extractTextContent(lastMessage)
 
-    // Emit response event (include taskId for concurrent task support)
+    // Emit response event
     this.sessionEventBus.emit('llmservice:response', {
       content,
       model: this.config.model,
       provider: 'byterover',
-      taskId,
+      taskId: taskId || undefined,
     })
 
     // Add assistant message to context
@@ -993,11 +999,11 @@ export class ByteRoverLLMService implements ILLMService {
    * @param taskId - Optional task ID for concurrent task isolation
    */
   private handleLLMError(error: unknown, taskId?: string): never {
-    // Emit error event (include taskId for concurrent task support)
+    // Emit error event
     const errorMessage = error instanceof Error ? error.message : String(error)
     this.sessionEventBus.emit('llmservice:error', {
       error: errorMessage,
-      taskId,
+      taskId: taskId || undefined,
     })
 
     // Re-throw LLM errors as-is
@@ -1042,24 +1048,23 @@ export class ByteRoverLLMService implements ILLMService {
       turnCount: context.turnCount,
     })
 
-    // Emit termination event (include taskId for concurrent task support)
+    // Emit termination event
     this.sessionEventBus.emit('llmservice:warning', {
       message: `Agent terminated: ${reason} after ${context.turnCount} turns`,
       model: this.config.model,
       provider: 'byterover',
-      taskId,
+      taskId: taskId || undefined,
     })
 
     // Get accumulated response from context
     const partialResponse = await this.getPartialResponse()
 
-    // Emit response event (include taskId for concurrent task support)
     this.sessionEventBus.emit('llmservice:response', {
       content: partialResponse,
       model: this.config.model,
       partial: true,
       provider: 'byterover',
-      taskId,
+      taskId: taskId || undefined,
     })
 
     if (reason === TerminationReason.MAX_TURNS) {
@@ -1082,8 +1087,9 @@ export class ByteRoverLLMService implements ILLMService {
    * Extracts and emits thought events if present.
    *
    * @param message - Message potentially containing thoughts
+   * @param taskId - Optional task ID for concurrent task isolation
    */
-  private handleThoughts(message: InternalMessage): void {
+  private handleThoughts(message: InternalMessage, taskId?: string): void {
     // Only process thoughts for Gemini models
     if (this.providerType !== 'gemini') {
       return
@@ -1100,6 +1106,7 @@ export class ByteRoverLLMService implements ILLMService {
       this.sessionEventBus.emit('llmservice:thought', {
         description: message.thoughtSummary.description,
         subject: message.thoughtSummary.subject,
+        taskId: taskId || undefined,
       })
     }
   }
@@ -1118,7 +1125,7 @@ export class ByteRoverLLMService implements ILLMService {
     }
 
     // Emit thought events if present
-    this.handleThoughts(lastMessage)
+    this.handleThoughts(lastMessage, taskId)
 
     // Has tool calls - add assistant message with tool calls
     const assistantContent = this.extractTextContent(lastMessage)

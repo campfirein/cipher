@@ -65,6 +65,8 @@ export class ChatSession implements IChatSession {
   private readonly activeControllers = new Map<string, AbortController>()
   /** Fallback controller for non-task executions (interactive mode) */
   private currentController?: AbortController
+  /** Fallback taskId for non-task executions - DEPRECATED: use activeControllers */
+  private currentTaskId?: string
   private readonly forwarders = new Map<string, (payload?: unknown) => void>()
   private isExecuting: boolean = false
   private readonly llmService: ILLMService
@@ -220,6 +222,8 @@ export class ChatSession implements IChatSession {
       this.currentController = controller
     }
 
+    // Store taskId for event forwarding (last-write-wins for concurrent tasks)
+    this.currentTaskId = taskId
     this.isExecuting = true
     sessionStatusManager.setBusy(this.id, this.eventBus)
 
@@ -249,6 +253,11 @@ export class ChatSession implements IChatSession {
         this.activeControllers.delete(taskId)
       } else {
         this.currentController = undefined
+      }
+
+      // Clear taskId if this was the active one
+      if (this.currentTaskId === taskId) {
+        this.currentTaskId = undefined
       }
 
       // Only mark idle if no active tasks
@@ -325,6 +334,8 @@ export class ChatSession implements IChatSession {
       this.currentController = controller
     }
 
+    // Store taskId for event forwarding (last-write-wins for concurrent tasks)
+    this.currentTaskId = taskId
     this.isExecuting = true
     sessionStatusManager.setBusy(this.id, this.eventBus)
 
@@ -359,6 +370,11 @@ export class ChatSession implements IChatSession {
         this.currentController = undefined
       }
 
+      // Clear taskId if this was the active one
+      if (this.currentTaskId === taskId) {
+        this.currentTaskId = undefined
+      }
+
       // Only mark idle if no active tasks
       if (this.activeControllers.size === 0) {
         this.isExecuting = false
@@ -379,19 +395,23 @@ export class ChatSession implements IChatSession {
 
   /**
    * Setup automatic event forwarding from SessionEventBus to AgentEventBus.
-   * All session events are forwarded with sessionId added to the payload.
-   * taskId is preserved from the original payload if present (for concurrent task support).
+   * All session events are forwarded with sessionId and taskId added to the payload.
+   *
+   * Note: taskId is preserved from the event payload if present (for concurrent task isolation).
+   * Falls back to this.currentTaskId for backward compatibility with events that don't include taskId.
    */
   private setupEventForwarding(): void {
     for (const eventName of SESSION_EVENT_NAMES) {
       const forwarder = (payload?: unknown) => {
-        // Add sessionId to payload, preserve taskId from original payload if present
+        // Add sessionId and taskId to payload
         const basePayload = payload && typeof payload === 'object' ? (payload as object) : {}
-
+        // Preserve taskId from payload if present, fallback to currentTaskId for backward compat
+        const payloadTaskId = (basePayload as {taskId?: string}).taskId
+        const effectiveTaskId = payloadTaskId ?? this.currentTaskId
         const payloadWithSession = {
           ...basePayload,
           sessionId: this.id,
-          // taskId is included in the payload from LLM service for concurrent task support
+          ...(effectiveTaskId && {taskId: effectiveTaskId}),
         }
 
         // Forward to agent bus - eventName is properly typed from SESSION_EVENT_NAMES
