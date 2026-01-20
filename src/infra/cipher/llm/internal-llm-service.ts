@@ -298,7 +298,7 @@ export class ByteRoverLLMService implements ILLMService {
       // Check termination conditions (timeout, max turns)
       const terminationReason = stateMachine.shouldTerminate()
       if (terminationReason) {
-        return this.handleTermination(terminationReason, stateMachine)
+        return this.handleTermination(terminationReason, stateMachine, taskId)
       }
 
       // Check if aborted via signal
@@ -326,7 +326,7 @@ export class ByteRoverLLMService implements ILLMService {
         stateMachine.incrementTurn()
       } catch (error) {
         stateMachine.fail(error as Error)
-        this.handleLLMError(error)
+        this.handleLLMError(error, taskId)
       }
     }
 
@@ -781,7 +781,7 @@ export class ByteRoverLLMService implements ILLMService {
 
     // Check if there are tool calls
     if (!lastMessage.toolCalls || lastMessage.toolCalls.length === 0) {
-      const response = await this.handleFinalResponse(lastMessage)
+      const response = await this.handleFinalResponse(lastMessage, taskId)
 
       // Auto-compaction check after assistant response
       await this.checkAndTriggerCompaction(taskId ?? '')
@@ -815,17 +815,19 @@ export class ByteRoverLLMService implements ILLMService {
       const loopResult = await this.loopDetector.recordAndCheck(toolName, toolArgs)
 
       if (loopResult.isLoop) {
-        // Emit dedicated doom loop event for observability
+        // Emit dedicated doom loop event for observability (include taskId for concurrent task support)
         this.sessionEventBus.emit('llmservice:doomLoopDetected', {
           args: toolArgs,
           loopType: loopResult.loopType!,
           repeatCount: loopResult.repeatCount ?? 0,
+          taskId,
           toolName,
         })
 
-        // Also emit warning event for backward compatibility
+        // Also emit warning event for backward compatibility (include taskId for concurrent task support)
         this.sessionEventBus.emit('llmservice:warning', {
           message: `Doom loop detected: ${loopResult.loopType} - tool "${toolName}" repeated ${loopResult.repeatCount} times. Auto-denying to prevent infinite loop.`,
+          taskId,
         })
 
         return {
@@ -844,10 +846,11 @@ export class ByteRoverLLMService implements ILLMService {
         }
       }
 
-      // Emit tool call event
+      // Emit tool call event (include taskId for concurrent task support)
       this.sessionEventBus.emit('llmservice:toolCall', {
         args: toolArgs,
         callId: toolCall.id,
+        taskId,
         toolName,
       })
 
@@ -873,7 +876,7 @@ export class ByteRoverLLMService implements ILLMService {
         })
       }
 
-      // Emit tool result event with success/error info
+      // Emit tool result event with success/error info (include taskId for concurrent task support)
       this.sessionEventBus.emit('llmservice:toolResult', {
         callId: toolCall.id,
         error: result.errorMessage,
@@ -884,6 +887,7 @@ export class ByteRoverLLMService implements ILLMService {
         },
         result: processedOutput.content,
         success: result.success,
+        taskId,
         toolName,
       })
 
@@ -962,16 +966,18 @@ export class ByteRoverLLMService implements ILLMService {
    * Handle final response when there are no tool calls.
    *
    * @param lastMessage - Last message from LLM
+   * @param taskId - Optional task ID for concurrent task isolation
    * @returns Final response content
    */
-  private async handleFinalResponse(lastMessage: InternalMessage): Promise<string> {
+  private async handleFinalResponse(lastMessage: InternalMessage, taskId?: string): Promise<string> {
     const content = this.extractTextContent(lastMessage)
 
-    // Emit response event
+    // Emit response event (include taskId for concurrent task support)
     this.sessionEventBus.emit('llmservice:response', {
       content,
       model: this.config.model,
       provider: 'byterover',
+      taskId,
     })
 
     // Add assistant message to context
@@ -984,12 +990,14 @@ export class ByteRoverLLMService implements ILLMService {
    * Handle LLM errors and re-throw or wrap appropriately.
    *
    * @param error - Error to handle
+   * @param taskId - Optional task ID for concurrent task isolation
    */
-  private handleLLMError(error: unknown): never {
-    // Emit error event
+  private handleLLMError(error: unknown, taskId?: string): never {
+    // Emit error event (include taskId for concurrent task support)
     const errorMessage = error instanceof Error ? error.message : String(error)
     this.sessionEventBus.emit('llmservice:error', {
       error: errorMessage,
+      taskId,
     })
 
     // Re-throw LLM errors as-is
@@ -1016,9 +1024,14 @@ export class ByteRoverLLMService implements ILLMService {
    *
    * @param reason - Why the agent is terminating
    * @param stateMachine - The state machine for context
+   * @param taskId - Optional task ID for concurrent task isolation
    * @returns Partial response or fallback message
    */
-  private async handleTermination(reason: TerminationReason, stateMachine: AgentStateMachine): Promise<string> {
+  private async handleTermination(
+    reason: TerminationReason,
+    stateMachine: AgentStateMachine,
+    taskId?: string,
+  ): Promise<string> {
     const context = stateMachine.getContext()
     const durationMs = Date.now() - context.startTime.getTime()
 
@@ -1029,21 +1042,24 @@ export class ByteRoverLLMService implements ILLMService {
       turnCount: context.turnCount,
     })
 
-    // Emit termination event
+    // Emit termination event (include taskId for concurrent task support)
     this.sessionEventBus.emit('llmservice:warning', {
       message: `Agent terminated: ${reason} after ${context.turnCount} turns`,
       model: this.config.model,
       provider: 'byterover',
+      taskId,
     })
 
     // Get accumulated response from context
     const partialResponse = await this.getPartialResponse()
 
+    // Emit response event (include taskId for concurrent task support)
     this.sessionEventBus.emit('llmservice:response', {
       content: partialResponse,
       model: this.config.model,
       partial: true,
       provider: 'byterover',
+      taskId,
     })
 
     if (reason === TerminationReason.MAX_TURNS) {

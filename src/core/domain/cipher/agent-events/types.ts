@@ -582,11 +582,13 @@ export interface SessionEventMap {
    * Emitted when a chunk of content is received (streaming).
    * @property {string} content - Content of the chunk
    * @property {boolean} [isComplete] - Whether this is the final chunk
+   * @property {string} [taskId] - Optional task ID for concurrent task isolation
    * @property {'reasoning' | 'text'} type - Type of chunk (text or reasoning)
    */
   'llmservice:chunk': {
     content: string
     isComplete?: boolean
+    taskId?: string
     type: 'reasoning' | 'text'
   }
 
@@ -632,12 +634,14 @@ export interface SessionEventMap {
    * @property {Record<string, unknown>} args - Arguments that were repeated
    * @property {'exact_repeat' | 'oscillation'} loopType - Type of loop detected
    * @property {number} repeatCount - Number of times the pattern repeated
+   * @property {string} [taskId] - Optional task ID for concurrent task isolation
    * @property {string} toolName - Name of the tool involved in the loop
    */
   'llmservice:doomLoopDetected': {
     args: Record<string, unknown>
     loopType: 'exact_repeat' | 'oscillation'
     repeatCount: number
+    taskId?: string
     toolName: string
   }
 
@@ -645,10 +649,12 @@ export interface SessionEventMap {
    * Emitted when an error occurs during LLM service operation.
    * @property {string} [code] - Error code (optional)
    * @property {string} error - Error message
+   * @property {string} [taskId] - Optional task ID for concurrent task isolation
    */
   'llmservice:error': {
     code?: string
     error: string
+    taskId?: string
   }
 
   /**
@@ -670,6 +676,7 @@ export interface SessionEventMap {
    * @property {boolean} [partial] - Whether this is a partial response (e.g., max iterations reached)
    * @property {string} [provider] - LLM provider name
    * @property {string} [reasoning] - Internal reasoning (if available)
+   * @property {string} [taskId] - Optional task ID for concurrent task isolation
    * @property {TokenUsage} [tokenUsage] - Token usage statistics
    */
   'llmservice:response': {
@@ -678,13 +685,17 @@ export interface SessionEventMap {
     partial?: boolean
     provider?: string
     reasoning?: string
+    taskId?: string
     tokenUsage?: TokenUsage
   }
 
   /**
    * Emitted when LLM service starts thinking/processing.
+   * @property {string} [taskId] - Optional task ID for concurrent task isolation
    */
-  'llmservice:thinking': void
+  'llmservice:thinking': {
+    taskId?: string
+  }
 
   /**
    * Emitted when LLM generates a thought (Gemini models only).
@@ -700,11 +711,13 @@ export interface SessionEventMap {
    * Emitted when LLM requests a tool call.
    * @property {Record<string, unknown>} args - Arguments for the tool
    * @property {string} [callId] - Unique identifier for this tool call
+   * @property {string} [taskId] - Optional task ID for concurrent task isolation
    * @property {string} toolName - Name of the tool to execute
    */
   'llmservice:toolCall': {
     args: Record<string, unknown>
     callId?: string
+    taskId?: string
     toolName: string
   }
 
@@ -729,6 +742,7 @@ export interface SessionEventMap {
    * @property {Record<string, unknown>} [metadata] - Execution metadata (duration, tokens, etc.)
    * @property {unknown} [result] - Tool execution result
    * @property {boolean} success - Whether execution succeeded
+   * @property {string} [taskId] - Optional task ID for concurrent task isolation
    * @property {string} toolName - Name of the executed tool
    */
   'llmservice:toolResult': {
@@ -738,6 +752,7 @@ export interface SessionEventMap {
     metadata?: Record<string, unknown>
     result?: unknown
     success: boolean
+    taskId?: string
     toolName: string
   }
 
@@ -754,11 +769,13 @@ export interface SessionEventMap {
    * @property {string} message - Warning message
    * @property {string} [model] - Model identifier
    * @property {string} [provider] - LLM provider name
+   * @property {string} [taskId] - Optional task ID for concurrent task isolation
    */
   'llmservice:warning': {
     message: string
     model?: string
     provider?: string
+    taskId?: string
   }
 
   /**
