@@ -24,7 +24,6 @@ import type {
 } from 'mdast'
 
 import {Box, Text} from 'ink'
-import {writeFileSync} from 'node:fs'
 import React from 'react'
 import remarkParse from 'remark-parse'
 import {unified} from 'unified'
@@ -228,9 +227,6 @@ export const Markdown = ({children}: MarkdownProps): React.ReactElement => {
   const {theme} = useTheme()
 
   const tree = unified().use(remarkParse).parse(children) as Root
-
-  // Debug: write tree to file
-  writeFileSync(new URL('markdown-tree.json', import.meta.url), JSON.stringify(tree, null, 2))
 
   return <Box flexDirection="column">{renderChildren(tree.children, theme)}</Box>
 }
