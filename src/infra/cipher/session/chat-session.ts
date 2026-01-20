@@ -396,16 +396,22 @@ export class ChatSession implements IChatSession {
   /**
    * Setup automatic event forwarding from SessionEventBus to AgentEventBus.
    * All session events are forwarded with sessionId and taskId added to the payload.
+   *
+   * Note: taskId is preserved from the event payload if present (for concurrent task isolation).
+   * Falls back to this.currentTaskId for backward compatibility with events that don't include taskId.
    */
   private setupEventForwarding(): void {
     for (const eventName of SESSION_EVENT_NAMES) {
       const forwarder = (payload?: unknown) => {
         // Add sessionId and taskId to payload
         const basePayload = payload && typeof payload === 'object' ? (payload as object) : {}
+        // Preserve taskId from payload if present, fallback to currentTaskId for backward compat
+        const payloadTaskId = (basePayload as {taskId?: string}).taskId
+        const effectiveTaskId = payloadTaskId ?? this.currentTaskId
         const payloadWithSession = {
           ...basePayload,
           sessionId: this.id,
-          ...(this.currentTaskId && {taskId: this.currentTaskId}),
+          ...(effectiveTaskId && {taskId: effectiveTaskId}),
         }
 
         // Forward to agent bus - eventName is properly typed from SESSION_EVENT_NAMES

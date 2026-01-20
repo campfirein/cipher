@@ -301,7 +301,7 @@ export class ByteRoverLLMService implements ILLMService {
       // Check termination conditions (timeout, max turns)
       const terminationReason = stateMachine.shouldTerminate()
       if (terminationReason) {
-        return this.handleTermination(terminationReason, stateMachine)
+        return this.handleTermination(terminationReason, stateMachine, taskId)
       }
 
       // Check if aborted via signal
@@ -329,7 +329,7 @@ export class ByteRoverLLMService implements ILLMService {
         stateMachine.incrementTurn()
       } catch (error) {
         stateMachine.fail(error as Error)
-        this.handleLLMError(error)
+        this.handleLLMError(error, taskId)
       }
     }
 
@@ -544,6 +544,7 @@ export class ByteRoverLLMService implements ILLMService {
     this.sessionEventBus.emit('llmservice:contextOverflow', {
       currentTokens,
       maxTokens: this.config.maxInputTokens,
+      taskId: taskId || undefined,
       utilizationPercent,
     })
 
@@ -562,12 +563,14 @@ export class ByteRoverLLMService implements ILLMService {
         this.sessionEventBus.emit('llmservice:contextPruned', {
           pruneCount: pruneResult.compactedCount,
           reason: 'overflow',
+          taskId: taskId || undefined,
           tokensSaved: pruneResult.tokensSaved,
         })
 
         // Also emit warning for backward compatibility
         this.sessionEventBus.emit('llmservice:warning', {
           message: `Context compaction: pruned ${pruneResult.compactedCount} old tool outputs (~${pruneResult.tokensSaved} tokens)`,
+          taskId: taskId || undefined,
         })
       }
     } else if (overflowResult.recommendation === 'compact') {
@@ -590,11 +593,13 @@ export class ByteRoverLLMService implements ILLMService {
         compressedTokens,
         originalTokens,
         strategy: 'summary',
+        taskId: taskId || undefined,
       })
 
       // Also emit warning for backward compatibility
       this.sessionEventBus.emit('llmservice:warning', {
         message: 'Context compaction: created summary boundary for conversation history',
+        taskId: taskId || undefined,
       })
     }
   }
@@ -797,7 +802,7 @@ export class ByteRoverLLMService implements ILLMService {
 
     // Check if there are tool calls
     if (!lastMessage.toolCalls || lastMessage.toolCalls.length === 0) {
-      const response = await this.handleFinalResponse(lastMessage)
+      const response = await this.handleFinalResponse(lastMessage, taskId)
 
       // Auto-compaction check after assistant response
       await this.checkAndTriggerCompaction(taskId ?? '')
@@ -836,12 +841,14 @@ export class ByteRoverLLMService implements ILLMService {
           args: toolArgs,
           loopType: loopResult.loopType!,
           repeatCount: loopResult.repeatCount ?? 0,
+          taskId: taskId || undefined,
           toolName,
         })
 
         // Also emit warning event for backward compatibility
         this.sessionEventBus.emit('llmservice:warning', {
           message: `Doom loop detected: ${loopResult.loopType} - tool "${toolName}" repeated ${loopResult.repeatCount} times. Auto-denying to prevent infinite loop.`,
+          taskId: taskId || undefined,
         })
 
         return {
@@ -864,6 +871,7 @@ export class ByteRoverLLMService implements ILLMService {
       this.sessionEventBus.emit('llmservice:toolCall', {
         args: toolArgs,
         callId: toolCall.id,
+        taskId: taskId || undefined,
         toolName,
       })
 
@@ -885,6 +893,7 @@ export class ByteRoverLLMService implements ILLMService {
         this.sessionEventBus.emit('llmservice:outputTruncated', {
           originalLength: processedOutput.metadata.originalLength!,
           savedToFile: processedOutput.metadata.savedToFile!,
+          taskId: taskId || undefined,
           toolName,
         })
       }
@@ -900,6 +909,7 @@ export class ByteRoverLLMService implements ILLMService {
         },
         result: processedOutput.content,
         success: result.success,
+        taskId: taskId || undefined,
         toolName,
       })
 
@@ -978,9 +988,10 @@ export class ByteRoverLLMService implements ILLMService {
    * Handle final response when there are no tool calls.
    *
    * @param lastMessage - Last message from LLM
+   * @param taskId - Optional task ID for concurrent task isolation
    * @returns Final response content
    */
-  private async handleFinalResponse(lastMessage: InternalMessage): Promise<string> {
+  private async handleFinalResponse(lastMessage: InternalMessage, taskId?: string): Promise<string> {
     const content = this.extractTextContent(lastMessage)
 
     // Emit response event
@@ -988,6 +999,7 @@ export class ByteRoverLLMService implements ILLMService {
       content,
       model: this.config.model,
       provider: 'byterover',
+      taskId: taskId || undefined,
     })
 
     // Add assistant message to context
@@ -1000,12 +1012,14 @@ export class ByteRoverLLMService implements ILLMService {
    * Handle LLM errors and re-throw or wrap appropriately.
    *
    * @param error - Error to handle
+   * @param taskId - Optional task ID for concurrent task isolation
    */
-  private handleLLMError(error: unknown): never {
+  private handleLLMError(error: unknown, taskId?: string): never {
     // Emit error event
     const errorMessage = error instanceof Error ? error.message : String(error)
     this.sessionEventBus.emit('llmservice:error', {
       error: errorMessage,
+      taskId: taskId || undefined,
     })
 
     // Re-throw LLM errors as-is
@@ -1032,9 +1046,14 @@ export class ByteRoverLLMService implements ILLMService {
    *
    * @param reason - Why the agent is terminating
    * @param stateMachine - The state machine for context
+   * @param taskId - Optional task ID for concurrent task isolation
    * @returns Partial response or fallback message
    */
-  private async handleTermination(reason: TerminationReason, stateMachine: AgentStateMachine): Promise<string> {
+  private async handleTermination(
+    reason: TerminationReason,
+    stateMachine: AgentStateMachine,
+    taskId?: string,
+  ): Promise<string> {
     const context = stateMachine.getContext()
     const durationMs = Date.now() - context.startTime.getTime()
 
@@ -1050,6 +1069,7 @@ export class ByteRoverLLMService implements ILLMService {
       message: `Agent terminated: ${reason} after ${context.turnCount} turns`,
       model: this.config.model,
       provider: 'byterover',
+      taskId: taskId || undefined,
     })
 
     // Get accumulated response from context
@@ -1060,6 +1080,7 @@ export class ByteRoverLLMService implements ILLMService {
       model: this.config.model,
       partial: true,
       provider: 'byterover',
+      taskId: taskId || undefined,
     })
 
     if (reason === TerminationReason.MAX_TURNS) {
@@ -1082,8 +1103,9 @@ export class ByteRoverLLMService implements ILLMService {
    * Extracts and emits thought events if present.
    *
    * @param message - Message potentially containing thoughts
+   * @param taskId - Optional task ID for concurrent task isolation
    */
-  private handleThoughts(message: InternalMessage): void {
+  private handleThoughts(message: InternalMessage, taskId?: string): void {
     // Only process thoughts for Gemini models
     if (this.providerType !== 'gemini') {
       return
@@ -1100,6 +1122,7 @@ export class ByteRoverLLMService implements ILLMService {
       this.sessionEventBus.emit('llmservice:thought', {
         description: message.thoughtSummary.description,
         subject: message.thoughtSummary.subject,
+        taskId: taskId || undefined,
       })
     }
   }
@@ -1118,7 +1141,7 @@ export class ByteRoverLLMService implements ILLMService {
     }
 
     // Emit thought events if present
-    this.handleThoughts(lastMessage)
+    this.handleThoughts(lastMessage, taskId)
 
     // Has tool calls - add assistant message with tool calls
     const assistantContent = this.extractTextContent(lastMessage)

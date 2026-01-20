@@ -13,24 +13,12 @@ import {
 } from '../../../helpers/mock-factories.js'
 
 /**
- * Type-safe helper to set private currentTaskId on ChatSession for testing.
- * This simulates what streamRun() does internally.
- */
-interface TestableSession {
-  currentTaskId: string | undefined
-}
-
-function setCurrentTaskId(session: ChatSession, taskId: string | undefined): void {
-  ;(session as unknown as TestableSession).currentTaskId = taskId
-}
-
-/**
  * Integration Tests for TaskId Propagation
  *
  * Tests that taskId flows correctly through:
- * - ChatSession.streamRun({taskId})
- * - setupEventForwarding (adds taskId to all events)
- * - AgentEventBus receives events with taskId
+ * - SessionEventBus events (emitted by LLM service with taskId)
+ * - ChatSession.setupEventForwarding (forwards events with sessionId added)
+ * - AgentEventBus receives events with both sessionId and taskId
  *
  * This is critical for concurrent task isolation.
  */
@@ -79,7 +67,7 @@ describe('TaskId Propagation Integration', () => {
   }
 
   describe('ChatSession taskId propagation', () => {
-    it('should add taskId to all events emitted during streamRun', () => {
+    it('should forward taskId from session events to agent events', () => {
       const taskId = randomUUID()
       const {chatSession, sessionEventBus} = createTestSession('session-123')
 
@@ -96,24 +84,21 @@ describe('TaskId Propagation Integration', () => {
         receivedEvents.push({eventName: 'response', taskId: payload.taskId})
       })
 
-      // Emit events from session bus (simulating LLM service)
-      sessionEventBus.emit('llmservice:thinking')
+      // Emit events from session bus WITHOUT taskId (simulating LLM service without task context)
+      sessionEventBus.emit('llmservice:thinking', {})
       sessionEventBus.emit('llmservice:chunk', {content: 'test', type: 'text'})
       sessionEventBus.emit('llmservice:response', {content: 'response'})
 
-      // Without taskId set, events should not have taskId
+      // Without taskId in payload, events should not have taskId
       expect(receivedEvents.every((e) => e.taskId === undefined)).to.be.true
 
       // Clear events
       receivedEvents.length = 0
 
-      // Set taskId (simulating streamRun with taskId)
-      setCurrentTaskId(chatSession, taskId)
-
-      // Emit again
-      sessionEventBus.emit('llmservice:thinking')
-      sessionEventBus.emit('llmservice:chunk', {content: 'test2', type: 'text'})
-      sessionEventBus.emit('llmservice:response', {content: 'response2'})
+      // Emit events WITH taskId in payload (simulating LLM service with task context)
+      sessionEventBus.emit('llmservice:thinking', {taskId})
+      sessionEventBus.emit('llmservice:chunk', {content: 'test2', taskId, type: 'text'})
+      sessionEventBus.emit('llmservice:response', {content: 'response2', taskId})
 
       // Now all events should have taskId
       expect(receivedEvents.every((e) => e.taskId === taskId)).to.be.true
@@ -129,10 +114,6 @@ describe('TaskId Propagation Integration', () => {
       const {chatSession: chatSession1, sessionEventBus: sessionEventBus1} = createTestSession('session-1')
       const {chatSession: chatSession2, sessionEventBus: sessionEventBus2} = createTestSession('session-2')
 
-      // Set different taskIds
-      setCurrentTaskId(chatSession1, task1Id)
-      setCurrentTaskId(chatSession2, task2Id)
-
       // Collect events by taskId
       const task1Events: string[] = []
       const task2Events: string[] = []
@@ -145,12 +126,12 @@ describe('TaskId Propagation Integration', () => {
         }
       })
 
-      // Interleave events from both sessions
-      sessionEventBus1.emit('llmservice:chunk', {content: 'task1-msg1', type: 'text'})
-      sessionEventBus2.emit('llmservice:chunk', {content: 'task2-msg1', type: 'text'})
-      sessionEventBus1.emit('llmservice:chunk', {content: 'task1-msg2', type: 'text'})
-      sessionEventBus2.emit('llmservice:chunk', {content: 'task2-msg2', type: 'text'})
-      sessionEventBus1.emit('llmservice:chunk', {content: 'task1-msg3', type: 'text'})
+      // Interleave events from both sessions with taskId in payload
+      sessionEventBus1.emit('llmservice:chunk', {content: 'task1-msg1', taskId: task1Id, type: 'text'})
+      sessionEventBus2.emit('llmservice:chunk', {content: 'task2-msg1', taskId: task2Id, type: 'text'})
+      sessionEventBus1.emit('llmservice:chunk', {content: 'task1-msg2', taskId: task1Id, type: 'text'})
+      sessionEventBus2.emit('llmservice:chunk', {content: 'task2-msg2', taskId: task2Id, type: 'text'})
+      sessionEventBus1.emit('llmservice:chunk', {content: 'task1-msg3', taskId: task1Id, type: 'text'})
 
       // Verify isolation
       expect(task1Events).to.deep.equal(['task1-msg1', 'task1-msg2', 'task1-msg3'])
@@ -163,9 +144,6 @@ describe('TaskId Propagation Integration', () => {
     it('should include taskId in all event types', () => {
       const taskId = randomUUID()
       const {chatSession, sessionEventBus} = createTestSession('session-all-events')
-
-      // Set taskId
-      setCurrentTaskId(chatSession, taskId)
 
       // Track all event types
       const eventTaskIds: Record<string, string | undefined> = {}
@@ -189,18 +167,19 @@ describe('TaskId Propagation Integration', () => {
         eventTaskIds.error = p.taskId
       })
 
-      // Emit all event types
-      sessionEventBus.emit('llmservice:thinking')
-      sessionEventBus.emit('llmservice:chunk', {content: 'x', type: 'text'})
-      sessionEventBus.emit('llmservice:response', {content: 'x'})
-      sessionEventBus.emit('llmservice:toolCall', {args: {}, callId: 'c1', toolName: 't1'})
+      // Emit all event types with taskId in payload
+      sessionEventBus.emit('llmservice:thinking', {taskId})
+      sessionEventBus.emit('llmservice:chunk', {content: 'x', taskId, type: 'text'})
+      sessionEventBus.emit('llmservice:response', {content: 'x', taskId})
+      sessionEventBus.emit('llmservice:toolCall', {args: {}, callId: 'c1', taskId, toolName: 't1'})
       sessionEventBus.emit('llmservice:toolResult', {
         callId: 'c1',
         result: 'ok',
         success: true,
+        taskId,
         toolName: 't1',
       })
-      sessionEventBus.emit('llmservice:error', {error: 'test error'})
+      sessionEventBus.emit('llmservice:error', {error: 'test error', taskId})
 
       // All should have taskId
       for (const [eventName, eventTaskId] of Object.entries(eventTaskIds)) {
@@ -219,9 +198,6 @@ describe('TaskId Propagation Integration', () => {
       const {chatSession: chatSession1, sessionEventBus: sessionEventBus1} = createTestSession('s1')
       const {chatSession: chatSession2, sessionEventBus: sessionEventBus2} = createTestSession('s2')
 
-      setCurrentTaskId(chatSession1, activeTaskId)
-      setCurrentTaskId(chatSession2, otherTaskId)
-
       // Simulate agent-worker filtering: only forward events with matching taskId
       const forwardedToTransport: Array<{content: string; taskId: string}> = []
 
@@ -235,9 +211,9 @@ describe('TaskId Propagation Integration', () => {
         }
       })
 
-      // Emit from both sessions
-      sessionEventBus1.emit('llmservice:chunk', {content: 'from-active', type: 'text'})
-      sessionEventBus2.emit('llmservice:chunk', {content: 'from-other', type: 'text'})
+      // Emit from both sessions with taskId in payload
+      sessionEventBus1.emit('llmservice:chunk', {content: 'from-active', taskId: activeTaskId, type: 'text'})
+      sessionEventBus2.emit('llmservice:chunk', {content: 'from-other', taskId: otherTaskId, type: 'text'})
 
       // Both should be forwarded with their respective taskIds
       expect(forwardedToTransport).to.have.length(2)
@@ -251,7 +227,7 @@ describe('TaskId Propagation Integration', () => {
     it('should not forward events without taskId', () => {
       const {chatSession, sessionEventBus} = createTestSession('s1')
 
-      // DON'T set taskId - simulating a session without an active task
+      // DON'T include taskId in payload - simulating events without task context
 
       const forwardedToTransport: unknown[] = []
 
@@ -283,7 +259,6 @@ describe('TaskId Propagation Integration', () => {
       for (let i = 0; i < 3; i++) {
         const taskId = randomUUID()
         const {chatSession, sessionEventBus} = createTestSession(`curate-session-${i}`)
-        setCurrentTaskId(chatSession, taskId)
         tasks.push({chatSession, sessionEventBus, taskId, type: 'curate'})
       }
 
@@ -291,7 +266,6 @@ describe('TaskId Propagation Integration', () => {
       for (let i = 0; i < 2; i++) {
         const taskId = randomUUID()
         const {chatSession, sessionEventBus} = createTestSession(`query-session-${i}`)
-        setCurrentTaskId(chatSession, taskId)
         tasks.push({chatSession, sessionEventBus, taskId, type: 'query'})
       }
 
@@ -310,11 +284,12 @@ describe('TaskId Propagation Integration', () => {
         }
       })
 
-      // Emit 2 events per task in interleaved order
+      // Emit 2 events per task in interleaved order with taskId in payload
       for (let round = 0; round < 2; round++) {
         for (const task of tasks) {
           task.sessionEventBus.emit('llmservice:chunk', {
             content: `${task.type}-${task.taskId.slice(0, 8)}-r${round}`,
+            taskId: task.taskId,
             type: 'text',
           })
         }

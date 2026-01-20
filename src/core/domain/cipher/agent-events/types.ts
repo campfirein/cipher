@@ -582,11 +582,13 @@ export interface SessionEventMap {
    * Emitted when a chunk of content is received (streaming).
    * @property {string} content - Content of the chunk
    * @property {boolean} [isComplete] - Whether this is the final chunk
+   * @property {string} [taskId] - Optional task ID for concurrent task isolation
    * @property {'reasoning' | 'text'} type - Type of chunk (text or reasoning)
    */
   'llmservice:chunk': {
     content: string
     isComplete?: boolean
+    taskId?: string
     type: 'reasoning' | 'text'
   }
 
@@ -595,22 +597,26 @@ export interface SessionEventMap {
    * @property {number} compressedTokens - Token count after compression
    * @property {number} originalTokens - Token count before compression
    * @property {'middle_removal' | 'oldest_removal' | 'summary'} strategy - Compression strategy used
+   * @property {string} [taskId] - Optional task ID for concurrent task isolation
    */
   'llmservice:contextCompressed': {
     compressedTokens: number
     originalTokens: number
     strategy: 'middle_removal' | 'oldest_removal' | 'summary'
+    taskId?: string
   }
 
   /**
    * Emitted when context is approaching the token limit.
    * @property {number} currentTokens - Current token count
    * @property {number} maxTokens - Maximum allowed tokens
+   * @property {string} [taskId] - Optional task ID for concurrent task isolation
    * @property {number} utilizationPercent - Percentage of context used (0-100)
    */
   'llmservice:contextOverflow': {
     currentTokens: number
     maxTokens: number
+    taskId?: string
     utilizationPercent: number
   }
 
@@ -618,11 +624,13 @@ export interface SessionEventMap {
    * Emitted when old tool outputs are pruned to save context space.
    * @property {number} pruneCount - Number of tool outputs pruned
    * @property {'manual' | 'overflow'} reason - Why pruning was triggered
+   * @property {string} [taskId] - Optional task ID for concurrent task isolation
    * @property {number} tokensSaved - Estimated tokens saved
    */
   'llmservice:contextPruned': {
     pruneCount: number
     reason: 'manual' | 'overflow'
+    taskId?: string
     tokensSaved: number
   }
 
@@ -632,12 +640,14 @@ export interface SessionEventMap {
    * @property {Record<string, unknown>} args - Arguments that were repeated
    * @property {'exact_repeat' | 'oscillation'} loopType - Type of loop detected
    * @property {number} repeatCount - Number of times the pattern repeated
+   * @property {string} [taskId] - Optional task ID for concurrent task isolation
    * @property {string} toolName - Name of the tool involved in the loop
    */
   'llmservice:doomLoopDetected': {
     args: Record<string, unknown>
     loopType: 'exact_repeat' | 'oscillation'
     repeatCount: number
+    taskId?: string
     toolName: string
   }
 
@@ -645,21 +655,25 @@ export interface SessionEventMap {
    * Emitted when an error occurs during LLM service operation.
    * @property {string} [code] - Error code (optional)
    * @property {string} error - Error message
+   * @property {string} [taskId] - Optional task ID for concurrent task isolation
    */
   'llmservice:error': {
     code?: string
     error: string
+    taskId?: string
   }
 
   /**
    * Emitted when tool output is truncated due to size.
    * @property {number} originalLength - Original output length before truncation
    * @property {string} savedToFile - Path to file where full output was saved
+   * @property {string} [taskId] - Optional task ID for concurrent task isolation
    * @property {string} toolName - Name of the tool that produced the output
    */
   'llmservice:outputTruncated': {
     originalLength: number
     savedToFile: string
+    taskId?: string
     toolName: string
   }
 
@@ -670,6 +684,7 @@ export interface SessionEventMap {
    * @property {boolean} [partial] - Whether this is a partial response (e.g., max iterations reached)
    * @property {string} [provider] - LLM provider name
    * @property {string} [reasoning] - Internal reasoning (if available)
+   * @property {string} [taskId] - Optional task ID for concurrent task isolation
    * @property {TokenUsage} [tokenUsage] - Token usage statistics
    */
   'llmservice:response': {
@@ -678,33 +693,41 @@ export interface SessionEventMap {
     partial?: boolean
     provider?: string
     reasoning?: string
+    taskId?: string
     tokenUsage?: TokenUsage
   }
 
   /**
    * Emitted when LLM service starts thinking/processing.
+   * @property {string} [taskId] - Optional task ID for concurrent task isolation
    */
-  'llmservice:thinking': void
+  'llmservice:thinking': {
+    taskId?: string
+  } | void
 
   /**
    * Emitted when LLM generates a thought (Gemini models only).
    * @property {string} description - Detailed thought description
    * @property {string} subject - Brief thought subject
+   * @property {string} [taskId] - Optional task ID for concurrent task isolation
    */
   'llmservice:thought': {
     description: string
     subject: string
+    taskId?: string
   }
 
   /**
    * Emitted when LLM requests a tool call.
    * @property {Record<string, unknown>} args - Arguments for the tool
    * @property {string} [callId] - Unique identifier for this tool call
+   * @property {string} [taskId] - Optional task ID for concurrent task isolation
    * @property {string} toolName - Name of the tool to execute
    */
   'llmservice:toolCall': {
     args: Record<string, unknown>
     callId?: string
+    taskId?: string
     toolName: string
   }
 
@@ -713,11 +736,13 @@ export interface SessionEventMap {
    * Allows tools to push real-time updates (e.g., bash output streaming).
    * @property {string} callId - Tool call identifier
    * @property {Record<string, unknown>} metadata - The metadata update
+   * @property {string} [taskId] - Optional task ID for concurrent task isolation
    * @property {string} toolName - Name of the tool streaming metadata
    */
   'llmservice:toolMetadata': {
     callId: string
     metadata: Record<string, unknown>
+    taskId?: string
     toolName: string
   }
 
@@ -729,6 +754,7 @@ export interface SessionEventMap {
    * @property {Record<string, unknown>} [metadata] - Execution metadata (duration, tokens, etc.)
    * @property {unknown} [result] - Tool execution result
    * @property {boolean} success - Whether execution succeeded
+   * @property {string} [taskId] - Optional task ID for concurrent task isolation
    * @property {string} toolName - Name of the executed tool
    */
   'llmservice:toolResult': {
@@ -738,15 +764,18 @@ export interface SessionEventMap {
     metadata?: Record<string, unknown>
     result?: unknown
     success: boolean
+    taskId?: string
     toolName: string
   }
 
   /**
    * Emitted when LLM receives unsupported input.
    * @property {string} reason - Reason why input is unsupported
+   * @property {string} [taskId] - Optional task ID for concurrent task isolation
    */
   'llmservice:unsupportedInput': {
     reason: string
+    taskId?: string
   }
 
   /**
@@ -754,19 +783,23 @@ export interface SessionEventMap {
    * @property {string} message - Warning message
    * @property {string} [model] - Model identifier
    * @property {string} [provider] - LLM provider name
+   * @property {string} [taskId] - Optional task ID for concurrent task isolation
    */
   'llmservice:warning': {
     message: string
     model?: string
     provider?: string
+    taskId?: string
   }
 
   /**
    * Emitted when queued messages are dequeued for processing.
    * @property {number} count - Number of messages that were dequeued
+   * @property {string} [taskId] - Optional task ID for concurrent task isolation
    */
   'message:dequeued': {
     count: number
+    taskId?: string
   }
 
   /**
@@ -776,6 +809,7 @@ export interface SessionEventMap {
    * @property {string} message.content - Message text content
    * @property {number} message.queuedAt - Timestamp when queued
    * @property {number} position - Position in the queue (1-based)
+   * @property {string} [taskId] - Optional task ID for concurrent task isolation
    */
   'message:queued': {
     message: {
@@ -784,6 +818,7 @@ export interface SessionEventMap {
       queuedAt: number
     }
     position: number
+    taskId?: string
   }
 
   /**
@@ -792,21 +827,25 @@ export interface SessionEventMap {
    * @property {Error} [error] - Error if terminated due to error
    * @property {'cancelled' | 'error' | 'max-iterations' | 'stop' | 'timeout'} finishReason - Why execution terminated
    * @property {number} stepCount - Number of agentic steps completed
+   * @property {string} [taskId] - Optional task ID for concurrent task isolation
    */
   'run:complete': {
     durationMs: number
     error?: Error
     finishReason: 'cancelled' | 'error' | 'max-iterations' | 'stop' | 'timeout'
     stepCount: number
+    taskId?: string
   }
 
   /**
    * Emitted when session status changes.
    * Tracks the lifecycle state of a session (idle, busy, retry, waiting).
    * @property {SessionStatusType} status - The new session status
+   * @property {string} [taskId] - Optional task ID for concurrent task isolation
    */
   'session:statusChanged': {
     status: SessionStatusType
+    taskId?: string
   }
 
   /**
@@ -815,21 +854,25 @@ export interface SessionEventMap {
    * @property {number} cost - Cost in dollars for this step
    * @property {'max_tokens' | 'stop' | 'tool_calls'} finishReason - Why step finished
    * @property {number} stepIndex - Step index (0-based)
+   * @property {string} [taskId] - Optional task ID for concurrent task isolation
    * @property {StepTokenUsage} tokens - Token usage for this step
    */
   'step:finished': {
     cost: number
     finishReason: 'max_tokens' | 'stop' | 'tool_calls'
     stepIndex: number
+    taskId?: string
     tokens: StepTokenUsage
   }
 
   /**
    * Emitted when an execution step starts.
    * @property {number} stepIndex - Step index (0-based)
+   * @property {string} [taskId] - Optional task ID for concurrent task isolation
    */
   'step:started': {
     stepIndex: number
+    taskId?: string
   }
 }
 
