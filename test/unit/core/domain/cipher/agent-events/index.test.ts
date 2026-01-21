@@ -50,7 +50,7 @@ describe('cipher/agent-events/index', () => {
     })
 
     it('should export SessionEventMap type', () => {
-      const payload: SessionEventMap['llmservice:thinking'] = undefined
+      const payload: SessionEventMap['llmservice:thinking'] = {}
 
       expectTypeOf<SessionEventMap['llmservice:thinking']>(payload)
     })
@@ -98,7 +98,7 @@ describe('cipher/agent-events/index', () => {
       const agentPayload: AgentEventMap['cipher:conversationReset'] = {
         sessionId: 'session-123',
       }
-      const sessionPayload: SessionEventMap['llmservice:thinking'] = undefined
+      const sessionPayload: SessionEventMap['llmservice:thinking'] = {}
 
       expectTypeOf<AgentEventName>(agentEventName)
       expectTypeOf<SessionEventName>(sessionEventName)
