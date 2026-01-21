@@ -452,7 +452,6 @@ export class InitUseCase implements IInitUseCase {
         await this.contextTreeSnapshotService.initEmptySnapshot()
         this.terminal.log('✓ Context tree initialized')
       } else {
-        // Remote has real data - sync it to local
         await this.contextTreeWriterService.sync({files: [...coGitSnapshot.files]})
         await this.contextTreeSnapshotService.saveSnapshot()
         this.terminal.log(`✓ Synced ${coGitSnapshot.files.length} context files from remote`)

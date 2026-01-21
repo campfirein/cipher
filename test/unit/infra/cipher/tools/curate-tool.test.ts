@@ -3,7 +3,7 @@ import * as fs from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { createCurateTool } from '../../../../../src/infra/cipher/tools/implementations/curate-tool.js'
+import { backfillDomainContextFiles, createCurateTool } from '../../../../../src/infra/cipher/tools/implementations/curate-tool.js'
 
 interface CurateOutput {
   applied: Array<{
@@ -562,6 +562,307 @@ describe('Curate Tool', () => {
     })
   })
 
+  describe('Domain Context Auto-Creation (ENG-921)', () => {
+    describe('ADD operation', () => {
+      it('should auto-create domain context.md with agent-provided domainContext', async () => {
+        const tool = createCurateTool()
+
+        const result = (await tool.execute({
+          basePath,
+          operations: [
+            {
+              content: { snippets: ['test content'] },
+              domainContext: {
+                ownership: 'Platform Security Team',
+                purpose: 'Contains all knowledge related to user and service authentication mechanisms.',
+                scope: {
+                  excluded: ['Authorization and permission models', 'User profile management'],
+                  included: ['Login and signup flows', 'Token-based authentication', 'OAuth integrations'],
+                },
+                usage: 'Use this domain for documenting authentication flows and identity verification.',
+              },
+              path: 'authentication/jwt',
+              reason: 'testing domain context creation',
+              title: 'Token Handling',
+              type: 'ADD',
+            },
+          ],
+        })) as CurateOutput
+
+        expect(result.applied[0].status).to.equal('success')
+
+        // Verify domain context.md was created
+        const contextMdPath = join(basePath, 'authentication/context.md')
+        const contextMdExists = await pathExists(contextMdPath)
+        expect(contextMdExists).to.be.true
+
+        // Verify content structure
+        const content = await fs.readFile(contextMdPath, 'utf8')
+        expect(content).to.include('# Domain: authentication')
+        expect(content).to.include('## Purpose')
+        expect(content).to.include('Contains all knowledge related to user and service authentication mechanisms.')
+        expect(content).to.include('## Scope')
+        expect(content).to.include('Login and signup flows')
+        expect(content).to.include('Token-based authentication')
+        expect(content).to.include('Authorization and permission models')
+        expect(content).to.include('## Ownership')
+        expect(content).to.include('Platform Security Team')
+        expect(content).to.include('## Usage')
+      })
+
+      it('should auto-create minimal domain context.md when domainContext not provided', async () => {
+        const tool = createCurateTool()
+
+        const result = (await tool.execute({
+          basePath,
+          operations: [
+            {
+              content: { snippets: ['test content'] },
+              path: 'caching/redis',
+              reason: 'testing minimal context creation',
+              title: 'Redis Setup',
+              type: 'ADD',
+            },
+          ],
+        })) as CurateOutput
+
+        expect(result.applied[0].status).to.equal('success')
+
+        // Verify domain context.md was created with minimal template
+        const contextMdPath = join(basePath, 'caching/context.md')
+        const contextMdExists = await pathExists(contextMdPath)
+        expect(contextMdExists).to.be.true
+
+        // Verify minimal template structure
+        const content = await fs.readFile(contextMdPath, 'utf8')
+        expect(content).to.include('# Domain: caching')
+        expect(content).to.include('## Purpose')
+        expect(content).to.include('Describe what this domain represents')
+        expect(content).to.include('## Scope')
+        expect(content).to.include('## Ownership')
+        expect(content).to.include('## Usage')
+      })
+
+      it('should NOT overwrite existing domain context.md', async () => {
+        const tool = createCurateTool()
+
+        // First, create a domain with specific context
+        await tool.execute({
+          basePath,
+          operations: [
+            {
+              content: { snippets: ['first content'] },
+              domainContext: {
+                purpose: 'Original purpose description.',
+                scope: {
+                  included: ['Original included item'],
+                },
+              },
+              path: 'testing/unit',
+              reason: 'first add',
+              title: 'First Topic',
+              type: 'ADD',
+            },
+          ],
+        })
+
+        // Verify original content
+        const contextMdPath = join(basePath, 'testing/context.md')
+        const originalContent = await fs.readFile(contextMdPath, 'utf8')
+        expect(originalContent).to.include('Original purpose description.')
+
+        // Add another topic to the same domain with different domainContext
+        const result = (await tool.execute({
+          basePath,
+          operations: [
+            {
+              content: { snippets: ['second content'] },
+              domainContext: {
+                purpose: 'This should NOT overwrite the original.',
+                scope: {
+                  included: ['New included item'],
+                },
+              },
+              path: 'testing/integration',
+              reason: 'second add',
+              title: 'Second Topic',
+              type: 'ADD',
+            },
+          ],
+        })) as CurateOutput
+
+        expect(result.applied[0].status).to.equal('success')
+
+        // Verify original context.md was NOT overwritten
+        const currentContent = await fs.readFile(contextMdPath, 'utf8')
+        expect(currentContent).to.include('Original purpose description.')
+        expect(currentContent).to.not.include('This should NOT overwrite the original.')
+      })
+    })
+
+    describe('UPDATE operation', () => {
+      it('should create domain context.md if missing during UPDATE', async () => {
+        const tool = createCurateTool()
+
+        // First create a topic without triggering context.md creation
+        // by directly creating the file structure
+        const topicDir = join(basePath, 'api_design/endpoints')
+        await fs.mkdir(topicDir, { recursive: true })
+        await fs.writeFile(join(topicDir, 'rest_api.md'), 'original content')
+
+        // Now update it - should trigger context.md creation
+        const result = (await tool.execute({
+          basePath,
+          operations: [
+            {
+              content: { snippets: ['updated content'] },
+              domainContext: {
+                purpose: 'API design patterns and guidelines.',
+                scope: {
+                  included: ['REST API endpoints', 'GraphQL schemas'],
+                },
+              },
+              path: 'api_design/endpoints',
+              reason: 'updating with domain context',
+              title: 'Rest Api',
+              type: 'UPDATE',
+            },
+          ],
+        })) as CurateOutput
+
+        expect(result.applied[0].status).to.equal('success')
+
+        // Verify domain context.md was created
+        const contextMdPath = join(basePath, 'api_design/context.md')
+        const contextMdExists = await pathExists(contextMdPath)
+        expect(contextMdExists).to.be.true
+
+        const content = await fs.readFile(contextMdPath, 'utf8')
+        expect(content).to.include('API design patterns and guidelines.')
+      })
+    })
+
+    describe('MERGE operation', () => {
+      it('should create domain context.md for both source and target domains if missing', async () => {
+        const tool = createCurateTool()
+
+        // Create source and target files manually (without context.md)
+        const sourceDir = join(basePath, 'old_domain/old_topic')
+        const targetDir = join(basePath, 'new_domain/new_topic')
+        await fs.mkdir(sourceDir, { recursive: true })
+        await fs.mkdir(targetDir, { recursive: true })
+        await fs.writeFile(join(sourceDir, 'source_file.md'), 'source content')
+        await fs.writeFile(join(targetDir, 'target_file.md'), 'target content')
+
+        // Perform merge
+        const result = (await tool.execute({
+          basePath,
+          operations: [
+            {
+              domainContext: {
+                purpose: 'Shared domain context for merge test.',
+                scope: {
+                  included: ['Merged content'],
+                },
+              },
+              mergeTarget: 'new_domain/new_topic',
+              mergeTargetTitle: 'Target File',
+              path: 'old_domain/old_topic',
+              reason: 'consolidating domains',
+              title: 'Source File',
+              type: 'MERGE',
+            },
+          ],
+        })) as CurateOutput
+
+        expect(result.applied[0].status).to.equal('success')
+
+        // Verify both domain context.md files were created
+        const sourceContextPath = join(basePath, 'old_domain/context.md')
+        const targetContextPath = join(basePath, 'new_domain/context.md')
+
+        expect(await pathExists(sourceContextPath)).to.be.true
+        expect(await pathExists(targetContextPath)).to.be.true
+      })
+    })
+
+    describe('Domain context content validation', () => {
+      it('should include all provided domainContext fields', async () => {
+        const tool = createCurateTool()
+
+        await tool.execute({
+          basePath,
+          operations: [
+            {
+              content: { snippets: ['test'] },
+              domainContext: {
+                ownership: 'Core Infrastructure Team\nMaintained by DevOps group.',
+                purpose: 'Database connection and query patterns.',
+                scope: {
+                  excluded: ['Application business logic', 'UI components'],
+                  included: ['Connection pooling', 'Query optimization', 'Migration scripts'],
+                },
+                usage: 'Backend engineers should reference this domain when:\n- Setting up new database connections\n- Writing complex queries\n- Creating migrations',
+              },
+              path: 'database/connections',
+              reason: 'full domainContext test',
+              title: 'Connection Pool',
+              type: 'ADD',
+            },
+          ],
+        })
+
+        const contextMdPath = join(basePath, 'database/context.md')
+        const content = await fs.readFile(contextMdPath, 'utf8')
+
+        // Verify all sections
+        expect(content).to.include('# Domain: database')
+        expect(content).to.include('Database connection and query patterns.')
+        expect(content).to.include('Connection pooling')
+        expect(content).to.include('Query optimization')
+        expect(content).to.include('Migration scripts')
+        expect(content).to.include('Application business logic')
+        expect(content).to.include('UI components')
+        expect(content).to.include('Core Infrastructure Team')
+        expect(content).to.include('Backend engineers should reference this domain when:')
+      })
+
+      it('should handle domainContext with only required fields', async () => {
+        const tool = createCurateTool()
+
+        await tool.execute({
+          basePath,
+          operations: [
+            {
+              content: { snippets: ['test'] },
+              domainContext: {
+                purpose: 'Minimal domain with only required fields.',
+                scope: {
+                  included: ['Required item 1', 'Required item 2'],
+                },
+              },
+              path: 'minimal_domain/topic',
+              reason: 'minimal domainContext test',
+              title: 'Test Topic',
+              type: 'ADD',
+            },
+          ],
+        })
+
+        const contextMdPath = join(basePath, 'minimal_domain/context.md')
+        const content = await fs.readFile(contextMdPath, 'utf8')
+
+        expect(content).to.include('# Domain: minimal_domain')
+        expect(content).to.include('Minimal domain with only required fields.')
+        expect(content).to.include('Required item 1')
+        expect(content).to.include('Required item 2')
+        // Optional sections should not appear if not provided
+        expect(content).to.not.include('## Ownership')
+        expect(content).to.not.include('## Usage')
+      })
+    })
+  })
+
   describe('Empty Directory Prevention (ENG-764)', () => {
     it('should NOT create empty directories when ADD operation fails due to invalid path', async () => {
       const tool = createCurateTool()
@@ -686,6 +987,109 @@ describe('Curate Tool', () => {
       // Verify parent directories exist (they should be created along with the file)
       const loggingDirExists = await pathExists(join(freshBasePath, 'code_style/error_handling/logging'))
       expect(loggingDirExists).to.be.true
+    })
+  })
+
+  describe('backfillDomainContextFiles', () => {
+    it('should return empty array when basePath does not exist', async () => {
+      const nonExistentPath = join(tmpDir, 'non-existent')
+      const result = await backfillDomainContextFiles(nonExistentPath)
+      expect(result).to.deep.equal([])
+    })
+
+    it('should return empty array when there are no domains', async () => {
+      const result = await backfillDomainContextFiles(basePath)
+      expect(result).to.deep.equal([])
+    })
+
+    it('should not create context.md for empty domains (no .md files)', async () => {
+      // Create an empty domain directory
+      await fs.mkdir(join(basePath, 'empty_domain'), { recursive: true })
+
+      const result = await backfillDomainContextFiles(basePath)
+      expect(result).to.deep.equal([])
+
+      // Verify no context.md was created
+      const contextMdExists = await pathExists(join(basePath, 'empty_domain/context.md'))
+      expect(contextMdExists).to.be.false
+    })
+
+    it('should create context.md for domains with content but missing context.md', async () => {
+      // Create a domain with content but no context.md
+      const domainPath = join(basePath, 'existing_domain/some_topic')
+      await fs.mkdir(domainPath, { recursive: true })
+      await fs.writeFile(join(domainPath, 'some_knowledge.md'), '# Some Knowledge\n\nContent here')
+
+      const result = await backfillDomainContextFiles(basePath)
+
+      expect(result).to.have.lengthOf(1)
+      expect(result[0]).to.equal(join(basePath, 'existing_domain/context.md'))
+
+      // Verify context.md was created with minimal template
+      const contextMdPath = join(basePath, 'existing_domain/context.md')
+      const contextMdExists = await pathExists(contextMdPath)
+      expect(contextMdExists).to.be.true
+
+      const content = await fs.readFile(contextMdPath, 'utf8')
+      expect(content).to.include('# Domain: existing_domain')
+      expect(content).to.include('## Purpose')
+      expect(content).to.include('## Scope')
+    })
+
+    it('should skip domains that already have context.md', async () => {
+      // Create a domain with existing context.md
+      const domainPath = join(basePath, 'complete_domain')
+      await fs.mkdir(domainPath, { recursive: true })
+      await fs.writeFile(join(domainPath, 'context.md'), '# Existing context')
+      await fs.mkdir(join(domainPath, 'topic'), { recursive: true })
+      await fs.writeFile(join(domainPath, 'topic/knowledge.md'), '# Knowledge')
+
+      const result = await backfillDomainContextFiles(basePath)
+      expect(result).to.deep.equal([])
+
+      // Verify original context.md is unchanged
+      const content = await fs.readFile(join(domainPath, 'context.md'), 'utf8')
+      expect(content).to.equal('# Existing context')
+    })
+
+    it('should backfill multiple domains missing context.md', async () => {
+      // Create multiple domains with content but no context.md
+      const domain1Path = join(basePath, 'domain_one/topic')
+      const domain2Path = join(basePath, 'domain_two/topic')
+      const domain3Path = join(basePath, 'domain_three')
+
+      await fs.mkdir(domain1Path, { recursive: true })
+      await fs.mkdir(domain2Path, { recursive: true })
+      await fs.mkdir(domain3Path, { recursive: true })
+
+      await fs.writeFile(join(domain1Path, 'knowledge.md'), '# Knowledge 1')
+      await fs.writeFile(join(domain2Path, 'knowledge.md'), '# Knowledge 2')
+      // domain_three has no .md files, should be skipped
+
+      const result = await backfillDomainContextFiles(basePath)
+
+      expect(result).to.have.lengthOf(2)
+      expect(result).to.include(join(basePath, 'domain_one/context.md'))
+      expect(result).to.include(join(basePath, 'domain_two/context.md'))
+    })
+
+    it('should handle mixed scenarios (some with context.md, some without)', async () => {
+      // Domain with context.md
+      const withContextPath = join(basePath, 'with_context')
+      await fs.mkdir(withContextPath, { recursive: true })
+      await fs.writeFile(join(withContextPath, 'context.md'), '# Has context')
+      await fs.mkdir(join(withContextPath, 'topic'), { recursive: true })
+      await fs.writeFile(join(withContextPath, 'topic/knowledge.md'), '# Knowledge')
+
+      // Domain without context.md
+      const withoutContextPath = join(basePath, 'without_context/topic')
+      await fs.mkdir(withoutContextPath, { recursive: true })
+      await fs.writeFile(join(withoutContextPath, 'knowledge.md'), '# Knowledge')
+
+      const result = await backfillDomainContextFiles(basePath)
+
+      expect(result).to.have.lengthOf(1)
+      expect(result[0]).to.equal(join(basePath, 'without_context/context.md'))
     })
   })
 })
