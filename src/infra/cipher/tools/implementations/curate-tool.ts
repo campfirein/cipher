@@ -1,6 +1,3 @@
-import type {Dirent} from 'node:fs'
-
-import {readdir} from 'node:fs/promises'
 import {join} from 'node:path'
 import {z} from 'zod'
 
@@ -224,33 +221,7 @@ function generateDomainContextMarkdown(domainName: string, context: DomainContex
   return sections.join('\n')
 }
 
-function generateMinimalDomainContextMarkdown(domainName: string): string {
-  return `# Domain: ${domainName}
 
-## Purpose
-Describe what this domain represents and why it exists.
-
-## Scope
-Define what belongs in this domain and what does not.
-
-## Ownership
-Which system, team, or layer owns this domain.
-
-## Usage
-How this domain should be used by agents and contributors.
-`
-}
-
-function generateMinimalTopicContextMarkdown(topicName: string): string {
-  return `# Topic: ${topicName}
-
-## Overview
-Describe what this topic covers and its key concepts.
-
-## Related Topics
-List related topics and how they connect to this one.
-`
-}
 
 function generateTopicContextMarkdown(topicName: string, context: TopicContext): string {
   const sections: string[] = [
@@ -280,13 +251,6 @@ function generateTopicContextMarkdown(topicName: string, context: TopicContext):
   return sections.join('\n')
 }
 
-function generateMinimalSubtopicContextMarkdown(subtopicName: string): string {
-  return `# Subtopic: ${subtopicName}
-
-## Overview
-Describe what this subtopic covers and its specific focus.
-`
-}
 
 function generateSubtopicContextMarkdown(subtopicName: string, context: SubtopicContext): string {
   const sections: string[] = [
@@ -317,9 +281,11 @@ async function createDomainContextIfMissing(
     return {created: false}
   }
 
-  const content = domainContext
-    ? generateDomainContextMarkdown(normalizedDomain, domainContext)
-    : generateMinimalDomainContextMarkdown(normalizedDomain)
+  if (!domainContext) {
+    return {created: false}
+  }
+
+  const content = generateDomainContextMarkdown(normalizedDomain, domainContext)
 
   await DirectoryManager.writeFileAtomic(contextPath, content)
 
@@ -349,9 +315,11 @@ async function ensureTopicContextMd(
     return {created: false}
   }
 
-  const content = topicContext
-    ? generateTopicContextMarkdown(normalizedTopic, topicContext)
-    : generateMinimalTopicContextMarkdown(normalizedTopic)
+  if (!topicContext) {
+    return {created: false}
+  }
+
+  const content = generateTopicContextMarkdown(normalizedTopic, topicContext)
   await DirectoryManager.writeFileAtomic(contextPath, content)
 
   return {created: true, path: contextPath}
@@ -367,7 +335,7 @@ interface EnsureSubtopicContextMdOptions {
 
 /**
  * Ensure context.md exists at subtopic level.
- * Creates a context.md with LLM-provided content if available, otherwise creates a minimal template.
+ * Only creates context.md if LLM provides subtopicContext - no static templates.
  */
 async function ensureSubtopicContextMd(options: EnsureSubtopicContextMdOptions): Promise<{created: boolean; path?: string}> {
   const {basePath, domain, subtopic, subtopicContext, topic} = options
@@ -389,9 +357,11 @@ async function ensureSubtopicContextMd(options: EnsureSubtopicContextMdOptions):
     return {created: false}
   }
 
-  const content = subtopicContext
-    ? generateSubtopicContextMarkdown(normalizedSubtopic, subtopicContext)
-    : generateMinimalSubtopicContextMarkdown(normalizedSubtopic)
+  if (!subtopicContext) {
+    return {created: false}
+  }
+
+  const content = generateSubtopicContextMarkdown(normalizedSubtopic, subtopicContext)
   await DirectoryManager.writeFileAtomic(contextPath, content)
 
   return {created: true, path: contextPath}
@@ -844,23 +814,6 @@ async function executeCurate(input: unknown, _context?: ToolExecutionContext): P
 
   const {basePath, operations} = parseResult.data
 
-  const touchedDomains = new Set<string>()
-  for (const op of operations) {
-    const parsed = parsePath(op.path)
-    if (parsed) {
-      touchedDomains.add(toSnakeCase(parsed.domain))
-    }
-
-    if (op.type === 'MERGE' && op.mergeTarget) {
-      const targetParsed = parsePath(op.mergeTarget)
-      if (targetParsed) {
-        touchedDomains.add(toSnakeCase(targetParsed.domain))
-      }
-    }
-  }
-
-  await backfillDomainContextFiles(basePath, touchedDomains)
-
   const applied: OperationResult[] = []
   const summary = {
     added: 0,
@@ -929,47 +882,6 @@ async function executeCurate(input: unknown, _context?: ToolExecutionContext): P
   return {applied, summary}
 }
 
-export async function backfillDomainContextFiles(
-  basePath: string,
-  excludeDomains: Set<string> = new Set(),
-): Promise<string[]> {
-  const createdPaths: string[] = []
-
-  const baseExists = await DirectoryManager.folderExists(basePath)
-  if (!baseExists) {
-    return createdPaths
-  }
-
-  let entries: Dirent[]
-  try {
-    entries = await readdir(basePath, {withFileTypes: true})
-  } catch {
-    return createdPaths
-  }
-
-  const domains = entries.filter((entry: Dirent) => entry.isDirectory())
-
-  /* eslint-disable no-await-in-loop */
-  for (const domain of domains) {
-    if (excludeDomains.has(domain.name)) {
-      continue
-    }
-
-    const contextPath = join(basePath, domain.name, 'context.md')
-    const exists = await DirectoryManager.fileExists(contextPath)
-
-    if (!exists) {
-      const mdFiles = await DirectoryManager.listMarkdownFiles(join(basePath, domain.name))
-      if (mdFiles.length > 0) {
-        const content = generateMinimalDomainContextMarkdown(domain.name)
-        await DirectoryManager.writeFileAtomic(contextPath, content)
-        createdPaths.push(contextPath)
-      }
-    }
-  }
-
-  return createdPaths
-}
 
 export function createCurateTool(): Tool {
   return {
