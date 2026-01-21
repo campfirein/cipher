@@ -701,9 +701,10 @@ export interface SessionEventMap {
    * Emitted when LLM service starts thinking/processing.
    * @property {string} [taskId] - Optional task ID for concurrent task isolation
    */
-  'llmservice:thinking': {
+  'llmservice:thinking': 
+  void | {
     taskId?: string
-  } | void
+  } 
 
   /**
    * Emitted when LLM generates a thought (Gemini models only).
