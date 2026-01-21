@@ -113,14 +113,8 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({availableHeight, 
   )
 
   const renderInitContent = () => (
-    <Box flexDirection="column" width="100%">
-      {!isInitialized && (
-        <Init
-          active={mode === 'activity' && currentStep === 'init'}
-          maxOutputLines={MIN_OUTPUT_LINES}
-          showIdleMessage={false}
-        />
-      )}
+    <Box flexDirection="column" gap={1} width="100%">
+      <Init active={mode === 'activity' && currentStep === 'init'} maxOutputLines={10} showIdleMessage={false} />
 
       {/* Waiting for Enter to continue */}
       {isInitialized && !initAcknowledged && (

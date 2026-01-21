@@ -23,7 +23,7 @@ export const Footer: React.FC = () => {
   )
 
   return (
-    <Box gap={1} paddingX={1} width="100%">
+    <Box paddingX={1} width="100%">
       {visibleShortcuts.map((shortcut, index) => (
         <Box key={shortcut.key}>
           {index > 0 && <Text color={colors.dimText}> • </Text>}

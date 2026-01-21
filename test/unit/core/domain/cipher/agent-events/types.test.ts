@@ -221,10 +221,17 @@ describe('cipher/agent-events', () => {
       expectTypeOf<HasSessionId>().toEqualTypeOf<false>()
     })
 
-    it('should have void payload for thinking event', () => {
-      const payload: SessionEventMap['llmservice:thinking'] = undefined
+    it('should have optional taskId payload for thinking event', () => {
+      const payload: SessionEventMap['llmservice:thinking'] = {}
 
-      expectTypeOf<void>(payload)
+      expectTypeOf<string | undefined>(payload.taskId)
+
+      // Can also include taskId
+      const payloadWithTask: SessionEventMap['llmservice:thinking'] = {
+        taskId: 'task-123',
+      }
+
+      expectTypeOf<SessionEventMap['llmservice:thinking']>(payloadWithTask)
     })
 
     it('should enforce response payload structure', () => {
