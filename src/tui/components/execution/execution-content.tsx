@@ -9,6 +9,7 @@ import React from 'react'
 
 import {useTheme} from '../../hooks/index.js'
 import {getVisualLineCount} from '../../utils/line.js'
+import {Markdown} from '../markdown.js'
 
 const DEFAULT_MAX_LINES = 5
 
@@ -97,7 +98,11 @@ export const ExecutionContent: React.FC<ExecutionContentProps> = ({
   if (isExpand) {
     return (
       <Box flexDirection="column" marginY={1}>
-        <Text color={isError ? colors.errorText : colors.text}>{content}</Text>
+        {isError ? (
+          <Text color={colors.errorText}>{content}</Text>
+        ) : (
+          <Markdown>{content}</Markdown>
+        )}
       </Box>
     )
   }
@@ -112,7 +117,11 @@ export const ExecutionContent: React.FC<ExecutionContentProps> = ({
 
   return (
     <Box flexDirection="column" marginBottom={bottomMargin}>
-      <Text color={isError ? colors.errorText : colors.text} wrap="truncate">{truncatedContent}</Text>
+      {isError ? (
+        <Text color={colors.errorText}>{truncatedContent}</Text>
+      ) : (
+        <Markdown>{truncatedContent}</Markdown>
+      )}
       {remainingLines > 0 && <Text color={colors.dimText}>{remainingLines} more lines</Text>}
     </Box>
   )
