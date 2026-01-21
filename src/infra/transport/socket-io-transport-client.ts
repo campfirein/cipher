@@ -195,8 +195,10 @@ export class SocketIOTransportClient implements ITransportClient {
         clientLog(`Socket.IO built-in reconnect succeeded after ${attemptNumber} attempts`)
         this.setState('connected')
         // Re-register event handlers after reconnect
-        // Clear tracking first since socket listeners were reset during reconnect
-        this.registeredSocketEvents.clear()
+        // FIX: Remove existing socket listeners before re-registering to prevent
+        // listener accumulation. Socket.IO preserves the Socket instance across
+        // internal reconnects, so old listeners remain attached if not removed.
+        this.clearSocketEventListeners()
         this.registerPendingEventHandlers()
 
         // Auto-rejoin rooms after reconnect
@@ -471,6 +473,25 @@ export class SocketIOTransportClient implements ITransportClient {
   }
 
   /**
+   * Remove all registered event listeners from socket.
+   * Used before re-registering to prevent listener accumulation across reconnects.
+   *
+   * Why this is needed: Socket.IO preserves the Socket instance across internal reconnects.
+   * If we clear registeredSocketEvents without calling socket.off(), the old listeners
+   * remain attached, and registerPendingEventHandlers() adds new ones - causing duplicates.
+   */
+  private clearSocketEventListeners(): void {
+    const {socket} = this
+    if (!socket) return
+
+    for (const event of this.registeredSocketEvents) {
+      socket.off(event)
+    }
+
+    this.registeredSocketEvents.clear()
+  }
+
+  /**
    * Handle system wake from sleep/hibernate.
    * Re-triggers reconnection if not connected and force reconnect has given up.
    */
@@ -551,7 +572,9 @@ export class SocketIOTransportClient implements ITransportClient {
     // This handles race condition where reconnect event fires before socket.connected is true
     if (!this.socket?.connected) {
       const delay = REJOIN_BASE_DELAY_MS * 2 ** attempt
-      clientLog(`rejoinRoomWithRetry: socket not connected, retrying '${room}' in ${delay}ms (attempt ${attempt + 1}/${MAX_REJOIN_ATTEMPTS})`)
+      clientLog(
+        `rejoinRoomWithRetry: socket not connected, retrying '${room}' in ${delay}ms (attempt ${attempt + 1}/${MAX_REJOIN_ATTEMPTS})`,
+      )
       setTimeout(() => this.rejoinRoomWithRetry(room, attempt + 1), delay)
       return
     }
