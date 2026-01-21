@@ -28,6 +28,8 @@
     "gradient-string": "^3.0.0",
     "ignore": "^7.0.5",
     "ink": "^6.5.1",
+    "ink-scroll-list": "^0.4.1",
+    "ink-scroll-view": "^0.3.5",
     "ink-spinner": "^5.0.0",
     "ink-text-input": "^6.0.0",
     "inquirer-file-selector": "^1.0.1",
