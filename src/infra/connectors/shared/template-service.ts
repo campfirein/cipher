@@ -1,4 +1,5 @@
 import type {Agent} from '../../../core/domain/entities/agent.js'
+import type {ConnectorType} from '../../../core/domain/entities/connector-type.js'
 import type {IRuleTemplateService} from '../../../core/interfaces/i-rule-template-service.js'
 import type {ITemplateLoader} from '../../../core/interfaces/i-template-loader.js'
 
@@ -65,26 +66,25 @@ export class RuleTemplateService implements IRuleTemplateService {
    * @returns Promise resolving to the rule content as a string.
    * @throws Error if templates cannot be loaded or assembled.
    */
-  public async generateRuleContent(agent: Agent): Promise<string> {
+  public async generateRuleContent(agent: Agent, type?: ConnectorType): Promise<string> {
     try {
       // Load section templates
-      const workflow = await this.templateLoader.loadSection('workflow')
-      const commandReference = await this.templateLoader.loadSection('command-reference')
+      let content: string
+      switch (type) {
+        case 'mcp': {
+          content = await this.generateMcpContent()
+          break
+        }
 
-      // Load base template
-      const baseTemplate = await this.templateLoader.loadTemplate('base.md')
+        case 'rules': {
+          content = await this.generateCliContent(agent)
+          break
+        }
 
-      // Assemble context for variable substitution
-      const context = {
-        /* eslint-disable camelcase */
-        agent_name: agent,
-        command_reference: commandReference,
-        workflow,
-        /* eslint-enable camelcase */
+        default: {
+          throw new Error(`Unsupported connector type: ${type}`)
+        }
       }
-
-      // Substitute variables and get content
-      const content = this.templateLoader.substituteVariables(baseTemplate, context)
 
       // Add agent-specific header if available
       const header = guideHeaders.find((h) => h.agent === agent)?.value || ''
@@ -92,10 +92,55 @@ export class RuleTemplateService implements IRuleTemplateService {
       return wrapContentWithBoundaryMarkers(content, agent, header)
     } catch (error) {
       throw new Error(
-        `Failed to generate rule content for agent '${agent}': ${
+        `Failed to generate rule content for agent '${agent}' - type '${type}': ${
           error instanceof Error ? error.message : String(error)
         }`,
       )
     }
+  }
+
+  /**
+   * Generates CLI mode content with full workflow and command reference.
+   */
+  private async generateCliContent(agent: Agent): Promise<string> {
+    // Load section templates
+    const workflow = await this.templateLoader.loadSection('workflow')
+    const commandReference = await this.templateLoader.loadSection('command-reference')
+
+    // Load base template
+    const baseTemplate = await this.templateLoader.loadTemplate('base.md')
+
+    // Assemble context for variable substitution
+    const context = {
+      /* eslint-disable camelcase */
+      agent_name: agent,
+      command_reference: commandReference,
+      workflow,
+      /* eslint-enable camelcase */
+    }
+
+    // Substitute variables and get content
+    return this.templateLoader.substituteVariables(baseTemplate, context)
+  }
+
+  /**
+   * Generates MCP mode content with concise tool-focused instructions.
+   */
+  private async generateMcpContent(): Promise<string> {
+    // Load MCP-specific section
+    const mcpWorkflow = await this.templateLoader.loadSection('mcp-workflow')
+
+    // Load MCP base template
+    const mcpBaseTemplate = await this.templateLoader.loadTemplate('mcp-base.md')
+
+    // Assemble context for variable substitution
+    const context = {
+      /* eslint-disable camelcase */
+      mcp_workflow: mcpWorkflow,
+      /* eslint-enable camelcase */
+    }
+
+    // Substitute variables and get content
+    return this.templateLoader.substituteVariables(mcpBaseTemplate, context)
   }
 }

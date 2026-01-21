@@ -1,6 +1,16 @@
 import type {ConnectorType} from '../../domain/entities/connector-type.js'
 
 /**
+ * Instructions for manual MCP setup when automatic configuration is not possible.
+ */
+export type ManualInstallInstructions = {
+  /** The config content to copy (JSON or TOML formatted) */
+  configContent: string
+  /** Guide URL or step-by-step instructions */
+  guide: string
+}
+
+/**
  * Result of a connector installation operation.
  */
 export type ConnectorInstallResult = {
@@ -8,8 +18,12 @@ export type ConnectorInstallResult = {
   alreadyInstalled: boolean
   /** Path to the configuration/rule file */
   configPath: string
+  /** Instructions for manual setup (present when requiresManualSetup is true) */
+  manualInstructions?: ManualInstallInstructions
   /** Human-readable message describing the result */
   message: string
+  /** Whether this requires manual setup by the user */
+  requiresManualSetup?: boolean
   /** Whether the installation was successful */
   success: boolean
 }
