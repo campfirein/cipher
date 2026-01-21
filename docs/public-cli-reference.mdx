@@ -34,7 +34,7 @@ This launches a persistent session with a React/Ink-based terminal interface whe
 /pull [-b branch]       # Pull context tree from ByteRover memory storage
 /space list [-a] [-j]   # List all spaces
 /space switch           # Switch to a different space
-/connectors             # Manage agent coding connectors (rules, hooks)
+/connectors             # Manage agent connectors (rules, hooks, mcp)
 /reset [-y] [directory] # Reset context tree to an empty state
 /new [-y]               # Start fresh session (clears conversation)
 /init [-f]              # Initialize project (select team/space)
@@ -107,7 +107,7 @@ brv
 | `/pull [-b branch]` | Pull context tree from ByteRover memory storage |
 | `/space list [-a] [-j] [-l n] [-o n]` | List all spaces for current team |
 | `/space switch` | Switch to a different space |
-| `/connectors` | Manage agent connectors (rules, hooks) |
+| `/connectors` | Manage agent connectors (rules, hooks, mcp) |
 | `/reset [-y] [directory]` | Reset context tree to an empty state |
 | `/new [-y]` | Start a fresh session (ends current, clears conversation) |
 | `/init [-f]` | Initialize a project with ByteRover |
@@ -217,33 +217,39 @@ Switch to a different space. Interactive mode only - prompts you to select from 
 
 #### `/connectors`
 
-Manage agent connectors for integrating ByteRover with AI coding assistants. Supports two connector types:
+Manage agent connectors for integrating ByteRover with AI coding assistants. Supports three connector types:
 
+- **MCP**: Uses Model Context Protocol for direct tool integration (`brv-query`, `brv-curate`). Default for most agents.
 - **Rules**: Generates markdown rule files that agents read for instructions
 - **Hook**: Uses agent-specific hook systems for tighter integration (Claude Code only)
 
 **Supported Agents**
 
-| Agent | Connector Type | File Path |
-| ----- | -------------- | --------- |
-| Amp | Rules | `AGENTS.md` |
-| Augment Code | Rules | `.augment/rules/agent-context.md` |
-| Claude Code | Hook (default) or Rules | Hook: `settings.local.json`, Rules: `CLAUDE.md` |
-| Cline | Rules | `.clinerules/agent-context.md` |
-| Codex | Rules | `AGENTS.md` |
-| Cursor | Rules | `.cursor/rules/agent-context.mdc` |
-| Gemini CLI | Rules | `GEMINI.md` |
-| GitHub Copilot | Rules | `.github/copilot-instructions.md` |
-| Junie | Rules | `.junie/guidelines.md` |
-| Kilo Code | Rules | `.kilocode/rules/agent-context.md` |
-| Kiro | Rules | `.kiro/steering/agent-context.md` |
-| Qoder | Rules | `.qoder/rules/agent-context.md` |
-| Qwen Code | Rules | `QWEN.md` |
-| Roo Code | Rules | `.roo/rules/agent-context.md` |
-| Trae.ai | Rules | `project_rules.md` |
-| Warp | Rules | `WARP.md` |
-| Windsurf | Rules | `.windsurf/rules/agent-context.md` |
-| Zed | Rules | `agent-context.rules` |
+| Agent | Default | Supported | Rules File | MCP Config |
+| ----- | ------- | --------- | ---------- | ---------- |
+| Amp | MCP | rules, mcp | `AGENTS.md` | `.vscode/settings.json` |
+| Augment Code | MCP | rules, mcp | `.augment/rules/agent-context.md` | Manual setup |
+| Claude Code | Hook | rules, hook, mcp | `CLAUDE.md` | `.mcp.json` |
+| Cline | MCP | rules, mcp | `.clinerules/agent-context.md` | Manual setup |
+| Codex | MCP | rules, mcp | `AGENTS.md` | `~/.codex/config.toml` |
+| Cursor | MCP | rules, mcp | `.cursor/rules/agent-context.mdc` | `.cursor/mcp.json` |
+| Gemini CLI | MCP | rules, mcp | `GEMINI.md` | `.gemini/settings.json` |
+| GitHub Copilot | MCP | rules, mcp | `.github/copilot-instructions.md` | `.vscode/mcp.json` |
+| Junie | MCP | rules, mcp | `.junie/guidelines.md` | `.junie/mcp/mcp.json` |
+| Kilo Code | MCP | rules, mcp | `.kilocode/rules/agent-context.md` | `.kilocode/mcp.json` |
+| Kiro | MCP | rules, mcp | `.kiro/steering/agent-context.md` | `.kiro/settings/mcp.json` |
+| Qoder | MCP | rules, mcp | `.qoder/rules/agent-context.md` | Manual setup |
+| Qwen Code | MCP | rules, mcp | `QWEN.md` | Manual setup |
+| Roo Code | MCP | rules, mcp | `.roo/rules/agent-context.md` | `.roo/mcp.json` |
+| Trae.ai | MCP | rules, mcp | `project_rules.md` | Manual setup |
+| Warp | MCP | rules, mcp | `WARP.md` | Manual setup |
+| Windsurf | MCP | rules, mcp | `.windsurf/rules/agent-context.md` | `~/.codeium/windsurf/mcp_config.json` |
+| Zed | MCP | rules, mcp | `agent-context.rules` | `.zed/settings.json` |
+
+**MCP Setup Modes**
+
+- **Auto setup**: ByteRover automatically writes the MCP config file (most agents)
+- **Manual setup**: User must manually configure per agent's documentation (Augment Code, Cline, Qoder, Qwen Code, Trae.ai, Warp)
 
 **Flags**: None
 
