@@ -2,7 +2,7 @@ import {randomUUID} from 'node:crypto'
 
 import {isDevelopment} from '../../../config/environment.js'
 import {type CommandContext, CommandKind, type SlashCommand} from '../../../tui/types.js'
-import {FileGlobalConfigStore} from "../../storage/file-global-config-store.js";
+import {FileGlobalConfigStore} from '../../storage/file-global-config-store.js'
 import {createTokenStore} from '../../storage/token-store.js'
 import {ReplTerminal} from '../../terminal/repl-terminal.js'
 import {MixpanelTrackingService} from '../../tracking/mixpanel-tracking-service.js'
@@ -81,7 +81,7 @@ export const curateCommand: SlashCommand = {
     {
       char: '@',
       description: 'Include files (type @ to browse, max 5)',
-      name: 'files',
+      name: 'file',
       type: 'file',
     },
     ...(isDevelopment() ? toCommandFlags(devFlags) : []),

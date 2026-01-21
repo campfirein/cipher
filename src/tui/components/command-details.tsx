@@ -38,7 +38,7 @@ function formatUsage(
   }
 
   if (flags?.length) {
-    const flagsStr = flags.map((f) => `[--${f.name}]`).join(' ')
+    const flagsStr = flags.map((f) => (f.type === 'file' ? `[${f.char}${f.name}]` : `[--${f.name}]`)).join(' ')
     usage += ` ${flagsStr}`
   }
 
