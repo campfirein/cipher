@@ -642,6 +642,7 @@ async function tryInitializeAgent(forceReinit = false): Promise<boolean> {
       model: DEFAULT_LLM_MODEL,
       projectId: PROJECT,
       sessionKey: authToken.sessionKey,
+      useGranularStorage: true,
     }
 
     pendingAgent = new CipherAgent(agentConfig, brvConfig ?? undefined)

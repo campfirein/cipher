@@ -611,9 +611,13 @@ export class MessageStorageService {
   ): {messagePart?: MessagePart; toolOutputContent?: string} {
     // Handle compacted parts
     if (part.compactedAt) {
+      if (part.type === 'tool_output') {
+        return {toolOutputContent: COMPACTED_TOOL_OUTPUT_PLACEHOLDER}
+      }
+
       return {
         messagePart: {
-          text: part.type === 'tool_output' ? COMPACTED_TOOL_OUTPUT_PLACEHOLDER : '[Content cleared]',
+          text: '[Content cleared]',
           type: 'text',
         },
       }
