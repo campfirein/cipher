@@ -63,6 +63,14 @@ export interface ITransportClient {
   getState: () => ConnectionState
 
   /**
+   * Checks if the socket is actually connected and responsive.
+   * Verifies bidirectional communication by sending a ping and waiting for response.
+   * @param timeoutMs - Timeout in milliseconds (default: 2000)
+   * @returns true if socket is connected and responsive, false otherwise
+   */
+  isConnected: (timeoutMs?: number) => Promise<boolean>
+
+  /**
    * Joins a room for targeted broadcasts.
    * @param room - The room identifier to join
    */

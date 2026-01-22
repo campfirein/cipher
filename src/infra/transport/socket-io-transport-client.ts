@@ -252,6 +252,35 @@ export class SocketIOTransportClient implements ITransportClient {
     return this.state
   }
 
+  /**
+   * Checks if the socket is actually connected and responsive.
+   * Uses Socket.IO's built-in volatile emit with acknowledgement to verify bidirectional communication.
+   * @param timeoutMs - Timeout in milliseconds (default: 2000)
+   * @returns true if socket is connected and responsive, false otherwise
+   */
+  async isConnected(timeoutMs: number = 2000): Promise<boolean> {
+    const {socket} = this
+
+    // Quick check: if socket doesn't exist or isn't marked as connected, return false immediately
+    if (!socket?.connected) {
+      return false
+    }
+
+    // Verify actual bidirectional communication with a ping
+    return new Promise((resolve) => {
+      const timeout = setTimeout(() => {
+        resolve(false)
+      }, timeoutMs)
+
+      // Use Socket.IO's built-in ping mechanism via volatile emit
+      // Volatile means if the message can't be sent, it won't be buffered
+      socket.volatile.emit('ping', {timestamp: Date.now()}, () => {
+        clearTimeout(timeout)
+        resolve(true)
+      })
+    })
+  }
+
   async joinRoom(room: string): Promise<void> {
     const {socket} = this
     if (!socket?.connected) {

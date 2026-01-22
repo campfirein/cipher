@@ -2,17 +2,19 @@
  * Command View
  *
  * Main view with slash command input and streaming output support.
- * Uses ScrollableList for message history with dynamic height calculation.
+ * Uses ScrollList for message history with automatic height measurement.
  */
 
-import { Box, Spacer, Text, useApp } from 'ink'
+import {Box, Spacer, Text, useApp, useInput, useStdout} from 'ink'
+import {ScrollList, ScrollListRef} from 'ink-scroll-list'
 import Spinner from 'ink-spinner'
 import TextInput from 'ink-text-input'
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react'
 
-import type { CommandMessage, PromptRequest, StreamingMessage } from '../types.js'
+import type {CommandMessage, PromptRequest, StreamingMessage} from '../types.js'
 
-import { MessageItem, ScrollableList, Suggestions } from '../components/index.js'
+import {ExpandedMessageView} from '../components/execution/index.js'
+import {MessageItem, Suggestions} from '../components/index.js'
 import {
   InlineConfirm,
   InlineFileSelector,
@@ -20,12 +22,14 @@ import {
   InlineSearch,
   InlineSelect,
 } from '../components/inline-prompts/index.js'
-import { useAuth, useTasks, useTransport } from '../contexts/index.js'
-import { useCommands, useMode, useTerminalBreakpoint, useTheme, useUIHeights } from '../hooks/index.js'
-import { getVisualLineCount } from '../utils/line.js'
+import {useAuth, useTasks, useTransport} from '../contexts/index.js'
+import {useCommands, useMode, useTerminalBreakpoint, useTheme, useUIHeights} from '../hooks/index.js'
+import {getVisualLineCount} from '../utils/line.js'
 
-/** Max visible items in InlineSearch */
-const INLINE_SEARCH_MAX_ITEMS = 7
+/**
+ * Maximum number of output lines to display in list view before truncation
+ */
+const MAX_OUTPUT_LINES = 4
 
 /**
  * Calculate visual line count for a message
@@ -50,7 +54,7 @@ function truncateMessageFromEnd(
   message: StreamingMessage,
   availableLines: number,
   terminalWidth: number,
-): { content: string; usedLines: number } {
+): {content: string; usedLines: number} {
   const lines = message.content.split('\n')
   const truncatedLines: string[] = []
   let usedLines = 0
@@ -85,11 +89,11 @@ function getMessagesFromEnd(
   messages: StreamingMessage[],
   maxLines: number,
   terminalWidth: number,
-): { displayMessages: StreamingMessage[]; skippedLines: number; totalLines: number } {
+): {displayMessages: StreamingMessage[]; skippedLines: number; totalLines: number} {
   const totalLines = countOutputLines(messages, terminalWidth)
 
   if (totalLines <= maxLines) {
-    return { displayMessages: messages, skippedLines: 0, totalLines }
+    return {displayMessages: messages, skippedLines: 0, totalLines}
   }
 
   const displayMessages: StreamingMessage[] = []
@@ -178,95 +182,6 @@ function processMessagesForActions(messages: StreamingMessage[]): ProcessedMessa
   return result
 }
 
-/** Default page size for file selector */
-const INLINE_FILE_SELECTOR_PAGE_SIZE = 7
-
-/**
- * Estimate height of an active prompt
- */
-function estimatePromptHeight(prompt: null | PromptRequest): number {
-  if (!prompt) return 0
-
-  switch (prompt.type) {
-    case 'confirm': {
-      // Single line: "? message (Y/n) [input]"
-      return 3
-    }
-
-    case 'file_selector': {
-      // Message + path + separator + items + scroll indicator + hint
-      const pageSize = prompt.pageSize ?? INLINE_FILE_SELECTOR_PAGE_SIZE
-      return 5 + pageSize
-    }
-
-    case 'input': {
-      // Message line + optional error line
-      return 3
-    }
-
-    case 'search': {
-      // Message line + up to 7 visible choices (or 1 for "No results")
-      // We estimate 7 since we don't know actual results
-      return 3 + INLINE_SEARCH_MAX_ITEMS
-    }
-
-    case 'select': {
-      // Message line + choices + optional description (with margin)
-      const hasDescription = prompt.choices.some((c) => c.description)
-      return 1 + prompt.choices.length + (hasDescription ? 2 : 0)
-    }
-
-    default: {
-      return 4
-    }
-  }
-}
-
-interface MessageHeightOptions {
-  isLast?: boolean
-  maxOutputLines: number
-  promptHeight?: number
-  streamingLines?: number
-  terminalWidth: number
-}
-
-/**
- * Estimate the line height of a command message
- */
-function estimateMessageHeight(msg: CommandMessage, options: MessageHeightOptions): number {
-  const { isLast = false, maxOutputLines, promptHeight = 0, streamingLines = 0, terminalWidth } = options
-  let lines = 0
-
-  if (msg.type === 'command') {
-    // Command header with left border
-    lines += 1
-
-    // Output box if present (completed output)
-    if (msg.output && msg.output.length > 0) {
-      // Count actual lines in the output (each message can have multiple lines)
-      const totalOutputLines = countOutputLines(msg.output, terminalWidth)
-      // Account for truncation: show max lines + 1 for hint
-      const displayedLines = totalOutputLines <= maxOutputLines ? totalOutputLines : maxOutputLines + 1
-      // Border top + content + border bottom
-      lines += 2 + displayedLines
-    }
-
-    // Live streaming output box (for last message while streaming)
-    if (isLast && (streamingLines > 0 || promptHeight > 0)) {
-      // Border top + streaming content + prompt + border bottom
-      lines += 2 + streamingLines + promptHeight
-    }
-
-    // Top margin for non-first items
-    lines += 1
-  } else {
-    // Other message types (info, error, etc)
-    lines += 2
-  }
-
-  return lines
-}
-
 /**
  * Props for CommandView component
  *
@@ -278,27 +193,48 @@ interface CommandViewProps {
   availableHeight: number
 }
 
-export const CommandView: React.FC<CommandViewProps> = ({ availableHeight }) => {
-  const { exit } = useApp()
-  const { reloadAuth, reloadBrvConfig } = useAuth()
-  const { client } = useTransport()
-  const { clearTasks } = useTasks()
+export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
+  const {exit} = useApp()
+  const {reloadAuth, reloadBrvConfig} = useAuth()
+  const {client} = useTransport()
+  const {clearTasks} = useTasks()
   const [command, setCommand] = useState('')
   const [inputKey, setInputKey] = useState(0)
   const [messages, setMessages] = useState<CommandMessage[]>([])
   const [streamingMessages, setStreamingMessages] = useState<StreamingMessage[]>([])
   const [activePrompt, setActivePrompt] = useState<null | PromptRequest>(null)
   const [isStreaming, setIsStreaming] = useState(false)
+  const [expandedMessageIndex, setExpandedMessageIndex] = useState<null | number>(null)
   const {
-    theme: { colors },
+    theme: {colors},
   } = useTheme()
-  const { commandInput } = useUIHeights()
-  const { breakpoint, columns: terminalWidth } = useTerminalBreakpoint()
+  const {commandInput} = useUIHeights()
+  const {breakpoint, columns: terminalWidth} = useTerminalBreakpoint()
+  const [selectedMessageIndex, setSelectedMessageIndex] = useState(0)
+  const scrollListRef = useRef<ScrollListRef>(null)
+  const {stdout} = useStdout()
+  const ctrlOPressedRef = useRef(false)
+  const previousCommandRef = useRef('')
+
+  // Calculate expanded message early for use in hooks
+  const expandedMessage = expandedMessageIndex === null ? null : messages[expandedMessageIndex]
 
   // Process streaming messages to handle action_start/action_stop pairs
   const processedStreamingMessages = useMemo(() => processMessagesForActions(streamingMessages), [streamingMessages])
-  const { handleSlashCommand } = useCommands()
-  const { appendShortcuts, mode, removeShortcuts } = useMode()
+  const {handleSlashCommand} = useCommands()
+  const {appendShortcuts, mode, removeShortcuts} = useMode()
+
+  // Filter out "o" character when Ctrl+O is pressed
+  useEffect(() => {
+    if (ctrlOPressedRef.current) {
+      // Check if "o" was just added to the end
+      if (command === previousCommandRef.current + 'o') {
+        setCommand(previousCommandRef.current)
+      }
+
+      ctrlOPressedRef.current = false
+    }
+  }, [command])
 
   // Append shortcuts for prompts
   useEffect(() => {
@@ -310,6 +246,22 @@ export const CommandView: React.FC<CommandViewProps> = ({ availableHeight }) => 
       }
     }
   }, [activePrompt?.type, appendShortcuts, removeShortcuts])
+
+  useEffect(() => {
+    const handleResize = () => {
+      scrollListRef.current?.remeasure()
+    }
+
+    stdout?.on('resize', handleResize)
+    return () => {
+      stdout?.off('resize', handleResize)
+    }
+  }, [stdout])
+
+  useEffect(() => {
+    if (messages.length === 0) return
+    setSelectedMessageIndex(messages.length - 1)
+  }, [messages.length])
 
   /* eslint-disable complexity -- Command execution requires handling multiple command types and states */
   const executeCommand = useCallback(
@@ -516,10 +468,33 @@ export const CommandView: React.FC<CommandViewProps> = ({ availableHeight }) => 
     [activePrompt],
   )
 
+  useInput(
+    (input, key) => {
+      if (key.ctrl && input === 'o') {
+        // Store current command before "o" gets inserted
+        previousCommandRef.current = command
+        ctrlOPressedRef.current = true
+
+        if (expandedMessageIndex === selectedMessageIndex) {
+          setExpandedMessageIndex(null)
+        } else {
+          setExpandedMessageIndex(selectedMessageIndex)
+        }
+      }
+
+      if (key.upArrow) {
+        setSelectedMessageIndex((prev) => Math.max(0, prev - 1))
+      }
+
+      if (key.downArrow) {
+        setSelectedMessageIndex((prev) => Math.min(prev + 1, messages.length - 1))
+      }
+    },
+    {isActive: mode === 'console' && !activePrompt && !expandedMessage && messages.length > 0}
+  )
+
   // Calculate available height for scrollable content
   const scrollableHeight = Math.max(1, availableHeight - commandInput)
-  // Subtract input + border + indicator lines + indicator page (1 + 2 + 1 + 2)
-  const maxOutputLines = scrollableHeight - 6
 
   // Render streaming message (handles ProcessedMessage for action types)
   const renderStreamingMessage = useCallback(
@@ -626,43 +601,57 @@ export const CommandView: React.FC<CommandViewProps> = ({ availableHeight }) => 
   ])
 
   const renderMessageItem = useCallback(
-    (msg: CommandMessage, index: number) => {
+    (msg: CommandMessage, index: number, isExpanded = false) => {
       if (msg.type === 'command') {
         const hasOutput = msg.output && msg.output.length > 0
         const isLastMessage = index === messages.length - 1
         const showLiveOutput =
           isLastMessage && (isStreaming || activePrompt) && (streamingMessages.length > 0 || activePrompt)
         const contentWidth = terminalWidth - 12
+        const isSelected = index === selectedMessageIndex
 
         return (
-          <Box flexDirection="column" marginBottom={1} width="100%">
+          <Box
+            flexDirection="column"
+            marginBottom={1}
+            width="100%"
+          >
             <Box
               borderBottom={false}
               borderLeftColor={colors.primary}
               borderRight={false}
-              borderStyle="bold"
+              borderStyle="single"
               borderTop={false}
+              marginBottom={isExpanded ? 1 : undefined}
               paddingLeft={1}
             >
               <Text color={colors.text} dimColor>
-                {msg.fromCommand} <Text wrap="truncate-end">{msg.content}</Text>
+                {msg.fromCommand}{' '}
+                {isSelected && !isExpanded && (
+                  <Text dimColor italic>
+                    ← [ctrl+o] to {isExpanded ? 'collapse' : 'expand'}
+                  </Text>
+                )}
+                <Text wrap="truncate-end">{msg.content}</Text>
               </Text>
             </Box>
             {/* Command output (completed) */}
             {hasOutput &&
               (() => {
                 const processedOutput = processMessagesForActions(msg.output!)
-                const { displayMessages, skippedLines } = getMessagesFromEnd(processedOutput, maxOutputLines, contentWidth)
+                const outputLimit = isExpanded ? Number.MAX_SAFE_INTEGER : MAX_OUTPUT_LINES
+                const {displayMessages, skippedLines} = getMessagesFromEnd(processedOutput, outputLimit, contentWidth)
+
                 return (
                   <Box
-                    borderColor={colors.border}
-                    borderStyle="round"
+                    borderColor={isExpanded ? undefined : colors.border}
+                    borderStyle={isExpanded ? undefined : 'single'}
                     flexDirection="column"
                     paddingX={1}
                     width="100%"
                   >
-                    {skippedLines > 0 && (
-                      <Text color={colors.secondary} dimColor>
+                    {skippedLines > 0 && !isExpanded && (
+                      <Text color={colors.dimText} dimColor>
                         ↑ {skippedLines} more lines above
                       </Text>
                     )}
@@ -673,15 +662,16 @@ export const CommandView: React.FC<CommandViewProps> = ({ availableHeight }) => 
             {/* Live streaming output (while running) */}
             {showLiveOutput &&
               (() => {
+                const liveOutputLimit = isExpanded ? Number.MAX_SAFE_INTEGER : MAX_OUTPUT_LINES
                 const { displayMessages: liveMessages, skippedLines } = getMessagesFromEnd(
                   processedStreamingMessages,
-                  maxOutputLines,
+                  liveOutputLimit,
                   contentWidth,
                 )
                 return (
                   <Box
-                    borderColor={colors.border}
-                    borderStyle="round"
+                    borderColor={isExpanded ? undefined : colors.border}
+                    borderStyle={isExpanded ? undefined : 'single'}
                     flexDirection="column"
                     paddingX={1}
                     paddingY={0}
@@ -689,7 +679,7 @@ export const CommandView: React.FC<CommandViewProps> = ({ availableHeight }) => 
                   >
                     {/* Show skipped lines indicator at the top */}
                     {skippedLines > 0 && (
-                      <Text color={colors.secondary} dimColor>
+                      <Text color={colors.dimText} dimColor>
                         ↑ {skippedLines} more lines above
                       </Text>
                     )}
@@ -714,47 +704,57 @@ export const CommandView: React.FC<CommandViewProps> = ({ availableHeight }) => 
     [
       activePrompt,
       colors,
+      expandedMessageIndex,
       isStreaming,
-      maxOutputLines,
+      MAX_OUTPUT_LINES,
       messages.length,
       processedStreamingMessages,
       renderActivePrompt,
       renderStreamingMessage,
+      selectedMessageIndex,
+      terminalWidth,
     ],
   )
 
-  const keyExtractor = useCallback((_msg: CommandMessage, index: number) => `msg-${index}`, [])
-
-  // Height estimator that accounts for live streaming output and prompts
-  const heightEstimator = useCallback(
-    (msg: CommandMessage, index: number) => {
-      const isLast = index === messages.length - 1
-      const isLive = isLast && (isStreaming || activePrompt)
-      return estimateMessageHeight(msg, {
-        isLast,
-        maxOutputLines,
-        promptHeight: isLive ? estimatePromptHeight(activePrompt) : 0,
-        streamingLines: isLive ? streamingMessages.length : 0,
-        terminalWidth,
-      })
+  const keyExtractor = useCallback(
+    (_msg: CommandMessage, index: number) => {
+      const isSelected = index === selectedMessageIndex
+      const isExpanded = index === expandedMessageIndex
+      return `msg-${index}-${isSelected}-${isExpanded}`
     },
-    [activePrompt, isStreaming, maxOutputLines, messages.length, streamingMessages.length, terminalWidth],
+    [expandedMessageIndex, selectedMessageIndex],
   )
+
+  if (expandedMessage) {
+    return (
+      <ExpandedMessageView
+        availableHeight={availableHeight}
+        isActive={mode === 'console'}
+        message={expandedMessage}
+        messageIndex={expandedMessageIndex!}
+        onClose={() => setExpandedMessageIndex(null)}
+        renderMessageItem={renderMessageItem}
+      />
+    )
+  }
 
   return (
     <Box flexDirection="column" height="100%" width="100%">
-      {/* Messages - Scrollable area (includes live streaming output) */}
+      {/* Messages - Scrollable area */}
       {messages.length > 0 ? (
         <Box flexDirection="column" flexGrow={1} paddingX={2}>
-          <ScrollableList
-            autoScrollToBottom
-            availableHeight={scrollableHeight}
-            estimateItemHeight={heightEstimator}
-            isActive={mode === 'console' && !activePrompt && !isStreaming}
-            items={messages}
-            keyExtractor={keyExtractor}
-            renderItem={renderMessageItem}
-          />
+          <ScrollList
+            height={scrollableHeight}
+            ref={scrollListRef}
+            scrollAlignment="auto"
+            selectedIndex={selectedMessageIndex}
+          >
+            {messages.map((msg, index) => (
+              <Box key={keyExtractor(msg, index)}>
+                {renderMessageItem(msg, index, false)}
+              </Box>
+            ))}
+          </ScrollList>
         </Box>
       ) : (
         <Spacer />

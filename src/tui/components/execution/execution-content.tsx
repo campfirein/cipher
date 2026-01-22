@@ -9,6 +9,7 @@ import React from 'react'
 
 import {useTheme} from '../../hooks/index.js'
 import {getVisualLineCount} from '../../utils/line.js'
+import {Markdown} from '../markdown.js'
 
 const DEFAULT_MAX_LINES = 5
 
@@ -56,26 +57,10 @@ export function truncateContent(
     }
   }
 
-  // Replace last 3 characters of last line with "..." if truncated
-  let finalContent = truncatedLines.join('\n')
-  if (truncatedLines.length > 0 && totalVisualLines > visualLineCount) {
-    const lastLineIndex = truncatedLines.length - 1
-    const lastLine = truncatedLines[lastLineIndex]
-
-    if (lastLine.length >= 3) {
-      truncatedLines[lastLineIndex] = lastLine.slice(0, -3) + '...'
-      finalContent = truncatedLines.join('\n')
-    } else if (lastLine.length > 0) {
-      // If last line is shorter than 3 chars, just replace entirely with "..."
-      truncatedLines[lastLineIndex] = '...'
-      finalContent = truncatedLines.join('\n')
-    }
-  }
-
   return {
     remainingLines: totalVisualLines - visualLineCount,
     totalLines: totalVisualLines,
-    truncatedContent: finalContent,
+    truncatedContent: truncatedLines.join('\n'),
   }
 }
 
@@ -86,6 +71,8 @@ interface ExecutionContentProps {
   content: string
   /** Whether this is error content */
   isError?: boolean
+  /** Whether content should be fully expanded (no truncation) */
+  isExpand?: boolean
   /** Maximum number of lines (rows) this component can use, including the "more lines" indicator */
   maxLines?: number
 }
@@ -94,6 +81,7 @@ export const ExecutionContent: React.FC<ExecutionContentProps> = ({
   bottomMargin = 1,
   content,
   isError = false,
+  isExpand = false,
   maxLines = DEFAULT_MAX_LINES,
 }) => {
   const {
@@ -106,6 +94,19 @@ export const ExecutionContent: React.FC<ExecutionContentProps> = ({
     return null
   }
 
+  // In expand mode, render full content without truncation
+  if (isExpand) {
+    return (
+      <Box flexDirection="column" marginY={1}>
+        {isError ? (
+          <Text color={colors.errorText}>{content}</Text>
+        ) : (
+          <Markdown>{content}</Markdown>
+        )}
+      </Box>
+    )
+  }
+
   // First check if content would overflow
   const {totalLines} = truncateContent(content, maxLines, contentWidth)
   const hasOverflow = totalLines > maxLines
@@ -116,8 +117,12 @@ export const ExecutionContent: React.FC<ExecutionContentProps> = ({
 
   return (
     <Box flexDirection="column" marginBottom={bottomMargin}>
-      <Text color={isError ? colors.errorText : colors.text}>{truncatedContent}</Text>
-      {remainingLines > 0 && <Text color={colors.dimText}>↕ {remainingLines} more lines</Text>}
+      {isError ? (
+        <Text color={colors.errorText}>{truncatedContent}</Text>
+      ) : (
+        <Markdown>{truncatedContent}</Markdown>
+      )}
+      {remainingLines > 0 && <Text color={colors.dimText}>{remainingLines} more lines</Text>}
     </Box>
   )
 }
