@@ -23,6 +23,7 @@ import {randomUUID} from 'node:crypto'
 import type {AgentEventMap} from '../../core/domain/cipher/agent-events/types.js'
 import type {AgentStatus, TaskCancel, TaskExecute} from '../../core/domain/transport/schemas.js'
 import type {ITransportClient} from '../../core/interfaces/transport/i-transport-client.js'
+import type {AgentConfig} from '../cipher/agent/agent-schemas.js'
 import type {AgentIPCResponse, IPCCommand} from './ipc-types.js'
 
 import {getCurrentConfig} from '../../config/environment.js'
@@ -39,6 +40,8 @@ import {ProjectConfigStore} from '../config/file-config-store.js'
 import {CurateExecutor} from '../core/executors/curate-executor.js'
 import {QueryExecutor} from '../core/executors/query-executor.js'
 import {createTaskProcessor, TaskProcessor} from '../core/task-processor.js'
+import {FileProviderConfigStore} from '../storage/file-provider-config-store.js'
+import {ProviderKeychainStore} from '../storage/provider-keychain-store.js'
 import {createTokenStore} from '../storage/token-store.js'
 import {createTransportClient} from '../transport/transport-factory.js'
 import {CURATE_MAX_CONCURRENT} from './constants.js'
@@ -147,6 +150,7 @@ type EventForwarder = {
   handler: (data?: unknown) => void
 }
 let eventForwarders: EventForwarder[] = []
+
 
 // ============================================================================
 // Task Queue Manager (replaces inline queue logic)
@@ -560,6 +564,157 @@ async function stopExistingAgentForReinit(): Promise<void> {
 }
 
 /**
+ * Prepare for reinitialization by draining queue and stopping existing agent.
+ *
+ * NOTE: We do NOT cleanup transport event handlers here because they are meant
+ * to be long-lived for the entire worker process lifecycle. Only agent event
+ * forwarders (which are tied to the CipherAgent instance) are cleaned up via
+ * cleanupAgentEventForwarding() in stopExistingAgentForReinit().
+ */
+async function prepareForReinit(): Promise<void> {
+  // Drain task queue before reinit to prevent tasks executing with stale processor
+  agentLog('Draining task queue before reinit...')
+  taskQueueManager.clear() // Clear queued (not yet started) tasks
+
+  // Wait for active tasks to complete (with timeout)
+  await waitForActiveTasksToComplete(10_000)
+
+  await stopExistingAgentForReinit()
+}
+
+/**
+ * Load provider configuration and return API key and model if using external provider.
+ */
+async function loadProviderConfiguration(): Promise<{
+  modelFromProvider: string | undefined
+  openRouterApiKey: string | undefined
+}> {
+  const providerConfigStore = new FileProviderConfigStore()
+  const providerKeychainStore = new ProviderKeychainStore()
+  const providerConfig = await providerConfigStore.read()
+  const activeProviderId = providerConfig.activeProvider
+
+  // Get OpenRouter API key if using external provider
+  let openRouterApiKey: string | undefined
+  let modelFromProvider: string | undefined
+
+  if (activeProviderId !== 'byterover') {
+    openRouterApiKey = await providerKeychainStore.getApiKey(activeProviderId)
+    modelFromProvider = await providerConfigStore.getActiveModel(activeProviderId)
+    if (openRouterApiKey) {
+      agentLog(`Using external provider: ${activeProviderId}${modelFromProvider ? ` with model: ${modelFromProvider}` : ''}`)
+    }
+  }
+
+  return {modelFromProvider, openRouterApiKey}
+}
+
+/**
+ * Build agent configuration object from auth token and provider settings.
+ */
+function buildAgentConfig(
+  authToken: Awaited<ReturnType<ReturnType<typeof createTokenStore>['load']>> & {accessToken: string; sessionKey: string},
+  modelFromProvider: string | undefined,
+  openRouterApiKey: string | undefined,
+): AgentConfig {
+  const envConfig = getCurrentConfig()
+  return {
+    accessToken: authToken.accessToken,
+    apiBaseUrl: envConfig.llmApiBaseUrl,
+    fileSystem: {workingDirectory: process.cwd()},
+    llm: {
+      maxIterations: 10,
+      maxTokens: 4096,
+      temperature: 0.7,
+      topK: 10,
+      topP: 0.95,
+      verbose: false,
+    },
+    model: modelFromProvider ?? DEFAULT_LLM_MODEL,
+    openRouterApiKey,
+    projectId: PROJECT,
+    sessionKey: authToken.sessionKey,
+  }
+}
+
+/**
+ * Initialize agent instance by starting it and creating a session.
+ * Returns the initialized agent or undefined if cleanup was triggered.
+ */
+async function initializeAgentInstance(
+  agent: CipherAgent,
+): Promise<CipherAgent | undefined> {
+  // Wrap agent.start() with timeout to prevent isInitializing from getting stuck
+  await withTimeout(agent.start(), AGENT_INIT_TIMEOUT_MS, 'CipherAgent.start()')
+  agentLog('CipherAgent started')
+
+  // Check if cleanup started during agent.start() (fixes zombie agent race)
+  if (await shouldAbortInitForCleanup(agent, 'agent.start()')) {
+    return undefined
+  }
+
+  // Create ChatSession (also with timeout to prevent hanging)
+  chatSessionId = `agent-session-${randomUUID()}`
+  await withTimeout(agent.createSession(chatSessionId), AGENT_INIT_TIMEOUT_MS, 'CipherAgent.createSession()')
+  agentLog(`ChatSession created: ${chatSessionId}`)
+
+  // Check if cleanup started during createSession() (fixes zombie agent race)
+  if (await shouldAbortInitForCleanup(agent, 'createSession()')) {
+    return undefined
+  }
+
+  return agent
+}
+
+/**
+ * Finalize agent initialization by setting up event forwarding, creating task processor,
+ * and updating cached credentials.
+ */
+function finalizeAgentInitialization(params: {
+  agent: CipherAgent
+  authToken: Awaited<ReturnType<ReturnType<typeof createTokenStore>['load']>> & {accessToken: string; sessionKey: string}
+  brvConfig: Awaited<ReturnType<ProjectConfigStore['read']>>
+  curateExecutor: CurateExecutor
+  queryExecutor: QueryExecutor
+}): void {
+  const {agent, authToken, brvConfig, curateExecutor, queryExecutor} = params
+
+  // Setup event forwarding
+  setupAgentEventForwarding(agent)
+  cipherAgent = agent
+
+  // Create TaskProcessor
+  taskProcessor = createTaskProcessor({
+    curateExecutor,
+    queryExecutor,
+  })
+  taskProcessor.setAgent(cipherAgent)
+
+  // NOTE: setupTaskExecutor() is called once in startAgent() before tryInitializeAgent()
+  // No need to call again here - executor is already set and handles lazy init
+
+  // Mark as initialized
+  isAgentInitialized = true
+  initializationError = undefined
+
+  // Cache credentials for change detection polling
+  updateCachedCredentials(
+    authToken.accessToken,
+    authToken.sessionKey,
+    brvConfig ? {spaceId: brvConfig.spaceId, teamId: brvConfig.teamId} : undefined,
+  )
+
+  if (brvConfig) {
+    agentLog(`Fully initialized with auth and config (team=${brvConfig.teamId}, space=${brvConfig.spaceId})`)
+  } else {
+    agentLog('Initialized with auth only (no project config yet - will reinit when config available)')
+  }
+
+  // Broadcast status change to Transport (init success)
+  broadcastStatusChange()
+}
+
+/**
  * Try to initialize/reinitialize the CipherAgent.
  * Called on startup and lazily when tasks arrive but agent is not initialized.
  * This handles the case where user completes onboarding after agent starts.
@@ -599,14 +754,7 @@ async function tryInitializeAgent(forceReinit = false): Promise<boolean> {
   try {
     // If forcing reinit, drain queue and stop existing agent first
     if (forceReinit) {
-      // Drain task queue before reinit to prevent tasks executing with stale processor
-      agentLog('Draining task queue before reinit...')
-      taskQueueManager.clear() // Clear queued (not yet started) tasks
-
-      // Wait for active tasks to complete (with timeout)
-      await waitForActiveTasksToComplete(10_000)
-
-      await stopExistingAgentForReinit()
+      await prepareForReinit()
     }
 
     const tokenStore = createTokenStore()
@@ -625,79 +773,28 @@ async function tryInitializeAgent(forceReinit = false): Promise<boolean> {
     const curateExecutor = new CurateExecutor()
     const queryExecutor = new QueryExecutor()
 
-    // Initialize CipherAgent
-    const envConfig = getCurrentConfig()
-    const agentConfig = {
-      accessToken: authToken.accessToken,
-      apiBaseUrl: envConfig.llmApiBaseUrl,
-      fileSystem: {workingDirectory: process.cwd()},
-      llm: {
-        maxIterations: 10,
-        maxTokens: 4096,
-        temperature: 0.7,
-        topK: 10,
-        topP: 0.95,
-        verbose: false,
-      },
-      model: DEFAULT_LLM_MODEL,
-      projectId: PROJECT,
-      sessionKey: authToken.sessionKey,
-    }
+    // Read provider configuration
+    const {modelFromProvider, openRouterApiKey} = await loadProviderConfiguration()
 
+    // Build agent configuration
+    const agentConfig = buildAgentConfig(authToken, modelFromProvider, openRouterApiKey)
+
+    // Initialize agent instance
     pendingAgent = new CipherAgent(agentConfig, brvConfig ?? undefined)
-    // Wrap agent.start() with timeout to prevent isInitializing from getting stuck
-    await withTimeout(pendingAgent.start(), AGENT_INIT_TIMEOUT_MS, 'CipherAgent.start()')
-    agentLog('CipherAgent started')
-
-    // Check if cleanup started during agent.start() (fixes zombie agent race)
-    if (await shouldAbortInitForCleanup(pendingAgent, 'agent.start()')) {
+    const initializedAgent = await initializeAgentInstance(pendingAgent)
+    if (!initializedAgent) {
       return false
     }
 
-    // Create ChatSession (also with timeout to prevent hanging)
-    chatSessionId = `agent-session-${randomUUID()}`
-    await withTimeout(pendingAgent.createSession(chatSessionId), AGENT_INIT_TIMEOUT_MS, 'CipherAgent.createSession()')
-    agentLog(`ChatSession created: ${chatSessionId}`)
-
-    // Check if cleanup started during createSession() (fixes zombie agent race)
-    if (await shouldAbortInitForCleanup(pendingAgent, 'createSession()')) {
-      return false
-    }
-
-    // Setup event forwarding
-    setupAgentEventForwarding(pendingAgent)
-    cipherAgent = pendingAgent
-    pendingAgent = undefined // Clear local ref - cipherAgent now owns it
-
-    // Create TaskProcessor
-    taskProcessor = createTaskProcessor({
+    // Finalize initialization
+    finalizeAgentInitialization({
+      agent: initializedAgent,
+      authToken,
+      brvConfig,
       curateExecutor,
       queryExecutor,
     })
-    taskProcessor.setAgent(cipherAgent)
-
-    // NOTE: setupTaskExecutor() is called once in startAgent() before tryInitializeAgent()
-    // No need to call again here - executor is already set and handles lazy init
-
-    // Mark as initialized
-    isAgentInitialized = true
-    initializationError = undefined
-
-    // Cache credentials for change detection polling
-    updateCachedCredentials(
-      authToken.accessToken,
-      authToken.sessionKey,
-      brvConfig ? {spaceId: brvConfig.spaceId, teamId: brvConfig.teamId} : undefined,
-    )
-
-    if (brvConfig) {
-      agentLog(`Fully initialized with auth and config (team=${brvConfig.teamId}, space=${brvConfig.spaceId})`)
-    } else {
-      agentLog('Initialized with auth only (no project config yet - will reinit when config available)')
-    }
-
-    // Broadcast status change to Transport (init success)
-    broadcastStatusChange()
+    pendingAgent = undefined // Clear local ref - cipherAgent now owns it
 
     return true
   } catch (error) {
@@ -854,6 +951,7 @@ async function startAgent(): Promise<void> {
   }
 
   // Setup event handlers - TaskQueueManager handles queueing and deduplication
+  // These handlers are registered once and persist for the worker's lifetime
   transportClient.on<TaskExecute>('task:execute', (data) => {
     // Reject tasks during reinit to prevent TOCTOU race condition
     if (isReinitializing) {
