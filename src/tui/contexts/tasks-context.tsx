@@ -142,50 +142,130 @@ export function TasksProvider({children}: {children: React.ReactNode}): React.Re
     }
 
     // Handle task:completed - Set result and completion time
+    // If task doesn't exist (e.g., missed task:created event from MCP), create a minimal entry
+    // Also marks any remaining 'running' tool calls as 'completed' since task is done
     const handleTaskCompleted = (data: TaskCompletedEvent) => {
       setTasks((prev) => {
         const task = prev.get(data.taskId)
-        if (!task) return prev
-
+        const now = Date.now()
         const newTasks = new Map(prev)
-        newTasks.set(data.taskId, {
-          ...task,
-          completedAt: Date.now(),
-          status: 'completed',
-        })
+
+        if (task) {
+          // Mark any remaining 'running' tool calls as 'completed'
+          // This handles cases where toolResult events were missed or arrived out of order
+          const finalizedToolCalls = task.toolCalls.map((tc) =>
+            tc.status === 'running' ? {...tc, status: 'completed' as const} : tc,
+          )
+
+          // Normal case: update existing task
+          newTasks.set(data.taskId, {
+            ...task,
+            completedAt: now,
+            result: data.result,
+            status: 'completed',
+            toolCalls: finalizedToolCalls,
+          })
+        } else {
+          // Task not found - create minimal entry (handles missed task:created events)
+          newTasks.set(data.taskId, {
+            completedAt: now,
+            content: '',
+            createdAt: now,
+            error: undefined,
+            files: undefined,
+            input: '',
+            result: data.result,
+            sessionId: undefined,
+            startedAt: now,
+            status: 'completed',
+            taskId: data.taskId,
+            toolCalls: [],
+            type: 'query', // Default to query; will be overridden if task:created arrives later
+          })
+        }
+
         return newTasks
       })
     }
 
     // Handle task:error - Set error and completion time
+    // If task doesn't exist, create minimal entry (handles missed task:created events)
+    // Also marks any remaining 'running' tool calls as 'error' since task failed
     const handleTaskError = (data: {error: TaskErrorData; taskId: string}) => {
       setTasks((prev) => {
         const task = prev.get(data.taskId)
-        if (!task) return prev
-
+        const now = Date.now()
         const newTasks = new Map(prev)
-        newTasks.set(data.taskId, {
-          ...task,
-          completedAt: Date.now(),
-          error: data.error,
-          status: 'error',
-        })
+
+        if (task) {
+          // Mark any remaining 'running' tool calls as 'error'
+          const finalizedToolCalls = task.toolCalls.map((tc) =>
+            tc.status === 'running' ? {...tc, status: 'error' as const} : tc,
+          )
+
+          newTasks.set(data.taskId, {
+            ...task,
+            completedAt: now,
+            error: data.error,
+            status: 'error',
+            toolCalls: finalizedToolCalls,
+          })
+        } else {
+          // Task not found - create minimal entry
+          newTasks.set(data.taskId, {
+            completedAt: now,
+            content: '',
+            createdAt: now,
+            error: data.error,
+            files: undefined,
+            input: '',
+            result: undefined,
+            sessionId: undefined,
+            startedAt: now,
+            status: 'error',
+            taskId: data.taskId,
+            toolCalls: [],
+            type: 'query',
+          })
+        }
+
         return newTasks
       })
     }
 
     // Handle task:cancelled - Set cancelled status
+    // If task doesn't exist, create minimal entry (handles missed task:created events)
     const handleTaskCancelled = (data: {taskId: string}) => {
       setTasks((prev) => {
         const task = prev.get(data.taskId)
-        if (!task) return prev
-
+        const now = Date.now()
         const newTasks = new Map(prev)
-        newTasks.set(data.taskId, {
-          ...task,
-          completedAt: Date.now(),
-          status: 'cancelled',
-        })
+
+        if (task) {
+          newTasks.set(data.taskId, {
+            ...task,
+            completedAt: now,
+            status: 'cancelled',
+          })
+        } else {
+          // Task not found - create minimal entry
+          newTasks.set(data.taskId, {
+            completedAt: now,
+            content: '',
+            createdAt: now,
+            error: undefined,
+            files: undefined,
+            input: '',
+            result: undefined,
+            sessionId: undefined,
+            startedAt: now,
+            status: 'cancelled',
+            taskId: data.taskId,
+            toolCalls: [],
+            type: 'query',
+          })
+        }
+
         return newTasks
       })
     }
@@ -221,8 +301,25 @@ export function TasksProvider({children}: {children: React.ReactNode}): React.Re
         const task = prev.get(data.taskId)
         if (!task) return prev
 
-        // Find the tool call to update (match by callId if present, otherwise by toolName and most recent)
-        const toolCallIndex = task.toolCalls.findIndex((tc) => tc.callId === data.callId)
+        // Find the tool call to update using multiple strategies:
+        // 1. Match by callId (most reliable when both have callId)
+        // 2. Fallback: match by toolName for most recent 'running' tool call
+        let toolCallIndex = -1
+
+        // Strategy 1: Match by callId if present in both
+        if (data.callId) {
+          toolCallIndex = task.toolCalls.findIndex((tc) => tc.callId === data.callId)
+        }
+
+        // Strategy 2: Fallback to toolName matching for most recent running tool
+        if (toolCallIndex === -1 && data.toolName) {
+          for (let i = task.toolCalls.length - 1; i >= 0; i--) {
+            if (task.toolCalls[i].toolName === data.toolName && task.toolCalls[i].status === 'running') {
+              toolCallIndex = i
+              break
+            }
+          }
+        }
 
         if (toolCallIndex === -1) return prev
 

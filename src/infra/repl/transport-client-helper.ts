@@ -81,6 +81,13 @@ export async function connectTransportClient(): Promise<ITransportClient | null>
     const factory = createTransportClientFactory()
     const {client} = await factory.connect()
 
+    // IMPORTANT: Join broadcast-room FIRST before subscribing to events.
+    // This prevents missing events that are broadcast during the subscription window.
+    // Pattern inspired by opencode's atomic room join approach.
+    await client.joinRoom('broadcast-room')
+    logEvent('_room', {room: 'broadcast-room', state: 'joined'})
+
+    // Now subscribe to events - we won't miss any since we're already in the room
     client.onStateChange((state: string) => {
       logEvent('_connection', {clientId: client.getClientId(), state})
     })
@@ -90,9 +97,6 @@ export async function connectTransportClient(): Promise<ITransportClient | null>
     }
 
     logEvent('_connection', {clientId: client.getClientId(), state: 'initialized'})
-
-    await client.joinRoom('broadcast-room')
-    logEvent('_room', {room: 'broadcast-room', state: 'joined'})
 
     return client
   } catch (error) {

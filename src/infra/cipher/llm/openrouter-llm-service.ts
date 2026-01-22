@@ -199,8 +199,8 @@ export class OpenRouterLLMService implements ILLMService {
       taskId?: string
     },
   ): Promise<string> {
-    // Extract options with defaults
-    const {executionContext, fileData, imageData, signal} = options ?? {}
+    // Extract options with defaults - include taskId for concurrent task isolation
+    const {executionContext, fileData, imageData, signal, taskId} = options ?? {}
 
     // Add user message to context
     await this.contextManager.addUserMessage(textInput, imageData, fileData)
@@ -227,7 +227,7 @@ export class OpenRouterLLMService implements ILLMService {
 
       try {
         // eslint-disable-next-line no-await-in-loop -- Sequential iterations required for agentic loop
-        const result = await this.executeAgenticIteration(iterationCount, tools, executionContext)
+        const result = await this.executeAgenticIteration(iterationCount, tools, executionContext, taskId)
 
         if (result !== null) {
           return result
@@ -235,7 +235,7 @@ export class OpenRouterLLMService implements ILLMService {
 
         iterationCount++
       } catch (error) {
-        this.handleLLMError(error)
+        this.handleLLMError(error, taskId)
       }
     }
 
@@ -321,12 +321,14 @@ export class OpenRouterLLMService implements ILLMService {
    * @param iterationCount - Current iteration number
    * @param tools - Available tools for this iteration
    * @param executionContext - Optional execution context
+   * @param taskId - Optional task ID for concurrent task isolation
    * @returns Final response string if complete, null if more iterations needed
    */
   private async executeAgenticIteration(
     iterationCount: number,
     tools: OpenAIToolDefinition[],
     executionContext: ExecutionContext | undefined,
+    taskId?: string,
   ): Promise<null | string> {
     // Build system prompt using SystemPromptManager (before compression for correct token accounting)
     // Use filtered tool names based on command type (e.g., only read-only tools for 'query')
@@ -371,19 +373,19 @@ export class OpenRouterLLMService implements ILLMService {
       })
     }
 
-    // Emit thinking event
-    this.sessionEventBus.emit('llmservice:thinking')
+    // Emit thinking event with taskId for concurrent task isolation
+    this.sessionEventBus.emit('llmservice:thinking', {taskId})
 
     // Call LLM and parse response
     const lastMessage = await this.callLLMAndParseResponse(tools, formattedMessages)
 
     // Check if there are tool calls
     if (!lastMessage.toolCalls || lastMessage.toolCalls.length === 0) {
-      return this.handleFinalResponse(lastMessage)
+      return this.handleFinalResponse(lastMessage, taskId)
     }
 
     // Has tool calls - handle them
-    await this.handleToolCalls(lastMessage)
+    await this.handleToolCalls(lastMessage, taskId)
 
     return null
   }
@@ -392,27 +394,30 @@ export class OpenRouterLLMService implements ILLMService {
    * Execute a single tool call.
    *
    * @param toolCall - Tool call to execute
+   * @param taskId - Optional task ID for concurrent task isolation
    */
-  private async executeToolCall(toolCall: ToolCall): Promise<void> {
+  private async executeToolCall(toolCall: ToolCall, taskId?: string): Promise<void> {
     try {
       const toolName = toolCall.function.name
       const toolArgs = JSON.parse(toolCall.function.arguments)
 
-      // Emit tool call event
+      // Emit tool call event with taskId for concurrent task isolation
       this.sessionEventBus.emit('llmservice:toolCall', {
         args: toolArgs,
         callId: toolCall.id,
+        taskId: taskId || undefined,
         toolName,
       })
 
       // Execute tool via ToolManager (handles approval, routing, etc.)
       const result = await this.toolManager.executeTool(toolName, toolArgs)
 
-      // Emit tool result event (success)
+      // Emit tool result event (success) with taskId
       this.sessionEventBus.emit('llmservice:toolResult', {
         callId: toolCall.id,
         result,
         success: true,
+        taskId: taskId || undefined,
         toolName,
       })
 
@@ -422,11 +427,12 @@ export class OpenRouterLLMService implements ILLMService {
       // Add error result to context
       const errorMessage = error instanceof Error ? error.message : String(error)
 
-      // Emit tool result event (error)
+      // Emit tool result event (error) with taskId
       this.sessionEventBus.emit('llmservice:toolResult', {
         callId: toolCall.id,
         error: errorMessage,
         success: false,
+        taskId: taskId || undefined,
         toolName: toolCall.function.name,
       })
 
@@ -461,16 +467,18 @@ export class OpenRouterLLMService implements ILLMService {
    * Handle final response when there are no tool calls.
    *
    * @param lastMessage - Last message from LLM
+   * @param taskId - Optional task ID for concurrent task isolation
    * @returns Final response content
    */
-  private async handleFinalResponse(lastMessage: InternalMessage): Promise<string> {
+  private async handleFinalResponse(lastMessage: InternalMessage, taskId?: string): Promise<string> {
     const content = this.extractTextContent(lastMessage)
 
-    // Emit response event
+    // Emit response event with taskId for concurrent task isolation
     this.sessionEventBus.emit('llmservice:response', {
       content,
       model: this.config.model,
       provider: 'openrouter',
+      taskId: taskId || undefined,
     })
 
     // Add assistant message to context
@@ -483,12 +491,14 @@ export class OpenRouterLLMService implements ILLMService {
    * Handle LLM errors and re-throw or wrap appropriately.
    *
    * @param error - Error to handle
+   * @param taskId - Optional task ID for concurrent task isolation
    */
-  private handleLLMError(error: unknown): never {
-    // Emit error event
+  private handleLLMError(error: unknown, taskId?: string): never {
+    // Emit error event with taskId for concurrent task isolation
     const errorMessage = error instanceof Error ? error.message : String(error)
     this.sessionEventBus.emit('llmservice:error', {
       error: errorMessage,
+      taskId: taskId || undefined,
     })
 
     // Re-throw LLM errors as-is
@@ -512,8 +522,9 @@ export class OpenRouterLLMService implements ILLMService {
    * Handle tool calls from LLM response.
    *
    * @param lastMessage - Last message containing tool calls
+   * @param taskId - Optional task ID for concurrent task isolation
    */
-  private async handleToolCalls(lastMessage: InternalMessage): Promise<void> {
+  private async handleToolCalls(lastMessage: InternalMessage, taskId?: string): Promise<void> {
     if (!lastMessage.toolCalls || lastMessage.toolCalls.length === 0) {
       return
     }
@@ -522,10 +533,10 @@ export class OpenRouterLLMService implements ILLMService {
     const assistantContent = this.extractTextContent(lastMessage)
     await this.contextManager.addAssistantMessage(assistantContent, lastMessage.toolCalls)
 
-    // Execute tool calls via ToolManager
+    // Execute tool calls via ToolManager (pass taskId for event isolation)
     for (const toolCall of lastMessage.toolCalls) {
       // eslint-disable-next-line no-await-in-loop -- Sequential tool execution required
-      await this.executeToolCall(toolCall)
+      await this.executeToolCall(toolCall, taskId)
     }
   }
 }

@@ -64,6 +64,48 @@ function logTransportError(error: unknown): void {
   agentLog(`Transport error (non-fatal): ${message}`)
 }
 
+/**
+ * Send a critical transport event with retry logic.
+ * Uses exponential backoff for retries to handle transient network issues.
+ * Inspired by opencode's robust event forwarding pattern.
+ *
+ * Critical events include: task:completed, task:error, task:cancelled
+ * These should be retried because if they fail, TUI won't know the task ended.
+ *
+ * @param eventName - The event name to send
+ * @param data - The event payload
+ * @param maxRetries - Maximum number of retry attempts (default: 3)
+ */
+function sendCriticalEvent(eventName: string, data: unknown, maxRetries = 3): void {
+  const BASE_DELAY_MS = 100
+
+  const attemptSend = (attempt: number): void => {
+    transportClient
+      ?.request(eventName, data)
+      .then(() => {
+        // Success - nothing more to do
+      })
+      .catch((error: unknown) => {
+        const isLastAttempt = attempt >= maxRetries
+        const message = error instanceof Error ? error.message : String(error)
+
+        if (isLastAttempt) {
+          agentLog(`Critical event ${eventName} failed after ${maxRetries + 1} attempts: ${message}`)
+          return
+        }
+
+        // Retry with exponential backoff
+        const delay = BASE_DELAY_MS * 2 ** attempt
+        agentLog(
+          `Critical event ${eventName} failed (attempt ${attempt + 1}/${maxRetries + 1}), retrying in ${delay}ms: ${message}`,
+        )
+        setTimeout(() => attemptSend(attempt + 1), delay)
+      })
+  }
+
+  attemptSend(0)
+}
+
 // Task types imported from core/domain/transport/schemas.ts:
 // - TaskExecute: Transport → Agent (task:execute event)
 // - TaskCancel: Transport → Agent (task:cancel event)
@@ -411,7 +453,7 @@ function setupTaskExecutor(): void {
         const error = serializeTaskError(
           initializationError ?? new AgentNotInitializedError('Agent initialization failed'),
         )
-        transportClient?.request('task:error', {error, taskId}).catch(logTransportError)
+        sendCriticalEvent('task:error', {error, taskId})
         return
       }
 
@@ -424,7 +466,7 @@ function setupTaskExecutor(): void {
     if (!isAgentInitialized || !taskProcessor) {
       agentLog(`Task ${taskId} rejected - agent stopped during queue wait`)
       const error = serializeTaskError(new AgentNotInitializedError('Agent stopped during execution wait'))
-      transportClient?.request('task:error', {error, taskId}).catch(logTransportError)
+      sendCriticalEvent('task:error', {error, taskId})
       return
     }
 
@@ -450,14 +492,14 @@ function setupTaskExecutor(): void {
       if (timedOut) {
         agentLog(`Task ${taskId} cancelled due to timeout`)
         const errorData = serializeTaskError(new Error('Task exceeded 5 minute timeout'))
-        transportClient?.request('task:error', {error: errorData, taskId}).catch(logTransportError)
+        sendCriticalEvent('task:error', {error: errorData, taskId})
         return
       }
 
       // Handle other errors (not timeout)
       agentLog(`Task execution failed: ${error}`)
       const errorData = serializeTaskError(error)
-      transportClient?.request('task:error', {error: errorData, taskId}).catch(logTransportError)
+      sendCriticalEvent('task:error', {error: errorData, taskId})
     } finally {
       // Always clear timeout to prevent memory leak
       clearTimeout(timeoutId)
@@ -839,12 +881,12 @@ async function handleTaskExecute(data: TaskExecute): Promise<void> {
   if (!taskProcessor) {
     agentLog('TaskProcessor not initialized')
     const error = serializeTaskError(new ProcessorNotInitError())
-    transportClient?.request('task:error', {error, taskId}).catch(logTransportError)
+    sendCriticalEvent('task:error', {error, taskId})
     return
   }
 
-  // Notify task started
-  transportClient?.request('task:started', {taskId}).catch(logTransportError)
+  // Notify task started - use sendCriticalEvent for reliability
+  sendCriticalEvent('task:started', {taskId})
 
   try {
     // Process task - events stream via agentEventBus subscription
@@ -861,12 +903,14 @@ async function handleTaskExecute(data: TaskExecute): Promise<void> {
     })
 
     // Notify completion with result (required by TaskCompletedEventSchema)
+    // Use sendCriticalEvent for retry logic - TUI must know task ended
     agentLog(`Task completed: ${taskId}`)
-    transportClient?.request('task:completed', {result, taskId}).catch(logTransportError)
+    sendCriticalEvent('task:completed', {result, taskId})
   } catch (error) {
     const errorData = serializeTaskError(error)
     agentLog(`Task error: ${taskId} - [${errorData.name}] ${errorData.message}`)
-    transportClient?.request('task:error', {error: errorData, taskId}).catch(logTransportError)
+    // Use sendCriticalEvent for retry logic - TUI must know task ended
+    sendCriticalEvent('task:error', {error: errorData, taskId})
   }
 }
 
@@ -884,8 +928,8 @@ function handleTaskCancel(data: TaskCancel): void {
     if (result.wasQueued) {
       // Task was in queue, not yet processing - removed by queue manager
       agentLog(`Task ${taskId} removed from ${result.taskType} queue (was waiting)`)
-      // Notify transport that task was cancelled
-      transportClient?.request('task:cancelled', {taskId}).catch(logTransportError)
+      // Notify transport that task was cancelled - use retry for reliability
+      sendCriticalEvent('task:cancelled', {taskId})
     } else {
       // Task is currently processing - cancel via taskProcessor
       agentLog(`Task ${taskId} is processing, forwarding cancel to taskProcessor`)
@@ -957,7 +1001,7 @@ async function startAgent(): Promise<void> {
     if (isReinitializing) {
       agentLog(`Task ${data.taskId} rejected - agent reinitializing`)
       const error = serializeTaskError(new AgentNotInitializedError('Agent is reinitializing'))
-      transportClient?.request('task:error', {error, taskId: data.taskId}).catch(logTransportError)
+      sendCriticalEvent('task:error', {error, taskId: data.taskId})
       return
     }
 
