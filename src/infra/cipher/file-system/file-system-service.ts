@@ -17,6 +17,7 @@ import type {
   GlobResult,
   ListDirectoryOptions,
   ListDirectoryResult,
+  PdfPageContent,
   ReadFileOptions,
   SearchMatch,
   SearchOptions,
@@ -38,6 +39,7 @@ import {
   PathBlockedError,
   PathNotAllowedError,
   PathTraversalError,
+  PdfExtractionError,
   ReadOperationError,
   SearchOperationError,
   ServiceNotInitializedError,
@@ -46,10 +48,11 @@ import {
   WriteOperationError,
 } from '../../../core/domain/cipher/errors/file-system-error.js'
 import { getErrorMessage } from '../../../utils/error-helpers.js'
-import { getMimeType, isBinaryFile, isMediaFile, isPdfFile } from './binary-utils.js'
+import { getMimeType, isBinaryFile, isImageFile, isPdfFile, shouldReturnAsAttachment } from './binary-utils.js'
 import { createGitignoreFilter } from './gitignore-filter.js'
 import { collectFileMetadata, escapeIfExactMatch, extractPaths, sortFilesByRecency } from './glob-utils.js'
 import { PathValidator } from './path-validator.js'
+import { formatPdfContent, PdfExtractor } from './pdf-extractor.js'
 
 /**
  * Maximum line length for search results.
@@ -558,12 +561,12 @@ export class FileSystemService implements IFileSystem {
         throw new FileTooLargeError(normalizedPath, stats.size, this.config.maxFileSize)
       }
 
-      // Handle image/PDF files - return as base64 attachment
-      if (isMediaFile(normalizedPath)) {
+      // Handle files that should be returned as base64 attachments (images always, PDFs when pdfMode='base64')
+      if (shouldReturnAsAttachment(normalizedPath, options.pdfMode)) {
         const buffer = await fs.readFile(normalizedPath)
-        const mimeType = getMimeType(normalizedPath) ?? 'application/octet-stream'
-        const fileType = isPdfFile(normalizedPath) ? 'PDF' : 'Image'
         const baseName = path.basename(normalizedPath)
+        const mimeType = getMimeType(normalizedPath) ?? 'application/octet-stream'
+        const fileType = isImageFile(normalizedPath) ? 'Image' : 'PDF'
 
         return {
           attachment: {
@@ -580,6 +583,12 @@ export class FileSystemService implements IFileSystem {
           totalLines: 1,
           truncated: false,
         }
+      }
+
+      // Handle PDF files with text extraction (pdfMode='text')
+      if (isPdfFile(normalizedPath)) {
+        const buffer = await fs.readFile(normalizedPath)
+        return this.extractPdfTextContent(buffer, normalizedPath, stats.size, options)
       }
 
       // Check for binary files (read first 4KB for detection)
@@ -660,7 +669,8 @@ export class FileSystemService implements IFileSystem {
         error instanceof PathNotAllowedError ||
         error instanceof PathTraversalError ||
         error instanceof PathBlockedError ||
-        error instanceof ReadOperationError
+        error instanceof ReadOperationError ||
+        error instanceof PdfExtractionError
       ) {
         throw error
       }
@@ -899,6 +909,95 @@ export class FileSystemService implements IFileSystem {
       return this.parseGrepOutput(output, cwd)
     } catch {
       return null
+    }
+  }
+
+  /**
+   * Extracts text content from a PDF file with pagination support.
+   * @param buffer - PDF file buffer
+   * @param filePath - Path to the PDF file
+   * @param fileSize - Size of the file in bytes
+   * @param options - Read options including offset and limit
+   * @returns FileContent with extracted text
+   */
+  private async extractPdfTextContent(
+    buffer: Buffer,
+    filePath: string,
+    fileSize: number,
+    options: ReadFileOptions,
+  ): Promise<FileContent> {
+    // Extract text with pagination
+    const result = await PdfExtractor.extractText(buffer, filePath, {
+      limit: options.limit,
+      offset: options.offset,
+    })
+
+    const { hasMore, metadata, pages } = result
+    const totalPages = metadata.pageCount
+
+    // Check if PDF has no extractable text
+    const hasText = pages.some((p: PdfPageContent) => p.text.trim().length > 0)
+    if (!hasText && pages.length > 0) {
+      // Return helpful message for scanned/image-only PDFs
+      const metaInfo = metadata.title ? ` Title: "${metadata.title}".` : ''
+      return {
+        content: '',
+        encoding: 'utf8',
+        formattedContent: `<file type="pdf" pages="${totalPages}">\n[PDF has no extractable text - likely scanned or image-only]${metaInfo}\n</file>`,
+        lines: 0,
+        message:
+          `PDF has no extractable text (${totalPages} pages).${metaInfo} ` +
+          "This PDF may be scanned or contain only images. Try reading with pdfMode='base64' for multimodal analysis.",
+        pdfMetadata: metadata,
+        pdfPages: pages,
+        size: fileSize,
+        totalLines: totalPages,
+        truncated: false,
+      }
+    }
+
+    // Calculate next offset for continuation
+    const startPage = options.offset ?? 1
+    const pagesRead = pages.length
+    const nextOffset = startPage + pagesRead
+
+    // Format content with page separators
+    const formattedText = formatPdfContent(pages, metadata, hasMore, nextOffset)
+
+    // Build XML-wrapped formatted content
+    const formattedContent = `<file type="pdf" pages="${totalPages}">\n${formattedText}\n</file>`
+
+    // Build message
+    let message: string
+    if (pagesRead === 0) {
+      message = `PDF has ${totalPages} pages. Requested offset ${startPage} is beyond the last page.`
+    } else if (hasMore) {
+      const endPage = startPage + pagesRead - 1
+      const remainingPages = totalPages - endPage
+      message =
+        `Read pages ${startPage}-${endPage} of ${totalPages} total pages. ` +
+        `${remainingPages} more pages available. Must set offset=${nextOffset} to continue reading.`
+    } else {
+      message = `End of PDF - read ${pagesRead} pages (${totalPages} total).`
+    }
+
+    // Generate preview (first page text, truncated)
+    const previewText = pages[0]?.text ?? ''
+    const previewLines = previewText.split('\n').slice(0, PREVIEW_LINES)
+    const preview = previewLines.join('\n')
+
+    return {
+      content: pages.map((p: PdfPageContent) => p.text).join('\n\n'),
+      encoding: 'utf8',
+      formattedContent,
+      lines: pagesRead,
+      message,
+      pdfMetadata: metadata,
+      pdfPages: pages,
+      preview,
+      size: fileSize,
+      totalLines: totalPages,
+      truncated: hasMore,
     }
   }
 

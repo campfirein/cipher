@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-import {isBinaryFile, isMediaFile} from '../infra/cipher/file-system/binary-utils.js'
+import {isBinaryFile, isImageFile, isPdfFile} from '../infra/cipher/file-system/binary-utils.js'
 
 /**
  * Normalize file path - handles relative, absolute, tilde, symlinks
@@ -83,9 +83,14 @@ export function validateFileForCurate(
   const sampleBuffer = buffer.subarray(0, bytesRead)
 
   // Check file type using binary-utils (same logic as read_file tool)
-  // Allow media files (images/PDFs) - read_file can handle these
-  // For PDFs, also validate magic bytes to reject fake PDFs (e.g., binary.pdf)
-  if (isMediaFile(normalized, sampleBuffer)) {
+  // Allow image files - read_file returns them as base64 attachments
+  if (isImageFile(normalized)) {
+    return { normalizedPath: normalized, valid: true }
+  }
+
+  // Allow PDF files with valid magic bytes - read_file extracts text or returns base64
+  // Use buffer validation to reject fake PDFs (e.g., binary files renamed to .pdf)
+  if (isPdfFile(normalized, sampleBuffer)) {
     return { normalizedPath: normalized, valid: true }
   }
 
