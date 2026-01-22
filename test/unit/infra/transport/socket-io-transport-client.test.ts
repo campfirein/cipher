@@ -343,4 +343,132 @@ describe('SocketIOTransportClient', () => {
       expect(client.getClientId()!.length).to.be.greaterThan(0)
     })
   })
+
+  describe('handler registration and re-registration', () => {
+    it('should handle multiple connect cycles without handler accumulation', async () => {
+      const port = basePort + 80
+
+      // First connection
+      await server.start(port)
+      await client.connect(`http://127.0.0.1:${port}`)
+
+      let callCount = 0
+      client.on('test-event', () => {
+        callCount++
+      })
+
+      server.broadcast('test-event', {})
+      await new Promise((resolve) => {
+        setTimeout(resolve, 20)
+      })
+      expect(callCount).to.equal(1, 'First connect: handler should be called once')
+
+      // Disconnect
+      await client.disconnect()
+      await server.stop()
+
+      // Second connection (fresh connect, simulates reconnection behavior)
+      server = new SocketIOTransportServer()
+      client = new SocketIOTransportClient()
+
+      await server.start(port)
+      await client.connect(`http://127.0.0.1:${port}`)
+
+      callCount = 0
+      client.on('test-event', () => {
+        callCount++
+      })
+
+      server.broadcast('test-event', {})
+      await new Promise((resolve) => {
+        setTimeout(resolve, 20)
+      })
+      expect(callCount).to.equal(1, 'Second connect: handler should be called once (no accumulation)')
+    })
+
+    it('should correctly track registered events across multiple handler registrations', async () => {
+      await server.start(basePort + 81)
+      await client.connect(`http://127.0.0.1:${basePort + 81}`)
+
+      // Register handler, unsubscribe, re-register
+      let callCount = 0
+      const handler = () => {
+        callCount++
+      }
+
+      // First registration
+      const unsub1 = client.on('cycle-event', handler)
+      server.broadcast('cycle-event', {})
+      await new Promise((resolve) => {
+        setTimeout(resolve, 20)
+      })
+      expect(callCount).to.equal(1, 'After first registration')
+
+      // Unsubscribe
+      unsub1()
+      server.broadcast('cycle-event', {})
+      await new Promise((resolve) => {
+        setTimeout(resolve, 20)
+      })
+      expect(callCount).to.equal(1, 'After unsubscribe: should not increase')
+
+      // Re-register
+      client.on('cycle-event', handler)
+      server.broadcast('cycle-event', {})
+      await new Promise((resolve) => {
+        setTimeout(resolve, 20)
+      })
+      expect(callCount).to.equal(2, 'After re-registration: should be called again')
+    })
+
+    it('should preserve multiple handlers for same event', async () => {
+      await server.start(basePort + 82)
+      await client.connect(`http://127.0.0.1:${basePort + 82}`)
+
+      let handler1Count = 0
+      let handler2Count = 0
+      let handler3Count = 0
+
+      client.on('multi-handler', () => {
+        handler1Count++
+      })
+      client.on('multi-handler', () => {
+        handler2Count++
+      })
+      client.on('multi-handler', () => {
+        handler3Count++
+      })
+
+      server.broadcast('multi-handler', {})
+      await new Promise((resolve) => {
+        setTimeout(resolve, 20)
+      })
+
+      expect(handler1Count).to.equal(1, 'Handler 1 called once')
+      expect(handler2Count).to.equal(1, 'Handler 2 called once')
+      expect(handler3Count).to.equal(1, 'Handler 3 called once')
+    })
+
+    it('should handle handlers registered before connect', async () => {
+      // Create new client and register handler BEFORE connecting
+      const earlyClient = new SocketIOTransportClient()
+
+      let callCount = 0
+      earlyClient.on('early-event', () => {
+        callCount++
+      })
+
+      await server.start(basePort + 83)
+      await earlyClient.connect(`http://127.0.0.1:${basePort + 83}`)
+
+      server.broadcast('early-event', {})
+      await new Promise((resolve) => {
+        setTimeout(resolve, 20)
+      })
+
+      expect(callCount).to.equal(1, 'Handler registered before connect should work')
+
+      await earlyClient.disconnect()
+    })
+  })
 })
