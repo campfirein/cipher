@@ -645,8 +645,12 @@ export class MessageStorageService {
       case 'reasoning': {
         return {
           messagePart: {
+            id: part.id ?? `reasoning-${Date.now()}`,
             summary: part.reasoningSummary,
             text: part.content,
+            time: {
+              start: part.createdAt ?? Date.now(),
+            },
             type: 'reasoning',
           },
         }

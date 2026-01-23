@@ -222,7 +222,11 @@ export function createTaskTool(dependencies: TaskToolDependencies): Tool {
             { fileSystemService: restrictedFs },
           )
         } else {
-          session = await sessionManager.createSession(subagentSessionId)
+          session = await sessionManager.createChildSession(
+            context?.sessionId ?? 'parent',
+            agent.name,
+            subagentSessionId,
+          )
         }
 
         // Build the system prompt for the subagent

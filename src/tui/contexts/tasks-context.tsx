@@ -1,6 +1,7 @@
 import React, {createContext, useCallback, useContext, useEffect, useMemo, useState} from 'react'
 
 import type {
+  LlmChunkEvent,
   LlmResponseEvent,
   LlmToolCallEvent,
   LlmToolResultEvent,
@@ -49,6 +50,10 @@ export type Task = {
   files?: string[]
   /** Input of query/curate */
   input: string
+  /** Whether task is currently streaming LLM response */
+  isStreaming?: boolean
+  /** Accumulated reasoning/thinking content during LLM response */
+  reasoningContent?: string
   /** Result string if task completed */
   result?: string
   /** Session ID from LLM events */
@@ -57,6 +62,8 @@ export type Task = {
   startedAt?: number
   /** Current task status */
   status: TaskStatus
+  /** Accumulated streaming text content during LLM response */
+  streamingContent?: string
   /** Unique task identifier */
   taskId: string
   /** Tool calls executed during task */
@@ -270,27 +277,52 @@ export function TasksProvider({children}: {children: React.ReactNode}): React.Re
       })
     }
 
-    // Handle llmservice:toolCall - Add new tool call with 'running' status
+    // Handle llmservice:toolCall - Add new tool call or update existing one
+    // Tool calls may be emitted multiple times (once from stream with empty args, once from execution with actual args)
+    // We use callId to deduplicate and merge the data
     const handleToolCall = (data: LlmToolCallEvent) => {
       setTasks((prev) => {
         const task = prev.get(data.taskId)
         if (!task) return prev
 
         const newTasks = new Map(prev)
-        newTasks.set(data.taskId, {
-          ...task,
-          sessionId: data.sessionId,
-          toolCalls: [
-            ...task.toolCalls,
-            {
-              args: data.args,
-              callId: data.callId,
-              sessionId: data.sessionId,
-              status: 'running',
-              toolName: data.toolName,
-            },
-          ],
-        })
+
+        // Check if we already have a tool call with this callId
+        const existingIndex = data.callId ? task.toolCalls.findIndex((tc) => tc.callId === data.callId) : -1
+
+        if (existingIndex >= 0) {
+          // Update existing tool call with new data (merge args if new ones have content)
+          const existingToolCall = task.toolCalls[existingIndex]
+          const hasNewArgs = data.args && Object.keys(data.args).length > 0
+          const updatedToolCalls = [...task.toolCalls]
+          updatedToolCalls[existingIndex] = {
+            ...existingToolCall,
+            args: hasNewArgs ? data.args : existingToolCall.args,
+            sessionId: data.sessionId,
+          }
+          newTasks.set(data.taskId, {
+            ...task,
+            sessionId: data.sessionId,
+            toolCalls: updatedToolCalls,
+          })
+        } else {
+          // Add new tool call
+          newTasks.set(data.taskId, {
+            ...task,
+            sessionId: data.sessionId,
+            toolCalls: [
+              ...task.toolCalls,
+              {
+                args: data.args,
+                callId: data.callId,
+                sessionId: data.sessionId,
+                status: 'running',
+                toolName: data.toolName,
+              },
+            ],
+          })
+        }
+
         return newTasks
       })
     }
@@ -341,7 +373,38 @@ export function TasksProvider({children}: {children: React.ReactNode}): React.Re
       })
     }
 
+    // Handle llmservice:chunk - Accumulate streaming content for real-time display
+    // Separates reasoning/thinking content from regular text content
+    const handleChunk = (data: LlmChunkEvent) => {
+      setTasks((prev) => {
+        const task = prev.get(data.taskId)
+        if (!task) return prev
+
+        const newTasks = new Map(prev)
+
+        // Route content to appropriate field based on type
+        if (data.type === 'reasoning') {
+          newTasks.set(data.taskId, {
+            ...task,
+            isStreaming: !data.isComplete,
+            reasoningContent: (task.reasoningContent ?? '') + data.content,
+            sessionId: data.sessionId,
+          })
+        } else {
+          newTasks.set(data.taskId, {
+            ...task,
+            isStreaming: !data.isComplete,
+            sessionId: data.sessionId,
+            streamingContent: (task.streamingContent ?? '') + data.content,
+          })
+        }
+
+        return newTasks
+      })
+    }
+
     // Handle llmservice:response - Update task content from LLM response
+    // Also clears streaming state since response marks end of streaming
     const handleResponse = (data: LlmResponseEvent) => {
       setTasks((prev) => {
         const task = prev.get(data.taskId)
@@ -350,8 +413,11 @@ export function TasksProvider({children}: {children: React.ReactNode}): React.Re
         const newTasks = new Map(prev)
         newTasks.set(data.taskId, {
           ...task,
+          isStreaming: false,
+          reasoningContent: undefined, // Clear reasoning content once final response received
           result: data.content,
           sessionId: data.sessionId,
+          streamingContent: undefined, // Clear streaming content once final response received
         })
         return newTasks
       })
@@ -364,6 +430,7 @@ export function TasksProvider({children}: {children: React.ReactNode}): React.Re
       client.on<TaskCompletedEvent>('task:completed', handleTaskCompleted),
       client.on<{error: TaskErrorData; taskId: string}>('task:error', handleTaskError),
       client.on<{taskId: string}>('task:cancelled', handleTaskCancelled),
+      client.on<LlmChunkEvent>('llmservice:chunk', handleChunk),
       client.on<LlmToolCallEvent>('llmservice:toolCall', handleToolCall),
       client.on<LlmToolResultEvent>('llmservice:toolResult', handleToolResult),
       client.on<LlmResponseEvent>('llmservice:response', handleResponse),

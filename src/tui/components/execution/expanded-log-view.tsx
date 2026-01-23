@@ -13,10 +13,11 @@ import type {ActivityLog} from '../../types.js'
 
 import {useTheme} from '../../hooks/index.js'
 import {formatTime} from '../../utils/index.js'
+import {ReasoningText} from '../reasoning-text.js'
+import {StreamingText} from '../streaming-text.js'
 import {ExecutionChanges} from './execution-changes.js'
 import {ExecutionContent} from './execution-content.js'
 import {ExecutionProgress} from './execution-progress.js'
-import {ExecutionStatus} from './execution-status.js'
 
 interface ExpandedLogViewProps {
   /** Available height for the expanded view (in terminal rows) */
@@ -27,6 +28,13 @@ interface ExpandedLogViewProps {
   log: ActivityLog
   /** Callback when the view should close */
   onClose: () => void
+}
+
+/**
+ * Check if there are any active (running) tool calls in the log
+ */
+function hasActiveToolCalls(log: ActivityLog): boolean {
+  return Boolean(log.progress?.some((p) => p.status === 'running'))
 }
 
 export const ExpandedLogView: React.FC<ExpandedLogViewProps> = ({
@@ -122,13 +130,46 @@ export const ExpandedLogView: React.FC<ExpandedLogViewProps> = ({
             <Text>{log.input}</Text>
           </Box>
 
-          {/* Progress and Status */}
-          <Box flexDirection="column" paddingX={1}>
-            {log.progress && (
+          {/* Progress */}
+          {log.progress && (
+            <Box paddingX={1}>
               <ExecutionProgress isExpand maxLines={Number.MAX_SAFE_INTEGER} progress={log.progress} />
-            )}
-            <ExecutionStatus status={log.status} />
-          </Box>
+            </Box>
+          )}
+
+          {/* Reasoning/Thinking Content - Show when LLM is thinking (has reasoning content) */}
+          {log.reasoningContent && log.status === 'running' && (
+            <Box paddingX={1}>
+              <ReasoningText
+                content={log.reasoningContent}
+                isStreaming={Boolean(log.isStreaming)}
+                maxLines={0}
+              />
+            </Box>
+          )}
+
+          {/* Streaming Text Content - Show when available */}
+          {log.streamingContent && log.status === 'running' && (
+            <Box paddingX={1}>
+              <StreamingText
+                content={log.streamingContent}
+                isStreaming={Boolean(log.isStreaming)}
+                maxLines={0}
+                showCursor={Boolean(log.isStreaming)}
+              />
+            </Box>
+          )}
+
+          {/* Thinking indicator - Show when running but no tools, no reasoning, and no streaming content */}
+          {log.status === 'running' && !log.reasoningContent && !log.streamingContent && !hasActiveToolCalls(log) && (
+            <Box paddingX={1}>
+              <ReasoningText
+                content=""
+                isStreaming={true}
+                maxLines={0}
+              />
+            </Box>
+          )}
 
           {/* Content */}
           {(log.status === 'failed' || log.status === 'completed') && (

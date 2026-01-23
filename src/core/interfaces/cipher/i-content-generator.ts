@@ -81,6 +81,20 @@ export interface GenerateContentChunk {
   finishReason?: 'error' | 'max_tokens' | 'stop' | 'tool_calls'
   /** Whether this is the final chunk */
   isComplete: boolean
+  /** Provider-specific metadata */
+  providerMetadata?: Record<string, unknown>
+  /**
+   * Raw API chunk data for native reasoning extraction.
+   * Used by models that return reasoning in native fields (OpenAI, Grok, Gemini).
+   */
+  rawChunk?: unknown
+  /**
+   * Incremental reasoning/thinking content.
+   * For models that provide native reasoning fields (OpenAI o1/o3, Grok, Gemini).
+   */
+  reasoning?: string
+  /** Unique ID for the reasoning block (for tracking across deltas) */
+  reasoningId?: string
   /** Tool calls (only on final chunk or when complete) */
   toolCalls?: ToolCall[]
 }

@@ -5,18 +5,19 @@
  */
 
 import {Box, Spacer, Text} from 'ink'
-import React from 'react'
+import React, {memo} from 'react'
 
 import type {MessageItemHeights} from '../../hooks/index.js'
 import type {ActivityLog} from '../../types.js'
 
 import {useTheme} from '../../hooks/index.js'
 import {formatTime} from '../../utils/index.js'
+import {ReasoningText} from '../reasoning-text.js'
+import {StreamingText} from '../streaming-text.js'
 import {ExecutionChanges} from './execution-changes.js'
 import {ExecutionContent} from './execution-content.js'
 import {ExecutionInput} from './execution-input.js'
 import {ExecutionProgress} from './execution-progress.js'
-import {ExecutionStatus} from './execution-status.js'
 
 interface LogItemProps {
   /** Dynamic heights based on terminal breakpoint */
@@ -29,7 +30,14 @@ interface LogItemProps {
   log: ActivityLog
 }
 
-export const LogItem: React.FC<LogItemProps> = ({heights, isExpand, isSelected, log}) => {
+/**
+ * Check if there are any active (running) tool calls in the log
+ */
+function hasActiveToolCalls(log: ActivityLog): boolean {
+  return Boolean(log.progress?.some((p) => p.status === 'running'))
+}
+
+export const LogItem: React.FC<LogItemProps> = memo(({heights, isExpand, isSelected, log}) => {
   const {
     theme: {colors},
   } = useTheme()
@@ -52,15 +60,40 @@ export const LogItem: React.FC<LogItemProps> = ({heights, isExpand, isSelected, 
       {/* Input */}
       <ExecutionInput input={log.input} isExpand={isExpand} />
 
-      {/* Progress and Status */}
-      <Box flexDirection="column">
-        {log.progress && (
-          <ExecutionProgress isExpand={isExpand} maxLines={heights.maxProgressItems} progress={log.progress} />
-        )}
-        <ExecutionStatus status={log.status} />
-      </Box>
+      {/* Progress */}
+      {log.progress && (
+        <ExecutionProgress isExpand={isExpand} maxLines={heights.maxProgressItems} progress={log.progress} />
+      )}
 
-      {/* Content */}
+      {/* Reasoning/Thinking Content - Show when LLM is thinking (has reasoning content) */}
+      {log.reasoningContent && log.status === 'running' && (
+        <ReasoningText
+          content={log.reasoningContent}
+          isStreaming={Boolean(log.isStreaming)}
+          maxLines={isExpand ? 0 : heights.maxContentLines}
+        />
+      )}
+
+      {/* Streaming Text Content - Show when available, even during tool execution */}
+      {log.streamingContent && log.status === 'running' && (
+        <StreamingText
+          content={log.streamingContent}
+          isStreaming={Boolean(log.isStreaming)}
+          maxLines={isExpand ? 0 : heights.maxContentLines}
+          showCursor={Boolean(log.isStreaming)}
+        />
+      )}
+
+      {/* Thinking indicator - Show when running but no tools, no reasoning, and no streaming content */}
+      {log.status === 'running' && !log.reasoningContent && !log.streamingContent && !hasActiveToolCalls(log) && (
+        <ReasoningText
+          content=""
+          isStreaming={true}
+          maxLines={0}
+        />
+      )}
+
+      {/* Final Content - Show after completion or error */}
       {(log.status === 'failed' || log.status === 'completed') && (
         <ExecutionContent
           bottomMargin={heights.contentBottomMargin}
@@ -82,4 +115,5 @@ export const LogItem: React.FC<LogItemProps> = ({heights, isExpand, isSelected, 
       )}
     </Box>
   )
-}
+})
+LogItem.displayName = 'LogItem'

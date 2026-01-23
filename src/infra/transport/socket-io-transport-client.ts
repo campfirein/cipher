@@ -57,6 +57,7 @@ interface BufferedEvent {
  * These are critical task lifecycle events that must not be lost.
  */
 const BUFFERED_EVENTS = new Set([
+  'llmservice:chunk',
   'llmservice:response',
   'llmservice:toolCall',
   'llmservice:toolResult',
