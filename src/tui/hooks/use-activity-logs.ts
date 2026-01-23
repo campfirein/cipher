@@ -152,7 +152,9 @@ export function useActivityLogs(): UseActivityLogsReturn {
     return taskArray
       .filter((task) => task.status !== 'created')
       .map((task) => {
+        // Include tool args in progress items for display
         const progress = task.toolCalls.map((tc, index) => ({
+          args: tc.args,
           id: tc.callId ?? `${task.taskId}-${index}`,
           status: mapToolCallStatus(tc.status),
           toolCallName: tc.toolName,
@@ -165,9 +167,12 @@ export function useActivityLogs(): UseActivityLogsReturn {
           content: task.status === 'error' ? task.error?.message ?? '' : task.result ?? '',
           id: task.taskId,
           input: task.content,
+          isStreaming: task.isStreaming,
           progress,
+          reasoningContent: task.reasoningContent,
           source: 'agent',
           status: mapTaskStatusToExecutionStatus(task.status),
+          streamingContent: task.streamingContent,
           timestamp: new Date(task.completedAt ?? task.startedAt ?? task.createdAt),
           type: task.type,
         }

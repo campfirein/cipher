@@ -1,6 +1,7 @@
 import React, {createContext, useCallback, useContext, useEffect, useMemo, useState} from 'react'
 
 import type {
+  LlmChunkEvent,
   LlmResponseEvent,
   LlmToolCallEvent,
   LlmToolResultEvent,
@@ -49,6 +50,10 @@ export type Task = {
   files?: string[]
   /** Input of query/curate */
   input: string
+  /** Whether task is currently streaming LLM response */
+  isStreaming?: boolean
+  /** Accumulated reasoning/thinking content during LLM response */
+  reasoningContent?: string
   /** Result string if task completed */
   result?: string
   /** Session ID from LLM events */
@@ -57,6 +62,8 @@ export type Task = {
   startedAt?: number
   /** Current task status */
   status: TaskStatus
+  /** Accumulated streaming text content during LLM response */
+  streamingContent?: string
   /** Unique task identifier */
   taskId: string
   /** Tool calls executed during task */
@@ -142,75 +149,180 @@ export function TasksProvider({children}: {children: React.ReactNode}): React.Re
     }
 
     // Handle task:completed - Set result and completion time
+    // If task doesn't exist (e.g., missed task:created event from MCP), create a minimal entry
+    // Also marks any remaining 'running' tool calls as 'completed' since task is done
     const handleTaskCompleted = (data: TaskCompletedEvent) => {
       setTasks((prev) => {
         const task = prev.get(data.taskId)
-        if (!task) return prev
-
+        const now = Date.now()
         const newTasks = new Map(prev)
-        newTasks.set(data.taskId, {
-          ...task,
-          completedAt: Date.now(),
-          status: 'completed',
-        })
+
+        if (task) {
+          // Mark any remaining 'running' tool calls as 'completed'
+          // This handles cases where toolResult events were missed or arrived out of order
+          const finalizedToolCalls = task.toolCalls.map((tc) =>
+            tc.status === 'running' ? {...tc, status: 'completed' as const} : tc,
+          )
+
+          // Normal case: update existing task
+          newTasks.set(data.taskId, {
+            ...task,
+            completedAt: now,
+            result: data.result,
+            status: 'completed',
+            toolCalls: finalizedToolCalls,
+          })
+        } else {
+          // Task not found - create minimal entry (handles missed task:created events)
+          newTasks.set(data.taskId, {
+            completedAt: now,
+            content: '',
+            createdAt: now,
+            error: undefined,
+            files: undefined,
+            input: '',
+            result: data.result,
+            sessionId: undefined,
+            startedAt: now,
+            status: 'completed',
+            taskId: data.taskId,
+            toolCalls: [],
+            type: 'query', // Default to query; will be overridden if task:created arrives later
+          })
+        }
+
         return newTasks
       })
     }
 
     // Handle task:error - Set error and completion time
+    // If task doesn't exist, create minimal entry (handles missed task:created events)
+    // Also marks any remaining 'running' tool calls as 'error' since task failed
     const handleTaskError = (data: {error: TaskErrorData; taskId: string}) => {
       setTasks((prev) => {
         const task = prev.get(data.taskId)
-        if (!task) return prev
-
+        const now = Date.now()
         const newTasks = new Map(prev)
-        newTasks.set(data.taskId, {
-          ...task,
-          completedAt: Date.now(),
-          error: data.error,
-          status: 'error',
-        })
+
+        if (task) {
+          // Mark any remaining 'running' tool calls as 'error'
+          const finalizedToolCalls = task.toolCalls.map((tc) =>
+            tc.status === 'running' ? {...tc, status: 'error' as const} : tc,
+          )
+
+          newTasks.set(data.taskId, {
+            ...task,
+            completedAt: now,
+            error: data.error,
+            status: 'error',
+            toolCalls: finalizedToolCalls,
+          })
+        } else {
+          // Task not found - create minimal entry
+          newTasks.set(data.taskId, {
+            completedAt: now,
+            content: '',
+            createdAt: now,
+            error: data.error,
+            files: undefined,
+            input: '',
+            result: undefined,
+            sessionId: undefined,
+            startedAt: now,
+            status: 'error',
+            taskId: data.taskId,
+            toolCalls: [],
+            type: 'query',
+          })
+        }
+
         return newTasks
       })
     }
 
     // Handle task:cancelled - Set cancelled status
+    // If task doesn't exist, create minimal entry (handles missed task:created events)
     const handleTaskCancelled = (data: {taskId: string}) => {
       setTasks((prev) => {
         const task = prev.get(data.taskId)
-        if (!task) return prev
-
+        const now = Date.now()
         const newTasks = new Map(prev)
-        newTasks.set(data.taskId, {
-          ...task,
-          completedAt: Date.now(),
-          status: 'cancelled',
-        })
+
+        if (task) {
+          newTasks.set(data.taskId, {
+            ...task,
+            completedAt: now,
+            status: 'cancelled',
+          })
+        } else {
+          // Task not found - create minimal entry
+          newTasks.set(data.taskId, {
+            completedAt: now,
+            content: '',
+            createdAt: now,
+            error: undefined,
+            files: undefined,
+            input: '',
+            result: undefined,
+            sessionId: undefined,
+            startedAt: now,
+            status: 'cancelled',
+            taskId: data.taskId,
+            toolCalls: [],
+            type: 'query',
+          })
+        }
+
         return newTasks
       })
     }
 
-    // Handle llmservice:toolCall - Add new tool call with 'running' status
+    // Handle llmservice:toolCall - Add new tool call or update existing one
+    // Tool calls may be emitted multiple times (once from stream with empty args, once from execution with actual args)
+    // We use callId to deduplicate and merge the data
     const handleToolCall = (data: LlmToolCallEvent) => {
       setTasks((prev) => {
         const task = prev.get(data.taskId)
         if (!task) return prev
 
         const newTasks = new Map(prev)
-        newTasks.set(data.taskId, {
-          ...task,
-          sessionId: data.sessionId,
-          toolCalls: [
-            ...task.toolCalls,
-            {
-              args: data.args,
-              callId: data.callId,
-              sessionId: data.sessionId,
-              status: 'running',
-              toolName: data.toolName,
-            },
-          ],
-        })
+
+        // Check if we already have a tool call with this callId
+        const existingIndex = data.callId ? task.toolCalls.findIndex((tc) => tc.callId === data.callId) : -1
+
+        if (existingIndex >= 0) {
+          // Update existing tool call with new data (merge args if new ones have content)
+          const existingToolCall = task.toolCalls[existingIndex]
+          const hasNewArgs = data.args && Object.keys(data.args).length > 0
+          const updatedToolCalls = [...task.toolCalls]
+          updatedToolCalls[existingIndex] = {
+            ...existingToolCall,
+            args: hasNewArgs ? data.args : existingToolCall.args,
+            sessionId: data.sessionId,
+          }
+          newTasks.set(data.taskId, {
+            ...task,
+            sessionId: data.sessionId,
+            toolCalls: updatedToolCalls,
+          })
+        } else {
+          // Add new tool call
+          newTasks.set(data.taskId, {
+            ...task,
+            sessionId: data.sessionId,
+            toolCalls: [
+              ...task.toolCalls,
+              {
+                args: data.args,
+                callId: data.callId,
+                sessionId: data.sessionId,
+                status: 'running',
+                toolName: data.toolName,
+              },
+            ],
+          })
+        }
+
         return newTasks
       })
     }
@@ -221,8 +333,25 @@ export function TasksProvider({children}: {children: React.ReactNode}): React.Re
         const task = prev.get(data.taskId)
         if (!task) return prev
 
-        // Find the tool call to update (match by callId if present, otherwise by toolName and most recent)
-        const toolCallIndex = task.toolCalls.findIndex((tc) => tc.callId === data.callId)
+        // Find the tool call to update using multiple strategies:
+        // 1. Match by callId (most reliable when both have callId)
+        // 2. Fallback: match by toolName for most recent 'running' tool call
+        let toolCallIndex = -1
+
+        // Strategy 1: Match by callId if present in both
+        if (data.callId) {
+          toolCallIndex = task.toolCalls.findIndex((tc) => tc.callId === data.callId)
+        }
+
+        // Strategy 2: Fallback to toolName matching for most recent running tool
+        if (toolCallIndex === -1 && data.toolName) {
+          for (let i = task.toolCalls.length - 1; i >= 0; i--) {
+            if (task.toolCalls[i].toolName === data.toolName && task.toolCalls[i].status === 'running') {
+              toolCallIndex = i
+              break
+            }
+          }
+        }
 
         if (toolCallIndex === -1) return prev
 
@@ -244,7 +373,38 @@ export function TasksProvider({children}: {children: React.ReactNode}): React.Re
       })
     }
 
+    // Handle llmservice:chunk - Accumulate streaming content for real-time display
+    // Separates reasoning/thinking content from regular text content
+    const handleChunk = (data: LlmChunkEvent) => {
+      setTasks((prev) => {
+        const task = prev.get(data.taskId)
+        if (!task) return prev
+
+        const newTasks = new Map(prev)
+
+        // Route content to appropriate field based on type
+        if (data.type === 'reasoning') {
+          newTasks.set(data.taskId, {
+            ...task,
+            isStreaming: !data.isComplete,
+            reasoningContent: (task.reasoningContent ?? '') + data.content,
+            sessionId: data.sessionId,
+          })
+        } else {
+          newTasks.set(data.taskId, {
+            ...task,
+            isStreaming: !data.isComplete,
+            sessionId: data.sessionId,
+            streamingContent: (task.streamingContent ?? '') + data.content,
+          })
+        }
+
+        return newTasks
+      })
+    }
+
     // Handle llmservice:response - Update task content from LLM response
+    // Also clears streaming state since response marks end of streaming
     const handleResponse = (data: LlmResponseEvent) => {
       setTasks((prev) => {
         const task = prev.get(data.taskId)
@@ -253,8 +413,11 @@ export function TasksProvider({children}: {children: React.ReactNode}): React.Re
         const newTasks = new Map(prev)
         newTasks.set(data.taskId, {
           ...task,
+          isStreaming: false,
+          reasoningContent: undefined, // Clear reasoning content once final response received
           result: data.content,
           sessionId: data.sessionId,
+          streamingContent: undefined, // Clear streaming content once final response received
         })
         return newTasks
       })
@@ -267,6 +430,7 @@ export function TasksProvider({children}: {children: React.ReactNode}): React.Re
       client.on<TaskCompletedEvent>('task:completed', handleTaskCompleted),
       client.on<{error: TaskErrorData; taskId: string}>('task:error', handleTaskError),
       client.on<{taskId: string}>('task:cancelled', handleTaskCancelled),
+      client.on<LlmChunkEvent>('llmservice:chunk', handleChunk),
       client.on<LlmToolCallEvent>('llmservice:toolCall', handleToolCall),
       client.on<LlmToolResultEvent>('llmservice:toolResult', handleToolResult),
       client.on<LlmResponseEvent>('llmservice:response', handleResponse),

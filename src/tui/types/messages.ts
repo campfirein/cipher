@@ -38,6 +38,20 @@ export interface CommandMessage extends Message {
 }
 
 /**
+ * Tool progress item with parameters for display
+ */
+export interface ToolProgressItem {
+  /** Tool call arguments/parameters */
+  args?: Record<string, unknown>
+  /** Unique ID for the tool call */
+  id: string
+  /** Tool execution status */
+  status: ToolCallStatus
+  /** Tool name */
+  toolCallName: string
+}
+
+/**
  * Activity log item for displaying in logs view
  */
 export interface ActivityLog {
@@ -45,9 +59,15 @@ export interface ActivityLog {
   content: string
   id: string
   input: string
-  progress?: Array<{id: string; status: ToolCallStatus; toolCallName: string}>
+  /** Whether LLM is currently streaming response */
+  isStreaming?: boolean
+  progress?: ToolProgressItem[]
+  /** Accumulated reasoning/thinking content during LLM response */
+  reasoningContent?: string
   source?: string
   status: ExecutionStatus
+  /** Accumulated streaming text content during LLM response */
+  streamingContent?: string
   timestamp: Date
   type: 'curate' | 'query'
 }

@@ -36,6 +36,7 @@ import {
   isValidProviderModel,
   safeParseLLMConfig,
 } from '../../../core/domain/cipher/llm/index.js'
+import {StreamChunkType} from '../../../core/interfaces/cipher/i-content-generator.js'
 import {NoOpLogger} from '../../../core/interfaces/cipher/i-logger.js'
 import {getErrorMessage} from '../../../utils/error-helpers.js'
 import {SessionEventBus} from '../events/event-emitter.js'
@@ -283,7 +284,7 @@ export class ByteRoverLLMService implements ILLMService {
     },
   ): Promise<string> {
     // Extract options with defaults
-    const {executionContext, fileData, imageData, signal, taskId} = options ?? {}
+    const {executionContext, fileData, imageData, signal, stream, taskId} = options ?? {}
 
     // Add user message to context
     await this.contextManager.addUserMessage(textInput, imageData, fileData)
@@ -315,6 +316,7 @@ export class ByteRoverLLMService implements ILLMService {
         const result = await this.executeAgenticIteration({
           executionContext,
           iterationCount: stateMachine.getContext().turnCount,
+          stream,
           taskId,
           tools: toolSet,
         })
@@ -508,6 +510,76 @@ export class ByteRoverLLMService implements ILLMService {
   }
 
   /**
+   * Streaming variant of callLLMAndParseResponse that:
+   * - Uses generateContentStream for real-time chunk delivery
+   * - Accumulates content and tool calls from chunks
+   * - Emits llmservice:chunk events for thinking/reasoning chunks
+   * - Returns complete InternalMessage when stream ends
+   *
+   * @param request - Generation request
+   * @param taskId - Task ID for event emission
+   * @returns Parsed internal message from accumulated stream
+   */
+  private async callLLMAndParseResponseStreaming(
+    request: GenerateContentRequest,
+    taskId?: string,
+  ): Promise<InternalMessage> {
+    try {
+      let accumulatedContent = ''
+      let accumulatedToolCalls: ToolCall[] = []
+
+      // Stream chunks and accumulate content
+      for await (const chunk of this.generator.generateContentStream(request)) {
+        // Emit thinking/reasoning chunks as events for TUI display
+        if (chunk.type === StreamChunkType.THINKING && chunk.reasoning) {
+          this.sessionEventBus.emit('llmservice:chunk', {
+            content: chunk.reasoning,
+            isComplete: chunk.isComplete,
+            taskId,
+            type: 'reasoning', // Convert THINKING to 'reasoning' for TUI compatibility
+          })
+        }
+
+        // Accumulate text content (skip thinking chunks from accumulated content)
+        if (chunk.content && chunk.type !== StreamChunkType.THINKING) {
+          accumulatedContent += chunk.content
+        }
+
+        // Accumulate tool calls
+        if (chunk.toolCalls) {
+          accumulatedToolCalls = chunk.toolCalls
+        }
+      }
+
+      // Convert accumulated response to InternalMessage format
+      const message: InternalMessage = {
+        content: accumulatedContent || null,
+        role: 'assistant',
+        toolCalls: accumulatedToolCalls.length > 0 ? accumulatedToolCalls : undefined,
+      }
+
+      // Validate the message has content or tool calls
+      if (!message.content && (!message.toolCalls || message.toolCalls.length === 0)) {
+        throw new LlmResponseParsingError('Response has neither content nor tool calls', 'byterover', this.config.model)
+      }
+
+      return message
+    } catch (error) {
+      // Re-throw LLM errors as-is
+      if (error instanceof LlmResponseParsingError || error instanceof LlmGenerationError) {
+        throw error
+      }
+
+      // Wrap other errors
+      throw new LlmGenerationError(
+        error instanceof Error ? error.message : String(error),
+        'byterover',
+        this.config.model,
+      )
+    }
+  }
+
+  /**
    * Check for context overflow and trigger compaction if needed.
    * Called after each assistant response and after tool execution batches.
    *
@@ -677,6 +749,7 @@ export class ByteRoverLLMService implements ILLMService {
    *
    * @param options - Iteration options
    * @param options.iterationCount - Current iteration number
+   * @param options.stream - Whether to stream response and emit thinking chunks
    * @param options.taskId - Task ID from usecase for billing tracking
    * @param options.tools - Available tools for this iteration
    * @param options.executionContext - Optional execution context
@@ -685,10 +758,11 @@ export class ByteRoverLLMService implements ILLMService {
   private async executeAgenticIteration(options: {
     executionContext?: ExecutionContext
     iterationCount: number
+    stream?: boolean
     taskId?: string
     tools: ToolSet
   }): Promise<null | string> {
-    const {executionContext, iterationCount, taskId, tools} = options
+    const {executionContext, iterationCount, stream, taskId, tools} = options
     // Build system prompt using SystemPromptManager (before compression for correct token accounting)
     // Use filtered tool names based on command type (e.g., only read-only tools for 'query')
     const availableTools = this.toolManager.getToolNamesForCommand(executionContext?.commandType)
@@ -798,7 +872,10 @@ export class ByteRoverLLMService implements ILLMService {
     })
 
     // Call LLM via generator (retry + logging handled by decorators)
-    const lastMessage = await this.callLLMAndParseResponse(request)
+    // Use streaming variant if enabled to emit thinking/reasoning chunks
+    const lastMessage = stream
+      ? await this.callLLMAndParseResponseStreaming(request, taskId)
+      : await this.callLLMAndParseResponse(request)
 
     // Check if there are tool calls
     if (!lastMessage.toolCalls || lastMessage.toolCalls.length === 0) {

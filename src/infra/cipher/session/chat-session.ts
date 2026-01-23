@@ -356,6 +356,7 @@ export class ChatSession implements IChatSession {
       await this.llmService.completeTask(finalInput, {
         executionContext: options?.executionContext,
         signal: controller.signal,
+        stream: true,
         taskId,
       })
     } catch (error_) {

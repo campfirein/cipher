@@ -184,25 +184,46 @@ export class ByteRoverContentGenerator implements IContentGenerator {
   /**
    * Generate content with streaming.
    *
-   * Note: The current gRPC service collects all chunks before returning.
-   * This implementation yields the complete response as a single chunk.
-   * True streaming can be implemented when the gRPC service exposes the stream.
+   * Uses the HTTP service's streaming endpoint to yield chunks as they arrive.
+   * Handles both regular content and thinking/reasoning parts from Gemini models.
    *
    * @param request - Generation request
    * @yields Content chunks as they are generated
    * @returns Async generator yielding content chunks
    */
   public async *generateContentStream(request: GenerateContentRequest): AsyncGenerator<GenerateContentChunk> {
-    // For now, use non-streaming and yield complete response
-    // True streaming can be added when gRPC service exposes the stream
-    const response = await this.generateContent(request)
+    // Format messages for provider
+    let formattedMessages = this.formatter.format(request.contents)
 
-    yield {
-      content: response.content,
-      finishReason: response.finishReason,
-      isComplete: true,
-      toolCalls: response.toolCalls,
+    // For Gemini 3+ models, ensure function calls in the active loop have thought signatures
+    if (this.providerType === 'gemini') {
+      formattedMessages = ensureActiveLoopHasThoughtSignatures(
+        formattedMessages as Content[],
+        this.config.model,
+      )
     }
+
+    // Build generation config
+    const genConfig = this.buildGenerationConfig(request.tools ?? {}, request.systemPrompt ?? '', formattedMessages)
+
+    // Build execution metadata from request
+    const executionMetadata = {
+      sessionId: request.taskId,
+      taskId: request.taskId,
+      ...(request.executionContext && {executionContext: request.executionContext}),
+    }
+
+    // Determine contents and config based on provider
+    const contents = this.providerType === 'claude' ? genConfig : formattedMessages
+    const config = this.providerType === 'claude' ? ({} as RequestOptions) : genConfig
+
+    // Stream from HTTP service
+    yield* this.httpService.generateContentStream(
+      contents as Content[] | MessageCreateParamsNonStreaming,
+      config as GenerateContentConfig | RequestOptions,
+      this.config.model,
+      executionMetadata,
+    )
   }
 
   /**
