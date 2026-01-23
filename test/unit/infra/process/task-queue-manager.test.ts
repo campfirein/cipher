@@ -97,7 +97,7 @@ describe('TaskQueueManager', () => {
 
       const task1 = createTask('task-1', 'curate')
       manager.enqueue(task1)
-      manager.markCompleted('task-1', 'curate')
+      manager.markCompleted('task-1')
 
       const task2 = createTask('task-1', 'curate')
       const result = manager.enqueue(task2)
@@ -127,7 +127,7 @@ describe('TaskQueueManager', () => {
       manager.enqueue(task)
 
       expect(manager.isKnown('task-1')).to.be.true
-      manager.markCompleted('task-1', 'curate')
+      manager.markCompleted('task-1')
       expect(manager.isKnown('task-1')).to.be.false
     })
 
@@ -150,15 +150,13 @@ describe('TaskQueueManager', () => {
   // ============================================================================
 
   describe('cancel', () => {
-    it('should cancel a queued curate task', () => {
+    it('should cancel a queued task', () => {
       const {executor} = createBlockingExecutor()
       manager.setExecutor(executor)
 
-      // Fill up active slots first (max 3)
+      // First task becomes active (maxConcurrent = 1)
       manager.enqueue(createTask('active-1', 'curate'))
-      manager.enqueue(createTask('active-2', 'curate'))
-      manager.enqueue(createTask('active-3', 'curate'))
-      // This one goes to queue (4th task, but only 3 can be active)
+      // Second task goes to queue
       manager.enqueue(createTask('queued-1', 'curate'))
 
       const result = manager.cancel('queued-1')
@@ -172,22 +170,19 @@ describe('TaskQueueManager', () => {
       expect(manager.isKnown('queued-1')).to.be.false
     })
 
-    it('should cancel an active query task (unlimited concurrency)', () => {
+    it('should cancel an active task (returns wasQueued=false)', () => {
       const {executor} = createBlockingExecutor()
       manager.setExecutor(executor)
 
-      // With unlimited concurrency, all query tasks are immediately active
+      // With maxConcurrent=1, first task is immediately active
       manager.enqueue(createTask('active-1', 'query'))
-      manager.enqueue(createTask('active-2', 'query'))
-      manager.enqueue(createTask('active-3', 'query'))
 
-      // All should be active (not queued)
-      const stats = manager.getStats('query')
-      expect(stats.active).to.equal(3)
+      const stats = manager.getStats()
+      expect(stats.active).to.equal(1)
       expect(stats.queued).to.equal(0)
 
       // Cancel an active task
-      const result = manager.cancel('active-3')
+      const result = manager.cancel('active-1')
 
       expect(result.success).to.be.true
       if (result.success) {
@@ -225,10 +220,8 @@ describe('TaskQueueManager', () => {
       const {executor} = createBlockingExecutor()
       manager.setExecutor(executor)
 
-      manager.enqueue(createTask('active-1', 'curate'))
-      manager.enqueue(createTask('active-2', 'curate'))
-      manager.enqueue(createTask('active-3', 'curate'))
-      manager.enqueue(createTask('task-1', 'curate')) // Goes to queue (max 3 active)
+      manager.enqueue(createTask('active-1', 'curate')) // Active
+      manager.enqueue(createTask('task-1', 'curate')) // Queued (maxConcurrent = 1)
 
       manager.cancel('task-1')
       const result = manager.enqueue(createTask('task-1', 'curate'))
@@ -242,53 +235,38 @@ describe('TaskQueueManager', () => {
   // ============================================================================
 
   describe('concurrency', () => {
-    it('should respect maxConcurrent for curate tasks', () => {
+    it('should respect default maxConcurrent of 1 (sequential)', () => {
       const {executor} = createBlockingExecutor()
       manager.setExecutor(executor)
 
       manager.enqueue(createTask('task-1', 'curate'))
       manager.enqueue(createTask('task-2', 'curate'))
-      manager.enqueue(createTask('task-3', 'curate'))
-      manager.enqueue(createTask('task-4', 'curate'))
-      manager.enqueue(createTask('task-5', 'curate'))
-
-      const stats = manager.getStats('curate')
-
-      expect(stats.active).to.equal(3) // Max concurrent = 3
-      expect(stats.queued).to.equal(2) // 2 waiting
-    })
-
-    it('should allow unlimited query tasks (Infinity maxConcurrent)', () => {
-      const {executor} = createBlockingExecutor()
-      manager.setExecutor(executor)
-
-      manager.enqueue(createTask('task-1', 'query'))
-      manager.enqueue(createTask('task-2', 'query'))
       manager.enqueue(createTask('task-3', 'query'))
       manager.enqueue(createTask('task-4', 'query'))
+      manager.enqueue(createTask('task-5', 'curate'))
 
-      const stats = manager.getStats('query')
+      const stats = manager.getStats()
 
-      // Query tasks have unlimited concurrency - all should be active
-      expect(stats.active).to.equal(4)
-      expect(stats.queued).to.equal(0)
+      expect(stats.active).to.equal(1) // Max concurrent = 1 (default)
+      expect(stats.queued).to.equal(4) // 4 waiting
+      expect(stats.maxConcurrent).to.equal(1)
     })
 
-    it('should allow custom concurrency config', () => {
+    it('should allow custom maxConcurrent config', () => {
       const customManager = new TaskQueueManager({
-        curate: {maxConcurrent: 5},
-        query: {maxConcurrent: 3},
+        maxConcurrent: 3,
       })
       const {executor} = createBlockingExecutor()
       customManager.setExecutor(executor)
 
-      for (let i = 0; i < 10; i++) {
-        customManager.enqueue(createTask(`curate-${i}`, 'curate'))
+      for (let i = 0; i < 5; i++) {
+        customManager.enqueue(createTask(`task-${i}`, 'curate'))
       }
 
-      const stats = customManager.getStats('curate')
-      expect(stats.active).to.equal(5)
-      expect(stats.queued).to.equal(5)
+      const stats = customManager.getStats()
+      expect(stats.active).to.equal(3)
+      expect(stats.queued).to.equal(2)
+      expect(stats.maxConcurrent).to.equal(3)
     })
 
     it('should process next task when slot becomes available', () => {
@@ -298,42 +276,33 @@ describe('TaskQueueManager', () => {
       manager.enqueue(createTask('task-1', 'curate'))
       manager.enqueue(createTask('task-2', 'curate'))
       manager.enqueue(createTask('task-3', 'curate'))
-      manager.enqueue(createTask('task-4', 'curate'))
-      manager.enqueue(createTask('task-5', 'curate'))
 
-      let stats = manager.getStats('curate')
-      expect(stats.active).to.equal(3)
+      let stats = manager.getStats()
+      expect(stats.active).to.equal(1)
       expect(stats.queued).to.equal(2)
 
       // Complete one task
-      manager.markCompleted('task-1', 'curate')
+      manager.markCompleted('task-1')
 
-      stats = manager.getStats('curate')
-      expect(stats.active).to.equal(3) // task-4 should now be active
+      stats = manager.getStats()
+      expect(stats.active).to.equal(1) // task-2 should now be active
       expect(stats.queued).to.equal(1)
     })
 
-    it('should maintain separate concurrency for each task type', () => {
+    it('should process tasks from unified queue regardless of type', () => {
       const {executor} = createBlockingExecutor()
       manager.setExecutor(executor)
 
-      // Enqueue 3 curate and 3 query
+      // Enqueue mixed types
       manager.enqueue(createTask('curate-1', 'curate'))
-      manager.enqueue(createTask('curate-2', 'curate'))
-      manager.enqueue(createTask('curate-3', 'curate'))
       manager.enqueue(createTask('query-1', 'query'))
-      manager.enqueue(createTask('query-2', 'query'))
-      manager.enqueue(createTask('query-3', 'query'))
+      manager.enqueue(createTask('curate-2', 'curate'))
 
-      const curateStats = manager.getStats('curate')
-      const queryStats = manager.getStats('query')
+      const stats = manager.getStats()
 
-      // Curate: maxConcurrent=3, so all 3 active, 0 queued
-      expect(curateStats.active).to.equal(3)
-      expect(curateStats.queued).to.equal(0)
-      // Query: unlimited concurrency, all active
-      expect(queryStats.active).to.equal(3)
-      expect(queryStats.queued).to.equal(0)
+      // Only 1 task active (sequential), 2 queued
+      expect(stats.active).to.equal(1)
+      expect(stats.queued).to.equal(2)
     })
 
     it('should keep tasks in queue without executor', () => {
@@ -341,7 +310,7 @@ describe('TaskQueueManager', () => {
       manager.enqueue(createTask('task-1', 'curate'))
       manager.enqueue(createTask('task-2', 'curate'))
 
-      const stats = manager.getStats('curate')
+      const stats = manager.getStats()
       expect(stats.active).to.equal(0) // Nothing active
       expect(stats.queued).to.equal(2) // Both in queue
     })
@@ -351,7 +320,7 @@ describe('TaskQueueManager', () => {
       manager.enqueue(createTask('task-1', 'curate'))
       manager.enqueue(createTask('task-2', 'curate'))
 
-      let stats = manager.getStats('curate')
+      let stats = manager.getStats()
       expect(stats.queued).to.equal(2)
       expect(stats.active).to.equal(0)
 
@@ -359,9 +328,9 @@ describe('TaskQueueManager', () => {
       const {executor} = createBlockingExecutor()
       manager.setExecutor(executor)
 
-      stats = manager.getStats('curate')
-      expect(stats.active).to.equal(2) // Now processing (max 3, but only 2 tasks)
-      expect(stats.queued).to.equal(0)
+      stats = manager.getStats()
+      expect(stats.active).to.equal(1) // Now processing (max 1)
+      expect(stats.queued).to.equal(1)
     })
   })
 
@@ -418,28 +387,28 @@ describe('TaskQueueManager', () => {
 
     it('should process queued tasks after active task completes', async () => {
       let resolveFirst: () => void
+      let resolveSecond: () => void
       const firstTaskPromise = new Promise<void>((resolve) => {
         resolveFirst = resolve
+      })
+      const secondTaskPromise = new Promise<void>((resolve) => {
+        resolveSecond = resolve
       })
 
       const executor = sinon.stub()
       executor.onFirstCall().returns(firstTaskPromise)
-      executor.onSecondCall().resolves()
+      executor.onSecondCall().returns(secondTaskPromise)
       executor.onThirdCall().resolves()
-      executor.onCall(3).resolves()
-      executor.onCall(4).resolves()
 
       manager.setExecutor(executor)
 
-      // Enqueue 5 tasks (3 will be active, 2 queued)
+      // Enqueue 3 tasks (1 will be active, 2 queued with maxConcurrent=1)
       manager.enqueue(createTask('task-1', 'curate'))
       manager.enqueue(createTask('task-2', 'curate'))
       manager.enqueue(createTask('task-3', 'curate'))
-      manager.enqueue(createTask('task-4', 'curate'))
-      manager.enqueue(createTask('task-5', 'curate'))
 
-      // Initially 3 should be called (maxConcurrent=3)
-      expect(executor.callCount).to.equal(3)
+      // Initially 1 should be called (maxConcurrent=1)
+      expect(executor.callCount).to.equal(1)
 
       // Complete first task
       resolveFirst!()
@@ -447,8 +416,17 @@ describe('TaskQueueManager', () => {
         setTimeout(resolve, 10)
       })
 
-      // Now all 5 should be called
-      expect(executor.callCount).to.equal(5)
+      // Now 2 should be called (second task started but waiting)
+      expect(executor.callCount).to.equal(2)
+
+      // Complete second task
+      resolveSecond!()
+      await new Promise((resolve) => {
+        setTimeout(resolve, 10)
+      })
+
+      // All 3 should be called
+      expect(executor.callCount).to.equal(3)
     })
   })
 
@@ -457,45 +435,44 @@ describe('TaskQueueManager', () => {
   // ============================================================================
 
   describe('getStats', () => {
-    it('should return correct stats for empty curate queue', () => {
-      const stats = manager.getStats('curate')
+    it('should return correct stats for empty queue', () => {
+      const stats = manager.getStats()
 
       expect(stats.active).to.equal(0)
       expect(stats.queued).to.equal(0)
-      expect(stats.maxConcurrent).to.equal(3)
+      expect(stats.maxConcurrent).to.equal(1)
     })
 
-    it('should return Infinity maxConcurrent for query', () => {
-      const stats = manager.getStats('query')
+    it('should return custom maxConcurrent in stats', () => {
+      const customManager = new TaskQueueManager({maxConcurrent: 5})
+      const stats = customManager.getStats()
 
       expect(stats.active).to.equal(0)
       expect(stats.queued).to.equal(0)
-      expect(stats.maxConcurrent).to.equal(Infinity)
+      expect(stats.maxConcurrent).to.equal(5)
     })
 
-    it('should return all stats with executor', () => {
+    it('should return stats with executor', () => {
       const {executor} = createBlockingExecutor()
       manager.setExecutor(executor)
 
       manager.enqueue(createTask('curate-1', 'curate'))
       manager.enqueue(createTask('query-1', 'query'))
 
-      const allStats = manager.getAllStats()
+      const stats = manager.getStats()
 
-      expect(allStats.curate.active).to.equal(1)
-      expect(allStats.query.active).to.equal(1)
+      expect(stats.active).to.equal(1)
+      expect(stats.queued).to.equal(1)
     })
 
-    it('should return all stats without executor (queued only)', () => {
+    it('should return stats without executor (queued only)', () => {
       manager.enqueue(createTask('curate-1', 'curate'))
       manager.enqueue(createTask('query-1', 'query'))
 
-      const allStats = manager.getAllStats()
+      const stats = manager.getStats()
 
-      expect(allStats.curate.queued).to.equal(1)
-      expect(allStats.curate.active).to.equal(0)
-      expect(allStats.query.queued).to.equal(1)
-      expect(allStats.query.active).to.equal(0)
+      expect(stats.queued).to.equal(2)
+      expect(stats.active).to.equal(0)
     })
 
     it('should report queued tasks correctly for reinit deferral', () => {
@@ -516,32 +493,29 @@ describe('TaskQueueManager', () => {
       expect(shouldDeferReinit).to.be.true
     })
 
-    it('should return zero queued count when all tasks are active', () => {
+    it('should return zero queued count when task is active', () => {
       const {executor} = createBlockingExecutor()
       manager.setExecutor(executor)
 
-      // Query tasks have unlimited concurrency - all become active immediately
+      // With maxConcurrent=1, task becomes active immediately
       manager.enqueue(createTask('query-1', 'query'))
-      manager.enqueue(createTask('query-2', 'query'))
 
       expect(manager.hasActiveTasks()).to.be.true
       expect(manager.getQueuedCount()).to.equal(0)
-      expect(manager.getActiveCount()).to.equal(2)
+      expect(manager.getActiveCount()).to.equal(1)
     })
 
-    it('should track both active and queued for curate tasks', () => {
+    it('should track both active and queued tasks', () => {
       const {executor} = createBlockingExecutor()
       manager.setExecutor(executor)
 
-      // Curate has maxConcurrent=1, so only first becomes active
+      // With maxConcurrent=1, first becomes active, rest queued
       manager.enqueue(createTask('curate-1', 'curate'))
       manager.enqueue(createTask('curate-2', 'curate'))
       manager.enqueue(createTask('curate-3', 'curate'))
-      manager.enqueue(createTask('curate-4', 'curate'))
-      manager.enqueue(createTask('curate-5', 'curate'))
 
       expect(manager.hasActiveTasks()).to.be.true
-      expect(manager.getActiveCount()).to.equal(3)
+      expect(manager.getActiveCount()).to.equal(1)
       expect(manager.getQueuedCount()).to.equal(2)
 
       // Combined check should still defer reinit
@@ -566,13 +540,10 @@ describe('TaskQueueManager', () => {
 
       manager.clear()
 
-      const curateStats = manager.getStats('curate')
-      const queryStats = manager.getStats('query')
+      const stats = manager.getStats()
 
-      expect(curateStats.active).to.equal(0)
-      expect(curateStats.queued).to.equal(0)
-      expect(queryStats.active).to.equal(0)
-      expect(queryStats.queued).to.equal(0)
+      expect(stats.active).to.equal(0)
+      expect(stats.queued).to.equal(0)
       expect(manager.isKnown('task-1')).to.be.false
     })
   })
@@ -582,23 +553,18 @@ describe('TaskQueueManager', () => {
   // ============================================================================
 
   describe('FIFO order', () => {
-    it('should process tasks in FIFO order', async () => {
+    it('should process tasks in FIFO order within same type', async () => {
       const processedOrder: string[] = []
 
       const executor = sinon.stub().callsFake(async (task: TaskExecute) => {
         processedOrder.push(task.taskId)
       })
 
-      // Use manager with maxConcurrent=1 to ensure strict ordering
-      const fifoManager = new TaskQueueManager({
-        curate: {maxConcurrent: 1},
-        query: {maxConcurrent: 1},
-      })
-      fifoManager.setExecutor(executor)
+      manager.setExecutor(executor)
 
-      fifoManager.enqueue(createTask('first', 'curate'))
-      fifoManager.enqueue(createTask('second', 'curate'))
-      fifoManager.enqueue(createTask('third', 'curate'))
+      manager.enqueue(createTask('first', 'curate'))
+      manager.enqueue(createTask('second', 'curate'))
+      manager.enqueue(createTask('third', 'curate'))
 
       // Wait for all to complete
       await new Promise((resolve) => {
@@ -606,6 +572,30 @@ describe('TaskQueueManager', () => {
       })
 
       expect(processedOrder).to.deep.equal(['first', 'second', 'third'])
+    })
+
+    it('should process tasks in FIFO order across different types', async () => {
+      const processedOrder: string[] = []
+
+      const executor = sinon.stub().callsFake(async (task: TaskExecute) => {
+        processedOrder.push(task.taskId)
+      })
+
+      manager.setExecutor(executor)
+
+      // Interleave curate and query tasks
+      manager.enqueue(createTask('curate-1', 'curate'))
+      manager.enqueue(createTask('query-1', 'query'))
+      manager.enqueue(createTask('query-2', 'query'))
+      manager.enqueue(createTask('curate-2', 'curate'))
+
+      // Wait for all to complete
+      await new Promise((resolve) => {
+        setTimeout(resolve, 50)
+      })
+
+      // Should be processed in exact arrival order, regardless of type
+      expect(processedOrder).to.deep.equal(['curate-1', 'query-1', 'query-2', 'curate-2'])
     })
   })
 
@@ -624,12 +614,10 @@ describe('TaskQueueManager', () => {
       }
 
       // Should not throw and should have consistent state
-      const curateStats = manager.getStats('curate')
-      const queryStats = manager.getStats('query')
+      const stats = manager.getStats()
 
       // All tasks are in queue (no executor), minus cancelled ones
-      expect(curateStats.queued).to.be.lessThanOrEqual(50)
-      expect(queryStats.queued).to.be.lessThanOrEqual(50)
+      expect(stats.queued).to.be.lessThanOrEqual(100)
     })
 
     it('should handle empty content', () => {
