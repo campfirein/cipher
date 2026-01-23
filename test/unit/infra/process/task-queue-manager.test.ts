@@ -549,6 +549,65 @@ describe('TaskQueueManager', () => {
   })
 
   // ============================================================================
+  // getQueuedTasks Tests
+  // ============================================================================
+
+  describe('getQueuedTasks', () => {
+    it('should return empty array when queue is empty', () => {
+      const tasks = manager.getQueuedTasks()
+      expect(tasks).to.deep.equal([])
+    })
+
+    it('should return all queued tasks without executor', () => {
+      // No executor = tasks stay in queue
+      manager.enqueue(createTask('task-1', 'curate'))
+      manager.enqueue(createTask('task-2', 'query'))
+
+      const tasks = manager.getQueuedTasks()
+
+      expect(tasks).to.have.length(2)
+      expect(tasks[0].taskId).to.equal('task-1')
+      expect(tasks[1].taskId).to.equal('task-2')
+    })
+
+    it('should return only queued tasks, not active tasks', () => {
+      const {executor} = createBlockingExecutor()
+      manager.setExecutor(executor)
+
+      // With maxConcurrent=1, first task becomes active
+      manager.enqueue(createTask('active-1', 'curate'))
+      manager.enqueue(createTask('queued-1', 'curate'))
+      manager.enqueue(createTask('queued-2', 'query'))
+
+      const tasks = manager.getQueuedTasks()
+
+      // Should NOT include active-1
+      expect(tasks).to.have.length(2)
+      expect(tasks.map((t) => t.taskId)).to.deep.equal(['queued-1', 'queued-2'])
+    })
+
+    it('should return defensive copy (not original array)', () => {
+      manager.enqueue(createTask('task-1', 'curate'))
+
+      const tasks1 = manager.getQueuedTasks()
+      const tasks2 = manager.getQueuedTasks()
+
+      // Different array instances
+      expect(tasks1).to.not.equal(tasks2)
+      expect(tasks1).to.deep.equal(tasks2)
+    })
+
+    it('should return readonly array type', () => {
+      manager.enqueue(createTask('task-1', 'curate'))
+
+      const tasks = manager.getQueuedTasks()
+
+      // TypeScript enforces readonly, runtime check for defensive copy
+      expect(Array.isArray(tasks)).to.be.true
+    })
+  })
+
+  // ============================================================================
   // FIFO Order Tests
   // ============================================================================
 

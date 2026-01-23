@@ -128,7 +128,10 @@ let isReinitializing = false
 let pollingTokenStore: ReturnType<typeof createTokenStore> | undefined
 let pollingConfigStore: ProjectConfigStore | undefined
 
-function getPollingStores(): {pollingConfigStore: ProjectConfigStore; pollingTokenStore: ReturnType<typeof createTokenStore>} {
+function getPollingStores(): {
+  pollingConfigStore: ProjectConfigStore
+  pollingTokenStore: ReturnType<typeof createTokenStore>
+} {
   pollingTokenStore ??= createTokenStore()
   pollingConfigStore ??= new ProjectConfigStore()
   return {pollingConfigStore, pollingTokenStore}
@@ -564,6 +567,7 @@ async function stopExistingAgentForReinit(): Promise<void> {
  *
  * @param forceReinit - Force reinitialization even if already initialized (for config reload)
  */
+// eslint-disable-next-line complexity
 async function tryInitializeAgent(forceReinit = false): Promise<boolean> {
   // Guard: prevent initialization during cleanup or if already in progress
   if (isCleaningUp || isInitializing) {
@@ -597,8 +601,18 @@ async function tryInitializeAgent(forceReinit = false): Promise<boolean> {
   try {
     // If forcing reinit, drain queue and stop existing agent first
     if (forceReinit) {
-      // Drain task queue before reinit to prevent tasks executing with stale processor
       agentLog('Draining task queue before reinit...')
+
+      // Notify clients about dropped tasks before clearing
+      const queuedTasks = taskQueueManager.getQueuedTasks()
+      if (queuedTasks.length > 0) {
+        agentLog(`Notifying ${queuedTasks.length} queued task(s) about reinit...`)
+        const error = serializeTaskError(new AgentNotInitializedError('Task dropped due to credential/config change'))
+        for (const task of queuedTasks) {
+          transportClient?.request('task:error', {error, taskId: task.taskId}).catch(logTransportError)
+        }
+      }
+
       taskQueueManager.clear() // Clear queued (not yet started) tasks
 
       // Wait for active tasks to complete (with timeout)
@@ -1007,6 +1021,16 @@ async function stopCipherAgent(): Promise<void> {
   // Cleanup event forwarders
   cleanupAgentEventForwarding()
 
+  // Notify clients about dropped tasks before clearing
+  const queuedTasks = taskQueueManager.getQueuedTasks()
+  if (queuedTasks.length > 0) {
+    agentLog(`Notifying ${queuedTasks.length} queued task(s) about agent stop...`)
+    const error = serializeTaskError(new AgentNotInitializedError('Task dropped - agent stopped'))
+    for (const task of queuedTasks) {
+      transportClient?.request('task:error', {error, taskId: task.taskId}).catch(logTransportError)
+    }
+  }
+
   // Clear task queue (can't process without agent)
   taskQueueManager.clear()
 
@@ -1298,6 +1322,16 @@ async function stopAgent(): Promise<void> {
     // Stop polling and heartbeat first
     stopCredentialsPolling()
     parentHeartbeat?.stop()
+
+    // Notify clients about dropped tasks before clearing
+    const queuedTasks = taskQueueManager.getQueuedTasks()
+    if (queuedTasks.length > 0) {
+      agentLog(`Notifying ${queuedTasks.length} queued task(s) about shutdown...`)
+      const error = serializeTaskError(new AgentNotInitializedError('Task dropped - agent shutting down'))
+      for (const task of queuedTasks) {
+        transportClient?.request('task:error', {error, taskId: task.taskId}).catch(logTransportError)
+      }
+    }
 
     // Clear task queue
     taskQueueManager.clear()

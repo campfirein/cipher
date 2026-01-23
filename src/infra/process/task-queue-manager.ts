@@ -133,6 +133,14 @@ export class TaskQueueManager {
   }
 
   /**
+   * Get a copy of all queued tasks (not including active tasks).
+   * Useful for notifying clients before clearing the queue.
+   */
+  getQueuedTasks(): readonly TaskExecute[] {
+    return [...this.queue]
+  }
+
+  /**
    * Get statistics for the queue.
    */
   getStats(): TaskQueueStats {
