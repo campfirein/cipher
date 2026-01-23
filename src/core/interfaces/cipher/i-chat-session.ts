@@ -65,7 +65,8 @@ export interface IChatSession {
    * @param input - User message content
    * @param options - Optional execution options
    * @param options.executionContext - Optional execution context
-   * @param options.taskId - Optional task ID for concurrent task isolation (included in all emitted events)
+   * @param options.taskId - Optional task ID for billing tracking and event correlation
+   * @param options.emitTaskId - Whether to include taskId in emitted events (default: true)
    * @returns Assistant response
    * @throws SessionCancelledError if operation is cancelled
    * @throws MaxIterationsExceededError if tool loop exceeds maximum iterations
@@ -74,6 +75,7 @@ export interface IChatSession {
   run(
     input: string,
     options?: {
+      emitTaskId?: boolean
       executionContext?: ExecutionContext
       taskId?: string
     },
