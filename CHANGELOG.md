@@ -2,6 +2,18 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [1.2.1]
+
+### Changed
+
+- **Simplified command reference** - Generated rule files now include concise command list with `--help` guidance instead of detailed inline documentation
+
+### Fixed
+
+- **Socket connection stability** - Fixed duplicate event listeners accumulating after system wake-up, improving connection reliability
+- **Sub-agent task display** - Fixed premature "Result:" message appearing during sub-agent task execution
+- **NPM security vulnerabilities** - Updated dependencies to address security issues
+
 ## [1.2.0]
 
 ### Added
