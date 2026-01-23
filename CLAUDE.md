@@ -39,13 +39,20 @@ npm run lint                                     # ESLint
 - Run `npm run test` after each approved edit
 - Suppress console logging in tests to keep output clean
 
+**Feature Development (Outside-In Approach)**:
+- Start from the consumer (oclif command, REPL command, or TUI component) - understand what it needs to accomplish, what data it requires, and the simplest call signature
+- Define the minimal interface - only what the consumer actually requires, nothing more
+- Implement the service - fulfill the interface contract
+- Extract entities only if needed - when shared structure emerges naturally across multiple consumers
+- Avoid designing in isolation - always have a concrete consumer driving the requirements to prevent interface mismatches and over-engineering
+
 ## Architecture
 
 ### REPL + TUI Architecture
 
 - `brv` (no args) starts interactive REPL (`src/infra/repl/repl-startup.tsx`)
 - React/Ink-based TUI (`src/tui/`) with streaming, dialogs, prompts
-- Slash commands (`/command`) in `src/infra/repl/commands/`
+- Slash commands (`/command`) in `src/infra/repl/commands/` (order in `index.ts` = UI suggestion order)
 - Few oclif commands remain: `main` (default), `status`, `curate`, `query`, `watch` (dev-only), `hook-prompt-submit` (hidden), `mcp` (hidden, spawned by coding agents)
 
 ### Architecture v1.0.0 (Multi-Process)
@@ -132,9 +139,9 @@ All have `toJson()`/`fromJson()`, immutable readonly properties
 
 **Cipher** (`src/infra/cipher/`) - LLM agent system:
 
-- `llm/` - Multi-provider support (ByteRover internal, OpenRouter), tokenizers, context compression, streaming with thinking visualization
+- `llm/` - Multi-provider support (ByteRover internal API, OpenRouter proxy), formatters (Claude/Gemini), tokenizers, context compression, streaming with thinking visualization
 - `tools/implementations/` - 23 tool implementations:
-  - File: `read-file`, `write-file`, `edit-file`, `list-directory`, `glob-files`, `grep-content`
+  - File: `read-file` (supports PDF text extraction), `write-file`, `edit-file`, `list-directory`, `glob-files`, `grep-content`
   - Bash: `bash-exec`, `bash-output`, `kill-process`
   - Memory: `read-memory`, `write-memory`, `edit-memory`, `delete-memory`, `list-memories`
   - Knowledge: `create-knowledge-topic`, `search-knowledge`
@@ -190,7 +197,7 @@ All have `toJson()`/`fromJson()`, immutable readonly properties
 - `environment.ts` - Dev/Prod config. Exports: `getCurrentConfig()`, `isDevelopment()`, `ENV_CONFIG`
 - `auth.config.ts` - OIDC discovery (1h cache, 3 retries, 5s timeout, hardcoded fallback)
 
-### Hooks (`src/hooks/`)
+### Hooks (`src/oclif/hooks/`)
 
 - `init/welcome.ts` - Node.js version check, ASCII banner on `--help`
 - `init/update-notifier.ts` - Auto-update notification (24h check interval)

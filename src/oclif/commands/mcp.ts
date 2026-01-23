@@ -1,7 +1,7 @@
 import {Command} from '@oclif/core'
 
-import {NoInstanceRunningError} from '../core/domain/errors/connection-error.js'
-import {ByteRoverMcpServer} from '../infra/mcp/index.js'
+import {NoInstanceRunningError} from '../../core/domain/errors/connection-error.js'
+import {ByteRoverMcpServer} from '../../infra/mcp/index.js'
 
 /**
  * MCP command - starts the MCP server for coding agent integration.

@@ -11,6 +11,7 @@ Command-line interface for ByteRover, featuring an interactive REPL with a moder
 * [Installation](#installation)
 * [Quick Start](#quick-start)
 * [Interactive REPL](#interactive-repl)
+* [Keyboard Shortcuts](#keyboard-shortcuts)
 * [What is Context Tree?](#what-is-context-tree)
 * [Slash Commands Reference](#slash-commands-reference)
 * [Authentication](#authentication)
@@ -99,10 +100,24 @@ The terminal UI includes:
 - **Tab Navigation**: Switch between Chat and Activity views using `Tab`
 - **Command Completion**: Type `/` to see available commands with auto-completion
 - **Activity Log**: Real-time task status and execution progress
-- **Streaming Output**: Live responses from AI-powered operations
+- **Streaming Output**: Live responses with markdown rendering (headings, lists, blockquotes, code blocks)
 - **File References**: Type `@` in curate mode to browse and attach files (supports PDF)
 - **Dynamic Domains**: Automatically creates new knowledge domains as your context tree grows
 - **Session Persistence**: Sessions auto-resume after restart
+- **Expandable Views**: Press `Ctrl+O` to expand messages or logs to full-screen with vim-style navigation
+- **Version Indicator**: Shows "(latest)" when running the most current version
+
+### Keyboard Shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| `Tab` | Switch between Chat and Activity views |
+| `Ctrl+O` | Expand message or log to full-screen |
+| `j` / `k` | Scroll down/up in expanded view |
+| `g` / `G` | Jump to top/bottom in expanded view |
+| `Esc` or `q` | Exit expanded view |
+| `/` | Show command suggestions |
+| `@` | Browse files (in curate mode) |
 
 ### Using Commands
 

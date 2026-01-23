@@ -5,7 +5,7 @@ import {Config as OclifConfig} from '@oclif/core'
 import {expect} from 'chai'
 import {restore, stub} from 'sinon'
 
-import hook from '../../../src/hooks/init/welcome.js'
+import hook from '../../../src/oclif/hooks/init/welcome.js'
 
 describe('welcome init hook', () => {
   let config: Config

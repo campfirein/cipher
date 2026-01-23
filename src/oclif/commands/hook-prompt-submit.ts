@@ -1,9 +1,9 @@
 import {Command} from '@oclif/core'
 
-import {isDevelopment} from '../config/environment.js'
-import {ITemplateLoader} from '../core/interfaces/i-template-loader.js'
-import {FsFileService} from '../infra/file/fs-file-service.js'
-import {FsTemplateLoader} from '../infra/template/fs-template-loader.js'
+import {isDevelopment} from '../../config/environment.js'
+import {ITemplateLoader} from '../../core/interfaces/i-template-loader.js'
+import {FsFileService} from '../../infra/file/fs-file-service.js'
+import {FsTemplateLoader} from '../../infra/template/fs-template-loader.js'
 
 /**
  * Dependencies required by HookPromptSubmit command.
