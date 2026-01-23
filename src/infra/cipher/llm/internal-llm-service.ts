@@ -531,9 +531,9 @@ export class ByteRoverLLMService implements ILLMService {
       // Stream chunks and accumulate content
       for await (const chunk of this.generator.generateContentStream(request)) {
         // Emit thinking/reasoning chunks as events for TUI display
-        if (chunk.type === StreamChunkType.THINKING && chunk.delta) {
+        if (chunk.type === StreamChunkType.THINKING && chunk.reasoning) {
           this.sessionEventBus.emit('llmservice:chunk', {
-            content: chunk.delta,
+            content: chunk.reasoning,
             isComplete: chunk.isComplete,
             taskId,
             type: 'reasoning', // Convert THINKING to 'reasoning' for TUI compatibility

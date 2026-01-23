@@ -16,8 +16,9 @@
  */
 
 import type {GenerateContentChunk} from '../../../../core/interfaces/cipher/i-content-generator.js'
-import {getModelCapabilities} from '../model-capabilities.js'
 import type {StreamEvent} from '../stream-processor.js'
+
+import {getModelCapabilities} from '../model-capabilities.js'
 import {extractReasoning} from './reasoning-extractor.js'
 
 /**
@@ -47,7 +48,11 @@ function processContentForThinkTags(content: string, state: ThinkTagState): Stre
     if (state.insideThinkTag) {
       // Look for closing </think> tag
       const closeIndex = remaining.indexOf('</think>')
-      if (closeIndex !== -1) {
+      if (closeIndex === -1) {
+        // No closing tag yet - buffer everything
+        state.buffer += remaining
+        remaining = ''
+      } else {
         // Found closing tag - emit buffered reasoning
         const reasoningContent = state.buffer + remaining.slice(0, closeIndex)
         if (reasoningContent) {
@@ -57,25 +62,11 @@ function processContentForThinkTags(content: string, state: ThinkTagState): Stre
         state.buffer = ''
         state.insideThinkTag = false
         remaining = remaining.slice(closeIndex + 8) // Skip past </think>
-      } else {
-        // No closing tag yet - buffer everything
-        state.buffer += remaining
-        remaining = ''
       }
     } else {
       // Look for opening <think> tag
       const openIndex = remaining.indexOf('<think>')
-      if (openIndex !== -1) {
-        // Found opening tag - emit any text before it
-        const textBefore = remaining.slice(0, openIndex)
-        if (textBefore) {
-          textBuffer += textBefore
-        }
-
-        state.insideThinkTag = true
-        state.buffer = ''
-        remaining = remaining.slice(openIndex + 7) // Skip past <think>
-      } else {
+      if (openIndex === -1) {
         // No think tag - check for partial tag at end
         // Look for potential start of <think> at the end
         let partialTagLength = 0
@@ -95,6 +86,16 @@ function processContentForThinkTags(content: string, state: ThinkTagState): Stre
         }
 
         remaining = ''
+      } else {
+        // Found opening tag - emit any text before it
+        const textBefore = remaining.slice(0, openIndex)
+        if (textBefore) {
+          textBuffer += textBefore
+        }
+
+        state.insideThinkTag = true
+        state.buffer = ''
+        remaining = remaining.slice(openIndex + 7) // Skip past <think>
       }
     }
   }
@@ -276,13 +277,10 @@ export async function* transformGenerateContentChunksToStreamEvents(
     if (chunk.isComplete) {
       // Flush any remaining buffered content
       if (thinkState.buffer) {
-        if (thinkState.insideThinkTag) {
-          // Unclosed think tag - emit as reasoning
-          yield {delta: thinkState.buffer, type: 'reasoning-delta'}
-        } else {
-          // Partial tag that never completed - emit as text
-          yield {delta: thinkState.buffer, type: 'text-delta'}
-        }
+        // Emit as reasoning if inside think tag, otherwise as text
+        yield thinkState.insideThinkTag
+          ? {delta: thinkState.buffer, type: 'reasoning-delta' as const}
+          : {delta: thinkState.buffer, type: 'text-delta' as const}
 
         thinkState.buffer = ''
       }
@@ -318,24 +316,4 @@ export async function* transformGenerateContentChunksToStreamEvents(
       }
     }
   }
-}
-
-/**
- * Check if a chunk contains tool calls.
- *
- * @param chunk - Content chunk to check
- * @returns True if chunk has tool calls
- */
-export function hasToolCalls(chunk: GenerateContentChunk): boolean {
-  return Boolean(chunk.toolCalls && chunk.toolCalls.length > 0)
-}
-
-/**
- * Check if a chunk is the final chunk.
- *
- * @param chunk - Content chunk to check
- * @returns True if this is the final chunk
- */
-export function isComplete(chunk: GenerateContentChunk): boolean {
-  return chunk.isComplete
 }

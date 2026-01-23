@@ -89,11 +89,6 @@ export interface GenerateContentResponse {
 export interface GenerateContentChunk {
   /** Incremental text content */
   content?: string
-  /**
-   * Incremental content delta (for streaming).
-   * Used when content is accumulated incrementally.
-   */
-  delta?: string
   /** Reason why generation stopped (only on final chunk) */
   finishReason?: 'error' | 'max_tokens' | 'stop' | 'tool_calls'
   /** Whether this is the final chunk */

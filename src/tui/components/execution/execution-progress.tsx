@@ -43,48 +43,15 @@ function formatToolDisplay(toolName: string, args?: Record<string, unknown>): st
 
   // Tool-specific formatting (following OpenCode patterns)
   switch (toolName) {
-    case 'read':
-    case 'Read': {
-      const filePath = args.file_path ?? args.filePath
-      if (filePath) return `Read ${filePath}`
-      break
-    }
-
-    case 'glob':
-    case 'Glob': {
-      const pattern = args.pattern
-      const path = args.path
-      if (pattern) {
-        return path ? `Glob "${pattern}" in ${path}` : `Glob "${pattern}"`
-      }
-      break
-    }
-
-    case 'grep':
-    case 'Grep': {
-      const pattern = args.pattern
-      const path = args.path
-      if (pattern) {
-        return path ? `Grep "${pattern}" in ${path}` : `Grep "${pattern}"`
-      }
-      break
-    }
-
     case 'bash':
     case 'Bash': {
-      const command = args.command
+      const {command} = args
       if (command) {
         // Truncate long commands
         const cmdStr = String(command)
         return cmdStr.length > 60 ? `$ ${cmdStr.slice(0, 57)}...` : `$ ${cmdStr}`
       }
-      break
-    }
 
-    case 'write':
-    case 'Write': {
-      const filePath = args.file_path ?? args.filePath
-      if (filePath) return `Write ${filePath}`
       break
     }
 
@@ -95,29 +62,66 @@ function formatToolDisplay(toolName: string, args?: Record<string, unknown>): st
       break
     }
 
-    case 'task':
-    case 'Task': {
-      const description = args.description
-      if (description) return `Task: ${description}`
+    case 'glob':
+    case 'Glob': {
+      const {pattern} = args
+      const {path} = args
+      if (pattern) {
+        return path ? `Glob "${pattern}" in ${path}` : `Glob "${pattern}"`
+      }
+
       break
     }
 
-    case 'web_search':
-    case 'WebSearch': {
-      const query = args.query
-      if (query) return `Search: ${query}`
+    case 'grep':
+    case 'Grep': {
+      const {pattern} = args
+      const {path} = args
+      if (pattern) {
+        return path ? `Grep "${pattern}" in ${path}` : `Grep "${pattern}"`
+      }
+
+      break
+    }
+
+    case 'read':
+    case 'Read': {
+      const filePath = args.file_path ?? args.filePath
+      if (filePath) return `Read ${filePath}`
+      break
+    }
+
+    case 'task':
+    case 'Task': {
+      const {description} = args
+      if (description) return `Task: ${description}`
       break
     }
 
     case 'web_fetch':
     case 'WebFetch': {
-      const url = args.url
+      const {url} = args
       if (url) return `Fetch: ${url}`
       break
     }
 
-    default:
+    case 'web_search':
+    case 'WebSearch': {
+      const {query} = args
+      if (query) return `Search: ${query}`
       break
+    }
+
+    case 'write':
+    case 'Write': {
+      const filePath = args.file_path ?? args.filePath
+      if (filePath) return `Write ${filePath}`
+      break
+    }
+
+    default: {
+      break
+    }
   }
 
   // Generic fallback: show first primitive arg

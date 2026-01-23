@@ -98,65 +98,6 @@ export class AuthenticatedHttpClient implements IHttpClient {
   }
 
   /**
-   * Performs an HTTP POST request with streaming response.
-   * Returns a Response object with a readable body stream for SSE processing.
-   *
-   * @param url The URL to request
-   * @param data The data to send in the request body
-   * @param config Optional request configuration (headers, timeout)
-   * @returns A promise that resolves to a Response object with streaming body
-   * @throws Error if the request fails
-   */
-  public async postStream<TData = unknown>(
-    url: string,
-    data?: TData,
-    config?: HttpRequestConfig,
-  ): Promise<Response> {
-    const headers = this.buildHeaders({
-      'Content-Type': 'application/json',
-      ...config?.headers,
-    })
-
-    const controller = new AbortController()
-    const timeoutId = config?.timeout ? setTimeout(() => controller.abort(), config.timeout) : undefined
-
-    try {
-      const response = await fetch(url, {
-        body: JSON.stringify(data),
-        headers,
-        method: 'POST',
-        signal: controller.signal,
-      })
-
-      if (!response.ok) {
-        const errorText = await response.text()
-        let errorMessage: string
-
-        try {
-          const errorJson = JSON.parse(errorText) as {message?: string}
-          errorMessage = errorJson.message ?? `HTTP ${response.status}: ${response.statusText}`
-        } catch {
-          errorMessage = `HTTP ${response.status}: ${response.statusText}`
-        }
-
-        throw new Error(errorMessage)
-      }
-
-      return response
-    } catch (error) {
-      if (error instanceof Error && error.name === 'AbortError') {
-        throw new Error('Request timeout')
-      }
-
-      throw error
-    } finally {
-      if (timeoutId) {
-        clearTimeout(timeoutId)
-      }
-    }
-  }
-
-  /**
    * Builds request headers by merging authentication headers with custom headers.
    * Custom headers take precedence over default headers.
    */

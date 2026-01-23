@@ -173,14 +173,6 @@ export class ByteRoverLlmHttpService {
   }
 
   /**
-   * Extract thinking/reasoning chunks from a complete response.
-   *
-   * Looks for parts with `thought: true` and yields them as THINKING chunks.
-   *
-   * @param response - Complete GenerateContentResponse
-   * @yields GenerateContentChunk for each thinking part
-   */
-  /**
    * Call the ByteRover REST Generate endpoint.
    *
    * Handles authentication headers and error handling.
@@ -331,7 +323,6 @@ export class ByteRoverLlmHttpService {
         }
 
         yield {
-          delta,
           isComplete: false,
           providerMetadata: {
             subject: thinkingSubject,

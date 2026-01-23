@@ -16,26 +16,26 @@
  */
 export type ReasoningFormat =
   /** Model uses <think>...</think> XML tags in content */
-  | 'think-tags'
+  | 'interleaved'
   /** Model uses a native field in the API response */
   | 'native-field'
   /** Model interleaves reasoning in content parts */
-  | 'interleaved'
-  /** Model does not support reasoning */
   | 'none'
+  /** Model does not support reasoning */
+  | 'think-tags'
 
 /**
  * Model capabilities for reasoning/thinking
  */
 export interface ModelCapabilities {
-  /** Whether the model supports reasoning/thinking output */
-  reasoning: boolean
-  /** How the model outputs reasoning content */
-  reasoningFormat: ReasoningFormat
-  /** The field name for native reasoning (e.g., 'reasoning_content', 'reasoning', 'thoughts') */
-  reasoningField?: string
   /** Additional fields to check for reasoning content */
   alternativeFields?: string[]
+  /** Whether the model supports reasoning/thinking output */
+  reasoning: boolean
+  /** The field name for native reasoning (e.g., 'reasoning_content', 'reasoning', 'thoughts') */
+  reasoningField?: string
+  /** How the model outputs reasoning content */
+  reasoningFormat: ReasoningFormat
 }
 
 /**

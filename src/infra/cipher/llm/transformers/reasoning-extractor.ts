@@ -28,14 +28,14 @@ import {getModelCapabilities, type ModelCapabilities} from '../model-capabilitie
  * Result from extracting reasoning content from a chunk
  */
 export interface ReasoningExtractorResult {
-  /** Extracted reasoning/thinking text (undefined if none found) */
-  reasoning?: string
-  /** Unique ID for the reasoning block (for tracking across deltas) */
-  reasoningId?: string
   /** Remaining content after reasoning extraction (text response) */
   content?: string
   /** Provider-specific metadata */
   providerMetadata?: Record<string, unknown>
+  /** Extracted reasoning/thinking text (undefined if none found) */
+  reasoning?: string
+  /** Unique ID for the reasoning block (for tracking across deltas) */
+  reasoningId?: string
 }
 
 /**
@@ -46,7 +46,7 @@ interface ReasoningDetailItem {
   format?: string
   id?: string
   index?: number
-  signature?: string | null
+  signature?: null | string
   text?: string
   type?: string
 }
@@ -55,7 +55,6 @@ interface ReasoningDetailItem {
  * OpenAI/OpenRouter streaming chunk structure (simplified)
  */
 interface OpenAIStreamChunk {
-  id?: string
   choices?: Array<{
     delta?: {
       content?: string
@@ -64,14 +63,15 @@ interface OpenAIStreamChunk {
       reasoning_details?: ReasoningDetailItem[] | string
       thoughts?: string
     }
+    index?: number
     message?: {
       content?: string
       reasoning?: string
       reasoning_content?: string
       reasoning_details?: ReasoningDetailItem[] | string
     }
-    index?: number
   }>
+  id?: string
 }
 
 /**
@@ -227,15 +227,13 @@ function extractGeminiReasoning(chunk: OpenAIStreamChunk): ReasoningExtractorRes
   }
 
   // Also check message for non-streaming
-  if (!result.reasoning && choice.message) {
-    if (choice.message.reasoning_details) {
+  if (!result.reasoning && choice.message && choice.message.reasoning_details) {
       const extracted = extractFromReasoningDetails(choice.message.reasoning_details)
       if (extracted) {
         result.reasoning = extracted
         result.reasoningId = chunk.id ?? `reasoning-${Date.now()}`
       }
     }
-  }
 
   return result
 }
