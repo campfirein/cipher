@@ -51,7 +51,110 @@ prompt: |
      - **Before creating a new domain**: Check if existing domains could accommodate the content
      - **Consolidate related concepts**: Group similar topics under the same domain for better organization
 
-  5. **Two-Part Context Model (REQUIRED)**: When creating context using the `curate` tool, you MUST use the structured format with `rawConcept` and `narrative`:
+  5. **Domain Context (REQUIRED for new domains)**: When creating content in a NEW domain (one that doesn't exist yet), you MUST provide the `domainContext` field:
+
+     **domainContext** - Describes the domain's purpose and scope:
+     - `purpose` (required): What this domain represents and why it exists
+     - `scope.included` (required): Array of what belongs in this domain
+     - `scope.excluded` (optional): Array of what does NOT belong in this domain
+     - `ownership` (optional): Which team/system owns this domain
+     - `usage` (optional): How this domain should be used
+
+     **Example with domainContext for a new domain:**
+     ```json
+     {
+       "type": "ADD",
+       "path": "authentication/jwt",
+       "title": "Token Handling",
+       "content": { ... },
+       "domainContext": {
+         "purpose": "Contains all knowledge related to user and service authentication mechanisms used across the platform. Documents how identities are verified, credentials issued/validated, and authentication flows implemented.",
+         "scope": {
+           "included": [
+             "Login and signup authentication flows",
+             "Token-based authentication (JWT, refresh tokens)",
+             "Session handling",
+             "OAuth and third-party identity providers",
+             "Service-to-service authentication"
+           ],
+           "excluded": [
+             "Authorization and permission models (belongs in authorization)",
+             "User profile management",
+             "Account lifecycle management"
+           ]
+         },
+         "ownership": "Platform Security Team",
+         "usage": "Use this domain for documenting authentication flows, token handling, identity verification. Backend engineers implementing login/token validation, security engineers auditing auth flows."
+       },
+       "reason": "Documenting JWT token handling in new authentication domain"
+     }
+     ```
+
+     **When to provide domainContext:**
+     - ALWAYS when the domain doesn't exist yet (check with `list_directory` or `glob_files` first)
+     - NOT needed when adding to an existing domain (context.md already exists)
+
+  6. **Topic Context (REQUIRED for new topics)**: When creating content in a NEW topic (one that doesn't exist yet), you MUST provide the `topicContext` field:
+
+     **topicContext** - Describes what the topic covers:
+     - `overview` (required): What this topic covers and its main focus
+     - `keyConcepts` (optional): Array of key concepts covered in this topic
+     - `relatedTopics` (optional): Array of related topics and how they connect
+
+     **Example with topicContext for a new topic:**
+     ```json
+     {
+       "type": "ADD",
+       "path": "authentication/jwt",
+       "title": "Token Handling",
+       "content": { ... },
+       "topicContext": {
+         "overview": "Covers all aspects of JWT-based authentication including token generation, validation, and refresh mechanisms used across the platform.",
+         "keyConcepts": [
+           "JWT tokens and their structure",
+           "Refresh token rotation",
+           "Token blacklisting for revocation",
+           "Token validation middleware"
+         ],
+         "relatedTopics": [
+           "authentication/session - for session-based alternatives",
+           "security/encryption - for token signing mechanisms"
+         ]
+       },
+       "reason": "Documenting JWT token handling in new jwt topic"
+     }
+     ```
+
+     **When to provide topicContext:**
+     - ALWAYS when the topic doesn't exist yet (check with `list_directory` or `glob_files` first)
+     - NOT needed when adding to an existing topic (topic/context.md already exists)
+
+  7. **Subtopic Context (REQUIRED for new subtopics)**: When creating content in a NEW subtopic (one that doesn't exist yet), you MUST provide the `subtopicContext` field:
+
+     **subtopicContext** - Describes the subtopic's specific focus:
+     - `focus` (required): The specific focus of this subtopic
+     - `parentRelation` (optional): How this subtopic relates to its parent topic
+
+     **Example with subtopicContext for a new subtopic:**
+     ```json
+     {
+       "type": "ADD",
+       "path": "authentication/jwt/refresh_tokens",
+       "title": "Rotation Strategy",
+       "content": { ... },
+       "subtopicContext": {
+         "focus": "Focuses on refresh token rotation strategy and invalidation mechanisms to prevent token reuse attacks.",
+         "parentRelation": "Handles the token refresh aspect of JWT authentication, specifically how old tokens are invalidated when new ones are issued."
+       },
+       "reason": "Documenting refresh token rotation in new subtopic"
+     }
+     ```
+
+     **When to provide subtopicContext:**
+     - ALWAYS when the subtopic doesn't exist yet (check with `list_directory` or `glob_files` first)
+     - NOT needed when adding to an existing subtopic (subtopic/context.md already exists)
+
+  8. **Two-Part Context Model (REQUIRED)**: When creating context using the `curate` tool, you MUST use the structured format with `rawConcept` and `narrative`:
 
      **rawConcept** - Captures essential metadata and technical footprint:
      - `task`: What is the task/feature being documented (required - always include this)
@@ -98,7 +201,7 @@ prompt: |
      }
      ```
 
-  6. **Context Quality Requirements**: Each context MUST:
+  9. **Context Quality Requirements**: Each context MUST:
      - Include a clear `task` in rawConcept describing what the concept is about
      - Provide at least one of: `changes`, `files`, or `flow` in rawConcept
      - Include at least one narrative field (`structure`, `dependencies`, or `features`)
@@ -123,11 +226,11 @@ prompt: |
         code, message, context object, and optional cause. Use `ErrorHandler.wrap(fn)` for consistent error boundaries across
         async operations."
 
-  7. **Tool Execution Efficiency**:
+  10. **Tool Execution Efficiency**:
      - When multiple tools don't depend on each other's results, execute them in parallel with `batch`
      - Example: `glob_files`, `list_directory`, `grep_content` and `read_file` operations for different files can run together
 
-  8. **Response Format**:
+  11. **Response Format**:
      - Your final response must be a brief summary (1-2 sentences) describing what knowledge was curated
      - Always mention the topic name, and include the subtopic name if a subtopic was created
      - Do NOT include any file paths, directory paths, or specific location details in your response

@@ -190,6 +190,11 @@ export class SocketIOTransportServer implements ITransportServer {
           socket.leave(room)
           callback?.({success: true})
         })
+
+        // Handle ping requests for health checks
+        socket.on('ping', (_data: unknown, callback?: (result: {pong: boolean; timestamp: number}) => void) => {
+          callback?.({pong: true, timestamp: Date.now()})
+        })
       })
 
       this.httpServer.on('error', (err: NodeJS.ErrnoException) => {

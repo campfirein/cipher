@@ -76,6 +76,22 @@ export class ConnectorsUseCase implements IConnectorsUseCase {
   }
 
   /**
+   * Display manual setup instructions for MCP configuration.
+   */
+  private displayManualInstructions(agent: Agent, instructions: {configContent: string; guide: string}): void {
+    this.terminal.log(`\nManual setup required for ${agent}`)
+    this.terminal.log('')
+    this.terminal.log('Add this configuration to your MCP settings:')
+    this.terminal.log('')
+    this.terminal.log(instructions.configContent)
+    this.terminal.log('')
+
+    if (instructions.guide) {
+      this.terminal.log(`\nFor detailed instructions, see: ${instructions.guide}`)
+    }
+  }
+
+  /**
    * Gets a description for a connector type.
    */
   private getConnectorDescription(type: ConnectorType, configPath: string): string {
@@ -84,12 +100,12 @@ export class ConnectorsUseCase implements IConnectorsUseCase {
         return `Instructions injected on each prompt (${configPath})`
       }
 
-      case 'rules': {
-        return `Agent reads instructions from rule file (${configPath})`
+      case 'mcp': {
+        return `Agent connects via MCP protocol ${configPath ? `(${configPath})` : ''}`
       }
 
-      default: {
-        return configPath
+      case 'rules': {
+        return `Agent reads instructions from rule file (${configPath})`
       }
     }
   }
@@ -103,12 +119,12 @@ export class ConnectorsUseCase implements IConnectorsUseCase {
         return 'Hook'
       }
 
-      case 'rules': {
-        return 'Rules'
+      case 'mcp': {
+        return 'MCP'
       }
 
-      default: {
-        return type
+      case 'rules': {
+        return 'Rules'
       }
     }
   }
@@ -141,8 +157,16 @@ export class ConnectorsUseCase implements IConnectorsUseCase {
     const result = await this.connectorManager.switchConnector(agent, connectorType)
 
     if (result.success) {
+      // Handle manual setup instructions
+      if (result.installResult.requiresManualSetup && result.installResult.manualInstructions) {
+        this.displayManualInstructions(agent, result.installResult.manualInstructions)
+        return
+      }
+
       if (result.fromType && result.fromType !== result.toType) {
-        this.terminal.log(`${agent} switched from ${result.fromType} to ${result.toType}`)
+        this.terminal.log(
+          `${agent} switched from ${this.getConnectorLabel(result.fromType)} to ${this.getConnectorLabel(result.toType)}`,
+        )
         if (result.uninstallResult?.wasInstalled) {
           this.terminal.log(`   Uninstalled: ${result.uninstallResult.configPath}`)
         }
@@ -157,8 +181,8 @@ export class ConnectorsUseCase implements IConnectorsUseCase {
       }
 
       // Show restart message for hook connector
-      if (result.toType === 'hook' && !result.installResult.alreadyInstalled) {
-        this.terminal.warn(`\nPlease restart ${agent} to apply the new hooks.`)
+      if ((result.toType === 'hook' || result.toType === 'mcp') && !result.installResult.alreadyInstalled) {
+        this.terminal.warn(`\nPlease restart ${agent} to apply the new ${result.toType}.`)
       }
     } else {
       this.terminal.error(`Failed to configure ${agent}: ${result.message}`)
@@ -258,7 +282,9 @@ export class ConnectorsUseCase implements IConnectorsUseCase {
     const fromConnector = this.connectorManager.getConnector(fromType)
     const fromPath = fromConnector.getConfigPath(agent)
 
-    this.terminal.warn(`${agent} is currently connected via ${fromType} (${fromPath})`)
+    this.terminal.warn(
+      `${agent} is currently connected via ${this.getConnectorLabel(fromType)} ${fromPath ? `(${fromPath})` : ''}`,
+    )
 
     return this.terminal.confirm({
       default: true,

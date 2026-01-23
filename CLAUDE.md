@@ -45,8 +45,8 @@ npm run lint                                     # ESLint
 
 - `brv` (no args) starts interactive REPL (`src/infra/repl/repl-startup.tsx`)
 - React/Ink-based TUI (`src/tui/`) with streaming, dialogs, prompts
-- Slash commands (`/command`) in `src/infra/repl/commands/`
-- Few oclif commands remain: `main` (default), `status`, `curate`, `query`, `watch` (dev-only), `hook-prompt-submit` (hidden, IDE integration)
+- Slash commands (`/command`) in `src/infra/repl/commands/` (order in `index.ts` = UI suggestion order)
+- Few oclif commands remain: `main` (default), `status`, `curate`, `query`, `watch` (dev-only), `hook-prompt-submit` (hidden), `mcp` (hidden, spawned by coding agents)
 
 ### Architecture v1.0.0 (Multi-Process)
 
@@ -89,6 +89,7 @@ npm run lint                                     # ESLint
 - `IGlobalConfigStore` - User-level config (`~/.config/brv/config.json`), device ID management
 - `IOnboardingPreferenceStore` - Onboarding state persistence
 - `ITrackingService` - Event tracking (Mixpanel implementation)
+- `IMcpConfigWriter` - MCP config file persistence (JSON/TOML formats)
 
 **Transport** (multi-process communication):
 
@@ -131,9 +132,9 @@ All have `toJson()`/`fromJson()`, immutable readonly properties
 
 **Cipher** (`src/infra/cipher/`) - LLM agent system:
 
-- `llm/` - Multi-provider support (ByteRover internal, OpenRouter), tokenizers, context compression, streaming with thinking visualization
+- `llm/` - Multi-provider support (ByteRover internal API, OpenRouter proxy), formatters (Claude/Gemini), tokenizers, context compression, streaming with thinking visualization
 - `tools/implementations/` - 23 tool implementations:
-  - File: `read-file`, `write-file`, `edit-file`, `list-directory`, `glob-files`, `grep-content`
+  - File: `read-file` (supports PDF text extraction), `write-file`, `edit-file`, `list-directory`, `glob-files`, `grep-content`
   - Bash: `bash-exec`, `bash-output`, `kill-process`
   - Memory: `read-memory`, `write-memory`, `edit-memory`, `delete-memory`, `list-memories`
   - Knowledge: `create-knowledge-topic`, `search-knowledge`
@@ -142,6 +143,11 @@ All have `toJson()`/`fromJson()`, immutable readonly properties
 - `tools/policy-engine.ts` - Tool execution policy (ALLOW/DENY)
 - `session/` - Chat session management
 - `memory/` - Memory persistence
+
+**MCP** (`src/infra/mcp/`) - Model Context Protocol server:
+
+- `mcp-server.ts` - MCP server exposing brv-query/brv-curate tools
+- `tools/` - Tool implementations for MCP clients
 
 **Auth/HTTP**:
 
@@ -163,6 +169,7 @@ All have `toJson()`/`fromJson()`, immutable readonly properties
 - `ConnectorManager` - Factory and orchestration for connectors
 - `hook/` - Hook-based integration (Claude Code via settings.local.json)
 - `rules/` - Rules-based integration (other agents via rule files)
+- `mcp/` - MCP-based integration (exposes brv-query/brv-curate tools to agents)
 
 **Knowledge** (`src/core/domain/knowledge/`):
 

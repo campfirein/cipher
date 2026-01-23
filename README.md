@@ -11,6 +11,7 @@ Command-line interface for ByteRover, featuring an interactive REPL with a moder
 * [Installation](#installation)
 * [Quick Start](#quick-start)
 * [Interactive REPL](#interactive-repl)
+* [Keyboard Shortcuts](#keyboard-shortcuts)
 * [What is Context Tree?](#what-is-context-tree)
 * [Slash Commands Reference](#slash-commands-reference)
 * [Authentication](#authentication)
@@ -31,6 +32,7 @@ Command-line interface for ByteRover, featuring an interactive REPL with a moder
       - Debian/Ubuntu: `sudo apt-get install libsecret-1-dev`
       - Red Hat-based: `sudo yum install libsecret-devel`
       - Arch Linux: `sudo pacman -S libsecret`
+- **WSL (Windows Subsystem for Linux)**: Supported with automatic file-based token storage fallback when keychain is unavailable
 
 ### Install globally via npm
 
@@ -98,8 +100,24 @@ The terminal UI includes:
 - **Tab Navigation**: Switch between Chat and Activity views using `Tab`
 - **Command Completion**: Type `/` to see available commands with auto-completion
 - **Activity Log**: Real-time task status and execution progress
-- **Streaming Output**: Live responses from AI-powered operations
-- **File References**: Type `@` in curate mode to browse and attach files
+- **Streaming Output**: Live responses with markdown rendering (headings, lists, blockquotes, code blocks)
+- **File References**: Type `@` in curate mode to browse and attach files (supports PDF)
+- **Dynamic Domains**: Automatically creates new knowledge domains as your context tree grows
+- **Session Persistence**: Sessions auto-resume after restart
+- **Expandable Views**: Press `Ctrl+O` to expand messages or logs to full-screen with vim-style navigation
+- **Version Indicator**: Shows "(latest)" when running the most current version
+
+### Keyboard Shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| `Tab` | Switch between Chat and Activity views |
+| `Ctrl+O` | Expand message or log to full-screen |
+| `j` / `k` | Scroll down/up in expanded view |
+| `g` / `G` | Jump to top/bottom in expanded view |
+| `Esc` or `q` | Exit expanded view |
+| `/` | Show command suggestions |
+| `@` | Browse files (in curate mode) |
 
 ### Using Commands
 
@@ -141,9 +159,10 @@ Use `/connectors` to manage integrations with your AI coding agents:
 /connectors
 ```
 
-ByteRover supports two connector types:
+ByteRover supports three connector types:
 - **Hook integration** (Claude Code): Direct injection via IDE settings for seamless integration
 - **Rules-based** (all agents): Generates agent-specific rule files (e.g., `CLAUDE.md`, `.cursorrules`) that instruct the agent how to read from and contribute to your context tree
+- **MCP integration** (Model Context Protocol): Exposes `brv-query` and `brv-curate` as MCP tools that AI agents can call directly
 
 ## Slash Commands Reference
 
@@ -159,7 +178,7 @@ ByteRover supports two connector types:
 ```
 /curate                                    # Interactive mode
 /curate "Auth uses JWT tokens"             # Autonomous mode with text
-/curate "API docs" @src/api.ts @README.md  # With file references (max 5)
+/curate "API docs" @src/api.ts @README.md  # With file references (max 5, supports PDF)
 ```
 
 **Query example:**
@@ -219,7 +238,7 @@ ByteRover supports two connector types:
 **Options:**
 - `-y, --yes`: Skip confirmation prompt
 
-**Note:** This command does NOT affect the context tree—it only clears the conversation history and starts a new session.
+**Note:** Sessions are stateful and auto-resume after restart. Use `/new` to start fresh—this clears conversation history but does NOT affect the context tree.
 
 ### Project Setup
 

@@ -2,6 +2,42 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [1.2.1]
+
+### Changed
+
+- **Simplified command reference** - Generated rule files now include concise command list with `--help` guidance instead of detailed inline documentation
+
+### Fixed
+
+- **Socket connection stability** - Fixed duplicate event listeners accumulating after system wake-up, improving connection reliability
+- **Sub-agent task display** - Fixed premature "Result:" message appearing during sub-agent task execution
+- **NPM security vulnerabilities** - Updated dependencies to address security issues
+
+## [1.2.0]
+
+### Added
+
+- **MCP server integration** - Model Context Protocol server enabling ByteRover context queries and curation from Claude Code, Cursor, Windsurf, and other coding agents via `brv-query` and `brv-curate` tools
+- **Expandable message view** - Press Ctrl+O to expand any message to full-screen view with vim-style navigation (j/k for scrolling, g/G to jump to top/bottom)
+- **Expandable log view** - Full-screen log inspection with scrollable output and keyboard navigation
+- **Auto-create domain context files** - Domains automatically get context.md files created at multiple levels (domain, topic, subtopic) for better knowledge organization
+- **Markdown rendering** - Improved formatting support for agent output with proper rendering of headings, lists, blockquotes, and code blocks
+
+### Changed
+
+- **Connector setup flow** - `/connectors` command now provides clearer MCP configuration instructions for supported coding agents
+- **Increased suggestion visibility** - CLI suggestions list displays 7 items with improved scroll indicators
+- **Version display** - Version number shows "(latest)" indicator when running the most current version
+
+### Fixed
+
+- **MCP connection stability** - Added auto-reconnect logic with exponential backoff and health checks to handle temporary socket disconnections
+- **`/new` command session handling** - Fixed `/new` command to properly update agent's internal session ID, preventing messages from routing to old sessions
+- **Task isolation** - Fixed taskId propagation in session events for proper concurrent task handling
+- **`/curate` usage string** - Aligned `/curate` usage description with actual flag behavior
+- **Context overflow handling** - Added token-based message compression for handling large conversation contexts
+
 ## [1.1.0]
 
 ### Added

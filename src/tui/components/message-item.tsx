@@ -19,7 +19,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({ message }) => {
   const { theme: { colors } } = useTheme()
 
   return (
-    <Box alignItems="flex-start" flexDirection="column" marginBottom={1}>
+    <Box alignItems="flex-start" flexDirection="column" marginBottom={1} width="100%">
       <Box flexDirection="row" gap={1}>
         <Box borderBottom={false} borderLeftColor={colors.primary} borderRight={false} borderStyle="bold" borderTop={false} />
         <Text>

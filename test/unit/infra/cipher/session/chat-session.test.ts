@@ -485,9 +485,10 @@ describe('ChatSession', () => {
       const agentEmitStub = sandbox.stub(agentEventBus, 'emit')
 
       // Setup completeTask to trigger some events
-      ;(mockLLMService.completeTask as SinonStub).callsFake(async () => {
-        // Emit a thinking event during execution
-        sessionEventBus.emit('llmservice:thinking')
+      // LLM service now includes taskId in events it emits
+      ;(mockLLMService.completeTask as SinonStub).callsFake(async (_input, options) => {
+        // Emit a thinking event during execution with taskId (simulating LLM service behavior)
+        sessionEventBus.emit('llmservice:thinking', {taskId: options?.taskId})
         return 'response'
       })
 
@@ -508,11 +509,13 @@ describe('ChatSession', () => {
       const agentEmitStub = sandbox.stub(agentEventBus, 'emit')
 
       // Setup completeTask to trigger some events
-      ;(mockLLMService.completeTask as SinonStub).callsFake(async () => {
-        // Emit a toolCall event during execution
+      // LLM service now includes taskId in events it emits
+      ;(mockLLMService.completeTask as SinonStub).callsFake(async (_input, options) => {
+        // Emit a toolCall event during execution with taskId (simulating LLM service behavior)
         sessionEventBus.emit('llmservice:toolCall', {
           args: {path: '/test'},
           callId: 'call-1',
+          taskId: options?.taskId,
           toolName: 'read_file',
         })
         return 'response'
@@ -601,21 +604,25 @@ describe('ChatSession', () => {
       const agentEmitStub = sandbox.stub(agentEventBus, 'emit')
 
       // Setup completeTask to trigger multiple events
-      ;(mockLLMService.completeTask as SinonStub).callsFake(async () => {
-        sessionEventBus.emit('llmservice:thinking')
-        sessionEventBus.emit('llmservice:chunk', {content: 'test', type: 'text'})
+      // LLM service now includes taskId in events it emits
+      ;(mockLLMService.completeTask as SinonStub).callsFake(async (_input, options) => {
+        const eventTaskId = options?.taskId
+        sessionEventBus.emit('llmservice:thinking', {taskId: eventTaskId})
+        sessionEventBus.emit('llmservice:chunk', {content: 'test', taskId: eventTaskId, type: 'text'})
         sessionEventBus.emit('llmservice:toolCall', {
           args: {},
           callId: 'call-1',
+          taskId: eventTaskId,
           toolName: 'test_tool',
         })
         sessionEventBus.emit('llmservice:toolResult', {
           callId: 'call-1',
           result: 'success',
           success: true,
+          taskId: eventTaskId,
           toolName: 'test_tool',
         })
-        sessionEventBus.emit('llmservice:response', {content: 'final response'})
+        sessionEventBus.emit('llmservice:response', {content: 'final response', taskId: eventTaskId})
         return 'response'
       })
 

@@ -9,7 +9,7 @@
 import {Box, Text, useStdout} from 'ink'
 import React, {useMemo} from 'react'
 
-import {useTheme} from '../hooks/index.js'
+import {useIsLatestVersion, useTheme} from '../hooks/index.js'
 
 /**
  * Full ASCII logo "ByteRover" for large terminals
@@ -128,6 +128,7 @@ export const Logo: React.FC<LogoProps> = ({compact, version}) => {
   const {
     theme: {colors},
   } = useTheme()
+  const isLatestVersion = useIsLatestVersion(version ?? '')
 
   const terminalWidth = stdout?.columns ?? 80
   const terminalHeight = stdout?.rows ?? 24
@@ -146,7 +147,7 @@ export const Logo: React.FC<LogoProps> = ({compact, version}) => {
 
   // Text-only logo for minimal terminals
   if (variant === 'text') {
-    const textContent = MINI_LOGO + (version ? ` v${version}` : '')
+    const textContent = MINI_LOGO + (version ? ` v${version}` : '') + (isLatestVersion ? ' (latest)' : '')
     const padEnd = calculatePadEnd(textContent.length, terminalWidth)
 
     return (
@@ -157,6 +158,7 @@ export const Logo: React.FC<LogoProps> = ({compact, version}) => {
             {MINI_LOGO}
           </Text>
           {version && <Text color={colors.logoVersion}> v{version}</Text>}
+          {isLatestVersion && <Text color={colors.logoVersion}> (latest)</Text>}
         </Text>
         <Text color={colors.logoDecor}>{padEnd}</Text>
       </Box>
