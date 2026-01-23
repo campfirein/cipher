@@ -15,6 +15,18 @@ import type {ExecutionContext} from './i-cipher-agent.js'
 import type {InternalMessage, ToolCall} from './message-types.js'
 
 /**
+ * Stream chunk type for distinguishing content types during streaming.
+ */
+export enum StreamChunkType {
+  /** Regular text content */
+  CONTENT = 'content',
+  /** Thinking/reasoning content from models like Gemini */
+  THINKING = 'thinking',
+  /** Tool call request */
+  TOOL_CALL = 'tool_call',
+}
+
+/**
  * Configuration for content generation.
  */
 export interface GenerationConfig {
@@ -77,6 +89,11 @@ export interface GenerateContentResponse {
 export interface GenerateContentChunk {
   /** Incremental text content */
   content?: string
+  /**
+   * Incremental content delta (for streaming).
+   * Used when content is accumulated incrementally.
+   */
+  delta?: string
   /** Reason why generation stopped (only on final chunk) */
   finishReason?: 'error' | 'max_tokens' | 'stop' | 'tool_calls'
   /** Whether this is the final chunk */
@@ -97,6 +114,11 @@ export interface GenerateContentChunk {
   reasoningId?: string
   /** Tool calls (only on final chunk or when complete) */
   toolCalls?: ToolCall[]
+  /**
+   * Type of this chunk for distinguishing content from thinking.
+   * Defaults to CONTENT if not specified.
+   */
+  type?: StreamChunkType
 }
 
 /**
