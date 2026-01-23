@@ -8,7 +8,7 @@ import type {IProjectConfigStore} from '../../../src/core/interfaces/i-project-c
 import {BRV_CONFIG_VERSION} from '../../../src/constants.js'
 import {BrvConfig, BrvConfigParams} from '../../../src/core/domain/entities/brv-config.js'
 import {BrvConfigVersionError} from '../../../src/core/domain/errors/brv-config-version-error.js'
-import {SKIP_COMMANDS, validateBrvConfigVersion} from '../../../src/hooks/prerun/validate-brv-config-version.js'
+import {SKIP_COMMANDS, validateBrvConfigVersion} from '../../../src/oclif/hooks/prerun/validate-brv-config-version.js'
 
 describe('validateBrvConfigVersion', () => {
   let errorStub: SinonStub
