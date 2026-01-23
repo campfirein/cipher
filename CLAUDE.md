@@ -39,6 +39,13 @@ npm run lint                                     # ESLint
 - Run `npm run test` after each approved edit
 - Suppress console logging in tests to keep output clean
 
+**Feature Development (Outside-In Approach)**:
+- Start from the consumer (oclif command, REPL command, or TUI component) - understand what it needs to accomplish, what data it requires, and the simplest call signature
+- Define the minimal interface - only what the consumer actually requires, nothing more
+- Implement the service - fulfill the interface contract
+- Extract entities only if needed - when shared structure emerges naturally across multiple consumers
+- Avoid designing in isolation - always have a concrete consumer driving the requirements to prevent interface mismatches and over-engineering
+
 ## Architecture
 
 ### REPL + TUI Architecture
