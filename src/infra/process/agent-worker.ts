@@ -156,11 +156,10 @@ let eventForwarders: EventForwarder[] = []
 
 /**
  * Task queue manager handles:
- * - Separate queues for curate and query tasks
- * - Concurrency limits (max 1 concurrent per type)
+ * - Unified queue for all task types (curate, query)
+ * - Sequential FIFO execution (max 1 concurrent)
  * - Task deduplication (same taskId can't be queued twice)
  * - Cancel tasks from queue before processing
- * - FIFO processing order
  */
 const taskQueueManager = new TaskQueueManager({
   maxConcurrent: 1, // Sequential FIFO execution for all tasks
@@ -168,6 +167,23 @@ const taskQueueManager = new TaskQueueManager({
     agentLog(`Executor error for task ${taskId}: ${error}`)
   },
 })
+
+/**
+ * Notify clients about dropped tasks and clear the queue.
+ * Extracted to avoid DRY violation across reinit, stop, and shutdown paths.
+ */
+function notifyQueuedTasksAboutDropAndClear(reason: string): void {
+  const queuedTasks = taskQueueManager.getQueuedTasks()
+  if (queuedTasks.length > 0) {
+    agentLog(`Notifying ${queuedTasks.length} queued task(s): ${reason}`)
+    const error = serializeTaskError(new AgentNotInitializedError(`Task dropped - ${reason}`))
+    for (const task of queuedTasks) {
+      transportClient?.request('task:error', {error, taskId: task.taskId}).catch(logTransportError)
+    }
+  }
+
+  taskQueueManager.clear()
+}
 
 /**
  * Get Transport port from environment.
@@ -567,7 +583,6 @@ async function stopExistingAgentForReinit(): Promise<void> {
  *
  * @param forceReinit - Force reinitialization even if already initialized (for config reload)
  */
-// eslint-disable-next-line complexity
 async function tryInitializeAgent(forceReinit = false): Promise<boolean> {
   // Guard: prevent initialization during cleanup or if already in progress
   if (isCleaningUp || isInitializing) {
@@ -602,18 +617,7 @@ async function tryInitializeAgent(forceReinit = false): Promise<boolean> {
     // If forcing reinit, drain queue and stop existing agent first
     if (forceReinit) {
       agentLog('Draining task queue before reinit...')
-
-      // Notify clients about dropped tasks before clearing
-      const queuedTasks = taskQueueManager.getQueuedTasks()
-      if (queuedTasks.length > 0) {
-        agentLog(`Notifying ${queuedTasks.length} queued task(s) about reinit...`)
-        const error = serializeTaskError(new AgentNotInitializedError('Task dropped due to credential/config change'))
-        for (const task of queuedTasks) {
-          transportClient?.request('task:error', {error, taskId: task.taskId}).catch(logTransportError)
-        }
-      }
-
-      taskQueueManager.clear() // Clear queued (not yet started) tasks
+      notifyQueuedTasksAboutDropAndClear('credential/config change')
 
       // Wait for active tasks to complete (with timeout)
       await waitForActiveTasksToComplete(10_000)
@@ -1021,18 +1025,8 @@ async function stopCipherAgent(): Promise<void> {
   // Cleanup event forwarders
   cleanupAgentEventForwarding()
 
-  // Notify clients about dropped tasks before clearing
-  const queuedTasks = taskQueueManager.getQueuedTasks()
-  if (queuedTasks.length > 0) {
-    agentLog(`Notifying ${queuedTasks.length} queued task(s) about agent stop...`)
-    const error = serializeTaskError(new AgentNotInitializedError('Task dropped - agent stopped'))
-    for (const task of queuedTasks) {
-      transportClient?.request('task:error', {error, taskId: task.taskId}).catch(logTransportError)
-    }
-  }
-
-  // Clear task queue (can't process without agent)
-  taskQueueManager.clear()
+  // Notify and clear task queue (can't process without agent)
+  notifyQueuedTasksAboutDropAndClear('agent stopped')
 
   // Stop CipherAgent
   if (cipherAgent) {
@@ -1323,18 +1317,8 @@ async function stopAgent(): Promise<void> {
     stopCredentialsPolling()
     parentHeartbeat?.stop()
 
-    // Notify clients about dropped tasks before clearing
-    const queuedTasks = taskQueueManager.getQueuedTasks()
-    if (queuedTasks.length > 0) {
-      agentLog(`Notifying ${queuedTasks.length} queued task(s) about shutdown...`)
-      const error = serializeTaskError(new AgentNotInitializedError('Task dropped - agent shutting down'))
-      for (const task of queuedTasks) {
-        transportClient?.request('task:error', {error, taskId: task.taskId}).catch(logTransportError)
-      }
-    }
-
-    // Clear task queue
-    taskQueueManager.clear()
+    // Notify and clear task queue
+    notifyQueuedTasksAboutDropAndClear('agent shutting down')
 
     // Cleanup event forwarders before stopping agent
     cleanupAgentEventForwarding()
