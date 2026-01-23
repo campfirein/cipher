@@ -97,15 +97,15 @@
   "oclif": {
     "bin": "brv",
     "dirname": "brv",
-    "commands": "./dist/commands",
+    "commands": "./dist/oclif/commands",
     "hooks": {
       "init": [
-        "./dist/hooks/init/welcome",
-        "./dist/hooks/init/update-notifier"
+        "./dist/oclif/hooks/init/welcome",
+        "./dist/oclif/hooks/init/update-notifier"
       ],
-      "command_not_found": "./dist/hooks/command_not_found/handle-invalid-commands",
-      "error": "./dist/hooks/error/clean-errors",
-      "prerun": "./dist/hooks/prerun/validate-brv-config-version"
+      "command_not_found": "./dist/oclif/hooks/command_not_found/handle-invalid-commands",
+      "error": "./dist/oclif/hooks/error/clean-errors",
+      "prerun": "./dist/oclif/hooks/prerun/validate-brv-config-version"
     },
     "plugins": [
       "@oclif/plugin-help"

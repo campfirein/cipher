@@ -1,15 +1,15 @@
 import {Args, Command, Flags} from '@oclif/core'
 
-import type {IStatusUseCase} from '../core/interfaces/usecase/i-status-use-case.js'
+import type {IStatusUseCase} from '../../core/interfaces/usecase/i-status-use-case.js'
 
-import {ProjectConfigStore} from '../infra/config/file-config-store.js'
-import {FileContextTreeService} from '../infra/context-tree/file-context-tree-service.js'
-import {FileContextTreeSnapshotService} from '../infra/context-tree/file-context-tree-snapshot-service.js'
-import {FileGlobalConfigStore} from '../infra/storage/file-global-config-store.js'
-import {createTokenStore} from '../infra/storage/token-store.js'
-import {OclifTerminal} from '../infra/terminal/oclif-terminal.js'
-import {MixpanelTrackingService} from '../infra/tracking/mixpanel-tracking-service.js'
-import {StatusUseCase} from '../infra/usecase/status-use-case.js'
+import {ProjectConfigStore} from '../../infra/config/file-config-store.js'
+import {FileContextTreeService} from '../../infra/context-tree/file-context-tree-service.js'
+import {FileContextTreeSnapshotService} from '../../infra/context-tree/file-context-tree-snapshot-service.js'
+import {FileGlobalConfigStore} from '../../infra/storage/file-global-config-store.js'
+import {createTokenStore} from '../../infra/storage/token-store.js'
+import {OclifTerminal} from '../../infra/terminal/oclif-terminal.js'
+import {MixpanelTrackingService} from '../../infra/tracking/mixpanel-tracking-service.js'
+import {StatusUseCase} from '../../infra/usecase/status-use-case.js'
 
 export default class Status extends Command {
   public static args = {
