@@ -121,7 +121,7 @@ All have `toJson()`/`fromJson()`, immutable readonly properties
 - `AuthToken` - `accessToken`, `refreshToken`, `sessionKey`, `userId`, `userEmail`, `expiresAt`. `fromJson()` returns `undefined` for old tokens (forces re-login)
 - `OAuthTokenData` - OAuth response, no user info. Used before user fetch in login
 - `User`, `Team`, `Space` - `getDisplayName()` methods
-- `Agent` - 18 supported agents with connector configs (Amp, Augment Code, Claude Code, Cline, Codex, Cursor, Gemini CLI, Github Copilot, Junie, Kilo Code, Kiro, Qoder, Qwen Code, Roo Code, Trae.ai, Warp, Windsurf, Zed)
+- `Agent` - 19 supported agents with connector configs (Amp, Antigravity, Augment Code, Claude Code, Cline, Codex, Cursor, Gemini CLI, Github Copilot, Junie, Kilo Code, Kiro, Qoder, Qwen Code, Roo Code, Trae.ai, Warp, Windsurf, Zed)
 - `BrvConfig` - `.brv/config.json` with version validation
 - `GlobalConfig` - User-level config with device ID
 - `Event` - Tracking event definitions
