@@ -36,10 +36,10 @@ export interface OpenRouterModel {
     completion_tokens?: string
     prompt_tokens?: string
   }
-  /** Pricing per 1M tokens */
+  /** Pricing per token (as string) */
   pricing: {
-    completion: string // USD per 1M output tokens (as string)
-    prompt: string // USD per 1M input tokens (as string)
+    completion: string // USD per output token (as string)
+    prompt: string // USD per input token (as string)
   }
   /** Top provider info */
   top_provider?: {
@@ -219,11 +219,14 @@ export class OpenRouterApiClient {
     const shortName = nameParts.join('/') || model.id
 
     // Parse pricing (convert from string to number)
-    const inputPrice = Number.parseFloat(model.pricing.prompt) || 0
-    const outputPrice = Number.parseFloat(model.pricing.completion) || 0
+    // OpenRouter returns price per token, multiply by 1M to get price per million tokens
+    const inputPricePerToken = Number.parseFloat(model.pricing.prompt) || 0
+    const outputPricePerToken = Number.parseFloat(model.pricing.completion) || 0
+    const inputPerM = inputPricePerToken * 1_000_000
+    const outputPerM = outputPricePerToken * 1_000_000
 
     // Check if free (both prices are 0)
-    const isFree = inputPrice === 0 && outputPrice === 0
+    const isFree = inputPricePerToken === 0 && outputPricePerToken === 0
 
     return {
       contextLength: model.context_length,
@@ -232,8 +235,8 @@ export class OpenRouterApiClient {
       isFree,
       name: model.name || shortName,
       pricing: {
-        inputPerM: inputPrice,
-        outputPerM: outputPrice,
+        inputPerM,
+        outputPerM,
       },
       provider: provider.charAt(0).toUpperCase() + provider.slice(1), // Capitalize
     }

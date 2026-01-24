@@ -16,6 +16,16 @@ import {FileProviderConfigStore} from '../../storage/file-provider-config-store.
 import {ProviderKeychainStore} from '../../storage/provider-keychain-store.js'
 
 /**
+ * Format price for display.
+ * Shows prices in a compact format: <0.01 for tiny prices, otherwise 2 decimal places.
+ */
+function formatPrice(pricePerM: number): string {
+  if (pricePerM === 0) return '0'
+  if (pricePerM < 0.01) return '<0.01'
+  return pricePerM.toFixed(2)
+}
+
+/**
  * Build model choices for selection prompt.
  */
 async function buildModelChoices(
@@ -72,8 +82,10 @@ async function buildModelChoices(
       const descParts: string[] = []
       if (model.provider) descParts.push(model.provider)
       if (!model.isFree && model.pricing) {
-        const avgPrice = (model.pricing.inputPerM + model.pricing.outputPerM) / 2
-        descParts.push(`$${avgPrice.toFixed(2)}/M`)
+        // Show input/output pricing separately for more clarity
+        const inputPrice = formatPrice(model.pricing.inputPerM)
+        const outputPrice = formatPrice(model.pricing.outputPerM)
+        descParts.push(`$${inputPrice}/$${outputPrice}/M`)
       }
 
       if (model.contextLength) {
