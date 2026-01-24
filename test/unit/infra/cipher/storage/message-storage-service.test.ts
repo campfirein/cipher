@@ -401,6 +401,43 @@ describe('MessageStorageService', () => {
       expect(internal[0].content).to.equal('Hello')
     })
 
+    it('should return toolOutputContent for compacted tool_output parts', async () => {
+      // Create a tool message
+      await storage.saveMessage('compacted-unit', {
+        content: 'Original tool output content',
+        name: 'test_tool',
+        role: 'tool',
+        toolCallId: 'call-compacted',
+      })
+
+      // Get the session and message to find the part
+      const session = await storage.getSession('compacted-unit')
+      const result = await storage.loadMessages('compacted-unit')
+      const toolMessage = result.messages.find((m) => m.role === 'tool')
+
+      expect(toolMessage).to.exist
+      expect(toolMessage?.parts).to.have.lengthOf(1)
+
+      // Manually compact the tool_output part by updating its compactedAt timestamp
+      const part = toolMessage!.parts[0]
+      expect(part.type).to.equal('tool_output')
+
+      // Update the part to be compacted using direct key storage access
+      await keyStorage.set(['part', session!.newestMessageId!, part.id], {
+        ...part,
+        compactedAt: Date.now(),
+        content: '', // Content is cleared when compacted
+      })
+
+      // Reload and verify toInternalMessages returns placeholder
+      const reloadedResult = await storage.loadMessages('compacted-unit')
+      const internal = storage.toInternalMessages(reloadedResult.messages)
+      const toolInternal = internal.find((m) => m.role === 'tool')
+
+      expect(toolInternal).to.exist
+      expect(toolInternal?.content).to.equal(COMPACTED_TOOL_OUTPUT_PLACEHOLDER)
+    })
+
     it('should preserve message metadata', async () => {
       const original: InternalMessage = {
         content: 'Assistant response',

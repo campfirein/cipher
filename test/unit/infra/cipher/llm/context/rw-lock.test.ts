@@ -140,31 +140,37 @@ describe('RWLock', () => {
   describe('writer priority', () => {
     it('should give writers priority over waiting readers', async () => {
       const target = 'writer-priority'
+      const results: string[] = []
 
-      // Acquire initial write lock - the lock release happens when _initialLock goes out of scope
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      using _initialLock = await RWLock.write(target)
+      // Acquire initial write lock
+      const initialLock = await RWLock.write(target)
 
-      // Queue up a reader and a writer - these will wait (fire-and-forget)
-      const readerQueued = (async () => {
+      // Queue up a reader - it will wait for initial lock
+      const readerPromise = (async () => {
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
         using _lock = await RWLock.read(target)
+        results.push('reader')
       })()
 
       await delay(2) // Let reader get queued
 
-      const writerQueued = (async () => {
+      // Queue up a writer - it will also wait, but should have priority
+      const writerPromise = (async () => {
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
         using _lock = await RWLock.write(target)
+        results.push('writer')
       })()
-
-      // Consume promises to prevent lint warnings (they complete after test ends)
-      readerQueued.catch(() => {})
-      writerQueued.catch(() => {})
 
       await delay(2) // Let writer get queued
 
-      // When _initialLock goes out of scope, writer should go before reader due to priority
+      // Release initial lock - writer should go before reader due to priority
+      initialLock[Symbol.dispose]()
+
+      // Wait for both to complete
+      await Promise.all([readerPromise, writerPromise])
+
+      // Writer should have executed before reader
+      expect(results).to.deep.equal(['writer', 'reader'])
     })
   })
 
