@@ -47,8 +47,20 @@ export interface ToolProgressItem {
   id: string
   /** Tool execution status */
   status: ToolCallStatus
+  /** Timestamp when tool call was created */
+  timestamp: number
   /** Tool name */
   toolCallName: string
+}
+
+/**
+ * Reasoning content item with timestamp for sorting
+ */
+export interface ReasoningContentItem {
+  content: string
+  /** Whether this reasoning item is still being streamed */
+  isThinking?: boolean
+  timestamp: number
 }
 
 /**
@@ -59,19 +71,16 @@ export interface ActivityLog {
   content: string
   id: string
   input: string
-  /** Whether reasoning/thinking is currently streaming */
-  isReasoningStreaming?: boolean
   /** Whether LLM is currently streaming response (deprecated, use isReasoningStreaming/isTextStreaming) */
   isStreaming?: boolean
-  /** Whether text content is currently streaming */
-  isTextStreaming?: boolean
   progress?: ToolProgressItem[]
-  /** Accumulated reasoning/thinking content during LLM response */
-  reasoningContent?: string
+  /** Accumulated reasoning/thinking content items with timestamps */
+  reasoningContents?: ReasoningContentItem[]
   source?: string
   status: ExecutionStatus
   /** Accumulated streaming text content during LLM response */
   streamingContent?: string
   timestamp: Date
+  toolCalls?: ToolProgressItem[]
   type: 'curate' | 'query'
 }

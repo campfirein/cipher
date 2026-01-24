@@ -72,7 +72,7 @@ interface ExecutionContentProps {
   /** Whether this is error content */
   isError?: boolean
   /** Whether content should be fully expanded (no truncation) */
-  isExpand?: boolean
+  isExpanded?: boolean
   /** Maximum number of lines (rows) this component can use, including the "more lines" indicator */
   maxLines?: number
 }
@@ -81,7 +81,7 @@ export const ExecutionContent: React.FC<ExecutionContentProps> = ({
   bottomMargin = 1,
   content,
   isError = false,
-  isExpand = false,
+  isExpanded = false,
   maxLines = DEFAULT_MAX_LINES,
 }) => {
   const {
@@ -95,7 +95,7 @@ export const ExecutionContent: React.FC<ExecutionContentProps> = ({
   }
 
   // In expand mode, render full content without truncation
-  if (isExpand) {
+  if (isExpanded) {
     return (
       <Box flexDirection="column" marginY={1}>
         {isError ? (
@@ -120,7 +120,10 @@ export const ExecutionContent: React.FC<ExecutionContentProps> = ({
       {isError ? (
         <Text color={colors.errorText}>{truncatedContent}</Text>
       ) : (
-        <Markdown>{truncatedContent}</Markdown>
+        <Text>
+          <Text color={colors.dimPrimary} italic>Result: </Text>
+          <Text color={colors.text}>{truncatedContent}</Text>
+        </Text>
       )}
       {remainingLines > 0 && <Text color={colors.dimText}>{remainingLines} more lines</Text>}
     </Box>

@@ -31,7 +31,17 @@ export type ToolCallEvent = {
   result?: unknown
   sessionId: string
   status: 'completed' | 'error' | 'running'
+  timestamp: number
   toolName: string
+}
+
+/**
+ * Reasoning content item with timestamp for sorting.
+ */
+export type ReasoningContentItem = {
+  content: string
+  isThinking?: boolean
+  timestamp: number
 }
 
 /**
@@ -50,14 +60,10 @@ export type Task = {
   files?: string[]
   /** Input of query/curate */
   input: string
-  /** Whether reasoning/thinking is currently streaming */
-  isReasoningStreaming?: boolean
-  /** Whether task is currently streaming LLM response (deprecated, use isReasoningStreaming/isTextStreaming) */
+  /** Whether task is currently streaming LLM response */
   isStreaming?: boolean
-  /** Whether text content is currently streaming */
-  isTextStreaming?: boolean
-  /** Accumulated reasoning/thinking content during LLM response */
-  reasoningContent?: string
+  /** Accumulated reasoning/thinking content items with timestamps */
+  reasoningContents?: ReasoningContentItem[]
   /** Result string if task completed */
   result?: string
   /** Session ID from LLM events */
@@ -168,10 +174,14 @@ export function TasksProvider({children}: {children: React.ReactNode}): React.Re
             tc.status === 'running' ? {...tc, status: 'completed' as const} : tc,
           )
 
+          // Filter out incomplete reasoning content (still thinking)
+          const finalizedReasoningContent = task.reasoningContents?.filter((rc) => !rc.isThinking)
+
           // Normal case: update existing task
           newTasks.set(data.taskId, {
             ...task,
             completedAt: now,
+            reasoningContents: finalizedReasoningContent,
             result: data.result,
             status: 'completed',
             toolCalls: finalizedToolCalls,
@@ -321,6 +331,7 @@ export function TasksProvider({children}: {children: React.ReactNode}): React.Re
                 callId: data.callId,
                 sessionId: data.sessionId,
                 status: 'running',
+                timestamp: Date.now(),
                 toolName: data.toolName,
               },
             ],
@@ -377,8 +388,30 @@ export function TasksProvider({children}: {children: React.ReactNode}): React.Re
       })
     }
 
+    // Handle llmservice:thinking - Add a new reasoning content item with isThinking: true
+    const handleThinking = (data: {taskId: string}) => {
+      setTasks((prev) => {
+        const task = prev.get(data.taskId)
+        if (!task) return prev
+
+        const newReasoningItem: ReasoningContentItem = {
+          content: '',
+          isThinking: true,
+          timestamp: Date.now(),
+        }
+
+        const newTasks = new Map(prev)
+        newTasks.set(data.taskId, {
+          ...task,
+          reasoningContents: [...(task.reasoningContents ?? []), newReasoningItem],
+        })
+        return newTasks
+      })
+    }
+
     // Handle llmservice:chunk - Accumulate streaming content for real-time display
     // Separates reasoning/thinking content from regular text content
+    // For reasoning chunks, updates the last item with isThinking: true (paired with thinking event)
     const handleChunk = (data: LlmChunkEvent) => {
       setTasks((prev) => {
         const task = prev.get(data.taskId)
@@ -387,22 +420,30 @@ export function TasksProvider({children}: {children: React.ReactNode}): React.Re
         const newTasks = new Map(prev)
 
         // Route content to appropriate field based on type
-        // Use separate streaming flags to avoid state conflicts between reasoning and text
         if (data.type === 'reasoning') {
-          newTasks.set(data.taskId, {
-            ...task,
-            isReasoningStreaming: !data.isComplete,
-            isStreaming: !data.isComplete, // Keep for backward compat
-            reasoningContent: (task.reasoningContent ?? '') + data.content,
-            sessionId: data.sessionId,
-          })
+          const existingContent = task.reasoningContents ?? []
+          const lastIndex = existingContent.length - 1
+          const lastItem = existingContent[lastIndex]
+
+          // Update the last reasoning item (paired with thinking event)
+          if (lastItem) {
+            const updatedContent = [...existingContent]
+            updatedContent[lastIndex] = {
+              ...lastItem,
+              content: lastItem.content + data.content,
+              isThinking: false,
+            }
+            newTasks.set(data.taskId, {
+              ...task,
+              isStreaming: !data.isComplete,
+              reasoningContents: updatedContent,
+              sessionId: data.sessionId,
+            })
+          }
         } else {
           newTasks.set(data.taskId, {
             ...task,
-            // When text starts streaming, reasoning is complete
-            isReasoningStreaming: false,
-            isStreaming: !data.isComplete, // Keep for backward compat
-            isTextStreaming: !data.isComplete,
+            isStreaming: !data.isComplete,
             sessionId: data.sessionId,
             streamingContent: (task.streamingContent ?? '') + data.content,
           })
@@ -422,10 +463,7 @@ export function TasksProvider({children}: {children: React.ReactNode}): React.Re
         const newTasks = new Map(prev)
         newTasks.set(data.taskId, {
           ...task,
-          isReasoningStreaming: false,
           isStreaming: false,
-          isTextStreaming: false,
-          reasoningContent: undefined, // Clear reasoning content once final response received
           result: data.content,
           sessionId: data.sessionId,
           streamingContent: undefined, // Clear streaming content once final response received
@@ -441,6 +479,7 @@ export function TasksProvider({children}: {children: React.ReactNode}): React.Re
       client.on<TaskCompletedEvent>('task:completed', handleTaskCompleted),
       client.on<{error: TaskErrorData; taskId: string}>('task:error', handleTaskError),
       client.on<{taskId: string}>('task:cancelled', handleTaskCancelled),
+      client.on<{taskId: string}>('llmservice:thinking', handleThinking),
       client.on<LlmChunkEvent>('llmservice:chunk', handleChunk),
       client.on<LlmToolCallEvent>('llmservice:toolCall', handleToolCall),
       client.on<LlmToolResultEvent>('llmservice:toolResult', handleToolResult),
@@ -499,3 +538,4 @@ export function useTasks(): TasksContextValue {
 
   return context
 }
+
