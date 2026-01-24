@@ -407,13 +407,12 @@ export class FileSystemService implements IFileSystem {
   public async listDirectory(dirPath: string, options: ListDirectoryOptions = {}): Promise<ListDirectoryResult> {
     this.ensureInitialized()
 
-    // Resolve path
-    const resolvedPath = path.resolve(this.config.workingDirectory, dirPath || '.')
-
-    // Validate path
-    const validation = this.pathValidator.validate(resolvedPath, 'read')
+    // Validate path - let PathValidator handle resolution to prevent path duplication
+    // (e.g., when workingDirectory is .brv/context-tree and dirPath is also .brv/context-tree)
+    const pathToValidate = dirPath || '.'
+    const validation = this.pathValidator.validate(pathToValidate, 'read')
     if (!validation.valid) {
-      this.throwValidationError(resolvedPath, validation.error)
+      this.throwValidationError(pathToValidate, validation.error)
     }
 
     const { normalizedPath } = validation
