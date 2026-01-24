@@ -142,7 +142,7 @@ export const ExpandedLogView: React.FC<ExpandedLogViewProps> = ({
             <Box paddingX={1}>
               <ReasoningText
                 content={log.reasoningContent}
-                isStreaming={Boolean(log.isStreaming)}
+                isStreaming={Boolean(log.isReasoningStreaming)}
                 maxLines={0}
               />
             </Box>
@@ -153,9 +153,9 @@ export const ExpandedLogView: React.FC<ExpandedLogViewProps> = ({
             <Box paddingX={1}>
               <StreamingText
                 content={log.streamingContent}
-                isStreaming={Boolean(log.isStreaming)}
+                isStreaming={Boolean(log.isTextStreaming)}
                 maxLines={0}
-                showCursor={Boolean(log.isStreaming)}
+                showCursor={Boolean(log.isTextStreaming)}
               />
             </Box>
           )}

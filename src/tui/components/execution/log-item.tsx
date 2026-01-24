@@ -69,7 +69,7 @@ export const LogItem: React.FC<LogItemProps> = memo(({heights, isExpand, isSelec
       {log.reasoningContent && log.status === 'running' && (
         <ReasoningText
           content={log.reasoningContent}
-          isStreaming={Boolean(log.isStreaming)}
+          isStreaming={Boolean(log.isReasoningStreaming)}
           maxLines={isExpand ? 0 : heights.maxContentLines}
         />
       )}
@@ -78,9 +78,9 @@ export const LogItem: React.FC<LogItemProps> = memo(({heights, isExpand, isSelec
       {log.streamingContent && log.status === 'running' && (
         <StreamingText
           content={log.streamingContent}
-          isStreaming={Boolean(log.isStreaming)}
+          isStreaming={Boolean(log.isTextStreaming)}
           maxLines={isExpand ? 0 : heights.maxContentLines}
-          showCursor={Boolean(log.isStreaming)}
+          showCursor={Boolean(log.isTextStreaming)}
         />
       )}
 

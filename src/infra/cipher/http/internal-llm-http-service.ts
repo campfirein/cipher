@@ -274,7 +274,7 @@ export class ByteRoverLlmHttpService {
 
     // Yield final content chunk
     yield {
-      content: textParts.join(''),
+      content: textParts.join('').trimEnd(),
       finishReason,
       isComplete: true,
       toolCalls: functionCalls.length > 0
@@ -327,7 +327,7 @@ export class ByteRoverLlmHttpService {
           providerMetadata: {
             subject: thinkingSubject,
           },
-          reasoning: delta,
+          reasoning: delta.trimEnd(),
           type: StreamChunkType.THINKING,
         }
       }

@@ -50,8 +50,12 @@ export type Task = {
   files?: string[]
   /** Input of query/curate */
   input: string
-  /** Whether task is currently streaming LLM response */
+  /** Whether reasoning/thinking is currently streaming */
+  isReasoningStreaming?: boolean
+  /** Whether task is currently streaming LLM response (deprecated, use isReasoningStreaming/isTextStreaming) */
   isStreaming?: boolean
+  /** Whether text content is currently streaming */
+  isTextStreaming?: boolean
   /** Accumulated reasoning/thinking content during LLM response */
   reasoningContent?: string
   /** Result string if task completed */
@@ -383,17 +387,22 @@ export function TasksProvider({children}: {children: React.ReactNode}): React.Re
         const newTasks = new Map(prev)
 
         // Route content to appropriate field based on type
+        // Use separate streaming flags to avoid state conflicts between reasoning and text
         if (data.type === 'reasoning') {
           newTasks.set(data.taskId, {
             ...task,
-            isStreaming: !data.isComplete,
+            isReasoningStreaming: !data.isComplete,
+            isStreaming: !data.isComplete, // Keep for backward compat
             reasoningContent: (task.reasoningContent ?? '') + data.content,
             sessionId: data.sessionId,
           })
         } else {
           newTasks.set(data.taskId, {
             ...task,
-            isStreaming: !data.isComplete,
+            // When text starts streaming, reasoning is complete
+            isReasoningStreaming: false,
+            isStreaming: !data.isComplete, // Keep for backward compat
+            isTextStreaming: !data.isComplete,
             sessionId: data.sessionId,
             streamingContent: (task.streamingContent ?? '') + data.content,
           })
@@ -413,7 +422,9 @@ export function TasksProvider({children}: {children: React.ReactNode}): React.Re
         const newTasks = new Map(prev)
         newTasks.set(data.taskId, {
           ...task,
+          isReasoningStreaming: false,
           isStreaming: false,
+          isTextStreaming: false,
           reasoningContent: undefined, // Clear reasoning content once final response received
           result: data.content,
           sessionId: data.sessionId,

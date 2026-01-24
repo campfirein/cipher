@@ -59,8 +59,12 @@ export interface ActivityLog {
   content: string
   id: string
   input: string
-  /** Whether LLM is currently streaming response */
+  /** Whether reasoning/thinking is currently streaming */
+  isReasoningStreaming?: boolean
+  /** Whether LLM is currently streaming response (deprecated, use isReasoningStreaming/isTextStreaming) */
   isStreaming?: boolean
+  /** Whether text content is currently streaming */
+  isTextStreaming?: boolean
   progress?: ToolProgressItem[]
   /** Accumulated reasoning/thinking content during LLM response */
   reasoningContent?: string
