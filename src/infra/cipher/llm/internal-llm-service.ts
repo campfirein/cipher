@@ -543,6 +543,14 @@ export class ByteRoverLLMService implements ILLMService {
         // Accumulate text content (skip thinking chunks from accumulated content)
         if (chunk.content && chunk.type !== StreamChunkType.THINKING) {
           accumulatedContent += chunk.content
+
+          // Emit text chunks for TUI display
+          this.sessionEventBus.emit('llmservice:chunk', {
+            content: chunk.content,
+            isComplete: chunk.isComplete,
+            taskId,
+            type: 'text',
+          })
         }
 
         // Accumulate tool calls
