@@ -202,7 +202,7 @@ export async function createCipherAgentServices(
   if (config.useGranularStorage) {
     // Create granular storage infrastructure
     const keyStorage = new SqliteKeyStorage({
-      storageDir: join(workingDirectory, '.brv'),
+      storageDir: join(workingDirectory, '.brv', 'blobs'),
     })
     await keyStorage.initialize()
 
