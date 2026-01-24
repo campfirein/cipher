@@ -986,7 +986,7 @@ export function createCurateTool(): Tool {
     },
     reason: "Documenting JWT token handling"
   }
-- If domainContext is not provided for a new domain, a minimal template is created that can be updated later
+- Domain context.md is only created when domainContext is explicitly provided. No automatic template generation.
 
 **Topic Context (context.md at topic level):**
 - When creating content in a NEW topic, provide the \`topicContext\` field to auto-generate topic/context.md
@@ -1007,7 +1007,7 @@ export function createCurateTool(): Tool {
     },
     reason: "Documenting JWT token handling"
   }
-- If topicContext is not provided for a new topic, a minimal template is created that can be updated later
+- Topic context.md is only created when topicContext is explicitly provided. No automatic template generation.
 
 **Subtopic Context (context.md at subtopic level):**
 - When creating content in a NEW subtopic, provide the \`subtopicContext\` field to auto-generate subtopic/context.md
@@ -1026,7 +1026,7 @@ export function createCurateTool(): Tool {
     },
     reason: "Documenting refresh token rotation"
   }
-- If subtopicContext is not provided for a new subtopic, a minimal template is created that can be updated later
+- Subtopic context.md is only created when subtopicContext is explicitly provided. No automatic template generation.
 
 **Backward Compatibility:** Existing context entries using only snippets and relations continue to work.
 
