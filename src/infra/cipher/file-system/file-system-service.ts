@@ -632,7 +632,7 @@ export class FileSystemService implements IFileSystem {
       if (truncated) {
         const remainingLines = totalLines - lastReadLine
         message =
-          `Read lines ${offset + 1}-${lastReadLine} of ${totalLines} total lines. ` +
+          `Read lines ${offset + 1}-${lastReadLine}. ` +
           `${remainingLines} more lines available. Use offset=${lastReadLine + 1} to continue reading.`
       } else {
         message = `End of file - read ${selectedLines.length} lines (${totalLines} total).`
@@ -975,7 +975,7 @@ export class FileSystemService implements IFileSystem {
       const endPage = startPage + pagesRead - 1
       const remainingPages = totalPages - endPage
       message =
-        `Read pages ${startPage}-${endPage} of ${totalPages} total pages. ` +
+        `Read pages ${startPage}-${endPage}. ` +
         `${remainingPages} more pages available. Must set offset=${nextOffset} to continue reading.`
     } else {
       message = `End of PDF - read ${pagesRead} pages (${totalPages} total).`

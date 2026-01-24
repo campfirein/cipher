@@ -17,7 +17,7 @@ const ReadFileInputSchema = z
       .int()
       .positive()
       .optional()
-      .describe('Maximum number of lines to read for text files (default: 2000), or pages for PDFs in text mode (default: 50)'),
+      .describe('Maximum number of lines to read for text files (default: 2000), or pages for PDFs in text mode (default: 100, max: 200)'),
     offset: z
       .number()
       .int()
@@ -25,8 +25,7 @@ const ReadFileInputSchema = z
       .optional()
       .describe(
         'Starting line number (1-based) for text files, or starting page number for PDFs. ' +
-        'If you read this file for the first time, no need to set it.' +
-        'If you need toread this file in multiple chunks, set offset to the value returned in the previous call of read_file.'
+        'If the file is truncated, you MUST set offset to the next line/page number to continue reading.'
       ),
     pdfMode: z
       .enum(['text', 'base64'])
@@ -64,8 +63,7 @@ export function createReadFileTool(fileSystemService: IFileSystem): Tool {
       'Read the contents of a file. Supports relative/absolute paths and pagination. ' +
       'For PDFs, defaults to text extraction with page-by-page pagination (use pdfMode="base64" for raw attachment). ' +
       'Images are returned as base64 attachments. ' +
-      'If the file exceeds the limit, use this tool multiple times with the right offset value ' +
-      'from the previous tool call to read the file fully.',
+      'Must continue running read_file tool with the correct offset to finish reading the file.',
     async execute(input: unknown, _context?: ToolExecutionContext) {
       const {filePath, limit, offset, pdfMode} = input as ReadFileInput
 

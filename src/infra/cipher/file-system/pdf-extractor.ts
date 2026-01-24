@@ -12,7 +12,7 @@ const PDF_MAGIC_BYTES = [0x25, 0x50, 0x44, 0x46, 0x2d]
 /**
  * Default number of pages to extract when no limit specified.
  */
-const DEFAULT_PAGE_LIMIT = 50
+const DEFAULT_PAGE_LIMIT = 100
 
 /**
  * Maximum number of pages allowed per extraction.
@@ -23,7 +23,7 @@ const MAX_PAGE_LIMIT = 200
  * Options for PDF text extraction.
  */
 export interface PdfExtractOptions {
-  /** Maximum number of pages to extract (default: 50, max: 200) */
+  /** Maximum number of pages to extract (default: 100, max: 200) */
   limit?: number
 
   /** Starting page number (1-based, default: 1) */
@@ -52,7 +52,7 @@ export interface PdfExtractResult {
  * - Magic byte validation
  * - Fast metadata-only extraction
  * - Page-by-page text extraction with offset/limit
- * - Default: 50 pages, max: 200 pages per extraction
+ * - Default: 100 pages, max: 200 pages per extraction
  */
 export class PdfExtractor {
   /**
