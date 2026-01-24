@@ -11,9 +11,12 @@
  * This class is extracted from agent-worker.ts to enable unit testing.
  */
 
-import type {TaskExecute} from '../../core/domain/transport/schemas.js'
+import type {TaskExecute, TaskType} from '../../core/domain/transport/schemas.js'
 
-export type TaskType = 'curate' | 'query'
+import {isValidTaskType} from '../../utils/type-guards.js'
+
+// Re-export TaskType for backward compatibility (unicorn/prefer-export-from)
+export type {TaskType} from '../../core/domain/transport/schemas.js'
 
 export interface TaskQueueStats {
   /** Number of tasks currently being processed */
@@ -106,8 +109,8 @@ export class TaskQueueManager {
       return {reason: 'duplicate', success: false}
     }
 
-    // Validate task type
-    if (task.type !== 'curate' && task.type !== 'query') {
+    // Validate task type using type guard for compile-time safety
+    if (!isValidTaskType(task.type)) {
       return {reason: 'unknown_type', success: false}
     }
 

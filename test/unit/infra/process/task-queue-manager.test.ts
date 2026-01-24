@@ -385,6 +385,29 @@ describe('TaskQueueManager', () => {
       expect(manager.isKnown('task-1')).to.be.false
     })
 
+    it('should call onExecutorError when executor throws', async () => {
+      const onExecutorError = sinon.stub()
+      const customManager = new TaskQueueManager({
+        onExecutorError,
+      })
+
+      const executor = sinon.stub().rejects(new Error('Test executor error'))
+      customManager.setExecutor(executor)
+
+      const task = createTask('task-1', 'curate')
+      customManager.enqueue(task)
+
+      // Wait for async execution
+      await new Promise((resolve) => {
+        setTimeout(resolve, 10)
+      })
+
+      expect(onExecutorError.calledOnce).to.be.true
+      expect(onExecutorError.firstCall.args[0]).to.equal('task-1')
+      expect(onExecutorError.firstCall.args[1]).to.be.an('error')
+      expect((onExecutorError.firstCall.args[1] as Error).message).to.equal('Test executor error')
+    })
+
     it('should process queued tasks after active task completes', async () => {
       let resolveFirst: () => void
       let resolveSecond: () => void
