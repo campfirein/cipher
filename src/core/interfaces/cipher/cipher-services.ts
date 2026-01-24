@@ -8,7 +8,6 @@ import type {SystemPromptManager} from '../../../infra/cipher/system-prompt/syst
 import type {ToolManager} from '../../../infra/cipher/tools/tool-manager.js'
 import type {ToolProvider} from '../../../infra/cipher/tools/tool-provider.js'
 import type {IBlobStorage} from './i-blob-storage.js'
-import type {ICodingAgentLogWatcher} from './i-coding-agent-log-watcher.js'
 import type {IHistoryStorage} from './i-history-storage.js'
 import type {ILLMService} from './i-llm-service.js'
 import type {IPolicyEngine} from './i-policy-engine.js'
@@ -29,12 +28,10 @@ import type {IToolScheduler} from './i-tool-scheduler.js'
  * - HistoryStorage: Conversation history persistence
  * - MemoryManager: Agent memory system
  * - ToolProvider: Provides available tools
- * - CodingAgentLogWatcher: Watches coding agent logs for learning (optional)
  */
 export interface CipherAgentServices {
   agentEventBus: AgentEventBus
   blobStorage: IBlobStorage
-  codingAgentLogWatcher?: ICodingAgentLogWatcher
   /**
    * CompactionService for context overflow management.
    * Only available when granular storage is enabled (useGranularStorage: true).
