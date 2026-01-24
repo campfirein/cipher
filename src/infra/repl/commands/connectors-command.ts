@@ -46,9 +46,9 @@ export const connectorsCommand: SlashCommand = {
     },
     type: 'streaming',
   }),
-  aliases: [],
+  aliases: ['connectors'],
   autoExecute: true,
   description: 'Manage agent connectors (rules, hooks)',
   kind: CommandKind.BUILT_IN,
-  name: 'connectors',
+  name: 'connector',
 }
