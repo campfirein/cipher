@@ -209,10 +209,12 @@ export class ChatSession implements IChatSession {
    * @param input - User message
    * @param options - Execution options
    * @param options.executionContext - Optional execution context
-   * @param options.taskId - Optional task ID for concurrent task isolation
+   * @param options.taskId - Optional task ID for billing tracking
+   * @param options.emitTaskId - Whether to include taskId in emitted events (default: true)
    */
-  public async run(input: string, options?: {executionContext?: ExecutionContext; taskId?: string}): Promise<string> {
+  public async run(input: string, options?: {emitTaskId?: boolean; executionContext?: ExecutionContext; taskId?: string}): Promise<string> {
     const taskId = options?.taskId
+    const emitTaskId = options?.emitTaskId !== false
     const controller = new AbortController()
 
     // Track controller per-task for concurrent execution support
@@ -222,8 +224,8 @@ export class ChatSession implements IChatSession {
       this.currentController = controller
     }
 
-    // Store taskId for event forwarding (last-write-wins for concurrent tasks)
-    this.currentTaskId = taskId
+    // Store taskId for event forwarding only if emitTaskId is true
+    this.currentTaskId = emitTaskId ? taskId : undefined
     this.isExecuting = true
     sessionStatusManager.setBusy(this.id, this.eventBus)
 
