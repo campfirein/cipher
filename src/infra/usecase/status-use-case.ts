@@ -7,14 +7,18 @@ import type {IProjectConfigStore} from '../../core/interfaces/i-project-config-s
 import type {ITerminal} from '../../core/interfaces/i-terminal.js'
 import type {ITokenStore} from '../../core/interfaces/i-token-store.js'
 import type {ITrackingService} from '../../core/interfaces/i-tracking-service.js'
+import type {IInstanceDiscovery} from '../../core/interfaces/instance/i-instance-discovery.js'
 import type {IStatusUseCase} from '../../core/interfaces/usecase/i-status-use-case.js'
 
 import {BRV_DIR, CONTEXT_TREE_DIR} from '../../constants.js'
 import {getErrorMessage} from '../../utils/error-helpers.js'
+import {FileInstanceDiscovery} from '../instance/file-instance-discovery.js'
+import {SocketIOTransportClient} from '../transport/socket-io-transport-client.js'
 
 export interface StatusUseCaseOptions {
   contextTreeService: IContextTreeService
   contextTreeSnapshotService: IContextTreeSnapshotService
+  instanceDiscovery?: IInstanceDiscovery
   projectConfigStore: IProjectConfigStore
   terminal: ITerminal
   tokenStore: ITokenStore
@@ -24,6 +28,7 @@ export interface StatusUseCaseOptions {
 export class StatusUseCase implements IStatusUseCase {
   private readonly contextTreeService: IContextTreeService
   private readonly contextTreeSnapshotService: IContextTreeSnapshotService
+  private readonly instanceDiscovery: IInstanceDiscovery
   private readonly projectConfigStore: IProjectConfigStore
   private readonly terminal: ITerminal
   private readonly tokenStore: ITokenStore
@@ -32,6 +37,7 @@ export class StatusUseCase implements IStatusUseCase {
   constructor(options: StatusUseCaseOptions) {
     this.contextTreeService = options.contextTreeService
     this.contextTreeSnapshotService = options.contextTreeSnapshotService
+    this.instanceDiscovery = options.instanceDiscovery ?? new FileInstanceDiscovery()
     this.projectConfigStore = options.projectConfigStore
     this.terminal = options.terminal
     this.tokenStore = options.tokenStore
@@ -77,6 +83,9 @@ export class StatusUseCase implements IStatusUseCase {
       this.terminal.warn(`Warning: ${getErrorMessage(error)}`)
     }
 
+    // MCP connection status
+    await this.checkMcpStatus()
+
     // Context tree status
     try {
       const contextTreeExists = await this.contextTreeService.exists()
@@ -121,6 +130,58 @@ export class StatusUseCase implements IStatusUseCase {
     } catch (error) {
       this.terminal.log('Context Tree: Unable to check status')
       this.terminal.warn(`Warning: ${error instanceof Error ? error.message : 'Context Tree unable to check status'}`)
+    }
+  }
+
+  /**
+   * Checks the MCP connection status by:
+   * 1. Discovering running brv instance
+   * 2. Connecting to it via Socket.IO
+   * 3. Verifying bidirectional communication with ping
+   */
+  private async checkMcpStatus(): Promise<void> {
+    try {
+      // Step 1: Discover running instance
+      const discoveryResult = await this.instanceDiscovery.discover(process.cwd())
+
+      if (!discoveryResult.found) {
+        if (discoveryResult.reason === 'instance_crashed') {
+          this.terminal.log(`MCP Status: ${chalk.red('Instance crashed')} (stale instance file found)`)
+        } else {
+          this.terminal.log(`MCP Status: ${chalk.yellow('No instance running')}`)
+        }
+
+        return
+      }
+
+      const {instance, projectRoot} = discoveryResult
+      this.terminal.log(`MCP Status: Instance found (PID: ${instance.pid}, Port: ${instance.port})`)
+
+      // Step 2: Connect to instance
+      const client = new SocketIOTransportClient()
+      const url = instance.getTransportUrl()
+
+      try {
+        await client.connect(url)
+      } catch (connectError) {
+        this.terminal.log(`MCP Status: ${chalk.red('Connection failed')} - ${getErrorMessage(connectError)}`)
+        return
+      }
+
+      // Step 3: Verify bidirectional communication with ping
+      const isResponsive = await client.isConnected(2000)
+
+      if (isResponsive) {
+        this.terminal.log(`MCP Status: ${chalk.green('Connected and responsive')} (${projectRoot})`)
+      } else {
+        this.terminal.log(`MCP Status: ${chalk.yellow('Connected but not responsive')} (ping timeout)`)
+      }
+
+      // Clean up
+      await client.disconnect()
+    } catch (error) {
+      this.terminal.log(`MCP Status: ${chalk.red('Error checking status')}`)
+      this.terminal.warn(`Warning: ${getErrorMessage(error)}`)
     }
   }
 }

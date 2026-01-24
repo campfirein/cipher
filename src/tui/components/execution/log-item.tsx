@@ -21,11 +21,15 @@ import {ExecutionStatus} from './execution-status.js'
 interface LogItemProps {
   /** Dynamic heights based on terminal breakpoint */
   heights: MessageItemHeights
+  /** Whether content should be fully expanded (no truncation) */
+  isExpand?: boolean
+  /** Whether this log item is currently selected */
+  isSelected?: boolean
   /** The activity log to display */
   log: ActivityLog
 }
 
-export const LogItem: React.FC<LogItemProps> = ({heights, log}) => {
+export const LogItem: React.FC<LogItemProps> = ({heights, isExpand, isSelected, log}) => {
   const {
     theme: {colors},
   } = useTheme()
@@ -38,16 +42,21 @@ export const LogItem: React.FC<LogItemProps> = ({heights, log}) => {
       <Box>
         <Text color={log.type === 'curate' ? colors.curateCommand : colors.queryCommand}>[{log.type}] </Text>
         <Text color={colors.dimText}>@{log.source ?? 'system'}</Text>
+        {isSelected && (
+          <Text dimColor italic>  ←  [ctrl+o] to {isExpand ? 'collapse' : 'expand'}</Text>
+        )}
         <Spacer />
         <Text color={colors.dimText}>[{displayTime}]</Text>
       </Box>
 
       {/* Input */}
-      <ExecutionInput input={log.input} />
+      <ExecutionInput input={log.input} isExpand={isExpand} />
 
       {/* Progress and Status */}
       <Box flexDirection="column">
-        {log.progress && <ExecutionProgress maxLines={heights.maxProgressItems} progress={log.progress} />}
+        {log.progress && (
+          <ExecutionProgress isExpand={isExpand} maxLines={heights.maxProgressItems} progress={log.progress} />
+        )}
         <ExecutionStatus status={log.status} />
       </Box>
 
@@ -57,13 +66,19 @@ export const LogItem: React.FC<LogItemProps> = ({heights, log}) => {
           bottomMargin={heights.contentBottomMargin}
           content={log.content ?? ''}
           isError={log.status === 'failed'}
+          isExpand={isExpand}
           maxLines={heights.maxContentLines}
         />
       )}
 
       {/* Changes */}
       {log.status === 'completed' && (
-        <ExecutionChanges created={log.changes.created} maxChanges={heights.maxChanges} updated={log.changes.updated} />
+        <ExecutionChanges
+          created={log.changes.created}
+          isExpand={isExpand}
+          maxChanges={heights.maxChanges}
+          updated={log.changes.updated}
+        />
       )}
     </Box>
   )

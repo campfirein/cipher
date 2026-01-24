@@ -155,7 +155,7 @@ export function createTaskTool(dependencies: TaskToolDependencies): Tool {
   return {
     description: buildTaskToolDescription(registry),
 
-    // eslint-disable-next-line complexity -- Inherent complexity: validates agent, manages sessions, handles errors
+    // eslint-disable-next-line complexity
     async execute(input: unknown, context?: ToolExecutionContext): Promise<TaskResult> {
       const params = input as TaskInput
       const { contextTreeOnly, description, prompt, sessionId, subagentType } = params
@@ -253,8 +253,8 @@ export function createTaskTool(dependencies: TaskToolDependencies): Tool {
           })
         }
 
-        // Execute the subagent session with parent's taskId for billing tracking
-        const response = await session.run(fullPrompt, { taskId: context?.taskId })
+        // Pass taskId for billing but don't emit it in events (ENG-917)
+        const response = await session.run(fullPrompt, {emitTaskId: false, taskId: context?.taskId})
 
         // Stream completion update
         if (context?.metadata) {

@@ -209,10 +209,12 @@ export class ChatSession implements IChatSession {
    * @param input - User message
    * @param options - Execution options
    * @param options.executionContext - Optional execution context
-   * @param options.taskId - Optional task ID for concurrent task isolation
+   * @param options.taskId - Optional task ID for billing tracking
+   * @param options.emitTaskId - Whether to include taskId in emitted events (default: true)
    */
-  public async run(input: string, options?: {executionContext?: ExecutionContext; taskId?: string}): Promise<string> {
+  public async run(input: string, options?: {emitTaskId?: boolean; executionContext?: ExecutionContext; taskId?: string}): Promise<string> {
     const taskId = options?.taskId
+    const emitTaskId = options?.emitTaskId !== false
     const controller = new AbortController()
 
     // Track controller per-task for concurrent execution support
@@ -222,8 +224,8 @@ export class ChatSession implements IChatSession {
       this.currentController = controller
     }
 
-    // Store taskId for event forwarding (last-write-wins for concurrent tasks)
-    this.currentTaskId = taskId
+    // Store taskId for event forwarding only if emitTaskId is true
+    this.currentTaskId = emitTaskId ? taskId : undefined
     this.isExecuting = true
     sessionStatusManager.setBusy(this.id, this.eventBus)
 
@@ -396,16 +398,22 @@ export class ChatSession implements IChatSession {
   /**
    * Setup automatic event forwarding from SessionEventBus to AgentEventBus.
    * All session events are forwarded with sessionId and taskId added to the payload.
+   *
+   * Note: taskId is preserved from the event payload if present (for concurrent task isolation).
+   * Falls back to this.currentTaskId for backward compatibility with events that don't include taskId.
    */
   private setupEventForwarding(): void {
     for (const eventName of SESSION_EVENT_NAMES) {
       const forwarder = (payload?: unknown) => {
         // Add sessionId and taskId to payload
         const basePayload = payload && typeof payload === 'object' ? (payload as object) : {}
+        // Preserve taskId from payload if present, fallback to currentTaskId for backward compat
+        const payloadTaskId = (basePayload as {taskId?: string}).taskId
+        const effectiveTaskId = payloadTaskId ?? this.currentTaskId
         const payloadWithSession = {
           ...basePayload,
           sessionId: this.id,
-          ...(this.currentTaskId && {taskId: this.currentTaskId}),
+          ...(effectiveTaskId && {taskId: effectiveTaskId}),
         }
 
         // Forward to agent bus - eventName is properly typed from SESSION_EVENT_NAMES

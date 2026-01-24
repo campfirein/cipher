@@ -485,6 +485,7 @@ export function createMockTransportClient(
     disconnect: sandbox.stub().resolves(),
     getClientId: sandbox.stub().returns('mock-client-id'),
     getState: sandbox.stub().returns('connected'),
+    isConnected: sandbox.stub().resolves(true),
     joinRoom: sandbox.stub().resolves(),
     leaveRoom: sandbox.stub().resolves(),
     on: onImpl,

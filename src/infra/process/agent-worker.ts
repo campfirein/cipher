@@ -950,6 +950,50 @@ async function startAgent(): Promise<void> {
     }
   })
 
+  // Handle agent:newSession from Transport (triggered by /new command)
+  transportClient.on<{reason?: string}>('agent:newSession', async (data) => {
+    agentLog(`New session requested: ${data.reason ?? 'no reason'}`)
+
+    try {
+      if (!cipherAgent) {
+        agentLog('Cannot create new session - agent not initialized')
+        await transportClient?.request('agent:newSessionCreated', {
+          error: 'Agent not initialized',
+          success: false,
+        })
+        return
+      }
+
+      // Generate new session ID
+      const newSessionId = `agent-session-${randomUUID()}`
+
+      // Create new session
+      await cipherAgent.createSession(newSessionId)
+
+      // Switch the agent's default session to the new one
+      // This ensures execute()/generate()/stream() use the new session
+      cipherAgent.switchDefaultSession(newSessionId)
+
+      // Update the local session ID reference
+      chatSessionId = newSessionId
+
+      agentLog(`New session created: ${newSessionId}`)
+
+      // Notify Transport that new session was created
+      await transportClient?.request('agent:newSessionCreated', {
+        sessionId: newSessionId,
+        success: true,
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      agentLog(`New session creation error: ${message}`)
+      await transportClient?.request('agent:newSessionCreated', {
+        error: message,
+        success: false,
+      })
+    }
+  })
+
   agentLog('Ready to process tasks')
 }
 

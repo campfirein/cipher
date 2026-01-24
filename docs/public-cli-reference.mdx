@@ -7,6 +7,20 @@ ByteRover CLI (`brv`) is a command-line tool for managing your AI development wo
 
 For help with any command, run `brv --help` or `brv <command> --help`.
 
+## Installation
+
+Install ByteRover CLI globally using npm:
+
+```bash
+npm install -g byterover-cli
+```
+
+Verify the installation:
+
+```bash
+brv --version
+```
+
 ## Prerequisites
 
 - **Node.js**: Version 20.0.0 or higher
@@ -34,7 +48,7 @@ This launches a persistent session with a React/Ink-based terminal interface whe
 /pull [-b branch]       # Pull context tree from ByteRover memory storage
 /space list [-a] [-j]   # List all spaces
 /space switch           # Switch to a different space
-/connectors             # Manage coding agent connectors (rules, hooks)
+/connectors             # Manage coding agent connectors (rules, hooks, mcp)
 /reset [-y] [directory] # Reset context tree to an empty state
 /new [-y]               # Start fresh session (clears conversation)
 /init [-f]              # Initialize project (select team/space)
@@ -107,7 +121,7 @@ brv
 | `/pull [-b branch]` | Pull context tree from ByteRover memory storage |
 | `/space list [-a] [-j] [-l n] [-o n]` | List all spaces for current team |
 | `/space switch` | Switch to a different space |
-| `/connectors` | Manage agent connectors (rules, hooks) |
+| `/connectors` | Manage coding agent connectors (rules, hooks, mcp) |
 | `/reset [-y] [directory]` | Reset context tree to an empty state |
 | `/new [-y]` | Start a fresh session (ends current, clears conversation) |
 | `/init [-f]` | Initialize a project with ByteRover |
@@ -217,33 +231,39 @@ Switch to a different space. Interactive mode only - prompts you to select from 
 
 #### `/connectors`
 
-Manage agent connectors for integrating ByteRover with AI coding assistants. Supports two connector types:
+Manage agent connectors for integrating ByteRover with AI coding assistants. Supports three connector types:
 
+- **MCP**: Uses Model Context Protocol for direct tool integration (`brv-query`, `brv-curate`). Default for most agents.
 - **Rules**: Generates markdown rule files that agents read for instructions
 - **Hook**: Uses agent-specific hook systems for tighter integration (Claude Code only)
 
 **Supported Agents**
 
-| Agent | Connector Type | File Path |
-| ----- | -------------- | --------- |
-| Amp | Rules | `AGENTS.md` |
-| Augment Code | Rules | `.augment/rules/agent-context.md` |
-| Claude Code | Hook (default) or Rules | Hook: `settings.local.json`, Rules: `CLAUDE.md` |
-| Cline | Rules | `.clinerules/agent-context.md` |
-| Codex | Rules | `AGENTS.md` |
-| Cursor | Rules | `.cursor/rules/agent-context.mdc` |
-| Gemini CLI | Rules | `GEMINI.md` |
-| GitHub Copilot | Rules | `.github/copilot-instructions.md` |
-| Junie | Rules | `.junie/guidelines.md` |
-| Kilo Code | Rules | `.kilocode/rules/agent-context.md` |
-| Kiro | Rules | `.kiro/steering/agent-context.md` |
-| Qoder | Rules | `.qoder/rules/agent-context.md` |
-| Qwen Code | Rules | `QWEN.md` |
-| Roo Code | Rules | `.roo/rules/agent-context.md` |
-| Trae.ai | Rules | `project_rules.md` |
-| Warp | Rules | `WARP.md` |
-| Windsurf | Rules | `.windsurf/rules/agent-context.md` |
-| Zed | Rules | `agent-context.rules` |
+| Agent | Default | Supported | Rules File | MCP Config |
+| ----- | ------- | --------- | ---------- | ---------- |
+| Amp | MCP | rules, mcp | `AGENTS.md` | `.vscode/settings.json` |
+| Augment Code | MCP | rules, mcp | `.augment/rules/agent-context.md` | Manual setup |
+| Claude Code | Hook | rules, hook, mcp | `CLAUDE.md` | `.mcp.json` |
+| Cline | MCP | rules, mcp | `.clinerules/agent-context.md` | Manual setup |
+| Codex | MCP | rules, mcp | `AGENTS.md` | `~/.codex/config.toml` |
+| Cursor | MCP | rules, mcp | `.cursor/rules/agent-context.mdc` | `.cursor/mcp.json` |
+| Gemini CLI | MCP | rules, mcp | `GEMINI.md` | `.gemini/settings.json` |
+| GitHub Copilot | MCP | rules, mcp | `.github/copilot-instructions.md` | `.vscode/mcp.json` |
+| Junie | MCP | rules, mcp | `.junie/guidelines.md` | `.junie/mcp/mcp.json` |
+| Kilo Code | MCP | rules, mcp | `.kilocode/rules/agent-context.md` | `.kilocode/mcp.json` |
+| Kiro | MCP | rules, mcp | `.kiro/steering/agent-context.md` | `.kiro/settings/mcp.json` |
+| Qoder | MCP | rules, mcp | `.qoder/rules/agent-context.md` | Manual setup |
+| Qwen Code | MCP | rules, mcp | `QWEN.md` | Manual setup |
+| Roo Code | MCP | rules, mcp | `.roo/rules/agent-context.md` | `.roo/mcp.json` |
+| Trae.ai | MCP | rules, mcp | `project_rules.md` | Manual setup |
+| Warp | MCP | rules, mcp | `WARP.md` | Manual setup |
+| Windsurf | MCP | rules, mcp | `.windsurf/rules/agent-context.md` | `~/.codeium/windsurf/mcp_config.json` |
+| Zed | MCP | rules, mcp | `agent-context.rules` | `.zed/settings.json` |
+
+**MCP Setup Modes**
+
+- **Auto setup**: ByteRover automatically writes the MCP config file (most agents)
+- **Manual setup**: User must manually configure per agent's documentation (Augment Code, Cline, Qoder, Qwen Code, Trae.ai, Warp)
 
 **Flags**: None
 
@@ -418,7 +438,7 @@ brv curate "Auth logic" -f src/auth.ts -f src/middleware/auth.ts
 
 - **Requires a running `brv` instance** in the same directory (start with `brv` in another terminal)
 - Context tree must exist (run `/init` in REPL mode first)
-- **Interactive mode**: Navigate context tree, select domain/topic, creates context.md file
+- **Interactive mode**: Navigate context tree, select domain/topic, creates markdown file with descriptive name
 - **Autonomous mode**: ByteRover agent automatically determines best location and adds content
 - **File references**: Up to 5 files. Use `--files` or `-f` flag for CLI mode, or `@filepath` syntax in REPL mode. Files must be text files within the project directory
 
@@ -440,19 +460,32 @@ ByteRover CLI creates the following directory structure in your project:
 ```
 .brv/
 ├── config.json                # Project configuration (team/space)
-└── context-tree/              # Your knowledge base
-    ├── .snapshot.json         # Latest context tree snapshot
-    ├── code_style/            # Style guidelines and quality standards
-    ├── design/                # UI libraries and design guidelines
-    ├── structure/             # Project structure and components
-    ├── compliance/            # Security and compliance
-    ├── testing/               # Testing implementation context
-    └── bug_fixes/             # Bug fixing logic and procedures
+└── context-tree/              # Your knowledge base (starts empty)
+    └── .snapshot.json         # Latest context tree snapshot
 ```
 
 **Key Files and Directories**
 
 - **config.json**: Stores your team ID, space ID, and project metadata
-- **context-tree/**: Hierarchical structure organizing project knowledge by domains and topics
+- **context-tree/**: Hierarchical structure organizing project knowledge by domains and topics (created as you curate)
 - **.snapshot.json**: Version control snapshot tracking context tree changes over time
-- Each domain can contain multiple topics, and each topic has a `context.md` file with actual content
+
+**Example structure after curating:**
+
+```
+.brv/context-tree/
+├── code_style/
+│   └── error_handling/
+│       └── custom_error_classes.md
+├── design/
+│   └── components/
+│       └── button_variants.md
+├── structure/
+│   └── api_endpoints/
+│       └── rest_api_structure.md
+└── testing/
+    └── integration_tests/
+        └── api_testing_patterns.md
+```
+
+Each topic folder contains markdown files with descriptive names based on their content.
