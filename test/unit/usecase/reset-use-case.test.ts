@@ -7,8 +7,22 @@ import type {IContextTreeService} from '../../../src/core/interfaces/i-context-t
 import type {IContextTreeSnapshotService} from '../../../src/core/interfaces/i-context-tree-snapshot-service.js'
 import type {ITerminal} from '../../../src/core/interfaces/i-terminal.js'
 
-import {ResetUseCase} from '../../../src/infra/usecase/reset-use-case.js'
+import {ResetUseCase, type ResetUseCaseOptions} from '../../../src/infra/usecase/reset-use-case.js'
 import {createMockTerminal} from '../../helpers/mock-factories.js'
+
+class TestableResetUseCase extends ResetUseCase {
+  public deleteContextTreeCalled = false
+  public deletedPath: string | undefined
+
+  public constructor(options: ResetUseCaseOptions) {
+    super(options)
+  }
+
+  protected async deleteContextTree(contextTreeDir: string): Promise<void> {
+    this.deleteContextTreeCalled = true
+    this.deletedPath = contextTreeDir
+  }
+}
 
 describe('ResetUseCase', () => {
   let contextTreeService: SinonStubbedInstance<IContextTreeService>
@@ -44,8 +58,8 @@ describe('ResetUseCase', () => {
     restore()
   })
 
-  function createUseCase(): ResetUseCase {
-    return new ResetUseCase({
+  function createUseCase(): TestableResetUseCase {
+    return new TestableResetUseCase({
       contextTreeService,
       contextTreeSnapshotService,
       terminal,
