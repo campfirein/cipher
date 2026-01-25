@@ -1,9 +1,9 @@
-import type {ICipherAgent} from '../../core/interfaces/cipher/i-cipher-agent.js'
-import type {ILogger} from '../../core/interfaces/cipher/i-logger.js'
+import type {ICipherAgent} from '../../agent/interfaces/i-cipher-agent.js'
+import type {ILogger} from '../../agent/interfaces/i-logger.js'
 import type {ICurateExecutor} from '../../core/interfaces/executor/i-curate-executor.js'
 import type {IQueryExecutor} from '../../core/interfaces/executor/i-query-executor.js'
 
-import {NoOpLogger} from '../../core/interfaces/cipher/i-logger.js'
+import {NoOpLogger} from '../../agent/interfaces/i-logger.js'
 
 /**
  * Task input for processing.

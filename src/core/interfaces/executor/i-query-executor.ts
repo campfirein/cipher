@@ -1,4 +1,4 @@
-import type {ICipherAgent} from '../cipher/i-cipher-agent.js'
+import type {ICipherAgent} from '../../../agent/interfaces/i-cipher-agent.js'
 
 /**
  * Options for executing query with an injected agent.

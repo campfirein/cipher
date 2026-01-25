@@ -1,11 +1,11 @@
 import {expect} from 'chai'
 import {beforeEach, describe, it} from 'mocha'
 
-import type {InternalMessage} from '../../src/core/interfaces/cipher/message-types.js'
+import type {InternalMessage} from '../../src/agent/interfaces/message-types.js'
 
-import {ContextManager} from '../../src/infra/cipher/llm/context/context-manager.js'
-import {GeminiMessageFormatter} from '../../src/infra/cipher/llm/formatters/gemini-formatter.js'
-import {GeminiTokenizer} from '../../src/infra/cipher/llm/tokenizers/gemini-tokenizer.js'
+import {ContextManager} from '../../src/agent/llm/context/context-manager.js'
+import {GeminiMessageFormatter} from '../../src/agent/llm/formatters/gemini-formatter.js'
+import {GeminiTokenizer} from '../../src/agent/llm/tokenizers/gemini-tokenizer.js'
 
 /**
  * Integration test to verify tool results flow correctly through the context manager

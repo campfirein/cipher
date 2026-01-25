@@ -1,4 +1,4 @@
-import type {ICipherAgent} from '../../../core/interfaces/cipher/i-cipher-agent.js'
+import type {ICipherAgent} from '../../../agent/interfaces/i-cipher-agent.js'
 import type {CurateExecuteOptions, ICurateExecutor} from '../../../core/interfaces/executor/i-curate-executor.js'
 
 import {FileValidationError} from '../../../core/domain/errors/task-error.js'

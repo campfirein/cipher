@@ -1,8 +1,8 @@
 import {Command} from '@oclif/core'
 import {randomUUID} from 'node:crypto'
 
-import {DEFAULT_SESSION_RETENTION} from '../../core/domain/cipher/session/session-metadata.js'
-import {SessionMetadataStore} from '../../infra/cipher/session/session-metadata-store.js'
+import {DEFAULT_SESSION_RETENTION} from '../../agent/types/session/session-metadata.js'
+import {SessionMetadataStore} from '../../agent/session/session-metadata-store.js'
 import {ProjectConfigStore} from '../../infra/config/file-config-store.js'
 import {getProcessManager} from '../../infra/process/index.js'
 import {startRepl} from '../../infra/repl/repl-startup.js'

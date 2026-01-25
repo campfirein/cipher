@@ -2,7 +2,7 @@
  * Message and activity log types
  */
 
-import type {ExecutionStatus, ToolCallStatus} from '../../core/domain/cipher/queue/types.js'
+import type {ExecutionStatus, ToolCallStatus} from '../../agent/types/queue/types.js'
 
 /**
  * Message type for displaying in message list

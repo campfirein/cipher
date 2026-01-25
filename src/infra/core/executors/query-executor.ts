@@ -1,4 +1,4 @@
-import type {ICipherAgent} from '../../../core/interfaces/cipher/i-cipher-agent.js'
+import type {ICipherAgent} from '../../../agent/interfaces/i-cipher-agent.js'
 import type {IQueryExecutor, QueryExecuteOptions} from '../../../core/interfaces/executor/i-query-executor.js'
 
 /**
