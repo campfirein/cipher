@@ -1,5 +1,7 @@
 import type {TaskType} from '../core/domain/transport/schemas.js'
 
+import {TaskTypeSchema} from '../core/domain/transport/schemas.js'
+
 /**
  * Type guard to check if value is a non-null object (Record).
  * Useful for safely narrowing unknown values before accessing properties.
@@ -10,13 +12,13 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
 
 /**
  * Type guard for valid task types.
- * Validates that a string is a supported TaskType ('curate' | 'query').
+ * Uses TaskTypeSchema as the single source of truth.
  *
  * @example
  * if (isValidTaskType(data.type)) {
  *   // data.type is narrowed to TaskType
  * }
  */
-export function isValidTaskType(type: string): type is TaskType {
-  return type === 'curate' || type === 'query'
+export function isValidTaskType(value: string): value is TaskType {
+  return TaskTypeSchema.safeParse(value).success
 }

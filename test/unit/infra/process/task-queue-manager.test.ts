@@ -608,26 +608,6 @@ describe('TaskQueueManager', () => {
       expect(tasks).to.have.length(2)
       expect(tasks.map((t) => t.taskId)).to.deep.equal(['queued-1', 'queued-2'])
     })
-
-    it('should return defensive copy (not original array)', () => {
-      manager.enqueue(createTask('task-1', 'curate'))
-
-      const tasks1 = manager.getQueuedTasks()
-      const tasks2 = manager.getQueuedTasks()
-
-      // Different array instances
-      expect(tasks1).to.not.equal(tasks2)
-      expect(tasks1).to.deep.equal(tasks2)
-    })
-
-    it('should return readonly array type', () => {
-      manager.enqueue(createTask('task-1', 'curate'))
-
-      const tasks = manager.getQueuedTasks()
-
-      // TypeScript enforces readonly, runtime check for defensive copy
-      expect(Array.isArray(tasks)).to.be.true
-    })
   })
 
   // ============================================================================

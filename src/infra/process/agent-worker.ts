@@ -175,10 +175,14 @@ const taskQueueManager = new TaskQueueManager({
 function notifyQueuedTasksAboutDropAndClear(reason: string): void {
   const queuedTasks = taskQueueManager.getQueuedTasks()
   if (queuedTasks.length > 0) {
-    agentLog(`Notifying ${queuedTasks.length} queued task(s): ${reason}`)
     const error = serializeTaskError(new AgentNotInitializedError(`Task dropped - ${reason}`))
-    for (const task of queuedTasks) {
-      transportClient?.request('task:error', {error, taskId: task.taskId}).catch(logTransportError)
+    if (transportClient) {
+      agentLog(`Notifying ${queuedTasks.length} queued task(s): ${reason}`)
+      for (const task of queuedTasks) {
+        transportClient.request('task:error', {error, taskId: task.taskId}).catch(logTransportError)
+      }
+    } else {
+      agentLog(`Cannot notify ${queuedTasks.length} queued task(s): no transport client`)
     }
   }
 
