@@ -53,7 +53,7 @@ npm run lint                                     # ESLint
 - `brv` (no args) starts interactive REPL (`src/infra/repl/repl-startup.tsx`)
 - React/Ink-based TUI (`src/tui/`) with streaming, dialogs, prompts
 - Slash commands (`/command`) in `src/infra/repl/commands/` (order in `index.ts` = UI suggestion order)
-- Few oclif commands remain: `main` (default), `status`, `curate`, `query`, `watch` (dev-only), `hook-prompt-submit` (hidden), `mcp` (hidden, spawned by coding agents)
+- Few oclif commands remain: `main` (default), `status`, `curate`, `query`, `hook-prompt-submit` (hidden), `mcp` (hidden, spawned by coding agents)
 
 ### Architecture v1.0.0 (Multi-Process)
 
