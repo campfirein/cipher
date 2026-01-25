@@ -9,9 +9,9 @@ import type {
   Tool,
   ToolExecutionContext,
   ToolSet,
-} from '../../../../../src/agent/types/tools/types.js'
+} from '../../../../../src/agent/core/domain/tools/types.js'
 
-import {KnownTool, ToolName} from '../../../../../src/agent/types/tools/constants.js'
+import {KnownTool, ToolName} from '../../../../../src/agent/core/domain/tools/constants.js'
 
 describe('cipher/tools', () => {
   describe('Exports - Constants', () => {

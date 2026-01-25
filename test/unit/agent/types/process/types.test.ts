@@ -12,7 +12,7 @@ import type {
   ProcessInfo,
   ProcessOutput,
   ProcessResult,
-} from '../../../../../src/agent/types/process/types.js'
+} from '../../../../../src/agent/core/domain/process/types.js'
 
 describe('cipher/process', () => {
   describe('Type Safety - ProcessConfig', () => {

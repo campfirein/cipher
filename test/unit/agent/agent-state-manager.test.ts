@@ -1,11 +1,11 @@
 import {expect} from 'chai'
 import {createSandbox, type SinonSandbox} from 'sinon'
 
-import type {ValidatedAgentConfig} from '../../../src/agent/core/agent-schemas.js'
+import type {ValidatedAgentConfig} from '../../../src/agent/infra/agent/agent-schemas.js'
 
-import {TerminationReason} from '../../../src/agent/types/agent/agent-state.js'
-import {AgentStateManager} from '../../../src/agent/core/agent-state-manager.js'
-import {AgentEventBus} from '../../../src/agent/events/event-emitter.js'
+import {TerminationReason} from '../../../src/agent/core/domain/agent/agent-state.js'
+import {AgentStateManager} from '../../../src/agent/infra/agent/agent-state-manager.js'
+import {AgentEventBus} from '../../../src/agent/infra/events/event-emitter.js'
 
 /**
  * Creates a minimal valid config for testing.

@@ -11,10 +11,10 @@ import type {
   KillProcessResult,
 } from '../../../shared/tool-result-types.js'
 
-import {ProcessService} from '../../../../src/agent/process/process-service.js'
-import {createBashExecTool} from '../../../../src/agent/tools/implementations/bash-exec-tool.js'
-import {createBashOutputTool} from '../../../../src/agent/tools/implementations/bash-output-tool.js'
-import {createKillProcessTool} from '../../../../src/agent/tools/implementations/kill-process-tool.js'
+import {ProcessService} from '../../../../src/agent/infra/process/process-service.js'
+import {createBashExecTool} from '../../../../src/agent/infra/tools/implementations/bash-exec-tool.js'
+import {createBashOutputTool} from '../../../../src/agent/infra/tools/implementations/bash-output-tool.js'
+import {createKillProcessTool} from '../../../../src/agent/infra/tools/implementations/kill-process-tool.js'
 
 // Type assertion functions
 function assertBashExecForegroundResult(result: unknown): asserts result is BashExecForegroundResult {

@@ -3,7 +3,7 @@ import { mkdir, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { createContextTreeFileSystem } from '../../../../src/agent/file-system/context-tree-file-system-factory.js'
+import { createContextTreeFileSystem } from '../../../../src/agent/infra/file-system/context-tree-file-system-factory.js'
 
 describe('Context Tree File System Integration (ENG-835)', () => {
   let testDir: string

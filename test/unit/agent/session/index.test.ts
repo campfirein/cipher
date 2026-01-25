@@ -15,7 +15,7 @@ import {
   SessionManager,
   SessionNotInitializedError,
   ToolCall,
-} from '../../../../src/agent/session/index.js'
+} from '../../../../src/agent/infra/session/index.js'
 
 describe('Session index exports', () => {
   describe('Error exports', () => {

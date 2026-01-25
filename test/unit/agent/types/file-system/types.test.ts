@@ -17,7 +17,7 @@ import type {
   ValidationResult,
   WriteFileOptions,
   WriteResult,
-} from '../../../../../src/agent/types/file-system/types.js'
+} from '../../../../../src/agent/core/domain/file-system/types.js'
 
 describe('cipher/file-system', () => {
   describe('Type Safety - BufferEncoding', () => {

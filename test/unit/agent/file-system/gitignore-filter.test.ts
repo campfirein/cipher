@@ -2,7 +2,7 @@ import {expect} from 'chai'
 import fs from 'node:fs/promises'
 import {createSandbox} from 'sinon'
 
-import {createGitignoreFilter, GitignoreFilter} from '../../../../src/agent/file-system/gitignore-filter.js'
+import {createGitignoreFilter, GitignoreFilter} from '../../../../src/agent/infra/file-system/gitignore-filter.js'
 
 describe('GitignoreFilter', () => {
   const sandbox = createSandbox()

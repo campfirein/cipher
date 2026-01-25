@@ -6,7 +6,7 @@ import {
   type FileData,
   type FormattedMessagesResult,
   type ImageData,
-} from '../../../../../src/agent/llm/context/index.js'
+} from '../../../../../src/agent/infra/llm/context/index.js'
 
 describe('Context Module Exports', () => {
   describe('AsyncMutex', () => {

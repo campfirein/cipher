@@ -2,9 +2,9 @@ import {expect} from 'chai'
 import fs from 'node:fs'
 import path from 'node:path'
 
-import type {ContributorContext} from '../../../../src/agent/types/system-prompt/types.js'
+import type {ContributorContext} from '../../../../src/agent/core/domain/system-prompt/types.js'
 
-import {ContextTreeStructureContributor} from '../../../../src/agent/system-prompt/contributors/context-tree-structure-contributor.js'
+import {ContextTreeStructureContributor} from '../../../../src/agent/infra/system-prompt/contributors/context-tree-structure-contributor.js'
 
 describe('ContextTreeStructureContributor', () => {
   let tempDir: string

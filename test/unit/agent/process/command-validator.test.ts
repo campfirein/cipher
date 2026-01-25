@@ -1,8 +1,8 @@
 import {expect} from 'chai'
 
-import type {ProcessConfig} from '../../../../src/agent/types/process/types.js'
+import type {ProcessConfig} from '../../../../src/agent/core/domain/process/types.js'
 
-import {CommandValidator} from '../../../../src/agent/process/command-validator.js'
+import {CommandValidator} from '../../../../src/agent/infra/process/command-validator.js'
 
 describe('CommandValidator', () => {
   let config: Pick<ProcessConfig, 'allowedCommands' | 'blockedCommands' | 'securityLevel'>

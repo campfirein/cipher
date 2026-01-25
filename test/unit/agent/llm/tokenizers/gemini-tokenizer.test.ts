@@ -1,6 +1,6 @@
 import {expect} from 'chai'
 
-import {GeminiTokenizer} from '../../../../../src/agent/llm/tokenizers/gemini-tokenizer.js'
+import {GeminiTokenizer} from '../../../../../src/agent/infra/llm/tokenizers/gemini-tokenizer.js'
 
 /**
  * Helper function to check if all values in an array are equal to the first value

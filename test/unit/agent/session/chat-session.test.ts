@@ -1,14 +1,14 @@
 import {expect} from 'chai'
 import {createSandbox, SinonSandbox, SinonStub} from 'sinon'
 
-import type {CipherAgentServices, SessionServices} from '../../../../src/agent/interfaces/cipher-services.js'
-import type {ILLMService} from '../../../../src/agent/interfaces/i-llm-service.js'
-import type {InternalMessage} from '../../../../src/agent/interfaces/message-types.js'
+import type {CipherAgentServices, SessionServices} from '../../../../src/agent/core/interfaces/cipher-services.js'
+import type {ILLMService} from '../../../../src/agent/core/interfaces/i-llm-service.js'
+import type {InternalMessage} from '../../../../src/agent/core/interfaces/message-types.js'
 
-import {LLMError, SessionCancelledError} from '../../../../src/agent/types/errors/session-error.js'
-import {AgentEventBus, SessionEventBus} from '../../../../src/agent/events/event-emitter.js'
-import {ContextManager} from '../../../../src/agent/llm/context/context-manager.js'
-import {ChatSession} from '../../../../src/agent/session/chat-session.js'
+import {LLMError, SessionCancelledError} from '../../../../src/agent/core/domain/errors/session-error.js'
+import {AgentEventBus, SessionEventBus} from '../../../../src/agent/infra/events/event-emitter.js'
+import {ContextManager} from '../../../../src/agent/infra/llm/context/context-manager.js'
+import {ChatSession} from '../../../../src/agent/infra/session/chat-session.js'
 import {
   createMockCipherAgentServices,
   createMockContextManager,

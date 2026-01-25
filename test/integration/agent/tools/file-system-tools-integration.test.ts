@@ -11,12 +11,12 @@ import type {
   WriteFileResult,
 } from '../../../shared/tool-result-types.js'
 
-import {FileSystemService} from '../../../../src/agent/file-system/file-system-service.js'
-import {createEditFileTool} from '../../../../src/agent/tools/implementations/edit-file-tool.js'
-import {createGlobFilesTool} from '../../../../src/agent/tools/implementations/glob-files-tool.js'
-import {createGrepContentTool} from '../../../../src/agent/tools/implementations/grep-content-tool.js'
-import {createReadFileTool} from '../../../../src/agent/tools/implementations/read-file-tool.js'
-import {createWriteFileTool} from '../../../../src/agent/tools/implementations/write-file-tool.js'
+import {FileSystemService} from '../../../../src/agent/infra/file-system/file-system-service.js'
+import {createEditFileTool} from '../../../../src/agent/infra/tools/implementations/edit-file-tool.js'
+import {createGlobFilesTool} from '../../../../src/agent/infra/tools/implementations/glob-files-tool.js'
+import {createGrepContentTool} from '../../../../src/agent/infra/tools/implementations/grep-content-tool.js'
+import {createReadFileTool} from '../../../../src/agent/infra/tools/implementations/read-file-tool.js'
+import {createWriteFileTool} from '../../../../src/agent/infra/tools/implementations/write-file-tool.js'
 
 // Type assertion functions
 function assertReadFileResult(result: unknown): asserts result is ReadFileResult {

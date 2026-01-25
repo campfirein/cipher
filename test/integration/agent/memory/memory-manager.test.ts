@@ -6,10 +6,10 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {restore, stub} from 'sinon'
 
-import type {Attachment} from '../../../../src/agent/types/memory/types.js'
+import type {Attachment} from '../../../../src/agent/core/domain/memory/types.js'
 
-import {SqliteBlobStorage} from '../../../../src/agent/blob/sqlite-blob-storage.js'
-import {type Memory, MemoryError, MemoryManager} from '../../../../src/agent/memory/index.js'
+import {SqliteBlobStorage} from '../../../../src/agent/infra/blob/sqlite-blob-storage.js'
+import {type Memory, MemoryError, MemoryManager} from '../../../../src/agent/infra/memory/index.js'
 
 describe('Memory Module', () => {
   describe('MemoryManager - Blob Attachments', () => {

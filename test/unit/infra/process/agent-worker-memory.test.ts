@@ -15,7 +15,7 @@
 import {expect} from 'chai'
 import {createSandbox, type SinonSandbox} from 'sinon'
 
-import {AgentEventBus} from '../../../../src/agent/events/event-emitter.js'
+import {AgentEventBus} from '../../../../src/agent/infra/events/event-emitter.js'
 
 /**
  * List of event names that are forwarded by agent-worker.

@@ -1,6 +1,6 @@
 import {expect} from 'chai'
 
-import {AsyncMutex} from '../../../../../src/agent/llm/context/async-mutex.js'
+import {AsyncMutex} from '../../../../../src/agent/infra/llm/context/async-mutex.js'
 
 // Helper functions for parallel execution tests
 function createIncrementOperation(mutex: AsyncMutex, counterRef: {value: number}): Promise<void> {

@@ -1,9 +1,9 @@
 import {expect} from 'chai'
 
-import type {Todo, WriteTodosResult} from '../../../../src/agent/types/todos/types.js'
-import type {ITodoStorage} from '../../../../src/agent/interfaces/i-todo-storage.js'
+import type {Todo, WriteTodosResult} from '../../../../src/agent/core/domain/todos/types.js'
+import type {ITodoStorage} from '../../../../src/agent/core/interfaces/i-todo-storage.js'
 
-import {createWriteTodosTool} from '../../../../src/agent/tools/implementations/write-todos-tool.js'
+import {createWriteTodosTool} from '../../../../src/agent/infra/tools/implementations/write-todos-tool.js'
 
 /**
  * Creates a mock ITodoStorage for testing.

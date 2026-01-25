@@ -2,10 +2,10 @@ import {expect} from 'chai'
 import {randomUUID} from 'node:crypto'
 import {createSandbox, type SinonSandbox} from 'sinon'
 
-import type {CipherAgentServices} from '../../../src/agent/interfaces/cipher-services.js'
+import type {CipherAgentServices} from '../../../src/agent/core/interfaces/cipher-services.js'
 
-import {AgentEventBus, SessionEventBus} from '../../../src/agent/events/event-emitter.js'
-import {ChatSession} from '../../../src/agent/session/chat-session.js'
+import {AgentEventBus, SessionEventBus} from '../../../src/agent/infra/events/event-emitter.js'
+import {ChatSession} from '../../../src/agent/infra/session/chat-session.js'
 import {
   createMockCipherAgentServices,
   createMockHistoryStorage,

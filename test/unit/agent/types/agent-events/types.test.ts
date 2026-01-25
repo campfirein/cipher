@@ -8,13 +8,13 @@ import type {
   SessionEventMap,
   SessionEventName,
   TokenUsage,
-} from '../../../../../src/agent/types/agent-events/index.js'
+} from '../../../../../src/agent/core/domain/agent-events/index.js'
 
 import {
   AGENT_EVENT_NAMES,
   EVENT_NAMES,
   SESSION_EVENT_NAMES,
-} from '../../../../../src/agent/types/agent-events/index.js'
+} from '../../../../../src/agent/core/domain/agent-events/index.js'
 
 describe('cipher/agent-events', () => {
   describe('Exports', () => {

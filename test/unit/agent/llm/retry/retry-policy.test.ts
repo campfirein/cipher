@@ -1,12 +1,12 @@
 import {expect} from 'chai'
 
-import {LlmResponseParsingError} from '../../../../../src/agent/types/errors/llm-error.js'
+import {LlmResponseParsingError} from '../../../../../src/agent/core/domain/errors/llm-error.js'
 import {
   AGGRESSIVE_RETRY_POLICY,
   calculateRetryDelay,
   DEFAULT_RETRY_POLICY,
   isRetryableError,
-} from '../../../../../src/agent/llm/retry/retry-policy.js'
+} from '../../../../../src/agent/infra/llm/retry/retry-policy.js'
 
 describe('retry-policy', () => {
   describe('DEFAULT_RETRY_POLICY', () => {

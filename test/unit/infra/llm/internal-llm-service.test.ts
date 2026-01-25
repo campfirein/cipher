@@ -1,15 +1,15 @@
 import {expect} from 'chai'
 import * as sinon from 'sinon'
 
-import type {GenerateContentResponse} from '../../../../src/agent/interfaces/i-content-generator.js'
-import type {InternalMessage} from '../../../../src/agent/interfaces/message-types.js'
+import type {GenerateContentResponse} from '../../../../src/agent/core/interfaces/i-content-generator.js'
+import type {InternalMessage} from '../../../../src/agent/core/interfaces/message-types.js'
 
-import {SessionEventBus} from '../../../../src/agent/events/event-emitter.js'
-import {ByteRoverLlmHttpService} from '../../../../src/agent/http/internal-llm-http-service.js'
-import {ByteRoverContentGenerator} from '../../../../src/agent/llm/generators/byterover-content-generator.js'
-import {ByteRoverLLMService} from '../../../../src/agent/llm/internal-llm-service.js'
-import {SystemPromptManager} from '../../../../src/agent/system-prompt/system-prompt-manager.js'
-import {ToolManager} from '../../../../src/agent/tools/tool-manager.js'
+import {SessionEventBus} from '../../../../src/agent/infra/events/event-emitter.js'
+import {ByteRoverLlmHttpService} from '../../../../src/agent/infra/http/internal-llm-http-service.js'
+import {ByteRoverContentGenerator} from '../../../../src/agent/infra/llm/generators/byterover-content-generator.js'
+import {ByteRoverLLMService} from '../../../../src/agent/infra/llm/internal-llm-service.js'
+import {SystemPromptManager} from '../../../../src/agent/infra/system-prompt/system-prompt-manager.js'
+import {ToolManager} from '../../../../src/agent/infra/tools/tool-manager.js'
 
 // Helper function to create a ByteRover content generator with test config
 function createContentGenerator(model = 'gemini-2.5-flash') {

@@ -20,7 +20,7 @@
 
 import {randomUUID} from 'node:crypto'
 
-import type {AgentEventMap} from '../../agent/types/agent-events/types.js'
+import type {AgentEventMap} from '../../agent/core/domain/agent-events/types.js'
 import type {AgentStatus, TaskCancel, TaskExecute} from '../../core/domain/transport/schemas.js'
 import type {ITransportClient} from '../../core/interfaces/transport/i-transport-client.js'
 import type {AgentIPCResponse, IPCCommand} from './ipc-types.js'
@@ -34,7 +34,7 @@ import {
   serializeTaskError,
 } from '../../core/domain/errors/task-error.js'
 import {agentLog} from '../../utils/process-logger.js'
-import {CipherAgent} from '../../agent/core/index.js'
+import {CipherAgent} from '../../agent/infra/agent/index.js'
 import {ProjectConfigStore} from '../config/file-config-store.js'
 import {CurateExecutor} from '../core/executors/curate-executor.js'
 import {QueryExecutor} from '../core/executors/query-executor.js'

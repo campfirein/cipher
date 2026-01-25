@@ -5,7 +5,7 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {restore, stub} from 'sinon'
 
-import {SqliteBlobStorage} from '../../../../src/agent/blob/sqlite-blob-storage.js'
+import {SqliteBlobStorage} from '../../../../src/agent/infra/blob/sqlite-blob-storage.js'
 
 /**
  * Integration tests for SqliteBlobStorage

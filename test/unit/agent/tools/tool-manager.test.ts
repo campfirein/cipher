@@ -1,13 +1,13 @@
 import {expect} from 'chai'
 import {createSandbox, restore, type SinonSandbox, type SinonStub} from 'sinon'
 
-import type {ToolSet} from '../../../../src/agent/types/tools/types.js'
-import type {IToolProvider} from '../../../../src/agent/interfaces/i-tool-provider.js'
-import type {IToolScheduler} from '../../../../src/agent/interfaces/i-tool-scheduler.js'
+import type {ToolSet} from '../../../../src/agent/core/domain/tools/types.js'
+import type {IToolProvider} from '../../../../src/agent/core/interfaces/i-tool-provider.js'
+import type {IToolScheduler} from '../../../../src/agent/core/interfaces/i-tool-scheduler.js'
 
-import {ToolError, ToolErrorType} from '../../../../src/agent/types/tools/tool-error.js'
-import {ToolManager} from '../../../../src/agent/tools/tool-manager.js'
-import {ToolMarker} from '../../../../src/agent/tools/tool-markers.js'
+import {ToolError, ToolErrorType} from '../../../../src/agent/core/domain/tools/tool-error.js'
+import {ToolManager} from '../../../../src/agent/infra/tools/tool-manager.js'
+import {ToolMarker} from '../../../../src/agent/infra/tools/tool-markers.js'
 
 
 describe('ToolManager', () => {

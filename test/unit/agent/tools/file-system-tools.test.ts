@@ -1,14 +1,14 @@
 import { expect } from 'chai'
 import { createSandbox, SinonStub } from 'sinon'
 
-import type { IFileSystem } from '../../../../src/agent/interfaces/i-file-system.js'
+import type { IFileSystem } from '../../../../src/agent/core/interfaces/i-file-system.js'
 import type { GlobFilesResult, GrepContentResult } from '../../../shared/tool-result-types.js'
 
-import { createEditFileTool } from '../../../../src/agent/tools/implementations/edit-file-tool.js'
-import { createGlobFilesTool } from '../../../../src/agent/tools/implementations/glob-files-tool.js'
-import { createGrepContentTool } from '../../../../src/agent/tools/implementations/grep-content-tool.js'
-import { createReadFileTool } from '../../../../src/agent/tools/implementations/read-file-tool.js'
-import { createWriteFileTool } from '../../../../src/agent/tools/implementations/write-file-tool.js'
+import { createEditFileTool } from '../../../../src/agent/infra/tools/implementations/edit-file-tool.js'
+import { createGlobFilesTool } from '../../../../src/agent/infra/tools/implementations/glob-files-tool.js'
+import { createGrepContentTool } from '../../../../src/agent/infra/tools/implementations/grep-content-tool.js'
+import { createReadFileTool } from '../../../../src/agent/infra/tools/implementations/read-file-tool.js'
+import { createWriteFileTool } from '../../../../src/agent/infra/tools/implementations/write-file-tool.js'
 
 // Type assertion functions
 function assertGlobFilesResult(result: unknown): asserts result is GlobFilesResult {

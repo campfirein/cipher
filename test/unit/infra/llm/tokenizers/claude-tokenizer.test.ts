@@ -1,6 +1,6 @@
 import {expect} from 'chai'
 
-import {ClaudeTokenizer} from '../../../../../src/agent/llm/tokenizers/claude-tokenizer.js'
+import {ClaudeTokenizer} from '../../../../../src/agent/infra/llm/tokenizers/claude-tokenizer.js'
 
 /**
  * Helper function to check if all values in an array are equal to the first value

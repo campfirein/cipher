@@ -5,4 +5,4 @@
  * use forward slashes regardless of the operating system.
  */
 
-export {normalizeForComparison as toUnixPath} from '../../agent/process/path-utils.js'
+export {normalizeForComparison as toUnixPath} from '../../agent/infra/process/path-utils.js'

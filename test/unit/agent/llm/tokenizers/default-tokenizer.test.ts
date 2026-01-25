@@ -1,6 +1,6 @@
 import {expect} from 'chai'
 
-import {DefaultTokenizer} from '../../../../../src/agent/llm/tokenizers/default-tokenizer.js'
+import {DefaultTokenizer} from '../../../../../src/agent/infra/llm/tokenizers/default-tokenizer.js'
 
 /**
  * Helper function to check if all values in an array are equal to the first value

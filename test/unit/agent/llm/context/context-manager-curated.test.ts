@@ -1,10 +1,10 @@
 import {expect} from 'chai'
 
-import type {IMessageFormatter} from '../../../../../src/agent/interfaces/i-message-formatter.js'
-import type {ITokenizer} from '../../../../../src/agent/interfaces/i-tokenizer.js'
-import type {InternalMessage} from '../../../../../src/agent/interfaces/message-types.js'
+import type {IMessageFormatter} from '../../../../../src/agent/core/interfaces/i-message-formatter.js'
+import type {ITokenizer} from '../../../../../src/agent/core/interfaces/i-tokenizer.js'
+import type {InternalMessage} from '../../../../../src/agent/core/interfaces/message-types.js'
 
-import {ContextManager} from '../../../../../src/agent/llm/context/context-manager.js'
+import {ContextManager} from '../../../../../src/agent/infra/llm/context/context-manager.js'
 
 /**
  * Simple mock formatter for testing

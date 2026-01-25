@@ -7,7 +7,7 @@
 import {useMemo} from 'react'
 import {array as zArray, object as zObject, string as zString} from 'zod'
 
-import type {ExecutionStatus, ToolCallStatus} from '../../agent/types/queue/types.js'
+import type {ExecutionStatus, ToolCallStatus} from '../../agent/core/domain/queue/types.js'
 import type {Task, ToolCallEvent} from '../contexts/tasks-context.js'
 import type {ActivityLog} from '../types.js'
 

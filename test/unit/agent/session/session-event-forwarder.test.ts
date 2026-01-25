@@ -1,8 +1,8 @@
 import {expect} from 'chai'
 import {createSandbox, type SinonSandbox} from 'sinon'
 
-import {AgentEventBus, SessionEventBus} from '../../../../src/agent/events/event-emitter.js'
-import {setupEventForwarding} from '../../../../src/agent/session/session-event-forwarder.js'
+import {AgentEventBus, SessionEventBus} from '../../../../src/agent/infra/events/event-emitter.js'
+import {setupEventForwarding} from '../../../../src/agent/infra/session/session-event-forwarder.js'
 
 describe('SessionEventForwarder', () => {
   let sandbox: SinonSandbox

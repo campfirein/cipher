@@ -6,7 +6,7 @@ import {
   isImageFile,
   isMediaFile,
   isPdfFile,
-} from '../../../../src/agent/file-system/binary-utils.js'
+} from '../../../../src/agent/infra/file-system/binary-utils.js'
 
 describe('binary-utils', () => {
   describe('isBinaryFile', () => {

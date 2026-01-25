@@ -3,9 +3,9 @@ import type {SinonSandbox} from 'sinon'
 import {expect} from 'chai'
 import * as sinon from 'sinon'
 
-import type {ICipherAgent} from '../../../src/agent/interfaces/i-cipher-agent.js'
+import type {ICipherAgent} from '../../../src/agent/core/interfaces/i-cipher-agent.js'
 
-import {executeCommand} from '../../../src/agent/interactive-commands.js'
+import {executeCommand} from '../../../src/agent/infra/agent/interactive-commands.js'
 
 describe('interactive-commands', () => {
   let sandbox: SinonSandbox

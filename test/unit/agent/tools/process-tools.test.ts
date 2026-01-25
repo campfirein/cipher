@@ -1,12 +1,12 @@
 import {expect} from 'chai'
 import {createSandbox, SinonStub} from 'sinon'
 
-import type {IProcessService} from '../../../../src/agent/interfaces/i-process-service.js'
+import type {IProcessService} from '../../../../src/agent/core/interfaces/i-process-service.js'
 import type {BashExecBackgroundResult, KillProcessResult} from '../../../shared/tool-result-types.js'
 
-import {createBashExecTool} from '../../../../src/agent/tools/implementations/bash-exec-tool.js'
-import {createBashOutputTool} from '../../../../src/agent/tools/implementations/bash-output-tool.js'
-import {createKillProcessTool} from '../../../../src/agent/tools/implementations/kill-process-tool.js'
+import {createBashExecTool} from '../../../../src/agent/infra/tools/implementations/bash-exec-tool.js'
+import {createBashOutputTool} from '../../../../src/agent/infra/tools/implementations/bash-output-tool.js'
+import {createKillProcessTool} from '../../../../src/agent/infra/tools/implementations/kill-process-tool.js'
 
 // Type assertion functions
 function assertBashExecBackgroundResult(result: unknown): asserts result is BashExecBackgroundResult {

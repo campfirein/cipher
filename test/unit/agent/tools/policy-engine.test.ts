@@ -1,8 +1,8 @@
 import {expect} from 'chai'
 
-import type {PolicyRule} from '../../../../src/agent/interfaces/i-policy-engine.js'
+import type {PolicyRule} from '../../../../src/agent/core/interfaces/i-policy-engine.js'
 
-import {PolicyEngine} from '../../../../src/agent/tools/policy-engine.js'
+import {PolicyEngine} from '../../../../src/agent/infra/tools/policy-engine.js'
 
 describe('PolicyEngine', () => {
   describe('constructor', () => {

@@ -1,8 +1,8 @@
 import {expect} from 'chai'
 import {SinonStub, stub} from 'sinon'
 
-import type {StoredBlob} from '../../../../src/agent/types/blob/types.js'
-import type {IBlobStorage} from '../../../../src/agent/interfaces/i-blob-storage.js'
+import type {StoredBlob} from '../../../../src/agent/core/domain/blob/types.js'
+import type {IBlobStorage} from '../../../../src/agent/core/interfaces/i-blob-storage.js'
 
 import {
   CreateMemoryInput,
@@ -14,7 +14,7 @@ import {
   MemoryManager,
   MemorySource,
   UpdateMemoryInput,
-} from '../../../../src/agent/memory/index.js'
+} from '../../../../src/agent/infra/memory/index.js'
 
 describe('MemoryManager - Unit Tests (Mocked)', () => {
   let memoryManager: MemoryManager

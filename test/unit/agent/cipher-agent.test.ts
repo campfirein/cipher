@@ -1,11 +1,11 @@
 import {expect} from 'chai'
 import {restore, stub} from 'sinon'
 
-import type {AgentConfig} from '../../../src/agent/core/index.js'
+import type {AgentConfig} from '../../../src/agent/infra/agent/index.js'
 
 import {BRV_CONFIG_VERSION} from '../../../src/constants.js'
 import {BrvConfig} from '../../../src/core/domain/entities/brv-config.js'
-import {CipherAgent} from '../../../src/agent/core/index.js'
+import {CipherAgent} from '../../../src/agent/infra/agent/index.js'
 
 describe('CipherAgent', () => {
   let agentConfig: AgentConfig

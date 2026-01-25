@@ -8,7 +8,7 @@ import {Text} from 'ink'
 import Spinner from 'ink-spinner'
 import React from 'react'
 
-import type {ExecutionStatus as ExecutionStatusType} from '../../../agent/types/queue/types.js'
+import type {ExecutionStatus as ExecutionStatusType} from '../../../agent/core/domain/queue/types.js'
 
 import {useTheme} from '../../hooks/index.js'
 

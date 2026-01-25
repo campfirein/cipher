@@ -1,6 +1,6 @@
 import {expect} from 'chai'
 
-import {isProcessRunning} from '../../../../src/agent/storage/process-utils.js'
+import {isProcessRunning} from '../../../../src/agent/infra/storage/process-utils.js'
 
 describe('process-utils', () => {
   describe('isProcessRunning', () => {

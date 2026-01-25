@@ -8,7 +8,7 @@ import type {
   MemoryConfig,
   MemorySource,
   UpdateMemoryInput,
-} from '../../../../../src/agent/types/memory/types.js'
+} from '../../../../../src/agent/core/domain/memory/types.js'
 
 describe('cipher/memory', () => {
   describe('Type Safety - MemorySource', () => {

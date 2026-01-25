@@ -1,6 +1,6 @@
 import {expect} from 'chai'
 
-import {createSearchHistoryTool} from '../../../../src/agent/tools/implementations/search-history-tool.js'
+import {createSearchHistoryTool} from '../../../../src/agent/infra/tools/implementations/search-history-tool.js'
 
 describe('Search History Tool', () => {
   it('should throw error as it is not implemented', async () => {

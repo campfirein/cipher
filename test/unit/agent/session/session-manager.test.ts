@@ -2,15 +2,15 @@ import { expect } from 'chai'
 import { randomUUID } from 'node:crypto'
 import { createSandbox, SinonSandbox, SinonStub } from 'sinon'
 
-import type { CipherAgentServices } from '../../../../src/agent/interfaces/cipher-services.js'
-import type { IChatSession } from '../../../../src/agent/interfaces/i-chat-session.js'
-import type { ILLMService } from '../../../../src/agent/interfaces/i-llm-service.js'
-import type { ByteRoverHttpConfig } from '../../../../src/agent/core/service-initializer.js'
+import type { CipherAgentServices } from '../../../../src/agent/core/interfaces/cipher-services.js'
+import type { IChatSession } from '../../../../src/agent/core/interfaces/i-chat-session.js'
+import type { ILLMService } from '../../../../src/agent/core/interfaces/i-llm-service.js'
+import type { ByteRoverHttpConfig } from '../../../../src/agent/infra/agent/service-initializer.js'
 
-import { createSessionServices } from '../../../../src/agent/core/service-initializer.js'
-import { AgentEventBus, SessionEventBus } from '../../../../src/agent/events/event-emitter.js'
-import { ChatSession } from '../../../../src/agent/session/chat-session.js'
-import { SessionManager } from '../../../../src/agent/session/session-manager.js'
+import { createSessionServices } from '../../../../src/agent/infra/agent/service-initializer.js'
+import { AgentEventBus, SessionEventBus } from '../../../../src/agent/infra/events/event-emitter.js'
+import { ChatSession } from '../../../../src/agent/infra/session/chat-session.js'
+import { SessionManager } from '../../../../src/agent/infra/session/session-manager.js'
 import { createMockCipherAgentServices, createMockLLMService } from '../../../helpers/mock-factories.js'
 
 type InitializableLLMService = ILLMService & { initialize?: SinonStub }

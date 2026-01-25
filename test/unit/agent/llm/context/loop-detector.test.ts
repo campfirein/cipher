@@ -1,6 +1,6 @@
 import {expect} from 'chai'
 
-import {LoopDetector} from '../../../../../src/agent/llm/context/loop-detector.js'
+import {LoopDetector} from '../../../../../src/agent/infra/llm/context/loop-detector.js'
 
 describe('LoopDetector', () => {
   let loopDetector: LoopDetector

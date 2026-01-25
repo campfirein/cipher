@@ -1,13 +1,13 @@
 import {expect} from 'chai'
 import {createSandbox, type SinonSandbox} from 'sinon'
 
-import type {CipherAgentServices} from '../../../src/agent/interfaces/cipher-services.js'
-import type {ByteRoverHttpConfig} from '../../../src/agent/core/service-initializer.js'
+import type {CipherAgentServices} from '../../../src/agent/core/interfaces/cipher-services.js'
+import type {ByteRoverHttpConfig} from '../../../src/agent/infra/agent/service-initializer.js'
 
-import {createSessionServices} from '../../../src/agent/core/service-initializer.js'
-import {AgentEventBus, SessionEventBus} from '../../../src/agent/events/event-emitter.js'
-import {setupEventForwarding} from '../../../src/agent/session/session-event-forwarder.js'
-import {SessionManager} from '../../../src/agent/session/session-manager.js'
+import {createSessionServices} from '../../../src/agent/infra/agent/service-initializer.js'
+import {AgentEventBus, SessionEventBus} from '../../../src/agent/infra/events/event-emitter.js'
+import {setupEventForwarding} from '../../../src/agent/infra/session/session-event-forwarder.js'
+import {SessionManager} from '../../../src/agent/infra/session/session-manager.js'
 import {createMockCipherAgentServices, createMockHistoryStorage} from '../../helpers/mock-factories.js'
 
 /**

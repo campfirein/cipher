@@ -11,7 +11,7 @@ import {
   rollbackToVersion,
   runMigrations,
   setVersion,
-} from '../../../../src/agent/blob/migrations.js'
+} from '../../../../src/agent/infra/blob/migrations.js'
 
 describe('SQLite Migrations', () => {
   let testDir: string

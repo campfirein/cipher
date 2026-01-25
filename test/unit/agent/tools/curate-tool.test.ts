@@ -3,7 +3,7 @@ import * as fs from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { backfillDomainContextFiles, createCurateTool } from '../../../../src/agent/tools/implementations/curate-tool.js'
+import { backfillDomainContextFiles, createCurateTool } from '../../../../src/agent/infra/tools/implementations/curate-tool.js'
 
 interface CurateOutput {
   applied: Array<{

@@ -7,7 +7,7 @@ import type {
   MessageRole,
   SessionConfig,
   ToolCall,
-} from '../../../../../src/agent/types/session/types.js'
+} from '../../../../../src/agent/core/domain/session/types.js'
 
 describe('cipher/session', () => {
   describe('Type Safety - MessageRole', () => {

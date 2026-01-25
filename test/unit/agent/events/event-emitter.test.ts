@@ -5,7 +5,7 @@ import {
   AgentEventBus,
   BaseTypedEventEmitter,
   SessionEventBus,
-} from '../../../../src/agent/events/event-emitter.js'
+} from '../../../../src/agent/infra/events/event-emitter.js'
 
 const throwError = () => {
   throw new Error('Test error')

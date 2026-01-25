@@ -7,7 +7,7 @@ import {createSandbox, type SinonSandbox} from 'sinon'
 import {
   ByteRoverHttpConfig,
   ByteRoverLlmHttpService,
-} from '../../../../src/agent/http/internal-llm-http-service.js'
+} from '../../../../src/agent/infra/http/internal-llm-http-service.js'
 
 // Helper functions to verify request body - extracted to reduce callback nesting
 function verifyProjectId(expectedProjectId: string) {

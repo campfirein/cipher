@@ -1,10 +1,10 @@
 import {expect} from 'chai'
 import {restore, SinonStub, stub} from 'sinon'
 
-import type {IPolicyEngine, PolicyEvaluationResult} from '../../../../src/agent/interfaces/i-policy-engine.js'
-import type {IToolProvider} from '../../../../src/agent/interfaces/i-tool-provider.js'
+import type {IPolicyEngine, PolicyEvaluationResult} from '../../../../src/agent/core/interfaces/i-policy-engine.js'
+import type {IToolProvider} from '../../../../src/agent/core/interfaces/i-tool-provider.js'
 
-import {CoreToolScheduler, ToolDeniedError} from '../../../../src/agent/tools/core-tool-scheduler.js'
+import {CoreToolScheduler, ToolDeniedError} from '../../../../src/agent/infra/tools/core-tool-scheduler.js'
 
 describe('CoreToolScheduler', () => {
   let mockToolProvider: IToolProvider

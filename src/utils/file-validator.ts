@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-import {isBinaryFile, isMediaFile} from '../agent/file-system/binary-utils.js'
+import {isBinaryFile, isMediaFile} from '../agent/infra/file-system/binary-utils.js'
 
 /**
  * Normalize file path - handles relative, absolute, tilde, symlinks

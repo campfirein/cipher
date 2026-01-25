@@ -12,7 +12,7 @@ import {
   type FileMetadata,
   RECENCY_THRESHOLD_MS,
   sortFilesByRecency,
-} from '../../../../src/agent/file-system/glob-utils.js'
+} from '../../../../src/agent/infra/file-system/glob-utils.js'
 
 describe('glob-utils', () => {
   const sandbox = createSandbox()

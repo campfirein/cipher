@@ -11,7 +11,7 @@ import type {
   StaticContributorConfig,
   SystemPromptConfig,
   SystemPromptContext,
-} from '../../../../../src/agent/types/system-prompt/types.js'
+} from '../../../../../src/agent/core/domain/system-prompt/types.js'
 
 describe('cipher/system-prompt', () => {
   describe('Type Safety - ConversationMetadata', () => {

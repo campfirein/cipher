@@ -1,6 +1,6 @@
 import {expect} from 'chai'
 
-import {parseInput} from '../../../src/agent/command-parser.js'
+import {parseInput} from '../../../src/agent/infra/agent/command-parser.js'
 
 describe('command-parser', () => {
   describe('parseInput()', () => {

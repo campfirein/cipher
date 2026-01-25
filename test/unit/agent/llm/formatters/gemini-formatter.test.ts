@@ -3,9 +3,9 @@ import type {Content} from '@google/genai'
 
 import {expect} from 'chai'
 
-import type {InternalMessage} from '../../../../../src/agent/interfaces/message-types.js'
+import type {InternalMessage} from '../../../../../src/agent/core/interfaces/message-types.js'
 
-import {GeminiMessageFormatter} from '../../../../../src/agent/llm/formatters/gemini-formatter.js'
+import {GeminiMessageFormatter} from '../../../../../src/agent/infra/llm/formatters/gemini-formatter.js'
 
 describe('GeminiMessageFormatter', () => {
   let formatter: GeminiMessageFormatter

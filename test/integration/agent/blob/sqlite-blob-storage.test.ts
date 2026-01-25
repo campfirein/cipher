@@ -1,7 +1,7 @@
 import {expect} from 'chai'
 import {restore, stub} from 'sinon'
 
-import {BlobError, BlobErrorCode, SqliteBlobStorage} from '../../../../src/agent/blob/index.js'
+import {BlobError, BlobErrorCode, SqliteBlobStorage} from '../../../../src/agent/infra/blob/index.js'
 
 describe('SqliteBlobStorage', () => {
   let storage: SqliteBlobStorage

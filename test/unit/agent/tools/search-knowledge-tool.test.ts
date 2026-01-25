@@ -1,9 +1,9 @@
 import {expect} from 'chai'
 import {createSandbox, SinonStub} from 'sinon'
 
-import type {IFileSystem} from '../../../../src/agent/interfaces/i-file-system.js'
+import type {IFileSystem} from '../../../../src/agent/core/interfaces/i-file-system.js'
 
-import {createSearchKnowledgeTool} from '../../../../src/agent/tools/implementations/search-knowledge-tool.js'
+import {createSearchKnowledgeTool} from '../../../../src/agent/infra/tools/implementations/search-knowledge-tool.js'
 
 interface SearchKnowledgeOutput {
   message: string

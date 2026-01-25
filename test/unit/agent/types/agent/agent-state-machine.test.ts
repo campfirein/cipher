@@ -1,7 +1,7 @@
 import {expect} from 'chai'
 
-import {AgentStateMachine} from '../../../../../src/agent/types/agent/agent-state-machine.js'
-import {AgentState, TerminationReason} from '../../../../../src/agent/types/agent/agent-state.js'
+import {AgentStateMachine} from '../../../../../src/agent/core/domain/agent/agent-state-machine.js'
+import {AgentState, TerminationReason} from '../../../../../src/agent/core/domain/agent/agent-state.js'
 
 // Helper function for testing invalid transitions
 function expectTransitionToThrow(stateMachine: AgentStateMachine, targetState: AgentState, expectedMessage: string): void {
