@@ -1,1 +1,0 @@
-export const CURATE_MAX_CONCURRENT = 3
