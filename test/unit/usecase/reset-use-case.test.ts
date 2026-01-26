@@ -1,12 +1,14 @@
 import type {SinonStubbedInstance} from 'sinon'
 
 import {expect} from 'chai'
+import {join} from 'node:path'
 import {restore, stub} from 'sinon'
 
 import type {IContextTreeService} from '../../../src/core/interfaces/i-context-tree-service.js'
 import type {IContextTreeSnapshotService} from '../../../src/core/interfaces/i-context-tree-snapshot-service.js'
 import type {ITerminal} from '../../../src/core/interfaces/i-terminal.js'
 
+import {BRV_DIR, CONTEXT_TREE_DIR} from "../../../src/constants.js";
 import {ResetUseCase, type ResetUseCaseOptions} from '../../../src/infra/usecase/reset-use-case.js'
 import {createMockTerminal} from '../../helpers/mock-factories.js'
 
@@ -77,6 +79,8 @@ describe('ResetUseCase', () => {
     expect(contextTreeService.exists.calledOnce).to.be.true
     expect(contextTreeService.initialize.calledOnce).to.be.true
     expect(contextTreeSnapshotService.initEmptySnapshot.calledOnce).to.be.true
+    expect(useCase.deleteContextTreeCalled).to.be.true
+    expect(useCase.deletedPath).to.equal(join(process.cwd(), BRV_DIR, CONTEXT_TREE_DIR))
   })
 
   it('should not reset context tree when user cancels', async () => {
@@ -125,13 +129,15 @@ describe('ResetUseCase', () => {
     stub(terminal, 'confirm').resolves(true)
 
     const useCase = createUseCase()
-
-    await useCase.run({directory: '/custom/path', skipConfirmation: false})
+    const customPath = '/custom/path'
+    await useCase.run({directory: customPath, skipConfirmation: false})
 
     // Verify custom directory was passed to exists, initialize, and initEmptySnapshot
-    expect(contextTreeService.exists.calledWith('/custom/path')).to.be.true
-    expect(contextTreeService.initialize.calledWith('/custom/path')).to.be.true
-    expect(contextTreeSnapshotService.initEmptySnapshot.calledWith('/custom/path')).to.be.true
+    expect(contextTreeService.exists.calledWith(customPath)).to.be.true
+    expect(contextTreeService.initialize.calledWith(customPath)).to.be.true
+    expect(contextTreeSnapshotService.initEmptySnapshot.calledWith(customPath)).to.be.true
+    expect(useCase.deleteContextTreeCalled).to.be.true
+    expect(useCase.deletedPath).to.equal(join(customPath, BRV_DIR, CONTEXT_TREE_DIR))
   })
 
   it('should handle errors gracefully', async () => {
