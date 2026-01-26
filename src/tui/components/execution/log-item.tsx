@@ -44,9 +44,6 @@ export const LogItem: React.FC<LogItemProps> = memo(({heights, isExpand, isSelec
       <Box gap={1}>
         <Text color={colors.primary}>• {log.type}</Text>
         <Spacer />
-        {isSelected && shouldShowExpand && (
-          <Text backgroundColor={colors.bg2} color={colors.dimText}> [ctrl+o] to expand </Text>
-        )}
         <Text color={colors.dimText}>{displayTime}</Text>
       </Box>
       <Box gap={1}>
@@ -88,7 +85,7 @@ export const LogItem: React.FC<LogItemProps> = memo(({heights, isExpand, isSelec
               bottomMargin={0}
               content={log.content ?? ''}
               isError={log.status === 'failed'}
-              maxLines={heights.maxContentLines}
+              maxLines={3}
             />
           )}
 
@@ -100,6 +97,13 @@ export const LogItem: React.FC<LogItemProps> = memo(({heights, isExpand, isSelec
               maxChanges={heights.maxChanges}
               updated={log.changes.updated}
             />
+          )}
+
+          {/* Expand indicator */}
+          {isSelected && shouldShowExpand ? (
+            <Text color={colors.dimText}>Show remaining output • [ctrl+o] to expand</Text>
+          ) : (
+            <Text> </Text>
           )}
         </Box>
       </Box>

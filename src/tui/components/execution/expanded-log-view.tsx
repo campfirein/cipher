@@ -104,18 +104,17 @@ export const ExpandedLogView: React.FC<ExpandedLogViewProps> = ({
   const displayTime = formatTime(log.timestamp)
 
   return (
-    <Box flexDirection="column" height="100%" paddingX={2} width="100%">
+    <Box flexDirection="column" height="100%" paddingBottom={1} paddingX={2} width="100%">
       {/* Fixed Header */}
       <Box gap={1}>
         <Text color={colors.primary}>• {log.type}</Text>
         <Spacer />
-          <Text backgroundColor={colors.bg2} color={colors.dimText}> [ctrl+o] to collapse </Text>
         <Text color={colors.dimText}>{displayTime}</Text>
       </Box>
 
       {/* Scrollable content area */}
       <Box borderColor={colors.border} borderStyle="single" flexDirection="column" height={availableHeight - 1}>
-        <ScrollView height={availableHeight - 2} ref={scrollViewRef}>
+        <ScrollView height={availableHeight - 4} ref={scrollViewRef}>
           {/* Input */}
           <Box marginBottom={1} paddingX={1}>
             <Text>{log.input}</Text>
@@ -176,6 +175,9 @@ export const ExpandedLogView: React.FC<ExpandedLogViewProps> = ({
         <Box justifyContent="center">
           <Text color={colors.dimText}>{hasMoreBelow ? '↓' : ' '}</Text>
         </Box>
+      </Box>
+      <Box>
+        <Text color={colors.dimText}>[ctrl+o] to collapse</Text>
       </Box>
     </Box>
   )

@@ -6,12 +6,28 @@
  */
 
 import {Box, Text} from 'ink'
-import Spinner from 'ink-spinner'
-import React from 'react'
+import React, {useEffect, useState} from 'react'
 
 import type {ToolCallStatus} from '../../../core/domain/cipher/queue/types.js'
 
 import {useTheme} from '../../hooks/index.js'
+
+/**
+ * Blinking circle indicator that appears/disappears every 1000ms
+ */
+const BlinkingCircle: React.FC<{color: string}> = ({color}) => {
+  const [visible, setVisible] = useState(true)
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setVisible((prev) => !prev)
+    }, 1000)
+
+    return () => clearInterval(interval)
+  }, [])
+
+  return <Text color={color}>{visible ? '● ' : '  '}</Text>
+}
 
 interface ToolCallItem {
   /** Tool call arguments/parameters */
@@ -151,17 +167,17 @@ export const ExecutionTool: React.FC<ExecutionToolProps> = ({isExpanded = false,
 
   return (
     <Box>
-      {toolCall.status === 'completed' && <Text color={colors.primary}>✓ </Text>}
-      {toolCall.status === 'running' && (
-        <Text color={colors.dimText}>
-          <Spinner type="dots" />{' '}
-        </Text>
-      )}
-      {toolCall.status === 'failed' && <Text color={colors.errorText}>✗ </Text>}
-      <Text>
+      <Box flexShrink={0}>
+        {toolCall.status === 'completed' && <Text color={colors.primary}>✓ </Text>}
+        {toolCall.status === 'running' && <BlinkingCircle color={colors.dimText} />}
+        {toolCall.status === 'failed' && <Text color={colors.errorText}>✗ </Text>}
         <Text color={colors.text}>{toolName}</Text>
-        {toolArguments && <Text color={colors.dimText}> {toolArguments}</Text>}
-      </Text>
+      </Box>
+      {toolArguments && (
+        <Box>
+          <Text color={colors.dimText}> {toolArguments}</Text>
+        </Box>
+      )}
     </Box>
   )
 }

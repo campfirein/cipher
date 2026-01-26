@@ -6,11 +6,34 @@
  */
 
 import {Box, Text} from 'ink'
-import React from 'react'
+import React, {useEffect, useState} from 'react'
 
 import type {ReasoningContentItem} from '../../types/messages.js'
 
 import {useTheme} from '../../hooks/index.js'
+
+/**
+ * Animated thinking indicator that cycles through dots: "Thinking." -> "Thinking.." -> "Thinking..."
+ */
+const ThinkingIndicator: React.FC<{color: string}> = ({color}) => {
+  const [dotCount, setDotCount] = useState(1)
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setDotCount((prev) => (prev >= 3 ? 1 : prev + 1))
+    }, 800)
+
+    return () => clearInterval(interval)
+  }, [])
+
+  const dots = '.'.repeat(dotCount)
+
+  return (
+    <Text color={color} italic>
+      Thinking{dots}
+    </Text>
+  )
+}
 
 interface ExecutionReasoningProps {
   /** Whether content should be fully expanded (no truncation) */
@@ -32,7 +55,7 @@ export const ExecutionReasoning: React.FC<ExecutionReasoningProps> = ({
   if (isThinking && !content) {
     return (
       <Box>
-        <Text color={colors.dimPrimary} italic>Thinking...</Text>
+        <ThinkingIndicator color={colors.dimPrimary} />
       </Box>
     )
   }
