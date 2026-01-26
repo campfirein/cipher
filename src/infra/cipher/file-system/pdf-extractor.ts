@@ -1,8 +1,19 @@
-import { extractText, getDocumentProxy, getMeta } from 'unpdf'
+import { getDocumentProxy, getMeta } from 'unpdf'
 
 import type { PdfMetadata, PdfPageContent } from '../../../core/domain/cipher/file-system/types.js'
 
 import { PdfExtractionError } from '../../../core/domain/cipher/errors/file-system-error.js'
+
+/**
+ * Text item from PDF.js text content.
+ * Subset of pdfjs-dist TextItem type used for text extraction.
+ */
+interface PdfTextItem {
+  /** Whether the text item is followed by an end-of-line */
+  hasEOL?: boolean
+  /** Text content */
+  str: string
+}
 
 /**
  * PDF magic bytes: %PDF-
@@ -110,13 +121,11 @@ export class PdfExtractor {
         }
       }
 
-      // Extract text from all pages (unpdf doesn't support page-by-page extraction directly)
-      const textResult = await extractText(pdf, { mergePages: false })
-      const allPageTexts = textResult.text
-
-      // Calculate page range and extract pages
+      // Calculate page range
       const endPage = Math.min(offset + limit - 1, totalPages)
-      const pages = PdfExtractor.extractPageRange(allPageTexts, offset, endPage)
+
+      // Extract text only from requested pages using PDF.js page-level API
+      const pages = await PdfExtractor.extractPagesFromDocument(pdf, offset, endPage)
 
       return {
         hasMore: endPage < totalPages,
@@ -179,21 +188,44 @@ export class PdfExtractor {
   }
 
   /**
-   * Extracts pages from the text array for the given range.
-   * @param allPageTexts - Array of text content for all pages
+   * Extracts text from specific pages of a PDF document.
+   * Uses PDF.js page-level API for efficient extraction of page ranges.
+   *
+   * @param pdf - PDF document proxy from unpdf
    * @param startPage - Starting page number (1-based)
    * @param endPage - Ending page number (1-based, inclusive)
-   * @returns Array of PdfPageContent
+   * @returns Array of PdfPageContent with extracted text
    */
-  private static extractPageRange(allPageTexts: string[], startPage: number, endPage: number): PdfPageContent[] {
-    const pages: PdfPageContent[] = []
+  private static async extractPagesFromDocument(
+    pdf: Awaited<ReturnType<typeof getDocumentProxy>>,
+    startPage: number,
+    endPage: number,
+  ): Promise<PdfPageContent[]> {
+    // Build array of page numbers to extract
+    const pageNumbers: number[] = []
     for (let pageNum = startPage; pageNum <= endPage; pageNum++) {
-      const text = allPageTexts[pageNum - 1] ?? ''
-      pages.push({
-        pageNumber: pageNum,
-        text: text.trim(),
-      })
+      pageNumbers.push(pageNum)
     }
+
+    // Extract all requested pages in parallel
+    const pages = await Promise.all(
+      pageNumbers.map(async (pageNum) => {
+        const page = await pdf.getPage(pageNum)
+        const textContent = await page.getTextContent()
+
+        // Extract text from text items, handling EOL markers
+        // TextContent.items contains TextItem and TextMarkedContent - we only want TextItem (has 'str')
+        const text = (textContent.items as unknown[])
+          .filter((item): item is PdfTextItem => typeof item === 'object' && item !== null && 'str' in item)
+          .map((item) => item.str + (item.hasEOL ? '\n' : ''))
+          .join('')
+
+        return {
+          pageNumber: pageNum,
+          text: text.trim(),
+        }
+      }),
+    )
 
     return pages
   }
