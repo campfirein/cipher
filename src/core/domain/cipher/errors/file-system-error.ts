@@ -350,22 +350,3 @@ export class PdfExtractionError extends FileSystemError {
     this.name = 'PdfExtractionError'
   }
 }
-
-/**
- * Error thrown when a PDF has no extractable text (scanned/image-only PDFs).
- */
-export class PdfNoTextError extends FileSystemError {
-  /**
-   * Creates a new PDF no text error
-   * @param path - Path to the PDF file
-   * @param pageCount - Number of pages in the PDF
-   */
-  public constructor(path: string, pageCount: number) {
-    super(
-      `PDF has no extractable text: ${path} (${pageCount} pages). This PDF may be scanned or contain only images.`,
-      'PDF_NO_TEXT',
-      { pageCount, path },
-    )
-    this.name = 'PdfNoTextError'
-  }
-}

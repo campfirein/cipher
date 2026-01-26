@@ -78,7 +78,7 @@ export class PdfExtractor {
     try {
       const pdf = await getDocumentProxy(new Uint8Array(buffer))
       const meta = await getMeta(pdf)
-      return PdfExtractor.buildMetadataFromInfo(pdf.numPages, meta.info as Record<string, unknown> | undefined)
+      return PdfExtractor.buildMetadataFromInfo(pdf.numPages, meta.info)
     } catch (error) {
       throw PdfExtractor.wrapExtractionError(error, filePath)
     }
