@@ -24,7 +24,7 @@ import {
 import {ITransportClient} from '../../core/interfaces/transport/i-transport-client.js'
 import { formatError } from '../../utils/error-handler.js'
 import {getSandboxEnvironmentName, isSandboxEnvironment, isSandboxNetworkError} from '../../utils/sandbox-detector.js'
-import {CipherAgent} from '../cipher/agent/index.js'
+import {CipherAgent} from '../../agent/infra/agent/index.js'
 import {createTransportClientFactory, type TransportClientFactory} from '../transport/transport-client-factory.js'
 
 export type TransportClientFactoryCreator = () => TransportClientFactory

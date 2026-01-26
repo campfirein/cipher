@@ -119,7 +119,7 @@
   },
   "repository": "campfirein/byterover-cli",
   "scripts": {
-    "build": "shx rm -rf dist && tsc -b && shx cp -r src/templates dist/templates && shx cp -r src/resources dist/resources",
+    "build": "shx rm -rf dist && tsc -b && shx cp -r src/templates dist/templates && shx cp -r src/agent/resources dist/agent/resources",
     "lint": "eslint",
     "postpack": "shx rm -f oclif.manifest.json",
     "posttest": "npm run lint",

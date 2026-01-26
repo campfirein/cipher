@@ -9,7 +9,7 @@ import {Box, Text} from 'ink'
 import Spinner from 'ink-spinner'
 import React from 'react'
 
-import type {ToolCallStatus} from '../../../core/domain/cipher/queue/types.js'
+import type {ToolCallStatus} from '../../../agent/core/domain/queue/types.js'
 
 import {useTheme} from '../../hooks/index.js'
 

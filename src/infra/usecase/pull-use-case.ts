@@ -9,7 +9,7 @@ import type {ITokenStore} from '../../core/interfaces/i-token-store.js'
 import type {ITrackingService} from '../../core/interfaces/i-tracking-service.js'
 import type {IPullUseCase} from '../../core/interfaces/usecase/i-pull-use-case.js'
 
-import {WorkspaceNotInitializedError} from '../cipher/validation/workspace-validator.js'
+import {WorkspaceNotInitializedError} from '../../agent/infra/validation/workspace-validator.js'
 
 export interface PullUseCaseOptions {
   cogitPullService: ICogitPullService
