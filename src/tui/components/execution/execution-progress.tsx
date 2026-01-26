@@ -68,8 +68,20 @@ export const ExecutionProgress: React.FC<ExecutionProgressProps> = ({
       }
     }
 
-    // Sort by timestamp ascending
-    return items.sort((a, b) => a.timestamp - b.timestamp)
+    // Sort by: 1) timestamp ascending, 2) running status last
+    // Running items at the end so they appear when slicing last N items
+    return items.sort((a, b) => {
+      // Check if item is running (tool with status 'running' or reasoning with isThinking)
+      const aIsRunning = a.type === 'tool' ? a.data.status === 'running' : a.data.isThinking
+      const bIsRunning = b.type === 'tool' ? b.data.status === 'running' : b.data.isThinking
+
+      // Running items come last (to appear in slice(-maxItems))
+      if (aIsRunning && !bIsRunning) return 1
+      if (!aIsRunning && bIsRunning) return -1
+
+      // Within same status, sort by timestamp ascending
+      return a.timestamp - b.timestamp
+    })
   }, [toolCalls, reasoningContents])
 
   if (sortedItems.length === 0) {
