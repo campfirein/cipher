@@ -250,7 +250,7 @@ export class InitUseCase implements IInitUseCase {
         this.terminal.log(`   Installed: ${result.configPath}`)
 
         // Show restart message for hook connector
-        if (defaultType === 'hook' || defaultType === 'mcp') {
+        if (['hook', 'mcp', 'skill'].includes(defaultType)) {
           this.terminal.warn(`\n⚠️  Please restart ${selectedAgent} to apply the new ${defaultType}.`)
         }
       }

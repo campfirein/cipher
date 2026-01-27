@@ -107,6 +107,10 @@ export class ConnectorsUseCase implements IConnectorsUseCase {
       case 'rules': {
         return `Agent reads instructions from rule file (${configPath})`
       }
+
+      case 'skill': {
+        return `Agent reads skill files from project directory (${configPath})`
+      }
     }
   }
 
@@ -125,6 +129,10 @@ export class ConnectorsUseCase implements IConnectorsUseCase {
 
       case 'rules': {
         return 'Rules'
+      }
+
+      case 'skill': {
+        return 'Skill'
       }
     }
   }
@@ -181,8 +189,8 @@ export class ConnectorsUseCase implements IConnectorsUseCase {
       }
 
       // Show restart message for hook connector
-      if ((result.toType === 'hook' || result.toType === 'mcp') && !result.installResult.alreadyInstalled) {
-        this.terminal.warn(`\nPlease restart ${agent} to apply the new ${result.toType}.`)
+      if (['hook', 'mcp', 'skill'].includes(result.toType) && !result.installResult.alreadyInstalled) {
+        this.terminal.warn(`\n⚠️  Please restart ${agent} to apply the new ${result.toType}.`)
       }
     } else {
       this.terminal.error(`Failed to configure ${agent}: ${result.message}`)
