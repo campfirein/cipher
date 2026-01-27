@@ -48,7 +48,7 @@ export const connectorsCommand: SlashCommand = {
   }),
   aliases: [],
   autoExecute: true,
-  description: 'Manage agent connectors (rules, hooks)',
+  description: 'Manage agent connectors (rules, hook, mcp, or skill)',
   kind: CommandKind.BUILT_IN,
   name: 'connectors',
 }

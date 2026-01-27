@@ -276,6 +276,10 @@ describe('InitUseCase', () => {
         '/test/backup.md',
       ),
       delete: stub<Parameters<IFileService['delete']>, ReturnType<IFileService['delete']>>().resolves(),
+      deleteDirectory: stub<
+        Parameters<IFileService['deleteDirectory']>,
+        ReturnType<IFileService['deleteDirectory']>
+      >().resolves(),
       exists: stub<Parameters<IFileService['exists']>, ReturnType<IFileService['exists']>>().resolves(false),
       read: stub<Parameters<IFileService['read']>, ReturnType<IFileService['read']>>().resolves(''),
       replaceContent: stub<
