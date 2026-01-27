@@ -1,5 +1,5 @@
-import {type CommandContext, CommandKind, type SlashCommand} from '../../../tui/types.js'
-import {ReplTerminal} from '../../terminal/repl-terminal.js'
+import {ReplTerminal} from '../../infra/terminal/repl-terminal.js'
+import {CommandContext, CommandKind, SlashCommand} from '../types.js'
 import {Flags, parseReplArgs, toCommandFlags} from './arg-parser.js'
 
 // Flags - defined once, used for both parsing and help display

@@ -7,7 +7,7 @@
 
 import {type Interfaces, Parser} from '@oclif/core'
 
-import type {CommandFlag} from '../../../tui/types.js'
+import {CommandFlag} from '../types.js'
 
 // Re-export Args and Flags for use by REPL commands
 export {Args, Flags} from '@oclif/core'

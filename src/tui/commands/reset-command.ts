@@ -1,8 +1,8 @@
-import {type CommandContext, CommandKind, type SlashCommand} from '../../../tui/types.js'
-import {FileContextTreeService} from '../../context-tree/file-context-tree-service.js'
-import {FileContextTreeSnapshotService} from '../../context-tree/file-context-tree-snapshot-service.js'
-import {ReplTerminal} from '../../terminal/repl-terminal.js'
-import {ResetUseCase} from '../../usecase/reset-use-case.js'
+import {FileContextTreeService} from '../../infra/context-tree/file-context-tree-service.js'
+import {FileContextTreeSnapshotService} from '../../infra/context-tree/file-context-tree-snapshot-service.js'
+import {ReplTerminal} from '../../infra/terminal/repl-terminal.js'
+import {ResetUseCase} from '../../infra/usecase/reset-use-case.js'
+import {CommandContext, CommandKind, SlashCommand} from '../types.js'
 import {Args, Flags, parseReplArgs, toCommandFlags} from './arg-parser.js'
 
 // Flags - defined once, used for both parsing and help display

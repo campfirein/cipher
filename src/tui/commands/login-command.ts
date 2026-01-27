@@ -1,16 +1,16 @@
-import { getAuthConfig } from '../../../config/auth.config.js'
-import { getCurrentConfig } from '../../../config/environment.js'
-import { CommandKind, SlashCommand } from '../../../tui/types.js'
-import { OAuthService } from '../../auth/oauth-service.js'
-import { OidcDiscoveryService } from '../../auth/oidc-discovery-service.js'
-import { SystemBrowserLauncher } from '../../browser/system-browser-launcher.js'
-import { CallbackHandler } from '../../http/callback-handler.js'
-import {FileGlobalConfigStore} from "../../storage/file-global-config-store.js";
-import { createTokenStore } from '../../storage/token-store.js'
-import { ReplTerminal } from '../../terminal/repl-terminal.js'
-import { MixpanelTrackingService } from '../../tracking/mixpanel-tracking-service.js'
-import { LoginUseCase } from '../../usecase/login-use-case.js'
-import { HttpUserService } from '../../user/http-user-service.js'
+import {getAuthConfig} from '../../config/auth.config.js'
+import {getCurrentConfig} from '../../config/environment.js'
+import {OAuthService} from '../../infra/auth/oauth-service.js'
+import {OidcDiscoveryService} from '../../infra/auth/oidc-discovery-service.js'
+import {SystemBrowserLauncher} from '../../infra/browser/system-browser-launcher.js'
+import {CallbackHandler} from '../../infra/http/callback-handler.js'
+import {FileGlobalConfigStore} from '../../infra/storage/file-global-config-store.js'
+import {createTokenStore} from '../../infra/storage/token-store.js'
+import {ReplTerminal} from '../../infra/terminal/repl-terminal.js'
+import {MixpanelTrackingService} from '../../infra/tracking/mixpanel-tracking-service.js'
+import {LoginUseCase} from '../../infra/usecase/login-use-case.js'
+import {HttpUserService} from '../../infra/user/http-user-service.js'
+import {CommandKind, SlashCommand} from '../types.js'
 
 /**
  * Login command
@@ -21,7 +21,7 @@ export const loginCommand: SlashCommand = {
   action: () => ({
     async execute(onMessage, onPrompt) {
       // Create ReplTerminal with callbacks
-      const terminal = new ReplTerminal({ onMessage, onPrompt })
+      const terminal = new ReplTerminal({onMessage, onPrompt})
 
       // Create services
       const config = getCurrentConfig()
@@ -39,7 +39,7 @@ export const loginCommand: SlashCommand = {
         terminal,
         tokenStore,
         trackingService,
-        userService: new HttpUserService({ apiBaseUrl: config.apiBaseUrl }),
+        userService: new HttpUserService({apiBaseUrl: config.apiBaseUrl}),
       })
 
       await useCase.run()

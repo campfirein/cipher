@@ -1,12 +1,12 @@
 import {randomUUID} from 'node:crypto'
 
-import {isDevelopment} from '../../../config/environment.js'
-import {type CommandContext, CommandKind, type SlashCommand} from '../../../tui/types.js'
-import {FileGlobalConfigStore} from '../../storage/file-global-config-store.js'
-import {createTokenStore} from '../../storage/token-store.js'
-import {ReplTerminal} from '../../terminal/repl-terminal.js'
-import {MixpanelTrackingService} from '../../tracking/mixpanel-tracking-service.js'
-import {CurateUseCase} from '../../usecase/curate-use-case.js'
+import {isDevelopment} from '../../config/environment.js'
+import {FileGlobalConfigStore} from '../../infra/storage/file-global-config-store.js'
+import {createTokenStore} from '../../infra/storage/token-store.js'
+import {ReplTerminal} from '../../infra/terminal/repl-terminal.js'
+import {MixpanelTrackingService} from '../../infra/tracking/mixpanel-tracking-service.js'
+import {CurateUseCase} from '../../infra/usecase/curate-use-case.js'
+import {CommandContext, CommandKind, SlashCommand} from '../types.js'
 import {Flags, parseReplArgs, toCommandFlags} from './arg-parser.js'
 
 // Dev-only flags - defined once, used for both parsing and help display

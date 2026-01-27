@@ -20,7 +20,7 @@ import React, {createContext, useContext, useEffect, useMemo, useState} from 're
 
 import type {CommandContext, SlashCommand, SlashCommandActionReturn} from '../types.js'
 
-import {load} from '../../infra/repl/commands/index.js'
+import {load} from '../commands/index.js'
 import {useSlashCommandProcessor, useTerminalBreakpoint} from '../hooks/index.js'
 import {useServices} from './services-context.js'
 
