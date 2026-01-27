@@ -30,7 +30,7 @@ type SkillConnectorOptions = {
  * into an agent-specific subdirectory.
  */
 export class SkillConnector implements IConnector {
-  readonly type: ConnectorType = 'skill' as const
+  readonly connectorType: ConnectorType = 'skill'
   private readonly contentLoader: SkillContentLoader
   private readonly fileService: IFileService
   private readonly projectRoot: string
@@ -41,7 +41,7 @@ export class SkillConnector implements IConnector {
     this.projectRoot = options.projectRoot
     this.contentLoader = new SkillContentLoader(options.fileService)
     this.supportedAgents = Object.entries(AGENT_CONNECTOR_CONFIG)
-      .filter(([_, config]) => config.supported.includes(this.type))
+      .filter(([_, config]) => config.supported.includes(this.connectorType))
       .map(([agent]) => agent as Agent)
   }
 
@@ -108,7 +108,7 @@ export class SkillConnector implements IConnector {
   }
 
   isSupported(agent: Agent): agent is SkillSupportedAgent {
-    return agent in SKILL_CONNECTOR_CONFIGS && AGENT_CONNECTOR_CONFIG[agent].supported.includes(this.type)
+    return agent in SKILL_CONNECTOR_CONFIGS && AGENT_CONNECTOR_CONFIG[agent].supported.includes(this.connectorType)
   }
 
   async status(agent: Agent): Promise<ConnectorStatus> {

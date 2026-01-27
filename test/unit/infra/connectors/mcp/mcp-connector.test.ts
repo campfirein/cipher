@@ -45,9 +45,9 @@ describe('McpConnector', () => {
     await rm(testDir, {force: true, recursive: true})
   })
 
-  describe('type', () => {
-    it('should have type "mcp"', () => {
-      expect(mcpConnector.type).to.equal('mcp')
+  describe('connectorType', () => {
+    it('should have connectorType "mcp"', () => {
+      expect(mcpConnector.connectorType).to.equal('mcp')
     })
   })
 
