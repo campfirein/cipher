@@ -2,9 +2,9 @@ import mixpanel, {Mixpanel} from 'mixpanel'
 
 import {getCurrentConfig} from '../../config/environment.js'
 import {EventName, PropertyDict} from '../../core/domain/entities/event.js'
-import {IGlobalConfigStore} from '../../core/interfaces/i-global-config-store.js'
-import {ITokenStore} from '../../core/interfaces/i-token-store.js'
-import {ITrackingService} from '../../core/interfaces/i-tracking-service.js'
+import {ITokenStore} from '../../core/interfaces/auth/i-token-store.js'
+import {ITrackingService} from '../../core/interfaces/services/i-tracking-service.js'
+import {IGlobalConfigStore} from '../../core/interfaces/storage/i-global-config-store.js'
 
 /**
  * Parameters for creating a MixpanelTrackingService instance.

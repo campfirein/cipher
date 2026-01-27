@@ -9,7 +9,7 @@ import type {
   TaskErrorData,
   TaskStartedEvent,
   ToolErrorType,
-} from '../../core/domain/transport/schemas.js'
+} from '../../server/core/domain/transport/schemas.js'
 
 import {TaskStats} from '../types/ui.js'
 import {useTransport} from './transport-context.js'

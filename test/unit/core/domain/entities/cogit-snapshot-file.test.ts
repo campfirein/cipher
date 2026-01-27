@@ -1,6 +1,6 @@
 import {expect} from 'chai'
 
-import {CogitSnapshotFile} from '../../../../../src/core/domain/entities/cogit-snapshot-file.js'
+import {CogitSnapshotFile} from '../../../../../src/server/core/domain/entities/cogit-snapshot-file.js'
 
 describe('CogitSnapshotFile Entity', () => {
   const validFileData = {

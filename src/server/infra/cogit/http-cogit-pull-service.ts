@@ -1,4 +1,4 @@
-import type {ICogitPullService, PullParams} from '../../core/interfaces/i-cogit-pull-service.js'
+import type {ICogitPullService, PullParams} from '../../core/interfaces/services/i-cogit-pull-service.js'
 
 import {CogitSnapshot} from '../../core/domain/entities/cogit-snapshot.js'
 import {AuthenticatedHttpClient} from '../http/authenticated-http-client.js'

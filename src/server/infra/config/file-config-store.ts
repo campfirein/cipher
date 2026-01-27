@@ -2,7 +2,7 @@ import {existsSync} from 'node:fs'
 import {mkdir, readFile, writeFile} from 'node:fs/promises'
 import {join} from 'node:path'
 
-import type {IProjectConfigStore} from '../../core/interfaces/i-project-config-store.js'
+import type {IProjectConfigStore} from '../../core/interfaces/storage/i-project-config-store.js'
 
 import {BRV_DIR, PROJECT_CONFIG_FILE} from '../../constants.js'
 import {BrvConfig} from '../../core/domain/entities/brv-config.js'

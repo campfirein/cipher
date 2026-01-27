@@ -6,10 +6,10 @@ import {z} from 'zod'
 
 import type {Tool, ToolExecutionContext} from '../../../core/domain/tools/types.js'
 
+import {DirectoryManager} from '../../../../server/core/domain/knowledge/directory-manager.js'
+import {MarkdownWriter} from '../../../../server/core/domain/knowledge/markdown-writer.js'
+import {toSnakeCase} from '../../../../server/utils/file-helpers.js'
 import {ToolName} from '../../../core/domain/tools/constants.js'
-import {DirectoryManager} from '../../../../core/domain/knowledge/directory-manager.js'
-import {MarkdownWriter} from '../../../../core/domain/knowledge/markdown-writer.js'
-import {toSnakeCase} from '../../../../utils/file-helpers.js'
 
 /**
  * Operation types for curating knowledge topics.

@@ -1,7 +1,7 @@
 import {access, appendFile, copyFile, mkdir, readFile, unlink, writeFile} from 'node:fs/promises'
 import {dirname} from 'node:path'
 
-import {type IFileService, type WriteMode} from '../../core/interfaces/i-file-service.js'
+import {type IFileService, type WriteMode} from '../../core/interfaces/services/i-file-service.js'
 
 /**
  * File service implementation using Node.js fs module.

@@ -1,6 +1,6 @@
 import keytar from 'keytar'
 
-import type {ITokenStore} from '../../core/interfaces/i-token-store.js'
+import type {ITokenStore} from '../../core/interfaces/auth/i-token-store.js'
 
 import {AuthToken} from '../../core/domain/entities/auth-token.js'
 

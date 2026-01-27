@@ -1,4 +1,4 @@
-import type {Team} from '../domain/entities/team.js'
+import type {Team} from '../../domain/entities/team.js'
 
 /**
  * Interface for team-related operations.

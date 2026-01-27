@@ -1,7 +1,7 @@
 import axios, {isAxiosError} from 'axios'
 
 import {DiscoveryError, DiscoveryNetworkError, DiscoveryTimeoutError} from '../../core/domain/errors/discovery-error.js'
-import {IOidcDiscoveryService, OidcMetadata} from '../../core/interfaces/i-oidc-discovery-service.js'
+import {IOidcDiscoveryService, OidcMetadata} from '../../core/interfaces/auth/i-oidc-discovery-service.js'
 
 /**
  * Response from the OIDC discovery endpoint.

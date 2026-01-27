@@ -3,8 +3,8 @@ import {expect} from 'chai'
 import nock from 'nock'
 import {restore} from 'sinon'
 
-import {OAuthConfig} from '../../../../src/config/auth.config'
-import {OAuthService} from '../../../../src/infra/auth/oauth-service'
+import {OAuthConfig} from '../../../../src/server/config/auth.config'
+import {OAuthService} from '../../../../src/server/infra/auth/oauth-service'
 
 describe('OAuthService', () => {
   let service: OAuthService

@@ -1,5 +1,5 @@
-import {Agent} from '../domain/entities/agent.js'
-import {ConnectorType} from '../domain/entities/connector-type.js'
+import {Agent} from '../../domain/entities/agent.js'
+import {ConnectorType} from '../../domain/entities/connector-type.js'
 
 /**
  * Interface for rule template service operations.

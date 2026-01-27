@@ -1,4 +1,4 @@
-import type {ContextTreeChanges, FileState} from '../domain/entities/context-tree-snapshot.js'
+import type {ContextTreeChanges, FileState} from '../../domain/entities/context-tree-snapshot.js'
 
 /**
  * Interface for context tree snapshot operations.

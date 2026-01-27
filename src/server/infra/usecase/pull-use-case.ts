@@ -1,15 +1,15 @@
 import type {AuthToken} from '../../core/domain/entities/auth-token.js'
 import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
-import type {ICogitPullService} from '../../core/interfaces/i-cogit-pull-service.js'
-import type {IContextTreeSnapshotService} from '../../core/interfaces/i-context-tree-snapshot-service.js'
-import type {IContextTreeWriterService} from '../../core/interfaces/i-context-tree-writer-service.js'
-import type {IProjectConfigStore} from '../../core/interfaces/i-project-config-store.js'
-import type {ITerminal} from '../../core/interfaces/i-terminal.js'
-import type {ITokenStore} from '../../core/interfaces/i-token-store.js'
-import type {ITrackingService} from '../../core/interfaces/i-tracking-service.js'
+import type {ITokenStore} from '../../core/interfaces/auth/i-token-store.js'
+import type {IContextTreeSnapshotService} from '../../core/interfaces/context-tree/i-context-tree-snapshot-service.js'
+import type {IContextTreeWriterService} from '../../core/interfaces/context-tree/i-context-tree-writer-service.js'
+import type {ICogitPullService} from '../../core/interfaces/services/i-cogit-pull-service.js'
+import type {ITerminal} from '../../core/interfaces/services/i-terminal.js'
+import type {ITrackingService} from '../../core/interfaces/services/i-tracking-service.js'
+import type {IProjectConfigStore} from '../../core/interfaces/storage/i-project-config-store.js'
 import type {IPullUseCase} from '../../core/interfaces/usecase/i-pull-use-case.js'
 
-import {WorkspaceNotInitializedError} from '../../agent/infra/validation/workspace-validator.js'
+import {WorkspaceNotInitializedError} from '../../../agent/infra/validation/workspace-validator.js'
 
 export interface PullUseCaseOptions {
   cogitPullService: ICogitPullService

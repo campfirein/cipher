@@ -1,4 +1,4 @@
-import type {IUserService} from '../../core/interfaces/i-user-service.js'
+import type {IUserService} from '../../core/interfaces/services/i-user-service.js'
 
 import {User} from '../../core/domain/entities/user.js'
 import {AuthenticatedHttpClient} from '../http/authenticated-http-client.js'

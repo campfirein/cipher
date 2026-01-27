@@ -7,16 +7,16 @@
 import {isAxiosError} from 'axios'
 import {useEffect, useRef} from 'react'
 
-import type {AuthToken} from '../../core/domain/entities/auth-token.js'
-import type {ITokenStore} from '../../core/interfaces/i-token-store.js'
+import type {AuthToken} from '../../server/core/domain/entities/auth-token.js'
+import type {ITokenStore} from '../../server/core/interfaces/auth/i-token-store.js'
 
-import {getAuthConfig} from '../../config/auth.config.js'
-import {getCurrentConfig} from '../../config/environment.js'
-import {AuthToken as AuthTokenClass} from '../../core/domain/entities/auth-token.js'
-import {ITrackingService} from '../../core/interfaces/i-tracking-service.js'
-import {OAuthService} from '../../infra/auth/oauth-service.js'
-import {OidcDiscoveryService} from '../../infra/auth/oidc-discovery-service.js'
-import {HttpUserService} from '../../infra/user/http-user-service.js'
+import {getAuthConfig} from '../../server/config/auth.config.js'
+import {getCurrentConfig} from '../../server/config/environment.js'
+import {AuthToken as AuthTokenClass} from '../../server/core/domain/entities/auth-token.js'
+import {ITrackingService} from '../../server/core/interfaces/services/i-tracking-service.js'
+import {OAuthService} from '../../server/infra/auth/oauth-service.js'
+import {OidcDiscoveryService} from '../../server/infra/auth/oidc-discovery-service.js'
+import {HttpUserService} from '../../server/infra/user/http-user-service.js'
 
 /** Auth state polling interval in milliseconds (15 seconds) */
 const AUTH_POLL_INTERVAL_MS = 15 * 1000

@@ -4,7 +4,7 @@ import {zodToJsonSchema} from 'zod-to-json-schema'
 
 import type {JSONSchema7} from '../../../core/domain/tools/types.js'
 
-import {getErrorMessage} from '../../../../utils/error-helpers.js'
+import {getErrorMessage} from '../../../../server/utils/error-helpers.js'
 
 /**
  * Convert a Zod schema to JSON Schema v7.

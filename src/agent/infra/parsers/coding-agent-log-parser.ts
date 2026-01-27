@@ -4,12 +4,12 @@
  * Follows the same logic as the 'brv watch' command's triggerParsing method
  */
 
-import type {CleanSession} from '../../../core/domain/entities/parser.js'
+import type {CleanSession} from '../../../server/core/domain/entities/parser.js'
 import type {ICodingAgentLogParser} from '../../core/interfaces/i-coding-agent-log-parser.js'
 
-import {Agent} from '../../../core/domain/entities/agent.js'
-import {CleanParserServiceFactory} from '../../../infra/parsers/clean/clean-parser-service-factory.js'
-import {RawParserServiceFactory} from '../../../infra/parsers/raw/raw-parser-service-factory.js'
+import {Agent} from '../../../server/core/domain/entities/agent.js'
+import {CleanParserServiceFactory} from '../../../server/infra/parsers/clean/clean-parser-service-factory.js'
+import {RawParserServiceFactory} from '../../../server/infra/parsers/raw/raw-parser-service-factory.js'
 
 /**
  * Coding Agent Log Parser

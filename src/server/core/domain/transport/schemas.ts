@@ -9,7 +9,7 @@
  */
 import {z} from 'zod'
 
-import type {AgentEventMap} from '../../../agent/core/domain/agent-events/types.js'
+import type {AgentEventMap} from '../../../../agent/core/domain/agent-events/types.js'
 // Re-export domain types for convenience (SSOT: agent-events/types.ts)
 export type {
   AgentTerminationReason,
@@ -17,7 +17,7 @@ export type {
   TokenUsage,
   ToolErrorType,
   UIEventType,
-} from '../../../agent/core/domain/agent-events/types.js'
+} from '../../../../agent/core/domain/agent-events/types.js'
 
 // ============================================================================
 // Zod Schemas for Runtime Validation (mirrors domain types)

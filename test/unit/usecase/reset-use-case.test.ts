@@ -3,11 +3,11 @@ import type {SinonStubbedInstance} from 'sinon'
 import {expect} from 'chai'
 import {restore, stub} from 'sinon'
 
-import type {IContextTreeService} from '../../../src/core/interfaces/i-context-tree-service.js'
-import type {IContextTreeSnapshotService} from '../../../src/core/interfaces/i-context-tree-snapshot-service.js'
-import type {ITerminal} from '../../../src/core/interfaces/i-terminal.js'
+import type {IContextTreeService} from '../../../src/server/core/interfaces/context-tree/i-context-tree-service.js'
+import type {IContextTreeSnapshotService} from '../../../src/server/core/interfaces/context-tree/i-context-tree-snapshot-service.js'
+import type {ITerminal} from '../../../src/server/core/interfaces/services/i-terminal.js'
 
-import {ResetUseCase} from '../../../src/infra/usecase/reset-use-case.js'
+import {ResetUseCase} from '../../../src/server/infra/usecase/reset-use-case.js'
 import {createMockTerminal} from '../../helpers/mock-factories.js'
 
 describe('ResetUseCase', () => {

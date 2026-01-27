@@ -2,7 +2,7 @@ import {randomUUID} from 'node:crypto'
 import {existsSync} from 'node:fs'
 import {mkdir, readFile, writeFile} from 'node:fs/promises'
 
-import type {IGlobalConfigStore} from '../../core/interfaces/i-global-config-store.js'
+import type {IGlobalConfigStore} from '../../core/interfaces/storage/i-global-config-store.js'
 
 import {GlobalConfig} from '../../core/domain/entities/global-config.js'
 import {getGlobalConfigDir, getGlobalConfigPath} from '../../utils/global-config-path.js'

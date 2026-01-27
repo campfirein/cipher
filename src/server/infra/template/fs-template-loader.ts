@@ -1,8 +1,8 @@
 import path from 'node:path'
 import {fileURLToPath} from 'node:url'
 
-import {type IFileService} from '../../core/interfaces/i-file-service.js'
-import {type ITemplateLoader} from '../../core/interfaces/i-template-loader.js'
+import {type IFileService} from '../../core/interfaces/services/i-file-service.js'
+import {type ITemplateLoader} from '../../core/interfaces/services/i-template-loader.js'
 
 /**
  * File system-based template loader.

@@ -1,17 +1,17 @@
 import { expect } from 'chai'
 import sinon, { match, restore, stub } from 'sinon'
 
-import type { ITerminal } from '../../src/core/interfaces/i-terminal.js'
-import type { ITrackingService } from '../../src/core/interfaces/i-tracking-service.js'
-import type { ITransportClient } from '../../src/core/interfaces/transport/i-transport-client.js'
-import type { TransportClientFactory } from '../../src/infra/transport/transport-client-factory.js'
+import type { ITerminal } from '../../src/server/core/interfaces/services/i-terminal.js'
+import type { ITrackingService } from '../../src/server/core/interfaces/services/i-tracking-service.js'
+import type { ITransportClient } from '../../src/server/core/interfaces/transport/i-transport-client.js'
+import type { TransportClientFactory } from '../../src/server/infra/transport/transport-client-factory.js'
 
 import {
   ConnectionFailedError,
   InstanceCrashedError,
   NoInstanceRunningError,
-} from '../../src/core/domain/errors/connection-error.js'
-import { QueryUseCase, type QueryUseCaseOptions } from '../../src/infra/usecase/query-use-case.js'
+} from '../../src/server/core/domain/errors/connection-error.js'
+import { QueryUseCase, type QueryUseCaseOptions } from '../../src/server/infra/usecase/query-use-case.js'
 import { createMockTerminal } from '../helpers/mock-factories.js'
 
 describe('Query Command', () => {

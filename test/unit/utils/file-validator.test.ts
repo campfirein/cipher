@@ -3,7 +3,7 @@ import { mkdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 
-import { validateFileForCurate } from '../../../src/utils/file-validator.js'
+import { validateFileForCurate } from '../../../src/server/utils/file-validator.js'
 
 describe('file-validator', () => {
   let testDir: string

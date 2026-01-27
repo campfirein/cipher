@@ -4,7 +4,7 @@ import type {
   LegacyRuleDetectionResult,
   LegacyRuleMatch,
   UncertainMatch,
-} from '../../../core/interfaces/i-legacy-rule-detector.js'
+} from '../../../core/interfaces/services/i-legacy-rule-detector.js'
 
 import {BRV_RULE_TAG} from '../shared/constants.js'
 

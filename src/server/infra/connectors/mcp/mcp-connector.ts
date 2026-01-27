@@ -10,9 +10,9 @@ import type {
   ConnectorUninstallResult,
 } from '../../../core/interfaces/connectors/connector-types.js'
 import type {IConnector} from '../../../core/interfaces/connectors/i-connector.js'
-import type {IFileService} from '../../../core/interfaces/i-file-service.js'
-import type {IMcpConfigWriter} from '../../../core/interfaces/i-mcp-config-writer.js'
-import type {IRuleTemplateService} from '../../../core/interfaces/i-rule-template-service.js'
+import type {IFileService} from '../../../core/interfaces/services/i-file-service.js'
+import type {IRuleTemplateService} from '../../../core/interfaces/services/i-rule-template-service.js'
+import type {IMcpConfigWriter} from '../../../core/interfaces/storage/i-mcp-config-writer.js'
 import type {
   JsonMcpConnectorConfig,
   McpConnectorConfig,

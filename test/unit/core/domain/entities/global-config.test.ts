@@ -1,7 +1,7 @@
 import {expect} from 'chai'
 
-import {GLOBAL_CONFIG_VERSION} from '../../../../../src/constants.js'
-import {GlobalConfig} from '../../../../../src/core/domain/entities/global-config.js'
+import {GLOBAL_CONFIG_VERSION} from '../../../../../src/server/constants.js'
+import {GlobalConfig} from '../../../../../src/server/core/domain/entities/global-config.js'
 
 describe('GlobalConfig', () => {
   const validDeviceId = '550e8400-e29b-41d4-a716-446655440000'

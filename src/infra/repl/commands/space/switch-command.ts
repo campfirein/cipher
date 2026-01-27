@@ -1,12 +1,12 @@
-import {getCurrentConfig} from '../../../../config/environment.js'
+import {getCurrentConfig} from '../../../../server/config/environment.js'
+import {ProjectConfigStore} from '../../../../server/infra/config/file-config-store.js'
+import {HttpSpaceService} from '../../../../server/infra/space/http-space-service.js'
+import {createTokenStore} from '../../../../server/infra/storage/token-store.js'
+import {HttpTeamService} from '../../../../server/infra/team/http-team-service.js'
+import {ReplTerminal} from '../../../../server/infra/terminal/repl-terminal.js'
+import {SpaceSwitchUseCase} from '../../../../server/infra/usecase/space-switch-use-case.js'
+import {WorkspaceDetectorService} from '../../../../server/infra/workspace/workspace-detector-service.js'
 import {type CommandContext, CommandKind, type SlashCommand} from '../../../../tui/types.js'
-import {ProjectConfigStore} from '../../../config/file-config-store.js'
-import {HttpSpaceService} from '../../../space/http-space-service.js'
-import {createTokenStore} from '../../../storage/token-store.js'
-import {HttpTeamService} from '../../../team/http-team-service.js'
-import {ReplTerminal} from '../../../terminal/repl-terminal.js'
-import {SpaceSwitchUseCase} from '../../../usecase/space-switch-use-case.js'
-import {WorkspaceDetectorService} from '../../../workspace/workspace-detector-service.js'
 
 /**
  * Switch space command

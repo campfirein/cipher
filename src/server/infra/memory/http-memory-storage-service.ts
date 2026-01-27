@@ -5,7 +5,7 @@ import type {
   ConfirmUploadParams,
   GetPresignedUrlsParams,
   IMemoryStorageService,
-} from '../../core/interfaces/i-memory-storage-service.js'
+} from '../../core/interfaces/services/i-memory-storage-service.js'
 
 import {PresignedUrl} from '../../core/domain/entities/presigned-url.js'
 import {PresignedUrlsResponse} from '../../core/domain/entities/presigned-urls-response.js'

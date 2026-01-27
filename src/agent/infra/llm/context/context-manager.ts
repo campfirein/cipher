@@ -11,8 +11,8 @@ import type {
 } from '../../../core/interfaces/message-types.js'
 import type {ICompressionStrategy} from './compression/types.js'
 
+import {getErrorMessage} from '../../../../server/utils/error-helpers.js'
 import {NoOpLogger} from '../../../core/interfaces/i-logger.js'
-import {getErrorMessage} from '../../../../utils/error-helpers.js'
 import {AsyncMutex} from './async-mutex.js'
 import {MiddleRemovalStrategy, OldestRemovalStrategy} from './compression/index.js'
 import {countMessagesTokens} from './utils.js'

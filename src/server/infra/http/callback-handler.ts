@@ -1,4 +1,4 @@
-import type {CallbackResult, ICallbackHandler} from '../../core/interfaces/i-callback-handler.js'
+import type {CallbackResult, ICallbackHandler} from '../../core/interfaces/auth/i-callback-handler.js'
 
 import {CallbackServer} from './callback-server.js'
 

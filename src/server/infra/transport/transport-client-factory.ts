@@ -1,13 +1,13 @@
-import type {ILogger} from '../../agent/core/interfaces/i-logger.js'
+import type {ILogger} from '../../../agent/core/interfaces/i-logger.js'
 import type {IInstanceDiscovery} from '../../core/interfaces/instance/i-instance-discovery.js'
 import type {ITransportClient} from '../../core/interfaces/transport/i-transport-client.js'
 
+import {NoOpLogger} from '../../../agent/core/interfaces/i-logger.js'
 import {
   ConnectionFailedError,
   InstanceCrashedError,
   NoInstanceRunningError,
 } from '../../core/domain/errors/connection-error.js'
-import {NoOpLogger} from '../../agent/core/interfaces/i-logger.js'
 import {FileInstanceDiscovery} from '../instance/file-instance-discovery.js'
 import {SocketIOTransportClient} from './socket-io-transport-client.js'
 

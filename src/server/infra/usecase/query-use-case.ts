@@ -1,10 +1,11 @@
 import {randomUUID} from 'node:crypto'
 
 import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
-import type {ITerminal} from '../../core/interfaces/i-terminal.js'
-import type {ITrackingService} from '../../core/interfaces/i-tracking-service.js'
+import type {ITerminal} from '../../core/interfaces/services/i-terminal.js'
+import type {ITrackingService} from '../../core/interfaces/services/i-tracking-service.js'
 import type {IQueryUseCase, QueryUseCaseRunOptions} from '../../core/interfaces/usecase/i-query-use-case.js'
 
+import {CipherAgent} from '../../../agent/infra/agent/index.js'
 import {
   ConnectionError,
   ConnectionFailedError,
@@ -24,7 +25,6 @@ import {
 import {ITransportClient} from '../../core/interfaces/transport/i-transport-client.js'
 import { formatError } from '../../utils/error-handler.js'
 import {getSandboxEnvironmentName, isSandboxEnvironment, isSandboxNetworkError} from '../../utils/sandbox-detector.js'
-import {CipherAgent} from '../../agent/infra/agent/index.js'
 import {createTransportClientFactory, type TransportClientFactory} from '../transport/transport-client-factory.js'
 
 export type TransportClientFactoryCreator = () => TransportClientFactory

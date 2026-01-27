@@ -1,6 +1,6 @@
 import path from 'node:path'
 
-import type {IFileService, WriteMode} from '../../../core/interfaces/i-file-service.js'
+import type {IFileService, WriteMode} from '../../../core/interfaces/services/i-file-service.js'
 
 import {BRV_RULE_MARKERS, BRV_RULE_TAG} from './constants.js'
 

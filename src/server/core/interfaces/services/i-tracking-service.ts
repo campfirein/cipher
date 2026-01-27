@@ -1,4 +1,4 @@
-import {EventName, PropertyDict} from '../domain/entities/event.js'
+import {EventName, PropertyDict} from '../../domain/entities/event.js'
 
 /**
  * Service interface for tracking user actions and system events.

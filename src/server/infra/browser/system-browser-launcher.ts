@@ -1,6 +1,6 @@
 import open from 'open'
 
-import type {IBrowserLauncher} from '../../core/interfaces/i-browser-launcher.js'
+import type {IBrowserLauncher} from '../../core/interfaces/services/i-browser-launcher.js'
 
 /**
  * Browser launcher implementation that opens URLs in the system's default browser.

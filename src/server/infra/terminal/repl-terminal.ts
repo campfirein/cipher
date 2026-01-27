@@ -1,5 +1,6 @@
 import {randomUUID} from 'node:crypto'
 
+import type {PromptRequest, StreamingMessage} from '../../../tui/types.js'
 import type {
   ConfirmOptions,
   FileSelectorItem,
@@ -8,8 +9,7 @@ import type {
   ITerminal,
   SearchOptions,
   SelectOptions,
-} from '../../core/interfaces/i-terminal.js'
-import type {PromptRequest, StreamingMessage} from '../../tui/types.js'
+} from '../../core/interfaces/services/i-terminal.js'
 
 /**
  * Generate a unique message ID

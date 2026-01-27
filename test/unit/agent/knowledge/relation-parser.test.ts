@@ -6,7 +6,7 @@ import {
   normalizeRelation,
   parseRelations,
   resolveRelationPath,
-} from '../../../../src/core/domain/knowledge/relation-parser.js'
+} from '../../../../src/server/core/domain/knowledge/relation-parser.js'
 /**
  * Unit tests for relation-parser.
  */

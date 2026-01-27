@@ -1,8 +1,8 @@
 import type {ICipherAgent} from '../../../agent/core/interfaces/i-cipher-agent.js'
-import type {CurateExecuteOptions, ICurateExecutor} from '../../../core/interfaces/executor/i-curate-executor.js'
+import type {CurateExecuteOptions, ICurateExecutor} from '../../core/interfaces/executor/i-curate-executor.js'
 
-import {FileValidationError} from '../../../core/domain/errors/task-error.js'
-import {validateFileForCurate} from '../../../utils/file-validator.js'
+import {FileValidationError} from '../../core/domain/errors/task-error.js'
+import {validateFileForCurate} from '../../utils/file-validator.js'
 
 /**
  * CurateExecutor - Executes curate tasks with an injected CipherAgent.

@@ -1,4 +1,4 @@
-import type {RetrieveResult} from '../domain/entities/retrieve-result.js'
+import type {RetrieveResult} from '../../domain/entities/retrieve-result.js'
 
 export type RetrieveParams = {
   accessToken: string

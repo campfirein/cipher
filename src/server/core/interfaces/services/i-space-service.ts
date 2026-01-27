@@ -1,4 +1,4 @@
-import type {Space} from '../domain/entities/space.js'
+import type {Space} from '../../domain/entities/space.js'
 
 /**
  * Interface for space-related operations.

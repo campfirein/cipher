@@ -6,7 +6,7 @@ import {z} from 'zod'
 import type {Tool, ToolExecutionContext} from '../../../core/domain/tools/types.js'
 import type {IFileSystem} from '../../../core/interfaces/i-file-system.js'
 
-import {BRV_DIR, CONTEXT_FILE_EXTENSION, CONTEXT_TREE_DIR} from '../../../../constants.js'
+import {BRV_DIR, CONTEXT_FILE_EXTENSION, CONTEXT_TREE_DIR} from '../../../../server/constants.js'
 import {ToolName} from '../../../core/domain/tools/constants.js'
 
 const MAX_CONTEXT_TREE_FILES = 10_000

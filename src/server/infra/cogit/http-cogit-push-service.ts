@@ -1,7 +1,7 @@
 /* eslint-disable camelcase */
 import axios from 'axios'
 
-import type {ICogitPushService, PushParams} from '../../core/interfaces/i-cogit-push-service.js'
+import type {ICogitPushService, PushParams} from '../../core/interfaces/services/i-cogit-push-service.js'
 
 import {CogitPushResponse} from '../../core/domain/entities/cogit-push-response.js'
 import {getErrorMessage} from '../../utils/error-helpers.js'

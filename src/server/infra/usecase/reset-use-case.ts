@@ -1,9 +1,9 @@
 import {rm} from 'node:fs/promises'
 import {join} from 'node:path'
 
-import type {IContextTreeService} from '../../core/interfaces/i-context-tree-service.js'
-import type {IContextTreeSnapshotService} from '../../core/interfaces/i-context-tree-snapshot-service.js'
-import type {ITerminal} from '../../core/interfaces/i-terminal.js'
+import type {IContextTreeService} from '../../core/interfaces/context-tree/i-context-tree-service.js'
+import type {IContextTreeSnapshotService} from '../../core/interfaces/context-tree/i-context-tree-snapshot-service.js'
+import type {ITerminal} from '../../core/interfaces/services/i-terminal.js'
 import type {IResetUseCase} from '../../core/interfaces/usecase/i-reset-use-case.js'
 
 import {BRV_DIR, CONTEXT_TREE_DIR} from '../../constants.js'

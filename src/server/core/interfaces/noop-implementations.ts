@@ -9,7 +9,7 @@
 import type {AuthToken} from '../domain/entities/auth-token.js'
 import type {BrvConfig} from '../domain/entities/brv-config.js'
 import type {EventName, PropertyDict} from '../domain/entities/event.js'
-import type {IProjectConfigStore} from './i-project-config-store.js'
+import type {ITokenStore} from './auth/i-token-store.js'
 import type {
   ConfirmOptions,
   FileSelectorItem,
@@ -18,9 +18,9 @@ import type {
   ITerminal,
   SearchOptions,
   SelectOptions,
-} from './i-terminal.js'
-import type {ITokenStore} from './i-token-store.js'
-import type {ITrackingService} from './i-tracking-service.js'
+} from './services/i-terminal.js'
+import type {ITrackingService} from './services/i-tracking-service.js'
+import type {IProjectConfigStore} from './storage/i-project-config-store.js'
 
 /**
  * NoOp Terminal - Does nothing, used for headless Transport mode.

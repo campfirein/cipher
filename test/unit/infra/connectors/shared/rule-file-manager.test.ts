@@ -3,9 +3,9 @@ import {mkdir, rm, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
 
-import {BRV_RULE_MARKERS, BRV_RULE_TAG} from '../../../../../src/infra/connectors/shared/constants.js'
-import {RuleFileManager} from '../../../../../src/infra/connectors/shared/rule-file-manager.js'
-import {FsFileService} from '../../../../../src/infra/file/fs-file-service.js'
+import {BRV_RULE_MARKERS, BRV_RULE_TAG} from '../../../../../src/server/infra/connectors/shared/constants.js'
+import {RuleFileManager} from '../../../../../src/server/infra/connectors/shared/rule-file-manager.js'
+import {FsFileService} from '../../../../../src/server/infra/file/fs-file-service.js'
 
 describe('RuleFileManager', () => {
   let testDir: string

@@ -3,9 +3,9 @@ import {mkdir, rm, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
 
-import {HOOK_COMMAND, type HookSupportedAgent} from '../../../../../src/infra/connectors/hook/hook-connector-config.js'
-import {HookConnector} from '../../../../../src/infra/connectors/hook/hook-connector.js'
-import {FsFileService} from '../../../../../src/infra/file/fs-file-service.js'
+import {HOOK_COMMAND, type HookSupportedAgent} from '../../../../../src/server/infra/connectors/hook/hook-connector-config.js'
+import {HookConnector} from '../../../../../src/server/infra/connectors/hook/hook-connector.js'
+import {FsFileService} from '../../../../../src/server/infra/file/fs-file-service.js'
 
 describe('HookConnector', () => {
   let testDir: string

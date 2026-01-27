@@ -10,7 +10,7 @@ import type {
   ITerminal,
   SearchOptions,
   SelectOptions,
-} from '../../core/interfaces/i-terminal.js'
+} from '../../core/interfaces/services/i-terminal.js'
 
 /**
  * Terminal implementation that wraps oclif Command methods and @inquirer/prompts.

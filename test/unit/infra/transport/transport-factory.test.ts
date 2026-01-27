@@ -1,6 +1,6 @@
 import {expect} from 'chai'
 
-import {createTransportClient, createTransportServer} from '../../../../src/infra/transport/transport-factory.js'
+import {createTransportClient, createTransportServer} from '../../../../src/server/infra/transport/transport-factory.js'
 
 describe('Transport Factory', () => {
   describe('createTransportServer', () => {

@@ -1,4 +1,4 @@
-import {OAuthTokenData} from '../domain/entities/oauth-token-data.js'
+import {OAuthTokenData} from '../../domain/entities/oauth-token-data.js'
 
 /**
  * Authorization context containing the URL and state for OAuth flow.

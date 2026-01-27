@@ -1,6 +1,6 @@
 import {type FSWatcher, watch} from 'chokidar'
 
-import type {FileEvent, IFileWatcherService} from '../../core/interfaces/i-file-watcher-service.js'
+import type {FileEvent, IFileWatcherService} from '../../core/interfaces/services/i-file-watcher-service.js'
 
 export class FileWatcherService implements IFileWatcherService {
   private eventHandler: ((event: FileEvent) => Promise<void>) | undefined

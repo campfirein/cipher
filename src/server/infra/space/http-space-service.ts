@@ -1,5 +1,5 @@
 /* eslint-disable camelcase */
-import type {ISpaceService} from '../../core/interfaces/i-space-service.js'
+import type {ISpaceService} from '../../core/interfaces/services/i-space-service.js'
 
 import {Space} from '../../core/domain/entities/space.js'
 import {getErrorMessage} from '../../utils/error-helpers.js'

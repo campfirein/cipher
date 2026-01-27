@@ -1,4 +1,4 @@
-import {IOidcDiscoveryService} from '../core/interfaces/i-oidc-discovery-service.js'
+import {IOidcDiscoveryService} from '../core/interfaces/auth/i-oidc-discovery-service.js'
 import {ENVIRONMENT, getCurrentConfig} from './environment.js'
 
 /**

@@ -1,4 +1,4 @@
-import type {Narrative, RawConcept} from '../domain/knowledge/markdown-writer.js'
+import type {Narrative, RawConcept} from '../../domain/knowledge/markdown-writer.js'
 
 /**
  * Represents the content of a context file with extracted metadata.

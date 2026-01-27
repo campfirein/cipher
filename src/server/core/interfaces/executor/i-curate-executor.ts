@@ -1,4 +1,4 @@
-import type {ICipherAgent} from '../../../agent/core/interfaces/i-cipher-agent.js'
+import type {ICipherAgent} from '../../../../agent/core/interfaces/i-cipher-agent.js'
 
 /**
  * Options for executing curate with an injected agent.

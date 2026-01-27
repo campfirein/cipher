@@ -1,15 +1,15 @@
-import {getCurrentConfig} from '../../../config/environment.js'
-import {DEFAULT_BRANCH} from '../../../constants.js'
+import {getCurrentConfig} from '../../../server/config/environment.js'
+import {DEFAULT_BRANCH} from '../../../server/constants.js'
+import {HttpCogitPullService} from '../../../server/infra/cogit/http-cogit-pull-service.js'
+import {ProjectConfigStore} from '../../../server/infra/config/file-config-store.js'
+import {FileContextTreeSnapshotService} from '../../../server/infra/context-tree/file-context-tree-snapshot-service.js'
+import {FileContextTreeWriterService} from '../../../server/infra/context-tree/file-context-tree-writer-service.js'
+import {FileGlobalConfigStore} from "../../../server/infra/storage/file-global-config-store.js";
+import {createTokenStore} from '../../../server/infra/storage/token-store.js'
+import {ReplTerminal} from '../../../server/infra/terminal/repl-terminal.js'
+import {MixpanelTrackingService} from '../../../server/infra/tracking/mixpanel-tracking-service.js'
+import {PullUseCase} from '../../../server/infra/usecase/pull-use-case.js'
 import {type CommandContext, CommandKind, type SlashCommand} from '../../../tui/types.js'
-import {HttpCogitPullService} from '../../cogit/http-cogit-pull-service.js'
-import {ProjectConfigStore} from '../../config/file-config-store.js'
-import {FileContextTreeSnapshotService} from '../../context-tree/file-context-tree-snapshot-service.js'
-import {FileContextTreeWriterService} from '../../context-tree/file-context-tree-writer-service.js'
-import {FileGlobalConfigStore} from "../../storage/file-global-config-store.js";
-import {createTokenStore} from '../../storage/token-store.js'
-import {ReplTerminal} from '../../terminal/repl-terminal.js'
-import {MixpanelTrackingService} from '../../tracking/mixpanel-tracking-service.js'
-import {PullUseCase} from '../../usecase/pull-use-case.js'
 import {Flags, parseReplArgs, toCommandFlags} from './arg-parser.js'
 
 const pullFlags = {

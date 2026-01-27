@@ -1,4 +1,4 @@
-import type {ContextFileContent} from '../../core/interfaces/i-context-file-reader.js'
+import type {ContextFileContent} from '../../core/interfaces/context-tree/i-context-file-reader.js'
 
 import {CogitPushContext} from '../../core/domain/entities/cogit-push-context.js'
 

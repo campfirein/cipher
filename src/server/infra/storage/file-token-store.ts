@@ -2,7 +2,7 @@ import {createCipheriv, createDecipheriv, randomBytes} from 'node:crypto'
 import {existsSync} from 'node:fs'
 import {chmod, mkdir, readFile, unlink, writeFile} from 'node:fs/promises'
 
-import type {ITokenStore} from '../../core/interfaces/i-token-store.js'
+import type {ITokenStore} from '../../core/interfaces/auth/i-token-store.js'
 
 import {AuthToken} from '../../core/domain/entities/auth-token.js'
 import {getGlobalDataDir} from '../../utils/global-data-path.js'

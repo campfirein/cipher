@@ -1,7 +1,7 @@
 import type {Agent} from '../../../core/domain/entities/agent.js'
 import type {ConnectorType} from '../../../core/domain/entities/connector-type.js'
-import type {IRuleTemplateService} from '../../../core/interfaces/i-rule-template-service.js'
-import type {ITemplateLoader} from '../../../core/interfaces/i-template-loader.js'
+import type {IRuleTemplateService} from '../../../core/interfaces/services/i-rule-template-service.js'
+import type {ITemplateLoader} from '../../../core/interfaces/services/i-template-loader.js'
 
 import {BRV_RULE_MARKERS, BRV_RULE_TAG} from './constants.js'
 

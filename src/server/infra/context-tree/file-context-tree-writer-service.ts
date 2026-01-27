@@ -2,12 +2,12 @@
 import {mkdir, readFile, unlink, writeFile} from 'node:fs/promises'
 import {dirname, join} from 'node:path'
 
-import type {IContextTreeSnapshotService} from '../../core/interfaces/i-context-tree-snapshot-service.js'
+import type {IContextTreeSnapshotService} from '../../core/interfaces/context-tree/i-context-tree-snapshot-service.js'
 import type {
   IContextTreeWriterService,
   SyncParams,
   SyncResult,
-} from '../../core/interfaces/i-context-tree-writer-service.js'
+} from '../../core/interfaces/context-tree/i-context-tree-writer-service.js'
 
 import {BRV_DIR, CONTEXT_TREE_DIR, README_FILE} from '../../constants.js'
 import {toUnixPath} from './path-utils.js'

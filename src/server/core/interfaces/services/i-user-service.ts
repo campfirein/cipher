@@ -1,4 +1,4 @@
-import type {User} from '../domain/entities/user.js'
+import type {User} from '../../domain/entities/user.js'
 
 /**
  * Interface for user-related operations.

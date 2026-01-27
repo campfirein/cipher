@@ -1,7 +1,7 @@
-import type {IOnboardingPreferenceStore} from "../../core/interfaces/i-onboarding-preference-store.js";
-import type {ITerminal} from "../../core/interfaces/i-terminal.js";
-import type {ITokenStore} from "../../core/interfaces/i-token-store.js";
-import type {ITrackingService} from "../../core/interfaces/i-tracking-service.js";
+import type {ITokenStore} from "../../core/interfaces/auth/i-token-store.js";
+import type {ITerminal} from "../../core/interfaces/services/i-terminal.js";
+import type {ITrackingService} from "../../core/interfaces/services/i-tracking-service.js";
+import type {IOnboardingPreferenceStore} from "../../core/interfaces/storage/i-onboarding-preference-store.js";
 import type {ILogoutUseCase} from "../../core/interfaces/usecase/i-logout-use-case.js";
 
 export interface LogoutUseCaseDeps {

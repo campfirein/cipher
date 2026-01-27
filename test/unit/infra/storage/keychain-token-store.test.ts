@@ -2,8 +2,8 @@ import {expect} from 'chai'
 import keytar from 'keytar'
 import {restore, SinonStub, stub} from 'sinon'
 
-import {AuthToken} from '../../../../src/core/domain/entities/auth-token'
-import {KeychainTokenStore} from '../../../../src/infra/storage/keychain-token-store'
+import {AuthToken} from '../../../../src/server/core/domain/entities/auth-token'
+import {KeychainTokenStore} from '../../../../src/server/infra/storage/keychain-token-store'
 
 describe('KeychainTokenStore', () => {
   let store: KeychainTokenStore

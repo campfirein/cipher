@@ -5,7 +5,7 @@ import crypto from 'node:crypto'
 import {OAuthConfig} from '../../config/auth.config.js'
 import {OAuthTokenData} from '../../core/domain/entities/oauth-token-data.js'
 import {AuthenticationError} from '../../core/domain/errors/auth-error.js'
-import {AuthorizationContext, IAuthService} from '../../core/interfaces/i-auth-service.js'
+import {AuthorizationContext, IAuthService} from '../../core/interfaces/auth/i-auth-service.js'
 
 type TokenResponse = {
   /**

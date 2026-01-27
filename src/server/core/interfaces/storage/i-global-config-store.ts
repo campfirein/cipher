@@ -1,4 +1,4 @@
-import type {GlobalConfig} from '../domain/entities/global-config.js'
+import type {GlobalConfig} from '../../domain/entities/global-config.js'
 
 /**
  * Interface for storing and retrieving global ByteRover CLI configuration.

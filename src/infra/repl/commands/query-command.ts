@@ -1,10 +1,10 @@
-import {isDevelopment} from '../../../config/environment.js'
+import {isDevelopment} from '../../../server/config/environment.js'
+import {FileGlobalConfigStore} from "../../../server/infra/storage/file-global-config-store.js";
+import {createTokenStore} from '../../../server/infra/storage/token-store.js'
+import {ReplTerminal} from '../../../server/infra/terminal/repl-terminal.js'
+import {MixpanelTrackingService} from '../../../server/infra/tracking/mixpanel-tracking-service.js'
+import {QueryUseCase} from '../../../server/infra/usecase/query-use-case.js'
 import {type CommandContext, CommandKind, type SlashCommand} from '../../../tui/types.js'
-import {FileGlobalConfigStore} from "../../storage/file-global-config-store.js";
-import {createTokenStore} from '../../storage/token-store.js'
-import {ReplTerminal} from '../../terminal/repl-terminal.js'
-import {MixpanelTrackingService} from '../../tracking/mixpanel-tracking-service.js'
-import {QueryUseCase} from '../../usecase/query-use-case.js'
 import {Flags, parseReplArgs, toCommandFlags} from './arg-parser.js'
 
 // Dev-only flags - defined once, used for both parsing and help display

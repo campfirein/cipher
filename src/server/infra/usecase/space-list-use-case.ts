@@ -1,7 +1,7 @@
-import type {IProjectConfigStore} from '../../core/interfaces/i-project-config-store.js'
-import type {ISpaceService} from '../../core/interfaces/i-space-service.js'
-import type {ITerminal} from '../../core/interfaces/i-terminal.js'
-import type {ITokenStore} from '../../core/interfaces/i-token-store.js'
+import type {ITokenStore} from '../../core/interfaces/auth/i-token-store.js'
+import type {ISpaceService} from '../../core/interfaces/services/i-space-service.js'
+import type {ITerminal} from '../../core/interfaces/services/i-terminal.js'
+import type {IProjectConfigStore} from '../../core/interfaces/storage/i-project-config-store.js'
 import type {ISpaceListUseCase} from '../../core/interfaces/usecase/i-space-list-use-case.js'
 
 export interface SpaceListFlags {

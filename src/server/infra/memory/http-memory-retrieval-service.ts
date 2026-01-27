@@ -1,5 +1,5 @@
 /* eslint-disable camelcase */
-import type {IMemoryRetrievalService, RetrieveParams} from '../../core/interfaces/i-memory-retrieval-service.js'
+import type {IMemoryRetrievalService, RetrieveParams} from '../../core/interfaces/services/i-memory-retrieval-service.js'
 
 import {Memory} from '../../core/domain/entities/memory.js'
 import {RetrieveResult} from '../../core/domain/entities/retrieve-result.js'

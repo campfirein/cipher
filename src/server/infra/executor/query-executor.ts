@@ -1,5 +1,5 @@
 import type {ICipherAgent} from '../../../agent/core/interfaces/i-cipher-agent.js'
-import type {IQueryExecutor, QueryExecuteOptions} from '../../../core/interfaces/executor/i-query-executor.js'
+import type {IQueryExecutor, QueryExecuteOptions} from '../../core/interfaces/executor/i-query-executor.js'
 
 /**
  * QueryExecutor - Executes query tasks with an injected CipherAgent.

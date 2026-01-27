@@ -3,7 +3,7 @@ import {homedir} from 'node:os'
 import {join} from 'node:path'
 
 import type {Agent} from '../../core/domain/entities/agent.js'
-import type {IWorkspaceDetectorService, WorkspaceInfo} from '../../core/interfaces/i-workspace-detector-service.js'
+import type {IWorkspaceDetectorService, WorkspaceInfo} from '../../core/interfaces/services/i-workspace-detector-service.js'
 
 /**
  * Service to detect IDE workspaces that contain the current working directory

@@ -1,4 +1,4 @@
-import type {CogitSnapshotFile} from '../domain/entities/cogit-snapshot-file.js'
+import type {CogitSnapshotFile} from '../../domain/entities/cogit-snapshot-file.js'
 
 /**
  * Result of a sync operation.

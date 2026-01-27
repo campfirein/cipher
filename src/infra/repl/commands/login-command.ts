@@ -1,16 +1,16 @@
-import { getAuthConfig } from '../../../config/auth.config.js'
-import { getCurrentConfig } from '../../../config/environment.js'
+import { getAuthConfig } from '../../../server/config/auth.config.js'
+import { getCurrentConfig } from '../../../server/config/environment.js'
+import { OAuthService } from '../../../server/infra/auth/oauth-service.js'
+import { OidcDiscoveryService } from '../../../server/infra/auth/oidc-discovery-service.js'
+import { SystemBrowserLauncher } from '../../../server/infra/browser/system-browser-launcher.js'
+import { CallbackHandler } from '../../../server/infra/http/callback-handler.js'
+import {FileGlobalConfigStore} from "../../../server/infra/storage/file-global-config-store.js";
+import { createTokenStore } from '../../../server/infra/storage/token-store.js'
+import { ReplTerminal } from '../../../server/infra/terminal/repl-terminal.js'
+import { MixpanelTrackingService } from '../../../server/infra/tracking/mixpanel-tracking-service.js'
+import { LoginUseCase } from '../../../server/infra/usecase/login-use-case.js'
+import { HttpUserService } from '../../../server/infra/user/http-user-service.js'
 import { CommandKind, SlashCommand } from '../../../tui/types.js'
-import { OAuthService } from '../../auth/oauth-service.js'
-import { OidcDiscoveryService } from '../../auth/oidc-discovery-service.js'
-import { SystemBrowserLauncher } from '../../browser/system-browser-launcher.js'
-import { CallbackHandler } from '../../http/callback-handler.js'
-import {FileGlobalConfigStore} from "../../storage/file-global-config-store.js";
-import { createTokenStore } from '../../storage/token-store.js'
-import { ReplTerminal } from '../../terminal/repl-terminal.js'
-import { MixpanelTrackingService } from '../../tracking/mixpanel-tracking-service.js'
-import { LoginUseCase } from '../../usecase/login-use-case.js'
-import { HttpUserService } from '../../user/http-user-service.js'
 
 /**
  * Login command

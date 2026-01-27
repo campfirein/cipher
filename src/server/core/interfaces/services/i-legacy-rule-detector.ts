@@ -1,4 +1,4 @@
-import type {Agent} from '../domain/entities/agent.js'
+import type {Agent} from '../../domain/entities/agent.js'
 
 /**
  * Represents a reliably detected legacy ByteRover rule section.

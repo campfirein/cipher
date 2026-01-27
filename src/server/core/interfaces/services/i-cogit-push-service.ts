@@ -1,5 +1,5 @@
-import type {CogitPushContext} from '../domain/entities/cogit-push-context.js'
-import type {CogitPushResponse} from '../domain/entities/cogit-push-response.js'
+import type {CogitPushContext} from '../../domain/entities/cogit-push-context.js'
+import type {CogitPushResponse} from '../../domain/entities/cogit-push-response.js'
 
 /**
  * Parameters for pushing context files to CoGit.

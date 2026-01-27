@@ -1,4 +1,4 @@
-import type {ITeamService} from '../../core/interfaces/i-team-service.js'
+import type {ITeamService} from '../../core/interfaces/services/i-team-service.js'
 
 import {Team} from '../../core/domain/entities/team.js'
 import {getErrorMessage} from '../../utils/error-helpers.js'

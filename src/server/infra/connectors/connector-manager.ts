@@ -7,8 +7,8 @@ import type {
 } from '../../core/interfaces/connectors/connector-types.js'
 import type {IConnectorManager} from '../../core/interfaces/connectors/i-connector-manager.js'
 import type {IConnector} from '../../core/interfaces/connectors/i-connector.js'
-import type {IFileService} from '../../core/interfaces/i-file-service.js'
-import type {IRuleTemplateService} from '../../core/interfaces/i-rule-template-service.js'
+import type {IFileService} from '../../core/interfaces/services/i-file-service.js'
+import type {IRuleTemplateService} from '../../core/interfaces/services/i-rule-template-service.js'
 
 import {AGENT_CONNECTOR_CONFIG, AGENT_VALUES} from '../../core/domain/entities/agent.js'
 import {CONNECTOR_TYPES} from '../../core/domain/entities/connector-type.js'

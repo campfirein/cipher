@@ -1,7 +1,7 @@
 import {readFile} from 'node:fs/promises'
 import {join} from 'node:path'
 
-import type {ContextFileContent, IContextFileReader} from '../../core/interfaces/i-context-file-reader.js'
+import type {ContextFileContent, IContextFileReader} from '../../core/interfaces/context-tree/i-context-file-reader.js'
 
 import {BRV_DIR, CONTEXT_TREE_DIR} from '../../constants.js'
 import {MarkdownWriter} from '../../core/domain/knowledge/markdown-writer.js'

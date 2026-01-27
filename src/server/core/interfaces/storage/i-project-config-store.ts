@@ -1,4 +1,4 @@
-import type {BrvConfig} from '../domain/entities/brv-config.js'
+import type {BrvConfig} from '../../domain/entities/brv-config.js'
 
 /**
  * Interface for storing and retrieving ByteRover CLI configuration.

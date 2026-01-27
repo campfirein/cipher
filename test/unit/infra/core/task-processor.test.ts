@@ -19,10 +19,10 @@ import {expect} from 'chai'
 import {createSandbox, type SinonSandbox, type SinonStub} from 'sinon'
 
 import type {ICipherAgent} from '../../../../src/agent/core/interfaces/i-cipher-agent.js'
-import type {ICurateExecutor} from '../../../../src/core/interfaces/executor/i-curate-executor.js'
-import type {IQueryExecutor} from '../../../../src/core/interfaces/executor/i-query-executor.js'
+import type {ICurateExecutor} from '../../../../src/server/core/interfaces/executor/i-curate-executor.js'
+import type {IQueryExecutor} from '../../../../src/server/core/interfaces/executor/i-query-executor.js'
 
-import {createTaskProcessor, type TaskInput, TaskProcessor} from '../../../../src/infra/core/task-processor.js'
+import {createTaskProcessor, type TaskInput, TaskProcessor} from '../../../../src/server/infra/executor/task-processor.js'
 
 describe('TaskProcessor', () => {
   let sandbox: SinonSandbox

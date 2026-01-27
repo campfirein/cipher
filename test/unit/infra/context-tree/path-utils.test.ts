@@ -1,6 +1,6 @@
 import {expect} from 'chai'
 
-import {toUnixPath} from '../../../../src/infra/context-tree/path-utils.js'
+import {toUnixPath} from '../../../../src/server/infra/context-tree/path-utils.js'
 
 describe('path-utils', () => {
   describe('toUnixPath', () => {

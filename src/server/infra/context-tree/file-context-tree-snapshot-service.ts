@@ -2,7 +2,7 @@ import {createHash} from 'node:crypto'
 import {readdir, readFile, stat, writeFile} from 'node:fs/promises'
 import {join, relative} from 'node:path'
 
-import type {IContextTreeSnapshotService} from '../../core/interfaces/i-context-tree-snapshot-service.js'
+import type {IContextTreeSnapshotService} from '../../core/interfaces/context-tree/i-context-tree-snapshot-service.js'
 
 import {BRV_DIR, CONTEXT_FILE_EXTENSION, CONTEXT_TREE_DIR, README_FILE, SNAPSHOT_FILE} from '../../constants.js'
 import {

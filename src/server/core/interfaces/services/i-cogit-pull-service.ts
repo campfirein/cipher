@@ -1,4 +1,4 @@
-import type {CogitSnapshot} from '../domain/entities/cogit-snapshot.js'
+import type {CogitSnapshot} from '../../domain/entities/cogit-snapshot.js'
 
 /**
  * Parameters for pulling a snapshot from CoGit.

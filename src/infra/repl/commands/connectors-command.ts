@@ -1,13 +1,13 @@
+import {ConnectorManager} from '../../../server/infra/connectors/connector-manager.js'
+import {RuleTemplateService} from '../../../server/infra/connectors/shared/template-service.js'
+import {FsFileService} from '../../../server/infra/file/fs-file-service.js'
+import {FileGlobalConfigStore} from '../../../server/infra/storage/file-global-config-store.js'
+import {createTokenStore} from '../../../server/infra/storage/token-store.js'
+import {FsTemplateLoader} from '../../../server/infra/template/fs-template-loader.js'
+import {ReplTerminal} from '../../../server/infra/terminal/repl-terminal.js'
+import {MixpanelTrackingService} from '../../../server/infra/tracking/mixpanel-tracking-service.js'
+import {ConnectorsUseCase} from '../../../server/infra/usecase/connectors-use-case.js'
 import {CommandKind, SlashCommand} from '../../../tui/types.js'
-import {ConnectorManager} from '../../connectors/connector-manager.js'
-import {RuleTemplateService} from '../../connectors/shared/template-service.js'
-import {FsFileService} from '../../file/fs-file-service.js'
-import {FileGlobalConfigStore} from '../../storage/file-global-config-store.js'
-import {createTokenStore} from '../../storage/token-store.js'
-import {FsTemplateLoader} from '../../template/fs-template-loader.js'
-import {ReplTerminal} from '../../terminal/repl-terminal.js'
-import {MixpanelTrackingService} from '../../tracking/mixpanel-tracking-service.js'
-import {ConnectorsUseCase} from '../../usecase/connectors-use-case.js'
 
 /**
  * Connectors command

@@ -1,6 +1,6 @@
 import axios, {type AxiosRequestConfig, isAxiosError} from 'axios'
 
-import type {HttpRequestConfig, IHttpClient} from '../../core/interfaces/i-http-client.js'
+import type {HttpRequestConfig, IHttpClient} from '../../core/interfaces/services/i-http-client.js'
 
 /**
  * Standardized API error response from server.

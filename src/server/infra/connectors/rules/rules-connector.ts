@@ -8,8 +8,8 @@ import type {
   ConnectorUninstallResult,
 } from '../../../core/interfaces/connectors/connector-types.js'
 import type {IConnector} from '../../../core/interfaces/connectors/i-connector.js'
-import type {IFileService} from '../../../core/interfaces/i-file-service.js'
-import type {IRuleTemplateService} from '../../../core/interfaces/i-rule-template-service.js'
+import type {IFileService} from '../../../core/interfaces/services/i-file-service.js'
+import type {IRuleTemplateService} from '../../../core/interfaces/services/i-rule-template-service.js'
 
 import {AGENT_CONNECTOR_CONFIG} from '../../../core/domain/entities/agent.js'
 import {RuleFileManager} from '../shared/rule-file-manager.js'

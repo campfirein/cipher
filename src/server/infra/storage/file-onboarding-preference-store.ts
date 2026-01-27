@@ -2,7 +2,7 @@ import {existsSync, mkdirSync, readFileSync, rmSync, writeFileSync} from 'node:f
 import {homedir} from 'node:os'
 import {join} from 'node:path'
 
-import type {IOnboardingPreferenceStore} from '../../core/interfaces/i-onboarding-preference-store.js'
+import type {IOnboardingPreferenceStore} from '../../core/interfaces/storage/i-onboarding-preference-store.js'
 
 const BRV_HOME_DIR = join(homedir(), '.brv')
 const ONBOARDING_LOCK_FILE = join(BRV_HOME_DIR, '.onboarding-dismissed')

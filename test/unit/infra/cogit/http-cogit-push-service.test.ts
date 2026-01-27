@@ -3,8 +3,8 @@
 import {expect} from 'chai'
 import nock from 'nock'
 
-import {CogitPushContext} from '../../../../src/core/domain/entities/cogit-push-context.js'
-import {HttpCogitPushService} from '../../../../src/infra/cogit/http-cogit-push-service.js'
+import {CogitPushContext} from '../../../../src/server/core/domain/entities/cogit-push-context.js'
+import {HttpCogitPushService} from '../../../../src/server/infra/cogit/http-cogit-push-service.js'
 
 const createContext = (
   overrides: Partial<{content: string; operation: 'add'; path: string; tags: string[]; title: string}> = {},

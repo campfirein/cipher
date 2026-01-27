@@ -1,7 +1,7 @@
 import {access, mkdir} from 'node:fs/promises'
 import {join} from 'node:path'
 
-import type {IContextTreeService} from '../../core/interfaces/i-context-tree-service.js'
+import type {IContextTreeService} from '../../core/interfaces/context-tree/i-context-tree-service.js'
 
 import {BRV_DIR, CONTEXT_TREE_DIR} from '../../constants.js'
 

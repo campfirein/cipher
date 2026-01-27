@@ -1,10 +1,10 @@
+import {FileGlobalConfigStore} from "../../../server/infra/storage/file-global-config-store.js";
+import {FileOnboardingPreferenceStore} from '../../../server/infra/storage/file-onboarding-preference-store.js'
+import {createTokenStore} from '../../../server/infra/storage/token-store.js'
+import {ReplTerminal} from '../../../server/infra/terminal/repl-terminal.js'
+import {MixpanelTrackingService} from '../../../server/infra/tracking/mixpanel-tracking-service.js'
+import {LogoutUseCase} from '../../../server/infra/usecase/logout-use-case.js'
 import {type CommandContext, CommandKind, type SlashCommand} from '../../../tui/types.js'
-import {FileGlobalConfigStore} from "../../storage/file-global-config-store.js";
-import {FileOnboardingPreferenceStore} from '../../storage/file-onboarding-preference-store.js'
-import {createTokenStore} from '../../storage/token-store.js'
-import {ReplTerminal} from '../../terminal/repl-terminal.js'
-import {MixpanelTrackingService} from '../../tracking/mixpanel-tracking-service.js'
-import {LogoutUseCase} from '../../usecase/logout-use-case.js'
 import {Flags, parseReplArgs, toCommandFlags} from './arg-parser.js'
 
 // Flags - defined once, used for both parsing and help display

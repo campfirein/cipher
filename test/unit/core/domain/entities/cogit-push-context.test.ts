@@ -1,6 +1,6 @@
 import {expect} from 'chai'
 
-import {CogitPushContext} from '../../../../../src/core/domain/entities/cogit-push-context.js'
+import {CogitPushContext} from '../../../../../src/server/core/domain/entities/cogit-push-context.js'
 
 describe('CogitPushContext Entity', () => {
   const validAddContextData = {

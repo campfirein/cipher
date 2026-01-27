@@ -1,5 +1,5 @@
 import type {Agent} from '../../../core/domain/entities/agent.js'
-import type {WriteMode} from '../../../core/interfaces/i-file-service.js'
+import type {WriteMode} from '../../../core/interfaces/services/i-file-service.js'
 
 /**
  * Configuration for agent-specific rule files.

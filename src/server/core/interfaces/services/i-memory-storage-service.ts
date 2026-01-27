@@ -1,4 +1,4 @@
-import type {PresignedUrlsResponse} from '../domain/entities/presigned-urls-response.js'
+import type {PresignedUrlsResponse} from '../../domain/entities/presigned-urls-response.js'
 
 /**
  * Parameters for requesting presigned URLs.

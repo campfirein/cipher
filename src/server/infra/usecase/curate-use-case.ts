@@ -1,11 +1,11 @@
 import {randomUUID} from 'node:crypto'
 
-import type {ITerminal} from '../../core/interfaces/i-terminal.js'
+import type {ITerminal} from '../../core/interfaces/services/i-terminal.js'
 import type {CurateUseCaseRunOptions, ICurateUseCase} from '../../core/interfaces/usecase/i-curate-use-case.js'
 
 import {ConnectionError, ConnectionFailedError, InstanceCrashedError, NoInstanceRunningError} from '../../core/domain/errors/connection-error.js'
 import {TaskCreateResponse} from '../../core/domain/transport/index.js'
-import {ITrackingService} from '../../core/interfaces/i-tracking-service.js'
+import {ITrackingService} from '../../core/interfaces/services/i-tracking-service.js'
 import {ITransportClient} from '../../core/interfaces/transport/index.js'
 import {formatError} from '../../utils/error-handler.js'
 import {getSandboxEnvironmentName, isSandboxEnvironment, isSandboxNetworkError} from '../../utils/sandbox-detector.js'

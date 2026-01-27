@@ -1,4 +1,4 @@
-import type {McpServerConfig} from '../../infra/connectors/mcp/mcp-connector-config.js'
+import type {McpServerConfig} from '../../../infra/connectors/mcp/mcp-connector-config.js'
 
 /**
  * Result of checking if MCP config exists.

@@ -1,9 +1,9 @@
 import {expect} from 'chai'
 import {randomUUID} from 'node:crypto'
 
-import {TransportHandlers} from '../../src/infra/process/transport-handlers.js'
-import {SocketIOTransportClient} from '../../src/infra/transport/socket-io-transport-client.js'
-import {SocketIOTransportServer} from '../../src/infra/transport/socket-io-transport-server.js'
+import {TransportHandlers} from '../../src/server/infra/process/transport-handlers.js'
+import {SocketIOTransportClient} from '../../src/server/infra/transport/socket-io-transport-client.js'
+import {SocketIOTransportServer} from '../../src/server/infra/transport/socket-io-transport-server.js'
 
 // Helper for delays
 const delay = (ms: number): Promise<void> =>

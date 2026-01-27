@@ -1,4 +1,4 @@
-import {AuthToken} from '../domain/entities/auth-token.js'
+import {AuthToken} from '../../domain/entities/auth-token.js'
 
 /**
  * Interface for token storage mechanisms.

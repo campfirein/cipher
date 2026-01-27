@@ -1,8 +1,8 @@
 import type {Agent} from '../../core/domain/entities/agent.js'
 import type {ConnectorType} from '../../core/domain/entities/connector-type.js'
 import type {IConnectorManager} from '../../core/interfaces/connectors/i-connector-manager.js'
-import type {ITerminal} from '../../core/interfaces/i-terminal.js'
-import type {ITrackingService} from '../../core/interfaces/i-tracking-service.js'
+import type {ITerminal} from '../../core/interfaces/services/i-terminal.js'
+import type {ITrackingService} from '../../core/interfaces/services/i-tracking-service.js'
 
 import {AGENT_VALUES} from '../../core/domain/entities/agent.js'
 import {IConnectorsUseCase} from '../../core/interfaces/usecase/i-connectors-use-case.js'
