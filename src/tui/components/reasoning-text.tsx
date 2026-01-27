@@ -56,7 +56,7 @@ export const ReasoningText: React.FC<ReasoningTextProps> = memo(({content, isStr
   // Don't render anything if no content
   if (!content) {
     return isStreaming ? (
-      <Box paddingLeft={2}>
+      <Box>
         <ThinkingSpinner />
         <Text color={colors.dimText}> Thinking...</Text>
       </Box>
@@ -64,11 +64,9 @@ export const ReasoningText: React.FC<ReasoningTextProps> = memo(({content, isStr
   }
 
   return (
-    <Box borderColor={colors.border} borderLeft borderStyle="single" flexDirection="column" paddingLeft={2}>
+    <Box borderColor={colors.border} borderLeft borderStyle="single" flexDirection="column">
       <Box>
-        <Text color={colors.dimText} italic>
-          Thinking:
-        </Text>
+        <Text color={colors.dimText} italic> Thinking:</Text>
         {isStreaming && (
           <Text color={colors.dimText}>
             {' '}

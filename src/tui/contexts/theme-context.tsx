@@ -23,6 +23,7 @@ export interface ThemeColors {
   bg2: string
   border: string
   curateCommand: string
+  dimPrimary: string
   dimText: string
   errorText: string
   info: string
@@ -46,16 +47,17 @@ const defaultTheme: Theme = {
     bg2: '#222221',
     border: '#3D3D3D',
     curateCommand: '#E5C76B',
+    dimPrimary: '#067457',
     dimText: '#747474',
     errorText: '#E5484D',
     info: '#00B8D9',
     logoBold: '#00CC66',
     logoDecor: '#00E6A8',
     logoVersion: '#7FFFD4',
-    primary: '#03BF86',
+    primary: '#0AA77D',
     queryCommand: '#C477FF',
     secondary: '#4CCEBF60',
-    text: '#F3F3F3',
+    text: '#CBCBCB',
     warning: '#F5A623'
   },
 }

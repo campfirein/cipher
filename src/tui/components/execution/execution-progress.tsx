@@ -1,197 +1,139 @@
 /**
  * Execution Progress Component
  *
- * Displays tool calls progress with status indicators and parameters.
- * Shows a limited number of items with "... and X more" indicator.
- * Following OpenCode's pattern: shows tool parameters inline.
+ * Displays tool calls and reasoning content sorted by timestamp.
+ * Renders ExecutionTool for tool calls and ExecutionReasoning for reasoning items.
  */
 
-import {Box, Text} from 'ink'
-import Spinner from 'ink-spinner'
-import React from 'react'
+import {Box} from 'ink'
+import React, {useMemo} from 'react'
 
-import type {ToolCallStatus} from '../../../core/domain/cipher/queue/types.js'
+import type {ReasoningContentItem, ToolProgressItem} from '../../types/messages.js'
 
 import {useTheme} from '../../hooks/index.js'
+import {ExecutionReasoning} from './execution-reasoning.js'
+import {ExecutionTool} from './execution-tool.js'
 
-/** Default maximum number of lines (rows) for progress display */
-const DEFAULT_MAX_LINES = 3
+/** Default maximum number of items to display */
+const DEFAULT_MAX_ITEMS = 3
 
-interface ProgressItem {
-  /** Tool call arguments/parameters */
-  args?: Record<string, unknown>
-  id: string
-  status: ToolCallStatus
-  toolCallName: string
-}
+/**
+ * Union type for sorted items
+ */
+type ProgressItem =
+  | {data: ReasoningContentItem; timestamp: number; type: 'reasoning'}
+  | {data: ToolProgressItem; timestamp: number; type: 'tool'}
 
 interface ExecutionProgressProps {
   /** Whether content should be fully expanded (no truncation) */
-  isExpand?: boolean
-  /** Maximum number of lines (rows) this component can use, including hint line (default: 3) */
-  maxLines?: number
-  /** Array of progress items */
-  progress: ProgressItem[]
-}
-
-/**
- * Format tool display with parameters based on tool type.
- * Following OpenCode's pattern: different tools show different key parameters.
- */
-function formatToolDisplay(toolName: string, args?: Record<string, unknown>): string {
-  if (!args) return toolName
-
-  // Tool-specific formatting (following OpenCode patterns)
-  switch (toolName) {
-    case 'bash':
-    case 'Bash': {
-      const {command} = args
-      if (command) {
-        // Truncate long commands
-        const cmdStr = String(command)
-        return cmdStr.length > 60 ? `$ ${cmdStr.slice(0, 57)}...` : `$ ${cmdStr}`
-      }
-
-      break
-    }
-
-    case 'edit':
-    case 'Edit': {
-      const filePath = args.file_path ?? args.filePath
-      if (filePath) return `Edit ${filePath}`
-      break
-    }
-
-    case 'glob':
-    case 'Glob': {
-      const {pattern} = args
-      const {path} = args
-      if (pattern) {
-        return path ? `Glob "${pattern}" in ${path}` : `Glob "${pattern}"`
-      }
-
-      break
-    }
-
-    case 'grep':
-    case 'Grep': {
-      const {pattern} = args
-      const {path} = args
-      if (pattern) {
-        return path ? `Grep "${pattern}" in ${path}` : `Grep "${pattern}"`
-      }
-
-      break
-    }
-
-    case 'read':
-    case 'Read': {
-      const filePath = args.file_path ?? args.filePath
-      if (filePath) return `Read ${filePath}`
-      break
-    }
-
-    case 'task':
-    case 'Task': {
-      const {description} = args
-      if (description) return `Task: ${description}`
-      break
-    }
-
-    case 'web_fetch':
-    case 'WebFetch': {
-      const {url} = args
-      if (url) return `Fetch: ${url}`
-      break
-    }
-
-    case 'web_search':
-    case 'WebSearch': {
-      const {query} = args
-      if (query) return `Search: ${query}`
-      break
-    }
-
-    case 'write':
-    case 'Write': {
-      const filePath = args.file_path ?? args.filePath
-      if (filePath) return `Write ${filePath}`
-      break
-    }
-
-    default: {
-      break
-    }
-  }
-
-  // Generic fallback: show first primitive arg
-  const primitiveArgs = Object.entries(args).filter(
-    ([, value]) => typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean',
-  )
-
-  if (primitiveArgs.length > 0) {
-    const [key, value] = primitiveArgs[0]
-    const valueStr = String(value)
-    const display = valueStr.length > 40 ? valueStr.slice(0, 37) + '...' : valueStr
-    return `${toolName} [${key}=${display}]`
-  }
-
-  return toolName
+  isExpanded?: boolean
+  /** Maximum number of items to display (default: 5) */
+  maxItems?: number
+  /** Array of reasoning content items */
+  reasoningContents?: ReasoningContentItem[]
+  /** Array of tool call items */
+  toolCalls?: ToolProgressItem[]
 }
 
 export const ExecutionProgress: React.FC<ExecutionProgressProps> = ({
-  isExpand = false,
-  maxLines = DEFAULT_MAX_LINES,
-  progress,
+  isExpanded = false,
+  maxItems = DEFAULT_MAX_ITEMS,
+  reasoningContents,
+  toolCalls,
 }) => {
   const {
     theme: {colors},
   } = useTheme()
 
-  if (!progress || progress.length === 0) {
+  const sortedItems = useMemo(() => {
+    const items: ProgressItem[] = []
+
+    if (toolCalls) {
+      for (const tc of toolCalls) {
+        items.push({
+          data: tc,
+          timestamp: tc.timestamp,
+          type: 'tool',
+        })
+      }
+    }
+
+    if (reasoningContents) {
+      for (const rc of reasoningContents) {
+        items.push({
+          data: rc,
+          timestamp: rc.timestamp,
+          type: 'reasoning',
+        })
+      }
+    }
+
+    // Sort by: 1) timestamp ascending, 2) running status last
+    // Running items at the end so they appear when slicing last N items
+    return items.sort((a, b) => {
+      // Check if item is running (tool with status 'running' or reasoning with isThinking)
+      const aIsRunning = a.type === 'tool' ? a.data.status === 'running' : a.data.isThinking
+      const bIsRunning = b.type === 'tool' ? b.data.status === 'running' : b.data.isThinking
+
+      // Running items come last (to appear in slice(-maxItems))
+      if (aIsRunning && !bIsRunning) return 1
+      if (!aIsRunning && bIsRunning) return -1
+
+      // Within same status, sort by timestamp ascending
+      return a.timestamp - b.timestamp
+    })
+  }, [toolCalls, reasoningContents])
+
+  if (sortedItems.length === 0) {
     return null
   }
 
-  // In expand mode, show all items without truncation
-  if (isExpand) {
+  if (isExpanded) {
     return (
-      <Box flexDirection="column">
-        {progress.map((item) => (
-          <Box key={item.id}>
-            {item.status === 'completed' && <Text color={colors.primary}>✓ </Text>}
-            {item.status === 'running' && (
-              <Text color={colors.dimText}>
-                <Spinner type="dots" />{' '}
-              </Text>
-            )}
-            {item.status === 'failed' && <Text color={colors.errorText}>✗ </Text>}
-            <Text color={colors.dimText}>{formatToolDisplay(item.toolCallName, item.args)}</Text>
-          </Box>
-        ))}
+      <Box backgroundColor={colors.bg2} flexDirection="column" marginBottom={1} padding={1} width="100%">
+        {sortedItems.map((item, index) => {
+          const key = item.type === 'tool'
+            ? `tool-${item.data.id}-${index}`
+            : `reasoning-${item.timestamp}-${index}`
+
+          // Add space when type changes from previous item
+          const prevItem = index > 0 ? sortedItems[index - 1] : null
+          const hasTypeChange = prevItem && prevItem.type !== item.type
+
+          if (item.type === 'tool') {
+            return (
+              <Box key={key} marginTop={hasTypeChange ? 1 : 0}>
+                <ExecutionTool isExpanded toolCall={item.data} />
+              </Box>
+            )
+          }
+
+          return (
+            <Box key={key} marginTop={hasTypeChange ? 1 : 0}>
+              <ExecutionReasoning isExpanded reasoningContent={item.data} />
+            </Box>
+          )
+        })}
       </Box>
     )
   }
 
-  const hasMore = progress.length > maxLines
-  // If there's overflow, reserve 1 line for hint, show (maxLines - 1) items
-  const visibleCount = hasMore ? maxLines - 1 : maxLines
-  const visibleItems = progress.slice(-visibleCount)
+  // Show limited items from the end (most recent)
+  const visibleItems = sortedItems.slice(-maxItems)
 
   return (
     <Box flexDirection="column">
-      {hasMore && <Text color={colors.dimText}>... and {progress.length - visibleCount} more tools used</Text>}
-      {visibleItems.map((item) => (
-        <Box key={item.id}>
-          {item.status === 'completed' && <Text color={colors.primary}>✓ </Text>}
-          {item.status === 'running' && (
-            <Text color={colors.dimText}>
-              <Spinner type="dots" />{' '}
-            </Text>
-          )}
-          {item.status === 'failed' && <Text color={colors.errorText}>✗ </Text>}
-          <Text color={colors.dimText}>{formatToolDisplay(item.toolCallName, item.args)}</Text>
-        </Box>
-      ))}
+      {visibleItems.map((item, index) => {
+        const key = item.type === 'tool'
+          ? `tool-${item.data.id}-${index}`
+          : `reasoning-${item.timestamp}-${index}`
+
+        if (item.type === 'tool') {
+          return <ExecutionTool key={key} toolCall={item.data} />
+        }
+
+        return <ExecutionReasoning key={key} reasoningContent={item.data} />
+      })}
     </Box>
   )
 }
