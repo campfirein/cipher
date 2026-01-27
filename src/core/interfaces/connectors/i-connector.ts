@@ -7,6 +7,9 @@ import type {ConnectorInstallResult, ConnectorStatus, ConnectorUninstallResult} 
  * Each connector type (rules, hook, mcp) has its own implementation.
  */
 export interface IConnector {
+  /** The type of this connector */
+  readonly connectorType: ConnectorType
+
   /**
    * Get the path to the configuration/rule file for a specific agent.
    *
@@ -46,9 +49,6 @@ export interface IConnector {
    * @returns Status including installed state and config file existence
    */
   status(agent: Agent): Promise<ConnectorStatus>
-
-  /** The type of this connector */
-  readonly type: ConnectorType
 
   /**
    * Uninstall the connector for the specified agent.

@@ -29,9 +29,9 @@ describe('SkillConnector', () => {
     await rm(testDir, {force: true, recursive: true})
   })
 
-  describe('type', () => {
+  describe('connectorType', () => {
     it('should have type "skill"', () => {
-      expect(skillConnector.type).to.equal('skill')
+      expect(skillConnector.connectorType).to.equal('skill')
     })
   })
 

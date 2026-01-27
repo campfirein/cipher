@@ -50,7 +50,7 @@ export const AGENT_CONNECTOR_CONFIG: Record<Agent, AgentConnectorConfig> = {
     supported: ['rules', 'mcp'],
   },
   'Claude Code': {
-    default: 'hook',
+    default: 'skill',
     supported: ['rules', 'hook', 'mcp', 'skill'],
   },
   Cline: {
@@ -62,7 +62,7 @@ export const AGENT_CONNECTOR_CONFIG: Record<Agent, AgentConnectorConfig> = {
     supported: ['rules', 'mcp', 'skill'],
   },
   Cursor: {
-    default: 'mcp',
+    default: 'skill',
     supported: ['rules', 'mcp', 'skill'],
   },
   'Gemini CLI': {
