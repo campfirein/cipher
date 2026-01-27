@@ -2,7 +2,7 @@ import {useCallback, useState} from 'react'
 
 import type {CommandContext, SlashCommand, SlashCommandActionReturn} from '../types.js'
 
-import {splitArgs} from '../../infra/repl/commands/arg-parser.js'
+import {splitArgs} from '../commands/arg-parser.js'
 
 /**
  * Result of parsing user input

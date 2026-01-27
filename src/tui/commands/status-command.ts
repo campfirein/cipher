@@ -1,12 +1,12 @@
-import {ProjectConfigStore} from '../../../server/infra/config/file-config-store.js'
-import {FileContextTreeService} from '../../../server/infra/context-tree/file-context-tree-service.js'
-import {FileContextTreeSnapshotService} from '../../../server/infra/context-tree/file-context-tree-snapshot-service.js'
-import {FileGlobalConfigStore} from "../../../server/infra/storage/file-global-config-store.js";
-import {createTokenStore} from '../../../server/infra/storage/token-store.js'
-import {ReplTerminal} from '../../../server/infra/terminal/repl-terminal.js'
-import {MixpanelTrackingService} from '../../../server/infra/tracking/mixpanel-tracking-service.js'
-import {StatusUseCase} from '../../../server/infra/usecase/status-use-case.js'
-import {type CommandContext, CommandKind, type SlashCommand} from '../../../tui/types.js'
+import {ProjectConfigStore} from '../../infra/config/file-config-store.js'
+import {FileContextTreeService} from '../../infra/context-tree/file-context-tree-service.js'
+import {FileContextTreeSnapshotService} from '../../infra/context-tree/file-context-tree-snapshot-service.js'
+import {FileGlobalConfigStore} from '../../infra/storage/file-global-config-store.js'
+import {createTokenStore} from '../../infra/storage/token-store.js'
+import {ReplTerminal} from '../../infra/terminal/repl-terminal.js'
+import {MixpanelTrackingService} from '../../infra/tracking/mixpanel-tracking-service.js'
+import {StatusUseCase} from '../../infra/usecase/status-use-case.js'
+import {CommandContext, CommandKind, SlashCommand} from '../types.js'
 
 /**
  * Status command

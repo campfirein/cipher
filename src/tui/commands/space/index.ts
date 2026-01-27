@@ -1,4 +1,4 @@
-import {CommandKind, SlashCommand} from '../../../../tui/types.js'
+import {CommandKind, SlashCommand} from '../../types.js'
 import {listCommand} from './list-command.js'
 import {switchCommand} from './switch-command.js'
 

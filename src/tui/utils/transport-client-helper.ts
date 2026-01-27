@@ -16,8 +16,8 @@ import {
   TransportLlmEventList,
   TransportSessionEventNames,
   TransportTaskEventNames,
-} from '../../server/core/domain/transport/schemas.js'
-import {createTransportClientFactory} from '../../server/infra/transport/transport-client-factory.js'
+} from '../../core/domain/transport/schemas.js'
+import {createTransportClientFactory} from '../../infra/transport/transport-client-factory.js'
 
 const TRANSPORT_LOG_FILE = path.join(BRV_DIR, 'transport-events.log')
 
