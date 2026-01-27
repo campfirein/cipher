@@ -89,8 +89,13 @@ describe('CodingAgentLogWatcher Integration Test', () => {
     const initialCount = sessions.length
 
     await writeFile(join(testDir, 'new-file.log'), 'new log content')
-    // File system events are fast on modern systems
-    await setTimeout(50)
+    // Poll for the session to arrive instead of a fixed delay, since file system
+    // event delivery time varies depending on system load and OS implementation
+    const deadline = Date.now() + 2000
+    while (sessions.length <= initialCount && Date.now() < deadline) {
+      // eslint-disable-next-line no-await-in-loop
+      await setTimeout(50)
+    }
 
     expect(sessions.length).to.be.greaterThan(initialCount)
   })

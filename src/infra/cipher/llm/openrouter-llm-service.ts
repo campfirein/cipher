@@ -590,11 +590,11 @@ export class OpenRouterLLMService implements ILLMService {
       // Add assistant message with tool calls to context
       await this.contextManager.addAssistantMessage(accumulatedText, toolCalls)
 
-      // Execute tool calls
-      for (const toolCall of toolCalls) {
-        // eslint-disable-next-line no-await-in-loop -- Sequential tool execution required
-        await this.executeToolCall(toolCall, taskId)
-      }
+      // Execute tool calls in parallel (matching internal service behavior)
+      // This prevents long-running tools (e.g., subagent Tasks) from blocking others
+      await Promise.allSettled(
+        toolCalls.map((toolCall) => this.executeToolCall(toolCall, taskId)),
+      )
     }
 
     return {
@@ -629,17 +629,26 @@ export class OpenRouterLLMService implements ILLMService {
         taskId,
       })
 
-      // Emit tool result event (success) with taskId
+      // Extract content from ToolExecutionResult - the LLM needs the content string,
+      // not the full result object (which would be JSON-stringified and confuse the model)
+      const resultContent = result.content
+      const isSuccess = result.success
+
+      // Emit tool result event with taskId
       this.sessionEventBus.emit('llmservice:toolResult', {
         callId: toolCall.id,
-        result,
-        success: true,
+        ...(isSuccess ? {result: resultContent} : {error: result.errorMessage ?? String(resultContent)}),
+        errorType: result.errorType,
+        success: isSuccess,
         taskId: taskId || undefined,
         toolName,
       })
 
       // Add tool result to context
-      await this.contextManager.addToolResult(toolCall.id, toolName, result, {success: true})
+      await this.contextManager.addToolResult(toolCall.id, toolName, resultContent, {
+        errorType: result.errorType,
+        success: isSuccess,
+      })
     } catch (error) {
       // Add error result to context
       const errorMessage = error instanceof Error ? error.message : String(error)
@@ -750,10 +759,10 @@ export class OpenRouterLLMService implements ILLMService {
     const assistantContent = this.extractTextContent(lastMessage)
     await this.contextManager.addAssistantMessage(assistantContent, lastMessage.toolCalls)
 
-    // Execute tool calls via ToolManager (pass taskId for event isolation)
-    for (const toolCall of lastMessage.toolCalls) {
-      // eslint-disable-next-line no-await-in-loop -- Sequential tool execution required
-      await this.executeToolCall(toolCall, taskId)
-    }
+    // Execute tool calls in parallel (matching internal service behavior)
+    // This prevents long-running tools (e.g., subagent Tasks) from blocking others
+    await Promise.allSettled(
+      lastMessage.toolCalls.map((toolCall) => this.executeToolCall(toolCall, taskId)),
+    )
   }
 }
