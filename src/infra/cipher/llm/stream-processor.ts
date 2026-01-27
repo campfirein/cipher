@@ -115,8 +115,21 @@ export class StreamProcessor {
       toolParts: new Map(),
     }
 
+    let receivedFinish = false
+
     for await (const event of stream) {
+      if (event.type === 'finish') {
+        receivedFinish = true
+      }
+
       await this.handleEvent(event, state, context)
+    }
+
+    // Safety net: if the stream ended without a 'finish' event (e.g., OpenRouter
+    // stream closed without setting finish_reason), finalize any pending text part
+    // so the TUI receives isComplete: true and stops showing a loading spinner.
+    if (!receivedFinish) {
+      this.finalizeTextPart(state, context)
     }
 
     return state

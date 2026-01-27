@@ -389,10 +389,19 @@ export function TasksProvider({children}: {children: React.ReactNode}): React.Re
     }
 
     // Handle llmservice:thinking - Add a new reasoning content item with isThinking: true
+    // Deduplicates consecutive thinking events to prevent multiple "Thinking." entries
+    // from appearing when the agentic loop emits thinking per iteration or subagent events leak
     const handleThinking = (data: {taskId: string}) => {
       setTasks((prev) => {
         const task = prev.get(data.taskId)
         if (!task) return prev
+
+        // Don't add another thinking item if the last one is still in thinking state
+        const existingContent = task.reasoningContents ?? []
+        const lastItem = existingContent.at(-1)
+        if (lastItem?.isThinking) {
+          return prev
+        }
 
         const newReasoningItem: ReasoningContentItem = {
           content: '',
@@ -403,7 +412,7 @@ export function TasksProvider({children}: {children: React.ReactNode}): React.Re
         const newTasks = new Map(prev)
         newTasks.set(data.taskId, {
           ...task,
-          reasoningContents: [...(task.reasoningContents ?? []), newReasoningItem],
+          reasoningContents: [...existingContent, newReasoningItem],
         })
         return newTasks
       })
