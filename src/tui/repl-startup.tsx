@@ -1,14 +1,14 @@
 import {render} from 'ink'
 
-import type {IOnboardingPreferenceStore} from '../../core/interfaces/i-onboarding-preference-store.js'
-import type {IProjectConfigStore} from '../../core/interfaces/i-project-config-store.js'
-import type {ITokenStore} from '../../core/interfaces/i-token-store.js'
-import type {ITrackingService} from '../../core/interfaces/i-tracking-service.js'
-import type {ITransportClient} from '../../core/interfaces/transport/i-transport-client.js'
+import type {IOnboardingPreferenceStore} from '../core/interfaces/i-onboarding-preference-store.js'
+import type {IProjectConfigStore} from '../core/interfaces/i-project-config-store.js'
+import type {ITokenStore} from '../core/interfaces/i-token-store.js'
+import type {ITrackingService} from '../core/interfaces/i-tracking-service.js'
+import type {ITransportClient} from '../core/interfaces/transport/i-transport-client.js'
 
-import {App} from '../../tui/app.js'
-import {AppProviders} from '../../tui/providers/app-providers.js'
-import {connectTransportClient, disconnectTransportClient} from './transport-client-helper.js'
+import {App} from './app.js'
+import {AppProviders} from './providers/app-providers.js'
+import {connectTransportClient, disconnectTransportClient} from './utils/transport-client-helper.js'
 
 /** Broadcast client - joins broadcast-room to monitor all events */
 let transportBroadcastClient: ITransportClient | null = null

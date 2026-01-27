@@ -1,4 +1,4 @@
-import {SlashCommand} from '../../../tui/types.js'
+import {SlashCommand} from '../types.js'
 import {connectorsCommand} from './connectors-command.js'
 import {curateCommand} from './curate-command.js'
 import {initCommand} from './init-command.js'

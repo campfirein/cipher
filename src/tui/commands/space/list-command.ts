@@ -1,10 +1,10 @@
-import {getCurrentConfig} from '../../../../config/environment.js'
-import {type CommandContext, CommandKind, type SlashCommand} from '../../../../tui/types.js'
-import {ProjectConfigStore} from '../../../config/file-config-store.js'
-import {HttpSpaceService} from '../../../space/http-space-service.js'
-import {createTokenStore} from '../../../storage/token-store.js'
-import {ReplTerminal} from '../../../terminal/repl-terminal.js'
-import {SpaceListUseCase} from '../../../usecase/space-list-use-case.js'
+import {getCurrentConfig} from '../../../config/environment.js'
+import {ProjectConfigStore} from '../../../infra/config/file-config-store.js'
+import {HttpSpaceService} from '../../../infra/space/http-space-service.js'
+import {createTokenStore} from '../../../infra/storage/token-store.js'
+import {ReplTerminal} from '../../../infra/terminal/repl-terminal.js'
+import {SpaceListUseCase} from '../../../infra/usecase/space-list-use-case.js'
+import {CommandContext, CommandKind, SlashCommand} from '../../types.js'
 import {Flags, parseReplArgs, toCommandFlags} from '../arg-parser.js'
 
 const DEFAULT_LIMIT = 50
