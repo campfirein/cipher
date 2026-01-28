@@ -54,21 +54,21 @@ export const Suggestions: React.FC<SuggestionsProps> = ({input, onInsert, onSele
   // Manage mode based on suggestions visibility
   // Don't show suggestions mode when user is typing arguments for a matched command
   // Don't re-enable if user dismissed with Escape
-  // Only control mode when already in console/suggestions mode (don't override 'activity')
+  // Only control mode when already in main/suggestions mode
   useEffect(() => {
     if (isDismissedRef.current) {
       return
     }
 
-    // Only manage mode transitions within console/suggestions context
-    if (mode !== 'console' && mode !== 'suggestions') {
+    // Only manage mode transitions within main/suggestions context
+    if (mode !== 'main' && mode !== 'suggestions') {
       return
     }
 
     if (suggestions.length > 0 || (isCommandAttempt && !hasMatchedCommand)) {
       setMode('suggestions')
     } else {
-      setMode('console')
+      setMode('main')
     }
   }, [mode, suggestions.length, isCommandAttempt, hasMatchedCommand, setMode])
 
@@ -145,7 +145,7 @@ export const Suggestions: React.FC<SuggestionsProps> = ({input, onInsert, onSele
         }
 
         clearSuggestions()
-        setMode('console')
+        setMode('main')
       }
 
       if (key.tab) {
@@ -160,13 +160,13 @@ export const Suggestions: React.FC<SuggestionsProps> = ({input, onInsert, onSele
         }
 
         clearSuggestions()
-        setMode('console')
+        setMode('main')
       }
 
       if (key.escape) {
         isDismissedRef.current = true
         clearSuggestions()
-        setMode('console')
+        setMode('main')
       }
     },
     {isActive: mode === 'suggestions'},

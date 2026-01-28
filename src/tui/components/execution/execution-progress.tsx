@@ -24,7 +24,7 @@ interface ProgressItem {
 
 interface ExecutionProgressProps {
   /** Whether content should be fully expanded (no truncation) */
-  isExpand?: boolean
+  isExpanded?: boolean
   /** Maximum number of lines (rows) this component can use, including hint line (default: 3) */
   maxLines?: number
   /** Array of progress items */
@@ -32,7 +32,7 @@ interface ExecutionProgressProps {
 }
 
 export const ExecutionProgress: React.FC<ExecutionProgressProps> = ({
-  isExpand = false,
+  isExpanded,
   maxLines = DEFAULT_MAX_LINES,
   progress,
 }) => {
@@ -45,7 +45,7 @@ export const ExecutionProgress: React.FC<ExecutionProgressProps> = ({
   }
 
   // In expand mode, show all items without truncation
-  if (isExpand) {
+  if (isExpanded) {
     return (
       <Box flexDirection="column">
         {progress.map((item) => (

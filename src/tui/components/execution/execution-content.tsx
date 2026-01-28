@@ -4,7 +4,7 @@
  * Displays execution content (result or error) with truncation support.
  */
 
-import {Box, Text, useStdout} from 'ink'
+import {Box, Text} from 'ink'
 import React from 'react'
 
 import {useTheme} from '../../hooks/index.js'
@@ -72,7 +72,7 @@ interface ExecutionContentProps {
   /** Whether this is error content */
   isError?: boolean
   /** Whether content should be fully expanded (no truncation) */
-  isExpand?: boolean
+  isExpanded?: boolean
   /** Maximum number of lines (rows) this component can use, including the "more lines" indicator */
   maxLines?: number
 }
@@ -81,21 +81,19 @@ export const ExecutionContent: React.FC<ExecutionContentProps> = ({
   bottomMargin = 1,
   content,
   isError = false,
-  isExpand = false,
+  isExpanded = false,
   maxLines = DEFAULT_MAX_LINES,
 }) => {
   const {
     theme: {colors},
   } = useTheme()
-  const {stdout} = useStdout()
-  const contentWidth = (stdout?.columns ?? 80) - 4 // 4 is for padding
 
   if (!content) {
     return null
   }
 
   // In expand mode, render full content without truncation
-  if (isExpand) {
+  if (isExpanded) {
     return (
       <Box flexDirection="column" marginY={1}>
         {isError ? (
@@ -107,22 +105,19 @@ export const ExecutionContent: React.FC<ExecutionContentProps> = ({
     )
   }
 
-  // First check if content would overflow
-  const {totalLines} = truncateContent(content, maxLines, contentWidth)
-  const hasOverflow = totalLines > maxLines
-
-  // If overflow, reserve 1 line for indicator, show (maxLines - 1) lines of content
-  const effectiveMaxLines = hasOverflow ? maxLines - 1 : maxLines
-  const {remainingLines, truncatedContent} = truncateContent(content, effectiveMaxLines, contentWidth)
-
   return (
     <Box flexDirection="column" marginBottom={bottomMargin}>
       {isError ? (
-        <Text color={colors.errorText}>{truncatedContent}</Text>
+        <Text color={colors.errorText} wrap="truncate">{content}</Text>
       ) : (
-        <Markdown>{truncatedContent}</Markdown>
+        <Box height={maxLines} overflow="hidden">
+          <Text>
+            <Text color={colors.dimPrimary} italic>Result: </Text>
+            <Text color={colors.text}>{content}</Text>
+          </Text>
+        </Box>
       )}
-      {remainingLines > 0 && <Text color={colors.dimText}>{remainingLines} more lines</Text>}
     </Box>
   )
 }
+

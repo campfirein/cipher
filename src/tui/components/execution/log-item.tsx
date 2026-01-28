@@ -5,7 +5,7 @@
  */
 
 import {Box, Spacer, Text} from 'ink'
-import React from 'react'
+import React, {memo} from 'react'
 
 import type {MessageItemHeights} from '../../hooks/index.js'
 import type {ActivityLog} from '../../types.js'
@@ -16,20 +16,21 @@ import {ExecutionChanges} from './execution-changes.js'
 import {ExecutionContent} from './execution-content.js'
 import {ExecutionInput} from './execution-input.js'
 import {ExecutionProgress} from './execution-progress.js'
-import {ExecutionStatus} from './execution-status.js'
 
 interface LogItemProps {
   /** Dynamic heights based on terminal breakpoint */
   heights: MessageItemHeights
   /** Whether content should be fully expanded (no truncation) */
-  isExpand?: boolean
+  isExpanded?: boolean
   /** Whether this log item is currently selected */
   isSelected?: boolean
   /** The activity log to display */
   log: ActivityLog
+  /** Whether to show the expand/collapse indicator */
+  shouldShowExpand?: boolean
 }
 
-export const LogItem: React.FC<LogItemProps> = ({heights, isExpand, isSelected, log}) => {
+export const LogItem: React.FC<LogItemProps> = memo(({heights, isExpanded, isSelected, log}) => {
   const {
     theme: {colors},
   } = useTheme()
@@ -39,47 +40,64 @@ export const LogItem: React.FC<LogItemProps> = ({heights, isExpand, isSelected, 
   return (
     <Box flexDirection="column" marginBottom={1} width="100%">
       {/* Header */}
-      <Box>
-        <Text color={log.type === 'curate' ? colors.curateCommand : colors.queryCommand}>[{log.type}] </Text>
-        <Text color={colors.dimText}>@{log.source ?? 'system'}</Text>
-        {isSelected && (
-          <Text dimColor italic>  ←  [ctrl+o] to {isExpand ? 'collapse' : 'expand'}</Text>
-        )}
+      <Box gap={1}>
+        <Text color={colors.primary}>• {log.type}</Text>
         <Spacer />
-        <Text color={colors.dimText}>[{displayTime}]</Text>
+        <Text color={colors.dimText}>{displayTime}</Text>
       </Box>
+      <Box gap={1}>
+        <Box
+          borderBottom={false}
+          borderColor={isSelected ? colors.primary : undefined}
+          borderLeft={isSelected}
+          borderRight={false}
+          borderStyle="bold"
+          borderTop={false}
+          height="100%"
+          width={1}
+        />
+        <Box borderTop={false} flexDirection="column" flexGrow={1}>
+          {/* Input */}
+          <ExecutionInput input={log.input} />
 
-      {/* Input */}
-      <ExecutionInput input={log.input} isExpand={isExpand} />
+          {/* Progress */}
+          {(log.progress) && log.status === 'running' && (
+            <ExecutionProgress
+              isExpanded={isExpanded}
+              progress={log.progress}
+            />
+          )}
 
-      {/* Progress and Status */}
-      <Box flexDirection="column">
-        {log.progress && (
-          <ExecutionProgress isExpand={isExpand} maxLines={heights.maxProgressItems} progress={log.progress} />
-        )}
-        <ExecutionStatus status={log.status} />
+          {/* Final Content - Show after completion or error */}
+          {(log.status === 'failed' || log.status === 'completed') && (
+            <ExecutionContent
+              bottomMargin={0}
+              content={log.content ?? ''}
+              isError={log.status === 'failed'}
+              maxLines={3}
+            />
+          )}
+
+          {/* Changes */}
+          {log.status === 'completed' && (
+            <ExecutionChanges
+              created={log.changes.created}
+              isExpanded={isExpanded}
+              marginTop={1}
+              maxChanges={heights.maxChanges}
+              updated={log.changes.updated}
+            />
+          )}
+
+          {/* Expand indicator */}
+          {isSelected ? (
+            <Text color={colors.dimText}>Show remaining output • [ctrl+o] to expand</Text>
+          ) : (
+            <Text> </Text>
+          )}
+        </Box>
       </Box>
-
-      {/* Content */}
-      {(log.status === 'failed' || log.status === 'completed') && (
-        <ExecutionContent
-          bottomMargin={heights.contentBottomMargin}
-          content={log.content ?? ''}
-          isError={log.status === 'failed'}
-          isExpand={isExpand}
-          maxLines={heights.maxContentLines}
-        />
-      )}
-
-      {/* Changes */}
-      {log.status === 'completed' && (
-        <ExecutionChanges
-          created={log.changes.created}
-          isExpand={isExpand}
-          maxChanges={heights.maxChanges}
-          updated={log.changes.updated}
-        />
-      )}
     </Box>
   )
-}
+})
+

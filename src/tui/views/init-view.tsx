@@ -42,20 +42,11 @@ export const InitView: React.FC<InitViewProps> = ({availableHeight, onInitComple
         onInitComplete?.()
       }
     },
-    {isActive: mode === 'activity' && step === 'prompt'}
+    {isActive: mode === 'main' && step === 'prompt'}
   )
 
   return (
-    <Box
-      borderColor={colors.border}
-      borderLeft={false}
-      borderRight={false}
-      borderStyle="single"
-      borderTop={false}
-      flexDirection="column"
-      height={availableHeight}
-      width="100%"
-    >
+    <Box flexDirection="column" height={availableHeight} width="100%">
       <Box flexDirection="column" paddingX={1}>
         {step === 'prompt' && (
           <>
@@ -81,7 +72,7 @@ export const InitView: React.FC<InitViewProps> = ({availableHeight, onInitComple
               <Text bold color={colors.primary}>Initialize Project</Text>
             </Box>
             <Init
-              active={mode === 'activity'}
+              active={mode === 'main'}
               autoStart={true}
               maxOutputLines={maxOutputLines}
               onInitComplete={() => setStep('complete')}
@@ -101,7 +92,7 @@ export const InitView: React.FC<InitViewProps> = ({availableHeight, onInitComple
               </Text>
               <EnterPrompt
                 action="continue"
-                active={mode === 'activity'}
+                active={mode === 'main'}
                 onEnter={onInitComplete}
               />
             </Box>

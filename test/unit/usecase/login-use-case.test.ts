@@ -6,6 +6,9 @@ import {restore, stub} from 'sinon'
 import type {IAuthService} from '../../../src/core/interfaces/i-auth-service.js'
 import type {IBrowserLauncher} from '../../../src/core/interfaces/i-browser-launcher.js'
 import type {ICallbackHandler} from '../../../src/core/interfaces/i-callback-handler.js'
+import type {IProjectConfigStore} from '../../../src/core/interfaces/i-project-config-store.js'
+import type {ISpaceService} from '../../../src/core/interfaces/i-space-service.js'
+import type {ITeamService} from '../../../src/core/interfaces/i-team-service.js'
 import type {ITerminal} from '../../../src/core/interfaces/i-terminal.js'
 import type {ITokenStore} from '../../../src/core/interfaces/i-token-store.js'
 import type {ITrackingService} from '../../../src/core/interfaces/i-tracking-service.js'
@@ -13,6 +16,8 @@ import type {IUserService} from '../../../src/core/interfaces/i-user-service.js'
 
 import {AuthToken} from '../../../src/core/domain/entities/auth-token.js'
 import {OAuthTokenData} from '../../../src/core/domain/entities/oauth-token-data.js'
+import {Space} from '../../../src/core/domain/entities/space.js'
+import {Team} from '../../../src/core/domain/entities/team.js'
 import {User} from '../../../src/core/domain/entities/user.js'
 import {LoginUseCase} from '../../../src/infra/usecase/login-use-case.js'
 import {createMockTerminal} from '../../helpers/mock-factories.js'
@@ -23,6 +28,9 @@ describe('LoginUseCase', () => {
   let callbackHandler: SinonStubbedInstance<ICallbackHandler>
   let errorMessages: string[]
   let logMessages: string[]
+  let projectConfigStore: SinonStubbedInstance<IProjectConfigStore>
+  let spaceService: SinonStubbedInstance<ISpaceService>
+  let teamService: SinonStubbedInstance<ITeamService>
   let terminal: ITerminal
   let tokenStore: SinonStubbedInstance<ITokenStore>
   let trackingService: SinonStubbedInstance<ITrackingService>
@@ -67,6 +75,20 @@ describe('LoginUseCase', () => {
     userService = {
       getCurrentUser: stub(),
     }
+
+    projectConfigStore = {
+      exists: stub(),
+      read: stub(),
+      write: stub(),
+    }
+
+    spaceService = {
+      getSpaces: stub(),
+    }
+
+    teamService = {
+      getTeams: stub(),
+    }
   })
 
   afterEach(() => {
@@ -78,6 +100,9 @@ describe('LoginUseCase', () => {
       authService,
       browserLauncher,
       callbackHandler,
+      projectConfigStore,
+      spaceService,
+      teamService,
       terminal,
       tokenStore,
       trackingService,
@@ -210,6 +235,60 @@ describe('LoginUseCase', () => {
 
       // Browser launcher should have been called and failed
       expect(browserLauncher.open.calledOnce).to.be.true
+    })
+
+    it('should auto-select team and space when user has exactly one of each', async () => {
+      const port = 3000
+      const authUrl = 'https://auth.example.com/authorize?state=abc123'
+      const state = 'state-123'
+      const authContext = {authUrl, state}
+      const tokenData = new OAuthTokenData(
+        'access-token',
+        new Date(Date.now() + 3600 * 1000),
+        'refresh-token',
+        'session-key',
+        'Bearer',
+      )
+      const user = new User('user@example.com', 'user-id-123', 'Test User')
+      const team = new Team({
+        avatarUrl: '',
+        createdAt: new Date(),
+        description: 'Test team',
+        displayName: 'Test Team',
+        id: 'team-id-123',
+        isActive: true,
+        name: 'test-team',
+        updatedAt: new Date(),
+      })
+      const space = new Space('space-id-123', 'test-space', 'team-id-123', 'test-team')
+
+      // Mock OAuth flow
+      callbackHandler.start.resolves(port)
+      callbackHandler.getPort.returns(port)
+      authService.initiateAuthorization.returns(authContext)
+      browserLauncher.open.resolves()
+      callbackHandler.waitForCallback.resolves({code: 'auth-code', state})
+      authService.exchangeCodeForToken.resolves(tokenData)
+      userService.getCurrentUser.resolves(user)
+      tokenStore.save.resolves()
+      callbackHandler.stop.resolves()
+
+      // Mock single team and single space
+      teamService.getTeams.resolves({teams: [team], total: 1})
+      spaceService.getSpaces.resolves({spaces: [space], total: 1})
+      projectConfigStore.write.resolves()
+
+      const useCase = createUseCase()
+
+      await useCase.run()
+
+      // Verify auto-select happened
+      expect(teamService.getTeams.calledOnce).to.be.true
+      expect(spaceService.getSpaces.calledOnce).to.be.true
+      expect(projectConfigStore.write.calledOnce).to.be.true
+
+      // Verify "Ready to use" message was logged
+      expect(logMessages.some((msg) => msg.includes('Ready to use'))).to.be.true
     })
   })
 

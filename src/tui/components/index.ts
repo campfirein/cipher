@@ -3,6 +3,24 @@
  */
 
 export {CommandDetails} from './command-details.js'
+export {CommandInput} from './command-input.js'
+export {CommandItem} from './command-item.js'
+export type {CommandItemProps} from './command-item.js'
+export {
+  CommandOutput,
+  ExpandedCommandView as ExpandedMessageView,
+  LiveStreamingOutput,
+  MAX_OUTPUT_LINES,
+  processMessagesForActions,
+  StreamingMessageItem,
+} from './command/index.js'
+export type {
+  CommandOutputProps,
+  ExpandedCommandViewProps as ExpandedMessageViewProps,
+  LiveStreamingOutputProps,
+  ProcessedMessage,
+  StreamingMessageItemProps,
+} from './command/index.js'
 export {EnterPrompt} from './enter-prompt.js'
 export {
   ExecutionChanges,
@@ -18,11 +36,13 @@ export {Footer} from './footer.js'
 export {Header} from './header.js'
 export {Init} from './init.js'
 export type {InitProps} from './init.js'
+export {List} from './list.js'
 export {Logo} from './logo.js'
 export type {LogoVariant} from './logo.js'
 export {Markdown} from './markdown.js'
 export {MessageItem} from './message-item.js'
-export {CopyablePrompt, OnboardingFlow, OnboardingStep, WelcomeBox} from './onboarding/index.js'
+export {MessageList} from './message-list.js'
+export {CopyablePrompt, OnboardingStep, WelcomeBox} from './onboarding/index.js'
 export type {OnboardingStepType} from './onboarding/index.js'
 export {OutputLog} from './output-log.js'
 export {ScrollableList} from './scrollable-list.js'
