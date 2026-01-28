@@ -15,6 +15,7 @@ import {CONNECTOR_TYPES} from '../../core/domain/entities/connector-type.js'
 import {HookConnector} from './hook/hook-connector.js'
 import {McpConnector} from './mcp/mcp-connector.js'
 import {RulesConnector} from './rules/rules-connector.js'
+import {SkillConnector} from './skill/skill-connector.js'
 
 /**
  * Options for constructing ConnectorManager.
@@ -40,6 +41,7 @@ export class ConnectorManager implements IConnectorManager {
       ['hook', new HookConnector({fileService, projectRoot})],
       ['mcp', new McpConnector({fileService, projectRoot, templateService})],
       ['rules', new RulesConnector({fileService, projectRoot, templateService})],
+      ['skill', new SkillConnector({fileService, projectRoot})],
     ])
   }
 

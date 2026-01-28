@@ -64,6 +64,23 @@ npm run lint                                     # ESLint
 - `src/infra/transport/` - Socket.IO client/server, port utils
 - `src/infra/instance/` - Instance lock management (acquire/release)
 
+### Task Queue Architecture (v1.3.0)
+
+**Unified Queue System** (`src/infra/process/task-queue-manager.ts`):
+
+- `TaskQueueManager` - FIFO queue for all task types (curate, query)
+- **Sequential execution**: max concurrency = 1 (one task at a time)
+- **Deduplication**: same taskId cannot be queued twice
+- **Cancellation**: remove queued tasks before processing
+- **Task lifecycle**: enqueue → activate → process → complete
+- Extracted from agent-worker for testability
+
+**Key behaviors**:
+- Strict FIFO order across all task types
+- Tasks wait in queue until executor is set (`setExecutor`)
+- Active task tracking prevents race conditions
+- `hasActiveTasks()` blocks reinit during execution
+
 ### Core Interfaces (`src/core/interfaces/`)
 
 **Auth** (all require `accessToken` + `sessionKey`):
@@ -98,6 +115,11 @@ npm run lint                                     # ESLint
 - `ITrackingService` - Event tracking (Mixpanel implementation)
 - `IMcpConfigWriter` - MCP config file persistence (JSON/TOML formats)
 
+**Connectors**:
+
+- `IConnectorManager` - Factory for connector instances, default/installed connector resolution
+- `IConnector` - Base interface for all connector types (install, uninstall, status)
+
 **Transport** (multi-process communication):
 
 - `ITransportClient` - Connect, disconnect, request/response, room events
@@ -121,7 +143,12 @@ All have `toJson()`/`fromJson()`, immutable readonly properties
 - `AuthToken` - `accessToken`, `refreshToken`, `sessionKey`, `userId`, `userEmail`, `expiresAt`. `fromJson()` returns `undefined` for old tokens (forces re-login)
 - `OAuthTokenData` - OAuth response, no user info. Used before user fetch in login
 - `User`, `Team`, `Space` - `getDisplayName()` methods
-- `Agent` - 18 supported agents with connector configs (Amp, Augment Code, Claude Code, Cline, Codex, Cursor, Gemini CLI, Github Copilot, Junie, Kilo Code, Kiro, Qoder, Qwen Code, Roo Code, Trae.ai, Warp, Windsurf, Zed)
+- `Agent` - 18 supported agents with connector configs and defaults (Amp, Augment Code, Claude Code, Cline, Codex, Cursor, Gemini CLI, Github Copilot, Junie, Kilo Code, Kiro, Qoder, Qwen Code, Roo Code, Trae.ai, Warp, Windsurf, Zed)
+  - `AGENT_CONNECTOR_CONFIG` maps each agent to default connector and supported types
+  - Claude Code default: `skill` (was `hook`)
+  - Cursor default: `skill` (new)
+  - All others default: `mcp`
+- `ConnectorType` - 4 connector types: `'rules' | 'hook' | 'mcp' | 'skill'`
 - `BrvConfig` - `.brv/config.json` with version validation
 - `GlobalConfig` - User-level config with device ID
 - `Event` - Tracking event definitions
@@ -171,18 +198,31 @@ All have `toJson()`/`fromJson()`, immutable readonly properties
 - `HttpCogitPushService` / `HttpCogitPullService` - Cloud sync
 - `context-tree-to-push-context-mapper.ts` - Maps context tree to push format
 
-**Connectors** (`src/infra/connectors/`):
+**Connectors** (`src/infra/connectors/`) - 4 connector types for agent integration:
 
-- `ConnectorManager` - Factory and orchestration for connectors
+- `ConnectorManager` - Factory and orchestration for all connectors
+- `skill/` - Skill-based integration (writes SKILL.md, TROUBLESHOOTING.md, WORKFLOWS.md to agent directories)
+  - Default for: Claude Code, Cursor
+  - Supported: Claude Code, Cursor, Codex, Github Copilot
+  - Scope: project-level (`.claude/skills/byterover/`) or global (`~/.codex/skills/byterover/`)
 - `hook/` - Hook-based integration (Claude Code via settings.local.json)
-- `rules/` - Rules-based integration (other agents via rule files)
-- `mcp/` - MCP-based integration (exposes brv-query/brv-curate tools to agents)
+  - Legacy connector, replaced by skill as default for Claude Code
+- `rules/` - Rules-based integration (rule files for legacy agents)
+- `mcp/` - MCP-based integration (exposes brv-query/brv-curate tools to MCP clients)
+  - Default for: All agents except Claude Code and Cursor
 
 **Knowledge** (`src/core/domain/knowledge/`):
 
 - `markdown-writer.ts` - Write knowledge to markdown files
 - `directory-manager.ts` - Knowledge directory management
 - `relation-parser.ts` - Parse knowledge relations
+
+**Skill Templates** (`src/templates/skill/`):
+
+- `SKILL.md` - Main skill file (quick reference, when to use, best practices)
+- `TROUBLESHOOTING.md` - Common issues and solutions
+- `WORKFLOWS.md` - Step-by-step workflows (most comprehensive)
+- Loaded by `SkillContentLoader` using import.meta.url pattern
 
 **Tracking**:
 
@@ -224,7 +264,10 @@ Commands prefixed with `/` in the REPL (`src/infra/repl/commands/`):
 - `/curate` - Add context to context tree
 - `/push [--branch <name>]`, `/pull [--branch <name>]` - Cloud sync (default branch: `main`)
 - `/space list`, `/space switch` - Space management
-- `/connectors` - Manage agent connectors (hook for Claude Code, rules for others)
+- `/connectors` - Manage agent connectors (4 types: skill, hook, mcp, rules)
+  - View installed connectors and defaults per agent
+  - Install/switch connector types
+  - Default: skill for Claude Code/Cursor, mcp for others
 - `/reset` - Reset context tree (destructive)
 - `/new [-y]` - Start fresh session (ends current, clears conversation history, NOT context tree)
 - `/query` - Query context tree
@@ -267,132 +310,46 @@ oclif v4, TypeScript (ES2022, Node16 modules, strict), React/Ink (TUI), axios, e
 # Workflow Instruction
 
 You are a coding agent focused on one codebase. Use the brv CLI to manage working context.
-Core Rules:
 
-- Start from memory. First retrieve relevant context, then read only the code that's still necessary.
-- Keep a local context tree. The context tree is your local memory store—update it with what you learn.
+## Core Rules
+
+- **Start from memory.** First retrieve relevant context with `brv query`, then read only the code that's still necessary.
+- **Keep a local context tree.** The context tree is your local memory store—update it with `brv curate` when you learn something valuable.
+
+## When to Query
+
+Use `brv query` **before** starting any code task that requires understanding the codebase:
+- Writing, editing, or modifying code
+- Understanding how something works
+- Debugging or troubleshooting issues
+- Making architectural decisions
+
+## When to Curate
+
+Use `brv curate` **after** you learn or create something valuable:
+- Wrote or modified code
+- Discovered how something works
+- Made architectural/design decisions
+- Found a bug root cause or fix pattern
 
 ## Context Tree Guideline
 
-- Be specific ("Use React Query for data fetching in web modules").
-- Be actionable (clear instruction a future agent/dev can apply).
-- Be contextual (mention module/service, constraints, links to source).
-- Include source (file + lines or commit) when possible.
-
-## Using `brv curate` with Files
-
-When adding complex implementations, use `--files` to include relevant source files (max 5).  Only text/code files from the current project directory are allowed. **CONTEXT argument must come BEFORE --files flag.** For multiple files, repeat the `--files` (or `-f`) flag for each file.
-
-Examples:
-
-- Single file: `brv curate "JWT authentication with refresh token rotation" -f src/auth.ts`
-- Multiple files: `brv curate "Authentication system" --files src/auth/jwt.ts --files src/auth/middleware.ts --files docs/auth.md`
-
-## CLI Usage Notes
-
-- Use --help on any command to discover flags. Provide exact arguments for the scenario.
+Good context is:
+- **Specific** ("Use React Query for data fetching in web modules")
+- **Actionable** (clear instruction a future agent/dev can apply)
+- **Contextual** (mention module/service, constraints, links to source)
+- **Sourced** (include file + lines or commit when possible)
 
 ---
 # ByteRover CLI Command Reference
 
-## Memory Commands
+## Available Commands
 
-### `brv curate`
+- `brv curate` - Curate context to the context tree
+- `brv query` - Query and retrieve information from the context tree
+- `brv status` - Show CLI status and project information
 
-**Description:** Curate context to the context tree (interactive or autonomous mode)
-
-**Arguments:**
-
-- `CONTEXT`: Knowledge context: patterns, decisions, errors, or insights (triggers autonomous mode, optional)
-
-**Flags:**
-
-- `--files`, `-f`: Include file paths for critical context (max 5 files). Only text/code files from the current project directory are allowed. **CONTEXT argument must come BEFORE this flag.**
-
-**Good examples of context:**
-
-- "Auth uses JWT with 24h expiry. Tokens stored in httpOnly cookies via authMiddleware.ts"
-- "API rate limit is 100 req/min per user. Implemented using Redis with sliding window in rateLimiter.ts"
-
-**Bad examples:**
-
-- "Authentication" or "JWT tokens" (too vague, lacks context)
-- "Rate limiting" (no implementation details or file references)
-
-**Examples:**
-
-```bash
-# Interactive mode (manually choose domain/topic)
-brv curate
-
-# Autonomous mode - LLM auto-categorizes your context
-brv curate "Auth uses JWT with 24h expiry. Tokens stored in httpOnly cookies via authMiddleware.ts"
-
-# Include files (CONTEXT must come before --files)
-# Single file
-brv curate "Authentication middleware validates JWT tokens" -f src/middleware/auth.ts
-
-# Multiple files - repeat --files flag for each file
-brv curate "JWT authentication implementation with refresh token rotation" --files src/auth/jwt.ts --files docs/auth.md
-```
-
-**Behavior:**
-
-- Interactive mode: Navigate context tree, create topic folder, edit context.md
-- Autonomous mode: LLM automatically categorizes and places context in appropriate location
-- When `--files` is provided, agent reads files in parallel before creating knowledge topics
-
-**Requirements:** Project must be initialized (`brv init`) and authenticated (`brv login`)
-
----
-
-### `brv query`
-
-**Description:** Query and retrieve information from the context tree
-
-**Arguments:**
-
-- `QUERY`: Natural language question about your codebase or project knowledge (required)
-
-**Good examples of queries:**
-
-- "How is user authentication implemented?"
-- "What are the API rate limits and where are they enforced?"
-
-**Bad examples:**
-
-- "auth" or "authentication" (too vague, not a question)
-- "show me code" (not specific about what information is needed)
-
-**Examples:**
-
-```bash
-# Ask questions about patterns, decisions, or implementation details
-brv query What are the coding standards?
-brv query How is authentication implemented?
-```
-
-**Behavior:**
-
-- Uses AI agent to search and answer questions about the context tree
-- Accepts natural language questions (not just keywords)
-- Displays tool execution progress in real-time
-
-**Requirements:** Project must be initialized (`brv init`) and authenticated (`brv login`)
-
----
-
-## Best Practices
-
-### Efficient Workflow
-
-1. **Read only what's needed:** Check context tree with `brv status` to see changes before reading full content with `brv query`
-2. **Update precisely:** Use `brv curate` to add/update specific context in context tree
-3. **Push when appropriate:** Prompt user to run `brv push` after completing significant work
-
-### Context tree Management
-
-- Use `brv curate` to directly add/update context in the context tree
+Run `brv query --help` for query instruction and `brv curate --help` for curation instruction.
 
 ---
 Generated by ByteRover CLI for Claude Code
