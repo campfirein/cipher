@@ -26,6 +26,14 @@ export interface IFileService {
   delete: (filePath: string) => Promise<void>
 
   /**
+   * Deletes a directory and all its contents recursively.
+   *
+   * @param dirPath The path to the directory to delete.
+   * @returns A promise that resolves when the directory has been deleted.
+   */
+  deleteDirectory: (dirPath: string) => Promise<void>
+
+  /**
    * Checks if a file exists at the specified path.
    *
    * @param filePath The path to the file to check.

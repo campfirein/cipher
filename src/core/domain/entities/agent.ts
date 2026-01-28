@@ -50,8 +50,8 @@ export const AGENT_CONNECTOR_CONFIG: Record<Agent, AgentConnectorConfig> = {
     supported: ['rules', 'mcp'],
   },
   'Claude Code': {
-    default: 'hook',
-    supported: ['rules', 'hook', 'mcp'],
+    default: 'skill',
+    supported: ['rules', 'hook', 'mcp', 'skill'],
   },
   Cline: {
     default: 'mcp',
@@ -59,11 +59,11 @@ export const AGENT_CONNECTOR_CONFIG: Record<Agent, AgentConnectorConfig> = {
   },
   Codex: {
     default: 'mcp',
-    supported: ['rules', 'mcp'],
+    supported: ['rules', 'mcp', 'skill'],
   },
   Cursor: {
-    default: 'mcp',
-    supported: ['rules', 'mcp'],
+    default: 'skill',
+    supported: ['rules', 'mcp', 'skill'],
   },
   'Gemini CLI': {
     default: 'mcp',
@@ -71,7 +71,7 @@ export const AGENT_CONNECTOR_CONFIG: Record<Agent, AgentConnectorConfig> = {
   },
   'Github Copilot': {
     default: 'mcp',
-    supported: ['rules', 'mcp'],
+    supported: ['rules', 'mcp', 'skill'],
   },
   Junie: {
     default: 'mcp',
