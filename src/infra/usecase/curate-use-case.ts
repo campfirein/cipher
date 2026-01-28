@@ -9,7 +9,17 @@ import {ITrackingService} from '../../core/interfaces/i-tracking-service.js'
 import {ITransportClient} from '../../core/interfaces/transport/index.js'
 import {formatError} from '../../utils/error-handler.js'
 import {getSandboxEnvironmentName, isSandboxEnvironment, isSandboxNetworkError} from '../../utils/sandbox-detector.js'
+import {HeadlessTerminal} from '../terminal/headless-terminal.js'
 import {createTransportClientFactory, type TransportClientFactory} from '../transport/transport-client-factory.js'
+
+/**
+ * Structured curate result for JSON output.
+ */
+export interface CurateResult {
+  message: string
+  status: 'error' | 'queued'
+  taskId?: string
+}
 
 export type TransportClientFactoryCreator = () => TransportClientFactory
 
@@ -31,11 +41,17 @@ export class CurateUseCase implements ICurateUseCase {
     this.transportClientFactoryCreator = options.transportClientFactoryCreator ?? createTransportClientFactory
   }
 
-  public async run({context, files, verbose = false}: CurateUseCaseRunOptions): Promise<void> {
+  public async run({context, files, format = 'text', verbose = false}: CurateUseCaseRunOptions): Promise<void> {
     await this.trackingService.track('mem:curate', {status: 'started'})
+
     if (!context) {
-      this.terminal.log('Context argument is required.')
-      this.terminal.log('Usage: brv curate "your context here"')
+      if (format === 'json') {
+        this.outputJsonResult({message: 'Context argument is required', status: 'error'})
+      } else {
+        this.terminal.log('Context argument is required.')
+        this.terminal.log('Usage: brv curate "your context here"')
+      }
+
       return
     }
 
@@ -66,10 +82,20 @@ export class CurateUseCase implements ICurateUseCase {
         type: 'curate',
       })
 
-      this.terminal.log('✓ Context queued for processing.')
+      if (format === 'json') {
+        this.outputJsonResult({message: 'Context queued for processing', status: 'queued', taskId})
+      } else {
+        this.terminal.log('✓ Context queued for processing.')
+      }
+
       await this.trackingService.track('mem:curate', {status: 'finished'})
     } catch (error) {
-      this.handleConnectionError(error)
+      if (format === 'json') {
+        this.handleConnectionErrorJson(error)
+      } else {
+        this.handleConnectionError(error)
+      }
+
       await this.trackingService.track('mem:curate', {message: formatError(error), status: 'error'})
     } finally {
       if (client) {
@@ -130,5 +156,44 @@ export class CurateUseCase implements ICurateUseCase {
 
     const message = error instanceof Error ? error.message : String(error)
     this.terminal.log(`Unexpected error: ${message}`)
+  }
+
+  /**
+   * Handle connection errors with JSON output.
+   */
+  private handleConnectionErrorJson(error: unknown): void {
+    let errorMessage = 'An unexpected error occurred'
+
+    if (error instanceof NoInstanceRunningError) {
+      errorMessage = 'No ByteRover instance is running. Start one with: brv'
+    } else if (error instanceof InstanceCrashedError) {
+      errorMessage = 'ByteRover instance has crashed. Please restart with: brv'
+    } else if (error instanceof ConnectionFailedError) {
+      errorMessage = `Failed to connect to ByteRover instance: ${error.message}`
+    } else if (error instanceof ConnectionError) {
+      errorMessage = `Connection error: ${error.message}`
+    } else if (error instanceof Error) {
+      errorMessage = error.message
+    }
+
+    this.outputJsonResult({message: errorMessage, status: 'error'})
+  }
+
+  /**
+   * Output JSON result for headless mode.
+   */
+  private outputJsonResult(result: CurateResult): void {
+    const response = {
+      command: 'curate',
+      data: result,
+      success: result.status !== 'error',
+      timestamp: new Date().toISOString(),
+    }
+
+    if (this.terminal instanceof HeadlessTerminal) {
+      this.terminal.writeFinalResponse(response)
+    } else {
+      this.terminal.log(JSON.stringify(response))
+    }
   }
 }

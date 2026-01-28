@@ -7,6 +7,7 @@ import {FileContextTreeService} from '../../infra/context-tree/file-context-tree
 import {FileContextTreeSnapshotService} from '../../infra/context-tree/file-context-tree-snapshot-service.js'
 import {FileGlobalConfigStore} from '../../infra/storage/file-global-config-store.js'
 import {createTokenStore} from '../../infra/storage/token-store.js'
+import {HeadlessTerminal} from '../../infra/terminal/headless-terminal.js'
 import {OclifTerminal} from '../../infra/terminal/oclif-terminal.js'
 import {MixpanelTrackingService} from '../../infra/tracking/mixpanel-tracking-service.js'
 import {StatusUseCase} from '../../infra/usecase/status-use-case.js'
@@ -33,29 +34,43 @@ export default class Status extends Command {
   public static flags = {
     format: Flags.string({
       char: 'f',
-      default: 'table',
+      default: 'text',
       description: 'Output format',
-      options: ['table', 'json'],
+      options: ['text', 'json'],
+    }),
+    headless: Flags.boolean({
+      default: false,
+      description: 'Run in headless mode (no TTY required, suitable for automation)',
     }),
   }
 
-  protected createUseCase(): IStatusUseCase {
+  protected createUseCase(options: {format: 'json' | 'text'; headless: boolean}): IStatusUseCase {
     const tokenStore = createTokenStore()
     const globalConfigStore = new FileGlobalConfigStore()
     const trackingService = new MixpanelTrackingService({globalConfigStore, tokenStore})
     const contextTreeSnapshotService = new FileContextTreeSnapshotService()
 
+    // Use HeadlessTerminal for headless mode or JSON format
+    const terminal =
+      options.headless || options.format === 'json'
+        ? new HeadlessTerminal({failOnPrompt: true, outputFormat: options.format})
+        : new OclifTerminal(this)
+
     return new StatusUseCase({
       contextTreeService: new FileContextTreeService(),
       contextTreeSnapshotService,
       projectConfigStore: new ProjectConfigStore(),
-      terminal: new OclifTerminal(this),
+      terminal,
       tokenStore,
       trackingService,
     })
   }
 
   public async run(): Promise<void> {
-    await this.createUseCase().run({cliVersion: this.config.version})
+    const {flags} = await this.parse(Status)
+    const format = flags.format as 'json' | 'text'
+    const {headless} = flags
+
+    await this.createUseCase({format, headless}).run({cliVersion: this.config.version, format})
   }
 }
