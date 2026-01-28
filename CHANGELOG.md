@@ -2,6 +2,23 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [1.3.0]
+
+### Added
+
+- **Skill-based agent integration** - New integration method providing discoverable, markdown-based guidance for AI coding agents. Skills install as three comprehensive files (SKILL.md, TROUBLESHOOTING.md, WORKFLOWS.md) in your agent's skill directory, offering quick reference, troubleshooting guides, and detailed workflows. Available for Claude Code, Cursor, Codex, and GitHub Copilot.
+
+### Changed
+
+- **Claude Code default connector** - Changed from hook-based to skill-based integration for better discoverability and maintainability. Skills no longer modify IDE settings and provide more comprehensive guidance. Hook connector remains available for users who prefer it.
+- **Cursor default connector** - Changed from MCP to skill-based integration for native skill support. Provides better integration through Cursor's skill system.
+- **Task execution reliability** - Unified task queue with sequential processing (FIFO) prevents conflicts during concurrent curate and query operations. Tasks now execute predictably in order with improved cancellation and deduplication support.
+
+### Fixed
+
+- **Authentication error handling** - Improved error messages and recovery during OAuth token exchange and refresh flows
+- **Windsurf rule file formatting** - Fixed YAML frontmatter ordering in generated rule files for correct parsing
+
 ## [1.2.1]
 
 ### Changed
