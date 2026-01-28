@@ -231,34 +231,50 @@ Switch to a different space. Interactive mode only - prompts you to select from 
 
 #### `/connectors`
 
-Manage agent connectors for integrating ByteRover with AI coding assistants. Supports three connector types:
+Manage agent connectors for integrating ByteRover with AI coding assistants. Supports four connector types:
 
-- **MCP**: Uses Model Context Protocol for direct tool integration (`brv-query`, `brv-curate`). Default for most agents.
-- **Rules**: Generates markdown rule files that agents read for instructions
-- **Hook**: Uses agent-specific hook systems for tighter integration (Claude Code only)
+- **Skill**: Writes comprehensive documentation files (SKILL.md, TROUBLESHOOTING.md, WORKFLOWS.md) to agent-specific directories. Default for Claude Code and Cursor.
+- **MCP**: Uses Model Context Protocol for direct tool integration (`brv-query`, `brv-curate`). Default for most other agents.
+- **Rules**: Generates markdown rule files that agents read for instructions. Fallback option for all agents.
+- **Hook**: Uses agent-specific hook systems for tighter integration (Claude Code only, legacy)
+
+**Skill Connector**
+
+The skill connector creates comprehensive documentation files for AI coding assistants:
+
+- **SKILL.md**: Quick reference with command examples and best practices
+- **TROUBLESHOOTING.md**: Common errors, required user actions, and diagnostics
+- **WORKFLOWS.md**: Step-by-step patterns for 6 common scenarios (Research, Debug, Multi-file changes, etc.)
+
+Each skill directory contains all three files and is installed in agent-specific locations:
+
+- **Claude Code**: `.claude/skills/byterover/` (project-level)
+- **Cursor**: `.cursor/skills/byterover/` (project-level)
+- **Github Copilot**: `.github/skills/byterover/` (project-level)
+- **Codex**: `~/.codex/skills/byterover/` (global)
 
 **Supported Agents**
 
-| Agent | Default | Supported | Rules File | MCP Config |
-| ----- | ------- | --------- | ---------- | ---------- |
-| Amp | MCP | rules, mcp | `AGENTS.md` | `.vscode/settings.json` |
-| Augment Code | MCP | rules, mcp | `.augment/rules/agent-context.md` | Manual setup |
-| Claude Code | Hook | rules, hook, mcp | `CLAUDE.md` | `.mcp.json` |
-| Cline | MCP | rules, mcp | `.clinerules/agent-context.md` | Manual setup |
-| Codex | MCP | rules, mcp | `AGENTS.md` | `~/.codex/config.toml` |
-| Cursor | MCP | rules, mcp | `.cursor/rules/agent-context.mdc` | `.cursor/mcp.json` |
-| Gemini CLI | MCP | rules, mcp | `GEMINI.md` | `.gemini/settings.json` |
-| GitHub Copilot | MCP | rules, mcp | `.github/copilot-instructions.md` | `.vscode/mcp.json` |
-| Junie | MCP | rules, mcp | `.junie/guidelines.md` | `.junie/mcp/mcp.json` |
-| Kilo Code | MCP | rules, mcp | `.kilocode/rules/agent-context.md` | `.kilocode/mcp.json` |
-| Kiro | MCP | rules, mcp | `.kiro/steering/agent-context.md` | `.kiro/settings/mcp.json` |
-| Qoder | MCP | rules, mcp | `.qoder/rules/agent-context.md` | Manual setup |
-| Qwen Code | MCP | rules, mcp | `QWEN.md` | Manual setup |
-| Roo Code | MCP | rules, mcp | `.roo/rules/agent-context.md` | `.roo/mcp.json` |
-| Trae.ai | MCP | rules, mcp | `project_rules.md` | Manual setup |
-| Warp | MCP | rules, mcp | `WARP.md` | Manual setup |
-| Windsurf | MCP | rules, mcp | `.windsurf/rules/agent-context.md` | `~/.codeium/windsurf/mcp_config.json` |
-| Zed | MCP | rules, mcp | `agent-context.rules` | `.zed/settings.json` |
+| Agent | Default | Supported | Rules File | Skill Files | MCP Config |
+| ----- | ------- | --------- | ---------- | ----------- | ---------- |
+| Amp | MCP | rules, mcp | `AGENTS.md` | - | `.vscode/settings.json` |
+| Augment Code | MCP | rules, mcp | `.augment/rules/agent-context.md` | - | Manual setup |
+| Claude Code | Skill | rules, hook, mcp, skill | `CLAUDE.md` | `.claude/skills/byterover/` | `.mcp.json` |
+| Cline | MCP | rules, mcp | `.clinerules/agent-context.md` | - | Manual setup |
+| Codex | MCP | rules, mcp, skill | `AGENTS.md` | `~/.codex/skills/byterover/` | `~/.codex/config.toml` |
+| Cursor | Skill | rules, mcp, skill | `.cursor/rules/agent-context.mdc` | `.cursor/skills/byterover/` | `.cursor/mcp.json` |
+| Gemini CLI | MCP | rules, mcp | `GEMINI.md` | - | `.gemini/settings.json` |
+| GitHub Copilot | MCP | rules, mcp, skill | `.github/copilot-instructions.md` | `.github/skills/byterover/` | `.vscode/mcp.json` |
+| Junie | MCP | rules, mcp | `.junie/guidelines.md` | - | `.junie/mcp/mcp.json` |
+| Kilo Code | MCP | rules, mcp | `.kilocode/rules/agent-context.md` | - | `.kilocode/mcp.json` |
+| Kiro | MCP | rules, mcp | `.kiro/steering/agent-context.md` | - | `.kiro/settings/mcp.json` |
+| Qoder | MCP | rules, mcp | `.qoder/rules/agent-context.md` | - | Manual setup |
+| Qwen Code | MCP | rules, mcp | `QWEN.md` | - | Manual setup |
+| Roo Code | MCP | rules, mcp | `.roo/rules/agent-context.md` | - | `.roo/mcp.json` |
+| Trae.ai | MCP | rules, mcp | `project_rules.md` | - | Manual setup |
+| Warp | MCP | rules, mcp | `WARP.md` | - | Manual setup |
+| Windsurf | MCP | rules, mcp | `.windsurf/rules/agent-context.md` | - | `~/.codeium/windsurf/mcp_config.json` |
+| Zed | MCP | rules, mcp | `agent-context.rules` | - | `.zed/settings.json` |
 
 **MCP Setup Modes**
 
