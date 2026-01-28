@@ -166,11 +166,14 @@ export async function* transformGenerateContentChunksToStreamEvents(
   }
 
   for await (const chunk of chunks) {
+    let reasoningHandled = false
+
     // Priority 1: Check for native reasoning in rawChunk (for models with native-field format)
     if (capabilities.reasoningFormat === 'native-field' && chunk.rawChunk) {
       const reasoningResult = extractReasoning(chunk.rawChunk, modelId)
 
       if (reasoningResult.reasoning) {
+        reasoningHandled = true
         // Emit reasoning-start if this is the first reasoning chunk
         if (!reasoningStarted && reasoningResult.reasoningId) {
           activeReasoningId = reasoningResult.reasoningId
@@ -197,8 +200,8 @@ export async function* transformGenerateContentChunksToStreamEvents(
       }
     }
 
-    // Priority 2: Check for pre-extracted reasoning in chunk
-    if (chunk.reasoning) {
+    // Priority 2: Check for pre-extracted reasoning in chunk (only if Priority 1 didn't handle it)
+    if (!reasoningHandled && chunk.reasoning) {
       // Emit reasoning-start if this is the first reasoning chunk
       if (!reasoningStarted) {
         activeReasoningId = chunk.reasoningId ?? `reasoning-${Date.now()}`
