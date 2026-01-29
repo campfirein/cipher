@@ -843,19 +843,36 @@ async function startAgent(): Promise<void> {
   // Fix #4: Include status in register payload to prevent race condition window
   let wasDisconnected = false
   transportClient.onStateChange(async (state) => {
+    agentLog(`Transport state changed: ${state}`)
     if (state === 'disconnected' || state === 'reconnecting') {
       wasDisconnected = true
     } else if (state === 'connected' && wasDisconnected) {
       agentLog('Transport reconnected - re-registering with Transport')
-      try {
-        // Include status in register payload (Transport caches it atomically)
-        await transportClient?.requestWithAck('agent:register', {status: getAgentStatus()})
-        // Only clear flag after successful registration - if failed, next reconnect will retry
-        wasDisconnected = false
-        agentLog('Re-registered with Transport after reconnect')
-      } catch (error) {
-        // Keep wasDisconnected = true so next reconnect retries registration
-        agentLog(`Failed to re-register after reconnect: ${error}`)
+
+      // Retry with exponential backoff (50ms, 100ms, 200ms, 400ms, 800ms)
+      // Socket.IO may fire 'connected' state before socket is fully ready
+      const retryDelays = [50, 100, 200, 400, 800]
+      for (let attempt = 0; attempt <= retryDelays.length; attempt++) {
+        try {
+          // Include status in register payload (Transport caches it atomically)
+          // eslint-disable-next-line no-await-in-loop -- Sequential retries with backoff required
+          await transportClient?.requestWithAck('agent:register', {status: getAgentStatus()})
+          // Only clear flag after successful registration
+          wasDisconnected = false
+          agentLog('Re-registered with Transport after reconnect')
+          return // Success - exit retry loop
+        } catch (error) {
+          if (attempt < retryDelays.length) {
+            agentLog(`Re-register attempt ${attempt + 1} failed, retrying in ${retryDelays[attempt]}ms: ${error}`)
+            // eslint-disable-next-line no-await-in-loop -- Sequential retries with backoff required
+            await new Promise<void>((resolve) => {
+              setTimeout(resolve, retryDelays[attempt])
+            })
+          } else {
+            // Keep wasDisconnected = true so next reconnect retries registration
+            agentLog(`Failed to re-register after ${attempt + 1} attempts: ${error}`)
+          }
+        }
       }
     }
   })
@@ -1399,6 +1416,17 @@ async function runWorker(): Promise<void> {
         }
 
         try {
+          // Fix #5: Fail-fast - verify socket is responsive before expensive operation
+          // After sleep, socket.connected may be true but TCP connection is dead
+          const isAlive = await transportClient.isConnected(2000) // 2s timeout
+          agentLog(`Health-check: isConnected=${isAlive}, state=${transportClient.getState()}`)
+
+          if (!isAlive) {
+            agentLog('Health-check failed - socket not responsive (connection stale)')
+            sendToParent({success: false, type: 'health-check-result'})
+            break
+          }
+
           // Re-register with Transport to ensure connection is alive
           // Include status in register payload (Transport caches it atomically)
           await transportClient.requestWithAck('agent:register', {status: getAgentStatus()})
