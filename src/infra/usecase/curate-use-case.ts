@@ -1,23 +1,51 @@
 import {randomUUID} from 'node:crypto'
+import {z} from 'zod'
 
 import type {ITerminal} from '../../core/interfaces/i-terminal.js'
 import type {CurateUseCaseRunOptions, ICurateUseCase} from '../../core/interfaces/usecase/i-curate-use-case.js'
 
-import {ConnectionError, ConnectionFailedError, InstanceCrashedError, NoInstanceRunningError} from '../../core/domain/errors/connection-error.js'
-import {TaskCreateResponse} from '../../core/domain/transport/index.js'
+import {
+  ConnectionError,
+  ConnectionFailedError,
+  InstanceCrashedError,
+  NoInstanceRunningError,
+} from '../../core/domain/errors/connection-error.js'
+import {
+  LlmToolResultEvent,
+  TaskCompletedEvent,
+  TaskCreateResponse,
+  TaskErrorEvent,
+} from '../../core/domain/transport/index.js'
 import {ITrackingService} from '../../core/interfaces/i-tracking-service.js'
 import {ITransportClient} from '../../core/interfaces/transport/index.js'
 import {formatError} from '../../utils/error-handler.js'
 import {getSandboxEnvironmentName, isSandboxEnvironment, isSandboxNetworkError} from '../../utils/sandbox-detector.js'
+import {ToolName} from '../cipher/tools/index.js'
+import {InlineAgent} from '../process/inline-agent-executor.js'
 import {HeadlessTerminal} from '../terminal/headless-terminal.js'
 import {createTransportClientFactory, type TransportClientFactory} from '../transport/transport-client-factory.js'
 
-/**
- * Structured curate result for JSON output.
- */
+const CurateOperationSchema = z.object({
+  filePath: z.string(),
+  path: z.string(),
+  status: z.enum(['success', 'failed']),
+  type: z.enum(['ADD', 'UPDATE', 'MERGE', 'DELETE']),
+})
+
+const CurateResultSchema = z.object({
+  result: z
+    .object({
+      applied: z.array(CurateOperationSchema).optional(),
+    })
+    .optional(),
+})
+
+type CurateOperation = z.infer<typeof CurateOperationSchema>
+
 export interface CurateResult {
   message: string
-  status: 'error' | 'queued'
+  operations?: CurateOperation[]
+  status: 'completed' | 'error' | 'queued'
   taskId?: string
 }
 
@@ -41,7 +69,13 @@ export class CurateUseCase implements ICurateUseCase {
     this.transportClientFactoryCreator = options.transportClientFactoryCreator ?? createTransportClientFactory
   }
 
-  public async run({context, files, format = 'text', verbose = false}: CurateUseCaseRunOptions): Promise<void> {
+  public async run({
+    context,
+    files,
+    format = 'text',
+    headless = false,
+    verbose = false,
+  }: CurateUseCaseRunOptions): Promise<void> {
     await this.trackingService.track('mem:curate', {status: 'started'})
 
     if (!context) {
@@ -58,14 +92,19 @@ export class CurateUseCase implements ICurateUseCase {
     let client: ITransportClient | undefined
 
     try {
-      const transportClientFactory = this.transportClientFactoryCreator()
+      if (headless) {
+        const inlineAgent = await InlineAgent.create()
+        client = inlineAgent.transportClient
+      } else {
+        const transportClientFactory = this.transportClientFactoryCreator()
 
-      if (verbose) {
-        this.terminal.log('Discovering running instance...')
+        if (verbose) {
+          this.terminal.log('Discovering running instance...')
+        }
+
+        const {client: connectedClient} = await transportClientFactory.connect()
+        client = connectedClient
       }
-
-      const {client: connectedClient} = await transportClientFactory.connect()
-      client = connectedClient
 
       if (verbose) {
         this.terminal.log(`Connected to instance (clientId: ${client.getClientId()})`)
@@ -82,7 +121,10 @@ export class CurateUseCase implements ICurateUseCase {
         type: 'curate',
       })
 
-      if (format === 'json') {
+      if (headless) {
+        // In headless mode, wait for the in-process task to complete
+        await this.waitForTaskCompletion(client, taskId, format)
+      } else if (format === 'json') {
         this.outputJsonResult({message: 'Context queued for processing', status: 'queued', taskId})
       } else {
         this.terminal.log('✓ Context queued for processing.')
@@ -195,5 +237,95 @@ export class CurateUseCase implements ICurateUseCase {
     } else {
       this.terminal.log(JSON.stringify(response))
     }
+  }
+
+  /**
+   * Wait for task completion in headless mode.
+   * Listens for task:completed or task:error events before returning.
+   */
+  private async waitForTaskCompletion(
+    client: ITransportClient,
+    taskId: string,
+    format: 'json' | 'text',
+  ): Promise<void> {
+    return new Promise((resolve, reject) => {
+      let completed = false
+      const operations: CurateOperation[] = []
+
+      const timeout = setTimeout(
+        () => {
+          if (!completed) {
+            completed = true
+            cleanup()
+            if (format === 'json') {
+              this.outputJsonResult({message: 'Task timed out after 5 minutes', status: 'error'})
+              resolve()
+            } else {
+              reject(new Error('Task timed out after 5 minutes'))
+            }
+          }
+        },
+        5 * 60 * 1000,
+      )
+
+      const unsubscribers = [
+        client.on<LlmToolResultEvent>('llmservice:toolResult', (payload) => {
+          if (payload.success && payload.toolName === ToolName.CURATE && payload.result) {
+            try {
+              const parsed = CurateResultSchema.parse(JSON.parse(payload.result as string))
+              for (const op of parsed.result?.applied ?? []) {
+                if (op.status === 'success') {
+                  operations.push(op)
+                }
+              }
+            } catch {
+              // Ignore parse errors
+            }
+          }
+        }),
+
+        client.on<TaskCompletedEvent>('task:completed', (payload) => {
+          if (payload.taskId === taskId && !completed) {
+            completed = true
+            cleanup()
+            if (format === 'json') {
+              this.outputJsonResult({
+                message: 'Context curated successfully',
+                operations: operations.length > 0 ? operations : undefined,
+                status: 'completed',
+                taskId,
+              })
+            } else {
+              for (const op of operations) {
+                this.terminal.log(`  ${op.type.toLowerCase()} ${op.filePath}`)
+              }
+
+              this.terminal.log('✓ Context curated successfully.')
+            }
+
+            resolve()
+          }
+        }),
+
+        client.on<TaskErrorEvent>('task:error', (payload) => {
+          if (payload.taskId === taskId && !completed) {
+            completed = true
+            cleanup()
+            if (format === 'json') {
+              this.outputJsonResult({message: payload.error.message, status: 'error'})
+              resolve()
+            } else {
+              reject(new Error(payload.error.message))
+            }
+          }
+        }),
+
+        () => clearTimeout(timeout),
+      ]
+
+      const cleanup = (): void => {
+        for (const unsub of unsubscribers) unsub()
+      }
+    })
   }
 }

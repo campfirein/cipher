@@ -25,6 +25,7 @@ import {ITransportClient} from '../../core/interfaces/transport/i-transport-clie
 import {formatError} from '../../utils/error-handler.js'
 import {getSandboxEnvironmentName, isSandboxEnvironment, isSandboxNetworkError} from '../../utils/sandbox-detector.js'
 import {CipherAgent} from '../cipher/agent/index.js'
+import {InlineAgent} from '../process/inline-agent-executor.js'
 import {HeadlessTerminal} from '../terminal/headless-terminal.js'
 import {createTransportClientFactory, type TransportClientFactory} from '../transport/transport-client-factory.js'
 
@@ -91,18 +92,23 @@ export class QueryUseCase implements IQueryUseCase {
 
     const verbose = options.verbose || false
 
-    // Connect to running instance
+    // Connect to running instance or create inline agent
     let client: ITransportClient | undefined
 
     try {
-      const transportClientFactory = this.transportClientFactoryCreator()
+      if (options.headless) {
+        const inlineAgent = await InlineAgent.create()
+        client = inlineAgent.transportClient
+      } else {
+        const transportClientFactory = this.transportClientFactoryCreator()
 
-      if (verbose) {
-        this.terminal.log('Discovering running instance...')
+        if (verbose) {
+          this.terminal.log('Discovering running instance...')
+        }
+
+        const {client: connectedClient} = await transportClientFactory.connect()
+        client = connectedClient
       }
-
-      const {client: connectedClient} = await transportClientFactory.connect()
-      client = connectedClient
 
       if (verbose) {
         this.terminal.log(`Connected to instance (clientId: ${client.getClientId()})`)
