@@ -89,8 +89,8 @@ describe('Curate Command', () => {
       const useCase = new CurateUseCase(createUseCaseOptions())
 
       await useCase.run({files: ['src/auth.ts', 'src/utils.ts']})
-      expect(mockClient.request.calledOnce).to.be.true
-      const [event, payload] = mockClient.request.firstCall.args
+      expect(mockClient.requestWithAck.calledOnce).to.be.true
+      const [event, payload] = (mockClient.requestWithAck as sinon.SinonStub).firstCall.args
       expect(event).to.equal('task:create')
       expect(payload).to.have.property('content', '')
       expect(payload).to.have.property('files').that.deep.equals(['src/auth.ts', 'src/utils.ts'])
