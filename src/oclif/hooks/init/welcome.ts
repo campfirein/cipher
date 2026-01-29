@@ -8,14 +8,14 @@ import {DOCS_URL} from '../../constants.js'
  * Validates Node.js version compatibility
  * @returns Error message if incompatible, warning message if untested, null if compatible
  */
-function checkNodeVersion(): undefined | {message: string; type: 'error' | 'warning'}{
+function checkNodeVersion(): undefined | {checkResultType: 'error' | 'warning'; message: string;}{
   const nodeVersion = process.version
   const versionMatch = nodeVersion.match(/^v(\d+)\.(\d+)\.(\d+)/)
 
   if (!versionMatch) {
     return {
+      checkResultType: 'warning',
       message: `Unable to determine Node.js version. Current version: ${nodeVersion}`,
-      type: 'warning',
     }
   }
 
@@ -26,6 +26,7 @@ function checkNodeVersion(): undefined | {message: string; type: 'error' | 'warn
   // Minimum supported version: Node 20
   if (majorVersion < 20) {
     return {
+      checkResultType: 'error',
       message:
         `Node.js ${majorVersion}.${minorVersion} is not supported.\n` +
         'ByteRover CLI requires Node.js 20 or higher.\n' +
@@ -33,22 +34,6 @@ function checkNodeVersion(): undefined | {message: string; type: 'error' | 'warn
         'Please upgrade Node.js:\n' +
         '  - Using nvm: nvm install 22 && nvm use 22\n' +
         '  - Download from: https://nodejs.org/',
-      type: 'error',
-    }
-  }
-
-  // Recommended versions: Node 20, 22
-  // Node 24+ may have compatibility issues with native modules
-  if (majorVersion >= 24) {
-    return {
-      message:
-        `Node.js ${majorVersion}.${minorVersion} has not been fully tested with ByteRover CLI.\n` +
-        `Current version: ${nodeVersion}\n` +
-        'Recommended versions: Node.js 20.x or 22.x\n\n' +
-        'Some native dependencies may not work correctly.\n' +
-        'If you encounter errors, please switch to a recommended version:\n' +
-        '  - Using nvm: nvm install 22 && nvm use 22',
-      type: 'warning',
     }
   }
 
@@ -60,7 +45,7 @@ const hook: Hook<'init'> = async function (options): Promise<void> {
   // Check Node.js version compatibility first
   const versionCheck = checkNodeVersion()
   if (versionCheck) {
-    if (versionCheck.type === 'error') {
+    if (versionCheck.checkResultType === 'error') {
       // Critical error - incompatible Node version
       // Use process.stderr to show clean error without stack trace
       process.stderr.write('\n')
@@ -69,7 +54,7 @@ const hook: Hook<'init'> = async function (options): Promise<void> {
       process.stderr.write('\n\n')
       // eslint-disable-next-line n/no-process-exit, unicorn/no-process-exit
       process.exit(1)
-    } else if (versionCheck.type === 'warning') {
+    } else if (versionCheck.checkResultType === 'warning') {
       // Warning - untested version, but allow to continue
       // Use process.stderr to show clean warning without stack trace
       process.stderr.write('\n')

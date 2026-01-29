@@ -1,6 +1,6 @@
 # ByteRover CLI
 
-Command-line interface for ByteRover, featuring an interactive REPL with a modern React/Ink terminal UI for managing your project's context tree and knowledge storage. Seamlessly integrate with 18 AI coding agents via modern skill files, MCP tools, or rules-based integration—supports Claude Code, Cursor, Windsurf, GitHub Copilot, Cline, and 13 more.
+Command-line interface for ByteRover, featuring an interactive REPL with a modern React/Ink terminal UI for managing your project's context tree and knowledge storage. Seamlessly integrate with 19 AI coding agents via modern skill files, MCP tools, or rules-based integration—supports Claude Code, Cursor, Windsurf, GitHub Copilot, Cline, and more.
 
 [![Version](https://img.shields.io/npm/v/byterover-cli.svg)](https://npmjs.org/package/byterover-cli)
 [![Downloads/week](https://img.shields.io/npm/dw/byterover-cli.svg)](https://npmjs.org/package/byterover-cli)
@@ -154,7 +154,7 @@ The **Context Tree** is ByteRover's structured knowledge system that helps you a
 - **Organized Knowledge**: Structure your project knowledge by domain and topic
 - **Easy Retrieval**: Find relevant context quickly when you need it
 - **Persistent Memory**: Maintain project-specific knowledge across sessions
-- **Agent-Friendly**: Works seamlessly with 18 AI coding agents (Claude Code, Cursor, Windsurf, GitHub Copilot, Cline, and 13 more) via skill files, MCP tools, hooks, or rules
+- **Agent-Friendly**: Works seamlessly with 19 AI coding agents (Claude Code, Cursor, Windsurf, GitHub Copilot, Cline, and more) via skill files, MCP tools, hooks, or rules
 - **Cloud Sync**: Push and sync your context tree to ByteRover's cloud storage for backup and team collaboration
 - **Dynamic Domains**: Automatically creates new domains as your knowledge grows
 
@@ -167,13 +167,16 @@ The context tree organizes knowledge into:
 
 ## Supported AI Agents
 
-ByteRover integrates with 18 AI coding agents:
+ByteRover integrates with 19 AI coding agents:
 
 **Skill Connector (Default):**
 - Claude Code, Cursor
 
 **MCP Connector (Default):**
-- Amp, Augment Code, Cline, Gemini CLI, Github Copilot, Junie, Kilo Code, Kiro, Qoder, Qwen Code, Roo Code, Trae.ai, Warp, Windsurf, Zed (and Codex via global scope)
+- Amp, Augment Code, Cline, Codex, Gemini CLI, Github Copilot, Junie, Kilo Code, Kiro, Qoder, Qwen Code, Roo Code, Trae.ai, Warp, Windsurf, Zed
+
+**Rules Connector (Default):**
+- Antigravity (rules-only integration)
 
 **All agents support rules-based integration as a universal fallback option.**
 
@@ -190,12 +193,13 @@ Use `/connectors` to manage integrations with your AI coding agents:
 ByteRover supports four connector types:
 
 1. **Skill integration** (Claude Code, Cursor - default): Modern integration that writes 3 markdown files (SKILL.md, TROUBLESHOOTING.md, WORKFLOWS.md) to your agent's skills directory for easy discovery and guidance
-2. **MCP integration** (16 other agents - default): Exposes brv-query and brv-curate as Model Context Protocol tools that AI agents can call directly
+2. **MCP integration** (16 agents - default): Exposes brv-query and brv-curate as Model Context Protocol tools that AI agents can call directly
 3. **Rules-based** (all agents): Generates agent-specific rule files (e.g., CLAUDE.md, .cursorrules) with instructions for using ByteRover
 4. **Hook integration** (Claude Code only - legacy): Direct injection via IDE settings, replaced by skill connector
 
 **Defaults by agent:**
 - Claude Code, Cursor: Skill connector
+- Antigravity: Rules connector (only supported type)
 - All others (16 agents): MCP connector
 - Rules: Available for all agents as fallback
 
@@ -269,6 +273,7 @@ ByteRover supports four connector types:
 
 **Defaults:**
 - Claude Code, Cursor: `skill`
+- Antigravity: `rules` (only supported type)
 - All others: `mcp`
 
 **Reset options:**

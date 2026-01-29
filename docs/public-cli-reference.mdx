@@ -48,7 +48,7 @@ This launches a persistent session with a React/Ink-based terminal interface whe
 /pull [-b branch]       # Pull context tree from ByteRover memory storage
 /space list [-a] [-j]   # List all spaces
 /space switch           # Switch to a different space
-/connectors             # Manage coding agent connectors (rules, hooks, mcp)
+/connectors             # Manage coding agent connectors (skill, mcp, rules, hook)
 /reset [-y] [directory] # Reset context tree to an empty state
 /new [-y]               # Start fresh session (clears conversation)
 /init [-f]              # Initialize project (select team/space)
@@ -121,7 +121,7 @@ brv
 | `/pull [-b branch]` | Pull context tree from ByteRover memory storage |
 | `/space list [-a] [-j] [-l n] [-o n]` | List all spaces for current team |
 | `/space switch` | Switch to a different space |
-| `/connectors` | Manage coding agent connectors (rules, hooks, mcp) |
+| `/connectors` | Manage coding agent connectors (skill, mcp, rules, hook) |
 | `/reset [-y] [directory]` | Reset context tree to an empty state |
 | `/new [-y]` | Start a fresh session (ends current, clears conversation) |
 | `/init [-f]` | Initialize a project with ByteRover |
@@ -258,6 +258,7 @@ Each skill directory contains all three files and is installed in agent-specific
 | Agent | Default | Supported | Rules File | Skill Files | MCP Config |
 | ----- | ------- | --------- | ---------- | ----------- | ---------- |
 | Amp | MCP | rules, mcp | `AGENTS.md` | - | `.vscode/settings.json` |
+| Antigravity | Rules | rules | `.agent/rules/agent-context.md` | - | - |
 | Augment Code | MCP | rules, mcp | `.augment/rules/agent-context.md` | - | Manual setup |
 | Claude Code | Skill | rules, hook, mcp, skill | `CLAUDE.md` | `.claude/skills/byterover/` | `.mcp.json` |
 | Cline | MCP | rules, mcp | `.clinerules/agent-context.md` | - | Manual setup |

@@ -2,6 +2,19 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [1.4.0]
+
+### Added
+
+- **Antigravity agent support** - New coding agent integration using rules-based connector by default. Joins the 19 supported agents including Amp, Claude Code, Cursor, Windsurf, and others.
+- **Improved PDF text extraction** - Increased default PDF page limit from 50 to 100 pages (max 200) with more efficient page-by-page processing for better handling of large documents.
+- **Optional prompt for file references** - Made prompt optional when using `@file_path` references in `/curate` command and MCP `brv-curate` tool. The system infers context from referenced files when no explicit prompt is provided.
+
+### Changed
+
+- **Streamlined space switching** - Existing connector configuration is now preserved when switching spaces via `/space switch`, removing the redundant agent selection prompt.
+- **Removed Node.js version warning** - Startup no longer displays Node.js version warnings. The Node.js >= 20.0.0 requirement remains enforced in package.json.
+
 ## [1.3.0]
 
 ### Added
