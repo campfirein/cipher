@@ -2,7 +2,7 @@ import {isAxiosError} from 'axios'
 import {expect} from 'chai'
 import nock from 'nock'
 
-import {AuthenticatedHttpClient} from '../../../../src/infra/http/authenticated-http-client.js'
+import {AuthenticatedHttpClient} from '../../../../src/server/infra/http/authenticated-http-client.js'
 
 describe('AuthenticatedHttpClient', () => {
   const baseUrl = 'https://api.example.com'

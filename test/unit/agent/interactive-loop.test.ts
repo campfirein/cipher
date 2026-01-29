@@ -8,8 +8,8 @@ import * as sinon from 'sinon'
 
 import type {ICipherAgent} from '../../../src/agent/core/interfaces/i-cipher-agent.js'
 
-import {AgentEventBus} from '../../../src/agent/infra/events/event-emitter.js'
 import {displayInfo, startInteractiveLoop} from '../../../src/agent/infra/agent/interactive-loop.js'
+import {AgentEventBus} from '../../../src/agent/infra/events/event-emitter.js'
 import {createMockCipherAgent} from '../../helpers/mock-factories.js'
 
 describe('interactive-loop', () => {

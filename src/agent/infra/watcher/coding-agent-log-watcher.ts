@@ -1,12 +1,12 @@
-import type { CleanSession } from '../../../core/domain/entities/parser.js'
+import type { CleanSession } from '../../../server/core/domain/entities/parser.js'
+import type { FileEvent, IFileWatcherService } from '../../../server/core/interfaces/services/i-file-watcher-service.js'
 import type { ICodingAgentLogParser } from '../../core/interfaces/i-coding-agent-log-parser.js'
 import type {
   CodingAgentLogWatcherOptions,
   ICodingAgentLogWatcher,
 } from '../../core/interfaces/i-coding-agent-log-watcher.js'
-import type { FileEvent, IFileWatcherService } from '../../../core/interfaces/i-file-watcher-service.js'
 
-import { Agent } from '../../../core/domain/entities/agent.js'
+import { Agent } from '../../../server/core/domain/entities/agent.js'
 
 type OnSessionCallback = (session: CleanSession) => Promise<void>
 

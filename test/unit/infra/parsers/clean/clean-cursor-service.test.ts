@@ -10,8 +10,8 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {restore, stub} from 'sinon'
 
-import {Agent} from '../../../../../src/core/domain/entities/agent.js'
-import {CursorCleanService} from '../../../../../src/infra/parsers/clean/clean-cursor-service.js'
+import {Agent} from '../../../../../src/server/core/domain/entities/agent.js'
+import {CursorCleanService} from '../../../../../src/server/infra/parsers/clean/clean-cursor-service.js'
 
 describe('CursorCleanService', () => {
   let service: CursorCleanService

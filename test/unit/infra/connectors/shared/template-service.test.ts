@@ -1,9 +1,9 @@
 import {expect} from 'chai';
 
-import type {ITemplateLoader} from "../../../../../src/core/interfaces/i-template-loader.js";
+import type {ITemplateLoader} from "../../../../../src/server/core/interfaces/services/i-template-loader.js";
 
-import {BRV_RULE_MARKERS, BRV_RULE_TAG} from "../../../../../src/infra/connectors/shared/constants.js";
-import {RuleTemplateService} from "../../../../../src/infra/connectors/shared/template-service.js";
+import {BRV_RULE_MARKERS, BRV_RULE_TAG} from "../../../../../src/server/infra/connectors/shared/constants.js";
+import {RuleTemplateService} from "../../../../../src/server/infra/connectors/shared/template-service.js";
 
 class MockTemplateLoader implements ITemplateLoader {
   public async loadSection(sectionName: string): Promise<string> {

@@ -3,9 +3,9 @@ import {restore, stub} from 'sinon'
 
 import type {AgentConfig} from '../../../src/agent/infra/agent/index.js'
 
-import {BRV_CONFIG_VERSION} from '../../../src/constants.js'
-import {BrvConfig} from '../../../src/core/domain/entities/brv-config.js'
 import {CipherAgent} from '../../../src/agent/infra/agent/index.js'
+import {BRV_CONFIG_VERSION} from '../../../src/server/constants.js'
+import {BrvConfig} from '../../../src/server/core/domain/entities/brv-config.js'
 
 describe('CipherAgent', () => {
   let agentConfig: AgentConfig

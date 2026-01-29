@@ -1,10 +1,10 @@
 import {render} from 'ink'
 
-import type {IOnboardingPreferenceStore} from '../core/interfaces/i-onboarding-preference-store.js'
-import type {IProjectConfigStore} from '../core/interfaces/i-project-config-store.js'
-import type {ITokenStore} from '../core/interfaces/i-token-store.js'
-import type {ITrackingService} from '../core/interfaces/i-tracking-service.js'
-import type {ITransportClient} from '../core/interfaces/transport/i-transport-client.js'
+import type {ITokenStore} from '../server/core/interfaces/auth/i-token-store.js'
+import type {ITrackingService} from '../server/core/interfaces/services/i-tracking-service.js'
+import type {IOnboardingPreferenceStore} from '../server/core/interfaces/storage/i-onboarding-preference-store.js'
+import type {IProjectConfigStore} from '../server/core/interfaces/storage/i-project-config-store.js'
+import type {ITransportClient} from '../server/core/interfaces/transport/i-transport-client.js'
 
 import {App} from './app.js'
 import {AppProviders} from './providers/app-providers.js'

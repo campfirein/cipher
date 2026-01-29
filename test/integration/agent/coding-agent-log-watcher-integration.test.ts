@@ -5,12 +5,12 @@ import {join} from 'node:path'
 import {setTimeout} from 'node:timers/promises'
 import {restore, stub} from 'sinon'
 
-import type {Agent} from '../../../src/core/domain/entities/agent.js'
-import type {CleanSession} from '../../../src/core/domain/entities/parser.js'
 import type {ICodingAgentLogParser} from '../../../src/agent/core/interfaces/i-coding-agent-log-parser.js'
+import type {Agent} from '../../../src/server/core/domain/entities/agent.js'
+import type {CleanSession} from '../../../src/server/core/domain/entities/parser.js'
 
 import {CodingAgentLogWatcher} from '../../../src/agent/infra/watcher/coding-agent-log-watcher.js'
-import {FileWatcherService} from '../../../src/infra/watcher/file-watcher-service.js'
+import {FileWatcherService} from '../../../src/server/infra/watcher/file-watcher-service.js'
 
 /**
  * Test parser that returns mock sessions for integration testing.

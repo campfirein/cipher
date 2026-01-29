@@ -10,8 +10,8 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {restore, spy, stub} from 'sinon'
 
-import {Agent} from '../../../../../src/core/domain/entities/agent.js'
-import {ClaudeCleanService} from '../../../../../src/infra/parsers/clean/clean-claude-service.js'
+import {Agent} from '../../../../../src/server/core/domain/entities/agent.js'
+import {ClaudeCleanService} from '../../../../../src/server/infra/parsers/clean/clean-claude-service.js'
 
 describe('ClaudeCleanService', () => {
   let service: ClaudeCleanService

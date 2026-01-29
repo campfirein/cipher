@@ -3,7 +3,7 @@ import {readdir, rm} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
-import {FileContextTreeService} from '../../../../src/infra/context-tree/file-context-tree-service.js'
+import {FileContextTreeService} from '../../../../src/server/infra/context-tree/file-context-tree-service.js'
 
 describe('FileContextTreeService', () => {
   let service: FileContextTreeService

@@ -1,16 +1,16 @@
 import {Command, Flags} from '@oclif/core'
 
-import type {IFileWatcherService} from '../../core/interfaces/i-file-watcher-service.js'
-import type {IProjectConfigStore} from '../../core/interfaces/i-project-config-store.js'
-import type {ITerminal} from '../../core/interfaces/i-terminal.js'
+import type {IFileWatcherService} from '../../server/core/interfaces/services/i-file-watcher-service.js'
+import type {ITerminal} from '../../server/core/interfaces/services/i-terminal.js'
+import type {IProjectConfigStore} from '../../server/core/interfaces/storage/i-project-config-store.js'
 
-import {isDevelopment} from '../../config/environment.js'
-import {Agent} from '../../core/domain/entities/agent.js'
-import {ProjectConfigStore} from '../../infra/config/file-config-store.js'
-import {CleanParserServiceFactory} from '../../infra/parsers/clean/clean-parser-service-factory.js'
-import {RawParserServiceFactory} from '../../infra/parsers/raw/raw-parser-service-factory.js'
-import {OclifTerminal} from '../../infra/terminal/oclif-terminal.js'
-import {FileWatcherService} from '../../infra/watcher/file-watcher-service.js'
+import {isDevelopment} from '../../server/config/environment.js'
+import {Agent} from '../../server/core/domain/entities/agent.js'
+import {ProjectConfigStore} from '../../server/infra/config/file-config-store.js'
+import {CleanParserServiceFactory} from '../../server/infra/parsers/clean/clean-parser-service-factory.js'
+import {RawParserServiceFactory} from '../../server/infra/parsers/raw/raw-parser-service-factory.js'
+import {OclifTerminal} from '../../server/infra/terminal/oclif-terminal.js'
+import {FileWatcherService} from '../../server/infra/watcher/file-watcher-service.js'
 
 export default class Watch extends Command {
   public static description =

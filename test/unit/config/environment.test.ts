@@ -22,7 +22,7 @@ describe('Environment Configuration', () => {
       delete process.env.BR_ENV
 
       // Reimport to get fresh value
-      const {ENVIRONMENT} = await import('../../../src/config/environment.js')
+      const {ENVIRONMENT} = await import('../../../src/server/config/environment.js')
 
       expect(ENVIRONMENT).to.equal('development')
     })
@@ -33,7 +33,7 @@ describe('Environment Configuration', () => {
       delete process.env.BRV_ENV
 
       // Use cache busting to force fresh module evaluation
-      const {getCurrentConfig} = await import(`../../../src/config/environment.js?t=${Date.now()}`)
+      const {getCurrentConfig} = await import(`../../../src/server/config/environment.js?t=${Date.now()}`)
       const config = getCurrentConfig()
 
       expect(config.clientId).to.equal('byterover-cli-client')
@@ -47,7 +47,7 @@ describe('Environment Configuration', () => {
       process.env.BRV_ENV = 'production'
 
       // Use cache busting to force fresh module evaluation
-      const {getCurrentConfig} = await import(`../../../src/config/environment.js?t=${Date.now()}`)
+      const {getCurrentConfig} = await import(`../../../src/server/config/environment.js?t=${Date.now()}`)
       const config = getCurrentConfig()
 
       expect(config.clientId).to.equal('byterover-cli-client')

@@ -1,7 +1,7 @@
 import {expect} from 'chai'
 
-import {SocketIOTransportClient} from '../../../../src/infra/transport/socket-io-transport-client.js'
-import {SocketIOTransportServer} from '../../../../src/infra/transport/socket-io-transport-server.js'
+import {SocketIOTransportClient} from '../../../../src/server/infra/transport/socket-io-transport-client.js'
+import {SocketIOTransportServer} from '../../../../src/server/infra/transport/socket-io-transport-server.js'
 
 /**
  * Integration tests for Socket.IO Transport Layer.

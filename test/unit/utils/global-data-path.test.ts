@@ -2,7 +2,7 @@ import {expect} from 'chai'
 import {homedir, platform} from 'node:os'
 import {join, sep} from 'node:path'
 
-import {getGlobalDataDir} from '../../../src/utils/global-data-path.js'
+import {getGlobalDataDir} from '../../../src/server/utils/global-data-path.js'
 
 describe('global-data-path', () => {
   describe('getGlobalDataDir()', () => {

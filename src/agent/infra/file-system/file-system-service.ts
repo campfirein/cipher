@@ -26,6 +26,7 @@ import type {
 } from '../../core/domain/file-system/types.js'
 import type { IFileSystem } from '../../core/interfaces/i-file-system.js'
 
+import { getErrorMessage } from '../../../server/utils/error-helpers.js'
 import {
   DirectoryNotFoundError,
   EditOperationError,
@@ -45,7 +46,6 @@ import {
   StringNotUniqueError,
   WriteOperationError,
 } from '../../core/domain/errors/file-system-error.js'
-import { getErrorMessage } from '../../../utils/error-helpers.js'
 import { getMimeType, isBinaryFile, isMediaFile, isPdfFile } from './binary-utils.js'
 import { createGitignoreFilter } from './gitignore-filter.js'
 import { collectFileMetadata, escapeIfExactMatch, extractPaths, sortFilesByRecency } from './glob-utils.js'

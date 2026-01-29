@@ -2,8 +2,8 @@ import {isAxiosError} from 'axios'
 import {expect} from 'chai'
 import nock from 'nock'
 
-import {User} from '../../../../src/core/domain/entities/user.js'
-import {HttpUserService} from '../../../../src/infra/user/http-user-service.js'
+import {User} from '../../../../src/server/core/domain/entities/user.js'
+import {HttpUserService} from '../../../../src/server/infra/user/http-user-service.js'
 
 describe('HttpUserService', () => {
   const apiBaseUrl = 'https://api.example.com'

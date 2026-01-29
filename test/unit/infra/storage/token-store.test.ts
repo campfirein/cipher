@@ -1,8 +1,8 @@
 import {expect} from 'chai'
 
-import {FileTokenStore} from '../../../../src/infra/storage/file-token-store'
-import {KeychainTokenStore} from '../../../../src/infra/storage/keychain-token-store'
-import {createTokenStore} from '../../../../src/infra/storage/token-store'
+import {FileTokenStore} from '../../../../src/server/infra/storage/file-token-store'
+import {KeychainTokenStore} from '../../../../src/server/infra/storage/keychain-token-store'
+import {createTokenStore} from '../../../../src/server/infra/storage/token-store'
 
 describe('createTokenStore', () => {
   describe('platform detection', () => {

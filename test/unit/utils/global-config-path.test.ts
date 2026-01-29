@@ -2,7 +2,7 @@ import {expect} from 'chai'
 import {homedir, platform} from 'node:os'
 import {join, sep} from 'node:path'
 
-import {getGlobalConfigDir, getGlobalConfigPath} from '../../../src/utils/global-config-path.js'
+import {getGlobalConfigDir, getGlobalConfigPath} from '../../../src/server/utils/global-config-path.js'
 
 describe('global-config-path', () => {
   describe('getGlobalConfigDir()', () => {

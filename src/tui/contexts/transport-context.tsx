@@ -1,8 +1,8 @@
 import React, {createContext, useContext, useEffect, useState} from 'react'
 
-import type {ConnectionState, ITransportClient} from '../../core/interfaces/transport/i-transport-client.js'
+import type {ConnectionState, ITransportClient} from '../../server/core/interfaces/transport/i-transport-client.js'
 
-import {createTransportClientFactory} from '../../infra/transport/transport-client-factory.js'
+import {createTransportClientFactory} from '../../server/infra/transport/transport-client-factory.js'
 
 /**
  * Context value for transport client state.

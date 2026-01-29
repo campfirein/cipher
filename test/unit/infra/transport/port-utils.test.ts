@@ -6,7 +6,7 @@ import {
   findAvailablePortWithPreference,
   getRandomPort,
   isPortAvailable,
-} from '../../../../src/infra/transport/port-utils.js'
+} from '../../../../src/server/infra/transport/port-utils.js'
 
 describe('Port Utils', () => {
   describe('getRandomPort', () => {

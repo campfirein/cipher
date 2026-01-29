@@ -11,8 +11,8 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {restore, stub} from 'sinon'
 
-import {Agent} from '../../../../../src/core/domain/entities/agent.js'
-import {CodexRawService} from '../../../../../src/infra/parsers/raw/raw-codex-service.js'
+import {Agent} from '../../../../../src/server/core/domain/entities/agent.js'
+import {CodexRawService} from '../../../../../src/server/infra/parsers/raw/raw-codex-service.js'
 
 describe('CodexRawService', () => {
   let service: CodexRawService

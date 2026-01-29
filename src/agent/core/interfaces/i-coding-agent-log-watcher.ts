@@ -1,6 +1,6 @@
-import type {CleanSession} from '../../../core/domain/entities/parser.js'
+import type {CleanSession} from '../../../server/core/domain/entities/parser.js'
 
-import {Agent} from '../../../core/domain/entities/agent.js'
+import {Agent} from '../../../server/core/domain/entities/agent.js'
 
 /** Options for starting the coding agent log watcher. */
 export type CodingAgentLogWatcherOptions = {

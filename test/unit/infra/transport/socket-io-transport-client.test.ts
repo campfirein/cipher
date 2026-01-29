@@ -1,14 +1,14 @@
 import {expect} from 'chai'
 
-import type {ConnectionState} from '../../../../src/core/interfaces/transport/index.js'
+import type {ConnectionState} from '../../../../src/server/core/interfaces/transport/index.js'
 
 import {
   TransportConnectionError,
   TransportNotConnectedError,
   TransportRequestTimeoutError,
-} from '../../../../src/core/domain/errors/transport-error.js'
-import {SocketIOTransportClient} from '../../../../src/infra/transport/socket-io-transport-client.js'
-import {SocketIOTransportServer} from '../../../../src/infra/transport/socket-io-transport-server.js'
+} from '../../../../src/server/core/domain/errors/transport-error.js'
+import {SocketIOTransportClient} from '../../../../src/server/infra/transport/socket-io-transport-client.js'
+import {SocketIOTransportServer} from '../../../../src/server/infra/transport/socket-io-transport-server.js'
 
 describe('SocketIOTransportClient', () => {
   let server: SocketIOTransportServer

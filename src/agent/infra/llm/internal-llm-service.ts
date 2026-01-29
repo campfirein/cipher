@@ -22,6 +22,7 @@ import type {SystemPromptManager} from '../system-prompt/system-prompt-manager.j
 import type {ToolManager} from '../tools/tool-manager.js'
 import type {CompactionService} from './context/compaction/compaction-service.js'
 
+import {getErrorMessage} from '../../../server/utils/error-helpers.js'
 import {AgentStateMachine} from '../../core/domain/agent/agent-state-machine.js'
 import {AgentState, TerminationReason} from '../../core/domain/agent/agent-state.js'
 import {
@@ -37,7 +38,6 @@ import {
   safeParseLLMConfig,
 } from '../../core/domain/llm/index.js'
 import {NoOpLogger} from '../../core/interfaces/i-logger.js'
-import {getErrorMessage} from '../../../utils/error-helpers.js'
 import {SessionEventBus} from '../events/event-emitter.js'
 import {EnvironmentContextBuilder} from '../system-prompt/environment-context-builder.js'
 import {ToolMetadataHandler} from '../tools/streaming/metadata-handler.js'
