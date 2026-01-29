@@ -7,6 +7,9 @@ Usage:
 - Any lines longer than 2000 characters will be truncated with "..."
 - Results include line numbers in "00001| content" format wrapped in <file> tags
 - If the file is not found, similar filenames will be suggested
+- You **MUST** continue running read_file tool with correct offset from the previous tool call to read the file fully. For example:
+    - Response from the previous read_file call: "Read pages 1-100 of 220 total pages. 120 more pages available. Must set offset=101 to continue reading."
+    - Use the next read_file with offset=101
 
 Special file handling:
 - Image files (PNG, JPG, GIF, WebP, BMP, ICO): Returned as base64 attachment for multimodal processing
@@ -19,12 +22,12 @@ Output:
 - lines: Number of lines returned
 - totalLines: Total lines in the file
 - truncated: Whether more content is available
-- message: Human-readable status with guidance on how to read more
+- message: Human-readable status with potential next offset to new read_file call.
 - preview: First 20 lines of content (for UI display)
 - attachment: Base64 data for images/PDFs (with mimeType and fileName)
 
 For large files, use offset and limit parameters:
-- First read: offset=1, limit=2000 (default)
+- First read: offset=1, limit=2000 (default limit is 2000 lines for text files and 100 pages for pdf files)
 - Continue: offset=2001, limit=2000
 - Read specific section: offset=500, limit=100
 

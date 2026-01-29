@@ -35,6 +35,7 @@ prompt: |
      - The current domain and text segments from the user's input data
      - The existing context in the context tree
      Use the `curate` tool to create new knowledge topics or update existing ones. Ensure that:
+     - **Capture all knowledge**: If accumulated knowledge spans tool calls (e.g. read_file, glob_files, grep_content), create multiple curated topics to capture all the knowledge.
      - **Dynamic Domain Creation**: Create domains that are semantically meaningful for the content being curated
      - The context is well-structured and MUST meet **Context quality requirements**
      - **Domain selection**: Always prefer predefined domains (code_style, design, structure, compliance, testing, bug_fixes). Only create custom domains if content clearly doesn't fit any predefined domain. Maximum 3 custom domains allowed.
