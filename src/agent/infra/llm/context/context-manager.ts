@@ -11,7 +11,7 @@ import type {
 } from '../../../core/interfaces/message-types.js'
 import type {ICompressionStrategy} from './compression/types.js'
 
-import {getErrorMessage} from '../../../../utils/error-helpers.js'
+import {getErrorMessage} from '../../../../server/utils/error-helpers.js'
 import {NoOpLogger} from '../../../core/interfaces/i-logger.js'
 import {AsyncMutex} from './async-mutex.js'
 import {MiddleRemovalStrategy, OldestRemovalStrategy} from './compression/index.js'
@@ -188,7 +188,7 @@ export class ContextManager<T> {
       try {
         await this.persistHistory()
       } catch (error) {
-        this.logger.error('Failed to persist history after assistant message', { error, sessionId: this.sessionId })
+        this.logger.error('Failed to persist history after assistant message', {error, sessionId: this.sessionId})
       }
     })
   }
@@ -210,7 +210,7 @@ export class ContextManager<T> {
       try {
         await this.persistHistory()
       } catch (error) {
-        this.logger.error('Failed to persist history after system message', { error, sessionId: this.sessionId })
+        this.logger.error('Failed to persist history after system message', {error, sessionId: this.sessionId})
       }
     })
   }
@@ -327,7 +327,7 @@ export class ContextManager<T> {
     try {
       await this.persistHistory()
     } catch (error) {
-      this.logger.error('Failed to persist history after user message', { error, sessionId: this.sessionId })
+      this.logger.error('Failed to persist history after user message', {error, sessionId: this.sessionId})
     }
   }
 

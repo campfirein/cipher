@@ -1,9 +1,9 @@
 import {expect} from 'chai'
 import {restore, stub} from 'sinon'
 
-import type {ConnectionState, ConnectionStateHandler, ITransportClient} from '../../../../../src/core/interfaces/transport/i-transport-client.js'
+import type {ConnectionState, ConnectionStateHandler, ITransportClient} from '../../../../../src/server/core/interfaces/transport/i-transport-client.js'
 
-import {waitForTaskResult} from '../../../../../src/infra/mcp/tools/task-result-waiter.js'
+import {waitForTaskResult} from '../../../../../src/server/infra/mcp/tools/task-result-waiter.js'
 
 /**
  * Creates a mock transport client for testing.

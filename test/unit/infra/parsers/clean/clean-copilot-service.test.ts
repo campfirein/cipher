@@ -10,8 +10,8 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {restore, stub} from 'sinon'
 
-import {Agent} from '../../../../../src/core/domain/entities/agent.js'
-import {CopilotCleanService} from '../../../../../src/infra/parsers/clean/clean-copilot-service.js'
+import {Agent} from '../../../../../src/server/core/domain/entities/agent.js'
+import {CopilotCleanService} from '../../../../../src/server/infra/parsers/clean/clean-copilot-service.js'
 
 describe('CopilotCleanService', () => {
   let service: CopilotCleanService

@@ -4,8 +4,8 @@ import {mkdir, readFile, rm, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
-import {AuthToken} from '../../../../src/core/domain/entities/auth-token'
-import {FileTokenStore, FileTokenStoreDeps} from '../../../../src/infra/storage/file-token-store'
+import {AuthToken} from '../../../../src/server/core/domain/entities/auth-token'
+import {FileTokenStore, FileTokenStoreDeps} from '../../../../src/server/infra/storage/file-token-store'
 
 function createTestToken(): AuthToken {
   return new AuthToken({

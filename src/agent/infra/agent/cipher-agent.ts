@@ -1,6 +1,6 @@
 import {setMaxListeners} from 'node:events'
 
-import type {BrvConfig} from '../../../core/domain/entities/brv-config.js'
+import type {BrvConfig} from '../../../server/core/domain/entities/brv-config.js'
 import type {AgentEventMap} from '../../core/domain/agent-events/types.js'
 import type {GenerateResponse, StreamingEvent, StreamOptions} from '../../core/domain/streaming/types.js'
 import type {CipherAgentServices} from '../../core/interfaces/cipher-services.js'

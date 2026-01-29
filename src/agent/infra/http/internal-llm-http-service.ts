@@ -3,7 +3,7 @@ import type {RequestOptions} from '@anthropic-ai/sdk/internal/request-options'
 import type {MessageCreateParamsNonStreaming} from '@anthropic-ai/sdk/resources/messages.js'
 import type {Content, GenerateContentConfig, GenerateContentResponse} from '@google/genai'
 
-import {AuthenticatedHttpClient} from '../../../infra/http/authenticated-http-client.js'
+import {AuthenticatedHttpClient} from '../../../server/infra/http/authenticated-http-client.js'
 
 /* eslint-disable camelcase */
 

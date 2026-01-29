@@ -1,7 +1,7 @@
 import {NoInstanceRunningError} from '@campfirein/brv-transport-client'
 import {Command} from '@oclif/core'
 
-import {ByteRoverMcpServer} from '../../infra/mcp/index.js'
+import {ByteRoverMcpServer} from '../../server/infra/mcp/index.js'
 
 /**
  * MCP command - starts the MCP server for coding agent integration.

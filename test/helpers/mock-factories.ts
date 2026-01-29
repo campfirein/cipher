@@ -34,8 +34,8 @@ import type {ProcessService} from '../../src/agent/infra/process/process-service
 import type {SystemPromptManager} from '../../src/agent/infra/system-prompt/system-prompt-manager.js'
 import type {ToolManager} from '../../src/agent/infra/tools/tool-manager.js'
 import type {ToolProvider} from '../../src/agent/infra/tools/tool-provider.js'
-import type {ITerminal} from '../../src/core/interfaces/i-terminal.js'
-import type {ITransportClient} from '../../src/core/interfaces/transport/i-transport-client.js'
+import type {ITerminal} from '../../src/server/core/interfaces/services/i-terminal.js'
+import type {ITransportClient} from '../../src/server/core/interfaces/transport/i-transport-client.js'
 
 /**
  * Type aliases for service mocks - balances type safety with readability.

@@ -1,7 +1,7 @@
 import {TransportClient} from '@campfirein/brv-transport-client'
 import {expect} from 'chai'
 
-import {SocketIOTransportServer} from '../../../../src/infra/transport/socket-io-transport-server.js'
+import {SocketIOTransportServer} from '../../../../src/server/infra/transport/socket-io-transport-server.js'
 
 /**
  * Integration tests for Socket.IO Transport Layer.

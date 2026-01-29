@@ -4,12 +4,12 @@ import {expect} from 'chai'
 import {join} from 'node:path'
 import {restore, stub} from 'sinon'
 
-import type {IContextTreeService} from '../../../src/core/interfaces/i-context-tree-service.js'
-import type {IContextTreeSnapshotService} from '../../../src/core/interfaces/i-context-tree-snapshot-service.js'
-import type {ITerminal} from '../../../src/core/interfaces/i-terminal.js'
+import type {IContextTreeService} from '../../../src/server/core/interfaces/context-tree/i-context-tree-service.js'
+import type {IContextTreeSnapshotService} from '../../../src/server/core/interfaces/context-tree/i-context-tree-snapshot-service.js'
+import type {ITerminal} from '../../../src/server/core/interfaces/services/i-terminal.js'
 
-import {BRV_DIR, CONTEXT_TREE_DIR} from "../../../src/constants.js";
-import {ResetUseCase, type ResetUseCaseOptions} from '../../../src/infra/usecase/reset-use-case.js'
+import {BRV_DIR, CONTEXT_TREE_DIR} from '../../../src/server/constants.js'
+import {ResetUseCase, type ResetUseCaseOptions} from '../../../src/server/infra/usecase/reset-use-case.js'
 import {createMockTerminal} from '../../helpers/mock-factories.js'
 
 class TestableResetUseCase extends ResetUseCase {

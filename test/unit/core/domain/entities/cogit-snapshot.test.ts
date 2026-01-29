@@ -2,9 +2,9 @@
 /* eslint-disable mocha/max-top-level-suites */
 import {expect} from 'chai'
 
-import {CogitSnapshotAuthor} from '../../../../../src/core/domain/entities/cogit-snapshot-author.js'
-import {CogitSnapshotFile} from '../../../../../src/core/domain/entities/cogit-snapshot-file.js'
-import {CogitSnapshot} from '../../../../../src/core/domain/entities/cogit-snapshot.js'
+import {CogitSnapshotAuthor} from '../../../../../src/server/core/domain/entities/cogit-snapshot-author.js'
+import {CogitSnapshotFile} from '../../../../../src/server/core/domain/entities/cogit-snapshot-file.js'
+import {CogitSnapshot} from '../../../../../src/server/core/domain/entities/cogit-snapshot.js'
 
 describe('CogitSnapshotAuthor Entity', () => {
   const validAuthorData = {

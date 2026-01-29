@@ -1,7 +1,7 @@
 import {connectToTransport} from '@campfirein/brv-transport-client'
 import React, {createContext, useContext, useEffect, useState} from 'react'
 
-import type {ConnectionState, ITransportClient} from '../../core/interfaces/transport/i-transport-client.js'
+import type {ConnectionState, ITransportClient} from '../../server/core/interfaces/transport/i-transport-client.js'
 
 /**
  * Context value for transport client state.

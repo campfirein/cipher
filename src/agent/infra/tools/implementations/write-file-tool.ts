@@ -4,13 +4,13 @@ import type {BufferEncoding} from '../../../core/domain/file-system/types.js'
 import type {Tool, ToolExecutionContext} from '../../../core/domain/tools/types.js'
 import type {IFileSystem} from '../../../core/interfaces/i-file-system.js'
 
-import {sanitizeFolderName} from '../../../../utils/file-helpers.js'
+import {sanitizeFolderName} from '../../../../server/utils/file-helpers.js'
 import {ToolName} from '../../../core/domain/tools/constants.js'
 
 /**
  * Input schema for write file tool.
  */
-const WriteFileInputSchema = z  
+const WriteFileInputSchema = z
   .object({
     content: z.string().describe('Content to write to the file'),
     createDirs: z
@@ -43,8 +43,7 @@ type WriteFileInput = z.infer<typeof WriteFileInputSchema>
  */
 export function createWriteFileTool(fileSystemService: IFileSystem): Tool {
   return {
-    description:
-      'Write content to a file. Overwrites existing files. Can optionally create parent directories.',
+    description: 'Write content to a file. Overwrites existing files. Can optionally create parent directories.',
     async execute(input: unknown, _context?: ToolExecutionContext) {
       const {content, createDirs, encoding, filePath} = input as WriteFileInput
 

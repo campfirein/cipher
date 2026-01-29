@@ -4,7 +4,7 @@ import {
   ContextTreeSnapshot,
   ContextTreeSnapshotJson,
   FileState,
-} from '../../../../../src/core/domain/entities/context-tree-snapshot.js'
+} from '../../../../../src/server/core/domain/entities/context-tree-snapshot.js'
 
 describe('ContextTreeSnapshot', () => {
   describe('create', () => {

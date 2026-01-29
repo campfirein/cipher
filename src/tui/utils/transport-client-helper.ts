@@ -8,16 +8,16 @@ import {connectToTransport} from '@campfirein/brv-transport-client'
 import fs from 'node:fs'
 import path from 'node:path'
 
-import type {ITransportClient} from '../../core/interfaces/transport/i-transport-client.js'
+import type {ITransportClient} from '../../server/core/interfaces/transport/i-transport-client.js'
 
-import {isDevelopment} from '../../config/environment.js'
-import {BRV_DIR} from '../../constants.js'
+import {isDevelopment} from '../../server/config/environment.js'
+import {BRV_DIR} from '../../server/constants.js'
 import {
   TransportAgentEventNames,
   TransportLlmEventList,
   TransportSessionEventNames,
   TransportTaskEventNames,
-} from '../../core/domain/transport/schemas.js'
+} from '../../server/core/domain/transport/schemas.js'
 
 const TRANSPORT_LOG_FILE = path.join(BRV_DIR, 'transport-events.log')
 

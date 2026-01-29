@@ -9,12 +9,12 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {restore, stub} from 'sinon'
 
-import {Agent} from '../../../../../src/core/domain/entities/agent.js'
-import {ClaudeRawService} from '../../../../../src/infra/parsers/raw/raw-claude-service.js'
-import {CodexRawService} from '../../../../../src/infra/parsers/raw/raw-codex-service.js'
-import {CopilotRawService} from '../../../../../src/infra/parsers/raw/raw-copilot-service.js'
-import {CursorRawService} from '../../../../../src/infra/parsers/raw/raw-cursor-service.js'
-import {RawParserServiceFactory} from '../../../../../src/infra/parsers/raw/raw-parser-service-factory.js'
+import {Agent} from '../../../../../src/server/core/domain/entities/agent.js'
+import {ClaudeRawService} from '../../../../../src/server/infra/parsers/raw/raw-claude-service.js'
+import {CodexRawService} from '../../../../../src/server/infra/parsers/raw/raw-codex-service.js'
+import {CopilotRawService} from '../../../../../src/server/infra/parsers/raw/raw-copilot-service.js'
+import {CursorRawService} from '../../../../../src/server/infra/parsers/raw/raw-cursor-service.js'
+import {RawParserServiceFactory} from '../../../../../src/server/infra/parsers/raw/raw-parser-service-factory.js'
 
 describe('RawParserServiceFactory', () => {
   beforeEach(() => {

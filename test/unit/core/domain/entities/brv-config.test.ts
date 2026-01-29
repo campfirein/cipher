@@ -1,9 +1,9 @@
 import {expect} from 'chai'
 
-import {BRV_CONFIG_VERSION} from '../../../../../src/constants.js'
-import {BrvConfig, BrvConfigParams} from '../../../../../src/core/domain/entities/brv-config.js'
-import {Space} from '../../../../../src/core/domain/entities/space.js'
-import {BrvConfigVersionError} from '../../../../../src/core/domain/errors/brv-config-version-error.js'
+import {BRV_CONFIG_VERSION} from '../../../../../src/server/constants.js'
+import {BrvConfig, BrvConfigParams} from '../../../../../src/server/core/domain/entities/brv-config.js'
+import {Space} from '../../../../../src/server/core/domain/entities/space.js'
+import {BrvConfigVersionError} from '../../../../../src/server/core/domain/errors/brv-config-version-error.js'
 
 describe('BrvConfig', () => {
   const validConstructorArgs: BrvConfigParams = {

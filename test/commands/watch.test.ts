@@ -2,8 +2,8 @@ import {Config} from '@oclif/core'
 import {expect} from 'chai'
 import {restore, SinonStubbedInstance, stub} from 'sinon'
 
-import type {IFileWatcherService} from '../../src/core/interfaces/i-file-watcher-service.js'
-import type {IProjectConfigStore} from '../../src/core/interfaces/i-project-config-store.js'
+import type {IFileWatcherService} from '../../src/server/core/interfaces/services/i-file-watcher-service.js'
+import type {IProjectConfigStore} from '../../src/server/core/interfaces/storage/i-project-config-store.js'
 
 import Watch from '../../src/oclif/commands/watch.js'
 import {createMockTerminal} from '../helpers/mock-factories.js'

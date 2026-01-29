@@ -3,9 +3,9 @@ import {z} from 'zod'
 
 import type {Tool, ToolExecutionContext} from '../../../core/domain/tools/types.js'
 
-import {DirectoryManager} from '../../../../core/domain/knowledge/directory-manager.js'
-import {MarkdownWriter} from '../../../../core/domain/knowledge/markdown-writer.js'
-import {sanitizeFolderName} from '../../../../utils/file-helpers.js'
+import {DirectoryManager} from '../../../../server/core/domain/knowledge/directory-manager.js'
+import {MarkdownWriter} from '../../../../server/core/domain/knowledge/markdown-writer.js'
+import {sanitizeFolderName} from '../../../../server/utils/file-helpers.js'
 import {ToolName} from '../../../core/domain/tools/constants.js'
 
 const CreateKnowledgeTopicInputSchema = z.object({

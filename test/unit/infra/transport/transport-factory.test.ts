@@ -1,7 +1,7 @@
 import {TransportClient} from '@campfirein/brv-transport-client'
 import {expect} from 'chai'
 
-import {createTransportServer} from '../../../../src/infra/transport/transport-factory.js'
+import {createTransportServer} from '../../../../src/server/infra/transport/transport-factory.js'
 
 describe('Transport Factory', () => {
   describe('createTransportServer', () => {

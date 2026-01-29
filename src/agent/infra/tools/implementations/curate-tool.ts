@@ -6,9 +6,9 @@ import {z} from 'zod'
 
 import type {Tool, ToolExecutionContext} from '../../../core/domain/tools/types.js'
 
-import {DirectoryManager} from '../../../../core/domain/knowledge/directory-manager.js'
-import {MarkdownWriter} from '../../../../core/domain/knowledge/markdown-writer.js'
-import {toSnakeCase} from '../../../../utils/file-helpers.js'
+import {DirectoryManager} from '../../../../server/core/domain/knowledge/directory-manager.js'
+import {MarkdownWriter} from '../../../../server/core/domain/knowledge/markdown-writer.js'
+import {toSnakeCase} from '../../../../server/utils/file-helpers.js'
 import {ToolName} from '../../../core/domain/tools/constants.js'
 
 /**
@@ -78,26 +78,31 @@ const DomainContextSchema = z.object({
     .describe(
       'Describe what this domain represents and why it exists (e.g., "Contains all knowledge related to user and service authentication mechanisms")',
     ),
-  scope: z.object({
-    excluded: z
-      .array(z.string())
-      .optional()
-      .describe('What does NOT belong in this domain (e.g., ["Authorization and permission models", "User profile management"])'),
-    included: z
-      .array(z.string())
-      .describe('What belongs in this domain (e.g., ["Login and signup flows", "Token-based authentication", "OAuth integrations"])'),
-  }).describe('Define what belongs and does not belong in this domain'),
-  usage: z
-    .string()
-    .optional()
-    .describe('How this domain should be used by agents and contributors'),
+  scope: z
+    .object({
+      excluded: z
+        .array(z.string())
+        .optional()
+        .describe(
+          'What does NOT belong in this domain (e.g., ["Authorization and permission models", "User profile management"])',
+        ),
+      included: z
+        .array(z.string())
+        .describe(
+          'What belongs in this domain (e.g., ["Login and signup flows", "Token-based authentication", "OAuth integrations"])',
+        ),
+    })
+    .describe('Define what belongs and does not belong in this domain'),
+  usage: z.string().optional().describe('How this domain should be used by agents and contributors'),
 })
 
 const TopicContextSchema = z.object({
   keyConcepts: z
     .array(z.string())
     .optional()
-    .describe('Key concepts covered in this topic (e.g., ["JWT tokens", "Refresh token rotation", "Token blacklisting"])'),
+    .describe(
+      'Key concepts covered in this topic (e.g., ["JWT tokens", "Refresh token rotation", "Token blacklisting"])',
+    ),
   overview: z
     .string()
     .describe(
@@ -106,7 +111,9 @@ const TopicContextSchema = z.object({
   relatedTopics: z
     .array(z.string())
     .optional()
-    .describe('Related topics and how they connect (e.g., ["authentication/session - for session-based alternatives", "security/encryption - for token signing"])'),
+    .describe(
+      'Related topics and how they connect (e.g., ["authentication/session - for session-based alternatives", "security/encryption - for token signing"])',
+    ),
 })
 
 const SubtopicContextSchema = z.object({
@@ -118,7 +125,9 @@ const SubtopicContextSchema = z.object({
   parentRelation: z
     .string()
     .optional()
-    .describe('How this subtopic relates to its parent topic (e.g., "Handles the token refresh aspect of JWT authentication")'),
+    .describe(
+      'How this subtopic relates to its parent topic (e.g., "Handles the token refresh aspect of JWT authentication")',
+    ),
 })
 
 /**
@@ -188,29 +197,14 @@ interface CurateOutput {
 }
 
 function generateDomainContextMarkdown(domainName: string, context: DomainContext): string {
-  const sections: string[] = [
-    `# Domain: ${domainName}`,
-    '',
-    '## Purpose',
-    context.purpose,
-    '',
-    '## Scope',
-  ]
+  const sections: string[] = [`# Domain: ${domainName}`, '', '## Purpose', context.purpose, '', '## Scope']
 
   if (context.scope.included.length > 0) {
-    sections.push(
-      'Included in this domain:',
-      ...context.scope.included.map((item) => `- ${item}`),
-      '',
-    )
+    sections.push('Included in this domain:', ...context.scope.included.map((item) => `- ${item}`), '')
   }
 
   if (context.scope.excluded && context.scope.excluded.length > 0) {
-    sections.push(
-      'Excluded from this domain:',
-      ...context.scope.excluded.map((item) => `- ${item}`),
-      '',
-    )
+    sections.push('Excluded from this domain:', ...context.scope.excluded.map((item) => `- ${item}`), '')
   }
 
   if (context.ownership) {
@@ -253,28 +247,14 @@ List related topics and how they connect to this one.
 }
 
 function generateTopicContextMarkdown(topicName: string, context: TopicContext): string {
-  const sections: string[] = [
-    `# Topic: ${topicName}`,
-    '',
-    '## Overview',
-    context.overview,
-    '',
-  ]
+  const sections: string[] = [`# Topic: ${topicName}`, '', '## Overview', context.overview, '']
 
   if (context.keyConcepts && context.keyConcepts.length > 0) {
-    sections.push(
-      '## Key Concepts',
-      ...context.keyConcepts.map((concept) => `- ${concept}`),
-      '',
-    )
+    sections.push('## Key Concepts', ...context.keyConcepts.map((concept) => `- ${concept}`), '')
   }
 
   if (context.relatedTopics && context.relatedTopics.length > 0) {
-    sections.push(
-      '## Related Topics',
-      ...context.relatedTopics.map((topic) => `- ${topic}`),
-      '',
-    )
+    sections.push('## Related Topics', ...context.relatedTopics.map((topic) => `- ${topic}`), '')
   }
 
   return sections.join('\n')
@@ -289,13 +269,7 @@ Describe what this subtopic covers and its specific focus.
 }
 
 function generateSubtopicContextMarkdown(subtopicName: string, context: SubtopicContext): string {
-  const sections: string[] = [
-    `# Subtopic: ${subtopicName}`,
-    '',
-    '## Focus',
-    context.focus,
-    '',
-  ]
+  const sections: string[] = [`# Subtopic: ${subtopicName}`, '', '## Focus', context.focus, '']
 
   if (context.parentRelation) {
     sections.push('## Parent Relation', context.parentRelation, '')
@@ -369,7 +343,9 @@ interface EnsureSubtopicContextMdOptions {
  * Ensure context.md exists at subtopic level.
  * Creates a context.md with LLM-provided content if available, otherwise creates a minimal template.
  */
-async function ensureSubtopicContextMd(options: EnsureSubtopicContextMdOptions): Promise<{created: boolean; path?: string}> {
+async function ensureSubtopicContextMd(
+  options: EnsureSubtopicContextMdOptions,
+): Promise<{created: boolean; path?: string}> {
   const {basePath, domain, subtopic, subtopicContext, topic} = options
   const normalizedDomain = toSnakeCase(domain)
   const normalizedTopic = toSnakeCase(topic)

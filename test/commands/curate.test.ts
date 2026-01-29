@@ -7,11 +7,15 @@ import {
 import {expect} from 'chai'
 import sinon, {match, restore, stub} from 'sinon'
 
-import type {ITerminal} from '../../src/core/interfaces/i-terminal.js'
-import type {ITrackingService} from '../../src/core/interfaces/i-tracking-service.js'
-import type {ITransportClient} from '../../src/core/interfaces/transport/i-transport-client.js'
+import type {ITerminal} from '../../src/server/core/interfaces/services/i-terminal.js'
+import type {ITrackingService} from '../../src/server/core/interfaces/services/i-tracking-service.js'
+import type {ITransportClient} from '../../src/server/core/interfaces/transport/i-transport-client.js'
 
-import {CurateUseCase, type CurateUseCaseOptions, type TransportConnector} from '../../src/infra/usecase/curate-use-case.js'
+import {
+  CurateUseCase,
+  type CurateUseCaseOptions,
+  type TransportConnector,
+} from '../../src/server/infra/usecase/curate-use-case.js'
 import {createMockTerminal} from '../helpers/mock-factories.js'
 
 describe('Curate Command', () => {

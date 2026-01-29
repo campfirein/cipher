@@ -7,11 +7,11 @@
 import {expect} from 'chai'
 import {restore, stub} from 'sinon'
 
-import {ClaudeCleanService} from '../../../../../src/infra/parsers/clean/clean-claude-service.js'
-import {CodexCleanService} from '../../../../../src/infra/parsers/clean/clean-codex-service.js'
-import {CopilotCleanService} from '../../../../../src/infra/parsers/clean/clean-copilot-service.js'
-import {CursorCleanService} from '../../../../../src/infra/parsers/clean/clean-cursor-service.js'
-import {CleanParserServiceFactory} from '../../../../../src/infra/parsers/clean/clean-parser-service-factory.js'
+import {ClaudeCleanService} from '../../../../../src/server/infra/parsers/clean/clean-claude-service.js'
+import {CodexCleanService} from '../../../../../src/server/infra/parsers/clean/clean-codex-service.js'
+import {CopilotCleanService} from '../../../../../src/server/infra/parsers/clean/clean-copilot-service.js'
+import {CursorCleanService} from '../../../../../src/server/infra/parsers/clean/clean-cursor-service.js'
+import {CleanParserServiceFactory} from '../../../../../src/server/infra/parsers/clean/clean-parser-service-factory.js'
 
 describe('CleanParserServiceFactory', () => {
   beforeEach(() => {

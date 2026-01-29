@@ -1,13 +1,13 @@
 import {expect} from "chai";
 import * as sinon from "sinon";
 
-import type {IOnboardingPreferenceStore} from "../../../src/core/interfaces/i-onboarding-preference-store.js";
-import type {ITerminal} from "../../../src/core/interfaces/i-terminal.js";
-import type {ITokenStore} from "../../../src/core/interfaces/i-token-store.js";
-import type {ITrackingService} from "../../../src/core/interfaces/i-tracking-service.js";
+import type {ITokenStore} from "../../../src/server/core/interfaces/auth/i-token-store.js";
+import type {ITerminal} from "../../../src/server/core/interfaces/services/i-terminal.js";
+import type {ITrackingService} from "../../../src/server/core/interfaces/services/i-tracking-service.js";
+import type {IOnboardingPreferenceStore} from "../../../src/server/core/interfaces/storage/i-onboarding-preference-store.js";
 
-import {AuthToken} from "../../../src/core/domain/entities/auth-token.js";
-import {LogoutUseCase, LogoutUseCaseDeps} from "../../../src/infra/usecase/logout-use-case.js";
+import {AuthToken} from "../../../src/server/core/domain/entities/auth-token.js";
+import {LogoutUseCase, LogoutUseCaseDeps} from "../../../src/server/infra/usecase/logout-use-case.js";
 import {createMockTerminal} from "../../helpers/mock-factories.js";
 
 // ==================== TestableLogoutUseCase ====================

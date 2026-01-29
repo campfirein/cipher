@@ -18,11 +18,11 @@ import {rm} from 'node:fs/promises'
 import {homedir} from 'node:os'
 import {join} from 'node:path'
 
-import type {ITokenStore} from '../../../../src/core/interfaces/i-token-store'
+import type {ITokenStore} from '../../../../src/server/core/interfaces/auth/i-token-store.js'
 
-import {AuthToken} from '../../../../src/core/domain/entities/auth-token'
-import {createTokenStore} from '../../../../src/infra/storage/token-store'
-import {isWsl} from '../../../../src/utils/environment-detector'
+import {AuthToken} from '../../../../src/server/core/domain/entities/auth-token'
+import {createTokenStore} from '../../../../src/server/infra/storage/token-store'
+import {isWsl} from '../../../../src/server/utils/environment-detector'
 
 function createTestToken(): AuthToken {
   return new AuthToken({

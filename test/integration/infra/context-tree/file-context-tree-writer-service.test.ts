@@ -4,12 +4,12 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import * as sinon from 'sinon'
 
-import type {FileState} from '../../../../src/core/domain/entities/context-tree-snapshot.js'
-import type {IContextTreeSnapshotService} from '../../../../src/core/interfaces/i-context-tree-snapshot-service.js'
+import type {FileState} from '../../../../src/server/core/domain/entities/context-tree-snapshot.js'
+import type {IContextTreeSnapshotService} from '../../../../src/server/core/interfaces/context-tree/i-context-tree-snapshot-service.js'
 
-import {BRV_DIR, CONTEXT_TREE_DIR} from '../../../../src/constants.js'
-import {CogitSnapshotFile} from '../../../../src/core/domain/entities/cogit-snapshot-file.js'
-import {FileContextTreeWriterService} from '../../../../src/infra/context-tree/file-context-tree-writer-service.js'
+import {BRV_DIR, CONTEXT_TREE_DIR} from '../../../../src/server/constants.js'
+import {CogitSnapshotFile} from '../../../../src/server/core/domain/entities/cogit-snapshot-file.js'
+import {FileContextTreeWriterService} from '../../../../src/server/infra/context-tree/file-context-tree-writer-service.js'
 
 const createFile = (path: string, content: string): CogitSnapshotFile =>
   new CogitSnapshotFile({

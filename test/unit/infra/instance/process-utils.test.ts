@@ -1,6 +1,6 @@
 import {expect} from 'chai'
 
-import {getCurrentPid, isProcessAlive} from '../../../../src/infra/instance/process-utils.js'
+import {getCurrentPid, isProcessAlive} from '../../../../src/server/infra/instance/process-utils.js'
 
 describe('Process Utils', () => {
   describe('getCurrentPid', () => {

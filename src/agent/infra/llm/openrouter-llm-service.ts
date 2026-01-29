@@ -12,12 +12,8 @@ import type {MemoryManager} from '../memory/memory-manager.js'
 import type {SystemPromptManager} from '../system-prompt/system-prompt-manager.js'
 import type {ToolManager} from '../tools/tool-manager.js'
 
-import {getErrorMessage} from '../../../utils/error-helpers.js'
-import {
-  LlmGenerationError,
-  LlmMaxIterationsError,
-  LlmResponseParsingError,
-} from '../../core/domain/errors/llm-error.js'
+import {getErrorMessage} from '../../../server/utils/error-helpers.js'
+import {LlmGenerationError, LlmMaxIterationsError, LlmResponseParsingError} from '../../core/domain/errors/llm-error.js'
 import {NoOpLogger} from '../../core/interfaces/i-logger.js'
 import {SessionEventBus} from '../events/event-emitter.js'
 import {ContextManager, type FileData, type ImageData} from './context/context-manager.js'

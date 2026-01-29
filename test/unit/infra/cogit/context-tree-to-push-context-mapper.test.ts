@@ -1,8 +1,8 @@
 import {expect} from 'chai'
 
-import type {ContextFileContent} from '../../../../src/core/interfaces/i-context-file-reader.js'
+import type {ContextFileContent} from '../../../../src/server/core/interfaces/context-tree/i-context-file-reader.js'
 
-import {mapToPushContexts} from '../../../../src/infra/cogit/context-tree-to-push-context-mapper.js'
+import {mapToPushContexts} from '../../../../src/server/infra/cogit/context-tree-to-push-context-mapper.js'
 
 describe('mapToPushContexts', () => {
   describe('mapping added files', () => {

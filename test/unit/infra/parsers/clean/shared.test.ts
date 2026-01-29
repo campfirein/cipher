@@ -13,7 +13,7 @@ import {
   normalizeClaudeSession,
   normalizeContent,
   normalizeContentBlock
-} from '../../../../../src/infra/parsers/clean/shared.js'
+} from '../../../../../src/server/infra/parsers/clean/shared.js'
 
 describe('Shared Parser Utilities', () => {
   describe('normalizeContent', () => {

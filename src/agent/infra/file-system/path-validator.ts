@@ -3,7 +3,7 @@ import path from 'node:path'
 
 import type { FileSystemConfig, ValidationResult } from '../../core/domain/file-system/types.js'
 
-import { getErrorMessage } from '../../../utils/error-helpers.js'
+import { getErrorMessage } from '../../../server/utils/error-helpers.js'
 
 /**
  * Validates file paths against security policies.
