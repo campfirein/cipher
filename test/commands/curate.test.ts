@@ -2,6 +2,7 @@ import {
   ConnectionFailedError,
   type ConnectionResult,
   InstanceCrashedError,
+  type ITransportClient,
   NoInstanceRunningError,
 } from '@campfirein/brv-transport-client'
 import {expect} from 'chai'
@@ -9,7 +10,6 @@ import sinon, {match, restore, stub} from 'sinon'
 
 import type {ITerminal} from '../../src/server/core/interfaces/services/i-terminal.js'
 import type {ITrackingService} from '../../src/server/core/interfaces/services/i-tracking-service.js'
-import type {ITransportClient} from '../../src/server/core/interfaces/transport/i-transport-client.js'
 
 import {
   CurateUseCase,

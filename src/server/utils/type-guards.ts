@@ -1,6 +1,4 @@
-import type {TaskType} from '../core/domain/transport/schemas.js'
-
-import {TaskTypeSchema} from '../core/domain/transport/schemas.js'
+import {type TaskType, TaskTypeSchema} from '@campfirein/brv-transport-client'
 
 /**
  * Type guard to check if value is a non-null object (Record).

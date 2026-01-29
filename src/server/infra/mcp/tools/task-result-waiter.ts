@@ -1,4 +1,4 @@
-import type {ITransportClient} from '../../../core/interfaces/transport/index.js'
+import type {ITransportClient} from '@campfirein/brv-transport-client'
 
 export interface TaskCompletedPayload {
   result: string

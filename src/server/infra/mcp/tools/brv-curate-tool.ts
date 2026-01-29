@@ -1,9 +1,8 @@
+import type { ITransportClient } from '@campfirein/brv-transport-client'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
-
-import type { ITransportClient } from '../../../core/interfaces/transport/index.js'
 
 export const BrvCurateInputSchema = z.object({
   context: z.string().describe('Knowledge to store: patterns, decisions, errors, or insights about the codebase'),

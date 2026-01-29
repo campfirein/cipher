@@ -1,8 +1,6 @@
-import {connectToTransport} from '@campfirein/brv-transport-client'
+import {connectToTransport, type ITransportClient} from '@campfirein/brv-transport-client'
 import {McpServer} from '@modelcontextprotocol/sdk/server/mcp.js'
 import {StdioServerTransport} from '@modelcontextprotocol/sdk/server/stdio.js'
-
-import type {ITransportClient} from '../../core/interfaces/transport/index.js'
 
 import {registerBrvCurateTool, registerBrvQueryTool} from './tools/index.js'
 

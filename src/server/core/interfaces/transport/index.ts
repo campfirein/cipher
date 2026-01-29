@@ -1,2 +1,2 @@
-export * from './i-transport-client.js'
+// Client types (ITransportClient, ConnectionState, etc.) - use @campfirein/brv-transport-client
 export * from './i-transport-server.js'

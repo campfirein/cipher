@@ -18,12 +18,16 @@
  * - Sends: 'task:started', 'task:chunk', 'task:completed', 'task:error', 'task:toolCall', 'task:toolResult'
  */
 
-import {TransportClient} from '@campfirein/brv-transport-client'
+import {
+  type AgentStatus,
+  type ITransportClient,
+  type TaskExecute,
+  TransportClient,
+} from '@campfirein/brv-transport-client'
 import {randomUUID} from 'node:crypto'
 
 import type {AgentEventMap} from '../../../agent/core/domain/agent-events/types.js'
-import type {AgentStatus, TaskCancel, TaskExecute} from '../../core/domain/transport/schemas.js'
-import type {ITransportClient} from '../../core/interfaces/transport/i-transport-client.js'
+import type {TaskCancel} from '../../core/domain/transport/schemas.js'
 import type {AgentIPCResponse, IPCCommand} from './ipc-types.js'
 
 import {CipherAgent} from '../../../agent/infra/agent/index.js'

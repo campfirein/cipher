@@ -4,16 +4,16 @@ import {
   type ConnectionResult,
   connectToTransport,
   InstanceCrashedError,
+  type ITransportClient,
   NoInstanceRunningError,
+  type TaskAck,
 } from '@campfirein/brv-transport-client'
 import {randomUUID} from 'node:crypto'
 
 import type {ITerminal} from '../../core/interfaces/services/i-terminal.js'
 import type {CurateUseCaseRunOptions, ICurateUseCase} from '../../core/interfaces/usecase/i-curate-use-case.js'
 
-import {TaskCreateResponse} from '../../core/domain/transport/index.js'
 import {ITrackingService} from '../../core/interfaces/services/i-tracking-service.js'
-import {ITransportClient} from '../../core/interfaces/transport/index.js'
 import {formatError} from '../../utils/error-handler.js'
 import {getSandboxEnvironmentName, isSandboxEnvironment, isSandboxNetworkError} from '../../utils/sandbox-detector.js'
 
@@ -65,7 +65,7 @@ export class CurateUseCase implements ICurateUseCase {
       const taskId = randomUUID()
 
       // Send task:create request
-      await client.requestWithAck<TaskCreateResponse>(
+      await client.requestWithAck<TaskAck>(
         'task:create',
         {
           clientCwd: process.cwd(),
