@@ -1,26 +1,22 @@
 /**
- * TaskQueueManager - Manages in-memory task queues with concurrency control.
+ * TaskQueueManager - Manages in-memory task queue with FIFO sequential execution.
  *
  * Features:
- * - Separate queues for different task types (curate, query)
- * - Configurable concurrency limits per queue
+ * - Unified queue for all task types (curate, query)
+ * - Configurable concurrency limit (default: 1 for sequential execution)
  * - Task deduplication (same taskId can't be queued twice)
  * - Cancel tasks from queue before processing
- * - FIFO processing order
+ * - Strict FIFO processing order across all task types
  *
  * This class is extracted from agent-worker.ts to enable unit testing.
  */
 
-import type {TaskExecute} from '../../core/domain/transport/schemas.js'
+import type {TaskExecute, TaskType} from '../../core/domain/transport/schemas.js'
 
-import {CURATE_MAX_CONCURRENT, GLOBAL_MAX_CONCURRENT, QUERY_MAX_CONCURRENT} from './constants.js'
+import {isValidTaskType} from '../../utils/type-guards.js'
 
-export type TaskType = 'curate' | 'query'
-
-export interface QueueConfig {
-  /** Maximum concurrent tasks for this queue */
-  maxConcurrent: number
-}
+// Re-export TaskType for backward compatibility (unicorn/prefer-export-from)
+export type {TaskType} from '../../core/domain/transport/schemas.js'
 
 export interface TaskQueueStats {
   /** Number of tasks currently being processed */
@@ -32,12 +28,10 @@ export interface TaskQueueStats {
 }
 
 export interface TaskQueueManagerConfig {
-  curate: QueueConfig
-  /** Global max concurrent tasks across ALL queues (curate + query combined) */
-  globalMaxConcurrent?: number
+  /** Maximum concurrent tasks (default: 1 for sequential execution) */
+  maxConcurrent?: number
   /** Optional callback for executor errors (for logging/debugging) */
   onExecutorError?: (taskId: string, error: unknown) => void
-  query: QueueConfig
 }
 
 /**
@@ -58,28 +52,16 @@ export type CancelResult =
 export type TaskExecutor = (task: TaskExecute) => Promise<void>
 
 export class TaskQueueManager {
-  private activeCurateTasks = 0
-  private activeQueryTasks = 0
-  private readonly config: Omit<TaskQueueManagerConfig, 'globalMaxConcurrent' | 'onExecutorError'> & {
-    curate: QueueConfig
-    query: QueueConfig
-  }
-  private readonly curateQueue: TaskExecute[] = []
-  /** Global max concurrent tasks across all queues */
-  private readonly globalMaxConcurrent: number
+  private activeTasks = 0
   /** Maps taskId → taskType for tracking (replaces Set for type awareness) */
   private readonly knownTasks = new Map<string, TaskType>()
+  private readonly maxConcurrent: number
   private readonly onExecutorError?: (taskId: string, error: unknown) => void
-  private readonly queryQueue: TaskExecute[] = []
+  private readonly queue: TaskExecute[] = []
   private taskExecutor: TaskExecutor | undefined
 
-  constructor(config?: Partial<TaskQueueManagerConfig>) {
-    this.config = {
-      curate: {maxConcurrent: config?.curate?.maxConcurrent ?? CURATE_MAX_CONCURRENT},
-      // Query tasks use QUERY_MAX_CONCURRENT (default: 1) for sequential processing
-      query: {maxConcurrent: config?.query?.maxConcurrent ?? QUERY_MAX_CONCURRENT},
-    }
-    this.globalMaxConcurrent = config?.globalMaxConcurrent ?? GLOBAL_MAX_CONCURRENT
+  constructor(config?: TaskQueueManagerConfig) {
+    this.maxConcurrent = config?.maxConcurrent ?? 1
     this.onExecutorError = config?.onExecutorError
   }
 
@@ -88,23 +70,16 @@ export class TaskQueueManager {
    * Removes from queue if waiting, or marks for cancellation if processing.
    */
   cancel(taskId: string): CancelResult {
-    // Try to remove from curate queue
-    const curateIndex = this.curateQueue.findIndex((t) => t.taskId === taskId)
-    if (curateIndex !== -1) {
-      this.curateQueue.splice(curateIndex, 1)
+    // Try to remove from queue
+    const index = this.queue.findIndex((t) => t.taskId === taskId)
+    if (index !== -1) {
+      const task = this.queue[index]
+      this.queue.splice(index, 1)
       this.knownTasks.delete(taskId)
-      return {success: true, taskType: 'curate', wasQueued: true}
+      return {success: true, taskType: task.type, wasQueued: true}
     }
 
-    // Try to remove from query queue
-    const queryIndex = this.queryQueue.findIndex((t) => t.taskId === taskId)
-    if (queryIndex !== -1) {
-      this.queryQueue.splice(queryIndex, 1)
-      this.knownTasks.delete(taskId)
-      return {success: true, taskType: 'query', wasQueued: true}
-    }
-
-    // Check if task is currently processing - now we know the real taskType!
+    // Check if task is currently processing - get type from knownTasks
     const taskType = this.knownTasks.get(taskId)
     if (taskType) {
       // Task is processing - caller should handle cancellation via taskProcessor
@@ -119,10 +94,8 @@ export class TaskQueueManager {
    * Useful for testing or shutdown.
    */
   clear(): void {
-    this.curateQueue.length = 0
-    this.queryQueue.length = 0
-    this.activeCurateTasks = 0
-    this.activeQueryTasks = 0
+    this.queue.length = 0
+    this.activeTasks = 0
     this.knownTasks.clear()
   }
 
@@ -136,65 +109,48 @@ export class TaskQueueManager {
       return {reason: 'duplicate', success: false}
     }
 
-    // Validate task type
-    if (task.type !== 'curate' && task.type !== 'query') {
+    // Validate task type using type guard for compile-time safety
+    if (!isValidTaskType(task.type)) {
       return {reason: 'unknown_type', success: false}
     }
 
     // Register with type and enqueue
     this.knownTasks.set(task.taskId, task.type)
-
-    if (task.type === 'curate') {
-      this.curateQueue.push(task)
-      this.tryProcessNext('curate')
-      return {position: this.curateQueue.length, success: true}
-    }
-
-    this.queryQueue.push(task)
-    this.tryProcessNext('query')
-    return {position: this.queryQueue.length, success: true}
+    this.queue.push(task)
+    this.tryProcessNext()
+    return {position: this.queue.length, success: true}
   }
 
   /**
-   * Get total active task count across all queues.
+   * Get total active task count.
    */
   getActiveCount(): number {
-    return this.activeCurateTasks + this.activeQueryTasks
+    return this.activeTasks
   }
 
   /**
-   * Get all queue statistics.
-   */
-  getAllStats(): Record<TaskType, TaskQueueStats> {
-    return {
-      curate: this.getStats('curate'),
-      query: this.getStats('query'),
-    }
-  }
-
-  /**
-   * Get total queued task count across all queues.
+   * Get total queued task count.
    */
   getQueuedCount(): number {
-    return this.curateQueue.length + this.queryQueue.length
+    return this.queue.length
   }
 
   /**
-   * Get statistics for a specific queue.
+   * Get a copy of all queued tasks (not including active tasks).
+   * Useful for notifying clients before clearing the queue.
    */
-  getStats(type: TaskType): TaskQueueStats {
-    if (type === 'curate') {
-      return {
-        active: this.activeCurateTasks,
-        maxConcurrent: this.config.curate.maxConcurrent,
-        queued: this.curateQueue.length,
-      }
-    }
+  getQueuedTasks(): readonly TaskExecute[] {
+    return [...this.queue]
+  }
 
+  /**
+   * Get statistics for the queue.
+   */
+  getStats(): TaskQueueStats {
     return {
-      active: this.activeQueryTasks,
-      maxConcurrent: this.config.query.maxConcurrent,
-      queued: this.queryQueue.length,
+      active: this.activeTasks,
+      maxConcurrent: this.maxConcurrent,
+      queued: this.queue.length,
     }
   }
 
@@ -203,7 +159,7 @@ export class TaskQueueManager {
    * Used to prevent reinit during task execution.
    */
   hasActiveTasks(): boolean {
-    return this.activeCurateTasks > 0 || this.activeQueryTasks > 0
+    return this.activeTasks > 0
   }
 
   /**
@@ -217,11 +173,8 @@ export class TaskQueueManager {
    * Mark a task as completed (removes from known map).
    * Should be called by executor when task finishes.
    * Guards against underflow from duplicate/invalid calls.
-   *
-   * After completion, tries to process next task from BOTH queues
-   * since the global slot is now free.
    */
-  markCompleted(taskId: string, type: TaskType): void {
+  markCompleted(taskId: string): void {
     // Guard: only decrement if task was actually known (prevents underflow)
     if (!this.knownTasks.has(taskId)) {
       return
@@ -229,16 +182,11 @@ export class TaskQueueManager {
 
     this.knownTasks.delete(taskId)
 
-    if (type === 'curate' && this.activeCurateTasks > 0) {
-      this.activeCurateTasks--
-    } else if (type === 'query' && this.activeQueryTasks > 0) {
-      this.activeQueryTasks--
+    if (this.activeTasks > 0) {
+      this.activeTasks--
     }
 
-    // Try to process from both queues since global slot is now free
-    // Priority: same type first (FIFO fairness), then other type
-    this.tryProcessNext(type)
-    this.tryProcessNext(type === 'curate' ? 'query' : 'curate')
+    this.tryProcessNext()
   }
 
   /**
@@ -249,21 +197,17 @@ export class TaskQueueManager {
   setExecutor(executor: TaskExecutor): void {
     this.taskExecutor = executor
     // Process any tasks that were queued before executor was set
-    // Use queue length as upper bound to handle Infinity maxConcurrent safely
-    this.drainQueue('curate')
-    this.drainQueue('query')
+    this.drainQueue()
   }
 
   /**
-   * Process all possible tasks from a queue (up to maxConcurrent).
-   * Handles Infinity maxConcurrent safely by using queue length as bound.
+   * Process all possible tasks from the queue (up to maxConcurrent).
    */
-  private drainQueue(type: TaskType): void {
-    const state = this.getQueueState(type)
-    // Process up to queue length (safe for Infinity maxConcurrent)
-    const toProcess = Math.min(state.queue.length, state.config.maxConcurrent)
+  private drainQueue(): void {
+    // Process up to maxConcurrent tasks
+    const toProcess = Math.min(this.queue.length, this.maxConcurrent)
     for (let i = 0; i < toProcess; i++) {
-      this.tryProcessNext(type)
+      this.tryProcessNext()
     }
   }
 
@@ -271,7 +215,7 @@ export class TaskQueueManager {
   // Private Methods
   // ============================================================================
 
-  private executeTask(task: TaskExecute, type: TaskType): void {
+  private executeTask(task: TaskExecute): void {
     this.taskExecutor!(task)
       .catch((error: unknown) => {
         // Notify caller of executor error (for logging/debugging)
@@ -279,68 +223,29 @@ export class TaskQueueManager {
         this.onExecutorError?.(task.taskId, error)
       })
       .finally(() => {
-        this.markCompleted(task.taskId, type)
+        this.markCompleted(task.taskId)
       })
   }
 
   /**
-   * Get queue state for a task type (DRY helper).
+   * Try to process the next task from the queue.
    */
-  private getQueueState(type: TaskType): {
-    active: number
-    config: QueueConfig
-    incrementActive: () => void
-    queue: TaskExecute[]
-  } {
-    if (type === 'curate') {
-      return {
-        active: this.activeCurateTasks,
-        config: this.config.curate,
-        incrementActive: () => this.activeCurateTasks++,
-        queue: this.curateQueue,
-      }
-    }
-
-    return {
-      active: this.activeQueryTasks,
-      config: this.config.query,
-      incrementActive: () => this.activeQueryTasks++,
-      queue: this.queryQueue,
-    }
-  }
-
-  /**
-   * Try to process the next task from a specific queue.
-   * Unified method replacing tryProcessNextCurate/tryProcessNextQuery.
-   *
-   * Respects both per-queue limits AND global limit to ensure only
-   * one task runs at a time across all queues when globalMaxConcurrent=1.
-   */
-  private tryProcessNext(type: TaskType): void {
+  private tryProcessNext(): void {
     // Don't process without executor - tasks stay in queue
     if (!this.taskExecutor) {
       return
     }
 
-    // Check global concurrency limit first (ensures only 1 task runs at a time globally)
-    const totalActive = this.activeCurateTasks + this.activeQueryTasks
-    if (totalActive >= this.globalMaxConcurrent) {
+    if (this.activeTasks >= this.maxConcurrent) {
       return
     }
 
-    const state = this.getQueueState(type)
-
-    // Check per-queue concurrency limit
-    if (state.active >= state.config.maxConcurrent) {
+    if (this.queue.length === 0) {
       return
     }
 
-    if (state.queue.length === 0) {
-      return
-    }
-
-    const task = state.queue.shift()!
-    state.incrementActive()
-    this.executeTask(task, type)
+    const task = this.queue.shift()!
+    this.activeTasks++
+    this.executeTask(task)
   }
 }

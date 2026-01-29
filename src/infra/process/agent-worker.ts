@@ -44,7 +44,6 @@ import {FileProviderConfigStore} from '../storage/file-provider-config-store.js'
 import {ProviderKeychainStore} from '../storage/provider-keychain-store.js'
 import {createTokenStore} from '../storage/token-store.js'
 import {createTransportClient} from '../transport/transport-factory.js'
-import {CURATE_MAX_CONCURRENT} from './constants.js'
 import {createParentHeartbeat} from './parent-heartbeat.js'
 import {TaskQueueManager} from './task-queue-manager.js'
 
@@ -174,7 +173,10 @@ let isReinitializing = false
 let pollingTokenStore: ReturnType<typeof createTokenStore> | undefined
 let pollingConfigStore: ProjectConfigStore | undefined
 
-function getPollingStores(): {pollingConfigStore: ProjectConfigStore; pollingTokenStore: ReturnType<typeof createTokenStore>} {
+function getPollingStores(): {
+  pollingConfigStore: ProjectConfigStore
+  pollingTokenStore: ReturnType<typeof createTokenStore>
+} {
   pollingTokenStore ??= createTokenStore()
   pollingConfigStore ??= new ProjectConfigStore()
   return {pollingConfigStore, pollingTokenStore}
@@ -200,19 +202,38 @@ let eventForwarders: EventForwarder[] = []
 
 /**
  * Task queue manager handles:
- * - Separate queues for curate and query tasks
- * - Concurrency limits (max 1 concurrent per type)
+ * - Unified queue for all task types (curate, query)
+ * - Sequential FIFO execution (max 1 concurrent)
  * - Task deduplication (same taskId can't be queued twice)
  * - Cancel tasks from queue before processing
- * - FIFO processing order
  */
 const taskQueueManager = new TaskQueueManager({
-  curate: {maxConcurrent: CURATE_MAX_CONCURRENT},
+  maxConcurrent: 1, // Sequential FIFO execution for all tasks
   onExecutorError(taskId, error) {
     agentLog(`Executor error for task ${taskId}: ${error}`)
   },
-  query: {maxConcurrent: Infinity},
 })
+
+/**
+ * Notify clients about dropped tasks and clear the queue.
+ * Extracted to avoid DRY violation across reinit, stop, and shutdown paths.
+ */
+function notifyQueuedTasksAboutDropAndClear(reason: string): void {
+  const queuedTasks = taskQueueManager.getQueuedTasks()
+  if (queuedTasks.length > 0) {
+    const error = serializeTaskError(new AgentNotInitializedError(`Task dropped - ${reason}`))
+    if (transportClient) {
+      agentLog(`Notifying ${queuedTasks.length} queued task(s): ${reason}`)
+      for (const task of queuedTasks) {
+        transportClient.request('task:error', {error, taskId: task.taskId}).catch(logTransportError)
+      }
+    } else {
+      agentLog(`Cannot notify ${queuedTasks.length} queued task(s): no transport client`)
+    }
+  }
+
+  taskQueueManager.clear()
+}
 
 /**
  * Get Transport port from environment.
@@ -440,7 +461,7 @@ const TASK_EXECUTION_TIMEOUT_MS = 5 * 60 * 1000
 function setupTaskExecutor(): void {
   taskQueueManager.setExecutor(async (task: TaskExecute) => {
     const {taskId, type} = task
-    const stats = taskQueueManager.getStats(type)
+    const stats = taskQueueManager.getStats()
     agentLog(`Processing task ${taskId} (${type}), ${stats.queued} queued, ${stats.active} active`)
 
     // Fix #2: Lazy initialization - if agent not ready, try to initialize now
@@ -1008,7 +1029,7 @@ async function startAgent(): Promise<void> {
     const result = taskQueueManager.enqueue(data)
 
     if (result.success) {
-      const stats = taskQueueManager.getStats(data.type)
+      const stats = taskQueueManager.getStats()
       agentLog(`Task ${data.taskId} (${data.type}) queued at position ${result.position}, ${stats.queued} in queue`)
     } else if (result.reason === 'duplicate') {
       agentLog(`Task ${data.taskId} already known (duplicate), ignoring`)
@@ -1151,8 +1172,8 @@ async function stopCipherAgent(): Promise<void> {
   // Cleanup event forwarders
   cleanupAgentEventForwarding()
 
-  // Clear task queue (can't process without agent)
-  taskQueueManager.clear()
+  // Notify and clear task queue (can't process without agent)
+  notifyQueuedTasksAboutDropAndClear('agent stopped')
 
   // Stop CipherAgent
   if (cipherAgent) {
@@ -1443,8 +1464,8 @@ async function stopAgent(): Promise<void> {
     stopCredentialsPolling()
     parentHeartbeat?.stop()
 
-    // Clear task queue
-    taskQueueManager.clear()
+    // Notify and clear task queue
+    notifyQueuedTasksAboutDropAndClear('agent shutting down')
 
     // Cleanup event forwarders before stopping agent
     cleanupAgentEventForwarding()

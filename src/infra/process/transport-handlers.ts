@@ -70,6 +70,7 @@ import {
   TransportTaskEventNames,
 } from '../../core/domain/transport/schemas.js'
 import {eventLog, transportLog} from '../../utils/process-logger.js'
+import {isValidTaskType} from '../../utils/type-guards.js'
 
 // ============================================================================
 // Types
@@ -87,14 +88,6 @@ type TaskInfo = {
   files?: string[]
   taskId: string
   type: string
-}
-
-/**
- * Type guard for valid task types.
- * Replaces unsafe `as` assertion per CLAUDE.md standards.
- */
-function isValidTaskType(type: string): type is 'curate' | 'query' {
-  return type === 'curate' || type === 'query'
 }
 
 type LlmEventName = (typeof TransportLlmEventList)[number]

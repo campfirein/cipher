@@ -45,7 +45,7 @@ function parseJsonAsRecord(content: string): Record<string, unknown> {
  * - Safe uninstall: Only removes ByteRover hooks by command match
  */
 export class HookConnector implements IConnector {
-  readonly type: ConnectorType = 'hook' as const
+  readonly connectorType: ConnectorType = 'hook'
   private readonly fileService: IFileService
   private readonly projectRoot: string
   private readonly supportedAgents: Agent[]
@@ -54,7 +54,7 @@ export class HookConnector implements IConnector {
     this.fileService = options.fileService
     this.projectRoot = options.projectRoot
     this.supportedAgents = Object.entries(AGENT_CONNECTOR_CONFIG)
-      .filter(([_, config]) => config.supported.includes(this.type))
+      .filter(([_, config]) => config.supported.includes(this.connectorType))
       .map(([agent]) => agent as Agent)
   }
 
@@ -143,7 +143,7 @@ export class HookConnector implements IConnector {
   }
 
   isSupported(agent: Agent): agent is HookSupportedAgent {
-    return AGENT_CONNECTOR_CONFIG[agent].supported.includes(this.type)
+    return AGENT_CONNECTOR_CONFIG[agent].supported.includes(this.connectorType)
   }
 
   async status(agent: Agent): Promise<ConnectorStatus> {
