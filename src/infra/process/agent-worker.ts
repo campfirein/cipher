@@ -637,7 +637,7 @@ async function stopExistingAgentForReinit(): Promise<void> {
 async function prepareForReinit(): Promise<void> {
   // Drain task queue before reinit to prevent tasks executing with stale processor
   agentLog('Draining task queue before reinit...')
-  taskQueueManager.clear() // Clear queued (not yet started) tasks
+  notifyQueuedTasksAboutDropAndClear('credential/config change')
 
   // Wait for active tasks to complete (with timeout)
   await waitForActiveTasksToComplete(10_000)
