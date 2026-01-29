@@ -33,11 +33,20 @@ export class CurateUseCase implements ICurateUseCase {
 
   public async run({context, files, verbose = false}: CurateUseCaseRunOptions): Promise<void> {
     await this.trackingService.track('mem:curate', {status: 'started'})
-    if (!context) {
-      this.terminal.log('Context argument is required.')
-      this.terminal.log('Usage: brv curate "your context here"')
-      return
+
+    const hasContext = Boolean(context?.trim())
+    const hasFiles = Boolean(files?.length)
+
+    if (!hasContext && !hasFiles) {
+      this.terminal.log('Either a context argument or file reference is required.')
+      this.terminal.log('Usage:')
+      this.terminal.log('  brv curate "your context here"')
+      this.terminal.log('  brv curate @src/file.ts')
+      this.terminal.log('  brv curate "context with files" @src/file.ts')
+      return;
     }
+
+    const resolvedContent = context?.trim() ? context : ''
 
     let client: ITransportClient | undefined
 
@@ -60,7 +69,7 @@ export class CurateUseCase implements ICurateUseCase {
 
       await client.request<TaskCreateResponse>('task:create', {
         clientCwd: process.cwd(),
-        content: context,
+        content: resolvedContent,
         ...(files?.length ? {files} : {}),
         taskId,
         type: 'curate',

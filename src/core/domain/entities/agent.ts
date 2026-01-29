@@ -5,6 +5,7 @@ import type {ConnectorType} from './connector-type.js'
  */
 export const AGENT_VALUES = [
   'Amp',
+  'Antigravity',
   'Augment Code',
   'Claude Code',
   'Cline',
@@ -44,6 +45,10 @@ export const AGENT_CONNECTOR_CONFIG: Record<Agent, AgentConnectorConfig> = {
   Amp: {
     default: 'mcp',
     supported: ['rules', 'mcp'],
+  },
+  Antigravity: {
+    default: 'rules',
+    supported: ['rules'],
   },
   'Augment Code': {
     default: 'mcp',
