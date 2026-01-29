@@ -143,17 +143,17 @@ All have `toJson()`/`fromJson()`, immutable readonly properties
 - `AuthToken` - `accessToken`, `refreshToken`, `sessionKey`, `userId`, `userEmail`, `expiresAt`. `fromJson()` returns `undefined` for old tokens (forces re-login)
 - `OAuthTokenData` - OAuth response, no user info. Used before user fetch in login
 - `User`, `Team`, `Space` - `getDisplayName()` methods
-- `Agent` - 18 supported agents with connector configs and defaults (Amp, Augment Code, Claude Code, Cline, Codex, Cursor, Gemini CLI, Github Copilot, Junie, Kilo Code, Kiro, Qoder, Qwen Code, Roo Code, Trae.ai, Warp, Windsurf, Zed)
+- `Agent` - 19 supported agents with connector configs and defaults (Amp, Antigravity, Augment Code, Claude Code, Cline, Codex, Cursor, Gemini CLI, Github Copilot, Junie, Kilo Code, Kiro, Qoder, Qwen Code, Roo Code, Trae.ai, Warp, Windsurf, Zed)
   - `AGENT_CONNECTOR_CONFIG` maps each agent to default connector and supported types
-  - Claude Code default: `skill` (was `hook`)
-  - Cursor default: `skill` (new)
+  - Antigravity default: `rules` (rules-only)
+  - Claude Code default: `skill`
+  - Cursor default: `skill`
   - All others default: `mcp`
 - `ConnectorType` - 4 connector types: `'rules' | 'hook' | 'mcp' | 'skill'`
 - `BrvConfig` - `.brv/config.json` with version validation
 - `GlobalConfig` - User-level config with device ID
 - `Event` - Tracking event definitions
 - `CogitSnapshot`, `CogitPushContext` - CoGit sync entities
-- `Parser` - Centralized parser types (raw + clean layers)
 - `Playbook` - Knowledge repository with bullets and sections
 - `PresignedUrl` - Blob storage presigned URLs
 
@@ -168,12 +168,13 @@ All have `toJson()`/`fromJson()`, immutable readonly properties
 
 - `llm/` - Multi-provider support (ByteRover internal API, OpenRouter proxy), formatters (Claude/Gemini), tokenizers, context compression, streaming with thinking visualization
 - `tools/implementations/` - 23 tool implementations:
-  - File: `read-file` (supports PDF text extraction), `write-file`, `edit-file`, `list-directory`, `glob-files`, `grep-content`
+  - File: `read-file` (supports PDF text extraction with pagination), `write-file`, `edit-file`, `list-directory`, `glob-files`, `grep-content`
   - Bash: `bash-exec`, `bash-output`, `kill-process`
   - Memory: `read-memory`, `write-memory`, `edit-memory`, `delete-memory`, `list-memories`
   - Knowledge: `create-knowledge-topic`, `search-knowledge`
   - Todos: `read-todos`, `write-todos`
   - Other: `curate`, `task`, `batch`, `search-history`, `spec-analyze`
+- `file-system/pdf-extractor.ts` - PDF text extraction (100 page default, 200 max)
 - `tools/policy-engine.ts` - Tool execution policy (ALLOW/DENY)
 - `session/` - Chat session management
 - `memory/` - Memory persistence
