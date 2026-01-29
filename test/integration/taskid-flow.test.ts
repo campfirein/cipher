@@ -1,8 +1,8 @@
+import {TransportClient} from '@campfirein/brv-transport-client'
 import {expect} from 'chai'
 import {randomUUID} from 'node:crypto'
 
 import {TransportHandlers} from '../../src/server/infra/process/transport-handlers.js'
-import {SocketIOTransportClient} from '../../src/server/infra/transport/socket-io-transport-client.js'
 import {SocketIOTransportServer} from '../../src/server/infra/transport/socket-io-transport-server.js'
 
 // Helper for delays
@@ -25,8 +25,8 @@ const delay = (ms: number): Promise<void> =>
 describe('TaskId Integration Flow', () => {
   let server: SocketIOTransportServer
   let handlers: TransportHandlers
-  let mockAgent: SocketIOTransportClient
-  let client: SocketIOTransportClient
+  let mockAgent: TransportClient
+  let client: TransportClient
   const port = 9800
 
   beforeEach(async () => {
@@ -39,14 +39,14 @@ describe('TaskId Integration Flow', () => {
     handlers.setup() // IMPORTANT: Register all handlers
 
     // Connect mock Agent
-    mockAgent = new SocketIOTransportClient()
+    mockAgent = new TransportClient()
     await mockAgent.connect(`http://127.0.0.1:${port}`)
 
     // Register as Agent
-    await mockAgent.request('agent:register', {})
+    await mockAgent.requestWithAck('agent:register', {})
 
     // Broadcast agent status (required for pre-task check after Fix 5.1)
-    await mockAgent.request('agent:status:changed', {
+    await mockAgent.requestWithAck('agent:status:changed', {
       activeTasks: 0,
       hasAuth: true,
       hasConfig: true,
@@ -55,7 +55,7 @@ describe('TaskId Integration Flow', () => {
     })
 
     // Connect client (simulating TUI or CLI)
-    client = new SocketIOTransportClient()
+    client = new TransportClient()
     await client.connect(`http://127.0.0.1:${port}`)
 
     // Join broadcast room for TUI-style monitoring
@@ -89,7 +89,7 @@ describe('TaskId Integration Flow', () => {
 
       // Client generates taskId and creates task
       const taskId = randomUUID()
-      const response = await client.request<{taskId: string}>('task:create', {
+      const response = await client.requestWithAck<{taskId: string}>('task:create', {
         content: 'Test content',
         taskId,
         type: 'curate',
@@ -110,7 +110,7 @@ describe('TaskId Integration Flow', () => {
 
     it('should route Agent events back to client using taskId', async () => {
       // Create a NEW client NOT in broadcast-room to test direct routing only
-      const directClient = new SocketIOTransportClient()
+      const directClient = new TransportClient()
       await directClient.connect(`http://127.0.0.1:${port}`)
       // NOTE: NOT joining broadcast-room - testing direct routing only
 
@@ -136,7 +136,7 @@ describe('TaskId Integration Flow', () => {
 
       // Create task with client-generated taskId
       const taskId = randomUUID()
-      await directClient.request<{taskId: string}>('task:create', {
+      await directClient.requestWithAck<{taskId: string}>('task:create', {
         content: 'Test',
         taskId,
         type: 'query',
@@ -146,20 +146,20 @@ describe('TaskId Integration Flow', () => {
       await delay(5)
 
       // Simulate Agent sending events (as it would in real flow)
-      await mockAgent.request('llmservice:thinking', {sessionId: 'sess-1', taskId})
-      await mockAgent.request('llmservice:chunk', {
+      await mockAgent.requestWithAck('llmservice:thinking', {sessionId: 'sess-1', taskId})
+      await mockAgent.requestWithAck('llmservice:chunk', {
         content: 'Processing...',
         isComplete: false,
         sessionId: 'sess-1',
         taskId,
         type: 'text',
       })
-      await mockAgent.request('llmservice:response', {
+      await mockAgent.requestWithAck('llmservice:response', {
         content: 'Done!',
         sessionId: 'sess-1',
         taskId,
       })
-      await mockAgent.request('task:completed', {result: 'Success', taskId})
+      await mockAgent.requestWithAck('task:completed', {result: 'Success', taskId})
 
       // Wait for events to propagate
       await delay(5)
@@ -174,7 +174,7 @@ describe('TaskId Integration Flow', () => {
 
     it('should isolate events between concurrent tasks', async () => {
       // Create second client
-      const client2 = new SocketIOTransportClient()
+      const client2 = new TransportClient()
       await client2.connect(`http://127.0.0.1:${port}`)
       await client2.joinRoom('broadcast-room')
 
@@ -194,12 +194,12 @@ describe('TaskId Integration Flow', () => {
       // Create two tasks from different clients with client-generated taskIds
       const taskId1 = randomUUID()
       const taskId2 = randomUUID()
-      await client.request<{taskId: string}>('task:create', {
+      await client.requestWithAck<{taskId: string}>('task:create', {
         content: 'Task 1',
         taskId: taskId1,
         type: 'curate',
       })
-      await client2.request<{taskId: string}>('task:create', {
+      await client2.requestWithAck<{taskId: string}>('task:create', {
         content: 'Task 2',
         taskId: taskId2,
         type: 'curate',
@@ -208,25 +208,25 @@ describe('TaskId Integration Flow', () => {
       await delay(5)
 
       // Simulate Agent sending interleaved events for both tasks
-      await mockAgent.request('llmservice:chunk', {
+      await mockAgent.requestWithAck('llmservice:chunk', {
         content: 'Task1-msg1',
         sessionId: 's1',
         taskId: taskId1,
         type: 'text',
       })
-      await mockAgent.request('llmservice:chunk', {
+      await mockAgent.requestWithAck('llmservice:chunk', {
         content: 'Task2-msg1',
         sessionId: 's2',
         taskId: taskId2,
         type: 'text',
       })
-      await mockAgent.request('llmservice:chunk', {
+      await mockAgent.requestWithAck('llmservice:chunk', {
         content: 'Task1-msg2',
         sessionId: 's1',
         taskId: taskId1,
         type: 'text',
       })
-      await mockAgent.request('llmservice:chunk', {
+      await mockAgent.requestWithAck('llmservice:chunk', {
         content: 'Task2-msg2',
         sessionId: 's2',
         taskId: taskId2,
@@ -255,7 +255,7 @@ describe('TaskId Integration Flow', () => {
 
     it('should handle task cancellation with taskId', async () => {
       // Create a client NOT in broadcast-room for cleaner testing
-      const cancelClient = new SocketIOTransportClient()
+      const cancelClient = new TransportClient()
       await cancelClient.connect(`http://127.0.0.1:${port}`)
 
       let cancelledTaskId: string | undefined
@@ -268,14 +268,14 @@ describe('TaskId Integration Flow', () => {
       const handleCancelRequest = (data: unknown): void => {
         const d = data as {taskId: string}
         // Simulate Agent confirming cancellation (fire and forget)
-        mockAgent.request('task:cancelled', {taskId: d.taskId}).catch(() => {})
+        mockAgent.requestWithAck('task:cancelled', {taskId: d.taskId}).catch(() => {})
       }
 
       mockAgent.on('task:cancel', handleCancelRequest)
 
       // Create and immediately cancel a task with client-generated taskId
       const taskId = randomUUID()
-      await cancelClient.request<{taskId: string}>('task:create', {
+      await cancelClient.requestWithAck<{taskId: string}>('task:create', {
         content: 'Cancel me',
         taskId,
         type: 'curate',
@@ -284,7 +284,7 @@ describe('TaskId Integration Flow', () => {
       await delay(5)
 
       // Cancel the task
-      await cancelClient.request('task:cancel', {taskId})
+      await cancelClient.requestWithAck('task:cancel', {taskId})
 
       await delay(5)
 
@@ -304,7 +304,7 @@ describe('TaskId Integration Flow', () => {
 
       // Create task with client-generated taskId
       const taskId = randomUUID()
-      await client.request<{taskId: string}>('task:create', {
+      await client.requestWithAck<{taskId: string}>('task:create', {
         content: 'Error task',
         taskId,
         type: 'query',
@@ -313,7 +313,7 @@ describe('TaskId Integration Flow', () => {
       await delay(5)
 
       // Simulate Agent sending error
-      await mockAgent.request('task:error', {
+      await mockAgent.requestWithAck('task:error', {
         error: {message: 'Something went wrong', name: 'TestError'},
         taskId,
       })
@@ -329,7 +329,7 @@ describe('TaskId Integration Flow', () => {
   describe('Concurrent tasks: 3 curate + 2 query', () => {
     it('should handle concurrent curate and query tasks with correct taskId isolation', async () => {
       // Create a client NOT in broadcast-room for cleaner testing
-      const stressClient = new SocketIOTransportClient()
+      const stressClient = new TransportClient()
       await stressClient.connect(`http://127.0.0.1:${port}`)
 
       const curateTasks: Array<{taskId: string; type: 'curate'}> = []
@@ -350,7 +350,7 @@ describe('TaskId Integration Flow', () => {
       for (let i = 0; i < 3; i++) {
         const taskId = randomUUID()
         // eslint-disable-next-line no-await-in-loop
-        await stressClient.request<{taskId: string}>('task:create', {
+        await stressClient.requestWithAck<{taskId: string}>('task:create', {
           content: `Curate ${i}`,
           taskId,
           type: 'curate',
@@ -362,7 +362,7 @@ describe('TaskId Integration Flow', () => {
       for (let i = 0; i < 2; i++) {
         const taskId = randomUUID()
         // eslint-disable-next-line no-await-in-loop
-        await stressClient.request<{taskId: string}>('task:create', {
+        await stressClient.requestWithAck<{taskId: string}>('task:create', {
           content: `Query ${i}`,
           taskId,
           type: 'query',
@@ -378,7 +378,7 @@ describe('TaskId Integration Flow', () => {
       for (let round = 0; round < 2; round++) {
         for (const task of allTasks) {
           // eslint-disable-next-line no-await-in-loop
-          await mockAgent.request('llmservice:chunk', {
+          await mockAgent.requestWithAck('llmservice:chunk', {
             content: `${task.type}-${task.taskId.slice(0, 8)}-r${round}`,
             sessionId: `s-${task.taskId.slice(0, 8)}`,
             taskId: task.taskId,

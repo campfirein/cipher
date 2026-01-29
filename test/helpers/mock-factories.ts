@@ -16,6 +16,7 @@
  * - But the cast is centralized and documented, not scattered throughout tests
  */
 
+import type {ConnectionResult, ITransportClient} from '@campfirein/brv-transport-client'
 import type {SinonSandbox, SinonStub} from 'sinon'
 
 import type {CipherAgentServices} from '../../src/agent/core/interfaces/cipher-services.js'
@@ -34,8 +35,6 @@ import type {SystemPromptManager} from '../../src/agent/infra/system-prompt/syst
 import type {ToolManager} from '../../src/agent/infra/tools/tool-manager.js'
 import type {ToolProvider} from '../../src/agent/infra/tools/tool-provider.js'
 import type {ITerminal} from '../../src/server/core/interfaces/services/i-terminal.js'
-import type {ITransportClient} from '../../src/server/core/interfaces/transport/i-transport-client.js'
-import type {ConnectionResult} from '../../src/server/infra/transport/transport-client-factory.js'
 
 /**
  * Type aliases for service mocks - balances type safety with readability.
@@ -491,7 +490,8 @@ export function createMockTransportClient(
     on: onImpl,
     once: sandbox.stub(),
     onStateChange: sandbox.stub().returns(() => {}),
-    request: sandbox.stub().resolves({taskId: 'mock-task-id'}),
+    request: sandbox.stub() as unknown as ITransportClient['request'],
+    requestWithAck: sandbox.stub().resolves({taskId: 'mock-task-id'}),
     ...overrides,
   }
 

@@ -1,3 +1,4 @@
+import {TransportClient} from '@campfirein/brv-transport-client'
 import chalk from 'chalk'
 import {join} from 'node:path'
 
@@ -13,7 +14,6 @@ import type {IStatusUseCase} from '../../core/interfaces/usecase/i-status-use-ca
 import {BRV_DIR, CONTEXT_TREE_DIR} from '../../constants.js'
 import {getErrorMessage} from '../../utils/error-helpers.js'
 import {FileInstanceDiscovery} from '../instance/file-instance-discovery.js'
-import {SocketIOTransportClient} from '../transport/socket-io-transport-client.js'
 
 export interface StatusUseCaseOptions {
   contextTreeService: IContextTreeService
@@ -158,7 +158,7 @@ export class StatusUseCase implements IStatusUseCase {
       this.terminal.log(`MCP Status: Instance found (PID: ${instance.pid}, Port: ${instance.port})`)
 
       // Step 2: Connect to instance
-      const client = new SocketIOTransportClient()
+      const client = new TransportClient()
       const url = instance.getTransportUrl()
 
       try {

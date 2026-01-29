@@ -1,10 +1,11 @@
+import type {ITransportClient} from '@campfirein/brv-transport-client'
+
 import {render} from 'ink'
 
 import type {ITokenStore} from '../server/core/interfaces/auth/i-token-store.js'
 import type {ITrackingService} from '../server/core/interfaces/services/i-tracking-service.js'
 import type {IOnboardingPreferenceStore} from '../server/core/interfaces/storage/i-onboarding-preference-store.js'
 import type {IProjectConfigStore} from '../server/core/interfaces/storage/i-project-config-store.js'
-import type {ITransportClient} from '../server/core/interfaces/transport/i-transport-client.js'
 
 import {App} from './app.js'
 import {AppProviders} from './providers/app-providers.js'

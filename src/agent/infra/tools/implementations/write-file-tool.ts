@@ -10,7 +10,7 @@ import {ToolName} from '../../../core/domain/tools/constants.js'
 /**
  * Input schema for write file tool.
  */
-const WriteFileInputSchema = z  
+const WriteFileInputSchema = z
   .object({
     content: z.string().describe('Content to write to the file'),
     createDirs: z
@@ -43,8 +43,7 @@ type WriteFileInput = z.infer<typeof WriteFileInputSchema>
  */
 export function createWriteFileTool(fileSystemService: IFileSystem): Tool {
   return {
-    description:
-      'Write content to a file. Overwrites existing files. Can optionally create parent directories.',
+    description: 'Write content to a file. Overwrites existing files. Can optionally create parent directories.',
     async execute(input: unknown, _context?: ToolExecutionContext) {
       const {content, createDirs, encoding, filePath} = input as WriteFileInput
 

@@ -1,15 +1,15 @@
-import React, {createContext, useCallback, useContext, useEffect, useMemo, useState} from 'react'
-
 import type {
-  LlmResponseEvent,
-  LlmToolCallEvent,
-  LlmToolResultEvent,
-  TaskCompletedEvent,
+  LlmResponse,
+  LlmToolCall,
+  LlmToolResult,
+  TaskCompleted,
   TaskCreated,
   TaskErrorData,
-  TaskStartedEvent,
+  TaskStarted,
   ToolErrorType,
-} from '../../server/core/domain/transport/schemas.js'
+} from '@campfirein/brv-transport-client'
+
+import React, {createContext, useCallback, useContext, useEffect, useMemo, useState} from 'react'
 
 import {TaskStats} from '../types/ui.js'
 import {useTransport} from './transport-context.js'
@@ -126,7 +126,7 @@ export function TasksProvider({children}: {children: React.ReactNode}): React.Re
     }
 
     // Handle task:started - Update status and timestamp
-    const handleTaskStarted = (data: TaskStartedEvent) => {
+    const handleTaskStarted = (data: TaskStarted) => {
       setTasks((prev) => {
         const task = prev.get(data.taskId)
         if (!task) return prev
@@ -142,7 +142,7 @@ export function TasksProvider({children}: {children: React.ReactNode}): React.Re
     }
 
     // Handle task:completed - Set result and completion time
-    const handleTaskCompleted = (data: TaskCompletedEvent) => {
+    const handleTaskCompleted = (data: TaskCompleted) => {
       setTasks((prev) => {
         const task = prev.get(data.taskId)
         if (!task) return prev
@@ -191,13 +191,17 @@ export function TasksProvider({children}: {children: React.ReactNode}): React.Re
     }
 
     // Handle llmservice:toolCall - Add new tool call with 'running' status
-    const handleToolCall = (data: LlmToolCallEvent) => {
+    const handleToolCall = (data: LlmToolCall) => {
+      // Guard: taskId is optional in package types but required for transport events
+      const {taskId} = data
+      if (!taskId) return
+
       setTasks((prev) => {
-        const task = prev.get(data.taskId)
+        const task = prev.get(taskId)
         if (!task) return prev
 
         const newTasks = new Map(prev)
-        newTasks.set(data.taskId, {
+        newTasks.set(taskId, {
           ...task,
           sessionId: data.sessionId,
           toolCalls: [
@@ -216,9 +220,13 @@ export function TasksProvider({children}: {children: React.ReactNode}): React.Re
     }
 
     // Handle llmservice:toolResult - Update tool call status
-    const handleToolResult = (data: LlmToolResultEvent) => {
+    const handleToolResult = (data: LlmToolResult) => {
+      // Guard: taskId is optional in package types but required for transport events
+      const {taskId} = data
+      if (!taskId) return
+
       setTasks((prev) => {
-        const task = prev.get(data.taskId)
+        const task = prev.get(taskId)
         if (!task) return prev
 
         // Find the tool call to update (match by callId if present, otherwise by toolName and most recent)
@@ -236,7 +244,7 @@ export function TasksProvider({children}: {children: React.ReactNode}): React.Re
         }
 
         const newTasks = new Map(prev)
-        newTasks.set(data.taskId, {
+        newTasks.set(taskId, {
           ...task,
           toolCalls: updatedToolCalls,
         })
@@ -245,13 +253,17 @@ export function TasksProvider({children}: {children: React.ReactNode}): React.Re
     }
 
     // Handle llmservice:response - Update task content from LLM response
-    const handleResponse = (data: LlmResponseEvent) => {
+    const handleResponse = (data: LlmResponse) => {
+      // Guard: taskId is optional in package types but required for transport events
+      const {taskId} = data
+      if (!taskId) return
+
       setTasks((prev) => {
-        const task = prev.get(data.taskId)
+        const task = prev.get(taskId)
         if (!task) return prev
 
         const newTasks = new Map(prev)
-        newTasks.set(data.taskId, {
+        newTasks.set(taskId, {
           ...task,
           result: data.content,
           sessionId: data.sessionId,
@@ -263,13 +275,13 @@ export function TasksProvider({children}: {children: React.ReactNode}): React.Re
     // Subscribe to events
     unsubscribers.push(
       client.on<TaskCreated>('task:created', handleTaskCreated),
-      client.on<TaskStartedEvent>('task:started', handleTaskStarted),
-      client.on<TaskCompletedEvent>('task:completed', handleTaskCompleted),
+      client.on<TaskStarted>('task:started', handleTaskStarted),
+      client.on<TaskCompleted>('task:completed', handleTaskCompleted),
       client.on<{error: TaskErrorData; taskId: string}>('task:error', handleTaskError),
       client.on<{taskId: string}>('task:cancelled', handleTaskCancelled),
-      client.on<LlmToolCallEvent>('llmservice:toolCall', handleToolCall),
-      client.on<LlmToolResultEvent>('llmservice:toolResult', handleToolResult),
-      client.on<LlmResponseEvent>('llmservice:response', handleResponse),
+      client.on<LlmToolCall>('llmservice:toolCall', handleToolCall),
+      client.on<LlmToolResult>('llmservice:toolResult', handleToolResult),
+      client.on<LlmResponse>('llmservice:response', handleResponse),
     )
 
     // Cleanup subscriptions

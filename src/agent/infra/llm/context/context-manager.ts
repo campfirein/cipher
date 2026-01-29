@@ -188,7 +188,7 @@ export class ContextManager<T> {
       try {
         await this.persistHistory()
       } catch (error) {
-        this.logger.error('Failed to persist history after assistant message', { error, sessionId: this.sessionId })
+        this.logger.error('Failed to persist history after assistant message', {error, sessionId: this.sessionId})
       }
     })
   }
@@ -210,7 +210,7 @@ export class ContextManager<T> {
       try {
         await this.persistHistory()
       } catch (error) {
-        this.logger.error('Failed to persist history after system message', { error, sessionId: this.sessionId })
+        this.logger.error('Failed to persist history after system message', {error, sessionId: this.sessionId})
       }
     })
   }
@@ -327,7 +327,7 @@ export class ContextManager<T> {
     try {
       await this.persistHistory()
     } catch (error) {
-      this.logger.error('Failed to persist history after user message', { error, sessionId: this.sessionId })
+      this.logger.error('Failed to persist history after user message', {error, sessionId: this.sessionId})
     }
   }
 

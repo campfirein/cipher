@@ -1,7 +1,7 @@
+import type {TaskExecute} from '@campfirein/brv-transport-client'
+
 import {expect} from 'chai'
 import * as sinon from 'sinon'
-
-import type {TaskExecute} from '../../../../src/server/core/domain/transport/schemas.js'
 
 import {TaskQueueManager} from '../../../../src/server/infra/process/task-queue-manager.js'
 

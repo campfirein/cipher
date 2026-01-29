@@ -1,9 +1,7 @@
+import {connectToTransport, type ITransportClient} from '@campfirein/brv-transport-client'
 import {McpServer} from '@modelcontextprotocol/sdk/server/mcp.js'
 import {StdioServerTransport} from '@modelcontextprotocol/sdk/server/stdio.js'
 
-import type {ITransportClient} from '../../core/interfaces/transport/index.js'
-
-import {createTransportClientFactory} from '../transport/transport-client-factory.js'
 import {registerBrvCurateTool, registerBrvQueryTool} from './tools/index.js'
 
 export interface McpServerConfig {
@@ -73,19 +71,20 @@ export class ByteRoverMcpServer {
     this.log('Starting MCP server...')
     this.log(`Working directory: ${this.config.workingDirectory}`)
 
-    // Connect to running brv instance
-    const factory = createTransportClientFactory()
+    // Connect to running brv instance using modern API
     this.log('Connecting to brv instance...')
 
-    let connectionResult
+    let client
+    let projectRoot
     try {
-      connectionResult = await factory.connect(this.config.workingDirectory)
+      const result = await connectToTransport(this.config.workingDirectory)
+      client = result.client
+      projectRoot = result.projectRoot
     } catch (error) {
       this.log(`Connection failed: ${error instanceof Error ? error.message : String(error)}`)
       throw error
     }
 
-    const {client, projectRoot} = connectionResult
     this.client = client
 
     this.log(`Connected to brv instance at ${projectRoot}`)
@@ -146,8 +145,8 @@ export class ByteRoverMcpServer {
 
     this.reconnectTimer = setTimeout(async () => {
       try {
-        const factory = createTransportClientFactory()
-        const result = await factory.connect(this.config.workingDirectory)
+        // Use modern connectToTransport API for reconnection
+        const result = await connectToTransport(this.config.workingDirectory)
 
         // Disconnect old client if it exists
         if (this.client) {

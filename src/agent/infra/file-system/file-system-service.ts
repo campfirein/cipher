@@ -1,7 +1,7 @@
-import { glob } from 'glob'
-import { spawn } from 'node:child_process'
+import {glob} from 'glob'
+import {spawn} from 'node:child_process'
 import fs from 'node:fs/promises'
-import { EOL } from 'node:os'
+import {EOL} from 'node:os'
 import path from 'node:path'
 
 import type {
@@ -24,9 +24,9 @@ import type {
   WriteFileOptions,
   WriteResult,
 } from '../../core/domain/file-system/types.js'
-import type { IFileSystem } from '../../core/interfaces/i-file-system.js'
+import type {IFileSystem} from '../../core/interfaces/i-file-system.js'
 
-import { getErrorMessage } from '../../../server/utils/error-helpers.js'
+import {getErrorMessage} from '../../../server/utils/error-helpers.js'
 import {
   DirectoryNotFoundError,
   EditOperationError,
@@ -46,10 +46,10 @@ import {
   StringNotUniqueError,
   WriteOperationError,
 } from '../../core/domain/errors/file-system-error.js'
-import { getMimeType, isBinaryFile, isMediaFile, isPdfFile } from './binary-utils.js'
-import { createGitignoreFilter } from './gitignore-filter.js'
-import { collectFileMetadata, escapeIfExactMatch, extractPaths, sortFilesByRecency } from './glob-utils.js'
-import { PathValidator } from './path-validator.js'
+import {getMimeType, isBinaryFile, isMediaFile, isPdfFile} from './binary-utils.js'
+import {createGitignoreFilter} from './gitignore-filter.js'
+import {collectFileMetadata, escapeIfExactMatch, extractPaths, sortFilesByRecency} from './glob-utils.js'
+import {PathValidator} from './path-validator.js'
 
 /**
  * Maximum line length for search results.
@@ -213,12 +213,12 @@ export class FileSystemService implements IFileSystem {
       this.throwValidationError(filePath, validation.error)
     }
 
-    const { normalizedPath } = validation
+    const {normalizedPath} = validation
 
     try {
       // Read current content
       const fileContent = await this.readFile(filePath, options)
-      let { content } = fileContent
+      let {content} = fileContent
 
       // Escape regex special characters for literal string matching
       const escapedOldString = operation.oldString.replaceAll(/[$()*+.?[\u005C\]^{|}]/g, String.raw`\$&`)
@@ -344,17 +344,17 @@ export class FileSystemService implements IFileSystem {
       // Convert to FileMetadata format
       const resultFiles: FileMetadata[] = includeMetadata
         ? limitedFiles.map((f) => ({
-          isDirectory: false,
-          modified: f.modifiedTime,
-          path: f.path,
-          size: f.size,
-        }))
+            isDirectory: false,
+            modified: f.modifiedTime,
+            path: f.path,
+            size: f.size,
+          }))
         : extractPaths(limitedFiles).map((p) => ({
-          isDirectory: false,
-          modified: new Date(),
-          path: p,
-          size: 0,
-        }))
+            isDirectory: false,
+            modified: new Date(),
+            path: p,
+            size: 0,
+          }))
 
       // Build result message
       const message = this.buildGlobMessage(resultFiles.length, totalFound, ignoredCount, truncated)
@@ -416,7 +416,7 @@ export class FileSystemService implements IFileSystem {
       this.throwValidationError(resolvedPath, validation.error)
     }
 
-    const { normalizedPath } = validation
+    const {normalizedPath} = validation
 
     // Verify directory exists
     try {
@@ -515,7 +515,7 @@ export class FileSystemService implements IFileSystem {
       this.throwValidationError(resolvedPath, validation.error)
     }
 
-    const { normalizedPath } = validation
+    const {normalizedPath} = validation
 
     // Check .env file whitelist (allow .env.sample, .env.example, etc.)
     const fileName = path.basename(normalizedPath).toLowerCase()
@@ -585,7 +585,7 @@ export class FileSystemService implements IFileSystem {
       // Check for binary files (read first 4KB for detection)
       const handle = await fs.open(normalizedPath, 'r')
       const sampleBuffer = Buffer.alloc(BINARY_DETECTION_BUFFER_SIZE)
-      const { bytesRead } = await handle.read(sampleBuffer, 0, BINARY_DETECTION_BUFFER_SIZE, 0)
+      const {bytesRead} = await handle.read(sampleBuffer, 0, BINARY_DETECTION_BUFFER_SIZE, 0)
       await handle.close()
 
       if (isBinaryFile(normalizedPath, sampleBuffer.subarray(0, bytesRead))) {
@@ -705,9 +705,9 @@ export class FileSystemService implements IFileSystem {
         matches.map(async (match) => {
           try {
             const stats = await fs.stat(match.file)
-            return { ...match, mtime: stats.mtime.getTime() }
+            return {...match, mtime: stats.mtime.getTime()}
           } catch {
-            return { ...match, mtime: 0 }
+            return {...match, mtime: 0}
           }
         }),
       )
@@ -746,13 +746,13 @@ export class FileSystemService implements IFileSystem {
       this.throwValidationError(filePath, validation.error)
     }
 
-    const { normalizedPath } = validation
+    const {normalizedPath} = validation
 
     try {
       // Create parent directories if requested
       if (options.createDirs) {
         const dirname = path.dirname(normalizedPath)
-        await fs.mkdir(dirname, { recursive: true })
+        await fs.mkdir(dirname, {recursive: true})
       }
 
       // Write file
@@ -809,7 +809,7 @@ export class FileSystemService implements IFileSystem {
     lines: string[],
     lineIndex: number,
     contextLines: number,
-  ): { after: string[]; before: string[] } {
+  ): {after: string[]; before: string[]} {
     const before: string[] = []
     const after: string[] = []
 
@@ -825,7 +825,7 @@ export class FileSystemService implements IFileSystem {
       }
     }
 
-    return { after, before }
+    return {after, before}
   }
 
   /**
@@ -910,7 +910,7 @@ export class FileSystemService implements IFileSystem {
       const checkCmd = process.platform === 'win32' ? 'where' : 'command'
       const checkArgs = process.platform === 'win32' ? [command] : ['-v', command]
       try {
-        const child = spawn(checkCmd, checkArgs, { shell: true, stdio: 'ignore' })
+        const child = spawn(checkCmd, checkArgs, {shell: true, stdio: 'ignore'})
         child.on('close', (code) => resolve(code === 0))
         child.on('error', () => resolve(false))
       } catch {
@@ -1025,7 +1025,7 @@ export class FileSystemService implements IFileSystem {
     regex: RegExp,
     maxMatches: number,
     contextLines: number,
-  ): Promise<{ matches: SearchMatch[]; totalMatches: number }> {
+  ): Promise<{matches: SearchMatch[]; totalMatches: number}> {
     const fileContent = await this.readFile(filePath)
     const lines = fileContent.content.split('\n')
     const matches: SearchMatch[] = []
@@ -1051,7 +1051,7 @@ export class FileSystemService implements IFileSystem {
       }
     }
 
-    return { matches, totalMatches }
+    return {matches, totalMatches}
   }
 
   /**
@@ -1106,11 +1106,11 @@ export class FileSystemService implements IFileSystem {
    */
   private spawnCommand(cmd: string, args: string[], cwd: string, signal?: AbortSignal): Promise<string> {
     return new Promise((resolve, reject) => {
-      const child = spawn(cmd, args, { cwd, windowsHide: true })
+      const child = spawn(cmd, args, {cwd, windowsHide: true})
       const chunks: Buffer[] = []
 
       if (signal) {
-        signal.addEventListener('abort', () => child.kill(), { once: true })
+        signal.addEventListener('abort', () => child.kill(), {once: true})
       }
 
       child.stdout.on('data', (chunk: Buffer) => chunks.push(chunk))

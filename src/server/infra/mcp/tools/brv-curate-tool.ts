@@ -1,9 +1,8 @@
+import type { ITransportClient } from '@campfirein/brv-transport-client'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
-
-import type { ITransportClient } from '../../../core/interfaces/transport/index.js'
 
 export const BrvCurateInputSchema = z.object({
   context: z.string().describe('Knowledge to store: patterns, decisions, errors, or insights about the codebase'),
@@ -57,7 +56,7 @@ export function registerBrvCurateTool(
         const taskId = randomUUID()
 
         // Create task via transport (same pattern as brv curate command)
-        await client.request('task:create', {
+        await client.requestWithAck('task:create', {
           clientCwd: getWorkingDirectory(),
           content: context,
           taskId,

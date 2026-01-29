@@ -1,3 +1,19 @@
+import {
+  ConnectionError,
+  ConnectionFailedError,
+  type ConnectionResult,
+  connectToTransport,
+  InstanceCrashedError,
+  type ITransportClient,
+  type LlmResponse,
+  type LlmToolCall,
+  type LlmToolResult,
+  NoInstanceRunningError,
+  type TaskAck,
+  type TaskCompleted,
+  type TaskError,
+  type TaskStarted,
+} from '@campfirein/brv-transport-client'
 import {randomUUID} from 'node:crypto'
 
 import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
@@ -6,45 +22,28 @@ import type {ITrackingService} from '../../core/interfaces/services/i-tracking-s
 import type {IQueryUseCase, QueryUseCaseRunOptions} from '../../core/interfaces/usecase/i-query-use-case.js'
 
 import {CipherAgent} from '../../../agent/infra/agent/index.js'
-import {
-  ConnectionError,
-  ConnectionFailedError,
-  InstanceCrashedError,
-  NoInstanceRunningError,
-} from '../../core/domain/errors/connection-error.js'
-import {
-  LlmResponseEvent,
-  LlmToolCallEvent,
-  LlmToolResultEvent,
-  TaskAck,
-  TaskCompletedEvent,
-  TaskCreateResponse,
-  TaskErrorEvent,
-  TaskStartedEvent,
-} from '../../core/domain/transport/schemas.js'
-import {ITransportClient} from '../../core/interfaces/transport/i-transport-client.js'
-import { formatError } from '../../utils/error-handler.js'
+import {formatError} from '../../utils/error-handler.js'
 import {getSandboxEnvironmentName, isSandboxEnvironment, isSandboxNetworkError} from '../../utils/sandbox-detector.js'
-import {createTransportClientFactory, type TransportClientFactory} from '../transport/transport-client-factory.js'
 
-export type TransportClientFactoryCreator = () => TransportClientFactory
+/** Type for transport connection function (for DI/testing) */
+export type TransportConnector = (fromDir?: string) => Promise<ConnectionResult>
 
 export interface QueryUseCaseOptions {
   terminal: ITerminal
   trackingService: ITrackingService
-  /** Optional factory creator for dependency injection (defaults to createTransportClientFactory) */
-  transportClientFactoryCreator?: TransportClientFactoryCreator
+  /** Optional transport connector for dependency injection (defaults to connectToTransport) */
+  transportConnector?: TransportConnector
 }
 
 export class QueryUseCase implements IQueryUseCase {
   private readonly terminal: ITerminal
   private readonly trackingService: ITrackingService
-  private readonly transportClientFactoryCreator: TransportClientFactoryCreator
+  private readonly transportConnector: TransportConnector
 
   constructor(options: QueryUseCaseOptions) {
     this.terminal = options.terminal
     this.trackingService = options.trackingService
-    this.transportClientFactoryCreator = options.transportClientFactoryCreator ?? createTransportClientFactory
+    this.transportConnector = options.transportConnector ?? connectToTransport
   }
 
   /**
@@ -77,13 +76,12 @@ export class QueryUseCase implements IQueryUseCase {
     let client: ITransportClient | undefined
 
     try {
-      const transportClientFactory = this.transportClientFactoryCreator()
-
       if (verbose) {
         this.terminal.log('Discovering running instance...')
       }
 
-      const {client: connectedClient} = await transportClientFactory.connect()
+      // Use modern connectToTransport API (auto-discovers and connects)
+      const {client: connectedClient} = await this.transportConnector()
       client = connectedClient
 
       if (verbose) {
@@ -94,7 +92,7 @@ export class QueryUseCase implements IQueryUseCase {
       const taskId = randomUUID()
 
       // Send task:create request
-      await client.request<TaskCreateResponse>('task:create', {
+      await client.requestWithAck<TaskAck>('task:create', {
         content: options.query,
         taskId,
         type: 'query',
@@ -215,7 +213,7 @@ export class QueryUseCase implements IQueryUseCase {
    * Format tool result for display.
    * Shows meaningful, concise summary - NEVER shows raw JSON.
    */
-  private formatToolResult(payload: LlmToolResultEvent): string {
+  private formatToolResult(payload: LlmToolResult): string {
     if (!payload.success) {
       const errMsg = payload.error ?? 'Failed'
       return errMsg.length > 50 ? `${errMsg.slice(0, 47)}...` : errMsg
@@ -339,7 +337,7 @@ export class QueryUseCase implements IQueryUseCase {
         }),
 
         // task:started - task is being processed
-        client.on<TaskStartedEvent>('task:started', (payload) => {
+        client.on<TaskStarted>('task:started', (payload) => {
           if (payload.taskId === taskId && verbose) {
             this.terminal.log('Task started processing...')
           }
@@ -357,7 +355,7 @@ export class QueryUseCase implements IQueryUseCase {
         // }),
 
         // llmservice:response - final response from LLM (only print once)
-        client.on<LlmResponseEvent>('llmservice:response', (payload) => {
+        client.on<LlmResponse>('llmservice:response', (payload) => {
           if (payload.taskId === taskId && payload.content && !resultPrinted) {
             resultPrinted = true
             this.terminal.log('\nResult:')
@@ -366,7 +364,7 @@ export class QueryUseCase implements IQueryUseCase {
         }),
 
         // llmservice:toolCall - tool invocation (stop showing after response)
-        client.on<LlmToolCallEvent>('llmservice:toolCall', (payload) => {
+        client.on<LlmToolCall>('llmservice:toolCall', (payload) => {
           if (payload.taskId === taskId && !resultPrinted) {
             const detail = payload.args ? this.formatToolArgs(payload.toolName, payload.args) : ''
             const suffix = detail ? `: ${detail}` : ''
@@ -375,7 +373,7 @@ export class QueryUseCase implements IQueryUseCase {
         }),
 
         // llmservice:toolResult - tool result with summary (stop showing after response)
-        client.on<LlmToolResultEvent>('llmservice:toolResult', (payload) => {
+        client.on<LlmToolResult>('llmservice:toolResult', (payload) => {
           if (payload.taskId === taskId && !resultPrinted) {
             const status = payload.success ? '✓' : '✗'
             const resultSummary = this.formatToolResult(payload)
@@ -384,7 +382,7 @@ export class QueryUseCase implements IQueryUseCase {
         }),
 
         // task:completed - task finished (chunks already streamed, just resolve)
-        client.on<TaskCompletedEvent>('task:completed', (payload) => {
+        client.on<TaskCompleted>('task:completed', (payload) => {
           if (payload.taskId === taskId && !completed) {
             completed = true
             cleanup()
@@ -395,7 +393,7 @@ export class QueryUseCase implements IQueryUseCase {
         }),
 
         // task:error - task failed
-        client.on<TaskErrorEvent>('task:error', (payload) => {
+        client.on<TaskError>('task:error', (payload) => {
           if (payload.taskId === taskId && !completed) {
             completed = true
             cleanup()

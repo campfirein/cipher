@@ -1,9 +1,8 @@
+import type {ITransportClient} from '@campfirein/brv-transport-client'
 import type {McpServer} from '@modelcontextprotocol/sdk/server/mcp.js'
 
 import {randomUUID} from 'node:crypto'
 import {z} from 'zod'
-
-import type {ITransportClient} from '../../../core/interfaces/transport/index.js'
 
 import {waitForTaskResult} from './task-result-waiter.js'
 
@@ -65,7 +64,7 @@ export function registerBrvQueryTool(
         const taskId = randomUUID()
 
         // Create task via transport (same pattern as brv query command)
-        await client.request('task:create', {
+        await client.requestWithAck('task:create', {
           clientCwd: getWorkingDirectory(),
           content: query,
           taskId,

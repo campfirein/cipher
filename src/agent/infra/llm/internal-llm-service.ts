@@ -25,11 +25,7 @@ import type {CompactionService} from './context/compaction/compaction-service.js
 import {getErrorMessage} from '../../../server/utils/error-helpers.js'
 import {AgentStateMachine} from '../../core/domain/agent/agent-state-machine.js'
 import {AgentState, TerminationReason} from '../../core/domain/agent/agent-state.js'
-import {
-  LlmGenerationError,
-  LlmMaxIterationsError,
-  LlmResponseParsingError,
-} from '../../core/domain/errors/llm-error.js'
+import {LlmGenerationError, LlmMaxIterationsError, LlmResponseParsingError} from '../../core/domain/errors/llm-error.js'
 import {
   getEffectiveMaxInputTokens,
   getMaxInputTokensForModel,
@@ -822,7 +818,6 @@ export class ByteRoverLLMService implements ILLMService {
         return response
       }
 
-
       // Has tool calls - handle them (pass taskId for subagent billing)
       await this.handleToolCalls(lastMessage, taskId)
 
@@ -831,7 +826,7 @@ export class ByteRoverLLMService implements ILLMService {
 
       return null
     })
-}
+  }
 
   /**
    * Execute a single tool call in parallel (without adding to context).

@@ -1,6 +1,6 @@
+import {TransportClient} from '@campfirein/brv-transport-client'
 import {expect} from 'chai'
 
-import {SocketIOTransportClient} from '../../../../src/server/infra/transport/socket-io-transport-client.js'
 import {SocketIOTransportServer} from '../../../../src/server/infra/transport/socket-io-transport-server.js'
 
 /**
@@ -11,7 +11,7 @@ import {SocketIOTransportServer} from '../../../../src/server/infra/transport/so
  */
 describe('Socket.IO Transport Integration', () => {
   let server: SocketIOTransportServer
-  const clients: SocketIOTransportClient[] = []
+  const clients: TransportClient[] = []
   const port = 9700
 
   beforeEach(async () => {
@@ -32,8 +32,8 @@ describe('Socket.IO Transport Integration', () => {
     }
   })
 
-  function createClient(): SocketIOTransportClient {
-    const client = new SocketIOTransportClient()
+  function createClient(): TransportClient {
+    const client = new TransportClient()
     clients.push(client)
     return client
   }
@@ -127,7 +127,7 @@ describe('Socket.IO Transport Integration', () => {
       const cli = createClient()
       await cli.connect(`http://127.0.0.1:${port}`)
 
-      const response = await cli.request<{taskId: string}>('task:create', {
+      const response = await cli.requestWithAck<{taskId: string}>('task:create', {
         prompt: 'refactor auth',
         type: 'curate',
       })
@@ -146,7 +146,7 @@ describe('Socket.IO Transport Integration', () => {
       const cli = createClient()
       await cli.connect(`http://127.0.0.1:${port}`)
 
-      await cli.request('identify', {})
+      await cli.requestWithAck('identify', {})
 
       expect(receivedClientId).to.equal(cli.getClientId())
     })
@@ -240,7 +240,7 @@ describe('Socket.IO Transport Integration', () => {
       await cli.connect(`http://127.0.0.1:${port}`)
 
       try {
-        await cli.request('crash', {})
+        await cli.requestWithAck('crash', {})
         expect.fail('Should have thrown')
       } catch (error) {
         expect((error as Error).message).to.include('Handler crashed')
@@ -288,8 +288,10 @@ describe('Socket.IO Transport Integration', () => {
         return {taskId}
       })
 
-      await cli.request('task:create', {prompt: 'test task'})
-      await cli.joinRoom(taskId!)
+      const result = await cli.requestWithAck<{taskId: string}>('task:create', {prompt: 'test task'})
+      const createdTaskId = result.taskId
+      taskId = createdTaskId // Update closure variable for other parts of test
+      await cli.joinRoom(createdTaskId)
 
       // Wait for ack
       await new Promise((resolve) => {

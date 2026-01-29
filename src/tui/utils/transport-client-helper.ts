@@ -1,3 +1,11 @@
+import {
+  AgentEventNames,
+  connectToTransport,
+  type ITransportClient,
+  LlmEventList,
+  SessionEventNames,
+  TaskEventNames,
+} from '@campfirein/brv-transport-client'
 /**
  * Transport Client Helper for TUI (v0.5.0 architecture).
  *
@@ -7,17 +15,8 @@
 import fs from 'node:fs'
 import path from 'node:path'
 
-import type {ITransportClient} from '../../server/core/interfaces/transport/i-transport-client.js'
-
 import {isDevelopment} from '../../server/config/environment.js'
 import {BRV_DIR} from '../../server/constants.js'
-import {
-  TransportAgentEventNames,
-  TransportLlmEventList,
-  TransportSessionEventNames,
-  TransportTaskEventNames,
-} from '../../server/core/domain/transport/schemas.js'
-import {createTransportClientFactory} from '../../server/infra/transport/transport-client-factory.js'
 
 const TRANSPORT_LOG_FILE = path.join(BRV_DIR, 'transport-events.log')
 
@@ -32,22 +31,22 @@ const TRANSPORT_LOG_FILE = path.join(BRV_DIR, 'transport-events.log')
  * No mapping needed - what you see is what Agent does.
  */
 const TRANSPORT_EVENTS = [
-  // Task lifecycle (Transport-generated) - using constants from schemas
-  TransportTaskEventNames.ACK,
-  TransportTaskEventNames.CREATED,
-  TransportTaskEventNames.STARTED,
-  TransportTaskEventNames.COMPLETED,
-  TransportTaskEventNames.ERROR,
-  TransportTaskEventNames.CANCELLED,
-  // LLM events (using constants from schemas)
-  ...TransportLlmEventList,
+  // Task lifecycle (Transport-generated) - using constants from package
+  TaskEventNames.ACK,
+  TaskEventNames.CREATED,
+  TaskEventNames.STARTED,
+  TaskEventNames.COMPLETED,
+  TaskEventNames.ERROR,
+  TaskEventNames.CANCELLED,
+  // LLM events (using constants from package)
+  ...LlmEventList,
   // Connection events (internal)
-  TransportAgentEventNames.CONNECTED,
-  TransportAgentEventNames.DISCONNECTED,
-  TransportSessionEventNames.SWITCHED,
+  AgentEventNames.CONNECTED,
+  AgentEventNames.DISCONNECTED,
+  SessionEventNames.SWITCHED,
   // Agent control events
-  TransportAgentEventNames.RESTARTING,
-  TransportAgentEventNames.RESTARTED,
+  AgentEventNames.RESTARTING,
+  AgentEventNames.RESTARTED,
 ]
 
 function formatTimestamp(): string {
@@ -78,8 +77,8 @@ export async function connectTransportClient(): Promise<ITransportClient | null>
   }
 
   try {
-    const factory = createTransportClientFactory()
-    const {client} = await factory.connect()
+    // Use modern connectToTransport API (auto-discovers and connects)
+    const {client} = await connectToTransport()
 
     client.onStateChange((state: string) => {
       logEvent('_connection', {clientId: client.getClientId(), state})

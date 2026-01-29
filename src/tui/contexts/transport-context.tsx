@@ -1,8 +1,5 @@
+import {type ConnectionState, connectToTransport, type ITransportClient} from '@campfirein/brv-transport-client'
 import React, {createContext, useContext, useEffect, useState} from 'react'
-
-import type {ConnectionState, ITransportClient} from '../../server/core/interfaces/transport/i-transport-client.js'
-
-import {createTransportClientFactory} from '../../server/infra/transport/transport-client-factory.js'
 
 /**
  * Context value for transport client state.
@@ -41,9 +38,8 @@ export function TransportProvider({children}: {children: React.ReactNode}): Reac
       try {
         setConnectionState('connecting')
 
-        // Create factory and connect
-        const factory = createTransportClientFactory()
-        const {client: newClient} = await factory.connect()
+        // Use modern connectToTransport API (auto-discovers and connects)
+        const {client: newClient} = await connectToTransport()
 
         if (!mounted) {
           await newClient.disconnect()
