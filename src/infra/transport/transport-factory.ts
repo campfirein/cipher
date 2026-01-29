@@ -1,19 +1,7 @@
-import type {TransportClientConfig, TransportServerConfig} from '../../core/domain/transport/types.js'
-import type {ITransportClient} from '../../core/interfaces/transport/i-transport-client.js'
+import type {TransportServerConfig} from '../../core/domain/transport/types.js'
 import type {ITransportServer} from '../../core/interfaces/transport/i-transport-server.js'
 
-import {
-  TRANSPORT_CONNECT_TIMEOUT_MS,
-  TRANSPORT_DEFAULT_TRANSPORTS,
-  TRANSPORT_PING_INTERVAL_MS,
-  TRANSPORT_PING_TIMEOUT_MS,
-  TRANSPORT_RECONNECTION_ATTEMPTS,
-  TRANSPORT_RECONNECTION_DELAY_MAX_MS,
-  TRANSPORT_RECONNECTION_DELAY_MS,
-  TRANSPORT_REQUEST_TIMEOUT_MS,
-  TRANSPORT_ROOM_TIMEOUT_MS,
-} from '../../constants.js'
-import {SocketIOTransportClient} from './socket-io-transport-client.js'
+import {TRANSPORT_PING_INTERVAL_MS, TRANSPORT_PING_TIMEOUT_MS} from '../../constants.js'
 import {SocketIOTransportServer} from './socket-io-transport-server.js'
 
 /**
@@ -23,19 +11,6 @@ const DEFAULT_SERVER_CONFIG: Required<TransportServerConfig> = {
   corsOrigin: '*',
   pingIntervalMs: TRANSPORT_PING_INTERVAL_MS,
   pingTimeoutMs: TRANSPORT_PING_TIMEOUT_MS,
-}
-
-/**
- * Default client configuration using constants.
- */
-const DEFAULT_CLIENT_CONFIG: Required<TransportClientConfig> = {
-  connectTimeoutMs: TRANSPORT_CONNECT_TIMEOUT_MS,
-  reconnectionAttempts: TRANSPORT_RECONNECTION_ATTEMPTS,
-  reconnectionDelayMaxMs: TRANSPORT_RECONNECTION_DELAY_MAX_MS,
-  reconnectionDelayMs: TRANSPORT_RECONNECTION_DELAY_MS,
-  requestTimeoutMs: TRANSPORT_REQUEST_TIMEOUT_MS,
-  roomTimeoutMs: TRANSPORT_ROOM_TIMEOUT_MS,
-  transports: TRANSPORT_DEFAULT_TRANSPORTS,
 }
 
 /**
@@ -57,21 +32,6 @@ export function createTransportServer(config?: TransportServerConfig): ITranspor
   return new SocketIOTransportServer(mergedConfig)
 }
 
-/**
- * Creates a transport client instance.
- *
- * @param config - Optional client configuration, defaults to constants
- * @returns Transport client implementation
- *
- * @example
- * // Use defaults
- * const client = createTransportClient();
- *
- * @example
- * // Custom config for tests
- * const client = createTransportClient({ connectTimeoutMs: 1000 });
- */
-export function createTransportClient(config?: TransportClientConfig): ITransportClient {
-  const mergedConfig = {...DEFAULT_CLIENT_CONFIG, ...config}
-  return new SocketIOTransportClient(mergedConfig)
-}
+// NOTE: For transport client, use connectToTransport() from @campfirein/brv-transport-client
+// Do NOT use new TransportClient() directly - it requires manual discovery and connection
+// Example: const {client, projectRoot} = await connectToTransport()

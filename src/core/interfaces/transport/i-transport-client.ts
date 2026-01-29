@@ -107,14 +107,29 @@ export interface ITransportClient {
   onStateChange: (handler: ConnectionStateHandler) => () => void
 
   /**
-   * Sends a request to the server and waits for a response.
+   * Sends an event without waiting for response (fire-and-forget).
+   * @param event - The event name
+   * @param data - Optional request payload
+   */
+  request(event: string, data?: unknown): void
+
+  /**
+   * Sends a request with callback-based acknowledgment.
    * @param event - The event name
    * @param data - The request payload
+   * @param ack - Callback function for the response
+   */
+  request<T = unknown>(event: string, data: unknown, ack: (response: T) => void): void
+
+  /**
+   * Promise-based request that waits for server response.
+   * Similar to Socket.IO's emitWithAck() method.
+   * @param event - The event name
+   * @param data - Optional request payload
    * @param options - Optional request configuration
    * @returns The server's response
-   * @throws Error if request times out or server returns an error
    */
-  request: <TResponse = unknown, TRequest = unknown>(
+  requestWithAck: <TResponse = unknown, TRequest = unknown>(
     event: string,
     data?: TRequest,
     options?: RequestOptions,

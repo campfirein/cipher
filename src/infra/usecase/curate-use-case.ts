@@ -1,34 +1,41 @@
+import {
+  ConnectionError,
+  ConnectionFailedError,
+  type ConnectionResult,
+  connectToTransport,
+  InstanceCrashedError,
+  NoInstanceRunningError,
+} from '@campfirein/brv-transport-client'
 import {randomUUID} from 'node:crypto'
 
 import type {ITerminal} from '../../core/interfaces/i-terminal.js'
 import type {CurateUseCaseRunOptions, ICurateUseCase} from '../../core/interfaces/usecase/i-curate-use-case.js'
 
-import {ConnectionError, ConnectionFailedError, InstanceCrashedError, NoInstanceRunningError} from '../../core/domain/errors/connection-error.js'
 import {TaskCreateResponse} from '../../core/domain/transport/index.js'
 import {ITrackingService} from '../../core/interfaces/i-tracking-service.js'
 import {ITransportClient} from '../../core/interfaces/transport/index.js'
 import {formatError} from '../../utils/error-handler.js'
 import {getSandboxEnvironmentName, isSandboxEnvironment, isSandboxNetworkError} from '../../utils/sandbox-detector.js'
-import {createTransportClientFactory, type TransportClientFactory} from '../transport/transport-client-factory.js'
 
-export type TransportClientFactoryCreator = () => TransportClientFactory
+/** Type for transport connection function (for DI/testing) */
+export type TransportConnector = (fromDir?: string) => Promise<ConnectionResult>
 
 export interface CurateUseCaseOptions {
   terminal: ITerminal
   trackingService: ITrackingService
-  /** Optional factory creator for dependency injection (defaults to createTransportClientFactory) */
-  transportClientFactoryCreator?: TransportClientFactoryCreator
+  /** Optional transport connector for dependency injection (defaults to connectToTransport) */
+  transportConnector?: TransportConnector
 }
 
 export class CurateUseCase implements ICurateUseCase {
   private readonly terminal: ITerminal
   private readonly trackingService: ITrackingService
-  private readonly transportClientFactoryCreator: TransportClientFactoryCreator
+  private readonly transportConnector: TransportConnector
 
   constructor(options: CurateUseCaseOptions) {
     this.terminal = options.terminal
     this.trackingService = options.trackingService
-    this.transportClientFactoryCreator = options.transportClientFactoryCreator ?? createTransportClientFactory
+    this.transportConnector = options.transportConnector ?? connectToTransport
   }
 
   public async run({context, files, verbose = false}: CurateUseCaseRunOptions): Promise<void> {
@@ -42,13 +49,12 @@ export class CurateUseCase implements ICurateUseCase {
     let client: ITransportClient | undefined
 
     try {
-      const transportClientFactory = this.transportClientFactoryCreator()
-
       if (verbose) {
         this.terminal.log('Discovering running instance...')
       }
 
-      const {client: connectedClient} = await transportClientFactory.connect()
+      // Use modern connectToTransport API (auto-discovers and connects)
+      const {client: connectedClient} = await this.transportConnector()
       client = connectedClient
 
       if (verbose) {
@@ -58,13 +64,17 @@ export class CurateUseCase implements ICurateUseCase {
       // Generate taskId in UseCase (Application layer owns task creation)
       const taskId = randomUUID()
 
-      await client.request<TaskCreateResponse>('task:create', {
-        clientCwd: process.cwd(),
-        content: context,
-        ...(files?.length ? {files} : {}),
-        taskId,
-        type: 'curate',
-      })
+      // Send task:create request
+      await client.requestWithAck<TaskCreateResponse>(
+        'task:create',
+        {
+          clientCwd: process.cwd(),
+          content: context,
+          ...(files?.length ? {files} : {}),
+          taskId,
+          type: 'curate',
+        },
+      )
 
       this.terminal.log('✓ Context queued for processing.')
       await this.trackingService.track('mem:curate', {status: 'finished'})

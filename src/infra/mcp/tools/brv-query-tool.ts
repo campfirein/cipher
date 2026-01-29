@@ -65,7 +65,7 @@ export function registerBrvQueryTool(
         const taskId = randomUUID()
 
         // Create task via transport (same pattern as brv query command)
-        await client.request('task:create', {
+        await client.requestWithAck('task:create', {
           clientCwd: getWorkingDirectory(),
           content: query,
           taskId,

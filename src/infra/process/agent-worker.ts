@@ -18,6 +18,7 @@
  * - Sends: 'task:started', 'task:chunk', 'task:completed', 'task:error', 'task:toolCall', 'task:toolResult'
  */
 
+import {TransportClient} from '@campfirein/brv-transport-client'
 import {randomUUID} from 'node:crypto'
 
 import type {AgentEventMap} from '../../agent/core/domain/agent-events/types.js'
@@ -25,6 +26,7 @@ import type {AgentStatus, TaskCancel, TaskExecute} from '../../core/domain/trans
 import type {ITransportClient} from '../../core/interfaces/transport/i-transport-client.js'
 import type {AgentIPCResponse, IPCCommand} from './ipc-types.js'
 
+import {CipherAgent} from '../../agent/infra/agent/index.js'
 import {getCurrentConfig} from '../../config/environment.js'
 import {DEFAULT_LLM_MODEL, PROJECT} from '../../constants.js'
 import {
@@ -34,13 +36,11 @@ import {
   serializeTaskError,
 } from '../../core/domain/errors/task-error.js'
 import {agentLog} from '../../utils/process-logger.js'
-import {CipherAgent} from '../../agent/infra/agent/index.js'
 import {ProjectConfigStore} from '../config/file-config-store.js'
 import {CurateExecutor} from '../core/executors/curate-executor.js'
 import {QueryExecutor} from '../core/executors/query-executor.js'
 import {createTaskProcessor, TaskProcessor} from '../core/task-processor.js'
 import {createTokenStore} from '../storage/token-store.js'
-import {createTransportClient} from '../transport/transport-factory.js'
 import {createParentHeartbeat} from './parent-heartbeat.js'
 import {TaskQueueManager} from './task-queue-manager.js'
 
@@ -179,7 +179,7 @@ function notifyQueuedTasksAboutDropAndClear(reason: string): void {
     if (transportClient) {
       agentLog(`Notifying ${queuedTasks.length} queued task(s): ${reason}`)
       for (const task of queuedTasks) {
-        transportClient.request('task:error', {error, taskId: task.taskId}).catch(logTransportError)
+        transportClient.requestWithAck('task:error', {error, taskId: task.taskId}).catch(logTransportError)
       }
     } else {
       agentLog(`Cannot notify ${queuedTasks.length} queued task(s): no transport client`)
@@ -302,7 +302,7 @@ function setupAgentEventForwarding(agent: CipherAgent): void {
   registerForwarder('llmservice:thinking', (payload: AgentEventMap['llmservice:thinking']) => {
     if (payload.taskId) {
       transportClient
-        ?.request('llmservice:thinking', {sessionId: payload.sessionId, taskId: payload.taskId})
+        ?.requestWithAck('llmservice:thinking', {sessionId: payload.sessionId, taskId: payload.taskId})
         .catch(logTransportError)
     }
   })
@@ -311,7 +311,7 @@ function setupAgentEventForwarding(agent: CipherAgent): void {
   registerForwarder('llmservice:chunk', (payload: AgentEventMap['llmservice:chunk']) => {
     if (payload.taskId) {
       transportClient
-        ?.request('llmservice:chunk', {
+        ?.requestWithAck('llmservice:chunk', {
           content: payload.content,
           isComplete: payload.isComplete,
           sessionId: payload.sessionId,
@@ -326,7 +326,7 @@ function setupAgentEventForwarding(agent: CipherAgent): void {
   registerForwarder('llmservice:response', (payload: AgentEventMap['llmservice:response']) => {
     if (payload.taskId && payload.content) {
       transportClient
-        ?.request('llmservice:response', {
+        ?.requestWithAck('llmservice:response', {
           content: payload.content,
           model: payload.model,
           partial: payload.partial,
@@ -344,7 +344,7 @@ function setupAgentEventForwarding(agent: CipherAgent): void {
   registerForwarder('llmservice:toolCall', (payload: AgentEventMap['llmservice:toolCall']) => {
     if (payload.taskId && payload.callId) {
       transportClient
-        ?.request('llmservice:toolCall', {
+        ?.requestWithAck('llmservice:toolCall', {
           args: payload.args,
           callId: payload.callId,
           sessionId: payload.sessionId,
@@ -359,7 +359,7 @@ function setupAgentEventForwarding(agent: CipherAgent): void {
   registerForwarder('llmservice:toolResult', (payload: AgentEventMap['llmservice:toolResult']) => {
     if (payload.taskId && payload.callId) {
       transportClient
-        ?.request('llmservice:toolResult', {
+        ?.requestWithAck('llmservice:toolResult', {
           callId: payload.callId,
           error: payload.error,
           errorType: payload.errorType,
@@ -378,7 +378,7 @@ function setupAgentEventForwarding(agent: CipherAgent): void {
   registerForwarder('llmservice:error', (payload: AgentEventMap['llmservice:error']) => {
     if (payload.taskId) {
       transportClient
-        ?.request('llmservice:error', {
+        ?.requestWithAck('llmservice:error', {
           code: payload.code,
           error: payload.error,
           sessionId: payload.sessionId,
@@ -392,7 +392,7 @@ function setupAgentEventForwarding(agent: CipherAgent): void {
   registerForwarder('llmservice:unsupportedInput', (payload: AgentEventMap['llmservice:unsupportedInput']) => {
     if (payload.taskId) {
       transportClient
-        ?.request('llmservice:unsupportedInput', {
+        ?.requestWithAck('llmservice:unsupportedInput', {
           reason: payload.reason,
           sessionId: payload.sessionId,
           taskId: payload.taskId,
@@ -428,7 +428,7 @@ function setupTaskExecutor(): void {
         const error = serializeTaskError(
           initializationError ?? new AgentNotInitializedError('Agent initialization failed'),
         )
-        transportClient?.request('task:error', {error, taskId}).catch(logTransportError)
+        transportClient?.requestWithAck('task:error', {error, taskId}).catch(logTransportError)
         return
       }
 
@@ -441,7 +441,7 @@ function setupTaskExecutor(): void {
     if (!isAgentInitialized || !taskProcessor) {
       agentLog(`Task ${taskId} rejected - agent stopped during queue wait`)
       const error = serializeTaskError(new AgentNotInitializedError('Agent stopped during execution wait'))
-      transportClient?.request('task:error', {error, taskId}).catch(logTransportError)
+      transportClient?.requestWithAck('task:error', {error, taskId}).catch(logTransportError)
       return
     }
 
@@ -467,14 +467,14 @@ function setupTaskExecutor(): void {
       if (timedOut) {
         agentLog(`Task ${taskId} cancelled due to timeout`)
         const errorData = serializeTaskError(new Error('Task exceeded 5 minute timeout'))
-        transportClient?.request('task:error', {error: errorData, taskId}).catch(logTransportError)
+        transportClient?.requestWithAck('task:error', {error: errorData, taskId}).catch(logTransportError)
         return
       }
 
       // Handle other errors (not timeout)
       agentLog(`Task execution failed: ${error}`)
       const errorData = serializeTaskError(error)
-      transportClient?.request('task:error', {error: errorData, taskId}).catch(logTransportError)
+      transportClient?.requestWithAck('task:error', {error: errorData, taskId}).catch(logTransportError)
     } finally {
       // Always clear timeout to prevent memory leak
       clearTimeout(timeoutId)
@@ -762,12 +762,12 @@ async function handleTaskExecute(data: TaskExecute): Promise<void> {
   if (!taskProcessor) {
     agentLog('TaskProcessor not initialized')
     const error = serializeTaskError(new ProcessorNotInitError())
-    transportClient?.request('task:error', {error, taskId}).catch(logTransportError)
+    transportClient?.requestWithAck('task:error', {error, taskId}).catch(logTransportError)
     return
   }
 
   // Notify task started
-  transportClient?.request('task:started', {taskId}).catch(logTransportError)
+  transportClient?.requestWithAck('task:started', {taskId}).catch(logTransportError)
 
   try {
     // Process task - events stream via agentEventBus subscription
@@ -785,11 +785,11 @@ async function handleTaskExecute(data: TaskExecute): Promise<void> {
 
     // Notify completion with result (required by TaskCompletedEventSchema)
     agentLog(`Task completed: ${taskId}`)
-    transportClient?.request('task:completed', {result, taskId}).catch(logTransportError)
+    transportClient?.requestWithAck('task:completed', {result, taskId}).catch(logTransportError)
   } catch (error) {
     const errorData = serializeTaskError(error)
     agentLog(`Task error: ${taskId} - [${errorData.name}] ${errorData.message}`)
-    transportClient?.request('task:error', {error: errorData, taskId}).catch(logTransportError)
+    transportClient?.requestWithAck('task:error', {error: errorData, taskId}).catch(logTransportError)
   }
 }
 
@@ -808,7 +808,7 @@ function handleTaskCancel(data: TaskCancel): void {
       // Task was in queue, not yet processing - removed by queue manager
       agentLog(`Task ${taskId} removed from ${result.taskType} queue (was waiting)`)
       // Notify transport that task was cancelled
-      transportClient?.request('task:cancelled', {taskId}).catch(logTransportError)
+      transportClient?.requestWithAck('task:cancelled', {taskId}).catch(logTransportError)
     } else {
       // Task is currently processing - cancel via taskProcessor
       agentLog(`Task ${taskId} is processing, forwarding cancel to taskProcessor`)
@@ -826,15 +826,15 @@ async function startAgent(): Promise<void> {
   const port = getTransportPort()
   agentLog(`Connecting to Transport on port ${port}`)
 
-  // Create Transport client
-  transportClient = createTransportClient()
+  // Create Transport client (low-level: worker connects to specific port, not via discovery)
+  transportClient = new TransportClient()
 
   // Connect to Transport
   await transportClient.connect(`http://localhost:${port}`)
   agentLog('Connected to Transport')
 
   // Register as Agent
-  await transportClient.request('agent:register', {})
+  await transportClient.requestWithAck('agent:register', {})
   agentLog('Registered with Transport')
 
   // Fix #1: Re-register on any reconnect (Socket.IO auto-reconnect OR force reconnect)
@@ -849,7 +849,7 @@ async function startAgent(): Promise<void> {
       agentLog('Transport reconnected - re-registering with Transport')
       try {
         // Include status in register payload (Transport caches it atomically)
-        await transportClient?.request('agent:register', {status: getAgentStatus()})
+        await transportClient?.requestWithAck('agent:register', {status: getAgentStatus()})
         // Only clear flag after successful registration - if failed, next reconnect will retry
         wasDisconnected = false
         agentLog('Re-registered with Transport after reconnect')
@@ -879,7 +879,7 @@ async function startAgent(): Promise<void> {
     if (isReinitializing) {
       agentLog(`Task ${data.taskId} rejected - agent reinitializing`)
       const error = serializeTaskError(new AgentNotInitializedError('Agent is reinitializing'))
-      transportClient?.request('task:error', {error, taskId: data.taskId}).catch(logTransportError)
+      transportClient?.requestWithAck('task:error', {error, taskId: data.taskId}).catch(logTransportError)
       return
     }
 
@@ -921,7 +921,7 @@ async function startAgent(): Promise<void> {
     // Guard: reject if initialization already in progress (prevents concurrent reinit race condition)
     if (isInitializing || isReinitializing) {
       agentLog('Agent restart rejected - initialization already in progress')
-      await transportClient?.request('agent:restarted', {
+      await transportClient?.requestWithAck('agent:restarted', {
         error: 'Initialization already in progress',
         success: false,
       })
@@ -931,7 +931,7 @@ async function startAgent(): Promise<void> {
     // Reject restart if tasks are in progress or queued (prevents killing active tasks)
     if (hasPendingWork()) {
       agentLog('Agent restart rejected - tasks in progress or queued')
-      await transportClient?.request('agent:restarted', {
+      await transportClient?.requestWithAck('agent:restarted', {
         error: 'Tasks in progress. Please wait for tasks to complete.',
         success: false,
       })
@@ -945,11 +945,11 @@ async function startAgent(): Promise<void> {
       if (success) {
         agentLog('Agent reinitialized successfully')
         // Notify Transport that restart completed
-        await transportClient?.request('agent:restarted', {success: true})
+        await transportClient?.requestWithAck('agent:restarted', {success: true})
       } else if (isCleaningUp) {
         // Cleanup in progress - can't restart during shutdown
         agentLog('Agent reinitialization rejected - cleanup in progress')
-        await transportClient?.request('agent:restarted', {
+        await transportClient?.requestWithAck('agent:restarted', {
           error: 'Agent is shutting down',
           success: false,
         })
@@ -958,7 +958,7 @@ async function startAgent(): Promise<void> {
         // Note: isInitializing is guaranteed to be false here because tryInitializeAgent()
         // always clears it in its finally block before returning
         agentLog('Agent reinitialization failed - config incomplete')
-        await transportClient?.request('agent:restarted', {
+        await transportClient?.requestWithAck('agent:restarted', {
           error: initializationError?.message ?? 'Config incomplete (no auth token or config)',
           success: false,
         })
@@ -966,7 +966,7 @@ async function startAgent(): Promise<void> {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       agentLog(`Agent reinitialization error: ${message}`)
-      await transportClient?.request('agent:restarted', {error: message, success: false})
+      await transportClient?.requestWithAck('agent:restarted', {error: message, success: false})
     }
   })
 
@@ -977,7 +977,7 @@ async function startAgent(): Promise<void> {
     try {
       if (!cipherAgent) {
         agentLog('Cannot create new session - agent not initialized')
-        await transportClient?.request('agent:newSessionCreated', {
+        await transportClient?.requestWithAck('agent:newSessionCreated', {
           error: 'Agent not initialized',
           success: false,
         })
@@ -1000,14 +1000,14 @@ async function startAgent(): Promise<void> {
       agentLog(`New session created: ${newSessionId}`)
 
       // Notify Transport that new session was created
-      await transportClient?.request('agent:newSessionCreated', {
+      await transportClient?.requestWithAck('agent:newSessionCreated', {
         sessionId: newSessionId,
         success: true,
       })
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       agentLog(`New session creation error: ${message}`)
-      await transportClient?.request('agent:newSessionCreated', {
+      await transportClient?.requestWithAck('agent:newSessionCreated', {
         error: message,
         success: false,
       })
@@ -1301,7 +1301,7 @@ function getAgentStatus(): AgentStatus {
  */
 function broadcastStatusChange(): void {
   const status = getAgentStatus()
-  transportClient?.request('agent:status:changed', status).catch(logTransportError)
+  transportClient?.requestWithAck('agent:status:changed', status).catch(logTransportError)
 }
 
 /**
@@ -1401,7 +1401,7 @@ async function runWorker(): Promise<void> {
         try {
           // Re-register with Transport to ensure connection is alive
           // Include status in register payload (Transport caches it atomically)
-          await transportClient.request('agent:register', {status: getAgentStatus()})
+          await transportClient.requestWithAck('agent:register', {status: getAgentStatus()})
           agentLog('Health-check passed - connection verified')
           sendToParent({success: true, type: 'health-check-result'})
         } catch (error) {

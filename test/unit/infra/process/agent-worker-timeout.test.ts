@@ -37,7 +37,7 @@ interface MockCipherAgent {
 }
 
 interface MockTransportClient {
-  request: (event: string, data: unknown) => Promise<void>
+  requestWithAck: (event: string, data: unknown) => Promise<void>
 }
 
 // ============================================================================
@@ -72,7 +72,7 @@ private taskReject: ((error: Error) => void) | undefined
     }
 
     this.transportClient = {
-      request: async (event: string, data: unknown) => {
+      requestWithAck: async (event: string, data: unknown) => {
         if (event === 'task:error') {
           this.taskErrorSent = true
           this.taskErrorData = data as {error: unknown; taskId: string}
@@ -116,13 +116,13 @@ private taskReject: ((error: Error) => void) | undefined
       // Handle timeout-triggered cancellation
       if (timedOut) {
         const errorData = {message: 'Task exceeded 5 minute timeout', name: 'Error'}
-        await this.transportClient?.request('task:error', {error: errorData, taskId})
+        await this.transportClient?.requestWithAck('task:error', {error: errorData, taskId})
         return
       }
 
       // Handle other errors (not timeout)
       const errorData = {message: (error as Error).message, name: 'Error'}
-      await this.transportClient?.request('task:error', {error: errorData, taskId})
+      await this.transportClient?.requestWithAck('task:error', {error: errorData, taskId})
     } finally {
       // Always clear timeout to prevent memory leak
       clearTimeout(timeoutId)

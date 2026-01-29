@@ -3,10 +3,10 @@ import {z} from 'zod'
 
 import type {Tool, ToolExecutionContext} from '../../../core/domain/tools/types.js'
 
-import {ToolName} from '../../../core/domain/tools/constants.js'
 import {DirectoryManager} from '../../../../core/domain/knowledge/directory-manager.js'
 import {MarkdownWriter} from '../../../../core/domain/knowledge/markdown-writer.js'
 import {sanitizeFolderName} from '../../../../utils/file-helpers.js'
+import {ToolName} from '../../../core/domain/tools/constants.js'
 
 const CreateKnowledgeTopicInputSchema = z.object({
   // Base path for knowledge storage

@@ -1,3 +1,11 @@
+import {
+  ConnectionError,
+  ConnectionFailedError,
+  type ConnectionResult,
+  connectToTransport,
+  InstanceCrashedError,
+  NoInstanceRunningError,
+} from '@campfirein/brv-transport-client'
 import {randomUUID} from 'node:crypto'
 
 import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
@@ -5,12 +13,7 @@ import type {ITerminal} from '../../core/interfaces/i-terminal.js'
 import type {ITrackingService} from '../../core/interfaces/i-tracking-service.js'
 import type {IQueryUseCase, QueryUseCaseRunOptions} from '../../core/interfaces/usecase/i-query-use-case.js'
 
-import {
-  ConnectionError,
-  ConnectionFailedError,
-  InstanceCrashedError,
-  NoInstanceRunningError,
-} from '../../core/domain/errors/connection-error.js'
+import {CipherAgent} from '../../agent/infra/agent/index.js'
 import {
   LlmResponseEvent,
   LlmToolCallEvent,
@@ -24,27 +27,26 @@ import {
 import {ITransportClient} from '../../core/interfaces/transport/i-transport-client.js'
 import { formatError } from '../../utils/error-handler.js'
 import {getSandboxEnvironmentName, isSandboxEnvironment, isSandboxNetworkError} from '../../utils/sandbox-detector.js'
-import {CipherAgent} from '../../agent/infra/agent/index.js'
-import {createTransportClientFactory, type TransportClientFactory} from '../transport/transport-client-factory.js'
 
-export type TransportClientFactoryCreator = () => TransportClientFactory
+/** Type for transport connection function (for DI/testing) */
+export type TransportConnector = (fromDir?: string) => Promise<ConnectionResult>
 
 export interface QueryUseCaseOptions {
   terminal: ITerminal
   trackingService: ITrackingService
-  /** Optional factory creator for dependency injection (defaults to createTransportClientFactory) */
-  transportClientFactoryCreator?: TransportClientFactoryCreator
+  /** Optional transport connector for dependency injection (defaults to connectToTransport) */
+  transportConnector?: TransportConnector
 }
 
 export class QueryUseCase implements IQueryUseCase {
   private readonly terminal: ITerminal
   private readonly trackingService: ITrackingService
-  private readonly transportClientFactoryCreator: TransportClientFactoryCreator
+  private readonly transportConnector: TransportConnector
 
   constructor(options: QueryUseCaseOptions) {
     this.terminal = options.terminal
     this.trackingService = options.trackingService
-    this.transportClientFactoryCreator = options.transportClientFactoryCreator ?? createTransportClientFactory
+    this.transportConnector = options.transportConnector ?? connectToTransport
   }
 
   /**
@@ -77,13 +79,12 @@ export class QueryUseCase implements IQueryUseCase {
     let client: ITransportClient | undefined
 
     try {
-      const transportClientFactory = this.transportClientFactoryCreator()
-
       if (verbose) {
         this.terminal.log('Discovering running instance...')
       }
 
-      const {client: connectedClient} = await transportClientFactory.connect()
+      // Use modern connectToTransport API (auto-discovers and connects)
+      const {client: connectedClient} = await this.transportConnector()
       client = connectedClient
 
       if (verbose) {
@@ -94,11 +95,14 @@ export class QueryUseCase implements IQueryUseCase {
       const taskId = randomUUID()
 
       // Send task:create request
-      await client.request<TaskCreateResponse>('task:create', {
-        content: options.query,
-        taskId,
-        type: 'query',
-      })
+      await client.requestWithAck<TaskCreateResponse>(
+        'task:create',
+        {
+          content: options.query,
+          taskId,
+          type: 'query',
+        },
+      )
       // Note: response.taskId confirms what we sent (no longer extracting)
 
       if (verbose) {

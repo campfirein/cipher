@@ -42,7 +42,8 @@ function createMockClient(): {
         stateHandlers.delete(handler)
       }
     },
-    request: stub().resolves(),
+    request: stub() as unknown as ITransportClient['request'],
+    requestWithAck: stub().resolves(),
   }
 
   return {

@@ -1,6 +1,6 @@
+import {NoInstanceRunningError} from '@campfirein/brv-transport-client'
 import {Command} from '@oclif/core'
 
-import {NoInstanceRunningError} from '../../core/domain/errors/connection-error.js'
 import {ByteRoverMcpServer} from '../../infra/mcp/index.js'
 
 /**

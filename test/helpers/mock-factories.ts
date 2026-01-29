@@ -16,6 +16,7 @@
  * - But the cast is centralized and documented, not scattered throughout tests
  */
 
+import type {ConnectionResult} from '@campfirein/brv-transport-client'
 import type {SinonSandbox, SinonStub} from 'sinon'
 
 import type {CipherAgentServices} from '../../src/agent/core/interfaces/cipher-services.js'
@@ -25,8 +26,6 @@ import type {IHistoryStorage} from '../../src/agent/core/interfaces/i-history-st
 import type {ILLMService} from '../../src/agent/core/interfaces/i-llm-service.js'
 import type {PolicyEvaluationResult, PolicyRule} from '../../src/agent/core/interfaces/i-policy-engine.js'
 import type {ScheduledToolExecution, ToolSchedulerContext} from '../../src/agent/core/interfaces/i-tool-scheduler.js'
-import type {ITerminal} from '../../src/core/interfaces/i-terminal.js'
-import type {ITransportClient} from '../../src/core/interfaces/transport/i-transport-client.js'
 import type {AgentEventBus} from '../../src/agent/infra/events/event-emitter.js'
 import type {FileSystemService} from '../../src/agent/infra/file-system/file-system-service.js'
 import type {ContextManager} from '../../src/agent/infra/llm/context/context-manager.js'
@@ -35,7 +34,8 @@ import type {ProcessService} from '../../src/agent/infra/process/process-service
 import type {SystemPromptManager} from '../../src/agent/infra/system-prompt/system-prompt-manager.js'
 import type {ToolManager} from '../../src/agent/infra/tools/tool-manager.js'
 import type {ToolProvider} from '../../src/agent/infra/tools/tool-provider.js'
-import type {ConnectionResult} from '../../src/infra/transport/transport-client-factory.js'
+import type {ITerminal} from '../../src/core/interfaces/i-terminal.js'
+import type {ITransportClient} from '../../src/core/interfaces/transport/i-transport-client.js'
 
 /**
  * Type aliases for service mocks - balances type safety with readability.
@@ -491,7 +491,8 @@ export function createMockTransportClient(
     on: onImpl,
     once: sandbox.stub(),
     onStateChange: sandbox.stub().returns(() => {}),
-    request: sandbox.stub().resolves({taskId: 'mock-task-id'}),
+    request: sandbox.stub() as unknown as ITransportClient['request'],
+    requestWithAck: sandbox.stub().resolves({taskId: 'mock-task-id'}),
     ...overrides,
   }
 

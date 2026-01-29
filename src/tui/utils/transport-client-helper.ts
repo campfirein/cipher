@@ -1,3 +1,4 @@
+import {connectToTransport} from '@campfirein/brv-transport-client'
 /**
  * Transport Client Helper for TUI (v0.5.0 architecture).
  *
@@ -17,7 +18,6 @@ import {
   TransportSessionEventNames,
   TransportTaskEventNames,
 } from '../../core/domain/transport/schemas.js'
-import {createTransportClientFactory} from '../../infra/transport/transport-client-factory.js'
 
 const TRANSPORT_LOG_FILE = path.join(BRV_DIR, 'transport-events.log')
 
@@ -78,8 +78,8 @@ export async function connectTransportClient(): Promise<ITransportClient | null>
   }
 
   try {
-    const factory = createTransportClientFactory()
-    const {client} = await factory.connect()
+    // Use modern connectToTransport API (auto-discovers and connects)
+    const {client} = await connectToTransport()
 
     client.onStateChange((state: string) => {
       logEvent('_connection', {clientId: client.getClientId(), state})

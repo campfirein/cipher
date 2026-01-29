@@ -1,9 +1,9 @@
 import {expect} from 'chai'
 import sinon, {stub} from 'sinon'
 
+import type {ICodingAgentLogParser} from '../../../../src/agent/core/interfaces/i-coding-agent-log-parser.js'
 import type {Agent} from '../../../../src/core/domain/entities/agent.js'
 import type {CleanSession} from '../../../../src/core/domain/entities/parser.js'
-import type {ICodingAgentLogParser} from '../../../../src/agent/core/interfaces/i-coding-agent-log-parser.js'
 import type {FileEvent, IFileWatcherService} from '../../../../src/core/interfaces/i-file-watcher-service.js'
 
 import {CodingAgentLogWatcher} from '../../../../src/agent/infra/watcher/coding-agent-log-watcher.js'

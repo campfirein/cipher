@@ -57,7 +57,7 @@ export function registerBrvCurateTool(
         const taskId = randomUUID()
 
         // Create task via transport (same pattern as brv curate command)
-        await client.request('task:create', {
+        await client.requestWithAck('task:create', {
           clientCwd: getWorkingDirectory(),
           content: context,
           taskId,
