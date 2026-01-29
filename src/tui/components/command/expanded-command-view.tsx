@@ -75,7 +75,7 @@ export const ExpandedCommandView: React.FC<ExpandedCommandViewProps> = ({
     (input, key) => {
       if (!scrollViewRef.current) return
 
-      if ((key.ctrl && input === 'o') || key.escape) {
+      if ((key.ctrl && input === 'o')) {
         onClose()
       }
 
@@ -125,7 +125,7 @@ export const ExpandedCommandView: React.FC<ExpandedCommandViewProps> = ({
       {/* Scrollable content area */}
       <Box borderColor={colors.border} borderStyle="single" flexDirection="column" height={availableHeight - 1}>
         <ScrollView height={availableHeight - 4} ref={scrollViewRef}>
-          <Box flexDirection="column" paddingX={1}>
+          <Box flexDirection="column">
             {!hasCompletedOutput && showLiveOutput && (
               <LiveStreamingOutput
                 activePrompt={activePrompt}

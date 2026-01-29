@@ -131,6 +131,12 @@ export const LiveStreamingOutput: React.FC<LiveStreamingOutputProps> = ({
           onSelect={(value) => handlePromptResponse(value)}
         />
       )}
+
+      {isStreaming && activePrompt && (
+        <Box marginTop={1}>
+          <Text color={colors.dimText}>[esc] to cancel</Text>
+        </Box>
+      )}
     </Box>
   )
 }
