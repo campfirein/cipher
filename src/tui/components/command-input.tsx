@@ -161,7 +161,6 @@ export const CommandInput = () => {
           {
             content: '',
             fromCommand: trimmed.startsWith('/') ? trimmed.slice(1) : trimmed,
-            timestamp: new Date(),
             type: 'command',
           },
         ])
@@ -222,7 +221,7 @@ export const CommandInput = () => {
               const updated = [...prev]
               const lastIndex = updated.length - 1
               if (lastIndex >= 0 && updated[lastIndex].type === 'command') {
-                updated[lastIndex] = { ...updated[lastIndex], output: collectedMessages }
+                updated[lastIndex] = { ...updated[lastIndex], output: collectedMessages, timestamp: new Date() }
               }
 
               return updated

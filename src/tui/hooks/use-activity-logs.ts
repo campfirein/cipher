@@ -168,7 +168,7 @@ export function useActivityLogs(): UseActivityLogsReturn {
           progress,
           source: 'agent',
           status: mapTaskStatusToExecutionStatus(task.status),
-          timestamp: new Date(task.completedAt ?? task.startedAt ?? task.createdAt),
+          timestamp: new Date(task.createdAt),
           type: task.type,
         }
 

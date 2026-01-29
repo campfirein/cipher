@@ -26,7 +26,7 @@ import {WelcomeBox} from './onboarding/welcome-box.js'
 type MessageListItem =
   | {data: ActivityLog; timestamp: Date; type: 'log'}
   | {data: ActivityLog; timestamp: Date; type: 'onboarding'}
-  | {data: CommandMessage; timestamp: Date; type: 'command'}
+  | {data: CommandMessage; timestamp?: Date; type: 'command'}
 
 interface MessageListProps {
   /** Index of the currently expanded item (null if none) */
@@ -68,11 +68,15 @@ export const MessageList: React.FC<MessageListProps> = ({expandedIndex, height, 
 
     const commandItems: MessageListItem[] = commandMessages.map((message) => ({
       data: message,
-      timestamp: message.timestamp ?? new Date(),
+      timestamp: message.timestamp,
       type: 'command' as const,
     }))
 
-    return [...onboardingItems, ...logItems, ...commandItems].sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime())
+    return [...onboardingItems, ...logItems, ...commandItems].sort((a, b) => {
+      if (!a.timestamp) return 1
+      if (!b.timestamp) return -1
+      return a.timestamp.getTime() - b.timestamp.getTime()
+    })
   }, [onboardingMessages, logsMessages, commandMessages])
 
   useEffect(() => {
@@ -154,7 +158,7 @@ export const MessageList: React.FC<MessageListProps> = ({expandedIndex, height, 
     <List height={height} selectedIndex={selectedIndex}>
       {messages.map((item, index) => {
         const key = (() => {
-          const timestamp = item.timestamp.getTime()
+          const timestamp = item.timestamp?.getTime() ?? 0
           if (item.type === 'command') return `command-${item.data.fromCommand}-${timestamp}-${index}`
           if (item.type === 'onboarding') return `onboarding-${item.data.type}-${timestamp}-${index}`
           return `log-${item.data.id}-${timestamp}-${index}`
