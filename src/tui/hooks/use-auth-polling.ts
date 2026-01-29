@@ -101,7 +101,7 @@ async function validateToken(authToken: AuthToken): Promise<boolean> {
 
   try {
     // Try to get current user - if this fails with 401, token is invalid
-    await userService.getCurrentUser(authToken.accessToken, authToken.sessionKey)
+    await userService.getCurrentUser(authToken.sessionKey)
     return true
   } catch (error) {
     // Only treat 401 as invalid token - network errors should not trigger refresh

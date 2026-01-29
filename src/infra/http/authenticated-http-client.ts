@@ -42,11 +42,9 @@ type LLMServerError = {
  * ```
  */
 export class AuthenticatedHttpClient implements IHttpClient {
-  private readonly accessToken: string
   private readonly sessionKey: string
 
-  public constructor(accessToken: string, sessionKey: string) {
-    this.accessToken = accessToken
+  public constructor(sessionKey: string) {
     this.sessionKey = sessionKey
   }
 
@@ -103,7 +101,6 @@ export class AuthenticatedHttpClient implements IHttpClient {
    */
   private buildHeaders(customHeaders?: Record<string, string>): Record<string, string> {
     return {
-      Authorization: `Bearer ${this.accessToken}`,
       'x-byterover-session-id': this.sessionKey,
       ...customHeaders,
     }

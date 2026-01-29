@@ -26,7 +26,7 @@ export class HttpCogitPullService implements ICogitPullService {
     const baseUrl = `${this.config.apiBaseUrl}/organizations/${params.teamId}/projects/${params.spaceId}/git/snapshot`
     const url = `${baseUrl}?branch=${encodeURIComponent(params.branch)}`
 
-    const httpClient = new AuthenticatedHttpClient(params.accessToken, params.sessionKey)
+    const httpClient = new AuthenticatedHttpClient(params.sessionKey)
 
     try {
       const response = await httpClient.get<unknown>(url, {

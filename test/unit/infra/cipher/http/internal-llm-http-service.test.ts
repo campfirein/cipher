@@ -114,11 +114,9 @@ describe('ByteRoverLlmHttpService', () => {
 
       nock(baseUrl).post('/api/llm/generate', verifyProjectId('byterover')).reply(200, mockResponse)
 
-      return service
-        .generateContent([{parts: [{text: 'Hi'}], role: 'user'}], {}, 'gemini-2.5-flash')
-        .then(() => {
-          expect(nock.isDone()).to.be.true
-        })
+      return service.generateContent([{parts: [{text: 'Hi'}], role: 'user'}], {}, 'gemini-2.5-flash').then(() => {
+        expect(nock.isDone()).to.be.true
+      })
     })
 
     it('should use custom projectId when provided', () => {
@@ -131,11 +129,9 @@ describe('ByteRoverLlmHttpService', () => {
 
       nock(baseUrl).post('/api/llm/generate', verifyProjectId('custom-project')).reply(200, mockResponse)
 
-      return service
-        .generateContent([{parts: [{text: 'Hi'}], role: 'user'}], {}, 'gemini-2.5-flash')
-        .then(() => {
-          expect(nock.isDone()).to.be.true
-        })
+      return service.generateContent([{parts: [{text: 'Hi'}], role: 'user'}], {}, 'gemini-2.5-flash').then(() => {
+        expect(nock.isDone()).to.be.true
+      })
     })
 
     it('should use default timeout of 60 seconds when not provided', () => {
@@ -247,18 +243,6 @@ describe('ByteRoverLlmHttpService', () => {
     })
 
     describe('authentication headers', () => {
-      it('should send Authorization Bearer header', async () => {
-        const mockResponse = createMockResponse({candidates: [{content: {parts: [{text: 'Response'}]}}]})
-
-        nock(baseUrl)
-          .post('/api/llm/generate')
-          .matchHeader('Authorization', 'Bearer test-access-token')
-          .reply(200, mockResponse)
-
-        await service.generateContent([{parts: [{text: 'Hello'}], role: 'user'}], {}, 'gemini-2.5-flash')
-        expect(nock.isDone()).to.be.true
-      })
-
       it('should send x-byterover-session-id header', async () => {
         const mockResponse = createMockResponse({candidates: [{content: {parts: [{text: 'Response'}]}}]})
 
@@ -489,11 +473,7 @@ describe('ByteRoverLlmHttpService', () => {
 
       nock(baseUrl).post('/api/llm/generate').reply(200, createMockResponse(expectedResponse))
 
-      const result = await service.generateContent(
-        [{parts: [{text: 'Hello'}], role: 'user'}],
-        {},
-        'gemini-2.5-flash',
-      )
+      const result = await service.generateContent([{parts: [{text: 'Hello'}], role: 'user'}], {}, 'gemini-2.5-flash')
 
       expect(result).to.deep.equal(expectedResponse)
     })

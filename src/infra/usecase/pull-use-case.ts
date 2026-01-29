@@ -103,7 +103,6 @@ export class PullUseCase implements IPullUseCase {
       // Pull from CoGit
       this.terminal.log('Pulling from ByteRover...')
       const snapshot = await this.cogitPullService.pull({
-        accessToken: token.accessToken,
         branch: options.branch,
         sessionKey: token.sessionKey,
         spaceId: projectConfig.spaceId,

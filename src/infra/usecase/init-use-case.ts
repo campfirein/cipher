@@ -183,7 +183,7 @@ export class InitUseCase implements IInitUseCase {
 
   protected async fetchAndSelectSpace(token: AuthToken, team: Team): Promise<Space | undefined> {
     this.terminal.actionStart('Fetching all spaces')
-    const {spaces} = await this.spaceService.getSpaces(token.accessToken, token.sessionKey, team.id, {fetchAll: true})
+    const {spaces} = await this.spaceService.getSpaces(token.sessionKey, team.id, {fetchAll: true})
     this.terminal.actionStop()
 
     if (spaces.length === 0) {
@@ -201,7 +201,7 @@ export class InitUseCase implements IInitUseCase {
 
   protected async fetchAndSelectTeam(token: AuthToken): Promise<Team | undefined> {
     this.terminal.actionStart('Fetching all teams')
-    const {teams} = await this.teamService.getTeams(token.accessToken, token.sessionKey, {fetchAll: true})
+    const {teams} = await this.teamService.getTeams(token.sessionKey, {fetchAll: true})
     this.terminal.actionStop()
 
     if (teams.length === 0) {
@@ -225,7 +225,7 @@ export class InitUseCase implements IInitUseCase {
   ): Promise<Space | undefined> {
     this.terminal.actionStart('Fetching space')
     try {
-      const {spaces} = await this.spaceService.getSpaces(token.accessToken, token.sessionKey, team.id, {fetchAll: true})
+      const {spaces} = await this.spaceService.getSpaces(token.sessionKey, team.id, {fetchAll: true})
       this.terminal.actionStop()
 
       // First try to find by ID
@@ -271,7 +271,7 @@ export class InitUseCase implements IInitUseCase {
   ): Promise<Team | undefined> {
     this.terminal.actionStart('Fetching team')
     try {
-      const {teams} = await this.teamService.getTeams(token.accessToken, token.sessionKey, {fetchAll: true})
+      const {teams} = await this.teamService.getTeams(token.sessionKey, {fetchAll: true})
       this.terminal.actionStop()
 
       // First try to find by ID
@@ -608,7 +608,6 @@ export class InitUseCase implements IInitUseCase {
     this.terminal.actionStart('Syncing from ByteRover...')
     try {
       const coGitSnapshot = await this.cogitPullService.pull({
-        accessToken: params.token.accessToken,
         branch: DEFAULT_BRANCH,
         sessionKey: params.token.sessionKey,
         spaceId: params.projectConfig.spaceId,

@@ -38,12 +38,10 @@ describe('HttpMemoryStorageService', () => {
 
       nock('https://dev-beta-cogit.byterover.dev')
         .post('/api/v1/organizations/team-123/projects/space-456/memory-processing/presigned-urls')
-        .matchHeader('authorization', 'Bearer access-token')
         .matchHeader('x-byterover-session-id', 'session-key')
         .reply(200, mockResponse)
 
       const result = await service.getPresignedUrls({
-        accessToken: 'access-token',
         branch: 'main',
         fileNames: ['playbook.json'],
         sessionKey: 'session-key',
@@ -81,7 +79,6 @@ describe('HttpMemoryStorageService', () => {
         .reply(200, mockResponse)
 
       const result = await service.getPresignedUrls({
-        accessToken: 'access-token',
         branch: 'main',
         fileNames: ['file1.md', 'file2.md'],
         sessionKey: 'session-key',
@@ -114,7 +111,6 @@ describe('HttpMemoryStorageService', () => {
         })
 
       await service.getPresignedUrls({
-        accessToken: 'access-token',
         branch: 'develop',
         fileNames: ['file1.md', 'file2.md'],
         sessionKey: 'session-key',
@@ -135,7 +131,6 @@ describe('HttpMemoryStorageService', () => {
 
       try {
         await service.getPresignedUrls({
-          accessToken: 'access-token',
           branch: 'main',
           fileNames: ['playbook.json'],
           sessionKey: 'session-key',
@@ -156,7 +151,6 @@ describe('HttpMemoryStorageService', () => {
 
       try {
         await service.getPresignedUrls({
-          accessToken: 'access-token',
           branch: 'main',
           fileNames: ['playbook.json'],
           sessionKey: 'session-key',
@@ -271,12 +265,10 @@ describe('HttpMemoryStorageService', () => {
 
       nock('https://dev-beta-cogit.byterover.dev')
         .post('/api/v1/organizations/team-123/projects/space-456/memory-processing/confirm-upload')
-        .matchHeader('authorization', 'Bearer access-token')
         .matchHeader('x-byterover-session-id', 'session-key')
         .reply(200, mockResponse)
 
       await service.confirmUpload({
-        accessToken: 'access-token',
         requestId: 'req-123',
         sessionKey: 'session-key',
         spaceId: 'space-456',
@@ -301,7 +293,6 @@ describe('HttpMemoryStorageService', () => {
         })
 
       await service.confirmUpload({
-        accessToken: 'access-token',
         requestId: 'req-456',
         sessionKey: 'session-key',
         spaceId: 'space-456',
@@ -316,7 +307,6 @@ describe('HttpMemoryStorageService', () => {
     it('should send correct headers', async () => {
       nock('https://dev-beta-cogit.byterover.dev')
         .post('/api/v1/organizations/team-123/projects/space-456/memory-processing/confirm-upload')
-        .matchHeader('authorization', 'Bearer test-token-789')
         .matchHeader('x-byterover-session-id', 'test-session-789')
         .reply(200, {
           data: {message: 'Upload confirmed', request_id: 'req-789', status: 'uploaded'},
@@ -325,7 +315,6 @@ describe('HttpMemoryStorageService', () => {
         })
 
       await service.confirmUpload({
-        accessToken: 'test-token-789',
         requestId: 'req-789',
         sessionKey: 'test-session-789',
         spaceId: 'space-456',
@@ -345,7 +334,6 @@ describe('HttpMemoryStorageService', () => {
         })
 
       await service.confirmUpload({
-        accessToken: 'access-token',
         requestId: 'req-001',
         sessionKey: 'session-key',
         spaceId: 'proj-888',
@@ -362,7 +350,6 @@ describe('HttpMemoryStorageService', () => {
 
       try {
         await service.confirmUpload({
-          accessToken: 'access-token',
           requestId: 'req-123',
           sessionKey: 'session-key',
           spaceId: 'space-456',
@@ -382,7 +369,6 @@ describe('HttpMemoryStorageService', () => {
 
       try {
         await service.confirmUpload({
-          accessToken: 'access-token',
           requestId: 'req-unknown',
           sessionKey: 'session-key',
           spaceId: 'space-456',
@@ -402,7 +388,6 @@ describe('HttpMemoryStorageService', () => {
 
       try {
         await service.confirmUpload({
-          accessToken: 'access-token',
           requestId: 'req-123',
           sessionKey: 'session-key',
           spaceId: 'space-456',

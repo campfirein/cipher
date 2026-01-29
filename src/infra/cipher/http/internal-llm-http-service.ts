@@ -37,7 +37,6 @@ type GenerateResponse = {
   data: GenerateContentResponse
 }
 
-
 /**
  * ByteRover HTTP LLM provider configuration.
  */
@@ -147,7 +146,7 @@ export class ByteRoverLlmHttpService {
    */
   private async callHttpGenerate(request: GenerateRequest): Promise<GenerateContentResponse> {
     const url = `${this.config.apiBaseUrl}/api/llm/generate`
-    const httpClient = new AuthenticatedHttpClient(this.config.accessToken, this.config.sessionKey)
+    const httpClient = new AuthenticatedHttpClient(this.config.sessionKey)
 
     const response = await httpClient.post<GenerateResponse>(url, request, {
       timeout: this.config.timeout,
