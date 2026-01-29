@@ -76,14 +76,34 @@ describe('Curate Command', () => {
   }
 
   describe('run', () => {
-    it('should show usage message when context is not provided', async () => {
+    it('should show usage message when neither context nor files are provided', async () => {
       const useCase = new CurateUseCase(createUseCaseOptions())
 
       await useCase.run({})
 
-      expect(loggedMessages).to.include('Context argument is required.')
-      expect(loggedMessages).to.include('Usage: brv curate "your context here"')
+      expect(loggedMessages).to.include('Either a context argument or file reference is required.')
       expect(trackingService.track.calledWith('mem:curate', {status: 'started'})).to.be.true
+    })
+
+    it('should send task:create with empty content when only files provided', async () => {
+      const useCase = new CurateUseCase(createUseCaseOptions())
+
+      await useCase.run({files: ['src/auth.ts', 'src/utils.ts']})
+      expect(mockClient.request.calledOnce).to.be.true
+      const [event, payload] = mockClient.request.firstCall.args
+      expect(event).to.equal('task:create')
+      expect(payload).to.have.property('content', '')
+      expect(payload).to.have.property('files').that.deep.equals(['src/auth.ts', 'src/utils.ts'])
+      expect(payload).to.have.property('type', 'curate')
+      expect(loggedMessages).to.include('✓ Context queued for processing.')
+    })
+
+    it('should treat whitespace-only context as no context', async () => {
+      const useCase = new CurateUseCase(createUseCaseOptions())
+
+      await useCase.run({context: '   '})
+
+      expect(loggedMessages).to.include('Either a context argument or file reference is required.')
     })
 
     it('should send task:create request with context and taskId', async () => {

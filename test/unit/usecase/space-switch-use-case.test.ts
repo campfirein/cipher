@@ -1,7 +1,6 @@
 import {expect} from 'chai'
 import * as sinon from 'sinon'
 
-import type {Agent} from '../../../src/server/core/domain/entities/agent.js'
 import type {Space} from '../../../src/server/core/domain/entities/space.js'
 import type {Team} from '../../../src/server/core/domain/entities/team.js'
 import type {ITokenStore} from '../../../src/server/core/interfaces/auth/i-token-store.js'
@@ -15,31 +14,27 @@ import {AuthToken} from '../../../src/server/core/domain/entities/auth-token.js'
 import {BrvConfig} from '../../../src/server/core/domain/entities/brv-config.js'
 import {Space as SpaceEntity} from '../../../src/server/core/domain/entities/space.js'
 import {Team as TeamEntity} from '../../../src/server/core/domain/entities/team.js'
-import {SpaceSwitchUseCase, type SpaceSwitchUseCaseDependencies} from '../../../src/server/infra/usecase/space-switch-use-case.js'
+import {
+  SpaceSwitchUseCase,
+  type SpaceSwitchUseCaseDependencies,
+} from '../../../src/server/infra/usecase/space-switch-use-case.js'
 import {createMockTerminal} from '../../helpers/mock-factories.js'
 
 // ==================== TestableSpaceSwitchUseCase ====================
 
 interface TestableSpaceSwitchUseCaseOptions extends SpaceSwitchUseCaseDependencies {
-  mockSelectedAgent: Agent
   mockSelectedSpace: Space
   mockSelectedTeam: Team
 }
 
 class TestableSpaceSwitchUseCase extends SpaceSwitchUseCase {
-  private readonly mockSelectedAgent: Agent
   private readonly mockSelectedSpace: Space
   private readonly mockSelectedTeam: Team
 
   constructor(options: TestableSpaceSwitchUseCaseOptions) {
     super(options)
-    this.mockSelectedAgent = options.mockSelectedAgent
     this.mockSelectedSpace = options.mockSelectedSpace
     this.mockSelectedTeam = options.mockSelectedTeam
-  }
-
-  protected async promptForAgentSelection(): Promise<Agent> {
-    return this.mockSelectedAgent
   }
 
   protected async promptForSpaceSelection(_spaces: Space[]): Promise<Space> {
@@ -125,9 +120,6 @@ describe('SpaceSwitchUseCase', () => {
   let teamService: sinon.SinonStubbedInstance<ITeamService>
   let terminal: ITerminal
   let tokenStore: sinon.SinonStubbedInstance<ITokenStore>
-  let workspaceDetector: {
-    detectWorkspaces: sinon.SinonStub
-  }
 
   beforeEach(() => {
     logMessages = []
@@ -155,10 +147,6 @@ describe('SpaceSwitchUseCase', () => {
       read: sinon.stub(),
       write: sinon.stub(),
     }
-
-    workspaceDetector = {
-      detectWorkspaces: sinon.stub().returns({chatLogPath: '', cwd: '/test/cwd'}),
-    }
   })
 
   afterEach(() => {
@@ -167,7 +155,6 @@ describe('SpaceSwitchUseCase', () => {
 
   function createUseCase(selectedTeam: TeamEntity, selectedSpace: SpaceEntity): TestableSpaceSwitchUseCase {
     return new TestableSpaceSwitchUseCase({
-      mockSelectedAgent: 'Claude Code',
       mockSelectedSpace: selectedSpace,
       mockSelectedTeam: selectedTeam,
       projectConfigStore: configStore,
@@ -175,7 +162,6 @@ describe('SpaceSwitchUseCase', () => {
       teamService,
       terminal,
       tokenStore,
-      workspaceDetector,
     })
   }
 
@@ -299,6 +285,68 @@ describe('SpaceSwitchUseCase', () => {
       await useCase.run()
 
       expect(logMessages.some((msg) => msg.includes('Successfully switched'))).to.be.true
+    })
+
+    it('should preserve existing agent from config when switching space', async () => {
+      configStore.read.resolves(createMockConfig()) // Has ide: 'Claude Code'
+      tokenStore.load.resolves(createMockToken())
+      const teams = createMockTeams()
+      const spaces = createMockSpaces()
+      teamService.getTeams.resolves({teams, total: teams.length})
+      spaceService.getSpaces.resolves({spaces, total: spaces.length})
+      configStore.write.resolves()
+
+      const useCase = createUseCase(teams[0], spaces[1])
+
+      await useCase.run()
+
+      expect(configStore.write.calledOnce).to.be.true
+      const writtenConfig = configStore.write.firstCall.args[0]
+      expect(writtenConfig.ide).to.equal('Claude Code')
+    })
+
+    it('should preserve chatLogPath and cwd when switching spaces', async () => {
+      configStore.read.resolves(createMockConfig()) // Has chatLogPath: 'chat.log', cwd: '/test/cwd'
+      tokenStore.load.resolves(createMockToken())
+      const teams = createMockTeams()
+      const spaces = createMockSpaces()
+      teamService.getTeams.resolves({teams, total: teams.length})
+      spaceService.getSpaces.resolves({spaces, total: spaces.length})
+      configStore.write.resolves()
+
+      const useCase = createUseCase(teams[0], spaces[1])
+      await useCase.run()
+
+      const writtenConfig = configStore.write.firstCall.args[0]
+      expect(writtenConfig.chatLogPath).to.equal('chat.log')
+      expect(writtenConfig.cwd).to.equal('/test/cwd')
+    })
+
+    it('should preserve cipher agent settings when switching spaces', async () => {
+      const cipherAgentContext = 'existing context'
+      const cipherAgentModes = ['mode1', 'mode2']
+      const cipherAgentSystemPrompt = 'existing prompt'
+      const existingConfig = new BrvConfig({
+        ...createMockConfig(),
+        cipherAgentContext,
+        cipherAgentModes,
+        cipherAgentSystemPrompt,
+      })
+      configStore.read.resolves(existingConfig)
+      tokenStore.load.resolves(createMockToken())
+      const teams = createMockTeams()
+      teamService.getTeams.resolves({teams, total: teams.length})
+      const spaces = createMockSpaces()
+      spaceService.getSpaces.resolves({spaces, total: spaces.length})
+      configStore.write.resolves()
+
+      const useCase = createUseCase(teams[0], spaces[1])
+      await useCase.run()
+
+      const writtenConfig = configStore.write.firstCall.args[0]
+      expect(writtenConfig.cipherAgentContext).to.equal(cipherAgentContext)
+      expect(writtenConfig.cipherAgentModes).to.deep.equal(cipherAgentModes)
+      expect(writtenConfig.cipherAgentSystemPrompt).to.equal(cipherAgentSystemPrompt)
     })
   })
 

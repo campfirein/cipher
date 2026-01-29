@@ -4,22 +4,11 @@ import type {ITokenStore} from '../../core/interfaces/auth/i-token-store.js'
 import type {ISpaceService} from '../../core/interfaces/services/i-space-service.js'
 import type {ITeamService} from '../../core/interfaces/services/i-team-service.js'
 import type {ITerminal} from '../../core/interfaces/services/i-terminal.js'
-import type {IWorkspaceDetectorService} from '../../core/interfaces/services/i-workspace-detector-service.js'
 import type {IProjectConfigStore} from '../../core/interfaces/storage/i-project-config-store.js'
 import type {ISpaceSwitchUseCase} from '../../core/interfaces/usecase/i-space-switch-use-case.js'
 
 import {BRV_DIR, PROJECT_CONFIG_FILE} from '../../constants.js'
-import {Agent, AGENT_VALUES} from '../../core/domain/entities/agent.js'
 import {BrvConfig} from '../../core/domain/entities/brv-config.js'
-
-/**
- * Array of all agents with name and value properties.
- * Useful for UI components like select dropdowns.
- */
-const AGENTS = AGENT_VALUES.map((agent) => ({
-  name: agent,
-  value: agent,
-}))
 
 export interface SpaceSwitchUseCaseDependencies {
   projectConfigStore: IProjectConfigStore
@@ -27,7 +16,6 @@ export interface SpaceSwitchUseCaseDependencies {
   teamService: ITeamService
   terminal: ITerminal
   tokenStore: ITokenStore
-  workspaceDetector: IWorkspaceDetectorService
 }
 
 export class SpaceSwitchUseCase implements ISpaceSwitchUseCase {
@@ -36,7 +24,6 @@ export class SpaceSwitchUseCase implements ISpaceSwitchUseCase {
   private readonly teamService: ITeamService
   private readonly terminal: ITerminal
   private readonly tokenStore: ITokenStore
-  private readonly workspaceDetector: IWorkspaceDetectorService
 
   constructor(deps: SpaceSwitchUseCaseDependencies) {
     this.projectConfigStore = deps.projectConfigStore
@@ -44,26 +31,6 @@ export class SpaceSwitchUseCase implements ISpaceSwitchUseCase {
     this.teamService = deps.teamService
     this.terminal = deps.terminal
     this.tokenStore = deps.tokenStore
-    this.workspaceDetector = deps.workspaceDetector
-  }
-
-  /**
-   * Prompts the user to select an agent.
-   * This method is protected to allow test overrides.
-   * @returns The selected agent
-   */
-  protected async promptForAgentSelection(): Promise<Agent> {
-    return this.terminal.search({
-      message: 'Which agent you are using (type to search):',
-      source(input) {
-        if (!input) return AGENTS
-        return AGENTS.filter(
-          (agent) =>
-            agent.name.toLowerCase().includes(input.toLowerCase()) ||
-            agent.value.toLowerCase().includes(input.toLowerCase()),
-        )
-      },
-    })
   }
 
   protected async promptForSpaceSelection(spaces: Space[]): Promise<Space | undefined> {
@@ -162,20 +129,16 @@ export class SpaceSwitchUseCase implements ISpaceSwitchUseCase {
     const selectedSpace = await this.promptForSpaceSelection(spaceResult.spaces)
     if (!selectedSpace) return
 
-    // Prompt for agent selection
-    this.terminal.log()
-    const selectedAgent = await this.promptForAgentSelection()
-
-    this.terminal.log()
-    const {chatLogPath, cwd} = this.workspaceDetector.detectWorkspaces(selectedAgent)
-
     // Update configuration
-    const newConfig = BrvConfig.fromSpace({
-      chatLogPath,
-      cwd,
-      ide: selectedAgent,
-      space: selectedSpace,
+    const newConfig = new BrvConfig({
+      ...currentConfig,
+      createdAt: new Date().toISOString(),
+      spaceId: selectedSpace.id,
+      spaceName: selectedSpace.name,
+      teamId: selectedTeam.id,
+      teamName: selectedTeam.name,
     })
+
     await this.projectConfigStore.write(newConfig)
 
     // Display success

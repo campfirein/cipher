@@ -17,6 +17,7 @@ import {createGlobFilesTool} from '../../../../src/agent/infra/tools/implementat
 import {createGrepContentTool} from '../../../../src/agent/infra/tools/implementations/grep-content-tool.js'
 import {createReadFileTool} from '../../../../src/agent/infra/tools/implementations/read-file-tool.js'
 import {createWriteFileTool} from '../../../../src/agent/infra/tools/implementations/write-file-tool.js'
+import {generateMultiPagePdf, generatePdf, generateSinglePagePdf} from '../../../helpers/pdf-generator.js'
 
 // Type assertion functions
 function assertReadFileResult(result: unknown): asserts result is ReadFileResult {
@@ -174,6 +175,176 @@ describe('File System Tools Integration', () => {
       const files = result.matches.map((m) => m.file).sort()
       expect(files[0]).to.include('file1.txt')
       expect(files[1]).to.include('file3.txt')
+    })
+  })
+
+  describe('read_file with PDF text extraction', () => {
+    it('should extract text from single-page PDF', async () => {
+      const pdfBuffer = await generateSinglePagePdf('Hello World from PDF')
+      const filePath = join(testDir, 'single-page.pdf')
+      await writeFile(filePath, pdfBuffer)
+
+      const tool = createReadFileTool(fileSystemService)
+      const result = await tool.execute({filePath, pdfMode: 'text'})
+      assertReadFileResult(result)
+
+      expect(result.success).to.be.true
+      expect(result.content).to.include('Hello World from PDF')
+      expect(result.content).to.include('--- Page 1 ---')
+      expect(result.pdfMetadata).to.exist
+      expect(result.pdfMetadata!.pageCount).to.equal(1)
+    })
+
+    it('should extract text from multi-page PDF', async () => {
+      const pdfBuffer = await generatePdf({
+        pages: ['First page content', 'Second page content', 'Third page content'],
+      })
+      const filePath = join(testDir, 'multi-page.pdf')
+      await writeFile(filePath, pdfBuffer)
+
+      const tool = createReadFileTool(fileSystemService)
+      const result = await tool.execute({filePath, pdfMode: 'text'})
+      assertReadFileResult(result)
+
+      expect(result.success).to.be.true
+      expect(result.content).to.include('First page content')
+      expect(result.content).to.include('Second page content')
+      expect(result.content).to.include('Third page content')
+      expect(result.content).to.include('--- Page 1 ---')
+      expect(result.content).to.include('--- Page 2 ---')
+      expect(result.content).to.include('--- Page 3 ---')
+      expect(result.pdfMetadata!.pageCount).to.equal(3)
+    })
+
+    it('should paginate with limit parameter', async () => {
+      const pdfBuffer = await generateMultiPagePdf(5)
+      const filePath = join(testDir, 'five-pages.pdf')
+      await writeFile(filePath, pdfBuffer)
+
+      const tool = createReadFileTool(fileSystemService)
+
+      // Read first 2 pages
+      const result = await tool.execute({filePath, limit: 2, pdfMode: 'text'})
+      assertReadFileResult(result)
+
+      expect(result.success).to.be.true
+      expect(result.content).to.include('Page 1 content')
+      expect(result.content).to.include('Page 2 content')
+      expect(result.content).not.to.include('Page 3 content')
+      expect(result.truncated).to.be.true
+      expect(result.message).to.include('offset=3')
+    })
+
+    it('should paginate with offset parameter', async () => {
+      const pdfBuffer = await generateMultiPagePdf(5)
+      const filePath = join(testDir, 'five-pages-offset.pdf')
+      await writeFile(filePath, pdfBuffer)
+
+      const tool = createReadFileTool(fileSystemService)
+
+      // Read pages 3-4 (offset=3, limit=2)
+      const result = await tool.execute({filePath, limit: 2, offset: 3, pdfMode: 'text'})
+      assertReadFileResult(result)
+
+      expect(result.success).to.be.true
+      expect(result.content).not.to.include('Page 1 content')
+      expect(result.content).not.to.include('Page 2 content')
+      expect(result.content).to.include('Page 3 content')
+      expect(result.content).to.include('Page 4 content')
+      expect(result.content).not.to.include('Page 5 content')
+      expect(result.truncated).to.be.true
+      expect(result.message).to.include('offset=5')
+    })
+
+    it('should read remaining pages and show end of file', async () => {
+      const pdfBuffer = await generateMultiPagePdf(3)
+      const filePath = join(testDir, 'three-pages.pdf')
+      await writeFile(filePath, pdfBuffer)
+
+      const tool = createReadFileTool(fileSystemService)
+
+      // Read last page (offset=3)
+      const result = await tool.execute({filePath, offset: 3, pdfMode: 'text'})
+      assertReadFileResult(result)
+
+      expect(result.success).to.be.true
+      expect(result.content).to.include('Page 3 content')
+      expect(result.truncated).to.be.false
+      expect(result.content).to.include('End of PDF')
+    })
+
+    it('should extract PDF metadata', async () => {
+      const pdfBuffer = await generatePdf({
+        author: 'Test Author',
+        pages: ['Content here'],
+        title: 'Test Document Title',
+      })
+      const filePath = join(testDir, 'with-metadata.pdf')
+      await writeFile(filePath, pdfBuffer)
+
+      const tool = createReadFileTool(fileSystemService)
+      const result = await tool.execute({filePath, pdfMode: 'text'})
+      assertReadFileResult(result)
+
+      expect(result.success).to.be.true
+      expect(result.pdfMetadata).to.exist
+      expect(result.pdfMetadata!.title).to.equal('Test Document Title')
+      expect(result.pdfMetadata!.author).to.equal('Test Author')
+      expect(result.pdfMetadata!.pageCount).to.equal(1)
+    })
+
+    it('should return base64 attachment when pdfMode is base64', async () => {
+      const pdfBuffer = await generateSinglePagePdf('PDF content')
+      const filePath = join(testDir, 'base64-mode.pdf')
+      await writeFile(filePath, pdfBuffer)
+
+      const tool = createReadFileTool(fileSystemService)
+      const result = await tool.execute({filePath, pdfMode: 'base64'})
+      assertReadFileResult(result)
+
+      expect(result.success).to.be.true
+      expect(result.attachments).to.exist
+      expect(result.attachments).to.have.length(1)
+      expect(result.attachments![0].mimeType).to.equal('application/pdf')
+      expect(result.attachments![0].type).to.equal('file')
+      expect(result.attachments![0].data).to.be.a('string')
+      // Verify it's valid base64 by decoding by checking its magic bytes
+      const decoded = Buffer.from(result.attachments![0].data, 'base64')
+      expect(decoded.subarray(0, 5).toString()).to.equal('%PDF-')
+    })
+
+    it('should default to text mode for PDFs', async () => {
+      const pdfBuffer = await generateSinglePagePdf('Default mode test')
+      const filePath = join(testDir, 'default-mode.pdf')
+      await writeFile(filePath, pdfBuffer)
+
+      const tool = createReadFileTool(fileSystemService)
+      // No pdfMode specified - should default to text
+      const result = await tool.execute({filePath})
+      assertReadFileResult(result)
+
+      expect(result.success).to.be.true
+      expect(result.content).to.include('Default mode test')
+      expect(result.attachments).to.be.undefined
+    })
+
+    it('should handle empty pages gracefully', async () => {
+      // Generate PDF with empty pages
+      const pdfBuffer = await generatePdf({
+        pages: ['', 'Page with content', ''],
+      })
+      const filePath = join(testDir, 'empty-pages.pdf')
+      await writeFile(filePath, pdfBuffer)
+
+      const tool = createReadFileTool(fileSystemService)
+      const result = await tool.execute({filePath, pdfMode: 'text'})
+      assertReadFileResult(result)
+
+      expect(result.success).to.be.true
+      expect(result.content).to.include('--- Page 1 ---')
+      expect(result.content).to.include('--- Page 2 ---')
+      expect(result.content).to.include('Page with content')
+      expect(result.pdfMetadata!.pageCount).to.equal(3)
     })
   })
 })

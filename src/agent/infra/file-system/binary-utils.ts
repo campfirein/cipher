@@ -197,8 +197,34 @@ export function getMimeType(filePath: string): null | string {
 }
 
 /**
- * Checks if a file is a media file (image or PDF) for base64 attachment handling.
+ * Checks if a file is a media file (only images supported at this point). PDFs are handled separately.
+ * @param filePath - Path to the file
  */
-export function isMediaFile(filePath: string, buffer?: Buffer): boolean {
-  return isImageFile(filePath) || isPdfFile(filePath, buffer)
+export function isMediaFile(filePath: string): boolean {
+  return isImageFile(filePath)
+}
+
+/**
+ * Determines if a file should be returned as a base64 attachment.
+ *
+ * - Images: Always returned as attachment
+ * - PDFs: Depends on pdfMode ('base64' = attachment, 'text' = extract text)
+ * - Other files: Never returned as attachment
+ *
+ * @param filePath - Path to the file
+ * @param pdfMode - PDF read mode ('text' | 'base64'), defaults to 'text'
+ * @returns true if file should be returned as base64 attachment
+ */
+export function shouldReturnAsAttachment(filePath: string, pdfMode?: 'base64' | 'text'): boolean {
+  // Images are always returned as attachments
+  if (isImageFile(filePath)) {
+    return true
+  }
+
+  // PDFs depend on pdfMode (if pdfMode is 'base64', return true)
+  if (isPdfFile(filePath) && pdfMode === 'base64') {
+    return true
+  }
+
+  return false
 }

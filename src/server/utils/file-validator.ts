@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-import {isBinaryFile, isMediaFile} from '../../agent/infra/file-system/binary-utils.js'
+import {isBinaryFile, isImageFile, isPdfFile} from '../../agent/infra/file-system/binary-utils.js'
 
 /**
  * Normalize file path - handles relative, absolute, tilde, symlinks
@@ -54,18 +54,18 @@ export function validateFileForCurate(
 
   // Check existence
   if (!fs.existsSync(normalized)) {
-    return { error: `File does not exist: ${filePath}`, valid: false }
+    return {error: `File does not exist: ${filePath}`, valid: false}
   }
 
   // Check if it's a file (not a directory)
   const stats = fs.statSync(normalized)
   if (!stats.isFile()) {
-    return { error: `Path is not a file: ${filePath}`, valid: false }
+    return {error: `Path is not a file: ${filePath}`, valid: false}
   }
 
   // Check within project (both paths are already normalized)
   if (!normalized.startsWith(normalizedProjectRoot + path.sep) && normalized !== normalizedProjectRoot) {
-    return { error: `File is outside project directory: ${filePath}`, valid: false }
+    return {error: `File is outside project directory: ${filePath}`, valid: false}
   }
 
   // Read sample buffer for file type detection
@@ -77,23 +77,28 @@ export function validateFileForCurate(
     bytesRead = fs.readSync(fd, buffer, 0, 4096, 0)
     fs.closeSync(fd)
   } catch {
-    return { error: `Cannot read file: ${filePath}`, valid: false }
+    return {error: `Cannot read file: ${filePath}`, valid: false}
   }
 
   const sampleBuffer = buffer.subarray(0, bytesRead)
 
   // Check file type using binary-utils (same logic as read_file tool)
-  // Allow media files (images/PDFs) - read_file can handle these
-  // For PDFs, also validate magic bytes to reject fake PDFs (e.g., binary.pdf)
-  if (isMediaFile(normalized, sampleBuffer)) {
-    return { normalizedPath: normalized, valid: true }
+  // Allow image files - read_file returns them as base64 attachments
+  if (isImageFile(normalized)) {
+    return {normalizedPath: normalized, valid: true}
+  }
+
+  // Allow PDF files with valid magic bytes - read_file extracts text or returns base64
+  // Use buffer validation to reject fake PDFs (e.g., binary files renamed to .pdf)
+  if (isPdfFile(normalized, sampleBuffer)) {
+    return {normalizedPath: normalized, valid: true}
   }
 
   // Check if it's a binary file (using same logic as read_file tool)
   if (isBinaryFile(normalized, sampleBuffer)) {
-    return { error: `File type not supported: ${filePath}`, valid: false }
+    return {error: `File type not supported: ${filePath}`, valid: false}
   }
 
   // It's a text file - supported
-  return { normalizedPath: normalized, valid: true }
+  return {normalizedPath: normalized, valid: true}
 }

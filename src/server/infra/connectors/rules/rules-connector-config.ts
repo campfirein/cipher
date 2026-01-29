@@ -23,6 +23,10 @@ export const RULES_CONNECTOR_CONFIGS = {
     filePath: 'AGENTS.md',
     writeMode: 'append',
   },
+  Antigravity: {
+    filePath: '.agent/rules/agent-context.md',
+    writeMode: 'overwrite',
+  },
   'Augment Code': {
     filePath: '.augment/rules/agent-context.md',
     writeMode: 'overwrite',

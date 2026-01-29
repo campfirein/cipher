@@ -12,8 +12,27 @@ import {isImageFile} from '../../file-system/binary-utils.js'
 const ReadFileInputSchema = z
   .object({
     filePath: z.string().describe('Path to the file to read (absolute or relative to working directory)'),
-    limit: z.number().int().positive().optional().describe('Maximum number of lines to read (optional, default: 2000)'),
-    offset: z.number().int().min(1).optional().describe('Starting line number (1-based, optional)'),
+    limit: z
+      .number()
+      .int()
+      .positive()
+      .optional()
+      .describe('Maximum number of lines to read for text files (default: 2000), or pages for PDFs in text mode (default: 100, max: 200)'),
+    offset: z
+      .number()
+      .int()
+      .min(1)
+      .optional()
+      .describe(
+        'Starting line number (1-based) for text files, or starting page number for PDFs. ' +
+        'If the file is truncated, you MUST set offset to the next line/page number to continue reading.'
+      ),
+    pdfMode: z
+      .enum(['text', 'base64'])
+      .optional()
+      .describe(
+        "PDF read mode: 'text' (default) extracts text page by page with pagination support, 'base64' returns raw PDF as attachment for multimodal analysis",
+      ),
   })
   .strict()
 
@@ -41,15 +60,19 @@ type ReadFileInput = z.infer<typeof ReadFileInputSchema>
 export function createReadFileTool(fileSystemService: IFileSystem): Tool {
   return {
     description:
-      'Read the contents of a file. Supports relative/absolute paths, pagination, and returns images/PDFs as base64 attachments.',
+      'Read the contents of a file. Supports relative/absolute paths and pagination. ' +
+      'For PDFs, defaults to text extraction with page-by-page pagination (use pdfMode="base64" for raw attachment). ' +
+      'Images are returned as base64 attachments. ' +
+      'Must continue running read_file tool with the correct offset to finish reading the file.',
     async execute(input: unknown, _context?: ToolExecutionContext) {
-      const {filePath, limit, offset} = input as ReadFileInput
+      const {filePath, limit, offset, pdfMode} = input as ReadFileInput
 
       try {
         // Call file system service
         const result = await fileSystemService.readFile(filePath, {
           limit,
           offset,
+          pdfMode,
         })
 
         // Transform attachment format (singular → plural array)
@@ -70,6 +93,7 @@ export function createReadFileTool(fileSystemService: IFileSystem): Tool {
           content: result.formattedContent,
           lines: result.lines,
           message: result.message,
+          pdfMetadata: result.pdfMetadata,
           preview: result.preview,
           size: result.size,
           success: true,
