@@ -3,8 +3,9 @@ import {expect} from 'chai'
 import nock from 'nock'
 import {restore} from 'sinon'
 
-import {OAuthConfig} from '../../../../src/server/config/auth.config'
-import {OAuthService} from '../../../../src/server/infra/auth/oauth-service'
+import type {OAuthConfig} from '../../../../src/server/config/auth.config.js'
+
+import {NETWORK_ERROR_CODE, OAuthService} from '../../../../src/server/infra/auth/oauth-service.js'
 
 describe('OAuthService', () => {
   let service: OAuthService
@@ -240,6 +241,161 @@ describe('OAuthService', () => {
         expect((error as Error).message).to.include('code_verifier')
       }
     })
+
+    it('should throw error when reusing same context (single-use verifier)', async () => {
+      const redirectUri = 'http://localhost:3000/callback'
+      const context = service.initiateAuthorization(redirectUri)
+
+      // First exchange succeeds
+      nock(basePath).post(tokenUri).reply(200, {
+        access_token: 'access-token',
+        expires_in: 3600,
+        refresh_token: 'refresh-token',
+        session_key: 'session-key',
+        token_type: 'Bearer',
+      })
+
+      await service.exchangeCodeForToken('code', context, redirectUri)
+
+      // Second exchange with same context should fail (verifier deleted after first use)
+      try {
+        await service.exchangeCodeForToken('code2', context, redirectUri)
+        expect.fail('Should have thrown an error')
+      } catch (error) {
+        expect(error).to.be.an('error')
+        expect((error as Error).message).to.include('code_verifier not found')
+      }
+    })
+
+    it('should calculate expiresAt correctly from expires_in', async () => {
+      const redirectUri = 'http://localhost:3000/callback'
+      const expiresIn = 3600 // 1 hour in seconds
+      const beforeRequest = Date.now()
+
+      const context = service.initiateAuthorization(redirectUri)
+
+      nock(basePath).post(tokenUri).reply(200, {
+        access_token: 'access-token',
+        expires_in: expiresIn,
+        refresh_token: 'refresh-token',
+        session_key: 'session-key',
+        token_type: 'Bearer',
+      })
+
+      const tokenData = await service.exchangeCodeForToken('code', context, redirectUri)
+
+      const afterRequest = Date.now()
+      const expectedMinExpiry = beforeRequest + expiresIn * 1000
+      const expectedMaxExpiry = afterRequest + expiresIn * 1000
+
+      expect(tokenData.expiresAt.getTime()).to.be.at.least(expectedMinExpiry)
+      expect(tokenData.expiresAt.getTime()).to.be.at.most(expectedMaxExpiry)
+    })
+
+    it(`should throw AuthenticationError with user-friendly message for ${NETWORK_ERROR_CODE.ENOTFOUND}`, async () => {
+      const redirectUri = 'http://localhost:3000/callback'
+      const context = service.initiateAuthorization(redirectUri)
+
+      const err = new Error(`err with code ${NETWORK_ERROR_CODE.ENOTFOUND}`)
+      Object.assign(err, {code: NETWORK_ERROR_CODE.ENOTFOUND})
+      nock(basePath).post(tokenUri).replyWithError(err)
+
+      try {
+        await service.exchangeCodeForToken('code', context, redirectUri)
+        expect.fail('Should have thrown an error')
+      } catch (error) {
+        expect(error).to.be.an('error')
+        expect((error as Error).message).to.equal(
+          'Unable to reach authentication server. Please check your internet connection.',
+        )
+      }
+    })
+
+    it(`should throw AuthenticationError with user-friendly message for ${NETWORK_ERROR_CODE.ETIMEDOUT}`, async () => {
+      const redirectUri = 'http://localhost:3000/callback'
+      const context = service.initiateAuthorization(redirectUri)
+      const err = new Error(`err with code ${NETWORK_ERROR_CODE.ETIMEDOUT}`)
+      Object.assign(err, {code: NETWORK_ERROR_CODE.ETIMEDOUT})
+      nock(basePath).post(tokenUri).replyWithError(err)
+
+      try {
+        await service.exchangeCodeForToken('code', context, redirectUri)
+        expect.fail('Should have thrown an error')
+      } catch (error) {
+        expect(error).to.be.an('error')
+        expect((error as Error).message).to.equal(
+          'Login timed out. Please check your internet connection and try again.',
+        )
+      }
+    })
+
+    it(`should throw AuthenticationError with user-friendly message for ${NETWORK_ERROR_CODE.ECONNREFUSED}`, async () => {
+      const redirectUri = 'http://localhost:3000/callback'
+      const context = service.initiateAuthorization(redirectUri)
+      const err = new Error(`err with code ${NETWORK_ERROR_CODE.ECONNREFUSED}`)
+      Object.assign(err, {code: NETWORK_ERROR_CODE.ECONNREFUSED})
+      nock(basePath).post(tokenUri).replyWithError(err)
+
+      try {
+        await service.exchangeCodeForToken('code', context, redirectUri)
+        expect.fail('Should have thrown an error')
+      } catch (error) {
+        expect(error).to.be.an('error')
+        expect((error as Error).message).to.equal('Unable to reach authentication server. Please try again later.')
+      }
+    })
+
+    it(`should throw AuthenticationError with user-friendly message for ${NETWORK_ERROR_CODE.ERR_NETWORK}`, async () => {
+      const redirectUri = 'http://localhost:3000/callback'
+      const context = service.initiateAuthorization(redirectUri)
+      const err = new Error(`err with code ${NETWORK_ERROR_CODE.ERR_NETWORK}`)
+      Object.assign(err, {code: NETWORK_ERROR_CODE.ERR_NETWORK})
+      nock(basePath).post(tokenUri).replyWithError(err)
+
+      try {
+        await service.exchangeCodeForToken('code', context, redirectUri)
+        expect.fail('Should have thrown an error')
+      } catch (error) {
+        expect(error).to.be.an('error')
+        expect((error as Error).message).to.equal(
+          'Network error occurred. Please check your internet connection and try again.',
+        )
+      }
+    })
+
+    it('should throw AuthenticationError with generic message for unknown network errors', async () => {
+      const redirectUri = 'http://localhost:3000/callback'
+      const context = service.initiateAuthorization(redirectUri)
+      const err = new Error('generic network error')
+      Object.assign(err, {code: 'UNKNOWN_ERROR'})
+      nock(basePath).post(tokenUri).replyWithError(err)
+
+      try {
+        await service.exchangeCodeForToken('code', context, redirectUri)
+        expect.fail('Should have thrown an error')
+      } catch (error) {
+        expect(error).to.be.an('error')
+        expect((error as Error).message).to.equal('Login failed. Please check your internet connection and try again.')
+      }
+    })
+
+    it('should throw AuthenticationError with error_description from response', async () => {
+      const redirectUri = 'http://localhost:3000/callback'
+      const context = service.initiateAuthorization(redirectUri)
+      const errDescription = 'Authorization code has expired.'
+      nock(basePath).post(tokenUri).reply(400, {
+        error: 'invalid_grant',
+        error_description: errDescription,
+      })
+
+      try {
+        await service.exchangeCodeForToken('code', context, redirectUri)
+        expect.fail('Should have thrown an error')
+      } catch (error) {
+        expect(error).to.be.an('error')
+        expect((error as Error).message).to.equal(errDescription)
+      }
+    })
   })
 
   describe('refreshToken', () => {
@@ -266,6 +422,36 @@ describe('OAuthService', () => {
       expect(tokenData.accessToken).to.equal('new-access-token')
       expect(tokenData.refreshToken).to.equal('new-refresh-token')
       expect(tokenData.sessionKey).to.equal('session-oauth-refreshed')
+    })
+
+    it('should throw AuthenticationError on network failure', async () => {
+      const err = new Error(`err with code ${NETWORK_ERROR_CODE.ECONNREFUSED}`)
+      Object.assign(err, {code: NETWORK_ERROR_CODE.ECONNREFUSED})
+      nock(basePath).post(tokenUri).replyWithError(err)
+
+      try {
+        await service.refreshToken('refresh-token')
+        expect.fail('Should have thrown an error')
+      } catch (error) {
+        expect(error).to.be.an('error')
+        expect((error as Error).message).to.equal('Unable to reach authentication server. Please try again later.')
+      }
+    })
+
+    it('should throw AuthenticationError with error_description from response', async () => {
+      const errDescription = 'Refresh token has expired'
+      nock(basePath).post(tokenUri).reply(400, {
+        error: 'invalid_grant',
+        error_description: errDescription,
+      })
+
+      try {
+        await service.refreshToken('expired-refresh-token')
+        expect.fail('Should have thrown an error')
+      } catch (error) {
+        expect(error).to.be.an('error')
+        expect((error as Error).message).to.equal(errDescription)
+      }
     })
   })
 })

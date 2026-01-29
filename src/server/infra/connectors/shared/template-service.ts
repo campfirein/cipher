@@ -14,6 +14,11 @@ import {BRV_RULE_MARKERS, BRV_RULE_TAG} from './constants.js'
  * @returns The wrapped content with boundary markers.
  */
 const wrapContentWithBoundaryMarkers = (content: string, agent: Agent, header: string): string => {
+  if (agent === 'Windsurf' && header !== '') {
+    const parts = [header, BRV_RULE_MARKERS.START, content, '---', `${BRV_RULE_TAG} ${agent}`, BRV_RULE_MARKERS.END];
+    return parts.join('\n');
+  }
+
   const parts = [BRV_RULE_MARKERS.START, header, content, '---', `${BRV_RULE_TAG} ${agent}`, BRV_RULE_MARKERS.END]
   return parts.join('\n')
 }

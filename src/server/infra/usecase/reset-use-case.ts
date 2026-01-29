@@ -34,6 +34,10 @@ export class ResetUseCase implements IResetUseCase {
     })
   }
 
+  protected async deleteContextTree(contextTreeDir: string): Promise<void> {
+    await rm(contextTreeDir, {force: true, recursive: true})
+  }
+
   public async run(options: {directory?: string; skipConfirmation: boolean}): Promise<void> {
     try {
       // Check if context tree exists
@@ -57,7 +61,7 @@ export class ResetUseCase implements IResetUseCase {
       // Remove existing context tree directory
       const baseDir = options.directory ?? process.cwd()
       const contextTreeDir = join(baseDir, BRV_DIR, CONTEXT_TREE_DIR)
-      await rm(contextTreeDir, {force: true, recursive: true})
+      await this.deleteContextTree(contextTreeDir)
 
       // Re-initialize empty context tree
       await this.contextTreeService.initialize(options.directory)

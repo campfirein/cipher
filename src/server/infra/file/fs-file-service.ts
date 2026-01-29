@@ -1,4 +1,4 @@
-import {access, appendFile, copyFile, mkdir, readFile, unlink, writeFile} from 'node:fs/promises'
+import {access, appendFile, copyFile, mkdir, readFile, rm, unlink, writeFile} from 'node:fs/promises'
 import {dirname} from 'node:path'
 
 import {type IFileService, type WriteMode} from '../../core/interfaces/services/i-file-service.js'
@@ -33,6 +33,22 @@ export class FsFileService implements IFileService {
     } catch (error) {
       throw new Error(
         `Failed to delete file '${filePath}': ${error instanceof Error ? error.message : 'Unknown error'}`,
+      )
+    }
+  }
+
+  /**
+   * Deletes a directory and all its contents recursively.
+   *
+   * @param dirPath The path to the directory to delete.
+   * @returns A promise that resolves when the directory has been deleted.
+   */
+  public async deleteDirectory(dirPath: string): Promise<void> {
+    try {
+      await rm(dirPath, {force: true, recursive: true})
+    } catch (error) {
+      throw new Error(
+        `Failed to delete directory '${dirPath}': ${error instanceof Error ? error.message : 'Unknown error'}`,
       )
     }
   }

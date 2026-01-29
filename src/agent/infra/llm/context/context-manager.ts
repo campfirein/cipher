@@ -323,15 +323,12 @@ export class ContextManager<T> {
       role: 'user',
     }
 
-    await this.mutex.withLock(async () => {
-      this.messages.push(message)
-
-      try {
-        await this.persistHistory()
-      } catch (error) {
-        this.logger.error('Failed to persist history after user message', { error, sessionId: this.sessionId })
-      }
-    })
+    this.messages.push(message)
+    try {
+      await this.persistHistory()
+    } catch (error) {
+      this.logger.error('Failed to persist history after user message', { error, sessionId: this.sessionId })
+    }
   }
 
   /**

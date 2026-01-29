@@ -1,4 +1,4 @@
-import type { ITransportClient } from '../../../core/interfaces/transport/index.js'
+import type {ITransportClient} from '../../../core/interfaces/transport/index.js'
 
 export interface TaskCompletedPayload {
   result: string
@@ -58,6 +58,14 @@ export async function waitForTaskResult(
 
     // Set up all event listeners
     unsubscribers.push(
+      // Listen for connection state changes - fail fast on disconnect
+      client.onStateChange((state) => {
+        if (state === 'disconnected' && !completed) {
+          completed = true
+          cleanup()
+          reject(new Error('Connection lost to ByteRover instance'))
+        }
+      }),
       // Listen for LLM response content
       client.on<LlmResponsePayload>('llmservice:response', (payload) => {
         if (payload.taskId === taskId && payload.content) {

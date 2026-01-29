@@ -7,6 +7,16 @@ import {OAuthTokenData} from '../../core/domain/entities/oauth-token-data.js'
 import {AuthenticationError} from '../../core/domain/errors/auth-error.js'
 import {AuthorizationContext, IAuthService} from '../../core/interfaces/auth/i-auth-service.js'
 
+export const NETWORK_ERROR_CODE = {
+  EAI_AGAIN: 'EAI_AGAIN',
+  ECONNABORTED: 'ECONNABORTED',
+  ECONNREFUSED: 'ECONNREFUSED',
+  ECONNRESET: 'ECONNRESET',
+  ENOTFOUND: 'ENOTFOUND',
+  ERR_NETWORK: 'ERR_NETWORK',
+  ETIMEDOUT: 'ETIMEDOUT'
+} as const
+
 type TokenResponse = {
   /**
    * Authorization header, bearer token.
@@ -84,14 +94,15 @@ export class OAuthService implements IAuthService {
     } catch (error) {
       if (isAxiosError(error)) {
         throw new AuthenticationError(
-          error.response?.data?.error_description ?? 'Failed to exchange code for token',
-          error.response?.data?.error,
+          error.response?.data?.error_description ?? this.getNetworkErrorMessage(error.code),
+          error.response?.data?.error ?? error.code,
         )
       }
 
       throw error
     }
   }
+
 
   /**
    * Initiates the authorization flow by generating PKCE parameters and building the authorization URL.
@@ -136,8 +147,8 @@ export class OAuthService implements IAuthService {
     } catch (error) {
       if (isAxiosError(error)) {
         throw new AuthenticationError(
-          error.response?.data?.error_description ?? 'Failed to refresh token',
-          error.response?.data?.error,
+          error.response?.data?.error_description ?? this.getNetworkErrorMessage(error.code),
+          error.response?.data?.error ?? error.code,
         )
       }
 
@@ -168,6 +179,38 @@ export class OAuthService implements IAuthService {
    */
   private generateState(): string {
     return crypto.randomBytes(16).toString('base64url')
+  }
+
+  /**
+   * Returns a user-friendly error message for network-related errors.
+   * @param errorCode The Axios error code (e.g., ECONNREFUSED, ETIMEOUT, etc.).
+   * @returns A user-friendly error message.
+   */
+  private getNetworkErrorMessage(errorCode?: string): string {
+    switch (errorCode) {
+      case NETWORK_ERROR_CODE.EAI_AGAIN:
+      case NETWORK_ERROR_CODE.ENOTFOUND: {
+        return 'Unable to reach authentication server. Please check your internet connection.'
+      }
+
+      case NETWORK_ERROR_CODE.ECONNABORTED:
+      case NETWORK_ERROR_CODE.ETIMEDOUT: {
+        return 'Login timed out. Please check your internet connection and try again.'
+      }
+
+      case NETWORK_ERROR_CODE.ECONNREFUSED:
+      case NETWORK_ERROR_CODE.ECONNRESET: {
+        return 'Unable to reach authentication server. Please try again later.'
+      }
+
+      case NETWORK_ERROR_CODE.ERR_NETWORK: {
+        return 'Network error occurred. Please check your internet connection and try again.'
+      }
+
+      default: {
+        return 'Login failed. Please check your internet connection and try again.'
+      }
+    }
   }
 
   /**

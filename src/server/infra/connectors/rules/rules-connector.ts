@@ -29,7 +29,7 @@ type RulesConnectorOptions = {
  * Manages the installation, uninstallation, and status of rule files.
  */
 export class RulesConnector implements IConnector {
-  readonly type: ConnectorType = 'rules' as const
+  readonly connectorType: ConnectorType = 'rules'
   private readonly fileService: IFileService
   private readonly projectRoot: string
   private readonly ruleFileManager: RuleFileManager
@@ -45,7 +45,7 @@ export class RulesConnector implements IConnector {
       projectRoot: options.projectRoot,
     })
     this.supportedAgents = Object.entries(AGENT_CONNECTOR_CONFIG)
-      .filter(([_, config]) => config.supported.includes(this.type))
+      .filter(([_, config]) => config.supported.includes(this.connectorType))
       .map(([agent]) => agent as Agent)
   }
 
@@ -61,7 +61,7 @@ export class RulesConnector implements IConnector {
     const config = RULES_CONNECTOR_CONFIGS[agent]
 
     try {
-      const ruleContent = await this.templateService.generateRuleContent(agent, this.type)
+      const ruleContent = await this.templateService.generateRuleContent(agent, this.connectorType)
       // Write the rule content to the file
       await this.ruleFileManager.install(config.filePath, config.writeMode, ruleContent)
 
@@ -82,7 +82,7 @@ export class RulesConnector implements IConnector {
   }
 
   isSupported(agent: Agent): boolean {
-    return AGENT_CONNECTOR_CONFIG[agent].supported.includes(this.type)
+    return AGENT_CONNECTOR_CONFIG[agent].supported.includes(this.connectorType)
   }
 
   async status(agent: Agent): Promise<ConnectorStatus> {

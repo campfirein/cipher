@@ -48,7 +48,7 @@ type McpConnectorOptions = {
  * - Safe uninstall: Only removes ByteRover's MCP server entry and rule content
  */
 export class McpConnector implements IConnector {
-  readonly type: ConnectorType = 'mcp' as const
+  readonly connectorType: ConnectorType = 'mcp'
   private readonly fileService: IFileService
   private readonly projectRoot: string
   private readonly ruleFileManager: RuleFileManager
@@ -64,7 +64,7 @@ export class McpConnector implements IConnector {
       projectRoot: options.projectRoot,
     })
     this.supportedAgents = Object.entries(AGENT_CONNECTOR_CONFIG)
-      .filter(([_, config]) => config.supported.includes(this.type))
+      .filter(([_, config]) => config.supported.includes(this.connectorType))
       .map(([agent]) => agent as Agent)
   }
 
@@ -104,7 +104,7 @@ export class McpConnector implements IConnector {
   }
 
   isSupported(agent: Agent): agent is McpSupportedAgent {
-    return agent in MCP_CONNECTOR_CONFIGS && AGENT_CONNECTOR_CONFIG[agent].supported.includes(this.type)
+    return agent in MCP_CONNECTOR_CONFIGS && AGENT_CONNECTOR_CONFIG[agent].supported.includes(this.connectorType)
   }
 
   async status(agent: Agent): Promise<ConnectorStatus> {
@@ -317,7 +317,7 @@ export class McpConnector implements IConnector {
       return
     }
 
-    const ruleContent = await this.templateService.generateRuleContent(agent, this.type)
+    const ruleContent = await this.templateService.generateRuleContent(agent, this.connectorType)
     await this.ruleFileManager.install(rulesConfig.filePath, rulesConfig.writeMode, ruleContent)
   }
 

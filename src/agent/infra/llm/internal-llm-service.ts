@@ -41,6 +41,7 @@ import {NoOpLogger} from '../../core/interfaces/i-logger.js'
 import {SessionEventBus} from '../events/event-emitter.js'
 import {EnvironmentContextBuilder} from '../system-prompt/environment-context-builder.js'
 import {ToolMetadataHandler} from '../tools/streaming/metadata-handler.js'
+import {AsyncMutex} from './context/async-mutex.js'
 import {ContextManager, type FileData, type ImageData} from './context/context-manager.js'
 import {LoopDetector} from './context/loop-detector.js'
 import {ClaudeMessageFormatter} from './formatters/claude-formatter.js'
@@ -152,6 +153,7 @@ export class ByteRoverLLMService implements ILLMService {
   private readonly loopDetector: LoopDetector
   private readonly memoryManager?: MemoryManager
   private readonly metadataHandler: ToolMetadataHandler
+  private readonly mutex = new AsyncMutex()
   private readonly outputProcessor: ToolOutputProcessor
   private readonly providerType: 'claude' | 'gemini'
   private readonly sessionEventBus: SessionEventBus
@@ -285,9 +287,6 @@ export class ByteRoverLLMService implements ILLMService {
     // Extract options with defaults
     const {executionContext, fileData, imageData, signal, taskId} = options ?? {}
 
-    // Add user message to context
-    await this.contextManager.addUserMessage(textInput, imageData, fileData)
-
     // Get filtered tools based on command type (e.g., only read-only tools for 'query')
     const toolSet = this.toolManager.getToolsForCommand(options?.executionContext?.commandType)
 
@@ -314,8 +313,11 @@ export class ByteRoverLLMService implements ILLMService {
         // eslint-disable-next-line no-await-in-loop -- Sequential iterations required for agentic loop
         const result = await this.executeAgenticIteration({
           executionContext,
+          fileData,
+          imageData,
           iterationCount: stateMachine.getContext().turnCount,
           taskId,
+          textInput,
           tools: toolSet,
         })
 
@@ -676,19 +678,25 @@ export class ByteRoverLLMService implements ILLMService {
    * Execute a single iteration of the agentic loop.
    *
    * @param options - Iteration options
+   * @param options.executionContext - Optional execution context
+   * @param options.fileData - Optional file data (only used on first iteration)
+   * @param options.imageData - Optional image data (only used on first iteration)
    * @param options.iterationCount - Current iteration number
    * @param options.taskId - Task ID from usecase for billing tracking
+   * @param options.textInput - User input text (only used on first iteration)
    * @param options.tools - Available tools for this iteration
-   * @param options.executionContext - Optional execution context
    * @returns Final response string if complete, null if more iterations needed
    */
   private async executeAgenticIteration(options: {
     executionContext?: ExecutionContext
+    fileData?: FileData
+    imageData?: ImageData
     iterationCount: number
     taskId?: string
+    textInput: string
     tools: ToolSet
   }): Promise<null | string> {
-    const {executionContext, iterationCount, taskId, tools} = options
+    const {executionContext, fileData, imageData, iterationCount, taskId, textInput, tools} = options
     // Build system prompt using SystemPromptManager (before compression for correct token accounting)
     // Use filtered tool names based on command type (e.g., only read-only tools for 'query')
     const availableTools = this.toolManager.getToolNamesForCommand(executionContext?.commandType)
@@ -743,81 +751,87 @@ export class ByteRoverLLMService implements ILLMService {
       })
     }
 
-    // Get token count for logging (using system prompt for token accounting)
-    const systemPromptTokens = this.generator.estimateTokensSync(systemPrompt)
-    const messages = this.contextManager.getMessages()
-    const messageTokenCounts = messages.map((msg) =>
-      this.generator.estimateTokensSync(typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)),
-    )
-
-    const maxMessageTokens = this.config.maxInputTokens - systemPromptTokens
-    // Target utilization to leave headroom for response
-    const targetMessageTokens = Math.floor(maxMessageTokens * TARGET_MESSAGE_TOKEN_UTILIZATION)
-
-    this.contextManager.compressMessage(targetMessageTokens, messageTokenCounts)
-
-    // Calculate tokens after compression
-    const compressedMessagesTokens = this.contextManager
-      .getMessages()
-      .reduce(
-        (total, msg) =>
-          total +
-          this.generator.estimateTokensSync(
-            typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content),
-          ),
-        0,
-      )
-    const tokensUsed = systemPromptTokens + compressedMessagesTokens
-
-
-    // Verbose: Log messages that will be sent to LLM
-    if (this.config.verbose) {
-      console.log('\n========== MESSAGES (Sent to LLM) ==========')
-      console.log(JSON.stringify(this.contextManager.getMessages(), null, 2))
-      console.log('========== END MESSAGES ==========\n')
-      // Log token usage for monitoring compression behavior
-      console.log(
-        `[ByteRoverLLMService] [Iter ${iterationCount + 1}/${
-          this.config.maxIterations
-        }] Sending to LLM: ${tokensUsed} tokens (max: ${this.config.maxInputTokens})`,
-      )
-    }
-
     // Final iteration optimization for query: strip tools (reflection already added above)
     let toolsForThisIteration = tools
     if (executionContext?.commandType === 'query' && iterationCount === this.config.maxIterations - 1) {
       toolsForThisIteration = {} // Empty toolset forces text response
     }
 
-    // Build generation request
-    const request = this.buildGenerateContentRequest({
-      executionContext,
-      systemPrompt,
-      taskId,
-      tools: toolsForThisIteration,
-    })
+    // Get token count for logging (using system prompt for token accounting)
+    const systemPromptTokens = this.generator.estimateTokensSync(systemPrompt)
 
-    // Call LLM via generator (retry + logging handled by decorators)
-    const lastMessage = await this.callLLMAndParseResponse(request)
+    // Add user message and compress context within mutex lock
+    return this.mutex.withLock(async () => {
+      // Add user message to context only on the first iteration
+      await this.contextManager.addUserMessage(textInput, imageData, fileData)
 
-    // Check if there are tool calls
-    if (!lastMessage.toolCalls || lastMessage.toolCalls.length === 0) {
-      const response = await this.handleFinalResponse(lastMessage, taskId)
+      const messages = this.contextManager.getMessages()
+      const messageTokenCounts = messages.map((msg) =>
+        this.generator.estimateTokensSync(typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)),
+      )
 
-      // Auto-compaction check after assistant response
+      const maxMessageTokens = this.config.maxInputTokens - systemPromptTokens
+      // Target utilization to leave headroom for response
+      const targetMessageTokens = Math.floor(maxMessageTokens * TARGET_MESSAGE_TOKEN_UTILIZATION)
+
+      this.contextManager.compressMessage(targetMessageTokens, messageTokenCounts)
+
+      // Calculate tokens after compression
+      const compressedMessagesTokens = this.contextManager
+        .getMessages()
+        .reduce(
+          (total, msg) =>
+            total +
+            this.generator.estimateTokensSync(
+              typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content),
+            ),
+          0,
+        )
+      const tokensUsed = systemPromptTokens + compressedMessagesTokens
+
+      // Verbose: Log messages that will be sent to LLM
+      if (this.config.verbose) {
+        console.log('\n========== MESSAGES (Sent to LLM) ==========')
+        console.log(JSON.stringify(this.contextManager.getMessages(), null, 2))
+        console.log('========== END MESSAGES ==========\n')
+        // Log token usage for monitoring compression behavior
+        console.log(
+          `[ByteRoverLLMService] [Iter ${iterationCount + 1}/${
+            this.config.maxIterations
+          }] Sending to LLM: ${tokensUsed} tokens (max: ${this.config.maxInputTokens})`,
+        )
+      }
+
+      // Build generation request
+      const request = this.buildGenerateContentRequest({
+        executionContext,
+        systemPrompt,
+        taskId,
+        tools: toolsForThisIteration,
+      })
+
+      // Call LLM via generator (retry + logging handled by decorators)
+      const lastMessage = await this.callLLMAndParseResponse(request)
+      // Check if there are tool calls
+      if (!lastMessage.toolCalls || lastMessage.toolCalls.length === 0) {
+        const response = await this.handleFinalResponse(lastMessage, taskId)
+
+        // Auto-compaction check after assistant response
+        await this.checkAndTriggerCompaction(taskId ?? '')
+
+        return response
+      }
+
+
+      // Has tool calls - handle them (pass taskId for subagent billing)
+      await this.handleToolCalls(lastMessage, taskId)
+
+      // Auto-compaction check after tool execution batch
       await this.checkAndTriggerCompaction(taskId ?? '')
 
-      return response
-    }
-
-    // Has tool calls - handle them (pass taskId for subagent billing)
-    await this.handleToolCalls(lastMessage, taskId)
-
-    // Auto-compaction check after tool execution batch
-    await this.checkAndTriggerCompaction(taskId ?? '')
-
-    return null
-  }
+      return null
+    })
+}
 
   /**
    * Execute a single tool call in parallel (without adding to context).

@@ -26,9 +26,9 @@ describe('HookConnector', () => {
     await rm(testDir, {force: true, recursive: true})
   })
 
-  describe('type', () => {
+  describe('connectorType', () => {
     it('should have type "hook"', () => {
-      expect(hookConnector.type).to.equal('hook')
+      expect(hookConnector.connectorType).to.equal('hook')
     })
   })
 
