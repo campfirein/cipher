@@ -65,9 +65,19 @@ export interface FilePart extends BasePart {
 
 /**
  * Reasoning/thinking content part.
- * Represents structured thinking traces from models like Gemini or Claude.
+ * Represents structured thinking traces from models like Gemini, Claude, Grok, or OpenAI.
+ * Follows OpenCode's pattern with id, timing, and provider metadata.
  */
 export interface ReasoningPart extends BasePart {
+  /** Unique identifier for this reasoning block */
+  id: string
+
+  /**
+   * Provider-specific metadata (encrypted content, reasoning effort, etc.)
+   * Used to preserve original provider data for debugging and special handling.
+   */
+  providerMetadata?: Record<string, unknown>
+
   /**
    * Parsed summary for display in UI.
    * Extracted from the raw text for easier rendering.
@@ -81,6 +91,17 @@ export interface ReasoningPart extends BasePart {
 
   /** Raw reasoning/thinking text from the model */
   text: string
+
+  /**
+   * Timing information for the reasoning block.
+   * Used for UX feedback and analytics.
+   */
+  time: {
+    /** Unix timestamp when reasoning ended (undefined if still streaming) */
+    end?: number
+    /** Unix timestamp when reasoning started */
+    start: number
+  }
 
   type: 'reasoning'
 }

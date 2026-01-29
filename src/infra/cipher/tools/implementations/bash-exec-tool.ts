@@ -35,7 +35,7 @@ const BashExecInputSchema = z
       .describe('Execute command in background'),
 
     /**
-     * Timeout in milliseconds (max: 600000).
+     * Timeout in milliseconds (max: 600000, default: 300000 = 5 minutes).
      */
     timeout: z
       .number()
@@ -43,8 +43,8 @@ const BashExecInputSchema = z
       .positive()
       .max(600_000)
       .optional()
-      .default(120_000)
-      .describe('Timeout in milliseconds'),
+      .default(300_000)
+      .describe('Timeout in milliseconds (default: 5 minutes)'),
   })
   .strict()
 
