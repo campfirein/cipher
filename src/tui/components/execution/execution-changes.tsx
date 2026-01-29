@@ -13,7 +13,9 @@ interface ExecutionChangesProps {
   /** List of created file paths */
   created: string[]
   /** Whether content should be fully expanded (no truncation) */
-  isExpand?: boolean
+  isExpanded?: boolean
+  /** Top margin for spacing */
+  marginTop?: number
   /** Maximum changes configuration */
   maxChanges?: {
     created: number // Max lines for created section (including header and indicator)
@@ -25,7 +27,8 @@ interface ExecutionChangesProps {
 
 export const ExecutionChanges: React.FC<ExecutionChangesProps> = ({
   created,
-  isExpand = false,
+  isExpanded = false,
+  marginTop,
   updated,
   maxChanges = {created: Number.MAX_SAFE_INTEGER, updated: Number.MAX_SAFE_INTEGER},
 }) => {
@@ -43,12 +46,12 @@ export const ExecutionChanges: React.FC<ExecutionChangesProps> = ({
   const hasUpdated = updated.length > 0
 
   // In expand mode, show all changes without truncation
-  if (isExpand) {
+  if (isExpanded) {
     return (
-      <Box flexDirection="column">
+      <Box flexDirection="column" marginTop={marginTop}>
         {hasCreated && (
           <Box columnGap={1}>
-            <Text color={colors.secondary}>created at:</Text>
+            <Text color={colors.dimPrimary} italic>Created at:</Text>
             <Box flexDirection="column">
               {created.map((path) => (
                 <Text key={path}>{path}</Text>
@@ -58,7 +61,7 @@ export const ExecutionChanges: React.FC<ExecutionChangesProps> = ({
         )}
         {hasUpdated && (
           <Box columnGap={1}>
-            <Text color={colors.secondary}>updated at:</Text>
+            <Text color={colors.dimPrimary} italic>Updated at:</Text>
             <Box flexDirection="column">
               {updated.map((path) => (
                 <Text key={path}>{path}</Text>
@@ -87,10 +90,10 @@ export const ExecutionChanges: React.FC<ExecutionChangesProps> = ({
   const updatedRemaining = updated.length - visibleUpdated.length
 
   return (
-    <Box flexDirection="column">
+    <Box flexDirection="column" marginTop={marginTop}>
       {hasCreated && (
         <Box columnGap={1}>
-          <Text color={colors.secondary}>created at:</Text>
+          <Text color={colors.dimPrimary} italic>Created at:</Text>
           <Box flexDirection="column">
             {visibleCreated.map((path) => (
               <Text key={path}>{path}</Text>
@@ -101,7 +104,7 @@ export const ExecutionChanges: React.FC<ExecutionChangesProps> = ({
       )}
       {hasUpdated && (
         <Box columnGap={1}>
-          <Text color={colors.secondary}>updated at:</Text>
+          <Text color={colors.dimPrimary} italic>Updated at:</Text>
           <Box flexDirection="column">
             {visibleUpdated.map((path) => (
               <Text key={path}>{path}</Text>

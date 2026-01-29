@@ -29,7 +29,7 @@ export const ExecutionInput: React.FC<ExecutionInputProps> = ({input, isExpand =
   const displayInput = isExpand ? input : truncateContent(input, 1, contentWidth).truncatedContent
 
   return (
-    <Box borderColor={colors.border} borderStyle="single" flexDirection="column">
+    <Box borderColor={colors.border} borderStyle="single" flexDirection="column" paddingX={1}>
       <Markdown>{displayInput}</Markdown>
     </Box>
   )

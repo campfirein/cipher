@@ -96,7 +96,7 @@ export interface ExecuteOptions {
   /**
    * Timeout in milliseconds (max: ProcessConfig.maxTimeout).
    *
-   * @default 120000 (2 minutes)
+   * @default 300000 (5 minutes)
    */
   timeout?: number
 }
