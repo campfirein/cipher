@@ -18,9 +18,7 @@ import {OAuthService} from '../../infra/auth/oauth-service.js'
 import {OidcDiscoveryService} from '../../infra/auth/oidc-discovery-service.js'
 import {SystemBrowserLauncher} from '../../infra/browser/system-browser-launcher.js'
 import {CallbackHandler} from '../../infra/http/callback-handler.js'
-import {HttpSpaceService} from '../../infra/space/http-space-service.js'
 import {FileGlobalConfigStore} from '../../infra/storage/file-global-config-store.js'
-import {HttpTeamService} from '../../infra/team/http-team-service.js'
 import {MixpanelTrackingService} from '../../infra/tracking/mixpanel-tracking-service.js'
 import {LoginUseCase} from '../../infra/usecase/login-use-case.js'
 import {HttpUserService} from '../../infra/user/http-user-service.js'
@@ -152,9 +150,6 @@ export function AuthProvider({children, initialAuthToken, initialBrvConfig}: Aut
           authService: new OAuthService(authConfig),
           browserLauncher: new SystemBrowserLauncher(),
           callbackHandler: new CallbackHandler(),
-          projectConfigStore,
-          spaceService: new HttpSpaceService({apiBaseUrl: config.apiBaseUrl}),
-          teamService: new HttpTeamService({apiBaseUrl: config.apiBaseUrl}),
           terminal: createStateTerminal(appendOutput),
           tokenStore,
           trackingService,

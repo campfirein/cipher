@@ -12,6 +12,11 @@
 
 import React, {createContext, useCallback, useContext, useEffect, useMemo, useState} from 'react'
 
+import {getCurrentConfig} from '../../config/environment.js'
+import {BrvConfig} from '../../core/domain/entities/brv-config.js'
+import {HttpSpaceService} from '../../infra/space/http-space-service.js'
+import {HttpTeamService} from '../../infra/team/http-team-service.js'
+import {useAuth} from './auth-context.js'
 import {useServices} from './services-context.js'
 import {useTasks} from './tasks-context.js'
 
@@ -46,25 +51,56 @@ interface OnboardingProviderProps {
  */
 export function OnboardingProvider({children}: OnboardingProviderProps): React.ReactElement {
   const {tasks} = useTasks()
-  const {onboardingPreferenceStore, trackingService} = useServices()
+  const {onboardingPreferenceStore, projectConfigStore, trackingService} = useServices()
+  const {authToken} = useAuth()
 
   // Track if user has ever dismissed onboarding (persisted across sessions)
   const [hasDismissed, setHasDismissed] = useState(false)
   const [isLoadingDismissed, setIsLoadingDismissed] = useState(true)
 
+  // Auto-select default team and space
+  const autoSelectTeamSpace = useCallback(async () => {
+    if (!authToken) return
+
+    try {
+      const config = getCurrentConfig()
+      const teamService = new HttpTeamService({apiBaseUrl: config.apiBaseUrl})
+      const spaceService = new HttpSpaceService({apiBaseUrl: config.apiBaseUrl})
+
+      const {teams} = await teamService.getTeams(authToken.accessToken, authToken.sessionKey, {fetchAll: true})
+      const defaultTeam = teams.find((team) => team.isDefault)
+      if (!defaultTeam) return
+
+      const {spaces} = await spaceService.getSpaces(authToken.accessToken, authToken.sessionKey, defaultTeam.id, {fetchAll: true})
+      const defaultSpace = spaces.find((space) => space.isDefault)
+      if (!defaultSpace) return
+
+      const brvConfig = BrvConfig.partialFromSpace({space: defaultSpace})
+      await projectConfigStore.write(brvConfig)
+    } catch {
+      // Silently ignore errors - auto-selection is optional
+    }
+  }, [authToken, projectConfigStore])
+
   // Check if user has dismissed onboarding before (based on existence of lastDismissedAt)
   useEffect(() => {
-    const checkDismissed = async () => {
+    const initializeOnboarding = async () => {
       try {
         const lastDismissedAt = await onboardingPreferenceStore.getLastDismissedAt()
-        setHasDismissed(Boolean(lastDismissedAt))
+        const dismissed = Boolean(lastDismissedAt)
+        setHasDismissed(dismissed)
+
+        // If showing onboarding and user is logged in, auto-select team/space
+        if (!dismissed && authToken?.isValid()) {
+          await autoSelectTeamSpace()
+        }
       } finally {
         setIsLoadingDismissed(false)
       }
     }
 
-    checkDismissed()
-  }, [onboardingPreferenceStore])
+    initializeOnboarding()
+  }, [onboardingPreferenceStore, authToken, autoSelectTeamSpace])
 
   // Current onboarding step state
   const [currentStep, setCurrentStep] = useState<OnboardingStep>('curate')

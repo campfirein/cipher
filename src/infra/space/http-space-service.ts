@@ -20,6 +20,7 @@ type SpaceApiResponse = {
   description: string
   full_name: string
   id: string
+  is_default: boolean
   name: string
   size: number
   status: string
@@ -126,6 +127,12 @@ export class HttpSpaceService implements ISpaceService {
   }
 
   private mapToSpace(spaceData: SpaceApiResponse): Space {
-    return new Space(spaceData.id, spaceData.name, spaceData.team_id, spaceData.team.name)
+    return new Space({
+      id: spaceData.id,
+      isDefault: spaceData.is_default,
+      name: spaceData.name,
+      teamId: spaceData.team_id,
+      teamName: spaceData.team.name,
+    })
   }
 }
