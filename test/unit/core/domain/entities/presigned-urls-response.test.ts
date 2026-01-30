@@ -1,7 +1,7 @@
 import {expect} from 'chai'
 
-import {PresignedUrl} from '../../../../../src/core/domain/entities/presigned-url.js'
-import {PresignedUrlsResponse} from '../../../../../src/core/domain/entities/presigned-urls-response.js'
+import {PresignedUrl} from '../../../../../src/server/core/domain/entities/presigned-url.js'
+import {PresignedUrlsResponse} from '../../../../../src/server/core/domain/entities/presigned-urls-response.js'
 
 describe('PresignedUrlsResponse', () => {
   describe('constructor', () => {

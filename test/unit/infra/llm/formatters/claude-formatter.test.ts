@@ -4,9 +4,9 @@ import type {Message, MessageParam} from '@anthropic-ai/sdk/resources/messages'
 
 import {expect} from 'chai'
 
-import type {InternalMessage} from '../../../../../src/core/interfaces/cipher/message-types.js'
+import type {InternalMessage} from '../../../../../src/agent/core/interfaces/message-types.js'
 
-import {ClaudeMessageFormatter} from '../../../../../src/infra/cipher/llm/formatters/claude-formatter.js'
+import {ClaudeMessageFormatter} from '../../../../../src/agent/infra/llm/formatters/claude-formatter.js'
 
 describe('ClaudeMessageFormatter', () => {
   let formatter: ClaudeMessageFormatter

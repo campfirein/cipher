@@ -1,9 +1,9 @@
+import type {ConnectionState, ConnectionStateHandler, ITransportClient} from '@campfirein/brv-transport-client'
+
 import {expect} from 'chai'
 import {restore, stub} from 'sinon'
 
-import type {ConnectionState, ConnectionStateHandler, ITransportClient} from '../../../../../src/core/interfaces/transport/i-transport-client.js'
-
-import {waitForTaskResult} from '../../../../../src/infra/mcp/tools/task-result-waiter.js'
+import {waitForTaskResult} from '../../../../../src/server/infra/mcp/tools/task-result-waiter.js'
 
 /**
  * Creates a mock transport client for testing.
@@ -42,7 +42,8 @@ function createMockClient(): {
         stateHandlers.delete(handler)
       }
     },
-    request: stub().resolves(),
+    request: stub() as unknown as ITransportClient['request'],
+    requestWithAck: stub().resolves(),
   }
 
   return {

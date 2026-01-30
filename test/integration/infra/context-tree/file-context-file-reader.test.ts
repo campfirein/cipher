@@ -3,8 +3,8 @@ import {mkdir, rm, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
-import {BRV_DIR, CONTEXT_TREE_DIR} from '../../../../src/constants.js'
-import {FileContextFileReader} from '../../../../src/infra/context-tree/file-context-file-reader.js'
+import {BRV_DIR, CONTEXT_TREE_DIR} from '../../../../src/server/constants.js'
+import {FileContextFileReader} from '../../../../src/server/infra/context-tree/file-context-file-reader.js'
 
 describe('FileContextFileReader', () => {
   let testDir: string

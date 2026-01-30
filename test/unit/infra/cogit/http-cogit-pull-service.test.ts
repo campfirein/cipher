@@ -2,7 +2,7 @@
 import {expect} from 'chai'
 import nock from 'nock'
 
-import {HttpCogitPullService} from '../../../../src/infra/cogit/http-cogit-pull-service.js'
+import {HttpCogitPullService} from '../../../../src/server/infra/cogit/http-cogit-pull-service.js'
 
 describe('HttpCogitPullService', () => {
   const config = {

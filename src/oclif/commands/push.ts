@@ -1,19 +1,18 @@
 import {Command, Flags} from '@oclif/core'
 
-import type {IPushUseCase} from '../../core/interfaces/usecase/i-push-use-case.js'
-
-import {getCurrentConfig} from '../../config/environment.js'
-import {DEFAULT_BRANCH} from '../../constants.js'
-import {HttpCogitPushService} from '../../infra/cogit/http-cogit-push-service.js'
-import {ProjectConfigStore} from '../../infra/config/file-config-store.js'
-import {FileContextFileReader} from '../../infra/context-tree/file-context-file-reader.js'
-import {FileContextTreeSnapshotService} from '../../infra/context-tree/file-context-tree-snapshot-service.js'
-import {FileGlobalConfigStore} from '../../infra/storage/file-global-config-store.js'
-import {createTokenStore} from '../../infra/storage/token-store.js'
-import {HeadlessTerminal} from '../../infra/terminal/headless-terminal.js'
-import {OclifTerminal} from '../../infra/terminal/oclif-terminal.js'
-import {MixpanelTrackingService} from '../../infra/tracking/mixpanel-tracking-service.js'
-import {PushUseCase} from '../../infra/usecase/push-use-case.js'
+import {getCurrentConfig} from '../../server/config/environment.js'
+import {DEFAULT_BRANCH} from '../../server/constants.js'
+import {IPushUseCase} from '../../server/core/interfaces/usecase/i-push-use-case.js'
+import {HttpCogitPushService} from '../../server/infra/cogit/http-cogit-push-service.js'
+import {ProjectConfigStore} from '../../server/infra/config/file-config-store.js'
+import {FileContextFileReader} from '../../server/infra/context-tree/file-context-file-reader.js'
+import {FileContextTreeSnapshotService} from '../../server/infra/context-tree/file-context-tree-snapshot-service.js'
+import {FileGlobalConfigStore} from '../../server/infra/storage/file-global-config-store.js'
+import {createTokenStore} from '../../server/infra/storage/token-store.js'
+import {HeadlessTerminal} from '../../server/infra/terminal/headless-terminal.js'
+import {OclifTerminal} from '../../server/infra/terminal/oclif-terminal.js'
+import {MixpanelTrackingService} from '../../server/infra/tracking/mixpanel-tracking-service.js'
+import {PushUseCase} from '../../server/infra/usecase/push-use-case.js'
 
 /** Parsed flags type */
 type PushFlags = {

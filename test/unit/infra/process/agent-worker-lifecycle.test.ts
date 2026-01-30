@@ -19,7 +19,7 @@
 import {expect} from 'chai'
 import {createSandbox, type SinonSandbox} from 'sinon'
 
-import type {AgentIPCResponse, IPCCommand} from '../../../../src/infra/process/ipc-types.js'
+import type {AgentIPCResponse, IPCCommand} from '../../../../src/server/infra/process/ipc-types.js'
 
 describe('Agent Worker Lifecycle', () => {
   let sandbox: SinonSandbox

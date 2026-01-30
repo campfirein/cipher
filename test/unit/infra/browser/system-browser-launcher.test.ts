@@ -1,7 +1,7 @@
 import {expect} from 'chai'
 import {restore, SinonStub, stub} from 'sinon'
 
-import {SystemBrowserLauncher} from '../../../../src/infra/browser/system-browser-launcher'
+import {SystemBrowserLauncher} from '../../../../src/server/infra/browser/system-browser-launcher'
 
 describe('SystemBrowserLauncher', () => {
   let launcher: SystemBrowserLauncher

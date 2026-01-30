@@ -2,7 +2,7 @@
 import {expect} from 'chai'
 import nock from 'nock'
 
-import {HttpMemoryRetrievalService} from '../../../../src/infra/memory/http-memory-retrieval-service.js'
+import {HttpMemoryRetrievalService} from '../../../../src/server/infra/memory/http-memory-retrieval-service.js'
 
 describe('HttpMemoryRetrievalService', () => {
   const apiBaseUrl = 'https://api.example.com'

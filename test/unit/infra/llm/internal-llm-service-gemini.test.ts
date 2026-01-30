@@ -1,15 +1,15 @@
 import {expect} from 'chai'
 import * as sinon from 'sinon'
 
-import type {GenerateContentResponse} from '../../../../src/core/interfaces/cipher/i-content-generator.js'
+import type {GenerateContentResponse} from '../../../../src/agent/core/interfaces/i-content-generator.js'
 
-import {ToolErrorType} from '../../../../src/core/domain/cipher/tools/tool-error.js'
-import {SessionEventBus} from '../../../../src/infra/cipher/events/event-emitter.js'
-import {ByteRoverLlmHttpService} from '../../../../src/infra/cipher/http/internal-llm-http-service.js'
-import {ByteRoverContentGenerator} from '../../../../src/infra/cipher/llm/generators/byterover-content-generator.js'
-import {ByteRoverLLMService} from '../../../../src/infra/cipher/llm/internal-llm-service.js'
-import {SystemPromptManager} from '../../../../src/infra/cipher/system-prompt/system-prompt-manager.js'
-import {ToolManager} from '../../../../src/infra/cipher/tools/tool-manager.js'
+import {ToolErrorType} from '../../../../src/agent/core/domain/tools/tool-error.js'
+import {SessionEventBus} from '../../../../src/agent/infra/events/event-emitter.js'
+import {ByteRoverLlmHttpService} from '../../../../src/agent/infra/http/internal-llm-http-service.js'
+import {ByteRoverContentGenerator} from '../../../../src/agent/infra/llm/generators/byterover-content-generator.js'
+import {ByteRoverLLMService} from '../../../../src/agent/infra/llm/internal-llm-service.js'
+import {SystemPromptManager} from '../../../../src/agent/infra/system-prompt/system-prompt-manager.js'
+import {ToolManager} from '../../../../src/agent/infra/tools/tool-manager.js'
 import {createMockToolProvider} from '../../../helpers/mock-factories.js'
 
 /**

@@ -2,7 +2,7 @@ import { expect } from 'chai'
 import { homedir, platform } from 'node:os'
 import { join, sep } from 'node:path'
 
-import { getGlobalLogsDir } from '../../../src/utils/global-logs-path.js'
+import { getGlobalLogsDir } from '../../../src/server/utils/global-logs-path.js'
 
 /**
  * Helper to check if a path is absolute.

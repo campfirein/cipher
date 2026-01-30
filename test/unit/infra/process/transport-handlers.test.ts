@@ -16,15 +16,15 @@ import {expect} from 'chai'
 import {randomUUID} from 'node:crypto'
 import {createSandbox, match, type SinonFakeTimers, type SinonSandbox, type SinonStub} from 'sinon'
 
-import type {ITransportServer, RequestHandler} from '../../../../src/core/interfaces/transport/i-transport-server.js'
+import type {ITransportServer, RequestHandler} from '../../../../src/server/core/interfaces/transport/i-transport-server.js'
 
 import {
   AgentStatusEventNames,
   LlmEventNames,
   TransportAgentEventNames,
   TransportTaskEventNames,
-} from '../../../../src/core/domain/transport/schemas.js'
-import {TransportHandlers} from '../../../../src/infra/process/transport-handlers.js'
+} from '../../../../src/server/core/domain/transport/schemas.js'
+import {TransportHandlers} from '../../../../src/server/infra/process/transport-handlers.js'
 
 describe('TransportHandlers', () => {
   let sandbox: SinonSandbox

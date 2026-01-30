@@ -1,6 +1,7 @@
+import {TransportClient} from '@campfirein/brv-transport-client'
 import {expect} from 'chai'
 
-import {createTransportClient, createTransportServer} from '../../../../src/infra/transport/transport-factory.js'
+import {createTransportServer} from '../../../../src/server/infra/transport/transport-factory.js'
 
 describe('Transport Factory', () => {
   describe('createTransportServer', () => {
@@ -22,32 +23,14 @@ describe('Transport Factory', () => {
     })
   })
 
-  describe('createTransportClient', () => {
-    it('should create client with default config', () => {
-      const client = createTransportClient()
+  // Note: createTransportClient was removed from transport-factory.ts
+  // For client usage, use connectToTransport() from @campfirein/brv-transport-client
+  // or TransportClient directly for low-level access (e.g., agent-worker, status-use-case)
 
-      expect(client).to.exist
-      expect(client.getState()).to.equal('disconnected')
-    })
-
-    it('should create client with custom config', () => {
-      const client = createTransportClient({
-        connectTimeoutMs: 1000,
-        reconnectionAttempts: 5,
-        reconnectionDelayMaxMs: 500,
-        reconnectionDelayMs: 100,
-        requestTimeoutMs: 5000,
-        roomTimeoutMs: 1000,
-      })
-
-      expect(client).to.exist
-    })
-  })
-
-  describe('Integration: factory-created instances work together', () => {
-    it('should connect factory-created client to factory-created server', async () => {
+  describe('Integration: server with package client', () => {
+    it('should connect TransportClient from package to local server', async () => {
       const server = createTransportServer()
-      const client = createTransportClient()
+      const client = new TransportClient()
 
       await server.start(9980)
 

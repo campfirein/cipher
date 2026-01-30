@@ -2,11 +2,11 @@ import {expect} from 'chai'
 import {Mixpanel} from 'mixpanel'
 import {restore, SinonStub, stub} from 'sinon'
 
-import {AuthToken} from '../../../../src/core/domain/entities/auth-token.js'
-import {EventName} from '../../../../src/core/domain/entities/event.js'
-import {IGlobalConfigStore} from '../../../../src/core/interfaces/i-global-config-store.js'
-import {ITokenStore} from '../../../../src/core/interfaces/i-token-store.js'
-import {MixpanelTrackingService} from '../../../../src/infra/tracking/mixpanel-tracking-service.js'
+import {AuthToken} from '../../../../src/server/core/domain/entities/auth-token.js'
+import {EventName} from '../../../../src/server/core/domain/entities/event.js'
+import {ITokenStore} from '../../../../src/server/core/interfaces/auth/i-token-store.js'
+import {IGlobalConfigStore} from '../../../../src/server/core/interfaces/storage/i-global-config-store.js'
+import {MixpanelTrackingService} from '../../../../src/server/infra/tracking/mixpanel-tracking-service.js'
 
 describe('MixpanelTrackingService', () => {
   let mockMixpanel: Partial<Mixpanel>

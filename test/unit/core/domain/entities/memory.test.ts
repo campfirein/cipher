@@ -1,6 +1,6 @@
 import {expect} from 'chai'
 
-import {Memory} from '../../../../../src/core/domain/entities/memory.js'
+import {Memory} from '../../../../../src/server/core/domain/entities/memory.js'
 
 describe('Memory Entity', () => {
   const validMemoryData = {

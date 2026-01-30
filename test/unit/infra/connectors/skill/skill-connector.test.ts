@@ -6,9 +6,9 @@ import path from 'node:path'
 import {
   SKILL_CONNECTOR_CONFIGS,
   SKILL_FILE_NAMES,
-} from '../../../../../src/infra/connectors/skill/skill-connector-config.js'
-import {SkillConnector} from '../../../../../src/infra/connectors/skill/skill-connector.js'
-import {FsFileService} from '../../../../../src/infra/file/fs-file-service.js'
+} from '../../../../../src/server/infra/connectors/skill/skill-connector-config.js'
+import {SkillConnector} from '../../../../../src/server/infra/connectors/skill/skill-connector.js'
+import {FsFileService} from '../../../../../src/server/infra/file/fs-file-service.js'
 
 describe('SkillConnector', () => {
   let testDir: string
