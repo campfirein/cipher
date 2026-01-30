@@ -108,6 +108,17 @@ type LlmEventPayloadMap = {
 // - LlmThinkingEvent, LlmChunkEvent, LlmResponseEvent, etc: Agent → Transport (LLM events)
 
 // ============================================================================
+// Constants
+// ============================================================================
+
+/**
+ * Grace period (in ms) to keep completed tasks in memory for late-arriving events.
+ * This prevents silent event drops when llmservice:* events arrive after task:completed.
+ * Inspired by opencode's session callback queuing pattern.
+ */
+const TASK_CLEANUP_GRACE_PERIOD_MS = 5000
+
+// ============================================================================
 // Transport Handlers
 // ============================================================================
 
@@ -122,6 +133,12 @@ export class TransportHandlers {
   private agentClientId: string | undefined
   /** Cached agent status from last status:changed broadcast */
   private cachedAgentStatus: AgentStatus | undefined
+  /**
+   * Track recently completed tasks for grace period.
+   * Allows late-arriving llmservice:* events to be routed even after task:completed.
+   * Key: taskId, Value: {task: TaskInfo, completedAt: timestamp}
+   */
+  private completedTasks: Map<string, {completedAt: number; task: TaskInfo}> = new Map()
   /** Track active tasks */
   private tasks: Map<string, TaskInfo> = new Map()
   /** Transport server reference */
@@ -136,6 +153,7 @@ export class TransportHandlers {
    */
   cleanup(): void {
     this.tasks.clear()
+    this.completedTasks.clear()
     this.agentClientId = undefined
     this.cachedAgentStatus = undefined
   }
@@ -148,6 +166,14 @@ export class TransportHandlers {
     this.setupAgentHandlers()
     this.setupClientHandlers()
     this.setupAgentControlHandlers()
+  }
+
+  /**
+   * Get task info from either active or recently completed tasks.
+   * Returns undefined if task is not found in either map.
+   */
+  private getTaskInfo(taskId: string): TaskInfo | undefined {
+    return this.tasks.get(taskId) ?? this.completedTasks.get(taskId)?.task
   }
 
   /**
@@ -202,7 +228,7 @@ export class TransportHandlers {
   /**
    * Handle task:cancelled from Agent.
    * Terminal event: task was cancelled before completion.
-   * Route to task owner + broadcast-room, then cleanup.
+   * Route to task owner + broadcast-room, then cleanup with grace period.
    */
   private handleTaskCancelled(data: TaskCancelledEvent): void {
     const {taskId} = data
@@ -215,12 +241,14 @@ export class TransportHandlers {
     }
 
     this.transport.broadcastTo('broadcast-room', TransportTaskEventNames.CANCELLED, {taskId})
-    this.tasks.delete(taskId)
+    // Move to completed tasks with grace period instead of immediate deletion
+    this.moveToCompleted(taskId)
   }
 
   /**
    * Handle task:completed from Agent.
    * Route directly to task owner + broadcast-room for monitoring.
+   * Uses grace period cleanup to allow late-arriving llmservice:* events.
    */
   private handleTaskCompleted(data: TaskCompletedEvent): void {
     const {result, taskId} = data
@@ -233,7 +261,9 @@ export class TransportHandlers {
     }
 
     this.transport.broadcastTo('broadcast-room', TransportTaskEventNames.COMPLETED, {result, taskId})
-    this.tasks.delete(taskId)
+    // Move to completed tasks with grace period instead of immediate deletion
+    // This allows late-arriving llmservice:* events to still be routed
+    this.moveToCompleted(taskId)
   }
 
   /**
@@ -323,6 +353,7 @@ export class TransportHandlers {
   /**
    * Handle task:error from Agent.
    * Route directly to task owner + broadcast-room for monitoring.
+   * Uses grace period cleanup to allow late-arriving llmservice:* events.
    */
   private handleTaskError(data: TaskErrorEvent): void {
     const {error, taskId} = data
@@ -335,7 +366,8 @@ export class TransportHandlers {
     }
 
     this.transport.broadcastTo('broadcast-room', TransportTaskEventNames.ERROR, {error, taskId})
-    this.tasks.delete(taskId)
+    // Move to completed tasks with grace period instead of immediate deletion
+    this.moveToCompleted(taskId)
   }
 
   /**
@@ -364,6 +396,23 @@ export class TransportHandlers {
     }
   }
 
+  /**
+   * Move a task to the completed tasks map with grace period cleanup.
+   * This allows late-arriving llmservice:* events to still be routed.
+   */
+  private moveToCompleted(taskId: string): void {
+    const task = this.tasks.get(taskId)
+    if (task) {
+      this.completedTasks.set(taskId, {completedAt: Date.now(), task})
+      this.tasks.delete(taskId)
+
+      // Schedule cleanup after grace period
+      setTimeout(() => {
+        this.completedTasks.delete(taskId)
+      }, TASK_CLEANUP_GRACE_PERIOD_MS)
+    }
+  }
+
   private registerLlmEvent<E extends LlmEventName>(eventName: E): void {
     this.transport.onRequest<LlmEventPayloadMap[E], void>(eventName, (data) => {
       this.routeLlmEvent(eventName, data as unknown as {[key: string]: unknown; taskId: string})
@@ -376,16 +425,19 @@ export class TransportHandlers {
    *
    * All llmservice:* events follow the same routing pattern:
    * 1. Extract taskId from payload
-   * 2. Check if task is still active (not completed/cancelled/errored)
-   * 3. Send to task owner + broadcast-room if active
-   * 4. Drop silently if task already ended (prevents events-after-terminal)
+   * 2. Check if task is active OR recently completed (within grace period)
+   * 3. Send to task owner + broadcast-room if found
+   * 4. Drop silently if task not found (truly ended beyond grace period)
+   *
+   * The grace period allows late-arriving events (due to network delays or
+   * out-of-order delivery) to still be routed to clients.
    */
   private routeLlmEvent(eventName: string, data: {[key: string]: unknown; taskId: string}): void {
     const {taskId, ...rest} = data
-    const task = this.tasks.get(taskId)
+    // Use getTaskInfo to check both active and recently completed tasks
+    const task = this.getTaskInfo(taskId)
 
-    // Guard: Drop events for tasks that have already ended (terminal state reached)
-    // This prevents "ghost events" arriving after task:completed/cancelled/error
+    // Guard: Drop events for tasks not found in either active or completed maps
     if (!task) {
       return
     }

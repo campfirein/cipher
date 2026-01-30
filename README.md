@@ -14,6 +14,7 @@ Command-line interface for ByteRover, featuring an interactive REPL with a moder
 * [Keyboard Shortcuts](#keyboard-shortcuts)
 * [What is Context Tree?](#what-is-context-tree)
 * [Supported AI Agents](#supported-ai-agents)
+* [LLM Providers](#llm-providers) (BETA)
 * [Slash Commands Reference](#slash-commands-reference)
 * [Authentication](#authentication)
 * [Configuration](#configuration)
@@ -51,7 +52,7 @@ brv --version
 
 Visit [**ByteRover Docs**](https://docs.byterover.dev) for more information.
 
-Get started with ByteRover CLI in three simple steps:
+Get started with ByteRover CLI:
 
 ### 1. Start the REPL
 
@@ -90,6 +91,14 @@ ByteRover automatically configures the best connector for your installed agents:
 - **Skill files** for Claude Code and Cursor (modern, discoverable)
 - **MCP tools** for most other agents (universal protocol)
 - Switch connector types anytime via `/connectors`
+
+### 5. (Optional) Connect an LLM Provider
+
+```
+/provider
+```
+
+ByteRover works out of the box with its built-in LLM provider. To use your own models, connect to [OpenRouter](https://openrouter.ai/keys) for access to 200+ models. See [LLM Providers](#llm-providers) for details.
 
 You're now ready to use ByteRover! Try `/status` to see your project's current state.
 
@@ -203,6 +212,48 @@ ByteRover supports four connector types:
 - All others (16 agents): MCP connector
 - Rules: Available for all agents as fallback
 
+## LLM Providers (BETA)
+
+ByteRover uses LLMs internally to power `/curate` and `/query` operations. By default, the built-in ByteRover provider is used with no configuration required. You can optionally connect to OpenRouter to access 200+ models.
+
+### Available Providers
+
+| Provider | API Key Required | Models |
+|----------|-----------------|--------|
+| **ByteRover** (default) | No | Built-in internal model |
+| **OpenRouter** | Yes | 200+ models from Anthropic, OpenAI, Google, Meta, and more |
+
+### Connecting a Provider
+
+Use `/provider` (aliases: `/providers`, `/connect`) to switch providers:
+
+```
+/provider
+```
+
+This opens an interactive prompt showing all available providers with their connection status.
+
+### Selecting a Model
+
+When connected to OpenRouter, use `/model` (alias: `/models`) to browse and select models:
+
+```
+/model
+```
+
+The model browser shows:
+- **Pricing**: Input/output cost per million tokens (e.g., `$3.00/$15.00/M`)
+- **Context window**: Maximum token capacity (e.g., `200K ctx`)
+- **Free models**: Marked with `[Free]`
+- **Favorites and recents**: Starred and recently used models appear first
+
+### OpenRouter Setup
+
+1. Get an API key at [openrouter.ai/keys](https://openrouter.ai/keys)
+2. Run `/provider` and select **OpenRouter**
+3. Paste your API key when prompted (stored securely in system keychain)
+4. Run `/model` to select a model (default: `anthropic/claude-3.5-sonnet`)
+
 ## Slash Commands Reference
 
 ### Core Workflow
@@ -278,6 +329,15 @@ ByteRover supports four connector types:
 
 **Reset options:**
 - `-y, --yes`: Skip confirmation prompt
+
+### LLM Providers (BETA)
+
+| Command | Description |
+|---------|-------------|
+| `/provider` | Connect to and switch between LLM providers |
+| `/model` | Select a model from the active provider (OpenRouter) |
+
+**Aliases:** `/providers` and `/connect` for `/provider`; `/models` for `/model`
 
 ### Session Management
 

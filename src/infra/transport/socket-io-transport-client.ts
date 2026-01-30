@@ -42,6 +42,39 @@ function clientLog(message: string): void {
 type StoredEventHandler = (data: unknown) => void
 
 /**
+ * Buffered event data for events that arrive before handlers are registered.
+ * This prevents race conditions where broadcast-room events arrive before
+ * TUI components have subscribed to them.
+ */
+interface BufferedEvent {
+  data: unknown
+  event: string
+  timestamp: number
+}
+
+/**
+ * Events to buffer when received before handlers are registered.
+ * These are critical task lifecycle events that must not be lost.
+ */
+const BUFFERED_EVENTS = new Set([
+  'llmservice:chunk',
+  'llmservice:response',
+  'llmservice:toolCall',
+  'llmservice:toolResult',
+  'task:cancelled',
+  'task:completed',
+  'task:created',
+  'task:error',
+  'task:started',
+])
+
+/**
+ * Maximum age of buffered events in milliseconds.
+ * Events older than this are discarded to prevent memory leaks.
+ */
+const BUFFERED_EVENT_MAX_AGE_MS = 10_000
+
+/**
  * Force reconnect delays after Socket.IO gives up (exponential backoff).
  * Used when all built-in reconnection attempts fail.
  */
@@ -76,6 +109,8 @@ const WAKE_TIME_JUMP_THRESHOLD_MS = 10_000
  * - Auto-rejoins rooms after reconnect
  */
 export class SocketIOTransportClient implements ITransportClient {
+  /** Buffer for events that arrive before handlers are registered */
+  private bufferedEvents: BufferedEvent[] = []
   private readonly config: Required<TransportClientConfig>
   private eventHandlers: Map<string, Set<StoredEventHandler>> = new Map()
   /** Track force reconnect attempt count for backoff calculation */
@@ -147,6 +182,9 @@ export class SocketIOTransportClient implements ITransportClient {
       const onConnect = () => {
         this.setState('connected')
         cleanup()
+        // Register socket listeners for critical events that should be buffered.
+        // This allows events to be captured even before handlers subscribe.
+        this.registerBufferedEventListeners()
         // Register any handlers that were added before connect() was called.
         // This fixes the issue where on() called before connect() would not
         // actually register handlers on the socket.
@@ -199,6 +237,7 @@ export class SocketIOTransportClient implements ITransportClient {
         // listener accumulation. Socket.IO preserves the Socket instance across
         // internal reconnects, so old listeners remain attached if not removed.
         this.clearSocketEventListeners()
+        this.registerBufferedEventListeners()
         this.registerPendingEventHandlers()
 
         // Auto-rejoin rooms after reconnect
@@ -240,6 +279,7 @@ export class SocketIOTransportClient implements ITransportClient {
       this.eventHandlers.clear()
       this.registeredSocketEvents.clear()
       this.joinedRooms.clear()
+      this.bufferedEvents = []
       resolve()
     })
   }
@@ -360,6 +400,10 @@ export class SocketIOTransportClient implements ITransportClient {
     const wrappedHandler: StoredEventHandler = (data) => handler(data as T)
     const handlers = this.eventHandlers.get(event)
     handlers?.add(wrappedHandler)
+
+    // Replay any buffered events for this event type
+    // This handles the race condition where events arrive before handlers subscribe
+    this.replayBufferedEvents(event, wrappedHandler)
 
     // Return unsubscribe function that also cleans up socket listener if no handlers remain
     return () => {
@@ -541,6 +585,17 @@ export class SocketIOTransportClient implements ITransportClient {
   }
 
   /**
+   * Register socket listeners for all events that should be buffered.
+   * Called on connect to ensure critical events can be captured even before
+   * handlers subscribe. This prevents race conditions in TUI initialization.
+   */
+  private registerBufferedEventListeners(): void {
+    for (const event of BUFFERED_EVENTS) {
+      this.registerSocketEventIfNeeded(event)
+    }
+  }
+
+  /**
    * Register all pending event handlers on the socket.
    * Called after successful connection to handle handlers added before connect().
    */
@@ -553,6 +608,10 @@ export class SocketIOTransportClient implements ITransportClient {
   /**
    * Register a socket listener for an event if not already registered.
    * Uses registeredSocketEvents set to prevent duplicates.
+   *
+   * For critical events (task lifecycle, LLM events), buffers incoming events
+   * if no handlers are registered yet. This prevents race conditions where
+   * broadcast-room events arrive before TUI components subscribe.
    */
   private registerSocketEventIfNeeded(event: string): void {
     const {socket} = this
@@ -563,10 +622,19 @@ export class SocketIOTransportClient implements ITransportClient {
     // Register the dispatch listener on socket
     socket.on(event, (data: unknown) => {
       const handlers = this.eventHandlers.get(event)
-      if (handlers) {
+      if (handlers && handlers.size > 0) {
         for (const h of handlers) {
           h(data)
         }
+      } else if (BUFFERED_EVENTS.has(event)) {
+        // Buffer critical events when no handlers are registered
+        // This handles race condition where events arrive before TUI subscribes
+        this.bufferedEvents.push({
+          data,
+          event,
+          timestamp: Date.now(),
+        })
+        clientLog(`Buffered event '${event}' (no handlers yet), buffer size: ${this.bufferedEvents.length}`)
       }
     })
     this.registeredSocketEvents.add(event)
@@ -631,6 +699,43 @@ export class SocketIOTransportClient implements ITransportClient {
     if (socket && this.registeredSocketEvents.has(event)) {
       socket.off(event)
       this.registeredSocketEvents.delete(event)
+    }
+  }
+
+  /**
+   * Replay buffered events for a specific event type to a handler.
+   * Called when a new handler subscribes, to deliver any events that arrived
+   * before the handler was registered.
+   *
+   * Removes replayed events from the buffer and cleans up stale events.
+   */
+  private replayBufferedEvents(event: string, handler: StoredEventHandler): void {
+    const now = Date.now()
+    const toReplay: BufferedEvent[] = []
+    const toKeep: BufferedEvent[] = []
+
+    for (const buffered of this.bufferedEvents) {
+      // Discard stale events
+      if (now - buffered.timestamp > BUFFERED_EVENT_MAX_AGE_MS) {
+        continue
+      }
+
+      if (buffered.event === event) {
+        toReplay.push(buffered)
+      } else {
+        toKeep.push(buffered)
+      }
+    }
+
+    // Update buffer with remaining events
+    this.bufferedEvents = toKeep
+
+    // Replay events in order
+    if (toReplay.length > 0) {
+      clientLog(`Replaying ${toReplay.length} buffered '${event}' events`)
+      for (const buffered of toReplay) {
+        handler(buffered.data)
+      }
     }
   }
 

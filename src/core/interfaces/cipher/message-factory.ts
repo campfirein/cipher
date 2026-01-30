@@ -99,12 +99,17 @@ export function createFilePart(
 export function createReasoningPart(
   text: string,
   summary?: {description: string; subject: string},
-  options?: PartOptions,
+  options?: PartOptions & {id?: string; providerMetadata?: Record<string, unknown>},
 ): ReasoningPart {
   return {
+    id: options?.id ?? `reasoning-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
     text,
+    time: {
+      start: Date.now(),
+    },
     type: 'reasoning',
     ...(summary && {summary}),
+    ...(options?.providerMetadata && {providerMetadata: options.providerMetadata}),
     ...(options?.synthetic !== undefined && {synthetic: options.synthetic}),
     ...(options?.metadata && {metadata: options.metadata}),
   }
