@@ -4,9 +4,9 @@ import {mkdir, rm, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
-import {GLOBAL_CONFIG_VERSION} from '../../src/constants.js'
-import {GlobalConfig} from '../../src/core/domain/entities/global-config.js'
-import {FileGlobalConfigStore} from '../../src/infra/storage/file-global-config-store.js'
+import {GLOBAL_CONFIG_VERSION} from '../../src/server/constants.js'
+import {GlobalConfig} from '../../src/server/core/domain/entities/global-config.js'
+import {FileGlobalConfigStore} from '../../src/server/infra/storage/file-global-config-store.js'
 
 describe('FileGlobalConfigStore', () => {
   let testDir: string

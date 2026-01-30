@@ -3,16 +3,16 @@ import {mkdir, rm, writeFile} from 'node:fs/promises'
 import {homedir, tmpdir} from 'node:os'
 import path from 'node:path'
 
-import type {IRuleTemplateService} from '../../../../../src/core/interfaces/i-rule-template-service.js'
+import type {IRuleTemplateService} from '../../../../../src/server/core/interfaces/services/i-rule-template-service.js'
 import type {
   JsonMcpConnectorConfig,
   McpSupportedAgent,
-} from '../../../../../src/infra/connectors/mcp/mcp-connector-config.js'
+} from '../../../../../src/server/infra/connectors/mcp/mcp-connector-config.js'
 
-import {MCP_CONNECTOR_CONFIGS} from '../../../../../src/infra/connectors/mcp/mcp-connector-config.js'
-import {McpConnector} from '../../../../../src/infra/connectors/mcp/mcp-connector.js'
-import {BRV_RULE_MARKERS} from '../../../../../src/infra/connectors/shared/constants.js'
-import {FsFileService} from '../../../../../src/infra/file/fs-file-service.js'
+import {MCP_CONNECTOR_CONFIGS} from '../../../../../src/server/infra/connectors/mcp/mcp-connector-config.js'
+import {McpConnector} from '../../../../../src/server/infra/connectors/mcp/mcp-connector.js'
+import {BRV_RULE_MARKERS} from '../../../../../src/server/infra/connectors/shared/constants.js'
+import {FsFileService} from '../../../../../src/server/infra/file/fs-file-service.js'
 
 /**
  * Mock template service for testing.

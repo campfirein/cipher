@@ -13,8 +13,7 @@
 import {Box, Text, useInput} from 'ink'
 import React, {useCallback, useState} from 'react'
 
-import type {ProviderDefinition} from '../../core/domain/entities/provider-registry.js'
-
+import { ProviderDefinition } from '../../server/core/domain/entities/provider-registry.js'
 import {useTheme} from '../contexts/theme-context.js'
 
 /**

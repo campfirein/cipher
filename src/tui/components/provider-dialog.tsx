@@ -8,10 +8,7 @@
 import {Box, Text} from 'ink'
 import React, {useMemo} from 'react'
 
-import {
-  getProvidersGroupedByCategory,
-  type ProviderDefinition,
-} from '../../core/domain/entities/provider-registry.js'
+import { getProvidersGroupedByCategory, ProviderDefinition } from '../../server/core/domain/entities/provider-registry.js'
 import {useTheme} from '../contexts/theme-context.js'
 import {SelectableList} from './selectable-list.js'
 

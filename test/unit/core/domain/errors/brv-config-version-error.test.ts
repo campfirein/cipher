@@ -1,6 +1,6 @@
 import {expect} from 'chai'
 
-import {BrvConfigVersionError} from '../../../../../src/core/domain/errors/brv-config-version-error.js'
+import {BrvConfigVersionError} from '../../../../../src/server/core/domain/errors/brv-config-version-error.js'
 
 describe('BrvConfigVersionError', () => {
   describe('constructor', () => {

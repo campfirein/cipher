@@ -1,7 +1,7 @@
 import {expect} from 'chai'
 
-import {Memory} from '../../../../../src/core/domain/entities/memory'
-import {RetrieveResult} from '../../../../../src/core/domain/entities/retrieve-result'
+import {Memory} from '../../../../../src/server/core/domain/entities/memory'
+import {RetrieveResult} from '../../../../../src/server/core/domain/entities/retrieve-result'
 
 describe('RetrieveResult Entity', () => {
   const sampleMemory1 = new Memory({

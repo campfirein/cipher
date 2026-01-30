@@ -2,8 +2,8 @@
 import {expect} from 'chai'
 import nock from 'nock'
 
-import {Space} from '../../../../src/core/domain/entities/space.js'
-import {HttpSpaceService} from '../../../../src/infra/space/http-space-service.js'
+import {Space} from '../../../../src/server/core/domain/entities/space.js'
+import {HttpSpaceService} from '../../../../src/server/infra/space/http-space-service.js'
 
 describe('HttpSpaceService', () => {
   const apiBaseUrl = 'https://api.example.com'

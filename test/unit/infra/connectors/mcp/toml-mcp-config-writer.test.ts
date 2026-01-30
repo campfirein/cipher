@@ -6,8 +6,8 @@ import path from 'node:path'
 import {
   BRV_MCP_TOML_MARKERS,
   TomlMcpConfigWriter,
-} from '../../../../../src/infra/connectors/mcp/toml-mcp-config-writer.js'
-import {FsFileService} from '../../../../../src/infra/file/fs-file-service.js'
+} from '../../../../../src/server/infra/connectors/mcp/toml-mcp-config-writer.js'
+import {FsFileService} from '../../../../../src/server/infra/file/fs-file-service.js'
 
 describe('TomlMcpConfigWriter', () => {
   let testDir: string

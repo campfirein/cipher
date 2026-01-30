@@ -3,8 +3,9 @@ import {expect} from 'chai'
 import nock from 'nock'
 import {restore} from 'sinon'
 
-import {OAuthConfig} from '../../../../src/config/auth.config.js'
-import {NETWORK_ERROR_CODE, OAuthService} from '../../../../src/infra/auth/oauth-service.js'
+import type {OAuthConfig} from '../../../../src/server/config/auth.config.js'
+
+import {NETWORK_ERROR_CODE, OAuthService} from '../../../../src/server/infra/auth/oauth-service.js'
 
 describe('OAuthService', () => {
   let service: OAuthService
@@ -251,7 +252,7 @@ describe('OAuthService', () => {
         expires_in: 3600,
         refresh_token: 'refresh-token',
         session_key: 'session-key',
-        token_type: 'Bearer'
+        token_type: 'Bearer',
       })
 
       await service.exchangeCodeForToken('code', context, redirectUri)
@@ -278,7 +279,7 @@ describe('OAuthService', () => {
         expires_in: expiresIn,
         refresh_token: 'refresh-token',
         session_key: 'session-key',
-        token_type: 'Bearer'
+        token_type: 'Bearer',
       })
 
       const tokenData = await service.exchangeCodeForToken('code', context, redirectUri)
@@ -304,7 +305,9 @@ describe('OAuthService', () => {
         expect.fail('Should have thrown an error')
       } catch (error) {
         expect(error).to.be.an('error')
-        expect((error as Error).message).to.equal('Unable to reach authentication server. Please check your internet connection.')
+        expect((error as Error).message).to.equal(
+          'Unable to reach authentication server. Please check your internet connection.',
+        )
       }
     })
 
@@ -320,7 +323,9 @@ describe('OAuthService', () => {
         expect.fail('Should have thrown an error')
       } catch (error) {
         expect(error).to.be.an('error')
-        expect((error as Error).message).to.equal('Login timed out. Please check your internet connection and try again.')
+        expect((error as Error).message).to.equal(
+          'Login timed out. Please check your internet connection and try again.',
+        )
       }
     })
 
@@ -352,7 +357,9 @@ describe('OAuthService', () => {
         expect.fail('Should have thrown an error')
       } catch (error) {
         expect(error).to.be.an('error')
-        expect((error as Error).message).to.equal('Network error occurred. Please check your internet connection and try again.')
+        expect((error as Error).message).to.equal(
+          'Network error occurred. Please check your internet connection and try again.',
+        )
       }
     })
 
@@ -378,7 +385,7 @@ describe('OAuthService', () => {
       const errDescription = 'Authorization code has expired.'
       nock(basePath).post(tokenUri).reply(400, {
         error: 'invalid_grant',
-        error_description: errDescription
+        error_description: errDescription,
       })
 
       try {

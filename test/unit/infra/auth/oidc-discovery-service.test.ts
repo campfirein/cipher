@@ -6,8 +6,8 @@ import {
   DiscoveryError,
   DiscoveryNetworkError,
   DiscoveryTimeoutError,
-} from '../../../../src/core/domain/errors/discovery-error.js'
-import {OidcDiscoveryService} from '../../../../src/infra/auth/oidc-discovery-service.js'
+} from '../../../../src/server/core/domain/errors/discovery-error.js'
+import {OidcDiscoveryService} from '../../../../src/server/infra/auth/oidc-discovery-service.js'
 
 describe('OidcDiscoveryService', () => {
   let service: OidcDiscoveryService
