@@ -2,7 +2,7 @@
 import {expect} from 'chai'
 import nock from 'nock'
 
-import {HttpMemoryStorageService} from '../../../../src/infra/memory/http-memory-storage-service.js'
+import {HttpMemoryStorageService} from '../../../../src/server/infra/memory/http-memory-storage-service.js'
 
 describe('HttpMemoryStorageService', () => {
   const config = {

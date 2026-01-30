@@ -1,6 +1,6 @@
 import {expect} from 'chai'
 
-import {AuthToken} from '../../../../../src/core/domain/entities/auth-token.js'
+import {AuthToken} from '../../../../../src/server/core/domain/entities/auth-token.js'
 
 describe('AuthToken', () => {
   describe('constructor', () => {

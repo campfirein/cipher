@@ -1,8 +1,8 @@
 import {expect} from 'chai'
 import sinon, {restore, stub} from 'sinon'
 
-import {getAuthConfig} from '../../../src/config/auth.config.js'
-import {IOidcDiscoveryService} from '../../../src/core/interfaces/i-oidc-discovery-service.js'
+import {getAuthConfig} from '../../../src/server/config/auth.config.js'
+import {IOidcDiscoveryService} from '../../../src/server/core/interfaces/auth/i-oidc-discovery-service.js'
 
 describe('Auth Configuration', () => {
   let discoveryService: IOidcDiscoveryService

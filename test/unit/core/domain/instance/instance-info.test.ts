@@ -1,6 +1,6 @@
 import {expect} from 'chai'
 
-import {InstanceInfo} from '../../../../../src/core/domain/instance/types.js'
+import {InstanceInfo} from '../../../../../src/server/core/domain/instance/types.js'
 
 describe('InstanceInfo', () => {
   describe('create', () => {

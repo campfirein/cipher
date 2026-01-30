@@ -1,7 +1,7 @@
 /* eslint-disable camelcase */
 import {expect} from 'chai'
 
-import {Team} from '../../../../../src/core/domain/entities/team.js'
+import {Team} from '../../../../../src/server/core/domain/entities/team.js'
 
 describe('Team', () => {
   const validTeamParams = {

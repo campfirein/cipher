@@ -1,6 +1,6 @@
 import {expect} from 'chai'
 
-import {formatToolCall, formatToolResult} from '../../../src/utils/tool-display-formatter.js'
+import {formatToolCall, formatToolResult} from '../../../src/server/utils/tool-display-formatter.js'
 
 describe('tool-display-formatter', () => {
   describe('formatToolCall()', () => {

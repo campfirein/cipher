@@ -1,11 +1,11 @@
 import {expect} from 'chai'
 
-import {Memory} from '../../../../src/core/domain/entities/memory.js'
-import {RetrieveResult} from '../../../../src/core/domain/entities/retrieve-result.js'
+import {Memory} from '../../../../src/server/core/domain/entities/memory.js'
+import {RetrieveResult} from '../../../../src/server/core/domain/entities/retrieve-result.js'
 import {
   transformMemoryToBullet,
   transformRetrieveResultToPlaybook,
-} from '../../../../src/infra/memory/memory-to-playbook-mapper.js'
+} from '../../../../src/server/infra/memory/memory-to-playbook-mapper.js'
 
 describe('Memory to Playbook Mapper', () => {
   const validMemory = new Memory({

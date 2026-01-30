@@ -1,6 +1,6 @@
 import {expect} from 'chai'
 
-import {CogitPushResponse} from '../../../../../src/core/domain/entities/cogit-push-response.js'
+import {CogitPushResponse} from '../../../../../src/server/core/domain/entities/cogit-push-response.js'
 
 describe('CogitPushResponse Entity', () => {
   const validSuccessResponse = {

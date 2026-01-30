@@ -2,8 +2,8 @@
 import {expect} from 'chai'
 import nock from 'nock'
 
-import {Team} from '../../../../src/core/domain/entities/team.js'
-import {HttpTeamService} from '../../../../src/infra/team/http-team-service.js'
+import {Team} from '../../../../src/server/core/domain/entities/team.js'
+import {HttpTeamService} from '../../../../src/server/infra/team/http-team-service.js'
 
 describe('HttpTeamService', () => {
   const apiBaseUrl = 'https://api.example.com'

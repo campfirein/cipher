@@ -1,16 +1,16 @@
-import React, {createContext, useCallback, useContext, useEffect, useMemo, useState} from 'react'
-
 import type {
-  LlmChunkEvent,
-  LlmResponseEvent,
-  LlmToolCallEvent,
-  LlmToolResultEvent,
-  TaskCompletedEvent,
+  LlmChunk,
+  LlmResponse,
+  LlmToolCall,
+  LlmToolResult,
+  TaskCompleted,
   TaskCreated,
   TaskErrorData,
-  TaskStartedEvent,
+  TaskStarted,
   ToolErrorType,
-} from '../../core/domain/transport/schemas.js'
+} from '@campfirein/brv-transport-client'
+
+import React, {createContext, useCallback, useContext, useEffect, useMemo, useState} from 'react'
 
 import {TaskStats} from '../types/ui.js'
 import {useTransport} from './transport-context.js'
@@ -143,7 +143,7 @@ export function TasksProvider({children}: {children: React.ReactNode}): React.Re
     }
 
     // Handle task:started - Update status and timestamp
-    const handleTaskStarted = (data: TaskStartedEvent) => {
+    const handleTaskStarted = (data: TaskStarted) => {
       setTasks((prev) => {
         const task = prev.get(data.taskId)
         if (!task) return prev
@@ -161,7 +161,7 @@ export function TasksProvider({children}: {children: React.ReactNode}): React.Re
     // Handle task:completed - Set result and completion time
     // If task doesn't exist (e.g., missed task:created event from MCP), create a minimal entry
     // Also marks any remaining 'running' tool calls as 'completed' since task is done
-    const handleTaskCompleted = (data: TaskCompletedEvent) => {
+    const handleTaskCompleted = (data: TaskCompleted) => {
       setTasks((prev) => {
         const task = prev.get(data.taskId)
         const now = Date.now()
@@ -294,9 +294,14 @@ export function TasksProvider({children}: {children: React.ReactNode}): React.Re
     // Handle llmservice:toolCall - Add new tool call or update existing one
     // Tool calls may be emitted multiple times (once from stream with empty args, once from execution with actual args)
     // We use callId to deduplicate and merge the data
-    const handleToolCall = (data: LlmToolCallEvent) => {
+    // Handle llmservice:toolCall - Add new tool call with 'running' status
+    const handleToolCall = (data: LlmToolCall) => {
+      // Guard: taskId is optional in package types but required for transport events
+      const {taskId} = data
+      if (!taskId) return
+
       setTasks((prev) => {
-        const task = prev.get(data.taskId)
+        const task = prev.get(taskId)
         if (!task) return prev
 
         const newTasks = new Map(prev)
@@ -314,14 +319,14 @@ export function TasksProvider({children}: {children: React.ReactNode}): React.Re
             args: hasNewArgs ? data.args : existingToolCall.args,
             sessionId: data.sessionId,
           }
-          newTasks.set(data.taskId, {
+          newTasks.set(taskId, {
             ...task,
             sessionId: data.sessionId,
             toolCalls: updatedToolCalls,
           })
         } else {
           // Add new tool call
-          newTasks.set(data.taskId, {
+          newTasks.set(taskId, {
             ...task,
             sessionId: data.sessionId,
             toolCalls: [
@@ -343,9 +348,13 @@ export function TasksProvider({children}: {children: React.ReactNode}): React.Re
     }
 
     // Handle llmservice:toolResult - Update tool call status
-    const handleToolResult = (data: LlmToolResultEvent) => {
+    const handleToolResult = (data: LlmToolResult) => {
+      // Guard: taskId is optional in package types but required for transport events
+      const {taskId} = data
+      if (!taskId) return
+
       setTasks((prev) => {
-        const task = prev.get(data.taskId)
+        const task = prev.get(taskId)
         if (!task) return prev
 
         // Find the tool call to update using multiple strategies:
@@ -380,7 +389,7 @@ export function TasksProvider({children}: {children: React.ReactNode}): React.Re
         }
 
         const newTasks = new Map(prev)
-        newTasks.set(data.taskId, {
+        newTasks.set(taskId, {
           ...task,
           toolCalls: updatedToolCalls,
         })
@@ -421,9 +430,11 @@ export function TasksProvider({children}: {children: React.ReactNode}): React.Re
     // Handle llmservice:chunk - Accumulate streaming content for real-time display
     // Separates reasoning/thinking content from regular text content
     // For reasoning chunks, updates the last item with isThinking: true (paired with thinking event)
-    const handleChunk = (data: LlmChunkEvent) => {
+    const handleChunk = (data: LlmChunk) => {
+      const {taskId} = data
+      if (!taskId) return
       setTasks((prev) => {
-        const task = prev.get(data.taskId)
+        const task = prev.get(taskId)
         if (!task) return prev
 
         const newTasks = new Map(prev)
@@ -442,7 +453,7 @@ export function TasksProvider({children}: {children: React.ReactNode}): React.Re
               content: lastItem.content + data.content,
               isThinking: false,
             }
-            newTasks.set(data.taskId, {
+            newTasks.set(taskId, {
               ...task,
               isStreaming: !data.isComplete,
               reasoningContents: updatedContent,
@@ -450,7 +461,7 @@ export function TasksProvider({children}: {children: React.ReactNode}): React.Re
             })
           }
         } else {
-          newTasks.set(data.taskId, {
+          newTasks.set(taskId, {
             ...task,
             isStreaming: !data.isComplete,
             sessionId: data.sessionId,
@@ -464,13 +475,17 @@ export function TasksProvider({children}: {children: React.ReactNode}): React.Re
 
     // Handle llmservice:response - Update task content from LLM response
     // Also clears streaming state since response marks end of streaming
-    const handleResponse = (data: LlmResponseEvent) => {
+    const handleResponse = (data: LlmResponse) => {
+      // Guard: taskId is optional in package types but required for transport events
+      const {taskId} = data
+      if (!taskId) return
+
       setTasks((prev) => {
-        const task = prev.get(data.taskId)
+        const task = prev.get(taskId)
         if (!task) return prev
 
         const newTasks = new Map(prev)
-        newTasks.set(data.taskId, {
+        newTasks.set(taskId, {
           ...task,
           isStreaming: false,
           result: data.content,
@@ -484,15 +499,18 @@ export function TasksProvider({children}: {children: React.ReactNode}): React.Re
     // Subscribe to events
     unsubscribers.push(
       client.on<TaskCreated>('task:created', handleTaskCreated),
-      client.on<TaskStartedEvent>('task:started', handleTaskStarted),
-      client.on<TaskCompletedEvent>('task:completed', handleTaskCompleted),
+      client.on<TaskStarted>('task:started', handleTaskStarted),
+      client.on<TaskCompleted>('task:completed', handleTaskCompleted),
       client.on<{error: TaskErrorData; taskId: string}>('task:error', handleTaskError),
       client.on<{taskId: string}>('task:cancelled', handleTaskCancelled),
+      client.on<LlmToolCall>('llmservice:toolCall', handleToolCall),
+      client.on<LlmToolResult>('llmservice:toolResult', handleToolResult),
+      client.on<LlmResponse>('llmservice:response', handleResponse),
       client.on<{taskId: string}>('llmservice:thinking', handleThinking),
-      client.on<LlmChunkEvent>('llmservice:chunk', handleChunk),
-      client.on<LlmToolCallEvent>('llmservice:toolCall', handleToolCall),
-      client.on<LlmToolResultEvent>('llmservice:toolResult', handleToolResult),
-      client.on<LlmResponseEvent>('llmservice:response', handleResponse),
+      client.on<LlmChunk>('llmservice:chunk', handleChunk),
+      client.on<LlmToolCall>('llmservice:toolCall', handleToolCall),
+      client.on<LlmToolResult>('llmservice:toolResult', handleToolResult),
+      client.on<LlmResponse>('llmservice:response', handleResponse),
     )
 
     // Cleanup subscriptions

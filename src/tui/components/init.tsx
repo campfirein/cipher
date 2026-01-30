@@ -206,7 +206,7 @@ export const Init: React.FC<InitProps> = ({
 
         // Restart agent to pick up new project state
         if (client) {
-          await client.request('agent:restart', {reason: 'Project initialized'})
+          await client.requestWithAck('agent:restart', {reason: 'Project initialized'})
         }
 
         // Call completion callback if provided

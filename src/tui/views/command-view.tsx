@@ -349,7 +349,7 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
           // Handle /new command - create new session and clear messages
           if (needNewSession && client) {
             try {
-              const response = await client.request<{ error?: string; sessionId?: string; success: boolean }>(
+              const response = await client.requestWithAck<{ error?: string; sessionId?: string; success: boolean }>(
                 'agent:newSession',
                 { reason: 'User requested new session' },
               )
@@ -386,7 +386,7 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
 
               const reason = Object.entries(reasonMap).find(([cmd]) => trimmed.startsWith(cmd))?.[1] ?? 'Command executed'
 
-              await client.request('agent:restart', { reason })
+              await client.requestWithAck('agent:restart', { reason })
             }
           }
         }

@@ -5,8 +5,8 @@ import {
   TransportPortInUseError,
   TransportServerAlreadyRunningError,
   TransportServerNotStartedError,
-} from '../../../../src/core/domain/errors/transport-error.js'
-import {SocketIOTransportServer} from '../../../../src/infra/transport/socket-io-transport-server.js'
+} from '../../../../src/server/core/domain/errors/transport-error.js'
+import {SocketIOTransportServer} from '../../../../src/server/infra/transport/socket-io-transport-server.js'
 
 describe('SocketIOTransportServer', () => {
   let server: SocketIOTransportServer
