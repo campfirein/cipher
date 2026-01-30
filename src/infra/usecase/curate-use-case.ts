@@ -78,33 +78,29 @@ export class CurateUseCase implements ICurateUseCase {
   }: CurateUseCaseRunOptions): Promise<void> {
     await this.trackingService.track('mem:curate', {status: 'started'})
 
-    if (!context) {
+    const hasContext = Boolean(context?.trim())
+    const hasFiles = Boolean(files?.length)
+
+    if (!hasContext && !hasFiles) {
       if (format === 'json') {
-        this.outputJsonResult({message: 'Context argument is required', status: 'error'})
+        this.outputJsonResult({message: 'Either a context argument or file reference is required.', status: 'error'})
       } else {
-        this.terminal.log('Context argument is required.')
-        this.terminal.log('Usage: brv curate "your context here"')
+        this.terminal.log('Either a context argument or file reference is required.')
+        this.terminal.log('Usage:')
+        this.terminal.log('  brv curate "your context here"')
+        this.terminal.log('  brv curate @src/file.ts')
+        this.terminal.log('  brv curate "context with files" @src/file.ts')
       }
 
       return
     }
 
+    const resolvedContent = context?.trim() ? context : ''
+
     let client: ITransportClient | undefined
 
     try {
-      if (headless) {
-        const inlineAgent = await InlineAgent.create()
-        client = inlineAgent.transportClient
-      } else {
-        const transportClientFactory = this.transportClientFactoryCreator()
-
-        if (verbose) {
-          this.terminal.log('Discovering running instance...')
-        }
-
-        const {client: connectedClient} = await transportClientFactory.connect()
-        client = connectedClient
-      }
+      client = await this.createClient({headless, verbose})
 
       if (verbose) {
         this.terminal.log(`Connected to instance (clientId: ${client.getClientId()})`)
@@ -115,7 +111,7 @@ export class CurateUseCase implements ICurateUseCase {
 
       await client.request<TaskCreateResponse>('task:create', {
         clientCwd: process.cwd(),
-        content: context,
+        content: resolvedContent,
         ...(files?.length ? {files} : {}),
         taskId,
         type: 'curate',
@@ -144,6 +140,22 @@ export class CurateUseCase implements ICurateUseCase {
         await client.disconnect()
       }
     }
+  }
+
+  private async createClient(options: {headless: boolean; verbose: boolean}): Promise<ITransportClient> {
+    if (options.headless) {
+      const inlineAgent = await InlineAgent.create()
+      return inlineAgent.transportClient
+    }
+
+    const transportClientFactory = this.transportClientFactoryCreator()
+
+    if (options.verbose) {
+      this.terminal.log('Discovering running instance...')
+    }
+
+    const {client: connectedClient} = await transportClientFactory.connect()
+    return connectedClient
   }
 
   private handleConnectionError(error: unknown): void {

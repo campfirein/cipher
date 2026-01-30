@@ -6,13 +6,19 @@ import { z } from 'zod'
 import type { ITransportClient } from '../../../core/interfaces/transport/index.js'
 
 export const BrvCurateInputSchema = z.object({
-  context: z.string().describe('Knowledge to store: patterns, decisions, errors, or insights about the codebase'),
+  context: z
+    .string()
+    .optional()
+    .describe('Knowledge to store: patterns, decisions, errors, or insights about the codebase. Required unless files are provided.'),
   files: z
     .array(z.string())
     .max(5)
     .optional()
-    .describe('Optional file paths with critical context to include (max 5 files)'),
-})
+    .describe('Optional file paths with critical context to include (max 5 files). Required if context not provided.'),
+}).refine(
+  (data) => Boolean(data.context?.trim()) || Boolean(data.files?.length),
+  { message: 'Either context or files must be provided'}
+)
 
 /**
  * Registers the brv-curate tool with the MCP server.
@@ -35,7 +41,7 @@ export function registerBrvCurateTool(
       inputSchema: BrvCurateInputSchema,
       title: 'ByteRover Curate',
     },
-    async ({ context, files }: { context: string; files?: string[] }) => {
+    async ({ context, files }: { context?: string; files?: string[] }) => {
       const client = getClient()
       if (!client) {
         return {
@@ -57,9 +63,11 @@ export function registerBrvCurateTool(
         const taskId = randomUUID()
 
         // Create task via transport (same pattern as brv curate command)
+        // Use provided context, or empty string for file-only mode
+        const resolvedContent = context?.trim() ? context : ''
         await client.request('task:create', {
           clientCwd: getWorkingDirectory(),
-          content: context,
+          content: resolvedContent,
           taskId,
           type: 'curate',
           ...(files?.length ? { files } : {}),

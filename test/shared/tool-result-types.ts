@@ -4,13 +4,39 @@
  */
 
 // File System Tool Results
+
+/**
+ * Attachment data for binary files (images, PDFs in base64 mode).
+ */
+export type ReadFileAttachment = {
+  data: string
+  filename: string
+  mimeType: string
+  type: 'file' | 'image'
+}
+
+/**
+ * PDF metadata extracted from PDF files.
+ */
+export type PdfMetadata = {
+  author?: string
+  creationDate?: Date
+  pageCount: number
+  title?: string
+}
+
 export type ReadFileResult = {
+  attachments?: ReadFileAttachment[]
   content: string
+  error?: string
   lines: number
   message: string
+  pdfMetadata?: PdfMetadata
   size: number
+  success: boolean
   totalLines: number
   truncated: boolean
+  truncatedLineCount?: number
 }
 
 export type WriteFileResult = {

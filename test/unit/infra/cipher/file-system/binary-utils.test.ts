@@ -6,6 +6,7 @@ import {
   isImageFile,
   isMediaFile,
   isPdfFile,
+  shouldReturnAsAttachment,
 } from '../../../../../src/infra/cipher/file-system/binary-utils.js'
 
 describe('binary-utils', () => {
@@ -203,24 +204,13 @@ describe('binary-utils', () => {
   })
 
   describe('isMediaFile', () => {
-    const validPdfBuffer = Buffer.from([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x34])
-    const invalidPdfBuffer = Buffer.from([0x50, 0x4b, 0x03, 0x04])
-
     it('should return true for image files', () => {
       expect(isMediaFile('photo.png')).to.be.true
       expect(isMediaFile('image.jpg')).to.be.true
     })
 
-    it('should return true for PDF files (extension-only)', () => {
-      expect(isMediaFile('document.pdf')).to.be.true
-    })
-
-    it('should return true for PDF with valid magic bytes', () => {
-      expect(isMediaFile('document.pdf', validPdfBuffer)).to.be.true
-    })
-
-    it('should return false for fake PDF', () => {
-      expect(isMediaFile('fake.pdf', invalidPdfBuffer)).to.be.false
+    it('should return false for PDF files (PDFs handled separately)', () => {
+      expect(isMediaFile('document.pdf')).to.be.false
     })
 
     it('should return false for text files', () => {
@@ -236,6 +226,41 @@ describe('binary-utils', () => {
     it('should return false for binary non-media files', () => {
       expect(isMediaFile('archive.zip')).to.be.false
       expect(isMediaFile('program.exe')).to.be.false
+    })
+  })
+
+  describe('shouldReturnAsAttachment', () => {
+    it('should return true for image files regardless of pdfMode', () => {
+      expect(shouldReturnAsAttachment('photo.png')).to.be.true
+      expect(shouldReturnAsAttachment('image.jpg')).to.be.true
+      expect(shouldReturnAsAttachment('photo.png', 'text')).to.be.true
+      expect(shouldReturnAsAttachment('photo.png', 'base64')).to.be.true
+    })
+
+    it('should return true for PDF files when pdfMode is base64', () => {
+      expect(shouldReturnAsAttachment('document.pdf', 'base64')).to.be.true
+    })
+
+    it('should return false for PDF files when pdfMode is text', () => {
+      expect(shouldReturnAsAttachment('document.pdf', 'text')).to.be.false
+    })
+
+    it('should return false for PDF files when pdfMode is not specified (defaults to text)', () => {
+      expect(shouldReturnAsAttachment('document.pdf')).to.be.false
+    })
+
+    it('should return false for text files', () => {
+      expect(shouldReturnAsAttachment('file.txt')).to.be.false
+      expect(shouldReturnAsAttachment('script.js')).to.be.false
+    })
+
+    it('should return false for binary non-media files', () => {
+      expect(shouldReturnAsAttachment('archive.zip')).to.be.false
+      expect(shouldReturnAsAttachment('program.exe')).to.be.false
+    })
+
+    it('should return false for SVG files', () => {
+      expect(shouldReturnAsAttachment('icon.svg')).to.be.false
     })
   })
 })
