@@ -332,3 +332,21 @@ export class TooManyResultsError extends FileSystemError {
     this.name = 'TooManyResultsError'
   }
 }
+
+/**
+ * Error thrown when PDF text extraction fails.
+ */
+export class PdfExtractionError extends FileSystemError {
+  /**
+   * Creates a new PDF extraction error
+   * @param path - Path to the PDF file
+   * @param reason - Reason for the extraction failure
+   */
+  public constructor(path: string, reason: string) {
+    super(`Failed to extract text from PDF: ${path}. ${reason}`, 'PDF_EXTRACTION_FAILED', {
+      path,
+      reason,
+    })
+    this.name = 'PdfExtractionError'
+  }
+}

@@ -44,7 +44,7 @@ command: "cd /project/src && npm test"
 
 ## Timeout Guidelines
 
-- Default timeout: 2 minutes (120,000ms)
+- Default timeout: 5 minutes (300,000ms)
 - Maximum timeout: 10 minutes (600,000ms)
 - Use appropriate timeouts for long-running commands like builds or tests
 - For very long operations, consider using `runInBackground: true`

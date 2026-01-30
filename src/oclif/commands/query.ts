@@ -4,9 +4,17 @@ import {isDevelopment} from '../../config/environment.js'
 import {IQueryUseCase} from '../../core/interfaces/usecase/i-query-use-case.js'
 import {FileGlobalConfigStore} from '../../infra/storage/file-global-config-store.js'
 import {createTokenStore} from '../../infra/storage/token-store.js'
+import {HeadlessTerminal} from '../../infra/terminal/headless-terminal.js'
 import {OclifTerminal} from '../../infra/terminal/oclif-terminal.js'
 import {MixpanelTrackingService} from '../../infra/tracking/mixpanel-tracking-service.js'
 import {QueryUseCase} from '../../infra/usecase/query-use-case.js'
+
+/** Parsed flags type */
+type QueryFlags = {
+  format?: 'json' | 'text'
+  headless?: boolean
+  verbose?: boolean
+}
 
 export default class Query extends Command {
   public static args = {
@@ -29,8 +37,20 @@ Bad:
     '# Ask questions about patterns, decisions, or implementation details',
     '<%= config.bin %> <%= command.id %> What are the coding standards?',
     '<%= config.bin %> <%= command.id %> How is authentication implemented?',
+    '',
+    '# Headless mode with JSON output (for automation)',
+    '<%= config.bin %> <%= command.id %> "How does auth work?" --headless --format json',
   ]
   public static flags = {
+    format: Flags.string({
+      default: 'text',
+      description: 'Output format (text or json)',
+      options: ['text', 'json'],
+    }),
+    headless: Flags.boolean({
+      default: false,
+      description: 'Run in headless mode (no TTY required, suitable for automation)',
+    }),
     ...(isDevelopment()
       ? {
           verbose: Flags.boolean({
@@ -43,19 +63,34 @@ Bad:
   }
   public static strict = false
 
-  protected createUseCase(): IQueryUseCase {
+  protected createUseCase(options: {format: 'json' | 'text'; headless: boolean}): IQueryUseCase {
     const tokenStore = createTokenStore()
     const globalConfigStore = new FileGlobalConfigStore()
     const trackingService = new MixpanelTrackingService({globalConfigStore, tokenStore})
 
+    // Use HeadlessTerminal for headless mode or JSON format
+    const terminal =
+      options.headless || options.format === 'json'
+        ? new HeadlessTerminal({failOnPrompt: true, outputFormat: options.format})
+        : new OclifTerminal(this)
+
     return new QueryUseCase({
-      terminal: new OclifTerminal(this),
+      terminal,
       trackingService,
     })
   }
 
   public async run(): Promise<void> {
-    const {args, flags} = await this.parse(Query)
-    await this.createUseCase().run({query: args.query, verbose: flags.verbose})
+    const {args, flags: rawFlags} = await this.parse(Query)
+    const flags = rawFlags as QueryFlags
+    const format = (flags.format ?? 'text') as 'json' | 'text'
+    const headless = flags.headless ?? false
+
+    await this.createUseCase({format, headless}).run({
+      format,
+      headless,
+      query: args.query,
+      verbose: flags.verbose,
+    })
   }
 }

@@ -6,7 +6,6 @@ import {createTokenStore} from '../../../storage/token-store.js'
 import {HttpTeamService} from '../../../team/http-team-service.js'
 import {ReplTerminal} from '../../../terminal/repl-terminal.js'
 import {SpaceSwitchUseCase} from '../../../usecase/space-switch-use-case.js'
-import {WorkspaceDetectorService} from '../../../workspace/workspace-detector-service.js'
 
 /**
  * Switch space command
@@ -24,7 +23,6 @@ export const switchCommand: SlashCommand = {
           teamService: new HttpTeamService({apiBaseUrl: envConfig.apiBaseUrl}),
           terminal,
           tokenStore: createTokenStore(),
-          workspaceDetector: new WorkspaceDetectorService(),
         })
 
         await useCase.run()

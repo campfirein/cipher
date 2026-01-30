@@ -2,6 +2,48 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [1.6.0]
+
+### Added
+
+- **Headless mode for automation** - New `--headless` flag enables non-interactive CLI execution for CI/CD pipelines and automation. Supported commands: `init`, `status`, `curate`, `query`, `push`, `pull`.
+- **JSON output format** - New `--format json` flag outputs structured newline-delimited JSON (NDJSON) for machine-readable results. Includes action lifecycle events, logs, warnings, errors, and structured results with timestamps.
+- **Enhanced `brv init` flags** - New `--team`, `--space`, and `--force` flags for non-interactive project initialization. Team and space can be specified by name or ID.
+- **File-based token storage for headless Linux** - Automatic fallback to file-based token storage when system keychain is unavailable (SSH sessions, containers, missing D-Bus). Enables seamless operation on headless Linux servers.
+
+## [1.5.0]
+
+### Added
+
+- **External LLM provider support** - Connect to external providers like OpenRouter to access 200+ models. New `/provider` (aliases: `/providers`, `/connect`) command to connect and switch providers, and `/model` (aliases: `/models`) command to browse and select models with pricing, context window, favorites, and recent usage tracking. API keys stored securely in system keychain.
+- **Reasoning/thinking display** - LLM reasoning and thinking content now appears in the execution progress view with an animated "Thinking..." indicator during streaming. Supports multiple model formats including Claude, OpenAI, Gemini, and DeepSeek.
+- **Improved execution progress** - Custom status indicators (checkmark, blinking dot, X) for completed, running, and failed tool calls. Running items are prioritized to stay visible, and long tool commands are cleanly truncated.
+
+### Changed
+
+- **Model cost display** - Accurate input/output pricing shown separately (e.g., "$3.00/$15.00/M") with model descriptions displayed inline for better scannability.
+
+### Fixed
+
+- **OpenRouter streaming reliability** - Fixed TUI getting stuck on results and duplicate thinking entries when using OpenRouter models. Tool execution now runs in parallel for faster completion.
+- **Directory listing path validation** - Fixed failures caused by double-resolved paths.
+- **Task queue notifications** - Queued tasks now receive proper error notifications when dropped during reinitialization, instead of timing out silently.
+- **Reasoning streaming states** - Fixed thinking indicator incorrectly reappearing when text response starts streaming.
+- **NPM security vulnerabilities** - Updated dependencies to address moderate severity vulnerability.
+
+## [1.4.0]
+
+### Added
+
+- **Antigravity agent support** - New coding agent integration using rules-based connector by default. Joins the 19 supported agents including Amp, Claude Code, Cursor, Windsurf, and others.
+- **Improved PDF text extraction** - Increased default PDF page limit from 50 to 100 pages (max 200) with more efficient page-by-page processing for better handling of large documents.
+- **Optional prompt for file references** - Made prompt optional when using `@file_path` references in `/curate` command and MCP `brv-curate` tool. The system infers context from referenced files when no explicit prompt is provided.
+
+### Changed
+
+- **Streamlined space switching** - Existing connector configuration is now preserved when switching spaces via `/space switch`, removing the redundant agent selection prompt.
+- **Removed Node.js version warning** - Startup no longer displays Node.js version warnings. The Node.js >= 20.0.0 requirement remains enforced in package.json.
+
 ## [1.3.0]
 
 ### Added

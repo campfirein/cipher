@@ -12,6 +12,7 @@ import type {ActivityLog} from '../../types.js'
 
 import {useTheme} from '../../hooks/index.js'
 import {formatTime} from '../../utils/index.js'
+import {StreamingText} from '../streaming-text.js'
 import {ExecutionChanges} from './execution-changes.js'
 import {ExecutionContent} from './execution-content.js'
 import {ExecutionInput} from './execution-input.js'
@@ -61,10 +62,20 @@ export const LogItem: React.FC<LogItemProps> = memo(({heights, isExpanded, isSel
           <ExecutionInput input={log.input} />
 
           {/* Progress */}
-          {(log.progress) && log.status === 'running' && (
+          {(log.toolCalls || log.reasoningContents) && log.status === 'running' && (
             <ExecutionProgress
-              isExpanded={isExpanded}
-              progress={log.progress}
+              reasoningContents={log.reasoningContents}
+              toolCalls={log.toolCalls}
+            />
+          )}
+
+          {/* Streaming Text Content - Show when available, even during tool execution */}
+          {log.streamingContent && log.status === 'running' && (
+            <StreamingText
+              content={log.streamingContent}
+              isStreaming={Boolean(log.isStreaming)}
+              maxLines={isExpanded ? 0 : heights.maxContentLines}
+              showCursor={Boolean(log.isStreaming)}
             />
           )}
 

@@ -53,13 +53,12 @@ export class HttpSpaceService implements ISpaceService {
   }
 
   public async getSpaces(
-    accessToken: string,
     sessionKey: string,
     teamId: string,
     option?: {fetchAll?: boolean; limit?: number; offset?: number},
   ): Promise<{spaces: Space[]; total: number}> {
     try {
-      const httpClient = new AuthenticatedHttpClient(accessToken, sessionKey)
+      const httpClient = new AuthenticatedHttpClient(sessionKey)
 
       // Scenario 1: Fetch all automatically via auto-pagination
       if (option?.fetchAll === true) {

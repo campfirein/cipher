@@ -34,7 +34,7 @@ export interface LlmResponsePayload {
 export async function waitForTaskResult(
   client: ITransportClient,
   taskId: string,
-  timeoutMs: number = 120_000,
+  timeoutMs: number = 300_000, // 5 minutes (increased from 2 minutes to accommodate sub-agent tasks)
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     let result = ''
@@ -87,6 +87,14 @@ export async function waitForTaskResult(
           completed = true
           cleanup()
           reject(new Error(payload.error.message))
+        }
+      }),
+      // Listen for task cancellation
+      client.on<{taskId: string}>('task:cancelled', (payload) => {
+        if (payload.taskId === taskId && !completed) {
+          completed = true
+          cleanup()
+          reject(new Error('Task was cancelled'))
         }
       }),
     )

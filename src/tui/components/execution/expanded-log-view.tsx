@@ -13,6 +13,7 @@ import type {ActivityLog} from '../../types.js'
 
 import {useTheme} from '../../hooks/index.js'
 import {formatTime} from '../../utils/index.js'
+import {StreamingText} from '../streaming-text.js'
 import {ExecutionChanges} from './execution-changes.js'
 import {ExecutionContent} from './execution-content.js'
 import {ExecutionProgress} from './execution-progress.js'
@@ -120,11 +121,26 @@ export const ExpandedLogView: React.FC<ExpandedLogViewProps> = ({
           </Box>
 
           {/* Progress */}
-          {log.progress && (
-            <ExecutionProgress
-              isExpanded
-              progress={log.progress}
-            />
+          {(log.toolCalls || log.reasoningContents) && (
+            <Box paddingX={1}>
+              <ExecutionProgress
+                isExpanded
+                reasoningContents={log.reasoningContents}
+                toolCalls={log.toolCalls}
+              />
+            </Box>
+          )}
+
+          {/* Streaming Text Content - Show when available */}
+          {log.streamingContent && log.status === 'running' && (
+            <Box paddingX={1}>
+              <StreamingText
+                content={log.streamingContent}
+                isStreaming={Boolean(log.isStreaming)}
+                maxLines={0}
+                showCursor={Boolean(log.isStreaming)}
+              />
+            </Box>
           )}
 
           {/* Content */}

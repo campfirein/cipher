@@ -67,11 +67,11 @@ export function OnboardingProvider({children}: OnboardingProviderProps): React.R
       const teamService = new HttpTeamService({apiBaseUrl: config.apiBaseUrl})
       const spaceService = new HttpSpaceService({apiBaseUrl: config.apiBaseUrl})
 
-      const {teams} = await teamService.getTeams(authToken.accessToken, authToken.sessionKey, {fetchAll: true})
+      const {teams} = await teamService.getTeams(authToken.sessionKey, {fetchAll: true})
       const defaultTeam = teams.find((team) => team.isDefault)
       if (!defaultTeam) return
 
-      const {spaces} = await spaceService.getSpaces(authToken.accessToken, authToken.sessionKey, defaultTeam.id, {fetchAll: true})
+      const {spaces} = await spaceService.getSpaces(authToken.sessionKey, defaultTeam.id, {fetchAll: true})
       const defaultSpace = spaces.find((space) => space.isDefault)
       if (!defaultSpace) return
 

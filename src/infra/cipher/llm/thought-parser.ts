@@ -86,7 +86,7 @@ export function supportsMultimodalFunctionResponse(model: string): boolean {
 /**
  * Default thinking mode token budget
  */
-export const DEFAULT_THINKING_BUDGET = 512
+export const DEFAULT_THINKING_BUDGET = 8192
 
 /**
  * Synthetic thought signature used for Preview models
@@ -227,22 +227,22 @@ export const ThinkingConfigManager = {
     // Gemini 3.x models
     if (lowerModel.startsWith('gemini-3') || lowerModel.includes('gemini-3')) {
       return {
-        includeThoughts: false,
-        thinkingLevel: ThinkingLevel.HIGH,
+        includeThoughts: true,
+        thinkingLevel: ThinkingLevel.LOW,
       }
     }
 
     // Gemini 2.x models
     if (lowerModel.startsWith('gemini-2') || lowerModel.includes('gemini-2')) {
       return {
-        includeThoughts: false,
+        includeThoughts: true,
         thinkingBudget: DEFAULT_THINKING_BUDGET,
       }
     }
 
     // Other Gemini models - use budget as default
     return {
-      includeThoughts: false,
+      includeThoughts: true,
       thinkingBudget: DEFAULT_THINKING_BUDGET,
     }
   },

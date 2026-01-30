@@ -245,7 +245,6 @@ describe('PullUseCase', () => {
       await useCase.run({branch: 'main'})
 
       const pullCall = cogitPullService.pull.getCall(0)
-      expect(pullCall.args[0].accessToken).to.equal('access-token')
       expect(pullCall.args[0].sessionKey).to.equal('session-key')
       expect(pullCall.args[0].branch).to.equal('main')
       expect(pullCall.args[0].teamId).to.equal('team-456')

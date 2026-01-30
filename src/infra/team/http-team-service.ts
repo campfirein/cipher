@@ -45,12 +45,11 @@ export class HttpTeamService implements ITeamService {
   }
 
   public async getTeams(
-    accessToken: string,
     sessionKey: string,
     option?: {fetchAll?: boolean; isActive?: boolean; limit?: number; offset?: number},
   ): Promise<{teams: Team[]; total: number}> {
     try {
-      const httpClient = new AuthenticatedHttpClient(accessToken, sessionKey)
+      const httpClient = new AuthenticatedHttpClient(sessionKey)
 
       // Scenario 1: Fetch all automatically via auto-pagination
       if (option?.fetchAll === true) {

@@ -22,7 +22,6 @@ oclif v4 TypeScript CLI. Clean Architecture: Commands → Services (infra) → C
 | `brv space switch` | Updates config. **Does NOT** init context tree |
 | `brv push` | Snapshots context tree and pushes to cloud storage |
 | `brv gen-rules` | Generates agent-specific rule files. Prompts for agent selection. Templates in `src/templates/` |
-| `brv watch` | [Dev only] Watches directories for file changes. Triggers parsing pipeline for IDE logs |
 | `brv cipher-agent run` | [Dev only] Interactive/headless agent with session management. Supports `-c`/`-r` flags |
 
 ## CipherAgent

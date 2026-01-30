@@ -1,3 +1,3 @@
 export interface IStatusUseCase {
-  run(options: {cliVersion: string}): Promise<void>
+  run(options: {cliVersion: string; format?: 'json' | 'text'}): Promise<void>
 }
