@@ -3,7 +3,11 @@ import type {RequestOptions} from '@anthropic-ai/sdk/internal/request-options'
 import type {MessageCreateParamsNonStreaming} from '@anthropic-ai/sdk/resources/messages.js'
 import type {Content, GenerateContentConfig, GenerateContentResponse} from '@google/genai'
 
+import type {GenerateContentChunk} from '../../../core/interfaces/cipher/i-content-generator.js'
+
+import {StreamChunkType} from '../../../core/interfaces/cipher/i-content-generator.js'
 import {AuthenticatedHttpClient} from '../../http/authenticated-http-client.js'
+import {ThoughtParser} from '../llm/thought-parser.js'
 
 /* eslint-disable camelcase */
 
@@ -37,12 +41,10 @@ type GenerateResponse = {
   data: GenerateContentResponse
 }
 
-
 /**
  * ByteRover HTTP LLM provider configuration.
  */
 export interface ByteRoverHttpConfig {
-  accessToken: string
   apiBaseUrl: string
   projectId?: string
   region?: string
@@ -85,7 +87,6 @@ export class ByteRoverLlmHttpService {
    */
   public constructor(config: ByteRoverHttpConfig) {
     this.config = {
-      accessToken: config.accessToken,
       apiBaseUrl: config.apiBaseUrl,
       projectId: config.projectId ?? 'byterover',
       region: config.region ?? 'us-east1',
@@ -137,6 +138,38 @@ export class ByteRoverLlmHttpService {
   }
 
   /**
+   * Call ByteRover REST LLM service to generate content with streaming.
+   *
+   * Currently falls back to non-streaming endpoint since /api/llm/generate/stream
+   * doesn't exist on the backend yet. Extracts thinking/reasoning from the complete
+   * response and yields them as separate chunks.
+   *
+   * When backend streaming is available, this will use SSE for true streaming.
+   *
+   * @param contents - For Gemini: Content[]. For Claude: MessageCreateParamsNonStreaming (complete body)
+   * @param config - For Gemini: GenerateContentConfig. For Claude: RequestOptions (optional HTTP options)
+   * @param model - Model to use (detects provider from model name)
+   * @param executionMetadata - Optional execution metadata (mode, executionContext)
+   * @yields GenerateContentChunk objects as they are generated
+   */
+  public async *generateContentStream(
+    contents: Content[] | MessageCreateParamsNonStreaming,
+    config: GenerateContentConfig | RequestOptions,
+    model: string,
+    executionMetadata?: Record<string, unknown>,
+  ): AsyncGenerator<GenerateContentChunk> {
+    // Fall back to non-streaming endpoint and simulate streaming
+    // by extracting thinking from the complete response
+    const response = await this.generateContent(contents, config, model, executionMetadata)
+
+    // Extract and yield thinking/reasoning chunks first
+    yield* this.extractThinkingFromResponse(response)
+
+    // Then yield the final content
+    yield* this.extractContentFromResponse(response)
+  }
+
+  /**
    * Call the ByteRover REST Generate endpoint.
    *
    * Handles authentication headers and error handling.
@@ -147,13 +180,13 @@ export class ByteRoverLlmHttpService {
    */
   private async callHttpGenerate(request: GenerateRequest): Promise<GenerateContentResponse> {
     const url = `${this.config.apiBaseUrl}/api/llm/generate`
-    const httpClient = new AuthenticatedHttpClient(this.config.accessToken, this.config.sessionKey)
+    const httpClient = new AuthenticatedHttpClient(this.config.sessionKey)
 
-    const response = await httpClient.post<GenerateResponse>(url, request, {
+    const httpResponse = await httpClient.post<GenerateResponse>(url, request, {
       timeout: this.config.timeout,
     })
 
-    return response.data
+    return httpResponse.data
   }
 
   /**
@@ -180,5 +213,146 @@ export class ByteRoverLlmHttpService {
    */
   private detectRegionFromModel(model: string): string {
     return model.toLowerCase().startsWith('claude') ? 'us-east5' : 'global'
+  }
+
+  /**
+   * Extract content chunks from a complete response.
+   *
+   * Looks for text parts (excluding thinking) and function calls,
+   * yields them as final chunks.
+   *
+   * @param response - Complete GenerateContentResponse
+   * @yields GenerateContentChunk for content and tool calls
+   */
+  private *extractContentFromResponse(response: GenerateContentResponse): Generator<GenerateContentChunk> {
+    const {candidates} = response
+    if (!candidates || candidates.length === 0) {
+      yield {
+        content: '',
+        finishReason: 'stop',
+        isComplete: true,
+      }
+      return
+    }
+
+    const candidate = candidates[0]
+    const parts = candidate?.content?.parts
+    const finishReason = this.mapFinishReason((candidate as {finishReason?: string})?.finishReason ?? 'STOP')
+
+    if (!parts || parts.length === 0) {
+      yield {
+        content: '',
+        finishReason,
+        isComplete: true,
+      }
+      return
+    }
+
+    // Collect text content (excluding thinking parts)
+    const textParts: string[] = []
+    const functionCalls: Array<{args?: Record<string, unknown>; name?: string}> = []
+
+    for (const part of parts) {
+      const partRecord = part as Record<string, unknown>
+
+      // Skip thinking parts
+      if (partRecord.thought === true) continue
+
+      // Collect text
+      if (partRecord.text && typeof partRecord.text === 'string') {
+        textParts.push(partRecord.text)
+      }
+
+      // Collect function calls
+      if (partRecord.functionCall) {
+        functionCalls.push(partRecord.functionCall as {args?: Record<string, unknown>; name?: string})
+      }
+    }
+
+    // Yield final content chunk
+    yield {
+      content: textParts.join('').trimEnd(),
+      finishReason,
+      isComplete: true,
+      toolCalls: functionCalls.length > 0
+        ? functionCalls.map((fc, index) => ({
+          function: {
+            arguments: JSON.stringify(fc.args ?? {}),
+            name: fc.name ?? '',
+          },
+          id: `call_${Date.now()}_${index}`,
+          type: 'function' as const,
+        }))
+        : undefined,
+    }
+  }
+
+  /**
+   * Extract thinking/reasoning chunks from a complete response.
+   *
+   * Looks for parts with `thought: true` and yields them as THINKING chunks.
+   *
+   * @param response - Complete GenerateContentResponse
+   * @yields GenerateContentChunk for each thinking part
+   */
+  private *extractThinkingFromResponse(response: GenerateContentResponse): Generator<GenerateContentChunk> {
+    const {candidates} = response
+    if (!candidates || candidates.length === 0) return
+
+    const parts = candidates[0]?.content?.parts
+    if (!parts) return
+
+    let thinkingSubject: string | undefined
+
+    for (const part of parts) {
+      const partRecord = part as Record<string, unknown>
+
+      // Check for thinking part (thought: true)
+      if (partRecord.thought === true && partRecord.text && typeof partRecord.text === 'string') {
+        const delta = partRecord.text
+
+        // Extract subject from **Subject** markdown if not already found
+        if (!thinkingSubject && delta) {
+          const parsed = ThoughtParser.parse(delta)
+          if (parsed.subject) {
+            thinkingSubject = parsed.subject
+          }
+        }
+
+        yield {
+          isComplete: false,
+          providerMetadata: {
+            subject: thinkingSubject,
+          },
+          reasoning: delta.trimEnd(),
+          type: StreamChunkType.THINKING,
+        }
+      }
+    }
+  }
+
+  /**
+   * Map provider finish reason to standard format.
+   */
+  private mapFinishReason(reason: string): 'error' | 'max_tokens' | 'stop' | 'tool_calls' {
+    switch (reason.toUpperCase()) {
+      case 'FUNCTION_CALL':
+      case 'TOOL_CALLS': {
+        return 'tool_calls'
+      }
+
+      case 'LENGTH':
+      case 'MAX_TOKENS': {
+        return 'max_tokens'
+      }
+
+      case 'STOP': {
+        return 'stop'
+      }
+
+      default: {
+        return 'stop'
+      }
+    }
   }
 }

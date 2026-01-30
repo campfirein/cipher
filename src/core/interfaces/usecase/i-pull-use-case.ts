@@ -1,3 +1,8 @@
+export interface PullUseCaseRunOptions {
+  branch: string
+  format?: 'json' | 'text'
+}
+
 export interface IPullUseCase {
-  run: (options: {branch: string}) => Promise<void>
+  run: (options: PullUseCaseRunOptions) => Promise<void>
 }

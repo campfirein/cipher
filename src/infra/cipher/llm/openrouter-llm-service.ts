@@ -22,7 +22,10 @@ import {getErrorMessage} from '../../../utils/error-helpers.js'
 import {SessionEventBus} from '../events/event-emitter.js'
 import {ContextManager, type FileData, type ImageData} from './context/context-manager.js'
 import {OpenRouterMessageFormatter} from './formatters/openrouter-formatter.js'
+import {OpenRouterContentGenerator} from './generators/openrouter-content-generator.js'
+import {createIdGenerator, StreamProcessor} from './stream-processor.js'
 import {OpenRouterTokenizer} from './tokenizers/openrouter-tokenizer.js'
+import {transformGenerateContentChunksToStreamEvents} from './transformers/openrouter-stream-transformer.js'
 
 /**
  * Configuration for OpenRouter LLM service
@@ -91,11 +94,14 @@ export class OpenRouterLLMService implements ILLMService {
     timeout?: number
     verbose?: boolean
   }
+  private readonly contentGenerator: OpenRouterContentGenerator
   private readonly contextManager: ContextManager<ChatCompletionMessageParam>
   private readonly formatter: OpenRouterMessageFormatter
   private readonly logger: ILogger
   private readonly memoryManager?: MemoryManager
   private readonly sessionEventBus: SessionEventBus
+  private readonly sessionId: string
+  private readonly streamProcessor: StreamProcessor
   private readonly systemPromptManager: SystemPromptManager
   private readonly tokenizer: OpenRouterTokenizer
   private readonly toolManager: ToolManager
@@ -144,6 +150,9 @@ export class OpenRouterLLMService implements ILLMService {
       verbose: config.verbose,
     }
 
+    // Store sessionId for streaming context
+    this.sessionId = sessionId
+
     // Initialize OpenAI client with OpenRouter base URL
     this.client = new OpenAI({
       apiKey: this.config.apiKey,
@@ -158,6 +167,21 @@ export class OpenRouterLLMService implements ILLMService {
     // Initialize formatter and tokenizer
     this.formatter = new OpenRouterMessageFormatter()
     this.tokenizer = new OpenRouterTokenizer()
+
+    // Initialize content generator for streaming support
+    this.contentGenerator = new OpenRouterContentGenerator({
+      apiKey: this.config.apiKey,
+      baseUrl: this.config.baseUrl,
+      httpReferer: this.config.httpReferer,
+      maxTokens: this.config.maxTokens,
+      model: this.config.model,
+      siteName: this.config.siteName,
+      temperature: this.config.temperature,
+      timeout: this.config.timeout,
+    })
+
+    // Initialize stream processor for handling streaming events
+    this.streamProcessor = new StreamProcessor()
 
     // Initialize context manager with optional history storage
     this.contextManager = new ContextManager({
@@ -183,7 +207,7 @@ export class OpenRouterLLMService implements ILLMService {
    * @param options.signal - Optional abort signal for cancellation
    * @param options.imageData - Optional image data
    * @param options.fileData - Optional file data
-   * @param options.stream - Whether to stream response (not implemented yet)
+   * @param options.stream - Whether to stream response (emits llmservice:chunk events)
    * @param options.executionContext - Optional execution context (for JSON input mode, etc.)
    * @param options.taskId - Task ID for billing tracking
    * @returns Final assistant response
@@ -199,14 +223,21 @@ export class OpenRouterLLMService implements ILLMService {
       taskId?: string
     },
   ): Promise<string> {
-    // Extract options with defaults
-    const {executionContext, fileData, imageData, signal} = options ?? {}
+    // Extract options with defaults - include taskId for concurrent task isolation
+    const {executionContext, fileData, imageData, signal, stream, taskId} = options ?? {}
 
     // Add user message to context
     await this.contextManager.addUserMessage(textInput, imageData, fileData)
 
     // Get filtered tools based on command type (e.g., only read-only tools for 'query')
     const toolSet = this.toolManager.getToolsForCommand(executionContext?.commandType)
+
+    // Route to streaming or non-streaming execution
+    if (stream) {
+      return this.completeTaskStreaming(toolSet, executionContext, signal, taskId)
+    }
+
+    // Non-streaming path: Build tools array for OpenAI format
     const tools = Object.entries(toolSet).map(([name, schema]) => ({
       function: {
         description: schema.description ?? '',
@@ -227,7 +258,7 @@ export class OpenRouterLLMService implements ILLMService {
 
       try {
         // eslint-disable-next-line no-await-in-loop -- Sequential iterations required for agentic loop
-        const result = await this.executeAgenticIteration(iterationCount, tools, executionContext)
+        const result = await this.executeAgenticIteration(iterationCount, tools, executionContext, taskId)
 
         if (result !== null) {
           return result
@@ -235,7 +266,7 @@ export class OpenRouterLLMService implements ILLMService {
 
         iterationCount++
       } catch (error) {
-        this.handleLLMError(error)
+        this.handleLLMError(error, taskId)
       }
     }
 
@@ -316,17 +347,86 @@ export class OpenRouterLLMService implements ILLMService {
   }
 
   /**
+   * Complete a task using streaming mode.
+   *
+   * Emits real-time llmservice:chunk events as tokens arrive.
+   * Follows the OpenCode pattern of delta-based streaming.
+   *
+   * @param toolSet - Available tools for the task
+   * @param executionContext - Optional execution context
+   * @param signal - Optional abort signal for cancellation
+   * @param taskId - Optional task ID for concurrent task isolation
+   * @returns Final accumulated response
+   */
+  private async completeTaskStreaming(
+    toolSet: ToolSet,
+    executionContext: ExecutionContext | undefined,
+    signal: AbortSignal | undefined,
+    taskId: string | undefined,
+  ): Promise<string> {
+    let iterationCount = 0
+    let finalResponse = ''
+
+    // Streaming agentic loop
+    while (iterationCount < this.config.maxIterations) {
+      // Check if aborted
+      if (signal?.aborted) {
+        throw new Error('Operation aborted')
+      }
+
+      try {
+        // eslint-disable-next-line no-await-in-loop -- Sequential iterations required for agentic loop
+        const result = await this.executeAgenticIterationStreaming(
+          iterationCount,
+          toolSet,
+          executionContext,
+          taskId,
+        )
+
+        // If no tool calls, we're done - emit final response
+        if (!result.hasToolCalls) {
+          finalResponse = result.response
+
+          // Emit response event
+          this.sessionEventBus.emit('llmservice:response', {
+            content: finalResponse,
+            model: this.config.model,
+            provider: 'openrouter',
+            taskId: taskId || undefined,
+          })
+
+          // Add assistant message to context
+          // eslint-disable-next-line no-await-in-loop -- Must complete before returning
+          await this.contextManager.addAssistantMessage(finalResponse)
+
+          return finalResponse
+        }
+
+        // Has tool calls - continue the loop
+        iterationCount++
+      } catch (error) {
+        this.handleLLMError(error, taskId)
+      }
+    }
+
+    // Max iterations exceeded
+    throw new LlmMaxIterationsError(this.config.maxIterations, 'openrouter', this.config.model)
+  }
+
+  /**
    * Execute a single iteration of the agentic loop.
    *
    * @param iterationCount - Current iteration number
    * @param tools - Available tools for this iteration
    * @param executionContext - Optional execution context
+   * @param taskId - Optional task ID for concurrent task isolation
    * @returns Final response string if complete, null if more iterations needed
    */
   private async executeAgenticIteration(
     iterationCount: number,
     tools: OpenAIToolDefinition[],
     executionContext: ExecutionContext | undefined,
+    taskId?: string,
   ): Promise<null | string> {
     // Build system prompt using SystemPromptManager (before compression for correct token accounting)
     // Use filtered tool names based on command type (e.g., only read-only tools for 'query')
@@ -371,62 +471,194 @@ export class OpenRouterLLMService implements ILLMService {
       })
     }
 
-    // Emit thinking event
-    this.sessionEventBus.emit('llmservice:thinking')
+    // Emit thinking event with taskId for concurrent task isolation
+    this.sessionEventBus.emit('llmservice:thinking', {taskId})
 
     // Call LLM and parse response
     const lastMessage = await this.callLLMAndParseResponse(tools, formattedMessages)
 
     // Check if there are tool calls
     if (!lastMessage.toolCalls || lastMessage.toolCalls.length === 0) {
-      return this.handleFinalResponse(lastMessage)
+      return this.handleFinalResponse(lastMessage, taskId)
     }
 
     // Has tool calls - handle them
-    await this.handleToolCalls(lastMessage)
+    await this.handleToolCalls(lastMessage, taskId)
 
     return null
+  }
+
+  /**
+   * Execute a single iteration of the agentic loop with streaming.
+   *
+   * This method uses the ContentGenerator's streaming API to provide
+   * real-time token-by-token output via the SessionEventBus.
+   *
+   * @param iterationCount - Current iteration number
+   * @param toolSet - Available tools for this iteration
+   * @param executionContext - Optional execution context
+   * @param taskId - Optional task ID for concurrent task isolation
+   * @returns Object with response text and whether tool calls were made
+   */
+  private async executeAgenticIterationStreaming(
+    iterationCount: number,
+    toolSet: ToolSet,
+    executionContext: ExecutionContext | undefined,
+    taskId?: string,
+  ): Promise<{hasToolCalls: boolean; response: string}> {
+    // Build system prompt using SystemPromptManager
+    const availableTools = this.toolManager.getToolNamesForCommand(executionContext?.commandType)
+    const markersSet = this.toolManager.getAvailableMarkers()
+
+    const availableMarkers: Record<string, string> = {}
+    for (const marker of markersSet) {
+      availableMarkers[marker] = marker
+    }
+
+    const systemPrompt = await this.systemPromptManager.build({
+      availableMarkers,
+      availableTools,
+      commandType: executionContext?.commandType,
+      conversationMetadata: executionContext?.conversationMetadata,
+      memoryManager: this.memoryManager,
+    })
+
+    // Get messages from context with compression
+    const {tokensUsed} = await this.contextManager.getFormattedMessagesWithCompression(systemPrompt)
+
+    if (this.config.verbose) {
+      this.logger.debug('Streaming iteration', {
+        iteration: `${iterationCount + 1}/${this.config.maxIterations}`,
+        maxInputTokens: this.config.maxInputTokens,
+        tokensUsed,
+      })
+    }
+
+    // Emit thinking event
+    this.sessionEventBus.emit('llmservice:thinking', {taskId})
+
+    // Get internal messages for content generator
+    const contents = this.contextManager.getMessages()
+
+    // Generate streaming response using ContentGenerator
+    const streamGenerator = this.contentGenerator.generateContentStream({
+      config: {
+        maxTokens: this.config.maxTokens,
+        temperature: this.config.temperature,
+      },
+      contents,
+      executionContext,
+      model: this.config.model,
+      systemPrompt,
+      taskId: taskId ?? `task-${Date.now()}`,
+      tools: toolSet,
+    })
+
+    // Transform chunks to StreamEvents and process
+    // Pass modelId for native reasoning extraction (OpenAI, Grok, Gemini)
+    const streamEvents = transformGenerateContentChunksToStreamEvents(streamGenerator, {
+      modelId: this.config.model,
+      stepIndex: iterationCount,
+    })
+
+    // Process stream and accumulate state
+    const generateId = createIdGenerator()
+    const processorState = await this.streamProcessor.process(streamEvents, {
+      eventBus: this.sessionEventBus,
+      generateId,
+      sessionId: this.sessionId,
+      taskId,
+    })
+
+    // Extract accumulated text and tool calls
+    const accumulatedText = processorState.textContent
+    const toolParts = [...processorState.toolParts.values()]
+    const hasToolCalls = toolParts.length > 0
+
+    // If there are tool calls, extract and execute them
+    if (hasToolCalls) {
+      // Convert tool parts to ToolCall format
+      const toolCalls: ToolCall[] = toolParts.map((part) => ({
+        function: {
+          arguments: JSON.stringify(part.state.status === 'pending' ? part.state.input : {}),
+          name: part.toolName,
+        },
+        id: part.callId,
+        type: 'function' as const,
+      }))
+
+      // Add assistant message with tool calls to context
+      await this.contextManager.addAssistantMessage(accumulatedText, toolCalls)
+
+      // Execute tool calls in parallel (matching internal service behavior)
+      // This prevents long-running tools (e.g., subagent Tasks) from blocking others
+      await Promise.allSettled(
+        toolCalls.map((toolCall) => this.executeToolCall(toolCall, taskId)),
+      )
+    }
+
+    return {
+      hasToolCalls,
+      response: accumulatedText,
+    }
   }
 
   /**
    * Execute a single tool call.
    *
    * @param toolCall - Tool call to execute
+   * @param taskId - Optional task ID for concurrent task isolation
    */
-  private async executeToolCall(toolCall: ToolCall): Promise<void> {
+  private async executeToolCall(toolCall: ToolCall, taskId?: string): Promise<void> {
     try {
       const toolName = toolCall.function.name
       const toolArgs = JSON.parse(toolCall.function.arguments)
 
-      // Emit tool call event
+      // Emit tool call event with taskId for concurrent task isolation
       this.sessionEventBus.emit('llmservice:toolCall', {
         args: toolArgs,
         callId: toolCall.id,
+        taskId: taskId || undefined,
         toolName,
       })
 
       // Execute tool via ToolManager (handles approval, routing, etc.)
-      const result = await this.toolManager.executeTool(toolName, toolArgs)
+      // Pass sessionId and taskId context for sub-agent event routing
+      const result = await this.toolManager.executeTool(toolName, toolArgs, this.sessionId, {
+        sessionId: this.sessionId,
+        taskId,
+      })
 
-      // Emit tool result event (success)
+      // Extract content from ToolExecutionResult - the LLM needs the content string,
+      // not the full result object (which would be JSON-stringified and confuse the model)
+      const resultContent = result.content
+      const isSuccess = result.success
+
+      // Emit tool result event with taskId
       this.sessionEventBus.emit('llmservice:toolResult', {
         callId: toolCall.id,
-        result,
-        success: true,
+        ...(isSuccess ? {result: resultContent} : {error: result.errorMessage ?? String(resultContent)}),
+        errorType: result.errorType,
+        success: isSuccess,
+        taskId: taskId || undefined,
         toolName,
       })
 
       // Add tool result to context
-      await this.contextManager.addToolResult(toolCall.id, toolName, result, {success: true})
+      await this.contextManager.addToolResult(toolCall.id, toolName, resultContent, {
+        errorType: result.errorType,
+        success: isSuccess,
+      })
     } catch (error) {
       // Add error result to context
       const errorMessage = error instanceof Error ? error.message : String(error)
 
-      // Emit tool result event (error)
+      // Emit tool result event (error) with taskId
       this.sessionEventBus.emit('llmservice:toolResult', {
         callId: toolCall.id,
         error: errorMessage,
         success: false,
+        taskId: taskId || undefined,
         toolName: toolCall.function.name,
       })
 
@@ -461,16 +693,18 @@ export class OpenRouterLLMService implements ILLMService {
    * Handle final response when there are no tool calls.
    *
    * @param lastMessage - Last message from LLM
+   * @param taskId - Optional task ID for concurrent task isolation
    * @returns Final response content
    */
-  private async handleFinalResponse(lastMessage: InternalMessage): Promise<string> {
+  private async handleFinalResponse(lastMessage: InternalMessage, taskId?: string): Promise<string> {
     const content = this.extractTextContent(lastMessage)
 
-    // Emit response event
+    // Emit response event with taskId for concurrent task isolation
     this.sessionEventBus.emit('llmservice:response', {
       content,
       model: this.config.model,
       provider: 'openrouter',
+      taskId: taskId || undefined,
     })
 
     // Add assistant message to context
@@ -483,12 +717,14 @@ export class OpenRouterLLMService implements ILLMService {
    * Handle LLM errors and re-throw or wrap appropriately.
    *
    * @param error - Error to handle
+   * @param taskId - Optional task ID for concurrent task isolation
    */
-  private handleLLMError(error: unknown): never {
-    // Emit error event
+  private handleLLMError(error: unknown, taskId?: string): never {
+    // Emit error event with taskId for concurrent task isolation
     const errorMessage = error instanceof Error ? error.message : String(error)
     this.sessionEventBus.emit('llmservice:error', {
       error: errorMessage,
+      taskId: taskId || undefined,
     })
 
     // Re-throw LLM errors as-is
@@ -512,8 +748,9 @@ export class OpenRouterLLMService implements ILLMService {
    * Handle tool calls from LLM response.
    *
    * @param lastMessage - Last message containing tool calls
+   * @param taskId - Optional task ID for concurrent task isolation
    */
-  private async handleToolCalls(lastMessage: InternalMessage): Promise<void> {
+  private async handleToolCalls(lastMessage: InternalMessage, taskId?: string): Promise<void> {
     if (!lastMessage.toolCalls || lastMessage.toolCalls.length === 0) {
       return
     }
@@ -522,10 +759,10 @@ export class OpenRouterLLMService implements ILLMService {
     const assistantContent = this.extractTextContent(lastMessage)
     await this.contextManager.addAssistantMessage(assistantContent, lastMessage.toolCalls)
 
-    // Execute tool calls via ToolManager
-    for (const toolCall of lastMessage.toolCalls) {
-      // eslint-disable-next-line no-await-in-loop -- Sequential tool execution required
-      await this.executeToolCall(toolCall)
-    }
+    // Execute tool calls in parallel (matching internal service behavior)
+    // This prevents long-running tools (e.g., subagent Tasks) from blocking others
+    await Promise.allSettled(
+      lastMessage.toolCalls.map((toolCall) => this.executeToolCall(toolCall, taskId)),
+    )
   }
 }

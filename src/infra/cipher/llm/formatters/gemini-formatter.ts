@@ -99,9 +99,16 @@ export class GeminiMessageFormatter implements IMessageFormatter<Content> {
 
     const textParts: string[] = []
     const functionCallsWithSignatures: Array<{ fc: FunctionCall; thoughtSignature?: string }> = []
+    let thoughtText: string | undefined
 
-    // Extract text and function calls from response parts
+    // Extract text, thoughts, and function calls from response parts
     for (const part of candidate.content.parts) {
+      // Check for thought parts first (Gemini 2.5+ with includeThoughts: true)
+      if ('thought' in part && (part as { thought?: boolean }).thought === true && 'text' in part && part.text) {
+        thoughtText = part.text
+        continue // Don't add thought to textParts
+      }
+
       if ('text' in part && part.text) {
         textParts.push(part.text)
       }
@@ -134,6 +141,7 @@ export class GeminiMessageFormatter implements IMessageFormatter<Content> {
       {
         content: textParts.join('') || null,
         role: 'assistant',
+        thought: thoughtText,
         toolCalls,
       },
     ]

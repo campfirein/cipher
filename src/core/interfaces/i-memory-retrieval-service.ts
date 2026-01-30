@@ -1,7 +1,6 @@
 import type {RetrieveResult} from '../domain/entities/retrieve-result.js'
 
 export type RetrieveParams = {
-  accessToken: string
   nodeKeys?: string[]
   query: string
   sessionKey: string

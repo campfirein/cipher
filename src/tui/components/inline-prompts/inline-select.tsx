@@ -60,19 +60,20 @@ export function InlineSelect<T>({
       <Box flexDirection="column">
         {visibleChoices.map((choice, index) => {
           const actualIndex = windowStart + index
+          const isSelected = actualIndex === selectedIndex
           return (
-            <Text color={actualIndex === selectedIndex ? colors.primary : colors.text} key={choice.name}>
-              {actualIndex === selectedIndex ? '❯ ' : '  '}
-              {choice.name}
-            </Text>
+            <Box key={choice.name}>
+              <Text color={isSelected ? colors.primary : colors.text}>
+                {isSelected ? '❯ ' : '  '}
+                {choice.name}
+              </Text>
+              {choice.description && (
+                <Text color={colors.dimText}> · {choice.description}</Text>
+              )}
+            </Box>
           )
         })}
       </Box>
-      {selectedChoice?.description && (
-        <Box marginTop={1}>
-          <Text color={colors.secondary}>{selectedChoice.description}</Text>
-        </Box>
-      )}
     </Box>
   )
 }

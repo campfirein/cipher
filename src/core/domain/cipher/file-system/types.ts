@@ -35,17 +35,55 @@ export interface FileSystemConfig {
 }
 
 /**
+ * PDF read mode for controlling how PDF files are returned.
+ * - 'text': Extract text content page by page (default)
+ * - 'base64': Return raw PDF as base64 attachment (for multimodal LLMs)
+ */
+export type PdfReadMode = 'base64' | 'text'
+
+/**
+ * Metadata extracted from a PDF file.
+ */
+export interface PdfMetadata {
+  /** Author of the PDF (if available) */
+  author?: string
+
+  /** Creation date of the PDF (if available) */
+  creationDate?: Date
+
+  /** Total number of pages in the PDF */
+  pageCount: number
+
+  /** Title of the PDF (if available) */
+  title?: string
+}
+
+/**
+ * Content extracted from a single PDF page.
+ */
+export interface PdfPageContent {
+  /** 1-based page number */
+  pageNumber: number
+
+  /** Extracted text content from the page */
+  text: string
+}
+
+/**
  * Options for reading files.
  */
 export interface ReadFileOptions {
   /** Character encoding */
   encoding?: BufferEncoding
 
-  /** Maximum number of lines to read */
+  /** Maximum number of lines to read (for text files) or pages (for PDFs in text mode) */
   limit?: number
 
-  /** Starting line number (1-based, like text editors) */
+  /** Starting line number (1-based) for text files, or starting page number for PDFs */
   offset?: number
+
+  /** PDF read mode: 'text' (default) extracts text, 'base64' returns raw attachment */
+  pdfMode?: PdfReadMode
 }
 
 /**
@@ -171,7 +209,7 @@ export interface FileAttachment {
  * Result of a file read operation.
  */
 export interface FileContent {
-  /** Attachment data for binary files (images, PDFs) */
+  /** Attachment data for binary files (images, PDFs in base64 mode) */
   attachment?: FileAttachment
 
   /** File content as string */
@@ -180,14 +218,20 @@ export interface FileContent {
   /** Character encoding used */
   encoding: string
 
-  /** Formatted content with line numbers (00001| content format) */
+  /** Formatted content with line numbers (00001| content format) or PDF page separators */
   formattedContent: string
 
-  /** Total number of lines in the returned content */
+  /** Total number of lines in the returned content (or pages for PDF text mode) */
   lines: number
 
   /** Human-readable message about file status (truncation info, etc.) */
   message: string
+
+  /** PDF metadata when reading PDF in text mode */
+  pdfMetadata?: PdfMetadata
+
+  /** PDF page contents when reading PDF in text mode */
+  pdfPages?: PdfPageContent[]
 
   /** Preview of content (first 20 lines) for UI display */
   preview?: string
@@ -195,7 +239,7 @@ export interface FileContent {
   /** File size in bytes */
   size: number
 
-  /** Total lines in the entire file */
+  /** Total lines in the entire file (or total pages for PDF text mode) */
   totalLines: number
 
   /** Whether content was truncated due to size/line limits */

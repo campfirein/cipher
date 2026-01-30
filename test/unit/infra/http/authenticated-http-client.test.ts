@@ -6,12 +6,11 @@ import {AuthenticatedHttpClient} from '../../../../src/infra/http/authenticated-
 
 describe('AuthenticatedHttpClient', () => {
   const baseUrl = 'https://api.example.com'
-  const accessToken = 'test-access-token'
   const sessionKey = 'test-session-key'
   let client: AuthenticatedHttpClient
 
   beforeEach(() => {
-    client = new AuthenticatedHttpClient(accessToken, sessionKey)
+    client = new AuthenticatedHttpClient(sessionKey)
   })
 
   afterEach(() => {
@@ -22,11 +21,7 @@ describe('AuthenticatedHttpClient', () => {
     it('should include Authorization and x-byterover-session-id headers', async () => {
       const mockData = {message: 'success'}
 
-      nock(baseUrl)
-        .get('/test')
-        .matchHeader('authorization', `Bearer ${accessToken}`)
-        .matchHeader('x-byterover-session-id', sessionKey)
-        .reply(200, mockData)
+      nock(baseUrl).get('/test').matchHeader('x-byterover-session-id', sessionKey).reply(200, mockData)
 
       const response = await client.get<{message: string}>(`${baseUrl}/test`)
 
@@ -38,7 +33,6 @@ describe('AuthenticatedHttpClient', () => {
 
       nock(baseUrl)
         .get('/test')
-        .matchHeader('authorization', `Bearer ${accessToken}`)
         .matchHeader('x-byterover-session-id', sessionKey)
         .matchHeader('x-custom-header', 'custom-value')
         .reply(200, mockData)
@@ -109,14 +103,10 @@ describe('AuthenticatedHttpClient', () => {
 
       nock(baseUrl)
         .post('/test', requestData)
-        .matchHeader('authorization', `Bearer ${accessToken}`)
         .matchHeader('x-byterover-session-id', sessionKey)
         .reply(201, mockResponse)
 
-      const response = await client.post<{id: string; name: string}, {name: string}>(
-        `${baseUrl}/test`,
-        requestData,
-      )
+      const response = await client.post<{id: string; name: string}, {name: string}>(`${baseUrl}/test`, requestData)
 
       expect(response).to.deep.equal(mockResponse)
     })
@@ -127,18 +117,13 @@ describe('AuthenticatedHttpClient', () => {
 
       nock(baseUrl)
         .post('/test', requestData)
-        .matchHeader('authorization', `Bearer ${accessToken}`)
         .matchHeader('x-byterover-session-id', sessionKey)
         .matchHeader('content-type', 'application/json')
         .reply(201, mockResponse)
 
-      const response = await client.post<{id: string; name: string}, {name: string}>(
-        `${baseUrl}/test`,
-        requestData,
-        {
-          headers: {'content-type': 'application/json'},
-        },
-      )
+      const response = await client.post<{id: string; name: string}, {name: string}>(`${baseUrl}/test`, requestData, {
+        headers: {'content-type': 'application/json'},
+      })
 
       expect(response).to.deep.equal(mockResponse)
     })

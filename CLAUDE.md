@@ -53,7 +53,7 @@ npm run lint                                     # ESLint
 - `brv` (no args) starts interactive REPL (`src/infra/repl/repl-startup.tsx`)
 - React/Ink-based TUI (`src/tui/`) with streaming, dialogs, prompts
 - Slash commands (`/command`) in `src/infra/repl/commands/` (order in `index.ts` = UI suggestion order)
-- Few oclif commands remain: `main` (default), `status`, `curate`, `query`, `watch` (dev-only), `hook-prompt-submit` (hidden), `mcp` (hidden, spawned by coding agents)
+- Oclif commands: 7 public (`init`, `login`, `status`, `curate`, `query`, `push`, `pull`) + 3 hidden (`main`, `hook-prompt-submit`, `mcp`). Note: `/logout` is REPL-only
 
 ### Architecture v1.0.0 (Multi-Process)
 
@@ -63,6 +63,15 @@ npm run lint                                     # ESLint
 - `src/infra/process/` - Worker threads, task queue, IPC handlers
 - `src/infra/transport/` - Socket.IO client/server, port utils
 - `src/infra/instance/` - Instance lock management (acquire/release)
+
+### Headless Execution (v1.6.0)
+
+Enables non-interactive CLI usage for automation/CI pipelines:
+
+- `--headless` flag on: `init`, `status`, `curate`, `query`, `push`, `pull`
+- `InlineAgentExecutor` (`src/infra/process/inline-agent-executor.ts`) - Ephemeral in-process agent, bypasses REPL/Transport; includes `InlineTransportClient` as drop-in `ITransportClient`
+- `HeadlessTerminal` (`src/infra/terminal/headless-terminal.ts`) - Non-interactive output (text/JSON formats)
+- `HeadlessPromptError` - Thrown when prompts cannot be answered headlessly
 
 ### Task Queue Architecture (v1.3.0)
 
@@ -108,6 +117,11 @@ npm run lint                                     # ESLint
 - `IContextFileReader` - Read context files with metadata extraction
 - `IProjectConfigStore` - `.brv/config.json` persistence
 
+**LLM Providers**:
+
+- `IProviderConfigStore` - Store/retrieve provider config (connect, disconnect, active model/provider, favorites, recents)
+- `IProviderKeychainStore` - Secure API key storage via system keychain
+
 **Storage/Config**:
 
 - `IGlobalConfigStore` - User-level config (`~/.config/brv/config.json`), device ID management
@@ -143,19 +157,21 @@ All have `toJson()`/`fromJson()`, immutable readonly properties
 - `AuthToken` - `accessToken`, `refreshToken`, `sessionKey`, `userId`, `userEmail`, `expiresAt`. `fromJson()` returns `undefined` for old tokens (forces re-login)
 - `OAuthTokenData` - OAuth response, no user info. Used before user fetch in login
 - `User`, `Team`, `Space` - `getDisplayName()` methods
-- `Agent` - 18 supported agents with connector configs and defaults (Amp, Augment Code, Claude Code, Cline, Codex, Cursor, Gemini CLI, Github Copilot, Junie, Kilo Code, Kiro, Qoder, Qwen Code, Roo Code, Trae.ai, Warp, Windsurf, Zed)
+- `Agent` - 19 supported agents with connector configs and defaults (Amp, Antigravity, Augment Code, Claude Code, Cline, Codex, Cursor, Gemini CLI, Github Copilot, Junie, Kilo Code, Kiro, Qoder, Qwen Code, Roo Code, Trae.ai, Warp, Windsurf, Zed)
   - `AGENT_CONNECTOR_CONFIG` maps each agent to default connector and supported types
-  - Claude Code default: `skill` (was `hook`)
-  - Cursor default: `skill` (new)
+  - Antigravity default: `rules` (rules-only)
+  - Claude Code default: `skill`
+  - Cursor default: `skill`
   - All others default: `mcp`
 - `ConnectorType` - 4 connector types: `'rules' | 'hook' | 'mcp' | 'skill'`
 - `BrvConfig` - `.brv/config.json` with version validation
 - `GlobalConfig` - User-level config with device ID
 - `Event` - Tracking event definitions
 - `CogitSnapshot`, `CogitPushContext` - CoGit sync entities
-- `Parser` - Centralized parser types (raw + clean layers)
 - `Playbook` - Knowledge repository with bullets and sections
 - `PresignedUrl` - Blob storage presigned URLs
+- `ProviderConfig` - Provider connection state, active model/provider, favorites/recents. Stored in `.brv/provider-config.json`
+- `ProviderDefinition` (provider-registry) - Provider registry with categories, model discovery, pricing. Supports ByteRover internal + OpenRouter (200+ models)
 
 ### Infrastructure (`src/infra/`)
 
@@ -164,16 +180,25 @@ All have `toJson()`/`fromJson()`, immutable readonly properties
 - `repl-startup.tsx` - Bootstrap REPL with providers
 - `commands/` - Slash command implementations (`/login`, `/push`, `/pull`, etc.)
 
+**Terminal** (`src/infra/terminal/`):
+
+- `HeadlessTerminal` - Non-interactive terminal for headless mode (text/JSON output)
+- `ReplTerminal`, `OclifTerminal` - Interactive terminal implementations
+
 **Cipher** (`src/infra/cipher/`) - LLM agent system:
 
-- `llm/` - Multi-provider support (ByteRover internal API, OpenRouter proxy), formatters (Claude/Gemini), tokenizers, context compression, streaming with thinking visualization
+- `llm/` - Multi-provider support (ByteRover internal API, OpenRouter proxy), formatters (Claude/Gemini), tokenizers, context compression, streaming with reasoning/thinking visualization, model capability detection
+- `llm/generators/` - Content generators per provider (ByteRover, OpenRouter) with logging and retry decorators
+- `llm/transformers/` - Stream transformers: `openrouter-stream-transformer.ts`, `reasoning-extractor.ts`
+- `llm/model-capabilities.ts` - Reasoning format detection per model (`native-field`, `think-tags`, `interleaved`, `none`)
 - `tools/implementations/` - 23 tool implementations:
-  - File: `read-file` (supports PDF text extraction), `write-file`, `edit-file`, `list-directory`, `glob-files`, `grep-content`
+  - File: `read-file` (supports PDF text extraction with pagination), `write-file`, `edit-file`, `list-directory`, `glob-files`, `grep-content`
   - Bash: `bash-exec`, `bash-output`, `kill-process`
   - Memory: `read-memory`, `write-memory`, `edit-memory`, `delete-memory`, `list-memories`
   - Knowledge: `create-knowledge-topic`, `search-knowledge`
   - Todos: `read-todos`, `write-todos`
   - Other: `curate`, `task`, `batch`, `search-history`, `spec-analyze`
+- `file-system/pdf-extractor.ts` - PDF text extraction (100 page default, 200 max)
 - `tools/policy-engine.ts` - Tool execution policy (ALLOW/DENY)
 - `session/` - Chat session management
 - `memory/` - Memory persistence
@@ -224,6 +249,15 @@ All have `toJson()`/`fromJson()`, immutable readonly properties
 - `WORKFLOWS.md` - Step-by-step workflows (most comprehensive)
 - Loaded by `SkillContentLoader` using import.meta.url pattern
 
+**Storage** (`src/infra/storage/`):
+
+- `FileProviderConfigStore` - Provider config persistence (`.brv/provider-config.json`)
+- `ProviderKeychainStore` - API key storage via system keychain
+
+**HTTP** (`src/infra/http/`):
+
+- `OpenRouterApiClient` - OpenRouter API integration (model discovery, API key validation)
+
 **Tracking**:
 
 - `MixpanelTrackingService` - Analytics implementation
@@ -249,7 +283,7 @@ All have `toJson()`/`fromJson()`, immutable readonly properties
 
 React/Ink terminal UI components:
 
-- `components/` - Execution, inline prompts, onboarding dialogs
+- `components/` - Execution, inline prompts, onboarding dialogs, provider/model dialogs, API key input, reasoning display
 - `hooks/` - Activity logs, consumer, slash completion, tab navigation
 - `contexts/` - React contexts for state management
 - `types/` - Command, dialog, message, prompt type definitions
@@ -268,6 +302,8 @@ Commands prefixed with `/` in the REPL (`src/infra/repl/commands/`):
   - View installed connectors and defaults per agent
   - Install/switch connector types
   - Default: skill for Claude Code/Cursor, mcp for others
+- `/provider` - Connect to external LLM providers (aliases: `/providers`, `/connect`)
+- `/model` - Select model from active provider (aliases: `/models`)
 - `/reset` - Reset context tree (destructive)
 - `/new [-y]` - Start fresh session (ends current, clears conversation history, NOT context tree)
 - `/query` - Query context tree

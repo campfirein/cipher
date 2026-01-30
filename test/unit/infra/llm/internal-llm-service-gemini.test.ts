@@ -17,7 +17,6 @@ import {createMockToolProvider} from '../../../helpers/mock-factories.js'
  */
 function createContentGenerator(model = 'gemini-2.5-flash') {
   const httpService = new ByteRoverLlmHttpService({
-    accessToken: 'test-token',
     apiBaseUrl: 'http://localhost:3000',
     sessionKey: 'test-session-key',
     spaceId: 'test-space-id',
