@@ -108,6 +108,11 @@ npm run lint                                     # ESLint
 - `IContextFileReader` - Read context files with metadata extraction
 - `IProjectConfigStore` - `.brv/config.json` persistence
 
+**LLM Providers**:
+
+- `IProviderConfigStore` - Store/retrieve provider config (connect, disconnect, active model/provider, favorites, recents)
+- `IProviderKeychainStore` - Secure API key storage via system keychain
+
 **Storage/Config**:
 
 - `IGlobalConfigStore` - User-level config (`~/.config/brv/config.json`), device ID management
@@ -156,6 +161,8 @@ All have `toJson()`/`fromJson()`, immutable readonly properties
 - `CogitSnapshot`, `CogitPushContext` - CoGit sync entities
 - `Playbook` - Knowledge repository with bullets and sections
 - `PresignedUrl` - Blob storage presigned URLs
+- `ProviderConfig` - Provider connection state, active model/provider, favorites/recents. Stored in `.brv/provider-config.json`
+- `ProviderDefinition` (provider-registry) - Provider registry with categories, model discovery, pricing. Supports ByteRover internal + OpenRouter (200+ models)
 
 ### Infrastructure (`src/infra/`)
 
@@ -166,7 +173,10 @@ All have `toJson()`/`fromJson()`, immutable readonly properties
 
 **Cipher** (`src/infra/cipher/`) - LLM agent system:
 
-- `llm/` - Multi-provider support (ByteRover internal API, OpenRouter proxy), formatters (Claude/Gemini), tokenizers, context compression, streaming with thinking visualization
+- `llm/` - Multi-provider support (ByteRover internal API, OpenRouter proxy), formatters (Claude/Gemini), tokenizers, context compression, streaming with reasoning/thinking visualization, model capability detection
+- `llm/generators/` - Content generators per provider (ByteRover, OpenRouter) with logging and retry decorators
+- `llm/transformers/` - Stream transformers: `openrouter-stream-transformer.ts`, `reasoning-extractor.ts`
+- `llm/model-capabilities.ts` - Reasoning format detection per model (`native-field`, `think-tags`, `interleaved`, `none`)
 - `tools/implementations/` - 23 tool implementations:
   - File: `read-file` (supports PDF text extraction with pagination), `write-file`, `edit-file`, `list-directory`, `glob-files`, `grep-content`
   - Bash: `bash-exec`, `bash-output`, `kill-process`
@@ -225,6 +235,15 @@ All have `toJson()`/`fromJson()`, immutable readonly properties
 - `WORKFLOWS.md` - Step-by-step workflows (most comprehensive)
 - Loaded by `SkillContentLoader` using import.meta.url pattern
 
+**Storage** (`src/infra/storage/`):
+
+- `FileProviderConfigStore` - Provider config persistence (`.brv/provider-config.json`)
+- `ProviderKeychainStore` - API key storage via system keychain
+
+**HTTP** (`src/infra/http/`):
+
+- `OpenRouterApiClient` - OpenRouter API integration (model discovery, API key validation)
+
 **Tracking**:
 
 - `MixpanelTrackingService` - Analytics implementation
@@ -250,7 +269,7 @@ All have `toJson()`/`fromJson()`, immutable readonly properties
 
 React/Ink terminal UI components:
 
-- `components/` - Execution, inline prompts, onboarding dialogs
+- `components/` - Execution, inline prompts, onboarding dialogs, provider/model dialogs, API key input, reasoning display
 - `hooks/` - Activity logs, consumer, slash completion, tab navigation
 - `contexts/` - React contexts for state management
 - `types/` - Command, dialog, message, prompt type definitions
@@ -269,6 +288,8 @@ Commands prefixed with `/` in the REPL (`src/infra/repl/commands/`):
   - View installed connectors and defaults per agent
   - Install/switch connector types
   - Default: skill for Claude Code/Cursor, mcp for others
+- `/provider` - Connect to external LLM providers (aliases: `/providers`, `/connect`)
+- `/model` - Select model from active provider (aliases: `/models`)
 - `/reset` - Reset context tree (destructive)
 - `/new [-y]` - Start fresh session (ends current, clears conversation history, NOT context tree)
 - `/query` - Query context tree
