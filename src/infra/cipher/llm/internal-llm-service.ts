@@ -36,6 +36,7 @@ import {
   isValidProviderModel,
   safeParseLLMConfig,
 } from '../../../core/domain/cipher/llm/index.js'
+import {StreamChunkType} from '../../../core/interfaces/cipher/i-content-generator.js'
 import {NoOpLogger} from '../../../core/interfaces/cipher/i-logger.js'
 import {getErrorMessage} from '../../../utils/error-helpers.js'
 import {SessionEventBus} from '../events/event-emitter.js'
@@ -285,7 +286,7 @@ export class ByteRoverLLMService implements ILLMService {
     },
   ): Promise<string> {
     // Extract options with defaults
-    const {executionContext, fileData, imageData, signal, taskId} = options ?? {}
+    const {executionContext, fileData, imageData, signal, stream, taskId} = options ?? {}
 
     // Get filtered tools based on command type (e.g., only read-only tools for 'query')
     const toolSet = this.toolManager.getToolsForCommand(options?.executionContext?.commandType)
@@ -316,6 +317,7 @@ export class ByteRoverLLMService implements ILLMService {
           fileData,
           imageData,
           iterationCount: stateMachine.getContext().turnCount,
+          stream,
           taskId,
           textInput,
           tools: toolSet,
@@ -486,6 +488,84 @@ export class ByteRoverLLMService implements ILLMService {
         content: response.content,
         role: 'assistant',
         toolCalls: response.toolCalls,
+      }
+
+      // Validate the message has content or tool calls
+      if (!message.content && (!message.toolCalls || message.toolCalls.length === 0)) {
+        throw new LlmResponseParsingError('Response has neither content nor tool calls', 'byterover', this.config.model)
+      }
+
+      return message
+    } catch (error) {
+      // Re-throw LLM errors as-is
+      if (error instanceof LlmResponseParsingError || error instanceof LlmGenerationError) {
+        throw error
+      }
+
+      // Wrap other errors
+      throw new LlmGenerationError(
+        error instanceof Error ? error.message : String(error),
+        'byterover',
+        this.config.model,
+      )
+    }
+  }
+
+  /**
+   * Streaming variant of callLLMAndParseResponse that:
+   * - Uses generateContentStream for real-time chunk delivery
+   * - Accumulates content and tool calls from chunks
+   * - Emits llmservice:chunk events for thinking/reasoning chunks
+   * - Returns complete InternalMessage when stream ends
+   *
+   * @param request - Generation request
+   * @param taskId - Task ID for event emission
+   * @returns Parsed internal message from accumulated stream
+   */
+  private async callLLMAndParseResponseStreaming(
+    request: GenerateContentRequest,
+    taskId?: string,
+  ): Promise<InternalMessage> {
+    try {
+      let accumulatedContent = ''
+      let accumulatedToolCalls: ToolCall[] = []
+
+      // Stream chunks and accumulate content
+      for await (const chunk of this.generator.generateContentStream(request)) {
+        // Emit thinking/reasoning chunks as events for TUI display
+        if (chunk.type === StreamChunkType.THINKING && chunk.reasoning) {
+          this.sessionEventBus.emit('llmservice:chunk', {
+            content: chunk.reasoning,
+            isComplete: chunk.isComplete,
+            taskId,
+            type: 'reasoning', // Convert THINKING to 'reasoning' for TUI compatibility
+          })
+        }
+
+        // Accumulate text content (skip thinking chunks from accumulated content)
+        if (chunk.content && chunk.type !== StreamChunkType.THINKING) {
+          accumulatedContent += chunk.content
+
+          // Emit text chunks for TUI display
+          this.sessionEventBus.emit('llmservice:chunk', {
+            content: chunk.content,
+            isComplete: chunk.isComplete,
+            taskId,
+            type: 'text',
+          })
+        }
+
+        // Accumulate tool calls
+        if (chunk.toolCalls) {
+          accumulatedToolCalls = chunk.toolCalls
+        }
+      }
+
+      // Convert accumulated response to InternalMessage format
+      const message: InternalMessage = {
+        content: accumulatedContent || null,
+        role: 'assistant',
+        toolCalls: accumulatedToolCalls.length > 0 ? accumulatedToolCalls : undefined,
       }
 
       // Validate the message has content or tool calls
@@ -682,6 +762,7 @@ export class ByteRoverLLMService implements ILLMService {
    * @param options.fileData - Optional file data (only used on first iteration)
    * @param options.imageData - Optional image data (only used on first iteration)
    * @param options.iterationCount - Current iteration number
+   * @param options.stream - Whether to stream response and emit thinking chunks
    * @param options.taskId - Task ID from usecase for billing tracking
    * @param options.textInput - User input text (only used on first iteration)
    * @param options.tools - Available tools for this iteration
@@ -692,11 +773,12 @@ export class ByteRoverLLMService implements ILLMService {
     fileData?: FileData
     imageData?: ImageData
     iterationCount: number
+    stream?: boolean
     taskId?: string
     textInput: string
     tools: ToolSet
   }): Promise<null | string> {
-    const {executionContext, fileData, imageData, iterationCount, taskId, textInput, tools} = options
+    const {executionContext, fileData, imageData, iterationCount, stream, taskId, textInput, tools} = options
     // Build system prompt using SystemPromptManager (before compression for correct token accounting)
     // Use filtered tool names based on command type (e.g., only read-only tools for 'query')
     const availableTools = this.toolManager.getToolNamesForCommand(executionContext?.commandType)
@@ -763,7 +845,9 @@ export class ByteRoverLLMService implements ILLMService {
     // Add user message and compress context within mutex lock
     return this.mutex.withLock(async () => {
       // Add user message to context only on the first iteration
-      await this.contextManager.addUserMessage(textInput, imageData, fileData)
+      if (iterationCount === 0) {
+        await this.contextManager.addUserMessage(textInput, imageData, fileData)
+      }
 
       const messages = this.contextManager.getMessages()
       const messageTokenCounts = messages.map((msg) =>
@@ -811,7 +895,11 @@ export class ByteRoverLLMService implements ILLMService {
       })
 
       // Call LLM via generator (retry + logging handled by decorators)
-      const lastMessage = await this.callLLMAndParseResponse(request)
+      // Use streaming variant if enabled to emit thinking/reasoning chunks
+      const lastMessage = stream
+        ? await this.callLLMAndParseResponseStreaming(request, taskId)
+        : await this.callLLMAndParseResponse(request)
+
       // Check if there are tool calls
       if (!lastMessage.toolCalls || lastMessage.toolCalls.length === 0) {
         const response = await this.handleFinalResponse(lastMessage, taskId)
@@ -822,7 +910,6 @@ export class ByteRoverLLMService implements ILLMService {
         return response
       }
 
-
       // Has tool calls - handle them (pass taskId for subagent billing)
       await this.handleToolCalls(lastMessage, taskId)
 
@@ -831,7 +918,7 @@ export class ByteRoverLLMService implements ILLMService {
 
       return null
     })
-}
+  }
 
   /**
    * Execute a single tool call in parallel (without adding to context).

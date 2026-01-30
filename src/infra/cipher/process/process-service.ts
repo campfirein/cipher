@@ -21,7 +21,7 @@ import {normalizePath} from './path-utils.js'
 /**
  * Default timeout for foreground commands (milliseconds).
  */
-const DEFAULT_TIMEOUT = 120_000 // 2 minutes
+const DEFAULT_TIMEOUT = 300_000 // 5 minutes
 
 /**
  * Default maximum timeout (milliseconds).
