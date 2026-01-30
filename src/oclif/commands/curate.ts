@@ -94,6 +94,7 @@ Bad examples:
       context: args.context,
       files: flags.files,
       format,
+      headless,
       verbose: flags.verbose,
     })
   }

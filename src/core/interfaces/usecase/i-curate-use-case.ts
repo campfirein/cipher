@@ -3,6 +3,7 @@ export interface CurateUseCaseRunOptions {
   context?: string
   files?: string[]
   format?: 'json' | 'text'
+  headless?: boolean
   model?: string
   verbose?: boolean
 }

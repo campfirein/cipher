@@ -152,8 +152,7 @@ describe('SpaceListUseCase', () => {
       const useCase = createUseCase()
       await useCase.run()
 
-      expect(spaceService.getSpaces.calledWith('access-token', 'session-key', 'team-1', {limit: 50, offset: 0})).to.be
-        .true
+      expect(spaceService.getSpaces.calledWith('session-key', 'team-1', {limit: 50, offset: 0})).to.be.true
     })
 
     it('should display spaces in human-readable format', async () => {
@@ -193,8 +192,7 @@ describe('SpaceListUseCase', () => {
       const useCase = createUseCase({limit: 10})
       await useCase.run()
 
-      expect(spaceService.getSpaces.calledWith('access-token', 'session-key', 'team-1', {limit: 10, offset: 0})).to.be
-        .true
+      expect(spaceService.getSpaces.calledWith('session-key', 'team-1', {limit: 10, offset: 0})).to.be.true
     })
 
     it('should fetch spaces with custom offset', async () => {
@@ -205,8 +203,7 @@ describe('SpaceListUseCase', () => {
       const useCase = createUseCase({offset: 20})
       await useCase.run()
 
-      expect(spaceService.getSpaces.calledWith('access-token', 'session-key', 'team-1', {limit: 50, offset: 20})).to.be
-        .true
+      expect(spaceService.getSpaces.calledWith('session-key', 'team-1', {limit: 50, offset: 20})).to.be.true
     })
 
     it('should fetch spaces with both limit and offset', async () => {
@@ -217,8 +214,7 @@ describe('SpaceListUseCase', () => {
       const useCase = createUseCase({limit: 10, offset: 20})
       await useCase.run()
 
-      expect(spaceService.getSpaces.calledWith('access-token', 'session-key', 'team-1', {limit: 10, offset: 20})).to.be
-        .true
+      expect(spaceService.getSpaces.calledWith('session-key', 'team-1', {limit: 10, offset: 20})).to.be.true
     })
 
     it('should fetch all spaces with --all flag', async () => {
@@ -229,7 +225,7 @@ describe('SpaceListUseCase', () => {
       const useCase = createUseCase({all: true})
       await useCase.run()
 
-      expect(spaceService.getSpaces.calledWith('access-token', 'session-key', 'team-1', {fetchAll: true})).to.be.true
+      expect(spaceService.getSpaces.calledWith('session-key', 'team-1', {fetchAll: true})).to.be.true
     })
   })
 

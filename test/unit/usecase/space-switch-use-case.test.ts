@@ -15,7 +15,10 @@ import {AuthToken} from '../../../src/core/domain/entities/auth-token.js'
 import {BrvConfig} from '../../../src/core/domain/entities/brv-config.js'
 import {Space as SpaceEntity} from '../../../src/core/domain/entities/space.js'
 import {Team as TeamEntity} from '../../../src/core/domain/entities/team.js'
-import {SpaceSwitchUseCase, type SpaceSwitchUseCaseDependencies} from '../../../src/infra/usecase/space-switch-use-case.js'
+import {
+  SpaceSwitchUseCase,
+  type SpaceSwitchUseCaseDependencies,
+} from '../../../src/infra/usecase/space-switch-use-case.js'
 import {createMockTerminal} from '../../helpers/mock-factories.js'
 
 // ==================== TestableSpaceSwitchUseCase ====================
@@ -319,7 +322,7 @@ describe('SpaceSwitchUseCase', () => {
 
       expect(teamService.getTeams.calledOnce).to.be.true
       expect(
-        teamService.getTeams.calledWith('access-token', 'session-key', {
+        teamService.getTeams.calledWith('session-key', {
           fetchAll: true,
         }),
       ).to.be.true
@@ -341,7 +344,7 @@ describe('SpaceSwitchUseCase', () => {
 
       expect(spaceService.getSpaces.calledOnce).to.be.true
       expect(
-        spaceService.getSpaces.calledWith('access-token', 'session-key', 'team-1', {
+        spaceService.getSpaces.calledWith('session-key', 'team-1', {
           fetchAll: true,
         }),
       ).to.be.true
@@ -364,7 +367,7 @@ describe('SpaceSwitchUseCase', () => {
       await useCase.run()
 
       // Verify spaceService was called with the selected team ID
-      expect(spaceService.getSpaces.calledWith('access-token', 'session-key', 'team-2', {fetchAll: true})).to.be.true
+      expect(spaceService.getSpaces.calledWith('session-key', 'team-2', {fetchAll: true})).to.be.true
 
       // Verify config was updated with new team and space
       expect(configStore.write.calledOnce).to.be.true

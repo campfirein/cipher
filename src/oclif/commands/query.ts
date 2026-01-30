@@ -88,6 +88,7 @@ Bad:
 
     await this.createUseCase({format, headless}).run({
       format,
+      headless,
       query: args.query,
       verbose: flags.verbose,
     })
