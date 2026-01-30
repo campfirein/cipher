@@ -32,6 +32,7 @@ import {GeminiTokenizer} from '../llm/tokenizers/gemini-tokenizer.js'
 import {EventBasedLogger} from '../logger/event-based-logger.js'
 import {MemoryManager} from '../memory/memory-manager.js'
 import {ProcessService} from '../process/process-service.js'
+import {SandboxService} from '../sandbox/sandbox-service.js'
 import {BlobHistoryStorage} from '../storage/blob-history-storage.js'
 import {DualFormatHistoryStorage} from '../storage/dual-format-history-storage.js'
 import {GranularHistoryStorage} from '../storage/granular-history-storage.js'
@@ -138,6 +139,9 @@ export async function createCipherAgentServices(
   const memoryLogger = logger.withSource('MemoryManager')
   const memoryManager = new MemoryManager(blobStorage, memoryLogger)
 
+  // 5b. Sandbox service for code execution (no dependencies)
+  const sandboxService = new SandboxService()
+
   // 6. System prompt manager - SHARED across sessions
   // Calculate path to prompts directory relative to this file's location
   // This file is at dist/agent/core/service-initializer.js
@@ -175,6 +179,7 @@ export async function createCipherAgentServices(
       getToolProvider: (): ToolProvider => toolProvider,
       memoryManager,
       processService,
+      sandboxService,
     },
     systemPromptManager,
     descriptionLoader,

@@ -2,6 +2,7 @@ import type {KnownTool} from '../../core/domain/tools/constants.js'
 import type {Tool} from '../../core/domain/tools/types.js'
 import type {IFileSystem} from '../../core/interfaces/i-file-system.js'
 import type {IProcessService} from '../../core/interfaces/i-process-service.js'
+import type {ISandboxService} from '../../core/interfaces/i-sandbox-service.js'
 import type {ITodoStorage} from '../../core/interfaces/i-todo-storage.js'
 import type {MemoryManager} from '../memory/memory-manager.js'
 import type {SessionManager} from '../session/session-manager.js'
@@ -11,6 +12,7 @@ import {ToolName} from '../../core/domain/tools/constants.js'
 import {createBashExecTool} from './implementations/bash-exec-tool.js'
 import {createBashOutputTool} from './implementations/bash-output-tool.js'
 import {createBatchTool} from './implementations/batch-tool.js'
+import {createCodeExecTool} from './implementations/code-exec-tool.js'
 import {createCreateKnowledgeTopicTool} from './implementations/create-knowledge-topic-tool.js'
 import {createCurateTool} from './implementations/curate-tool.js'
 import {createDeleteMemoryTool} from './implementations/delete-memory-tool.js'
@@ -60,6 +62,9 @@ export interface ToolServices {
 
   /** Process service for command execution */
   processService?: IProcessService
+
+  /** Sandbox service for code execution */
+  sandboxService?: ISandboxService
 
   /** Todo storage service for session-based todo persistence */
   todoStorage?: ITodoStorage
@@ -148,6 +153,13 @@ export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
     factory: (services) => createBatchTool(getRequiredService(services.getToolProvider, 'getToolProvider')),
     markers: [ToolMarker.Execution, ToolMarker.Core],
     requiredServices: ['getToolProvider'],
+  },
+
+  [ToolName.CODE_EXEC]: {
+    descriptionFile: 'code_exec',
+    factory: (services) => createCodeExecTool(getRequiredService(services.sandboxService, 'sandboxService')),
+    markers: [ToolMarker.Execution],
+    requiredServices: ['sandboxService'],
   },
 
   [ToolName.CREATE_KNOWLEDGE_TOPIC]: {
