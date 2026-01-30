@@ -32,7 +32,6 @@ type LLMServerError = {
  * HTTP client implementation that automatically adds authentication headers to all requests.
  *
  * This client wraps axios and automatically includes:
- * - Authorization: Bearer {accessToken}
  * - x-byterover-session-id: {sessionKey}
  *
  * Usage:
