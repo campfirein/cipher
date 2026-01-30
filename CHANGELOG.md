@@ -2,6 +2,15 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [1.6.0]
+
+### Added
+
+- **Headless mode for automation** - New `--headless` flag enables non-interactive CLI execution for CI/CD pipelines and automation. Supported commands: `init`, `status`, `curate`, `query`, `push`, `pull`.
+- **JSON output format** - New `--format json` flag outputs structured newline-delimited JSON (NDJSON) for machine-readable results. Includes action lifecycle events, logs, warnings, errors, and structured results with timestamps.
+- **Enhanced `brv init` flags** - New `--team`, `--space`, and `--force` flags for non-interactive project initialization. Team and space can be specified by name or ID.
+- **File-based token storage for headless Linux** - Automatic fallback to file-based token storage when system keychain is unavailable (SSH sessions, containers, missing D-Bus). Enables seamless operation on headless Linux servers.
+
 ## [1.5.0]
 
 ### Added
