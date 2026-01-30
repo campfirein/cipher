@@ -44,11 +44,13 @@ This launches a persistent session with a React/Ink-based terminal interface whe
 /status                 # Show auth, config, and context tree state
 /curate [context] [@files]  # Curate context to the context tree
 /query <query>          # Query information from context tree (alias: /q)
+/connector              # Manage coding agent connectors (alias: /connectors)
+/provider               # Connect to an LLM provider (aliases: /providers, /connect)
+/model                  # Select a model from the active provider (alias: /models)
 /push [-b branch] [-y]  # Push context tree to ByteRover memory storage
 /pull [-b branch]       # Pull context tree from ByteRover memory storage
 /space list [-a] [-j]   # List all spaces
 /space switch           # Switch to a different space
-/connectors             # Manage coding agent connectors (skill, mcp, rules, hook)
 /reset [-y] [directory] # Reset context tree to an empty state
 /new [-y]               # Start fresh session (clears conversation)
 /init [-f]              # Initialize project (select team/space)
@@ -77,7 +79,7 @@ brv curate "JWT tokens expire in 24h"   # Curate context to context tree
 | `brv query <QUERY>`                             | Query information from the context tree      | `brv query "How is auth implemented?"`             |
 | `brv curate [CONTEXT] [--files]`                | Curate context to context tree               | `brv curate "JWT tokens expire in 24h" --files src/auth.ts` |
 
-> **Note:** Commands like `login`, `logout`, `init`, `push`, `pull`, `space`, `connectors`, `reset`, and `new` are only available as slash commands in REPL mode. Run `brv` to start REPL mode.
+> **Note:** Commands like `login`, `logout`, `init`, `push`, `pull`, `space`, `connector`, `provider`, `model`, `reset`, and `new` are only available as slash commands in REPL mode. Run `brv` to start REPL mode.
 
 > **Important:** The `brv query` and `brv curate` standalone commands require a running `brv` instance in the same directory. Start REPL mode with `brv` first, then run these commands in a separate terminal.
 
@@ -117,11 +119,13 @@ brv
 | `/status` | Show CLI status and project information |
 | `/curate [context] [@files]` | Curate context to the context tree (use `@filepath` for file references) |
 | `/query <query>` (alias: `/q`) | Query and retrieve information from context tree |
+| `/connector` (alias: `/connectors`) | Manage coding agent connectors (skill, mcp, rules, hook) |
+| `/provider` (aliases: `/providers`, `/connect`) | Connect to an LLM provider (e.g., OpenRouter) |
+| `/model` (alias: `/models`) | Select a model from the active provider |
 | `/push [-b branch] [-y]` | Push context tree to ByteRover memory storage |
 | `/pull [-b branch]` | Pull context tree from ByteRover memory storage |
 | `/space list [-a] [-j] [-l n] [-o n]` | List all spaces for current team |
 | `/space switch` | Switch to a different space |
-| `/connectors` | Manage coding agent connectors (skill, mcp, rules, hook) |
 | `/reset [-y] [directory]` | Reset context tree to an empty state |
 | `/new [-y]` | Start a fresh session (ends current, clears conversation) |
 | `/init [-f]` | Initialize a project with ByteRover |
@@ -229,7 +233,7 @@ Switch to a different space. Interactive mode only - prompts you to select from 
 
 **Flags**: None
 
-#### `/connectors`
+#### `/connector` (alias: `/connectors`)
 
 Manage agent connectors for integrating ByteRover with AI coding assistants. Supports four connector types:
 
@@ -283,6 +287,67 @@ Each skill directory contains all three files and is installed in agent-specific
 - **Manual setup**: User must manually configure per agent's documentation (Augment Code, Cline, Qoder, Qwen Code, Trae.ai, Warp)
 
 **Flags**: None
+
+#### `/provider` (aliases: `/providers`, `/connect`)
+
+Connect to an external LLM provider for use with ByteRover's built-in chat. Opens an interactive selection prompt.
+
+**Flags**: None
+
+**Available Providers**
+
+| Provider | Description | API Key Required |
+| -------- | ----------- | ---------------- |
+| ByteRover | Internal ByteRover LLM (default, always available) | No |
+| OpenRouter | Access 200+ models from multiple providers | Yes |
+
+**Behavior**
+
+- Displays a selection prompt listing all available providers with connection status indicators
+- If the selected provider is already connected, it is set as the active provider immediately
+- If the selected provider requires an API key, prompts for the key and validates it before connecting
+- API keys are stored securely in the system keychain
+
+**Examples**
+
+```bash
+# Open provider selection dialog
+/provider
+
+# Also accessible via aliases
+/providers
+/connect
+```
+
+#### `/model` (alias: `/models`)
+
+Select a model from the currently active LLM provider. Requires a provider to be connected first via `/provider`.
+
+**Flags**: None
+
+**Behavior**
+
+- Requires an active external provider (ByteRover uses an internal model with no selection)
+- Fetches available models from the active provider's API
+- Displays models sorted by: favorites first, then recently used, then by provider and model name
+- Shows pricing information (input/output cost per million tokens), context window size, and status indicators (Current, Favorite, Free)
+- Selected model is saved as the active model for the provider
+
+**Examples**
+
+```bash
+# Open model selection dialog (requires active external provider)
+/model
+
+# Also accessible via alias
+/models
+```
+
+**Notes**
+
+- If no external provider is connected, run `/provider` first
+- If the active provider is ByteRover, the command will prompt you to switch to an external provider
+- Model list depends on the connected provider (e.g., OpenRouter provides 200+ models)
 
 #### `/init`
 
