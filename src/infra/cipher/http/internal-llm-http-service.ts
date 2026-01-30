@@ -41,7 +41,6 @@ type GenerateResponse = {
  * ByteRover HTTP LLM provider configuration.
  */
 export interface ByteRoverHttpConfig {
-  accessToken: string
   apiBaseUrl: string
   projectId?: string
   region?: string
@@ -84,7 +83,6 @@ export class ByteRoverLlmHttpService {
    */
   public constructor(config: ByteRoverHttpConfig) {
     this.config = {
-      accessToken: config.accessToken,
       apiBaseUrl: config.apiBaseUrl,
       projectId: config.projectId ?? 'byterover',
       region: config.region ?? 'us-east1',

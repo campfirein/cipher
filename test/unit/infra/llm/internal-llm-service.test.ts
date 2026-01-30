@@ -14,7 +14,6 @@ import {ToolManager} from '../../../../src/infra/cipher/tools/tool-manager.js'
 // Helper function to create a ByteRover content generator with test config
 function createContentGenerator(model = 'gemini-2.5-flash') {
   const httpService = new ByteRoverLlmHttpService({
-    accessToken: 'test-token',
     apiBaseUrl: 'http://localhost:3000',
     sessionKey: 'test-session-key',
     spaceId: 'test-space-id',

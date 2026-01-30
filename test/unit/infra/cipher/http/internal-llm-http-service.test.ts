@@ -84,7 +84,6 @@ describe('ByteRoverLlmHttpService', () => {
   const baseUrl = 'http://localhost:3333'
 
   const defaultConfig: ByteRoverHttpConfig = {
-    accessToken: 'test-access-token',
     apiBaseUrl: baseUrl,
     sessionKey: 'test-session-key',
     spaceId: 'test-space-id',
