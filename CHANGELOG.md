@@ -2,6 +2,26 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [1.5.0]
+
+### Added
+
+- **External LLM provider support** - Connect to external providers like OpenRouter to access 200+ models. New `/provider` (aliases: `/providers`, `/connect`) command to connect and switch providers, and `/model` (aliases: `/models`) command to browse and select models with pricing, context window, favorites, and recent usage tracking. API keys stored securely in system keychain.
+- **Reasoning/thinking display** - LLM reasoning and thinking content now appears in the execution progress view with an animated "Thinking..." indicator during streaming. Supports multiple model formats including Claude, OpenAI, Gemini, and DeepSeek.
+- **Improved execution progress** - Custom status indicators (checkmark, blinking dot, X) for completed, running, and failed tool calls. Running items are prioritized to stay visible, and long tool commands are cleanly truncated.
+
+### Changed
+
+- **Model cost display** - Accurate input/output pricing shown separately (e.g., "$3.00/$15.00/M") with model descriptions displayed inline for better scannability.
+
+### Fixed
+
+- **OpenRouter streaming reliability** - Fixed TUI getting stuck on results and duplicate thinking entries when using OpenRouter models. Tool execution now runs in parallel for faster completion.
+- **Directory listing path validation** - Fixed failures caused by double-resolved paths.
+- **Task queue notifications** - Queued tasks now receive proper error notifications when dropped during reinitialization, instead of timing out silently.
+- **Reasoning streaming states** - Fixed thinking indicator incorrectly reappearing when text response starts streaming.
+- **NPM security vulnerabilities** - Updated dependencies to address moderate severity vulnerability.
+
 ## [1.4.0]
 
 ### Added
