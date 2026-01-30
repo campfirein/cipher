@@ -7,7 +7,6 @@ import {HttpUserService} from '../../../../src/server/infra/user/http-user-servi
 
 describe('HttpUserService', () => {
   const apiBaseUrl = 'https://api.example.com'
-  const accessToken = 'test-access-token'
   const sessionKey = 'test-session-key'
   let service: HttpUserService
 
@@ -31,13 +30,9 @@ describe('HttpUserService', () => {
         message: 'success',
       }
 
-      nock(apiBaseUrl)
-        .get('/user/me')
-        .matchHeader('authorization', `Bearer ${accessToken}`)
-        .matchHeader('x-byterover-session-id', sessionKey)
-        .reply(200, mockResponse)
+      nock(apiBaseUrl).get('/user/me').matchHeader('x-byterover-session-id', sessionKey).reply(200, mockResponse)
 
-      const user = await service.getCurrentUser(accessToken, sessionKey)
+      const user = await service.getCurrentUser(sessionKey)
 
       expect(user).to.be.instanceOf(User)
       expect(user.email).to.equal('user@example.com')
@@ -48,12 +43,11 @@ describe('HttpUserService', () => {
     it('should throw error on HTTP 401 Unauthorized', async () => {
       nock(apiBaseUrl)
         .get('/user/me')
-        .matchHeader('authorization', `Bearer ${accessToken}`)
         .matchHeader('x-byterover-session-id', sessionKey)
         .reply(401, {error: 'Unauthorized'})
 
       try {
-        await service.getCurrentUser(accessToken, sessionKey)
+        await service.getCurrentUser(sessionKey)
         expect.fail('Should have thrown an error')
       } catch (error) {
         // 401 errors are returned as raw AxiosError to allow callers to distinguish from network errors
@@ -67,12 +61,11 @@ describe('HttpUserService', () => {
     it('should throw error on HTTP 404 Not Found', async () => {
       nock(apiBaseUrl)
         .get('/user/me')
-        .matchHeader('authorization', `Bearer ${accessToken}`)
         .matchHeader('x-byterover-session-id', sessionKey)
         .reply(404, {error: 'User not found'})
 
       try {
-        await service.getCurrentUser(accessToken, sessionKey)
+        await service.getCurrentUser(sessionKey)
         expect.fail('Should have thrown an error')
       } catch (error) {
         expect(error).to.be.instanceOf(Error)
@@ -83,12 +76,11 @@ describe('HttpUserService', () => {
     it('should throw error on HTTP 500 Internal Server Error', async () => {
       nock(apiBaseUrl)
         .get('/user/me')
-        .matchHeader('authorization', `Bearer ${accessToken}`)
         .matchHeader('x-byterover-session-id', sessionKey)
         .reply(500, {error: 'Internal Server Error'})
 
       try {
-        await service.getCurrentUser(accessToken, sessionKey)
+        await service.getCurrentUser(sessionKey)
         expect.fail('Should have thrown an error')
       } catch (error) {
         expect(error).to.be.instanceOf(Error)
@@ -100,7 +92,7 @@ describe('HttpUserService', () => {
       nock(apiBaseUrl).get('/user/me').replyWithError('Network error')
 
       try {
-        await service.getCurrentUser(accessToken, sessionKey)
+        await service.getCurrentUser(sessionKey)
         expect.fail('Should have thrown an error')
       } catch (error) {
         expect(error).to.be.instanceOf(Error)
@@ -114,7 +106,7 @@ describe('HttpUserService', () => {
       const timeoutService = new HttpUserService({apiBaseUrl, timeout: 25})
 
       try {
-        await timeoutService.getCurrentUser(accessToken, sessionKey)
+        await timeoutService.getCurrentUser(sessionKey)
         expect.fail('Should have thrown an error')
       } catch (error) {
         expect(error).to.be.instanceOf(Error)

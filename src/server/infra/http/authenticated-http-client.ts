@@ -32,7 +32,6 @@ type LLMServerError = {
  * HTTP client implementation that automatically adds authentication headers to all requests.
  *
  * This client wraps axios and automatically includes:
- * - Authorization: Bearer {accessToken}
  * - x-byterover-session-id: {sessionKey}
  *
  * Usage:
@@ -42,11 +41,9 @@ type LLMServerError = {
  * ```
  */
 export class AuthenticatedHttpClient implements IHttpClient {
-  private readonly accessToken: string
   private readonly sessionKey: string
 
-  public constructor(accessToken: string, sessionKey: string) {
-    this.accessToken = accessToken
+  public constructor(sessionKey: string) {
     this.sessionKey = sessionKey
   }
 
@@ -103,7 +100,6 @@ export class AuthenticatedHttpClient implements IHttpClient {
    */
   private buildHeaders(customHeaders?: Record<string, string>): Record<string, string> {
     return {
-      Authorization: `Bearer ${this.accessToken}`,
       'x-byterover-session-id': this.sessionKey,
       ...customHeaders,
     }

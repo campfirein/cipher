@@ -5,15 +5,15 @@ import type {IBrowserLauncher} from '../../core/interfaces/services/i-browser-la
 import type {ITerminal} from '../../core/interfaces/services/i-terminal.js'
 import type {ITrackingService} from '../../core/interfaces/services/i-tracking-service.js'
 import type {IUserService} from '../../core/interfaces/services/i-user-service.js'
-import type {ILoginUseCase} from '../../core/interfaces/usecase/i-login-use-case.js'
+import type {ILoginUseCase, LoginUseCaseRunOptions} from '../../core/interfaces/usecase/i-login-use-case.js'
 
 import {AuthToken} from '../../core/domain/entities/auth-token.js'
 import {DiscoveryError} from '../../core/domain/errors/discovery-error.js'
 
 export interface LoginUseCaseOptions {
-  authService: IAuthService
-  browserLauncher: IBrowserLauncher
-  callbackHandler: ICallbackHandler
+  authService?: IAuthService
+  browserLauncher?: IBrowserLauncher
+  callbackHandler?: ICallbackHandler
   terminal: ITerminal
   tokenStore: ITokenStore
   trackingService: ITrackingService
@@ -21,9 +21,9 @@ export interface LoginUseCaseOptions {
 }
 
 export class LoginUseCase implements ILoginUseCase {
-  private readonly authService: IAuthService
-  private readonly browserLauncher: IBrowserLauncher
-  private readonly callbackHandler: ICallbackHandler
+  private readonly authService?: IAuthService
+  private readonly browserLauncher?: IBrowserLauncher
+  private readonly callbackHandler?: ICallbackHandler
   private readonly terminal: ITerminal
   private readonly tokenStore: ITokenStore
   private readonly trackingService: ITrackingService
@@ -39,7 +39,15 @@ export class LoginUseCase implements ILoginUseCase {
     this.userService = options.userService
   }
 
-  public async run(): Promise<void> {
+  public async run({apiKey}: LoginUseCaseRunOptions = {}): Promise<void> {
+    return apiKey ? this.runLoginWithApiKey(apiKey) : this.runLoginManually()
+  }
+
+  public async runLoginManually(): Promise<void> {
+    if (!this.authService || !this.browserLauncher || !this.callbackHandler) {
+      throw new Error('OAuth services are required for manual login')
+    }
+
     try {
       await this.trackingService.track('auth:sign_in', {status: 'started'})
       this.terminal.log('Starting authentication process...')
@@ -81,7 +89,7 @@ export class LoginUseCase implements ILoginUseCase {
         // Wait for callback with 5 minute timeout
         const {code} = await this.callbackHandler.waitForCallback(authContext.state, 5 * 60 * 1000)
         const authTokenData = await this.authService.exchangeCodeForToken(code, authContext, redirectUri)
-        const user = await this.userService.getCurrentUser(authTokenData.accessToken, authTokenData.sessionKey)
+        const user = await this.userService.getCurrentUser(authTokenData.sessionKey)
         const authToken = new AuthToken({
           accessToken: authTokenData.accessToken,
           expiresAt: authTokenData.expiresAt,
@@ -117,6 +125,35 @@ export class LoginUseCase implements ILoginUseCase {
     } finally {
       // Always cleanup server
       await this.callbackHandler.stop()
+    }
+  }
+
+  public async runLoginWithApiKey(apiKey: string): Promise<void> {
+    try {
+      await this.trackingService.track('auth:sign_in', {status: 'started'})
+      this.terminal.log('Logging in...')
+
+      const user = await this.userService.getCurrentUser(apiKey)
+      // eslint-disable-next-line no-warning-comments
+      // TODO: accessToken, refreshToken, and tokenType do not appear to be necessary; consider removing them.
+      const authToken = new AuthToken({
+        accessToken: 'unnecessary',
+        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
+        refreshToken: 'unnecessary',
+        sessionKey: apiKey,
+        tokenType: 'unnecessary',
+        userEmail: user.email,
+        userId: user.id,
+      })
+
+      await this.tokenStore.save(authToken)
+      await this.trackingService.track('auth:sign_in', {status: 'finished'})
+      this.terminal.log(`Logged in as ${user.email}`)
+    } catch (error) {
+      // Throw error to let oclif handle display
+      const errorMessage = error instanceof Error ? error.message : 'Authentication failed'
+      await this.trackingService.track('auth:sign_in', {message: errorMessage, status: 'error'})
+      this.terminal.log(errorMessage)
     }
   }
 }

@@ -4,7 +4,6 @@ import type {CogitSnapshot} from '../../domain/entities/cogit-snapshot.js'
  * Parameters for pulling a snapshot from CoGit.
  */
 export type PullParams = {
-  accessToken: string
   branch: string
   sessionKey: string
   spaceId: string

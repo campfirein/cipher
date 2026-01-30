@@ -68,7 +68,7 @@ export class HttpMemoryStorageService implements IMemoryStorageService {
 
   public async confirmUpload(params: ConfirmUploadParams): Promise<void> {
     try {
-      const httpClient = new AuthenticatedHttpClient(params.accessToken, params.sessionKey)
+      const httpClient = new AuthenticatedHttpClient(params.sessionKey)
       const url = `${this.config.apiBaseUrl}/organizations/${params.teamId}/projects/${params.spaceId}/memory-processing/confirm-upload`
 
       const requestBody: ConfirmUploadRequestBody = {
@@ -85,7 +85,7 @@ export class HttpMemoryStorageService implements IMemoryStorageService {
 
   public async getPresignedUrls(params: GetPresignedUrlsParams): Promise<PresignedUrlsResponse> {
     try {
-      const httpClient = new AuthenticatedHttpClient(params.accessToken, params.sessionKey)
+      const httpClient = new AuthenticatedHttpClient(params.sessionKey)
       const url = `${this.config.apiBaseUrl}/organizations/${params.teamId}/projects/${params.spaceId}/memory-processing/presigned-urls`
 
       const requestBody: GetPresignedUrlsRequestBody = {

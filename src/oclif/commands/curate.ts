@@ -4,6 +4,7 @@ import {isDevelopment} from '../../server/config/environment.js'
 import {ICurateUseCase} from '../../server/core/interfaces/usecase/i-curate-use-case.js'
 import {FileGlobalConfigStore} from '../../server/infra/storage/file-global-config-store.js'
 import {createTokenStore} from '../../server/infra/storage/token-store.js'
+import {HeadlessTerminal} from '../../server/infra/terminal/headless-terminal.js'
 import {OclifTerminal} from '../../server/infra/terminal/oclif-terminal.js'
 import {MixpanelTrackingService} from '../../server/infra/tracking/mixpanel-tracking-service.js'
 import {CurateUseCase} from '../../server/infra/usecase/curate-use-case.js'
@@ -11,6 +12,8 @@ import {CurateUseCase} from '../../server/infra/usecase/curate-use-case.js'
 /** Parsed flags type */
 type CurateFlags = {
   files?: string[]
+  format?: 'json' | 'text'
+  headless?: boolean
   verbose?: boolean
 }
 
@@ -47,6 +50,15 @@ Bad examples:
       description: 'Include specific file paths for critical context (max 5 files)',
       multiple: true,
     }),
+    format: Flags.string({
+      default: 'text',
+      description: 'Output format (text or json)',
+      options: ['text', 'json'],
+    }),
+    headless: Flags.boolean({
+      default: false,
+      description: 'Run in headless mode (no TTY required, suitable for automation)',
+    }),
     ...(isDevelopment()
       ? {
           verbose: Flags.boolean({
@@ -58,11 +70,16 @@ Bad examples:
       : {}),
   }
 
-  protected createUseCase(): ICurateUseCase {
+  protected createUseCase(options: {format: 'json' | 'text'; headless: boolean}): ICurateUseCase {
     const tokenStore = createTokenStore()
     const globalConfigStore = new FileGlobalConfigStore()
-    const terminal = new OclifTerminal(this)
     const trackingService = new MixpanelTrackingService({globalConfigStore, tokenStore})
+
+    // Use HeadlessTerminal for headless mode or JSON format
+    const terminal =
+      options.headless || options.format === 'json'
+        ? new HeadlessTerminal({failOnPrompt: true, outputFormat: options.format})
+        : new OclifTerminal(this)
 
     return new CurateUseCase({terminal, trackingService})
   }
@@ -70,7 +87,15 @@ Bad examples:
   public async run(): Promise<void> {
     const {args, flags: rawFlags} = await this.parse(Curate)
     const flags = rawFlags as CurateFlags
+    const format = (flags.format ?? 'text') as 'json' | 'text'
+    const headless = flags.headless ?? false
 
-    return this.createUseCase().run({context: args.context, files: flags.files, verbose: flags.verbose})
+    return this.createUseCase({format, headless}).run({
+      context: args.context,
+      files: flags.files,
+      format,
+      headless,
+      verbose: flags.verbose,
+    })
   }
 }

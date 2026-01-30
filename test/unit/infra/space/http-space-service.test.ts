@@ -7,7 +7,6 @@ import {HttpSpaceService} from '../../../../src/server/infra/space/http-space-se
 
 describe('HttpSpaceService', () => {
   const apiBaseUrl = 'https://api.example.com'
-  const accessToken = 'test-access-token'
   const sessionKey = 'test-session-key'
   const teamId = 'team-1'
   let service: HttpSpaceService
@@ -73,11 +72,10 @@ describe('HttpSpaceService', () => {
       nock(apiBaseUrl)
         .get('/spaces')
         .query({team_id: teamId})
-        .matchHeader('authorization', `Bearer ${accessToken}`)
         .matchHeader('x-byterover-session-id', sessionKey)
         .reply(200, mockResponse)
 
-      const result = await service.getSpaces(accessToken, sessionKey, teamId)
+      const result = await service.getSpaces(sessionKey, teamId)
 
       expect(result.spaces).to.have.lengthOf(2)
       expect(result.total).to.equal(2)
@@ -109,11 +107,10 @@ describe('HttpSpaceService', () => {
       nock(apiBaseUrl)
         .get('/spaces')
         .query({team_id: teamId})
-        .matchHeader('authorization', `Bearer ${accessToken}`)
         .matchHeader('x-byterover-session-id', sessionKey)
         .reply(200, mockResponse)
 
-      const result = await service.getSpaces(accessToken, sessionKey, teamId)
+      const result = await service.getSpaces(sessionKey, teamId)
 
       expect(result.spaces).to.have.lengthOf(0)
       expect(result.total).to.equal(0)
@@ -123,12 +120,11 @@ describe('HttpSpaceService', () => {
       nock(apiBaseUrl)
         .get('/spaces')
         .query({team_id: teamId})
-        .matchHeader('authorization', `Bearer ${accessToken}`)
         .matchHeader('x-byterover-session-id', sessionKey)
         .reply(401, {error: 'Unauthorized'})
 
       try {
-        await service.getSpaces(accessToken, sessionKey, teamId)
+        await service.getSpaces(sessionKey, teamId)
         expect.fail('Should have thrown an error')
       } catch (error) {
         expect(error).to.be.instanceOf(Error)
@@ -140,12 +136,11 @@ describe('HttpSpaceService', () => {
       nock(apiBaseUrl)
         .get('/spaces')
         .query({team_id: teamId})
-        .matchHeader('authorization', `Bearer ${accessToken}`)
         .matchHeader('x-byterover-session-id', sessionKey)
         .reply(500, {error: 'Internal Server Error'})
 
       try {
-        await service.getSpaces(accessToken, sessionKey, teamId)
+        await service.getSpaces(sessionKey, teamId)
         expect.fail('Should have thrown an error')
       } catch (error) {
         expect(error).to.be.instanceOf(Error)
@@ -155,13 +150,10 @@ describe('HttpSpaceService', () => {
     })
 
     it('should throw error on network failure', async () => {
-      nock(apiBaseUrl)
-        .get('/spaces')
-        .query({team_id: teamId})
-        .replyWithError('Network error')
+      nock(apiBaseUrl).get('/spaces').query({team_id: teamId}).replyWithError('Network error')
 
       try {
-        await service.getSpaces(accessToken, sessionKey, teamId)
+        await service.getSpaces(sessionKey, teamId)
         expect.fail('Should have thrown an error')
       } catch (error) {
         expect(error).to.be.instanceOf(Error)
@@ -194,11 +186,10 @@ describe('HttpSpaceService', () => {
         nock(apiBaseUrl)
           .get('/spaces')
           .query({limit: '5', team_id: teamId})
-          .matchHeader('authorization', `Bearer ${accessToken}`)
           .matchHeader('x-byterover-session-id', sessionKey)
           .reply(200, mockResponse)
 
-        const result = await service.getSpaces(accessToken, sessionKey, teamId, {limit: 5})
+        const result = await service.getSpaces(sessionKey, teamId, {limit: 5})
 
         expect(result.spaces).to.have.lengthOf(1)
         expect(result.total).to.equal(10)
@@ -228,11 +219,10 @@ describe('HttpSpaceService', () => {
         nock(apiBaseUrl)
           .get('/spaces')
           .query({offset: '5', team_id: teamId})
-          .matchHeader('authorization', `Bearer ${accessToken}`)
           .matchHeader('x-byterover-session-id', sessionKey)
           .reply(200, mockResponse)
 
-        const result = await service.getSpaces(accessToken, sessionKey, teamId, {offset: 5})
+        const result = await service.getSpaces(sessionKey, teamId, {offset: 5})
 
         expect(result.spaces).to.have.lengthOf(1)
         expect(result.total).to.equal(10)
@@ -262,11 +252,10 @@ describe('HttpSpaceService', () => {
         nock(apiBaseUrl)
           .get('/spaces')
           .query({limit: '10', offset: '10', team_id: teamId})
-          .matchHeader('authorization', `Bearer ${accessToken}`)
           .matchHeader('x-byterover-session-id', sessionKey)
           .reply(200, mockResponse)
 
-        const result = await service.getSpaces(accessToken, sessionKey, teamId, {limit: 10, offset: 10})
+        const result = await service.getSpaces(sessionKey, teamId, {limit: 10, offset: 10})
 
         expect(result.spaces).to.have.lengthOf(1)
         expect(result.total).to.equal(50)
@@ -277,7 +266,6 @@ describe('HttpSpaceService', () => {
         nock(apiBaseUrl)
           .get('/spaces')
           .query({limit: '100', offset: '0', team_id: teamId})
-          .matchHeader('authorization', `Bearer ${accessToken}`)
           .matchHeader('x-byterover-session-id', sessionKey)
           .reply(200, {
             code: 200,
@@ -302,7 +290,6 @@ describe('HttpSpaceService', () => {
         nock(apiBaseUrl)
           .get('/spaces')
           .query({limit: '100', offset: '100', team_id: teamId})
-          .matchHeader('authorization', `Bearer ${accessToken}`)
           .matchHeader('x-byterover-session-id', sessionKey)
           .reply(200, {
             code: 200,
@@ -323,7 +310,7 @@ describe('HttpSpaceService', () => {
             message: 'success',
           })
 
-        const result = await service.getSpaces(accessToken, sessionKey, teamId, {fetchAll: true})
+        const result = await service.getSpaces(sessionKey, teamId, {fetchAll: true})
 
         expect(result.spaces).to.have.lengthOf(127)
         expect(result.total).to.equal(127)
@@ -336,7 +323,6 @@ describe('HttpSpaceService', () => {
         nock(apiBaseUrl)
           .get('/spaces')
           .query({limit: '100', offset: '0', team_id: teamId})
-          .matchHeader('authorization', `Bearer ${accessToken}`)
           .matchHeader('x-byterover-session-id', sessionKey)
           .reply(200, {
             code: 200,
@@ -357,7 +343,7 @@ describe('HttpSpaceService', () => {
             message: 'success',
           })
 
-        const result = await service.getSpaces(accessToken, sessionKey, teamId, {fetchAll: true})
+        const result = await service.getSpaces(sessionKey, teamId, {fetchAll: true})
 
         expect(result.spaces).to.have.lengthOf(50)
         expect(result.total).to.equal(50)

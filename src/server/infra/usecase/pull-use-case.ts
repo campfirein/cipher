@@ -7,9 +7,23 @@ import type {ICogitPullService} from '../../core/interfaces/services/i-cogit-pul
 import type {ITerminal} from '../../core/interfaces/services/i-terminal.js'
 import type {ITrackingService} from '../../core/interfaces/services/i-tracking-service.js'
 import type {IProjectConfigStore} from '../../core/interfaces/storage/i-project-config-store.js'
-import type {IPullUseCase} from '../../core/interfaces/usecase/i-pull-use-case.js'
+import type {IPullUseCase, PullUseCaseRunOptions} from '../../core/interfaces/usecase/i-pull-use-case.js'
 
 import {WorkspaceNotInitializedError} from '../../../agent/infra/validation/workspace-validator.js'
+import {HeadlessTerminal} from '../terminal/headless-terminal.js'
+
+/**
+ * Structured pull result for JSON output.
+ */
+export interface PullResult {
+  added?: number
+  branch?: string
+  commitSha?: string
+  deleted?: number
+  edited?: number
+  error?: string
+  status: 'error' | 'local_changes' | 'success'
+}
 
 export interface PullUseCaseOptions {
   cogitPullService: ICogitPullService
@@ -57,11 +71,13 @@ export class PullUseCase implements IPullUseCase {
     return projectConfig
   }
 
-  public async run(options: {branch: string}): Promise<void> {
+  public async run(options: PullUseCaseRunOptions): Promise<void> {
+    const format = options.format ?? 'text'
+
     try {
       await this.trackingService.track('mem:pull')
 
-      const token = await this.validateAuth()
+      const token = await this.validateAuth(format)
       if (!token) return
 
       const projectConfig = await this.checkProjectInit()
@@ -72,14 +88,21 @@ export class PullUseCase implements IPullUseCase {
       this.terminal.actionStop()
 
       if (hasLocalChanges) {
-        this.terminal.log('You have local changes that have not been pushed. Run "/push" first.')
+        if (format === 'json') {
+          this.outputJsonResult({
+            error: 'You have local changes that have not been pushed. Run push first.',
+            status: 'local_changes',
+          })
+        } else {
+          this.terminal.log('You have local changes that have not been pushed. Run "/push" first.')
+        }
+
         return
       }
 
       // Pull from CoGit
       this.terminal.log('Pulling from ByteRover...')
       const snapshot = await this.cogitPullService.pull({
-        accessToken: token.accessToken,
         branch: options.branch,
         sessionKey: token.sessionKey,
         spaceId: projectConfig.spaceId,
@@ -94,39 +117,87 @@ export class PullUseCase implements IPullUseCase {
       // Update snapshot ONLY after successful sync
       await this.contextTreeSnapshotService.saveSnapshot()
 
-      // Success message
-      this.terminal.log('\n✓ Successfully pulled context tree from ByteRover memory storage!')
-      this.terminal.log(`  Branch: ${options.branch}`)
-      this.terminal.log(`  Commit: ${snapshot.commitSha.slice(0, 7)}`)
-      this.terminal.log(
-        `  Added: ${syncResult.added.length}, Edited: ${syncResult.edited.length}, Deleted: ${syncResult.deleted.length}`,
-      )
+      if (format === 'json') {
+        this.outputJsonResult({
+          added: syncResult.added.length,
+          branch: options.branch,
+          commitSha: snapshot.commitSha,
+          deleted: syncResult.deleted.length,
+          edited: syncResult.edited.length,
+          status: 'success',
+        })
+      } else {
+        // Success message
+        this.terminal.log('\n✓ Successfully pulled context tree from ByteRover memory storage!')
+        this.terminal.log(`  Branch: ${options.branch}`)
+        this.terminal.log(`  Commit: ${snapshot.commitSha.slice(0, 7)}`)
+        this.terminal.log(
+          `  Added: ${syncResult.added.length}, Edited: ${syncResult.edited.length}, Deleted: ${syncResult.deleted.length}`,
+        )
+      }
     } catch (error) {
       // Stop action if it's in progress
       this.terminal.actionStop()
       if (error instanceof WorkspaceNotInitializedError) {
-        this.terminal.log('Project not initialized. Please run "/init" to select your team and workspace.')
+        if (format === 'json') {
+          this.outputJsonResult({error: 'Project not initialized. Run init first.', status: 'error'})
+        } else {
+          this.terminal.log('Project not initialized. Please run "/init" to select your team and workspace.')
+        }
+
         return
       }
 
       const message = error instanceof Error ? error.message : 'Pull failed'
-      this.terminal.error(`Failed to pull: ${message}`)
+      if (format === 'json') {
+        this.outputJsonResult({error: message, status: 'error'})
+      } else {
+        this.terminal.error(`Failed to pull: ${message}`)
+      }
     }
   }
 
-  protected async validateAuth(): Promise<AuthToken | undefined> {
+  protected async validateAuth(format: 'json' | 'text'): Promise<AuthToken | undefined> {
     const token = await this.tokenStore.load()
 
     if (token === undefined) {
-      this.terminal.error('Not authenticated. Run "/login" first.')
+      if (format === 'json') {
+        this.outputJsonResult({error: 'Not authenticated. Run login first.', status: 'error'})
+      } else {
+        this.terminal.error('Not authenticated. Run "/login" first.')
+      }
+
       return undefined
     }
 
     if (!token.isValid()) {
-      this.terminal.error('Authentication token expired. Run "/login" again.')
+      if (format === 'json') {
+        this.outputJsonResult({error: 'Authentication token expired. Run login again.', status: 'error'})
+      } else {
+        this.terminal.error('Authentication token expired. Run "/login" again.')
+      }
+
       return undefined
     }
 
     return token
+  }
+
+  /**
+   * Output JSON result for headless mode.
+   */
+  private outputJsonResult(result: PullResult): void {
+    const response = {
+      command: 'pull',
+      data: result,
+      success: result.status === 'success',
+      timestamp: new Date().toISOString(),
+    }
+
+    if (this.terminal instanceof HeadlessTerminal) {
+      this.terminal.writeFinalResponse(response)
+    } else {
+      this.terminal.log(JSON.stringify(response))
+    }
   }
 }

@@ -7,7 +7,6 @@ import type {Space} from '../../domain/entities/space.js'
 export interface ISpaceService {
   /**
    * Fetches spaces accessible to the authenticated user within a specific team.
-   * @param accessToken The OAuth access token for authentication
    * @param sessionKey The session key for tracking the user session
    * @param teamId The team ID to filter spaces by
    * @param option Optional pagination options
@@ -19,7 +18,6 @@ export interface ISpaceService {
    *  - total: Total number of spaces available (across all pages)
    */
   getSpaces: (
-    accessToken: string,
     sessionKey: string,
     teamId: string,
     option?: {

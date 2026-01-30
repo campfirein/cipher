@@ -7,7 +7,6 @@ import type {Team} from '../../domain/entities/team.js'
 export interface ITeamService {
   /**
    * Fetches teams where the authenticated user is a member.
-   * @param accessToken The OAuth access token for authentication
    * @param sessionKey The session key for tracking the user session
    * @param option Optional filtering and pagination options
    * @param option.limit Maximum number of teams to fetch in a single request
@@ -19,7 +18,6 @@ export interface ITeamService {
    *  - total: Total number of teams available (across all pages)
    */
   getTeams: (
-    accessToken: string,
     sessionKey: string,
     option?: {
       fetchAll?: boolean

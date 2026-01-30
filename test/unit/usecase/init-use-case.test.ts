@@ -495,8 +495,8 @@ describe('InitUseCase', () => {
 
       await useCase.run({force: false})
 
-      expect(teamService.getTeams.calledWith('access-token', 'session-key', {fetchAll: true})).to.be.true
-      expect(spaceService.getSpaces.calledWith('access-token', 'session-key', 'team-1', {fetchAll: true})).to.be.true
+      expect(teamService.getTeams.calledWith('session-key', {fetchAll: true})).to.be.true
+      expect(spaceService.getSpaces.calledWith('session-key', 'team-1', {fetchAll: true})).to.be.true
       expect(configStore.write.calledOnce).to.be.true
 
       const writtenConfig = configStore.write.getCall(0).args[0]

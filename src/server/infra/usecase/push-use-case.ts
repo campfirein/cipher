@@ -7,10 +7,24 @@ import type {ICogitPushService} from '../../core/interfaces/services/i-cogit-pus
 import type {ITerminal} from '../../core/interfaces/services/i-terminal.js'
 import type {ITrackingService} from '../../core/interfaces/services/i-tracking-service.js'
 import type {IProjectConfigStore} from '../../core/interfaces/storage/i-project-config-store.js'
-import type {IPushUseCase} from '../../core/interfaces/usecase/i-push-use-case.js'
+import type {IPushUseCase, PushUseCaseRunOptions} from '../../core/interfaces/usecase/i-push-use-case.js'
 
 import {WorkspaceNotInitializedError} from '../../../agent/infra/validation/workspace-validator.js'
 import {mapToPushContexts} from '../cogit/context-tree-to-push-context-mapper.js'
+import {HeadlessTerminal} from '../terminal/headless-terminal.js'
+
+/**
+ * Structured push result for JSON output.
+ */
+export interface PushResult {
+  added?: number
+  branch?: string
+  deleted?: number
+  edited?: number
+  error?: string
+  status: 'cancelled' | 'error' | 'no_changes' | 'success'
+  url?: string
+}
 
 export interface PushUseCaseOptions {
   cogitPushService: ICogitPushService
@@ -44,11 +58,13 @@ export class PushUseCase implements IPushUseCase {
     this.webAppUrl = options.webAppUrl
   }
 
-  public async run(options: {branch: string; skipConfirmation: boolean}): Promise<void> {
+  public async run(options: PushUseCaseRunOptions): Promise<void> {
+    const format = options.format ?? 'text'
+
     try {
       await this.trackingService.track('mem:push')
 
-      const token = await this.validateAuth()
+      const token = await this.validateAuth(format)
       if (!token) return
 
       const projectConfig = await this.checkProjectInit()
@@ -63,7 +79,12 @@ export class PushUseCase implements IPushUseCase {
         contextTreeChanges.modified.length === 0 &&
         contextTreeChanges.deleted.length === 0
       ) {
-        this.terminal.log('No context changes to push.')
+        if (format === 'json') {
+          this.outputJsonResult({status: 'no_changes'})
+        } else {
+          this.terminal.log('No context changes to push.')
+        }
+
         return
       }
 
@@ -71,7 +92,12 @@ export class PushUseCase implements IPushUseCase {
       if (!options.skipConfirmation) {
         const confirmed = await this.confirmPush(projectConfig, options.branch)
         if (!confirmed) {
-          this.terminal.log('Push cancelled.')
+          if (format === 'json') {
+            this.outputJsonResult({status: 'cancelled'})
+          } else {
+            this.terminal.log('Push cancelled.')
+          }
+
           return
         }
       }
@@ -91,7 +117,12 @@ export class PushUseCase implements IPushUseCase {
       })
 
       if (pushContexts.length === 0) {
-        this.terminal.log('\nNo valid context files to push.')
+        if (format === 'json') {
+          this.outputJsonResult({status: 'no_changes'})
+        } else {
+          this.terminal.log('\nNo valid context files to push.')
+        }
+
         return
       }
 
@@ -109,24 +140,46 @@ export class PushUseCase implements IPushUseCase {
       // Update snapshot ONLY after successful push
       await this.contextTreeSnapshotService.saveSnapshot()
 
-      // Success message
-      this.terminal.log('\n✓ Successfully pushed context tree to ByteRover memory storage!')
-      this.terminal.log(`  Branch: ${options.branch}`)
-      this.terminal.log(
-        `  Added: ${addedFiles.length}, Edited: ${modifiedFiles.length}, Deleted: ${contextTreeChanges.deleted.length}`,
-      )
-      this.terminal.log(`  View: ${this.buildSpaceUrl(projectConfig.teamName, projectConfig.spaceName)}`)
+      const url = this.buildSpaceUrl(projectConfig.teamName, projectConfig.spaceName)
+
+      if (format === 'json') {
+        this.outputJsonResult({
+          added: addedFiles.length,
+          branch: options.branch,
+          deleted: contextTreeChanges.deleted.length,
+          edited: modifiedFiles.length,
+          status: 'success',
+          url,
+        })
+      } else {
+        // Success message
+        this.terminal.log('\n✓ Successfully pushed context tree to ByteRover memory storage!')
+        this.terminal.log(`  Branch: ${options.branch}`)
+        this.terminal.log(
+          `  Added: ${addedFiles.length}, Edited: ${modifiedFiles.length}, Deleted: ${contextTreeChanges.deleted.length}`,
+        )
+        this.terminal.log(`  View: ${url}`)
+      }
     } catch (error) {
       // Stop action if it's in progress
       this.terminal.actionStop()
       if (error instanceof WorkspaceNotInitializedError) {
-        this.terminal.log('Project not initialized. Please run "/init" to select your team and workspace.')
+        if (format === 'json') {
+          this.outputJsonResult({error: 'Project not initialized. Run init first.', status: 'error'})
+        } else {
+          this.terminal.log('Project not initialized. Please run "/init" to select your team and workspace.')
+        }
+
         return
       }
 
       // For other errors, to properly display error before exit
       const message = error instanceof Error ? error.message : 'Push failed'
-      this.terminal.error(`Failed to push: ${message}`)
+      if (format === 'json') {
+        this.outputJsonResult({error: message, status: 'error'})
+      } else {
+        this.terminal.error(`Failed to push: ${message}`)
+      }
     }
   }
 
@@ -157,16 +210,44 @@ export class PushUseCase implements IPushUseCase {
     })
   }
 
-  private async validateAuth(): Promise<AuthToken | undefined> {
+  /**
+   * Output JSON result for headless mode.
+   */
+  private outputJsonResult(result: PushResult): void {
+    const response = {
+      command: 'push',
+      data: result,
+      success: result.status === 'success',
+      timestamp: new Date().toISOString(),
+    }
+
+    if (this.terminal instanceof HeadlessTerminal) {
+      this.terminal.writeFinalResponse(response)
+    } else {
+      this.terminal.log(JSON.stringify(response))
+    }
+  }
+
+  private async validateAuth(format: 'json' | 'text'): Promise<AuthToken | undefined> {
     const token = await this.tokenStore.load()
 
     if (token === undefined) {
-      this.terminal.error('Not authenticated. Run "/login" first.')
+      if (format === 'json') {
+        this.outputJsonResult({error: 'Not authenticated. Run login first.', status: 'error'})
+      } else {
+        this.terminal.error('Not authenticated. Run "/login" first.')
+      }
+
       return undefined
     }
 
     if (!token.isValid()) {
-      this.terminal.error('Authentication token expired. Run "/login" again.')
+      if (format === 'json') {
+        this.outputJsonResult({error: 'Authentication token expired. Run login again.', status: 'error'})
+      } else {
+        this.terminal.error('Authentication token expired. Run "/login" again.')
+      }
+
       return undefined
     }
 

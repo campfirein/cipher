@@ -53,7 +53,7 @@ npm run lint                                     # ESLint
 - `brv` (no args) starts interactive REPL (`src/infra/repl/repl-startup.tsx`)
 - React/Ink-based TUI (`src/tui/`) with streaming, dialogs, prompts
 - Slash commands (`/command`) in `src/infra/repl/commands/` (order in `index.ts` = UI suggestion order)
-- Few oclif commands remain: `main` (default), `status`, `curate`, `query`, `hook-prompt-submit` (hidden), `mcp` (hidden, spawned by coding agents)
+- Oclif commands: 7 public (`init`, `login`, `status`, `curate`, `query`, `push`, `pull`) + 3 hidden (`main`, `hook-prompt-submit`, `mcp`). Note: `/logout` is REPL-only
 
 ### Architecture v1.0.0 (Multi-Process)
 
@@ -63,6 +63,15 @@ npm run lint                                     # ESLint
 - `src/infra/process/` - Worker threads, task queue, IPC handlers
 - `src/infra/transport/` - Socket.IO client/server, port utils
 - `src/infra/instance/` - Instance lock management (acquire/release)
+
+### Headless Execution (v1.6.0)
+
+Enables non-interactive CLI usage for automation/CI pipelines:
+
+- `--headless` flag on: `init`, `status`, `curate`, `query`, `push`, `pull`
+- `InlineAgentExecutor` (`src/infra/process/inline-agent-executor.ts`) - Ephemeral in-process agent, bypasses REPL/Transport; includes `InlineTransportClient` as drop-in `ITransportClient`
+- `HeadlessTerminal` (`src/infra/terminal/headless-terminal.ts`) - Non-interactive output (text/JSON formats)
+- `HeadlessPromptError` - Thrown when prompts cannot be answered headlessly
 
 ### Task Queue Architecture (v1.3.0)
 
@@ -170,6 +179,11 @@ All have `toJson()`/`fromJson()`, immutable readonly properties
 
 - `repl-startup.tsx` - Bootstrap REPL with providers
 - `commands/` - Slash command implementations (`/login`, `/push`, `/pull`, etc.)
+
+**Terminal** (`src/infra/terminal/`):
+
+- `HeadlessTerminal` - Non-interactive terminal for headless mode (text/JSON output)
+- `ReplTerminal`, `OclifTerminal` - Interactive terminal implementations
 
 **Cipher** (`src/infra/cipher/`) - LLM agent system:
 

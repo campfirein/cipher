@@ -1,6 +1,6 @@
 import type {ITokenStore} from '../../core/interfaces/auth/i-token-store.js'
 
-import {isWsl} from '../../utils/environment-detector.js'
+import {shouldUseFileTokenStore} from '../../utils/environment-detector.js'
 import {FileTokenStore} from './file-token-store.js'
 import {KeychainTokenStore} from './keychain-token-store.js'
 
@@ -8,10 +8,11 @@ import {KeychainTokenStore} from './keychain-token-store.js'
  * Creates the appropriate token store for the current platform.
  *
  * - WSL: FileTokenStore (encrypted file-based, keychain not available)
- * - macOS/Linux/Windows: KeychainTokenStore (system keychain via keytar)
+ * - Headless Linux: FileTokenStore (no D-Bus/keyring daemon)
+ * - macOS/Windows/Linux with GUI: KeychainTokenStore (system keychain via keytar)
  *
- * @param isWslFn - Optional function to detect WSL (for testing)
+ * @param shouldUseFileFn - Optional function for environment detection (for testing)
  */
-export function createTokenStore(isWslFn: () => boolean = isWsl): ITokenStore {
-  return isWslFn() ? new FileTokenStore() : new KeychainTokenStore()
+export function createTokenStore(shouldUseFileFn: () => boolean = shouldUseFileTokenStore): ITokenStore {
+  return shouldUseFileFn() ? new FileTokenStore() : new KeychainTokenStore()
 }

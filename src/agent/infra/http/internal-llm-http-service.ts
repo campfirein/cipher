@@ -43,7 +43,6 @@ type GenerateResponse = {
  * ByteRover HTTP LLM provider configuration.
  */
 export interface ByteRoverHttpConfig {
-  accessToken: string
   apiBaseUrl: string
   projectId?: string
   region?: string
@@ -86,7 +85,6 @@ export class ByteRoverLlmHttpService {
    */
   public constructor(config: ByteRoverHttpConfig) {
     this.config = {
-      accessToken: config.accessToken,
       apiBaseUrl: config.apiBaseUrl,
       projectId: config.projectId ?? 'byterover',
       region: config.region ?? 'us-east1',
@@ -180,7 +178,7 @@ export class ByteRoverLlmHttpService {
    */
   private async callHttpGenerate(request: GenerateRequest): Promise<GenerateContentResponse> {
     const url = `${this.config.apiBaseUrl}/api/llm/generate`
-    const httpClient = new AuthenticatedHttpClient(this.config.accessToken, this.config.sessionKey)
+    const httpClient = new AuthenticatedHttpClient(this.config.sessionKey)
 
     const httpResponse = await httpClient.post<GenerateResponse>(url, request, {
       timeout: this.config.timeout,

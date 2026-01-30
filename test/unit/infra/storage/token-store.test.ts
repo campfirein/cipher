@@ -5,20 +5,20 @@ import {KeychainTokenStore} from '../../../../src/server/infra/storage/keychain-
 import {createTokenStore} from '../../../../src/server/infra/storage/token-store'
 
 describe('createTokenStore', () => {
-  describe('platform detection', () => {
-    it('should return FileTokenStore when isWsl() returns true', () => {
+  describe('environment-based selection', () => {
+    it('should return FileTokenStore when shouldUseFileTokenStore() returns true', () => {
       const store = createTokenStore(() => true)
       expect(store).to.be.instanceOf(FileTokenStore)
     })
 
-    it('should return KeychainTokenStore when isWsl() returns false', () => {
+    it('should return KeychainTokenStore when shouldUseFileTokenStore() returns false', () => {
       const store = createTokenStore(() => false)
       expect(store).to.be.instanceOf(KeychainTokenStore)
     })
   })
 
   describe('default behavior', () => {
-    it('should use default isWsl function when not provided', () => {
+    it('should use default shouldUseFileTokenStore function when not provided', () => {
       /** Default behavior - returns one of the two implementations */
       const store = createTokenStore()
       const isFileStore = store instanceof FileTokenStore
@@ -35,6 +35,23 @@ describe('createTokenStore', () => {
       expect(store).to.have.property('save').that.is.a('function')
       expect(store).to.have.property('load').that.is.a('function')
       expect(store).to.have.property('clear').that.is.a('function')
+    })
+  })
+
+  describe('FileTokenStore selection scenarios', () => {
+    it('should select FileTokenStore for WSL environment', () => {
+      const store = createTokenStore(() => true)
+      expect(store).to.be.instanceOf(FileTokenStore)
+    })
+
+    it('should select FileTokenStore for headless Linux', () => {
+      const store = createTokenStore(() => true)
+      expect(store).to.be.instanceOf(FileTokenStore)
+    })
+
+    it('should select KeychainTokenStore for desktop environments with GUI', () => {
+      const store = createTokenStore(() => false)
+      expect(store).to.be.instanceOf(KeychainTokenStore)
     })
   })
 })

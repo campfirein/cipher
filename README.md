@@ -12,6 +12,8 @@ Command-line interface for ByteRover, featuring an interactive REPL with a moder
 * [Quick Start](#quick-start)
 * [Interactive REPL](#interactive-repl)
 * [Keyboard Shortcuts](#keyboard-shortcuts)
+* [CLI Commands](#cli-commands)
+* [Headless Mode](#headless-mode)
 * [What is Context Tree?](#what-is-context-tree)
 * [Supported AI Agents](#supported-ai-agents)
 * [LLM Providers](#llm-providers) (BETA)
@@ -124,7 +126,7 @@ The terminal UI includes:
 - **Streaming Output**: Live responses with markdown rendering (headings, lists, blockquotes, code blocks)
 - **Reasoning Display**: View agent thinking process with streamed reasoning blocks
 - **File References**: Type `@` in curate mode to browse and attach files
-- **PDF Support**: Reference and extract text from PDF files using `@` (up to 100 pages)
+- **PDF Support**: Reference and extract text from PDF files using `@` (100 pages default, 200 max)
 - **Dynamic Domains**: Automatically creates new knowledge domains as your context tree grows
 - **Session Persistence**: Sessions auto-resume after restart
 - **Expandable Views**: Press `Ctrl+O` to expand messages or logs to full-screen with vim-style navigation
@@ -142,17 +144,123 @@ The terminal UI includes:
 | `/` | Show command suggestions |
 | `@` | Browse files (in curate mode) |
 
-### Using Commands
+## CLI Commands
 
-In the REPL, use slash commands (commands prefixed with `/`) to interact with ByteRover:
+In addition to the interactive REPL, ByteRover CLI provides direct command-line commands for automation and scripting.
 
+### Authentication
+
+| Command | Description |
+|---------|-------------|
+| `brv login -k <key>` | Authenticate with an API key |
+
+**Example:**
+```bash
+brv login --api-key your-api-key
 ```
-/status              # Check your project status
-/curate              # Add context interactively
-/push                # Push changes to cloud
+
+Get your API key at [app.byterover.dev/settings/keys](https://app.byterover.dev/settings/keys).
+
+### Project Commands
+
+| Command | Description |
+|---------|-------------|
+| `brv init` | Initialize a project with ByteRover |
+| `brv status [dir]` | Show CLI status and project information |
+
+**Init flags:**
+- `-f, --force`: Force re-initialization without confirmation
+- `--headless`: Run in headless mode (requires `--team` and `--space`)
+- `--team <id|name>`: Team ID or name
+- `--space <id|name>`: Space ID or name
+- `--format <text|json>`: Output format (default: text)
+
+**Status flags:**
+- `-f, --format <text|json>`: Output format (default: text)
+- `--headless`: Run in headless mode
+
+### Context Operations
+
+| Command | Description |
+|---------|-------------|
+| `brv query <question>` | Query the context tree |
+| `brv curate [context]` | Curate context to the context tree |
+
+**Note:** `query` and `curate` require a running `brv` instance in another terminal.
+
+**Query flags:**
+- `--headless`: Run in headless mode
+- `--format <text|json>`: Output format (default: text)
+
+**Curate flags:**
+- `-f, --files <path>`: Include specific files (max 5, can be repeated)
+- `--headless`: Run in headless mode
+- `--format <text|json>`: Output format (default: text)
+
+### Cloud Sync
+
+| Command | Description |
+|---------|-------------|
+| `brv push` | Push context tree to ByteRover cloud |
+| `brv pull` | Pull context tree from ByteRover cloud |
+
+**Push flags:**
+- `-b, --branch <name>`: ByteRover branch name (default: main, not Git branch)
+- `-y, --yes`: Skip confirmation prompt
+- `--headless`: Run in headless mode (auto-skips confirmation)
+- `--format <text|json>`: Output format (default: text)
+
+**Pull flags:**
+- `-b, --branch <name>`: ByteRover branch name (default: main, not Git branch)
+- `--headless`: Run in headless mode
+- `--format <text|json>`: Output format (default: text)
+
+## Headless Mode
+
+ByteRover CLI supports headless mode for automation, CI/CD pipelines, and scripting. Headless mode disables interactive prompts and supports machine-readable JSON output.
+
+### Supported Commands
+
+The following commands support `--headless` mode:
+- `brv init` (requires `--team` and `--space`)
+- `brv status`
+- `brv query`
+- `brv curate`
+- `brv push` (auto-skips confirmation)
+- `brv pull`
+
+### Output Formats
+
+Use `--format` to control output:
+- `text` (default): Human-readable text output
+- `json`: NDJSON (newline-delimited JSON) for machine parsing
+
+### CI/CD Examples
+
+**Initialize a project in CI:**
+```bash
+brv login --api-key $BRV_API_KEY
+brv init --headless --team "my-team" --space "my-space" --format json
 ```
 
-Commands support tab completion for quick navigation.
+**Push context tree after tests pass:**
+```bash
+brv push --headless --format json -y
+```
+
+**Query context in a script:**
+```bash
+brv query "What are the API endpoints?" --headless --format json
+```
+
+### JSON Output Structure
+
+JSON output uses NDJSON format with message types:
+- `log`: Progress messages
+- `output`: Main output content
+- `error`: Error messages
+- `warning`: Warning messages
+- `result`: Final operation result
 
 ## What is Context Tree?
 
@@ -348,7 +456,7 @@ The model browser shows:
 **Options:**
 - `-y, --yes`: Skip confirmation prompt
 
-**Note:** Sessions are stateful and auto-resume after restart. Use `/new` to start fresh—this clears conversation history but does NOT affect the context tree.
+**Note:** Sessions are stateful and auto-resume after restart (retained for 30 days). Use `/new` to start fresh—this clears conversation history but does NOT affect the context tree.
 
 ### Project Setup
 
@@ -368,16 +476,29 @@ The model browser shows:
 
 ## Authentication
 
-ByteRover CLI uses **OAuth 2.0 with PKCE** (Proof Key for Code Exchange) for secure authentication.
+ByteRover CLI supports two authentication methods to suit different workflows.
 
-### How it works
+### Authentication Methods
+
+**1. OAuth 2.0 (Interactive)**
+- Use `/login` in the REPL
+- Opens browser for secure OAuth flow with PKCE
+- Best for: Local development, interactive use
+
+**2. API Key (Non-interactive)**
+- Use `brv login --api-key <key>`
+- No browser required
+- Best for: CI/CD, automation, headless environments
+- Get your key at [app.byterover.dev/settings/keys](https://app.byterover.dev/settings/keys)
+
+### How OAuth Works
 
 1. Run `/login` in the REPL to start authentication
 2. Your browser opens to the ByteRover authorization page
 3. After successful login, tokens are securely stored in your system keychain
 4. All subsequent commands automatically use your stored credentials
 
-### Security features
+### Security Features
 
 - **PKCE flow**: Prevents authorization code interception attacks
 - **System keychain**: Tokens stored in macOS Keychain, Windows Credential Manager, or Linux Secret Service

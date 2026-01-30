@@ -47,7 +47,7 @@ export class HttpMemoryRetrievalService implements IMemoryRetrievalService {
 
   public async retrieve(params: RetrieveParams): Promise<RetrieveResult> {
     try {
-      const httpClient = new AuthenticatedHttpClient(params.accessToken, params.sessionKey)
+      const httpClient = new AuthenticatedHttpClient(params.sessionKey)
 
       // Build query parameters
       const queryParams = this.buildQueryParams(params)

@@ -236,7 +236,6 @@ describe('HttpCogitPushService', () => {
       it('should send correct Authorization and session headers', async () => {
         nock('https://dev-beta-cogit.byterover.dev')
           .post('/api/v1/organizations/team-123/projects/space-456/commits')
-          .matchHeader('authorization', 'Bearer my-access-token')
           .matchHeader('x-byterover-session-id', 'my-session-key')
           .reply(200, {
             commit_sha: 'abc123',

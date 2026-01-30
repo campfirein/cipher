@@ -148,7 +148,6 @@ export class HttpCogitPushService implements ICogitPushService {
     // Directly use axios here because of the work around to get current SHA from CoGit's error response
     const response = await axios.post<PushApiResponse>(params.url, requestBody, {
       headers: {
-        Authorization: `Bearer ${params.accessToken}`,
         'x-byterover-session-id': params.sessionKey,
       },
       timeout: this.config.timeout,

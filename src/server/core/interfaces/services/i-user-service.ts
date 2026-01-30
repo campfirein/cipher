@@ -7,9 +7,8 @@ import type {User} from '../../domain/entities/user.js'
 export interface IUserService {
   /**
    * Fetches the current authenticated user's information.
-   * @param accessToken The OAuth access token for authentication
    * @param sessionKey The session key for tracking the user session
    * @returns A promise that resolves to the User entity
    */
-  getCurrentUser: (accessToken: string, sessionKey: string) => Promise<User>
+  getCurrentUser: (sessionKey: string) => Promise<User>
 }

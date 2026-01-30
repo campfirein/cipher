@@ -311,7 +311,6 @@ export function createSessionServices(
 
     // Step 1: Create HTTP service
     const httpService = new ByteRoverLlmHttpService({
-      accessToken: httpConfig.accessToken,
       apiBaseUrl: httpConfig.apiBaseUrl,
       projectId: httpConfig.projectId,
       region: httpConfig.region,

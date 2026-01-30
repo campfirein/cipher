@@ -13,7 +13,6 @@ describe('HttpCogitPullService', () => {
   let service: HttpCogitPullService
 
   const basePullParams = {
-    accessToken: 'access-token',
     branch: 'main',
     sessionKey: 'session-key',
     spaceId: 'space-456',
@@ -133,13 +132,11 @@ describe('HttpCogitPullService', () => {
         nock('https://dev-beta-cogit.byterover.dev')
           .get('/api/v1/organizations/team-123/projects/space-456/git/snapshot')
           .query({branch: 'main'})
-          .matchHeader('authorization', 'Bearer my-access-token')
           .matchHeader('x-byterover-session-id', 'my-session-key')
           .reply(200, validApiResponse)
 
         await service.pull({
           ...basePullParams,
-          accessToken: 'my-access-token',
           sessionKey: 'my-session-key',
         })
 
