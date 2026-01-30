@@ -28,9 +28,9 @@ export class HttpUserService implements IUserService {
     }
   }
 
-  public async getCurrentUser(accessToken: string, sessionKey: string): Promise<User> {
+  public async getCurrentUser(sessionKey: string): Promise<User> {
     // IMPORTANT: Do not try-catch here - let callers handle errors (e.g., distinguish 401 from network errors)
-    const httpClient = new AuthenticatedHttpClient(accessToken, sessionKey)
+    const httpClient = new AuthenticatedHttpClient(sessionKey)
     const response = await httpClient.get<UserMeApiResponse>(`${this.config.apiBaseUrl}/user/me`, {
       timeout: this.config.timeout,
     })

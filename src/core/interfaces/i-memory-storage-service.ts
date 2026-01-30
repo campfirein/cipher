@@ -4,7 +4,6 @@ import type {PresignedUrlsResponse} from '../domain/entities/presigned-urls-resp
  * Parameters for requesting presigned URLs.
  */
 export type GetPresignedUrlsParams = {
-  accessToken: string
   branch: string
   fileNames: string[]
   sessionKey: string
@@ -16,7 +15,6 @@ export type GetPresignedUrlsParams = {
  * Parameters for confirming upload completion.
  */
 export type ConfirmUploadParams = {
-  accessToken: string
   requestId: string
   sessionKey: string
   spaceId: string

@@ -1,3 +1,7 @@
+export interface LoginUseCaseRunOptions {
+  apiKey?: string
+}
+
 export interface ILoginUseCase {
-  run(): Promise<void>
+  run(options: LoginUseCaseRunOptions): Promise<void>
 }

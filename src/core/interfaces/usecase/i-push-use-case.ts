@@ -1,3 +1,9 @@
+export interface PushUseCaseRunOptions {
+  branch: string
+  format?: 'json' | 'text'
+  skipConfirmation: boolean
+}
+
 export interface IPushUseCase {
-  run(options: {branch: string; skipConfirmation: boolean}): Promise<void>
+  run(options: PushUseCaseRunOptions): Promise<void>
 }

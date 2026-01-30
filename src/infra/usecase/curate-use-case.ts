@@ -1,15 +1,53 @@
 import {randomUUID} from 'node:crypto'
+import {z} from 'zod'
 
 import type {ITerminal} from '../../core/interfaces/i-terminal.js'
 import type {CurateUseCaseRunOptions, ICurateUseCase} from '../../core/interfaces/usecase/i-curate-use-case.js'
 
-import {ConnectionError, ConnectionFailedError, InstanceCrashedError, NoInstanceRunningError} from '../../core/domain/errors/connection-error.js'
-import {TaskCreateResponse} from '../../core/domain/transport/index.js'
+import {
+  ConnectionError,
+  ConnectionFailedError,
+  InstanceCrashedError,
+  NoInstanceRunningError,
+} from '../../core/domain/errors/connection-error.js'
+import {
+  LlmToolResultEvent,
+  TaskCompletedEvent,
+  TaskCreateResponse,
+  TaskErrorEvent,
+} from '../../core/domain/transport/index.js'
 import {ITrackingService} from '../../core/interfaces/i-tracking-service.js'
 import {ITransportClient} from '../../core/interfaces/transport/index.js'
 import {formatError} from '../../utils/error-handler.js'
 import {getSandboxEnvironmentName, isSandboxEnvironment, isSandboxNetworkError} from '../../utils/sandbox-detector.js'
+import {ToolName} from '../cipher/tools/index.js'
+import {InlineAgent} from '../process/inline-agent-executor.js'
+import {HeadlessTerminal} from '../terminal/headless-terminal.js'
 import {createTransportClientFactory, type TransportClientFactory} from '../transport/transport-client-factory.js'
+
+const CurateOperationSchema = z.object({
+  filePath: z.string(),
+  path: z.string(),
+  status: z.enum(['success', 'failed']),
+  type: z.enum(['ADD', 'UPDATE', 'MERGE', 'DELETE']),
+})
+
+const CurateResultSchema = z.object({
+  result: z
+    .object({
+      applied: z.array(CurateOperationSchema).optional(),
+    })
+    .optional(),
+})
+
+type CurateOperation = z.infer<typeof CurateOperationSchema>
+
+export interface CurateResult {
+  message: string
+  operations?: CurateOperation[]
+  status: 'completed' | 'error' | 'queued'
+  taskId?: string
+}
 
 export type TransportClientFactoryCreator = () => TransportClientFactory
 
@@ -31,19 +69,30 @@ export class CurateUseCase implements ICurateUseCase {
     this.transportClientFactoryCreator = options.transportClientFactoryCreator ?? createTransportClientFactory
   }
 
-  public async run({context, files, verbose = false}: CurateUseCaseRunOptions): Promise<void> {
+  public async run({
+    context,
+    files,
+    format = 'text',
+    headless = false,
+    verbose = false,
+  }: CurateUseCaseRunOptions): Promise<void> {
     await this.trackingService.track('mem:curate', {status: 'started'})
 
     const hasContext = Boolean(context?.trim())
     const hasFiles = Boolean(files?.length)
 
     if (!hasContext && !hasFiles) {
-      this.terminal.log('Either a context argument or file reference is required.')
-      this.terminal.log('Usage:')
-      this.terminal.log('  brv curate "your context here"')
-      this.terminal.log('  brv curate @src/file.ts')
-      this.terminal.log('  brv curate "context with files" @src/file.ts')
-      return;
+      if (format === 'json') {
+        this.outputJsonResult({message: 'Either a context argument or file reference is required.', status: 'error'})
+      } else {
+        this.terminal.log('Either a context argument or file reference is required.')
+        this.terminal.log('Usage:')
+        this.terminal.log('  brv curate "your context here"')
+        this.terminal.log('  brv curate @src/file.ts')
+        this.terminal.log('  brv curate "context with files" @src/file.ts')
+      }
+
+      return
     }
 
     const resolvedContent = context?.trim() ? context : ''
@@ -51,14 +100,7 @@ export class CurateUseCase implements ICurateUseCase {
     let client: ITransportClient | undefined
 
     try {
-      const transportClientFactory = this.transportClientFactoryCreator()
-
-      if (verbose) {
-        this.terminal.log('Discovering running instance...')
-      }
-
-      const {client: connectedClient} = await transportClientFactory.connect()
-      client = connectedClient
+      client = await this.createClient({headless, verbose})
 
       if (verbose) {
         this.terminal.log(`Connected to instance (clientId: ${client.getClientId()})`)
@@ -75,16 +117,45 @@ export class CurateUseCase implements ICurateUseCase {
         type: 'curate',
       })
 
-      this.terminal.log('✓ Context queued for processing.')
+      if (headless) {
+        // In headless mode, wait for the in-process task to complete
+        await this.waitForTaskCompletion(client, taskId, format)
+      } else if (format === 'json') {
+        this.outputJsonResult({message: 'Context queued for processing', status: 'queued', taskId})
+      } else {
+        this.terminal.log('✓ Context queued for processing.')
+      }
+
       await this.trackingService.track('mem:curate', {status: 'finished'})
     } catch (error) {
-      this.handleConnectionError(error)
+      if (format === 'json') {
+        this.handleConnectionErrorJson(error)
+      } else {
+        this.handleConnectionError(error)
+      }
+
       await this.trackingService.track('mem:curate', {message: formatError(error), status: 'error'})
     } finally {
       if (client) {
         await client.disconnect()
       }
     }
+  }
+
+  private async createClient(options: {headless: boolean; verbose: boolean}): Promise<ITransportClient> {
+    if (options.headless) {
+      const inlineAgent = await InlineAgent.create()
+      return inlineAgent.transportClient
+    }
+
+    const transportClientFactory = this.transportClientFactoryCreator()
+
+    if (options.verbose) {
+      this.terminal.log('Discovering running instance...')
+    }
+
+    const {client: connectedClient} = await transportClientFactory.connect()
+    return connectedClient
   }
 
   private handleConnectionError(error: unknown): void {
@@ -139,5 +210,134 @@ export class CurateUseCase implements ICurateUseCase {
 
     const message = error instanceof Error ? error.message : String(error)
     this.terminal.log(`Unexpected error: ${message}`)
+  }
+
+  /**
+   * Handle connection errors with JSON output.
+   */
+  private handleConnectionErrorJson(error: unknown): void {
+    let errorMessage = 'An unexpected error occurred'
+
+    if (error instanceof NoInstanceRunningError) {
+      errorMessage = 'No ByteRover instance is running. Start one with: brv'
+    } else if (error instanceof InstanceCrashedError) {
+      errorMessage = 'ByteRover instance has crashed. Please restart with: brv'
+    } else if (error instanceof ConnectionFailedError) {
+      errorMessage = `Failed to connect to ByteRover instance: ${error.message}`
+    } else if (error instanceof ConnectionError) {
+      errorMessage = `Connection error: ${error.message}`
+    } else if (error instanceof Error) {
+      errorMessage = error.message
+    }
+
+    this.outputJsonResult({message: errorMessage, status: 'error'})
+  }
+
+  /**
+   * Output JSON result for headless mode.
+   */
+  private outputJsonResult(result: CurateResult): void {
+    const response = {
+      command: 'curate',
+      data: result,
+      success: result.status !== 'error',
+      timestamp: new Date().toISOString(),
+    }
+
+    if (this.terminal instanceof HeadlessTerminal) {
+      this.terminal.writeFinalResponse(response)
+    } else {
+      this.terminal.log(JSON.stringify(response))
+    }
+  }
+
+  /**
+   * Wait for task completion in headless mode.
+   * Listens for task:completed or task:error events before returning.
+   */
+  private async waitForTaskCompletion(
+    client: ITransportClient,
+    taskId: string,
+    format: 'json' | 'text',
+  ): Promise<void> {
+    return new Promise((resolve, reject) => {
+      let completed = false
+      const operations: CurateOperation[] = []
+
+      const timeout = setTimeout(
+        () => {
+          if (!completed) {
+            completed = true
+            cleanup()
+            if (format === 'json') {
+              this.outputJsonResult({message: 'Task timed out after 5 minutes', status: 'error'})
+              resolve()
+            } else {
+              reject(new Error('Task timed out after 5 minutes'))
+            }
+          }
+        },
+        5 * 60 * 1000,
+      )
+
+      const unsubscribers = [
+        client.on<LlmToolResultEvent>('llmservice:toolResult', (payload) => {
+          if (payload.success && payload.toolName === ToolName.CURATE && payload.result) {
+            try {
+              const parsed = CurateResultSchema.parse(JSON.parse(payload.result as string))
+              for (const op of parsed.result?.applied ?? []) {
+                if (op.status === 'success') {
+                  operations.push(op)
+                }
+              }
+            } catch {
+              // Ignore parse errors
+            }
+          }
+        }),
+
+        client.on<TaskCompletedEvent>('task:completed', (payload) => {
+          if (payload.taskId === taskId && !completed) {
+            completed = true
+            cleanup()
+            if (format === 'json') {
+              this.outputJsonResult({
+                message: 'Context curated successfully',
+                operations: operations.length > 0 ? operations : undefined,
+                status: 'completed',
+                taskId,
+              })
+            } else {
+              for (const op of operations) {
+                this.terminal.log(`  ${op.type.toLowerCase()} ${op.filePath}`)
+              }
+
+              this.terminal.log('✓ Context curated successfully.')
+            }
+
+            resolve()
+          }
+        }),
+
+        client.on<TaskErrorEvent>('task:error', (payload) => {
+          if (payload.taskId === taskId && !completed) {
+            completed = true
+            cleanup()
+            if (format === 'json') {
+              this.outputJsonResult({message: payload.error.message, status: 'error'})
+              resolve()
+            } else {
+              reject(new Error(payload.error.message))
+            }
+          }
+        }),
+
+        () => clearTimeout(timeout),
+      ]
+
+      const cleanup = (): void => {
+        for (const unsub of unsubscribers) unsub()
+      }
+    })
   }
 }
