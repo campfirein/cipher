@@ -72,6 +72,8 @@ export class ChatSession implements IChatSession {
   private readonly llmService: ILLMService
   private readonly messageQueue: MessageQueueService
   private readonly sharedServices: CipherAgentServices
+  /** When true, strip taskId from forwarded events (subagent mode via emitTaskId: false) */
+  private suppressTaskIdForwarding: boolean = false
 
   /**
    * Creates a new chat session
@@ -226,6 +228,9 @@ export class ChatSession implements IChatSession {
 
     // Store taskId for event forwarding only if emitTaskId is true
     this.currentTaskId = emitTaskId ? taskId : undefined
+    // Suppress taskId in forwarded events for subagent sessions (prevents subagent
+    // events from appearing under the parent task in the TUI)
+    this.suppressTaskIdForwarding = !emitTaskId
     this.isExecuting = true
     sessionStatusManager.setBusy(this.id, this.eventBus)
 
@@ -261,6 +266,9 @@ export class ChatSession implements IChatSession {
       if (this.currentTaskId === taskId) {
         this.currentTaskId = undefined
       }
+
+      // Reset suppression flag
+      this.suppressTaskIdForwarding = false
 
       // Only mark idle if no active tasks
       if (this.activeControllers.size === 0) {
@@ -356,6 +364,7 @@ export class ChatSession implements IChatSession {
       await this.llmService.completeTask(finalInput, {
         executionContext: options?.executionContext,
         signal: controller.signal,
+        stream: true,
         taskId,
       })
     } catch (error_) {
@@ -407,9 +416,12 @@ export class ChatSession implements IChatSession {
       const forwarder = (payload?: unknown) => {
         // Add sessionId and taskId to payload
         const basePayload = payload && typeof payload === 'object' ? (payload as object) : {}
-        // Preserve taskId from payload if present, fallback to currentTaskId for backward compat
+        // When suppressTaskIdForwarding is true (subagent mode), strip taskId from
+        // forwarded events so they don't appear under the parent task in the TUI
         const payloadTaskId = (basePayload as {taskId?: string}).taskId
-        const effectiveTaskId = payloadTaskId ?? this.currentTaskId
+        const effectiveTaskId = this.suppressTaskIdForwarding
+          ? undefined
+          : (payloadTaskId ?? this.currentTaskId)
         const payloadWithSession = {
           ...basePayload,
           sessionId: this.id,

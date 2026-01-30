@@ -4,7 +4,9 @@ import {curateCommand} from './curate-command.js'
 import {initCommand} from './init-command.js'
 import {loginCommand} from './login-command.js'
 import {logoutCommand} from './logout-command.js'
+import {modelCommand} from './model-command.js'
 import {newCommand} from './new-command.js'
+import {providerCommand} from './provider-command.js'
 import {pullCommand} from './pull-command.js'
 import {pushCommand} from './push-command.js'
 import {queryCommand} from './query-command.js'
@@ -26,6 +28,10 @@ export const load: () => SlashCommand[] = () => [
 
   // Connectors management
   connectorsCommand, // Manage agent connectors (rules/hook)
+
+  // Provider management
+  providerCommand, // Connect to LLM providers
+  modelCommand, // Select model from provider
 
   // Sync operations
   pushCommand, // Push to cloud

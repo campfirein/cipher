@@ -15,6 +15,18 @@ import type {ExecutionContext} from './i-cipher-agent.js'
 import type {InternalMessage, ToolCall} from './message-types.js'
 
 /**
+ * Stream chunk type for distinguishing content types during streaming.
+ */
+export enum StreamChunkType {
+  /** Regular text content */
+  CONTENT = 'content',
+  /** Thinking/reasoning content from models like Gemini */
+  THINKING = 'thinking',
+  /** Tool call request */
+  TOOL_CALL = 'tool_call',
+}
+
+/**
  * Configuration for content generation.
  */
 export interface GenerationConfig {
@@ -81,8 +93,27 @@ export interface GenerateContentChunk {
   finishReason?: 'error' | 'max_tokens' | 'stop' | 'tool_calls'
   /** Whether this is the final chunk */
   isComplete: boolean
+  /** Provider-specific metadata */
+  providerMetadata?: Record<string, unknown>
+  /**
+   * Raw API chunk data for native reasoning extraction.
+   * Used by models that return reasoning in native fields (OpenAI, Grok, Gemini).
+   */
+  rawChunk?: unknown
+  /**
+   * Incremental reasoning/thinking content.
+   * For models that provide native reasoning fields (OpenAI o1/o3, Grok, Gemini).
+   */
+  reasoning?: string
+  /** Unique ID for the reasoning block (for tracking across deltas) */
+  reasoningId?: string
   /** Tool calls (only on final chunk or when complete) */
   toolCalls?: ToolCall[]
+  /**
+   * Type of this chunk for distinguishing content from thinking.
+   * Defaults to CONTENT if not specified.
+   */
+  type?: StreamChunkType
 }
 
 /**

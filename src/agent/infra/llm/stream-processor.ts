@@ -15,6 +15,7 @@ import type {StepTokenUsage} from '../../core/domain/agent-events/types.js'
 import type {
   CompactionPart,
   PatchPart,
+  ReasoningPart,
   RetryPart,
   SnapshotPart,
   StepFinishPart,
@@ -26,6 +27,7 @@ import type {SessionEventBus} from '../events/event-emitter.js'
 
 /**
  * Stream event types that the processor can handle.
+ * Following OpenCode's pattern with reasoning-start/delta/end lifecycle.
  */
 export type StreamEvent =
   | { callId: string; error: string; type: 'tool-call-error' }
@@ -34,8 +36,11 @@ export type StreamEvent =
   | { callId: string; toolName: string; type: 'tool-call-start' }
   | { callId: string; type: 'tool-call-running' }
   | { cost: number; finishReason: 'max_tokens' | 'stop' | 'tool_calls'; stepIndex: number; tokens: StepTokenUsage; type: 'step-finish' }
+  | { delta: string; id: string; providerMetadata?: Record<string, unknown>; type: 'reasoning-delta-v2' }
   | { delta: string; type: 'reasoning-delta' }
   | { delta: string; type: 'text-delta' }
+  | { id: string; providerMetadata?: Record<string, unknown>; type: 'reasoning-end' }
+  | { id: string; providerMetadata?: Record<string, unknown>; type: 'reasoning-start' }
   | { stepIndex: number; type: 'step-start' }
   | { type: 'finish' }
 
@@ -49,6 +54,8 @@ export interface ProcessorContext {
   generateId: () => string
   /** Session ID for event context */
   sessionId: string
+  /** Task ID for event routing (required for chunk events to reach TUI) */
+  taskId?: string
 }
 
 /**
@@ -58,7 +65,11 @@ export interface ProcessorState {
   /** Current step index */
   currentStepIndex: number
   /** Parts created during processing */
-  parts: Array<CompactionPart | PatchPart | RetryPart | SnapshotPart | StepFinishPart | StepStartPart | TextPart | ToolPart>
+  parts: Array<CompactionPart | PatchPart | ReasoningPart | RetryPart | SnapshotPart | StepFinishPart | StepStartPart | TextPart | ToolPart>
+  /** Accumulated reasoning content (for legacy reasoning-delta events) */
+  reasoningContent: string
+  /** Reasoning parts indexed by ID (for v2 reasoning events) */
+  reasoningParts: Map<string, ReasoningPart>
   /** Accumulated text content */
   textContent: string
   /** Tool parts indexed by call ID */
@@ -98,12 +109,27 @@ export class StreamProcessor {
     const state: ProcessorState = {
       currentStepIndex: 0,
       parts: [],
+      reasoningContent: '',
+      reasoningParts: new Map(),
       textContent: '',
       toolParts: new Map(),
     }
 
+    let receivedFinish = false
+
     for await (const event of stream) {
+      if (event.type === 'finish') {
+        receivedFinish = true
+      }
+
       await this.handleEvent(event, state, context)
+    }
+
+    // Safety net: if the stream ended without a 'finish' event (e.g., OpenRouter
+    // stream closed without setting finish_reason), finalize any pending text part
+    // so the TUI receives isComplete: true and stops showing a loading spinner.
+    if (!receivedFinish) {
+      this.finalizeTextPart(state, context)
     }
 
     return state
@@ -124,6 +150,7 @@ export class StreamProcessor {
       context.eventBus.emit('llmservice:chunk', {
         content: '',
         isComplete: true,
+        taskId: context.taskId,
         type: 'text',
       })
     }
@@ -141,11 +168,70 @@ export class StreamProcessor {
       }
 
       case 'reasoning-delta': {
-        // Emit reasoning chunk for UI streaming
+        // Legacy: Emit reasoning chunk for UI streaming (simple delta without ID tracking)
+        state.reasoningContent += event.delta
         context.eventBus.emit('llmservice:chunk', {
           content: event.delta,
+          taskId: context.taskId,
           type: 'reasoning',
         })
+        break
+      }
+
+      case 'reasoning-delta-v2': {
+        // V2: Emit reasoning chunk with ID tracking (following OpenCode pattern)
+        const reasoningPart = state.reasoningParts.get(event.id)
+        if (reasoningPart) {
+          reasoningPart.text += event.delta
+          if (event.providerMetadata) {
+            reasoningPart.providerMetadata = event.providerMetadata
+          }
+
+          context.eventBus.emit('llmservice:chunk', {
+            content: event.delta,
+            taskId: context.taskId,
+            type: 'reasoning',
+          })
+        }
+
+        break
+      }
+
+      case 'reasoning-end': {
+        // Finalize reasoning part with end timestamp
+        const reasoningPart = state.reasoningParts.get(event.id)
+        if (reasoningPart) {
+          reasoningPart.text = reasoningPart.text.trimEnd()
+          reasoningPart.time.end = Date.now()
+          if (event.providerMetadata) {
+            reasoningPart.providerMetadata = event.providerMetadata
+          }
+
+          // Emit completion signal
+          context.eventBus.emit('llmservice:chunk', {
+            content: '',
+            isComplete: true,
+            taskId: context.taskId,
+            type: 'reasoning',
+          })
+        }
+
+        break
+      }
+
+      case 'reasoning-start': {
+        // Create new reasoning part and track it
+        const reasoningPart: ReasoningPart = {
+          id: event.id,
+          providerMetadata: event.providerMetadata,
+          text: '',
+          time: {
+            start: Date.now(),
+          },
+          type: 'reasoning',
+        }
+        state.reasoningParts.set(event.id, reasoningPart)
+        state.parts.push(reasoningPart)
         break
       }
 
@@ -184,7 +270,7 @@ export class StreamProcessor {
       }
 
       case 'tool-call-input': {
-        this.handleToolCallInput(event.callId, event.input, state)
+        this.handleToolCallInput(event.callId, event.input, state, context)
         break
       }
 
@@ -262,6 +348,7 @@ export class StreamProcessor {
     // Emit chunk with delta for real-time UI update
     context.eventBus.emit('llmservice:chunk', {
       content: delta,
+      taskId: context.taskId,
       type: 'text',
     })
   }
@@ -307,13 +394,21 @@ export class StreamProcessor {
   /**
    * Handle tool call input received.
    */
-  private handleToolCallInput(callId: string, input: Record<string, unknown>, state: ProcessorState): void {
+  private handleToolCallInput(callId: string, input: Record<string, unknown>, state: ProcessorState, context: ProcessorContext): void {
     const toolPart = state.toolParts.get(callId)
     if (toolPart && toolPart.state.status === 'pending') {
       toolPart.state = {
         input,
         status: 'pending',
       }
+
+      // Emit updated tool call event with args so TUI can display them
+      context.eventBus.emit('llmservice:toolCall', {
+        args: input,
+        callId,
+        taskId: context.taskId,
+        toolName: toolPart.toolName,
+      })
     }
   }
 
@@ -352,10 +447,11 @@ export class StreamProcessor {
     state.toolParts.set(callId, toolPart)
     state.parts.push(toolPart)
 
-    // Emit tool call event
+    // Emit tool call event with taskId for TUI routing
     context.eventBus.emit('llmservice:toolCall', {
       args: {},
       callId,
+      taskId: context.taskId,
       toolName,
     })
   }

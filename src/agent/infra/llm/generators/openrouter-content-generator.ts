@@ -187,6 +187,7 @@ export class OpenRouterContentGenerator implements IContentGenerator {
    * Generate content with streaming.
    *
    * Uses OpenAI SDK's native streaming support for real-time content generation.
+   * Includes rawChunk for native reasoning extraction by the stream transformer.
    *
    * @param request - Generation request
    * @yields Content chunks as they are generated
@@ -241,10 +242,38 @@ export class OpenRouterContentGenerator implements IContentGenerator {
       const finishReason = this.determineFinishReason(choice.finish_reason, isComplete)
       const toolCalls = this.buildToolCallsArray(accumulatedToolCalls, isComplete)
 
+      // Extract native reasoning fields if present (for OpenAI o1/o3, Grok, Gemini)
+      // Different providers return reasoning differently:
+      // - OpenAI: delta.reasoning
+      // - Grok: delta.reasoning_content or delta.reasoning_details
+      // - Gemini via OpenRouter: delta.reasoning_details array with {type: 'reasoning.text', text: '...'}
+      // The rawChunk allows the stream transformer to extract reasoning using model-specific logic
+      const deltaAny = delta as Record<string, unknown>
+
+      // Check for standard reasoning fields first
+      let reasoning = (deltaAny.reasoning ?? deltaAny.reasoning_content ?? deltaAny.thoughts) as string | undefined
+
+      // Check for OpenRouter's reasoning_details array format (used for Gemini and some other models)
+      if (!reasoning && deltaAny.reasoning_details) {
+        const details = deltaAny.reasoning_details as Array<{text?: string; type?: string}>
+        if (Array.isArray(details)) {
+          const reasoningText = details
+            .filter((d) => d.type === 'reasoning.text' && d.text)
+            .map((d) => d.text)
+            .join('')
+          if (reasoningText) {
+            reasoning = reasoningText
+          }
+        }
+      }
+
       yield {
         content: delta.content ?? undefined,
         finishReason,
         isComplete,
+        rawChunk: chunk,
+        reasoning,
+        reasoningId: reasoning ? chunk.id : undefined,
         toolCalls,
       }
     }

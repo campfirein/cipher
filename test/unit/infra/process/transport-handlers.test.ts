@@ -289,7 +289,10 @@ describe('TransportHandlers', () => {
       ).to.be.true
     })
 
-    it('should clean up task from internal tracking after completion', () => {
+    it('should clean up task from internal tracking after completion', async () => {
+      // Use fake timers to control grace period
+      const clock: SinonFakeTimers = sandbox.useFakeTimers()
+
       const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
       registerAgentWithStatus('agent-001')
 
@@ -300,7 +303,13 @@ describe('TransportHandlers', () => {
       const completedHandler = requestHandlers.get(TransportTaskEventNames.COMPLETED)
       completedHandler!({result: 'Done', taskId}, 'agent-001')
 
-      // Try to send an LLM event for the completed task - should be dropped
+      // Advance past the 5-second grace period
+      await clock.tickAsync(5100)
+
+      // Reset call history to only capture new calls
+      ;(mockTransport.sendTo as SinonStub).resetHistory()
+
+      // Try to send an LLM event for the completed task - should be dropped after grace period
       const responseHandler = requestHandlers.get(LlmEventNames.RESPONSE)
       responseHandler!(
         {
@@ -311,7 +320,7 @@ describe('TransportHandlers', () => {
         'agent-001',
       )
 
-      // The LLM event should NOT be forwarded (task was cleaned up)
+      // The LLM event should NOT be forwarded (task was cleaned up after grace period)
       const sendToCalls = (mockTransport.sendTo as SinonStub).getCalls()
       const lateResponseCall = sendToCalls.find(
         (call) =>
@@ -320,6 +329,8 @@ describe('TransportHandlers', () => {
           call.args[2]?.content === 'Late response',
       )
       expect(lateResponseCall).to.be.undefined
+
+      clock.restore()
     })
   })
 
@@ -374,7 +385,10 @@ describe('TransportHandlers', () => {
       ).to.be.true
     })
 
-    it('should clean up task after error', () => {
+    it('should clean up task after error', async () => {
+      // Use fake timers to control grace period
+      const clock: SinonFakeTimers = sandbox.useFakeTimers()
+
       const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
       registerAgentWithStatus('agent-001')
 
@@ -384,15 +398,23 @@ describe('TransportHandlers', () => {
       const errorHandler = requestHandlers.get(TransportTaskEventNames.ERROR)
       errorHandler!({error: {message: 'Test', name: 'Error'}, taskId}, 'agent-001')
 
-      // Subsequent events should be dropped
+      // Advance past the 5-second grace period
+      await clock.tickAsync(5100)
+
+      // Reset call history to only capture new calls
+      ;(mockTransport.sendTo as SinonStub).resetHistory()
+
+      // Subsequent events should be dropped after grace period
       const responseHandler = requestHandlers.get(LlmEventNames.RESPONSE)
       responseHandler!({content: 'After error', sessionId: 's1', taskId}, 'agent-001')
 
-      // Should not forward after error cleanup
+      // Should not forward after error cleanup (grace period expired)
       const postErrorCalls = (mockTransport.sendTo as SinonStub)
         .getCalls()
         .filter((call) => call.args[2]?.content === 'After error')
       expect(postErrorCalls).to.have.length(0)
+
+      clock.restore()
     })
   })
 
@@ -817,7 +839,10 @@ describe('TransportHandlers', () => {
       expect(forwardCalls).to.have.length(0)
     })
 
-    it('should drop events for already completed tasks', () => {
+    it('should drop events for already completed tasks', async () => {
+      // Use fake timers to control grace period
+      const clock: SinonFakeTimers = sandbox.useFakeTimers()
+
       const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
       registerAgentWithStatus('agent-001')
 
@@ -827,16 +852,22 @@ describe('TransportHandlers', () => {
       // Complete the task
       const completedHandler = requestHandlers.get(TransportTaskEventNames.COMPLETED)
       completedHandler!({result: 'Done', taskId}, 'agent-001')
+
+      // Advance past the 5-second grace period
+      await clock.tickAsync(5100)
+
       ;(mockTransport.sendTo as SinonStub).resetHistory()
       ;(mockTransport.broadcastTo as SinonStub).resetHistory()
 
-      // Send late event
+      // Send late event after grace period
       const responseHandler = requestHandlers.get(LlmEventNames.RESPONSE)
       responseHandler!({content: 'Late event', sessionId: 's1', taskId}, 'agent-001')
 
-      // No LLM events should be forwarded
+      // No LLM events should be forwarded (grace period expired)
       expect((mockTransport.sendTo as SinonStub).called).to.be.false
       expect((mockTransport.broadcastTo as SinonStub).called).to.be.false
+
+      clock.restore()
     })
   })
 

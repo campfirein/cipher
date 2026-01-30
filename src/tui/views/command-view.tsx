@@ -343,6 +343,7 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
           setActivePrompt(null)
           const needReloadAuth = trimmed.startsWith('/login') || trimmed.startsWith('/logout')
           const needReloadBrvConfig = trimmed.startsWith('/space switch') || trimmed.startsWith('/init')
+          const needProviderReload = trimmed.startsWith('/provider') || trimmed.startsWith('/model')
           const needNewSession = trimmed.startsWith('/new')
 
           // Handle /new command - create new session and clear messages
@@ -366,7 +367,7 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
           }
 
           // Refresh state after commands that change auth or project state
-          if (needReloadAuth || needReloadBrvConfig) {
+          if (needReloadAuth || needReloadBrvConfig || needProviderReload) {
             clearTasks()
 
             if (needReloadAuth) await reloadAuth()
@@ -378,6 +379,8 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
                 '/init': 'Project initialized',
                 '/login': 'User logged in',
                 '/logout': 'User logged out',
+                '/model': 'Model changed',
+                '/provider': 'Provider changed',
                 '/space switch': 'Space switched',
               }
 

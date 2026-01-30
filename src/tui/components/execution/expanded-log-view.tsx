@@ -13,10 +13,10 @@ import type {ActivityLog} from '../../types.js'
 
 import {useTheme} from '../../hooks/index.js'
 import {formatTime} from '../../utils/index.js'
+import {StreamingText} from '../streaming-text.js'
 import {ExecutionChanges} from './execution-changes.js'
 import {ExecutionContent} from './execution-content.js'
 import {ExecutionProgress} from './execution-progress.js'
-import {ExecutionStatus} from './execution-status.js'
 
 interface ExpandedLogViewProps {
   /** Available height for the expanded view (in terminal rows) */
@@ -104,31 +104,44 @@ export const ExpandedLogView: React.FC<ExpandedLogViewProps> = ({
   const displayTime = formatTime(log.timestamp)
 
   return (
-    <Box flexDirection="column" height="100%" paddingX={2} width="100%">
+    <Box flexDirection="column" height="100%" paddingBottom={1} paddingX={2} width="100%">
       {/* Fixed Header */}
-      <Box>
-        <Text color={log.type === 'curate' ? colors.curateCommand : colors.queryCommand}>[{log.type}] </Text>
-        <Text color={colors.dimText}>@{log.source ?? 'system'}</Text>
-        <Text dimColor>  -  [ctrl+o/esc] close | [↑↓/jk] scroll | [g/G] top/bottom</Text>
+      <Box gap={1}>
+        <Text color={colors.primary}>• {log.type}</Text>
         <Spacer />
-        <Text color={colors.dimText}>[{displayTime}]</Text>
+        <Text color={colors.dimText}>{displayTime}</Text>
       </Box>
 
       {/* Scrollable content area */}
       <Box borderColor={colors.border} borderStyle="single" flexDirection="column" height={availableHeight - 1}>
-        <ScrollView height={availableHeight - 2} ref={scrollViewRef}>
+        <ScrollView height={availableHeight - 4} ref={scrollViewRef}>
           {/* Input */}
           <Box marginBottom={1} paddingX={1}>
             <Text>{log.input}</Text>
           </Box>
 
-          {/* Progress and Status */}
-          <Box flexDirection="column" paddingX={1}>
-            {log.progress && (
-              <ExecutionProgress isExpand maxLines={Number.MAX_SAFE_INTEGER} progress={log.progress} />
-            )}
-            <ExecutionStatus status={log.status} />
-          </Box>
+          {/* Progress */}
+          {(log.toolCalls || log.reasoningContents) && (
+            <Box paddingX={1}>
+              <ExecutionProgress
+                isExpanded
+                reasoningContents={log.reasoningContents}
+                toolCalls={log.toolCalls}
+              />
+            </Box>
+          )}
+
+          {/* Streaming Text Content - Show when available */}
+          {log.streamingContent && log.status === 'running' && (
+            <Box paddingX={1}>
+              <StreamingText
+                content={log.streamingContent}
+                isStreaming={Boolean(log.isStreaming)}
+                maxLines={0}
+                showCursor={Boolean(log.isStreaming)}
+              />
+            </Box>
+          )}
 
           {/* Content */}
           {(log.status === 'failed' || log.status === 'completed') && (
@@ -137,7 +150,7 @@ export const ExpandedLogView: React.FC<ExpandedLogViewProps> = ({
                 bottomMargin={0}
                 content={log.content ?? ''}
                 isError={log.status === 'failed'}
-                isExpand
+                isExpanded
                 maxLines={Number.MAX_SAFE_INTEGER}
               />
             </Box>
@@ -148,7 +161,7 @@ export const ExpandedLogView: React.FC<ExpandedLogViewProps> = ({
             <Box paddingX={1}>
               <ExecutionChanges
                 created={log.changes.created}
-                isExpand
+                isExpanded
                 maxChanges={{
                   created: Number.MAX_SAFE_INTEGER,
                   updated: Number.MAX_SAFE_INTEGER,
@@ -163,6 +176,10 @@ export const ExpandedLogView: React.FC<ExpandedLogViewProps> = ({
           <Text color={colors.dimText}>{hasMoreBelow ? '↓' : ' '}</Text>
         </Box>
       </Box>
+      <Box>
+        <Text color={colors.dimText}>[ctrl+o] to collapse</Text>
+      </Box>
     </Box>
   )
 }
+

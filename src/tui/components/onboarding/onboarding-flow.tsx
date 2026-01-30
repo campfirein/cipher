@@ -140,7 +140,16 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({availableHeight, 
     if (curateLog) {
       return (
         <Box flexDirection="column" width="100%">
-          <LogItem heights={{...messageItem, maxContentLines: maxOutputLines}} log={curateLog} />
+          <LogItem
+            heights={{
+              ...messageItem,
+              maxContentLines: maxOutputLines
+            }}
+            isExpand={false}
+            isSelected={true}
+            log={curateLog}
+            shouldShowExpand={false}
+          />
           {/* Waiting for Enter to continue */}
           {hasCurated && !curateAcknowledged && (
             <EnterPrompt
@@ -185,7 +194,16 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({availableHeight, 
     if (queryLog) {
       return (
         <Box flexDirection="column" width="100%">
-          <LogItem heights={{...messageItem, maxContentLines: maxOutputLines}} log={queryLog} />
+          <LogItem
+            heights={{
+              ...messageItem,
+              maxContentLines: maxOutputLines
+            }}
+            isExpand={false}
+            isSelected={true}
+            log={queryLog}
+            shouldShowExpand={false}
+          />
           {/* Waiting for Enter to continue */}
           {hasQueried && !queryAcknowledged && (
             <EnterPrompt
