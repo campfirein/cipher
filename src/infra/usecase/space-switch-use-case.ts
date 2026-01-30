@@ -97,7 +97,7 @@ export class SpaceSwitchUseCase implements ISpaceSwitchUseCase {
 
     // Fetch all teams
     this.terminal.actionStart('Fetching all teams')
-    const teamResult = await this.teamService.getTeams(token.accessToken, token.sessionKey, {fetchAll: true})
+    const teamResult = await this.teamService.getTeams(token.sessionKey, {fetchAll: true})
     this.terminal.actionStop()
 
     if (teamResult.teams.length === 0) {
@@ -112,7 +112,7 @@ export class SpaceSwitchUseCase implements ISpaceSwitchUseCase {
 
     // Fetch spaces for selected team
     this.terminal.actionStart('Fetching all spaces')
-    const spaceResult = await this.spaceService.getSpaces(token.accessToken, token.sessionKey, selectedTeam.id, {
+    const spaceResult = await this.spaceService.getSpaces(token.sessionKey, selectedTeam.id, {
       fetchAll: true,
     })
     this.terminal.actionStop()
