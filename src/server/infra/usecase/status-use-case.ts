@@ -1,10 +1,15 @@
+import {
+  type ConnectionResult,
+  connectToTransport,
+  InstanceCrashedError,
+  NoInstanceRunningError,
+} from '@campfirein/brv-transport-client'
 import chalk from 'chalk'
 import {join} from 'node:path'
 
 import type {ITokenStore} from '../../core/interfaces/auth/i-token-store.js'
 import type {IContextTreeService} from '../../core/interfaces/context-tree/i-context-tree-service.js'
 import type {IContextTreeSnapshotService} from '../../core/interfaces/context-tree/i-context-tree-snapshot-service.js'
-import type {IInstanceDiscovery} from '../../core/interfaces/instance/i-instance-discovery.js'
 import type {ITerminal} from '../../core/interfaces/services/i-terminal.js'
 import type {ITrackingService} from '../../core/interfaces/services/i-tracking-service.js'
 import type {IProjectConfigStore} from '../../core/interfaces/storage/i-project-config-store.js'
@@ -12,8 +17,10 @@ import type {IStatusUseCase} from '../../core/interfaces/usecase/i-status-use-ca
 
 import {BRV_DIR, CONTEXT_TREE_DIR} from '../../constants.js'
 import {getErrorMessage} from '../../utils/error-helpers.js'
-import {FileInstanceDiscovery} from '../instance/file-instance-discovery.js'
 import {HeadlessTerminal} from '../terminal/headless-terminal.js'
+
+/** Type for transport connection function (for DI/testing) */
+export type TransportConnector = (fromDir?: string) => Promise<ConnectionResult>
 
 /**
  * Structured status data for JSON output.
@@ -38,30 +45,31 @@ export interface StatusData {
 export interface StatusUseCaseOptions {
   contextTreeService: IContextTreeService
   contextTreeSnapshotService: IContextTreeSnapshotService
-  instanceDiscovery?: IInstanceDiscovery
   projectConfigStore: IProjectConfigStore
   terminal: ITerminal
   tokenStore: ITokenStore
   trackingService: ITrackingService
+  /** Optional transport connector for dependency injection (defaults to connectToTransport) */
+  transportConnector?: TransportConnector
 }
 
 export class StatusUseCase implements IStatusUseCase {
   private readonly contextTreeService: IContextTreeService
   private readonly contextTreeSnapshotService: IContextTreeSnapshotService
-  private readonly instanceDiscovery: IInstanceDiscovery
   private readonly projectConfigStore: IProjectConfigStore
   private readonly terminal: ITerminal
   private readonly tokenStore: ITokenStore
   private readonly trackingService: ITrackingService
+  private readonly transportConnector: TransportConnector
 
   constructor(options: StatusUseCaseOptions) {
     this.contextTreeService = options.contextTreeService
     this.contextTreeSnapshotService = options.contextTreeSnapshotService
-    this.instanceDiscovery = options.instanceDiscovery ?? new FileInstanceDiscovery()
     this.projectConfigStore = options.projectConfigStore
     this.terminal = options.terminal
     this.tokenStore = options.tokenStore
     this.trackingService = options.trackingService
+    this.transportConnector = options.transportConnector ?? connectToTransport
   }
 
   public async run(options: {cliVersion: string; format?: 'json' | 'text'}): Promise<void> {
@@ -79,53 +87,32 @@ export class StatusUseCase implements IStatusUseCase {
 
   /**
    * Checks the MCP connection status by:
-   * 1. Discovering running brv instance
-   * 2. Connecting to it via Socket.IO
-   * 3. Verifying bidirectional communication with ping
+   * 1. Discovering running brv instance and connecting via transport
+   * 2. Verifying bidirectional communication with ping
    */
   private async checkMcpStatus(): Promise<void> {
     try {
-      // Step 1: Discover running instance
-      const discoveryResult = await this.instanceDiscovery.discover(process.cwd())
-
-      if (!discoveryResult.found) {
-        if (discoveryResult.reason === 'instance_crashed') {
-          this.terminal.log(`MCP Status: ${chalk.red('Instance crashed')} (stale instance file found)`)
-        } else {
-          this.terminal.log(`MCP Status: ${chalk.yellow('No instance running')}`)
-        }
-
-        return
-      }
-
-      const {instance, projectRoot} = discoveryResult
-      this.terminal.log(`MCP Status: Instance found (PID: ${instance.pid}, Port: ${instance.port})`)
-
-      // Step 2: Connect to instance
-      const client = new SocketIOTransportClient()
-      const url = instance.getTransportUrl()
+      const {client, projectRoot} = await this.transportConnector(process.cwd())
 
       try {
-        await client.connect(url)
-      } catch (connectError) {
-        this.terminal.log(`MCP Status: ${chalk.red('Connection failed')} - ${getErrorMessage(connectError)}`)
-        return
+        const isResponsive = await client.isConnected(2000)
+
+        if (isResponsive) {
+          this.terminal.log(`MCP Status: ${chalk.green('Connected and responsive')} (${projectRoot})`)
+        } else {
+          this.terminal.log(`MCP Status: ${chalk.yellow('Connected but not responsive')} (ping timeout)`)
+        }
+      } finally {
+        await client.disconnect()
       }
-
-      // Step 3: Verify bidirectional communication with ping
-      const isResponsive = await client.isConnected(2000)
-
-      if (isResponsive) {
-        this.terminal.log(`MCP Status: ${chalk.green('Connected and responsive')} (${projectRoot})`)
-      } else {
-        this.terminal.log(`MCP Status: ${chalk.yellow('Connected but not responsive')} (ping timeout)`)
-      }
-
-      // Clean up
-      await client.disconnect()
     } catch (error) {
-      this.terminal.log(`MCP Status: ${chalk.red('Error checking status')}`)
-      this.terminal.warn(`Warning: ${getErrorMessage(error)}`)
+      if (error instanceof InstanceCrashedError) {
+        this.terminal.log(`MCP Status: ${chalk.red('Instance crashed')} (stale instance file found)`)
+      } else if (error instanceof NoInstanceRunningError) {
+        this.terminal.log(`MCP Status: ${chalk.yellow('No instance running')}`)
+      } else {
+        this.terminal.log(`MCP Status: ${chalk.red('Connection failed')} - ${getErrorMessage(error)}`)
+      }
     }
   }
 
@@ -134,25 +121,17 @@ export class StatusUseCase implements IStatusUseCase {
    */
   private async checkMcpStatusData(): Promise<StatusData['mcpStatus']> {
     try {
-      const discoveryResult = await this.instanceDiscovery.discover(process.cwd())
-
-      if (!discoveryResult.found) {
-        return discoveryResult.reason === 'instance_crashed' ? 'crashed' : 'no_instance'
-      }
-
-      const {instance} = discoveryResult
-      const client = new SocketIOTransportClient()
-      const url = instance.getTransportUrl()
+      const {client} = await this.transportConnector(process.cwd())
 
       try {
-        await client.connect(url)
         const isResponsive = await client.isConnected(2000)
-        await client.disconnect()
         return isResponsive ? 'connected' : 'not_responsive'
-      } catch {
-        return 'error'
+      } finally {
+        await client.disconnect()
       }
-    } catch {
+    } catch (error) {
+      if (error instanceof InstanceCrashedError) return 'crashed'
+      if (error instanceof NoInstanceRunningError) return 'no_instance'
       return 'error'
     }
   }

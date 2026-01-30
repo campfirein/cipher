@@ -183,7 +183,18 @@ class InlineTransportClient implements ITransportClient {
     return () => {}
   }
 
-  async request<TResponse = unknown, TRequest = unknown>(
+  request(event: string, data?: unknown): void
+  request<T = unknown>(event: string, data: unknown, ack: (response: T) => void): void
+  request<T = unknown>(event: string, data?: unknown, ack?: (response: T) => void): void {
+    const promise = this.requestWithAck(event, data)
+    if (ack) {
+      promise.then((response) => ack(response as T)).catch(() => {})
+    } else {
+      promise.catch(() => {})
+    }
+  }
+
+  async requestWithAck<TResponse = unknown, TRequest = unknown>(
     event: string,
     data?: TRequest,
     _options?: RequestOptions,

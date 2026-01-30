@@ -1,6 +1,6 @@
 import {expect} from 'chai'
 
-import {_resetCaches, isHeadlessLinux, isWsl, shouldUseFileTokenStore} from '../../../src/utils/environment-detector.js'
+import {_resetCaches, isHeadlessLinux, isWsl, shouldUseFileTokenStore} from '../../../src/server/utils/environment-detector.js'
 
 describe('environment-detector', () => {
   let originalEnv: NodeJS.ProcessEnv
