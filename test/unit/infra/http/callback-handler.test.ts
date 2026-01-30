@@ -1,6 +1,6 @@
 import {expect} from 'chai'
 
-import {CallbackHandler} from '../../../../src/infra/http/callback-handler.js'
+import {CallbackHandler} from '../../../../src/server/infra/http/callback-handler.js'
 
 describe('CallbackHandler', () => {
   let handler: CallbackHandler | undefined

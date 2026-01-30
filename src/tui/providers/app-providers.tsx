@@ -7,12 +7,12 @@
 
 import React from 'react'
 
-import type {AuthToken} from '../../core/domain/entities/auth-token.js'
-import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
-import type {IOnboardingPreferenceStore} from '../../core/interfaces/i-onboarding-preference-store.js'
-import type {IProjectConfigStore} from '../../core/interfaces/i-project-config-store.js'
-import type {ITokenStore} from '../../core/interfaces/i-token-store.js'
-import type {ITrackingService} from '../../core/interfaces/i-tracking-service.js'
+import type {AuthToken} from '../../server/core/domain/entities/auth-token.js'
+import type {BrvConfig} from '../../server/core/domain/entities/brv-config.js'
+import type {ITokenStore} from '../../server/core/interfaces/auth/i-token-store.js'
+import type {ITrackingService} from '../../server/core/interfaces/services/i-tracking-service.js'
+import type {IOnboardingPreferenceStore} from '../../server/core/interfaces/storage/i-onboarding-preference-store.js'
+import type {IProjectConfigStore} from '../../server/core/interfaces/storage/i-project-config-store.js'
 
 import {
   AuthProvider,

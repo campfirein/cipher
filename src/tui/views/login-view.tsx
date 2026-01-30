@@ -56,7 +56,7 @@ export const LoginView: React.FC = () => {
         clearTasks()
         await reloadAuth()
         if (client) {
-          await client.request('agent:restart', {reason: 'User logged in'})
+          await client.requestWithAck('agent:restart', {reason: 'User logged in'})
         }
       }} />}
     </Box>

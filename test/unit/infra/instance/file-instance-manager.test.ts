@@ -3,8 +3,8 @@ import {access, mkdir, readFile, rm, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
-import {BRV_DIR} from '../../../../src/constants.js'
-import {FileInstanceManager} from '../../../../src/infra/instance/file-instance-manager.js'
+import {BRV_DIR} from '../../../../src/server/constants.js'
+import {FileInstanceManager} from '../../../../src/server/infra/instance/file-instance-manager.js'
 
 describe('FileInstanceManager', () => {
   let testDir: string

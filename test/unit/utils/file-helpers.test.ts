@@ -4,7 +4,7 @@ import {mkdir, rm, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
-import {clearDirectory, listDirectoryChildren, sanitizeFolderName, toSnakeCase} from '../../../src/utils/file-helpers.js'
+import {clearDirectory, listDirectoryChildren, sanitizeFolderName, toSnakeCase} from '../../../src/server/utils/file-helpers.js'
 
 describe('file-helpers', () => {
   describe('clearDirectory()', () => {

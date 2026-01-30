@@ -3,12 +3,12 @@ import type {SinonStub} from 'sinon'
 import {expect} from 'chai'
 import {stub} from 'sinon'
 
-import type {IProjectConfigStore} from '../../../src/core/interfaces/i-project-config-store.js'
+import type {IProjectConfigStore} from '../../../src/server/core/interfaces/storage/i-project-config-store.js'
 
-import {BRV_CONFIG_VERSION} from '../../../src/constants.js'
-import {BrvConfig, BrvConfigParams} from '../../../src/core/domain/entities/brv-config.js'
-import {BrvConfigVersionError} from '../../../src/core/domain/errors/brv-config-version-error.js'
 import {SKIP_COMMANDS, validateBrvConfigVersion} from '../../../src/oclif/hooks/prerun/validate-brv-config-version.js'
+import {BRV_CONFIG_VERSION} from '../../../src/server/constants.js'
+import {BrvConfig, BrvConfigParams} from '../../../src/server/core/domain/entities/brv-config.js'
+import {BrvConfigVersionError} from '../../../src/server/core/domain/errors/brv-config-version-error.js'
 
 describe('validateBrvConfigVersion', () => {
   let errorStub: SinonStub

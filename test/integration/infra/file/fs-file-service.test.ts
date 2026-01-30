@@ -3,7 +3,7 @@ import {mkdir, readFile, rm, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
-import {FsFileService} from '../../../../src/infra/file/fs-file-service.js'
+import {FsFileService} from '../../../../src/server/infra/file/fs-file-service.js'
 
 describe('FsFileService', () => {
   let service: FsFileService

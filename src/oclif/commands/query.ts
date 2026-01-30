@@ -1,13 +1,13 @@
 import {Args, Command, Flags} from '@oclif/core'
 
-import {isDevelopment} from '../../config/environment.js'
-import {IQueryUseCase} from '../../core/interfaces/usecase/i-query-use-case.js'
-import {FileGlobalConfigStore} from '../../infra/storage/file-global-config-store.js'
-import {createTokenStore} from '../../infra/storage/token-store.js'
-import {HeadlessTerminal} from '../../infra/terminal/headless-terminal.js'
-import {OclifTerminal} from '../../infra/terminal/oclif-terminal.js'
-import {MixpanelTrackingService} from '../../infra/tracking/mixpanel-tracking-service.js'
-import {QueryUseCase} from '../../infra/usecase/query-use-case.js'
+import {isDevelopment} from '../../server/config/environment.js'
+import {IQueryUseCase} from '../../server/core/interfaces/usecase/i-query-use-case.js'
+import {FileGlobalConfigStore} from '../../server/infra/storage/file-global-config-store.js'
+import {createTokenStore} from '../../server/infra/storage/token-store.js'
+import {HeadlessTerminal} from '../../server/infra/terminal/headless-terminal.js'
+import {OclifTerminal} from '../../server/infra/terminal/oclif-terminal.js'
+import {MixpanelTrackingService} from '../../server/infra/tracking/mixpanel-tracking-service.js'
+import {QueryUseCase} from '../../server/infra/usecase/query-use-case.js'
 
 /** Parsed flags type */
 type QueryFlags = {

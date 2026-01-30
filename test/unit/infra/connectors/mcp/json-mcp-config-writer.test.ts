@@ -3,8 +3,8 @@ import {mkdir, rm, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
 
-import {JsonMcpConfigWriter} from '../../../../../src/infra/connectors/mcp/json-mcp-config-writer.js'
-import {FsFileService} from '../../../../../src/infra/file/fs-file-service.js'
+import {JsonMcpConfigWriter} from '../../../../../src/server/infra/connectors/mcp/json-mcp-config-writer.js'
+import {FsFileService} from '../../../../../src/server/infra/file/fs-file-service.js'
 
 describe('JsonMcpConfigWriter', () => {
   let testDir: string

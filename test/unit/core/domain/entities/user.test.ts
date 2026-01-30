@@ -1,6 +1,6 @@
 import {expect} from 'chai'
 
-import {User} from '../../../../../src/core/domain/entities/user.js'
+import {User} from '../../../../../src/server/core/domain/entities/user.js'
 
 describe('User', () => {
   describe('constructor', () => {

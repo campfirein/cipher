@@ -3,10 +3,10 @@ import {mkdir, rm, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
-import {BRV_DIR} from '../../../../src/constants.js'
-import {InstanceInfo} from '../../../../src/core/domain/instance/types.js'
-import {FileInstanceDiscovery} from '../../../../src/infra/instance/file-instance-discovery.js'
-import {FileInstanceManager} from '../../../../src/infra/instance/file-instance-manager.js'
+import {BRV_DIR} from '../../../../src/server/constants.js'
+import {InstanceInfo} from '../../../../src/server/core/domain/instance/types.js'
+import {FileInstanceDiscovery} from '../../../../src/server/infra/instance/file-instance-discovery.js'
+import {FileInstanceManager} from '../../../../src/server/infra/instance/file-instance-manager.js'
 
 describe('FileInstanceDiscovery', () => {
   let testDir: string
