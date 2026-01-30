@@ -75,7 +75,11 @@ export interface SessionLLMConfig {
 }
 
 // Re-export service types for convenience
-export type {CipherAgentServices, SessionManagerConfig, SessionServices} from '../../../core/interfaces/cipher/cipher-services.js'
+export type {
+  CipherAgentServices,
+  SessionManagerConfig,
+  SessionServices,
+} from '../../../core/interfaces/cipher/cipher-services.js'
 
 /**
  * Creates shared services for CipherAgent.
@@ -311,7 +315,6 @@ export function createSessionServices(
 
     // Step 1: Create HTTP service
     const httpService = new ByteRoverLlmHttpService({
-      accessToken: httpConfig.accessToken,
       apiBaseUrl: httpConfig.apiBaseUrl,
       projectId: httpConfig.projectId,
       region: httpConfig.region,

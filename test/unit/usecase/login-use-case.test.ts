@@ -124,7 +124,7 @@ describe('LoginUseCase', () => {
 
       // Verify user was fetched with correct credentials
       expect(userService.getCurrentUser.calledOnce).to.be.true
-      expect(userService.getCurrentUser.calledWith('access-token', 'session-key')).to.be.true
+      expect(userService.getCurrentUser.calledWith('session-key')).to.be.true
 
       // Verify complete token with user info was saved
       expect(tokenStore.save.calledOnce).to.be.true

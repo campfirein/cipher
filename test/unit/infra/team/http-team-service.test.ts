@@ -7,7 +7,6 @@ import {HttpTeamService} from '../../../../src/infra/team/http-team-service.js'
 
 describe('HttpTeamService', () => {
   const apiBaseUrl = 'https://api.example.com'
-  const accessToken = 'test-access-token'
   const sessionKey = 'test-session-key'
   let service: HttpTeamService
 
@@ -53,13 +52,9 @@ describe('HttpTeamService', () => {
         message: 'success',
       }
 
-      nock(apiBaseUrl)
-        .get('/teams')
-        .matchHeader('authorization', `Bearer ${accessToken}`)
-        .matchHeader('x-byterover-session-id', sessionKey)
-        .reply(200, mockResponse)
+      nock(apiBaseUrl).get('/teams').matchHeader('x-byterover-session-id', sessionKey).reply(200, mockResponse)
 
-      const result = await service.getTeams(accessToken, sessionKey)
+      const result = await service.getTeams(sessionKey)
 
       expect(result.teams).to.have.lengthOf(2)
       expect(result.total).to.equal(2)
@@ -91,13 +86,9 @@ describe('HttpTeamService', () => {
         message: 'success',
       }
 
-      nock(apiBaseUrl)
-        .get('/teams')
-        .matchHeader('authorization', `Bearer ${accessToken}`)
-        .matchHeader('x-byterover-session-id', sessionKey)
-        .reply(200, mockResponse)
+      nock(apiBaseUrl).get('/teams').matchHeader('x-byterover-session-id', sessionKey).reply(200, mockResponse)
 
-      const result = await service.getTeams(accessToken, sessionKey)
+      const result = await service.getTeams(sessionKey)
 
       expect(result.teams).to.have.lengthOf(0)
       expect(result.total).to.equal(0)
@@ -106,12 +97,11 @@ describe('HttpTeamService', () => {
     it('should throw error on HTTP 401 Unauthorized', async () => {
       nock(apiBaseUrl)
         .get('/teams')
-        .matchHeader('authorization', `Bearer ${accessToken}`)
         .matchHeader('x-byterover-session-id', sessionKey)
         .reply(401, {error: 'Unauthorized'})
 
       try {
-        await service.getTeams(accessToken, sessionKey)
+        await service.getTeams(sessionKey)
         expect.fail('Should have thrown an error')
       } catch (error) {
         expect(error).to.be.instanceOf(Error)
@@ -122,12 +112,11 @@ describe('HttpTeamService', () => {
     it('should throw error on HTTP 500 Internal Server Error', async () => {
       nock(apiBaseUrl)
         .get('/teams')
-        .matchHeader('authorization', `Bearer ${accessToken}`)
         .matchHeader('x-byterover-session-id', sessionKey)
         .reply(500, {error: 'Internal Server Error'})
 
       try {
-        await service.getTeams(accessToken, sessionKey)
+        await service.getTeams(sessionKey)
         expect.fail('Should have thrown an error')
       } catch (error) {
         expect(error).to.be.instanceOf(Error)
@@ -140,7 +129,7 @@ describe('HttpTeamService', () => {
       nock(apiBaseUrl).get('/teams').replyWithError('Network error')
 
       try {
-        await service.getTeams(accessToken, sessionKey)
+        await service.getTeams(sessionKey)
         expect.fail('Should have thrown an error')
       } catch (error) {
         expect(error).to.be.instanceOf(Error)
@@ -175,11 +164,10 @@ describe('HttpTeamService', () => {
         nock(apiBaseUrl)
           .get('/teams')
           .query({is_active: 'true'})
-          .matchHeader('authorization', `Bearer ${accessToken}`)
           .matchHeader('x-byterover-session-id', sessionKey)
           .reply(200, mockResponse)
 
-        const result = await service.getTeams(accessToken, sessionKey, {isActive: true})
+        const result = await service.getTeams(sessionKey, {isActive: true})
 
         expect(result.teams).to.have.lengthOf(1)
         expect(result.total).to.equal(1)
@@ -212,11 +200,10 @@ describe('HttpTeamService', () => {
         nock(apiBaseUrl)
           .get('/teams')
           .query({is_active: 'false'})
-          .matchHeader('authorization', `Bearer ${accessToken}`)
           .matchHeader('x-byterover-session-id', sessionKey)
           .reply(200, mockResponse)
 
-        const result = await service.getTeams(accessToken, sessionKey, {isActive: false})
+        const result = await service.getTeams(sessionKey, {isActive: false})
 
         expect(result.teams).to.have.lengthOf(1)
         expect(result.total).to.equal(1)
@@ -251,11 +238,10 @@ describe('HttpTeamService', () => {
         nock(apiBaseUrl)
           .get('/teams')
           .query({limit: '5'})
-          .matchHeader('authorization', `Bearer ${accessToken}`)
           .matchHeader('x-byterover-session-id', sessionKey)
           .reply(200, mockResponse)
 
-        const result = await service.getTeams(accessToken, sessionKey, {limit: 5})
+        const result = await service.getTeams(sessionKey, {limit: 5})
 
         expect(result.teams).to.have.lengthOf(1)
         expect(result.total).to.equal(10)
@@ -287,11 +273,10 @@ describe('HttpTeamService', () => {
         nock(apiBaseUrl)
           .get('/teams')
           .query({offset: '5'})
-          .matchHeader('authorization', `Bearer ${accessToken}`)
           .matchHeader('x-byterover-session-id', sessionKey)
           .reply(200, mockResponse)
 
-        const result = await service.getTeams(accessToken, sessionKey, {offset: 5})
+        const result = await service.getTeams(sessionKey, {offset: 5})
 
         expect(result.teams).to.have.lengthOf(1)
         expect(result.total).to.equal(10)
@@ -323,11 +308,10 @@ describe('HttpTeamService', () => {
         nock(apiBaseUrl)
           .get('/teams')
           .query({limit: '10', offset: '10'})
-          .matchHeader('authorization', `Bearer ${accessToken}`)
           .matchHeader('x-byterover-session-id', sessionKey)
           .reply(200, mockResponse)
 
-        const result = await service.getTeams(accessToken, sessionKey, {limit: 10, offset: 10})
+        const result = await service.getTeams(sessionKey, {limit: 10, offset: 10})
 
         expect(result.teams).to.have.lengthOf(1)
         expect(result.total).to.equal(50)
@@ -359,11 +343,10 @@ describe('HttpTeamService', () => {
         nock(apiBaseUrl)
           .get('/teams')
           .query({is_active: 'true', limit: '5'})
-          .matchHeader('authorization', `Bearer ${accessToken}`)
           .matchHeader('x-byterover-session-id', sessionKey)
           .reply(200, mockResponse)
 
-        const result = await service.getTeams(accessToken, sessionKey, {isActive: true, limit: 5})
+        const result = await service.getTeams(sessionKey, {isActive: true, limit: 5})
 
         expect(result.teams).to.have.lengthOf(1)
         expect(result.total).to.equal(8)
@@ -374,7 +357,6 @@ describe('HttpTeamService', () => {
         nock(apiBaseUrl)
           .get('/teams')
           .query({limit: '100', offset: '0'})
-          .matchHeader('authorization', `Bearer ${accessToken}`)
           .matchHeader('x-byterover-session-id', sessionKey)
           .reply(200, {
             code: 200,
@@ -401,7 +383,6 @@ describe('HttpTeamService', () => {
         nock(apiBaseUrl)
           .get('/teams')
           .query({limit: '100', offset: '100'})
-          .matchHeader('authorization', `Bearer ${accessToken}`)
           .matchHeader('x-byterover-session-id', sessionKey)
           .reply(200, {
             code: 200,
@@ -424,7 +405,7 @@ describe('HttpTeamService', () => {
             message: 'success',
           })
 
-        const result = await service.getTeams(accessToken, sessionKey, {fetchAll: true})
+        const result = await service.getTeams(sessionKey, {fetchAll: true})
 
         expect(result.teams).to.have.lengthOf(127)
         expect(result.total).to.equal(127)
@@ -437,7 +418,6 @@ describe('HttpTeamService', () => {
         nock(apiBaseUrl)
           .get('/teams')
           .query({limit: '100', offset: '0'})
-          .matchHeader('authorization', `Bearer ${accessToken}`)
           .matchHeader('x-byterover-session-id', sessionKey)
           .reply(200, {
             code: 200,
@@ -460,7 +440,7 @@ describe('HttpTeamService', () => {
             message: 'success',
           })
 
-        const result = await service.getTeams(accessToken, sessionKey, {fetchAll: true})
+        const result = await service.getTeams(sessionKey, {fetchAll: true})
 
         expect(result.teams).to.have.lengthOf(50)
         expect(result.total).to.equal(50)
@@ -470,7 +450,6 @@ describe('HttpTeamService', () => {
         nock(apiBaseUrl)
           .get('/teams')
           .query({is_active: 'true', limit: '100', offset: '0'})
-          .matchHeader('authorization', `Bearer ${accessToken}`)
           .matchHeader('x-byterover-session-id', sessionKey)
           .reply(200, {
             code: 200,
@@ -493,7 +472,7 @@ describe('HttpTeamService', () => {
             message: 'success',
           })
 
-        const result = await service.getTeams(accessToken, sessionKey, {fetchAll: true, isActive: true})
+        const result = await service.getTeams(sessionKey, {fetchAll: true, isActive: true})
 
         expect(result.teams).to.have.lengthOf(25)
         expect(result.total).to.equal(25)

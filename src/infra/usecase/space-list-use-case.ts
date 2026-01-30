@@ -56,7 +56,6 @@ export class SpaceListUseCase implements ISpaceListUseCase {
     // Fetch spaces for the team from project config
     this.terminal.actionStart(`Fetching spaces for ${projectConfig.teamName}`)
     const result = await this.spaceService.getSpaces(
-      token.accessToken,
       token.sessionKey,
       projectConfig.teamId,
       this.flags.all ? {fetchAll: true} : {limit: this.flags.limit, offset: this.flags.offset},

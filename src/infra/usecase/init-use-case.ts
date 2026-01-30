@@ -16,14 +16,26 @@ import type {ITeamService} from '../../core/interfaces/i-team-service.js'
 import type {ITerminal} from '../../core/interfaces/i-terminal.js'
 import type {ITokenStore} from '../../core/interfaces/i-token-store.js'
 import type {ITrackingService} from '../../core/interfaces/i-tracking-service.js'
-import type {IInitUseCase} from '../../core/interfaces/usecase/i-init-use-case.js'
+import type {IInitUseCase, InitUseCaseRunOptions} from '../../core/interfaces/usecase/i-init-use-case.js'
 
 import {getCurrentConfig} from '../../config/environment.js'
 import {ACE_DIR, BRV_CONFIG_VERSION, BRV_DIR, DEFAULT_BRANCH, PROJECT_CONFIG_FILE} from '../../constants.js'
 import {type Agent, AGENT_VALUES} from '../../core/domain/entities/agent.js'
 import {BrvConfig} from '../../core/domain/entities/brv-config.js'
 import {BrvConfigVersionError} from '../../core/domain/errors/brv-config-version-error.js'
+import {HeadlessTerminal} from '../terminal/headless-terminal.js'
 import {WorkspaceDetectorService} from '../workspace/workspace-detector-service.js'
+
+/**
+ * Structured init result for JSON output.
+ */
+export interface InitResult {
+  configPath?: string
+  error?: string
+  spaceName?: string
+  status: 'cancelled' | 'error' | 'success'
+  teamName?: string
+}
 
 /**
  * Represents a legacy config that exists but has version issues.
@@ -143,16 +155,26 @@ export class InitUseCase implements IInitUseCase {
     }
   }
 
-  protected async ensureAuthenticated(): Promise<AuthToken | undefined> {
+  protected async ensureAuthenticated(format: 'json' | 'text'): Promise<AuthToken | undefined> {
     const token = await this.tokenStore.load()
 
     if (token === undefined) {
-      this.terminal.log('Not authenticated. Please run "/login" first.')
+      if (format === 'json') {
+        this.outputJsonResult({error: 'Not authenticated. Run login first.', status: 'error'})
+      } else {
+        this.terminal.log('Not authenticated. Please run "/login" first.')
+      }
+
       return undefined
     }
 
     if (!token.isValid()) {
-      this.terminal.log('Authentication token expired. Please run "/login" again.')
+      if (format === 'json') {
+        this.outputJsonResult({error: 'Authentication token expired. Run login again.', status: 'error'})
+      } else {
+        this.terminal.log('Authentication token expired. Please run "/login" again.')
+      }
+
       return undefined
     }
 
@@ -161,7 +183,7 @@ export class InitUseCase implements IInitUseCase {
 
   protected async fetchAndSelectSpace(token: AuthToken, team: Team): Promise<Space | undefined> {
     this.terminal.actionStart('Fetching all spaces')
-    const {spaces} = await this.spaceService.getSpaces(token.accessToken, token.sessionKey, team.id, {fetchAll: true})
+    const {spaces} = await this.spaceService.getSpaces(token.sessionKey, team.id, {fetchAll: true})
     this.terminal.actionStop()
 
     if (spaces.length === 0) {
@@ -179,7 +201,7 @@ export class InitUseCase implements IInitUseCase {
 
   protected async fetchAndSelectTeam(token: AuthToken): Promise<Team | undefined> {
     this.terminal.actionStart('Fetching all teams')
-    const {teams} = await this.teamService.getTeams(token.accessToken, token.sessionKey, {fetchAll: true})
+    const {teams} = await this.teamService.getTeams(token.sessionKey, {fetchAll: true})
     this.terminal.actionStop()
 
     if (teams.length === 0) {
@@ -189,6 +211,99 @@ export class InitUseCase implements IInitUseCase {
 
     this.terminal.log()
     return this.promptForTeamSelection(teams)
+  }
+
+  /**
+   * Fetch space by ID or name for headless mode.
+   * First tries to match by ID, then by name (case-insensitive).
+   */
+  protected async fetchSpaceById(
+    token: AuthToken,
+    team: Team,
+    spaceIdOrName: string,
+    format: 'json' | 'text',
+  ): Promise<Space | undefined> {
+    this.terminal.actionStart('Fetching space')
+    try {
+      const {spaces} = await this.spaceService.getSpaces(token.sessionKey, team.id, {fetchAll: true})
+      this.terminal.actionStop()
+
+      // First try to find by ID
+      let space = spaces.find((s) => s.id === spaceIdOrName)
+
+      // If not found by ID, try to find by name (case-insensitive)
+      if (!space) {
+        space = spaces.find((s) => s.name.toLowerCase() === spaceIdOrName.toLowerCase())
+      }
+
+      if (!space) {
+        if (format === 'json') {
+          this.outputJsonResult({error: `Space "${spaceIdOrName}" not found in team "${team.name}"`, status: 'error'})
+        } else {
+          this.terminal.error(`Space "${spaceIdOrName}" not found in team "${team.name}"`)
+        }
+
+        return undefined
+      }
+
+      return space
+    } catch (error) {
+      this.terminal.actionStop()
+      const message = error instanceof Error ? error.message : 'Failed to fetch space'
+      if (format === 'json') {
+        this.outputJsonResult({error: message, status: 'error'})
+      } else {
+        this.terminal.error(message)
+      }
+
+      return undefined
+    }
+  }
+
+  /**
+   * Fetch team by ID or name for headless mode.
+   * First tries to match by ID, then by name (case-insensitive).
+   */
+  protected async fetchTeamById(
+    token: AuthToken,
+    teamIdOrName: string,
+    format: 'json' | 'text',
+  ): Promise<Team | undefined> {
+    this.terminal.actionStart('Fetching team')
+    try {
+      const {teams} = await this.teamService.getTeams(token.sessionKey, {fetchAll: true})
+      this.terminal.actionStop()
+
+      // First try to find by ID
+      let team = teams.find((t) => t.id === teamIdOrName)
+
+      // If not found by ID, try to find by name (case-insensitive)
+      if (!team) {
+        team = teams.find((t) => t.name.toLowerCase() === teamIdOrName.toLowerCase())
+      }
+
+      if (!team) {
+        if (format === 'json') {
+          this.outputJsonResult({error: `Team "${teamIdOrName}" not found`, status: 'error'})
+        } else {
+          this.terminal.error(`Team "${teamIdOrName}" not found`)
+        }
+
+        return undefined
+      }
+
+      return team
+    } catch (error) {
+      this.terminal.actionStop()
+      const message = error instanceof Error ? error.message : 'Failed to fetch team'
+      if (format === 'json') {
+        this.outputJsonResult({error: message, status: 'error'})
+      } else {
+        this.terminal.error(message)
+      }
+
+      return undefined
+    }
   }
 
   protected async getExistingConfig(): Promise<BrvConfig | LegacyProjectConfigInfo | undefined> {
@@ -352,40 +467,81 @@ export class InitUseCase implements IInitUseCase {
     await rm(acePath, {force: true, recursive: true})
   }
 
-  public async run(options: {force: boolean}): Promise<void> {
+  public async run(options: InitUseCaseRunOptions): Promise<void> {
+    const format = options.format ?? 'text'
+    const isHeadless = Boolean(options.teamId && options.spaceId)
+
     try {
       await this.trackingService.track('init', {status: 'started'})
-      const authToken = await this.ensureAuthenticated()
+      const authToken = await this.ensureAuthenticated(format)
       if (!authToken) return
 
       const existingConfig = await this.getExistingConfig()
       if (existingConfig) {
-        const shouldCleanup = options.force ? true : await this.confirmReInitialization(existingConfig)
+        // In headless mode with force, always cleanup
+        // In headless mode without force, fail
+        // In interactive mode, prompt for confirmation
+        if (isHeadless) {
+          if (options.force) {
+            await this.cleanupBeforeReInitialization()
+          } else {
+            if (format === 'json') {
+              this.outputJsonResult({
+                error: 'Project already initialized. Use --force to re-initialize.',
+                status: 'error',
+              })
+            } else {
+              this.terminal.error('Project already initialized. Use --force to re-initialize.')
+            }
 
-        if (shouldCleanup) {
-          await this.cleanupBeforeReInitialization()
-          this.terminal.log('\n')
+            return
+          }
         } else {
-          this.terminal.log('\nCancelled. Project configuration unchanged.')
-          return
+          const shouldCleanup = options.force ? true : await this.confirmReInitialization(existingConfig)
+
+          if (shouldCleanup) {
+            await this.cleanupBeforeReInitialization()
+            this.terminal.log('\n')
+          } else {
+            if (format === 'json') {
+              this.outputJsonResult({status: 'cancelled'})
+            } else {
+              this.terminal.log('\nCancelled. Project configuration unchanged.')
+            }
+
+            return
+          }
         }
       }
 
       this.terminal.log('Initializing ByteRover project...\n')
 
-      const selectedTeam = await this.fetchAndSelectTeam(authToken)
-      if (!selectedTeam) return
+      let selectedTeam: Team | undefined
+      let selectedSpace: Space | undefined
 
-      const selectedSpace = await this.fetchAndSelectSpace(authToken, selectedTeam)
-      if (!selectedSpace) return
+      if (isHeadless && options.teamId && options.spaceId) {
+        // Headless mode: fetch team and space by ID
+        selectedTeam = await this.fetchTeamById(authToken, options.teamId, format)
+        if (!selectedTeam) return
 
-      // Handle ACE deprecation - check for existing ACE folder and offer removal
-      const aceExists = await this.aceDirectoryExists()
-      if (aceExists) {
-        const shouldRemoveAce = await this.promptAceDeprecationRemoval()
-        if (shouldRemoveAce) {
-          await this.removeAceDirectory()
-          this.terminal.log('✓ ACE folder removed')
+        selectedSpace = await this.fetchSpaceById(authToken, selectedTeam, options.spaceId, format)
+        if (!selectedSpace) return
+      } else {
+        // Interactive mode: prompt for selection
+        selectedTeam = await this.fetchAndSelectTeam(authToken)
+        if (!selectedTeam) return
+
+        selectedSpace = await this.fetchAndSelectSpace(authToken, selectedTeam)
+        if (!selectedSpace) return
+
+        // Handle ACE deprecation - check for existing ACE folder and offer removal
+        const aceExists = await this.aceDirectoryExists()
+        if (aceExists) {
+          const shouldRemoveAce = await this.promptAceDeprecationRemoval()
+          if (shouldRemoveAce) {
+            await this.removeAceDirectory()
+            this.terminal.log('✓ ACE folder removed')
+          }
         }
       }
 
@@ -395,8 +551,11 @@ export class InitUseCase implements IInitUseCase {
         token: authToken,
       })
 
-      this.terminal.log()
-      const selectedAgent = await this.promptForAgentSelection()
+      let selectedAgent: Agent = 'Claude Code'
+      if (!isHeadless) {
+        this.terminal.log()
+        selectedAgent = await this.promptForAgentSelection()
+      }
 
       const {chatLogPath, cwd} = this.detectWorkspacesForAgent(selectedAgent)
       this.terminal.log(`✓ Detected workspace: ${cwd}`)
@@ -409,19 +568,35 @@ export class InitUseCase implements IInitUseCase {
       })
       await this.projectConfigStore.write(config)
 
-      this.terminal.log()
-      await this.installConnectorForAgent(selectedAgent)
+      if (!isHeadless) {
+        this.terminal.log()
+        await this.installConnectorForAgent(selectedAgent)
+      }
 
       await this.trackingService.track('space:init')
 
-      this.logSuccess(selectedSpace)
+      if (format === 'json') {
+        this.outputJsonResult({
+          configPath: join(process.cwd(), BRV_DIR, PROJECT_CONFIG_FILE),
+          spaceName: selectedSpace.getDisplayName(),
+          status: 'success',
+          teamName: selectedTeam.name,
+        })
+      } else {
+        this.logSuccess(selectedSpace)
+      }
+
       await this.trackingService.track('init', {status: 'finished'})
     } catch (error) {
       // Stop action if it's in progress
       this.terminal.actionStop()
-      const initErr = `Initialization failed: ${error instanceof Error ? error.message : 'Unknown error'}`
-      await this.trackingService.track('init', {message: initErr, status: 'error'})
-      this.terminal.error(initErr)
+      const initErr = error instanceof Error ? error.message : 'Unknown error'
+      await this.trackingService.track('init', {message: `Initialization failed: ${initErr}`, status: 'error'})
+      if (format === 'json') {
+        this.outputJsonResult({error: initErr, status: 'error'})
+      } else {
+        this.terminal.error(`Initialization failed: ${initErr}`)
+      }
     }
   }
 
@@ -433,7 +608,6 @@ export class InitUseCase implements IInitUseCase {
     this.terminal.actionStart('Syncing from ByteRover...')
     try {
       const coGitSnapshot = await this.cogitPullService.pull({
-        accessToken: params.token.accessToken,
         branch: DEFAULT_BRANCH,
         sessionKey: params.token.sessionKey,
         spaceId: params.projectConfig.spaceId,
@@ -474,5 +648,23 @@ export class InitUseCase implements IInitUseCase {
     this.terminal.log(
       "NOTE: It's recommended to add .brv/ to your .gitignore file since ByteRover already takes care of memory/context versioning for you.",
     )
+  }
+
+  /**
+   * Output JSON result for headless mode.
+   */
+  private outputJsonResult(result: InitResult): void {
+    const response = {
+      command: 'init',
+      data: result,
+      success: result.status === 'success',
+      timestamp: new Date().toISOString(),
+    }
+
+    if (this.terminal instanceof HeadlessTerminal) {
+      this.terminal.writeFinalResponse(response)
+    } else {
+      this.terminal.log(JSON.stringify(response))
+    }
   }
 }

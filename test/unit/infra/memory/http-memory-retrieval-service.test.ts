@@ -6,7 +6,6 @@ import {HttpMemoryRetrievalService} from '../../../../src/infra/memory/http-memo
 
 describe('HttpMemoryRetrievalService', () => {
   const apiBaseUrl = 'https://api.example.com'
-  const accessToken = 'test-access-token'
   const sessionKey = 'test-session-key'
   const spaceId = 'a0000000-b001-0000-0000-000000000000'
   const query = 'what is the best practices applied to this project?'
@@ -65,12 +64,10 @@ describe('HttpMemoryRetrievalService', () => {
           project_id: spaceId,
           query,
         })
-        .matchHeader('authorization', `Bearer ${accessToken}`)
         .matchHeader('x-byterover-session-id', sessionKey)
         .reply(200, mockResponse)
 
       const result = await service.retrieve({
-        accessToken,
         nodeKeys: ['path1', 'path2'],
         query,
         sessionKey,
@@ -144,12 +141,10 @@ describe('HttpMemoryRetrievalService', () => {
           project_id: spaceId,
           query,
         })
-        .matchHeader('authorization', `Bearer ${accessToken}`)
         .matchHeader('x-byterover-session-id', sessionKey)
         .reply(200, mockResponse)
 
       const result = await service.retrieve({
-        accessToken,
         query,
         sessionKey,
         spaceId,
@@ -204,12 +199,10 @@ describe('HttpMemoryRetrievalService', () => {
           project_id: spaceId,
           query,
         })
-        .matchHeader('authorization', `Bearer ${accessToken}`)
         .matchHeader('x-byterover-session-id', sessionKey)
         .reply(200, mockResponse)
 
       const result = await service.retrieve({
-        accessToken,
         query,
         sessionKey,
         spaceId,
@@ -231,12 +224,10 @@ describe('HttpMemoryRetrievalService', () => {
           project_id: spaceId,
           query,
         })
-        .matchHeader('authorization', `Bearer ${accessToken}`)
         .matchHeader('x-byterover-session-id', sessionKey)
         .reply(200, mockResponse)
 
       const result = await service.retrieve({
-        accessToken,
         query,
         sessionKey,
         spaceId,
@@ -281,12 +272,10 @@ describe('HttpMemoryRetrievalService', () => {
           project_id: spaceId,
           query,
         })
-        .matchHeader('authorization', `Bearer ${accessToken}`)
         .matchHeader('x-byterover-session-id', sessionKey)
         .reply(200, mockResponse)
 
       const result = await service.retrieve({
-        accessToken,
         query,
         sessionKey,
         spaceId,
@@ -337,12 +326,10 @@ describe('HttpMemoryRetrievalService', () => {
           project_id: spaceId,
           query,
         })
-        .matchHeader('authorization', `Bearer ${accessToken}`)
         .matchHeader('x-byterover-session-id', sessionKey)
         .reply(200, mockResponse)
 
       const result = await service.retrieve({
-        accessToken,
         query,
         sessionKey,
         spaceId,
@@ -377,7 +364,6 @@ describe('HttpMemoryRetrievalService', () => {
         .reply(200, mockResponse)
 
       await service.retrieve({
-        accessToken,
         query,
         sessionKey,
         spaceId,
@@ -402,7 +388,6 @@ describe('HttpMemoryRetrievalService', () => {
         .reply(200, mockResponse)
 
       await service.retrieve({
-        accessToken,
         nodeKeys: ['path1', 'path2', 'path3'],
         query,
         sessionKey,
@@ -428,7 +413,6 @@ describe('HttpMemoryRetrievalService', () => {
         .reply(200, mockResponse)
 
       await service.retrieve({
-        accessToken,
         query,
         sessionKey,
         spaceId,
@@ -441,13 +425,11 @@ describe('HttpMemoryRetrievalService', () => {
       nock(apiBaseUrl)
         .get('/retrieve')
         .query(true)
-        .matchHeader('authorization', `Bearer ${accessToken}`)
         .matchHeader('x-byterover-session-id', sessionKey)
         .reply(401, {error: 'Unauthorized'})
 
       try {
         await service.retrieve({
-          accessToken,
           query,
           sessionKey,
           spaceId,
@@ -464,13 +446,11 @@ describe('HttpMemoryRetrievalService', () => {
       nock(apiBaseUrl)
         .get('/retrieve')
         .query(true)
-        .matchHeader('authorization', `Bearer ${accessToken}`)
         .matchHeader('x-byterover-session-id', sessionKey)
         .reply(404, {error: 'Not found'})
 
       try {
         await service.retrieve({
-          accessToken,
           query,
           sessionKey,
           spaceId,
@@ -487,13 +467,11 @@ describe('HttpMemoryRetrievalService', () => {
       nock(apiBaseUrl)
         .get('/retrieve')
         .query(true)
-        .matchHeader('authorization', `Bearer ${accessToken}`)
         .matchHeader('x-byterover-session-id', sessionKey)
         .reply(500, {error: 'Internal Server Error'})
 
       try {
         await service.retrieve({
-          accessToken,
           query,
           sessionKey,
           spaceId,
@@ -511,7 +489,6 @@ describe('HttpMemoryRetrievalService', () => {
 
       try {
         await service.retrieve({
-          accessToken,
           query,
           sessionKey,
           spaceId,
@@ -531,7 +508,6 @@ describe('HttpMemoryRetrievalService', () => {
 
       try {
         await timeoutService.retrieve({
-          accessToken,
           query,
           sessionKey,
           spaceId,
