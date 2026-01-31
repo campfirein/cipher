@@ -13,7 +13,7 @@ import type {IQueryExecutor, QueryExecuteOptions} from '../../core/interfaces/ex
  * - Transport handles task lifecycle (task:started, task:completed, task:error)
  * - Executor focuses solely on query execution
  *
- * Uses search_knowledge as the primary tool for fast knowledge retrieval.
+ * Uses code_exec with tools.* SDK for programmatic search.
  */
 export class QueryExecutor implements IQueryExecutor {
   public async executeWithAgent(agent: ICipherAgent, options: QueryExecuteOptions): Promise<string> {
@@ -34,7 +34,7 @@ export class QueryExecutor implements IQueryExecutor {
   /**
    * Build a streamlined query prompt optimized for fast, accurate responses.
    *
-   * Uses search_knowledge as primary tool with optional read_file for details.
+   * Uses code_exec with tools.* SDK for programmatic search.
    * Designed to minimize iterations while maintaining answer quality.
    */
   private buildQueryPrompt(query: string): string {
@@ -44,16 +44,12 @@ ${query}
 ## Instructions
 
 Search the context tree (.brv/context-tree/) to answer this question.
-
-### Strategy
-1. Use \`search_knowledge\` with natural language to find relevant topics
-2. If excerpts provide sufficient context, answer immediately
-3. Only use \`read_file\` if you need full content from specific files
+Use \`code_exec\` to run a programmatic search with the \`tools.*\` SDK.
 
 ### Response Format
 - **Summary**: Direct answer (2-3 sentences)
 - **Details**: Key findings with explanations
 - **Sources**: File paths from .brv/context-tree/
-- **Gaps**: Note any aspects not covered in the knowledge base`
+- **Gaps**: Note any aspects not covered`
   }
 }

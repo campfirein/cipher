@@ -1,12 +1,12 @@
-import type {ToolExecutionContext, ToolSet} from '../../core/domain/tools/types.js'
-import type {ToolHookContext} from '../../core/interfaces/i-tool-plugin.js'
-import type {IToolProvider} from '../../core/interfaces/i-tool-provider.js'
-import type {IToolScheduler} from '../../core/interfaces/i-tool-scheduler.js'
-import type {ToolPluginManager} from './plugins/plugin-manager.js'
-import type {ToolMarker} from './tool-markers.js'
+import type { ToolExecutionContext, ToolSet } from '../../core/domain/tools/types.js'
+import type { ToolHookContext } from '../../core/interfaces/i-tool-plugin.js'
+import type { IToolProvider } from '../../core/interfaces/i-tool-provider.js'
+import type { IToolScheduler } from '../../core/interfaces/i-tool-scheduler.js'
+import type { ToolPluginManager } from './plugins/plugin-manager.js'
+import type { ToolMarker } from './tool-markers.js'
 
-import {getAgentRegistry} from '../../core/domain/agent/agent-registry.js'
-import {ToolError, ToolErrorType, ToolErrorUtils, type ToolExecutionResult} from '../../core/domain/tools/tool-error.js'
+import { getAgentRegistry } from '../../core/domain/agent/agent-registry.js'
+import { ToolError, ToolErrorType, ToolErrorUtils, type ToolExecutionResult } from '../../core/domain/tools/tool-error.js'
 
 /**
  * Tool Manager for CipherAgent
@@ -43,13 +43,12 @@ export class ToolManager {
     'curate',
   ] as const
   /**
-   * Read-only tools allowed for query operations
+   * Tools allowed for query operations - only code_exec for programmatic search
+   * All search operations (searchKnowledge, glob, grep, readFile) are available
+   * via tools.* SDK inside the sandbox
    */
   private static readonly QUERY_TOOL_NAMES = [
-    'read_file',
-    'grep_content',
-    'glob_files',
-    'search_knowledge',
+    'code_exec',
   ] as const
   private cacheValid: boolean = false
   private callIdCounter: number = 0
@@ -126,7 +125,7 @@ export class ToolManager {
           `Tool '${toolName}' not found`,
           ToolErrorType.TOOL_NOT_FOUND,
           toolName,
-          {context: {availableTools: this.getToolNames()}}
+          { context: { availableTools: this.getToolNames() } }
         )
       }
 
@@ -141,7 +140,7 @@ export class ToolManager {
               ToolErrorType.PERMISSION_DENIED,
               toolName
             ),
-            {durationMs: Date.now() - startTime}
+            { durationMs: Date.now() - startTime }
           )
           await this.pluginManager.triggerAfter(hookContext, args, errorResult)
 
@@ -154,15 +153,15 @@ export class ToolManager {
       // Execute tool via scheduler (with policy check) or directly via provider
       const result = this.scheduler
         ? await this.scheduler.execute(toolName, effectiveArgs, {
-            sessionId: sessionId ?? 'default',
-            taskId: effectiveContext.taskId,
-          })
+          sessionId: sessionId ?? 'default',
+          taskId: effectiveContext.taskId,
+        })
         : await this.toolProvider.executeTool(toolName, effectiveArgs, sessionId, effectiveContext)
 
       const durationMs = Date.now() - startTime
 
       // Create success result
-      const successResult = ToolErrorUtils.createSuccess(result, {durationMs})
+      const successResult = ToolErrorUtils.createSuccess(result, { durationMs })
 
       // Run after hooks
       if (this.pluginManager) {
@@ -177,7 +176,7 @@ export class ToolManager {
       const toolError = ToolErrorUtils.classify(error, toolName)
 
       // Create error result
-      const errorResult = ToolErrorUtils.createErrorResult(toolError, {durationMs})
+      const errorResult = ToolErrorUtils.createErrorResult(toolError, { durationMs })
 
       // Run after hooks even on error
       if (this.pluginManager) {

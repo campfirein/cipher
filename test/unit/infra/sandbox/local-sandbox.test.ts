@@ -47,17 +47,17 @@ describe('LocalSandbox', () => {
   })
 
   describe('Tools Injection', () => {
-    it('should make tools available in sandbox context', () => {
+    it('should make tools available in sandbox context', async () => {
       const localSandbox = new LocalSandbox({toolsSDK: mockToolsSDK as unknown as ToolsSDK})
-      const result = localSandbox.execute('typeof tools')
+      const result = await localSandbox.execute('typeof tools')
 
       expect(result.returnValue).to.equal('object')
       expect(result.stderr).to.equal('')
     })
 
-    it('should expose all tool methods', () => {
+    it('should expose all tool methods', async () => {
       const localSandbox = new LocalSandbox({toolsSDK: mockToolsSDK as unknown as ToolsSDK})
-      const result = localSandbox.execute(`
+      const result = await localSandbox.execute(`
         const methods = ['glob', 'grep', 'listDirectory', 'readFile', 'writeFile', 'searchKnowledge']
         methods.every(m => typeof tools[m] === 'function')
       `)
@@ -66,16 +66,16 @@ describe('LocalSandbox', () => {
       expect(result.stderr).to.equal('')
     })
 
-    it('should not have tools when not provided', () => {
+    it('should not have tools when not provided', async () => {
       const localSandbox = new LocalSandbox()
-      const result = localSandbox.execute('typeof tools')
+      const result = await localSandbox.execute('typeof tools')
 
       expect(result.returnValue).to.equal('undefined')
     })
   })
 
   describe('Async Execution with Tools', () => {
-    it('should execute async tool calls and return promise', async () => {
+    it('should execute async tool calls and await the promise', async () => {
       mockToolsSDK.glob.resolves({
         files: [{path: 'src/index.ts'}, {path: 'src/main.ts'}],
         totalFound: 2,
@@ -83,14 +83,10 @@ describe('LocalSandbox', () => {
       })
 
       const localSandbox = new LocalSandbox({toolsSDK: mockToolsSDK as unknown as ToolsSDK})
-      const result = localSandbox.execute(`tools.glob('**/*.ts')`)
+      const result = await localSandbox.execute(`tools.glob('**/*.ts')`)
 
-      // Result is a Promise
-      expect(result.returnValue).to.be.instanceOf(Promise)
-
-      // Await the promise to get actual result
-      const asyncResult = await (result.returnValue as Promise<unknown>)
-      expect(asyncResult).to.deep.equal({
+      // execute() now awaits Promises and returns the resolved value directly
+      expect(result.returnValue).to.deep.equal({
         files: [{path: 'src/index.ts'}, {path: 'src/main.ts'}],
         totalFound: 2,
         truncated: false,
@@ -105,10 +101,9 @@ describe('LocalSandbox', () => {
       })
 
       const localSandbox = new LocalSandbox({toolsSDK: mockToolsSDK as unknown as ToolsSDK})
-      const result = localSandbox.execute(`tools.readFile('/project/src/index.ts')`)
+      const result = await localSandbox.execute(`tools.readFile('/project/src/index.ts')`)
 
-      const asyncResult = await (result.returnValue as Promise<unknown>)
-      expect(asyncResult).to.deep.include({
+      expect(result.returnValue).to.deep.include({
         content: 'export const main = () => {}',
         exists: true,
       })
@@ -122,10 +117,9 @@ describe('LocalSandbox', () => {
       })
 
       const localSandbox = new LocalSandbox({toolsSDK: mockToolsSDK as unknown as ToolsSDK})
-      const result = localSandbox.execute(`tools.grep('function', { glob: '*.ts' })`)
+      const result = await localSandbox.execute(`tools.grep('function', { glob: '*.ts' })`)
 
-      const asyncResult = await (result.returnValue as Promise<unknown>)
-      expect(asyncResult).to.have.property('totalMatches', 1)
+      expect(result.returnValue).to.have.property('totalMatches', 1)
     })
 
     it('should execute tools.writeFile correctly', async () => {
@@ -135,10 +129,9 @@ describe('LocalSandbox', () => {
       })
 
       const localSandbox = new LocalSandbox({toolsSDK: mockToolsSDK as unknown as ToolsSDK})
-      const result = localSandbox.execute(`tools.writeFile('/project/output.txt', 'test content')`)
+      const result = await localSandbox.execute(`tools.writeFile('/project/output.txt', 'test content')`)
 
-      const asyncResult = await (result.returnValue as Promise<unknown>)
-      expect(asyncResult).to.deep.include({
+      expect(result.returnValue).to.deep.include({
         bytesWritten: 20,
       })
     })
@@ -151,17 +144,16 @@ describe('LocalSandbox', () => {
       })
 
       const localSandbox = new LocalSandbox({toolsSDK: mockToolsSDK as unknown as ToolsSDK})
-      const result = localSandbox.execute(`tools.searchKnowledge('authentication')`)
+      const result = await localSandbox.execute(`tools.searchKnowledge('authentication')`)
 
-      const asyncResult = await (result.returnValue as Promise<unknown>)
-      expect(asyncResult).to.have.property('totalFound', 1)
+      expect(result.returnValue).to.have.property('totalFound', 1)
     })
   })
 
   describe('Console Output Capture', () => {
-    it('should capture console.log output', () => {
+    it('should capture console.log output', async () => {
       const localSandbox = new LocalSandbox({toolsSDK: mockToolsSDK as unknown as ToolsSDK})
-      const result = localSandbox.execute(`
+      const result = await localSandbox.execute(`
         console.log('Hello')
         console.log('World')
         42
@@ -171,9 +163,9 @@ describe('LocalSandbox', () => {
       expect(result.returnValue).to.equal(42)
     })
 
-    it('should capture console.error in stderr', () => {
+    it('should capture console.error in stderr', async () => {
       const localSandbox = new LocalSandbox({toolsSDK: mockToolsSDK as unknown as ToolsSDK})
-      const result = localSandbox.execute(`
+      const result = await localSandbox.execute(`
         console.error('Error occurred')
         console.warn('Warning')
         'done'
@@ -185,20 +177,20 @@ describe('LocalSandbox', () => {
   })
 
   describe('Context State Persistence', () => {
-    it('should persist variables across executions', () => {
+    it('should persist variables across executions', async () => {
       const localSandbox = new LocalSandbox({toolsSDK: mockToolsSDK as unknown as ToolsSDK})
 
-      localSandbox.execute('var counter = 0')
-      localSandbox.execute('counter++')
-      const result = localSandbox.execute('counter')
+      await localSandbox.execute('var counter = 0')
+      await localSandbox.execute('counter++')
+      const result = await localSandbox.execute('counter')
 
       expect(result.returnValue).to.equal(1)
     })
 
-    it('should include user-defined variables in locals', () => {
+    it('should include user-defined variables in locals', async () => {
       const localSandbox = new LocalSandbox({toolsSDK: mockToolsSDK as unknown as ToolsSDK})
 
-      const result = localSandbox.execute(`
+      const result = await localSandbox.execute(`
         var myNumber = 42
         var myString = 'hello'
         var myArray = [1, 2, 3]
@@ -209,42 +201,42 @@ describe('LocalSandbox', () => {
       expect(result.locals).to.have.property('myArray').that.deep.equals([1, 2, 3])
     })
 
-    it('should not include tools in locals', () => {
+    it('should not include tools in locals', async () => {
       const localSandbox = new LocalSandbox({toolsSDK: mockToolsSDK as unknown as ToolsSDK})
 
-      const result = localSandbox.execute('var x = 1')
+      const result = await localSandbox.execute('var x = 1')
 
       expect(result.locals).to.not.have.property('tools')
     })
   })
 
   describe('TypeScript Support', () => {
-    it('should execute plain JavaScript without transpilation', () => {
+    it('should execute plain JavaScript without transpilation', async () => {
       const localSandbox = new LocalSandbox({toolsSDK: mockToolsSDK as unknown as ToolsSDK})
 
       // Plain JavaScript - no TypeScript patterns detected
-      const result = localSandbox.execute('1 + 2 + 3')
+      const result = await localSandbox.execute('1 + 2 + 3')
 
       expect(result.returnValue).to.equal(6)
       expect(result.stderr).to.equal('')
     })
 
-    it('should detect and attempt to transpile TypeScript patterns', () => {
+    it('should detect and attempt to transpile TypeScript patterns', async () => {
       const localSandbox = new LocalSandbox({toolsSDK: mockToolsSDK as unknown as ToolsSDK})
 
       // This contains TypeScript pattern (type annotation) which triggers transpilation
       // The transpilation itself works, but CJS format may have limitations in vm context
-      const result = localSandbox.execute('const x: number = 42', {language: 'javascript'})
+      const result = await localSandbox.execute('const x: number = 42', {language: 'javascript'})
 
       // When forced to JavaScript mode, type annotations cause syntax errors
       expect(result.stderr).to.include('SyntaxError')
     })
 
-    it('should handle simple arrow function with explicit language setting', () => {
+    it('should handle simple arrow function with explicit language setting', async () => {
       const localSandbox = new LocalSandbox({toolsSDK: mockToolsSDK as unknown as ToolsSDK})
 
       // Plain JavaScript arrow function
-      const result = localSandbox.execute('((x) => x * 2)(21)')
+      const result = await localSandbox.execute('((x) => x * 2)(21)')
 
       expect(result.returnValue).to.equal(42)
       expect(result.stderr).to.equal('')
@@ -252,33 +244,33 @@ describe('LocalSandbox', () => {
   })
 
   describe('Error Handling', () => {
-    it('should capture runtime errors in stderr', () => {
+    it('should capture runtime errors in stderr', async () => {
       const localSandbox = new LocalSandbox({toolsSDK: mockToolsSDK as unknown as ToolsSDK})
 
-      const result = localSandbox.execute('throw new Error("Test error")')
+      const result = await localSandbox.execute('throw new Error("Test error")')
 
       expect(result.stderr).to.include('Error: Test error')
     })
 
-    it('should capture reference errors', () => {
+    it('should capture reference errors', async () => {
       const localSandbox = new LocalSandbox({toolsSDK: mockToolsSDK as unknown as ToolsSDK})
 
-      const result = localSandbox.execute('undefinedVariable')
+      const result = await localSandbox.execute('undefinedVariable')
 
       expect(result.stderr).to.include('ReferenceError')
     })
 
-    it('should capture type errors', () => {
+    it('should capture type errors', async () => {
       const localSandbox = new LocalSandbox({toolsSDK: mockToolsSDK as unknown as ToolsSDK})
 
-      const result = localSandbox.execute('null.property')
+      const result = await localSandbox.execute('null.property')
 
       expect(result.stderr).to.include('TypeError')
     })
   })
 
   describe('Initial Context', () => {
-    it('should make initial context available', () => {
+    it('should make initial context available', async () => {
       const localSandbox = new LocalSandbox({
         initialContext: {
           config: {debug: true},
@@ -287,28 +279,28 @@ describe('LocalSandbox', () => {
         toolsSDK: mockToolsSDK as unknown as ToolsSDK,
       })
 
-      const result = localSandbox.execute('projectName + " - " + config.debug')
+      const result = await localSandbox.execute('projectName + " - " + config.debug')
 
       expect(result.returnValue).to.equal('MyProject - true')
     })
   })
 
   describe('updateContext', () => {
-    it('should allow updating context after creation', () => {
+    it('should allow updating context after creation', async () => {
       const localSandbox = new LocalSandbox({toolsSDK: mockToolsSDK as unknown as ToolsSDK})
 
       localSandbox.updateContext({newValue: 100})
-      const result = localSandbox.execute('newValue')
+      const result = await localSandbox.execute('newValue')
 
       expect(result.returnValue).to.equal(100)
     })
   })
 
   describe('Execution Time', () => {
-    it('should report execution time', () => {
+    it('should report execution time', async () => {
       const localSandbox = new LocalSandbox({toolsSDK: mockToolsSDK as unknown as ToolsSDK})
 
-      const result = localSandbox.execute('1 + 1')
+      const result = await localSandbox.execute('1 + 1')
 
       expect(result.executionTime).to.be.a('number')
       expect(result.executionTime).to.be.greaterThan(0)

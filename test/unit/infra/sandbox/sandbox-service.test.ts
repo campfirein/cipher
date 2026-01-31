@@ -198,12 +198,8 @@ describe('SandboxService', () => {
 
       const result = await service.executeCode('tools.searchKnowledge("test")', 'session1')
 
-      // Should return a promise
-      expect(result.returnValue).to.be.instanceOf(Promise)
-
-      // Resolve the promise
-      const searchResult = await (result.returnValue as Promise<unknown>)
-      expect(searchResult).to.have.property('totalFound')
+      // LocalSandbox.execute() now awaits Promises, so returnValue is the resolved result
+      expect(result.returnValue).to.have.property('totalFound')
     })
 
     it('should call the search service with correct parameters', async () => {
@@ -211,11 +207,10 @@ describe('SandboxService', () => {
       service.setFileSystem(mockFileSystem as unknown as IFileSystem)
       service.setSearchKnowledgeService(mockSearchKnowledgeService as ISearchKnowledgeService)
 
-      const result = await service.executeCode(
+      await service.executeCode(
         'tools.searchKnowledge("authentication", { limit: 5 })',
         'session1',
       )
-      await (result.returnValue as Promise<unknown>)
 
       expect(mockSearchKnowledgeService.search.calledOnce).to.be.true
       expect(mockSearchKnowledgeService.search.firstCall.args[0]).to.equal('authentication')

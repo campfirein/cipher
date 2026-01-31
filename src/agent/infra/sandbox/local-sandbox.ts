@@ -155,12 +155,13 @@ export class LocalSandbox {
 
   /**
    * Execute code in the sandbox.
+   * Supports both synchronous and asynchronous code execution.
    *
    * @param code - JavaScript or TypeScript code to execute
    * @param config - Execution configuration
    * @returns Execution result
    */
-  execute(code: string, config?: SandboxConfig): REPLResult {
+  async execute(code: string, config?: SandboxConfig): Promise<REPLResult> {
     this.outputBuffer = []
     this.errorBuffer = []
 
@@ -184,6 +185,30 @@ export class LocalSandbox {
         displayErrors: true,
         timeout,
       })
+
+      // If the return value is a Promise or thenable, await it with timeout
+      // Use duck-typing to handle Promises from vm context (which may have different constructor)
+      const isPromiseLike =
+        returnValue !== null &&
+        typeof returnValue === 'object' &&
+        typeof (returnValue as { then?: unknown }).then === 'function'
+
+      if (isPromiseLike) {
+        let timeoutId: ReturnType<typeof setTimeout> | undefined
+        try {
+          returnValue = await Promise.race([
+            returnValue as Promise<unknown>,
+            new Promise((_, reject) => {
+              timeoutId = setTimeout(() => reject(new Error('Async execution timeout')), timeout)
+            }),
+          ])
+        } finally {
+          // Always clear the timeout to prevent resource leaks
+          if (timeoutId !== undefined) {
+            clearTimeout(timeoutId)
+          }
+        }
+      }
     } catch (error) {
       const errorMessage = error instanceof Error ? `${error.name}: ${error.message}` : String(error)
       this.errorBuffer.push(errorMessage)
