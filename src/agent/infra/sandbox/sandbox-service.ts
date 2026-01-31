@@ -1,3 +1,4 @@
+import type { EnvironmentContext } from '../../core/domain/environment/types.js'
 import type { REPLResult, SandboxConfig } from '../../core/domain/sandbox/types.js'
 import type { IFileSystem } from '../../core/interfaces/i-file-system.js'
 import type { ISandboxService } from '../../core/interfaces/i-sandbox-service.js'
@@ -11,6 +12,8 @@ import { createToolsSDK } from './tools-sdk.js'
  * Manages sandbox instances tied to agent sessions.
  */
 export class SandboxService implements ISandboxService {
+  /** Environment context for sandbox injection */
+  private environmentContext?: EnvironmentContext
   /** File system service for Tools SDK */
   private fileSystem?: IFileSystem
   /** Map of agent sessionId to LocalSandbox instance */
@@ -56,6 +59,7 @@ export class SandboxService implements ISandboxService {
       }
 
       sandbox = new LocalSandbox({
+        environmentContext: this.environmentContext,
         initialContext,
         toolsSDK: this.toolsSDK,
       })
@@ -67,6 +71,18 @@ export class SandboxService implements ISandboxService {
     }
 
     return sandbox.execute(code, config)
+  }
+
+  /**
+   * Set the environment context for sandbox injection.
+   * When set, new sandboxes will have access to environment info via `env.*` properties.
+   *
+   * @param environmentContext - Environment context object
+   */
+  setEnvironmentContext(environmentContext: EnvironmentContext): void {
+    this.environmentContext = environmentContext
+    // Clear existing sandboxes so new ones get the updated environment
+    this.sandboxes.clear()
   }
 
   /**

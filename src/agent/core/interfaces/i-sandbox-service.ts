@@ -1,4 +1,5 @@
 import type { ISearchKnowledgeService } from '../../infra/sandbox/tools-sdk.js'
+import type { EnvironmentContext } from '../domain/environment/types.js'
 import type { REPLResult, SandboxConfig } from '../domain/sandbox/types.js'
 import type { IFileSystem } from './i-file-system.js'
 
@@ -28,6 +29,14 @@ export interface ISandboxService {
    * @returns Execution result with stdout, stderr, and locals
    */
   executeCode(code: string, sessionId: string, config?: SandboxConfig): Promise<REPLResult>
+
+  /**
+   * Set the environment context for sandbox injection.
+   * When set, sandboxes will have access to environment info via `env.*` properties.
+   *
+   * @param environmentContext - Environment context object
+   */
+  setEnvironmentContext?(environmentContext: EnvironmentContext): void
 
   /**
    * Set the file system service for Tools SDK injection.

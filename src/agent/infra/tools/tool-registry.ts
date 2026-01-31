@@ -1,3 +1,4 @@
+import type { EnvironmentContext } from '../../core/domain/environment/types.js'
 import type { KnownTool } from '../../core/domain/tools/constants.js'
 import type { Tool } from '../../core/domain/tools/types.js'
 import type { IFileSystem } from '../../core/interfaces/i-file-system.js'
@@ -42,6 +43,9 @@ import { ToolMarker } from './tool-markers.js'
  * Tools declare which services they need via requiredServices.
  */
 export interface ToolServices {
+  /** Environment context for sandbox injection */
+  environmentContext?: EnvironmentContext
+
   /** File system service for file operations */
   fileSystemService?: IFileSystem
 
@@ -158,7 +162,7 @@ export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
 
   [ToolName.CODE_EXEC]: {
     descriptionFile: 'code_exec',
-    factory({ fileSystemService, sandboxService }) {
+    factory({ environmentContext, fileSystemService, sandboxService }) {
       const sandbox = getRequiredService(sandboxService, 'sandboxService')
 
       // Inject file system service into sandbox for Tools SDK
@@ -170,6 +174,11 @@ export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
       if (fileSystemService && sandbox.setSearchKnowledgeService) {
         const searchKnowledgeService = createSearchKnowledgeService(fileSystemService)
         sandbox.setSearchKnowledgeService(searchKnowledgeService)
+      }
+
+      // Inject environment context into sandbox for env.* access
+      if (environmentContext && sandbox.setEnvironmentContext) {
+        sandbox.setEnvironmentContext(environmentContext)
       }
 
       return createCodeExecTool(sandbox)

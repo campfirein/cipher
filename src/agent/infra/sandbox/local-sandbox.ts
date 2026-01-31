@@ -1,9 +1,10 @@
 import vm from 'node:vm'
 
-import type {REPLResult, SandboxConfig} from '../../core/domain/sandbox/types.js'
-import type {ToolsSDK} from './tools-sdk.js'
+import type { EnvironmentContext } from '../../core/domain/environment/types.js'
+import type { REPLResult, SandboxConfig } from '../../core/domain/sandbox/types.js'
+import type { ToolsSDK } from './tools-sdk.js'
 
-import {ALLOWED_GLOBALS, ALLOWED_PACKAGES, DEFAULT_SANDBOX_TIMEOUT} from '../../core/domain/sandbox/constants.js'
+import { ALLOWED_GLOBALS, ALLOWED_PACKAGES, DEFAULT_SANDBOX_TIMEOUT } from '../../core/domain/sandbox/constants.js'
 
 type EsbuildModule = typeof import('esbuild')
 
@@ -11,6 +12,8 @@ type EsbuildModule = typeof import('esbuild')
  * Configuration options for LocalSandbox.
  */
 export interface LocalSandboxOptions {
+  /** Environment context for env.* properties */
+  environmentContext?: EnvironmentContext
   /** Initial context variables to inject */
   initialContext?: Record<string, unknown>
   /** Tools SDK for file system operations (injected as `tools` in context) */
@@ -100,7 +103,7 @@ export class LocalSandbox {
   private outputBuffer: string[] = []
 
   constructor(options: LocalSandboxOptions = {}) {
-    const {initialContext = {}, toolsSDK} = options
+    const { environmentContext, initialContext = {}, toolsSDK } = options
 
     // Create safe console that captures output
     const safeConsole = {
@@ -125,6 +128,19 @@ export class LocalSandbox {
     // Inject Tools SDK if provided (for file system operations)
     if (toolsSDK) {
       sandbox.tools = toolsSDK
+    }
+
+    // Inject environment context as `env` object if provided
+    if (environmentContext) {
+      sandbox.env = {
+        brvStructure: environmentContext.brvStructure,
+        fileTree: environmentContext.fileTree,
+        isGitRepository: environmentContext.isGitRepository,
+        nodeVersion: environmentContext.nodeVersion,
+        osVersion: environmentContext.osVersion,
+        platform: environmentContext.platform,
+        workingDirectory: environmentContext.workingDirectory,
+      }
     }
 
     // Add allowed built-in globals
@@ -177,7 +193,7 @@ export class LocalSandbox {
 
     // Extract current context state (excluding functions, built-ins, and injected services)
     const locals: Record<string, unknown> = {}
-    const excludedKeys = new Set(['context', 'packages', 'tools'])
+    const excludedKeys = new Set(['context', 'env', 'packages', 'tools'])
     for (const key of Object.keys(this.context)) {
       const isAllowedGlobal = (ALLOWED_GLOBALS as readonly string[]).includes(key)
       const isPackage = key in loadAllowedPackages()
@@ -209,7 +225,7 @@ export class LocalSandbox {
    * @returns Copy of current context
    */
   getContext(): Record<string, unknown> {
-    return {...this.context}
+    return { ...this.context }
   }
 
   /**
