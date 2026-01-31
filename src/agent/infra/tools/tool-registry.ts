@@ -1,40 +1,41 @@
-import type {KnownTool} from '../../core/domain/tools/constants.js'
-import type {Tool} from '../../core/domain/tools/types.js'
-import type {IFileSystem} from '../../core/interfaces/i-file-system.js'
-import type {IProcessService} from '../../core/interfaces/i-process-service.js'
-import type {ISandboxService} from '../../core/interfaces/i-sandbox-service.js'
-import type {ITodoStorage} from '../../core/interfaces/i-todo-storage.js'
-import type {MemoryManager} from '../memory/memory-manager.js'
-import type {SessionManager} from '../session/session-manager.js'
-import type {ToolProviderGetter} from './tool-provider-getter.js'
+import type { KnownTool } from '../../core/domain/tools/constants.js'
+import type { Tool } from '../../core/domain/tools/types.js'
+import type { IFileSystem } from '../../core/interfaces/i-file-system.js'
+import type { IProcessService } from '../../core/interfaces/i-process-service.js'
+import type { ISandboxService } from '../../core/interfaces/i-sandbox-service.js'
+import type { ITodoStorage } from '../../core/interfaces/i-todo-storage.js'
+import type { MemoryManager } from '../memory/memory-manager.js'
+import type { SessionManager } from '../session/session-manager.js'
+import type { ToolProviderGetter } from './tool-provider-getter.js'
 
-import {ToolName} from '../../core/domain/tools/constants.js'
-import {createBashExecTool} from './implementations/bash-exec-tool.js'
-import {createBashOutputTool} from './implementations/bash-output-tool.js'
-import {createBatchTool} from './implementations/batch-tool.js'
-import {createCodeExecTool} from './implementations/code-exec-tool.js'
-import {createCreateKnowledgeTopicTool} from './implementations/create-knowledge-topic-tool.js'
-import {createCurateTool} from './implementations/curate-tool.js'
-import {createDeleteMemoryTool} from './implementations/delete-memory-tool.js'
-import {createEditFileTool} from './implementations/edit-file-tool.js'
-import {createEditMemoryTool} from './implementations/edit-memory-tool.js'
+import { ToolName } from '../../core/domain/tools/constants.js'
+import { createBashExecTool } from './implementations/bash-exec-tool.js'
+import { createBashOutputTool } from './implementations/bash-output-tool.js'
+import { createBatchTool } from './implementations/batch-tool.js'
+import { createCodeExecTool } from './implementations/code-exec-tool.js'
+import { createCreateKnowledgeTopicTool } from './implementations/create-knowledge-topic-tool.js'
+import { createCurateTool } from './implementations/curate-tool.js'
+import { createDeleteMemoryTool } from './implementations/delete-memory-tool.js'
+import { createEditFileTool } from './implementations/edit-file-tool.js'
+import { createEditMemoryTool } from './implementations/edit-memory-tool.js'
 // import {createFindKnowledgeTopicsTool} from './implementations/find-knowledge-topics-tool.js'
-import {createGlobFilesTool} from './implementations/glob-files-tool.js'
-import {createGrepContentTool} from './implementations/grep-content-tool.js'
-import {createKillProcessTool} from './implementations/kill-process-tool.js'
-import {createListDirectoryTool} from './implementations/list-directory-tool.js'
-import {createListMemoriesTool} from './implementations/list-memories-tool.js'
-import {createReadFileTool} from './implementations/read-file-tool.js'
-import {createReadMemoryTool} from './implementations/read-memory-tool.js'
-import {createReadTodosTool} from './implementations/read-todos-tool.js'
-import {createSearchHistoryTool} from './implementations/search-history-tool.js'
-import {createSearchKnowledgeTool} from './implementations/search-knowledge-tool.js'
-import {createSpecAnalyzeTool} from './implementations/spec-analyze-tool.js'
-import {createTaskTool} from './implementations/task-tool.js'
-import {createWriteFileTool} from './implementations/write-file-tool.js'
-import {createWriteMemoryTool} from './implementations/write-memory-tool.js'
-import {createWriteTodosTool} from './implementations/write-todos-tool.js'
-import {ToolMarker} from './tool-markers.js'
+import { createGlobFilesTool } from './implementations/glob-files-tool.js'
+import { createGrepContentTool } from './implementations/grep-content-tool.js'
+import { createKillProcessTool } from './implementations/kill-process-tool.js'
+import { createListDirectoryTool } from './implementations/list-directory-tool.js'
+import { createListMemoriesTool } from './implementations/list-memories-tool.js'
+import { createReadFileTool } from './implementations/read-file-tool.js'
+import { createReadMemoryTool } from './implementations/read-memory-tool.js'
+import { createReadTodosTool } from './implementations/read-todos-tool.js'
+import { createSearchHistoryTool } from './implementations/search-history-tool.js'
+import { createSearchKnowledgeService } from './implementations/search-knowledge-service.js'
+import { createSearchKnowledgeTool } from './implementations/search-knowledge-tool.js'
+import { createSpecAnalyzeTool } from './implementations/spec-analyze-tool.js'
+import { createTaskTool } from './implementations/task-tool.js'
+import { createWriteFileTool } from './implementations/write-file-tool.js'
+import { createWriteMemoryTool } from './implementations/write-memory-tool.js'
+import { createWriteTodosTool } from './implementations/write-todos-tool.js'
+import { ToolMarker } from './tool-markers.js'
 
 /**
  * Service dependencies available to tools.
@@ -157,9 +158,24 @@ export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
 
   [ToolName.CODE_EXEC]: {
     descriptionFile: 'code_exec',
-    factory: (services) => createCodeExecTool(getRequiredService(services.sandboxService, 'sandboxService')),
+    factory({ fileSystemService, sandboxService }) {
+      const sandbox = getRequiredService(sandboxService, 'sandboxService')
+
+      // Inject file system service into sandbox for Tools SDK
+      if (fileSystemService && sandbox.setFileSystem) {
+        sandbox.setFileSystem(fileSystemService)
+      }
+
+      // Inject search knowledge service into sandbox for Tools SDK
+      if (fileSystemService && sandbox.setSearchKnowledgeService) {
+        const searchKnowledgeService = createSearchKnowledgeService(fileSystemService)
+        sandbox.setSearchKnowledgeService(searchKnowledgeService)
+      }
+
+      return createCodeExecTool(sandbox)
+    },
     markers: [ToolMarker.Execution],
-    requiredServices: ['sandboxService'],
+    requiredServices: ['sandboxService', 'fileSystemService'],
   },
 
   [ToolName.CREATE_KNOWLEDGE_TOPIC]: {

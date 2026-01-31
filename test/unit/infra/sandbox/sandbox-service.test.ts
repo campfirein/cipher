@@ -1,0 +1,343 @@
+/**
+ * SandboxService Unit Tests
+ *
+ * Tests the SandboxService class for managing sandbox instances per session.
+ *
+ * Key scenarios:
+ * - Session-based sandbox management
+ * - File system service injection via setFileSystem
+ * - Search knowledge service injection via setSearchKnowledgeService
+ * - Tools are available after services are set
+ * - Sandbox state isolation between sessions
+ */
+
+import {expect} from 'chai'
+import {createSandbox, type SinonSandbox, type SinonStub} from 'sinon'
+
+import type {IFileSystem} from '../../../../src/agent/core/interfaces/i-file-system.js'
+import type {ISearchKnowledgeService} from '../../../../src/agent/infra/sandbox/tools-sdk.js'
+
+import {SandboxService} from '../../../../src/agent/infra/sandbox/sandbox-service.js'
+
+describe('SandboxService', () => {
+  let sandbox: SinonSandbox
+  let mockFileSystem: {
+    editFile: SinonStub
+    globFiles: SinonStub
+    initialize: SinonStub
+    listDirectory: SinonStub
+    readFile: SinonStub
+    searchContent: SinonStub
+    writeFile: SinonStub
+  }
+  let mockSearchKnowledgeService: {
+    search: SinonStub
+  }
+
+  beforeEach(() => {
+    sandbox = createSandbox()
+
+    mockFileSystem = {
+      editFile: sandbox.stub(),
+      globFiles: sandbox.stub().resolves({files: [], totalFound: 0, truncated: false}),
+      initialize: sandbox.stub(),
+      listDirectory: sandbox.stub().resolves({files: [], tree: '', truncated: false}),
+      readFile: sandbox.stub().resolves({content: 'test', exists: true, path: '/test.ts'}),
+      searchContent: sandbox.stub().resolves({matches: [], totalMatches: 0, truncated: false}),
+      writeFile: sandbox.stub().resolves({bytesWritten: 4, path: '/test.txt'}),
+    }
+
+    mockSearchKnowledgeService = {
+      search: sandbox.stub().resolves({
+        message: 'Found 0 results',
+        results: [],
+        totalFound: 0,
+      }),
+    }
+  })
+
+  afterEach(() => {
+    sandbox.restore()
+  })
+
+  describe('Session Management', () => {
+    it('should create separate sandboxes for different sessions', async () => {
+      const service = new SandboxService()
+      service.setFileSystem(mockFileSystem as unknown as IFileSystem)
+
+      // Set variable in session 1
+      await service.executeCode('var sessionId = "session1"', 'session1')
+
+      // Set different variable in session 2
+      await service.executeCode('var sessionId = "session2"', 'session2')
+
+      // Verify each session has its own state
+      const result1 = await service.executeCode('sessionId', 'session1')
+      const result2 = await service.executeCode('sessionId', 'session2')
+
+      expect(result1.returnValue).to.equal('session1')
+      expect(result2.returnValue).to.equal('session2')
+    })
+
+    it('should persist state within the same session', async () => {
+      const service = new SandboxService()
+      service.setFileSystem(mockFileSystem as unknown as IFileSystem)
+
+      await service.executeCode('var counter = 0', 'session1')
+      await service.executeCode('counter++', 'session1')
+      await service.executeCode('counter++', 'session1')
+      const result = await service.executeCode('counter', 'session1')
+
+      expect(result.returnValue).to.equal(2)
+    })
+
+    it('should clear session state on clearSession', async () => {
+      const service = new SandboxService()
+      service.setFileSystem(mockFileSystem as unknown as IFileSystem)
+
+      await service.executeCode('var data = "important"', 'session1')
+      await service.clearSession('session1')
+
+      // New execution should not have the old variable
+      const result = await service.executeCode('typeof data', 'session1')
+      expect(result.returnValue).to.equal('undefined')
+    })
+
+    it('should clear all sessions on cleanup', async () => {
+      const service = new SandboxService()
+      service.setFileSystem(mockFileSystem as unknown as IFileSystem)
+
+      await service.executeCode('var x = 1', 'session1')
+      await service.executeCode('var y = 2', 'session2')
+
+      await service.cleanup()
+
+      // Both sessions should be fresh
+      const result1 = await service.executeCode('typeof x', 'session1')
+      const result2 = await service.executeCode('typeof y', 'session2')
+
+      expect(result1.returnValue).to.equal('undefined')
+      expect(result2.returnValue).to.equal('undefined')
+    })
+  })
+
+  describe('setFileSystem', () => {
+    it('should make tools available after setFileSystem is called', async () => {
+      const service = new SandboxService()
+      service.setFileSystem(mockFileSystem as unknown as IFileSystem)
+
+      const result = await service.executeCode('typeof tools', 'session1')
+
+      expect(result.returnValue).to.equal('object')
+    })
+
+    it('should have tools.glob available', async () => {
+      const service = new SandboxService()
+      service.setFileSystem(mockFileSystem as unknown as IFileSystem)
+
+      const result = await service.executeCode('typeof tools.glob', 'session1')
+
+      expect(result.returnValue).to.equal('function')
+    })
+
+    it('should have tools.readFile available', async () => {
+      const service = new SandboxService()
+      service.setFileSystem(mockFileSystem as unknown as IFileSystem)
+
+      const result = await service.executeCode('typeof tools.readFile', 'session1')
+
+      expect(result.returnValue).to.equal('function')
+    })
+
+    it('should have tools.writeFile available', async () => {
+      const service = new SandboxService()
+      service.setFileSystem(mockFileSystem as unknown as IFileSystem)
+
+      const result = await service.executeCode('typeof tools.writeFile', 'session1')
+
+      expect(result.returnValue).to.equal('function')
+    })
+
+    it('should have tools.grep available', async () => {
+      const service = new SandboxService()
+      service.setFileSystem(mockFileSystem as unknown as IFileSystem)
+
+      const result = await service.executeCode('typeof tools.grep', 'session1')
+
+      expect(result.returnValue).to.equal('function')
+    })
+
+    it('should have tools.listDirectory available', async () => {
+      const service = new SandboxService()
+      service.setFileSystem(mockFileSystem as unknown as IFileSystem)
+
+      const result = await service.executeCode('typeof tools.listDirectory', 'session1')
+
+      expect(result.returnValue).to.equal('function')
+    })
+
+    it('should clear existing sandboxes when setFileSystem is called', async () => {
+      const service = new SandboxService()
+      service.setFileSystem(mockFileSystem as unknown as IFileSystem)
+
+      await service.executeCode('var oldData = "exists"', 'session1')
+
+      // Setting file system again clears sandboxes
+      service.setFileSystem(mockFileSystem as unknown as IFileSystem)
+
+      const result = await service.executeCode('typeof oldData', 'session1')
+      expect(result.returnValue).to.equal('undefined')
+    })
+  })
+
+  describe('setSearchKnowledgeService', () => {
+    it('should make tools.searchKnowledge functional after service is set', async () => {
+      const service = new SandboxService()
+      service.setFileSystem(mockFileSystem as unknown as IFileSystem)
+      service.setSearchKnowledgeService(mockSearchKnowledgeService as ISearchKnowledgeService)
+
+      const result = await service.executeCode('tools.searchKnowledge("test")', 'session1')
+
+      // Should return a promise
+      expect(result.returnValue).to.be.instanceOf(Promise)
+
+      // Resolve the promise
+      const searchResult = await (result.returnValue as Promise<unknown>)
+      expect(searchResult).to.have.property('totalFound')
+    })
+
+    it('should call the search service with correct parameters', async () => {
+      const service = new SandboxService()
+      service.setFileSystem(mockFileSystem as unknown as IFileSystem)
+      service.setSearchKnowledgeService(mockSearchKnowledgeService as ISearchKnowledgeService)
+
+      const result = await service.executeCode(
+        'tools.searchKnowledge("authentication", { limit: 5 })',
+        'session1',
+      )
+      await (result.returnValue as Promise<unknown>)
+
+      expect(mockSearchKnowledgeService.search.calledOnce).to.be.true
+      expect(mockSearchKnowledgeService.search.firstCall.args[0]).to.equal('authentication')
+      expect(mockSearchKnowledgeService.search.firstCall.args[1]).to.deep.equal({limit: 5})
+    })
+  })
+
+  describe('Tools SDK Integration', () => {
+    it('should execute tools.glob and return results', async () => {
+      mockFileSystem.globFiles.resolves({
+        files: [{path: 'src/index.ts'}, {path: 'src/main.ts'}],
+        totalFound: 2,
+        truncated: false,
+      })
+
+      const service = new SandboxService()
+      service.setFileSystem(mockFileSystem as unknown as IFileSystem)
+
+      const result = await service.executeCode('tools.glob("**/*.ts")', 'session1')
+      const globResult = await (result.returnValue as Promise<unknown>)
+
+      expect(globResult).to.have.property('totalFound', 2)
+    })
+
+    it('should execute tools.readFile and return content', async () => {
+      mockFileSystem.readFile.resolves({
+        content: 'export const main = () => {}',
+        exists: true,
+        path: '/project/index.ts',
+      })
+
+      const service = new SandboxService()
+      service.setFileSystem(mockFileSystem as unknown as IFileSystem)
+
+      const result = await service.executeCode('tools.readFile("/project/index.ts")', 'session1')
+      const fileResult = await (result.returnValue as Promise<{content: string}>)
+
+      expect(fileResult.content).to.equal('export const main = () => {}')
+    })
+
+    it('should execute tools.writeFile and return result', async () => {
+      mockFileSystem.writeFile.resolves({
+        bytesWritten: 12,
+        path: '/output.txt',
+      })
+
+      const service = new SandboxService()
+      service.setFileSystem(mockFileSystem as unknown as IFileSystem)
+
+      const result = await service.executeCode(
+        'tools.writeFile("/output.txt", "test content")',
+        'session1',
+      )
+      const writeResult = await (result.returnValue as Promise<{bytesWritten: number}>)
+
+      expect(writeResult.bytesWritten).to.equal(12)
+    })
+
+    it('should execute tools.grep and return matches', async () => {
+      mockFileSystem.searchContent.resolves({
+        matches: [{file: 'src/index.ts', line: 10, text: 'function main()'}],
+        totalMatches: 1,
+        truncated: false,
+      })
+
+      const service = new SandboxService()
+      service.setFileSystem(mockFileSystem as unknown as IFileSystem)
+
+      const result = await service.executeCode('tools.grep("function")', 'session1')
+      const grepResult = await (result.returnValue as Promise<{totalMatches: number}>)
+
+      expect(grepResult.totalMatches).to.equal(1)
+    })
+  })
+
+  describe('Context Payload', () => {
+    it('should inject context payload into sandbox', async () => {
+      const service = new SandboxService()
+      service.setFileSystem(mockFileSystem as unknown as IFileSystem)
+
+      await service.executeCode('context.projectName', 'session1', {
+        contextPayload: {projectName: 'MyProject'},
+      })
+
+      const result = await service.executeCode('context.projectName', 'session1')
+      expect(result.returnValue).to.equal('MyProject')
+    })
+
+    it('should update context on subsequent calls', async () => {
+      const service = new SandboxService()
+      service.setFileSystem(mockFileSystem as unknown as IFileSystem)
+
+      await service.executeCode('context.version', 'session1', {
+        contextPayload: {version: '1.0'},
+      })
+
+      await service.executeCode('context.version', 'session1', {
+        contextPayload: {version: '2.0'},
+      })
+
+      const result = await service.executeCode('context.version', 'session1')
+      expect(result.returnValue).to.equal('2.0')
+    })
+  })
+
+  describe('Error Handling in Tools', () => {
+    it('should propagate errors from tool calls', async () => {
+      const error = new Error('File not found')
+      mockFileSystem.readFile.rejects(error)
+
+      const service = new SandboxService()
+      service.setFileSystem(mockFileSystem as unknown as IFileSystem)
+
+      const result = await service.executeCode('tools.readFile("/nonexistent.ts")', 'session1')
+
+      // The promise should reject
+      try {
+        await (result.returnValue as Promise<unknown>)
+        expect.fail('Should have thrown')
+      } catch (error_) {
+        expect((error_ as Error).message).to.equal('File not found')
+      }
+    })
+  })
+})

@@ -1,15 +1,24 @@
 import type { REPLResult, SandboxConfig } from '../../core/domain/sandbox/types.js'
+import type { IFileSystem } from '../../core/interfaces/i-file-system.js'
 import type { ISandboxService } from '../../core/interfaces/i-sandbox-service.js'
+import type { ISearchKnowledgeService, ToolsSDK } from './tools-sdk.js'
 
 import { LocalSandbox } from './local-sandbox.js'
+import { createToolsSDK } from './tools-sdk.js'
 
 /**
  * Sandbox service implementation.
  * Manages sandbox instances tied to agent sessions.
  */
 export class SandboxService implements ISandboxService {
+  /** File system service for Tools SDK */
+  private fileSystem?: IFileSystem
   /** Map of agent sessionId to LocalSandbox instance */
   private sandboxes = new Map<string, LocalSandbox>()
+  /** Search knowledge service for Tools SDK */
+  private searchKnowledgeService?: ISearchKnowledgeService
+  /** Cached Tools SDK instance (created when fileSystem is set) */
+  private toolsSDK?: ToolsSDK
 
   /**
    * Clean up all resources (called on agent shutdown).
@@ -46,7 +55,10 @@ export class SandboxService implements ISandboxService {
         initialContext.context = config.contextPayload
       }
 
-      sandbox = new LocalSandbox(initialContext)
+      sandbox = new LocalSandbox({
+        initialContext,
+        toolsSDK: this.toolsSDK,
+      })
       this.sandboxes.set(sessionId, sandbox)
     }
     else if (config?.contextPayload) {
@@ -55,5 +67,41 @@ export class SandboxService implements ISandboxService {
     }
 
     return sandbox.execute(code, config)
+  }
+
+  /**
+   * Set the file system service for Tools SDK injection.
+   * When set, new sandboxes will have access to file system operations via `tools.*` methods.
+   *
+   * @param fileSystem - File system service instance
+   */
+  setFileSystem(fileSystem: IFileSystem): void {
+    this.fileSystem = fileSystem
+    this.rebuildToolsSDK()
+  }
+
+  /**
+   * Set the search knowledge service for Tools SDK injection.
+   * When set, new sandboxes will have access to knowledge search via `tools.searchKnowledge()`.
+   *
+   * @param searchKnowledgeService - Search knowledge service instance
+   */
+  setSearchKnowledgeService(searchKnowledgeService: ISearchKnowledgeService): void {
+    this.searchKnowledgeService = searchKnowledgeService
+    this.rebuildToolsSDK()
+  }
+
+  /**
+   * Rebuild the Tools SDK instance when services change.
+   * Clears existing sandboxes so new ones get the updated SDK.
+   */
+  private rebuildToolsSDK(): void {
+    if (this.fileSystem) {
+      this.toolsSDK = createToolsSDK(this.fileSystem, this.searchKnowledgeService)
+      // Clear existing sandboxes so new ones get the updated tools SDK
+      // Note: This means existing sessions lose their state when services are updated
+      // This is acceptable since services are typically set once at startup
+      this.sandboxes.clear()
+    }
   }
 }

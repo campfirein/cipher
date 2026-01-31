@@ -1,10 +1,21 @@
 import vm from 'node:vm'
 
 import type {REPLResult, SandboxConfig} from '../../core/domain/sandbox/types.js'
+import type {ToolsSDK} from './tools-sdk.js'
 
 import {ALLOWED_GLOBALS, ALLOWED_PACKAGES, DEFAULT_SANDBOX_TIMEOUT} from '../../core/domain/sandbox/constants.js'
 
 type EsbuildModule = typeof import('esbuild')
+
+/**
+ * Configuration options for LocalSandbox.
+ */
+export interface LocalSandboxOptions {
+  /** Initial context variables to inject */
+  initialContext?: Record<string, unknown>
+  /** Tools SDK for file system operations (injected as `tools` in context) */
+  toolsSDK?: ToolsSDK
+}
 
 /**
  * Detect if code contains TypeScript-specific syntax.
@@ -88,7 +99,9 @@ export class LocalSandbox {
   private errorBuffer: string[] = []
   private outputBuffer: string[] = []
 
-  constructor(initialContext: Record<string, unknown> = {}) {
+  constructor(options: LocalSandboxOptions = {}) {
+    const {initialContext = {}, toolsSDK} = options
+
     // Create safe console that captures output
     const safeConsole = {
       debug: (...args: unknown[]) => this.outputBuffer.push(args.map(String).join(' ')),
@@ -107,6 +120,11 @@ export class LocalSandbox {
       packages, // Make packages available as `packages.lodash`, etc.
       ...packages, // Also spread at top level for convenience: `lodash`, `dateFns`, etc.
       ...initialContext,
+    }
+
+    // Inject Tools SDK if provided (for file system operations)
+    if (toolsSDK) {
+      sandbox.tools = toolsSDK
     }
 
     // Add allowed built-in globals
@@ -157,13 +175,15 @@ export class LocalSandbox {
 
     const executionTime = performance.now() - startTime
 
-    // Extract current context state (excluding functions and built-ins)
+    // Extract current context state (excluding functions, built-ins, and injected services)
     const locals: Record<string, unknown> = {}
+    const excludedKeys = new Set(['context', 'packages', 'tools'])
     for (const key of Object.keys(this.context)) {
       const isAllowedGlobal = (ALLOWED_GLOBALS as readonly string[]).includes(key)
-      const isPackage = key === 'packages' || key in loadAllowedPackages()
+      const isPackage = key in loadAllowedPackages()
+      const isExcluded = excludedKeys.has(key)
 
-      if (!isAllowedGlobal && !isPackage && typeof this.context[key] !== 'function') {
+      if (!isAllowedGlobal && !isPackage && !isExcluded && typeof this.context[key] !== 'function') {
         try {
           // Only include JSON-serializable values
           JSON.stringify(this.context[key])
