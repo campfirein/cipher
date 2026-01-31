@@ -156,7 +156,7 @@ export const CommandInput = () => {
               type: 'output',
             }
             const existingOutput = updated[lastIndex].output ?? []
-            updated[lastIndex] = {...updated[lastIndex], output: [...existingOutput, cancelMsg]}
+            updated[lastIndex] = {...updated[lastIndex], output: [...existingOutput, cancelMsg], timestamp: new Date()}
           }
 
           return updated
