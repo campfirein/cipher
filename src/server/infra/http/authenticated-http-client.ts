@@ -95,6 +95,32 @@ export class AuthenticatedHttpClient implements IHttpClient {
   }
 
   /**
+   * Performs an HTTP PUT request with authentication headers.
+   * @param url The URL to request
+   * @param data The data to send in the request body
+   * @param config Optional request configuration (headers, timeout)
+   * @returns A promise that resolves to the response data
+   * @throws Error if the request fails
+   */
+  public async put<TResponse, TData = unknown>(
+    url: string,
+    data?: TData,
+    config?: HttpRequestConfig,
+  ): Promise<TResponse> {
+    try {
+      const axiosConfig: AxiosRequestConfig = {
+        headers: this.buildHeaders(config?.headers),
+        timeout: config?.timeout,
+      }
+
+      const response = await axios.put<TResponse>(url, data, axiosConfig)
+      return response.data
+    } catch (error) {
+      throw this.handleError(error)
+    }
+  }
+
+  /**
    * Builds request headers by merging authentication headers with custom headers.
    * Custom headers take precedence over default headers.
    */

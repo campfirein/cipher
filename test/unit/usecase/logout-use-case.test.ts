@@ -4,7 +4,6 @@ import * as sinon from "sinon";
 import type {ITokenStore} from "../../../src/server/core/interfaces/auth/i-token-store.js";
 import type {ITerminal} from "../../../src/server/core/interfaces/services/i-terminal.js";
 import type {ITrackingService} from "../../../src/server/core/interfaces/services/i-tracking-service.js";
-import type {IOnboardingPreferenceStore} from "../../../src/server/core/interfaces/storage/i-onboarding-preference-store.js";
 
 import {AuthToken} from "../../../src/server/core/domain/entities/auth-token.js";
 import {LogoutUseCase, LogoutUseCaseDeps} from "../../../src/server/infra/usecase/logout-use-case.js";
@@ -47,7 +46,6 @@ const createMockToken = (): AuthToken =>
 describe("LogoutUseCase", () => {
   let errorMessages: string[];
   let logMessages: string[];
-  let onboardingPreferenceStore: sinon.SinonStubbedInstance<IOnboardingPreferenceStore>;
   let terminal: ITerminal;
   let tokenStore: sinon.SinonStubbedInstance<ITokenStore>;
   let trackingService: sinon.SinonStubbedInstance<ITrackingService>;
@@ -60,12 +58,6 @@ describe("LogoutUseCase", () => {
       error: (msg) => errorMessages.push(msg),
       log: (msg) => msg !== undefined && logMessages.push(msg),
     });
-
-    onboardingPreferenceStore = {
-      clear: sinon.stub<[], Promise<void>>().resolves(),
-      getLastDismissedAt: sinon.stub<[], Promise<number | undefined>>().resolves(),
-      setLastDismissedAt: sinon.stub<[number], Promise<void>>().resolves(),
-    };
 
     tokenStore = {
       clear: sinon.stub(),
@@ -85,7 +77,6 @@ describe("LogoutUseCase", () => {
   function createUseCase(mockConfirmResult = true): TestableLogoutUseCase {
     return new TestableLogoutUseCase({
       mockConfirmResult,
-      onboardingPreferenceStore,
       terminal,
       tokenStore,
       trackingService,

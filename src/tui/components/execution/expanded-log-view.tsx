@@ -104,7 +104,7 @@ export const ExpandedLogView: React.FC<ExpandedLogViewProps> = ({
   const displayTime = formatTime(log.timestamp)
 
   return (
-    <Box flexDirection="column" height="100%" paddingBottom={1} paddingX={2} width="100%">
+    <Box flexDirection="column" height="100%" paddingBottom={1} width="100%">
       {/* Fixed Header */}
       <Box gap={1}>
         <Text color={colors.primary}>• {log.type}</Text>

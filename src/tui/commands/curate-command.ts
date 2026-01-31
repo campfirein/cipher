@@ -1,5 +1,3 @@
-import {randomUUID} from 'node:crypto'
-
 import {isDevelopment} from '../../server/config/environment.js'
 import {FileGlobalConfigStore} from '../../server/infra/storage/file-global-config-store.js'
 import {createTokenStore} from '../../server/infra/storage/token-store.js'
@@ -56,12 +54,6 @@ export const curateCommand: SlashCommand = {
           context: contextText,
           files: files.length > 0 ? files : undefined,
           verbose: flags.verbose,
-        })
-
-        onMessage({
-          content: 'View in Activity tab.             [tab]',
-          id: randomUUID(),
-          type: 'output',
         })
       },
       type: 'streaming' as const,

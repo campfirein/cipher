@@ -152,15 +152,15 @@ export const Logo: React.FC<LogoProps> = ({compact, version}) => {
 
     return (
       <Box>
-        <Text color={colors.logoDecor}>{PAD_START}</Text>
+        <Text color={colors.primary}>{PAD_START}</Text>
         <Text>
-          <Text bold color={colors.logoBold}>
+          <Text bold color={colors.primary}>
             {MINI_LOGO}
           </Text>
-          {version && <Text color={colors.logoVersion}> v{version}</Text>}
-          {isLatestVersion && <Text color={colors.logoVersion}> (latest)</Text>}
+          {version && <Text color={colors.primary}> v{version}</Text>}
+          {isLatestVersion && <Text color={colors.primary}> (latest)</Text>}
         </Text>
-        <Text color={colors.logoDecor}>{padEnd}</Text>
+        <Text color={colors.primary}>{padEnd}</Text>
       </Box>
     )
   }
@@ -170,20 +170,20 @@ export const Logo: React.FC<LogoProps> = ({compact, version}) => {
     <Box flexDirection="column">
       {headerLine && (
         <Box>
-          <Text color={colors.logoDecor}>{headerLine.padStart}</Text>
+          <Text color={colors.primary}>{headerLine.padStart}</Text>
           <Text>
             <Text>{headerLine.brv}</Text>
             <Text>{headerLine.spaces}</Text>
-            <Text color={colors.logoVersion}>{headerLine.version}</Text>
+            <Text color={colors.primary}>{headerLine.version}</Text>
           </Text>
-          <Text color={colors.logoDecor}>{headerLine.padEnd}</Text>
+          <Text color={colors.primary}>{headerLine.padEnd}</Text>
         </Box>
       )}
       {logoLines.map((line, index) => (
         <Box key={index}>
-          <Text color={colors.logoDecor}>{line.padStart}</Text>
-          <Text color={colors.logoBold}>{line.content}</Text>
-          <Text color={colors.logoDecor}>{line.padEnd}</Text>
+          <Text color={colors.primary}>{line.padStart}</Text>
+          <Text color={colors.primary}>{line.content}</Text>
+          <Text color={colors.primary}>{line.padEnd}</Text>
         </Box>
       ))}
     </Box>
