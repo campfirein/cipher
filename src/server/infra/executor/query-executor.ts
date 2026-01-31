@@ -13,7 +13,7 @@ import type {IQueryExecutor, QueryExecuteOptions} from '../../core/interfaces/ex
  * - Transport handles task lifecycle (task:started, task:completed, task:error)
  * - Executor focuses solely on query execution
  *
- * Enhanced with multi-perspective search strategy for comprehensive results.
+ * Uses search_knowledge as the primary tool for fast knowledge retrieval.
  */
 export class QueryExecutor implements IQueryExecutor {
   public async executeWithAgent(agent: ICipherAgent, options: QueryExecuteOptions): Promise<string> {
@@ -32,62 +32,28 @@ export class QueryExecutor implements IQueryExecutor {
   }
 
   /**
-   * Build an enhanced query prompt with multi-perspective search instructions.
+   * Build a streamlined query prompt optimized for fast, accurate responses.
    *
-   * The prompt instructs the agent to:
-   * 1. Analyze the query to understand intent
-   * 2. Generate 2-3 search perspectives for comprehensive coverage
-   * 3. Execute searches using the task tool with explore subagents
-   * 4. Synthesize results into a cohesive answer with citations
+   * Uses search_knowledge as primary tool with optional read_file for details.
+   * Designed to minimize iterations while maintaining answer quality.
    */
   private buildQueryPrompt(query: string): string {
     return `## User Query
 ${query}
 
-## Query Processing Instructions
+## Instructions
 
-You are searching the context tree to answer the user's question. Follow this strategy for comprehensive results:
+Search the context tree (.brv/context-tree/) to answer this question.
 
-### Step 1: Query Analysis
-First, analyze the query:
-- What is the user trying to learn? (core intent)
-- What are the key concepts mentioned?
-- Is this a factual, analytical, or exploratory question?
-
-### Step 2: Multi-Perspective Search
-Generate 2-3 complementary search perspectives:
-
-1. **Direct Search**: Use exact terms from the query
-2. **Related Concepts**: Search for synonyms, related terms, technical jargon
-3. **Implementation Patterns**: Search for how things are used or implemented
-
-### Step 3: Execute Parallel Searches
-Use the \`task\` tool to spawn explore subagents for each perspective:
-- Each subagent focuses on ONE search angle
-- Use \`contextTreeOnly=true\` to search only the context tree
-- Provide clear, specific search instructions
-
-Example:
-\`\`\`
-task(
-  subagentType="explore",
-  description="Search [perspective]",
-  prompt="Search for [specific terms]. Look in .brv/context-tree/ for [what to find].",
-  contextTreeOnly=true
-)
-\`\`\`
-
-### Step 4: Synthesize Results
-After gathering information:
-1. Identify overlapping findings (likely most relevant)
-2. Combine unique insights from each perspective
-3. Provide a clear, organized answer
-4. Cite sources with file paths
+### Strategy
+1. Use \`search_knowledge\` with natural language to find relevant topics
+2. If excerpts provide sufficient context, answer immediately
+3. Only use \`read_file\` if you need full content from specific files
 
 ### Response Format
-- **Summary**: Brief answer (2-3 sentences)
-- **Details**: Expanded explanation with findings
-- **Sources**: File paths for referenced information
-- **Gaps**: Note any aspects that couldn't be answered`
+- **Summary**: Direct answer (2-3 sentences)
+- **Details**: Key findings with explanations
+- **Sources**: File paths from .brv/context-tree/
+- **Gaps**: Note any aspects not covered in the knowledge base`
   }
 }

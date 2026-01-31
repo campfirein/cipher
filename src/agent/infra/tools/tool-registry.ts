@@ -6,7 +6,6 @@ import type { IProcessService } from '../../core/interfaces/i-process-service.js
 import type { ISandboxService } from '../../core/interfaces/i-sandbox-service.js'
 import type { ITodoStorage } from '../../core/interfaces/i-todo-storage.js'
 import type { MemoryManager } from '../memory/memory-manager.js'
-import type { SessionManager } from '../session/session-manager.js'
 import type { ToolProviderGetter } from './tool-provider-getter.js'
 
 import { ToolName } from '../../core/domain/tools/constants.js'
@@ -32,7 +31,6 @@ import { createSearchHistoryTool } from './implementations/search-history-tool.j
 import { createSearchKnowledgeService } from './implementations/search-knowledge-service.js'
 import { createSearchKnowledgeTool } from './implementations/search-knowledge-tool.js'
 import { createSpecAnalyzeTool } from './implementations/spec-analyze-tool.js'
-import { createTaskTool } from './implementations/task-tool.js'
 import { createWriteFileTool } from './implementations/write-file-tool.js'
 import { createWriteMemoryTool } from './implementations/write-memory-tool.js'
 import { createWriteTodosTool } from './implementations/write-todos-tool.js'
@@ -48,13 +46,6 @@ export interface ToolServices {
 
   /** File system service for file operations */
   fileSystemService?: IFileSystem
-
-  /**
-   * Lazy getter for session manager (avoids circular dependency).
-   * SessionManager is created after ToolProvider, so we need a getter.
-   * Used by task tool for subagent delegation.
-   */
-  getSessionManager?: () => SessionManager | undefined
 
   /**
    * Lazy getter for tool provider (avoids circular dependency).
@@ -306,16 +297,6 @@ export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
     markers: [ToolMarker.ContextBuilding],
     outputGuidance: 'spec_analyze',
     requiredServices: [], // No services required (validates LLM-detected domains)
-  },
-
-  [ToolName.TASK]: {
-    descriptionFile: 'task',
-    factory: (services) =>
-      createTaskTool({
-        getSessionManager: getRequiredService(services.getSessionManager, 'getSessionManager'),
-      }),
-    markers: [ToolMarker.Execution, ToolMarker.Planning],
-    requiredServices: ['getSessionManager'],
   },
 
   [ToolName.WRITE_FILE]: {

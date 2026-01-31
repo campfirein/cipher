@@ -69,7 +69,7 @@ function extractTitle(content: string, fallbackTitle: string): string {
   return match ? match[1].trim() : fallbackTitle
 }
 
-function extractExcerpt(content: string, query: string, maxLength: number = 300): string {
+function extractExcerpt(content: string, query: string, maxLength: number = 800): string {
   const relationsMatch = /^## Relations\n([\S\s]*?)(?=\n## |\n# |$)/m.exec(content)
   let cleanContent = content
   if (relationsMatch) {

@@ -50,7 +50,6 @@ export class ToolManager {
     'grep_content',
     'glob_files',
     'search_knowledge',
-    'task',
   ] as const
   private cacheValid: boolean = false
   private callIdCounter: number = 0

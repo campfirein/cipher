@@ -1,9 +1,7 @@
-import {ToolName} from '../tools/constants.js'
 import {
   AgentInfo,
   AgentInfoSchema,
   DEFAULT_AGENT_PERMISSION,
-  READONLY_AGENT_PERMISSION,
 } from './agent-info.js'
 
 /**
@@ -13,65 +11,9 @@ import {
 export const AgentName = {
   /** Default primary agent with full capabilities */
   CIPHER: 'cipher',
-  /** Subagent for creating/updating knowledge topics */
-  CURATE: 'curate',
-  /** Subagent for context tree explore and knowledge discovery */
-  EXPLORE: 'explore',
-  /** Primary agent for orchestrating curation workflow */
-  PLAN: 'plan',
 } as const
 
 export type KnownAgent = (typeof AgentName)[keyof typeof AgentName]
-
-/**
- * Tools available to the Query subagent.
- * Read-only tools for context tree exploration.
- */
-const EXPLORE_AGENT_TOOLS: Record<string, boolean> = {
-  [ToolName.BASH_EXEC]: false,
-  [ToolName.CREATE_KNOWLEDGE_TOPIC]: false,
-  [ToolName.CURATE]: false,
-  [ToolName.EDIT_FILE]: false,
-  [ToolName.GLOB_FILES]: true,
-  [ToolName.GREP_CONTENT]: true,
-  [ToolName.LIST_DIRECTORY]: true,
-  [ToolName.READ_FILE]: true,
-  [ToolName.WRITE_FILE]: false,
-}
-
-/**
- * Tools available to the Curate subagent.
- * Context building and modification tools.
- */
-const CURATE_AGENT_TOOLS: Record<string, boolean> = {
-  [ToolName.BASH_EXEC]: false,
-  [ToolName.CURATE]: true,
-  [ToolName.EDIT_FILE]: false,
-  [ToolName.GLOB_FILES]: true,
-  [ToolName.GREP_CONTENT]: true,
-  [ToolName.LIST_DIRECTORY]: true,
-  [ToolName.READ_FILE]: true,
-  [ToolName.SPEC_ANALYZE]: true,
-  [ToolName.WRITE_FILE]: false,
-}
-
-/**
- * Tools available to the Plan agent.
- * Read-only tools plus TaskTool for delegation.
- */
-const PLAN_AGENT_TOOLS: Record<string, boolean> = {
-  // TaskTool for subagent delegation (will be added when registered)
-  task: true,
-  [ToolName.BASH_EXEC]: false,
-  [ToolName.CREATE_KNOWLEDGE_TOPIC]: false,
-  [ToolName.CURATE]: false,
-  [ToolName.EDIT_FILE]: false,
-  [ToolName.GLOB_FILES]: true,
-  [ToolName.GREP_CONTENT]: true,
-  [ToolName.LIST_DIRECTORY]: true,
-  [ToolName.READ_FILE]: true,
-  [ToolName.WRITE_FILE]: false,
-}
 
 /**
  * Built-in agent definitions.
@@ -80,10 +22,10 @@ const PLAN_AGENT_TOOLS: Record<string, boolean> = {
 const BUILT_IN_AGENTS: Record<KnownAgent, AgentInfo> = {
   /**
    * Cipher Agent - Default primary agent with full capabilities.
-   * Used for general-purpose tasks.
+   * Handles queries, curation, and all context tree operations directly.
    */
   [AgentName.CIPHER]: AgentInfoSchema.parse({
-    description: 'Default agent with full capabilities for general-purpose tasks.',
+    description: 'Default agent with full capabilities for context engineering tasks.',
     hidden: false,
     mode: 'primary',
     name: AgentName.CIPHER,
@@ -91,60 +33,6 @@ const BUILT_IN_AGENTS: Record<KnownAgent, AgentInfo> = {
     permission: DEFAULT_AGENT_PERMISSION,
     promptFile: 'system-prompt.yml',
     tools: {}, // All tools enabled by default
-  }),
-
-  /**
-   * Curate Agent - Subagent for creating/updating knowledge topics.
-   * Handles the actual context tree modification.
-   */
-  [AgentName.CURATE]: AgentInfoSchema.parse({
-    description:
-      'Agent for creating and updating knowledge topics in the context tree. Use this to curate context after gathering information.',
-    hidden: false,
-    mode: 'subagent',
-    name: AgentName.CURATE,
-    native: true,
-    permission: {
-      bash: {'*': 'deny'},
-      edit: 'deny', // Only uses curate tool, not general file editing
-    },
-    promptFile: 'curate.yml',
-    tools: CURATE_AGENT_TOOLS,
-  }),
-
-  /**
-   * Query Agent - Subagent for context tree retrieval.
-   * Specialized for searching and retrieving information from the context tree.
-   */
-  [AgentName.EXPLORE]: AgentInfoSchema.parse({
-    description:
-      'Specialized agent for context tree retrieval and knowledge discovery. Use this to search and retrieve relevant information from the context tree.',
-    hidden: false,
-    mode: 'subagent',
-    name: AgentName.EXPLORE,
-    native: true,
-    permission: {
-      bash: {'*': 'deny'},
-      edit: 'deny',
-    },
-    promptFile: 'explore.yml',
-    tools: EXPLORE_AGENT_TOOLS,
-  }),
-
-  /**
-   * Plan Agent - Primary agent for orchestrating curation workflow.
-   * Uses TaskTool to delegate to Query and Curate subagents.
-   */
-  [AgentName.PLAN]: AgentInfoSchema.parse({
-    description:
-      'Planning agent that orchestrates context exploration and curation. Analyzes requests and delegates to explore and curate subagents.',
-    hidden: false,
-    mode: 'primary',
-    name: AgentName.PLAN,
-    native: true,
-    permission: READONLY_AGENT_PERMISSION,
-    promptFile: 'plan.yml',
-    tools: PLAN_AGENT_TOOLS,
   }),
 }
 
