@@ -9,6 +9,7 @@ import React, {createContext, useCallback, useContext, useEffect, useMemo, useSt
 
 import type {AuthToken} from '../../server/core/domain/entities/auth-token.js'
 import type {BrvConfig} from '../../server/core/domain/entities/brv-config.js'
+import type {User} from '../../server/core/domain/entities/user.js'
 import type {ITerminal} from '../../server/core/interfaces/services/i-terminal.js'
 import type {AuthState} from '../types.js'
 
@@ -29,19 +30,21 @@ export interface AuthContextValue {
   // State
   authToken: AuthToken | undefined
   brvConfig: BrvConfig | undefined
+  isAuthorized: boolean
   isInitialConfigLoaded: boolean
+  isLoadingUser: boolean
   isLoggingIn: boolean
-  loginOutput: string[]
+  // Actions
+  login: () => void
 
   // Computed
   // eslint-disable-next-line perfectionist/sort-interfaces
   authState: AuthState
-  isAuthorized: boolean
+  loginOutput: string[]
 
-  // Actions
-  login: () => void
   reloadAuth: () => Promise<void>
   reloadBrvConfig: () => Promise<void>
+  user: undefined | User
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
@@ -96,10 +99,27 @@ export function AuthProvider({children, initialAuthToken, initialBrvConfig}: Aut
   const [isLoggingIn, setIsLoggingIn] = useState(false)
   const [loginOutput, setLoginOutput] = useState<string[]>([])
   const [isInitialConfigLoaded, setIsInitialConfigLoaded] = useState(false)
+  const [user, setUser] = useState<undefined | User>()
+  const [isLoadingUser, setIsLoadingUser] = useState(true)
 
   // Computed
   const authState: AuthState = authToken?.isValid() ? 'authorized' : 'unauthorized'
   const isAuthorized = authState === 'authorized'
+
+  // Fetch current user from API
+  const fetchCurrentUser = useCallback(async (sessionKey: string) => {
+    setIsLoadingUser(true)
+    try {
+      const config = getCurrentConfig()
+      const userService = new HttpUserService({apiBaseUrl: config.apiBaseUrl})
+      const currentUser = await userService.getCurrentUser(sessionKey)
+      setUser(currentUser)
+    } catch {
+      setUser(undefined)
+    } finally {
+      setIsLoadingUser(false)
+    }
+  }, [])
 
   // Reload auth state (after login or logout)
   const reloadAuth = useCallback(async () => {
@@ -114,11 +134,13 @@ export function AuthProvider({children, initialAuthToken, initialBrvConfig}: Aut
     const newToken = await tokenStore.load()
     if (newToken?.isValid()) {
       setAuthToken(newToken)
+      await fetchCurrentUser(newToken.sessionKey)
     } else {
       // Token is undefined or invalid (logged out or expired)
       setAuthToken(undefined)
+      setUser(undefined)
     }
-  }, [tokenStore, projectConfigStore])
+  }, [tokenStore, projectConfigStore, fetchCurrentUser])
 
   // Reload brv config state
   const reloadBrvConfig = useCallback(async () => {
@@ -174,6 +196,16 @@ export function AuthProvider({children, initialAuthToken, initialBrvConfig}: Aut
     })
   }, [reloadBrvConfig])
 
+  // Fetch current user when auth token is valid (on mount or token change)
+  useEffect(() => {
+    if (authToken?.isValid()) {
+      fetchCurrentUser(authToken.sessionKey)
+    } else {
+      setUser(undefined)
+      setIsLoadingUser(false)
+    }
+  }, [authToken, fetchCurrentUser])
+
   // Auth state polling - check token validity and refresh if needed
   useAuthPolling({
     authToken,
@@ -190,13 +222,15 @@ export function AuthProvider({children, initialAuthToken, initialBrvConfig}: Aut
       brvConfig,
       isAuthorized,
       isInitialConfigLoaded,
+      isLoadingUser,
       isLoggingIn,
       login,
       loginOutput,
       reloadAuth,
       reloadBrvConfig,
+      user,
     }),
-    [authToken, brvConfig, isInitialConfigLoaded, isLoggingIn, loginOutput, authState, isAuthorized, login, reloadAuth],
+    [authToken, brvConfig, isInitialConfigLoaded, isLoggingIn, isLoadingUser, loginOutput, authState, isAuthorized, login, reloadAuth, user],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

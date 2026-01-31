@@ -137,7 +137,7 @@ export const CommandInput = () => {
         completeOnboarding(true)
       }
     },
-    {isActive: shouldShowOnboarding},
+    {isActive: shouldShowOnboarding && (currentStep === 'curate' || currentStep === 'query')},
   )
 
   /* eslint-disable complexity -- Command execution requires handling multiple command types and states */
@@ -238,7 +238,7 @@ export const CommandInput = () => {
           // Handle /new command - create new session and clear messages
           if (needNewSession && client) {
             try {
-              const response = await client.request<{ error?: string; sessionId?: string; success: boolean }>(
+              const response = await client.requestWithAck<{ error?: string; sessionId?: string; success: boolean }>(
                 'agent:newSession',
                 {reason: 'User requested new session'},
               )

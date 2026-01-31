@@ -10,6 +10,7 @@ import React, {useEffect, useMemo, useState} from 'react'
 import type {ActivityLog, CommandMessage} from '../types.js'
 
 import {useCommands} from '../contexts/commands-context.js'
+import {useAuth} from '../contexts/index.js'
 import {useActivityLogs, useMode, useOnboarding, useOnboardingLogs, useTerminalBreakpoint, useUIHeights} from '../hooks/index.js'
 import {InitView} from '../views/index.js'
 import {CommandItem} from './command-item.js'
@@ -33,21 +34,18 @@ interface MessageListProps {
   expandedIndex: null | number
   /** Available height for the list (in terminal rows) */
   height: number
-  /** Whether the init flow has been completed */
-  initFlowCompleted: boolean
   /** Callback when expanded index changes */
   onExpandedIndexChange: (index: null | number) => void
-  /** Callback when init flow is complete */
-  onInitFlowComplete: () => void
 }
 
-export const MessageList: React.FC<MessageListProps> = ({expandedIndex, height, initFlowCompleted, onExpandedIndexChange, onInitFlowComplete}) => {
+export const MessageList: React.FC<MessageListProps> = ({expandedIndex, height, onExpandedIndexChange}) => {
   const {logs: logsMessages} = useActivityLogs()
   const {logs: onboardingMessages} = useOnboardingLogs()
   const {activePrompt, messages: commandMessages} = useCommands()
   const {columns: terminalWidth} = useTerminalBreakpoint()
   const {mode} = useMode()
-  const {isLoadingDismissed, shouldShowOnboarding} = useOnboarding()
+  const {completeInitFlow, isLoadingOnboardingCheck, shouldShowInit, shouldShowOnboarding} = useOnboarding()
+  const {isLoadingUser} = useAuth()
   const [selectedIndex, setSelectedIndex] = useState(0)
   const {messageItem} = useUIHeights()
 
@@ -109,7 +107,9 @@ export const MessageList: React.FC<MessageListProps> = ({expandedIndex, height, 
   // Get the expanded message based on expandedIndex
   const expandedMessage = expandedIndex === null ? null : messages[expandedIndex]
 
-  if (isLoadingDismissed) return null
+  if (isLoadingUser || isLoadingOnboardingCheck) {
+    return null
+  }
 
   if (messages.length === 0 && shouldShowOnboarding) {
     return (
@@ -119,8 +119,8 @@ export const MessageList: React.FC<MessageListProps> = ({expandedIndex, height, 
     )
   }
 
-  if (!initFlowCompleted && !shouldShowOnboarding) {
-    return <InitView availableHeight={height} onInitComplete={onInitFlowComplete} />
+  if (shouldShowInit) {
+    return <InitView availableHeight={height} onInitComplete={completeInitFlow} />
   }
 
   if (messages.length === 0) {

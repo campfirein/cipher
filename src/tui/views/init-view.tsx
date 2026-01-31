@@ -9,6 +9,7 @@ import {Box, Text, useInput} from 'ink'
 import React, {useState} from 'react'
 
 import {EnterPrompt, Init} from '../components/index.js'
+import {useAuth, useTransport} from '../contexts/index.js'
 import {useMode, useTheme} from '../hooks/index.js'
 
 type InitStep = 'complete' | 'init' | 'prompt'
@@ -28,6 +29,8 @@ export const InitView: React.FC<InitViewProps> = ({availableHeight, onInitComple
   const {theme: {colors}} = useTheme()
   const {mode} = useMode()
   const [step, setStep] = useState<InitStep>('prompt')
+  const {reloadAuth} = useAuth()
+  const {client} = useTransport()
 
   const maxOutputLines = MIN_OUTPUT_LINES
 
@@ -44,6 +47,17 @@ export const InitView: React.FC<InitViewProps> = ({availableHeight, onInitComple
     },
     {isActive: mode === 'main' && step === 'prompt'}
   )
+  
+  const handleInitComplete = async () => {
+    onInitComplete?.()
+    // Reload auth to detect config change
+    await reloadAuth()
+
+    // Restart agent to pick up new project state
+    if (client) {
+      await client.requestWithAck('agent:restart', {reason: 'Project initialized'})
+    }
+  }
 
   return (
     <Box flexDirection="column" height={availableHeight} width="100%">
@@ -93,7 +107,7 @@ export const InitView: React.FC<InitViewProps> = ({availableHeight, onInitComple
               <EnterPrompt
                 action="continue"
                 active={mode === 'main'}
-                onEnter={onInitComplete}
+                onEnter={handleInitComplete}
               />
             </Box>
           </>

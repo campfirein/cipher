@@ -9,13 +9,13 @@ import {useMode, useOnboarding, useTasks, useTheme} from '../contexts/index.js'
 
 export const Footer: React.FC = () => {
   const {shortcuts} = useMode()
-  const {shouldShowOnboarding} = useOnboarding()
+  const {isLoadingOnboardingCheck, shouldShowOnboarding} = useOnboarding()
   const {
     theme: {colors},
   } = useTheme()
   const {stats: taskStats} = useTasks()
 
-  if (shouldShowOnboarding) {
+  if (shouldShowOnboarding || isLoadingOnboardingCheck) {
     return <Box height={1} paddingX={1} width="100%" />
   }
 
