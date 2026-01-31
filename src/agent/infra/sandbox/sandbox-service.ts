@@ -1,5 +1,6 @@
 import type { EnvironmentContext } from '../../core/domain/environment/types.js'
 import type { REPLResult, SandboxConfig } from '../../core/domain/sandbox/types.js'
+import type { ICurateService } from '../../core/interfaces/i-curate-service.js'
 import type { IFileSystem } from '../../core/interfaces/i-file-system.js'
 import type { ISandboxService } from '../../core/interfaces/i-sandbox-service.js'
 import type { ISearchKnowledgeService, ToolsSDK } from './tools-sdk.js'
@@ -12,6 +13,8 @@ import { createToolsSDK } from './tools-sdk.js'
  * Manages sandbox instances tied to agent sessions.
  */
 export class SandboxService implements ISandboxService {
+  /** Curate service for Tools SDK */
+  private curateService?: ICurateService
   /** Environment context for sandbox injection */
   private environmentContext?: EnvironmentContext
   /** File system service for Tools SDK */
@@ -74,6 +77,17 @@ export class SandboxService implements ISandboxService {
   }
 
   /**
+   * Set the curate service for Tools SDK injection.
+   * When set, new sandboxes will have access to curate operations via `tools.curate()`.
+   *
+   * @param curateService - Curate service instance
+   */
+  setCurateService(curateService: ICurateService): void {
+    this.curateService = curateService
+    this.rebuildToolsSDK()
+  }
+
+  /**
    * Set the environment context for sandbox injection.
    * When set, new sandboxes will have access to environment info via `env.*` properties.
    *
@@ -113,7 +127,7 @@ export class SandboxService implements ISandboxService {
    */
   private rebuildToolsSDK(): void {
     if (this.fileSystem) {
-      this.toolsSDK = createToolsSDK(this.fileSystem, this.searchKnowledgeService)
+      this.toolsSDK = createToolsSDK(this.fileSystem, this.searchKnowledgeService, this.curateService)
       // Clear existing sandboxes so new ones get the updated tools SDK
       // Note: This means existing sessions lose their state when services are updated
       // This is acceptable since services are typically set once at startup

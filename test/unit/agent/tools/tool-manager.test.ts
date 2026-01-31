@@ -255,15 +255,28 @@ describe('ToolManager', () => {
     })
 
     it('should return curate tools for curate command', () => {
+      // Add code_exec to mock tools for this test
+      const mockToolsWithCodeExec = {
+        ...mockTools,
+        // eslint-disable-next-line camelcase
+        code_exec: {
+          description: 'Execute code in sandbox',
+          parameters: {properties: {}, type: 'object'},
+        },
+      }
+      ;(mockToolProvider.getAllTools as SinonStub).returns(mockToolsWithCodeExec)
+      ;(mockToolProvider.hasTool as SinonStub).callsFake((name: string) => Object.keys(mockToolsWithCodeExec).includes(name))
+      toolManager.refresh()
+
       const names = toolManager.getToolNamesForCommand('curate')
 
-      expect(names).to.include.members([
-        'detect_domains',
-        'read_file',
-        'grep_content',
-        'glob_files',
-        'curate',
-      ])
+      // Curate now only uses code_exec (curate operations available via tools.curate() in sandbox)
+      expect(names).to.deep.equal(['code_exec'])
+      expect(names).to.not.include('detect_domains')
+      expect(names).to.not.include('read_file')
+      expect(names).to.not.include('grep_content')
+      expect(names).to.not.include('glob_files')
+      expect(names).to.not.include('curate')
       expect(names).to.not.include('bash_exec')
     })
 
@@ -280,13 +293,24 @@ describe('ToolManager', () => {
     })
 
     it('should filter out tools that do not exist', () => {
-      // Use curate command since it has multiple tools (query only has code_exec)
-      ;(mockToolProvider.hasTool as SinonStub).callsFake((name: string) => name !== 'glob_files')
+      // Add code_exec to mock tools for this test
+      const mockToolsWithCodeExec = {
+        ...mockTools,
+        // eslint-disable-next-line camelcase
+        code_exec: {
+          description: 'Execute code in sandbox',
+          parameters: {properties: {}, type: 'object'},
+        },
+      }
+      ;(mockToolProvider.getAllTools as SinonStub).returns(mockToolsWithCodeExec)
+      // Filter out code_exec to test filtering behavior
+      ;(mockToolProvider.hasTool as SinonStub).callsFake((name: string) => name !== 'code_exec')
+      toolManager.refresh()
 
       const names = toolManager.getToolNamesForCommand('curate')
 
-      expect(names).to.not.include('glob_files')
-      expect(names).to.include('read_file')
+      // Curate only uses code_exec, which we filtered out
+      expect(names).to.deep.equal([])
     })
   })
 
@@ -322,13 +346,28 @@ describe('ToolManager', () => {
     })
 
     it('should return curate tools for curate command', () => {
+      // Add code_exec to mock tools for this test
+      const mockToolsWithCodeExec = {
+        ...mockTools,
+        // eslint-disable-next-line camelcase
+        code_exec: {
+          description: 'Execute code in sandbox',
+          parameters: {properties: {}, type: 'object'},
+        },
+      }
+      ;(mockToolProvider.getAllTools as SinonStub).returns(mockToolsWithCodeExec)
+      toolManager.refresh()
+
       const tools = toolManager.getToolsForCommand('curate')
 
-      expect(tools).to.have.property('detect_domains')
-      expect(tools).to.have.property('read_file')
-      expect(tools).to.have.property('grep_content')
-      expect(tools).to.have.property('glob_files')
-      expect(tools).to.have.property('curate')
+      // Curate now only uses code_exec (curate operations available via tools.curate() in sandbox)
+      expect(tools).to.have.property('code_exec')
+      expect(Object.keys(tools)).to.have.length(1)
+      expect(tools).to.not.have.property('detect_domains')
+      expect(tools).to.not.have.property('read_file')
+      expect(tools).to.not.have.property('grep_content')
+      expect(tools).to.not.have.property('glob_files')
+      expect(tools).to.not.have.property('curate')
       expect(tools).to.not.have.property('bash_exec')
     })
 
@@ -345,7 +384,7 @@ describe('ToolManager', () => {
     })
 
     it('should only include tools that exist in allTools', () => {
-      // Use curate command since it has multiple tools (query only has code_exec)
+      // Curate now only uses code_exec, so test with limited tools that don't include code_exec
       const limitedTools: ToolSet = {
         // eslint-disable-next-line camelcase
         glob_files: mockTools.glob_files!,
@@ -353,14 +392,12 @@ describe('ToolManager', () => {
         read_file: mockTools.read_file!,
       }
       ;(mockToolProvider.getAllTools as SinonStub).returns(limitedTools)
+      toolManager.refresh()
 
       const tools = toolManager.getToolsForCommand('curate')
 
-      // Only tools that exist in allTools AND are in curate tools list
-      expect(Object.keys(tools)).to.have.length(2)
-      expect(tools).to.have.property('glob_files')
-      expect(tools).to.have.property('read_file')
-      expect(tools).to.not.have.property('grep_content')
+      // Curate only uses code_exec, which is not in allTools, so empty result
+      expect(Object.keys(tools)).to.have.length(0)
     })
   })
 

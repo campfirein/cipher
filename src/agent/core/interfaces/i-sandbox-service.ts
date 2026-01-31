@@ -1,6 +1,7 @@
 import type { ISearchKnowledgeService } from '../../infra/sandbox/tools-sdk.js'
 import type { EnvironmentContext } from '../domain/environment/types.js'
 import type { REPLResult, SandboxConfig } from '../domain/sandbox/types.js'
+import type { ICurateService } from './i-curate-service.js'
 import type { IFileSystem } from './i-file-system.js'
 
 /**
@@ -29,6 +30,14 @@ export interface ISandboxService {
    * @returns Execution result with stdout, stderr, and locals
    */
   executeCode(code: string, sessionId: string, config?: SandboxConfig): Promise<REPLResult>
+
+  /**
+   * Set the curate service for Tools SDK injection.
+   * When set, sandboxes will have access to curate operations via `tools.curate()`.
+   *
+   * @param curateService - Curate service instance
+   */
+  setCurateService?(curateService: ICurateService): void
 
   /**
    * Set the environment context for sandbox injection.

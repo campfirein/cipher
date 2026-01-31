@@ -9,6 +9,7 @@ import type { MemoryManager } from '../memory/memory-manager.js'
 import type { ToolProviderGetter } from './tool-provider-getter.js'
 
 import { ToolName } from '../../core/domain/tools/constants.js'
+import { createCurateService } from '../sandbox/curate-service.js'
 import { createBashExecTool } from './implementations/bash-exec-tool.js'
 import { createBashOutputTool } from './implementations/bash-output-tool.js'
 import { createBatchTool } from './implementations/batch-tool.js'
@@ -165,6 +166,12 @@ export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
       if (fileSystemService && sandbox.setSearchKnowledgeService) {
         const searchKnowledgeService = createSearchKnowledgeService(fileSystemService)
         sandbox.setSearchKnowledgeService(searchKnowledgeService)
+      }
+
+      // Inject curate service into sandbox for Tools SDK
+      if (sandbox.setCurateService) {
+        const curateService = createCurateService()
+        sandbox.setCurateService(curateService)
       }
 
       // Inject environment context into sandbox for env.* access

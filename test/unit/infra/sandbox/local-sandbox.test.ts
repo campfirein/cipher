@@ -241,6 +241,39 @@ describe('LocalSandbox', () => {
       expect(result.returnValue).to.equal(42)
       expect(result.stderr).to.equal('')
     })
+
+    it('should transpile TypeScript code without require errors', async () => {
+      const localSandbox = new LocalSandbox({toolsSDK: mockToolsSDK as unknown as ToolsSDK})
+
+      // TypeScript code with type annotation - should transpile and execute without "require is not defined"
+      const result = await localSandbox.execute(`
+        const greeting: string = 'Hello';
+        const count: number = 42;
+        greeting + ' ' + count;
+      `)
+
+      // Should execute successfully without require errors
+      expect(result.stderr).to.not.include('require is not defined')
+      expect(result.returnValue).to.equal('Hello 42')
+    })
+
+    it('should handle TypeScript interface and type annotations', async () => {
+      const localSandbox = new LocalSandbox({toolsSDK: mockToolsSDK as unknown as ToolsSDK})
+
+      // TypeScript code with interface - should transpile and execute
+      const result = await localSandbox.execute(`
+        interface User {
+          name: string;
+          age: number;
+        }
+        const user: User = { name: 'Alice', age: 30 };
+        user.name + ' is ' + user.age;
+      `)
+
+      // Should execute successfully without require errors
+      expect(result.stderr).to.not.include('require is not defined')
+      expect(result.returnValue).to.equal('Alice is 30')
+    })
   })
 
   describe('Error Handling', () => {

@@ -1,3 +1,4 @@
+import { createRequire } from 'node:module'
 import vm from 'node:vm'
 
 import type { EnvironmentContext } from '../../core/domain/environment/types.js'
@@ -5,6 +6,9 @@ import type { REPLResult, SandboxConfig } from '../../core/domain/sandbox/types.
 import type { ToolsSDK } from './tools-sdk.js'
 
 import { ALLOWED_GLOBALS, ALLOWED_PACKAGES, DEFAULT_SANDBOX_TIMEOUT } from '../../core/domain/sandbox/constants.js'
+
+// Create a require function that works in both ESM and CJS environments
+const esmRequire = createRequire(import.meta.url)
 
 type EsbuildModule = typeof import('esbuild')
 
@@ -42,19 +46,23 @@ let esbuildModule: EsbuildModule | undefined
 
 /**
  * Transpile TypeScript to JavaScript using esbuild.
+ * Uses ESM format which doesn't add require() calls for simple type stripping.
  */
 function transpileTypeScript(code: string): string {
   if (!esbuildModule) {
-    // Dynamic import esbuild only when needed
-    // eslint-disable-next-line @typescript-eslint/no-require-imports, unicorn/prefer-module, no-undef
-    esbuildModule = require('esbuild') as EsbuildModule
+    // Use esmRequire to load esbuild - works in both ESM and CJS environments
+    esbuildModule = esmRequire('esbuild') as EsbuildModule
   }
 
+  // Use 'esm' format which produces clean JavaScript without module system wrappers
+  // For type-only TypeScript (interfaces, type annotations), this just strips types
+  // without adding any import/require statements
   const result = esbuildModule.transformSync(code, {
-    format: 'cjs',
+    format: 'esm',
     loader: 'ts',
     target: 'es2022',
   })
+
   return result.code
 }
 
@@ -70,9 +78,8 @@ function loadAllowedPackages(): Record<string, unknown> {
   for (const pkgName of ALLOWED_PACKAGES) {
     if (!packageCache.has(pkgName)) {
       try {
-        // Dynamic import of whitelisted packages
-        // eslint-disable-next-line @typescript-eslint/no-require-imports, unicorn/prefer-module, no-undef
-        packageCache.set(pkgName, require(pkgName))
+        // Use esmRequire to load packages - works in both ESM and CJS environments
+        packageCache.set(pkgName, esmRequire(pkgName))
       } catch {
         // Package not installed - skip silently
         packageCache.set(pkgName, undefined)

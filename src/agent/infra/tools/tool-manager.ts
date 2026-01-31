@@ -33,14 +33,11 @@ import { ToolError, ToolErrorType, ToolErrorUtils, type ToolExecutionResult } fr
  */
 export class ToolManager {
   /**
-   * Tools allowed for curate operations
+   * Tools allowed for curate operations.
+   * Uses code_exec only - curate operations available via tools.curate() in sandbox.
    */
   private static readonly CURATE_TOOL_NAMES = [
-    'detect_domains',
-    'read_file',
-    'grep_content',
-    'glob_files',
-    'curate',
+    'code_exec',
   ] as const
   /**
    * Tools allowed for query operations - only code_exec for programmatic search

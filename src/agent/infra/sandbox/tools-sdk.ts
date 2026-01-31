@@ -5,6 +5,14 @@ import type {
   SearchResult,
   WriteResult,
 } from '../../core/domain/file-system/types.js'
+import type {
+  CurateOperation,
+  CurateOptions,
+  CurateResult,
+  DetectDomainsInput,
+  DetectDomainsResult,
+  ICurateService,
+} from '../../core/interfaces/i-curate-service.js'
 import type {IFileSystem} from '../../core/interfaces/i-file-system.js'
 
 /**
@@ -99,6 +107,23 @@ export interface ISearchKnowledgeService {
  */
 export interface ToolsSDK {
   /**
+   * Execute curate operations on knowledge topics.
+   * Operations: ADD, UPDATE, MERGE, DELETE
+   * @param operations - Array of curate operations to apply
+   * @param options - Curate options (basePath defaults to .brv/context-tree)
+   * @returns Promise resolving to curate result with applied operations and summary
+   */
+  curate(operations: CurateOperation[], options?: CurateOptions): Promise<CurateResult>
+
+  /**
+   * Detect and validate domains from input data.
+   * Use this to analyze text and categorize it into knowledge domains.
+   * @param domains - Array of detected domains with text segments
+   * @returns Promise resolving to validated domains
+   */
+  detectDomains(domains: DetectDomainsInput[]): Promise<DetectDomainsResult>
+
+  /**
    * Find files matching a glob pattern.
    * @param pattern - Glob pattern (e.g., "**\/*.ts", "src/**\/*.js")
    * @param options - Glob options
@@ -156,13 +181,47 @@ export interface ToolsSDK {
  *
  * @param fileSystem - File system service for file operations
  * @param searchKnowledgeService - Optional search knowledge service
+ * @param curateService - Optional curate service for knowledge curation
  * @returns ToolsSDK instance ready to be injected into sandbox context
  */
 export function createToolsSDK(
   fileSystem: IFileSystem,
   searchKnowledgeService?: ISearchKnowledgeService,
+  curateService?: ICurateService,
 ): ToolsSDK {
   return {
+    async curate(operations: CurateOperation[], options?: CurateOptions): Promise<CurateResult> {
+      if (!curateService) {
+        return {
+          applied: [{
+            message: 'Curate service not available.',
+            path: '',
+            status: 'failed',
+            type: 'ADD',
+          }],
+          summary: {
+            added: 0,
+            deleted: 0,
+            failed: 1,
+            merged: 0,
+            updated: 0,
+          },
+        }
+      }
+
+      return curateService.curate(operations, options)
+    },
+
+    async detectDomains(domains: DetectDomainsInput[]): Promise<DetectDomainsResult> {
+      if (!curateService) {
+        return {
+          domains: [],
+        }
+      }
+
+      return curateService.detectDomains(domains)
+    },
+
     async glob(pattern: string, options?: GlobOptions): Promise<GlobResult> {
       return fileSystem.globFiles(pattern, {
         caseSensitive: options?.caseSensitive ?? true,

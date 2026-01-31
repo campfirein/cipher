@@ -164,16 +164,18 @@ type SubtopicContext = z.infer<typeof SubtopicContextSchema>
 
 /**
  * Input schema for curate tool.
+ * Exported for use by CurateService in sandbox.
  */
-const CurateInputSchema = z.object({
+export const CurateInputSchema = z.object({
   basePath: z.string().default('.brv/context-tree').describe('Base path for knowledge storage'),
   operations: z.array(OperationSchema).describe('Array of curate operations to apply'),
 })
 
 /**
  * Result of a single operation.
+ * Exported for use by CurateService in sandbox.
  */
-interface OperationResult {
+export interface OperationResult {
   /** Full filesystem path to the created/modified file (for ADD/UPDATE/MERGE) */
   filePath?: string
   message?: string
@@ -184,8 +186,9 @@ interface OperationResult {
 
 /**
  * Output type for curate tool.
+ * Exported for use by CurateService in sandbox.
  */
-interface CurateOutput {
+export interface CurateOutput {
   applied: OperationResult[]
   summary: {
     added: number
@@ -795,8 +798,9 @@ async function executeDelete(basePath: string, operation: Operation): Promise<Op
 
 /**
  * Execute curate operations on knowledge topics.
+ * Exported for use by CurateService in sandbox.
  */
-async function executeCurate(input: unknown, _context?: ToolExecutionContext): Promise<CurateOutput> {
+export async function executeCurate(input: unknown, _context?: ToolExecutionContext): Promise<CurateOutput> {
   const parseResult = CurateInputSchema.safeParse(input)
   if (!parseResult.success) {
     return {
