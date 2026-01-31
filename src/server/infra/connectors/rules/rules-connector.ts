@@ -7,7 +7,7 @@ import type {
   ConnectorStatus,
   ConnectorUninstallResult,
 } from '../../../core/interfaces/connectors/connector-types.js'
-import type {IConnector} from '../../../core/interfaces/connectors/i-connector.js'
+import type {ConnectorOperationOptions, IConnector} from '../../../core/interfaces/connectors/i-connector.js'
 import type {IFileService} from '../../../core/interfaces/services/i-file-service.js'
 import type {IRuleTemplateService} from '../../../core/interfaces/services/i-rule-template-service.js'
 
@@ -85,7 +85,7 @@ export class RulesConnector implements IConnector {
     return AGENT_CONNECTOR_CONFIG[agent].supported.includes(this.connectorType)
   }
 
-  async status(agent: Agent): Promise<ConnectorStatus> {
+  async status(agent: Agent, _options?: ConnectorOperationOptions): Promise<ConnectorStatus> {
     const config = RULES_CONNECTOR_CONFIGS[agent]
     const fullPath = path.join(this.projectRoot, config.filePath)
 
@@ -122,7 +122,7 @@ export class RulesConnector implements IConnector {
     }
   }
 
-  async uninstall(agent: Agent): Promise<ConnectorUninstallResult> {
+  async uninstall(agent: Agent, _options?: ConnectorOperationOptions): Promise<ConnectorUninstallResult> {
     const config = RULES_CONNECTOR_CONFIGS[agent]
 
     try {

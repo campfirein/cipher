@@ -316,6 +316,10 @@ describe('InitUseCase', () => {
         message: 'Hook connector installed for Claude Code',
         success: true,
       }),
+      migrateOrphanedConnectors: stub<
+        Parameters<IConnectorManager['migrateOrphanedConnectors']>,
+        ReturnType<IConnectorManager['migrateOrphanedConnectors']>
+      >().resolves([]),
       status: stub(),
       switchConnector: stub<
         Parameters<IConnectorManager['switchConnector']>,

@@ -56,7 +56,8 @@ describe('McpConnector', () => {
       const agents = mcpConnector.getSupportedAgents()
       expect(agents).to.include('Claude Code')
       expect(agents).to.include('Cursor')
-      expect(agents).to.include('Windsurf')
+      expect(agents).to.not.include('Windsurf')
+      expect(agents).to.not.include('Cline')
       expect(agents.length).to.be.greaterThan(3)
     })
   })
@@ -70,12 +71,12 @@ describe('McpConnector', () => {
       expect(mcpConnector.isSupported('Cursor')).to.be.true
     })
 
-    it('should return true for Windsurf', () => {
-      expect(mcpConnector.isSupported('Windsurf')).to.be.true
+    it('should return false for Windsurf (no longer supported)', () => {
+      expect(mcpConnector.isSupported('Windsurf')).to.be.false
     })
 
-    it('should return true for Cline', () => {
-      expect(mcpConnector.isSupported('Cline')).to.be.true
+    it('should return false for Cline (no longer supported)', () => {
+      expect(mcpConnector.isSupported('Cline')).to.be.false
     })
 
     it('should return true for Roo Code', () => {
@@ -100,14 +101,12 @@ describe('McpConnector', () => {
       expect(mcpConnector.getConfigPath('Cursor')).to.equal(path.join(testDir, '.cursor/mcp.json'))
     })
 
-    it('should return config path for Windsurf (global scope)', () => {
-      // Windsurf is a global scope agent, configPath is relative to os.homedir()
-      expect(mcpConnector.getConfigPath('Windsurf')).to.equal(path.join(homedir(), '.codeium/windsurf/mcp_config.json'))
+    it('should throw for Windsurf (no longer supported)', () => {
+      expect(() => mcpConnector.getConfigPath('Windsurf')).to.throw('does not support agent')
     })
 
-    it('should return empty string for global scope agents without configPath', () => {
-      // Manual mode global agents may not have configPath set
-      expect(mcpConnector.getConfigPath('Cline')).to.equal('')
+    it('should throw for Cline (no longer supported)', () => {
+      expect(() => mcpConnector.getConfigPath('Cline')).to.throw('does not support agent')
     })
 
     it('should return config path for Codex (TOML format)', () => {
@@ -375,87 +374,21 @@ describe('McpConnector', () => {
     })
   })
 
-  describe('manual mode', () => {
-    // Test agents with mode: 'manual'
-    const manualAgents: McpSupportedAgent[] = ['Cline', 'Augment Code', 'Qoder', 'Trae.ai', 'Warp']
+  describe('formerly manual mode agents (no longer supported)', () => {
+    const unsupportedManualAgents: McpSupportedAgent[] = ['Cline', 'Augment Code', 'Qoder', 'Trae.ai', 'Warp']
 
-    for (const agent of manualAgents) {
-      describe(`${agent} (manual mode)`, () => {
-        it('should return manual instructions instead of writing files', async () => {
-          const result = await mcpConnector.install(agent)
+    for (const agent of unsupportedManualAgents) {
+      it(`should return failure for ${agent} on install`, async () => {
+        const result = await mcpConnector.install(agent)
+        expect(result.success).to.be.false
+        expect(result.message).to.include('does not support agent')
+      })
 
-          expect(result.success).to.be.true
-          expect(result.requiresManualSetup).to.be.true
-          expect(result.alreadyInstalled).to.be.false
-          expect(result.manualInstructions).to.exist
-          expect(result.manualInstructions!.configContent).to.be.a('string')
-          expect(result.manualInstructions!.configContent.length).to.be.greaterThan(0)
-        })
-
-        it('should include guide URL in manual instructions', async () => {
-          const result = await mcpConnector.install(agent)
-
-          expect(result.manualInstructions!.guide).to.be.a('string')
-          // All manual mode agents should have a guide URL
-          expect(result.manualInstructions!.guide.length).to.be.greaterThan(0)
-          expect(result.manualInstructions!.guide).to.include('http')
-        })
-
-        it('should have configContent containing brv server config', async () => {
-          const result = await mcpConnector.install(agent)
-
-          expect(result.manualInstructions!.configContent).to.include('brv')
-        })
+      it(`should return failure for ${agent} on status`, async () => {
+        const result = await mcpConnector.status(agent)
+        expect(result.installed).to.be.false
+        expect(result.error).to.include('does not support agent')
       })
     }
-
-    it('should format JSON config content correctly for JSON agents', async () => {
-      const result = await mcpConnector.install('Augment Code')
-
-      expect(result.manualInstructions!.configContent).to.include('"brv"')
-      expect(result.manualInstructions!.configContent).to.include('"command"')
-      expect(result.manualInstructions!.configContent).to.include('"args"')
-    })
-
-    describe('status', () => {
-      it('should return installed=false when rule file does not exist', async () => {
-        const result = await mcpConnector.status('Cline')
-
-        expect(result.configExists).to.be.false
-        expect(result.installed).to.be.false
-      })
-
-      it('should return installed=false when rule file exists but has no markers', async () => {
-        await mkdir(path.join(testDir, '.clinerules'), {recursive: true})
-        await writeFile(path.join(testDir, '.clinerules/agent-context.md'), 'Some content without markers')
-
-        const result = await mcpConnector.status('Cline')
-
-        expect(result.configExists).to.be.true
-        expect(result.installed).to.be.false
-      })
-
-      it('should return installed=false when rule file has markers but no MCP tools', async () => {
-        await mkdir(path.join(testDir, '.clinerules'), {recursive: true})
-        const rulesOnlyContent = `${BRV_RULE_MARKERS.START}\nSome rules content without MCP tools\n${BRV_RULE_MARKERS.END}`
-        await writeFile(path.join(testDir, '.clinerules/agent-context.md'), rulesOnlyContent)
-
-        const result = await mcpConnector.status('Cline')
-
-        expect(result.configExists).to.be.true
-        expect(result.installed).to.be.false
-      })
-
-      it('should return installed=true when rule file has markers and MCP tools', async () => {
-        // First install to create the rule file with markers and MCP content
-        await mcpConnector.install('Cline')
-
-        const result = await mcpConnector.status('Cline')
-
-        expect(result.configExists).to.be.true
-        expect(result.installed).to.be.true
-        expect(result.configPath).to.equal('.clinerules/agent-context.md')
-      })
-    })
   })
 })
