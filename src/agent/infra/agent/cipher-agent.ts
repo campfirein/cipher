@@ -163,6 +163,11 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
       this.stateManager.reset()
     }
 
+    // Clean up sandbox service (release VM contexts and pending operations)
+    if (this.services?.sandboxService) {
+      await this.services.sandboxService.cleanup()
+    }
+
     // Close SQLite databases to release file handles and ensure clean shutdown
     if (this.services?.blobStorage) {
       this.services.blobStorage.close()
