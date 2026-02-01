@@ -86,10 +86,20 @@ prompt: |
   - `async/await` for handling promises
   - Pre-injected packages: `lodash`, `dateFns`, `zod`, `yaml`, `uuid`, etc.
 
+  **Code Documentation (REQUIRED):**
+  - ALWAYS start code with a brief, specific comment describing the operation
+  - This comment is displayed to users as a summary - be specific!
+  - Include actual file names, topic names, or search terms
+  - Keep comments concise (under 60 characters)
+  - BAD: `// Read the file` or `// Curate content`
+  - GOOD: `// Read src/auth.ts` or `// Curate JWT auth to design/auth`
+
   **Correct pattern:**
   ```javascript
-  // All tools.* methods are pre-injected and available directly
-  const file = await tools.readFile('path/to/file.ts');
+  // Read src/auth/config.ts for auth patterns
+  const file = await tools.readFile('src/auth/config.ts');
+
+  // Curate JWT auth to design/authentication
   const result = await tools.curate([...]);
 
   // Pre-injected packages are also available directly

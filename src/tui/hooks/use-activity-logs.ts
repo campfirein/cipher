@@ -232,6 +232,7 @@ export function useActivityLogs(): UseActivityLogsReturn {
         const activityLog: ActivityLog = {
           changes,
           content: task.status === 'error' ? task.error?.message ?? '' : task.result ?? '',
+          files: task.files,
           id: task.taskId,
           input: task.content,
           isStreaming: task.isStreaming,
