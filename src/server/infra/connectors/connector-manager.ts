@@ -127,10 +127,10 @@ export class ConnectorManager implements IConnectorManager {
     // An agent is orphaned when it exists in the config map but the connector type
     // is no longer in AGENT_CONNECTOR_CONFIG[agent].supported.
     const connectorConfigAgents: Array<{agents: Agent[]; type: ConnectorType}> = [
-      {agents: Object.keys(HOOK_CONNECTOR_CONFIGS) as Agent[], type: 'hook'},
-      {agents: Object.keys(MCP_CONNECTOR_CONFIGS) as Agent[], type: 'mcp'},
-      {agents: Object.keys(RULES_CONNECTOR_CONFIGS) as Agent[], type: 'rules'},
-      {agents: Object.keys(SKILL_CONNECTOR_CONFIGS) as Agent[], type: 'skill'},
+      {agents: AGENT_VALUES.filter((a) => a in HOOK_CONNECTOR_CONFIGS), type: 'hook'},
+      {agents: AGENT_VALUES.filter((a) => a in MCP_CONNECTOR_CONFIGS), type: 'mcp'},
+      {agents: AGENT_VALUES.filter((a) => a in RULES_CONNECTOR_CONFIGS), type: 'rules'},
+      {agents: AGENT_VALUES.filter((a) => a in SKILL_CONNECTOR_CONFIGS), type: 'skill'},
     ]
 
     const orphanedPairs: Array<{agent: Agent; connector: IConnector}> = []
@@ -150,11 +150,10 @@ export class ConnectorManager implements IConnectorManager {
     // the isSupported() guard, since these connectors are no longer in the
     // agent's supported list but may still have configs on disk from when
     // they were previously supported.
-    const results = await Promise.all(
+    const settledResults = await Promise.allSettled(
       orphanedPairs.map(async ({agent, connector}) => {
         const status = await connector.status(agent, {force: true})
         if (!status.installed) return null
-
         const uninstallResult = await connector.uninstall(agent, {force: true})
         return {
           agent,
@@ -164,7 +163,10 @@ export class ConnectorManager implements IConnectorManager {
       }),
     )
 
-    return results.filter((result) => result !== null)
+    return settledResults
+      .filter((r): r is PromiseFulfilledResult<null | OrphanedConnectorMigrationResult> => r.status === 'fulfilled')
+      .map((r) => r.value)
+      .filter((result): result is OrphanedConnectorMigrationResult => result !== null)
   }
 
   async status(type: ConnectorType, agent: Agent): Promise<ConnectorStatus> {
