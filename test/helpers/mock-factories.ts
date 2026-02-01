@@ -25,6 +25,7 @@ import type {ICipherAgent} from '../../src/agent/core/interfaces/i-cipher-agent.
 import type {IHistoryStorage} from '../../src/agent/core/interfaces/i-history-storage.js'
 import type {ILLMService} from '../../src/agent/core/interfaces/i-llm-service.js'
 import type {PolicyEvaluationResult, PolicyRule} from '../../src/agent/core/interfaces/i-policy-engine.js'
+import type {ISandboxService} from '../../src/agent/core/interfaces/i-sandbox-service.js'
 import type {ScheduledToolExecution, ToolSchedulerContext} from '../../src/agent/core/interfaces/i-tool-scheduler.js'
 import type {AgentEventBus} from '../../src/agent/infra/events/event-emitter.js'
 import type {FileSystemService} from '../../src/agent/infra/file-system/file-system-service.js'
@@ -201,6 +202,33 @@ export function createMockProcessService(sandbox: SinonSandbox, overrides?: Part
 }
 
 /**
+ * Creates a mock ISandboxService with commonly-used methods stubbed.
+ *
+ * @param sandbox - Sinon sandbox for creating stubs
+ * @param overrides - Optional overrides for specific methods
+ * @returns Mock ISandboxService (cast to full type for test usage)
+ */
+export function createMockSandboxService(
+  sandbox: SinonSandbox,
+  overrides?: Partial<ISandboxService>,
+): ISandboxService {
+  const mock: Partial<ISandboxService> = {
+    cleanup: sandbox.stub().resolves(),
+    clearSession: sandbox.stub().resolves(),
+    executeCode: sandbox.stub().resolves({
+      executionTime: 0,
+      locals: {},
+      returnValue: undefined,
+      stderr: '',
+      stdout: '',
+    }),
+    ...overrides,
+  }
+
+  return mock as ISandboxService
+}
+
+/**
  * Creates a mock SystemPromptManager with commonly-used methods stubbed.
  *
  * @param sandbox - Sinon sandbox for creating stubs
@@ -337,6 +365,7 @@ export function createMockCipherAgentServices(
     memoryManager: createMockMemoryManager(sandbox),
     policyEngine: createMockPolicyEngine(sandbox),
     processService: createMockProcessService(sandbox),
+    sandboxService: createMockSandboxService(sandbox),
     systemPromptManager: createMockSystemPromptManager(sandbox),
     toolManager: createMockToolManager(sandbox),
     toolProvider: createMockToolProvider(sandbox),

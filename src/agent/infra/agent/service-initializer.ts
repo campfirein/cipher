@@ -263,6 +263,7 @@ export async function createCipherAgentServices(
     messageStorageService,
     policyEngine,
     processService,
+    sandboxService,
     systemPromptManager,
     toolManager,
     toolProvider,
