@@ -86,12 +86,11 @@ export function splitArgs(input: string): SplitArgsResult {
       // Whitespace outside quotes - end current arg
       if (current) {
         if (current.startsWith('@')) {
-          // File reference - strip the @ prefix
+          // File reference - strip the @ prefix and add to files
           files.push(current.slice(1))
-        } else {
-          args.push(current)
         }
 
+        args.push(current)
         current = ''
       }
     } else {
@@ -103,9 +102,9 @@ export function splitArgs(input: string): SplitArgsResult {
   if (current) {
     if (current.startsWith('@')) {
       files.push(current.slice(1))
-    } else {
-      args.push(current)
     }
+
+    args.push(current)
   }
 
   return {args, files}
