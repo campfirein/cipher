@@ -1,4 +1,8 @@
+import type { ISearchKnowledgeService } from '../../infra/sandbox/tools-sdk.js'
+import type { EnvironmentContext } from '../domain/environment/types.js'
 import type { REPLResult, SandboxConfig } from '../domain/sandbox/types.js'
+import type { ICurateService } from './i-curate-service.js'
+import type { IFileSystem } from './i-file-system.js'
 
 /**
  * Service interface for code sandbox execution.
@@ -26,4 +30,36 @@ export interface ISandboxService {
    * @returns Execution result with stdout, stderr, and locals
    */
   executeCode(code: string, sessionId: string, config?: SandboxConfig): Promise<REPLResult>
+
+  /**
+   * Set the curate service for Tools SDK injection.
+   * When set, sandboxes will have access to curate operations via `tools.curate()`.
+   *
+   * @param curateService - Curate service instance
+   */
+  setCurateService?(curateService: ICurateService): void
+
+  /**
+   * Set the environment context for sandbox injection.
+   * When set, sandboxes will have access to environment info via `env.*` properties.
+   *
+   * @param environmentContext - Environment context object
+   */
+  setEnvironmentContext?(environmentContext: EnvironmentContext): void
+
+  /**
+   * Set the file system service for Tools SDK injection.
+   * When set, sandboxes will have access to file system operations via `tools.*` methods.
+   *
+   * @param fileSystem - File system service instance
+   */
+  setFileSystem?(fileSystem: IFileSystem): void
+
+  /**
+   * Set the search knowledge service for Tools SDK injection.
+   * When set, sandboxes will have access to knowledge search via `tools.searchKnowledge()`.
+   *
+   * @param searchKnowledgeService - Search knowledge service instance
+   */
+  setSearchKnowledgeService?(searchKnowledgeService: ISearchKnowledgeService): void
 }

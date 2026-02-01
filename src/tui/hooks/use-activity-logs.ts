@@ -5,7 +5,7 @@
  */
 
 import {useMemo} from 'react'
-import {array as zArray, object as zObject, string as zString} from 'zod'
+import {array as zArray, number as zNumber, object as zObject, string as zString} from 'zod'
 
 import type {ExecutionStatus, ToolCallStatus} from '../../agent/core/domain/queue/types.js'
 import type {Task, ToolCallEvent} from '../contexts/tasks-context.js'
@@ -17,6 +17,7 @@ const ExecutionInputSchema = zObject({
   content: zString(),
 })
 
+// Schema for curate tool result (direct call)
 const CurateResultSchema = zObject({
   result: zObject({
     applied: zArray(
@@ -27,6 +28,28 @@ const CurateResultSchema = zObject({
         type: zString(),
       }),
     ).optional(),
+  }).optional(),
+})
+
+// Schema for curate result from code_exec (via tools.curate())
+// Note: summary fields are numbers (added: 1, updated: 0, etc.)
+const CodeExecCurateResultSchema = zObject({
+  returnValue: zObject({
+    applied: zArray(
+      zObject({
+        filePath: zString().optional(),
+        path: zString(),
+        status: zString(),
+        type: zString(),
+      }),
+    ).optional(),
+    summary: zObject({
+      added: zNumber().optional(),
+      deleted: zNumber().optional(),
+      failed: zNumber().optional(),
+      merged: zNumber().optional(),
+      updated: zNumber().optional(),
+    }).optional(),
   }).optional(),
 })
 
@@ -43,12 +66,13 @@ export function parseExecutionContent(input: string): string {
 
 /**
  * Extract file changes from curate tool calls (transport events)
+ * Handles both direct curate calls and curate via code_exec (tools.curate())
  */
 function composeChangesFromToolCalls(toolCalls: ToolCallEvent[]): {created: string[]; updated: string[]} {
   const changes: {created: string[]; updated: string[]} = {created: [], updated: []}
 
   for (const tc of toolCalls) {
-    if (tc.status !== 'completed' || tc.toolName !== 'curate' || !tc.result) {
+    if (tc.status !== 'completed' || !tc.result) {
       continue
     }
 
@@ -60,28 +84,70 @@ function composeChangesFromToolCalls(toolCalls: ToolCallEvent[]): {created: stri
       continue
     }
 
-    // Validate schema with safeParse
-    const parseResult = CurateResultSchema.safeParse(parsed)
-    if (!parseResult.success) {
-      continue
-    }
-
-    const result = parseResult.data.result || {}
-
-    for (const operation of result.applied || []) {
-      if (operation.status !== 'success') {
+    // Try to extract curate results based on tool type
+    if (tc.toolName === 'curate') {
+      // Direct curate tool call
+      const parseResult = CurateResultSchema.safeParse(parsed)
+      if (!parseResult.success) {
         continue
       }
 
-      if (operation.type === 'ADD') {
-        changes.created.push(operation.filePath)
-      } else if (operation.type === 'UPDATE') {
-        changes.updated.push(operation.filePath)
+      const result = parseResult.data.result || {}
+      extractChangesFromApplied(result.applied || [], changes)
+    } else if (tc.toolName === 'code_exec') {
+      // Curate via code_exec (tools.curate() in sandbox)
+      const parseResult = CodeExecCurateResultSchema.safeParse(parsed)
+      if (!parseResult.success) {
+        continue
+      }
+
+      const {returnValue} = parseResult.data
+      if (returnValue?.applied) {
+        extractChangesFromApplied(returnValue.applied, changes)
       }
     }
   }
 
   return changes
+}
+
+/**
+ * Helper to extract file changes from curate applied operations
+ */
+function extractChangesFromApplied(
+  applied: Array<{filePath?: string; path: string; status: string; type: string}>,
+  changes: {created: string[]; updated: string[]},
+): void {
+  for (const operation of applied) {
+    if (operation.status !== 'success' || !operation.filePath) {
+      continue
+    }
+
+    // Handle ADD, UPDATE, and UPSERT types
+    switch (operation.type) {
+      case 'ADD': {
+        changes.created.push(operation.filePath)
+        break
+      }
+
+      case 'UPDATE': {
+        changes.updated.push(operation.filePath)
+        break
+      }
+
+      case 'UPSERT': {
+        // UPSERT can be either create or update based on message content
+        // Default to updated since UPSERT typically updates existing
+        changes.updated.push(operation.filePath)
+        break
+      }
+
+      default: {
+        // Ignore other operation types (DELETE, MERGE, etc.)
+        break
+      }
+    }
+  }
 }
 
 export interface UseActivityLogsReturn {
@@ -166,6 +232,7 @@ export function useActivityLogs(): UseActivityLogsReturn {
         const activityLog: ActivityLog = {
           changes,
           content: task.status === 'error' ? task.error?.message ?? '' : task.result ?? '',
+          files: task.files,
           id: task.taskId,
           input: task.content,
           isStreaming: task.isStreaming,

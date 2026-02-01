@@ -69,6 +69,8 @@ export interface ReasoningContentItem {
 export interface ActivityLog {
   changes: {created: string[]; updated: string[]}
   content: string
+  /** File references passed via @filepath syntax */
+  files?: string[]
   id: string
   input: string
   /** Whether LLM is currently streaming response (deprecated, use isReasoningStreaming/isTextStreaming) */

@@ -1,5 +1,6 @@
 import type {Dirent} from 'node:fs'
 
+import {existsSync} from 'node:fs'
 import {readdir} from 'node:fs/promises'
 import {join} from 'node:path'
 import {z} from 'zod'
@@ -15,7 +16,7 @@ import {ToolName} from '../../../core/domain/tools/constants.js'
  * Operation types for curating knowledge topics.
  * Inspired by ACE Curator patterns.
  */
-const OperationType = z.enum(['ADD', 'UPDATE', 'MERGE', 'DELETE'])
+const OperationType = z.enum(['ADD', 'UPDATE', 'UPSERT', 'MERGE', 'DELETE'])
 type OperationType = z.infer<typeof OperationType>
 
 /**
@@ -161,19 +162,43 @@ type Operation = z.infer<typeof OperationSchema>
 type DomainContext = z.infer<typeof DomainContextSchema>
 type TopicContext = z.infer<typeof TopicContextSchema>
 type SubtopicContext = z.infer<typeof SubtopicContextSchema>
+type Content = z.infer<typeof ContentSchema>
+
+/**
+ * Filter out non-existent files from rawConcept.files.
+ * Returns a new content object with only valid file paths.
+ */
+function filterValidFiles(content: Content): Content {
+  if (!content.rawConcept?.files || content.rawConcept.files.length === 0) {
+    return content
+  }
+
+  const validFiles = content.rawConcept.files.filter((filePath) => existsSync(filePath))
+
+  // Return content with filtered files (empty array if none exist)
+  return {
+    ...content,
+    rawConcept: {
+      ...content.rawConcept,
+      files: validFiles.length > 0 ? validFiles : undefined,
+    },
+  }
+}
 
 /**
  * Input schema for curate tool.
+ * Exported for use by CurateService in sandbox.
  */
-const CurateInputSchema = z.object({
+export const CurateInputSchema = z.object({
   basePath: z.string().default('.brv/context-tree').describe('Base path for knowledge storage'),
   operations: z.array(OperationSchema).describe('Array of curate operations to apply'),
 })
 
 /**
  * Result of a single operation.
+ * Exported for use by CurateService in sandbox.
  */
-interface OperationResult {
+export interface OperationResult {
   /** Full filesystem path to the created/modified file (for ADD/UPDATE/MERGE) */
   filePath?: string
   message?: string
@@ -184,8 +209,9 @@ interface OperationResult {
 
 /**
  * Output type for curate tool.
+ * Exported for use by CurateService in sandbox.
  */
-interface CurateOutput {
+export interface CurateOutput {
   applied: OperationResult[]
   summary: {
     added: number
@@ -513,12 +539,15 @@ async function executeAdd(basePath: string, operation: Operation): Promise<Opera
     const topicPath = join(domainPath, toSnakeCase(parsed.topic))
     const finalPath = parsed.subtopic ? join(topicPath, toSnakeCase(parsed.subtopic)) : topicPath
 
+    // Filter out non-existent files from rawConcept.files
+    const filteredContent = filterValidFiles(content)
+
     const contextContent = MarkdownWriter.generateContext({
       name: title,
-      narrative: content.narrative,
-      rawConcept: content.rawConcept,
-      relations: content.relations,
-      snippets: content.snippets ?? [],
+      narrative: filteredContent.narrative,
+      rawConcept: filteredContent.rawConcept,
+      relations: filteredContent.relations,
+      snippets: filteredContent.snippets ?? [],
     })
     const filename = `${toSnakeCase(title)}.md`
     const contextPath = join(finalPath, filename)
@@ -594,12 +623,15 @@ async function executeUpdate(basePath: string, operation: Operation): Promise<Op
 
     await createDomainContextIfMissing(basePath, parsed.domain, domainContext)
 
+    // Filter out non-existent files from rawConcept.files
+    const filteredContent = filterValidFiles(content)
+
     const contextContent = MarkdownWriter.generateContext({
       name: title,
-      narrative: content.narrative,
-      rawConcept: content.rawConcept,
-      relations: content.relations,
-      snippets: content.snippets ?? [],
+      narrative: filteredContent.narrative,
+      rawConcept: filteredContent.rawConcept,
+      relations: filteredContent.relations,
+      snippets: filteredContent.snippets ?? [],
     })
     await DirectoryManager.writeFileAtomic(contextPath, contextContent)
 
@@ -618,6 +650,78 @@ async function executeUpdate(basePath: string, operation: Operation): Promise<Op
       path,
       status: 'failed',
       type: 'UPDATE',
+    }
+  }
+}
+
+/**
+ * Execute UPSERT operation - automatically creates or updates based on file existence
+ * This is the recommended operation type as it eliminates the need for pre-checks.
+ */
+async function executeUpsert(basePath: string, operation: Operation): Promise<OperationResult> {
+  const {path, title} = operation
+
+  if (!title) {
+    return {
+      message: 'UPSERT operation requires a title',
+      path,
+      status: 'failed',
+      type: 'UPSERT',
+    }
+  }
+
+  if (!operation.content) {
+    return {
+      message: 'UPSERT operation requires content',
+      path,
+      status: 'failed',
+      type: 'UPSERT',
+    }
+  }
+
+  try {
+    const parsed = parsePath(path)
+    if (!parsed) {
+      return {
+        message: `Invalid path format: ${path}. Expected domain/topic or domain/topic/subtopic`,
+        path,
+        status: 'failed',
+        type: 'UPSERT',
+      }
+    }
+
+    const fullPath = buildFullPath(basePath, path)
+    const filename = `${toSnakeCase(title)}.md`
+    const contextPath = join(fullPath, filename)
+
+    // Check if file exists to determine ADD vs UPDATE
+    const exists = await DirectoryManager.fileExists(contextPath)
+
+    if (exists) {
+      // File exists - delegate to UPDATE logic
+      const result = await executeUpdate(basePath, {...operation, type: 'UPDATE'})
+      // Return with UPSERT type but indicate it was an update
+      return {
+        ...result,
+        message: result.message?.replace('Updated', 'Upserted (updated existing)'),
+        type: 'UPSERT',
+      }
+    }
+
+    // File doesn't exist - delegate to ADD logic
+    const result = await executeAdd(basePath, {...operation, type: 'ADD'})
+    // Return with UPSERT type but indicate it was an add
+    return {
+      ...result,
+      message: result.message?.replace('Created', 'Upserted (created new)'),
+      type: 'UPSERT',
+    }
+  } catch (error) {
+    return {
+      message: error instanceof Error ? error.message : String(error),
+      path,
+      status: 'failed',
+      type: 'UPSERT',
     }
   }
 }
@@ -795,8 +899,9 @@ async function executeDelete(basePath: string, operation: Operation): Promise<Op
 
 /**
  * Execute curate operations on knowledge topics.
+ * Exported for use by CurateService in sandbox.
  */
-async function executeCurate(input: unknown, _context?: ToolExecutionContext): Promise<CurateOutput> {
+export async function executeCurate(input: unknown, _context?: ToolExecutionContext): Promise<CurateOutput> {
   const parseResult = CurateInputSchema.safeParse(input)
   if (!parseResult.success) {
     return {
@@ -878,6 +983,21 @@ async function executeCurate(input: unknown, _context?: ToolExecutionContext): P
         result = await executeUpdate(basePath, operation)
 
         if (result.status === 'success') summary.updated++
+
+        break
+      }
+
+      case 'UPSERT': {
+        result = await executeUpsert(basePath, operation)
+
+        // UPSERT counts as either added or updated based on what happened
+        if (result.status === 'success') {
+          if (result.message?.includes('created new')) {
+            summary.added++
+          } else {
+            summary.updated++
+          }
+        }
 
         break
       }

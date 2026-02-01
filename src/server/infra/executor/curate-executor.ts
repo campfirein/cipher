@@ -63,9 +63,9 @@ export class CurateExecutor implements ICurateExecutor {
 
     const projectRoot = clientCwd ?? process.cwd()
 
-    // Validate each file and collect errors
+    // Validate each file - skip non-existent files with warnings instead of failing
     const validPaths: string[] = []
-    const errors: string[] = []
+    const skippedFiles: string[] = []
 
     for (const filePath of processedPaths) {
       const result = validateFileForCurate(filePath, projectRoot)
@@ -73,13 +73,14 @@ export class CurateExecutor implements ICurateExecutor {
       if (result.valid && result.normalizedPath) {
         validPaths.push(result.normalizedPath)
       } else {
-        errors.push(result.error ?? `Invalid file: ${filePath}`)
+        // Skip non-existent files instead of failing - agent can use grep to find alternatives
+        skippedFiles.push(filePath)
       }
     }
 
-    // If there are any validation errors, throw with specific messages
-    if (errors.length > 0) {
-      const errorMessage = `File validation failed:\n${errors.map((e) => `  - ${e}`).join('\n')}`
+    // If all files were skipped, throw an error
+    if (validPaths.length === 0 && processedPaths.length > 0) {
+      const errorMessage = `All specified files are invalid or do not exist:\n${skippedFiles.map((f) => `  - ${f}`).join('\n')}\n\nTry using grep to find the correct file paths.`
       throw new FileValidationError(errorMessage)
     }
 
@@ -91,14 +92,28 @@ export class CurateExecutor implements ICurateExecutor {
       '',
       ...validPaths.map((p) => `- ${p}`),
       '',
+    ]
+
+    // Add warning about skipped files if any
+    if (skippedFiles.length > 0) {
+      instructions.push(
+        '**⚠️ SKIPPED FILES (not found - use grep to find alternatives):**',
+        ...skippedFiles.map((f) => `- ${f}`),
+        '',
+        '**NOTE:** The above files were not found. You can use `tools.grep()` or `tools.glob()` to search for similar files.',
+        '',
+      )
+    }
+
+    instructions.push(
       '**MANDATORY INSTRUCTIONS:**',
-      '- You MUST use the `read_file` tool to read ALL of these files IN PARALLEL (in a single iteration) before proceeding to create knowledge topics',
+      '- You MUST use the `read_file` tool to read ALL of the valid files IN PARALLEL (in a single iteration) before proceeding to create knowledge topics',
       '- These files contain essential context that will help you create comprehensive and accurate knowledge topics',
       '- Read them in parallel to maximize efficiency - they do not depend on each other',
       '- **CRITICAL:** Only curate files where `read_file` returns `success: true`. Files that return `success: false` are error messages and should not be curated.',
       '- After reading all files, proceed with the normal workflow: detect domains, find existing knowledge, and create/update topics',
       '',
-    ]
+    )
 
     return instructions.join('\n')
   }

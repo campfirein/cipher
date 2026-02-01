@@ -1,10 +1,28 @@
+import { createRequire } from 'node:module'
 import vm from 'node:vm'
 
-import type {REPLResult, SandboxConfig} from '../../core/domain/sandbox/types.js'
+import type { EnvironmentContext } from '../../core/domain/environment/types.js'
+import type { REPLResult, SandboxConfig } from '../../core/domain/sandbox/types.js'
+import type { ToolsSDK } from './tools-sdk.js'
 
-import {ALLOWED_GLOBALS, ALLOWED_PACKAGES, DEFAULT_SANDBOX_TIMEOUT} from '../../core/domain/sandbox/constants.js'
+import { ALLOWED_GLOBALS, ALLOWED_PACKAGES, DEFAULT_SANDBOX_TIMEOUT } from '../../core/domain/sandbox/constants.js'
+
+// Create a require function that works in both ESM and CJS environments
+const esmRequire = createRequire(import.meta.url)
 
 type EsbuildModule = typeof import('esbuild')
+
+/**
+ * Configuration options for LocalSandbox.
+ */
+export interface LocalSandboxOptions {
+  /** Environment context for env.* properties */
+  environmentContext?: EnvironmentContext
+  /** Initial context variables to inject */
+  initialContext?: Record<string, unknown>
+  /** Tools SDK for file system operations (injected as `tools` in context) */
+  toolsSDK?: ToolsSDK
+}
 
 /**
  * Detect if code contains TypeScript-specific syntax.
@@ -28,19 +46,23 @@ let esbuildModule: EsbuildModule | undefined
 
 /**
  * Transpile TypeScript to JavaScript using esbuild.
+ * Uses ESM format which doesn't add require() calls for simple type stripping.
  */
 function transpileTypeScript(code: string): string {
   if (!esbuildModule) {
-    // Dynamic import esbuild only when needed
-    // eslint-disable-next-line @typescript-eslint/no-require-imports, unicorn/prefer-module, no-undef
-    esbuildModule = require('esbuild') as EsbuildModule
+    // Use esmRequire to load esbuild - works in both ESM and CJS environments
+    esbuildModule = esmRequire('esbuild') as EsbuildModule
   }
 
+  // Use 'esm' format which produces clean JavaScript without module system wrappers
+  // For type-only TypeScript (interfaces, type annotations), this just strips types
+  // without adding any import/require statements
   const result = esbuildModule.transformSync(code, {
-    format: 'cjs',
+    format: 'esm',
     loader: 'ts',
     target: 'es2022',
   })
+
   return result.code
 }
 
@@ -56,9 +78,8 @@ function loadAllowedPackages(): Record<string, unknown> {
   for (const pkgName of ALLOWED_PACKAGES) {
     if (!packageCache.has(pkgName)) {
       try {
-        // Dynamic import of whitelisted packages
-        // eslint-disable-next-line @typescript-eslint/no-require-imports, unicorn/prefer-module, no-undef
-        packageCache.set(pkgName, require(pkgName))
+        // Use esmRequire to load packages - works in both ESM and CJS environments
+        packageCache.set(pkgName, esmRequire(pkgName))
       } catch {
         // Package not installed - skip silently
         packageCache.set(pkgName, undefined)
@@ -88,7 +109,9 @@ export class LocalSandbox {
   private errorBuffer: string[] = []
   private outputBuffer: string[] = []
 
-  constructor(initialContext: Record<string, unknown> = {}) {
+  constructor(options: LocalSandboxOptions = {}) {
+    const { environmentContext, initialContext = {}, toolsSDK } = options
+
     // Create safe console that captures output
     const safeConsole = {
       debug: (...args: unknown[]) => this.outputBuffer.push(args.map(String).join(' ')),
@@ -109,6 +132,24 @@ export class LocalSandbox {
       ...initialContext,
     }
 
+    // Inject Tools SDK if provided (for file system operations)
+    if (toolsSDK) {
+      sandbox.tools = toolsSDK
+    }
+
+    // Inject environment context as `env` object if provided
+    if (environmentContext) {
+      sandbox.env = {
+        brvStructure: environmentContext.brvStructure,
+        fileTree: environmentContext.fileTree,
+        isGitRepository: environmentContext.isGitRepository,
+        nodeVersion: environmentContext.nodeVersion,
+        osVersion: environmentContext.osVersion,
+        platform: environmentContext.platform,
+        workingDirectory: environmentContext.workingDirectory,
+      }
+    }
+
     // Add allowed built-in globals
     for (const name of ALLOWED_GLOBALS) {
       if (name !== 'console' && name in globalThis) {
@@ -121,12 +162,13 @@ export class LocalSandbox {
 
   /**
    * Execute code in the sandbox.
+   * Supports both synchronous and asynchronous code execution.
    *
    * @param code - JavaScript or TypeScript code to execute
    * @param config - Execution configuration
    * @returns Execution result
    */
-  execute(code: string, config?: SandboxConfig): REPLResult {
+  async execute(code: string, config?: SandboxConfig): Promise<REPLResult> {
     this.outputBuffer = []
     this.errorBuffer = []
 
@@ -150,6 +192,30 @@ export class LocalSandbox {
         displayErrors: true,
         timeout,
       })
+
+      // If the return value is a Promise or thenable, await it with timeout
+      // Use duck-typing to handle Promises from vm context (which may have different constructor)
+      const isPromiseLike =
+        returnValue !== null &&
+        typeof returnValue === 'object' &&
+        typeof (returnValue as { then?: unknown }).then === 'function'
+
+      if (isPromiseLike) {
+        let timeoutId: ReturnType<typeof setTimeout> | undefined
+        try {
+          returnValue = await Promise.race([
+            returnValue as Promise<unknown>,
+            new Promise((_, reject) => {
+              timeoutId = setTimeout(() => reject(new Error('Async execution timeout')), timeout)
+            }),
+          ])
+        } finally {
+          // Always clear the timeout to prevent resource leaks
+          if (timeoutId !== undefined) {
+            clearTimeout(timeoutId)
+          }
+        }
+      }
     } catch (error) {
       const errorMessage = error instanceof Error ? `${error.name}: ${error.message}` : String(error)
       this.errorBuffer.push(errorMessage)
@@ -157,13 +223,15 @@ export class LocalSandbox {
 
     const executionTime = performance.now() - startTime
 
-    // Extract current context state (excluding functions and built-ins)
+    // Extract current context state (excluding functions, built-ins, and injected services)
     const locals: Record<string, unknown> = {}
+    const excludedKeys = new Set(['context', 'env', 'packages', 'tools'])
     for (const key of Object.keys(this.context)) {
       const isAllowedGlobal = (ALLOWED_GLOBALS as readonly string[]).includes(key)
-      const isPackage = key === 'packages' || key in loadAllowedPackages()
+      const isPackage = key in loadAllowedPackages()
+      const isExcluded = excludedKeys.has(key)
 
-      if (!isAllowedGlobal && !isPackage && typeof this.context[key] !== 'function') {
+      if (!isAllowedGlobal && !isPackage && !isExcluded && typeof this.context[key] !== 'function') {
         try {
           // Only include JSON-serializable values
           JSON.stringify(this.context[key])
@@ -189,7 +257,7 @@ export class LocalSandbox {
    * @returns Copy of current context
    */
   getContext(): Record<string, unknown> {
-    return {...this.context}
+    return { ...this.context }
   }
 
   /**

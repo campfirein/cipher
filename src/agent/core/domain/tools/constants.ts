@@ -23,7 +23,6 @@ export const ToolName: {
   readonly SEARCH_HISTORY: 'search_history'
   readonly SEARCH_KNOWLEDGE: 'search_knowledge'
   readonly SPEC_ANALYZE: 'spec_analyze'
-  readonly TASK: 'task'
   readonly WRITE_FILE: 'write_file'
   readonly WRITE_MEMORY: 'write_memory'
   readonly WRITE_TODOS: 'write_todos'
@@ -48,7 +47,6 @@ export const ToolName: {
   SEARCH_HISTORY: 'search_history',
   SEARCH_KNOWLEDGE: 'search_knowledge',
   SPEC_ANALYZE: 'spec_analyze',
-  TASK: 'task',
   WRITE_FILE: 'write_file',
   WRITE_MEMORY: 'write_memory',
   WRITE_TODOS: 'write_todos',
