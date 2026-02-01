@@ -46,3 +46,31 @@ export const TRANSPORT_DEFAULT_TRANSPORTS: ('polling' | 'websocket')[] = ['webso
 
 // LLM Model defaults
 export const DEFAULT_LLM_MODEL = 'gemini-3-flash-preview'
+
+// === Daemon infrastructure constants ===
+export const GLOBAL_PROJECTS_DIR = 'projects'
+export const DAEMON_PREFERRED_PORT = 37_847
+export const DAEMON_PORT_RANGE_MIN = 37_848
+export const DAEMON_PORT_RANGE_MAX = 37_947
+export const DAEMON_INSTANCE_FILE = 'daemon.json'
+
+// Heartbeat
+export const HEARTBEAT_FILE = 'heartbeat'
+export const HEARTBEAT_INTERVAL_MS = 5000 // Write every 5s
+export const HEARTBEAT_STALE_THRESHOLD_MS = 15_000 // Stale if >15s
+
+// Idle timeout
+export const IDLE_TIMEOUT_MS = 30 * 60 * 1000 // 30 minutes
+export const IDLE_CHECK_INTERVAL_MS = 60_000 // Check every 60s
+
+// Sleep/wake detection
+export const SLEEP_WAKE_CHECK_INTERVAL_MS = 5000
+export const SLEEP_WAKE_THRESHOLD_MULTIPLIER = 3
+
+// Spawn lock
+export const SPAWN_LOCK_FILE = 'spawn.lock'
+export const SPAWN_LOCK_STALE_THRESHOLD_MS = 30_000 // 30s
+
+// Daemon readiness polling
+export const DAEMON_READY_TIMEOUT_MS = 5000 // 5s max wait
+export const DAEMON_READY_POLL_INTERVAL_MS = 100 // 100ms between polls

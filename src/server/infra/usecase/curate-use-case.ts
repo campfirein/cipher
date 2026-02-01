@@ -1,8 +1,8 @@
 import {
   ConnectionError,
   ConnectionFailedError,
-  type ConnectionResult,
   connectToTransport,
+  DaemonInstanceDiscovery,
   InstanceCrashedError,
   type ITransportClient,
   NoInstanceRunningError,
@@ -13,6 +13,7 @@ import {z} from 'zod'
 
 import type {ITerminal} from '../../core/interfaces/services/i-terminal.js'
 import type {CurateUseCaseRunOptions, ICurateUseCase} from '../../core/interfaces/usecase/i-curate-use-case.js'
+import type {TransportConnector} from '../transport/transport-connector.js'
 
 import {ToolName} from '../../../agent/infra/tools/index.js'
 import {LlmToolResultEvent, TaskCompletedEvent, TaskErrorEvent} from '../../core/domain/transport/index.js'
@@ -22,8 +23,7 @@ import {getSandboxEnvironmentName, isSandboxEnvironment, isSandboxNetworkError} 
 import {InlineAgent} from '../process/inline-agent-executor.js'
 import {HeadlessTerminal} from '../terminal/headless-terminal.js'
 
-/** Type for transport connection function (for DI/testing) */
-export type TransportConnector = (fromDir?: string) => Promise<ConnectionResult>
+export type {TransportConnector} from '../transport/transport-connector.js'
 
 const CurateOperationSchema = z.object({
   filePath: z.string(),
@@ -64,7 +64,9 @@ export class CurateUseCase implements ICurateUseCase {
   constructor(options: CurateUseCaseOptions) {
     this.terminal = options.terminal
     this.trackingService = options.trackingService
-    this.transportConnector = options.transportConnector ?? connectToTransport
+    this.transportConnector =
+      options.transportConnector ??
+      ((fromDir) => connectToTransport(fromDir, {discovery: new DaemonInstanceDiscovery()}))
   }
 
   public async run({

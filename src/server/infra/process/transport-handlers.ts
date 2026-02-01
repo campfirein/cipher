@@ -597,11 +597,11 @@ export class TransportHandlers {
    * Setup connection event handlers.
    */
   private setupConnectionHandlers(): void {
-    this.transport.onConnection((clientId) => {
+    this.transport.onConnection((clientId, _metadata) => {
       transportLog(`Client connected: ${clientId}`)
     })
 
-    this.transport.onDisconnection((clientId) => {
+    this.transport.onDisconnection((clientId, _metadata) => {
       transportLog(`Client disconnected: ${clientId}`)
 
       // Check if Agent disconnected

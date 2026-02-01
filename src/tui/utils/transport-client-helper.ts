@@ -1,6 +1,7 @@
 import {
   AgentEventNames,
   connectToTransport,
+  DaemonInstanceDiscovery,
   type ITransportClient,
   LlmEventList,
   SessionEventNames,
@@ -77,8 +78,10 @@ export async function connectTransportClient(): Promise<ITransportClient | null>
   }
 
   try {
-    // Use modern connectToTransport API (auto-discovers and connects)
-    const {client} = await connectToTransport()
+    // Connect to daemon via DaemonInstanceDiscovery (global instance at ~/.local/share/brv/)
+    const {client} = await connectToTransport(undefined, {
+      discovery: new DaemonInstanceDiscovery(),
+    })
 
     // IMPORTANT: Join broadcast-room FIRST before subscribing to events.
     // This prevents missing events that are broadcast during the subscription window.

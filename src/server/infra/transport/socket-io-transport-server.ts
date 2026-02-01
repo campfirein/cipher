@@ -3,7 +3,7 @@ import {createServer, Server as HttpServer} from 'node:http'
 import {Server, Socket} from 'socket.io'
 
 import type {TransportServerConfig} from '../../core/domain/transport/types.js'
-import type {ConnectionHandler, ITransportServer, RequestHandler} from '../../core/interfaces/transport/index.js'
+import type {ConnectionHandler, ConnectionMetadata, ITransportServer, RequestHandler} from '../../core/interfaces/transport/index.js'
 
 import {isDevelopment} from '../../config/environment.js'
 import {TRANSPORT_PING_INTERVAL_MS, TRANSPORT_PING_TIMEOUT_MS} from '../../constants.js'
@@ -161,21 +161,26 @@ export class SocketIOTransportServer implements ITransportServer {
         const clientId = socket.id
         this.sockets.set(clientId, socket)
 
+        // Extract connection metadata from handshake query
+        const metadata: ConnectionMetadata = {
+          cwd: typeof socket.handshake.query.cwd === 'string' ? socket.handshake.query.cwd : undefined,
+        }
+
         // Apply all registered request handlers to new socket
         for (const [event, handler] of this.requestHandlers) {
           this.registerEventHandler(socket, event, handler)
         }
 
-        // Notify connection handlers
+        // Notify connection handlers with metadata
         for (const handler of this.connectionHandlers) {
-          handler(clientId)
+          handler(clientId, metadata)
         }
 
         socket.on('disconnect', () => {
           this.sockets.delete(clientId)
-          // Notify disconnection handlers
+          // Notify disconnection handlers (no metadata on disconnect)
           for (const handler of this.disconnectionHandlers) {
-            handler(clientId)
+            handler(clientId, {})
           }
         })
 

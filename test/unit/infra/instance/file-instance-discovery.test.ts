@@ -74,20 +74,20 @@ describe('FileInstanceDiscovery', () => {
   describe('discover', () => {
     it('should discover running instance', async () => {
       // Acquire an instance (creates .brv/instance.json with current PID)
-      await manager.acquire(testDir, 9847)
+      await manager.acquire(testDir, 37_847)
 
       const result = await discovery.discover(testDir)
 
       expect(result.found).to.be.true
       if (result.found) {
-        expect(result.instance.port).to.equal(9847)
+        expect(result.instance.port).to.equal(37_847)
         expect(result.projectRoot).to.equal(testDir)
       }
     })
 
     it('should discover instance from subdirectory', async () => {
       // Acquire instance at root
-      await manager.acquire(testDir, 9847)
+      await manager.acquire(testDir, 37_847)
 
       // Create subdirectory
       const subDir = join(testDir, 'src', 'components')
@@ -98,7 +98,7 @@ describe('FileInstanceDiscovery', () => {
 
       expect(result.found).to.be.true
       if (result.found) {
-        expect(result.instance.port).to.equal(9847)
+        expect(result.instance.port).to.equal(37_847)
         expect(result.projectRoot).to.equal(testDir)
       }
     })
@@ -114,7 +114,7 @@ describe('FileInstanceDiscovery', () => {
 
     it('should return no_instance when instance.json is deleted (released)', async () => {
       // Acquire and then release (deletes instance.json)
-      await manager.acquire(testDir, 9847)
+      await manager.acquire(testDir, 37_847)
       await manager.release(testDir)
 
       const result = await discovery.discover(testDir)
@@ -132,7 +132,7 @@ describe('FileInstanceDiscovery', () => {
       // Manually write instance.json with a dead PID
       const deadInstance = InstanceInfo.create({
         pid: 9_999_999, // Non-existent PID
-        port: 9847,
+        port: 37_847,
       })
       const instancePath = join(testDir, BRV_DIR, 'instance.json')
       await writeFile(instancePath, JSON.stringify(deadInstance.toJson(), null, 2))

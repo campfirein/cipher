@@ -86,8 +86,8 @@ export async function findAvailablePort(): Promise<number> {
  * @returns Promise resolving to an available port number
  *
  * @example
- * // Try 9847 first, fallback to random if unavailable
- * const port = await findAvailablePortWithPreference(9847);
+ * // Try 37847 first, fallback to random if unavailable
+ * const port = await findAvailablePortWithPreference(37847);
  */
 export async function findAvailablePortWithPreference(preferredPort: number): Promise<number> {
   if (await isPortAvailable(preferredPort)) {

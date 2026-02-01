@@ -1,4 +1,4 @@
-import {type ConnectionState, connectToTransport, type ITransportClient} from '@campfirein/brv-transport-client'
+import {type ConnectionState, connectToTransport, DaemonInstanceDiscovery, type ITransportClient} from '@campfirein/brv-transport-client'
 import React, {createContext, useContext, useEffect, useState} from 'react'
 
 /**
@@ -38,8 +38,10 @@ export function TransportProvider({children}: {children: React.ReactNode}): Reac
       try {
         setConnectionState('connecting')
 
-        // Use modern connectToTransport API (auto-discovers and connects)
-        const {client: newClient} = await connectToTransport()
+        // Connect to daemon via DaemonInstanceDiscovery (global instance at ~/.local/share/brv/)
+        const {client: newClient} = await connectToTransport(undefined, {
+          discovery: new DaemonInstanceDiscovery(),
+        })
 
         if (!mounted) {
           await newClient.disconnect()

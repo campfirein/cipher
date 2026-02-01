@@ -1,8 +1,8 @@
 import {
   ConnectionError,
   ConnectionFailedError,
-  type ConnectionResult,
   connectToTransport,
+  DaemonInstanceDiscovery,
   InstanceCrashedError,
   type ITransportClient,
   type LlmResponse,
@@ -20,6 +20,7 @@ import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
 import type {ITerminal} from '../../core/interfaces/services/i-terminal.js'
 import type {ITrackingService} from '../../core/interfaces/services/i-tracking-service.js'
 import type {IQueryUseCase, QueryUseCaseRunOptions} from '../../core/interfaces/usecase/i-query-use-case.js'
+import type {TransportConnector} from '../transport/transport-connector.js'
 
 import {CipherAgent} from '../../../agent/infra/agent/index.js'
 import {formatError} from '../../utils/error-handler.js'
@@ -27,8 +28,7 @@ import {getSandboxEnvironmentName, isSandboxEnvironment, isSandboxNetworkError} 
 import {InlineAgent} from '../process/inline-agent-executor.js'
 import {HeadlessTerminal} from '../terminal/headless-terminal.js'
 
-/** Type for transport connection function (for DI/testing) */
-export type TransportConnector = (fromDir?: string) => Promise<ConnectionResult>
+export type {TransportConnector} from '../transport/transport-connector.js'
 
 /**
  * Structured query result for JSON output.
@@ -55,7 +55,9 @@ export class QueryUseCase implements IQueryUseCase {
   constructor(options: QueryUseCaseOptions) {
     this.terminal = options.terminal
     this.trackingService = options.trackingService
-    this.transportConnector = options.transportConnector ?? connectToTransport
+    this.transportConnector = options.transportConnector ?? ((fromDir) =>
+      connectToTransport(fromDir, {discovery: new DaemonInstanceDiscovery()})
+    )
   }
 
   /**

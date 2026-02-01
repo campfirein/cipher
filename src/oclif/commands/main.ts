@@ -4,6 +4,7 @@ import {randomUUID} from 'node:crypto'
 import {DEFAULT_SESSION_RETENTION} from '../../agent/core/domain/session/session-metadata.js'
 import {SessionMetadataStore} from '../../agent/infra/session/session-metadata-store.js'
 import {ProjectConfigStore} from '../../server/infra/config/file-config-store.js'
+import {ensureDaemonRunning} from '../../server/infra/daemon/daemon-spawner.js'
 import {getProcessManager} from '../../server/infra/process/index.js'
 import {FileGlobalConfigStore} from '../../server/infra/storage/file-global-config-store.js'
 import {FileOnboardingPreferenceStore} from '../../server/infra/storage/file-onboarding-preference-store.js'
@@ -41,6 +42,17 @@ export default class Main extends Command {
     // Resolve session ID (auto-resume or create new)
     const sessionId = await this.resolveSessionId()
     processManagerLog(`Session ID resolved: ${sessionId}`)
+
+    // Ensure daemon is running (spawn if needed, restart on version mismatch)
+    const daemonResult = await ensureDaemonRunning({version: this.config.version})
+    if (!daemonResult.success) {
+      const detail = daemonResult.spawnError ? `: ${daemonResult.spawnError}` : ''
+      this.error(`Failed to start daemon: timed out waiting for daemon to become ready${detail}`)
+    }
+
+    processManagerLog(
+      `Daemon ready (pid=${daemonResult.info.pid}, port=${daemonResult.info.port}, started=${daemonResult.started})`,
+    )
 
     // Start Transport and Agent processes (v0.5.0 architecture)
     // Pass session ID to Agent via environment variable

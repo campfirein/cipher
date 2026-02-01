@@ -28,31 +28,31 @@ describe('FileInstanceManager', () => {
 
   describe('acquire', () => {
     it('should acquire lock when no instance exists', async () => {
-      const result = await manager.acquire(testDir, 9847)
+      const result = await manager.acquire(testDir, 37_847)
 
       expect(result.acquired).to.be.true
       if (result.acquired) {
-        expect(result.instance.port).to.equal(9847)
+        expect(result.instance.port).to.equal(37_847)
         expect(result.instance.pid).to.equal(process.pid)
         expect(result.instance.currentSessionId).to.be.null
       }
     })
 
     it('should create .brv directory if it does not exist', async () => {
-      await manager.acquire(testDir, 9847)
+      await manager.acquire(testDir, 37_847)
 
       const instancePath = join(testDir, BRV_DIR, 'instance.json')
       const content = await readFile(instancePath, 'utf8')
       const json = JSON.parse(content)
 
-      expect(json.port).to.equal(9847)
+      expect(json.port).to.equal(37_847)
       expect(json.pid).to.equal(process.pid)
       expect(json).to.have.property('startedAt').that.is.a('number')
     })
 
     it('should fail to acquire when instance is already running', async () => {
       // First acquire
-      const result1 = await manager.acquire(testDir, 9847)
+      const result1 = await manager.acquire(testDir, 37_847)
       expect(result1.acquired).to.be.true
 
       // Second acquire should fail (same process, so PID is alive)
@@ -61,13 +61,13 @@ describe('FileInstanceManager', () => {
       expect(result2.acquired).to.be.false
       if (!result2.acquired) {
         expect(result2.reason).to.equal('already_running')
-        expect(result2.existingInstance.port).to.equal(9847)
+        expect(result2.existingInstance.port).to.equal(37_847)
       }
     })
 
     it('should acquire when existing instance file is deleted (released)', async () => {
       // First acquire and release
-      await manager.acquire(testDir, 9847)
+      await manager.acquire(testDir, 37_847)
       await manager.release(testDir)
 
       // Second acquire should succeed
@@ -88,7 +88,7 @@ describe('FileInstanceManager', () => {
         JSON.stringify({
           currentSessionId: null,
           pid: 9_999_999, // Non-existent PID
-          port: 9847,
+          port: 37_847,
           startedAt: Date.now(),
         }),
       )
@@ -111,12 +111,12 @@ describe('FileInstanceManager', () => {
     })
 
     it('should load instance info from instance.json', async () => {
-      await manager.acquire(testDir, 9847)
+      await manager.acquire(testDir, 37_847)
 
       const instance = await manager.load(testDir)
 
       expect(instance).to.not.be.undefined
-      expect(instance?.port).to.equal(9847)
+      expect(instance?.port).to.equal(37_847)
     })
 
     it('should return undefined for corrupted JSON', async () => {
@@ -134,7 +134,7 @@ describe('FileInstanceManager', () => {
       // Create .brv directory and write JSON with missing fields
       const brvDir = join(testDir, BRV_DIR)
       await mkdir(brvDir, {recursive: true})
-      await writeFile(join(brvDir, 'instance.json'), JSON.stringify({port: 9847}))
+      await writeFile(join(brvDir, 'instance.json'), JSON.stringify({port: 37_847}))
 
       const instance = await manager.load(testDir)
 
@@ -150,7 +150,7 @@ describe('FileInstanceManager', () => {
         JSON.stringify({
           currentSessionId: null,
           pid: 'not-a-number', // Should be number
-          port: 9847,
+          port: 37_847,
           startedAt: Date.now(),
         }),
       )
@@ -163,7 +163,7 @@ describe('FileInstanceManager', () => {
 
   describe('release', () => {
     it('should delete instance.json file', async () => {
-      await manager.acquire(testDir, 9847)
+      await manager.acquire(testDir, 37_847)
       await manager.release(testDir)
 
       const instancePath = join(testDir, BRV_DIR, 'instance.json')
@@ -185,7 +185,7 @@ describe('FileInstanceManager', () => {
 
   describe('updateSessionId', () => {
     it('should update the session ID', async () => {
-      await manager.acquire(testDir, 9847)
+      await manager.acquire(testDir, 37_847)
       await manager.updateSessionId(testDir, 'session-123')
 
       const instance = await manager.load(testDir)

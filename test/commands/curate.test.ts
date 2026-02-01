@@ -181,7 +181,7 @@ describe('Curate Command', () => {
     })
 
     it('should handle ConnectionFailedError', async () => {
-      const errorConnector = stub().rejects(new ConnectionFailedError(9847, new Error('Connection refused')))
+      const errorConnector = stub().rejects(new ConnectionFailedError(37_847, new Error('Connection refused')))
       const useCase = new CurateUseCase(
         createUseCaseOptions({
           transportConnector: errorConnector,

@@ -7,11 +7,11 @@ describe('InstanceInfo', () => {
     it('should create an instance with required fields', () => {
       const instance = InstanceInfo.create({
         pid: 12_345,
-        port: 9847,
+        port: 37_847,
       })
 
       expect(instance.pid).to.equal(12_345)
-      expect(instance.port).to.equal(9847)
+      expect(instance.port).to.equal(37_847)
       expect(instance.currentSessionId).to.be.null
       expect(instance.startedAt).to.be.instanceOf(Date)
     })
@@ -20,7 +20,7 @@ describe('InstanceInfo', () => {
       const instance = InstanceInfo.create({
         currentSessionId: 'session-123',
         pid: 12_345,
-        port: 9847,
+        port: 37_847,
       })
 
       expect(instance.currentSessionId).to.equal('session-123')
@@ -32,7 +32,7 @@ describe('InstanceInfo', () => {
       const original = InstanceInfo.create({
         currentSessionId: 'session-456',
         pid: 12_345,
-        port: 9847,
+        port: 37_847,
       })
 
       const json = original.toJson()
@@ -48,13 +48,13 @@ describe('InstanceInfo', () => {
       const instance = InstanceInfo.create({
         currentSessionId: 'session-789',
         pid: 12_345,
-        port: 9847,
+        port: 37_847,
       })
 
       const json = instance.toJson()
 
       expect(json).to.have.property('pid', 12_345)
-      expect(json).to.have.property('port', 9847)
+      expect(json).to.have.property('port', 37_847)
       expect(json).to.have.property('currentSessionId', 'session-789')
       expect(json).to.have.property('startedAt').that.is.a('number')
     })
@@ -64,7 +64,7 @@ describe('InstanceInfo', () => {
     it('should create instance with new session ID', () => {
       const instance = InstanceInfo.create({
         pid: 12_345,
-        port: 9847,
+        port: 37_847,
       })
 
       const updated = instance.withSessionId('new-session')
@@ -80,10 +80,10 @@ describe('InstanceInfo', () => {
     it('should return correct URL', () => {
       const instance = InstanceInfo.create({
         pid: 12_345,
-        port: 9847,
+        port: 37_847,
       })
 
-      expect(instance.getTransportUrl()).to.equal('http://127.0.0.1:9847')
+      expect(instance.getTransportUrl()).to.equal('http://127.0.0.1:37847')
     })
 
     it('should work with different ports', () => {
