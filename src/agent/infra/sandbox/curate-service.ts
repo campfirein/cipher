@@ -65,8 +65,8 @@ function validateOperations(operations: CurateOperation[]): CurateOperationResul
       }
     }
 
-    // ADD and UPDATE require content
-    if ((op.type === 'ADD' || op.type === 'UPDATE') && !op.content) {
+    // ADD, UPDATE, and UPSERT require content
+    if ((op.type === 'ADD' || op.type === 'UPDATE' || op.type === 'UPSERT') && !op.content) {
       failures.push({
         message: `${op.type} operation requires content with rawConcept and/or narrative.`,
         path: op.path,
@@ -75,8 +75,8 @@ function validateOperations(operations: CurateOperation[]): CurateOperationResul
       })
     }
 
-    // ADD and UPDATE require title
-    if ((op.type === 'ADD' || op.type === 'UPDATE') && !op.title) {
+    // ADD, UPDATE, and UPSERT require title
+    if ((op.type === 'ADD' || op.type === 'UPDATE' || op.type === 'UPSERT') && !op.title) {
       failures.push({
         message: `${op.type} operation requires a title (becomes the .md filename).`,
         path: op.path,

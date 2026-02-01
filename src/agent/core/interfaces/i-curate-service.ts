@@ -89,7 +89,7 @@ export interface CurateSubtopicContext {
 /**
  * Operation types for curating knowledge topics.
  */
-export type CurateOperationType = 'ADD' | 'DELETE' | 'MERGE' | 'UPDATE'
+export type CurateOperationType = 'ADD' | 'DELETE' | 'MERGE' | 'UPDATE' | 'UPSERT'
 
 /**
  * Single curate operation.

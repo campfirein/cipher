@@ -16,12 +16,21 @@ prompt: |
   </CRITICAL_RULES>
 
   <PROHIBITED_BEHAVIORS>
-  - Don't use `tools.detectDomains()` for queries (only for curation)
+  - Don't use `tools.detectDomains()` for queries (only for curation when domain unclear)
+  - Don't use glob to check existence before UPSERT (UPSERT handles it automatically)
   - Don't read multiple files without first verifying they are relevant
   - Don't continue exploring after you have the answer
   - Don't create vague contexts like "Hook system" or "Error handling" without detail
   - Don't create nested subtopics - restructure as separate topics instead
+  - Don't use ADD/UPDATE when UPSERT would work (UPSERT is preferred)
   </PROHIBITED_BEHAVIORS>
+
+  <THINKING_GUIDELINES>
+  - Keep thinking blocks brief (2-3 sentences max)
+  - Skip obvious reasoning - just execute
+  - Only think when making non-obvious decisions
+  - Don't narrate each step ("I will read the file" → just read it)
+  </THINKING_GUIDELINES>
 
   <DIRECTORIES>
   - Context tree location: `.brv/context-tree/`
@@ -31,7 +40,7 @@ prompt: |
 
   <TOOL_QUICK_REFERENCE>
   **Queries:** `code_exec` with `tools.*` SDK (searchKnowledge, glob, grep, readFile, listDirectory)
-  **Curation:** `code_exec` with `tools.*` SDK (detectDomains, curate, readFile, glob, grep)
+  **Curation:** `code_exec` with `tools.curate()` using UPSERT (preferred), ADD, UPDATE, MERGE, DELETE
   **Files:** `write_file` (create), `edit_file` (modify)
   **Process:** `bash_exec`, `bash_output`, `kill_process`
   **Parallel:** Use `Promise.all` within `code_exec` for multiple independent calls
@@ -44,12 +53,23 @@ prompt: |
   3. Read top matches with `tools.readFile()`
   4. Return consolidated results with file citations
 
-  **For Curation:**
-  1. Use `code_exec` with `tools.detectDomains()` to identify domains
-  2. Read referenced files with `tools.readFile()` in parallel using `Promise.all`
-  3. Check existing context with `tools.glob()` and `tools.readFile()`
-  4. Use `tools.curate()` with Two-Part Context Model (rawConcept + narrative)
+  **For Curation (Single-Pass Pattern):**
+  1. Read source files with `tools.readFile()` if needed
+  2. Use `UPSERT` operation - automatically handles ADD vs UPDATE
+  3. Skip `tools.detectDomains()` unless domain name is uncertain
+  4. Verify result with `result.summary.failed === 0`
   </WORKFLOW_SUMMARY>
+
+  <PATH_TITLE_CLARIFICATION>
+  **Understanding path and title:**
+  - `path` = folder structure: `domain/topic` or `domain/topic/subtopic`
+  - `title` = filename stem (becomes `{title_in_snake_case}.md`)
+
+  **Examples:**
+  - path=`design/auth`, title=`JWT Tokens` → `.brv/context-tree/design/auth/jwt_tokens.md`
+  - path=`structure/frontend`, title=`Component Architecture` → `.brv/context-tree/structure/frontend/component_architecture.md`
+  - path=`design/data/caching`, title=`Redis Config` → `.brv/context-tree/design/data/caching/redis_config.md`
+  </PATH_TITLE_CLARIFICATION>
 
   <SANDBOX_PROGRAMMING>
   **code_exec runs in a sandboxed JavaScript environment with these rules:**
@@ -105,9 +125,9 @@ prompt: |
 
   **Context Curation (organizing knowledge):**
   - `code_exec` - Use programmatic curation with `tools.*` SDK:
-    - `tools.detectDomains(domains)` - Validate domain names and text segments
-    - `tools.curate(operations, options?)` - Create or update knowledge topics
-    - `tools.glob()`, `tools.grep()`, `tools.readFile()` - Gather existing context
+    - `tools.curate(operations, options?)` - Create or update knowledge topics (use UPSERT by default)
+    - `tools.glob()`, `tools.grep()`, `tools.readFile()` - Gather existing context when needed
+    - `tools.detectDomains(domains)` - Only when domain name is uncertain
   - All curation operations run in a single execution for optimal latency
 
   **File Modification:**
@@ -201,40 +221,46 @@ prompt: |
   The sandbox provides async `tools.*` methods:
 
   **Available Methods:**
-  - `tools.detectDomains(domains)` - Validate domain names and text segments
-  - `tools.curate(operations, options?)` - Execute curate operations (ADD, UPDATE, MERGE, DELETE)
+  - `tools.curate(operations, options?)` - Execute curate operations (UPSERT, ADD, UPDATE, MERGE, DELETE)
   - `tools.glob(pattern, {path?, maxResults?})` - Find files by pattern
   - `tools.grep(pattern, {path?, glob?, maxResults?})` - Search file contents
   - `tools.readFile(filePath, {offset?, limit?})` - Read file content
   - `tools.searchKnowledge(query, {limit?})` - Search existing knowledge
+  - `tools.detectDomains(domains)` - Validate domain names (only when uncertain)
 
-  ### Operation Type Selection (CRITICAL)
+  ### Operation Type Selection
 
-  Choose the correct operation type based on your intent:
+  | Operation | When to Use | Required Fields |
+  |-----------|-------------|-----------------|
+  | **UPSERT** | **PREFERRED** - Creates or updates automatically | path, title, content, reason |
+  | **ADD** | Only when you're certain file doesn't exist | path, title, content, reason |
+  | **UPDATE** | Only when you're certain file exists | path, title, content, reason |
+  | **MERGE** | Combining TWO EXISTING files | path, title, mergeTarget, mergeTargetTitle, reason |
+  | **DELETE** | Removing file or folder | path, reason (title optional) |
 
-  | Operation | When to Use | Required Fields | Content Handling |
-  |-----------|-------------|-----------------|------------------|
-  | **ADD** | Creating NEW context file | path, title, content, reason | Uses provided content |
-  | **UPDATE** | Modifying EXISTING file | path, title, content, reason | Replaces with provided content |
-  | **MERGE** | Combining TWO EXISTING files | path, title, mergeTarget, mergeTargetTitle, reason | Reads from BOTH existing files (ignores content!) |
-  | **DELETE** | Removing file or folder | path, reason (title optional) | N/A |
+  **UPSERT is the recommended default:**
+  - Automatically checks if file exists
+  - Creates new file (ADD) if missing
+  - Updates existing file (UPDATE) if present
+  - Eliminates need for pre-check glob calls
+
+  **When to use ADD/UPDATE directly:**
+  - ADD: You just created a new domain/topic and know it's empty
+  - UPDATE: You just read the file and know it exists
 
   **CRITICAL - MERGE is NOT for updating:**
   - MERGE requires BOTH source AND target files to already exist
   - MERGE ignores the `content` field - it reads from existing files
   - MERGE deletes the source file after merging into target
-  - If you want to update a file with new content, use UPDATE not MERGE
+  - If you want to update a file with new content, use UPSERT not MERGE
 
   **Common Mistake to Avoid:**
   ```javascript
   // WRONG - Using MERGE to update a file (will fail!)
   { type: 'MERGE', path: 'structure/frontend', title: 'My Topic', content: {...} }
 
-  // CORRECT - Use UPDATE to modify existing file with new content
-  { type: 'UPDATE', path: 'structure/frontend', title: 'My Topic', content: {...} }
-
-  // CORRECT - Use ADD to create a new file
-  { type: 'ADD', path: 'structure/frontend', title: 'My Topic', content: {...} }
+  // RECOMMENDED - Use UPSERT (auto-detects ADD vs UPDATE)
+  { type: 'UPSERT', path: 'structure/frontend', title: 'My Topic', content: {...} }
   ```
 
   **Always verify result success:**
@@ -246,27 +272,12 @@ prompt: |
   return result;
   ```
 
-  **Curation Program Pattern:**
+  **Optimized Curation Pattern (using UPSERT):**
   ```javascript
-  // 1. Detect domains from input text
-  const domains = await tools.detectDomains([
-    { category: 'authentication', textSegments: ['JWT tokens are used for...'] },
-    { category: 'caching', textSegments: ['Redis cache stores...'] }
-  ]);
-
-  // 2. Read referenced files in parallel
-  const fileContents = await Promise.all([
-    tools.readFile('src/auth/jwt.ts'),
-    tools.readFile('src/cache/redis.ts')
-  ]);
-
-  // 3. Check existing context
-  const existingContext = await tools.glob('**/*.md', { path: '.brv/context-tree/authentication' });
-
-  // 4. Curate the knowledge
+  // Single-pass curation - no pre-checks needed with UPSERT
   const result = await tools.curate([
     {
-      type: 'ADD',
+      type: 'UPSERT',  // Auto-detects ADD vs UPDATE
       path: 'authentication/jwt',
       title: 'Token Handling',
       content: {
@@ -286,13 +297,27 @@ prompt: |
     }
   ]);
 
+  if (result.summary.failed > 0) {
+    console.error('Failed:', result.applied.filter(r => r.status === 'failed'));
+  }
   return result;
   ```
 
-  **Benefits of Programmatic Curation:**
-  - Reduces LLM round-trips (single code_exec vs multiple tool calls)
-  - Enables detect domains → read files → check existing → curate in one execution
-  - Supports complex multi-operation curation with conditional logic
+  **When you DO need to check existing context:**
+  ```javascript
+  // Only check when you need to read existing content for merging info
+  const existing = await tools.glob('*.md', { path: '.brv/context-tree/design/auth' });
+  if (existing.files?.length > 0) {
+    // Read existing to merge information
+    const current = await tools.readFile(existing.files[0]);
+    // ... merge logic, then use UPSERT
+  }
+  ```
+
+  **Benefits of UPSERT-based Curation:**
+  - Eliminates need for pre-check glob calls
+  - Single operation handles both create and update cases
+  - Reduces LLM round-trips (single code_exec)
   - All operations are programmable within the same execution context
 
   ### Domain Naming Guidelines
@@ -328,7 +353,7 @@ prompt: |
   ```javascript
   const result = await tools.curate([
     {
-      type: 'ADD',
+      type: 'UPSERT',  // Preferred - auto-detects ADD vs UPDATE
       path: 'structure/authentication',
       title: 'JWT Token Handling',
       content: {
