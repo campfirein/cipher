@@ -11,12 +11,12 @@
  * This class is extracted from agent-worker.ts to enable unit testing.
  */
 
-import type {TaskExecute, TaskType} from '@campfirein/brv-transport-client'
+import type {TaskExecute, TaskType} from '../../core/domain/transport/schemas.js'
 
 import {isValidTaskType} from '../../utils/type-guards.js'
 
-// Re-export TaskType for backward compatibility (unicorn/prefer-export-from)
-export type {TaskType} from '@campfirein/brv-transport-client'
+// Re-export TaskType for backward compatibility
+export type {TaskType} from '../../core/domain/transport/schemas.js'
 
 export interface TaskQueueStats {
   /** Number of tasks currently being processed */

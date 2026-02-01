@@ -137,10 +137,78 @@ describe('arg-parser', () => {
         expect(result.files).to.deep.equal(['file.ts'])
       })
 
-      it('should handle @ alone as empty file reference', () => {
+      it('should ignore @ alone (empty reference)', () => {
         const result = splitArgs('test @')
         expect(result.args).to.deep.equal(['test'])
-        expect(result.files).to.deep.equal([''])
+        expect(result.files).to.deep.equal([])
+        expect(result.folders).to.deep.equal([])
+      })
+
+      it('should ignore @ alone in the middle of input', () => {
+        const result = splitArgs('test @ more')
+        expect(result.args).to.deep.equal(['test', 'more'])
+        expect(result.files).to.deep.equal([])
+        expect(result.folders).to.deep.equal([])
+      })
+    })
+
+    describe('folder references (@folderpath/)', () => {
+      it('should detect folder with trailing slash', () => {
+        const result = splitArgs('context @src/')
+        expect(result.args).to.deep.equal(['context'])
+        expect(result.files).to.deep.equal([])
+        expect(result.folders).to.deep.equal(['src/'])
+      })
+
+      it('should detect @./ as folder reference (current directory)', () => {
+        const result = splitArgs('@./')
+        expect(result.folders).to.deep.equal(['./'])
+        expect(result.files).to.deep.equal([])
+      })
+
+      it('should detect @. as folder reference (current directory)', () => {
+        const result = splitArgs('@.')
+        expect(result.folders).to.deep.equal(['.'])
+        expect(result.files).to.deep.equal([])
+      })
+
+      it('should handle @./ with context text', () => {
+        const result = splitArgs('"curate this folder" @./')
+        expect(result.args).to.deep.equal(['curate this folder'])
+        expect(result.folders).to.deep.equal(['./'])
+        expect(result.files).to.deep.equal([])
+      })
+
+      it('should handle @. with context text', () => {
+        const result = splitArgs('"analyze this" @.')
+        expect(result.args).to.deep.equal(['analyze this'])
+        expect(result.folders).to.deep.equal(['.'])
+        expect(result.files).to.deep.equal([])
+      })
+
+      it('should detect multiple folder references', () => {
+        const result = splitArgs('@src/ @lib/')
+        expect(result.folders).to.deep.equal(['src/', 'lib/'])
+        expect(result.files).to.deep.equal([])
+      })
+
+      it('should separate files and folders', () => {
+        const result = splitArgs('@src/ @README.md @lib/')
+        // README.md will be categorized based on filesystem check
+        // Trailing slash definitely goes to folders
+        expect(result.folders).to.include('src/')
+        expect(result.folders).to.include('lib/')
+      })
+
+      it('should handle folder reference with deep path', () => {
+        const result = splitArgs('@src/components/ui/')
+        expect(result.folders).to.deep.equal(['src/components/ui/'])
+        expect(result.files).to.deep.equal([])
+      })
+
+      it('should return empty folders array when no folders referenced', () => {
+        const result = splitArgs('@file.ts')
+        expect(result.folders).to.deep.equal([])
       })
     })
 

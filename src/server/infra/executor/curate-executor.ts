@@ -1,7 +1,14 @@
+import path from 'node:path'
+
 import type {ICipherAgent} from '../../../agent/core/interfaces/i-cipher-agent.js'
 import type {CurateExecuteOptions, ICurateExecutor} from '../../core/interfaces/executor/i-curate-executor.js'
 
 import {FileValidationError} from '../../core/domain/errors/task-error.js'
+import {
+  createFileContentReader,
+  type FileContentReader,
+  type FileReadResult,
+} from '../../utils/file-content-reader.js'
 import {validateFileForCurate} from '../../utils/file-validator.js'
 
 /**
@@ -17,16 +24,25 @@ import {validateFileForCurate} from '../../utils/file-validator.js'
  * - Executor focuses solely on curate execution
  */
 export class CurateExecutor implements ICurateExecutor {
-  /**
-   * Maximum number of files allowed in --files flag
-   */
+  /** Maximum content length per file in characters */
+  private static readonly MAX_CONTENT_PER_FILE = 40_000
+  /** Maximum number of files allowed in --files flag */
   private static readonly MAX_FILES = 5
+  /** Maximum lines to read for text files */
+  private static readonly MAX_LINES_PER_FILE = 2000
+  /** Maximum pages to extract for PDFs */
+  private static readonly MAX_PDF_PAGES = 50
+  private readonly fileContentReader: FileContentReader
+
+  constructor(fileContentReader?: FileContentReader) {
+    this.fileContentReader = fileContentReader ?? createFileContentReader()
+  }
 
   public async executeWithAgent(agent: ICipherAgent, options: CurateExecuteOptions): Promise<string> {
     const {clientCwd, content, files, taskId} = options
 
-    // Process file references (throws FileValidationError if validation fails)
-    const fileReferenceInstructions = this.processFileReferences(files ?? [], clientCwd)
+    // Process file references - now reads file contents directly
+    const fileReferenceInstructions = await this.processFileReferences(files ?? [], clientCwd)
 
     // Build prompt with optional file reference instructions
     const prompt = fileReferenceInstructions ? `${content}\n${fileReferenceInstructions}` : content
@@ -43,14 +59,85 @@ export class CurateExecutor implements ICurateExecutor {
   }
 
   /**
+   * Format file contents for inclusion in the prompt.
+   */
+  private formatFileContentsForPrompt(
+    readResults: FileReadResult[],
+    skippedFiles: Array<{path: string; reason: string}>,
+    projectRoot: string,
+  ): string {
+    const instructions: string[] = ['\n## File Contents (pre-loaded from --files flag)', '']
+
+    // Separate successful and failed reads
+    const successfulReads = readResults.filter((r) => r.success)
+    const failedReads = readResults.filter((r) => !r.success)
+
+    // Add successful file contents
+    for (const result of successfulReads) {
+      const relativePath = path.relative(projectRoot, result.filePath)
+      const typeLabel = this.getFileTypeLabel(result.fileType)
+      const truncatedNote = result.metadata?.truncated ? ' [truncated]' : ''
+
+      instructions.push(`### File: ${relativePath} (${typeLabel}${truncatedNote})`, '```', result.content, '```', '')
+    }
+
+    // Add warnings for failed reads and skipped files
+    if (failedReads.length > 0 || skippedFiles.length > 0) {
+      instructions.push(
+        '### Files that could not be read:',
+        ...failedReads.map((r) => `- ${path.relative(projectRoot, r.filePath)}: ${r.error}`),
+        ...skippedFiles.map((f) => `- ${f.path}: ${f.reason}`),
+        '',
+        '**Note:** You may use `read_file` or `grep_content` tools to find additional context if needed.',
+        '',
+      )
+    }
+
+    instructions.push(
+      '**INSTRUCTIONS:**',
+      '- The file contents above have been pre-loaded for you',
+      '- Use this content to understand the context and create comprehensive knowledge topics',
+      '- DO NOT use read_file tool for the files above - the content is already provided',
+      '- Proceed with the normal workflow: detect domains, find existing knowledge, create/update topics',
+      '',
+    )
+
+    return instructions.join('\n')
+  }
+
+  /**
+   * Get human-readable label for file type.
+   */
+  private getFileTypeLabel(fileType: string): string {
+    switch (fileType) {
+      case 'office': {
+        return 'Office Document'
+      }
+
+      case 'pdf': {
+        return 'PDF'
+      }
+
+      case 'text': {
+        return 'Text'
+      }
+
+      default: {
+        return fileType
+      }
+    }
+  }
+
+  /**
    * Process file paths from --files flag.
+   * Now reads file contents directly using FileContentReader.
    *
    * @param filePaths - Array of file paths (relative or absolute)
    * @param clientCwd - Client's working directory for file validation (optional, defaults to process.cwd())
-   * @returns Formatted instructions for the agent to read the specified files
-   * @throws {FileValidationError} If any file validation fails
+   * @returns Formatted content with pre-read file contents
+   * @throws {FileValidationError} If all files fail validation
    */
-  private processFileReferences(filePaths: string[], clientCwd?: string): string {
+  private async processFileReferences(filePaths: string[], clientCwd?: string): Promise<string> {
     if (!filePaths || filePaths.length === 0) {
       return ''
     }
@@ -65,7 +152,7 @@ export class CurateExecutor implements ICurateExecutor {
 
     // Validate each file - skip non-existent files with warnings instead of failing
     const validPaths: string[] = []
-    const skippedFiles: string[] = []
+    const skippedFiles: Array<{path: string; reason: string}> = []
 
     for (const filePath of processedPaths) {
       const result = validateFileForCurate(filePath, projectRoot)
@@ -74,47 +161,24 @@ export class CurateExecutor implements ICurateExecutor {
         validPaths.push(result.normalizedPath)
       } else {
         // Skip non-existent files instead of failing - agent can use grep to find alternatives
-        skippedFiles.push(filePath)
+        skippedFiles.push({path: filePath, reason: result.error ?? 'Unknown error'})
       }
     }
 
     // If all files were skipped, throw an error
     if (validPaths.length === 0 && processedPaths.length > 0) {
-      const errorMessage = `All specified files are invalid or do not exist:\n${skippedFiles.map((f) => `  - ${f}`).join('\n')}\n\nTry using grep to find the correct file paths.`
+      const errorMessage = `All specified files are invalid or do not exist:\n${skippedFiles.map((f) => `  - ${f.path}: ${f.reason}`).join('\n')}\n\nTry using grep to find the correct file paths.`
       throw new FileValidationError(errorMessage)
     }
 
-    // Format instructions for the agent
-    const instructions = [
-      '\n## IMPORTANT: Critical Files to Read (--files flag)',
-      '',
-      'The user has explicitly specified these files as critical context that MUST be read before creating knowledge topics:',
-      '',
-      ...validPaths.map((p) => `- ${p}`),
-      '',
-    ]
+    // Read file contents using FileContentReader
+    const readResults = await this.fileContentReader.readFiles(validPaths, {
+      maxContentLength: CurateExecutor.MAX_CONTENT_PER_FILE,
+      maxLinesPerFile: CurateExecutor.MAX_LINES_PER_FILE,
+      maxPdfPages: CurateExecutor.MAX_PDF_PAGES,
+    })
 
-    // Add warning about skipped files if any
-    if (skippedFiles.length > 0) {
-      instructions.push(
-        '**⚠️ SKIPPED FILES (not found - use grep to find alternatives):**',
-        ...skippedFiles.map((f) => `- ${f}`),
-        '',
-        '**NOTE:** The above files were not found. You can use `tools.grep()` or `tools.glob()` to search for similar files.',
-        '',
-      )
-    }
-
-    instructions.push(
-      '**MANDATORY INSTRUCTIONS:**',
-      '- You MUST use the `read_file` tool to read ALL of the valid files IN PARALLEL (in a single iteration) before proceeding to create knowledge topics',
-      '- These files contain essential context that will help you create comprehensive and accurate knowledge topics',
-      '- Read them in parallel to maximize efficiency - they do not depend on each other',
-      '- **CRITICAL:** Only curate files where `read_file` returns `success: true`. Files that return `success: false` are error messages and should not be curated.',
-      '- After reading all files, proceed with the normal workflow: detect domains, find existing knowledge, and create/update topics',
-      '',
-    )
-
-    return instructions.join('\n')
+    // Format with actual content
+    return this.formatFileContentsForPrompt(readResults, skippedFiles, projectRoot)
   }
 }

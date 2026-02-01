@@ -233,6 +233,7 @@ export function useActivityLogs(): UseActivityLogsReturn {
           changes,
           content: task.status === 'error' ? task.error?.message ?? '' : task.result ?? '',
           files: task.files,
+          folders: task.folders,
           id: task.taskId,
           input: task.content,
           isStreaming: task.isStreaming,
