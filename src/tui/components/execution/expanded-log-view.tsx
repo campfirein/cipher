@@ -71,7 +71,7 @@ export const ExpandedLogView: React.FC<ExpandedLogViewProps> = ({
     (input, key) => {
       if (!scrollViewRef.current) return
 
-      if ((key.ctrl && input === 'o') || key.escape) {
+      if (key.ctrl && input === 'o') {
         onClose()
       }
 

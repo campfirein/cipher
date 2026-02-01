@@ -140,6 +140,37 @@ export const CommandInput = () => {
     {isActive: shouldShowOnboarding && (currentStep === 'curate' || currentStep === 'query')},
   )
 
+  // Cancel streaming command with Esc (only for commands that add to messages, not /curate or /query)
+  useInput(
+    (_input, key) => {
+      if (key.escape) {
+        // Add cancellation message to the latest command's output
+        setMessages((prev) => {
+          const updated = [...prev]
+          const lastIndex = updated.length - 1
+          // Only cancel if there's a command message
+          if (lastIndex >= 0 && updated[lastIndex].type === 'command') {
+            const cancelMsg: StreamingMessage = {
+              content: 'Command cancelled.',
+              id: `cancel-${Date.now()}`,
+              type: 'output',
+            }
+            const existingOutput = updated[lastIndex].output ?? []
+            updated[lastIndex] = {...updated[lastIndex], output: [...existingOutput, cancelMsg], timestamp: new Date()}
+          }
+
+          return updated
+        })
+
+        // Reset streaming state
+        setStreamingMessages([])
+        setIsStreaming(false)
+        setActivePrompt(null)
+      }
+    },
+    {isActive: isStreaming && !shouldShowOnboarding},
+  )
+
   /* eslint-disable complexity -- Command execution requires handling multiple command types and states */
   const executeCommand = useCallback(
     async (value: string) => {
