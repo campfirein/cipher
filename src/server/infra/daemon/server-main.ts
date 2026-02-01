@@ -159,7 +159,20 @@ async function main(): Promise<void> {
     daemonResilience.install()
 
     // 7. Create idle timeout policy + wire transport events
-    const idleTimeoutPolicy = new IdleTimeoutPolicy({log})
+    // onIdle captures shutdownHandler via closure; safe because
+    // the callback only fires after start() + timeout, by which
+    // point shutdownHandler is fully assigned.
+    let shutdownHandler: ShutdownHandler
+
+    const idleTimeoutPolicy = new IdleTimeoutPolicy({
+      log,
+      onIdle() {
+        log('Idle timeout reached — initiating shutdown')
+        shutdownHandler.shutdown().catch((error: unknown) => {
+          log(`Shutdown error: ${error instanceof Error ? error.message : String(error)}`)
+        })
+      },
+    })
 
     transportServer.onConnection((clientId, metadata) => {
       log(`Client connected: ${clientId}, cwd=${metadata.cwd ?? 'unknown'}`)
@@ -171,7 +184,7 @@ async function main(): Promise<void> {
     })
 
     // 8. Create shutdown handler
-    const shutdownHandler = new ShutdownHandler({
+    shutdownHandler = new ShutdownHandler({
       daemonResilience,
       heartbeatWriter,
       idleTimeoutPolicy,
@@ -180,13 +193,7 @@ async function main(): Promise<void> {
       transportServer,
     })
 
-    // 9. Wire idle callback + start idle timer
-    idleTimeoutPolicy.setOnIdle(() => {
-      log('Idle timeout reached — initiating shutdown')
-      shutdownHandler.shutdown().catch((error: unknown) => {
-        log(`Shutdown error: ${error instanceof Error ? error.message : String(error)}`)
-      })
-    })
+    // 9. Start idle timer
     idleTimeoutPolicy.start()
 
     // 10. Register signal handlers (once to prevent duplicate handling)

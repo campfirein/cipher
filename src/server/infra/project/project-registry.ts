@@ -1,5 +1,6 @@
 import {mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync} from 'node:fs'
 import {join} from 'node:path'
+import {z} from 'zod'
 
 import type {IProjectRegistry} from '../../core/interfaces/project/i-project-registry.js'
 
@@ -9,30 +10,22 @@ import {getGlobalDataDir} from '../../utils/global-data-path.js'
 import {resolvePath, sanitizeProjectPath} from '../../utils/path-utils.js'
 
 /**
- * Expected shape of registry.json on disk.
+ * Zod schema for validating registry.json on disk.
  */
-interface RegistryFileFormat {
-  projects: Record<string, unknown>
-  version: number
-}
+const RegistryFileSchema = z.object({
+  projects: z.record(z.string(), z.unknown()),
+  version: z.number(),
+})
+
+type RegistryFileFormat = z.infer<typeof RegistryFileSchema>
 
 const REGISTRY_VERSION = 1
 
-/**
- * Type guard for the registry file format.
- */
 function isValidRegistryFile(value: unknown): value is RegistryFileFormat {
-  if (typeof value !== 'object' || value === null) return false
-  return (
-    'version' in value &&
-    typeof value.version === 'number' &&
-    'projects' in value &&
-    typeof value.projects === 'object' &&
-    value.projects !== null
-  )
+  return RegistryFileSchema.safeParse(value).success
 }
 
-type ProjectRegistryOptions = {
+interface ProjectRegistryOptions {
   dataDir?: string
 }
 
@@ -80,10 +73,19 @@ export class ProjectRegistry implements IProjectRegistry {
     const sanitized = sanitizeProjectPath(resolved)
     const storagePath = join(this.projectsDir, sanitized)
 
-    // Create per-project XDG directories
+    // Validate before side effects — catches root path ('/') which produces
+    // an empty sanitizedPath that Zod rejects, preventing mkdirSync from
+    // writing sessions/ into the global projects directory itself.
+    const info = new ProjectInfo({
+      projectPath: resolved,
+      registeredAt: Date.now(),
+      sanitizedPath: sanitized,
+      storagePath,
+    })
+
+    // Create per-project XDG directories only after validation succeeds
     mkdirSync(join(storagePath, 'sessions'), {recursive: true})
 
-    const info = new ProjectInfo(resolved, sanitized, storagePath, Date.now())
     this.projects.set(resolved, info)
     this.persistToDisk()
 
@@ -118,10 +120,9 @@ export class ProjectRegistry implements IProjectRegistry {
 
       for (const [key, value] of Object.entries(parsed.projects)) {
         if (isValidProjectInfoJson(value)) {
-          try {
-            this.projects.set(key, ProjectInfo.fromJson(value))
-          } catch {
-            // Skip invalid entries
+          const info = ProjectInfo.fromJson(value)
+          if (info) {
+            this.projects.set(key, info)
           }
         }
       }

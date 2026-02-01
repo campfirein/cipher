@@ -51,8 +51,11 @@ const HASH_SUFFIX_LENGTH = 12
  * If the result exceeds {@link MAX_SANITIZED_LENGTH}, it is truncated and a
  * SHA-256 hash suffix is appended (separated by `---`) to preserve uniqueness.
  *
- * @param resolvedPath - A resolved absolute path (output of resolvePath)
- * @returns A safe directory name string
+ * @param resolvedPath - A resolved absolute path (output of resolvePath).
+ *   Must have at least one non-separator component (e.g., '/home/user').
+ *   Root paths ('/' or 'C:\') produce an empty string and are not valid
+ *   for project registration — ProjectInfo constructor rejects empty sanitizedPath.
+ * @returns A safe directory name string (empty for root-only paths)
  */
 export const sanitizeProjectPath = (resolvedPath: string): string => {
   let normalized = resolvedPath

@@ -5,32 +5,28 @@
  * ~/.local/share/brv/projects/ where runtime data (sessions, SQLite DBs)
  * is stored.
  */
+import {z} from 'zod'
+
+/**
+ * Zod schema for ProjectInfo validation and serialization.
+ */
+export const ProjectInfoSchema = z.object({
+  projectPath: z.string().refine((s) => s.trim().length > 0, {message: 'ProjectInfo projectPath cannot be empty'}),
+  registeredAt: z.number().positive({message: 'ProjectInfo registeredAt must be a positive number'}),
+  sanitizedPath: z.string().refine((s) => s.trim().length > 0, {message: 'ProjectInfo sanitizedPath cannot be empty'}),
+  storagePath: z.string().refine((s) => s.trim().length > 0, {message: 'ProjectInfo storagePath cannot be empty'}),
+})
 
 /**
  * Serialized form of ProjectInfo for persistence in registry.json.
  */
-export interface ProjectInfoJson {
-  readonly projectPath: string
-  readonly registeredAt: number
-  readonly sanitizedPath: string
-  readonly storagePath: string
-}
+export type ProjectInfoJson = z.infer<typeof ProjectInfoSchema>
 
 /**
  * Type guard for validating parsed JSON as ProjectInfoJson.
  */
 export function isValidProjectInfoJson(value: unknown): value is ProjectInfoJson {
-  if (typeof value !== 'object' || value === null) return false
-  return (
-    'projectPath' in value &&
-    typeof value.projectPath === 'string' &&
-    'sanitizedPath' in value &&
-    typeof value.sanitizedPath === 'string' &&
-    'storagePath' in value &&
-    typeof value.storagePath === 'string' &&
-    'registeredAt' in value &&
-    typeof value.registeredAt === 'number'
-  )
+  return ProjectInfoSchema.safeParse(value).success
 }
 
 /**
@@ -42,35 +38,24 @@ export class ProjectInfo {
   public readonly sanitizedPath: string
   public readonly storagePath: string
 
-  public constructor(projectPath: string, sanitizedPath: string, storagePath: string, registeredAt: number) {
-    if (projectPath.trim().length === 0) {
-      throw new Error('ProjectInfo projectPath cannot be empty')
-    }
-
-    if (sanitizedPath.trim().length === 0) {
-      throw new Error('ProjectInfo sanitizedPath cannot be empty')
-    }
-
-    if (storagePath.trim().length === 0) {
-      throw new Error('ProjectInfo storagePath cannot be empty')
-    }
-
-    if (registeredAt <= 0) {
-      throw new Error('ProjectInfo registeredAt must be a positive number')
-    }
-
-    this.projectPath = projectPath
-    this.sanitizedPath = sanitizedPath
-    this.storagePath = storagePath
-    this.registeredAt = registeredAt
+  public constructor(params: ProjectInfoJson) {
+    const parsed = ProjectInfoSchema.parse(params)
+    this.projectPath = parsed.projectPath
+    this.sanitizedPath = parsed.sanitizedPath
+    this.storagePath = parsed.storagePath
+    this.registeredAt = parsed.registeredAt
   }
 
   /**
    * Deserializes a ProjectInfo from its JSON representation.
-   * Returns undefined if the input is invalid.
+   * Returns undefined if the JSON fails validation.
    */
-  public static fromJson(json: ProjectInfoJson): ProjectInfo {
-    return new ProjectInfo(json.projectPath, json.sanitizedPath, json.storagePath, json.registeredAt)
+  public static fromJson(json: ProjectInfoJson): ProjectInfo | undefined {
+    try {
+      return new ProjectInfo(json)
+    } catch {
+      return undefined
+    }
   }
 
   /**

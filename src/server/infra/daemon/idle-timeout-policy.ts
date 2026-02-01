@@ -5,6 +5,7 @@ import {IDLE_CHECK_INTERVAL_MS, IDLE_TIMEOUT_MS} from '../../constants.js'
 export interface IdleTimeoutPolicyOptions {
   readonly checkIntervalMs?: number
   readonly log: (message: string) => void
+  readonly onIdle: () => void
   readonly timeoutMs?: number
 }
 
@@ -24,12 +25,13 @@ export class IdleTimeoutPolicy implements IIdleTimeoutPolicy {
   private isRunning = false
   private lastActivityAt = Date.now()
   private readonly log: (message: string) => void
-  private onIdle: (() => void) | undefined
+  private readonly onIdle: () => void
   private timeoutId: ReturnType<typeof setTimeout> | undefined
   private readonly timeoutMs: number
 
   constructor(options: IdleTimeoutPolicyOptions) {
     this.log = options.log
+    this.onIdle = options.onIdle
     this.timeoutMs = options.timeoutMs ?? IDLE_TIMEOUT_MS
     this.checkIntervalMs = options.checkIntervalMs ?? IDLE_CHECK_INTERVAL_MS
   }
@@ -42,10 +44,6 @@ export class IdleTimeoutPolicy implements IIdleTimeoutPolicy {
   onClientDisconnected(): void {
     this.clientCount = Math.max(0, this.clientCount - 1)
     this.updateActivity()
-  }
-
-  setOnIdle(callback: () => void): void {
-    this.onIdle = callback
   }
 
   start(): void {
@@ -73,7 +71,7 @@ export class IdleTimeoutPolicy implements IIdleTimeoutPolicy {
     if (this.clientCount === 0 && Date.now() - this.lastActivityAt >= this.timeoutMs) {
       this.log(`Idle for ${Math.round(this.timeoutMs / 1000)}s with no clients`)
       try {
-        this.onIdle?.()
+        this.onIdle()
       } catch (error) {
         this.log(`onIdle callback failed: ${error instanceof Error ? error.message : String(error)}`)
       }

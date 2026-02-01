@@ -1,6 +1,8 @@
 import {mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync} from 'node:fs'
 import {dirname, join} from 'node:path'
 
+import {z} from 'zod'
+
 import type {ISpawnLock, SpawnLockAcquireResult} from '../../core/interfaces/daemon/i-spawn-lock.js'
 
 import {SPAWN_LOCK_FILE, SPAWN_LOCK_STALE_THRESHOLD_MS} from '../../constants.js'
@@ -9,19 +11,15 @@ import {isProcessAlive} from '../instance/process-utils.js'
 
 export type {SpawnLockAcquireResult} from '../../core/interfaces/daemon/i-spawn-lock.js'
 
-interface SpawnLockData {
-  readonly pid: number
-  readonly timestamp: number
-}
+const SpawnLockDataSchema = z.object({
+  pid: z.number(),
+  timestamp: z.number(),
+})
+
+type SpawnLockData = z.infer<typeof SpawnLockDataSchema>
 
 function isValidSpawnLockData(value: unknown): value is SpawnLockData {
-  if (typeof value !== 'object' || value === null) return false
-  return (
-    'pid' in value &&
-    typeof value.pid === 'number' &&
-    'timestamp' in value &&
-    typeof value.timestamp === 'number'
-  )
+  return SpawnLockDataSchema.safeParse(value).success
 }
 
 /**

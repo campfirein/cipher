@@ -10,9 +10,6 @@ export interface IIdleTimeoutPolicy {
   /** Notifies that a client has disconnected. Resets the idle timer. */
   onClientDisconnected(): void
 
-  /** Sets the callback invoked when idle timeout is reached. Must be called before start(). */
-  setOnIdle(callback: () => void): void
-
   /**
    * Starts idle timeout checking.
    *

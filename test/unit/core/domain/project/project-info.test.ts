@@ -16,12 +16,7 @@ describe('ProjectInfo', () => {
 
   describe('constructor', () => {
     it('should create a valid entity with all fields readonly', () => {
-      const info = new ProjectInfo(
-        validArgs.projectPath,
-        validArgs.sanitizedPath,
-        validArgs.storagePath,
-        validArgs.registeredAt,
-      )
+      const info = new ProjectInfo(validArgs)
 
       expect(info.projectPath).to.equal(validArgs.projectPath)
       expect(info.sanitizedPath).to.equal(validArgs.sanitizedPath)
@@ -30,44 +25,39 @@ describe('ProjectInfo', () => {
     })
 
     it('should throw on empty projectPath', () => {
-      expect(() => new ProjectInfo('', validArgs.sanitizedPath, validArgs.storagePath, validArgs.registeredAt))
+      expect(() => new ProjectInfo({...validArgs, projectPath: ''}))
         .to.throw('ProjectInfo projectPath cannot be empty')
     })
 
     it('should throw on whitespace-only projectPath', () => {
-      expect(() => new ProjectInfo('   ', validArgs.sanitizedPath, validArgs.storagePath, validArgs.registeredAt))
+      expect(() => new ProjectInfo({...validArgs, projectPath: '   '}))
         .to.throw('ProjectInfo projectPath cannot be empty')
     })
 
     it('should throw on empty sanitizedPath', () => {
-      expect(() => new ProjectInfo(validArgs.projectPath, '', validArgs.storagePath, validArgs.registeredAt))
+      expect(() => new ProjectInfo({...validArgs, sanitizedPath: ''}))
         .to.throw('ProjectInfo sanitizedPath cannot be empty')
     })
 
     it('should throw on empty storagePath', () => {
-      expect(() => new ProjectInfo(validArgs.projectPath, validArgs.sanitizedPath, '', validArgs.registeredAt))
+      expect(() => new ProjectInfo({...validArgs, storagePath: ''}))
         .to.throw('ProjectInfo storagePath cannot be empty')
     })
 
     it('should throw on registeredAt <= 0', () => {
-      expect(() => new ProjectInfo(validArgs.projectPath, validArgs.sanitizedPath, validArgs.storagePath, 0))
+      expect(() => new ProjectInfo({...validArgs, registeredAt: 0}))
         .to.throw('ProjectInfo registeredAt must be a positive number')
     })
 
     it('should throw on negative registeredAt', () => {
-      expect(() => new ProjectInfo(validArgs.projectPath, validArgs.sanitizedPath, validArgs.storagePath, -1))
+      expect(() => new ProjectInfo({...validArgs, registeredAt: -1}))
         .to.throw('ProjectInfo registeredAt must be a positive number')
     })
   })
 
   describe('toJson()', () => {
     it('should return correct JSON shape', () => {
-      const info = new ProjectInfo(
-        validArgs.projectPath,
-        validArgs.sanitizedPath,
-        validArgs.storagePath,
-        validArgs.registeredAt,
-      )
+      const info = new ProjectInfo(validArgs)
 
       const json = info.toJson()
 
@@ -82,19 +72,15 @@ describe('ProjectInfo', () => {
 
   describe('fromJson()', () => {
     it('should round-trip correctly: fromJson(info.toJson()) equals original', () => {
-      const original = new ProjectInfo(
-        validArgs.projectPath,
-        validArgs.sanitizedPath,
-        validArgs.storagePath,
-        validArgs.registeredAt,
-      )
+      const original = new ProjectInfo(validArgs)
 
       const restored = ProjectInfo.fromJson(original.toJson())
 
-      expect(restored.projectPath).to.equal(original.projectPath)
-      expect(restored.sanitizedPath).to.equal(original.sanitizedPath)
-      expect(restored.storagePath).to.equal(original.storagePath)
-      expect(restored.registeredAt).to.equal(original.registeredAt)
+      expect(restored).to.not.be.undefined
+      expect(restored!.projectPath).to.equal(original.projectPath)
+      expect(restored!.sanitizedPath).to.equal(original.sanitizedPath)
+      expect(restored!.storagePath).to.equal(original.storagePath)
+      expect(restored!.registeredAt).to.equal(original.registeredAt)
     })
 
     it('should create entity from valid JSON', () => {
@@ -107,11 +93,12 @@ describe('ProjectInfo', () => {
 
       const info = ProjectInfo.fromJson(json)
 
-      expect(info.projectPath).to.equal(json.projectPath)
-      expect(info.registeredAt).to.equal(json.registeredAt)
+      expect(info).to.not.be.undefined
+      expect(info!.projectPath).to.equal(json.projectPath)
+      expect(info!.registeredAt).to.equal(json.registeredAt)
     })
 
-    it('should throw on invalid JSON (empty projectPath)', () => {
+    it('should return undefined on invalid JSON (empty projectPath)', () => {
       const json: ProjectInfoJson = {
         projectPath: '',
         registeredAt: 1_700_000_000_000,
@@ -119,7 +106,7 @@ describe('ProjectInfo', () => {
         storagePath: '/bar',
       }
 
-      expect(() => ProjectInfo.fromJson(json)).to.throw('projectPath cannot be empty')
+      expect(ProjectInfo.fromJson(json)).to.be.undefined
     })
   })
 

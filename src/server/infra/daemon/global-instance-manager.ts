@@ -1,6 +1,8 @@
 import {mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync} from 'node:fs'
 import {join} from 'node:path'
 
+import {z} from 'zod'
+
 import type {
   DaemonAcquireResult,
   DaemonInstanceInfo,
@@ -14,20 +16,17 @@ import {isProcessAlive} from '../instance/process-utils.js'
 export type {DaemonAcquireResult, DaemonInstanceInfo} from '../../core/interfaces/daemon/i-global-instance-manager.js'
 
 /**
- * Type guard for validating parsed JSON as DaemonInstanceInfo.
+ * Zod schema for validating parsed JSON as DaemonInstanceInfo.
  */
+const DaemonInstanceInfoSchema = z.object({
+  pid: z.number(),
+  port: z.number(),
+  startedAt: z.number(),
+  version: z.string(),
+})
+
 function isValidDaemonInstanceInfo(value: unknown): value is DaemonInstanceInfo {
-  if (typeof value !== 'object' || value === null) return false
-  return (
-    'pid' in value &&
-    typeof value.pid === 'number' &&
-    'port' in value &&
-    typeof value.port === 'number' &&
-    'startedAt' in value &&
-    typeof value.startedAt === 'number' &&
-    'version' in value &&
-    typeof value.version === 'string'
-  )
+  return DaemonInstanceInfoSchema.safeParse(value).success
 }
 
 /**
