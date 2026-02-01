@@ -49,6 +49,7 @@ export const DEFAULT_LLM_MODEL = 'gemini-3-flash-preview'
 
 // === Daemon infrastructure constants ===
 export const GLOBAL_PROJECTS_DIR = 'projects'
+export const REGISTRY_FILE = 'registry.json'
 export const DAEMON_PREFERRED_PORT = 37_847
 export const DAEMON_PORT_RANGE_MIN = 37_848
 export const DAEMON_PORT_RANGE_MAX = 37_947

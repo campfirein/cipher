@@ -73,6 +73,13 @@ export interface BlobLogger {
  */
 export type BlobStorageConfig = {
   /**
+   * Explicit path to the SQLite database file.
+   * Takes precedence over storageDir-derived path.
+   * Use this when the database location is managed externally (e.g., XDG storage).
+   */
+  dbPath?: string
+
+  /**
    * Use in-memory storage (useful for testing)
    * When true, no file is created - data lives only in memory
    * @default false

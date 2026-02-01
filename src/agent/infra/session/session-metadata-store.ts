@@ -72,9 +72,21 @@ function extractUuidFromSessionId(sessionId: string): string {
 }
 
 /**
+ * Configuration for SessionMetadataStore.
+ */
+type SessionMetadataStoreOptions = {
+  /** Explicit sessions directory path. Takes precedence over workingDirectory-derived path. */
+  sessionsDir?: string
+  /** Project working directory. Used to derive sessionsDir if not explicitly provided. */
+  workingDirectory?: string
+}
+
+/**
  * SessionMetadataStore implementation.
  *
- * Manages session metadata stored in .brv/sessions/ directory.
+ * Manages session metadata stored in a sessions directory.
+ * By default, uses .brv/sessions/ under the working directory.
+ * When sessionsDir is provided, uses that path directly (for XDG storage).
  */
 export class SessionMetadataStore implements ISessionPersistence {
   private readonly activeSessionPath: string
@@ -84,11 +96,11 @@ export class SessionMetadataStore implements ISessionPersistence {
   /**
    * Create a new SessionMetadataStore.
    *
-   * @param workingDirectory - Project working directory (defaults to process.cwd())
+   * @param options - Configuration options (all optional)
    */
-  constructor(workingDirectory?: string) {
-    this.workingDirectory = workingDirectory ?? process.cwd()
-    this.sessionsDir = join(this.workingDirectory, '.brv', SESSIONS_DIR)
+  constructor(options?: SessionMetadataStoreOptions) {
+    this.workingDirectory = options?.workingDirectory ?? process.cwd()
+    this.sessionsDir = options?.sessionsDir ?? join(this.workingDirectory, '.brv', SESSIONS_DIR)
     this.activeSessionPath = join(this.sessionsDir, ACTIVE_SESSION_FILE)
   }
 
