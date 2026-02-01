@@ -233,6 +233,30 @@ describe('shutdown-handler', () => {
     expect(transportStopStub.calledOnce).to.be.true
   })
 
+  it('should release instance even when transport stop hangs (timeout)', async () => {
+    // Simulate transport.stop() that never resolves
+    transportStopStub.callsFake(() => new Promise(() => {}))
+
+    const handler = new ShutdownHandler({
+      daemonResilience: mockDaemonResilience,
+      heartbeatWriter: mockHeartbeatWriter,
+      idleTimeoutPolicy: mockIdleTimeoutPolicy,
+      instanceManager: mockInstanceManager,
+      log: logStub,
+      transportServer: mockTransportServer,
+    })
+
+    const shutdownPromise = handler.shutdown()
+
+    // Advance past TRANSPORT_STOP_TIMEOUT_MS (3000ms)
+    sandbox.clock.tick(3000)
+
+    await shutdownPromise
+
+    // Instance should still be released despite transport hanging
+    expect(instanceReleaseStub.calledOnce).to.be.true
+  })
+
   it('should log shutdown initiated and complete', async () => {
     const handler = new ShutdownHandler({
       daemonResilience: mockDaemonResilience,

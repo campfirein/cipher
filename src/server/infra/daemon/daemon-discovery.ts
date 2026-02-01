@@ -10,7 +10,8 @@ import {isHeartbeatStale} from './heartbeat.js'
 
 export type DaemonStatus =
   | {pid: number; port: number; running: true}
-  | {pid: number; reason: 'heartbeat_stale' | 'pid_dead' | 'version_mismatch'; running: false}
+  | {actualVersion: string; expectedVersion: string; pid: number; reason: 'version_mismatch'; running: false}
+  | {pid: number; reason: 'heartbeat_stale' | 'pid_dead'; running: false}
   | {reason: 'no_instance'; running: false}
 
 /**
@@ -53,7 +54,13 @@ export function discoverDaemon(options?: {
   }
 
   if (options?.expectedVersion && instance.version !== options.expectedVersion) {
-    return {pid: instance.pid, reason: 'version_mismatch', running: false}
+    return {
+      actualVersion: instance.version,
+      expectedVersion: options.expectedVersion,
+      pid: instance.pid,
+      reason: 'version_mismatch',
+      running: false,
+    }
   }
 
   return {pid: instance.pid, port: instance.port, running: true}

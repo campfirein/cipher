@@ -124,7 +124,7 @@ describe('discoverDaemon', () => {
     }
   })
 
-  it('should return version_mismatch when expectedVersion differs from daemon version', () => {
+  it('should return version_mismatch with version info when expectedVersion differs from daemon version', () => {
     writeFileSync(
       join(testDir, DAEMON_INSTANCE_FILE),
       JSON.stringify({pid: process.pid, port: 37_847, startedAt: Date.now(), version: '1.5.0'}),
@@ -138,6 +138,8 @@ describe('discoverDaemon', () => {
       expect(result.reason).to.equal('version_mismatch')
       if (result.reason === 'version_mismatch') {
         expect(result.pid).to.equal(process.pid)
+        expect(result.actualVersion).to.equal('1.5.0')
+        expect(result.expectedVersion).to.equal('1.6.0')
       }
     }
   })

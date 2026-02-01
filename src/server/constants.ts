@@ -72,6 +72,14 @@ export const SLEEP_WAKE_THRESHOLD_MULTIPLIER = 3
 export const SPAWN_LOCK_FILE = 'spawn.lock'
 export const SPAWN_LOCK_STALE_THRESHOLD_MS = 30_000 // 30s
 
+// Shutdown
+export const TRANSPORT_STOP_TIMEOUT_MS = 3000 // 3s max for transport server to stop
+export const SHUTDOWN_FORCE_EXIT_MS = 5000 // 5s safety net before force exit
+
 // Daemon readiness polling
 export const DAEMON_READY_TIMEOUT_MS = 5000 // 5s max wait
 export const DAEMON_READY_POLL_INTERVAL_MS = 100 // 100ms between polls
+
+// Daemon spawner — budget allocation for stop + poll
+export const DAEMON_STOP_BUDGET_MS = 3000 // 3s max to stop old daemon
+export const DAEMON_STOP_POLL_INTERVAL_MS = 100 // 100ms between death checks

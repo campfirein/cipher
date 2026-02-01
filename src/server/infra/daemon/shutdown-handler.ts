@@ -5,6 +5,8 @@ import type {IIdleTimeoutPolicy} from '../../core/interfaces/daemon/i-idle-timeo
 import type {IShutdownHandler} from '../../core/interfaces/daemon/i-shutdown-handler.js'
 import type {ITransportServer} from '../../core/interfaces/transport/i-transport-server.js'
 
+import {SHUTDOWN_FORCE_EXIT_MS, TRANSPORT_STOP_TIMEOUT_MS} from '../../constants.js'
+
 export interface ShutdownHandlerDeps {
   readonly daemonResilience: IDaemonResilience
   readonly heartbeatWriter: IHeartbeatWriter
@@ -66,8 +68,17 @@ export class ShutdownHandler implements IShutdownHandler {
     }
 
     // 4. Stop transport server (disconnect all sockets, close HTTP)
+    //    Wrapped in Promise.race with timeout to prevent hanging — if Socket.IO
+    //    blocks (e.g., waiting for in-flight responses), we proceed with remaining
+    //    cleanup steps instead of relying solely on the force-exit safety net
+    //    (which would skip instance lock release via process.exit).
     try {
-      await transportServer.stop()
+      await Promise.race([
+        transportServer.stop(),
+        new Promise<void>((resolve) => {
+          setTimeout(resolve, TRANSPORT_STOP_TIMEOUT_MS)
+        }),
+      ])
     } catch (error) {
       log(`Error stopping transport: ${error instanceof Error ? error.message : String(error)}`)
     }
@@ -83,6 +94,6 @@ export class ShutdownHandler implements IShutdownHandler {
 
     // Safety net: force exit if event loop hasn't drained
     // eslint-disable-next-line n/no-process-exit, unicorn/no-process-exit
-    setTimeout(() => process.exit(0), 5000).unref()
+    setTimeout(() => process.exit(0), SHUTDOWN_FORCE_EXIT_MS).unref()
   }
 }

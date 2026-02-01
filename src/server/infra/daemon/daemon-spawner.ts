@@ -5,7 +5,7 @@ import {fileURLToPath} from 'node:url'
 
 import type {DaemonInstanceInfo, IGlobalInstanceManager} from '../../core/interfaces/daemon/i-global-instance-manager.js'
 
-import {DAEMON_INSTANCE_FILE, DAEMON_READY_POLL_INTERVAL_MS, DAEMON_READY_TIMEOUT_MS, HEARTBEAT_FILE} from '../../constants.js'
+import {DAEMON_INSTANCE_FILE, DAEMON_READY_POLL_INTERVAL_MS, DAEMON_READY_TIMEOUT_MS, DAEMON_STOP_BUDGET_MS, DAEMON_STOP_POLL_INTERVAL_MS, HEARTBEAT_FILE} from '../../constants.js'
 import {getGlobalDataDir} from '../../utils/global-data-path.js'
 import {isProcessAlive} from '../instance/process-utils.js'
 import {discoverDaemon} from './daemon-discovery.js'
@@ -51,14 +51,12 @@ export async function ensureDaemonRunning(options?: {
   const lock = new SpawnLock({dataDir})
   const lockResult = lock.acquire()
 
-  // Shared deadline for the entire operation — both stop + start share this budget.
-  // Without a shared deadline, each sub-operation allocates its own full timeout,
-  // making the total wait up to 2x timeoutMs.
-  const deadline = Date.now() + timeoutMs
+  // Overall deadline for the entire operation.
+  const overallDeadline = Date.now() + timeoutMs
 
   if (!lockResult.acquired) {
     // 3. Another client is spawning — wait for daemon to appear
-    const info = await pollForDaemon(dataDir, deadline, instanceManager, version)
+    const info = await pollForDaemon(dataDir, overallDeadline, instanceManager, version)
     if (!info) return {reason: 'timeout', success: false}
     return {info, started: false, success: true}
   }
@@ -72,8 +70,10 @@ export async function ensureDaemonRunning(options?: {
 
     // 5. Handle unhealthy daemon: gracefully stop when PID is alive but daemon
     //    is not healthy (version mismatch or stale heartbeat). Safe — we hold the lock.
+    //    Stop budget is capped separately so it doesn't starve the poll phase.
     if (recheck.reason === 'version_mismatch' || recheck.reason === 'heartbeat_stale') {
-      await gracefullyStopDaemon(recheck.pid, deadline)
+      const stopDeadline = Math.min(Date.now() + DAEMON_STOP_BUDGET_MS, overallDeadline)
+      await gracefullyStopDaemon(recheck.pid, stopDeadline)
     }
 
     // 6. Clean up stale files (safe — we hold the lock and stopped any live daemon above)
@@ -82,8 +82,8 @@ export async function ensureDaemonRunning(options?: {
     // 7. Spawn daemon process
     const {getSpawnError} = spawnDaemonProcess()
 
-    // 8. Wait for daemon to become ready (shares deadline with step 5)
-    const info = await pollForDaemon(dataDir, deadline, instanceManager, version)
+    // 8. Wait for daemon to become ready (uses remaining time from overall deadline)
+    const info = await pollForDaemon(dataDir, overallDeadline, instanceManager, version)
     if (!info) {
       const spawnError = getSpawnError()
       return {reason: 'timeout', spawnError: spawnError?.message, success: false}
@@ -164,7 +164,7 @@ async function gracefullyStopDaemon(pid: number, deadline: number): Promise<void
   while (Date.now() < deadline) {
     if (!isProcessAlive(pid)) return
     // eslint-disable-next-line no-await-in-loop
-    await sleep(DAEMON_READY_POLL_INTERVAL_MS)
+    await sleep(DAEMON_STOP_POLL_INTERVAL_MS)
   }
 
   // SIGTERM didn't work — force kill to prevent two daemons running simultaneously.

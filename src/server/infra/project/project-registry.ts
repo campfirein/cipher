@@ -27,6 +27,7 @@ function isValidRegistryFile(value: unknown): value is RegistryFileFormat {
 
 interface ProjectRegistryOptions {
   dataDir?: string
+  log?: (message: string) => void
 }
 
 /**
@@ -40,12 +41,14 @@ interface ProjectRegistryOptions {
  */
 export class ProjectRegistry implements IProjectRegistry {
   private readonly dataDir: string
+  private readonly log: (message: string) => void
   private readonly projects: Map<string, ProjectInfo> = new Map()
   private readonly projectsDir: string
   private readonly registryPath: string
 
   constructor(options?: ProjectRegistryOptions) {
     this.dataDir = options?.dataDir ?? getGlobalDataDir()
+    this.log = options?.log ?? (() => {})
     this.registryPath = join(this.dataDir, REGISTRY_FILE)
     this.projectsDir = join(this.dataDir, GLOBAL_PROJECTS_DIR)
 
@@ -152,7 +155,8 @@ export class ProjectRegistry implements IProjectRegistry {
     try {
       writeFileSync(tempPath, JSON.stringify(data, null, 2))
       renameSync(tempPath, this.registryPath)
-    } catch {
+    } catch (error) {
+      this.log(`Failed to persist registry to ${this.registryPath}: ${error instanceof Error ? error.message : String(error)}`)
       // Clean up temp file on failure
       try {
         unlinkSync(tempPath)
