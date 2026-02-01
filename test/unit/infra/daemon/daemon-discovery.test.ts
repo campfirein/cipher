@@ -30,7 +30,7 @@ describe('discoverDaemon', () => {
     }
   })
 
-  it('should return pid_dead when PID in instance.json is not alive', () => {
+  it('should return pid_dead with pid when PID in instance.json is not alive', () => {
     const deadPid = 999_999_999
     writeFileSync(
       join(testDir, DAEMON_INSTANCE_FILE),
@@ -42,10 +42,13 @@ describe('discoverDaemon', () => {
     expect(result.running).to.be.false
     if (!result.running) {
       expect(result.reason).to.equal('pid_dead')
+      if (result.reason === 'pid_dead') {
+        expect(result.pid).to.equal(deadPid)
+      }
     }
   })
 
-  it('should return heartbeat_stale when heartbeat file is missing', () => {
+  it('should return heartbeat_stale with pid when heartbeat file is missing', () => {
     // Current process PID is alive, but no heartbeat file
     writeFileSync(
       join(testDir, DAEMON_INSTANCE_FILE),
@@ -57,10 +60,13 @@ describe('discoverDaemon', () => {
     expect(result.running).to.be.false
     if (!result.running) {
       expect(result.reason).to.equal('heartbeat_stale')
+      if (result.reason === 'heartbeat_stale') {
+        expect(result.pid).to.equal(process.pid)
+      }
     }
   })
 
-  it('should return heartbeat_stale when heartbeat is older than threshold', () => {
+  it('should return heartbeat_stale with pid when heartbeat is older than threshold', () => {
     writeFileSync(
       join(testDir, DAEMON_INSTANCE_FILE),
       JSON.stringify({pid: process.pid, port: 37_847, startedAt: Date.now(), version: '1.6.0'}),
@@ -73,6 +79,9 @@ describe('discoverDaemon', () => {
     expect(result.running).to.be.false
     if (!result.running) {
       expect(result.reason).to.equal('heartbeat_stale')
+      if (result.reason === 'heartbeat_stale') {
+        expect(result.pid).to.equal(process.pid)
+      }
     }
   })
 

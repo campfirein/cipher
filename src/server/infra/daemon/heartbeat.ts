@@ -1,4 +1,4 @@
-import {mkdirSync, readFileSync, unlinkSync, writeFileSync} from 'node:fs'
+import {mkdirSync, readFileSync, writeFileSync} from 'node:fs'
 import {dirname} from 'node:path'
 
 import type {IHeartbeatWriter} from '../../core/interfaces/daemon/i-heartbeat-writer.js'
@@ -53,12 +53,12 @@ export class HeartbeatWriter implements IHeartbeatWriter {
       this.timeoutId = undefined
     }
 
-    try {
-      unlinkSync(this.filePath)
-    } catch {
-      // Best-effort delete
-    }
-
+    // Intentionally does NOT delete the heartbeat file.
+    // During overlapping shutdown/startup sequences, deleting the file
+    // could remove a NEW daemon's heartbeat, causing clients to see
+    // 'heartbeat_stale' and cascade-kill the replacement daemon.
+    // The file naturally becomes stale (>15s) when writes stop,
+    // and cleanupStaleDaemonFiles() handles cleanup during next spawn.
     this.log('Heartbeat stopped')
   }
 
@@ -106,7 +106,7 @@ export function isHeartbeatStale(filePath: string, thresholdMs?: number): boolea
   try {
     const content = readFileSync(filePath, 'utf8')
     const timestamp = Number(content.trim())
-    if (Number.isNaN(timestamp)) return true
+    if (!Number.isFinite(timestamp) || timestamp <= 0) return true
     return Date.now() - timestamp > threshold
   } catch {
     return true

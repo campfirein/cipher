@@ -80,6 +80,7 @@ describe('shutdown-handler', () => {
     mockIdleTimeoutPolicy = {
       onClientConnected: sandbox.stub(),
       onClientDisconnected: sandbox.stub(),
+      setOnIdle: sandbox.stub(),
       start: sandbox.stub(),
       stop: idleStopStub,
     }

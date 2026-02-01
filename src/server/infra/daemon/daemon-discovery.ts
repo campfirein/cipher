@@ -10,14 +10,14 @@ import {isHeartbeatStale} from './heartbeat.js'
 
 export type DaemonStatus =
   | {pid: number; port: number; running: true}
-  | {pid: number; reason: 'version_mismatch'; running: false}
-  | {reason: 'heartbeat_stale' | 'no_instance' | 'pid_dead'; running: false}
+  | {pid: number; reason: 'heartbeat_stale' | 'pid_dead' | 'version_mismatch'; running: false}
+  | {reason: 'no_instance'; running: false}
 
 /**
  * Checks whether the global daemon is running and healthy.
  *
  * Health checks (all must pass):
- * 1. instance.json exists at ~/.local/share/brv/ and is valid
+ * 1. daemon.json exists at ~/.local/share/brv/ and is valid
  * 2. PID is alive
  * 3. Heartbeat is fresh (<15s)
  * 4. Version matches expectedVersion (if provided)
@@ -44,12 +44,12 @@ export function discoverDaemon(options?: {
   }
 
   if (!isProcessAlive(instance.pid)) {
-    return {reason: 'pid_dead', running: false}
+    return {pid: instance.pid, reason: 'pid_dead', running: false}
   }
 
   const heartbeatPath = join(dataDir, HEARTBEAT_FILE)
   if (isHeartbeatStale(heartbeatPath)) {
-    return {reason: 'heartbeat_stale', running: false}
+    return {pid: instance.pid, reason: 'heartbeat_stale', running: false}
   }
 
   if (options?.expectedVersion && instance.version !== options.expectedVersion) {

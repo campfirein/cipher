@@ -3,7 +3,7 @@ import {unlinkSync} from 'node:fs'
 import {dirname, join, sep} from 'node:path'
 import {fileURLToPath} from 'node:url'
 
-import type {DaemonInstanceInfo} from '../../core/interfaces/daemon/i-global-instance-manager.js'
+import type {DaemonInstanceInfo, IGlobalInstanceManager} from '../../core/interfaces/daemon/i-global-instance-manager.js'
 
 import {DAEMON_INSTANCE_FILE, DAEMON_READY_POLL_INTERVAL_MS, DAEMON_READY_TIMEOUT_MS, HEARTBEAT_FILE} from '../../constants.js'
 import {getGlobalDataDir} from '../../utils/global-data-path.js'
@@ -24,7 +24,7 @@ export type EnsureDaemonResult =
  * 2. Acquire spawn lock (all mutations happen under lock)
  * 3. If lock held → wait for daemon to appear
  * 4. Re-check after lock (race window between step 1 and lock)
- * 5. Handle version mismatch → gracefully stop old daemon
+ * 5. Handle unhealthy daemon (version mismatch or stale heartbeat) → gracefully stop
  * 6. Clean up stale files
  * 7. Spawn daemon as detached process
  * 8. Poll until daemon is ready
@@ -51,9 +51,14 @@ export async function ensureDaemonRunning(options?: {
   const lock = new SpawnLock({dataDir})
   const lockResult = lock.acquire()
 
+  // Shared deadline for the entire operation — both stop + start share this budget.
+  // Without a shared deadline, each sub-operation allocates its own full timeout,
+  // making the total wait up to 2x timeoutMs.
+  const deadline = Date.now() + timeoutMs
+
   if (!lockResult.acquired) {
     // 3. Another client is spawning — wait for daemon to appear
-    const info = await pollForDaemon(dataDir, timeoutMs, instanceManager, version)
+    const info = await pollForDaemon(dataDir, deadline, instanceManager, version)
     if (!info) return {reason: 'timeout', success: false}
     return {info, started: false, success: true}
   }
@@ -65,19 +70,20 @@ export async function ensureDaemonRunning(options?: {
       return {info: {pid: recheck.pid, port: recheck.port}, started: false, success: true}
     }
 
-    // 5. Handle version mismatch: gracefully stop old daemon (safe — we hold the lock)
-    if (!recheck.running && recheck.reason === 'version_mismatch') {
-      await gracefullyStopDaemon(recheck.pid, timeoutMs)
+    // 5. Handle unhealthy daemon: gracefully stop when PID is alive but daemon
+    //    is not healthy (version mismatch or stale heartbeat). Safe — we hold the lock.
+    if (recheck.reason === 'version_mismatch' || recheck.reason === 'heartbeat_stale') {
+      await gracefullyStopDaemon(recheck.pid, deadline)
     }
 
-    // 6. Clean up stale files (safe — we hold the lock and confirmed no live daemon)
+    // 6. Clean up stale files (safe — we hold the lock and stopped any live daemon above)
     cleanupStaleDaemonFiles(dataDir)
 
     // 7. Spawn daemon process
     const {getSpawnError} = spawnDaemonProcess()
 
-    // 8. Wait for daemon to become ready
-    const info = await pollForDaemon(dataDir, timeoutMs, instanceManager, version)
+    // 8. Wait for daemon to become ready (shares deadline with step 5)
+    const info = await pollForDaemon(dataDir, deadline, instanceManager, version)
     if (!info) {
       const spawnError = getSpawnError()
       return {reason: 'timeout', spawnError: spawnError?.message, success: false}
@@ -122,12 +128,10 @@ export function resolveServerMainPath(): string {
 
 async function pollForDaemon(
   dataDir: string,
-  timeoutMs: number,
-  instanceManager: GlobalInstanceManager,
+  deadline: number,
+  instanceManager: IGlobalInstanceManager,
   expectedVersion?: string,
 ): Promise<Pick<DaemonInstanceInfo, 'pid' | 'port'> | undefined> {
-  const deadline = Date.now() + timeoutMs
-
   while (Date.now() < deadline) {
     const status = discoverDaemon({dataDir, expectedVersion, instanceManager})
     if (status.running) {
@@ -143,9 +147,13 @@ async function pollForDaemon(
 
 /**
  * Sends SIGTERM to a daemon and waits for it to exit.
- * Used when version mismatch requires a graceful restart.
+ * Falls back to SIGKILL if the process doesn't die within the timeout
+ * to prevent leaving orphaned daemon processes.
+ *
+ * Used when an unhealthy daemon (version mismatch or stale heartbeat)
+ * needs to be stopped before spawning a replacement.
  */
-async function gracefullyStopDaemon(pid: number, timeoutMs: number): Promise<void> {
+async function gracefullyStopDaemon(pid: number, deadline: number): Promise<void> {
   try {
     process.kill(pid, 'SIGTERM')
   } catch {
@@ -153,11 +161,18 @@ async function gracefullyStopDaemon(pid: number, timeoutMs: number): Promise<voi
     return
   }
 
-  const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
     if (!isProcessAlive(pid)) return
     // eslint-disable-next-line no-await-in-loop
     await sleep(DAEMON_READY_POLL_INTERVAL_MS)
+  }
+
+  // SIGTERM didn't work — force kill to prevent two daemons running simultaneously.
+  // Without this, the old daemon leaks until idle timeout (30 min) or system restart.
+  try {
+    process.kill(pid, 'SIGKILL')
+  } catch {
+    // Process died between last check and SIGKILL — nothing to do
   }
 }
 

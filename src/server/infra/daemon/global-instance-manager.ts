@@ -31,7 +31,7 @@ function isValidDaemonInstanceInfo(value: unknown): value is DaemonInstanceInfo 
 }
 
 /**
- * Manages the global daemon instance file at ~/.local/share/brv/instance.json.
+ * Manages the global daemon instance file at ~/.local/share/brv/daemon.json.
  *
  * Key difference from FileInstanceManager:
  * - Operates on a single global path (not per-project)
@@ -51,7 +51,7 @@ export class GlobalInstanceManager implements IGlobalInstanceManager {
    * Attempts to acquire the daemon instance lock.
    *
    * If an existing instance is running (live PID), returns acquired: false.
-   * If stale or no instance, writes new instance.json atomically and returns acquired: true.
+   * If stale or no instance, writes new daemon.json atomically and returns acquired: true.
    */
   acquire(port: number, version: string): DaemonAcquireResult {
     const existing = this.load()
@@ -110,7 +110,7 @@ export class GlobalInstanceManager implements IGlobalInstanceManager {
   }
 
   /**
-   * Releases the daemon instance lock by deleting instance.json.
+   * Releases the daemon instance lock by deleting daemon.json.
    *
    * Only deletes if the file's PID matches the current process to prevent
    * accidentally removing another daemon's instance file during overlapping

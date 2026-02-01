@@ -19,7 +19,10 @@ export interface IHeartbeatWriter {
   start(): void
 
   /**
-   * Stops periodic heartbeat writes and deletes the heartbeat file.
+   * Stops periodic heartbeat writes.
+   * Does NOT delete the heartbeat file — it naturally becomes stale
+   * when writes stop, preventing cascade kills during overlapping
+   * shutdown/startup sequences.
    *
    * Idempotent: calling when not running is a no-op.
    */

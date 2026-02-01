@@ -58,7 +58,7 @@ describe('heartbeat', () => {
       }
     })
 
-    it('should delete heartbeat file on stop', () => {
+    it('should NOT delete heartbeat file on stop (prevents cascade kill)', () => {
       const filePath = join(testDir, 'heartbeat')
       const logStub = sandbox.stub()
       const writer = new HeartbeatWriter({filePath, intervalMs: 60_000, log: logStub})
@@ -67,7 +67,9 @@ describe('heartbeat', () => {
       expect(existsSync(filePath)).to.be.true
 
       writer.stop()
-      expect(existsSync(filePath)).to.be.false
+      // File intentionally left — becomes stale naturally (>15s without writes).
+      // Deleting could remove a NEW daemon's heartbeat during overlapping shutdown/startup.
+      expect(existsSync(filePath)).to.be.true
     })
 
     it('should be idempotent on stop', () => {
@@ -172,6 +174,30 @@ describe('heartbeat', () => {
     it('should return true if file is empty', () => {
       const filePath = join(testDir, 'heartbeat')
       writeFileSync(filePath, '')
+      expect(isHeartbeatStale(filePath)).to.be.true
+    })
+
+    it('should return true if file contains Infinity', () => {
+      const filePath = join(testDir, 'heartbeat')
+      writeFileSync(filePath, 'Infinity')
+      expect(isHeartbeatStale(filePath)).to.be.true
+    })
+
+    it('should return true if file contains negative Infinity', () => {
+      const filePath = join(testDir, 'heartbeat')
+      writeFileSync(filePath, '-Infinity')
+      expect(isHeartbeatStale(filePath)).to.be.true
+    })
+
+    it('should return true if timestamp is negative', () => {
+      const filePath = join(testDir, 'heartbeat')
+      writeFileSync(filePath, '-1')
+      expect(isHeartbeatStale(filePath)).to.be.true
+    })
+
+    it('should return true if timestamp is zero', () => {
+      const filePath = join(testDir, 'heartbeat')
+      writeFileSync(filePath, '0')
       expect(isHeartbeatStale(filePath)).to.be.true
     })
   })

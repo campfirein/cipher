@@ -24,10 +24,10 @@ describe('idle-timeout-policy', () => {
     const policy = new IdleTimeoutPolicy({
       checkIntervalMs: 100,
       log: logStub,
-      onIdle: onIdleStub,
       timeoutMs: 500,
     })
 
+    policy.setOnIdle(onIdleStub)
     policy.start()
     policy.onClientConnected()
 
@@ -42,10 +42,10 @@ describe('idle-timeout-policy', () => {
     const policy = new IdleTimeoutPolicy({
       checkIntervalMs: 100,
       log: logStub,
-      onIdle: onIdleStub,
       timeoutMs: 500,
     })
 
+    policy.setOnIdle(onIdleStub)
     policy.start()
 
     // Advance past timeout + check interval
@@ -59,10 +59,10 @@ describe('idle-timeout-policy', () => {
     const policy = new IdleTimeoutPolicy({
       checkIntervalMs: 100,
       log: logStub,
-      onIdle: onIdleStub,
       timeoutMs: 500,
     })
 
+    policy.setOnIdle(onIdleStub)
     policy.start()
 
     // Advance partway through timeout
@@ -86,10 +86,10 @@ describe('idle-timeout-policy', () => {
     const policy = new IdleTimeoutPolicy({
       checkIntervalMs: 100,
       log: logStub,
-      onIdle: onIdleStub,
       timeoutMs: 500,
     })
 
+    policy.setOnIdle(onIdleStub)
     policy.start()
     policy.stop()
 
@@ -101,10 +101,10 @@ describe('idle-timeout-policy', () => {
     const policy = new IdleTimeoutPolicy({
       checkIntervalMs: 100,
       log: logStub,
-      onIdle: onIdleStub, // stub does nothing — simulates failed shutdown
       timeoutMs: 500,
     })
 
+    policy.setOnIdle(onIdleStub) // stub does nothing — simulates failed shutdown
     policy.start()
 
     // First fire
@@ -123,10 +123,10 @@ describe('idle-timeout-policy', () => {
     const policy = new IdleTimeoutPolicy({
       checkIntervalMs: 100,
       log: logStub,
-      onIdle: throwingOnIdle,
       timeoutMs: 500,
     })
 
+    policy.setOnIdle(throwingOnIdle)
     policy.start()
 
     // First fire — onIdle throws but should not kill the loop
@@ -144,10 +144,10 @@ describe('idle-timeout-policy', () => {
     const policy = new IdleTimeoutPolicy({
       checkIntervalMs: 100,
       log: logStub,
-      onIdle: onIdleStub,
       timeoutMs: 500,
     })
 
+    policy.setOnIdle(onIdleStub)
     policy.start()
 
     // Disconnect without prior connect — should not go negative

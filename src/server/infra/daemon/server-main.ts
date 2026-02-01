@@ -11,10 +11,11 @@
  * 3. Acquire global instance lock (atomic temp+rename)
  * 4. Start Socket.IO transport server
  * 5. Start heartbeat writer
- * 6. Create idle timeout policy
- * 7. Install daemon resilience handlers
+ * 6. Install daemon resilience handlers
+ * 7. Create idle timeout policy
  * 8. Create shutdown handler
- * 9. Register signal handlers
+ * 9. Start idle timer
+ * 10. Register signal handlers
  */
 
 import {mkdirSync, readdirSync, readFileSync, unlinkSync} from 'node:fs'
@@ -111,7 +112,9 @@ async function main(): Promise<void> {
   const acquireResult = instanceManager.acquire(port, version)
   if (!acquireResult.acquired) {
     if (acquireResult.reason === 'already_running') {
-      log(`Another daemon already running (PID: ${acquireResult.existingInstance.pid}, port: ${acquireResult.existingInstance.port})`)
+      log(
+        `Another daemon already running (PID: ${acquireResult.existingInstance.pid}, port: ${acquireResult.existingInstance.port})`,
+      )
     } else {
       log(`Failed to acquire instance lock: ${acquireResult.reason}`)
     }
@@ -123,7 +126,7 @@ async function main(): Promise<void> {
   log(`Instance acquired (PID: ${process.pid}, port: ${port})`)
 
   // Steps 4-10 are wrapped so that partial startup is cleaned up.
-  // Without this, a partial startup leaves instance.json pointing to
+  // Without this, a partial startup leaves daemon.json pointing to
   // a dead PID and may leak the port until stale-detection kicks in.
   //
   // Hoisted so the catch block can stop whatever was started.
@@ -144,34 +147,7 @@ async function main(): Promise<void> {
     })
     heartbeatWriter.start()
 
-    // 6. Create idle timeout policy + wire transport events
-    //
-    // ORDERING INVARIANT: The onIdle/SIGTERM/SIGINT closures below reference
-    // `shutdownHandler` (declared in step 8). This is safe because:
-    //   - Closures capture the variable binding, not the current value
-    //   - None of these closures execute until idleTimeoutPolicy.start() (step 9)
-    //     which happens AFTER shutdownHandler is assigned (step 8)
-    //   - Do NOT move idleTimeoutPolicy.start() before shutdownHandler creation
-    const idleTimeoutPolicy = new IdleTimeoutPolicy({
-      log,
-      onIdle() {
-        log('Idle timeout reached — initiating shutdown')
-        shutdownHandler.shutdown().catch((error: unknown) => {
-          log(`Shutdown error: ${error instanceof Error ? error.message : String(error)}`)
-        })
-      },
-    })
-
-    transportServer.onConnection((clientId, metadata) => {
-      log(`Client connected: ${clientId}, cwd=${metadata.cwd ?? 'unknown'}`)
-      idleTimeoutPolicy.onClientConnected()
-    })
-    transportServer.onDisconnection((clientId) => {
-      log(`Client disconnected: ${clientId}`)
-      idleTimeoutPolicy.onClientDisconnected()
-    })
-
-    // 7. Install daemon resilience (crash/signal/sleep handlers)
+    // 6. Install daemon resilience (crash/signal/sleep handlers)
     const daemonResilience = new DaemonResilience({
       crashLog,
       log,
@@ -182,7 +158,19 @@ async function main(): Promise<void> {
     })
     daemonResilience.install()
 
-    // 8. Create shutdown handler (MUST happen before step 9 — see ordering invariant above)
+    // 7. Create idle timeout policy + wire transport events
+    const idleTimeoutPolicy = new IdleTimeoutPolicy({log})
+
+    transportServer.onConnection((clientId, metadata) => {
+      log(`Client connected: ${clientId}, cwd=${metadata.cwd ?? 'unknown'}`)
+      idleTimeoutPolicy.onClientConnected()
+    })
+    transportServer.onDisconnection((clientId) => {
+      log(`Client disconnected: ${clientId}`)
+      idleTimeoutPolicy.onClientDisconnected()
+    })
+
+    // 8. Create shutdown handler
     const shutdownHandler = new ShutdownHandler({
       daemonResilience,
       heartbeatWriter,
@@ -192,7 +180,13 @@ async function main(): Promise<void> {
       transportServer,
     })
 
-    // 9. Start idle timer (safe — shutdownHandler is now assigned)
+    // 9. Wire idle callback + start idle timer
+    idleTimeoutPolicy.setOnIdle(() => {
+      log('Idle timeout reached — initiating shutdown')
+      shutdownHandler.shutdown().catch((error: unknown) => {
+        log(`Shutdown error: ${error instanceof Error ? error.message : String(error)}`)
+      })
+    })
     idleTimeoutPolicy.start()
 
     // 10. Register signal handlers (once to prevent duplicate handling)

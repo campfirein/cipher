@@ -20,12 +20,12 @@ export interface ShutdownHandlerDeps {
  * Shutdown sequence:
  * 1. Stop idle timeout checks
  * 2. Uninstall resilience handlers
- * 3. Stop heartbeat writer (deletes heartbeat file)
+ * 3. Stop heartbeat writer (stops writes, file becomes stale naturally)
  * 4. Stop transport server (disconnect sockets, close HTTP server)
- * 5. Release instance.json
+ * 5. Release daemon.json
  * 6. Schedule force exit safety net
  *
- * Transport is stopped BEFORE releasing instance.json to prevent
+ * Transport is stopped BEFORE releasing daemon.json to prevent
  * another daemon binding the same port while sockets are still closing.
  */
 export class ShutdownHandler implements IShutdownHandler {
@@ -58,7 +58,7 @@ export class ShutdownHandler implements IShutdownHandler {
       log(`Error uninstalling resilience: ${error instanceof Error ? error.message : String(error)}`)
     }
 
-    // 3. Stop heartbeat (deletes file)
+    // 3. Stop heartbeat (file becomes stale naturally)
     try {
       heartbeatWriter.stop()
     } catch (error) {
@@ -72,7 +72,7 @@ export class ShutdownHandler implements IShutdownHandler {
       log(`Error stopping transport: ${error instanceof Error ? error.message : String(error)}`)
     }
 
-    // 5. Release instance.json
+    // 5. Release daemon.json
     try {
       instanceManager.release()
     } catch (error) {

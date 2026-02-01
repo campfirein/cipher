@@ -1,3 +1,7 @@
+function isNodeError(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && 'code' in error
+}
+
 /**
  * Checks if a process with the given PID is alive.
  *
@@ -15,13 +19,12 @@ export function isProcessAlive(pid: number): boolean {
   } catch (error) {
     // ESRCH means "No such process"
     // EPERM means "Permission denied" (process exists but we can't signal it)
-    if (error instanceof Error && 'code' in error) {
-      const {code} = error as NodeJS.ErrnoException
-      if (code === 'ESRCH') {
+    if (isNodeError(error)) {
+      if (error.code === 'ESRCH') {
         return false
       }
 
-      if (code === 'EPERM') {
+      if (error.code === 'EPERM') {
         // Process exists but we don't have permission to signal it
         // This shouldn't happen for our own child processes, but handle it
         return true

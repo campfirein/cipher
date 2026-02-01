@@ -201,6 +201,61 @@ describe('daemon-spawner', () => {
       }
     })
 
+    it('should kill old daemon via SIGTERM when heartbeat is stale', async function () {
+      this.timeout(5000)
+
+      // Spawn a real long-lived child process to simulate a stale-heartbeat daemon
+      const child = spawnChild(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], {
+        detached: true,
+        stdio: 'ignore',
+      })
+      const childPid = child.pid!
+      child.unref()
+
+      try {
+        // Simulate daemon with alive PID but stale heartbeat (>15s old)
+        writeFileSync(
+          join(testDir, DAEMON_INSTANCE_FILE),
+          JSON.stringify({pid: childPid, port: 37_847, startedAt: Date.now(), version: '1.6.0'}),
+        )
+        writeFileSync(join(testDir, HEARTBEAT_FILE), String(Date.now() - 20_000))
+
+        // Verify child is alive before test
+        process.kill(childPid, 0)
+
+        // ensureDaemonRunning should SIGTERM the stale daemon
+        const result = await ensureDaemonRunning({dataDir: testDir, timeoutMs: 100})
+
+        // The old process must be dead (SIGTERM was sent)
+        let isAlive = false
+        try {
+          process.kill(childPid, 0)
+          isAlive = true
+        } catch {
+          isAlive = false
+        }
+
+        expect(isAlive, 'stale-heartbeat daemon should have been killed via SIGTERM').to.be.false
+
+        // Stale daemon files should be cleaned up
+        expect(existsSync(join(testDir, DAEMON_INSTANCE_FILE))).to.be.false
+        expect(existsSync(join(testDir, HEARTBEAT_FILE))).to.be.false
+
+        // Result is timeout because no real new daemon spawns in test — expected
+        // The critical assertion is that the old process was killed
+        expect(result.success).to.be.false
+        if (!result.success) {
+          expect(result.reason).to.equal('timeout')
+        }
+      } finally {
+        try {
+          process.kill(childPid, 'SIGKILL')
+        } catch {
+          /* already dead */
+        }
+      }
+    })
+
     it('should kill old daemon and detect new daemon after version upgrade', async function () {
       this.timeout(5000)
 
