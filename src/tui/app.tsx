@@ -7,16 +7,17 @@
  */
 
 import {Box} from 'ink'
-import React, {useState} from 'react'
+import React, {useEffect, useState} from 'react'
 
 import {Footer, Header, TabBar} from './components/index.js'
-import {useAuth, useTasks} from './contexts/index.js'
+import {useAuth, useServices, useTasks} from './contexts/index.js'
 import {useTabNavigation, useTerminalBreakpoint, useUIHeights} from './hooks/index.js'
 import {CommandView, LoginView, LogsView} from './views/index.js'
 
 export const App: React.FC = () => {
   const {columns: terminalWidth, rows: terminalHeight} = useTerminalBreakpoint()
   const {appBottomPadding, footer, header, tab} = useUIHeights()
+  const {connectorManager} = useServices()
 
   const {isAuthorized} = useAuth()
   const {activeTab, tabs} = useTabNavigation()
@@ -26,6 +27,12 @@ export const App: React.FC = () => {
   const [expandedViewLogId, setExpandedViewLogId] = useState<null | string>(null)
 
   const contentHeight = Math.max(1, terminalHeight - header - tab - footer)
+
+  useEffect(() => {
+    // Clean up orphaned connectors from agents that no longer support them.
+    // Runs in the background to avoid blocking REPL startup.
+    connectorManager.migrateOrphanedConnectors().catch(console.error)
+  }, [])
 
   return (
     <Box flexDirection="column" height={terminalHeight} paddingBottom={appBottomPadding} width={terminalWidth}>
