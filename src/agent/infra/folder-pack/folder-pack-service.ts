@@ -1,3 +1,4 @@
+import fs from 'node:fs/promises'
 import path from 'node:path'
 
 import type {
@@ -8,10 +9,12 @@ import type {
   SkippedFile,
   SkipReason,
 } from '../../core/domain/folder-pack/types.js'
+import type {IDocumentParserService} from '../../core/interfaces/i-document-parser-service.js'
 import type {IFileSystem} from '../../core/interfaces/i-file-system.js'
 import type {IFolderPackService} from '../../core/interfaces/i-folder-pack-service.js'
 
 import {DirectoryNotFoundError} from '../../core/domain/errors/file-system-error.js'
+import {isOfficeFile} from '../file-system/binary-utils.js'
 import {getDefaultIgnorePatterns} from './default-ignore.js'
 import {generatePackedXml} from './output-generator.js'
 
@@ -19,6 +22,7 @@ import {generatePackedXml} from './output-generator.js'
  * Default configuration for folder packing.
  */
 const DEFAULT_CONFIG: FolderPackConfig = {
+  extractDocuments: false,
   extractPdfText: true,
   ignore: [],
   include: ['**/*'],
@@ -86,15 +90,18 @@ const DOC_EXTENSIONS = new Set([
  * consistent security policies and error handling.
  */
 export class FolderPackService implements IFolderPackService {
+  private readonly documentParser?: IDocumentParserService
   private readonly fileSystemService: IFileSystem
   private initialized = false
 
   /**
    * Creates a new FolderPackService.
    * @param fileSystemService - The file system service to use for file operations
+   * @param documentParser - Optional document parser for Office files (docx, xlsx, pptx)
    */
-  constructor(fileSystemService: IFileSystem) {
+  constructor(fileSystemService: IFileSystem, documentParser?: IDocumentParserService) {
     this.fileSystemService = fileSystemService
+    this.documentParser = documentParser
   }
 
   /**
@@ -199,6 +206,11 @@ export class FolderPackService implements IFolderPackService {
               },
               type: 'skipped' as const,
             }
+          }
+
+          // Check if this is an Office document that should be parsed
+          if (mergedConfig.extractDocuments && this.documentParser && isOfficeFile(fileInfo.path)) {
+            return this.parseOfficeDocument(fileInfo.path, fileInfo.size)
           }
 
           // Read file content using FileSystemService
@@ -310,7 +322,7 @@ export class FolderPackService implements IFolderPackService {
   /**
    * Detect file type based on extension.
    */
-  private detectFileType(filePath: string): string | undefined {
+  private detectFileType(filePath: string): string {
     const ext = path.extname(filePath).toLowerCase()
 
     if (CODE_EXTENSIONS.has(ext)) {
@@ -370,6 +382,7 @@ export class FolderPackService implements IFolderPackService {
     }
 
     return {
+      extractDocuments: config.extractDocuments ?? DEFAULT_CONFIG.extractDocuments,
       extractPdfText: config.extractPdfText ?? DEFAULT_CONFIG.extractPdfText,
       ignore: config.ignore ?? DEFAULT_CONFIG.ignore,
       include: config.include ?? DEFAULT_CONFIG.include,
@@ -377,6 +390,56 @@ export class FolderPackService implements IFolderPackService {
       maxFileSize: config.maxFileSize ?? DEFAULT_CONFIG.maxFileSize,
       maxLinesPerFile: config.maxLinesPerFile ?? DEFAULT_CONFIG.maxLinesPerFile,
       useGitignore: config.useGitignore ?? DEFAULT_CONFIG.useGitignore,
+    }
+  }
+
+  /**
+   * Parse an Office document using the document parser.
+   */
+  private async parseOfficeDocument(
+    filePath: string,
+    size: number,
+  ): Promise<{file: PackedFile; type: 'success'} | {skipped: SkippedFile; type: 'skipped'}> {
+    if (!this.documentParser) {
+      return {
+        skipped: {
+          message: 'Document parser not available',
+          path: filePath,
+          reason: 'read-error' as SkipReason,
+        },
+        type: 'skipped',
+      }
+    }
+
+    try {
+      // Read the file as a buffer
+      const buffer = await fs.readFile(filePath)
+
+      // Parse the document
+      const result = await this.documentParser.parse(filePath, buffer)
+
+      const lines = result.content.split('\n')
+
+      return {
+        file: {
+          content: result.content,
+          fileType: 'document',
+          lineCount: lines.length,
+          path: filePath,
+          size,
+          truncated: false,
+        },
+        type: 'success',
+      }
+    } catch (error) {
+      return {
+        skipped: {
+          message: error instanceof Error ? error.message : String(error),
+          path: filePath,
+          reason: 'read-error' as SkipReason,
+        },
+        type: 'skipped',
+      }
     }
   }
 }

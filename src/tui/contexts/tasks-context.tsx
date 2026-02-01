@@ -58,6 +58,8 @@ export type Task = {
   error?: TaskErrorData
   /** File paths for curate --files */
   files?: string[]
+  /** Folder paths for curate-folder */
+  folders?: string[]
   /** Input of query/curate */
   input: string
   /** Whether task is currently streaming LLM response */
@@ -79,7 +81,7 @@ export type Task = {
   /** Tool calls executed during task */
   toolCalls: ToolCallEvent[]
   /** Task type */
-  type: 'curate' | 'query'
+  type: 'curate' | 'curate-folder' | 'query'
 }
 
 /**
@@ -120,7 +122,10 @@ export function TasksProvider({children}: {children: React.ReactNode}): React.Re
     const unsubscribers: Array<() => void> = []
 
     // Handle task:created - Initialize new task
-    const handleTaskCreated = (data: TaskCreated) => {
+    // Extended type to include folderPath (not yet in transport-client package)
+    const handleTaskCreated = (data: TaskCreated & {folderPath?: string}) => {
+      // Convert folderPath to folders array for consistent handling
+      const folders = data.folderPath ? [data.folderPath] : undefined
       setTasks((prev) => {
         const newTasks = new Map(prev)
         newTasks.set(data.taskId, {
@@ -129,6 +134,7 @@ export function TasksProvider({children}: {children: React.ReactNode}): React.Re
           createdAt: Date.now(),
           error: undefined,
           files: data.files,
+          folders,
           input: data.content,
           result: undefined,
           sessionId: undefined,
@@ -136,7 +142,7 @@ export function TasksProvider({children}: {children: React.ReactNode}): React.Re
           status: 'created',
           taskId: data.taskId,
           toolCalls: [],
-          type: data.type,
+          type: data.type as 'curate' | 'curate-folder' | 'query',
         })
         return newTasks
       })

@@ -3,6 +3,9 @@
  * Controls which files to include, exclude, and how to process them.
  */
 export interface FolderPackConfig {
+  /** Whether to extract text from Office documents (docx, xlsx, pptx). Default: false */
+  extractDocuments: boolean
+
   /** Whether to extract text from PDF files. Default: true */
   extractPdfText: boolean
 

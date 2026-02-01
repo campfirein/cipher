@@ -10,6 +10,7 @@ import {
 function createMockResult(overrides: Partial<FolderPackResult> = {}): FolderPackResult {
   return {
     config: {
+      extractDocuments: false,
       extractPdfText: true,
       ignore: [],
       include: ['**/*'],
@@ -72,6 +73,7 @@ describe('output-generator', () => {
     it('should include config information', () => {
       const result = createMockResult({
         config: {
+          extractDocuments: false,
           extractPdfText: true,
           ignore: ['*.log', '*.tmp'],
           include: ['**/*'],

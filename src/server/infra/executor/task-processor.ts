@@ -1,6 +1,7 @@
 import type {ICipherAgent} from '../../../agent/core/interfaces/i-cipher-agent.js'
 import type {ILogger} from '../../../agent/core/interfaces/i-logger.js'
 import type {ICurateExecutor} from '../../core/interfaces/executor/i-curate-executor.js'
+import type {IFolderPackExecutor} from '../../core/interfaces/executor/i-folder-pack-executor.js'
 import type {IQueryExecutor} from '../../core/interfaces/executor/i-query-executor.js'
 
 import {NoOpLogger} from '../../../agent/core/interfaces/i-logger.js'
@@ -16,10 +17,12 @@ export type TaskInput = {
   content: string
   /** Optional file paths for curate --files */
   files?: string[]
+  /** Folder path for curate-folder task type */
+  folderPath?: string
   /** Task ID */
   taskId: string
   /** Task type */
-  type: 'curate' | 'query'
+  type: 'curate' | 'curate-folder' | 'query'
 }
 
 /**
@@ -28,6 +31,8 @@ export type TaskInput = {
 export type TaskProcessorConfig = {
   /** Curate executor instance (injected by agent-worker) */
   curateExecutor: ICurateExecutor
+  /** Folder pack executor instance (optional, injected by agent-worker) */
+  folderPackExecutor?: IFolderPackExecutor
   /** Logger instance */
   logger?: ILogger
   /** Query executor instance (injected by agent-worker) */
@@ -51,6 +56,7 @@ export class TaskProcessor {
    */
   private agent: ICipherAgent | undefined
   private readonly curateExecutor: ICurateExecutor
+  private readonly folderPackExecutor?: IFolderPackExecutor
   private readonly logger: ILogger
   private readonly queryExecutor: IQueryExecutor
   /** Track running tasks for cancellation */
@@ -59,6 +65,7 @@ export class TaskProcessor {
   constructor(config: TaskProcessorConfig) {
     this.logger = config.logger ?? new NoOpLogger()
     this.curateExecutor = config.curateExecutor
+    this.folderPackExecutor = config.folderPackExecutor
     this.queryExecutor = config.queryExecutor
   }
 
@@ -149,6 +156,24 @@ export class TaskProcessor {
           clientCwd: input.clientCwd,
           content,
           files: input.files,
+          taskId,
+        })
+      }
+
+      case 'curate-folder': {
+        // Folder pack + curate flow
+        if (!this.folderPackExecutor) {
+          throw new Error('FolderPackExecutor not configured for curate-folder tasks')
+        }
+
+        if (!input.folderPath) {
+          throw new Error('folderPath is required for curate-folder tasks')
+        }
+
+        return this.folderPackExecutor.executeWithAgent(this.agent, {
+          clientCwd: input.clientCwd,
+          content,
+          folderPath: input.folderPath,
           taskId,
         })
       }
