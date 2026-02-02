@@ -3,7 +3,7 @@
  */
 
 import type {MessageItemHeights} from '../hooks/index.js'
-import type {ActivityLog} from '../types.js'
+import type {ActivityLog} from '../types/index.js'
 
 /**
  * Calculate dynamic space usage for each part of a log

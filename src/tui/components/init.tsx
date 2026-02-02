@@ -9,9 +9,8 @@ import {Box, Text} from 'ink'
 import Spinner from 'ink-spinner'
 import React, {useCallback, useEffect, useMemo, useState} from 'react'
 
-import type {PromptRequest, StreamingMessage} from '../types.js'
+import type {PromptRequest, StreamingMessage} from '../types/index.js'
 
-import {useAuth, useTransport} from '../contexts/index.js'
 import {useCommands, useTheme} from '../hooks/index.js'
 import {EnterPrompt} from './enter-prompt.js'
 import {InlineConfirm, InlineInput, InlineSearch, InlineSelect} from './inline-prompts/index.js'
@@ -166,9 +165,7 @@ export const Init: React.FC<InitProps> = ({
   const {
     theme: {colors},
   } = useTheme()
-  const {reloadAuth} = useAuth()
-  const {client} = useTransport()
-  const {handleSlashCommand} = useCommands()
+  const {commands, handleSlashCommand} = useCommands()
 
   const maxSearchItems = Math.max(MIN_SEARCH_ITEMS, maxOutputLines - INLINE_SEARCH_OVERHEAD)
 
@@ -176,6 +173,7 @@ export const Init: React.FC<InitProps> = ({
   const [isRunningInit, setIsRunningInit] = useState(false)
   const [streamingMessages, setStreamingMessages] = useState<StreamingMessage[]>([])
   const [activePrompt, setActivePrompt] = useState<null | PromptRequest>(null)
+  const [activeDialog, setActiveDialog] = useState<React.ReactNode>(null)
   const [initError, setInitError] = useState<null | string>(null)
 
   // Handle init command execution
@@ -188,42 +186,40 @@ export const Init: React.FC<InitProps> = ({
 
     const result = await handleSlashCommand('/init')
 
-    if (result && result.type === 'streaming') {
-      const onMessage = (msg: StreamingMessage) => {
-        setStreamingMessages((prev) => [...prev, msg])
-        setInitError(msg.type === 'error' ? msg.content : null)
-      }
+    if (result && 'render' in result) {
+      // The InitFlow component handles everything, we just need to track when it completes
+      setActiveDialog(
+        result.render({
+          onCancel() {
+            setActiveDialog(null)
+            setIsRunningInit(false)
+          },
+          onComplete(message: string) {
+            setActiveDialog(null)
+            setIsRunningInit(false)
+            if (message) {
+              setStreamingMessages((prev) => [...prev, {content: message, id: `result-${Date.now()}`, type: 'output'}])
+            }
 
-      const onPrompt = (prompt: PromptRequest) => {
-        setActivePrompt(prompt)
-      }
-
-      try {
-        await result.execute(onMessage, onPrompt)
-
-        // Call completion callback if provided
-        if (onInitComplete) {
-          onInitComplete()
-        }
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error)
-        setInitError(errorMessage)
-      } finally {
-        setIsRunningInit(false)
-        setActivePrompt(null)
-      }
-    } else if (result && result.type === 'message') {
+            // Call completion callback if provided
+            if (onInitComplete) {
+              onInitComplete()
+            }
+          },
+        }),
+      )
+    } else if (result && 'type' in result && result.type === 'message') {
       setInitError(result.content)
       setIsRunningInit(false)
     }
-  }, [handleSlashCommand, isRunningInit, reloadAuth, client, onInitComplete])
+  }, [handleSlashCommand, isRunningInit, onInitComplete])
 
   // Auto-start init if autoStart is true and component is in idle state
   useEffect(() => {
-    if (autoStart && !isRunningInit && !initError) {
+    if (autoStart && commands.length > 0 && !isRunningInit && !initError) {
       runInit()
     }
-  }, [autoStart, isRunningInit, initError, runInit])
+  }, [autoStart, commands, isRunningInit, initError, runInit])
 
   // Process streaming messages to handle action_start/action_stop pairs
   const processedStreamingMessages = useMemo(() => processMessagesForActions(streamingMessages), [streamingMessages])
@@ -373,10 +369,13 @@ export const Init: React.FC<InitProps> = ({
 
   return (
     <Box flexDirection="column" rowGap={1}>
-      {showIdleMessage && <Text color={colors.text}>{idleMessage}</Text>}
+      {showIdleMessage && !activeDialog && <Text color={colors.text}>{idleMessage}</Text>}
 
-      {/* Live streaming output */}
-      {displayMessages.length > 0 && (
+      {/* Active dialog from command */}
+      {activeDialog}
+
+      {/* Live streaming output (legacy, kept for backwards compatibility) */}
+      {!activeDialog && displayMessages.length > 0 && (
         <Box
           borderColor={colors.border}
           borderStyle="single"
@@ -391,7 +390,7 @@ export const Init: React.FC<InitProps> = ({
         </Box>
       )}
 
-      {!isRunningInit && displayMessages.length === 0 && (
+      {!isRunningInit && !activeDialog && displayMessages.length === 0 && (
         <EnterPrompt
           action="initialize your project"
           active={active && !isRunningInit && !activePrompt}

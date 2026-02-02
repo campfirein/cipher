@@ -9,17 +9,10 @@ import {Box, Text} from 'ink'
 import Spinner from 'ink-spinner'
 import React, {useCallback} from 'react'
 
-import type {PromptRequest, StreamingMessage} from '../../types.js'
+import type {PromptRequest, StreamingMessage} from '../../types/index.js'
 
-import {useCommands} from '../../contexts/commands-context.js'
-import {useTerminalBreakpoint, useTheme} from '../../hooks/index.js'
-import {
-  InlineConfirm,
-  InlineFileSelector,
-  InlineInput,
-  InlineSearch,
-  InlineSelect,
-} from '../inline-prompts/index.js'
+import {useCommands, useTerminalBreakpoint, useTheme} from '../../hooks/index.js'
+import {InlineConfirm, InlineFileSelector, InlineInput, InlineSearch, InlineSelect} from '../inline-prompts/index.js'
 import {
   getMessagesFromEnd,
   MAX_OUTPUT_LINES,
@@ -46,7 +39,9 @@ export const LiveStreamingOutput: React.FC<LiveStreamingOutputProps> = ({
   terminalWidth,
 }) => {
   const {setActivePrompt} = useCommands()
-  const {theme: {colors}} = useTheme()
+  const {
+    theme: {colors},
+  } = useTheme()
   const {breakpoint} = useTerminalBreakpoint()
   const processedMessages = processMessagesForActions(streamingMessages)
   const outputLimit = isExpanded ? Number.MAX_SAFE_INTEGER : MAX_OUTPUT_LINES
@@ -55,12 +50,15 @@ export const LiveStreamingOutput: React.FC<LiveStreamingOutputProps> = ({
   // Calculate page size for file selector
   const fileSelectorPageSize = 3
 
-  const handlePromptResponse = useCallback((value: unknown) => {
-    if (activePrompt) {
-      activePrompt.onResponse(value as never)
-      setActivePrompt(null)
-    }
-  }, [activePrompt, setActivePrompt])
+  const handlePromptResponse = useCallback(
+    (value: unknown) => {
+      if (activePrompt) {
+        activePrompt.onResponse(value as never)
+        setActivePrompt(null)
+      }
+    },
+    [activePrompt, setActivePrompt],
+  )
 
   return (
     <Box

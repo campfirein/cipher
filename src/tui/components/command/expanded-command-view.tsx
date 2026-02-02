@@ -9,10 +9,9 @@ import {Box, Spacer, Text, useInput, useStdout} from 'ink'
 import {ScrollView, ScrollViewRef} from 'ink-scroll-view'
 import React, {useEffect, useRef, useState} from 'react'
 
-import type {CommandMessage} from '../../types.js'
+import type {CommandMessage} from '../../types/index.js'
 
-import {useCommands} from '../../contexts/commands-context.js'
-import {useTheme} from '../../hooks/index.js'
+import {useCommands, useTheme} from '../../hooks/index.js'
 import {formatTime} from '../../utils/index.js'
 import {MessageItem} from '../message-item.js'
 import {CommandOutput} from './command-output.js'
@@ -75,7 +74,7 @@ export const ExpandedCommandView: React.FC<ExpandedCommandViewProps> = ({
     (input, key) => {
       if (!scrollViewRef.current) return
 
-      if ((key.ctrl && input === 'o')) {
+      if (key.ctrl && input === 'o') {
         onClose()
       }
 
@@ -102,7 +101,7 @@ export const ExpandedCommandView: React.FC<ExpandedCommandViewProps> = ({
         updateScrollIndicator()
       }
     },
-    {isActive}
+    {isActive},
   )
 
   const displayTime = message.timestamp ? formatTime(message.timestamp) : ''
@@ -136,13 +135,9 @@ export const ExpandedCommandView: React.FC<ExpandedCommandViewProps> = ({
               />
             )}
 
-            {hasCompletedOutput && (
-              <CommandOutput isExpanded output={message.output!} terminalWidth={terminalWidth} />
-            )}
+            {hasCompletedOutput && <CommandOutput isExpanded output={message.output!} terminalWidth={terminalWidth} />}
 
-            {!hasCompletedOutput && !showLiveOutput && (
-              <Text color={colors.dimText}>No output</Text>
-            )}
+            {!hasCompletedOutput && !showLiveOutput && <Text color={colors.dimText}>No output</Text>}
           </Box>
         </ScrollView>
         {/* More content indicator */}

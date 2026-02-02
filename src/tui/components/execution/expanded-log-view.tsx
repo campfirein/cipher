@@ -9,7 +9,7 @@ import {Box, Spacer, Text, useInput, useStdout} from 'ink'
 import {ScrollView, ScrollViewRef} from 'ink-scroll-view'
 import React, {useEffect, useRef, useState} from 'react'
 
-import type {ActivityLog} from '../../types.js'
+import type {ActivityLog} from '../../types/index.js'
 
 import {useTheme} from '../../hooks/index.js'
 import {formatTime} from '../../utils/index.js'
@@ -29,12 +29,7 @@ interface ExpandedLogViewProps {
   onClose: () => void
 }
 
-export const ExpandedLogView: React.FC<ExpandedLogViewProps> = ({
-  availableHeight,
-  isActive,
-  log,
-  onClose,
-}) => {
+export const ExpandedLogView: React.FC<ExpandedLogViewProps> = ({availableHeight, isActive, log, onClose}) => {
   const {
     theme: {colors},
   } = useTheme()
@@ -98,7 +93,7 @@ export const ExpandedLogView: React.FC<ExpandedLogViewProps> = ({
         updateScrollIndicator()
       }
     },
-    {isActive}
+    {isActive},
   )
 
   const displayTime = formatTime(log.timestamp)
@@ -128,11 +123,7 @@ export const ExpandedLogView: React.FC<ExpandedLogViewProps> = ({
           {/* Progress */}
           {(log.toolCalls || log.reasoningContents) && (
             <Box paddingX={1}>
-              <ExecutionProgress
-                isExpanded
-                reasoningContents={log.reasoningContents}
-                toolCalls={log.toolCalls}
-              />
+              <ExecutionProgress isExpanded reasoningContents={log.reasoningContents} toolCalls={log.toolCalls} />
             </Box>
           )}
 
@@ -187,4 +178,3 @@ export const ExpandedLogView: React.FC<ExpandedLogViewProps> = ({
     </Box>
   )
 }
-

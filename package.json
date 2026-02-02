@@ -18,6 +18,7 @@
     "@oclif/core": "^4",
     "@oclif/plugin-help": "^6",
     "@socket.io/admin-ui": "^0.5.1",
+    "@tanstack/react-query": "^5.90.20",
     "axios": "^1.12.2",
     "better-sqlite3": "^11.5.0",
     "chalk": "^5.6.2",
@@ -42,6 +43,7 @@
     "open": "^10.2.0",
     "openai": "^6.9.1",
     "react": "^19.2.1",
+    "react-router-dom": "^7.13.0",
     "remark-parse": "^11.0.0",
     "socket.io": "^4.8.1",
     "socket.io-client": "^4.8.1",
@@ -50,7 +52,8 @@
     "unpdf": "^1.4.0",
     "update-notifier": "^7.3.1",
     "zod": "^3.25.76",
-    "zod-to-json-schema": "^3.24.6"
+    "zod-to-json-schema": "^3.24.6",
+    "zustand": "^5.0.11"
   },
   "bundledDependencies": [
     "@campfirein/brv-transport-client"
