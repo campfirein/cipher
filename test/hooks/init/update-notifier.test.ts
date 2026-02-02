@@ -7,8 +7,8 @@ import {handleUpdateNotification, UPDATE_CHECK_INTERVAL_MS} from '../../../src/o
 
 describe('update-notifier hook', () => {
   describe('UPDATE_CHECK_INTERVAL_MS', () => {
-    it('should be 24 hours in milliseconds', () => {
-      expect(UPDATE_CHECK_INTERVAL_MS).to.equal(1000 * 60 * 60 * 24)
+    it('should be 1 hour in milliseconds', () => {
+      expect(UPDATE_CHECK_INTERVAL_MS).to.equal(1000 * 60 * 60)
     })
   })
 
