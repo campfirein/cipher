@@ -58,6 +58,8 @@ import type {
 import type {IClientManager} from '../../core/interfaces/client/i-client-manager.js'
 import type {IProjectRegistry} from '../../core/interfaces/project/i-project-registry.js'
 import type {IProjectRouter} from '../../core/interfaces/routing/i-project-router.js'
+import type {IAuthStateStore} from '../../core/interfaces/state/i-auth-state-store.js'
+import type {IProjectStateLoader} from '../../core/interfaces/state/i-project-state-loader.js'
 import type {ITransportServer} from '../../core/interfaces/transport/i-transport-server.js'
 
 import {
@@ -142,6 +144,8 @@ export class TransportHandlers {
    * When no projectPath is available (backward compat), uses empty string as key.
    */
   private agentClients: Map<string, string> = new Map()
+  /** Global auth state store (optional — T5 StateServer) */
+  private readonly authStateStore: IAuthStateStore | undefined
   /** Cached agent status from last status:changed broadcast */
   private cachedAgentStatus: AgentStatus | undefined
   /** Client lifecycle manager (optional — backward compatible) */
@@ -156,21 +160,27 @@ export class TransportHandlers {
   private readonly projectRegistry: IProjectRegistry | undefined
   /** Project-scoped event router (used by T4 ClientManager for project room management) */
   private readonly projectRouter: IProjectRouter | undefined
+  /** Per-project state loader (optional — T5 StateServer) */
+  private readonly projectStateLoader: IProjectStateLoader | undefined
   /** Track active tasks */
   private tasks: Map<string, TaskInfo> = new Map()
   /** Transport server reference */
   private readonly transport: ITransportServer
 
   constructor(options: {
+    authStateStore?: IAuthStateStore
     clientManager?: IClientManager
     projectRegistry?: IProjectRegistry
     projectRouter?: IProjectRouter
+    projectStateLoader?: IProjectStateLoader
     transport: ITransportServer
   }) {
     this.transport = options.transport
+    this.authStateStore = options.authStateStore
     this.projectRouter = options.projectRouter
     this.clientManager = options.clientManager
     this.projectRegistry = options.projectRegistry
+    this.projectStateLoader = options.projectStateLoader
   }
 
   /**

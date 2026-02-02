@@ -27,9 +27,13 @@ import type {IPCCommand, TransportIPCResponse} from './ipc-types.js'
 import {BRV_DIR, INSTANCE_FILE} from '../../constants.js'
 import {transportLog} from '../../utils/process-logger.js'
 import {ClientManager} from '../client/client-manager.js'
+import {ProjectConfigStore} from '../config/file-config-store.js'
 import {FileInstanceManager} from '../instance/file-instance-manager.js'
 import {ProjectRegistry} from '../project/project-registry.js'
 import {ProjectRouter} from '../routing/project-router.js'
+import {AuthStateStore} from '../state/auth-state-store.js'
+import {ProjectStateLoader} from '../state/project-state-loader.js'
+import {createTokenStore} from '../storage/token-store.js'
 import {findAvailablePort} from '../transport/port-utils.js'
 import {createTransportServer} from '../transport/transport-factory.js'
 import {createParentHeartbeat} from './parent-heartbeat.js'
@@ -47,6 +51,7 @@ function sendToParent(message: TransportIPCResponse): void {
 
 let transportServer: ITransportServer | undefined
 let transportHandlers: TransportHandlers | undefined
+let authStateStore: AuthStateStore | undefined
 let instancePollingInterval: ReturnType<typeof setInterval> | undefined
 let parentHeartbeat: ReturnType<typeof createParentHeartbeat> | undefined
 const instanceManager = new FileInstanceManager()
@@ -122,7 +127,35 @@ async function startTransport(): Promise<number> {
   const projectRegistry = new ProjectRegistry({log: transportLog})
   const projectRouter = new ProjectRouter({transport: transportServer})
   const clientManager = new ClientManager()
-  transportHandlers = new TransportHandlers({clientManager, projectRegistry, projectRouter, transport: transportServer})
+
+  // State management: global auth + per-project state
+  authStateStore = new AuthStateStore({log: transportLog, tokenStore: createTokenStore()})
+  const projectStateLoader = new ProjectStateLoader({configStore: new ProjectConfigStore(), log: transportLog, projectRegistry})
+
+  // Wire auth change broadcasting to all connected clients
+  authStateStore.onAuthChanged((token) => {
+    transportServer!.broadcast('auth:updated', {
+      hasToken: token !== undefined,
+      isValid: token?.isValid() ?? false,
+    })
+  })
+
+  authStateStore.onAuthExpired(() => {
+    transportServer!.broadcast('auth:expired', {})
+  })
+
+  authStateStore.startPolling()
+  // eslint-disable-next-line no-void
+  void authStateStore.loadToken()
+
+  transportHandlers = new TransportHandlers({
+    authStateStore,
+    clientManager,
+    projectRegistry,
+    projectRouter,
+    projectStateLoader,
+    transport: transportServer,
+  })
   transportHandlers.setup()
 
   // Setup polling to recreate instance.json if deleted
@@ -136,6 +169,7 @@ async function startTransport(): Promise<number> {
 async function stopTransport(): Promise<void> {
   // Stop heartbeat and polling first
   parentHeartbeat?.stop()
+  authStateStore?.stopPolling()
   stopInstancePolling()
 
   // Release instance.json

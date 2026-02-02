@@ -87,3 +87,6 @@ export const DAEMON_READY_POLL_INTERVAL_MS = 100 // 100ms between polls
 // Daemon spawner — budget allocation for stop + poll
 export const DAEMON_STOP_BUDGET_MS = 3000 // 3s max to stop old daemon
 export const DAEMON_STOP_POLL_INTERVAL_MS = 100 // 100ms between death checks
+
+// Auth state polling (daemon — replaces agent-worker credential polling in M2)
+export const AUTH_STATE_POLL_INTERVAL_MS = 5000 // Poll token store every 5s
