@@ -26,7 +26,9 @@ import type {IPCCommand, TransportIPCResponse} from './ipc-types.js'
 
 import {BRV_DIR, INSTANCE_FILE} from '../../constants.js'
 import {transportLog} from '../../utils/process-logger.js'
+import {ClientManager} from '../client/client-manager.js'
 import {FileInstanceManager} from '../instance/file-instance-manager.js'
+import {ProjectRegistry} from '../project/project-registry.js'
 import {ProjectRouter} from '../routing/project-router.js'
 import {findAvailablePort} from '../transport/port-utils.js'
 import {createTransportServer} from '../transport/transport-factory.js'
@@ -117,8 +119,10 @@ async function startTransport(): Promise<number> {
   }
 
   // Setup message handlers (routing between clients and Agent)
+  const projectRegistry = new ProjectRegistry({log: transportLog})
   const projectRouter = new ProjectRouter({transport: transportServer})
-  transportHandlers = new TransportHandlers(transportServer, projectRouter)
+  const clientManager = new ClientManager()
+  transportHandlers = new TransportHandlers({clientManager, projectRegistry, projectRouter, transport: transportServer})
   transportHandlers.setup()
 
   // Setup polling to recreate instance.json if deleted

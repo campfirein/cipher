@@ -31,6 +31,7 @@
  * - broadcast-room: TUI joins this room to monitor all events
  */
 
+import type {ClientType} from '../../core/domain/client/client-info.js'
 import type {
   AgentNewSessionRequest,
   AgentNewSessionResponse,
@@ -54,6 +55,8 @@ import type {
   TaskExecute,
   TaskStartedEvent,
 } from '../../core/domain/transport/schemas.js'
+import type {IClientManager} from '../../core/interfaces/client/i-client-manager.js'
+import type {IProjectRegistry} from '../../core/interfaces/project/i-project-registry.js'
 import type {IProjectRouter} from '../../core/interfaces/routing/i-project-router.js'
 import type {ITransportServer} from '../../core/interfaces/transport/i-transport-server.js'
 
@@ -67,6 +70,7 @@ import {
   AgentStatusEventNames,
   LlmEventNames,
   TransportAgentEventNames,
+  TransportClientEventNames,
   TransportLlmEventList,
   TransportTaskEventNames,
 } from '../../core/domain/transport/schemas.js'
@@ -87,6 +91,8 @@ type TaskInfo = {
   content: string
   createdAt: number
   files?: string[]
+  /** Project path this task belongs to (for multi-project routing) */
+  projectPath?: string
   taskId: string
   type: string
 }
@@ -130,16 +136,24 @@ const TASK_CLEANUP_GRACE_PERIOD_MS = 5000
  * It knows which client is the Agent and routes messages accordingly.
  */
 export class TransportHandlers {
-  /** The Agent's client ID (set when Agent registers) */
-  private agentClientId: string | undefined
+  /**
+   * Per-project agent tracking: projectPath → agentClientId.
+   * Replaces single agentClientId for multi-project support.
+   * When no projectPath is available (backward compat), uses empty string as key.
+   */
+  private agentClients: Map<string, string> = new Map()
   /** Cached agent status from last status:changed broadcast */
   private cachedAgentStatus: AgentStatus | undefined
+  /** Client lifecycle manager (optional — backward compatible) */
+  private readonly clientManager: IClientManager | undefined
   /**
    * Track recently completed tasks for grace period.
    * Allows late-arriving llmservice:* events to be routed even after task:completed.
    * Key: taskId, Value: {task: TaskInfo, completedAt: timestamp}
    */
   private completedTasks: Map<string, {completedAt: number; task: TaskInfo}> = new Map()
+  /** Project registry for resolving projectPath → sanitizedPath (optional) */
+  private readonly projectRegistry: IProjectRegistry | undefined
   /** Project-scoped event router (used by T4 ClientManager for project room management) */
   private readonly projectRouter: IProjectRouter | undefined
   /** Track active tasks */
@@ -147,9 +161,16 @@ export class TransportHandlers {
   /** Transport server reference */
   private readonly transport: ITransportServer
 
-  constructor(transport: ITransportServer, projectRouter?: IProjectRouter) {
-    this.transport = transport
-    this.projectRouter = projectRouter
+  constructor(options: {
+    clientManager?: IClientManager
+    projectRegistry?: IProjectRegistry
+    projectRouter?: IProjectRouter
+    transport: ITransportServer
+  }) {
+    this.transport = options.transport
+    this.projectRouter = options.projectRouter
+    this.clientManager = options.clientManager
+    this.projectRegistry = options.projectRegistry
   }
 
   /**
@@ -158,7 +179,7 @@ export class TransportHandlers {
   cleanup(): void {
     this.tasks.clear()
     this.completedTasks.clear()
-    this.agentClientId = undefined
+    this.agentClients.clear()
     this.cachedAgentStatus = undefined
   }
 
@@ -169,7 +190,55 @@ export class TransportHandlers {
     this.setupConnectionHandlers()
     this.setupAgentHandlers()
     this.setupClientHandlers()
+    this.setupClientLifecycleHandlers()
     this.setupAgentControlHandlers()
+  }
+
+  /**
+   * Find which project a given agent client belongs to.
+   * Reverse lookup in the agentClients map.
+   */
+  private findProjectForAgent(clientId: string): string | undefined {
+    for (const [projectPath, agentId] of this.agentClients) {
+      if (agentId === clientId) {
+        // Empty string key means no projectPath (backward compat)
+        return projectPath === '' ? undefined : projectPath
+      }
+    }
+
+    return undefined
+  }
+
+  /**
+   * Get the agent client ID for a given project.
+   *
+   * Lookup order:
+   * 1. Exact match: agent registered for this specific projectPath
+   * 2. Fallback: agent registered without projectPath (empty-string key, backward compat)
+   * 3. Last resort: if no projectPath requested, return first available agent
+   *
+   * The fallback chain handles the transition period where tasks may have
+   * projectPath but agents don't yet (M1 → M2 migration).
+   */
+  private getAgentForProject(projectPath?: string): string | undefined {
+    // Exact match by project path
+    if (projectPath) {
+      const exact = this.agentClients.get(projectPath)
+      if (exact) return exact
+    }
+
+    // Fallback: agent registered without projectPath (backward compat)
+    if (this.agentClients.has('')) {
+      return this.agentClients.get('')
+    }
+
+    // Last resort: if no projectPath requested, return first available agent
+    if (!projectPath) {
+      const first = this.agentClients.values().next()
+      return first.done ? undefined : first.value
+    }
+
+    return undefined
   }
 
   /**
@@ -184,10 +253,28 @@ export class TransportHandlers {
    * Handle Agent registration.
    * Agent connects as Socket.IO client and sends 'agent:register'.
    * Fix #4: Accepts optional status in payload to cache atomically with registration.
+   * T4: Accepts optional projectPath for multi-project agent routing.
    */
-  private handleAgentRegister(clientId: string, data?: {status?: AgentStatus}): void {
-    transportLog(`Agent registered: ${clientId}`)
-    this.agentClientId = clientId
+  private handleAgentRegister(clientId: string, data?: {projectPath?: string; status?: AgentStatus}): void {
+    const projectPath = data?.projectPath
+    transportLog(`Agent registered: ${clientId}${projectPath ? `, project=${projectPath}` : ''}`)
+
+    // Track agent by project (empty string key for backward compat when no projectPath)
+    const agentKey = projectPath ?? ''
+    this.agentClients.set(agentKey, clientId)
+
+    // Register with ClientManager if available
+    if (this.clientManager) {
+      this.clientManager.register(clientId, 'agent', projectPath)
+    }
+
+    // Add agent to project room if projectPath available
+    if (projectPath && this.projectRouter && this.projectRegistry) {
+      const projectInfo = this.projectRegistry.get(projectPath)
+      if (projectInfo) {
+        this.projectRouter.addToProjectRoom(clientId, projectInfo.sanitizedPath)
+      }
+    }
 
     // Cache status if provided (prevents race window between register and status broadcast)
     if (data?.status) {
@@ -196,6 +283,69 @@ export class TransportHandlers {
 
     // Broadcast to all clients that Agent is online
     this.transport.broadcast(TransportAgentEventNames.CONNECTED, {})
+  }
+
+  /**
+   * Handle client:associateProject from global-scope MCP clients.
+   * Binds a previously unassociated client to a project.
+   * One-time operation — ignored if client already has a project.
+   */
+  private handleClientAssociateProject(
+    clientId: string,
+    data: {projectPath: string},
+  ): {error?: string; success: boolean} {
+    if (!this.clientManager) {
+      return {error: 'ClientManager not available', success: false}
+    }
+
+    const client = this.clientManager.getClient(clientId)
+    if (!client) {
+      return {error: 'Client not registered', success: false}
+    }
+
+    if (client.hasProject) {
+      // Already associated — no-op, return success
+      return {success: true}
+    }
+
+    this.clientManager.associateProject(clientId, data.projectPath)
+    transportLog(`Client ${clientId} associated with project ${data.projectPath}`)
+
+    // Add to project room
+    if (this.projectRouter && this.projectRegistry) {
+      const projectInfo = this.projectRegistry.get(data.projectPath)
+      if (projectInfo) {
+        this.projectRouter.addToProjectRoom(clientId, projectInfo.sanitizedPath)
+      }
+    }
+
+    return {success: true}
+  }
+
+  /**
+   * Handle client:register from external clients (tui/cli/mcp).
+   * Registers client in ClientManager and adds to project room if projectPath provided.
+   */
+  private handleClientRegister(
+    clientId: string,
+    data: {projectPath?: string; type: ClientType},
+  ): {error?: string; success: boolean} {
+    if (!this.clientManager) {
+      return {error: 'ClientManager not available', success: false}
+    }
+
+    this.clientManager.register(clientId, data.type, data.projectPath)
+    transportLog(`Client registered: ${clientId} (type=${data.type}${data.projectPath ? `, project=${data.projectPath}` : ''})`)
+
+    // Add to project room if projectPath available
+    if (data.projectPath && this.projectRouter && this.projectRegistry) {
+      const projectInfo = this.projectRegistry.get(data.projectPath)
+      if (projectInfo) {
+        this.projectRouter.addToProjectRoom(clientId, projectInfo.sanitizedPath)
+      }
+    }
+
+    return {success: true}
   }
 
   /**
@@ -214,9 +364,10 @@ export class TransportHandlers {
       return {error: 'Task not found', success: false}
     }
 
-    // If Agent connected, forward cancel request
-    if (this.agentClientId) {
-      this.transport.sendTo(this.agentClientId, TransportTaskEventNames.CANCEL, {taskId})
+    // If Agent connected for this task's project, forward cancel request
+    const agentId = this.getAgentForProject(task.projectPath)
+    if (agentId) {
+      this.transport.sendTo(agentId, TransportTaskEventNames.CANCEL, {taskId})
       return {success: true}
     }
 
@@ -291,6 +442,7 @@ export class TransportHandlers {
       createdAt: Date.now(),
       ...(data.clientCwd ? {clientCwd: data.clientCwd} : {}),
       ...(data.files?.length ? {files: data.files} : {}),
+      ...(data.projectPath ? {projectPath: data.projectPath} : {}),
       taskId,
       type: data.type,
     })
@@ -307,8 +459,9 @@ export class TransportHandlers {
       type: data.type,
     })
 
-    // Forward to Agent
-    if (this.agentClientId) {
+    // Forward to Agent — route to correct agent for this task's project
+    const agentId = this.getAgentForProject(data.projectPath)
+    if (agentId) {
       // Pre-task check: verify cipher is initialized before forwarding
       // Reject if: (1) no status cached yet, OR (2) status shows not initialized
       // This prevents race condition where task arrives before agent broadcasts initial status
@@ -338,10 +491,11 @@ export class TransportHandlers {
         content: data.content,
         ...(data.clientCwd ? {clientCwd: data.clientCwd} : {}),
         ...(data.files?.length ? {files: data.files} : {}),
+        ...(data.projectPath ? {projectPath: data.projectPath} : {}),
         taskId,
         type: data.type,
       }
-      this.transport.sendTo(this.agentClientId, TransportTaskEventNames.EXECUTE, executeMsg)
+      this.transport.sendTo(agentId, TransportTaskEventNames.EXECUTE, executeMsg)
     } else {
       // No Agent connected - send error immediately to client AND broadcast-room, then cleanup
       transportLog(`No Agent connected, cannot process task ${taskId}`)
@@ -401,6 +555,17 @@ export class TransportHandlers {
   }
 
   /**
+   * Check if a given client ID is a registered agent.
+   */
+  private isAgentClient(clientId: string): boolean {
+    for (const agentId of this.agentClients.values()) {
+      if (agentId === clientId) return true
+    }
+
+    return false
+  }
+
+  /**
    * Move a task to the completed tasks map with grace period cleanup.
    * This allows late-arriving llmservice:* events to still be routed.
    */
@@ -421,6 +586,18 @@ export class TransportHandlers {
     this.transport.onRequest<LlmEventPayloadMap[E], void>(eventName, (data) => {
       this.routeLlmEvent(eventName, data as unknown as {[key: string]: unknown; taskId: string})
     })
+  }
+
+  /**
+   * Remove an agent client from the agentClients map.
+   */
+  private removeAgentClient(clientId: string): void {
+    for (const [projectPath, agentId] of this.agentClients) {
+      if (agentId === clientId) {
+        this.agentClients.delete(projectPath)
+        break
+      }
+    }
   }
 
   /**
@@ -461,12 +638,13 @@ export class TransportHandlers {
       (data, clientId) => {
         transportLog(`Agent restart requested by ${clientId}: ${data.reason ?? 'no reason'}`)
 
-        if (!this.agentClientId) {
+        const agentId = this.getAgentForProject()
+        if (!agentId) {
           return {error: 'Agent not connected', success: false}
         }
 
         // Forward restart command to Agent
-        this.transport.sendTo(this.agentClientId, TransportAgentEventNames.RESTART, {reason: data.reason})
+        this.transport.sendTo(agentId, TransportAgentEventNames.RESTART, {reason: data.reason})
 
         // Broadcast and log event
         eventLog('agent:restarting', {reason: data.reason})
@@ -495,12 +673,13 @@ export class TransportHandlers {
       (data, clientId) => {
         transportLog(`New session requested by ${clientId}: ${data.reason ?? 'no reason'}`)
 
-        if (!this.agentClientId) {
+        const agentId = this.getAgentForProject()
+        if (!agentId) {
           return {error: 'Agent not connected', success: false}
         }
 
         // Forward new session command to Agent
-        this.transport.sendTo(this.agentClientId, TransportAgentEventNames.NEW_SESSION, {reason: data.reason})
+        this.transport.sendTo(agentId, TransportAgentEventNames.NEW_SESSION, {reason: data.reason})
 
         // The actual response will come via agent:newSessionCreated event
         // For now, return success to indicate the request was forwarded
@@ -538,7 +717,8 @@ export class TransportHandlers {
   private setupAgentHandlers(): void {
     // Agent registration
     // Fix #4: Accept optional status in payload for atomic caching
-    this.transport.onRequest<{status?: AgentStatus}, {success: boolean}>(
+    // T4: Accept optional projectPath for multi-project routing
+    this.transport.onRequest<{projectPath?: string; status?: AgentStatus}, {success: boolean}>(
       TransportAgentEventNames.REGISTER,
       (data, clientId) => {
         this.handleAgentRegister(clientId, data)
@@ -598,6 +778,25 @@ export class TransportHandlers {
   }
 
   /**
+   * Setup client lifecycle handlers (client:register, client:associateProject).
+   * These handle registration of external clients (tui/cli/mcp) and
+   * lazy project association for global-scope MCP clients.
+   */
+  private setupClientLifecycleHandlers(): void {
+    // client:register — external client identifies itself and optionally provides projectPath
+    this.transport.onRequest<{projectPath?: string; type: ClientType}, {error?: string; success: boolean}>(
+      TransportClientEventNames.REGISTER,
+      (data, clientId) => this.handleClientRegister(clientId, data),
+    )
+
+    // client:associateProject — global-scope MCP client binds to a project after first tool call
+    this.transport.onRequest<{projectPath: string}, {error?: string; success: boolean}>(
+      TransportClientEventNames.ASSOCIATE_PROJECT,
+      (data, clientId) => this.handleClientAssociateProject(clientId, data),
+    )
+  }
+
+  /**
    * Setup connection event handlers.
    */
   private setupConnectionHandlers(): void {
@@ -608,23 +807,54 @@ export class TransportHandlers {
     this.transport.onDisconnection((clientId, _metadata) => {
       transportLog(`Client disconnected: ${clientId}`)
 
-      // Check if Agent disconnected
-      if (clientId === this.agentClientId) {
-        transportLog('Agent disconnected!')
-        this.agentClientId = undefined
+      // Check if this is a registered agent
+      if (this.isAgentClient(clientId)) {
+        const projectPath = this.findProjectForAgent(clientId)
+        transportLog(`Agent disconnected!${projectPath ? ` project=${projectPath}` : ''}`)
+
+        // Remove agent from tracking
+        this.removeAgentClient(clientId)
         this.cachedAgentStatus = undefined
+
+        // Remove from project room
+        if (projectPath && this.projectRouter && this.projectRegistry) {
+          const projectInfo = this.projectRegistry.get(projectPath)
+          if (projectInfo) {
+            this.projectRouter.removeFromProjectRoom(clientId, projectInfo.sanitizedPath)
+          }
+        }
 
         // Broadcast to all clients
         this.transport.broadcast(TransportAgentEventNames.DISCONNECTED, {})
 
-        // Fail all pending tasks - send to client AND broadcast-room for TUI monitoring
+        // Fail only tasks belonging to the disconnected agent's project
         const error = serializeTaskError(new AgentDisconnectedError())
+        const taskIdsToRemove: string[] = []
         for (const [taskId, task] of this.tasks) {
-          this.transport.sendTo(task.clientId, TransportTaskEventNames.ERROR, {error, taskId})
-          this.transport.broadcastTo('broadcast-room', TransportTaskEventNames.ERROR, {error, taskId})
+          if (!projectPath || task.projectPath === projectPath || task.projectPath === undefined) {
+            this.transport.sendTo(task.clientId, TransportTaskEventNames.ERROR, {error, taskId})
+            this.transport.broadcastTo('broadcast-room', TransportTaskEventNames.ERROR, {error, taskId})
+            taskIdsToRemove.push(taskId)
+          }
         }
 
-        this.tasks.clear()
+        for (const taskId of taskIdsToRemove) {
+          this.tasks.delete(taskId)
+        }
+      }
+
+      // Unregister from ClientManager (handles onProjectEmpty callback)
+      if (this.clientManager) {
+        const client = this.clientManager.getClient(clientId)
+        // Remove from project room if client was associated with a project
+        if (client?.projectPath && this.projectRouter && this.projectRegistry) {
+          const projectInfo = this.projectRegistry.get(client.projectPath)
+          if (projectInfo) {
+            this.projectRouter.removeFromProjectRoom(clientId, projectInfo.sanitizedPath)
+          }
+        }
+
+        this.clientManager.unregister(clientId)
       }
     })
   }

@@ -22,6 +22,7 @@ import {
   AgentStatusEventNames,
   LlmEventNames,
   TransportAgentEventNames,
+  TransportClientEventNames,
   TransportTaskEventNames,
 } from '../../../../src/server/core/domain/transport/schemas.js'
 import {TransportHandlers} from '../../../../src/server/infra/process/transport-handlers.js'
@@ -62,7 +63,7 @@ describe('TransportHandlers', () => {
       stop: sandbox.stub().resolves(),
     }
 
-    handlers = new TransportHandlers(mockTransport)
+    handlers = new TransportHandlers({transport: mockTransport})
     handlers.setup()
   })
 
@@ -93,6 +94,49 @@ describe('TransportHandlers', () => {
       },
       agentClientId,
     )
+  }
+
+  function createHandlersWithClientManager() {
+    const mockClientManager = {
+      associateProject: sandbox.stub(),
+      getActiveProjects: sandbox.stub().returns([]),
+      getClient: sandbox.stub(),
+      getClientsByProject: sandbox.stub().returns([]),
+      onProjectEmpty: sandbox.stub(),
+      register: sandbox.stub(),
+      unregister: sandbox.stub(),
+    }
+
+    const mockProjectRouter = {
+      addToProjectRoom: sandbox.stub(),
+      broadcastToProject: sandbox.stub(),
+      getProjectMembers: sandbox.stub().returns([]),
+      removeFromProjectRoom: sandbox.stub(),
+    }
+
+    const mockProjectRegistry = {
+      get: sandbox.stub().returns({
+        projectPath: '/app',
+        registeredAt: 1000,
+        sanitizedPath: 'app',
+        storagePath: '/data/app',
+      }),
+      getAll: sandbox.stub().returns(new Map()),
+      register: sandbox.stub(),
+      unregister: sandbox.stub().returns(true),
+    }
+
+    // Clear handlers from default setup and create new ones
+    requestHandlers.clear()
+    const cmHandlers = new TransportHandlers({
+      clientManager: mockClientManager,
+      projectRegistry: mockProjectRegistry,
+      projectRouter: mockProjectRouter,
+      transport: mockTransport,
+    })
+    cmHandlers.setup()
+
+    return {mockClientManager, mockProjectRegistry, mockProjectRouter}
   }
 
   describe('Agent Registration', () => {
@@ -978,13 +1022,322 @@ describe('TransportHandlers', () => {
         removeFromProjectRoom: sandbox.stub(),
       }
 
-      const handlersWithRouter = new TransportHandlers(mockTransport, mockProjectRouter)
+      const handlersWithRouter = new TransportHandlers({projectRouter: mockProjectRouter, transport: mockTransport})
       expect(() => handlersWithRouter.setup()).to.not.throw()
     })
 
     it('should work without ProjectRouter (backward compatible)', () => {
-      const handlersWithoutRouter = new TransportHandlers(mockTransport)
+      const handlersWithoutRouter = new TransportHandlers({transport: mockTransport})
       expect(() => handlersWithoutRouter.setup()).to.not.throw()
+    })
+  })
+
+  describe('ClientManager Integration', () => {
+    it('should accept optional ClientManager parameter', () => {
+      const mockClientManager = {
+        associateProject: sandbox.stub(),
+        getActiveProjects: sandbox.stub().returns([]),
+        getClient: sandbox.stub(),
+        getClientsByProject: sandbox.stub().returns([]),
+        onProjectEmpty: sandbox.stub(),
+        register: sandbox.stub(),
+        unregister: sandbox.stub(),
+      }
+
+      const handlersWithCM = new TransportHandlers({
+        clientManager: mockClientManager,
+        transport: mockTransport,
+      })
+      expect(() => handlersWithCM.setup()).to.not.throw()
+    })
+
+    it('should work without ClientManager (backward compatible)', () => {
+      const handlersWithoutCM = new TransportHandlers({transport: mockTransport})
+      expect(() => handlersWithoutCM.setup()).to.not.throw()
+    })
+
+    it('should register agent with ClientManager on agent:register', () => {
+      const mockClientManager = {
+        associateProject: sandbox.stub(),
+        getActiveProjects: sandbox.stub().returns([]),
+        getClient: sandbox.stub(),
+        getClientsByProject: sandbox.stub().returns([]),
+        onProjectEmpty: sandbox.stub(),
+        register: sandbox.stub(),
+        unregister: sandbox.stub(),
+      }
+
+      const cmHandlers = new TransportHandlers({
+        clientManager: mockClientManager,
+        transport: mockTransport,
+      })
+      cmHandlers.setup()
+
+      const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
+      registerHandler!({projectPath: '/app'}, 'agent-001')
+
+      expect(mockClientManager.register.calledOnce).to.be.true
+      expect(mockClientManager.register.calledWith('agent-001', 'agent', '/app')).to.be.true
+    })
+
+    it('should unregister client from ClientManager on disconnect', () => {
+      const mockClientManager = {
+        associateProject: sandbox.stub(),
+        getActiveProjects: sandbox.stub().returns([]),
+        getClient: sandbox.stub(),
+        getClientsByProject: sandbox.stub().returns([]),
+        onProjectEmpty: sandbox.stub(),
+        register: sandbox.stub(),
+        unregister: sandbox.stub(),
+      }
+
+      const cmHandlers = new TransportHandlers({
+        clientManager: mockClientManager,
+        transport: mockTransport,
+      })
+      cmHandlers.setup()
+
+      // Simulate connection and then disconnection of a non-agent client
+      disconnectionHandler!('client-123')
+
+      expect(mockClientManager.unregister.calledOnce).to.be.true
+      expect(mockClientManager.unregister.calledWith('client-123')).to.be.true
+    })
+  })
+
+  describe('Per-Project Agent Disconnect', () => {
+    it('should fail only the disconnected agent project tasks, not all tasks', () => {
+      // Register two agents for two different projects
+      const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
+      registerHandler!({projectPath: '/project-a'}, 'agent-a')
+      registerHandler!({projectPath: '/project-b'}, 'agent-b')
+
+      // Set agent status as initialized
+      const statusHandler = requestHandlers.get(AgentStatusEventNames.STATUS_CHANGED)
+      statusHandler!(
+        {activeTasks: 0, hasAuth: true, hasConfig: true, isInitialized: true, queuedTasks: 0},
+        'agent-a',
+      )
+
+      // Create tasks for both projects
+      const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
+      const taskIdA = randomUUID()
+      const taskIdB = randomUUID()
+      createHandler!({content: 'Task A', projectPath: '/project-a', taskId: taskIdA, type: 'curate'}, 'client-1')
+      createHandler!({content: 'Task B', projectPath: '/project-b', taskId: taskIdB, type: 'curate'}, 'client-2')
+
+      // Disconnect agent-a
+      disconnectionHandler!('agent-a')
+
+      // Task A should have received error (its agent disconnected)
+      expect(
+        (mockTransport.sendTo as SinonStub).calledWith('client-1', TransportTaskEventNames.ERROR, match.has('taskId', taskIdA)),
+      ).to.be.true
+
+      // Task B should NOT have received error (its agent is still alive)
+      expect(
+        (mockTransport.sendTo as SinonStub).calledWith('client-2', TransportTaskEventNames.ERROR, match.has('taskId', taskIdB)),
+      ).to.be.false
+    })
+
+    it('should keep tasks for other projects alive when one agent disconnects', () => {
+      const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
+      registerHandler!({projectPath: '/project-a'}, 'agent-a')
+      registerHandler!({projectPath: '/project-b'}, 'agent-b')
+
+      const statusHandler = requestHandlers.get(AgentStatusEventNames.STATUS_CHANGED)
+      statusHandler!(
+        {activeTasks: 0, hasAuth: true, hasConfig: true, isInitialized: true, queuedTasks: 0},
+        'agent-a',
+      )
+
+      const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
+      const taskIdB = randomUUID()
+      createHandler!({content: 'Task B', projectPath: '/project-b', taskId: taskIdB, type: 'query'}, 'client-2')
+
+      // Disconnect agent-a — should not affect project-b's task
+      disconnectionHandler!('agent-a')
+
+      // Complete project-b's task via agent-b (should still work)
+      const completedHandler = requestHandlers.get(TransportTaskEventNames.COMPLETED)
+      completedHandler!({result: 'Done B', taskId: taskIdB}, 'agent-b')
+
+      expect(
+        (mockTransport.sendTo as SinonStub).calledWith('client-2', TransportTaskEventNames.COMPLETED, {
+          result: 'Done B',
+          taskId: taskIdB,
+        }),
+      ).to.be.true
+    })
+  })
+
+  describe('ProjectPath in Task Routing', () => {
+    it('should include projectPath in TaskExecute when provided', () => {
+      registerAgentWithStatus('agent-001')
+
+      const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
+      const taskId = randomUUID()
+      createHandler!({content: 'Test', projectPath: '/my-project', taskId, type: 'curate'}, 'client-1')
+
+      // Verify TaskExecute message includes projectPath
+      expect(
+        (mockTransport.sendTo as SinonStub).calledWith(
+          'agent-001',
+          TransportTaskEventNames.EXECUTE,
+          match.has('projectPath', '/my-project'),
+        ),
+      ).to.be.true
+    })
+
+    it('should not include projectPath in TaskExecute when not provided', () => {
+      registerAgentWithStatus('agent-001')
+
+      const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
+      const taskId = randomUUID()
+      createHandler!({content: 'Test', taskId, type: 'curate'}, 'client-1')
+
+      // Verify TaskExecute message does NOT have projectPath
+      const executeCall = (mockTransport.sendTo as SinonStub).getCalls().find(
+        (call) => call.args[1] === TransportTaskEventNames.EXECUTE,
+      )
+      expect(executeCall).to.not.be.undefined
+      expect(executeCall!.args[2]).to.not.have.property('projectPath')
+    })
+
+    it('should route task to correct agent based on projectPath', () => {
+      // Register two agents for two projects
+      const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
+      registerHandler!({projectPath: '/project-a'}, 'agent-a')
+      registerHandler!({projectPath: '/project-b'}, 'agent-b')
+
+      const statusHandler = requestHandlers.get(AgentStatusEventNames.STATUS_CHANGED)
+      statusHandler!(
+        {activeTasks: 0, hasAuth: true, hasConfig: true, isInitialized: true, queuedTasks: 0},
+        'agent-a',
+      )
+
+      const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
+      const taskId = randomUUID()
+      createHandler!({content: 'Test', projectPath: '/project-b', taskId, type: 'curate'}, 'client-1')
+
+      // Task should be routed to agent-b (project-b's agent)
+      expect(
+        (mockTransport.sendTo as SinonStub).calledWith('agent-b', TransportTaskEventNames.EXECUTE, match.has('taskId', taskId)),
+      ).to.be.true
+
+      // Should NOT be sent to agent-a
+      expect(
+        (mockTransport.sendTo as SinonStub).calledWith('agent-a', TransportTaskEventNames.EXECUTE, match.has('taskId', taskId)),
+      ).to.be.false
+    })
+  })
+
+  describe('Client Lifecycle Handlers', () => {
+    describe('client:register', () => {
+      it('should register external client with projectPath in ClientManager', () => {
+        const {mockClientManager, mockProjectRouter} = createHandlersWithClientManager()
+
+        const registerHandler = requestHandlers.get(TransportClientEventNames.REGISTER)
+        const result = registerHandler!({projectPath: '/app', type: 'tui'}, 'client-1')
+
+        expect(result).to.deep.equal({success: true})
+        expect(mockClientManager.register.calledOnce).to.be.true
+        expect(mockClientManager.register.calledWith('client-1', 'tui', '/app')).to.be.true
+        expect(mockProjectRouter.addToProjectRoom.calledOnce).to.be.true
+        expect(mockProjectRouter.addToProjectRoom.calledWith('client-1', 'app')).to.be.true
+      })
+
+      it('should register cli client with projectPath', () => {
+        const {mockClientManager} = createHandlersWithClientManager()
+
+        const registerHandler = requestHandlers.get(TransportClientEventNames.REGISTER)
+        const result = registerHandler!({projectPath: '/app', type: 'cli'}, 'client-1')
+
+        expect(result).to.deep.equal({success: true})
+        expect(mockClientManager.register.calledWith('client-1', 'cli', '/app')).to.be.true
+      })
+
+      it('should register global-scope MCP without projectPath', () => {
+        const {mockClientManager, mockProjectRouter} = createHandlersWithClientManager()
+
+        const registerHandler = requestHandlers.get(TransportClientEventNames.REGISTER)
+        const result = registerHandler!({type: 'mcp'}, 'client-1')
+
+        expect(result).to.deep.equal({success: true})
+        expect(mockClientManager.register.calledWith('client-1', 'mcp')).to.be.true
+        // Should NOT add to project room (no projectPath)
+        expect(mockProjectRouter.addToProjectRoom.called).to.be.false
+      })
+
+      it('should return error when ClientManager not available', () => {
+        // Default handlers have no ClientManager
+        const registerHandler = requestHandlers.get(TransportClientEventNames.REGISTER)
+        const result = registerHandler!({projectPath: '/app', type: 'tui'}, 'client-1')
+
+        expect(result).to.deep.equal({error: 'ClientManager not available', success: false})
+      })
+    })
+
+    describe('client:associateProject', () => {
+      it('should associate global-scope MCP client with project', () => {
+        const {mockClientManager, mockProjectRouter} = createHandlersWithClientManager()
+
+        // Simulate an unassociated MCP client
+        mockClientManager.getClient.returns({
+          connectedAt: 1000,
+          hasProject: false,
+          id: 'client-1',
+          isExternalClient: true,
+          projectPath: undefined,
+          type: 'mcp',
+        })
+
+        const associateHandler = requestHandlers.get(TransportClientEventNames.ASSOCIATE_PROJECT)
+        const result = associateHandler!({projectPath: '/app'}, 'client-1')
+
+        expect(result).to.deep.equal({success: true})
+        expect(mockClientManager.associateProject.calledOnce).to.be.true
+        expect(mockClientManager.associateProject.calledWith('client-1', '/app')).to.be.true
+        expect(mockProjectRouter.addToProjectRoom.calledWith('client-1', 'app')).to.be.true
+      })
+
+      it('should be a no-op if client already has project', () => {
+        const {mockClientManager, mockProjectRouter} = createHandlersWithClientManager()
+
+        mockClientManager.getClient.returns({
+          connectedAt: 1000,
+          hasProject: true,
+          id: 'client-1',
+          isExternalClient: true,
+          projectPath: '/existing',
+          type: 'mcp',
+        })
+
+        const associateHandler = requestHandlers.get(TransportClientEventNames.ASSOCIATE_PROJECT)
+        const result = associateHandler!({projectPath: '/new-project'}, 'client-1')
+
+        expect(result).to.deep.equal({success: true})
+        // Should NOT call associateProject (already has a project)
+        expect(mockClientManager.associateProject.called).to.be.false
+        expect(mockProjectRouter.addToProjectRoom.called).to.be.false
+      })
+
+      it('should return error for unknown client', () => {
+        createHandlersWithClientManager()
+
+        // getClient stub returns undefined by default (unknown client)
+        const associateHandler = requestHandlers.get(TransportClientEventNames.ASSOCIATE_PROJECT)
+        const result = associateHandler!({projectPath: '/app'}, 'unknown-client')
+
+        expect(result).to.deep.equal({error: 'Client not registered', success: false})
+      })
+
+      it('should return error when ClientManager not available', () => {
+        const associateHandler = requestHandlers.get(TransportClientEventNames.ASSOCIATE_PROJECT)
+        const result = associateHandler!({projectPath: '/app'}, 'client-1')
+
+        expect(result).to.deep.equal({error: 'ClientManager not available', success: false})
+      })
     })
   })
 

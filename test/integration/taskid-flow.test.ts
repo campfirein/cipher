@@ -35,7 +35,7 @@ describe('TaskId Integration Flow', () => {
     await server.start(port)
 
     // Initialize handlers (this is what Transport process does)
-    handlers = new TransportHandlers(server)
+    handlers = new TransportHandlers({transport: server})
     handlers.setup() // IMPORTANT: Register all handlers
 
     // Connect mock Agent

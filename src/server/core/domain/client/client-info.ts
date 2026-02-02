@@ -1,0 +1,79 @@
+/**
+ * ClientInfo — In-memory entity representing a connected client.
+ *
+ * Tracked by ClientManager for project membership and onProjectEmpty detection.
+ * Not persisted — no Zod validation needed.
+ *
+ * Client types:
+ * - 'tui': Terminal UI (the brv REPL) — external client, long-lived
+ * - 'cli': CLI headless commands (brv curate --headless, etc.) — external client, short-lived
+ * - 'mcp': MCP protocol client (IDEs, external tools) — external client, may be global-scope
+ * - 'agent': Agent worker process — NOT an external client (worker, not user)
+ *
+ * projectPath is undefined for global-scope MCP clients until
+ * associateProject() is called on first tool call with cwd.
+ */
+
+/**
+ * Client type discriminator.
+ */
+export type ClientType = 'agent' | 'cli' | 'mcp' | 'tui'
+
+/**
+ * Construction parameters for ClientInfo.
+ */
+type ClientInfoParams = {
+  connectedAt: number
+  id: string
+  projectPath?: string
+  type: ClientType
+}
+
+/**
+ * Represents a connected client tracked by ClientManager.
+ */
+export class ClientInfo {
+  public readonly connectedAt: number
+  public readonly id: string
+  public readonly type: ClientType
+  /** Mutable: set via associateProject() for global-scope MCP clients */
+  private _projectPath: string | undefined
+
+  constructor(params: ClientInfoParams) {
+    this.id = params.id
+    this.type = params.type
+    this.connectedAt = params.connectedAt
+    this._projectPath = params.projectPath
+  }
+
+  /**
+   * Whether this client has been associated with a project.
+   */
+  get hasProject(): boolean {
+    return this._projectPath !== undefined
+  }
+
+  /**
+   * Whether this client counts toward project membership for onProjectEmpty.
+   * Agent clients are workers, not users — they don't count.
+   */
+  get isExternalClient(): boolean {
+    return this.type === 'tui' || this.type === 'cli' || this.type === 'mcp'
+  }
+
+  /**
+   * The project this client is associated with.
+   * Undefined for global-scope MCP clients that haven't been associated yet.
+   */
+  get projectPath(): string | undefined {
+    return this._projectPath
+  }
+
+  /**
+   * Associate this client with a project path.
+   * Used for global-scope MCP clients on first tool call with cwd.
+   */
+  associateProject(projectPath: string): void {
+    this._projectPath = projectPath
+  }
+}
