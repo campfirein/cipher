@@ -47,6 +47,10 @@ export const TRANSPORT_DEFAULT_TRANSPORTS: ('polling' | 'websocket')[] = ['webso
 // LLM Model defaults
 export const DEFAULT_LLM_MODEL = 'gemini-3-flash-preview'
 
+// Project room naming convention
+export const PROJECT_ROOM_PREFIX = 'project:'
+export const PROJECT_ROOM_SUFFIX = ':broadcast'
+
 // === Daemon infrastructure constants ===
 export const GLOBAL_PROJECTS_DIR = 'projects'
 export const REGISTRY_FILE = 'registry.json'

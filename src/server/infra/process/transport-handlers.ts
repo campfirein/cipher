@@ -54,6 +54,7 @@ import type {
   TaskExecute,
   TaskStartedEvent,
 } from '../../core/domain/transport/schemas.js'
+import type {IProjectRouter} from '../../core/interfaces/routing/i-project-router.js'
 import type {ITransportServer} from '../../core/interfaces/transport/i-transport-server.js'
 
 import {
@@ -139,13 +140,16 @@ export class TransportHandlers {
    * Key: taskId, Value: {task: TaskInfo, completedAt: timestamp}
    */
   private completedTasks: Map<string, {completedAt: number; task: TaskInfo}> = new Map()
+  /** Project-scoped event router (used by T4 ClientManager for project room management) */
+  private readonly projectRouter: IProjectRouter | undefined
   /** Track active tasks */
   private tasks: Map<string, TaskInfo> = new Map()
   /** Transport server reference */
   private readonly transport: ITransportServer
 
-  constructor(transport: ITransportServer) {
+  constructor(transport: ITransportServer, projectRouter?: IProjectRouter) {
     this.transport = transport
+    this.projectRouter = projectRouter
   }
 
   /**

@@ -969,6 +969,25 @@ describe('TransportHandlers', () => {
     })
   })
 
+  describe('ProjectRouter Integration', () => {
+    it('should accept optional ProjectRouter parameter', () => {
+      const mockProjectRouter = {
+        addToProjectRoom: sandbox.stub(),
+        broadcastToProject: sandbox.stub(),
+        getProjectMembers: sandbox.stub().returns([]),
+        removeFromProjectRoom: sandbox.stub(),
+      }
+
+      const handlersWithRouter = new TransportHandlers(mockTransport, mockProjectRouter)
+      expect(() => handlersWithRouter.setup()).to.not.throw()
+    })
+
+    it('should work without ProjectRouter (backward compatible)', () => {
+      const handlersWithoutRouter = new TransportHandlers(mockTransport)
+      expect(() => handlersWithoutRouter.setup()).to.not.throw()
+    })
+  })
+
   describe('Stress Tests', () => {
     it('should handle 50 concurrent tasks correctly', () => {
       const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
