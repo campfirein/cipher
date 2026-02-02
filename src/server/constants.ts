@@ -90,3 +90,9 @@ export const DAEMON_STOP_POLL_INTERVAL_MS = 100 // 100ms between death checks
 
 // Auth state polling (daemon — replaces agent-worker credential polling in M2)
 export const AUTH_STATE_POLL_INTERVAL_MS = 5000 // Poll token store every 5s
+
+// Agent Pool (T6)
+export const AGENT_POOL_MAX_SIZE = 5
+export const AGENT_POOL_FORCE_EVICT_TIMEOUT_MS = 30_000 // 30s queue wait before force evict
+export const AGENT_PROCESS_READY_TIMEOUT_MS = 15_000 // 15s max wait for child process to register
+export const AGENT_PROCESS_STOP_TIMEOUT_MS = 5000 // 5s max wait for child process to stop gracefully

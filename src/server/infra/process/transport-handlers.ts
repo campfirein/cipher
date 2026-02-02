@@ -55,17 +55,15 @@ import type {
   TaskExecute,
   TaskStartedEvent,
 } from '../../core/domain/transport/schemas.js'
+import type {IAgentPool} from '../../core/interfaces/agent/i-agent-pool.js'
 import type {IClientManager} from '../../core/interfaces/client/i-client-manager.js'
 import type {IProjectRegistry} from '../../core/interfaces/project/i-project-registry.js'
 import type {IProjectRouter} from '../../core/interfaces/routing/i-project-router.js'
-import type {IAuthStateStore} from '../../core/interfaces/state/i-auth-state-store.js'
-import type {IProjectStateLoader} from '../../core/interfaces/state/i-project-state-loader.js'
 import type {ITransportServer} from '../../core/interfaces/transport/i-transport-server.js'
 
 import {
   AgentDisconnectedError,
   AgentNotAvailableError,
-  AgentNotInitializedError,
   serializeTaskError,
 } from '../../core/domain/errors/task-error.js'
 import {
@@ -144,10 +142,8 @@ export class TransportHandlers {
    * When no projectPath is available (backward compat), uses empty string as key.
    */
   private agentClients: Map<string, string> = new Map()
-  /** Global auth state store (optional — T5 StateServer) */
-  private readonly authStateStore: IAuthStateStore | undefined
-  /** Cached agent status from last status:changed broadcast */
-  private cachedAgentStatus: AgentStatus | undefined
+  /** Agent pool for forked child process management */
+  private readonly agentPool: IAgentPool | undefined
   /** Client lifecycle manager (optional — backward compatible) */
   private readonly clientManager: IClientManager | undefined
   /**
@@ -160,27 +156,23 @@ export class TransportHandlers {
   private readonly projectRegistry: IProjectRegistry | undefined
   /** Project-scoped event router (used by T4 ClientManager for project room management) */
   private readonly projectRouter: IProjectRouter | undefined
-  /** Per-project state loader (optional — T5 StateServer) */
-  private readonly projectStateLoader: IProjectStateLoader | undefined
   /** Track active tasks */
   private tasks: Map<string, TaskInfo> = new Map()
   /** Transport server reference */
   private readonly transport: ITransportServer
 
   constructor(options: {
-    authStateStore?: IAuthStateStore
+    agentPool?: IAgentPool
     clientManager?: IClientManager
     projectRegistry?: IProjectRegistry
     projectRouter?: IProjectRouter
-    projectStateLoader?: IProjectStateLoader
     transport: ITransportServer
   }) {
     this.transport = options.transport
-    this.authStateStore = options.authStateStore
+    this.agentPool = options.agentPool
     this.projectRouter = options.projectRouter
     this.clientManager = options.clientManager
     this.projectRegistry = options.projectRegistry
-    this.projectStateLoader = options.projectStateLoader
   }
 
   /**
@@ -190,7 +182,29 @@ export class TransportHandlers {
     this.tasks.clear()
     this.completedTasks.clear()
     this.agentClients.clear()
-    this.cachedAgentStatus = undefined
+  }
+
+  /**
+   * Returns a serializable snapshot of internal state for debugging.
+   * Used by the daemon:getState handler in server-main.ts.
+   */
+  getDebugState(): {
+    activeTasks: Array<{clientId: string; createdAt: number; projectPath?: string; taskId: string; type: string}>
+    agentClients: Array<{clientId: string; projectPath: string}>
+  } {
+    return {
+      activeTasks: [...this.tasks.values()].map((t) => ({
+        clientId: t.clientId,
+        createdAt: t.createdAt,
+        projectPath: t.projectPath,
+        taskId: t.taskId,
+        type: t.type,
+      })),
+      agentClients: [...this.agentClients.entries()].map(([projectPath, clientId]) => ({
+        clientId,
+        projectPath,
+      })),
+    }
   }
 
   /**
@@ -284,11 +298,6 @@ export class TransportHandlers {
       if (projectInfo) {
         this.projectRouter.addToProjectRoom(clientId, projectInfo.sanitizedPath)
       }
-    }
-
-    // Cache status if provided (prevents race window between register and status broadcast)
-    if (data?.status) {
-      this.cachedAgentStatus = data.status
     }
 
     // Broadcast to all clients that Agent is online
@@ -429,6 +438,11 @@ export class TransportHandlers {
     // Move to completed tasks with grace period instead of immediate deletion
     // This allows late-arriving llmservice:* events to still be routed
     this.moveToCompleted(taskId)
+
+    // Notify pool so it can clear busy flag and drain queued tasks
+    if (task?.projectPath) {
+      this.agentPool?.notifyTaskCompleted(task.projectPath)
+    }
   }
 
   /**
@@ -469,51 +483,47 @@ export class TransportHandlers {
       type: data.type,
     })
 
-    // Forward to Agent — route to correct agent for this task's project
-    const agentId = this.getAgentForProject(data.projectPath)
-    if (agentId) {
-      // Pre-task check: verify cipher is initialized before forwarding
-      // Reject if: (1) no status cached yet, OR (2) status shows not initialized
-      // This prevents race condition where task arrives before agent broadcasts initial status
-      if (!this.cachedAgentStatus || !this.cachedAgentStatus.isInitialized) {
-        transportLog(`Agent not initialized, cannot process task ${taskId}`)
-        const error = serializeTaskError(
-          new AgentNotInitializedError(this.cachedAgentStatus?.lastError ?? 'Agent status unknown'),
-        )
-        this.transport.sendTo(clientId, TransportTaskEventNames.ERROR, {error, taskId})
-        this.transport.broadcastTo('broadcast-room', TransportTaskEventNames.ERROR, {error, taskId})
-        this.tasks.delete(taskId)
-        return {taskId}
-      }
-
-      // Validate task type before forwarding (type guard replaces unsafe `as` assertion)
-      if (!isValidTaskType(data.type)) {
-        transportLog(`Invalid task type: ${data.type}`)
-        const error = serializeTaskError(new Error(`Invalid task type: ${data.type}`))
-        this.transport.sendTo(clientId, TransportTaskEventNames.ERROR, {error, taskId})
-        this.transport.broadcastTo('broadcast-room', TransportTaskEventNames.ERROR, {error, taskId})
-        this.tasks.delete(taskId)
-        return {taskId}
-      }
-
-      const executeMsg: TaskExecute = {
-        clientId,
-        content: data.content,
-        ...(data.clientCwd ? {clientCwd: data.clientCwd} : {}),
-        ...(data.files?.length ? {files: data.files} : {}),
-        ...(data.projectPath ? {projectPath: data.projectPath} : {}),
-        taskId,
-        type: data.type,
-      }
-      this.transport.sendTo(agentId, TransportTaskEventNames.EXECUTE, executeMsg)
-    } else {
-      // No Agent connected - send error immediately to client AND broadcast-room, then cleanup
-      transportLog(`No Agent connected, cannot process task ${taskId}`)
+    // All tasks go through AgentPool (which forks child processes)
+    if (!this.agentPool) {
+      transportLog(`No AgentPool available, cannot process task ${taskId}`)
       const error = serializeTaskError(new AgentNotAvailableError())
       this.transport.sendTo(clientId, TransportTaskEventNames.ERROR, {error, taskId})
       this.transport.broadcastTo('broadcast-room', TransportTaskEventNames.ERROR, {error, taskId})
       this.tasks.delete(taskId)
+      return {taskId}
     }
+
+    // Validate task type before submitting
+    if (!isValidTaskType(data.type)) {
+      transportLog(`Invalid task type: ${data.type}`)
+      const error = serializeTaskError(new Error(`Invalid task type: ${data.type}`))
+      this.transport.sendTo(clientId, TransportTaskEventNames.ERROR, {error, taskId})
+      this.transport.broadcastTo('broadcast-room', TransportTaskEventNames.ERROR, {error, taskId})
+      this.tasks.delete(taskId)
+      return {taskId}
+    }
+
+    const executeMsg: TaskExecute = {
+      clientId,
+      content: data.content,
+      ...(data.clientCwd ? {clientCwd: data.clientCwd} : {}),
+      ...(data.files?.length ? {files: data.files} : {}),
+      ...(data.projectPath ? {projectPath: data.projectPath} : {}),
+      taskId,
+      type: data.type,
+    }
+
+    // Fire-and-forget — agent child process routes events back via transport
+    // eslint-disable-next-line no-void
+    void this.agentPool.submitTask(executeMsg).then((result) => {
+      if (!result.success) {
+        transportLog(`AgentPool rejected task ${taskId}: ${result.reason} — ${result.message}`)
+        const error = serializeTaskError(new Error(result.message))
+        this.transport.sendTo(clientId, TransportTaskEventNames.ERROR, {error, taskId})
+        this.transport.broadcastTo('broadcast-room', TransportTaskEventNames.ERROR, {error, taskId})
+        this.tasks.delete(taskId)
+      }
+    })
 
     return {taskId}
   }
@@ -536,6 +546,11 @@ export class TransportHandlers {
     this.transport.broadcastTo('broadcast-room', TransportTaskEventNames.ERROR, {error, taskId})
     // Move to completed tasks with grace period instead of immediate deletion
     this.moveToCompleted(taskId)
+
+    // Notify pool so it can clear busy flag and drain queued tasks
+    if (task?.projectPath) {
+      this.agentPool?.notifyTaskCompleted(task.projectPath)
+    }
   }
 
   /**
@@ -764,8 +779,6 @@ export class TransportHandlers {
       transportLog(
         `Agent status changed: initialized=${data.isInitialized}, auth=${data.hasAuth}, config=${data.hasConfig}`,
       )
-      // Cache status for pre-task check
-      this.cachedAgentStatus = data
       // Broadcast status change to all clients
       this.transport.broadcast(AgentStatusEventNames.STATUS_CHANGED, data)
     })
@@ -824,7 +837,6 @@ export class TransportHandlers {
 
         // Remove agent from tracking
         this.removeAgentClient(clientId)
-        this.cachedAgentStatus = undefined
 
         // Remove from project room
         if (projectPath && this.projectRouter && this.projectRegistry) {

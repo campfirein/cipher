@@ -39,6 +39,14 @@ export class ClientManager implements IClientManager {
     return [...this.projectClients.keys()]
   }
 
+  /**
+   * Returns all registered clients for debugging.
+   * Used by daemon:getState handler in server-main.ts.
+   */
+  getAllClients(): ClientInfo[] {
+    return [...this.clients.values()]
+  }
+
   getClient(clientId: string): ClientInfo | undefined {
     return this.clients.get(clientId)
   }

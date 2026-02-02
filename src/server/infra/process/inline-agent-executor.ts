@@ -66,7 +66,6 @@ export class InlineAgent {
 
     const envConfig = getCurrentConfig()
     const agentConfig = {
-      accessToken: authToken.accessToken,
       apiBaseUrl: envConfig.llmApiBaseUrl,
       fileSystem: {workingDirectory: process.cwd()},
       llm: {

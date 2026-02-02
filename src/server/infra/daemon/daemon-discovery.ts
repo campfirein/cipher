@@ -9,8 +9,8 @@ import {GlobalInstanceManager} from './global-instance-manager.js'
 import {isHeartbeatStale} from './heartbeat.js'
 
 export type DaemonStatus =
-  | {pid: number; port: number; running: true}
   | {actualVersion: string; expectedVersion: string; pid: number; reason: 'version_mismatch'; running: false}
+  | {pid: number; port: number; running: true}
   | {pid: number; reason: 'heartbeat_stale' | 'pid_dead'; running: false}
   | {reason: 'no_instance'; running: false}
 

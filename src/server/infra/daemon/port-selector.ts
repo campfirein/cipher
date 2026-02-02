@@ -13,8 +13,8 @@ export type SelectDaemonPortResult =
  * 2. Scan 37848–37947 sequentially
  * 3. Return failure if entire range exhausted
  *
- * Unlike findAvailablePort() which uses random ports in 49152-60000,
- * this uses a narrow deterministic range so clients can find the daemon.
+ * Uses a narrow deterministic range so clients can discover the daemon
+ * without needing out-of-band port communication.
  */
 export async function selectDaemonPort(): Promise<SelectDaemonPortResult> {
   // Try preferred port first

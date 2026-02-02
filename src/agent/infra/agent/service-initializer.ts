@@ -48,15 +48,18 @@ import {ToolProvider} from '../tools/tool-provider.js'
 
 /**
  * HTTP configuration for ByteRover LLM service.
+ *
+ * projectId, sessionKey, spaceId, teamId accept either a static string or a provider function.
+ * Provider functions are resolved lazily on each HTTP request,
+ * so long-lived agents always get the latest values from the StateServer.
  */
 export interface ByteRoverHttpConfig {
-  accessToken: string
   apiBaseUrl: string
-  projectId: string
+  projectId: (() => string) | string
   region?: string
-  sessionKey: string
-  spaceId: string
-  teamId: string
+  sessionKey: (() => string) | string
+  spaceId: (() => string) | string
+  teamId: (() => string) | string
   timeout?: number
 }
 

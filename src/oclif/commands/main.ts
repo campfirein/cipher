@@ -5,7 +5,6 @@ import {DEFAULT_SESSION_RETENTION} from '../../agent/core/domain/session/session
 import {SessionMetadataStore} from '../../agent/infra/session/session-metadata-store.js'
 import {ProjectConfigStore} from '../../server/infra/config/file-config-store.js'
 import {ensureDaemonRunning} from '../../server/infra/daemon/daemon-spawner.js'
-import {getProcessManager} from '../../server/infra/process/index.js'
 import {FileGlobalConfigStore} from '../../server/infra/storage/file-global-config-store.js'
 import {FileOnboardingPreferenceStore} from '../../server/infra/storage/file-onboarding-preference-store.js'
 import {createTokenStore} from '../../server/infra/storage/token-store.js'
@@ -16,10 +15,9 @@ import {startRepl} from '../../tui/repl-startup.js'
 /**
  * Main command - Entry point for ByteRover CLI.
  *
- * Architecture v0.5.0:
- * - Main Process: Spawns Transport and Agent processes
- * - TUI discovers Transport via TransportClientFactory (same as external CLIs)
- * - All task communication via Socket.IO (NO IPC)
+ * Ensures the global daemon is running, then starts the interactive REPL.
+ * The daemon manages the transport server and agent pool (forked child processes).
+ * TUI connects to the daemon via TransportClientFactory.
  */
 export default class Main extends Command {
   public static description = 'ByteRover CLI - Interactive REPL'
@@ -54,29 +52,20 @@ export default class Main extends Command {
       `Daemon ready (pid=${daemonResult.info.pid}, port=${daemonResult.info.port}, started=${daemonResult.started})`,
     )
 
-    // Start Transport and Agent processes (v0.5.0 architecture)
-    // Pass session ID to Agent via environment variable
-    const processManager = getProcessManager()
-    await processManager.start({sessionId})
-
     const tokenStore = createTokenStore()
     const globalConfigStore = new FileGlobalConfigStore()
     const trackingService = new MixpanelTrackingService({globalConfigStore, tokenStore})
     const onboardingPreferenceStore = new FileOnboardingPreferenceStore()
 
     // Start the interactive REPL
-    // TUI will discover Transport via TransportClientFactory (same as external CLIs)
-    try {
-      await startRepl({
-        onboardingPreferenceStore,
-        projectConfigStore: new ProjectConfigStore(),
-        tokenStore,
-        trackingService,
-        version: this.config.version,
-      })
-    } finally {
-      await processManager.stop()
-    }
+    // TUI connects to daemon via TransportClientFactory
+    await startRepl({
+      onboardingPreferenceStore,
+      projectConfigStore: new ProjectConfigStore(),
+      tokenStore,
+      trackingService,
+      version: this.config.version,
+    })
   }
 
   /**

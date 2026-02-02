@@ -113,7 +113,7 @@ function spawnDaemonProcess(): {getSpawnError: () => Error | undefined} {
 /**
  * Resolves the compiled server-main.js path.
  *
- * Same pattern as ProcessManager.getWorkerDir():
+ * Dev/prod path resolution:
  * In dev mode (tsx), import.meta.url points to src/ — redirect to dist/.
  * In production, import.meta.url points to dist/ — use directly.
  */

@@ -5,6 +5,9 @@
  * (TUI, MCP, CLI) via `brv-transport-client`. It does NOT depend
  * on oclif or any CLI framework.
  *
+ * Hosts the Socket.IO transport server directly. All clients (TUI, CLI,
+ * MCP, agent child processes) connect to this single server.
+ *
  * Startup sequence:
  * 1. Setup daemon logging
  * 2. Select port (prefer 37847, fallback 37848-37947)
@@ -12,20 +15,30 @@
  * 4. Start Socket.IO transport server
  * 5. Start heartbeat writer
  * 6. Install daemon resilience handlers
- * 7. Create idle timeout policy
- * 8. Create shutdown handler
- * 9. Start idle timer
- * 10. Register signal handlers
+ * 7. Create services (auth, project state, agent pool, handlers)
+ * 8. Wire events (idle timeout, auth broadcasts, state server)
+ * 9. Create shutdown handler
+ * 10. Start idle timer + register signal handlers
  */
 
+import {fork} from 'node:child_process'
 import {mkdirSync, readdirSync, readFileSync, unlinkSync} from 'node:fs'
 import {dirname, join} from 'node:path'
 import {fileURLToPath} from 'node:url'
 
-import {HEARTBEAT_FILE} from '../../constants.js'
+import {AGENT_POOL_MAX_SIZE, HEARTBEAT_FILE} from '../../constants.js'
 import {getGlobalDataDir} from '../../utils/global-data-path.js'
 import {crashLog, processLog} from '../../utils/process-logger.js'
-import {createTransportServer} from '../transport/transport-factory.js'
+import {ClientManager} from '../client/client-manager.js'
+import {ProjectConfigStore} from '../config/file-config-store.js'
+import {TransportHandlers} from '../process/transport-handlers.js'
+import {ProjectRegistry} from '../project/project-registry.js'
+import {ProjectRouter} from '../routing/project-router.js'
+import {AuthStateStore} from '../state/auth-state-store.js'
+import {ProjectStateLoader} from '../state/project-state-loader.js'
+import {createTokenStore} from '../storage/token-store.js'
+import {SocketIOTransportServer} from '../transport/socket-io-transport-server.js'
+import {AgentPool} from './agent-pool.js'
 import {DaemonResilience} from './daemon-resilience.js'
 import {GlobalInstanceManager} from './global-instance-manager.js'
 import {HeartbeatWriter} from './heartbeat.js'
@@ -124,18 +137,21 @@ async function main(): Promise<void> {
   }
 
   log(`Instance acquired (PID: ${process.pid}, port: ${port})`)
+  const daemonStartedAt = Date.now()
 
   // Steps 4-10 are wrapped so that partial startup is cleaned up.
   // Without this, a partial startup leaves daemon.json pointing to
   // a dead PID and may leak the port until stale-detection kicks in.
   //
   // Hoisted so the catch block can stop whatever was started.
-  let transportServer: ReturnType<typeof createTransportServer> | undefined
+  let transportServer: SocketIOTransportServer | undefined
   let heartbeatWriter: HeartbeatWriter | undefined
+  let authStateStore: AuthStateStore | undefined
+  let agentPool: AgentPool | undefined
 
   try {
     // 4. Start Socket.IO transport server
-    transportServer = createTransportServer()
+    transportServer = new SocketIOTransportServer()
     await transportServer.start(port)
     log(`Transport server started on port ${port}`)
 
@@ -158,10 +174,129 @@ async function main(): Promise<void> {
     })
     daemonResilience.install()
 
-    // 7. Create idle timeout policy + wire transport events
+    // 7. Create services (auth, project state, agent pool, handlers)
+    const projectRegistry = new ProjectRegistry({log})
+    const projectRouter = new ProjectRouter({transport: transportServer})
+    const clientManager = new ClientManager()
+
+    authStateStore = new AuthStateStore({log, tokenStore: createTokenStore()})
+    const projectStateLoader = new ProjectStateLoader({
+      configStore: new ProjectConfigStore(),
+      log,
+      projectRegistry,
+    })
+
+    // Agent pool with fork-based factory — each agent runs in its own process
+    const currentDir = dirname(fileURLToPath(import.meta.url))
+    const agentProcessPath = join(currentDir, 'agent-process.js')
+
+    agentPool = new AgentPool({
+      agentProcessFactory(projectPath) {
+        return fork(agentProcessPath, [], {
+          env: {
+            ...process.env,
+            BRV_AGENT_PORT: String(port),
+            BRV_AGENT_PROJECT_PATH: projectPath,
+          },
+        })
+      },
+      log,
+      transportServer,
+    })
+
+    const transportHandlers = new TransportHandlers({
+      agentPool,
+      clientManager,
+      projectRegistry,
+      projectRouter,
+      transport: transportServer,
+    })
+    transportHandlers.setup()
+
+    // 8. Wire events (auth broadcasts, state server, idle timeout)
+
+    // Auth change broadcasting to all connected clients + agent child processes
+    authStateStore.onAuthChanged((token) => {
+      transportServer!.broadcast('auth:updated', {
+        hasToken: token !== undefined,
+        isValid: token?.isValid() ?? false,
+        sessionKey: token?.sessionKey,
+      })
+    })
+
+    authStateStore.onAuthExpired(() => {
+      transportServer!.broadcast('auth:expired', {})
+    })
+
+    authStateStore.startPolling()
+    // eslint-disable-next-line no-void
+    void authStateStore.loadToken()
+
+    // Wire project empty → mark agent idle for LRU eviction
+    clientManager.onProjectEmpty((projectPath) => {
+      agentPool!.markIdle(projectPath)
+    })
+
+    // State server endpoints — agent child processes request config on startup
+    transportServer.onRequest<{projectPath: string}, unknown>(
+      'state:getProjectConfig',
+      async (data) => {
+        const config = await projectStateLoader.getProjectConfig(data.projectPath)
+        return {
+          brvConfig: config,
+          spaceId: config?.spaceId ?? '',
+          teamId: config?.teamId ?? '',
+        }
+      },
+    )
+
+    transportServer.onRequest<void, unknown>(
+      'state:getAuth',
+      () => {
+        const token = authStateStore!.getToken()
+        return {
+          sessionKey: token?.sessionKey ?? '',
+        }
+      },
+    )
+
+    // Debug endpoint — exposes daemon internal state for `brv debug` command
+    transportServer.onRequest<void, unknown>(
+      'daemon:getState',
+      () => ({
+        agentPool: {
+          entries: agentPool!.getEntries(),
+          maxSize: AGENT_POOL_MAX_SIZE,
+          queue: agentPool!.getQueueState(),
+          size: agentPool!.getSize(),
+        },
+        clients: clientManager.getAllClients().map((c) => ({
+          connectedAt: c.connectedAt,
+          id: c.id,
+          projectPath: c.projectPath,
+          type: c.type,
+        })),
+        daemon: {
+          pid: process.pid,
+          port,
+          startedAt: daemonStartedAt,
+          uptime: Date.now() - daemonStartedAt,
+          version,
+        },
+        tasks: transportHandlers.getDebugState(),
+        transport: {
+          connectedSockets: transportServer!.getConnectedSocketCount(),
+          port: transportServer!.getPort() ?? port,
+          running: transportServer!.isRunning(),
+        },
+      }),
+    )
+
+    // Idle timeout policy
     // onIdle captures shutdownHandler via closure; safe because
     // the callback only fires after start() + timeout, by which
     // point shutdownHandler is fully assigned.
+    // eslint-disable-next-line prefer-const
     let shutdownHandler: ShutdownHandler
 
     const idleTimeoutPolicy = new IdleTimeoutPolicy({
@@ -183,8 +318,9 @@ async function main(): Promise<void> {
       idleTimeoutPolicy.onClientDisconnected()
     })
 
-    // 8. Create shutdown handler
+    // 9. Create shutdown handler (agent pool shut down before transport)
     shutdownHandler = new ShutdownHandler({
+      agentPool,
       daemonResilience,
       heartbeatWriter,
       idleTimeoutPolicy,
@@ -193,10 +329,9 @@ async function main(): Promise<void> {
       transportServer,
     })
 
-    // 9. Start idle timer
+    // 10. Start idle timer + register signal handlers
     idleTimeoutPolicy.start()
 
-    // 10. Register signal handlers (once to prevent duplicate handling)
     process.once('SIGTERM', () => {
       log('SIGTERM received')
       shutdownHandler.shutdown().catch((error: unknown) => {
@@ -214,6 +349,11 @@ async function main(): Promise<void> {
   } catch (error: unknown) {
     // Best-effort cleanup of anything started before the failure.
     // Each step is independent — continue cleanup even if one throws.
+    if (agentPool) {
+      await agentPool.shutdown().catch(() => {})
+    }
+
+    authStateStore?.stopPolling()
     heartbeatWriter?.stop()
     await transportServer?.stop().catch(() => {})
     instanceManager.release()

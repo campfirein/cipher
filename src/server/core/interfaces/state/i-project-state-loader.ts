@@ -45,10 +45,21 @@ export type ProjectStateResult =
  *   -> Requests 2-10: find Promise in cache, await same Promise
  *   -> All 10 get same result, only 1 disk read
  *
- * Consumed by transport-worker to provide project state to clients
- * and agents on demand.
+ * Consumed by server-main.ts to provide project state to clients
+ * and agent child processes on demand.
  */
 export interface IProjectStateLoader {
+  /**
+   * Get cached project config synchronously.
+   * Returns undefined if not yet loaded — does NOT trigger a disk read.
+   * Used by lazy providers (spaceIdProvider, teamIdProvider) that need
+   * synchronous access to already-loaded config values per HTTP request.
+   *
+   * @param projectPath - Absolute path to the project root
+   * @returns The cached config or undefined if not loaded yet
+   */
+  getCachedProjectConfig(projectPath: string): BrvConfig | undefined
+
   /**
    * Get project config from <projectPath>/.brv/config.json.
    * Uses cached state if available, otherwise loads from disk.

@@ -52,6 +52,11 @@ export class ProjectStateLoader implements IProjectStateLoader {
     this.log = options.log ?? (() => {})
   }
 
+  getCachedProjectConfig(projectPath: string): BrvConfig | undefined {
+    const cached = this.loadedStates.get(projectPath)
+    return cached?.ok ? cached.state.config : undefined
+  }
+
   async getProjectConfig(projectPath: string): Promise<BrvConfig | undefined> {
     const result = await this.getProjectState(projectPath)
     return result.ok ? result.state.config : undefined

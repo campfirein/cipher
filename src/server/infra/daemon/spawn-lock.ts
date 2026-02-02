@@ -1,6 +1,5 @@
 import {mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync} from 'node:fs'
 import {dirname, join} from 'node:path'
-
 import {z} from 'zod'
 
 import type {ISpawnLock, SpawnLockAcquireResult} from '../../core/interfaces/daemon/i-spawn-lock.js'

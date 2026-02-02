@@ -78,6 +78,14 @@ export class SocketIOTransportServer implements ITransportServer {
     io.to(room).emit(event, data)
   }
 
+  /**
+   * Returns the number of currently connected sockets.
+   * Used by daemon:getState handler in server-main.ts.
+   */
+  getConnectedSocketCount(): number {
+    return this.sockets.size
+  }
+
   getPort(): number | undefined {
     return this.port
   }
