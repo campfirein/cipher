@@ -16,6 +16,7 @@ import {expect} from 'chai'
 import {randomUUID} from 'node:crypto'
 import {createSandbox, match, type SinonFakeTimers, type SinonSandbox, type SinonStub} from 'sinon'
 
+import type {IAgentPool} from '../../../../src/server/core/interfaces/agent/i-agent-pool.js'
 import type {ITransportServer, RequestHandler} from '../../../../src/server/core/interfaces/transport/i-transport-server.js'
 
 import {
@@ -30,6 +31,7 @@ import {TransportHandlers} from '../../../../src/server/infra/process/transport-
 describe('TransportHandlers', () => {
   let sandbox: SinonSandbox
   let mockTransport: ITransportServer
+  let mockAgentPool: IAgentPool & {submitTask: SinonStub}
   let handlers: TransportHandlers
 
   // Track registered handlers for testing
@@ -63,7 +65,17 @@ describe('TransportHandlers', () => {
       stop: sandbox.stub().resolves(),
     }
 
-    handlers = new TransportHandlers({transport: mockTransport})
+    mockAgentPool = {
+      getEntries: sandbox.stub().returns([]),
+      getSize: sandbox.stub().returns(0),
+      hasAgent: sandbox.stub().returns(false),
+      markIdle: sandbox.stub(),
+      notifyTaskCompleted: sandbox.stub(),
+      shutdown: sandbox.stub().resolves(),
+      submitTask: sandbox.stub().resolves({success: true}),
+    }
+
+    handlers = new TransportHandlers({agentPool: mockAgentPool, transport: mockTransport})
     handlers.setup()
   })
 
@@ -129,6 +141,7 @@ describe('TransportHandlers', () => {
     // Clear handlers from default setup and create new ones
     requestHandlers.clear()
     const cmHandlers = new TransportHandlers({
+      agentPool: mockAgentPool,
       clientManager: mockClientManager,
       projectRegistry: mockProjectRegistry,
       projectRouter: mockProjectRouter,
@@ -216,17 +229,16 @@ describe('TransportHandlers', () => {
       ).to.be.true
     })
 
-    it('should forward task:execute to agent with client-provided taskId', () => {
+    it('should submit task to AgentPool with client-provided taskId', () => {
       const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
       registerAgentWithStatus('agent-001')
 
       const taskId = randomUUID()
       createHandler!({content: 'Execute test', taskId, type: 'curate'}, 'client-001')
 
+      expect(mockAgentPool.submitTask.calledOnce).to.be.true
       expect(
-        (mockTransport.sendTo as SinonStub).calledWith(
-          'agent-001',
-          TransportTaskEventNames.EXECUTE,
+        mockAgentPool.submitTask.calledWith(
           sandbox.match({
             clientId: 'client-001',
             content: 'Execute test',
@@ -237,7 +249,7 @@ describe('TransportHandlers', () => {
       ).to.be.true
     })
 
-    it('should include files in execute message when provided', () => {
+    it('should include files in AgentPool submitTask when provided', () => {
       const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
       registerAgentWithStatus('agent-001')
 
@@ -245,9 +257,7 @@ describe('TransportHandlers', () => {
       createHandler!({content: 'Files test', files: ['/file1.ts', '/file2.ts'], taskId, type: 'curate'}, 'client-001')
 
       expect(
-        (mockTransport.sendTo as SinonStub).calledWith(
-          'agent-001',
-          TransportTaskEventNames.EXECUTE,
+        mockAgentPool.submitTask.calledWith(
           sandbox.match({files: ['/file1.ts', '/file2.ts'], taskId}),
         ),
       ).to.be.true
@@ -255,24 +265,22 @@ describe('TransportHandlers', () => {
   })
 
   describe('Agent Not Available', () => {
-    it('should send error when no agent registered', async () => {
-      // Use fake timers to avoid real delays
-      const clock: SinonFakeTimers = sandbox.useFakeTimers()
+    it('should send immediate error when no AgentPool available', () => {
+      // Create handlers WITHOUT agentPool to test the no-pool scenario
+      requestHandlers.clear()
+      const noPoolHandlers = new TransportHandlers({transport: mockTransport})
+      noPoolHandlers.setup()
 
       const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
 
-      // Don't register any agent
       const taskId = randomUUID()
-      const result = createHandler!({content: 'No agent test', taskId, type: 'curate'}, 'client-001') as {
+      const result = createHandler!({content: 'No pool test', taskId, type: 'curate'}, 'client-001') as {
         taskId: string
       }
 
       expect(result.taskId).to.equal(taskId)
 
-      // Advance time to trigger the setTimeout (100ms in implementation + buffer)
-      await clock.tickAsync(150)
-
-      // Error should be sent to client
+      // Error should be sent to client immediately (no delay)
       expect(
         (mockTransport.sendTo as SinonStub).calledWith(
           'client-001',
@@ -289,8 +297,6 @@ describe('TransportHandlers', () => {
           sandbox.match({taskId}),
         ),
       ).to.be.true
-
-      clock.restore()
     })
   })
 
@@ -481,24 +487,23 @@ describe('TransportHandlers', () => {
       ).to.be.true
     })
 
-    it('should return "not found" when cancelling task created without agent (already errored)', () => {
+    it('should cancel task locally when no agent registered for project', () => {
       const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
 
-      // Create task WITHOUT registering agent first (no agent scenario)
-      // Without an agent, the task immediately errors and is cleaned up
+      // Create task WITHOUT registering agent first
+      // With agentPool, task is submitted and tracked (pool handles agent forking)
       const taskId = randomUUID()
       createHandler!({content: 'No agent task', taskId, type: 'curate'}, 'client-001')
 
-      // Task was immediately cleaned up after error, so cancel should fail
+      // Cancel should succeed — task is tracked, cancelled locally (no agent to forward to)
       const cancelHandler = requestHandlers.get(TransportTaskEventNames.CANCEL)
       const result = cancelHandler!({taskId}, 'client-001')
 
-      // Cancel should fail because task was already cleaned up after immediate error
-      expect(result).to.deep.equal({error: 'Task not found', success: false})
+      expect(result).to.deep.equal({success: true})
 
-      // Verify the error was sent immediately (not task:cancelled)
+      // Verify task:cancelled was sent to client
       expect(
-        (mockTransport.sendTo as SinonStub).calledWith('client-001', TransportTaskEventNames.ERROR, match({taskId})),
+        (mockTransport.sendTo as SinonStub).calledWith('client-001', TransportTaskEventNames.CANCELLED, {taskId}),
       ).to.be.true
     })
 
@@ -1172,63 +1177,49 @@ describe('TransportHandlers', () => {
   })
 
   describe('ProjectPath in Task Routing', () => {
-    it('should include projectPath in TaskExecute when provided', () => {
+    it('should include projectPath in submitTask when provided', () => {
       registerAgentWithStatus('agent-001')
 
       const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
       const taskId = randomUUID()
       createHandler!({content: 'Test', projectPath: '/my-project', taskId, type: 'curate'}, 'client-1')
 
-      // Verify TaskExecute message includes projectPath
+      // Verify submitTask includes projectPath
       expect(
-        (mockTransport.sendTo as SinonStub).calledWith(
-          'agent-001',
-          TransportTaskEventNames.EXECUTE,
-          match.has('projectPath', '/my-project'),
-        ),
+        mockAgentPool.submitTask.calledWith(match.has('projectPath', '/my-project')),
       ).to.be.true
     })
 
-    it('should not include projectPath in TaskExecute when not provided', () => {
+    it('should not include projectPath in submitTask when not provided', () => {
       registerAgentWithStatus('agent-001')
 
       const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
       const taskId = randomUUID()
       createHandler!({content: 'Test', taskId, type: 'curate'}, 'client-1')
 
-      // Verify TaskExecute message does NOT have projectPath
-      const executeCall = (mockTransport.sendTo as SinonStub).getCalls().find(
-        (call) => call.args[1] === TransportTaskEventNames.EXECUTE,
-      )
-      expect(executeCall).to.not.be.undefined
-      expect(executeCall!.args[2]).to.not.have.property('projectPath')
+      // Verify submitTask was called and payload does NOT have projectPath
+      expect(mockAgentPool.submitTask.calledOnce).to.be.true
+      const submitArg = mockAgentPool.submitTask.firstCall.args[0]
+      expect(submitArg).to.not.have.property('projectPath')
     })
 
-    it('should route task to correct agent based on projectPath', () => {
+    it('should submit task with projectPath to AgentPool for routing', () => {
       // Register two agents for two projects
       const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
       registerHandler!({projectPath: '/project-a'}, 'agent-a')
       registerHandler!({projectPath: '/project-b'}, 'agent-b')
 
-      const statusHandler = requestHandlers.get(AgentStatusEventNames.STATUS_CHANGED)
-      statusHandler!(
-        {activeTasks: 0, hasAuth: true, hasConfig: true, isInitialized: true, queuedTasks: 0},
-        'agent-a',
-      )
-
       const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
       const taskId = randomUUID()
       createHandler!({content: 'Test', projectPath: '/project-b', taskId, type: 'curate'}, 'client-1')
 
-      // Task should be routed to agent-b (project-b's agent)
+      // Task is submitted to AgentPool with projectPath — pool handles routing
       expect(
-        (mockTransport.sendTo as SinonStub).calledWith('agent-b', TransportTaskEventNames.EXECUTE, match.has('taskId', taskId)),
+        mockAgentPool.submitTask.calledWith(match.has('projectPath', '/project-b')),
       ).to.be.true
-
-      // Should NOT be sent to agent-a
       expect(
-        (mockTransport.sendTo as SinonStub).calledWith('agent-a', TransportTaskEventNames.EXECUTE, match.has('taskId', taskId)),
-      ).to.be.false
+        mockAgentPool.submitTask.calledWith(match.has('taskId', taskId)),
+      ).to.be.true
     })
   })
 
