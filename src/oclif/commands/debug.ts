@@ -15,6 +15,11 @@ import type {DaemonStatus} from '../../server/infra/daemon/daemon-discovery.js'
 import {discoverDaemon} from '../../server/infra/daemon/daemon-discovery.js'
 
 /**
+ * Refresh interval for monitor mode (ms).
+ */
+const MONITOR_REFRESH_MS = 2000
+
+/**
  * Shape of daemon:getState response.
  * Defined locally — this command is the only consumer.
  */
@@ -54,6 +59,12 @@ type DaemonState = {
       type: string
     }>
     agentClients: Array<{clientId: string; projectPath: string}>
+    completedTasks: Array<{
+      completedAt: number
+      projectPath?: string
+      taskId: string
+      type: string
+    }>
   }
   transport: {
     connectedSockets: number
@@ -63,10 +74,11 @@ type DaemonState = {
 }
 
 export default class Debug extends Command {
-  public static description = 'Show internal daemon state for debugging'
+  public static description = 'Live monitor for daemon internal state'
   public static examples = [
     '<%= config.bin %> <%= command.id %>',
     '<%= config.bin %> <%= command.id %> --format json',
+    '<%= config.bin %> <%= command.id %> --once',
   ]
   public static flags = {
     format: Flags.string({
@@ -75,6 +87,16 @@ export default class Debug extends Command {
       description: 'Output format',
       options: ['tree', 'json'],
     }),
+    once: Flags.boolean({
+      default: false,
+      description: 'Print once and exit (no live monitoring)',
+    }),
+  }
+
+  protected clearScreen(): void {
+    if (process.stdout.isTTY) {
+      process.stdout.write('\u001B[2J\u001B[H')
+    }
   }
 
   protected connect(): Promise<{client: ITransportClient; projectRoot: string}> {
@@ -88,6 +110,8 @@ export default class Debug extends Command {
   public async run(): Promise<void> {
     const {flags} = await this.parse(Debug)
     const format = flags.format === 'json' ? 'json' : 'tree'
+    // JSON format always implies one-shot (useful for scripting / piping)
+    const oneShot = flags.once || format === 'json'
 
     // Quick check: is daemon even running?
     const daemonStatus = this.discover()
@@ -95,7 +119,7 @@ export default class Debug extends Command {
       if (format === 'json') {
         this.log(JSON.stringify({reason: daemonStatus.reason, running: false}, null, 2))
       } else {
-        this.log(`Daemon is not running (${daemonStatus.reason})`)
+        this.log(`Daemon is ${chalk.red('not running')} (${daemonStatus.reason})`)
         this.log('\nStart with: brv')
       }
 
@@ -108,16 +132,7 @@ export default class Debug extends Command {
       const result = await this.connect()
       client = result.client
 
-      // Request state snapshot
-      const response = await client.requestWithAck<{data: DaemonState}>('daemon:getState')
-      const state = response.data
-
-      // Render
-      if (format === 'json') {
-        this.log(JSON.stringify(state, null, 2))
-      } else {
-        this.renderTree(state)
-      }
+      await (oneShot ? this.renderOnce(client, format) : this.runMonitor(client))
     } catch (error) {
       if (error instanceof NoInstanceRunningError) {
         this.log('No daemon is running. Start one with: brv')
@@ -136,6 +151,21 @@ export default class Debug extends Command {
     }
   }
 
+  private delay(ms: number, signal: AbortSignal): Promise<void> {
+    return new Promise<void>((resolve) => {
+      if (signal.aborted) {
+        resolve()
+        return
+      }
+
+      const timer = setTimeout(resolve, ms)
+      signal.addEventListener('abort', () => {
+        clearTimeout(timer)
+        resolve()
+      }, {once: true})
+    })
+  }
+
   private formatDuration(ms: number): string {
     const seconds = Math.floor(ms / 1000)
     const minutes = Math.floor(seconds / 60)
@@ -148,6 +178,16 @@ export default class Debug extends Command {
 
   private formatTimeAgo(timestamp: number): string {
     return this.formatDuration(Date.now() - timestamp) + ' ago'
+  }
+
+  private async renderOnce(client: ITransportClient, format: string): Promise<void> {
+    const state = await client.requestWithAck<DaemonState>('daemon:getState')
+
+    if (format === 'json') {
+      this.log(JSON.stringify(state, null, 2))
+    } else {
+      this.renderTree(state)
+    }
   }
 
   private renderTree(state: DaemonState): void {
@@ -219,6 +259,24 @@ export default class Debug extends Command {
       }
     }
 
+    // Recently Completed Tasks (within 5s grace period)
+    const completedTasks = tasks.completedTasks ?? []
+    if (completedTasks.length > 0) {
+      lines.push(`├── Recently Completed (${completedTasks.length})`)
+      for (const [i, task] of completedTasks.entries()) {
+        const isLast = i === completedTasks.length - 1
+        const prefix = isLast ? '│   └── ' : '│   ├── '
+        const childPrefix = isLast ? '│       ' : '│   │   '
+
+        lines.push(
+          `${prefix}${chalk.dim(task.taskId)}`,
+          `${childPrefix}├── Type: ${task.type}`,
+          `${childPrefix}├── Completed: ${this.formatTimeAgo(task.completedAt)}`,
+          `${childPrefix}└── Project: ${task.projectPath ?? '(none)'}`,
+        )
+      }
+    }
+
     // Connected Clients
     lines.push(`└── Connected Clients (${clients.length})`)
     if (clients.length === 0) {
@@ -239,5 +297,40 @@ export default class Debug extends Command {
     }
 
     this.log(lines.join('\n'))
+  }
+
+  private async runMonitor(client: ITransportClient): Promise<void> {
+    const abortController = new AbortController()
+
+    const stop = (): void => {
+      abortController.abort()
+    }
+
+    process.once('SIGINT', stop)
+    process.once('SIGTERM', stop)
+
+    const poll = async (): Promise<boolean> => {
+      const state = await client.requestWithAck<DaemonState>('daemon:getState')
+      this.clearScreen()
+      this.renderTree(state)
+      this.log(chalk.dim(`\nRefreshing every ${MONITOR_REFRESH_MS / 1000}s — press Ctrl+C to exit`))
+      await this.delay(MONITOR_REFRESH_MS, abortController.signal)
+      return !abortController.signal.aborted
+    }
+
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      while (!abortController.signal.aborted && await poll()) {
+        // poll() handles fetch + render + delay
+      }
+    } catch (error) {
+      if (!abortController.signal.aborted) {
+        const detail = error instanceof Error ? error.message : String(error)
+        this.log(chalk.red(`\nConnection to daemon lost: ${detail}`))
+      }
+    } finally {
+      process.removeListener('SIGINT', stop)
+      process.removeListener('SIGTERM', stop)
+    }
   }
 }

@@ -45,7 +45,7 @@ type CurateOperation = z.infer<typeof CurateOperationSchema>
 export interface CurateResult {
   message: string
   operations?: CurateOperation[]
-  status: 'completed' | 'error' | 'queued'
+  status: 'completed' | 'error'
   taskId?: string
 }
 
@@ -109,6 +109,12 @@ export class CurateUseCase implements ICurateUseCase {
       // Generate taskId in UseCase (Application layer owns task creation)
       const taskId = randomUUID()
 
+      // Register event listeners BEFORE sending task:create to avoid race conditions.
+      // If the task errors immediately (e.g., file validation), the error event
+      // may arrive before listeners are set up. waitForTaskCompletion registers
+      // listeners synchronously in the Promise constructor.
+      const completionPromise = this.waitForTaskCompletion(client, taskId, format)
+
       // Send task:create request
       await client.requestWithAck<TaskAck>('task:create', {
         clientCwd: process.cwd(),
@@ -118,14 +124,8 @@ export class CurateUseCase implements ICurateUseCase {
         type: 'curate',
       })
 
-      if (headless) {
-        // In headless mode, wait for the in-process task to complete
-        await this.waitForTaskCompletion(client, taskId, format)
-      } else if (format === 'json') {
-        this.outputJsonResult({message: 'Context queued for processing', status: 'queued', taskId})
-      } else {
-        this.terminal.log('✓ Context queued for processing.')
-      }
+      // Wait for the already-listening completion promise
+      await completionPromise
 
       await this.trackingService.track('mem:curate', {status: 'finished'})
     } catch (error) {
@@ -252,7 +252,7 @@ export class CurateUseCase implements ICurateUseCase {
   }
 
   /**
-   * Wait for task completion in headless mode.
+   * Wait for task completion.
    * Listens for task:completed or task:error events before returning.
    */
   private async waitForTaskCompletion(

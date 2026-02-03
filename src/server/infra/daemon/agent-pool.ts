@@ -130,6 +130,20 @@ export class AgentPool implements IAgentPool {
     return this.agents.size
   }
 
+  /**
+   * Handle agent socket disconnection.
+   * Removes the agent entry and best-effort stops the child process.
+   * A new agent will be forked on the next task for this project.
+   */
+  handleAgentDisconnected(projectPath: string): void {
+    const entry = this.agents.get(projectPath)
+    if (!entry) return
+
+    this.log(`Agent socket disconnected, removing from pool: ${projectPath} (pid=${entry.agent.childProcess.pid})`)
+    this.agents.delete(projectPath)
+    entry.agent.stop().catch(() => {})
+  }
+
   hasAgent(projectPath: string): boolean {
     return this.agents.has(projectPath)
   }

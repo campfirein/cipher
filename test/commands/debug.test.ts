@@ -15,8 +15,8 @@ const discoverNotRunning = (): DaemonStatus => ({reason: 'no_instance', running:
 const discoverRunning = (): DaemonStatus => ({pid: 12_345, port: 37_847, running: true})
 
 /**
- * Testable subclass that overrides discover() and connect()
- * to avoid ES module stubbing issues.
+ * Testable subclass that overrides discover(), connect(), and clearScreen()
+ * to avoid ES module stubbing issues and terminal escape codes in tests.
  */
 class TestableDebug extends Debug {
   constructor(
@@ -26,6 +26,10 @@ class TestableDebug extends Debug {
     config: Config,
   ) {
     super(argv, config)
+  }
+
+  protected clearScreen(): void {
+    // no-op in tests
   }
 
   protected connect(): Promise<{client: ITransportClient; projectRoot: string}> {
@@ -101,6 +105,7 @@ function makeDaemonState() {
       agentClients: [
         {clientId: 'socket-456', projectPath: '/Users/foo/project-a'},
       ],
+      completedTasks: [] as Array<{completedAt: number; projectPath?: string; taskId: string; type: string}>,
     },
     transport: {
       connectedSockets: 3,
@@ -119,7 +124,7 @@ function makeMockClient(state: ReturnType<typeof makeDaemonState>): ITransportCl
     on: sinon.stub().returns(() => {}),
     once: sinon.stub(),
     request: sinon.stub(),
-    requestWithAck: sinon.stub().resolves({data: state, success: true}),
+    requestWithAck: sinon.stub().resolves(state),
   } as unknown as ITransportClient
 }
 
@@ -167,13 +172,13 @@ describe('Debug Command', () => {
     })
   })
 
-  describe('daemon running — tree format', () => {
+  describe('daemon running — one-shot tree format', () => {
     it('should render tree with agent pool, tasks, and clients', async () => {
       const state = makeDaemonState()
       const mockClient = makeMockClient(state)
       const connect = sinon.stub().resolves({client: mockClient, projectRoot: '/tmp'})
 
-      const cmd = new TestableDebug(discoverRunning, connect, [], config)
+      const cmd = new TestableDebug(discoverRunning, connect, ['--once'], config)
       const output = captureOutput(cmd)
       await cmd.run()
 
@@ -216,7 +221,7 @@ describe('Debug Command', () => {
       const mockClient = makeMockClient(state)
       const connect = sinon.stub().resolves({client: mockClient, projectRoot: '/tmp'})
 
-      const cmd = new TestableDebug(discoverRunning, connect, [], config)
+      const cmd = new TestableDebug(discoverRunning, connect, ['--once'], config)
       const output = captureOutput(cmd)
       await cmd.run()
 
@@ -227,13 +232,38 @@ describe('Debug Command', () => {
       expect(tree).to.include('(none)')
     })
 
+    it('should render recently completed tasks', async () => {
+      const state = makeDaemonState()
+      state.tasks.activeTasks = []
+      state.tasks.completedTasks = [
+        {
+          completedAt: Date.now() - 2000,
+          projectPath: '/Users/foo/project-a',
+          taskId: 'task-done-456',
+          type: 'query',
+        },
+      ]
+
+      const mockClient = makeMockClient(state)
+      const connect = sinon.stub().resolves({client: mockClient, projectRoot: '/tmp'})
+
+      const cmd = new TestableDebug(discoverRunning, connect, ['--once'], config)
+      const output = captureOutput(cmd)
+      await cmd.run()
+
+      const tree = output.join('\n')
+      expect(tree).to.include('Recently Completed (1)')
+      expect(tree).to.include('task-done-456')
+      expect(tree).to.include('Type: query')
+    })
+
     it('should disconnect client after request', async () => {
       const state = makeDaemonState()
       const mockClient = makeMockClient(state)
       const disconnectStub = mockClient.disconnect as sinon.SinonStub
       const connect = sinon.stub().resolves({client: mockClient, projectRoot: '/tmp'})
 
-      const cmd = new TestableDebug(discoverRunning, connect, [], config)
+      const cmd = new TestableDebug(discoverRunning, connect, ['--once'], config)
       captureOutput(cmd)
       await cmd.run()
 
@@ -241,7 +271,7 @@ describe('Debug Command', () => {
     })
   })
 
-  describe('daemon running — json format', () => {
+  describe('daemon running — json format (always one-shot)', () => {
     it('should output valid JSON with full state', async () => {
       const state = makeDaemonState()
       const mockClient = makeMockClient(state)
@@ -257,6 +287,41 @@ describe('Debug Command', () => {
       expect(json).to.have.property('transport')
       expect(json).to.have.property('tasks')
       expect(json).to.have.property('clients')
+    })
+  })
+
+  describe('monitor mode', () => {
+    it('should poll and render until connection lost', async () => {
+      const state = makeDaemonState()
+      const requestStub = sinon.stub()
+      // First call succeeds, second call throws (simulates connection lost)
+      requestStub.onFirstCall().resolves(state)
+      requestStub.onSecondCall().rejects(new Error('connection lost'))
+
+      const mockClient: ITransportClient = {
+        disconnect: sinon.stub().resolves(),
+        getClientId: sinon.stub().returns('debug-client'),
+        getState: sinon.stub().returns('connected'),
+        isConnected: sinon.stub().resolves(true),
+        on: sinon.stub().returns(() => {}),
+        once: sinon.stub(),
+        request: sinon.stub(),
+        requestWithAck: requestStub,
+      } as unknown as ITransportClient
+
+      const connect = sinon.stub().resolves({client: mockClient, projectRoot: '/tmp'})
+
+      // No --once flag → monitor mode
+      const cmd = new TestableDebug(discoverRunning, connect, [], config)
+      const output = captureOutput(cmd)
+      await cmd.run()
+
+      // First render happened
+      expect(output.join('\n')).to.include('Daemon')
+      // Connection lost message shown
+      expect(output.join('\n')).to.include('Connection to daemon lost')
+      // Client disconnected
+      expect((mockClient.disconnect as sinon.SinonStub).calledOnce).to.be.true
     })
   })
 })

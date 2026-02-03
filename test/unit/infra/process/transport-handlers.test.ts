@@ -68,6 +68,7 @@ describe('TransportHandlers', () => {
     mockAgentPool = {
       getEntries: sandbox.stub().returns([]),
       getSize: sandbox.stub().returns(0),
+      handleAgentDisconnected: sandbox.stub(),
       hasAgent: sandbox.stub().returns(false),
       markIdle: sandbox.stub(),
       notifyTaskCompleted: sandbox.stub(),

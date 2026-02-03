@@ -46,6 +46,7 @@ describe('TaskId Integration Flow', () => {
     const stubAgentPool: IAgentPool = {
       getEntries() { return [] },
       getSize() { return 0 },
+      handleAgentDisconnected() {},
       hasAgent() { return false },
       markIdle() {},
       notifyTaskCompleted() {},

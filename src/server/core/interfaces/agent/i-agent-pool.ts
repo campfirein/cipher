@@ -48,6 +48,14 @@ export interface IAgentPool {
   getSize(): number
 
   /**
+   * Handle agent socket disconnection.
+   * Removes the agent from the pool and stops the child process.
+   * Called by TransportHandlers when an agent's Socket.IO client disconnects.
+   * Without this, the pool retains a stale clientId and tasks sent to it are lost.
+   */
+  handleAgentDisconnected(projectPath: string): void
+
+  /**
    * Check if the pool has an agent for a given project.
    */
   hasAgent(projectPath: string): boolean

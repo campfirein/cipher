@@ -27,7 +27,7 @@ import type {TaskExecute} from '../../core/domain/transport/schemas.js'
 import {CipherAgent} from '../../../agent/infra/agent/index.js'
 import {getCurrentConfig} from '../../config/environment.js'
 import {DEFAULT_LLM_MODEL, PROJECT, TRANSPORT_HOST} from '../../constants.js'
-import {serializeTaskError} from '../../core/domain/errors/task-error.js'
+import {NotAuthenticatedError, serializeTaskError} from '../../core/domain/errors/task-error.js'
 import {TransportTaskEventNames} from '../../core/domain/transport/schemas.js'
 import {CurateExecutor} from '../executor/curate-executor.js'
 import {QueryExecutor} from '../executor/query-executor.js'
@@ -58,6 +58,7 @@ function agentLog(message: string): void {
  * Lazy providers on CipherAgent resolve from this cache per HTTP request.
  */
 let cachedSessionKey = ''
+let cachedAuthValid = false
 let cachedBrvConfig: BrvConfig | undefined
 let cachedTeamId = ''
 let cachedSpaceId = ''
@@ -114,8 +115,13 @@ async function start(): Promise<void> {
     },
   )
 
-  transport.on<{sessionKey?: string}>('auth:updated', (data) => {
+  transport.on<{isValid?: boolean; sessionKey?: string}>('auth:updated', (data) => {
     if (data.sessionKey !== undefined) cachedSessionKey = data.sessionKey
+    if (data.isValid !== undefined) cachedAuthValid = data.isValid
+  })
+
+  transport.on('auth:expired', () => {
+    cachedAuthValid = false
   })
 
   // 4. Create CipherAgent with lazy providers + transport client

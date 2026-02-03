@@ -55,9 +55,9 @@ export class QueryUseCase implements IQueryUseCase {
   constructor(options: QueryUseCaseOptions) {
     this.terminal = options.terminal
     this.trackingService = options.trackingService
-    this.transportConnector = options.transportConnector ?? ((fromDir) =>
-      connectToTransport(fromDir, {discovery: new DaemonInstanceDiscovery()})
-    )
+    this.transportConnector =
+      options.transportConnector ??
+      ((fromDir) => connectToTransport(fromDir, {discovery: new DaemonInstanceDiscovery()}))
   }
 
   /**
@@ -117,20 +117,24 @@ export class QueryUseCase implements IQueryUseCase {
       // Generate taskId in UseCase (Application layer owns task creation)
       const taskId = randomUUID()
 
+      // Register event listeners BEFORE sending task:create to avoid race conditions.
+      // streamTaskResults registers listeners synchronously in the Promise constructor.
+      const streamPromise = this.streamTaskResults(client, taskId, verbose, format)
+
       // Send task:create request
       await client.requestWithAck<TaskAck>('task:create', {
+        clientCwd: process.cwd(),
         content: options.query,
         taskId,
         type: 'query',
       })
-      // Note: response.taskId confirms what we sent (no longer extracting)
 
       if (verbose) {
         this.terminal.log(`Task created: ${taskId}`)
       }
 
-      // Wait for task completion with streaming
-      await this.streamTaskResults(client, taskId, verbose, format)
+      // Wait for the already-listening stream promise
+      await streamPromise
       await this.trackingService.track('mem:query', {status: 'finished'})
     } catch (error) {
       if (format === 'json') {

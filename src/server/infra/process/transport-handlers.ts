@@ -191,6 +191,7 @@ export class TransportHandlers {
   getDebugState(): {
     activeTasks: Array<{clientId: string; createdAt: number; projectPath?: string; taskId: string; type: string}>
     agentClients: Array<{clientId: string; projectPath: string}>
+    completedTasks: Array<{completedAt: number; projectPath?: string; taskId: string; type: string}>
   } {
     return {
       activeTasks: [...this.tasks.values()].map((t) => ({
@@ -203,6 +204,12 @@ export class TransportHandlers {
       agentClients: [...this.agentClients.entries()].map(([projectPath, clientId]) => ({
         clientId,
         projectPath,
+      })),
+      completedTasks: [...this.completedTasks.entries()].map(([taskId, entry]) => ({
+        completedAt: entry.completedAt,
+        projectPath: entry.task.projectPath,
+        taskId,
+        type: entry.task.type,
       })),
     }
   }
@@ -457,6 +464,11 @@ export class TransportHandlers {
       throw new Error(`Task ${taskId} already exists`)
     }
 
+    // Resolve projectPath: explicit field takes priority, fall back to clientCwd.
+    // CLI commands (curate, query) send clientCwd but not projectPath;
+    // the agent pool requires projectPath for per-project child routing.
+    const projectPath = data.projectPath ?? data.clientCwd
+
     transportLog(`Task accepted: ${taskId} (type=${data.type}, client=${clientId})`)
 
     // Track task (clientId used for direct messaging)
@@ -466,7 +478,7 @@ export class TransportHandlers {
       createdAt: Date.now(),
       ...(data.clientCwd ? {clientCwd: data.clientCwd} : {}),
       ...(data.files?.length ? {files: data.files} : {}),
-      ...(data.projectPath ? {projectPath: data.projectPath} : {}),
+      ...(projectPath ? {projectPath} : {}),
       taskId,
       type: data.type,
     })
@@ -508,7 +520,7 @@ export class TransportHandlers {
       content: data.content,
       ...(data.clientCwd ? {clientCwd: data.clientCwd} : {}),
       ...(data.files?.length ? {files: data.files} : {}),
-      ...(data.projectPath ? {projectPath: data.projectPath} : {}),
+      ...(projectPath ? {projectPath} : {}),
       taskId,
       type: data.type,
     }
@@ -844,6 +856,13 @@ export class TransportHandlers {
           if (projectInfo) {
             this.projectRouter.removeFromProjectRoom(clientId, projectInfo.sanitizedPath)
           }
+        }
+
+        // Notify pool so it removes the stale agent entry.
+        // Without this, the pool retains the dead clientId and silently
+        // drops tasks sent to it (the socket is gone).
+        if (projectPath) {
+          this.agentPool?.handleAgentDisconnected(projectPath)
         }
 
         // Broadcast to all clients
