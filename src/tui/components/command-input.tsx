@@ -167,7 +167,7 @@ export const CommandInput = () => {
       }
 
       // Skip adding to messages for commands that are rendered via useActivityLogs
-      const isRenderedByActivityLogs = trimmed.startsWith('/curate') || trimmed.startsWith('/query')
+      const isRenderedByActivityLogs = trimmed.startsWith('/curate') || trimmed.startsWith('/query') || trimmed.startsWith('/q ')
 
       if (!isRenderedByActivityLogs) {
         setMessages((prev) => [
