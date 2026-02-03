@@ -11,7 +11,7 @@ import type {ActivityLog} from '../types.js'
 
 import {useTheme} from '../hooks/index.js'
 import {formatTime} from '../utils/index.js'
-import { ExecutionContent, ExecutionInput } from './index.js'
+import {ExecutionChanges, ExecutionContent, ExecutionInput} from './index.js'
 
 /**
  * Animated processing indicator that cycles through dots: "Processing." -> "Processing.." -> "Processing..."
@@ -40,7 +40,7 @@ interface OnboardingItemProps {
   /** Whether this item is currently selected */
   isSelected?: boolean
   /** The onboarding log to display */
-  log: Pick<ActivityLog, 'content' | 'id' | 'input' | 'status' | 'timestamp' | 'type'>
+  log: Pick<ActivityLog, 'changes' | 'content' | 'id' | 'input' | 'status' | 'timestamp' | 'type'>
   /** Whether to show the expand/collapse indicator */
   shouldShowExpand?: boolean
 }
@@ -88,11 +88,24 @@ export const OnboardingItem: React.FC<OnboardingItemProps> = ({isSelected, log, 
             />
           )}
 
+          {/* Changes */}
+          {log.status === 'completed' && (
+            <ExecutionChanges
+              created={log.changes.created}
+              isExpanded={false}
+              marginTop={1}
+              maxChanges={{created: 3, updated: 3}}
+              updated={log.changes.updated}
+            />
+          )}
+
           {/* Expand indicator */}
-          {isSelected && shouldShowExpand ? (
-            <Text color={colors.dimText}>Show remaining output • [ctrl+o] to expand</Text>
-          ) : (
-            <Text> </Text>
+          {shouldShowExpand && (
+            isSelected ? (
+              <Text color={colors.dimText}>Show remaining output • [ctrl+o] to expand</Text>
+            ) : (
+              <Text> </Text>
+            )
           )}
         </Box>
       </Box>
