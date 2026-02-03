@@ -357,7 +357,8 @@ prompt: |
   - `features`: Feature documentation (behavior, limitations, edge cases, caching TTLs, etc.)
 
   **relations** - Optional cross-references to related topics:
-  - Array of related topic paths (e.g., ["@structure/redis", "@design/security"])
+  - Array of related topic paths (e.g., ["@structure/redis/overview.md", "@design/security/token-validation.md"])
+  - Relations must be in the format of "domain/topic/title.md" or "domain/topic/subtopic/title.md"
 
   **Example tools.curate() call:**
   ```javascript
@@ -387,7 +388,7 @@ prompt: |
           dependencies: 'Uses jsonwebtoken library for JWT operations, Redis for token blacklist with 24h TTL',
           features: 'Access tokens expire in 15 minutes, refresh tokens in 7 days. Refresh token rotation invalidates old tokens immediately'
         },
-        relations: ['@structure/redis', '@design/security']
+        relations: ['@structure/redis/overview.md', '@design/security/token-validation.md']
       },
       reason: 'Documenting new JWT authentication system'
     }
