@@ -66,6 +66,7 @@ describe('LoginUseCase', () => {
 
     userService = {
       getCurrentUser: stub(),
+      updateCurrentUser: stub(),
     }
   })
 
@@ -98,7 +99,7 @@ describe('LoginUseCase', () => {
         'session-key',
         'Bearer',
       )
-      const user = new User('user@example.com', 'user-id-123', 'Test User')
+      const user = new User({email: 'user@example.com', hasOnboardedCli: false, id: 'user-id-123', name: 'Test User'})
 
       // Mock OAuth flow
       callbackHandler.start.resolves(port)
@@ -185,7 +186,7 @@ describe('LoginUseCase', () => {
         'session-key',
         'Bearer',
       )
-      const user = new User('user@example.com', 'user-id-456', 'Test User')
+      const user = new User({email: 'user@example.com', hasOnboardedCli: false, id: 'user-id-456', name: 'Test User'})
 
       // Mock OAuth flow with browser failure
       callbackHandler.start.resolves(port)
@@ -298,7 +299,7 @@ describe('LoginUseCase', () => {
         'session-key',
         'Bearer',
       )
-      const user = new User('user@example.com', 'user-id-789', 'Test User')
+      const user = new User({email: 'user@example.com', hasOnboardedCli: false, id: 'user-id-789', name: 'Test User'})
       const expectedRedirectUri = `http://localhost:${port}/callback`
 
       // Mock OAuth flow
@@ -339,7 +340,7 @@ describe('LoginUseCase', () => {
         'session-key',
         'Bearer',
       )
-      const user = new User('user@example.com', 'user-id-999', 'Test User')
+      const user = new User({email: 'user@example.com', hasOnboardedCli: false, id: 'user-id-999', name: 'Test User'})
 
       // Mock OAuth flow
       callbackHandler.start.resolves(port)
