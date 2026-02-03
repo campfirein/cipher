@@ -22,8 +22,8 @@ export interface CurateExecuteOptions {
  * It's an Executor that wraps agent.execute() with curate-specific options.
  *
  * Architecture:
- * - TaskProcessor injects the long-lived CipherAgent
- * - Event streaming is handled by agent-worker (subscribes to agentEventBus)
+ * - AgentProcess injects the long-lived CipherAgent
+ * - Event streaming is handled by agent-process (subscribes to agentEventBus)
  * - Executor focuses solely on curate execution
  */
 export interface ICurateExecutor {

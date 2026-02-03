@@ -7,7 +7,7 @@ import type {DaemonInstanceInfo, IGlobalInstanceManager} from '../../core/interf
 
 import {DAEMON_INSTANCE_FILE, DAEMON_READY_POLL_INTERVAL_MS, DAEMON_READY_TIMEOUT_MS, DAEMON_STOP_BUDGET_MS, DAEMON_STOP_POLL_INTERVAL_MS, HEARTBEAT_FILE} from '../../constants.js'
 import {getGlobalDataDir} from '../../utils/global-data-path.js'
-import {isProcessAlive} from '../instance/process-utils.js'
+import {isProcessAlive} from '../../utils/process-utils.js'
 import {discoverDaemon} from './daemon-discovery.js'
 import {GlobalInstanceManager} from './global-instance-manager.js'
 import {SpawnLock} from './spawn-lock.js'

@@ -4,7 +4,7 @@ import type {IGlobalInstanceManager} from '../../core/interfaces/daemon/i-global
 
 import {HEARTBEAT_FILE} from '../../constants.js'
 import {getGlobalDataDir} from '../../utils/global-data-path.js'
-import {isProcessAlive} from '../instance/process-utils.js'
+import {isProcessAlive} from '../../utils/process-utils.js'
 import {GlobalInstanceManager} from './global-instance-manager.js'
 import {isHeartbeatStale} from './heartbeat.js'
 

@@ -1,18 +1,8 @@
 import {expect} from 'chai'
 
-import {getCurrentPid, isProcessAlive} from '../../../../src/server/infra/instance/process-utils.js'
+import {isProcessAlive} from '../../../src/server/utils/process-utils.js'
 
 describe('Process Utils', () => {
-  describe('getCurrentPid', () => {
-    it('should return the current process ID', () => {
-      const pid = getCurrentPid()
-
-      expect(pid).to.be.a('number')
-      expect(pid).to.be.greaterThan(0)
-      expect(pid).to.equal(process.pid)
-    })
-  })
-
   describe('isProcessAlive', () => {
     it('should return true for the current process', () => {
       const {pid} = process

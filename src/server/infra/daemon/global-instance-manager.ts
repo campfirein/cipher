@@ -10,7 +10,7 @@ import type {
 
 import {DAEMON_INSTANCE_FILE} from '../../constants.js'
 import {getGlobalDataDir} from '../../utils/global-data-path.js'
-import {isProcessAlive} from '../instance/process-utils.js'
+import {isProcessAlive} from '../../utils/process-utils.js'
 
 export type {DaemonAcquireResult, DaemonInstanceInfo} from '../../core/interfaces/daemon/i-global-instance-manager.js'
 

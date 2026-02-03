@@ -6,7 +6,7 @@ import type {ISpawnLock, SpawnLockAcquireResult} from '../../core/interfaces/dae
 
 import {SPAWN_LOCK_FILE, SPAWN_LOCK_STALE_THRESHOLD_MS} from '../../constants.js'
 import {getGlobalDataDir} from '../../utils/global-data-path.js'
-import {isProcessAlive} from '../instance/process-utils.js'
+import {isProcessAlive} from '../../utils/process-utils.js'
 
 export type {SpawnLockAcquireResult} from '../../core/interfaces/daemon/i-spawn-lock.js'
 

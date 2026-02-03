@@ -35,10 +35,3 @@ export function isProcessAlive(pid: number): boolean {
     return false
   }
 }
-
-/**
- * Gets the current process ID.
- */
-export function getCurrentPid(): number {
-  return process.pid
-}
