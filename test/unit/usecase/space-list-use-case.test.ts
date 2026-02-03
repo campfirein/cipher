@@ -52,8 +52,8 @@ const createMockConfig = (): BrvConfig =>
   })
 
 const createMockSpaces = (): Space[] => [
-  new SpaceImpl('space-1', 'frontend-app', 'team-1', 'acme-corp'),
-  new SpaceImpl('space-2', 'backend-api', 'team-1', 'acme-corp'),
+  new SpaceImpl({id: 'space-1', isDefault: false, name: 'frontend-app', teamId: 'team-1', teamName: 'acme-corp'}),
+  new SpaceImpl({id: 'space-2', isDefault: false, name: 'backend-api', teamId: 'team-1', teamName: 'acme-corp'}),
 ]
 
 // ==================== Tests ====================
