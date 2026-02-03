@@ -89,6 +89,7 @@ async function start(): Promise<void> {
   }
 
   type AuthResponse = {
+    isValid?: boolean
     sessionKey?: string
   }
 
@@ -101,6 +102,7 @@ async function start(): Promise<void> {
   cachedTeamId = configResult.teamId ?? ''
   cachedSpaceId = configResult.spaceId ?? ''
   cachedSessionKey = authResult.sessionKey ?? ''
+  cachedAuthValid = authResult.isValid ?? false
 
   agentLog('Initial config loaded from state server')
 
@@ -171,6 +173,14 @@ async function executeTask(
 ): Promise<void> {
   const {clientCwd, clientId, content, files, taskId, type} = task
   if (!transport || !agent) return
+
+  // Pre-flight auth check — fail fast before file validation or LLM calls.
+  // Without this, curate's file validation error would mask the 401.
+  if (!cachedAuthValid) {
+    const errorData = serializeTaskError(new NotAuthenticatedError())
+    transport.request(TransportTaskEventNames.ERROR, {clientId, error: errorData, taskId})
+    return
+  }
 
   // Emit task:started
   transport.request(TransportTaskEventNames.STARTED, {taskId})

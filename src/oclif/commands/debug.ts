@@ -1,8 +1,6 @@
 import {
   ConnectionError,
   ConnectionFailedError,
-  connectToTransport,
-  DaemonInstanceDiscovery,
   InstanceCrashedError,
   type ITransportClient,
   NoInstanceRunningError,
@@ -10,9 +8,8 @@ import {
 import {Command, Flags} from '@oclif/core'
 import chalk from 'chalk'
 
-import type {DaemonStatus} from '../../server/infra/daemon/daemon-discovery.js'
-
-import {discoverDaemon} from '../../server/infra/daemon/daemon-discovery.js'
+import {type EnsureDaemonResult, ensureDaemonRunning} from '../../server/infra/daemon/daemon-spawner.js'
+import {createDaemonAwareConnector} from '../../server/infra/transport/transport-connector.js'
 
 /**
  * Refresh interval for monitor mode (ms).
@@ -100,11 +97,11 @@ export default class Debug extends Command {
   }
 
   protected connect(): Promise<{client: ITransportClient; projectRoot: string}> {
-    return connectToTransport(process.cwd(), {discovery: new DaemonInstanceDiscovery()})
+    return createDaemonAwareConnector()(process.cwd())
   }
 
-  protected discover(): DaemonStatus {
-    return discoverDaemon()
+  protected ensureDaemon(): Promise<EnsureDaemonResult> {
+    return ensureDaemonRunning()
   }
 
   public async run(): Promise<void> {
@@ -113,14 +110,13 @@ export default class Debug extends Command {
     // JSON format always implies one-shot (useful for scripting / piping)
     const oneShot = flags.once || format === 'json'
 
-    // Quick check: is daemon even running?
-    const daemonStatus = this.discover()
-    if (!daemonStatus.running) {
+    // Ensure daemon is running (auto-start if needed)
+    const ensureResult = await this.ensureDaemon()
+    if (!ensureResult.success) {
       if (format === 'json') {
-        this.log(JSON.stringify({reason: daemonStatus.reason, running: false}, null, 2))
+        this.log(JSON.stringify({reason: ensureResult.reason, running: false}, null, 2))
       } else {
-        this.log(`Daemon is ${chalk.red('not running')} (${daemonStatus.reason})`)
-        this.log('\nStart with: brv')
+        this.log(`Daemon failed to start: ${chalk.red(ensureResult.reason)}`)
       }
 
       return

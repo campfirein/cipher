@@ -1,6 +1,4 @@
 import {
-  connectToTransport,
-  DaemonInstanceDiscovery,
   InstanceCrashedError,
   NoInstanceRunningError,
 } from '@campfirein/brv-transport-client'
@@ -14,7 +12,7 @@ import type {ITerminal} from '../../core/interfaces/services/i-terminal.js'
 import type {ITrackingService} from '../../core/interfaces/services/i-tracking-service.js'
 import type {IProjectConfigStore} from '../../core/interfaces/storage/i-project-config-store.js'
 import type {IStatusUseCase} from '../../core/interfaces/usecase/i-status-use-case.js'
-import type {TransportConnector} from '../transport/transport-connector.js'
+import {createDaemonAwareConnector, type TransportConnector} from '../transport/transport-connector.js'
 
 import {BRV_DIR, CONTEXT_TREE_DIR} from '../../constants.js'
 import {getErrorMessage} from '../../utils/error-helpers.js'
@@ -69,9 +67,7 @@ export class StatusUseCase implements IStatusUseCase {
     this.terminal = options.terminal
     this.tokenStore = options.tokenStore
     this.trackingService = options.trackingService
-    this.transportConnector = options.transportConnector ?? ((fromDir) =>
-      connectToTransport(fromDir, {discovery: new DaemonInstanceDiscovery()})
-    )
+    this.transportConnector = options.transportConnector ?? createDaemonAwareConnector()
   }
 
   public async run(options: {cliVersion: string; format?: 'json' | 'text'}): Promise<void> {

@@ -1,7 +1,5 @@
 import {
   AgentEventNames,
-  connectToTransport,
-  DaemonInstanceDiscovery,
   type ITransportClient,
   LlmEventList,
   SessionEventNames,
@@ -18,6 +16,7 @@ import path from 'node:path'
 
 import {isDevelopment} from '../../server/config/environment.js'
 import {BRV_DIR} from '../../server/constants.js'
+import {createDaemonAwareConnector} from '../../server/infra/transport/transport-connector.js'
 
 const TRANSPORT_LOG_FILE = path.join(BRV_DIR, 'transport-events.log')
 
@@ -78,10 +77,8 @@ export async function connectTransportClient(): Promise<ITransportClient | null>
   }
 
   try {
-    // Connect to daemon via DaemonInstanceDiscovery (global instance at ~/.local/share/brv/)
-    const {client} = await connectToTransport(undefined, {
-      discovery: new DaemonInstanceDiscovery(),
-    })
+    // Connect to daemon (auto-start if needed)
+    const {client} = await createDaemonAwareConnector()()
 
     // IMPORTANT: Join broadcast-room FIRST before subscribing to events.
     // This prevents missing events that are broadcast during the subscription window.

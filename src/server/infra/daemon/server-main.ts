@@ -255,6 +255,7 @@ async function main(): Promise<void> {
       () => {
         const token = authStateStore!.getToken()
         return {
+          isValid: token?.isValid() ?? false,
           sessionKey: token?.sessionKey ?? '',
         }
       },

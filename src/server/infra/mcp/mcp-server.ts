@@ -1,7 +1,8 @@
-import {connectToTransport, DaemonInstanceDiscovery, type ITransportClient} from '@campfirein/brv-transport-client'
+import {type ITransportClient} from '@campfirein/brv-transport-client'
 import {McpServer} from '@modelcontextprotocol/sdk/server/mcp.js'
 import {StdioServerTransport} from '@modelcontextprotocol/sdk/server/stdio.js'
 
+import {createDaemonAwareConnector} from '../transport/transport-connector.js'
 import {registerBrvCurateTool, registerBrvQueryTool} from './tools/index.js'
 
 export interface McpServerConfig {
@@ -77,9 +78,7 @@ export class ByteRoverMcpServer {
     let client
     let projectRoot
     try {
-      const result = await connectToTransport(this.config.workingDirectory, {
-        discovery: new DaemonInstanceDiscovery(),
-      })
+      const result = await createDaemonAwareConnector()(this.config.workingDirectory)
       client = result.client
       projectRoot = result.projectRoot
     } catch (error) {
@@ -147,10 +146,8 @@ export class ByteRoverMcpServer {
 
     this.reconnectTimer = setTimeout(async () => {
       try {
-        // Reconnect to daemon via DaemonInstanceDiscovery
-        const result = await connectToTransport(this.config.workingDirectory, {
-          discovery: new DaemonInstanceDiscovery(),
-        })
+        // Reconnect to daemon (auto-start if needed)
+        const result = await createDaemonAwareConnector()(this.config.workingDirectory)
 
         // Disconnect old client if it exists
         if (this.client) {

@@ -1,8 +1,6 @@
 import {
   ConnectionError,
   ConnectionFailedError,
-  connectToTransport,
-  DaemonInstanceDiscovery,
   InstanceCrashedError,
   type ITransportClient,
   NoInstanceRunningError,
@@ -13,7 +11,7 @@ import {z} from 'zod'
 
 import type {ITerminal} from '../../core/interfaces/services/i-terminal.js'
 import type {CurateUseCaseRunOptions, ICurateUseCase} from '../../core/interfaces/usecase/i-curate-use-case.js'
-import type {TransportConnector} from '../transport/transport-connector.js'
+import {createDaemonAwareConnector, type TransportConnector} from '../transport/transport-connector.js'
 
 import {ToolName} from '../../../agent/infra/tools/index.js'
 import {LlmToolResultEvent, TaskCompletedEvent, TaskErrorEvent} from '../../core/domain/transport/index.js'
@@ -64,9 +62,7 @@ export class CurateUseCase implements ICurateUseCase {
   constructor(options: CurateUseCaseOptions) {
     this.terminal = options.terminal
     this.trackingService = options.trackingService
-    this.transportConnector =
-      options.transportConnector ??
-      ((fromDir) => connectToTransport(fromDir, {discovery: new DaemonInstanceDiscovery()}))
+    this.transportConnector = options.transportConnector ?? createDaemonAwareConnector()
   }
 
   public async run({

@@ -5,22 +5,24 @@ import {Config as OclifConfig} from '@oclif/core'
 import {expect} from 'chai'
 import sinon from 'sinon'
 
-import type {DaemonStatus} from '../../src/server/infra/daemon/daemon-discovery.js'
+import type {EnsureDaemonResult} from '../../src/server/infra/daemon/daemon-spawner.js'
 
 import Debug from '../../src/oclif/commands/debug.js'
 
 // ==================== Helpers ====================
 
-const discoverNotRunning = (): DaemonStatus => ({reason: 'no_instance', running: false})
-const discoverRunning = (): DaemonStatus => ({pid: 12_345, port: 37_847, running: true})
+const ensureNotRunning = (): Promise<EnsureDaemonResult> =>
+  Promise.resolve({reason: 'timeout' as const, success: false as const})
+const ensureRunning = (): Promise<EnsureDaemonResult> =>
+  Promise.resolve({info: {pid: 12_345, port: 37_847}, started: false, success: true as const})
 
 /**
- * Testable subclass that overrides discover(), connect(), and clearScreen()
+ * Testable subclass that overrides ensureDaemon(), connect(), and clearScreen()
  * to avoid ES module stubbing issues and terminal escape codes in tests.
  */
 class TestableDebug extends Debug {
   constructor(
-    private readonly mockDiscover: () => DaemonStatus,
+    private readonly mockEnsureDaemon: () => Promise<EnsureDaemonResult>,
     private readonly mockConnect: () => Promise<{client: ITransportClient; projectRoot: string}>,
     argv: string[],
     config: Config,
@@ -36,8 +38,8 @@ class TestableDebug extends Debug {
     return this.mockConnect()
   }
 
-  protected discover(): DaemonStatus {
-    return this.mockDiscover()
+  protected ensureDaemon(): Promise<EnsureDaemonResult> {
+    return this.mockEnsureDaemon()
   }
 }
 
@@ -151,24 +153,24 @@ describe('Debug Command', () => {
     it('should show not-running message in tree format', async () => {
       const connect = sinon.stub().rejects(new Error('should not connect'))
 
-      const cmd = new TestableDebug(discoverNotRunning, connect, [], config)
+      const cmd = new TestableDebug(ensureNotRunning, connect, [], config)
       const output = captureOutput(cmd)
       await cmd.run()
 
-      expect(output.join('\n')).to.include('not running')
+      expect(output.join('\n')).to.include('failed to start')
       expect(connect.called).to.be.false
     })
 
     it('should show JSON output when daemon is not running', async () => {
       const connect = sinon.stub().rejects(new Error('should not connect'))
 
-      const cmd = new TestableDebug(discoverNotRunning, connect, ['--format', 'json'], config)
+      const cmd = new TestableDebug(ensureNotRunning, connect, ['--format', 'json'], config)
       const output = captureOutput(cmd)
       await cmd.run()
 
       const json: unknown = JSON.parse(output.join(''))
       expect(json).to.have.property('running', false)
-      expect(json).to.have.property('reason', 'no_instance')
+      expect(json).to.have.property('reason', 'timeout')
     })
   })
 
@@ -178,7 +180,7 @@ describe('Debug Command', () => {
       const mockClient = makeMockClient(state)
       const connect = sinon.stub().resolves({client: mockClient, projectRoot: '/tmp'})
 
-      const cmd = new TestableDebug(discoverRunning, connect, ['--once'], config)
+      const cmd = new TestableDebug(ensureRunning, connect, ['--once'], config)
       const output = captureOutput(cmd)
       await cmd.run()
 
@@ -221,7 +223,7 @@ describe('Debug Command', () => {
       const mockClient = makeMockClient(state)
       const connect = sinon.stub().resolves({client: mockClient, projectRoot: '/tmp'})
 
-      const cmd = new TestableDebug(discoverRunning, connect, ['--once'], config)
+      const cmd = new TestableDebug(ensureRunning, connect, ['--once'], config)
       const output = captureOutput(cmd)
       await cmd.run()
 
@@ -247,7 +249,7 @@ describe('Debug Command', () => {
       const mockClient = makeMockClient(state)
       const connect = sinon.stub().resolves({client: mockClient, projectRoot: '/tmp'})
 
-      const cmd = new TestableDebug(discoverRunning, connect, ['--once'], config)
+      const cmd = new TestableDebug(ensureRunning, connect, ['--once'], config)
       const output = captureOutput(cmd)
       await cmd.run()
 
@@ -263,7 +265,7 @@ describe('Debug Command', () => {
       const disconnectStub = mockClient.disconnect as sinon.SinonStub
       const connect = sinon.stub().resolves({client: mockClient, projectRoot: '/tmp'})
 
-      const cmd = new TestableDebug(discoverRunning, connect, ['--once'], config)
+      const cmd = new TestableDebug(ensureRunning, connect, ['--once'], config)
       captureOutput(cmd)
       await cmd.run()
 
@@ -277,7 +279,7 @@ describe('Debug Command', () => {
       const mockClient = makeMockClient(state)
       const connect = sinon.stub().resolves({client: mockClient, projectRoot: '/tmp'})
 
-      const cmd = new TestableDebug(discoverRunning, connect, ['--format', 'json'], config)
+      const cmd = new TestableDebug(ensureRunning, connect, ['--format', 'json'], config)
       const output = captureOutput(cmd)
       await cmd.run()
 
@@ -312,7 +314,7 @@ describe('Debug Command', () => {
       const connect = sinon.stub().resolves({client: mockClient, projectRoot: '/tmp'})
 
       // No --once flag → monitor mode
-      const cmd = new TestableDebug(discoverRunning, connect, [], config)
+      const cmd = new TestableDebug(ensureRunning, connect, [], config)
       const output = captureOutput(cmd)
       await cmd.run()
 
