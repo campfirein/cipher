@@ -16,7 +16,7 @@ import {getVisualLineCount} from '../../utils/line.js'
 /**
  * Maximum number of output lines to display in list view before truncation
  */
-export const MAX_OUTPUT_LINES = 4
+export const MAX_OUTPUT_LINES = 6
 
 /**
  * Processed streaming message for rendering

@@ -31,10 +31,14 @@ export interface OnboardingContextValue {
   completeOnboarding: (skipped?: boolean) => void
   /** Current onboarding step */
   currentStep: OnboardingStep
+  /** Map of command names to their recommended text (session-only, set after onboarding completes) */
+  highlightedCommands: Map<string, string>
   /** Whether init flow has been completed */
   initFlowCompleted: boolean
   /** Whether onboarding check is still loading (user check + auto-select if needed) */
   isLoadingOnboardingCheck: boolean
+  /** Remove a command from highlighted commands (called after command is executed) */
+  removeHighlightedCommand: (commandName: string) => void
   /** Set current onboarding step */
   setCurrentStep: (step: OnboardingStep) => void
   /** Whether init view should be shown */
@@ -68,6 +72,17 @@ export function OnboardingProvider({children}: OnboardingProviderProps): React.R
 
   // Track if init flow has been completed
   const [initFlowCompleted, setInitFlowCompleted] = useState(Boolean(brvConfig))
+
+  // Highlighted commands with their recommended text (session-only, set after onboarding completes)
+  const [highlightedCommands, setHighlightedCommands] = useState<Map<string, string>>(new Map())
+
+  const removeHighlightedCommand = useCallback((commandName: string) => {
+    setHighlightedCommands((prev) => {
+      const next = new Map(prev)
+      next.delete(commandName)
+      return next
+    })
+  }, [])
   const completeInitFlow = useCallback(() => setInitFlowCompleted(true), [])
 
   // Track if onboarding check is loading (user check + auto-select if needed)
@@ -181,6 +196,13 @@ export function OnboardingProvider({children}: OnboardingProviderProps): React.R
         trackingService.track('onboarding:skipped', {step: currentStep})
       } else {
         trackingService.track('onboarding:completed')
+        setHighlightedCommands(
+          new Map([
+            ['connector', 'Recommend: Connect ByteRover to your agents'],
+            ['push', 'Recommend: Sync your local context to the cloud'],
+            ['status', 'Recommend: Check your context tree status and project info'],
+          ]),
+        )
       }
 
       // Update user's hasOnboardedCli flag on the server
@@ -190,7 +212,7 @@ export function OnboardingProvider({children}: OnboardingProviderProps): React.R
         userService.updateCurrentUser(authToken.sessionKey, {hasOnboardedCli: true})
       }
     },
-    [authToken, currentStep, trackingService],
+    [authToken, currentStep, trackingService, completeInitFlow],
   )
 
   const contextValue = useMemo(
@@ -198,8 +220,10 @@ export function OnboardingProvider({children}: OnboardingProviderProps): React.R
       completeInitFlow,
       completeOnboarding,
       currentStep,
+      highlightedCommands,
       initFlowCompleted,
       isLoadingOnboardingCheck,
+      removeHighlightedCommand,
       setCurrentStep,
       shouldShowInit,
       shouldShowOnboarding,
@@ -208,8 +232,10 @@ export function OnboardingProvider({children}: OnboardingProviderProps): React.R
       completeInitFlow,
       completeOnboarding,
       currentStep,
+      highlightedCommands,
       initFlowCompleted,
       isLoadingOnboardingCheck,
+      removeHighlightedCommand,
       shouldShowInit,
       shouldShowOnboarding,
     ],

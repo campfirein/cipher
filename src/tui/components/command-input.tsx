@@ -6,7 +6,7 @@
 
 import {Box, Text, useInput} from 'ink'
 import TextInput from 'ink-text-input'
-import {ReactNode, useCallback, useEffect, useRef, useState} from 'react'
+import {ReactNode, useCallback, useEffect, useMemo, useRef, useState} from 'react'
 
 import type {OnboardingStep} from '../hooks/index.js'
 import type {PromptRequest, StreamingMessage} from '../types.js'
@@ -93,22 +93,30 @@ export const CommandInput = () => {
   const [inputKey, setInputKey] = useState(0)
   const ctrlOPressedRef = useRef(false)
   const previousInputRef = useRef('')
-  const {completeOnboarding, currentStep, shouldShowOnboarding} = useOnboarding()
+  const {completeOnboarding, currentStep, removeHighlightedCommand, shouldShowOnboarding} = useOnboarding()
 
-  // Fixed input value for curate onboarding step (only before user has curated and not currently curating)
-  const isInCurateStep = shouldShowOnboarding && currentStep === 'curate'
-  const displayInputValue = isInCurateStep ? '/curate Memory is a core component of an agent system.' : inputValue
+  // Check if in prefilled onboarding steps (curate or query)
+  const isInCurate = shouldShowOnboarding && currentStep === 'curate'
+  const isInQuery = shouldShowOnboarding && currentStep === 'query'
+  const isInCurating = shouldShowOnboarding && currentStep === 'curating'
+  const isInQuerying = shouldShowOnboarding && currentStep === 'querying'
+  const isInExplore = shouldShowOnboarding && currentStep === 'explore'
+
+  // Fixed input value for curate/query onboarding steps
+  const displayInputValue = useMemo(() => {
+    if (isInCurate) return '/curate Memory is a core component of an agent system.'
+    if (isInCurating) return ''
+    if (isInQuery) return '/query What are the core components of an agent system?'
+    if (isInQuerying) return ''
+    return inputValue
+  }, [shouldShowOnboarding, currentStep, inputValue])
 
   // Placeholder based on onboarding step
-  const getPlaceholder = () => {
-    if (isStreaming) return 'Processing...'
-    if (shouldShowOnboarding) {
-      if (currentStep === 'query') return 'Try "/query What are the core components of an agent system?"'
-      if (currentStep === 'explore') return 'Type /'
-    }
-
+  const placeholder = useMemo(() => {
+    if (isStreaming || isInCurating || isInQuerying) return 'Processing...'
+    if (isInExplore) return 'Type /'
     return 'Type a command...'
-  }
+  }, [isStreaming, shouldShowOnboarding, currentStep])
 
   // Filter out "o" character when Ctrl+O is pressed
   useEffect(() => {
@@ -151,6 +159,12 @@ export const CommandInput = () => {
 
       // Clear command input immediately
       setInputValue('')
+
+      // Remove from highlighted commands if it's a slash command
+      if (trimmed.startsWith('/')) {
+        const commandName = trimmed.slice(1).split(' ')[0]
+        removeHighlightedCommand(commandName)
+      }
 
       // Skip adding to messages for commands that are rendered via useActivityLogs
       const isRenderedByActivityLogs = trimmed.startsWith('/curate') || trimmed.startsWith('/query')
@@ -273,13 +287,13 @@ export const CommandInput = () => {
 
               const reason = Object.entries(reasonMap).find(([cmd]) => trimmed.startsWith(cmd))?.[1] ?? 'Command executed'
 
-              await client.request('agent:restart', {reason})
+              await client.requestWithAck('agent:restart', {reason})
             }
           }
         }
       }
     },
-    [clearTasks, client, currentStep, handleSlashCommand, reloadAuth, reloadBrvConfig, setActivePrompt, setIsStreaming, setMessages, setStreamingMessages, shouldShowOnboarding],
+    [clearTasks, client, currentStep, handleSlashCommand, reloadAuth, reloadBrvConfig, removeHighlightedCommand, setActivePrompt, setIsStreaming, setMessages, setStreamingMessages, shouldShowOnboarding],
   )
   /* eslint-enable complexity */
 
@@ -332,15 +346,15 @@ export const CommandInput = () => {
           focus={!activePrompt && (mode === 'main' || mode === 'suggestions')}
           key={inputKey}
           onChange={(value) => {
-            if (!isInCurateStep) setInputValue(value)
+            if (!(isInCurate || isInCurating || isInQuery || isInQuerying)) setInputValue(value)
 
-            if (shouldShowOnboarding && currentStep === 'explore' && value.startsWith('/')) {
+            if (isInExplore && value.startsWith('/')) {
               completeOnboarding()
             }
           }}
           onSubmit={handleSubmit}
-          placeholder={getPlaceholder()}
-          showCursor={!isInCurateStep}
+          placeholder={placeholder}
+          showCursor={!(isInCurate || isInQuery)}
           value={displayInputValue}
         />
       </Box>
