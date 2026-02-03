@@ -1,6 +1,8 @@
 import {
   ConnectionError,
   ConnectionFailedError,
+  connectToTransport,
+  DaemonInstanceDiscovery,
   InstanceCrashedError,
   type ITransportClient,
   NoInstanceRunningError,
@@ -8,8 +10,10 @@ import {
 import {Command, Flags} from '@oclif/core'
 import chalk from 'chalk'
 
+import {DAEMON_STOP_BUDGET_MS, DAEMON_STOP_POLL_INTERVAL_MS} from '../../server/constants.js'
+import {discoverDaemon} from '../../server/infra/daemon/daemon-discovery.js'
 import {type EnsureDaemonResult, ensureDaemonRunning} from '../../server/infra/daemon/daemon-spawner.js'
-import {createDaemonAwareConnector} from '../../server/infra/transport/transport-connector.js'
+import {isProcessAlive} from '../../server/utils/process-utils.js'
 
 /**
  * Refresh interval for monitor mode (ms).
@@ -78,6 +82,10 @@ export default class Debug extends Command {
     '<%= config.bin %> <%= command.id %> --once',
   ]
   public static flags = {
+    force: Flags.boolean({
+      default: false,
+      description: 'Kill existing daemon and start fresh',
+    }),
     format: Flags.string({
       char: 'f',
       default: 'tree',
@@ -97,11 +105,46 @@ export default class Debug extends Command {
   }
 
   protected connect(): Promise<{client: ITransportClient; projectRoot: string}> {
-    return createDaemonAwareConnector()(process.cwd())
+    return connectToTransport(process.cwd(), {discovery: new DaemonInstanceDiscovery()})
   }
 
   protected ensureDaemon(): Promise<EnsureDaemonResult> {
     return ensureDaemonRunning()
+  }
+
+  /**
+   * Kill the running daemon and wait for it to die.
+   * Internal to debug --force. Returns the PID that was killed, or undefined if none found.
+   */
+  protected async killExistingDaemon(): Promise<number | undefined> {
+    const status = discoverDaemon()
+    // Collect PID from any variant that has one
+    const pid = status.running ? status.pid : status.reason === 'no_instance' ? undefined : status.pid
+    if (pid === undefined || !isProcessAlive(pid)) return undefined
+
+    try {
+      process.kill(pid, 'SIGTERM')
+    } catch {
+      return pid
+    }
+
+    const deadline = Date.now() + DAEMON_STOP_BUDGET_MS
+    while (Date.now() < deadline) {
+      if (!isProcessAlive(pid)) return pid
+      // eslint-disable-next-line no-await-in-loop
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, DAEMON_STOP_POLL_INTERVAL_MS)
+      })
+    }
+
+    // SIGTERM didn't work — force kill
+    try {
+      process.kill(pid, 'SIGKILL')
+    } catch {
+      // already dead
+    }
+
+    return pid
   }
 
   public async run(): Promise<void> {
@@ -110,19 +153,23 @@ export default class Debug extends Command {
     // JSON format always implies one-shot (useful for scripting / piping)
     const oneShot = flags.once || format === 'json'
 
-    // Ensure daemon is running (auto-start if needed)
-    const ensureResult = await this.ensureDaemon()
-    if (!ensureResult.success) {
-      if (format === 'json') {
-        this.log(JSON.stringify({reason: ensureResult.reason, running: false}, null, 2))
-      } else {
-        this.log(`Daemon failed to start: ${chalk.red(ensureResult.reason)}`)
-      }
+    // --force: kill existing daemon, then start a fresh one
+    if (flags.force) {
+      await this.killExistingDaemon()
 
-      return
+      const ensureResult = await this.ensureDaemon()
+      if (!ensureResult.success) {
+        if (format === 'json') {
+          this.log(JSON.stringify({reason: ensureResult.reason, running: false}, null, 2))
+        } else {
+          this.log(`Daemon failed to start: ${chalk.red(ensureResult.reason)}`)
+        }
+
+        return
+      }
     }
 
-    // Connect to daemon via transport
+    // Connect to existing daemon (no auto-start)
     let client: ITransportClient | undefined
     try {
       const result = await this.connect()
@@ -155,10 +202,14 @@ export default class Debug extends Command {
       }
 
       const timer = setTimeout(resolve, ms)
-      signal.addEventListener('abort', () => {
-        clearTimeout(timer)
-        resolve()
-      }, {once: true})
+      signal.addEventListener(
+        'abort',
+        () => {
+          clearTimeout(timer)
+          resolve()
+        },
+        {once: true},
+      )
     })
   }
 
@@ -283,7 +334,11 @@ export default class Debug extends Command {
         const prefix = isLast ? '    └── ' : '    ├── '
         const childPrefix = isLast ? '        ' : '    │   '
         const typeColor =
-          client.type === 'agent' ? chalk.cyan(client.type) : client.type === 'tui' ? chalk.green(client.type) : chalk.blue(client.type)
+          client.type === 'agent'
+            ? chalk.cyan(client.type)
+            : client.type === 'tui'
+              ? chalk.green(client.type)
+              : chalk.blue(client.type)
 
         lines.push(
           `${prefix}${client.id} (${typeColor})`,
@@ -316,7 +371,7 @@ export default class Debug extends Command {
 
     try {
       // eslint-disable-next-line no-await-in-loop
-      while (!abortController.signal.aborted && await poll()) {
+      while (!abortController.signal.aborted && (await poll())) {
         // poll() handles fetch + render + delay
       }
     } catch (error) {

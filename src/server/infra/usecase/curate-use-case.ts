@@ -11,7 +11,6 @@ import {z} from 'zod'
 
 import type {ITerminal} from '../../core/interfaces/services/i-terminal.js'
 import type {CurateUseCaseRunOptions, ICurateUseCase} from '../../core/interfaces/usecase/i-curate-use-case.js'
-import {createDaemonAwareConnector, type TransportConnector} from '../transport/transport-connector.js'
 
 import {ToolName} from '../../../agent/infra/tools/index.js'
 import {LlmToolResultEvent, TaskCompletedEvent, TaskErrorEvent} from '../../core/domain/transport/index.js'
@@ -20,6 +19,7 @@ import {formatError} from '../../utils/error-handler.js'
 import {getSandboxEnvironmentName, isSandboxEnvironment, isSandboxNetworkError} from '../../utils/sandbox-detector.js'
 import {InlineAgent} from '../process/inline-agent-executor.js'
 import {HeadlessTerminal} from '../terminal/headless-terminal.js'
+import {createDaemonAwareConnector, type TransportConnector} from '../transport/transport-connector.js'
 
 export type {TransportConnector} from '../transport/transport-connector.js'
 

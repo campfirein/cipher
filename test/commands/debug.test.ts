@@ -41,6 +41,11 @@ class TestableDebug extends Debug {
   protected ensureDaemon(): Promise<EnsureDaemonResult> {
     return this.mockEnsureDaemon()
   }
+
+  protected async killExistingDaemon(): Promise<number | undefined> {
+    // no-op in tests — kill logic is not exercised at command level
+    return undefined
+  }
 }
 
 /**
@@ -149,11 +154,54 @@ describe('Debug Command', () => {
     sandbox.restore()
   })
 
-  describe('daemon not running', () => {
-    it('should show not-running message in tree format', async () => {
+  describe('daemon not running (no --force)', () => {
+    it('should show no-daemon message when connect throws NoInstanceRunningError', async () => {
+      const {NoInstanceRunningError: NoInstance} = await import('@campfirein/brv-transport-client')
+      const ensureSpy = sinon.stub().rejects(new Error('should not be called'))
+      const connect = sinon.stub().rejects(new NoInstance())
+
+      const cmd = new TestableDebug(ensureSpy, connect, ['--once'], config)
+      const output = captureOutput(cmd)
+      await cmd.run()
+
+      expect(output.join('\n')).to.include('No daemon is running')
+      expect(ensureSpy.called).to.be.false
+    })
+  })
+
+  describe('--force flag', () => {
+    it('should call ensureDaemon before connecting when --force is set', async () => {
+      const state = makeDaemonState()
+      const mockClient = makeMockClient(state)
+      const ensureSpy = sinon.stub().resolves({info: {pid: 12_345, port: 37_847}, started: true, success: true})
+      const connect = sinon.stub().resolves({client: mockClient, projectRoot: '/tmp'})
+
+      const cmd = new TestableDebug(ensureSpy, connect, ['--force', '--once'], config)
+      captureOutput(cmd)
+      await cmd.run()
+
+      expect(ensureSpy.calledOnce).to.be.true
+      expect(connect.calledOnce).to.be.true
+    })
+
+    it('should not call ensureDaemon without --force', async () => {
+      const state = makeDaemonState()
+      const mockClient = makeMockClient(state)
+      const ensureSpy = sinon.stub().rejects(new Error('should not be called'))
+      const connect = sinon.stub().resolves({client: mockClient, projectRoot: '/tmp'})
+
+      const cmd = new TestableDebug(ensureSpy, connect, ['--once'], config)
+      captureOutput(cmd)
+      await cmd.run()
+
+      expect(ensureSpy.called).to.be.false
+      expect(connect.calledOnce).to.be.true
+    })
+
+    it('should show failure message when --force daemon start fails', async () => {
       const connect = sinon.stub().rejects(new Error('should not connect'))
 
-      const cmd = new TestableDebug(ensureNotRunning, connect, [], config)
+      const cmd = new TestableDebug(ensureNotRunning, connect, ['--force', '--once'], config)
       const output = captureOutput(cmd)
       await cmd.run()
 
@@ -161,10 +209,10 @@ describe('Debug Command', () => {
       expect(connect.called).to.be.false
     })
 
-    it('should show JSON output when daemon is not running', async () => {
+    it('should show JSON failure when --force daemon start fails with json format', async () => {
       const connect = sinon.stub().rejects(new Error('should not connect'))
 
-      const cmd = new TestableDebug(ensureNotRunning, connect, ['--format', 'json'], config)
+      const cmd = new TestableDebug(ensureNotRunning, connect, ['--force', '--format', 'json'], config)
       const output = captureOutput(cmd)
       await cmd.run()
 

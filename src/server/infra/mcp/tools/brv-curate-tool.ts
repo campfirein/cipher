@@ -4,6 +4,8 @@ import type {McpServer} from '@modelcontextprotocol/sdk/server/mcp.js'
 import {randomUUID} from 'node:crypto'
 import {z} from 'zod'
 
+import {resolveClientCwd} from './resolve-client-cwd.js'
+
 export const BrvCurateInputSchema = z
   .object({
     context: z
@@ -11,6 +13,14 @@ export const BrvCurateInputSchema = z
       .optional()
       .describe(
         'Knowledge to store: patterns, decisions, errors, or insights about the codebase. Required unless files are provided.',
+      ),
+    cwd: z
+      .string()
+      .optional()
+      .describe(
+        'Working directory of the project (absolute path). ' +
+          'Required when the MCP server runs in global mode (e.g., Windsurf). ' +
+          'Optional in project mode — defaults to the project directory.',
       ),
     files: z
       .array(z.string())
@@ -36,16 +46,27 @@ export const BrvCurateInputSchema = z
 export function registerBrvCurateTool(
   server: McpServer,
   getClient: () => ITransportClient | undefined,
-  getWorkingDirectory: () => string,
+  getWorkingDirectory: () => string | undefined,
 ): void {
   server.registerTool(
     'brv-curate',
     {
-      description: 'Store context to the ByteRover context tree. Save patterns, decisions, or insights.',
+      description:
+        'Store context to the ByteRover context tree. Save patterns, decisions, or insights. ' +
+        'Curation is processed asynchronously — the tool returns immediately after queueing.',
       inputSchema: BrvCurateInputSchema,
       title: 'ByteRover Curate',
     },
-    async ({context, files}: {context?: string; files?: string[]}) => {
+    async ({context, cwd, files}: {context?: string; cwd?: string; files?: string[]}) => {
+      // Resolve clientCwd: explicit cwd param > server working directory
+      const cwdResult = resolveClientCwd(cwd, getWorkingDirectory)
+      if (!cwdResult.success) {
+        return {
+          content: [{text: cwdResult.error, type: 'text' as const}],
+          isError: true,
+        }
+      }
+
       const client = getClient()
       if (!client) {
         return {
@@ -75,7 +96,7 @@ export function registerBrvCurateTool(
         // Use provided context, or empty string for file-only mode
         const resolvedContent = context?.trim() ? context : ''
         await client.requestWithAck('task:create', {
-          clientCwd: getWorkingDirectory(),
+          clientCwd: cwdResult.clientCwd,
           content: resolvedContent,
           taskId,
           type: 'curate',
@@ -87,7 +108,7 @@ export function registerBrvCurateTool(
         return {
           content: [
             {
-              text: `✓ Context queued for curation (taskId: ${taskId}). The curation will be processed asynchronously.`,
+              text: `Context queued for curation (taskId: ${taskId}). The curation will be processed asynchronously.`,
               type: 'text' as const,
             },
           ],

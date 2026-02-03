@@ -1,7 +1,4 @@
-import {
-  InstanceCrashedError,
-  NoInstanceRunningError,
-} from '@campfirein/brv-transport-client'
+import {InstanceCrashedError, NoInstanceRunningError} from '@campfirein/brv-transport-client'
 import chalk from 'chalk'
 import {join} from 'node:path'
 
@@ -12,11 +9,11 @@ import type {ITerminal} from '../../core/interfaces/services/i-terminal.js'
 import type {ITrackingService} from '../../core/interfaces/services/i-tracking-service.js'
 import type {IProjectConfigStore} from '../../core/interfaces/storage/i-project-config-store.js'
 import type {IStatusUseCase} from '../../core/interfaces/usecase/i-status-use-case.js'
-import {createDaemonAwareConnector, type TransportConnector} from '../transport/transport-connector.js'
 
 import {BRV_DIR, CONTEXT_TREE_DIR} from '../../constants.js'
 import {getErrorMessage} from '../../utils/error-helpers.js'
 import {HeadlessTerminal} from '../terminal/headless-terminal.js'
+import {createDaemonAwareConnector, type TransportConnector} from '../transport/transport-connector.js'
 
 export type {TransportConnector} from '../transport/transport-connector.js'
 

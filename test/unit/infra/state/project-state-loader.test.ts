@@ -220,9 +220,10 @@ describe('ProjectStateLoader', () => {
     it('should share one load across 10 concurrent calls', async () => {
       // Make config load async to ensure concurrency
       configReadStub.callsFake(
-        () => new Promise<BrvConfig | undefined>((resolve) => {
-          setTimeout(() => resolve(createTestConfig()), 10)
-        }),
+        () =>
+          new Promise<BrvConfig | undefined>((resolve) => {
+            setTimeout(() => resolve(createTestConfig()), 10)
+          }),
       )
       registryGetStub.returns(createProjectInfo(PROJECT_A, join(tempDir, 'project-a')))
 
@@ -264,8 +265,10 @@ describe('ProjectStateLoader', () => {
     it('should clear all cached states', async () => {
       configReadStub.resolves(createTestConfig())
       registryGetStub
-        .withArgs(PROJECT_A).returns(createProjectInfo(PROJECT_A, join(tempDir, 'a')))
-        .withArgs(PROJECT_B).returns(createProjectInfo(PROJECT_B, join(tempDir, 'b')))
+        .withArgs(PROJECT_A)
+        .returns(createProjectInfo(PROJECT_A, join(tempDir, 'a')))
+        .withArgs(PROJECT_B)
+        .returns(createProjectInfo(PROJECT_B, join(tempDir, 'b')))
 
       await loader.getProjectState(PROJECT_A)
       await loader.getProjectState(PROJECT_B)
@@ -340,12 +343,12 @@ describe('ProjectStateLoader', () => {
         version: '0.0.1',
       })
 
-      configReadStub
-        .withArgs(PROJECT_A).resolves(configA)
-        .withArgs(PROJECT_B).resolves(configB)
+      configReadStub.withArgs(PROJECT_A).resolves(configA).withArgs(PROJECT_B).resolves(configB)
       registryGetStub
-        .withArgs(PROJECT_A).returns(createProjectInfo(PROJECT_A, join(tempDir, 'a')))
-        .withArgs(PROJECT_B).returns(createProjectInfo(PROJECT_B, join(tempDir, 'b')))
+        .withArgs(PROJECT_A)
+        .returns(createProjectInfo(PROJECT_A, join(tempDir, 'a')))
+        .withArgs(PROJECT_B)
+        .returns(createProjectInfo(PROJECT_B, join(tempDir, 'b')))
 
       const resultA = await loader.getProjectState(PROJECT_A)
       const resultB = await loader.getProjectState(PROJECT_B)
@@ -361,8 +364,10 @@ describe('ProjectStateLoader', () => {
     it('should not affect project-b when invalidating project-a', async () => {
       configReadStub.resolves(createTestConfig())
       registryGetStub
-        .withArgs(PROJECT_A).returns(createProjectInfo(PROJECT_A, join(tempDir, 'a')))
-        .withArgs(PROJECT_B).returns(createProjectInfo(PROJECT_B, join(tempDir, 'b')))
+        .withArgs(PROJECT_A)
+        .returns(createProjectInfo(PROJECT_A, join(tempDir, 'a')))
+        .withArgs(PROJECT_B)
+        .returns(createProjectInfo(PROJECT_B, join(tempDir, 'b')))
 
       await loader.getProjectState(PROJECT_A)
       await loader.getProjectState(PROJECT_B)

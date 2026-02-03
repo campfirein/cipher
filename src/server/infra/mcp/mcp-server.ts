@@ -3,6 +3,7 @@ import {McpServer} from '@modelcontextprotocol/sdk/server/mcp.js'
 import {StdioServerTransport} from '@modelcontextprotocol/sdk/server/stdio.js'
 
 import {createDaemonAwareConnector} from '../transport/transport-connector.js'
+import {detectMcpMode, type McpMode} from './mcp-mode-detector.js'
 import {registerBrvCurateTool, registerBrvQueryTool} from './tools/index.js'
 
 export interface McpServerConfig {
@@ -33,13 +34,19 @@ export class ByteRoverMcpServer {
   private client: ITransportClient | undefined
   private readonly config: McpServerConfig
   private currentReconnectDelay: number = RECONNECT_DELAY_MS
+  private heartbeatInterval: NodeJS.Timeout | undefined
   private isReconnecting: boolean = false
+  private readonly mode: McpMode
+  private readonly projectRoot: string | undefined
   private reconnectTimer: NodeJS.Timeout | undefined
   private readonly server: McpServer
   private transport: StdioServerTransport | undefined
 
   constructor(config: McpServerConfig) {
     this.config = config
+    const {mode, projectRoot} = detectMcpMode(config.workingDirectory)
+    this.mode = mode
+    this.projectRoot = projectRoot
     this.server = new McpServer({
       name: 'byterover',
       version: config.version,
@@ -47,16 +54,8 @@ export class ByteRoverMcpServer {
 
     // Register tools with lazy client getter
     // Client will be set when start() is called
-    registerBrvQueryTool(
-      this.server,
-      () => this.client,
-      () => this.config.workingDirectory,
-    )
-    registerBrvCurateTool(
-      this.server,
-      () => this.client,
-      () => this.config.workingDirectory,
-    )
+    registerBrvQueryTool(this.server, () => this.client, () => this.getWorkingDirectory())
+    registerBrvCurateTool(this.server, () => this.client, () => this.getWorkingDirectory())
   }
 
   /**
@@ -71,6 +70,7 @@ export class ByteRoverMcpServer {
   async start(): Promise<void> {
     this.log('Starting MCP server...')
     this.log(`Working directory: ${this.config.workingDirectory}`)
+    this.log(`Mode: ${this.mode}`)
 
     // Connect to running brv instance using modern API
     this.log('Connecting to brv instance...')
@@ -102,7 +102,7 @@ export class ByteRoverMcpServer {
     this.log('MCP server started and ready for tool calls')
 
     // Log client state periodically to debug connection issues
-    setInterval(() => {
+    this.heartbeatInterval = setInterval(() => {
       if (this.client) {
         this.log(`[heartbeat] Client state: ${this.client.getState()}, ID: ${this.client.getClientId()}`)
       } else {
@@ -121,6 +121,12 @@ export class ByteRoverMcpServer {
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer)
       this.reconnectTimer = undefined
+    }
+
+    // Clear heartbeat interval
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval)
+      this.heartbeatInterval = undefined
     }
 
     this.isReconnecting = false
@@ -181,6 +187,16 @@ export class ByteRoverMcpServer {
         this.attemptReconnect()
       }
     }, this.currentReconnectDelay)
+  }
+
+  /**
+   * Returns the project root directory for MCP tool calls.
+   *
+   * In project mode, returns the discovered project root (where .brv/config.json lives).
+   * In global mode, returns undefined — each tool call must provide cwd.
+   */
+  private getWorkingDirectory(): string | undefined {
+    return this.mode === 'project' ? this.projectRoot : undefined
   }
 
   /**
