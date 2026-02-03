@@ -198,7 +198,7 @@ describe('TransportHandlers', () => {
         .true
     })
 
-    it('should reject duplicate taskId with error', () => {
+    it('should return idempotent response for duplicate taskId', () => {
       const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
       registerAgentWithStatus('agent-001')
 
@@ -208,10 +208,9 @@ describe('TransportHandlers', () => {
       const result1 = createHandler!({content: 'Task 1', taskId, type: 'curate'}, 'client-001')
       expect(result1).to.deep.equal({taskId})
 
-      // Second creation with same taskId should throw
-      expect(() => createHandler!({content: 'Task 2', taskId, type: 'curate'}, 'client-002')).to.throw(
-        `Task ${taskId} already exists`,
-      )
+      // Second creation with same taskId returns idempotent response
+      const result2 = createHandler!({content: 'Task 2', taskId, type: 'curate'}, 'client-002')
+      expect(result2).to.deep.equal({taskId})
     })
 
     it('should broadcast task:created to broadcast-room', () => {

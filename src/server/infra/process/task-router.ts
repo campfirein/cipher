@@ -68,6 +68,10 @@ type TaskRouterOptions = {
   transport: ITransportServer
 }
 
+function hasTaskId(data: unknown): data is {[key: string]: unknown; taskId: string} {
+  return typeof data === 'object' && data !== null && 'taskId' in data && typeof (data as {taskId: unknown}).taskId === 'string'
+}
+
 export class TaskRouter {
   private readonly agentPool: IAgentPool | undefined
   /**
@@ -132,7 +136,13 @@ export class TaskRouter {
   getTasksForProject(projectPath?: string): TaskInfo[] {
     const result: TaskInfo[] = []
     for (const task of this.tasks.values()) {
-      if (!projectPath || task.projectPath === projectPath || task.projectPath === undefined) {
+      if (projectPath === undefined) {
+        // No projectPath specified — only match tasks without a project
+        if (task.projectPath === undefined) {
+          result.push(task)
+        }
+      } else if (task.projectPath === projectPath || task.projectPath === undefined) {
+        // Specific project — match tasks for that project or unassigned tasks
         result.push(task)
       }
     }
@@ -242,7 +252,8 @@ export class TaskRouter {
     const {taskId} = data
 
     if (this.tasks.has(taskId)) {
-      throw new Error(`Task ${taskId} already exists`)
+      // Idempotent — duplicate creation returns existing taskId (e.g. client retry)
+      return {taskId}
     }
 
     // Resolve projectPath: explicit field takes priority, fall back to clientCwd.
@@ -378,7 +389,8 @@ export class TaskRouter {
 
   private registerLlmEvent<E extends LlmEventName>(eventName: E): void {
     this.transport.onRequest<LlmEventPayloadMap[E], void>(eventName, (data) => {
-      this.routeLlmEvent(eventName, data as unknown as {[key: string]: unknown; taskId: string})
+      if (!hasTaskId(data)) return
+      this.routeLlmEvent(eventName, data)
     })
   }
 

@@ -84,7 +84,7 @@ export const ExecutionStartedPayloadSchema = z.object({
 export const ExecutionTerminatedPayloadSchema = z.object({
   durationMs: z.number().optional(),
   endTime: z.coerce.date(),
-  error: z.any().optional(), // Error objects don't serialize well
+  error: z.unknown().optional(), // Error objects don't serialize well
   reason: AgentTerminationReasonSchema,
   sessionId: z.string(),
   toolCallsExecuted: z.number(),

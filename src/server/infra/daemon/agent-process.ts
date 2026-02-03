@@ -85,6 +85,7 @@ async function start(): Promise<void> {
   type ProjectConfigResponse = {
     brvConfig?: BrvConfig
     spaceId?: string
+    storagePath?: string
     teamId?: string
   }
 
@@ -134,6 +135,7 @@ async function start(): Promise<void> {
     llm: {maxIterations: 10, maxTokens: 4096, temperature: 0.7, topK: 10, topP: 0.95, verbose: false},
     model: DEFAULT_LLM_MODEL,
     projectId: PROJECT,
+    storagePath: configResult.storagePath,
   }
 
   agent = new CipherAgent(agentConfig, cachedBrvConfig, {
@@ -182,6 +184,9 @@ async function executeTask(
     return
   }
 
+  // Setup per-task event forwarding — forwards llmservice:* events to daemon
+  const cleanupForwarding = agent.setupTaskForwarding(taskId)
+
   // Emit task:started
   transport.request(TransportTaskEventNames.STARTED, {taskId})
 
@@ -196,6 +201,8 @@ async function executeTask(
     // Emit task:error
     const errorData = serializeTaskError(error)
     transport.request(TransportTaskEventNames.ERROR, {clientId, error: errorData, taskId})
+  } finally {
+    cleanupForwarding?.()
   }
 }
 

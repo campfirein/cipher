@@ -6,7 +6,7 @@ import type {TransportServerConfig} from '../../core/domain/transport/types.js'
 import type {ConnectionHandler, ConnectionMetadata, ITransportServer, RequestHandler} from '../../core/interfaces/transport/index.js'
 
 import {isDevelopment} from '../../config/environment.js'
-import {TRANSPORT_PING_INTERVAL_MS, TRANSPORT_PING_TIMEOUT_MS} from '../../constants.js'
+import {TRANSPORT_HOST, TRANSPORT_PING_INTERVAL_MS, TRANSPORT_PING_TIMEOUT_MS} from '../../constants.js'
 import {
   TransportPortInUseError,
   TransportServerAlreadyRunningError,
@@ -218,7 +218,7 @@ export class SocketIOTransportServer implements ITransportServer {
         }
       })
 
-      this.httpServer.listen(port, () => {
+      this.httpServer.listen(port, TRANSPORT_HOST, () => {
         this.port = port
         this.running = true
         resolve()

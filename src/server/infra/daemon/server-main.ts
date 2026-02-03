@@ -26,6 +26,8 @@ import {mkdirSync, readdirSync, readFileSync, unlinkSync} from 'node:fs'
 import {dirname, join} from 'node:path'
 import {fileURLToPath} from 'node:url'
 
+import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
+
 import {AGENT_POOL_MAX_SIZE, HEARTBEAT_FILE} from '../../constants.js'
 import {getGlobalDataDir} from '../../utils/global-data-path.js'
 import {crashLog, processLog} from '../../utils/process-logger.js'
@@ -188,7 +190,7 @@ async function main(): Promise<void> {
 
     // Agent pool with fork-based factory — each agent runs in its own process
     const currentDir = dirname(fileURLToPath(import.meta.url))
-    const agentProcessPath = join(currentDir, 'agent-process.js')
+    const agentProcessPath = process.env.BRV_AGENT_PROCESS_PATH ?? join(currentDir, 'agent-process.js')
 
     agentPool = new AgentPool({
       agentProcessFactory(projectPath) {
@@ -238,19 +240,22 @@ async function main(): Promise<void> {
     })
 
     // State server endpoints — agent child processes request config on startup
-    transportServer.onRequest<{projectPath: string}, unknown>(
+    transportServer.onRequest<{projectPath: string}, {brvConfig?: BrvConfig; spaceId: string; storagePath: string; teamId: string}>(
       'state:getProjectConfig',
       async (data) => {
         const config = await projectStateLoader.getProjectConfig(data.projectPath)
+        // Register project (idempotent) to ensure XDG storage directories exist
+        const projectInfo = projectRegistry.register(data.projectPath)
         return {
           brvConfig: config,
           spaceId: config?.spaceId ?? '',
+          storagePath: projectInfo.storagePath,
           teamId: config?.teamId ?? '',
         }
       },
     )
 
-    transportServer.onRequest<void, unknown>(
+    transportServer.onRequest<void, {isValid: boolean; sessionKey: string}>(
       'state:getAuth',
       () => {
         const token = authStateStore!.getToken()

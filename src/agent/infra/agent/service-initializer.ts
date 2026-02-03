@@ -127,12 +127,15 @@ export async function createCipherAgentServices(
   })
   await processService.initialize()
 
+  // Storage base path: XDG storagePath (daemon mode) or .brv/ fallback (REPL mode)
+  const storageBasePath = config.storagePath ?? join(workingDirectory, '.brv')
+
   // 4. Blob storage (no dependencies)
   const blobStorage = createBlobStorage(
     config.blobStorage ?? {
       maxBlobSize: 100 * 1024 * 1024, // 100MB
       maxTotalSize: 1024 * 1024 * 1024, // 1GB
-      storageDir: join(workingDirectory, '.brv', 'blobs'),
+      storageDir: storageBasePath,
     },
   )
   await blobStorage.initialize()
@@ -205,7 +208,7 @@ export async function createCipherAgentServices(
   if (config.useGranularStorage) {
     // Create granular storage infrastructure
     const keyStorage = new SqliteKeyStorage({
-      storageDir: join(workingDirectory, '.brv'),
+      storageDir: storageBasePath,
     })
     await keyStorage.initialize()
 

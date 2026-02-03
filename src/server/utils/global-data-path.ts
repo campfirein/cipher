@@ -14,6 +14,8 @@ import {GLOBAL_DATA_DIR} from '../constants.js'
  * @returns Absolute path to the global data directory
  */
 export const getGlobalDataDir = (): string => {
+  if (process.env.BRV_DATA_DIR) return process.env.BRV_DATA_DIR
+
   const currentPlatform = platform()
 
   if (currentPlatform === 'win32') {

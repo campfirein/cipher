@@ -96,11 +96,11 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
     this._transportClient = options?.transportClient
   }
 
-  // === Public Getters (expose services for backward compatibility) ===
-
   public get agentEventBus() {
     return this.services?.agentEventBus
   }
+
+  // === Public Getters (expose services for backward compatibility) ===
 
   public get fileSystemService(): FileSystemService | undefined {
     return this.services?.fileSystemService
@@ -146,8 +146,6 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
     return this._transportClient
   }
 
-  // === Public Methods (alphabetical order) ===
-
   /**
    * Cancels the currently running turn for the agent's default session.
    * Safe to call even if no run is in progress.
@@ -176,6 +174,8 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
     // If no session found but stream was aborted, still return true
     return Boolean(streamController)
   }
+
+  // === Public Methods (alphabetical order) ===
 
   protected override async cleanupServices(): Promise<void> {
     // Abort all active streams and clear controllers
@@ -393,8 +393,6 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
     return this.getSessionManagerInternal().listSessions()
   }
 
-  // === Protected Methods (implement abstract from BaseAgent) ===
-
   /**
    * Reset the agent to initial state.
    * Resets execution state only. To reset sessions, use resetSession(sessionId).
@@ -405,6 +403,8 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
       this.stateManager.reset()
     }
   }
+
+  // === Protected Methods (implement abstract from BaseAgent) ===
 
   /**
    * Reset a specific session's conversation history.
@@ -420,6 +420,20 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
     if (this._isStarted && this.services?.agentEventBus) {
       this.services.agentEventBus.emit('cipher:conversationReset', {sessionId})
     }
+  }
+
+  /**
+   * Setup per-task event forwarding via TransportEventBridge.
+   * Registers listeners on AgentEventBus that forward llmservice:* events
+   * matching the given taskId to the transport server.
+   *
+   * Only effective when a transport client is injected (child process mode).
+   *
+   * @param taskId - Task ID to filter events by
+   * @returns Cleanup function that removes listeners, or undefined if no bridge
+   */
+  public setupTaskForwarding(taskId: string): (() => void) | undefined {
+    return this.eventBridge?.setupForTask(taskId)
   }
 
   /**
