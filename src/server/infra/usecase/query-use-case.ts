@@ -101,7 +101,7 @@ export class QueryUseCase implements IQueryUseCase {
           this.terminal.log('Discovering running instance...')
         }
 
-        // Use modern connectToTransport API (auto-discovers and connects)
+        // Use modern connectToTransport API (auto-discovers, connects, and registers with projectPath)
         const {client: connectedClient} = await this.transportConnector()
         client = connectedClient
       }

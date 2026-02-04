@@ -1,6 +1,7 @@
 import type {SessionInfo} from '../../../agent/core/domain/session/session-metadata.js'
 import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
 import type {IProjectRegistry} from '../../core/interfaces/project/i-project-registry.js'
+import type {ISessionReader} from '../../core/interfaces/session/i-session-reader.js'
 import type {
   IProjectStateLoader,
   ProjectState,
@@ -8,7 +9,9 @@ import type {
 } from '../../core/interfaces/state/i-project-state-loader.js'
 import type {IProjectConfigStore} from '../../core/interfaces/storage/i-project-config-store.js'
 
-import {SessionMetadataStore} from '../../../agent/infra/session/session-metadata-store.js'
+import {SessionReader} from '../session/session-reader.js'
+
+type SessionReaderFactory = (sessionsDir: string, workingDirectory: string) => ISessionReader
 
 type ProjectStateLoaderOptions = {
   /** Project config reader (<projectPath>/.brv/config.json) */
@@ -17,6 +20,8 @@ type ProjectStateLoaderOptions = {
   log?: (message: string) => void
   /** Project registry for resolving XDG storage paths */
   projectRegistry: IProjectRegistry
+  /** Factory for creating session readers (optional, defaults to SessionReader) */
+  sessionReaderFactory?: SessionReaderFactory
 }
 
 /**
@@ -45,11 +50,15 @@ export class ProjectStateLoader implements IProjectStateLoader {
   private readonly loadPromises: Map<string, Promise<ProjectStateResult>> = new Map()
   private readonly log: (message: string) => void
   private readonly projectRegistry: IProjectRegistry
+  private readonly sessionReaderFactory: SessionReaderFactory
 
   constructor(options: ProjectStateLoaderOptions) {
     this.configStore = options.configStore
     this.projectRegistry = options.projectRegistry
     this.log = options.log ?? (() => {})
+    this.sessionReaderFactory = options.sessionReaderFactory ?? ((sessionsDir, workingDirectory) =>
+      new SessionReader({sessionsDir, workingDirectory})
+    )
   }
 
   getCachedProjectConfig(projectPath: string): BrvConfig | undefined {
@@ -101,6 +110,22 @@ export class ProjectStateLoader implements IProjectStateLoader {
     this.loadedStates.clear()
     this.loadPromises.clear()
     this.log('Invalidated all project state caches')
+  }
+
+  async shouldInvalidate(projectPath: string): Promise<boolean> {
+    // No cached state → no need to invalidate
+    const cached = this.loadedStates.get(projectPath)
+    if (!cached || !cached.ok) return false
+
+    // Get config file modification time
+    const modifiedTime = await this.configStore.getModifiedTime(projectPath)
+
+    // File doesn't exist → no need to invalidate (cache will return undefined anyway)
+    if (modifiedTime === undefined) return false
+
+    // Compare modification time with cache timestamp
+    // If file was modified after we loaded it, we need to invalidate
+    return modifiedTime > cached.state.loadedAt
   }
 
   /**
@@ -158,8 +183,8 @@ export class ProjectStateLoader implements IProjectStateLoader {
       }
 
       const sessionsDir = `${projectInfo.storagePath}/sessions`
-      const store = new SessionMetadataStore({sessionsDir, workingDirectory: projectPath})
-      return await store.listSessions()
+      const reader = this.sessionReaderFactory(sessionsDir, projectPath)
+      return await reader.listSessions()
     } catch (error) {
       this.log(`Sessions load error for ${projectPath}: ${error instanceof Error ? error.message : String(error)}`)
       return []

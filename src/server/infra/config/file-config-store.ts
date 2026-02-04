@@ -1,5 +1,5 @@
 import {existsSync} from 'node:fs'
-import {mkdir, readFile, writeFile} from 'node:fs/promises'
+import {mkdir, readFile, stat, writeFile} from 'node:fs/promises'
 import {join} from 'node:path'
 
 import type {IProjectConfigStore} from '../../core/interfaces/storage/i-project-config-store.js'
@@ -17,6 +17,21 @@ export class ProjectConfigStore implements IProjectConfigStore {
   public async exists(directory?: string): Promise<boolean> {
     const configPath = this.getConfigPath(directory)
     return existsSync(configPath)
+  }
+
+  public async getModifiedTime(directory?: string): Promise<number | undefined> {
+    const configPath = this.getConfigPath(directory)
+
+    if (!existsSync(configPath)) {
+      return undefined
+    }
+
+    try {
+      const stats = await stat(configPath)
+      return stats.mtimeMs
+    } catch {
+      return undefined
+    }
   }
 
   public async read(directory?: string): Promise<BrvConfig | undefined> {

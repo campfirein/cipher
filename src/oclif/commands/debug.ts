@@ -25,6 +25,11 @@ const MONITOR_REFRESH_MS = 2000
  * Defined locally — this command is the only consumer.
  */
 type DaemonState = {
+  agentIdleStatus: Array<{
+    idleMs: number
+    projectPath: string
+    remainingMs: number
+  }>
   agentPool: {
     entries: Array<{
       childPid: number | undefined
@@ -51,6 +56,13 @@ type DaemonState = {
     uptime: number
     version: string
   }
+  daemonIdleStatus?:
+    | undefined
+    | {
+        clientCount: number
+        idleMs: number
+        remainingMs: number
+      }
   tasks: {
     activeTasks: Array<{
       clientId: string
@@ -105,7 +117,8 @@ export default class Debug extends Command {
   }
 
   protected connect(): Promise<{client: ITransportClient; projectRoot: string}> {
-    return connectToTransport(process.cwd(), {discovery: new DaemonInstanceDiscovery()})
+    // Debug commands should not register to avoid blocking daemon idle timeout
+    return connectToTransport(process.cwd(), {autoRegister: false, discovery: new DaemonInstanceDiscovery()})
   }
 
   protected ensureDaemon(): Promise<EnsureDaemonResult> {
@@ -227,6 +240,68 @@ export default class Debug extends Command {
     return this.formatDuration(Date.now() - timestamp) + ' ago'
   }
 
+  private renderAgentPool(
+    lines: string[],
+    agentPool: DaemonState['agentPool'],
+    agentIdleStatus: DaemonState['agentIdleStatus'],
+  ): void {
+    lines.push(`├── Agent Pool (${agentPool.size}/${agentPool.maxSize})`)
+    if (agentPool.entries.length === 0) {
+      lines.push('│   └── (empty)')
+      return
+    }
+
+    for (const [i, entry] of agentPool.entries.entries()) {
+      const isLast = i === agentPool.entries.length - 1
+      const prefix = isLast ? '│   └── ' : '│   ├── '
+      const childPrefix = isLast ? '│       ' : '│   │   '
+      const status = entry.hasActiveTask
+        ? chalk.yellow('busy')
+        : entry.isIdle
+          ? chalk.dim('idle')
+          : chalk.green('ready')
+
+      const idleInfo = agentIdleStatus.find((s) => s.projectPath === entry.projectPath)
+      const idleCountdown =
+        idleInfo && idleInfo.remainingMs < 60_000
+          ? chalk.yellow(` (will be killed in ${this.formatDuration(idleInfo.remainingMs)})`)
+          : ''
+
+      lines.push(
+        `${prefix}${entry.projectPath}`,
+        `${childPrefix}├── PID: ${entry.childPid ?? 'unknown'}`,
+        `${childPrefix}├── Status: ${status}${idleCountdown}`,
+        `${childPrefix}├── Created: ${this.formatTimeAgo(entry.createdAt)}`,
+        `${childPrefix}└── Last used: ${this.formatTimeAgo(entry.lastUsedAt)}`,
+      )
+    }
+  }
+
+  private renderClients(lines: string[], clients: DaemonState['clients']): void {
+    lines.push(`└── Connected Clients (${clients.length})`)
+    if (clients.length === 0) {
+      lines.push('    └── (none)')
+      return
+    }
+
+    for (const [i, client] of clients.entries()) {
+      const isLast = i === clients.length - 1
+      const prefix = isLast ? '    └── ' : '    ├── '
+      const childPrefix = isLast ? '        ' : '    │   '
+      const typeColor =
+        client.type === 'agent'
+          ? chalk.cyan(client.type)
+          : client.type === 'tui'
+            ? chalk.green(client.type)
+            : chalk.blue(client.type)
+
+      lines.push(
+        `${prefix}${client.id} (${typeColor})`,
+        `${childPrefix}└── Project: ${client.projectPath ?? chalk.dim('(no project)')}`,
+      )
+    }
+  }
+
   private async renderOnce(client: ITransportClient, format: string): Promise<void> {
     const state = await client.requestWithAck<DaemonState>('daemon:getState')
 
@@ -237,57 +312,7 @@ export default class Debug extends Command {
     }
   }
 
-  private renderTree(state: DaemonState): void {
-    const {agentPool, clients, daemon, tasks, transport} = state
-    const lines: string[] = []
-
-    // Root + Transport Server + Agent Pool header
-    lines.push(
-      chalk.bold(
-        `Daemon (PID: ${daemon.pid}, port: ${daemon.port}, uptime: ${this.formatDuration(daemon.uptime)}, v${daemon.version})`,
-      ),
-      '├── Transport Server',
-      `│   ├── Status: ${transport.running ? chalk.green('Running') : chalk.red('Stopped')}`,
-      `│   ├── Port: ${transport.port}`,
-      `│   └── Connected sockets: ${transport.connectedSockets}`,
-      `├── Agent Pool (${agentPool.size}/${agentPool.maxSize})`,
-    )
-    if (agentPool.entries.length === 0) {
-      lines.push('│   └── (empty)')
-    } else {
-      for (const [i, entry] of agentPool.entries.entries()) {
-        const isLast = i === agentPool.entries.length - 1
-        const prefix = isLast ? '│   └── ' : '│   ├── '
-        const childPrefix = isLast ? '│       ' : '│   │   '
-        const status = entry.hasActiveTask
-          ? chalk.yellow('busy')
-          : entry.isIdle
-            ? chalk.dim('idle')
-            : chalk.green('ready')
-
-        lines.push(
-          `${prefix}${entry.projectPath}`,
-          `${childPrefix}├── PID: ${entry.childPid ?? 'unknown'}`,
-          `${childPrefix}├── Status: ${status}`,
-          `${childPrefix}├── Created: ${this.formatTimeAgo(entry.createdAt)}`,
-          `${childPrefix}└── Last used: ${this.formatTimeAgo(entry.lastUsedAt)}`,
-        )
-      }
-    }
-
-    // Task Queue
-    lines.push('├── Task Queue')
-    if (agentPool.queue.length === 0) {
-      lines.push('│   └── (empty)')
-    } else {
-      for (const [i, q] of agentPool.queue.entries()) {
-        const isLast = i === agentPool.queue.length - 1
-        const prefix = isLast ? '│   └── ' : '│   ├── '
-        lines.push(`${prefix}${q.projectPath}: ${q.queueLength} queued`)
-      }
-    }
-
-    // Active Tasks
+  private renderTasks(lines: string[], tasks: DaemonState['tasks']): void {
     lines.push(`├── Active Tasks (${tasks.activeTasks.length})`)
     if (tasks.activeTasks.length === 0) {
       lines.push('│   └── (none)')
@@ -306,7 +331,6 @@ export default class Debug extends Command {
       }
     }
 
-    // Recently Completed Tasks (within 5s grace period)
     const completedTasks = tasks.completedTasks ?? []
     if (completedTasks.length > 0) {
       lines.push(`├── Recently Completed (${completedTasks.length})`)
@@ -323,29 +347,56 @@ export default class Debug extends Command {
         )
       }
     }
+  }
 
-    // Connected Clients
-    lines.push(`└── Connected Clients (${clients.length})`)
-    if (clients.length === 0) {
-      lines.push('    └── (none)')
+  private renderTree(state: DaemonState): void {
+    const {agentIdleStatus, agentPool, clients, daemon, daemonIdleStatus, tasks, transport} = state
+    const lines: string[] = []
+
+    // Root
+    lines.push(
+      chalk.bold(
+        `Daemon (PID: ${daemon.pid}, port: ${daemon.port}, uptime: ${this.formatDuration(daemon.uptime)}, v${daemon.version})`,
+      ),
+    )
+
+    // Daemon idle status
+    if (daemonIdleStatus) {
+      const idleDuration = this.formatDuration(daemonIdleStatus.idleMs)
+      const remainingDuration = this.formatDuration(daemonIdleStatus.remainingMs)
+      const statusText =
+        daemonIdleStatus.remainingMs > 0
+          ? chalk.yellow(`Idle for ${idleDuration} (will shutdown in ${remainingDuration})`)
+          : chalk.red('Shutting down...')
+      lines.push(`├── Status: ${statusText}`)
     } else {
-      for (const [i, client] of clients.entries()) {
-        const isLast = i === clients.length - 1
-        const prefix = isLast ? '    └── ' : '    ├── '
-        const childPrefix = isLast ? '        ' : '    │   '
-        const typeColor =
-          client.type === 'agent'
-            ? chalk.cyan(client.type)
-            : client.type === 'tui'
-              ? chalk.green(client.type)
-              : chalk.blue(client.type)
+      lines.push(`├── Status: ${chalk.green('Active')} (${clients.length} clients connected)`)
+    }
 
-        lines.push(
-          `${prefix}${client.id} (${typeColor})`,
-          `${childPrefix}└── Project: ${client.projectPath ?? chalk.dim('(no project)')}`,
-        )
+    // Transport Server
+    lines.push(
+      '├── Transport Server',
+      `│   ├── Status: ${transport.running ? chalk.green('Running') : chalk.red('Stopped')}`,
+      `│   ├── Port: ${transport.port}`,
+      `│   └── Connected sockets: ${transport.connectedSockets}`,
+    )
+
+    this.renderAgentPool(lines, agentPool, agentIdleStatus)
+
+    // Task Queue
+    lines.push('├── Task Queue')
+    if (agentPool.queue.length === 0) {
+      lines.push('│   └── (empty)')
+    } else {
+      for (const [i, q] of agentPool.queue.entries()) {
+        const isLast = i === agentPool.queue.length - 1
+        const prefix = isLast ? '│   └── ' : '│   ├── '
+        lines.push(`${prefix}${q.projectPath}: ${q.queueLength} queued`)
       }
     }
+
+    this.renderTasks(lines, tasks)
+    this.renderClients(lines, clients)
 
     this.log(lines.join('\n'))
   }

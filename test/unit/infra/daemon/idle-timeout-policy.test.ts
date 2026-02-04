@@ -22,7 +22,6 @@ describe('idle-timeout-policy', () => {
 
   it('should not fire onIdle while clients are connected', () => {
     const policy = new IdleTimeoutPolicy({
-      checkIntervalMs: 100,
       log: logStub,
       onIdle: onIdleStub,
       timeoutMs: 500,
@@ -38,9 +37,8 @@ describe('idle-timeout-policy', () => {
     policy.stop()
   })
 
-  it('should fire onIdle after timeout with 0 clients', () => {
+  it('should fire onIdle exactly at timeout with 0 clients', () => {
     const policy = new IdleTimeoutPolicy({
-      checkIntervalMs: 100,
       log: logStub,
       onIdle: onIdleStub,
       timeoutMs: 500,
@@ -48,16 +46,18 @@ describe('idle-timeout-policy', () => {
 
     policy.start()
 
-    // Advance past timeout + check interval
-    clock.tick(600)
+    // Advance just before timeout — should not fire
+    clock.tick(499)
+    expect(onIdleStub.called).to.be.false
 
+    // Advance to exactly timeout — should fire
+    clock.tick(1)
     expect(onIdleStub.calledOnce).to.be.true
     policy.stop()
   })
 
   it('should reset timer when client connects then disconnects', () => {
     const policy = new IdleTimeoutPolicy({
-      checkIntervalMs: 100,
       log: logStub,
       onIdle: onIdleStub,
       timeoutMs: 500,
@@ -77,14 +77,13 @@ describe('idle-timeout-policy', () => {
     expect(onIdleStub.called).to.be.false
 
     // Now advance past the full timeout from last activity
-    clock.tick(200)
+    clock.tick(100)
     expect(onIdleStub.calledOnce).to.be.true
     policy.stop()
   })
 
   it('should not fire after stop', () => {
     const policy = new IdleTimeoutPolicy({
-      checkIntervalMs: 100,
       log: logStub,
       onIdle: onIdleStub,
       timeoutMs: 500,
@@ -99,7 +98,6 @@ describe('idle-timeout-policy', () => {
 
   it('should re-fire onIdle after full timeout if shutdown did not stop the policy', () => {
     const policy = new IdleTimeoutPolicy({
-      checkIntervalMs: 100,
       log: logStub,
       onIdle: onIdleStub, // stub does nothing — simulates failed shutdown
       timeoutMs: 500,
@@ -107,11 +105,11 @@ describe('idle-timeout-policy', () => {
 
     policy.start()
 
-    // First fire
-    clock.tick(600)
+    // First fire at exactly 500ms
+    clock.tick(500)
     expect(onIdleStub.calledOnce).to.be.true
 
-    // Safety net: should re-fire after timeoutMs (not checkIntervalMs)
+    // Safety net: should re-fire after timeoutMs
     clock.tick(500)
     expect(onIdleStub.calledTwice).to.be.true
     policy.stop()
@@ -121,7 +119,6 @@ describe('idle-timeout-policy', () => {
     const throwingOnIdle = sandbox.stub().throws(new Error('shutdown failed'))
 
     const policy = new IdleTimeoutPolicy({
-      checkIntervalMs: 100,
       log: logStub,
       onIdle: throwingOnIdle,
       timeoutMs: 500,
@@ -130,7 +127,7 @@ describe('idle-timeout-policy', () => {
     policy.start()
 
     // First fire — onIdle throws but should not kill the loop
-    clock.tick(600)
+    clock.tick(500)
     expect(throwingOnIdle.calledOnce).to.be.true
     expect(logStub.calledWith('onIdle callback failed: shutdown failed')).to.be.true
 
@@ -142,7 +139,6 @@ describe('idle-timeout-policy', () => {
 
   it('should clamp client count to min 0', () => {
     const policy = new IdleTimeoutPolicy({
-      checkIntervalMs: 100,
       log: logStub,
       onIdle: onIdleStub,
       timeoutMs: 500,
@@ -161,6 +157,52 @@ describe('idle-timeout-policy', () => {
 
     // Should not fire idle — 1 client connected
     expect(onIdleStub.called).to.be.false
+    policy.stop()
+  })
+
+  it('should cancel timer when client connects during idle countdown', () => {
+    const policy = new IdleTimeoutPolicy({
+      log: logStub,
+      onIdle: onIdleStub,
+      timeoutMs: 500,
+    })
+
+    policy.start()
+
+    // Advance partway — timer is counting down
+    clock.tick(300)
+
+    // Client connects — timer should be cancelled
+    policy.onClientConnected()
+
+    // Advance past original timeout — should NOT fire
+    clock.tick(300)
+    expect(onIdleStub.called).to.be.false
+
+    policy.stop()
+  })
+
+  it('should report accurate idle status', () => {
+    const policy = new IdleTimeoutPolicy({
+      log: logStub,
+      onIdle: onIdleStub,
+      timeoutMs: 500,
+    })
+
+    policy.start()
+
+    // No clients → should report idle status
+    clock.tick(200)
+    const status = policy.getIdleStatus()
+    expect(status).to.not.be.undefined
+    expect(status!.clientCount).to.equal(0)
+    expect(status!.idleMs).to.equal(200)
+    expect(status!.remainingMs).to.equal(300)
+
+    // Client connects → no idle status
+    policy.onClientConnected()
+    expect(policy.getIdleStatus()).to.be.undefined
+
     policy.stop()
   })
 

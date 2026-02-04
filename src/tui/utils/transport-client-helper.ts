@@ -1,5 +1,7 @@
 import {
   AgentEventNames,
+  connectToTransport,
+  DaemonInstanceDiscovery,
   type ITransportClient,
   LlmEventList,
   SessionEventNames,
@@ -16,9 +18,8 @@ import path from 'node:path'
 
 import {isDevelopment} from '../../server/config/environment.js'
 import {BRV_DIR} from '../../server/constants.js'
-import {TransportClientEventNames} from '../../server/core/domain/transport/schemas.js'
+import {ensureDaemonRunning} from '../../server/infra/daemon/daemon-spawner.js'
 import {detectMcpMode} from '../../server/infra/mcp/mcp-mode-detector.js'
-import {createDaemonAwareConnector} from '../../server/infra/transport/transport-connector.js'
 
 const TRANSPORT_LOG_FILE = path.join(BRV_DIR, 'transport-events.log')
 
@@ -79,21 +80,15 @@ export async function connectTransportClient(): Promise<ITransportClient | null>
   }
 
   try {
-    // Connect to daemon (auto-start if needed)
-    const {client} = await createDaemonAwareConnector()()
-
-    // Register with daemon for project tracking
+    // Connect to daemon (auto-start if needed) with auto-registration as 'tui'
     const {projectRoot} = detectMcpMode(process.cwd())
-    try {
-      await client.requestWithAck(TransportClientEventNames.REGISTER, {
-        projectPath: projectRoot,
-        type: 'tui' as const,
-      })
-      logEvent('_registration', {projectPath: projectRoot, state: 'registered'})
-    } catch {
-      // Non-fatal: TUI works without registration in degraded mode
-      logEvent('_registration', {state: 'failed'})
-    }
+    await ensureDaemonRunning()
+    const {client} = await connectToTransport(process.cwd(), {
+      clientType: 'tui',
+      discovery: new DaemonInstanceDiscovery(),
+      // Auto-registration is enabled by default and will register with projectPath from discovery
+    })
+    logEvent('_registration', {projectPath: projectRoot, state: 'auto-registered'})
 
     // IMPORTANT: Join broadcast-room FIRST before subscribing to events.
     // This prevents missing events that are broadcast during the subscription window.

@@ -5,14 +5,15 @@ import type {TaskExecute} from '../../domain/transport/schemas.js'
  * Uses discriminated union (success field) instead of thrown errors.
  */
 export type SubmitTaskResult =
-  | {message: string; reason: 'create_failed' | 'invalid_task'; success: false}
+  | {message: string; reason: 'create_failed' | 'invalid_task' | 'pool_full'; success: false}
   | {success: true}
 
 /**
  * Read-only snapshot of a managed agent entry for monitoring.
  */
 export type AgentEntryInfo = {
-  readonly childPid: number | undefined
+  /** Child process PID (-1 if process hasn't started yet or has exited) */
+  readonly childPid: number
   readonly createdAt: number
   readonly hasActiveTask: boolean
   readonly isIdle: boolean

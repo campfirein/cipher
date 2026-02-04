@@ -104,4 +104,13 @@ export interface IProjectStateLoader {
    * Use during shutdown or major state reset.
    */
   invalidateAll(): void
+
+  /**
+   * Check if the cached config for a project needs invalidation.
+   * Compares file modification time with cache timestamp.
+   *
+   * @param projectPath - Absolute path to the project root
+   * @returns True if cache should be invalidated (file was modified), false otherwise
+   */
+  shouldInvalidate(projectPath: string): Promise<boolean>
 }

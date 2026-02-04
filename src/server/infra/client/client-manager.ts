@@ -19,6 +19,10 @@ import type {IClientManager, ProjectEmptyCallback} from '../../core/interfaces/c
 import {ClientInfo} from '../../core/domain/client/client-info.js'
 
 export class ClientManager implements IClientManager {
+  /** Callback for when a client registers */
+  private clientConnectedCallback?: () => void
+  /** Callback for when a client unregisters */
+  private clientDisconnectedCallback?: () => void
   /** All registered clients: clientId → ClientInfo */
   private readonly clients: Map<string, ClientInfo> = new Map()
   /** Project membership index: projectPath → Set of clientIds */
@@ -64,6 +68,14 @@ export class ClientManager implements IClientManager {
     return clients
   }
 
+  onClientConnected(callback: () => void): void {
+    this.clientConnectedCallback = callback
+  }
+
+  onClientDisconnected(callback: () => void): void {
+    this.clientDisconnectedCallback = callback
+  }
+
   onProjectEmpty(callback: ProjectEmptyCallback): void {
     this.projectEmptyCallback = callback
   }
@@ -86,6 +98,9 @@ export class ClientManager implements IClientManager {
     if (projectPath) {
       this.addToProjectIndex(clientId, projectPath)
     }
+
+    // Notify idle timeout policy
+    this.clientConnectedCallback?.()
   }
 
   unregister(clientId: string): void {
@@ -102,6 +117,9 @@ export class ClientManager implements IClientManager {
         this.checkProjectEmpty(client.projectPath)
       }
     }
+
+    // Notify idle timeout policy
+    this.clientDisconnectedCallback?.()
   }
 
   private addToProjectIndex(clientId: string, projectPath: string): void {

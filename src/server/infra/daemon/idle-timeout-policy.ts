@@ -1,9 +1,8 @@
 import type {IIdleTimeoutPolicy} from '../../core/interfaces/daemon/i-idle-timeout-policy.js'
 
-import {IDLE_CHECK_INTERVAL_MS, IDLE_TIMEOUT_MS} from '../../constants.js'
+import {SERVER_IDLE_TIMEOUT_MS} from '../../constants.js'
 
 export interface IdleTimeoutPolicyOptions {
-  readonly checkIntervalMs?: number
   readonly log: (message: string) => void
   readonly onIdle: () => void
   readonly timeoutMs?: number
@@ -17,10 +16,10 @@ export interface IdleTimeoutPolicyOptions {
  * - 0 clients connected
  * - AND this has been the case for >= timeoutMs
  *
- * Uses recursive setTimeout (not setInterval) for safe cancellation.
+ * Uses event-driven direct timer: schedules exactly at `timeoutMs`
+ * when clientCount drops to 0. No polling — fires precisely on time.
  */
 export class IdleTimeoutPolicy implements IIdleTimeoutPolicy {
-  private readonly checkIntervalMs: number
   private clientCount = 0
   private isRunning = false
   private lastActivityAt = Date.now()
@@ -32,26 +31,36 @@ export class IdleTimeoutPolicy implements IIdleTimeoutPolicy {
   constructor(options: IdleTimeoutPolicyOptions) {
     this.log = options.log
     this.onIdle = options.onIdle
-    this.timeoutMs = options.timeoutMs ?? IDLE_TIMEOUT_MS
-    this.checkIntervalMs = options.checkIntervalMs ?? IDLE_CHECK_INTERVAL_MS
+    this.timeoutMs = options.timeoutMs ?? SERVER_IDLE_TIMEOUT_MS
+  }
+
+  getIdleStatus(): undefined | {clientCount: number; idleMs: number; remainingMs: number} {
+    if (this.clientCount > 0) return undefined
+
+    const idleMs = Date.now() - this.lastActivityAt
+    const remainingMs = Math.max(0, this.timeoutMs - idleMs)
+
+    return {clientCount: this.clientCount, idleMs, remainingMs}
   }
 
   onClientConnected(): void {
     this.clientCount++
-    this.updateActivity()
+    this.lastActivityAt = Date.now()
+    this.reschedule()
   }
 
   onClientDisconnected(): void {
     this.clientCount = Math.max(0, this.clientCount - 1)
-    this.updateActivity()
+    this.lastActivityAt = Date.now()
+    this.reschedule()
   }
 
   start(): void {
     if (this.isRunning) return
     this.isRunning = true
-    this.updateActivity()
-    this.scheduleNext()
+    this.lastActivityAt = Date.now()
     this.log('Idle timeout policy started')
+    this.reschedule()
   }
 
   stop(): void {
@@ -65,32 +74,34 @@ export class IdleTimeoutPolicy implements IIdleTimeoutPolicy {
     this.log('Idle timeout policy stopped')
   }
 
-  private checkIdle(): void {
-    if (!this.isRunning) return
+  private fireIdle(): void {
+    if (!this.isRunning || this.clientCount > 0) return
 
-    if (this.clientCount === 0 && Date.now() - this.lastActivityAt >= this.timeoutMs) {
-      this.log(`Idle for ${Math.round(this.timeoutMs / 1000)}s with no clients`)
-      try {
-        this.onIdle()
-      } catch (error) {
-        this.log(`onIdle callback failed: ${error instanceof Error ? error.message : String(error)}`)
-      }
+    this.log(`Idle for ${Math.round(this.timeoutMs / 1000)}s with no clients`)
 
-      // Safety net: re-schedule at full timeout delay in case onIdle()'s
-      // shutdown fails. Normal shutdown calls stop() which clears this timer.
-      this.timeoutId = setTimeout(() => this.checkIdle(), this.timeoutMs)
-      return
+    try {
+      this.onIdle()
+    } catch (error) {
+      this.log(`onIdle callback failed: ${error instanceof Error ? error.message : String(error)}`)
     }
 
-    this.scheduleNext()
+    // Safety net: re-schedule in case onIdle's shutdown fails.
+    // Normal shutdown calls stop() which clears this timer.
+    this.timeoutId = setTimeout(() => this.fireIdle(), this.timeoutMs)
   }
 
-  private scheduleNext(): void {
+  private reschedule(): void {
     if (!this.isRunning) return
-    this.timeoutId = setTimeout(() => this.checkIdle(), this.checkIntervalMs)
-  }
 
-  private updateActivity(): void {
-    this.lastActivityAt = Date.now()
+    // Clear existing timer
+    if (this.timeoutId !== undefined) {
+      clearTimeout(this.timeoutId)
+      this.timeoutId = undefined
+    }
+
+    // Schedule shutdown timer only when no clients are connected
+    if (this.clientCount === 0) {
+      this.timeoutId = setTimeout(() => this.fireIdle(), this.timeoutMs)
+    }
   }
 }

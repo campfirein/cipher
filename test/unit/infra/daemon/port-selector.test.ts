@@ -1,102 +1,119 @@
 import {expect} from 'chai'
-import {createServer, type Server} from 'node:net'
 
-import {
-  DAEMON_PORT_RANGE_MAX,
-  DAEMON_PORT_RANGE_MIN,
-  DAEMON_PREFERRED_PORT,
-} from '../../../../src/server/constants.js'
+import {DYNAMIC_PORT_MAX, DYNAMIC_PORT_MIN} from '../../../../src/server/constants.js'
 import {selectDaemonPort} from '../../../../src/server/infra/daemon/port-selector.js'
 
-/**
- * Helper to occupy a port by binding a TCP server.
- */
-function occupyPort(port: number): Promise<Server> {
-  return new Promise((resolve, reject) => {
-    const server = createServer()
-    server.once('error', reject)
-    server.once('listening', () => resolve(server))
-    server.listen(port, '127.0.0.1')
-  })
-}
+/** Checker that always returns false (all ports occupied). */
+const alwaysOccupied = async (_port: number): Promise<boolean> => false
 
 describe('port-selector', () => {
   describe('selectDaemonPort()', () => {
-    it('should return preferred port (37847) when available', async () => {
+    it('should find an available port in dynamic range', async () => {
       const result = await selectDaemonPort()
       expect(result.success).to.be.true
       if (result.success) {
-        // Port 37847 should be available in test environment
-        expect(result.port).to.equal(37_847)
+        expect(result.port).to.be.at.least(DYNAMIC_PORT_MIN)
+        expect(result.port).to.be.at.most(DYNAMIC_PORT_MAX)
       }
     })
 
-    it('should fallback when preferred port is occupied', async () => {
-      const blocker = await occupyPort(37_847)
-      try {
-        const result = await selectDaemonPort()
-        expect(result.success).to.be.true
-        if (result.success) {
-          expect(result.port).to.equal(37_848)
-        }
-      } finally {
-        await new Promise<void>((resolve) => {
-          blocker.close(() => resolve())
-        })
+    it('should return first available port from batch', async () => {
+      const targetPort = 50_005
+      const checker = async (port: number): Promise<boolean> => port === targetPort
+
+      const result = await selectDaemonPort({
+        checker,
+        portMax: 50_010,
+        portMin: 50_000,
+      })
+
+      expect(result.success).to.be.true
+      if (result.success) {
+        expect(result.port).to.equal(targetPort)
       }
     })
 
-    it('should scan sequentially through fallback range', async () => {
-      const blockers: Server[] = []
-      try {
-        // Block 37847, 37848, 37849
-        blockers.push(await occupyPort(37_847), await occupyPort(37_848), await occupyPort(37_849))
+    it('should check ports in parallel within a batch', async () => {
+      const checked: number[] = []
+      let resolveCount = 0
 
-        const result = await selectDaemonPort()
-        expect(result.success).to.be.true
-        if (result.success) {
-          expect(result.port).to.equal(37_850)
-        }
-      } finally {
-        await Promise.all(
-          blockers.map(
-            (s) =>
-              new Promise<void>((resolve) => {
-                s.close(() => resolve())
-              }),
-          ),
-        )
+      const checker = async (port: number): Promise<boolean> => {
+        checked.push(port)
+        resolveCount++
+        // All ports available — first found wins
+        return true
+      }
+
+      const result = await selectDaemonPort({
+        batchSize: 5,
+        checker,
+        portMax: 50_010,
+        portMin: 50_000,
+      })
+
+      expect(result.success).to.be.true
+      // All 5 ports in the batch should have been checked (parallel)
+      expect(resolveCount).to.equal(5)
+    })
+
+    it('should retry with new batch when first batch all occupied', async () => {
+      let attempt = 0
+
+      const checker = async (_port: number): Promise<boolean> => {
+        attempt++
+        // First 3 checks fail, 4th succeeds
+        return attempt >= 4
+      }
+
+      const result = await selectDaemonPort({
+        batchSize: 3,
+        checker,
+        maxAttempts: 5,
+        portMax: 50_100,
+        portMin: 50_000,
+      })
+
+      expect(result.success).to.be.true
+      // First batch (3 checks) all fail, second batch should have the 4th check succeed
+      expect(attempt).to.be.at.least(4)
+    })
+
+    it('should return failure after max attempts exhausted', async () => {
+      const result = await selectDaemonPort({
+        batchSize: 3,
+        checker: alwaysOccupied,
+        maxAttempts: 2,
+        portMax: 50_010,
+        portMin: 50_000,
+      })
+
+      expect(result.success).to.be.false
+      if (!result.success) {
+        expect(result.reason).to.equal('all_ports_occupied')
       }
     })
 
-    it('should return failure when all ports are occupied', async () => {
-      const blockers: Server[] = []
-      try {
-        // Block every port in the range: preferred + fallback range
-        const portsToBlock = [DAEMON_PREFERRED_PORT]
-        for (let p = DAEMON_PORT_RANGE_MIN; p <= DAEMON_PORT_RANGE_MAX; p++) {
-          portsToBlock.push(p)
-        }
+    it('should generate unique ports within the specified range', async () => {
+      const checkedPorts = new Set<number>()
 
-        for (const port of portsToBlock) {
-          // eslint-disable-next-line no-await-in-loop
-          blockers.push(await occupyPort(port))
-        }
+      const checker = async (port: number): Promise<boolean> => {
+        checkedPorts.add(port)
+        return false // Force all attempts to fail so we can inspect all checked ports
+      }
 
-        const result = await selectDaemonPort()
-        expect(result.success).to.be.false
-        if (!result.success) {
-          expect(result.reason).to.equal('all_ports_occupied')
-        }
-      } finally {
-        await Promise.all(
-          blockers.map(
-            (s) =>
-              new Promise<void>((resolve) => {
-                s.close(() => resolve())
-              }),
-          ),
-        )
+      await selectDaemonPort({
+        batchSize: 5,
+        checker,
+        maxAttempts: 1,
+        portMax: 50_010,
+        portMin: 50_000,
+      })
+
+      // All checked ports should be unique (Set size = array of calls)
+      expect(checkedPorts.size).to.equal(5)
+      for (const port of checkedPorts) {
+        expect(port).to.be.at.least(50_000)
+        expect(port).to.be.at.most(50_010)
       }
     })
   })

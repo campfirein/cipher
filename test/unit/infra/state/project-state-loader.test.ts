@@ -1,3 +1,4 @@
+/* eslint-disable max-nested-callbacks */
 /**
  * ProjectStateLoader Unit Tests
  *
@@ -87,6 +88,7 @@ describe('ProjectStateLoader', () => {
     configReadStub = sandbox.stub()
     configStore = {
       exists: sandbox.stub().resolves(true),
+      getModifiedTime: sandbox.stub().resolves(),
       read: configReadStub,
       write: sandbox.stub().resolves(),
     }
@@ -378,6 +380,88 @@ describe('ProjectStateLoader', () => {
       const beforeCount = configReadStub.callCount
       await loader.getProjectState(PROJECT_B)
       expect(configReadStub.callCount).to.equal(beforeCount) // No new read
+    })
+  })
+
+  describe('shouldInvalidate()', () => {
+    it('should return false when no cached state exists', async () => {
+      const result = await loader.shouldInvalidate(PROJECT_A)
+      expect(result).to.be.false
+    })
+
+    it('should return false when config file does not exist', async () => {
+      configReadStub.resolves(createTestConfig())
+      registryGetStub.returns(createProjectInfo(PROJECT_A, join(tempDir, 'a')))
+      ;(configStore.getModifiedTime as SinonStub).resolves()
+
+      await loader.getProjectState(PROJECT_A)
+
+      const result = await loader.shouldInvalidate(PROJECT_A)
+      expect(result).to.be.false
+    })
+
+    it('should return false when file modification time equals cache time', async () => {
+      configReadStub.resolves(createTestConfig())
+      registryGetStub.returns(createProjectInfo(PROJECT_A, join(tempDir, 'a')))
+
+      const loadTime = Date.now()
+      const clockStub = sandbox.stub(Date, 'now').returns(loadTime)
+
+      await loader.getProjectState(PROJECT_A)
+
+      // File modified at same time as load
+      ;(configStore.getModifiedTime as SinonStub).resolves(loadTime)
+
+      const result = await loader.shouldInvalidate(PROJECT_A)
+      expect(result).to.be.false
+
+      clockStub.restore()
+    })
+
+    it('should return false when file modification time is before cache time', async () => {
+      configReadStub.resolves(createTestConfig())
+      registryGetStub.returns(createProjectInfo(PROJECT_A, join(tempDir, 'a')))
+
+      const loadTime = Date.now()
+      const clockStub = sandbox.stub(Date, 'now').returns(loadTime)
+
+      await loader.getProjectState(PROJECT_A)
+
+      // File modified before load
+      ;(configStore.getModifiedTime as SinonStub).resolves(loadTime - 1000)
+
+      const result = await loader.shouldInvalidate(PROJECT_A)
+      expect(result).to.be.false
+
+      clockStub.restore()
+    })
+
+    it('should return true when file modification time is after cache time', async () => {
+      configReadStub.resolves(createTestConfig())
+      registryGetStub.returns(createProjectInfo(PROJECT_A, join(tempDir, 'a')))
+
+      const loadTime = Date.now()
+      const clockStub = sandbox.stub(Date, 'now').returns(loadTime)
+
+      await loader.getProjectState(PROJECT_A)
+
+      // File modified after load (simulating init/space-switch write)
+      ;(configStore.getModifiedTime as SinonStub).resolves(loadTime + 1000)
+
+      const result = await loader.shouldInvalidate(PROJECT_A)
+      expect(result).to.be.true
+
+      clockStub.restore()
+    })
+
+    it('should return false when cached state has error', async () => {
+      configReadStub.rejects(new Error('Config read error'))
+      registryGetStub.returns(createProjectInfo(PROJECT_A, join(tempDir, 'a')))
+
+      await loader.getProjectState(PROJECT_A)
+
+      const result = await loader.shouldInvalidate(PROJECT_A)
+      expect(result).to.be.false
     })
   })
 })

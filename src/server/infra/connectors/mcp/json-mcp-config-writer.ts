@@ -1,8 +1,7 @@
 import {has, set, unset} from 'lodash-es'
 
 import type {IFileService} from '../../../core/interfaces/services/i-file-service.js'
-import type {IMcpConfigWriter, McpConfigExistsResult} from '../../../core/interfaces/storage/i-mcp-config-writer.js'
-import type {McpServerConfig} from './mcp-connector-config.js'
+import type {IMcpConfigWriter, McpConfigExistsResult, McpServerConfig} from '../../../core/interfaces/storage/i-mcp-config-writer.js'
 
 import {isRecord} from '../../../utils/type-guards.js'
 

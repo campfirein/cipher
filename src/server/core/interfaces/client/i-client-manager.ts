@@ -60,6 +60,22 @@ export interface IClientManager {
   getClientsByProject(projectPath: string): ClientInfo[]
 
   /**
+   * Register callback for when a client connects (registers).
+   * Used by IdleTimeoutPolicy to track registered clients for daemon shutdown.
+   *
+   * @param callback - Function called when a client registers
+   */
+  onClientConnected(callback: () => void): void
+
+  /**
+   * Register callback for when a client disconnects (unregisters).
+   * Used by IdleTimeoutPolicy to track registered clients for daemon shutdown.
+   *
+   * @param callback - Function called when a client unregisters
+   */
+  onClientDisconnected(callback: () => void): void
+
+  /**
    * Register callback for when a project has no external clients.
    * Called immediately when the last external client (tui/mcp) disconnects.
    * Agent clients don't count — they're workers, not users.

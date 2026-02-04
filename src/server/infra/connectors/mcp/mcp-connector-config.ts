@@ -1,10 +1,5 @@
 import type {Agent} from '../../../core/domain/entities/agent.js'
-
-/**
- * MCP server configuration that gets injected into agent config files.
- * Uses Record to allow agent-specific fields (e.g., env, cwd, disabled).
- */
-export type McpServerConfig = Record<string, unknown>
+import type {McpServerConfig} from '../../../core/interfaces/storage/i-mcp-config-writer.js'
 
 /**
  * Supported MCP config file formats.

@@ -1,6 +1,6 @@
 import {expect} from 'chai'
 import {EventEmitter} from 'node:events'
-import sinon from 'sinon'
+import {createSandbox, type SinonSandbox, type SinonStub, stub} from 'sinon'
 
 import type {TaskExecute} from '../../../../src/server/core/domain/transport/schemas.js'
 import type {ITransportServer} from '../../../../src/server/core/interfaces/transport/i-transport-server.js'
@@ -50,20 +50,20 @@ class MockChildProcess extends EventEmitter {
   }
 }
 
-function makeStubTransportServer(): ITransportServer & {sendTo: sinon.SinonStub} {
+function makeStubTransportServer(): ITransportServer & {sendTo: SinonStub} {
   return {
-    addToRoom: sinon.stub(),
-    broadcast: sinon.stub(),
-    broadcastTo: sinon.stub(),
-    getPort: sinon.stub().returns(37_847),
-    isRunning: sinon.stub().returns(true),
-    onConnection: sinon.stub(),
-    onDisconnection: sinon.stub(),
-    onRequest: sinon.stub(),
-    removeFromRoom: sinon.stub(),
-    sendTo: sinon.stub(),
-    start: sinon.stub().resolves(),
-    stop: sinon.stub().resolves(),
+    addToRoom: stub(),
+    broadcast: stub(),
+    broadcastTo: stub(),
+    getPort: stub().returns(37_847),
+    isRunning: stub().returns(true),
+    onConnection: stub(),
+    onDisconnection: stub(),
+    onRequest: stub(),
+    removeFromRoom: stub(),
+    sendTo: stub(),
+    start: stub().resolves(),
+    stop: stub().resolves(),
   }
 }
 
@@ -83,17 +83,18 @@ function makeTask(overrides: Partial<TaskExecute> = {}): TaskExecute {
  * instances. Each mock auto-sends 'ready' with a unique clientId after
  * a microtask delay (simulating real child process boot).
  */
-function createPool(options: {
-  forceEvictTimeoutMs?: number
-  maxSize?: number
-  readyTimeoutMs?: number
-  transportServer?: ReturnType<typeof makeStubTransportServer>
-} = {}) {
+function createPool(
+  options: {
+    maxSize?: number
+    readyTimeoutMs?: number
+    transportServer?: ReturnType<typeof makeStubTransportServer>
+  } = {},
+) {
   const children: MockChildProcess[] = []
   const transportServer = options.transportServer ?? makeStubTransportServer()
   let clientIdCounter = 0
 
-  const stubFactory = sinon.stub().callsFake(() => {
+  const stubFactory = stub().callsFake(() => {
     const child = new MockChildProcess()
     children.push(child)
 
@@ -108,7 +109,6 @@ function createPool(options: {
 
   const pool = new AgentPool({
     agentProcessFactory: stubFactory,
-    forceEvictTimeoutMs: options.forceEvictTimeoutMs ?? 100,
     maxSize: options.maxSize ?? 3,
     readyTimeoutMs: options.readyTimeoutMs ?? 2000,
     stopTimeoutMs: 500,
@@ -123,10 +123,10 @@ function createPool(options: {
 // ============================================================================
 
 describe('AgentPool', () => {
-  let sandbox: sinon.SinonSandbox
+  let sandbox: SinonSandbox
 
   beforeEach(() => {
-    sandbox = sinon.createSandbox()
+    sandbox = createSandbox()
     sandbox.stub(console, 'log')
   })
 
@@ -189,10 +189,9 @@ describe('AgentPool', () => {
   describe('submitTask — factory errors', () => {
     it('should return create_failed when factory throws', async () => {
       const transportServer = makeStubTransportServer()
-      const factory = sinon.stub().throws(new Error('Fork failed'))
+      const factory = stub().throws(new Error('Fork failed'))
       const pool = new AgentPool({
         agentProcessFactory: factory,
-        forceEvictTimeoutMs: 100,
         maxSize: 3,
         readyTimeoutMs: 2000,
         transportServer,
@@ -209,9 +208,10 @@ describe('AgentPool', () => {
 
     it('should return create_failed when child exits before ready', async () => {
       const transportServer = makeStubTransportServer()
-      const factory = sinon.stub().callsFake(() => {
+      const factory = stub().callsFake(() => {
         const child = new MockChildProcess()
         // Child exits immediately without sending ready
+        // eslint-disable-next-line max-nested-callbacks
         queueMicrotask(() => {
           child.simulateExit(1)
         })
@@ -221,7 +221,6 @@ describe('AgentPool', () => {
 
       const pool = new AgentPool({
         agentProcessFactory: factory,
-        forceEvictTimeoutMs: 100,
         maxSize: 3,
         readyTimeoutMs: 2000,
         transportServer,
@@ -283,8 +282,8 @@ describe('AgentPool', () => {
     })
   })
 
-  describe('LRU idle eviction', () => {
-    it('should evict idle agent when pool is full', async () => {
+  describe('pool capacity', () => {
+    it('should return pool_full error when pool is full and new project needs agent', async () => {
       const {pool} = createPool({maxSize: 2})
 
       // Fill pool
@@ -292,56 +291,33 @@ describe('AgentPool', () => {
       await pool.submitTask(makeTask({projectPath: '/b', taskId: 't2'}))
       expect(pool.getSize()).to.equal(2)
 
-      // Mark tasks completed
-      pool.notifyTaskCompleted('/a')
-      pool.notifyTaskCompleted('/b')
+      // Pool full → should return error for new project /c
+      const result = await pool.submitTask(makeTask({projectPath: '/c', taskId: 't3'}))
 
-      // Mark /a as idle
-      pool.markIdle('/a')
+      expect(result.success).to.be.false
+      if (!result.success) {
+        expect(result.reason).to.equal('pool_full')
+        expect(result.message).to.include('Agent pool is full')
+      }
 
-      // Submit for new project — should evict /a
-      await pool.submitTask(makeTask({projectPath: '/c', taskId: 't3'}))
-
+      expect(pool.hasAgent('/c')).to.be.false
       expect(pool.getSize()).to.equal(2)
-      expect(pool.hasAgent('/a')).to.be.false
-      expect(pool.hasAgent('/b')).to.be.true
-      expect(pool.hasAgent('/c')).to.be.true
     })
 
-    it('should evict LRU (least recently used) idle agent', async () => {
+    it('should allow task queuing for existing agents even when pool is full', async () => {
       const {pool} = createPool({maxSize: 2})
 
-      // Fill pool with time gap
-      await pool.submitTask(makeTask({projectPath: '/old', taskId: 't1'}))
-      await new Promise((r) => { setTimeout(r, 10) })
-      await pool.submitTask(makeTask({projectPath: '/new', taskId: 't2'}))
-
-      // Mark completed + idle
-      pool.notifyTaskCompleted('/old')
-      pool.notifyTaskCompleted('/new')
-      pool.markIdle('/old')
-      pool.markIdle('/new')
-
-      // Submit for new project — should evict /old (older lastUsedAt)
-      await pool.submitTask(makeTask({projectPath: '/newest', taskId: 't3'}))
-
-      expect(pool.hasAgent('/old')).to.be.false
-      expect(pool.hasAgent('/new')).to.be.true
-      expect(pool.hasAgent('/newest')).to.be.true
-    })
-
-    it('should not evict non-idle agents', async () => {
-      const {pool} = createPool({maxSize: 2})
-
-      // Fill pool (agents are not idle by default)
+      // Fill pool
       await pool.submitTask(makeTask({projectPath: '/a', taskId: 't1'}))
       await pool.submitTask(makeTask({projectPath: '/b', taskId: 't2'}))
 
-      // Pool is full, no idle agents — task should be queued
-      const result = await pool.submitTask(makeTask({projectPath: '/c', taskId: 't3'}))
+      // Queue more tasks for existing projects - should succeed
+      const resultA = await pool.submitTask(makeTask({projectPath: '/a', taskId: 't3'}))
+      const resultB = await pool.submitTask(makeTask({projectPath: '/b', taskId: 't4'}))
 
-      expect(result).to.deep.equal({success: true})
-      expect(pool.hasAgent('/c')).to.be.false
+      expect(resultA.success).to.be.true
+      expect(resultB.success).to.be.true
+      expect(pool.getSize()).to.equal(2) // No new agents created
     })
   })
 
@@ -436,21 +412,34 @@ describe('AgentPool', () => {
   })
 
   describe('force eviction', () => {
-    it('should force evict LRU agent after timeout when all busy', async () => {
-      const {pool} = createPool({forceEvictTimeoutMs: 50, maxSize: 1})
+    it('should return pool_full when pool is full and new project needs agent', async () => {
+      const {pool} = createPool({maxSize: 1})
 
       // Create first agent
       await pool.submitTask(makeTask({projectPath: '/a', taskId: 't1'}))
-      // Agent is busy
 
-      // Pool is full (1/1), agent is busy — queue task for /b
-      await pool.submitTask(makeTask({projectPath: '/b', taskId: 't2'}))
+      // Pool is full (1/1), try to create agent for new project /b
+      const result = await pool.submitTask(makeTask({projectPath: '/b', taskId: 't2'}))
 
-      // Wait for force eviction timeout
-      await new Promise((r) => { setTimeout(r, 150) })
+      expect(result.success).to.be.false
+      if (!result.success) {
+        expect(result.reason).to.equal('pool_full')
+        expect(result.message).to.include('Agent pool is full')
+      }
+    })
 
-      // /a should have been force-evicted, /b should have an agent now
-      expect(pool.hasAgent('/b')).to.be.true
+    it('should allow queuing tasks for existing agents even when pool is full', async () => {
+      const {pool} = createPool({maxSize: 1})
+
+      // Create first agent for /a
+      await pool.submitTask(makeTask({projectPath: '/a', taskId: 't1'}))
+
+      // Queue another task for same project - should succeed even though pool is full
+      const result = await pool.submitTask(makeTask({projectPath: '/a', taskId: 't2'}))
+
+      expect(result.success).to.be.true
+      expect(pool.hasAgent('/a')).to.be.true
+      expect(pool.getSize()).to.equal(1)
     })
   })
 
@@ -463,17 +452,17 @@ describe('AgentPool', () => {
     it('should return per-project queue lengths when tasks are queued for busy agents', async () => {
       const {children, pool} = createPool({maxSize: 1})
 
-      // Submit first task to create agent
+      // Submit first task to create agent for /app-a
       await pool.submitTask(makeTask({projectPath: '/app-a', taskId: 't1'}))
 
-      // Agent is now busy — submit tasks for a different project (gets queued because pool is full and all busy)
-      await pool.submitTask(makeTask({projectPath: '/app-b', taskId: 't2'}))
-      await pool.submitTask(makeTask({projectPath: '/app-b', taskId: 't3'}))
+      // Agent is now busy — submit more tasks for SAME project (gets queued)
+      await pool.submitTask(makeTask({projectPath: '/app-a', taskId: 't2'}))
+      await pool.submitTask(makeTask({projectPath: '/app-a', taskId: 't3'}))
 
       const queueState = pool.getQueueState()
-      const appBQueue = queueState.find((q) => q.projectPath === '/app-b')
-      expect(appBQueue).to.exist
-      expect(appBQueue!.queueLength).to.equal(2)
+      const appAQueue = queueState.find((q) => q.projectPath === '/app-a')
+      expect(appAQueue).to.exist
+      expect(appAQueue!.queueLength).to.equal(2)
 
       await pool.shutdown()
       // Force-kill any remaining children

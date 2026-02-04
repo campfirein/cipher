@@ -1,4 +1,5 @@
 import type {IAgentPool} from '../../core/interfaces/agent/i-agent-pool.js'
+import type {IAgentIdleTimeoutPolicy} from '../../core/interfaces/daemon/i-agent-idle-timeout-policy.js'
 import type {IDaemonResilience} from '../../core/interfaces/daemon/i-daemon-resilience.js'
 import type {IGlobalInstanceManager} from '../../core/interfaces/daemon/i-global-instance-manager.js'
 import type {IHeartbeatWriter} from '../../core/interfaces/daemon/i-heartbeat-writer.js'
@@ -9,6 +10,7 @@ import type {ITransportServer} from '../../core/interfaces/transport/i-transport
 import {SHUTDOWN_FORCE_EXIT_MS, TRANSPORT_STOP_TIMEOUT_MS} from '../../constants.js'
 
 export interface ShutdownHandlerDeps {
+  readonly agentIdleTimeoutPolicy?: IAgentIdleTimeoutPolicy
   readonly agentPool?: IAgentPool
   readonly daemonResilience: IDaemonResilience
   readonly heartbeatWriter: IHeartbeatWriter
@@ -47,15 +49,32 @@ export class ShutdownHandler implements IShutdownHandler {
     if (this.isShuttingDown) return
     this.isShuttingDown = true
 
-    const {daemonResilience, heartbeatWriter, idleTimeoutPolicy, instanceManager, log, transportServer} = this.deps
+    const {
+      agentIdleTimeoutPolicy,
+      daemonResilience,
+      heartbeatWriter,
+      idleTimeoutPolicy,
+      instanceManager,
+      log,
+      transportServer,
+    } = this.deps
 
     log('Shutdown initiated')
 
-    // 1. Stop idle timeout checks
+    // 1. Stop idle timeout checks (server-level)
     try {
       idleTimeoutPolicy.stop()
     } catch (error) {
       log(`Error stopping idle timeout: ${error instanceof Error ? error.message : String(error)}`)
+    }
+
+    // 1b. Stop agent idle timeout checks
+    if (agentIdleTimeoutPolicy) {
+      try {
+        agentIdleTimeoutPolicy.stop()
+      } catch (error) {
+        log(`Error stopping agent idle timeout: ${error instanceof Error ? error.message : String(error)}`)
+      }
     }
 
     // 2. Uninstall resilience handlers

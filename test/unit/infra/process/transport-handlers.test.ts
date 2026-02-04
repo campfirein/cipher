@@ -115,6 +115,8 @@ describe('TransportHandlers', () => {
       getActiveProjects: sandbox.stub().returns([]),
       getClient: sandbox.stub(),
       getClientsByProject: sandbox.stub().returns([]),
+      onClientConnected: sandbox.stub(),
+      onClientDisconnected: sandbox.stub(),
       onProjectEmpty: sandbox.stub(),
       register: sandbox.stub(),
       unregister: sandbox.stub(),
@@ -1044,6 +1046,8 @@ describe('TransportHandlers', () => {
         getActiveProjects: sandbox.stub().returns([]),
         getClient: sandbox.stub(),
         getClientsByProject: sandbox.stub().returns([]),
+        onClientConnected: sandbox.stub(),
+        onClientDisconnected: sandbox.stub(),
         onProjectEmpty: sandbox.stub(),
         register: sandbox.stub(),
         unregister: sandbox.stub(),
@@ -1067,6 +1071,8 @@ describe('TransportHandlers', () => {
         getActiveProjects: sandbox.stub().returns([]),
         getClient: sandbox.stub(),
         getClientsByProject: sandbox.stub().returns([]),
+        onClientConnected: sandbox.stub(),
+        onClientDisconnected: sandbox.stub(),
         onProjectEmpty: sandbox.stub(),
         register: sandbox.stub(),
         unregister: sandbox.stub(),
@@ -1091,6 +1097,8 @@ describe('TransportHandlers', () => {
         getActiveProjects: sandbox.stub().returns([]),
         getClient: sandbox.stub(),
         getClientsByProject: sandbox.stub().returns([]),
+        onClientConnected: sandbox.stub(),
+        onClientDisconnected: sandbox.stub(),
         onProjectEmpty: sandbox.stub(),
         register: sandbox.stub(),
         unregister: sandbox.stub(),
@@ -1229,7 +1237,7 @@ describe('TransportHandlers', () => {
         const {mockClientManager, mockProjectRouter} = createHandlersWithClientManager()
 
         const registerHandler = requestHandlers.get(TransportClientEventNames.REGISTER)
-        const result = registerHandler!({projectPath: '/app', type: 'tui'}, 'client-1')
+        const result = registerHandler!({clientType: 'tui', projectPath: '/app'}, 'client-1')
 
         expect(result).to.deep.equal({success: true})
         expect(mockClientManager.register.calledOnce).to.be.true
@@ -1242,7 +1250,7 @@ describe('TransportHandlers', () => {
         const {mockClientManager} = createHandlersWithClientManager()
 
         const registerHandler = requestHandlers.get(TransportClientEventNames.REGISTER)
-        const result = registerHandler!({projectPath: '/app', type: 'cli'}, 'client-1')
+        const result = registerHandler!({clientType: 'cli', projectPath: '/app'}, 'client-1')
 
         expect(result).to.deep.equal({success: true})
         expect(mockClientManager.register.calledWith('client-1', 'cli', '/app')).to.be.true
@@ -1252,7 +1260,7 @@ describe('TransportHandlers', () => {
         const {mockClientManager, mockProjectRouter} = createHandlersWithClientManager()
 
         const registerHandler = requestHandlers.get(TransportClientEventNames.REGISTER)
-        const result = registerHandler!({type: 'mcp'}, 'client-1')
+        const result = registerHandler!({clientType: 'mcp'}, 'client-1')
 
         expect(result).to.deep.equal({success: true})
         expect(mockClientManager.register.calledWith('client-1', 'mcp')).to.be.true
@@ -1263,7 +1271,7 @@ describe('TransportHandlers', () => {
       it('should return error when ClientManager not available', () => {
         // Default handlers have no ClientManager
         const registerHandler = requestHandlers.get(TransportClientEventNames.REGISTER)
-        const result = registerHandler!({projectPath: '/app', type: 'tui'}, 'client-1')
+        const result = registerHandler!({clientType: 'tui', projectPath: '/app'}, 'client-1')
 
         expect(result).to.deep.equal({error: 'ClientManager not available', success: false})
       })

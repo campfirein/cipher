@@ -8,17 +8,18 @@
  * 1. Read BRV_AGENT_PORT and BRV_AGENT_PROJECT_PATH from process.env
  * 2. Create TransportClient, connect to daemon at 127.0.0.1:port
  * 3. Request initial project config from state server
- * 4. Create CipherAgent with lazy providers (resolved from local cache)
- * 5. Start agent + create session
- * 6. Send IPC { type: 'ready', clientId } to parent (AgentPool)
- * 7. Listen for task:execute events → execute via CurateExecutor/QueryExecutor
- * 8. Forward task lifecycle events (started, completed, error) via transport
- * 9. Handle SIGTERM for graceful shutdown
+ * 4. Read provider config and API key from global config (XDG path)
+ * 5. Create CipherAgent with lazy providers (resolved from local cache)
+ * 6. Start agent + create session
+ * 7. Send IPC { type: 'ready', clientId } to parent (AgentPool)
+ * 8. Listen for task:execute events → execute via CurateExecutor/QueryExecutor
+ * 9. Forward task lifecycle events (started, completed, error) via transport
+ * 10. Handle SIGTERM for graceful shutdown
  *
  * Consumed by: AgentPool (forks this file via AgentProcessFactory)
  */
 
-import {TransportClient} from '@campfirein/brv-transport-client'
+import {connectToTransport, type ITransportClient} from '@campfirein/brv-transport-client'
 import {randomUUID} from 'node:crypto'
 
 import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
@@ -26,24 +27,31 @@ import type {TaskExecute} from '../../core/domain/transport/schemas.js'
 
 import {CipherAgent} from '../../../agent/infra/agent/index.js'
 import {getCurrentConfig} from '../../config/environment.js'
-import {DEFAULT_LLM_MODEL, PROJECT, TRANSPORT_HOST} from '../../constants.js'
+import {DEFAULT_LLM_MODEL, PROJECT} from '../../constants.js'
 import {NotAuthenticatedError, serializeTaskError} from '../../core/domain/errors/task-error.js'
 import {TransportTaskEventNames} from '../../core/domain/transport/schemas.js'
 import {CurateExecutor} from '../executor/curate-executor.js'
 import {QueryExecutor} from '../executor/query-executor.js'
+import {createProviderConfigStore} from '../storage/file-provider-config-store.js'
+import {ProviderKeychainStore} from '../storage/provider-keychain-store.js'
+import {AgentInstanceDiscovery} from '../transport/agent-instance-discovery.js'
 
 // ============================================================================
 // Environment
 // ============================================================================
 
-const port = process.env.BRV_AGENT_PORT
-const projectPath = process.env.BRV_AGENT_PROJECT_PATH
+const portEnv = process.env.BRV_AGENT_PORT
+const projectPathEnv = process.env.BRV_AGENT_PROJECT_PATH
 
-if (!port || !projectPath) {
+if (!portEnv || !projectPathEnv) {
   console.error('agent-process: Missing BRV_AGENT_PORT or BRV_AGENT_PROJECT_PATH')
   // eslint-disable-next-line n/no-process-exit, unicorn/no-process-exit
   process.exit(1)
 }
+
+// After validation, safe to use as strings
+const port = portEnv
+const projectPath = projectPathEnv
 
 function agentLog(message: string): void {
   console.log(`[agent-process:${projectPath}] ${message}`)
@@ -68,12 +76,20 @@ let cachedSpaceId = ''
 // ============================================================================
 
 let agent: CipherAgent | undefined
-let transport: TransportClient | undefined
+let transport: ITransportClient | undefined
 
 async function start(): Promise<void> {
-  // 1. Create transport client and connect to daemon
-  transport = new TransportClient()
-  await transport.connect(`http://${TRANSPORT_HOST}:${port}`)
+  // 1. Connect to daemon using standard connectToTransport API
+  // Note: autoRegister=false because agents use agent:register (not client:register)
+  // for special handling (agentClients map, pool notification on disconnect)
+  const {client} = await connectToTransport(projectPath, {
+    autoRegister: false,
+    discovery: new AgentInstanceDiscovery({
+      port: Number.parseInt(port, 10),
+      projectPath,
+    }),
+  })
+  transport = client
   const clientId = transport.getClientId()
   if (!clientId) {
     throw new Error('Transport connected but no clientId assigned')
@@ -127,13 +143,36 @@ async function start(): Promise<void> {
     cachedAuthValid = false
   })
 
-  // 4. Create CipherAgent with lazy providers + transport client
+  // 4. Read provider config and API key from global config
+  const providerConfigStore = createProviderConfigStore()
+  const providerKeychainStore = new ProviderKeychainStore()
+
+  const providerConfig = await providerConfigStore.read()
+  const {activeProvider} = providerConfig
+  const activeModel = providerConfig.getActiveModel(activeProvider)
+
+  let openRouterApiKey: string | undefined
+  if (activeProvider !== 'byterover') {
+    openRouterApiKey = await providerKeychainStore.getApiKey(activeProvider)
+  }
+
+  agentLog(`Provider: ${activeProvider}, Model: ${activeModel ?? 'default'}`)
+
+  // 5. Create CipherAgent with lazy providers + transport client
   const envConfig = getCurrentConfig()
   const agentConfig = {
     apiBaseUrl: envConfig.llmApiBaseUrl,
     fileSystem: {workingDirectory: projectPath},
-    llm: {maxIterations: 10, maxTokens: 4096, temperature: 0.7, topK: 10, topP: 0.95, verbose: false},
-    model: DEFAULT_LLM_MODEL,
+    llm: {
+      maxIterations: 10,
+      maxTokens: 4096,
+      temperature: 0.7,
+      topK: 10,
+      topP: 0.95,
+      verbose: false,
+    },
+    model: activeModel ?? DEFAULT_LLM_MODEL,
+    openRouterApiKey,
     projectId: PROJECT,
     storagePath: configResult.storagePath,
   }
@@ -151,7 +190,7 @@ async function start(): Promise<void> {
 
   agentLog('CipherAgent started and session created')
 
-  // 5. Listen for task:execute from pool
+  // 6. Listen for task:execute from pool
   const curateExecutor = new CurateExecutor()
   const queryExecutor = new QueryExecutor()
 
@@ -160,10 +199,10 @@ async function start(): Promise<void> {
     void executeTask(task, curateExecutor, queryExecutor)
   })
 
-  // 6. Register with transport server (for TransportHandlers tracking)
+  // 7. Register with transport server (for TransportHandlers tracking)
   await transport.requestWithAck('agent:register', {projectPath})
 
-  // 7. Notify parent that we're ready (IPC — AgentPool captures clientId)
+  // 8. Notify parent that we're ready (IPC — AgentPool captures clientId)
   process.send?.({clientId, type: 'ready'})
   agentLog('Ready — listening for tasks')
 }

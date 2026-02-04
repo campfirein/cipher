@@ -202,15 +202,15 @@ export class ConnectionCoordinator {
 
   private handleClientRegister(
     clientId: string,
-    data: {projectPath?: string; type: ClientType},
+    data: {clientType: ClientType; projectPath?: string},
   ): {error?: string; success: boolean} {
     if (!this.clientManager) {
       return {error: 'ClientManager not available', success: false}
     }
 
-    this.clientManager.register(clientId, data.type, data.projectPath)
+    this.clientManager.register(clientId, data.clientType, data.projectPath)
     transportLog(
-      `Client registered: ${clientId} (type=${data.type}${data.projectPath ? `, project=${data.projectPath}` : ''})`,
+      `Client registered: ${clientId} (type=${data.clientType}${data.projectPath ? `, project=${data.projectPath}` : ''})`,
     )
 
     if (data.projectPath) {
@@ -341,7 +341,7 @@ export class ConnectionCoordinator {
   }
 
   private setupClientLifecycleHandlers(): void {
-    this.transport.onRequest<{projectPath?: string; type: ClientType}, {error?: string; success: boolean}>(
+    this.transport.onRequest<{clientType: ClientType; projectPath?: string}, {error?: string; success: boolean}>(
       TransportClientEventNames.REGISTER,
       (data, clientId) => this.handleClientRegister(clientId, data),
     )

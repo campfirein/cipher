@@ -1,7 +1,7 @@
 import type {ITransportClient} from '@campfirein/brv-transport-client'
 
 import {expect} from 'chai'
-import sinon from 'sinon'
+import {createSandbox, type SinonSandbox, type SinonStub, stub} from 'sinon'
 
 import {AgentEventBus} from '../../../../src/agent/infra/events/event-emitter.js'
 import {TransportEventBridge} from '../../../../src/agent/infra/transport/transport-event-bridge.js'
@@ -10,20 +10,20 @@ import {TransportEventBridge} from '../../../../src/agent/infra/transport/transp
 // Helpers
 // ============================================================================
 
-function createMockTransport(): ITransportClient & {request: sinon.SinonStub} {
+function createMockTransport(): ITransportClient & {request: SinonStub} {
   return {
-    connect: sinon.stub().resolves(),
-    disconnect: sinon.stub().resolves(),
-    getClientId: sinon.stub().returns('mock-client-id'),
-    getState: sinon.stub().returns('connected'),
-    isConnected: sinon.stub().resolves(true),
-    joinRoom: sinon.stub().resolves(),
-    leaveRoom: sinon.stub().resolves(),
-    on: sinon.stub().returns(() => {}),
-    once: sinon.stub(),
-    onStateChange: sinon.stub().returns(() => {}),
-    request: sinon.stub(),
-    requestWithAck: sinon.stub().resolves({}),
+    connect: stub().resolves(),
+    disconnect: stub().resolves(),
+    getClientId: stub().returns('mock-client-id'),
+    getState: stub().returns('connected'),
+    isConnected: stub().resolves(true),
+    joinRoom: stub().resolves(),
+    leaveRoom: stub().resolves(),
+    on: stub().returns(() => {}),
+    once: stub(),
+    onStateChange: stub().returns(() => {}),
+    request: stub(),
+    requestWithAck: stub().resolves({}),
   }
 }
 
@@ -43,10 +43,10 @@ function createBridge(): {
 // ============================================================================
 
 describe('TransportEventBridge', () => {
-  let sandbox: sinon.SinonSandbox
+  let sandbox: SinonSandbox
 
   beforeEach(() => {
-    sandbox = sinon.createSandbox()
+    sandbox = createSandbox()
     sandbox.stub(console, 'log')
   })
 

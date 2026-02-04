@@ -10,7 +10,7 @@
  *
  * Startup sequence:
  * 1. Setup daemon logging
- * 2. Select port (prefer 37847, fallback 37848-37947)
+ * 2. Select port (random batch scan in dynamic range 49152-65535)
  * 3. Acquire global instance lock (atomic temp+rename)
  * 4. Start Socket.IO transport server
  * 5. Start heartbeat writer
@@ -28,7 +28,12 @@ import {fileURLToPath} from 'node:url'
 
 import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
 
-import {AGENT_POOL_MAX_SIZE, HEARTBEAT_FILE} from '../../constants.js'
+import {
+  AGENT_IDLE_CHECK_INTERVAL_MS,
+  AGENT_IDLE_TIMEOUT_MS,
+  AGENT_POOL_MAX_SIZE,
+  HEARTBEAT_FILE,
+} from '../../constants.js'
 import {getGlobalDataDir} from '../../utils/global-data-path.js'
 import {crashLog, processLog} from '../../utils/process-logger.js'
 import {ClientManager} from '../client/client-manager.js'
@@ -40,6 +45,7 @@ import {AuthStateStore} from '../state/auth-state-store.js'
 import {ProjectStateLoader} from '../state/project-state-loader.js'
 import {createTokenStore} from '../storage/token-store.js'
 import {SocketIOTransportServer} from '../transport/socket-io-transport-server.js'
+import {AgentIdleTimeoutPolicy} from './agent-idle-timeout-policy.js'
 import {AgentPool} from './agent-pool.js'
 import {DaemonResilience} from './daemon-resilience.js'
 import {GlobalInstanceManager} from './global-instance-manager.js'
@@ -110,10 +116,10 @@ async function main(): Promise<void> {
 
   log('Starting daemon...')
 
-  // 2. Select port (prefer 37847, fallback 37848-37947)
+  // 2. Select port (random batch scan in dynamic range 49152-65535)
   const portResult = await selectDaemonPort()
   if (!portResult.success) {
-    log('Failed to find available port for daemon (all ports 37847-37947 occupied)')
+    log('Failed to find available port for daemon (dynamic port range 49152-65535 exhausted)')
     // eslint-disable-next-line n/no-process-exit, unicorn/no-process-exit
     process.exit(1)
   }
@@ -188,11 +194,24 @@ async function main(): Promise<void> {
       projectRegistry,
     })
 
+    // Agent idle timeout policy — kills agents after period of inactivity
+    const agentIdleTimeoutPolicy = new AgentIdleTimeoutPolicy({
+      checkIntervalMs: AGENT_IDLE_CHECK_INTERVAL_MS,
+      getQueueLength: () => 0, // Queue length tracking not critical for cleanup logic
+      log,
+      onAgentIdle(projectPath: string) {
+        log(`Killing idle agent: ${projectPath}`)
+        agentPool?.handleAgentDisconnected(projectPath)
+      },
+      timeoutMs: AGENT_IDLE_TIMEOUT_MS,
+    })
+
     // Agent pool with fork-based factory — each agent runs in its own process
     const currentDir = dirname(fileURLToPath(import.meta.url))
     const agentProcessPath = process.env.BRV_AGENT_PROCESS_PATH ?? join(currentDir, 'agent-process.js')
 
     agentPool = new AgentPool({
+      agentIdleTimeoutPolicy,
       agentProcessFactory(projectPath) {
         return fork(agentProcessPath, [], {
           env: {
@@ -200,11 +219,16 @@ async function main(): Promise<void> {
             BRV_AGENT_PORT: String(port),
             BRV_AGENT_PROJECT_PATH: projectPath,
           },
+          // In E2E mode, inherit stderr to see agent errors
+          stdio: process.env.BRV_E2E_MODE === 'true' ? ['ignore', 'inherit', 'inherit', 'ipc'] : undefined,
         })
       },
       log,
       transportServer,
     })
+
+    // Start agent idle timeout policy
+    agentIdleTimeoutPolicy.start()
 
     const transportHandlers = new TransportHandlers({
       agentPool,
@@ -230,22 +254,37 @@ async function main(): Promise<void> {
       transportServer!.broadcast('auth:expired', {})
     })
 
+    // Load auth token immediately before accepting agent connections
+    // (agents need auth for LLM calls)
+    await authStateStore.loadToken()
     authStateStore.startPolling()
-    // eslint-disable-next-line no-void
-    void authStateStore.loadToken()
 
     // Wire project empty → mark agent idle for LRU eviction
     clientManager.onProjectEmpty((projectPath) => {
       agentPool!.markIdle(projectPath)
     })
 
+    // Wire clientManager to idleTimeoutPolicy for daemon shutdown
+    clientManager.onClientConnected(() => {
+      idleTimeoutPolicy.onClientConnected()
+    })
+    clientManager.onClientDisconnected(() => {
+      idleTimeoutPolicy.onClientDisconnected()
+    })
+
     // State server endpoints — agent child processes request config on startup
     transportServer.onRequest<{projectPath: string}, {brvConfig?: BrvConfig; spaceId: string; storagePath: string; teamId: string}>(
       'state:getProjectConfig',
       async (data) => {
-        // Always invalidate cache to pick up config changes from init/space-switch
-        // (they write directly to disk, bypassing the daemon's cache)
-        projectStateLoader.invalidate(data.projectPath)
+        // Smart invalidation: only invalidate if config file was modified since last load
+        // This prevents unnecessary disk I/O while still catching changes from
+        // init/space-switch commands that write directly to disk
+        const needsInvalidation = await projectStateLoader.shouldInvalidate(data.projectPath)
+        if (needsInvalidation) {
+          projectStateLoader.invalidate(data.projectPath)
+          log(`Config invalidated due to file modification: ${data.projectPath}`)
+        }
+
         const config = await projectStateLoader.getProjectConfig(data.projectPath)
         // Register project (idempotent) to ensure XDG storage directories exist
         const projectInfo = projectRegistry.register(data.projectPath)
@@ -273,6 +312,7 @@ async function main(): Promise<void> {
     transportServer.onRequest<void, unknown>(
       'daemon:getState',
       () => ({
+        agentIdleStatus: agentIdleTimeoutPolicy.getIdleStatus(),
         agentPool: {
           entries: agentPool!.getEntries(),
           maxSize: AGENT_POOL_MAX_SIZE,
@@ -292,6 +332,7 @@ async function main(): Promise<void> {
           uptime: Date.now() - daemonStartedAt,
           version,
         },
+        daemonIdleStatus: idleTimeoutPolicy.getIdleStatus(),
         tasks: transportHandlers.getDebugState(),
         transport: {
           connectedSockets: transportServer!.getConnectedSocketCount(),
@@ -318,17 +359,13 @@ async function main(): Promise<void> {
       },
     })
 
-    transportServer.onConnection((clientId, metadata) => {
-      log(`Client connected: ${clientId}, cwd=${metadata.cwd ?? 'unknown'}`)
-      idleTimeoutPolicy.onClientConnected()
-    })
-    transportServer.onDisconnection((clientId) => {
-      log(`Client disconnected: ${clientId}`)
-      idleTimeoutPolicy.onClientDisconnected()
-    })
+    // Note: Idle timeout now tracks registered clients (via ClientManager),
+    // not raw socket connections. This ensures debug/monitoring commands
+    // don't prevent daemon shutdown.
 
     // 9. Create shutdown handler (agent pool shut down before transport)
     shutdownHandler = new ShutdownHandler({
+      agentIdleTimeoutPolicy,
       agentPool,
       daemonResilience,
       heartbeatWriter,

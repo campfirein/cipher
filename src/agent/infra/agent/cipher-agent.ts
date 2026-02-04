@@ -70,6 +70,11 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
    * @param config - Agent configuration (Zod-validated AgentConfig)
    * @param brvConfig - Optional ByteRover config for spaceId/teamId
    * @param options - Optional lazy providers and transport client; resolved per HTTP request from StateServer
+   * @param options.projectIdProvider - Lazy provider for project ID
+   * @param options.sessionKeyProvider - Lazy provider for session key
+   * @param options.spaceIdProvider - Lazy provider for space ID
+   * @param options.teamIdProvider - Lazy provider for team ID
+   * @param options.transportClient - Transport client for daemon communication
    */
   public constructor(
     config: AgentConfig,

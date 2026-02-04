@@ -5,9 +5,9 @@
  * associated with a projectPath. Communicates with agents via the
  * daemon's transport server (Socket.IO).
  *
- * When the pool is full, the LRU idle agent is evicted. If all
- * agents are busy and a new project needs one, the task is queued
- * with a timeout before force-evicting the LRU busy agent.
+ * When the pool is full, submitTask() returns an error for new projects.
+ * Existing agents can still queue tasks. Idle agents are automatically
+ * cleaned up by AgentIdleTimeoutPolicy after a period of inactivity.
  *
  * Pool is pure lifecycle management — zero knowledge of auth,
  * project config, or agent internals. Each child process handles
@@ -16,7 +16,7 @@
  * Consumed by:
  * - server-main.ts: instantiation and wiring
  * - TransportHandlers: delegates task submission via submitTask()
- * - ClientManager.onProjectEmpty → markIdle() for LRU eviction
+ * - ClientManager.onProjectEmpty → markIdle() for potential cleanup
  */
 
 import type {ChildProcess} from 'node:child_process'
@@ -27,10 +27,10 @@ import type {
   IAgentPool,
   SubmitTaskResult,
 } from '../../core/interfaces/agent/i-agent-pool.js'
+import type {IAgentIdleTimeoutPolicy} from '../../core/interfaces/daemon/i-agent-idle-timeout-policy.js'
 import type {ITransportServer} from '../../core/interfaces/transport/i-transport-server.js'
 
 import {
-  AGENT_POOL_FORCE_EVICT_TIMEOUT_MS,
   AGENT_POOL_MAX_SIZE,
   AGENT_PROCESS_READY_TIMEOUT_MS,
   AGENT_PROCESS_STOP_TIMEOUT_MS,
@@ -74,8 +74,8 @@ type ManagedAgent = {
 }
 
 type AgentPoolOptions = {
+  agentIdleTimeoutPolicy?: IAgentIdleTimeoutPolicy
   agentProcessFactory: AgentProcessFactory
-  forceEvictTimeoutMs?: number
   log?: (message: string) => void
   maxSize?: number
   readyTimeoutMs?: number
@@ -84,9 +84,9 @@ type AgentPoolOptions = {
 }
 
 export class AgentPool implements IAgentPool {
+  private readonly agentIdleTimeoutPolicy?: IAgentIdleTimeoutPolicy
   private readonly agentProcessFactory: AgentProcessFactory
   private readonly agents: Map<string, ManagedAgent> = new Map()
-  private readonly forceEvictTimeoutMs: number
   private readonly log: (message: string) => void
   private readonly maxSize: number
   private readonly readyTimeoutMs: number
@@ -95,9 +95,9 @@ export class AgentPool implements IAgentPool {
   private readonly transportServer: ITransportServer
 
   constructor(options: AgentPoolOptions) {
+    this.agentIdleTimeoutPolicy = options.agentIdleTimeoutPolicy
     this.agentProcessFactory = options.agentProcessFactory
     this.maxSize = options.maxSize ?? AGENT_POOL_MAX_SIZE
-    this.forceEvictTimeoutMs = options.forceEvictTimeoutMs ?? AGENT_POOL_FORCE_EVICT_TIMEOUT_MS
     this.readyTimeoutMs = options.readyTimeoutMs ?? AGENT_PROCESS_READY_TIMEOUT_MS
     this.stopTimeoutMs = options.stopTimeoutMs ?? AGENT_PROCESS_STOP_TIMEOUT_MS
     this.log = options.log ?? (() => {})
@@ -106,7 +106,7 @@ export class AgentPool implements IAgentPool {
 
   getEntries(): readonly AgentEntryInfo[] {
     return [...this.agents.values()].map((entry) => ({
-      childPid: entry.agent.childProcess.pid,
+      childPid: entry.agent.childProcess.pid ?? -1,
       createdAt: entry.createdAt,
       hasActiveTask: entry.agent.isBusy,
       isIdle: entry.isIdle,
@@ -141,6 +141,7 @@ export class AgentPool implements IAgentPool {
 
     this.log(`Agent socket disconnected, removing from pool: ${projectPath} (pid=${entry.agent.childProcess.pid})`)
     this.agents.delete(projectPath)
+    this.agentIdleTimeoutPolicy?.removeAgent(projectPath)
     entry.agent.stop().catch(() => {})
   }
 
@@ -165,6 +166,7 @@ export class AgentPool implements IAgentPool {
     if (!entry) return
 
     entry.agent.isBusy = false
+    this.agentIdleTimeoutPolicy?.onAgentActivity(projectPath)
     this.drainQueue(projectPath)
   }
 
@@ -204,22 +206,18 @@ export class AgentPool implements IAgentPool {
       return {success: true}
     }
 
-    // No agent exists — fork new child process
-    if (this.agents.size < this.maxSize) {
-      return this.tryCreateAndExecute(projectPath, task)
+    // No agent exists — check if we can fork
+    if (this.agents.size >= this.maxSize) {
+      // Pool full — cannot create agent for new project
+      this.log(`Pool full (${this.maxSize}/${this.maxSize}) - cannot create agent for: ${projectPath}`)
+      return {
+        message: `Agent pool is full (${this.maxSize} agents). Cannot create agent for new project. Wait for idle agents to be cleaned up.`,
+        reason: 'pool_full',
+        success: false,
+      }
     }
 
-    // Pool full — try evicting an idle agent
-    const evicted = this.evictLruIdle()
-    if (evicted) {
-      return this.tryCreateAndExecute(projectPath, task)
-    }
-
-    // All agents busy — queue and schedule force eviction
-    this.taskQueue.enqueue(projectPath, task)
-    this.scheduleForceEviction(projectPath)
-    this.log(`Task queued (pool full, all busy): ${projectPath}`)
-    return {success: true}
+    return this.tryCreateAndExecute(projectPath, task)
   }
 
   private async createAgentAndExecute(projectPath: string, task: TaskExecute): Promise<void> {
@@ -250,26 +248,6 @@ export class AgentPool implements IAgentPool {
     }
   }
 
-  private evictLruIdle(): boolean {
-    let lruEntry: ManagedAgent | undefined
-    let lruTime = Number.POSITIVE_INFINITY
-
-    for (const entry of this.agents.values()) {
-      if (entry.isIdle && !entry.agent.isBusy && entry.lastUsedAt < lruTime) {
-        lruEntry = entry
-        lruTime = entry.lastUsedAt
-      }
-    }
-
-    if (!lruEntry) return false
-
-    this.log(`Evicting idle agent (LRU): ${lruEntry.projectPath}`)
-    this.agents.delete(lruEntry.projectPath)
-    // Best-effort stop — don't await
-    lruEntry.agent.stop().catch(() => {})
-    return true
-  }
-
   private async forkAgent(projectPath: string): Promise<ForkedAgent> {
     const childProcess = this.agentProcessFactory(projectPath)
 
@@ -290,39 +268,6 @@ export class AgentPool implements IAgentPool {
     })
 
     return agent
-  }
-
-  private scheduleForceEviction(projectPath: string): void {
-    setTimeout(() => {
-      // Check if the project still has queued tasks but no agent
-      if (!this.taskQueue.getQueueLength(projectPath)) return
-      if (this.agents.has(projectPath)) return
-
-      // Force evict LRU (even busy)
-      let lruEntry: ManagedAgent | undefined
-      let lruTime = Number.POSITIVE_INFINITY
-
-      for (const entry of this.agents.values()) {
-        if (entry.lastUsedAt < lruTime) {
-          lruEntry = entry
-          lruTime = entry.lastUsedAt
-        }
-      }
-
-      if (!lruEntry) return
-
-      this.log(`Force evicting agent (timeout): ${lruEntry.projectPath}`)
-      this.agents.delete(lruEntry.projectPath)
-      lruEntry.agent.stop().catch(() => {})
-
-      const nextTask = this.taskQueue.dequeue(projectPath)
-      if (!nextTask) return
-
-      // eslint-disable-next-line no-void
-      void this.createAgentAndExecute(projectPath, nextTask).catch((error) => {
-        this.log(`Failed to create agent after force eviction: ${error}`)
-      })
-    }, this.forceEvictTimeoutMs)
   }
 
   private sendTaskToAgent(entry: ManagedAgent, task: TaskExecute): void {

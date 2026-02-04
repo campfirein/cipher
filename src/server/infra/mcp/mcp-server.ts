@@ -1,9 +1,8 @@
-import {type ITransportClient} from '@campfirein/brv-transport-client'
+import {connectToTransport, DaemonInstanceDiscovery, type ITransportClient} from '@campfirein/brv-transport-client'
 import {McpServer} from '@modelcontextprotocol/sdk/server/mcp.js'
 import {StdioServerTransport} from '@modelcontextprotocol/sdk/server/stdio.js'
 
-import {TransportClientEventNames} from '../../core/domain/transport/schemas.js'
-import {createDaemonAwareConnector} from '../transport/transport-connector.js'
+import {ensureDaemonRunning} from '../daemon/daemon-spawner.js'
 import {detectMcpMode, type McpMode} from './mcp-mode-detector.js'
 import {registerBrvCurateTool, registerBrvQueryTool} from './tools/index.js'
 
@@ -73,22 +72,45 @@ export class ByteRoverMcpServer {
     this.log(`Working directory: ${this.config.workingDirectory}`)
     this.log(`Mode: ${this.mode}`)
 
-    // Connect to running brv instance using modern API
+    // Connect to running brv instance
+    // Project mode: auto-registers with projectPath
+    // Global mode: manually registers WITHOUT projectPath (serves multiple projects)
     this.log('Connecting to brv instance...')
 
     let client
     let projectRoot
     try {
-      const result = await createDaemonAwareConnector()(this.config.workingDirectory)
-      client = result.client
-      projectRoot = result.projectRoot
+      await ensureDaemonRunning()
+
+      if (this.mode === 'project') {
+        // Project mode: use default auto-registration but disable it and manually register with projectPath
+        const result = await connectToTransport(this.config.workingDirectory, {
+          autoRegister: false,
+          discovery: new DaemonInstanceDiscovery(),
+        })
+        client = result.client
+        projectRoot = result.projectRoot
+
+        // Manually register with projectPath for project mode
+        await client.requestWithAck('client:register', {
+          clientType: 'mcp',
+          projectPath: this.projectRoot,
+        })
+      } else {
+        // Global mode: auto-register with clientType only (no projectPath)
+        const result = await connectToTransport(this.config.workingDirectory, {
+          clientType: 'mcp',
+          discovery: new DaemonInstanceDiscovery(),
+        })
+        client = result.client
+        projectRoot = result.projectRoot
+      }
     } catch (error) {
       this.log(`Connection failed: ${error instanceof Error ? error.message : String(error)}`)
       throw error
     }
 
     this.client = client
-    await this.registerClient(client)
 
     this.log(`Connected to brv instance at ${projectRoot}`)
     this.log(`Client ID: ${client.getClientId()}`)
@@ -154,8 +176,12 @@ export class ByteRoverMcpServer {
 
     this.reconnectTimer = setTimeout(async () => {
       try {
-        // Reconnect to daemon (auto-start if needed)
-        const result = await createDaemonAwareConnector()(this.config.workingDirectory)
+        // Reconnect to daemon (auto-start if needed) with auto-registration
+        await ensureDaemonRunning()
+        const result = await connectToTransport(this.config.workingDirectory, {
+          clientType: 'mcp',
+          discovery: new DaemonInstanceDiscovery(),
+        })
 
         // Disconnect old client if it exists
         if (this.client) {
@@ -167,7 +193,6 @@ export class ByteRoverMcpServer {
         }
 
         this.client = result.client
-        await this.registerClient(result.client)
         this.log(`Reconnected successfully! Client ID: ${result.client.getClientId()}`)
 
         // Reset backoff delay on successful connection
@@ -206,17 +231,6 @@ export class ByteRoverMcpServer {
    * Registers this MCP client with the daemon for project tracking.
    * Non-fatal: MCP server works without registration in degraded mode.
    */
-  private async registerClient(client: ITransportClient): Promise<void> {
-    try {
-      await client.requestWithAck(TransportClientEventNames.REGISTER, {
-        projectPath: this.projectRoot,
-        type: 'mcp' as const,
-      })
-      this.log(`Client registered (type=mcp, projectPath=${this.projectRoot ?? 'global'})`)
-    } catch (error) {
-      this.log(`Client registration failed: ${error instanceof Error ? error.message : String(error)}`)
-    }
-  }
 
   /**
    * Log to stderr (stdout is reserved for MCP protocol).

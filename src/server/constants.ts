@@ -53,9 +53,10 @@ export const PROJECT_ROOM_SUFFIX = ':broadcast'
 // === Daemon infrastructure constants ===
 export const GLOBAL_PROJECTS_DIR = 'projects'
 export const REGISTRY_FILE = 'registry.json'
-export const DAEMON_PREFERRED_PORT = 37_847
-export const DAEMON_PORT_RANGE_MIN = 37_848
-export const DAEMON_PORT_RANGE_MAX = 37_947
+export const DYNAMIC_PORT_MIN = 49_152
+export const DYNAMIC_PORT_MAX = 65_535
+export const PORT_BATCH_SIZE = 20
+export const PORT_MAX_ATTEMPTS = 5
 export const DAEMON_INSTANCE_FILE = 'daemon.json'
 
 // Heartbeat
@@ -63,9 +64,29 @@ export const HEARTBEAT_FILE = 'heartbeat'
 export const HEARTBEAT_INTERVAL_MS = 5000 // Write every 5s
 export const HEARTBEAT_STALE_THRESHOLD_MS = 15_000 // Stale if >15s
 
-// Idle timeout
-export const IDLE_TIMEOUT_MS = 30 * 60 * 1000 // 30 minutes
-export const IDLE_CHECK_INTERVAL_MS = 60_000 // Check every 60s
+// === Idle timeout (server daemon shutdown) ===
+// NOTE: Old constants IDLE_TIMEOUT_MS and IDLE_CHECK_INTERVAL_MS are now deprecated.
+// Use SERVER_IDLE_TIMEOUT_MS and SERVER_IDLE_CHECK_INTERVAL_MS instead.
+
+/** Server idle timeout - daemon shuts down after this period of no clients */
+export const SERVER_IDLE_TIMEOUT_MS = 2 * 60 * 1000 // 2 minutes (safer than 1 min)
+
+/** Server idle check interval - how often to check for idle state */
+export const SERVER_IDLE_CHECK_INTERVAL_MS = 5000 // Check every 5s (responsive shutdown)
+
+/** @deprecated Use SERVER_IDLE_TIMEOUT_MS instead */
+export const IDLE_TIMEOUT_MS = SERVER_IDLE_TIMEOUT_MS
+
+/** @deprecated Use SERVER_IDLE_CHECK_INTERVAL_MS instead */
+export const IDLE_CHECK_INTERVAL_MS = SERVER_IDLE_CHECK_INTERVAL_MS
+
+// === Agent idle timeout (agent process cleanup) ===
+
+/** Agent idle timeout - kill agent after this period of no task execution */
+export const AGENT_IDLE_TIMEOUT_MS = 60_000 // 1 minute
+
+/** Agent idle check interval - how often to check for idle agents */
+export const AGENT_IDLE_CHECK_INTERVAL_MS = 10_000 // Check every 10s (responsive)
 
 // Sleep/wake detection
 export const SLEEP_WAKE_CHECK_INTERVAL_MS = 5000
