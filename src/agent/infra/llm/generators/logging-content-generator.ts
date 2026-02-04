@@ -11,7 +11,7 @@ import type {
   GenerateContentResponse,
   IContentGenerator,
 } from '../../../core/interfaces/i-content-generator.js'
-import type { SessionEventBus } from '../../events/event-emitter.js'
+import type {SessionEventBus} from '../../events/event-emitter.js'
 
 /**
  * Logging options for the decorator.
@@ -86,7 +86,6 @@ export class LoggingContentGenerator implements IContentGenerator {
 
     try {
       const response = await this.inner.generateContent(request)
-      this.logResponse(requestId, response, Date.now() - startTime)
       return response
     } catch (error) {
       this.logError(requestId, error, Date.now() - startTime)
@@ -112,13 +111,9 @@ export class LoggingContentGenerator implements IContentGenerator {
 
     try {
       let chunkCount = 0
-      let totalContentLength = 0
 
       for await (const chunk of this.inner.generateContentStream(request)) {
         chunkCount++
-        if (chunk.content) {
-          totalContentLength += chunk.content.length
-        }
 
         if (this.shouldLogChunks()) {
           this.logChunk(requestId, chunk, chunkCount)
@@ -126,8 +121,6 @@ export class LoggingContentGenerator implements IContentGenerator {
 
         yield chunk
       }
-
-      this.logStreamComplete(requestId, chunkCount, totalContentLength, Date.now() - startTime)
     } catch (error) {
       this.logError(requestId, error, Date.now() - startTime)
       throw error
@@ -166,30 +159,6 @@ export class LoggingContentGenerator implements IContentGenerator {
   private logRequest(_requestId: string, _request: GenerateContentRequest): void {
     // Removed: console.debug output disrupts Ink TUI layout.
     // Request metadata is available via event bus if needed.
-  }
-
-  /**
-   * Log a generation response (no-op: verbose-only, routed through event bus).
-   */
-  private logResponse(
-    _requestId: string,
-    _response: GenerateContentResponse,
-    _durationMs: number,
-  ): void {
-    // Removed: console.debug output disrupts Ink TUI layout.
-    // Response metadata is available via event bus if needed.
-  }
-
-  /**
-   * Log streaming completion (no-op: verbose-only, routed through event bus).
-   */
-  private logStreamComplete(
-    _requestId: string,
-    _chunkCount: number,
-    _totalContentLength: number,
-    _durationMs: number,
-  ): void {
-    // Removed: console.debug output disrupts Ink TUI layout.
   }
 
   /**
