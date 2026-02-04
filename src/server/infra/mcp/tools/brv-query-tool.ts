@@ -29,14 +29,9 @@ export function registerBrvQueryTool(
       title: 'ByteRover Query',
     },
     async ({query}: {query: string}) => {
-      const timestamp = new Date().toISOString()
-      process.stderr.write(`[brv-mcp] [${timestamp}] brv-query tool called with query: ${query.slice(0, 50)}...\n`)
-
       const client = getClient()
-      process.stderr.write(`[brv-mcp] [${timestamp}] Client exists: ${client}\n`)
 
       if (!client) {
-        process.stderr.write(`[brv-mcp] [${timestamp}] ERROR: Client is undefined\n`)
         return {
           content: [{text: 'Error: Not connected to ByteRover instance. Run "brv" first.', type: 'text' as const}],
           isError: true,
@@ -45,10 +40,8 @@ export function registerBrvQueryTool(
 
       // Check connection state before making request
       const state = client.getState()
-      process.stderr.write(`[brv-mcp] [${timestamp}] Client state: ${state}, Client ID: ${client.getClientId()}\n`)
 
       if (state !== 'connected') {
-        process.stderr.write(`[brv-mcp] [${timestamp}] ERROR: Socket not connected\n`)
         return {
           content: [
             {

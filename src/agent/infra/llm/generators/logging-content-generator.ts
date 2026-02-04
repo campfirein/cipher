@@ -11,7 +11,7 @@ import type {
   GenerateContentResponse,
   IContentGenerator,
 } from '../../../core/interfaces/i-content-generator.js'
-import type {SessionEventBus} from '../../events/event-emitter.js'
+import type { SessionEventBus } from '../../events/event-emitter.js'
 
 /**
  * Logging options for the decorator.
@@ -142,23 +142,18 @@ export class LoggingContentGenerator implements IContentGenerator {
   }
 
   /**
-   * Log a streaming chunk.
+   * Log a streaming chunk (no-op: verbose-only, routed through event bus).
    */
-  private logChunk(requestId: string, chunk: GenerateContentChunk, index: number): void {
-    console.debug(`[LLM:${requestId}] Chunk #${index}`, {
-      contentLength: chunk.content?.length ?? 0,
-      finishReason: chunk.finishReason,
-      hasToolCalls: Boolean(chunk.toolCalls?.length),
-      isComplete: chunk.isComplete,
-    })
+  private logChunk(_requestId: string, _chunk: GenerateContentChunk, _index: number): void {
+    // Removed: console.debug output disrupts Ink TUI layout.
+    // Chunk-level telemetry is available via event bus if needed.
   }
 
   /**
    * Log an error that occurred during generation.
    */
-  private logError(requestId: string, error: unknown, durationMs: number): void {
+  private logError(_requestId: string, error: unknown, _durationMs: number): void {
     const errorMessage = error instanceof Error ? error.message : String(error)
-    console.error(`[LLM:${requestId}] Error after ${durationMs}ms:`, errorMessage)
 
     this.eventBus?.emit('llmservice:error', {
       error: errorMessage,
@@ -166,57 +161,35 @@ export class LoggingContentGenerator implements IContentGenerator {
   }
 
   /**
-   * Log a generation request.
+   * Log a generation request (no-op: verbose-only, routed through event bus).
    */
-  private logRequest(requestId: string, request: GenerateContentRequest): void {
-    if (!this.shouldLogRequests()) {
-      return
-    }
-
-    console.debug(`[LLM:${requestId}] Request`, {
-      hasSystemPrompt: Boolean(request.systemPrompt),
-      hasTools: Boolean(request.tools && Object.keys(request.tools).length > 0),
-      maxTokens: request.config.maxTokens,
-      messageCount: request.contents.length,
-      model: request.model,
-      temperature: request.config.temperature,
-      toolCount: request.tools ? Object.keys(request.tools).length : 0,
-    })
+  private logRequest(_requestId: string, _request: GenerateContentRequest): void {
+    // Removed: console.debug output disrupts Ink TUI layout.
+    // Request metadata is available via event bus if needed.
   }
 
   /**
-   * Log a generation response.
+   * Log a generation response (no-op: verbose-only, routed through event bus).
    */
   private logResponse(
-    requestId: string,
-    response: GenerateContentResponse,
-    durationMs: number,
+    _requestId: string,
+    _response: GenerateContentResponse,
+    _durationMs: number,
   ): void {
-    if (!this.shouldLogResponses()) {
-      return
-    }
-
-    console.debug(`[LLM:${requestId}] Response in ${durationMs}ms`, {
-      contentLength: response.content.length,
-      finishReason: response.finishReason,
-      toolCalls: response.toolCalls?.length ?? 0,
-      usage: response.usage,
-    })
+    // Removed: console.debug output disrupts Ink TUI layout.
+    // Response metadata is available via event bus if needed.
   }
 
   /**
-   * Log streaming completion.
+   * Log streaming completion (no-op: verbose-only, routed through event bus).
    */
   private logStreamComplete(
-    requestId: string,
-    chunkCount: number,
-    totalContentLength: number,
-    durationMs: number,
+    _requestId: string,
+    _chunkCount: number,
+    _totalContentLength: number,
+    _durationMs: number,
   ): void {
-    console.debug(`[LLM:${requestId}] Stream complete in ${durationMs}ms`, {
-      chunkCount,
-      totalContentLength,
-    })
+    // Removed: console.debug output disrupts Ink TUI layout.
   }
 
   /**
@@ -224,19 +197,5 @@ export class LoggingContentGenerator implements IContentGenerator {
    */
   private shouldLogChunks(): boolean {
     return this.options.logChunks === true || this.options.verbose === true
-  }
-
-  /**
-   * Check if requests should be logged.
-   */
-  private shouldLogRequests(): boolean {
-    return this.options.logRequests === true || this.options.verbose === true
-  }
-
-  /**
-   * Check if responses should be logged.
-   */
-  private shouldLogResponses(): boolean {
-    return this.options.logResponses === true || this.options.verbose === true
   }
 }

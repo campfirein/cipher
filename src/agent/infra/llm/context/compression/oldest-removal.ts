@@ -63,13 +63,8 @@ export class OldestRemovalStrategy implements ICompressionStrategy {
       currentTokenCount = countMessagesTokens(currentHistory, tokenizer)
     }
 
-    // Warn if still over limit after reaching minimum
-    if (currentTokenCount > maxHistoryTokens) {
-      // Keep warning as it's important
-      console.warn(
-        `OldestRemovalStrategy: Cannot compress further - at minimum ${this.minMessagesToKeep} messages (${currentTokenCount} tokens > ${maxHistoryTokens} limit)`,
-      )
-    }
+    // Note: may still be over limit after reaching minimum message count
+    // This is expected when individual messages are very large
 
     // Debug logging removed for cleaner user experience
 
