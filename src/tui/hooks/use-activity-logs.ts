@@ -173,7 +173,7 @@ export function useActivityLogs(): UseActivityLogsReturn {
           source: 'agent',
           status: mapTaskStatusToExecutionStatus(task.status),
           streamingContent: task.streamingContent,
-          timestamp: new Date(task.createdAt),
+          timestamp: new Date(task.startedAt ?? task.createdAt),
           toolCalls: progress,
           type: task.type,
         }

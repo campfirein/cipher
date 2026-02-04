@@ -86,7 +86,6 @@ export class LoggingContentGenerator implements IContentGenerator {
 
     try {
       const response = await this.inner.generateContent(request)
-      this.logResponse(requestId, response, Date.now() - startTime)
       return response
     } catch (error) {
       this.logError(requestId, error, Date.now() - startTime)
@@ -112,13 +111,9 @@ export class LoggingContentGenerator implements IContentGenerator {
 
     try {
       let chunkCount = 0
-      let totalContentLength = 0
 
       for await (const chunk of this.inner.generateContentStream(request)) {
         chunkCount++
-        if (chunk.content) {
-          totalContentLength += chunk.content.length
-        }
 
         if (this.shouldLogChunks()) {
           this.logChunk(requestId, chunk, chunkCount)
@@ -126,8 +121,6 @@ export class LoggingContentGenerator implements IContentGenerator {
 
         yield chunk
       }
-
-      this.logStreamComplete(requestId, chunkCount, totalContentLength, Date.now() - startTime)
     } catch (error) {
       this.logError(requestId, error, Date.now() - startTime)
       throw error
@@ -185,41 +178,6 @@ export class LoggingContentGenerator implements IContentGenerator {
   }
 
   /**
-   * Log a generation response.
-   */
-  private logResponse(
-    requestId: string,
-    response: GenerateContentResponse,
-    durationMs: number,
-  ): void {
-    if (!this.shouldLogResponses()) {
-      return
-    }
-
-    console.debug(`[LLM:${requestId}] Response in ${durationMs}ms`, {
-      contentLength: response.content.length,
-      finishReason: response.finishReason,
-      toolCalls: response.toolCalls?.length ?? 0,
-      usage: response.usage,
-    })
-  }
-
-  /**
-   * Log streaming completion.
-   */
-  private logStreamComplete(
-    requestId: string,
-    chunkCount: number,
-    totalContentLength: number,
-    durationMs: number,
-  ): void {
-    console.debug(`[LLM:${requestId}] Stream complete in ${durationMs}ms`, {
-      chunkCount,
-      totalContentLength,
-    })
-  }
-
-  /**
    * Check if chunks should be logged.
    */
   private shouldLogChunks(): boolean {
@@ -231,12 +189,5 @@ export class LoggingContentGenerator implements IContentGenerator {
    */
   private shouldLogRequests(): boolean {
     return this.options.logRequests === true || this.options.verbose === true
-  }
-
-  /**
-   * Check if responses should be logged.
-   */
-  private shouldLogResponses(): boolean {
-    return this.options.logResponses === true || this.options.verbose === true
   }
 }
