@@ -176,6 +176,20 @@ async function executeTask(
   const {clientCwd, clientId, content, files, taskId, type} = task
   if (!transport || !agent) return
 
+  // Refresh config from state server to pick up changes from init/space-switch
+  // (they write directly to disk, bypassing the agent's cached state)
+  try {
+    const configResult = await transport.requestWithAck<{brvConfig?: BrvConfig; spaceId?: string; teamId?: string}>(
+      'state:getProjectConfig',
+      {projectPath},
+    )
+    if (configResult.brvConfig) cachedBrvConfig = configResult.brvConfig
+    if (configResult.teamId !== undefined) cachedTeamId = configResult.teamId
+    if (configResult.spaceId !== undefined) cachedSpaceId = configResult.spaceId
+  } catch {
+    agentLog('Failed to refresh config before task execution')
+  }
+
   // Pre-flight auth check — fail fast before file validation or LLM calls.
   // Without this, curate's file validation error would mask the 401.
   if (!cachedAuthValid) {

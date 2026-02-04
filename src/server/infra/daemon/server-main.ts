@@ -243,6 +243,9 @@ async function main(): Promise<void> {
     transportServer.onRequest<{projectPath: string}, {brvConfig?: BrvConfig; spaceId: string; storagePath: string; teamId: string}>(
       'state:getProjectConfig',
       async (data) => {
+        // Always invalidate cache to pick up config changes from init/space-switch
+        // (they write directly to disk, bypassing the daemon's cache)
+        projectStateLoader.invalidate(data.projectPath)
         const config = await projectStateLoader.getProjectConfig(data.projectPath)
         // Register project (idempotent) to ensure XDG storage directories exist
         const projectInfo = projectRegistry.register(data.projectPath)

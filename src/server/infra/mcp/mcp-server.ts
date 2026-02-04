@@ -2,6 +2,7 @@ import {type ITransportClient} from '@campfirein/brv-transport-client'
 import {McpServer} from '@modelcontextprotocol/sdk/server/mcp.js'
 import {StdioServerTransport} from '@modelcontextprotocol/sdk/server/stdio.js'
 
+import {TransportClientEventNames} from '../../core/domain/transport/schemas.js'
 import {createDaemonAwareConnector} from '../transport/transport-connector.js'
 import {detectMcpMode, type McpMode} from './mcp-mode-detector.js'
 import {registerBrvCurateTool, registerBrvQueryTool} from './tools/index.js'
@@ -87,6 +88,7 @@ export class ByteRoverMcpServer {
     }
 
     this.client = client
+    await this.registerClient(client)
 
     this.log(`Connected to brv instance at ${projectRoot}`)
     this.log(`Client ID: ${client.getClientId()}`)
@@ -165,6 +167,7 @@ export class ByteRoverMcpServer {
         }
 
         this.client = result.client
+        await this.registerClient(result.client)
         this.log(`Reconnected successfully! Client ID: ${result.client.getClientId()}`)
 
         // Reset backoff delay on successful connection
@@ -197,6 +200,22 @@ export class ByteRoverMcpServer {
    */
   private getWorkingDirectory(): string | undefined {
     return this.mode === 'project' ? this.projectRoot : undefined
+  }
+
+  /**
+   * Registers this MCP client with the daemon for project tracking.
+   * Non-fatal: MCP server works without registration in degraded mode.
+   */
+  private async registerClient(client: ITransportClient): Promise<void> {
+    try {
+      await client.requestWithAck(TransportClientEventNames.REGISTER, {
+        projectPath: this.projectRoot,
+        type: 'mcp' as const,
+      })
+      this.log(`Client registered (type=mcp, projectPath=${this.projectRoot ?? 'global'})`)
+    } catch (error) {
+      this.log(`Client registration failed: ${error instanceof Error ? error.message : String(error)}`)
+    }
   }
 
   /**

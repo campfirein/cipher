@@ -1,6 +1,8 @@
 import {type ConnectionState, type ITransportClient} from '@campfirein/brv-transport-client'
 import React, {createContext, useContext, useEffect, useState} from 'react'
 
+import {TransportClientEventNames} from '../../server/core/domain/transport/schemas.js'
+import {detectMcpMode} from '../../server/infra/mcp/mcp-mode-detector.js'
 import {createDaemonAwareConnector} from '../../server/infra/transport/transport-connector.js'
 
 /**
@@ -20,6 +22,22 @@ export type TransportContextValue = {
 }
 
 const TransportContext = createContext<TransportContextValue | undefined>(undefined)
+
+/**
+ * Registers the TUI client with the daemon for project tracking.
+ * Non-fatal: TUI works without registration in degraded mode.
+ */
+async function registerTuiClient(client: ITransportClient): Promise<void> {
+  try {
+    const {projectRoot} = detectMcpMode(process.cwd())
+    await client.requestWithAck(TransportClientEventNames.REGISTER, {
+      projectPath: projectRoot,
+      type: 'tui' as const,
+    })
+  } catch {
+    // Non-fatal: registration failure should not prevent TUI operation
+  }
+}
 
 /**
  * Provider component that manages transport client connection and state.
@@ -56,10 +74,18 @@ export function TransportProvider({children}: {children: React.ReactNode}): Reac
           if (state === 'reconnecting') {
             setReconnectCount((prev) => prev + 1)
           }
+
+          // Re-register on reconnect (daemon may have restarted)
+          if (state === 'connected') {
+            registerTuiClient(newClient).catch(() => {})
+          }
         })
 
         // Join broadcast room to receive all events
         await newClient.joinRoom('broadcast-room')
+
+        // Register with daemon for project tracking
+        await registerTuiClient(newClient)
 
         // Set client in state
         setClient(newClient)

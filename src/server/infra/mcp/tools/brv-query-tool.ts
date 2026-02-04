@@ -4,6 +4,7 @@ import type {McpServer} from '@modelcontextprotocol/sdk/server/mcp.js'
 import {randomUUID} from 'node:crypto'
 import {z} from 'zod'
 
+import {TransportClientEventNames} from '../../../core/domain/transport/schemas.js'
 import {resolveClientCwd} from './resolve-client-cwd.js'
 import {waitForTaskResult} from './task-result-waiter.js'
 
@@ -67,6 +68,14 @@ export function registerBrvQueryTool(
           ],
           isError: true,
         }
+      }
+
+      // In global mode, associate client with the resolved project.
+      // Fire-and-forget: server handler is idempotent.
+      if (!getWorkingDirectory()) {
+        client.requestWithAck(TransportClientEventNames.ASSOCIATE_PROJECT, {
+          projectPath: cwdResult.clientCwd,
+        }).catch(() => {})
       }
 
       try {

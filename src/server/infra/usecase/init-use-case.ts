@@ -1,4 +1,4 @@
-import {access, readFile, rm} from 'node:fs/promises'
+import {access, mkdir, readFile, rm, writeFile} from 'node:fs/promises'
 import {join} from 'node:path'
 
 import type {AuthToken} from '../../core/domain/entities/auth-token.js'
@@ -20,6 +20,7 @@ import type {IInitUseCase, InitUseCaseRunOptions} from '../../core/interfaces/us
 
 import {getCurrentConfig} from '../../config/environment.js'
 import {ACE_DIR, BRV_CONFIG_VERSION, BRV_DIR, DEFAULT_BRANCH, PROJECT_CONFIG_FILE} from '../../constants.js'
+import {getProjectDataDir} from '../../utils/path-utils.js'
 import {type Agent, AGENT_VALUES} from '../../core/domain/entities/agent.js'
 import {BrvConfig} from '../../core/domain/entities/brv-config.js'
 import {BrvConfigVersionError} from '../../core/domain/errors/brv-config-version-error.js'
@@ -567,6 +568,15 @@ export class InitUseCase implements IInitUseCase {
         space: selectedSpace,
       })
       await this.projectConfigStore.write(config)
+
+      // Clone config to XDG storage path (source of truth for daemon)
+      const xdgStoragePath = getProjectDataDir(process.cwd())
+      await mkdir(xdgStoragePath, {recursive: true})
+      await writeFile(
+        join(xdgStoragePath, PROJECT_CONFIG_FILE),
+        JSON.stringify(config.toJson(), undefined, 2),
+        'utf8',
+      )
 
       if (!isHeadless) {
         this.terminal.log()

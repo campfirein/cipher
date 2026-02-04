@@ -294,8 +294,40 @@ describe('brv-curate-tool', () => {
       expect(result.isError).to.be.undefined
       expect(result.content[0].text).to.include('queued for curation')
 
-      const payload = requestStub.firstCall.args[1]
-      expect(payload.clientCwd).to.equal('/some/project')
+      const createCall = requestStub.getCalls().find((c: {args: unknown[]}) => c.args[0] === 'task:create')
+      expect(createCall).to.exist
+      expect(createCall!.args[1]).to.have.property('clientCwd', '/some/project')
+    })
+
+    it('should call client:associateProject in global mode', async () => {
+      const {client} = createMockClient()
+      const requestStub = client.requestWithAck as SinonStub
+
+      const handler = setupCurateHandler({
+        getClient: () => client,
+        getWorkingDirectory: noWorkingDirectory,
+      })
+
+      await handler({context: 'Auth pattern', cwd: '/some/project'})
+
+      const associateCall = requestStub.getCalls().find((c: {args: unknown[]}) => c.args[0] === 'client:associateProject')
+      expect(associateCall).to.exist
+      expect(associateCall!.args[1]).to.deep.equal({projectPath: '/some/project'})
+    })
+
+    it('should not call client:associateProject in project mode', async () => {
+      const {client} = createMockClient()
+      const requestStub = client.requestWithAck as SinonStub
+
+      const handler = setupCurateHandler({
+        getClient: () => client,
+        getWorkingDirectory: () => '/project/root',
+      })
+
+      await handler({context: 'test'})
+
+      const associateCall = requestStub.getCalls().find((c: {args: unknown[]}) => c.args[0] === 'client:associateProject')
+      expect(associateCall).to.be.undefined
     })
   })
 

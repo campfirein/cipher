@@ -216,8 +216,11 @@ describe('brv-query-tool', () => {
     it('should use explicit cwd when provided in global mode', async () => {
       const {client, simulateEvent} = createMockClient()
       const requestStub = client.requestWithAck as SinonStub
-      requestStub.callsFake((_event: string, data: {taskId: string}) => {
-        simulateEvent('task:completed', {result: 'answer', taskId: data.taskId})
+      requestStub.callsFake((event: string, data: {taskId?: string}) => {
+        if (event === 'task:create' && data.taskId) {
+          simulateEvent('task:completed', {result: 'answer', taskId: data.taskId})
+        }
+
         return Promise.resolve()
       })
 
@@ -231,8 +234,54 @@ describe('brv-query-tool', () => {
       expect(result.isError).to.be.undefined
       expect(result.content[0].text).to.equal('answer')
 
-      const payload = requestStub.firstCall.args[1]
-      expect(payload.clientCwd).to.equal('/some/project')
+      const createCall = requestStub.getCalls().find((c: {args: unknown[]}) => c.args[0] === 'task:create')
+      expect(createCall).to.exist
+      expect(createCall!.args[1]).to.have.property('clientCwd', '/some/project')
+    })
+
+    it('should call client:associateProject in global mode', async () => {
+      const {client, simulateEvent} = createMockClient()
+      const requestStub = client.requestWithAck as SinonStub
+      requestStub.callsFake((event: string, data: {taskId?: string}) => {
+        if (event === 'task:create' && data.taskId) {
+          simulateEvent('task:completed', {result: 'ok', taskId: data.taskId})
+        }
+
+        return Promise.resolve()
+      })
+
+      const handler = setupQueryHandler({
+        getClient: () => client,
+        getWorkingDirectory: noWorkingDirectory,
+      })
+
+      await handler({cwd: '/some/project', query: 'test'})
+
+      const associateCall = requestStub.getCalls().find((c: {args: unknown[]}) => c.args[0] === 'client:associateProject')
+      expect(associateCall).to.exist
+      expect(associateCall!.args[1]).to.deep.equal({projectPath: '/some/project'})
+    })
+
+    it('should not call client:associateProject in project mode', async () => {
+      const {client, simulateEvent} = createMockClient()
+      const requestStub = client.requestWithAck as SinonStub
+      requestStub.callsFake((_event: string, data: {taskId?: string}) => {
+        if (data.taskId) {
+          simulateEvent('task:completed', {result: 'ok', taskId: data.taskId})
+        }
+
+        return Promise.resolve()
+      })
+
+      const handler = setupQueryHandler({
+        getClient: () => client,
+        getWorkingDirectory: () => '/project/root',
+      })
+
+      await handler({query: 'test'})
+
+      const associateCall = requestStub.getCalls().find((c: {args: unknown[]}) => c.args[0] === 'client:associateProject')
+      expect(associateCall).to.be.undefined
     })
   })
 
