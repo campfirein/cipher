@@ -25,6 +25,7 @@ import type {IProjectRouter} from '../../core/interfaces/routing/i-project-route
 import type {ITransportServer} from '../../core/interfaces/transport/i-transport-server.js'
 import type {TaskRouter} from './task-router.js'
 
+import {isValidClientType} from '../../core/domain/client/client-info.js'
 import {AgentDisconnectedError, serializeTaskError} from '../../core/domain/errors/task-error.js'
 import {
   AgentStatusEventNames,
@@ -113,12 +114,24 @@ export class ConnectionCoordinator {
 
   /**
    * Add a client to the project room (if projectPath and required services are available).
+   * Uses register() (idempotent) to ensure the project exists in the registry,
+   * so clients can join the room even before any task has been submitted.
    */
   private addToProjectRoom(clientId: string, projectPath: string): void {
     if (!this.projectRouter || !this.projectRegistry) return
+    const projectInfo = this.projectRegistry.register(projectPath)
+    this.projectRouter.addToProjectRoom(clientId, projectInfo.sanitizedPath)
+  }
+
+  /**
+   * Broadcast an event to the project-scoped room for a given projectPath.
+   * Silently skips if projectPath is unavailable or project routing is not configured.
+   */
+  private broadcastToProjectRoom<T = unknown>(projectPath: string | undefined, event: string, data: T): void {
+    if (!projectPath || !this.projectRouter || !this.projectRegistry) return
     const projectInfo = this.projectRegistry.get(projectPath)
     if (projectInfo) {
-      this.projectRouter.addToProjectRoom(clientId, projectInfo.sanitizedPath)
+      this.projectRouter.broadcastToProject(projectInfo.sanitizedPath, event, data)
     }
   }
 
@@ -147,7 +160,7 @@ export class ConnectionCoordinator {
       this.agentPool?.handleAgentDisconnected(projectPath)
     }
 
-    this.transport.broadcast(TransportAgentEventNames.DISCONNECTED, {})
+    this.broadcastToProjectRoom(projectPath, TransportAgentEventNames.DISCONNECTED, {})
 
     // Fail only tasks belonging to the disconnected agent's project
     const error = serializeTaskError(new AgentDisconnectedError())
@@ -172,7 +185,7 @@ export class ConnectionCoordinator {
       this.addToProjectRoom(clientId, projectPath)
     }
 
-    this.transport.broadcast(TransportAgentEventNames.CONNECTED, {})
+    this.broadcastToProjectRoom(projectPath, TransportAgentEventNames.CONNECTED, {})
   }
 
   private handleClientAssociateProject(
@@ -208,9 +221,15 @@ export class ConnectionCoordinator {
       return {error: 'ClientManager not available', success: false}
     }
 
-    this.clientManager.register(clientId, data.clientType, data.projectPath)
+    // Fall back to 'cli' for missing/invalid clientType (backward compat with older clients)
+    const clientType = isValidClientType(data.clientType) ? data.clientType : 'cli'
+    if (!isValidClientType(data.clientType)) {
+      transportLog(`Client ${clientId} registered with missing/invalid clientType '${String(data.clientType)}', defaulting to 'cli'`)
+    }
+
+    this.clientManager.register(clientId, clientType, data.projectPath)
     transportLog(
-      `Client registered: ${clientId} (type=${data.clientType}${data.projectPath ? `, project=${data.projectPath}` : ''})`,
+      `Client registered: ${clientId} (type=${clientType}${data.projectPath ? `, project=${data.projectPath}` : ''})`,
     )
 
     if (data.projectPath) {
@@ -264,24 +283,31 @@ export class ConnectionCoordinator {
         this.transport.sendTo(agentId, TransportAgentEventNames.RESTART, {reason: data.reason})
 
         eventLog('agent:restarting', {reason: data.reason})
-        this.transport.broadcast(TransportAgentEventNames.RESTARTING, {reason: data.reason})
+        this.broadcastToProjectRoom(clientProject, TransportAgentEventNames.RESTARTING, {reason: data.reason})
 
         return {success: true}
       },
     )
 
     // agent:restarted - Agent reports restart result
-    this.transport.onRequest<{error?: string; success: boolean}, void>(TransportAgentEventNames.RESTARTED, (data) => {
-      if (data.success) {
-        transportLog('Agent restarted successfully')
-        eventLog('agent:restarted', {success: true})
-        this.transport.broadcast(TransportAgentEventNames.RESTARTED, {success: true})
-      } else {
-        transportLog(`Agent restart failed: ${data.error}`)
-        eventLog('agent:restarted', {error: data.error, success: false})
-        this.transport.broadcast(TransportAgentEventNames.RESTARTED, {error: data.error, success: false})
-      }
-    })
+    this.transport.onRequest<{error?: string; success: boolean}, void>(
+      TransportAgentEventNames.RESTARTED,
+      (data, clientId) => {
+        const agentProject = this.findProjectForAgent(clientId)
+        if (data.success) {
+          transportLog('Agent restarted successfully')
+          eventLog('agent:restarted', {success: true})
+          this.broadcastToProjectRoom(agentProject, TransportAgentEventNames.RESTARTED, {success: true})
+        } else {
+          transportLog(`Agent restart failed: ${data.error}`)
+          eventLog('agent:restarted', {error: data.error, success: false})
+          this.broadcastToProjectRoom(agentProject, TransportAgentEventNames.RESTARTED, {
+            error: data.error,
+            success: false,
+          })
+        }
+      },
+    )
 
     // agent:newSession - Client requests a new session
     this.transport.onRequest<AgentNewSessionRequest, AgentNewSessionResponse>(
@@ -302,23 +328,27 @@ export class ConnectionCoordinator {
     )
 
     // agent:newSessionCreated - Agent reports new session creation result
-    this.transport.onRequest<AgentNewSessionResponse, void>(TransportAgentEventNames.NEW_SESSION_CREATED, (data) => {
-      if (data.success) {
-        transportLog(`New session created: ${data.sessionId}`)
-        eventLog('agent:newSessionCreated', {sessionId: data.sessionId, success: true})
-        this.transport.broadcast(TransportAgentEventNames.NEW_SESSION_CREATED, {
-          sessionId: data.sessionId,
-          success: true,
-        })
-      } else {
-        transportLog(`New session creation failed: ${data.error}`)
-        eventLog('agent:newSessionCreated', {error: data.error, success: false})
-        this.transport.broadcast(TransportAgentEventNames.NEW_SESSION_CREATED, {
-          error: data.error,
-          success: false,
-        })
-      }
-    })
+    this.transport.onRequest<AgentNewSessionResponse, void>(
+      TransportAgentEventNames.NEW_SESSION_CREATED,
+      (data, clientId) => {
+        const agentProject = this.findProjectForAgent(clientId)
+        if (data.success) {
+          transportLog(`New session created: ${data.sessionId}`)
+          eventLog('agent:newSessionCreated', {sessionId: data.sessionId, success: true})
+          this.broadcastToProjectRoom(agentProject, TransportAgentEventNames.NEW_SESSION_CREATED, {
+            sessionId: data.sessionId,
+            success: true,
+          })
+        } else {
+          transportLog(`New session creation failed: ${data.error}`)
+          eventLog('agent:newSessionCreated', {error: data.error, success: false})
+          this.broadcastToProjectRoom(agentProject, TransportAgentEventNames.NEW_SESSION_CREATED, {
+            error: data.error,
+            success: false,
+          })
+        }
+      },
+    )
   }
 
   private setupAgentHandlers(): void {
@@ -332,11 +362,11 @@ export class ConnectionCoordinator {
     )
 
     // Agent status events
-    this.transport.onRequest<AgentStatus, void>(AgentStatusEventNames.STATUS_CHANGED, (data) => {
+    this.transport.onRequest<AgentStatus, void>(AgentStatusEventNames.STATUS_CHANGED, (data, clientId) => {
       transportLog(
         `Agent status changed: initialized=${data.isInitialized}, auth=${data.hasAuth}, config=${data.hasConfig}`,
       )
-      this.transport.broadcast(AgentStatusEventNames.STATUS_CHANGED, data)
+      this.broadcastToProjectRoom(this.findProjectForAgent(clientId), AgentStatusEventNames.STATUS_CHANGED, data)
     })
   }
 

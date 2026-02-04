@@ -105,7 +105,7 @@ function cleanupOldLogs(logsDir: string, keep: number): void {
 }
 
 async function main(): Promise<void> {
-  // 1. Setup daemon logging at ~/.local/share/brv/logs/server-<timestamp>.log
+  // 1. Setup daemon logging at <global-data-dir>/logs/server-<timestamp>.log
   const daemonLogsDir = join(getGlobalDataDir(), 'logs')
   mkdirSync(daemonLogsDir, {recursive: true})
   const timestamp = new Date().toISOString().replaceAll(/[:.]/g, '-').slice(0, 19)
@@ -197,9 +197,23 @@ async function main(): Promise<void> {
     // Agent idle timeout policy — kills agents after period of inactivity
     const agentIdleTimeoutPolicy = new AgentIdleTimeoutPolicy({
       checkIntervalMs: AGENT_IDLE_CHECK_INTERVAL_MS,
-      getQueueLength: () => 0, // Queue length tracking not critical for cleanup logic
+      getQueueLength: (projectPath: string) =>
+        agentPool?.getQueueState().find((q) => q.projectPath === projectPath)?.queueLength ?? 0,
       log,
-      onAgentIdle(projectPath: string) {
+      onAgentIdle(projectPath: string, queueLength: number) {
+        // Don't kill agents that have queued tasks waiting
+        if (queueLength > 0) {
+          log(`Skipping idle cleanup: ${projectPath} has ${queueLength} queued tasks`)
+          return
+        }
+
+        // Don't kill agents that are actively processing a task
+        const entry = agentPool?.getEntries().find((e) => e.projectPath === projectPath)
+        if (entry?.hasActiveTask) {
+          log(`Skipping idle cleanup: ${projectPath} has active task`)
+          return
+        }
+
         log(`Killing idle agent: ${projectPath}`)
         agentPool?.handleAgentDisconnected(projectPath)
       },

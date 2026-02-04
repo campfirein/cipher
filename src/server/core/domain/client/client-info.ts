@@ -15,9 +15,22 @@
  */
 
 /**
+ * Valid client types (runtime source of truth).
+ * Used for validation when registering clients.
+ */
+export const VALID_CLIENT_TYPES = ['agent', 'cli', 'extension', 'mcp', 'tui'] as const
+
+/**
  * Client type discriminator.
  */
-export type ClientType = 'agent' | 'cli' | 'mcp' | 'tui'
+export type ClientType = (typeof VALID_CLIENT_TYPES)[number]
+
+/**
+ * Runtime type guard for client type validation.
+ */
+export function isValidClientType(value: unknown): value is ClientType {
+  return typeof value === 'string' && (VALID_CLIENT_TYPES as readonly string[]).includes(value)
+}
 
 /**
  * Construction parameters for ClientInfo.
@@ -58,7 +71,7 @@ export class ClientInfo {
    * Agent clients are workers, not users — they don't count.
    */
   get isExternalClient(): boolean {
-    return this.type === 'tui' || this.type === 'cli' || this.type === 'mcp'
+    return this.type !== 'agent'
   }
 
   /**

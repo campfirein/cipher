@@ -570,7 +570,7 @@ export class InitUseCase implements IInitUseCase {
       })
       await this.projectConfigStore.write(config)
 
-      // Clone config to XDG storage path (source of truth for daemon)
+      // Clone config to XDG storage path (pre-create project data directory)
       const xdgStoragePath = getProjectDataDir(process.cwd())
       await mkdir(xdgStoragePath, {recursive: true})
       await writeFile(

@@ -137,7 +137,12 @@ describe('TransportHandlers', () => {
         storagePath: '/data/app',
       }),
       getAll: sandbox.stub().returns(new Map()),
-      register: sandbox.stub(),
+      register: sandbox.stub().returns({
+        projectPath: '/app',
+        registeredAt: 1000,
+        sanitizedPath: 'app',
+        storagePath: '/data/app',
+      }),
       unregister: sandbox.stub().returns(true),
     }
 
@@ -155,29 +160,77 @@ describe('TransportHandlers', () => {
     return {mockClientManager, mockProjectRegistry, mockProjectRouter}
   }
 
+  /**
+   * Helper: Create handlers with project routing (projectRouter + projectRegistry).
+   * Used by tests that verify task/LLM events are broadcast to project rooms.
+   */
+  function createHandlersWithProjectRouting() {
+    const mockProjectRouter = {
+      addToProjectRoom: sandbox.stub(),
+      broadcastToProject: sandbox.stub(),
+      getProjectMembers: sandbox.stub().returns([]),
+      removeFromProjectRoom: sandbox.stub(),
+    }
+
+    const mockProjectRegistry = {
+      get: sandbox.stub().returns({
+        projectPath: '/app',
+        registeredAt: 1000,
+        sanitizedPath: 'app',
+        storagePath: '/data/app',
+      }),
+      getAll: sandbox.stub().returns(new Map()),
+      register: sandbox.stub().returns({
+        projectPath: '/app',
+        registeredAt: 1000,
+        sanitizedPath: 'app',
+        storagePath: '/data/app',
+      }),
+      unregister: sandbox.stub().returns(true),
+    }
+
+    requestHandlers.clear()
+    const prHandlers = new TransportHandlers({
+      agentPool: mockAgentPool,
+      projectRegistry: mockProjectRegistry,
+      projectRouter: mockProjectRouter,
+      transport: mockTransport,
+    })
+    prHandlers.setup()
+
+    return {mockProjectRegistry, mockProjectRouter, prHandlers}
+  }
+
   describe('Agent Registration', () => {
     it('should register agent on agent:register event', () => {
+      const {mockProjectRouter} = createHandlersWithProjectRouting()
       const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
       expect(registerHandler).to.exist
 
-      const result = registerHandler!({}, 'agent-client-001')
+      const result = registerHandler!({projectPath: '/app'}, 'agent-client-001')
 
       expect(result).to.deep.equal({success: true})
-      expect((mockTransport.broadcast as SinonStub).calledWith(TransportAgentEventNames.CONNECTED, {})).to.be.true
+      expect(mockProjectRouter.broadcastToProject.calledWith('app', TransportAgentEventNames.CONNECTED, {})).to.be.true
     })
 
     it('should allow agent to re-register (replace old agent)', () => {
+      const {mockProjectRouter} = createHandlersWithProjectRouting()
       const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
 
       // First registration
-      registerHandler!({}, 'agent-client-001')
+      registerHandler!({projectPath: '/app'}, 'agent-client-001')
 
       // Second registration should succeed
-      const result = registerHandler!({}, 'agent-client-002')
+      const result = registerHandler!({projectPath: '/app'}, 'agent-client-002')
       expect(result).to.deep.equal({success: true})
 
-      // Broadcast should be called twice
-      expect((mockTransport.broadcast as SinonStub).callCount).to.equal(2)
+      // Broadcast should be called twice (once per registration)
+      expect(mockProjectRouter.broadcastToProject.calledWith('app', TransportAgentEventNames.CONNECTED, {})).to.be.true
+      expect(
+        mockProjectRouter.broadcastToProject
+          .getCalls()
+          .filter((c: {args: unknown[]}) => c.args[1] === TransportAgentEventNames.CONNECTED).length,
+      ).to.equal(2)
     })
   })
 
@@ -215,16 +268,17 @@ describe('TransportHandlers', () => {
       expect(result2).to.deep.equal({taskId})
     })
 
-    it('should broadcast task:created to broadcast-room', () => {
-      const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
+    it('should broadcast task:created to project room', () => {
+      const {mockProjectRouter} = createHandlersWithProjectRouting()
       registerAgentWithStatus('agent-001')
 
       const taskId = randomUUID()
-      createHandler!({content: 'Broadcast test', taskId, type: 'query'}, 'client-001')
+      const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
+      createHandler!({content: 'Broadcast test', projectPath: '/app', taskId, type: 'query'}, 'client-001')
 
       expect(
-        (mockTransport.broadcastTo as SinonStub).calledWith(
-          'broadcast-room',
+        mockProjectRouter.broadcastToProject.calledWith(
+          'app',
           TransportTaskEventNames.CREATED,
           sandbox.match({content: 'Broadcast test', taskId, type: 'query'}),
         ),
@@ -270,13 +324,29 @@ describe('TransportHandlers', () => {
     it('should send immediate error when no AgentPool available', () => {
       // Create handlers WITHOUT agentPool to test the no-pool scenario
       requestHandlers.clear()
-      const noPoolHandlers = new TransportHandlers({transport: mockTransport})
+      const noPoolProjectRouter = {
+        addToProjectRoom: sandbox.stub(),
+        broadcastToProject: sandbox.stub(),
+        getProjectMembers: sandbox.stub().returns([]),
+        removeFromProjectRoom: sandbox.stub(),
+      }
+      const noPoolProjectRegistry = {
+        get: sandbox.stub().returns({projectPath: '/app', registeredAt: 1000, sanitizedPath: 'app', storagePath: '/data/app'}),
+        getAll: sandbox.stub().returns(new Map()),
+        register: sandbox.stub().returns({projectPath: '/app', registeredAt: 1000, sanitizedPath: 'app', storagePath: '/data/app'}),
+        unregister: sandbox.stub().returns(true),
+      }
+      const noPoolHandlers = new TransportHandlers({
+        projectRegistry: noPoolProjectRegistry,
+        projectRouter: noPoolProjectRouter,
+        transport: mockTransport,
+      })
       noPoolHandlers.setup()
 
       const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
 
       const taskId = randomUUID()
-      const result = createHandler!({content: 'No pool test', taskId, type: 'curate'}, 'client-001') as {
+      const result = createHandler!({content: 'No pool test', projectPath: '/app', taskId, type: 'curate'}, 'client-001') as {
         taskId: string
       }
 
@@ -291,10 +361,10 @@ describe('TransportHandlers', () => {
         ),
       ).to.be.true
 
-      // Error should also be broadcast
+      // Error should also be broadcast to project room
       expect(
-        (mockTransport.broadcastTo as SinonStub).calledWith(
-          'broadcast-room',
+        noPoolProjectRouter.broadcastToProject.calledWith(
+          'app',
           TransportTaskEventNames.ERROR,
           sandbox.match({taskId}),
         ),
@@ -323,18 +393,19 @@ describe('TransportHandlers', () => {
       ).to.be.true
     })
 
-    it('should broadcast task:completed to broadcast-room', () => {
-      const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
+    it('should broadcast task:completed to project room', () => {
+      const {mockProjectRouter} = createHandlersWithProjectRouting()
       registerAgentWithStatus('agent-001')
 
       const taskId = randomUUID()
-      createHandler!({content: 'Broadcast complete', taskId, type: 'query'}, 'client-001')
+      const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
+      createHandler!({content: 'Broadcast complete', projectPath: '/app', taskId, type: 'query'}, 'client-001')
 
       const completedHandler = requestHandlers.get(TransportTaskEventNames.COMPLETED)
       completedHandler!({result: 'Done', taskId}, 'agent-001')
 
       expect(
-        (mockTransport.broadcastTo as SinonStub).calledWith('broadcast-room', TransportTaskEventNames.COMPLETED, {
+        mockProjectRouter.broadcastToProject.calledWith('app', TransportTaskEventNames.COMPLETED, {
           result: 'Done',
           taskId,
         }),
@@ -412,12 +483,13 @@ describe('TransportHandlers', () => {
       ).to.be.true
     })
 
-    it('should broadcast task:error to broadcast-room', () => {
-      const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
+    it('should broadcast task:error to project room', () => {
+      const {mockProjectRouter} = createHandlersWithProjectRouting()
       registerAgentWithStatus('agent-001')
 
       const taskId = randomUUID()
-      createHandler!({content: 'Broadcast error', taskId, type: 'query'}, 'client-001')
+      const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
+      createHandler!({content: 'Broadcast error', projectPath: '/app', taskId, type: 'query'}, 'client-001')
 
       const errorHandler = requestHandlers.get(TransportTaskEventNames.ERROR)
       errorHandler!(
@@ -429,8 +501,8 @@ describe('TransportHandlers', () => {
       )
 
       expect(
-        (mockTransport.broadcastTo as SinonStub).calledWith(
-          'broadcast-room',
+        mockProjectRouter.broadcastToProject.calledWith(
+          'app',
           TransportTaskEventNames.ERROR,
           sandbox.match({taskId}),
         ),
@@ -517,11 +589,12 @@ describe('TransportHandlers', () => {
     })
 
     it('should handle task:cancelled from agent', () => {
-      const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
+      const {mockProjectRouter} = createHandlersWithProjectRouting()
       registerAgentWithStatus('agent-001')
 
       const taskId = randomUUID()
-      createHandler!({content: 'Agent cancel', taskId, type: 'curate'}, 'client-001')
+      const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
+      createHandler!({content: 'Agent cancel', projectPath: '/app', taskId, type: 'curate'}, 'client-001')
 
       const cancelledHandler = requestHandlers.get(TransportTaskEventNames.CANCELLED)
       cancelledHandler!({taskId}, 'agent-001')
@@ -533,7 +606,7 @@ describe('TransportHandlers', () => {
       ).to.be.true
 
       expect(
-        (mockTransport.broadcastTo as SinonStub).calledWith('broadcast-room', TransportTaskEventNames.CANCELLED, {
+        mockProjectRouter.broadcastToProject.calledWith('app', TransportTaskEventNames.CANCELLED, {
           taskId,
         }),
       ).to.be.true
@@ -558,19 +631,20 @@ describe('TransportHandlers', () => {
       ).to.be.true
     })
 
-    it('should broadcast task:started with task info', () => {
-      const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
+    it('should broadcast task:started with task info to project room', () => {
+      const {mockProjectRouter} = createHandlersWithProjectRouting()
       registerAgentWithStatus('agent-001')
 
       const taskId = randomUUID()
-      createHandler!({content: 'Broadcast started', files: ['/test.ts'], taskId, type: 'curate'}, 'client-001')
+      const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
+      createHandler!({content: 'Broadcast started', files: ['/test.ts'], projectPath: '/app', taskId, type: 'curate'}, 'client-001')
 
       const startedHandler = requestHandlers.get(TransportTaskEventNames.STARTED)
       startedHandler!({taskId}, 'agent-001')
 
       expect(
-        (mockTransport.broadcastTo as SinonStub).calledWith(
-          'broadcast-room',
+        mockProjectRouter.broadcastToProject.calledWith(
+          'app',
           TransportTaskEventNames.STARTED,
           sandbox.match({
             content: 'Broadcast started',
@@ -588,23 +662,20 @@ describe('TransportHandlers', () => {
       // Should not throw
       expect(() => startedHandler!({taskId: 'unknown-task'}, 'agent-001')).to.not.throw()
 
-      // Should still broadcast with minimal info
-      expect(
-        (mockTransport.broadcastTo as SinonStub).calledWith('broadcast-room', TransportTaskEventNames.STARTED, {
-          taskId: 'unknown-task',
-        }),
-      ).to.be.true
+      // Should NOT broadcast (no task context = no project room to broadcast to)
+      expect((mockTransport.broadcastTo as SinonStub).called).to.be.false
     })
   })
 
   describe('Agent Disconnect', () => {
     it('should broadcast agent:disconnected on agent disconnect', () => {
+      const {mockProjectRouter} = createHandlersWithProjectRouting()
       const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
-      registerHandler!({}, 'agent-001')
+      registerHandler!({projectPath: '/app'}, 'agent-001')
 
       disconnectionHandler!('agent-001')
 
-      expect((mockTransport.broadcast as SinonStub).calledWith(TransportAgentEventNames.DISCONNECTED, {})).to.be.true
+      expect(mockProjectRouter.broadcastToProject.calledWith('app', TransportAgentEventNames.DISCONNECTED, {})).to.be.true
     })
 
     it('should fail all pending tasks on agent disconnect', () => {
@@ -638,18 +709,28 @@ describe('TransportHandlers', () => {
       ).to.be.true
     })
 
-    it('should broadcast errors to broadcast-room on agent disconnect', () => {
-      const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
-      registerAgentWithStatus('agent-001')
+    it('should broadcast errors to project room on agent disconnect', () => {
+      const {mockProjectRouter} = createHandlersWithProjectRouting()
+
+      // Register agent WITH projectPath so disconnect correctly finds project tasks
+      const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
+      registerHandler!({projectPath: '/app'}, 'agent-001')
+
+      const statusHandler = requestHandlers.get(AgentStatusEventNames.STATUS_CHANGED)
+      statusHandler!(
+        {activeTasks: 0, hasAuth: true, hasConfig: true, isInitialized: true, queuedTasks: 0},
+        'agent-001',
+      )
 
       const taskId = randomUUID()
-      createHandler!({content: 'Broadcast error', taskId, type: 'curate'}, 'client-001')
+      const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
+      createHandler!({content: 'Broadcast error', projectPath: '/app', taskId, type: 'curate'}, 'client-001')
 
       disconnectionHandler!('agent-001')
 
       expect(
-        (mockTransport.broadcastTo as SinonStub).calledWith(
-          'broadcast-room',
+        mockProjectRouter.broadcastToProject.calledWith(
+          'app',
           TransportTaskEventNames.ERROR,
           sandbox.match({taskId}),
         ),
@@ -722,19 +803,20 @@ describe('TransportHandlers', () => {
       ).to.be.true
     })
 
-    it('should broadcast LLM events to broadcast-room', () => {
-      const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
+    it('should broadcast LLM events to project room', () => {
+      const {mockProjectRouter} = createHandlersWithProjectRouting()
       registerAgentWithStatus('agent-001')
 
       const taskId = randomUUID()
-      createHandler!({content: 'Broadcast LLM', taskId, type: 'curate'}, 'client-001')
+      const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
+      createHandler!({content: 'Broadcast LLM', projectPath: '/app', taskId, type: 'curate'}, 'client-001')
 
       const responseHandler = requestHandlers.get(LlmEventNames.RESPONSE)
       responseHandler!({content: 'Broadcast content', sessionId: 's1', taskId}, 'agent-001')
 
       expect(
-        (mockTransport.broadcastTo as SinonStub).calledWith(
-          'broadcast-room',
+        mockProjectRouter.broadcastToProject.calledWith(
+          'app',
           LlmEventNames.RESPONSE,
           sandbox.match({taskId}),
         ),
@@ -770,11 +852,12 @@ describe('TransportHandlers', () => {
 
     it('should preserve toolName field (not name) in llmservice:toolCall routing', () => {
       // Regression test: Ensure toolName is preserved and 'name' field is NOT added
+      const {mockProjectRouter} = createHandlersWithProjectRouting()
       registerAgentWithStatus('agent-001')
 
       const taskId = randomUUID()
       const createHandler = requestHandlers.get(TransportTaskEventNames.CREATE)
-      createHandler!({content: 'test', taskId, type: 'query'}, 'client-001')
+      createHandler!({content: 'test', projectPath: '/app', taskId, type: 'query'}, 'client-001')
 
       // Simulate toolCall with ONLY toolName (no name field)
       const toolCallHandler = requestHandlers.get(LlmEventNames.TOOL_CALL)
@@ -796,9 +879,9 @@ describe('TransportHandlers', () => {
       expect(sendToCall!.args[2].toolName).to.equal('grep_content')
       expect(sendToCall!.args[2]).to.not.have.property('name')
 
-      // Verify: broadcastTo should also have toolName, NOT name
-      const broadcastCalls = (mockTransport.broadcastTo as SinonStub).getCalls()
-      const broadcastCall = broadcastCalls.find((c) => c.args[1] === LlmEventNames.TOOL_CALL)
+      // Verify: broadcastToProject should also have toolName, NOT name
+      const broadcastCalls = mockProjectRouter.broadcastToProject.getCalls()
+      const broadcastCall = broadcastCalls.find((c: {args: unknown[]}) => c.args[1] === LlmEventNames.TOOL_CALL)
       expect(broadcastCall).to.exist
       expect(broadcastCall!.args[2].toolName).to.equal('grep_content')
       expect(broadcastCall!.args[2]).to.not.have.property('name')
@@ -946,39 +1029,51 @@ describe('TransportHandlers', () => {
     })
 
     it('should broadcast agent:restarting on restart request', () => {
+      const {mockClientManager, mockProjectRouter} = createHandlersWithClientManager()
+
+      // Register agent with projectPath
       const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
-      registerHandler!({}, 'agent-001')
+      registerHandler!({projectPath: '/app'}, 'agent-001')
+
+      // Client requesting restart must have projectPath so broadcastToProjectRoom works
+      mockClientManager.getClient.withArgs('client-001').returns({projectPath: '/app', type: 'tui'})
 
       const restartHandler = requestHandlers.get(TransportAgentEventNames.RESTART)
       restartHandler!({reason: 'broadcast test'}, 'client-001')
 
       expect(
-        (mockTransport.broadcast as SinonStub).calledWith(TransportAgentEventNames.RESTARTING, {
+        mockProjectRouter.broadcastToProject.calledWith('app', TransportAgentEventNames.RESTARTING, {
           reason: 'broadcast test',
         }),
       ).to.be.true
     })
 
     it('should handle agent:restarted success', () => {
+      const {mockProjectRouter} = createHandlersWithProjectRouting()
+
+      // Register agent with projectPath so findProjectForAgent works
       const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
-      registerHandler!({}, 'agent-001')
+      registerHandler!({projectPath: '/app'}, 'agent-001')
 
       const restartedHandler = requestHandlers.get(TransportAgentEventNames.RESTARTED)
       restartedHandler!({success: true}, 'agent-001')
 
-      expect((mockTransport.broadcast as SinonStub).calledWith(TransportAgentEventNames.RESTARTED, {success: true})).to
-        .be.true
+      expect(mockProjectRouter.broadcastToProject.calledWith('app', TransportAgentEventNames.RESTARTED, {success: true}))
+        .to.be.true
     })
 
     it('should handle agent:restarted failure', () => {
+      const {mockProjectRouter} = createHandlersWithProjectRouting()
+
+      // Register agent with projectPath so findProjectForAgent works
       const registerHandler = requestHandlers.get(TransportAgentEventNames.REGISTER)
-      registerHandler!({}, 'agent-001')
+      registerHandler!({projectPath: '/app'}, 'agent-001')
 
       const restartedHandler = requestHandlers.get(TransportAgentEventNames.RESTARTED)
       restartedHandler!({error: 'Failed to restart', success: false}, 'agent-001')
 
       expect(
-        (mockTransport.broadcast as SinonStub).calledWith(TransportAgentEventNames.RESTARTED, {
+        mockProjectRouter.broadcastToProject.calledWith('app', TransportAgentEventNames.RESTARTED, {
           error: 'Failed to restart',
           success: false,
         }),

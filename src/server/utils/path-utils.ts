@@ -94,7 +94,7 @@ export const sanitizeProjectPath = (resolvedPath: string): string => {
 /**
  * Returns the per-project data directory for a given working directory.
  *
- * Maps a client CWD to: ~/.local/share/brv/projects/<sanitized-path>/
+ * Maps a client CWD to: <global-data-dir>/projects/<sanitized-path>/
  *
  * @param cwd - The client's working directory
  * @returns Absolute path to the project's data directory

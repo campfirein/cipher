@@ -24,7 +24,10 @@ import {detectMcpMode} from '../../server/infra/mcp/mcp-mode-detector.js'
 const TRANSPORT_LOG_FILE = path.join(BRV_DIR, 'transport-events.log')
 
 /**
- * Transport events that TUI subscribes to via "broadcast-room".
+ * Transport events that TUI subscribes to.
+ *
+ * Task/LLM events arrive via the project-scoped room (server adds TUI on registration).
+ * Global events (auth, agent connect/disconnect) arrive via broadcast-room.
  *
  * Event naming convention:
  * - task:* events are Transport-generated (lifecycle)
@@ -82,17 +85,23 @@ export async function connectTransportClient(): Promise<ITransportClient | null>
   try {
     // Connect to daemon (auto-start if needed) with auto-registration as 'tui'
     const {projectRoot} = detectMcpMode(process.cwd())
-    await ensureDaemonRunning()
+    const daemonResult = await ensureDaemonRunning()
+    if (!daemonResult.success) {
+      const detail = daemonResult.spawnError ? `: ${daemonResult.spawnError}` : ''
+      throw new Error(`Failed to start daemon: timed out waiting for daemon to become ready${detail}`)
+    }
+
     const {client} = await connectToTransport(process.cwd(), {
       clientType: 'tui',
       discovery: new DaemonInstanceDiscovery(),
-      // Auto-registration is enabled by default and will register with projectPath from discovery
+      // Register with projectPath so the server adds TUI to the project room.
+      // Task/LLM events are broadcast to the project room (not global broadcast-room).
+      ...(projectRoot ? {projectPath: projectRoot} : {}),
     })
     logEvent('_registration', {projectPath: projectRoot, state: 'auto-registered'})
 
-    // IMPORTANT: Join broadcast-room FIRST before subscribing to events.
-    // This prevents missing events that are broadcast during the subscription window.
-    // Pattern inspired by opencode's atomic room join approach.
+    // Join broadcast-room for global events (auth:updated, auth:expired, agent connect/disconnect).
+    // Task/LLM events come via the project room (joined server-side on registration).
     await client.joinRoom('broadcast-room')
     logEvent('_room', {room: 'broadcast-room', state: 'joined'})
 

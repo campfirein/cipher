@@ -132,17 +132,15 @@ export class AgentPool implements IAgentPool {
 
   /**
    * Handle agent socket disconnection.
-   * Removes the agent entry and best-effort stops the child process.
-   * A new agent will be forked on the next task for this project.
+   * Removes the agent entry, best-effort stops the child process,
+   * and re-forks a new agent if queued tasks remain.
    */
   handleAgentDisconnected(projectPath: string): void {
     const entry = this.agents.get(projectPath)
     if (!entry) return
 
     this.log(`Agent socket disconnected, removing from pool: ${projectPath} (pid=${entry.agent.childProcess.pid})`)
-    this.agents.delete(projectPath)
-    this.agentIdleTimeoutPolicy?.removeAgent(projectPath)
-    entry.agent.stop().catch(() => {})
+    this.removeAgentAndRetryQueue(projectPath)
   }
 
   hasAgent(projectPath: string): boolean {
@@ -166,6 +164,7 @@ export class AgentPool implements IAgentPool {
     if (!entry) return
 
     entry.agent.isBusy = false
+    entry.lastUsedAt = Date.now()
     this.agentIdleTimeoutPolicy?.onAgentActivity(projectPath)
     this.drainQueue(projectPath)
   }
@@ -261,19 +260,52 @@ export class AgentPool implements IAgentPool {
       stop: () => this.stopChildProcess(childProcess),
     }
 
-    // Handle unexpected exit — cleanup entry
+    // Handle unexpected exit — cleanup entry and retry queued tasks.
+    // Guard: only cleanup if this process is still the current agent
+    // (a newer agent may have been forked for the same project).
     childProcess.on('exit', (code) => {
       this.log(`Agent process exited: ${projectPath} (pid=${childProcess.pid}, code=${code})`)
-      this.agents.delete(projectPath)
+      const current = this.agents.get(projectPath)
+      if (current?.agent.childProcess === childProcess) {
+        this.removeAgentAndRetryQueue(projectPath)
+      }
     })
 
     return agent
   }
 
+  /**
+   * Shared cleanup: remove agent entry, stop process, and re-fork
+   * a new agent if queued tasks remain for the project.
+   *
+   * Idempotent: no-op if agent was already removed.
+   */
+  private removeAgentAndRetryQueue(projectPath: string): void {
+    const entry = this.agents.get(projectPath)
+    if (!entry) return
+
+    this.agents.delete(projectPath)
+    this.agentIdleTimeoutPolicy?.removeAgent(projectPath)
+    entry.agent.stop().catch(() => {})
+
+    // Re-fork a new agent to process remaining queued tasks.
+    // The new agent will drain further tasks via notifyTaskCompleted → drainQueue.
+    const nextTask = this.taskQueue.dequeue(projectPath)
+    if (nextTask) {
+      this.log(`Re-forking agent for queued tasks: ${projectPath} (remaining: ${this.taskQueue.getQueueLength(projectPath)})`)
+      this.tryCreateAndExecute(projectPath, nextTask).then((result) => {
+        if (!result.success) {
+          this.log(`Failed to re-fork agent for ${projectPath}: ${result.message}`)
+        }
+      })
+    }
+  }
+
   private sendTaskToAgent(entry: ManagedAgent, task: TaskExecute): void {
     entry.isIdle = false
-    entry.lastUsedAt = Date.now()
     entry.agent.isBusy = true
+    entry.lastUsedAt = Date.now()
+    this.agentIdleTimeoutPolicy?.onAgentActivity(entry.projectPath)
 
     this.transportServer.sendTo(entry.agent.clientId, 'task:execute', task)
   }

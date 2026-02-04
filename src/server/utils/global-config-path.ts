@@ -6,7 +6,7 @@ import {GLOBAL_CONFIG_DIR, GLOBAL_CONFIG_FILE} from '../constants.js'
 /**
  * Returns the global config directory path following platform conventions:
  * - Linux: $XDG_CONFIG_HOME/brv (defaults to ~/.config/brv)
- * - macOS: ~/.config/brv (CLI tool convention)
+ * - macOS: ~/Library/Application Support/brv
  * - Windows: %APPDATA%/brv
  *
  * @returns Absolute path to the global config directory
@@ -25,6 +25,10 @@ export const getGlobalConfigDir = (): string => {
     return join(homedir(), 'AppData', 'Roaming', GLOBAL_CONFIG_DIR)
   }
 
+  if (currentPlatform === 'darwin') {
+    return join(homedir(), 'Library', 'Application Support', GLOBAL_CONFIG_DIR)
+  }
+
   // Linux: respect XDG_CONFIG_HOME if set
   if (currentPlatform === 'linux') {
     const xdgConfigHome = process.env.XDG_CONFIG_HOME
@@ -33,7 +37,7 @@ export const getGlobalConfigDir = (): string => {
     }
   }
 
-  // Linux (default) and macOS; use ~/.config/brv
+  // Linux default: ~/.config/brv
   return join(homedir(), '.config', GLOBAL_CONFIG_DIR)
 }
 

@@ -34,7 +34,7 @@ interface ProjectRegistryOptions {
  * File-based project registry.
  *
  * Maps project paths to their XDG storage directories and persists
- * the mapping to ~/.local/share/brv/registry.json using atomic writes.
+ * the mapping to <global-data-dir>/registry.json using atomic writes.
  *
  * Follows the GlobalInstanceManager pattern: sync I/O, in-memory cache,
  * atomic temp+rename for persistence.

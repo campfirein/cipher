@@ -16,15 +16,15 @@
  * 1. Client → Transport: task:create {taskId, type, content}
  *    Transport → Agent: task:execute {taskId, type, content, clientId}
  *    Transport → Client: task:ack {taskId}
- *    Transport → broadcast-room: task:created {taskId, type, content, files?}
+ *    Transport → project-room: task:created {taskId, type, content, files?}
  *
  * 2. Agent → Transport: llmservice:response {taskId, content}
  *    Transport → Client (direct): llmservice:response
- *    Transport → broadcast-room: llmservice:response (for TUI monitoring)
+ *    Transport → project-room: llmservice:response (for TUI monitoring)
  *
  * 3. Agent → Transport: task:completed {taskId}
  *    Transport → Client (direct): task:completed
- *    Transport → broadcast-room: task:completed (for TUI monitoring)
+ *    Transport → project-room: task:completed (for TUI monitoring)
  */
 
 import type {IAgentPool} from '../../core/interfaces/agent/i-agent-pool.js'
@@ -60,6 +60,8 @@ export class TransportHandlers {
     this.taskRouter = new TaskRouter({
       agentPool: options.agentPool,
       getAgentForProject: (projectPath) => this.connectionCoordinator.getAgentForProject(projectPath),
+      projectRegistry: options.projectRegistry,
+      projectRouter: options.projectRouter,
       transport: options.transport,
     })
 

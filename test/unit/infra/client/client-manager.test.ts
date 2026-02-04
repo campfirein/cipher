@@ -99,6 +99,36 @@ describe('ClientManager', () => {
       const projects = manager.getActiveProjects()
       expect(projects).to.have.lengthOf(0)
     })
+
+    it('should fire clientConnectedCallback only once for re-registration of same clientId', () => {
+      const connectedCallback = sandbox.stub()
+      manager.onClientConnected(connectedCallback)
+
+      manager.register('client-1', 'tui', PROJECT_A)
+      expect(connectedCallback.callCount).to.equal(1)
+
+      // Re-register same clientId — should NOT fire again
+      manager.register('client-1', 'mcp', PROJECT_B)
+      expect(connectedCallback.callCount).to.equal(1)
+    })
+
+    it('should keep clientCount in sync after re-registration and unregister', () => {
+      const connectedCallback = sandbox.stub()
+      const disconnectedCallback = sandbox.stub()
+      manager.onClientConnected(connectedCallback)
+      manager.onClientDisconnected(disconnectedCallback)
+
+      manager.register('client-1', 'tui', PROJECT_A)
+      manager.register('client-1', 'mcp', PROJECT_B) // re-register
+
+      // Only 1 connected callback (not 2)
+      expect(connectedCallback.callCount).to.equal(1)
+
+      manager.unregister('client-1')
+
+      // 1 disconnected callback — balanced with 1 connected
+      expect(disconnectedCallback.callCount).to.equal(1)
+    })
   })
 
   describe('unregister()', () => {

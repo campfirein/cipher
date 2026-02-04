@@ -2,7 +2,7 @@
  * ProjectInfo entity — maps a project to its XDG storage location.
  *
  * Each registered project has a unique sanitized directory name under
- * ~/.local/share/brv/projects/ where runtime data (sessions, SQLite DBs)
+ * <global-data-dir>/projects/ where runtime data (sessions, SQLite DBs)
  * is stored.
  */
 import {z} from 'zod'

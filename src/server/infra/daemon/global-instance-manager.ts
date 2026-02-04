@@ -29,7 +29,7 @@ function isValidDaemonInstanceInfo(value: unknown): value is DaemonInstanceInfo 
 }
 
 /**
- * Manages the global daemon instance file at ~/.local/share/brv/daemon.json.
+ * Manages the global daemon instance file at <global-data-dir>/daemon.json.
  *
  * Key difference from FileInstanceManager:
  * - Operates on a single global path (not per-project)

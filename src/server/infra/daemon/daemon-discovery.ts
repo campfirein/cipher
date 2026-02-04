@@ -18,7 +18,7 @@ export type DaemonStatus =
  * Checks whether the global daemon is running and healthy.
  *
  * Health checks (all must pass):
- * 1. daemon.json exists at ~/.local/share/brv/ and is valid
+ * 1. daemon.json exists at <global-data-dir>/ and is valid
  * 2. PID is alive
  * 3. Heartbeat is fresh (<15s)
  * 4. Version matches expectedVersion (if provided)

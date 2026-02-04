@@ -17,7 +17,11 @@ export type TransportConnector = (fromDir?: string) => Promise<ConnectionResult>
  */
 export function createDaemonAwareConnector(): TransportConnector {
   return async (fromDir?: string) => {
-    await ensureDaemonRunning()
+    const daemonResult = await ensureDaemonRunning()
+    if (!daemonResult.success) {
+      const detail = daemonResult.spawnError ? `: ${daemonResult.spawnError}` : ''
+      throw new Error(`Failed to start daemon: timed out waiting for daemon to become ready${detail}`)
+    }
 
     // Connect without auto-registration (we'll register manually with projectPath)
     const result = await connectToTransport(fromDir, {

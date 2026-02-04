@@ -99,8 +99,12 @@ export class ClientManager implements IClientManager {
       this.addToProjectIndex(clientId, projectPath)
     }
 
-    // Notify idle timeout policy
-    this.clientConnectedCallback?.()
+    // Only notify idle timeout policy for new clients, not re-registrations.
+    // Re-registrations replace the existing entry without unregister, so firing
+    // clientConnectedCallback again would desync IdleTimeoutPolicy.clientCount.
+    if (!existing) {
+      this.clientConnectedCallback?.()
+    }
   }
 
   unregister(clientId: string): void {

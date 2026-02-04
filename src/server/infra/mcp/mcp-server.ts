@@ -80,7 +80,11 @@ export class ByteRoverMcpServer {
     let client
     let projectRoot
     try {
-      await ensureDaemonRunning()
+      const daemonResult = await ensureDaemonRunning({version: this.config.version})
+      if (!daemonResult.success) {
+        const detail = daemonResult.spawnError ? `: ${daemonResult.spawnError}` : ''
+        throw new Error(`Failed to start daemon: timed out waiting for daemon to become ready${detail}`)
+      }
 
       if (this.mode === 'project') {
         // Project mode: use default auto-registration but disable it and manually register with projectPath
@@ -177,7 +181,11 @@ export class ByteRoverMcpServer {
     this.reconnectTimer = setTimeout(async () => {
       try {
         // Reconnect to daemon (auto-start if needed) with auto-registration
-        await ensureDaemonRunning()
+        const daemonResult = await ensureDaemonRunning({version: this.config.version})
+        if (!daemonResult.success) {
+          throw new Error(`Failed to restart daemon: ${daemonResult.reason}`)
+        }
+
         const result = await connectToTransport(this.config.workingDirectory, {
           clientType: 'mcp',
           discovery: new DaemonInstanceDiscovery(),
