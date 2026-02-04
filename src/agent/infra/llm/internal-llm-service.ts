@@ -633,12 +633,6 @@ export class ByteRoverLLMService implements ILLMService {
       // Try pruning tool outputs first
       const pruneResult = await this.compactionService.pruneToolOutputs(this.sessionId)
 
-      if (this.config.verbose && pruneResult.compactedCount > 0) {
-        console.log(
-          `[Compaction] Pruned ${pruneResult.compactedCount} tool outputs, saved ~${pruneResult.tokensSaved} tokens`,
-        )
-      }
-
       // Emit context pruned event
       if (pruneResult.compactedCount > 0) {
         this.sessionEventBus.emit('llmservice:contextPruned', {
@@ -662,10 +656,6 @@ export class ByteRoverLLMService implements ILLMService {
       const summary = await this.compactionService.generateSummary(this.generator, messages, taskId, this.config.model)
 
       await this.compactionService.createCompactionBoundary(this.sessionId, summary)
-
-      if (this.config.verbose) {
-        console.log('[Compaction] Created compaction boundary with LLM-generated summary')
-      }
 
       // Emit context compressed event
       // Estimate compressed tokens (summary is much smaller than original)
@@ -858,32 +848,6 @@ export class ByteRoverLLMService implements ILLMService {
       const targetMessageTokens = Math.floor(maxMessageTokens * TARGET_MESSAGE_TOKEN_UTILIZATION)
 
       this.contextManager.compressMessage(targetMessageTokens, messageTokenCounts)
-
-      // Calculate tokens after compression
-      const compressedMessagesTokens = this.contextManager
-        .getMessages()
-        .reduce(
-          (total, msg) =>
-            total +
-            this.generator.estimateTokensSync(
-              typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content),
-            ),
-          0,
-        )
-      const tokensUsed = systemPromptTokens + compressedMessagesTokens
-
-      // Verbose: Log messages that will be sent to LLM
-      if (this.config.verbose) {
-        console.log('\n========== MESSAGES (Sent to LLM) ==========')
-        console.log(JSON.stringify(this.contextManager.getMessages(), null, 2))
-        console.log('========== END MESSAGES ==========\n')
-        // Log token usage for monitoring compression behavior
-        console.log(
-          `[ByteRoverLLMService] [Iter ${iterationCount + 1}/${
-            this.config.maxIterations
-          }] Sending to LLM: ${tokensUsed} tokens (max: ${this.config.maxInputTokens})`,
-        )
-      }
 
       // Build generation request
       const request = this.buildGenerateContentRequest({
