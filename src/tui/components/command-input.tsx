@@ -104,9 +104,9 @@ export const CommandInput = () => {
 
   // Fixed input value for curate/query onboarding steps
   const displayInputValue = useMemo(() => {
-    if (isInCurate) return '/curate Memory is a core component of an agent system.'
+    if (isInCurate) return '/curate Curate the folder structure of this repository.'
     if (isInCurating) return ''
-    if (isInQuery) return '/query What are the core components of an agent system?'
+    if (isInQuery) return '/query Tell me what you know about the folder structure of this repository?'
     if (isInQuerying) return ''
     return inputValue
   }, [shouldShowOnboarding, currentStep, inputValue])
